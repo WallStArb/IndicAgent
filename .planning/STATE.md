@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-27T11:55:00.000Z"
+last_updated: "2026-10-27T12:30:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 2
@@ -27,14 +27,13 @@ bullets with current facts.
   selection is by Romano-Wolf StepM; each book gets its own forward span (feature books never
   before 2026-08-08, after 7 recorded holdout looks); raw data is permanent, derived data is cache.
 
-- **Milestone v3.5 Unified Research Pipeline, phases 183-188** (ROADMAP.md). Build first (owner,
-  2026-09-27): session time goes to building, and research attempts (1a-1c, todo 442; the cost
-  model 437; daily families 441, 423, 440) are paused until 185 and 186 land. This replaces
-  design section 16's "attempts run in parallel with the build". The tooling for them is ready
-  (E17 and its static-size precondition, 447). Build:
-  186 (delete, drop, rebuild `feature_vectors`, refactor items 1-6) -> 187 (research core) -> 184
-  -> feature books -> 188 (forward runner, capital tier). 185's derived 15m and 1h grid (D2b,
-  todo 446) lands before 186's rebuild; 184 builds on that grid and 186's kernel registry (UD-25).
+- **Milestone v3.5 Unified Research Pipeline, phases 183-188** (ROADMAP.md). Goal (owner
+  2026-10-27): start testing families with new features, factors and regimes as soon as the data
+  allows. Build first (2026-09-27) is lifted at plan 191-20's 1d re-derive. From then on, family
+  2's one evidence run and the daily price-only families (441 + 423, then 440) run while the
+  rebuild runs. Order: 191 (data settled) -> 186 rebuild; 184 planned now and run on the rebuilt
+  table; 187 selection core (08-15) now, governance (16-18) after the first feature family;
+  then feature and regime families; 188 waits on a candidate book.
 
 - **Evidence rules:** E15 (book as the unit), E16 and E17 (timing statistic), E18 (counting,
   selection, promotion, per-book span). Until phase 187 lands, the phase 183 runner's M = 30
@@ -45,8 +44,11 @@ bullets with current facts.
 
 ## Current position (2026-10-26)
 
-**Critical path:** phase 191 plan 19 Task 2 -> plan 20 (owner confirms the Tradier deletion) ->
-plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -> phase 187.
+**Critical path (reordered 2026-10-27):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
+the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 and 191-23, the two plans
+that edit modules the rebuild imports (23 ahead of 22 only if 22 is not its prerequisite) ->
+186-26 feature rebuild, with 191-22, 24 and 25 landing alongside -> 186-27 -> 184 feature families.
+Research lane in parallel: plan 184 now, 187 plans 08-15.
 
 - **Phase 191 (unified raw bar table, todo 533): 18 of 25 plans done.** Plans 01 to 18 landed and
   were reviewed (summaries and reviews in the phase dir; the swap landed 2026-10-17, the old stores
@@ -81,7 +83,7 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   (`logs/alpaca_nightly_catchup_20261026.log`) and fills canonical 5m where IBKR has no session.
 
 - **186-26 rebuild preconditions:** the selection gate exits 0, canonical 1d is current, plans
-  through 191-25 have landed, and canonical 5m is caught up past the 2026-10-17..25 gap (the
+  191-21 and 191-23 have landed (the only phase 191 plans that edit the rebuild's import closure, checked 2026-10-27), and canonical 5m is caught up past the 2026-10-17..25 gap (the
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
 
@@ -89,7 +91,7 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
   blocker for daily attempts 3/3b/4 is cleared; the build-first pause (owner 2026-09-27) still
-  holds. Family 2's evidence run (187's gate) is approved for one run after plan 191-25 lands. `build_panel` refuses any end past `alpha.validation.oos_start` (2025-12-24, write-once).
+  holds. Family 2's evidence run (187's gate) is approved for one run once plan 191-20's 1d re-derive lands (moved up from 191-25 by the owner 2026-10-27; the runner's import closure touches no file in plans 21-25). `build_panel` refuses any end past `alpha.validation.oos_start` (2025-12-24, write-once).
 
 - **Frozen and ended names (todo 519):** WBD, QRVO, CCO ended (merger or buyout); PSKY trades as
   SKYD on NYSE and IBKR re-served its history on a 0.979 scale. Parked as non-critical; the
@@ -143,13 +145,13 @@ is current through 2026-10-26 (`indicagent-bar-derivation-grid`, 05:45 UTC, --ch
 follows the Alpaca nightly; writing derivation runs serialize on a stage lock, e48ddbfb6). Final
 5m selection gate exit 0: 1,529/1,529 series clean, n_canonical == n_selected == 311,503,335,
 session_choices_unrecorded 0 (`logs/selection_gate_20261027T072705Z.json`). The research lane
-(5b) was told 2026-10-27 about 08:28Z; the 5m snapshot and 186-26 are no longer held on D-191-P. 5b fires the family 2 run on a one-line notice from the data lane when 191-25 lands.
+(5b) was told 2026-10-27 about 08:28Z; the 5m snapshot and 186-26 are no longer held on D-191-P. 5b fires the family 2 run on a one-line notice from the data lane when plan 20's 1d re-derive lands.
 
 Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
 Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
 is Alpaca SIP primary from 2016-01-04, IBKR fallback, IBKR alone before (policy rows plus a
 reselect after the Alpaca catch-up, before 186-26); todo 519 listing_end table and PSKY to SKYD;
-family 2 gets one evidence run after 191-25; todo 509 deletes the v2.x dashboard signal surface and
+family 2 gets one evidence run after 191-25 (moved to plan 20's re-derive 2026-10-27); todo 509 deletes the v2.x dashboard signal surface and
 the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations: this lane takes
 518 and up (515-517 reserved by the research lane).
 

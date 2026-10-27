@@ -902,6 +902,13 @@ Renames land with the implementation of each piece. Research-package renames wai
 Research attempts keep running in parallel with the build and never queue behind
 infrastructure (owner directive, alpha first).
 
+Amendment 2026-10-27 (owner): the 2026-09-27 build-first pause lifts at phase 191 plan 20's 1d
+re-derive. From then on the price-only daily attempts and family 2's evidence run go ahead while
+the feature rebuild runs. Track D waits on B and on C's selection core only (187 plans 08-15).
+C's governance items (DAG manifest, per-writer database roles, package renames) follow the first
+feature family. Revised 184 is planned now rather than after C. The goal is to start testing
+features, factors and regimes as soon as the data allows. Lane order: `.planning/todos/PRIORITIES.md`.
+
 | Track | Work | Waits on |
 |---|---|---|
 | Now | First-cut cost model (IBKR commission, Abdi-Ranaldo spread, validated on a quoted overlap); borrow snapshot capture (438); `oos_start` write-once | nothing |

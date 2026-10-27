@@ -36,19 +36,23 @@ Phase numbers are stable IDs.
 
 ## Active milestone: v3.5 Unified Research Pipeline
 
-Sequence and rationale: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16
-(the single owner of sequence), superseded on one point by the owner 2026-09-27: build first.
-Research attempts (todos 442, 437, 441, 423, 440) are paused until 185 and 186 land, and session
-time goes to the build. STATE.md holds current position only; PRIORITIES.md tiers todos.
+Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16, reordered by
+the owner 2026-10-27 toward one goal: start testing families with new features, factors and
+regimes as soon as the data allows. Build first (2026-09-27) is lifted at plan 191-20's 1d
+re-derive; from then on, family 2 and the daily families (441, 423, 440) run while the rebuild
+runs. STATE.md holds current position; PRIORITIES.md holds the lane order and the todo tiers.
 
 | Order | Phase | Lever | Status |
 |---|---|---|---|
-| 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition built (todo 447, 2026-09-27); attempts (442) continue in this lane |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. Tradier is the primary 1d source from 2026-10-03 (IBKR serves intraday and the names Tradier cannot). Clears the data bar for daily attempts | Planned 2026-09-27, plan 25 added 2026-10-03: 26 plans in 12 waves; plan-checker passed (`959ec85ea`) before plan 25; ready to execute |
-| 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Planned 2026-09-27: 29 plans written; plan-checker pass in progress (186 session); no live ic_engine run |
-| 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Executing: plans 01-07 landed (03 and 05 runs pending), 08-17 next; plan 18 (package renames) waits on family 2's evidence run |
-| 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
-| 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
+| 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | 18/25. Plan 19 Task 2 (residue report) running; plan 20 waits on owner approval of the deletion; then 21 and 23 before the rebuild, 22, 24, 25 alongside it |
+| 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2, 186-26 (starts once 191-21 and 191-23 are in), 186-27, 186-28 |
+| 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Plan now (owner 2026-10-27); runs on the rebuilt table after 186-27 |
+| 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-07 landed; 08-15 next. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
+| 5 | Testing | Family 2's one evidence run and the daily price-only families at 191-20's re-derive; feature and regime families after 184 | Unpauses at 191-20's 1d re-derive |
+| 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing | Not planned; waits on a candidate book |
+
+Done: 183 (research layer, 11 plans), 185 (daily data foundation, 53 plans); 189 and 190 are
+functionally done (stale boxes noted in STATE.md).
 
 ## Parked
 
@@ -99,6 +103,9 @@ Plans:
 - [x] 183-11 (no PLAN.md; owner decision executed inline) - E16 adopted and built: HAC timing t decides, shift null diagnostic, power through the same statistic (183-11-SUMMARY.md)
 
 ### Phase 184: Multi-timeframe research inputs
+
+**Plan now (owner 2026-10-27):** this phase gates every feature family, so it is planned in
+parallel with 191 and 186 and runs on the rebuilt table after 186-27.
 
 **Revised 2026-09-26 (todos 435, 436, 446; unified design UD-25):** scope follows revision 3 of
 the multi-timeframe design. The 5m aggregation moved to phase 185, the kernel table is phase
@@ -547,10 +554,12 @@ recipe book's feature domain: a base-versus-interaction composition key replaces
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
 the phase 183 runner's M = 30 accounting stays in force.
+**Order (owner 2026-10-27):** plans 08-15 first; 16, 17 and 18 and the FK indexes move after the
+first feature family, since none of them is needed to test one.
 **Plans:** 18 plans. Status 2026-10-27: plans 01-07 landed. 03's backfill run and 05's full
 battery run are pending (stopped by the session memory reaper; restart waits on the owner), so
 no StepM selection set counts as a result yet. Plan 18 renames the research package and waits
-until family 2's one evidence run (after phase 191 plan 25) has finished; plans 08-17 do not
+until family 2's one evidence run (after plan 191-20's 1d re-derive) has finished; plans 08-17 do not
 move a recorded spec hash and proceed now.
 
 Plans:

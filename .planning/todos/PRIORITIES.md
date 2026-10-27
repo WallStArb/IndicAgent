@@ -36,32 +36,34 @@ stratification candidates read `docs/research/stratification-dimension-unificati
 the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History of past triage passes lives in
 git and in each todo's own closure note, not in this file.
 
-## Critical path (unified design, adopted 2026-09-26)
+## Critical path (reordered by the owner 2026-10-27: testing features, factors and regimes ASAP)
 
-Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16; session
-lanes and ownership: `.planning/STATE.md` "Starting a new session". Build first (owner,
-2026-09-27, superseding section 16's parallel-attempts rule): research attempts are paused
-until 185 and 186 land; session time goes to the build.
+Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16, reordered
+2026-10-27; session lanes in `.planning/STATE.md`. The goal is to start testing families with new
+features, factors and regimes as soon as the data allows. Build first (2026-09-27) is lifted at
+plan 191-20's 1d re-derive: from then on, the daily families and family 2 run while the
+rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor the rebuild
+(`services/backfill_feature_factory.py`) imports a module that plans 191-22, 24 or 25 edit
+(import closures checked 2026-10-27). The rebuild does import modules that 191-21
+(`bars/sources.py`) and 191-23 (`services/rebuild_preconditions.py`) edit.
 
 | Lane | Order |
 |---|---|
-| Data (phase 191, 18/25) | 191-19 Task 2 (crontab gate writes the residue report once readiness exits 0; 1,399 of 1,524 settled 2026-10-27, 1d full-scan passes settling the rest, CLBK bounded ask) -> 191-20 owner checkpoint (tooling built and reviewed; owner approves the deletion and the IBKR revision-row keep) -> 191-21..25 serial -> one-line notice to the research lane (family 2 run) |
-| Build (phase 186, 25/29) | After 191-25: 186-17 Task 2 -> 186-26 rebuild (D-191-P done 2026-10-27: canonical 5m reselected, 5m gate exit 0) -> 186-27 -> 186-28 |
-| Build (phase 187, planning) | `/gsd-plan-phase 187` (research lane); its gate is family 2's evidence run, approved by the owner 2026-10-26 for one run after 191-25 lands. 501 closed 2026-10-26 |
-| Research and alpha (paused until 185 and 186 land) | 442 -> 437 -> attempt 2; 441 + 423 + 440; 460, 456, 457 after |
-| Quick, independent | 443, 438; 439's IC purge rides with 186 (write-once landed 2026-10-26) |
+| Data (phase 191, 18/25) | 191-19 Task 2 (residue report) -> 191-20 (owner approves the Tradier deletion; 1d re-derive) -> 191-21 and 191-23 (23 ahead of 22 if nothing in 22 is a prerequisite; otherwise 21 -> 22 -> 23) -> start 186-26; 191-22, 24 and 25 land while the rebuild runs |
+| Build (phase 186, 25/29) | 186-17 Task 2 in a fetcher gap -> 186-26 rebuild (starts once 191-21 and 191-23 are in) -> 186-27 -> 186-28 (tf set from 471) |
+| Research inputs (phase 184, plan now) | `/gsd-plan-phase 184`: S0 reads `feature_vectors` across timeframes through the causal align node (todo 435 is its B1). Runs on the rebuilt table once 186-27 swaps it in; planning and the align node's code need no rebuilt data |
+| Research core (phase 187) | Selection core first: plans 08-15 (horizon and combining rules, pod books, recipe book, cards, contribution accounting, `generated_family`). Governance moves after the first feature family: 187-16 (DAG manifest, auditor inventory), 187-17 (per-writer DB roles), 187-18 (package renames), FK indexes |
+| Testing (unpauses at 191-20's re-derive) | Family 2's one evidence run; daily price-only families 441 + 423, then 440; after the rebuild and 184: feature families, then regime-segmented ones (466 and 481 fold into the rebuild) |
+| Quick, independent | 544 (gateway upgrade before 2026-12-15), 443, 438; 439's IC purge rides with 186 |
 
 ## P0: Fix soon (integrity/correctness gaps already surfaced)
 
 | Todo | Why now |
 |---|---|
 | [533](pending/533-bar-source-column-split-vendor-and-kind.md) | OWNER P0 2026-10-12, executing as phase 191. Steps 3 to 9 are done (plans 01 to 18): one raw table (`ohlcv_raw`, vendor plus kind, last-wins with the revision log), every reader and writer cut over, `ohlcv_observation`, the intraday archive and `market_data_ohlcv_old` dropped, and the close gates green (R6 exit 0, D7 same known failures or better, selection gate exit 0, repro_frozen bit-identical; 191-17-SUMMARY.md). Todo 530 closed with plan 18. Remaining: the Tradier retirement (step 10), plans 191-19 to 191-25. `scripts/ops/bars/ops_old_store_backup.py` and `data/backups/191/` are removed on or after 2026-11-12 (tracked in the todo's status section). |
-| [534](pending/534-ibkr-5m-backfill-throughput-serial-fetch-and-refetch-waste.md) | New 2026-10-12: the 5m backfill measures about 2 symbols an hour (35 days for 1,529 names). Cause: one request in flight at 28 s latency (limiter allows 348 an hour) plus mixed own/Alpaca chunks refused at the 2% guard and refetched (91 requests a symbol vs 49). Fix: same-vendor ratio, bounded concurrency as an APR key; target about 7 symbols an hour. Rides with 505 and 533. |
 | [535](pending/535-raw-bar-table-review-findings-191-01-to-03.md) | Review findings from phase 191 (reviews of 01-03, 04-05, 06, 07 and three rounds of 07 fixes). Owner decision D-191-N 2026-10-14: last-wins ingress, restatement detector, all holds released. Fourth review: serve-time last-wins and basis-flag gating done; items 30-35 open (integration test, zero-grid sessions, GE retro flag, batched choices, waived chain). Open: IBKR re-serve of 4,569 keys (`logs/reserve_keys_191_07.json`, 103 session asks) when the fetcher may run; truncated-bar scan calibration and universe run; GE 2021-11 two-decimal span; fetcher `waived` chain cleanup; bar_derivation answered windows; complete-bar gaps in the campaign loader and the feature factory; 06 items 6 and 10 land in plan 08; derived 15m/1h re-derive when bar-derivation resumes. Rides with 533. |
 | [433](pending/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md) | Silent wrong answer, owned by phase 185: SMART history starts at the last listing-venue move. 1d done (185-24): 39 moved 1d names inventoried, venue bars stored in D1 but unused (study failed), 30 of the 39 carry full history from Tradier, 9 IBKR-sourced names stay SMART-only (D7 `late_heads`), and `listing_venue` (D6) records every move. Stays open for intraday: recovery is gated on the 186 rebuild (todo 497). Venue rows become kind venue under 533. |
-| [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | NARROWED 2026-10-10 late (7a): the nightly unit it targeted was deleted by the 189-06 cutover (the continuous fetcher timer supersedes the retry design). Landed: 15-min gateway auth-state probe (real handshake, client 44, no FetcherLock) + the IBKRGatewayAuthDown alert, verified live. Remaining is owner-only: a real alert receiver (bot_token + chat_id or alternative) -- alerts still reach the no-op receiver until then. |
-| [435](pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md) | The research layer never reads `feature_vectors` (both families use raw 15m returns), against the adopted architecture. Wire features into S0 at 5m/15m/1h/1d with pinned windows, masked warmup and a coverage floor, after the 186 rebuild. |
-| [529](pending/529-test-suite-cleanup-remnants-and-redundancy.md) | New 2026-10-10, owner directive: many tests are remnants of deleted systems (v2.x, I8, Tradier) and many are redundant; the suite burns too much time and tokens. Evidence-first cleanup per the audit report; CI green per batch. |
+| [435](pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md) | Built as phase 184 B1 (plan 184 now, owner 2026-10-27). The research layer never reads `feature_vectors` (both families use raw 15m returns), against the adopted architecture. Wire features into S0 at 5m/15m/1h/1d with pinned windows, masked warmup and a coverage floor, after the 186 rebuild. |
 
 ## P1: High value, fully unblocked or on the critical path
 
@@ -79,6 +81,7 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
+| [544](pending/544-ib-gateway-version-desupported-2026-12-15.md) | New 2026-10-27. IBKR warning 2172: gateway 1045.1 is desupported on 2026-12-15 (minimum 1050.1); after that, API logins may fail and IBKR ingestion stops. Upgrade the image in a fetcher gap, re-auth, verify a run. Why now: a hard external date. |
 | [443](pending/443-postgres-exporter-chunk-scrape-cost-and-idle-in-transaction-timeout.md) | The postgres exporter's per-chunk scrape is the top database consumer (305 min in 3 days) and the idle-in-transaction timeout is 1 hour. Two config changes, measured before and after. |
 | [439](pending/439-forward-span-integrity-write-once-oos-start-and-ic-purge.md) | Parts 1 and 3 done 2026-10-26: `oos_start` is write-once (migration 506) and the 7 forward-span looks are disclosed in the ledger. Part 2 (purge IC targets crossing it) lands with phase 186 (186-20, 186-28). |
 | [438](pending/438-daily-borrow-availability-snapshot-capture.md) | Borrow availability is live-only at IBKR; every unrecorded day is lost for the forward span and the short-leg constraint. A small standalone daily job. |
@@ -94,15 +97,15 @@ until 185 and 186 land; session time goes to the build.
 | [537](pending/537-ibkr-1d-raw-deepening-scoped-full-scan-pass.md) | Campaign done 2026-10-18 (three full-scan runs, 1,030 no_data-confirmed floors); item 2 basis scan ran 2026-10-23 (todo 535 item 51), restore decided at plan 20. Item 3 rides with the plan 19 Task 2 `--measure` report. Runs over an hour lost the fetcher lock until 543 (fixed 2026-10-26). |
 | [538](pending/538-ibkr-fetcher-teardown-hang-after-disconnect.md) | New 2026-10-17, plan 191-16 deviation 7. Two fetcher runs hung after "Disconnected" (main thread idle in `select` under `run_until_complete`, an unfinished future) and were killed; later runs stay blocked until the process dies. Needs a teardown-timeout diagnosis. Why now: the 537 deepening runs on its crontab gate while the owner is away, and a hang stalls it silently. |
 
-**Research, paused until 185 and 186 land**
+**Research: 441, 423 and 440 unpause at plan 191-20's 1d re-derive (owner 2026-10-27); 442 and 437 follow 187's selection core**
 
 | Todo | Why now |
 |---|---|
 | [442](pending/442-attempt1-single-family-and-pod-books-e17-memory-rule.md) | Paused (build first). `spec.py` refuses a book mixing families 1 and 2: run single-family books plus a pod book; E17's L must add combiner and partial-adjustment reach, with H0 battery cells, before fitted combiners run. Phase 183 session owns the files. |
 | [437](pending/437-first-cut-cost-model-commission-and-spread.md) | Paused (build first). Promotion needs positive net expectation; today only flat bps bands exist. Commission (likely zero at the execution broker) plus validated Abdi-Ranaldo spread, as distributions. |
-| [441](pending/441-price-only-daily-families-931-names-prereg.md) | Paused (build first). Shortest path to a tradeable verdict: residual and industry momentum and sector lead-lag on the daily panel (the todo says 931 names; now 1,502 `compute_eligible_1d`, restate in the pre-registration; ledger family 11), no feature pipeline needed; with 423, once 185 clears the minimum data bar. |
-| [423](pending/423-phase181-short-term-reversal-prereg.md) | Paused (build first). Short-term reversal on single names, market-neutral (family 4, attempt 3 with 441). Disclose the in-sample hint (IC about -0.026) and exclude its symbols and window; needs V2 at low persistence first. |
-| [440](pending/440-generated-family-grammar-daily-ohlcv-931-names.md) | Paused (build first). Attempt 3b (ledger family 12): a registered grammar over daily OHLCV primitives, in-fold selection plus ridge, never materialized. |
+| [441](pending/441-price-only-daily-families-931-names-prereg.md) | Unpauses at 191-20's 1d re-derive (owner 2026-10-27). Shortest path to a tradeable verdict: residual and industry momentum and sector lead-lag on the daily panel (the todo says 931 names; now 1,502 `compute_eligible_1d`, restate in the pre-registration; ledger family 11), no feature pipeline needed; with 423, once 185 clears the minimum data bar. |
+| [423](pending/423-phase181-short-term-reversal-prereg.md) | Unpauses at 191-20's 1d re-derive (owner 2026-10-27). Short-term reversal on single names, market-neutral (family 4, attempt 3 with 441). Disclose the in-sample hint (IC about -0.026) and exclude its symbols and window; needs V2 at low persistence first. |
+| [440](pending/440-generated-family-grammar-daily-ohlcv-931-names.md) | Unpauses at 191-20's 1d re-derive (owner 2026-10-27). Attempt 3b (ledger family 12): a registered grammar over daily OHLCV primitives, in-fold selection plus ridge, never materialized. |
 
 **Integrity hygiene with a deadline**
 
@@ -130,6 +133,7 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
+| [529](pending/529-test-suite-cleanup-remnants-and-redundancy.md) | Moved from P0 2026-10-27 (hygiene, not on the testing path). New 2026-10-10, owner directive: many tests are remnants of deleted systems (v2.x, I8, Tradier) and many are redundant; the suite burns too much time and tokens. Evidence-first cleanup per the audit report; CI green per batch. |
 | [536](pending/536-forward-span-read-guard-for-ad-hoc-queries.md) | New 2026-10-14, from the evidence framework section 7 amendment. Runner paths refuse reads past `alpha.validation.oos_start`, but an ad hoc SQL read of the forward span is unrestricted and unlogged, which can silently void the one-spend confirmation. Pick a mechanism (capped role or view, or audited reads) and a sink for recorded looks. |
 | [531](pending/531-schema-names-without-glossary-entries-rename-or-gloss.md) | Nine relations have live readers and no glossary entry (survey 2026-10-10): market_data_5m is a real naming violation, instrument_metadata overlaps instruments, the v2.x-era stack was never glossed, parity_certification_state looks dead. Gloss, rename, or drop each; nothing here blocks the rebuild. Phase 191 glossed the new raw-layer names only (191-01); market_data_5m's naming pass is the explicit deferral D-191-H (owner acknowledgement pending); the other relations unchanged. |
 | [532](pending/532-session-coverage-verdict-denominator-anchors-at-first-bar-not-proven-span.md) | The session_coverage verdict anchors its denominator at the first 1d bar, so early-history holes cap old names' ratio forever (the 263-name set behind 186-26's d2_landed gate). If still red after the 06:00 UTC 2026-10-11 audit: methodology-ledger entry, then anchor at the proven span (526's concept) with an explicit hole policy. |
@@ -158,6 +162,8 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
+| [534](pending/534-ibkr-5m-backfill-throughput-serial-fetch-and-refetch-waste.md) | Moved from P0 2026-10-27: Alpaca is the 5m source from 2016-01-04 (D-191-P), so IBKR 5m throughput matters only before 2016. New 2026-10-12: the 5m backfill measures about 2 symbols an hour (35 days for 1,529 names). Cause: one request in flight at 28 s latency (limiter allows 348 an hour) plus mixed own/Alpaca chunks refused at the 2% guard and refetched (91 requests a symbol vs 49). Fix: same-vendor ratio, bounded concurrency as an APR key; target about 7 symbols an hour. Rides with 505 and 533. |
+| [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | Moved from P0 2026-10-27: the remainder is the alert receiver, and alerting is deliberately deferred. NARROWED 2026-10-10 late (7a): the nightly unit it targeted was deleted by the 189-06 cutover (the continuous fetcher timer supersedes the retry design). Landed: 15-min gateway auth-state probe (real handshake, client 44, no FetcherLock) + the IBKRGatewayAuthDown alert, verified live. Remaining is owner-only: a real alert receiver (bot_token + chat_id or alternative) -- alerts still reach the no-op receiver until then. |
 | [516](pending/516-spin-off-action-type-as-a-research-layer-distribution.md) | New 2026-10-08, from 185-51 (todo 515 option 1). CTVA is held and frozen at its raw 2026-09-30 bar: a `spin_off` action type that d2-v2 never applies as a split, a d2-v2 rule that keeps the pre-restatement observations, and the distribution as a research-layer total-return event like dividends (428); then release the hold. Also ELE, IESC, MSM, TIGO (write names without a 1d symbol row, still true) and d2-v2's one-session effective_date offset. Gate: before CTVA's hold is released and before 186-26 reads CTVA. |
 | [518](pending/518-1d-volume-basis-change-at-d-for-research.md) | New 2026-10-08, from 185-48. Canonical 1d volume steps at D = 2026-10-07 for every name (IBKR/Tradier p10 0.41, p50 0.53, p90 0.81): the S0 labels mark D as a basis change read from the policy row as of `policy_as_of`, and a volume read across D is labelled or refused. Research lane (501 closed 2026-10-26: snapshots now pin `policy_as_of`); gate before any attempt reads volume across D and before 186-26's volume features are relied on. Input to 533's selection rule. |
 | [519](pending/519-1d-names-frozen-at-their-last-tradier-bar.md) | Updated 2026-10-26 with the corporate record: WBD, QRVO and CCO ended (merger or buyout; CCO delisted 2026-10-26), PSKY trades as SKYD on NYSE (IBKR re-served its history on a 0.979 scale, measured). Recommendation in the todo: listing end as its own small table (it replaces `--frozen-names` and lets `freshness_1d` judge against a known end); PSKY repoint via `provider_meta.ibkr.symbol` once the owner accepts the rescale hold (as CTVA, 516). Parked: non-critical, the rebuild gate already skips stale names. |
@@ -181,7 +187,6 @@ until 185 and 186 land; session time goes to the build.
 | [504](pending/504-dividend-event-writer-source-registry-and-per-symbol-failure-policy.md) | New 2026-10-07. The dividend writer hard-codes Yahoo and IBKR in its reconciliation and metrics, and one bad symbol (PSKY) fails the unit nightly. Make sources a registry, reconcile pairwise, and fail the run only past an APR threshold with an alert. 191-10 moved its IBKR derivation to `ohlcv_raw` (`ohlcv_observation` is gone); the source registry and per-symbol failure policy remain open. |
 | [512](pending/512-exclude-or-replace-names-whose-data-defect-is-not-worth-fixing.md) | New 2026-10-08, owner policy relayed (confirmation pending). Names whose data defect needs per-name hand work leave the compute set with a reason code and date; raw data stays; replacement only by a pre-fixed liquidity-rank rule through the onboarding SOP. Disclose in D0's survivorship bound. |
 | [513](pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md) | New 2026-10-08. D7 must report an incomplete fetch run as unjudged, not as data failures; document the nightly stage contract with markers; add a pull digest of last night while alerts are off; separate lane budgets. |
-| [544](pending/544-ib-gateway-version-desupported-2026-12-15.md) | New 2026-10-27. IBKR warning 2172: gateway 1045.1 is desupported on 2026-12-15 (minimum 1050.1); after that, API logins may fail and IBKR ingestion stops. Upgrade the image in a fetcher gap, re-auth, verify a run. Why now: a hard external date. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
