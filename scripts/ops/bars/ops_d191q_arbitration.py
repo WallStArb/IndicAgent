@@ -9,7 +9,11 @@ daily stage's own inputs (services.bar_derivation.read_daily_inputs, session dat
 each vendor's current-scale close per session (daily_rule.vendor_basis_closes, zero-volume Alpaca
 bars dropped), and IBKR's verified 1d head (ohlcv_provider_head). The window is 2016-01-04 to
 Tradier's last 1d session. Thresholds are APR: fallback_basis_tolerance_bp,
-vendor_ratio_run_min_sessions, tradier_admission_min_agree_share.
+fallback_basis_window_sessions (the span minimum: a basis difference is a level held over the
+basis window, the head seam test's length) and tradier_admission_min_agree_share. The first full
+run with D7's vendor_ratio_run_min_sessions (5) wrote 64 IBKR rows of 5 to 16 sessions at 0.2 to
+111 bp (close-definition episodes on thin ETFs, SPY and IWM in March 2020) beside 65 genuine basis
+spans of 62 or more sessions; the basis window separates them.
 
 Writes two files and nothing to the database (the session is read-only):
 - the policy plan, the exact document `ops_source_policy.py --plan` takes (default under
@@ -58,11 +62,11 @@ from src.intelligence.bars.vendor_arbitration import (  # noqa: E402
 )
 
 _KEY_TOL = "threshold.bar_integrity.fallback_basis_tolerance_bp"
-_KEY_RUN = "threshold.bar_integrity.vendor_ratio_run_min_sessions"
+_KEY_RUN = "threshold.bar_integrity.fallback_basis_window_sessions"
 _KEY_SHARE = "threshold.bar_integrity.tradier_admission_min_agree_share"
 # Fallbacks equal to the seeded APR values; the run reads APR.
 _DEFAULT_TOL = 10.0
-_DEFAULT_RUN = 5
+_DEFAULT_RUN = 20
 _DEFAULT_SHARE = 0.9
 _PROGRESS_EVERY = 100
 

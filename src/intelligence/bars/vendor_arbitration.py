@@ -60,7 +60,8 @@ _N_EXAMPLES = 3
 @dataclass(frozen=True)
 class ArbitrationParams:
     """Window (Tradier's span from the seam) and the APR thresholds the script reads:
-    fallback_basis_tolerance_bp, vendor_ratio_run_min_sessions, tradier_admission_min_agree_share.
+    fallback_basis_tolerance_bp, fallback_basis_window_sessions (min_sessions: a basis
+    difference is a level held over the basis window) and tradier_admission_min_agree_share.
     """
 
     window_start: date
