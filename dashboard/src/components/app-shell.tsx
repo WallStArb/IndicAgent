@@ -20,14 +20,13 @@ import type { UiConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // One entry per DAG stage page (design: docs/plans/2026-10-26-dashboard-v35-cockpit-design.md).
-// Entries without an href are later slices, listed so the shape of the cockpit is visible.
-const NAV: { label: string; icon: LucideIcon; href?: string }[] = [
+const NAV: { label: string; icon: LucideIcon; href: string }[] = [
   { label: "Pipeline", icon: Workflow, href: "/" },
   { label: "Data", icon: Database, href: "/data" },
   { label: "Instruments", icon: ListTree, href: "/instruments" },
   { label: "Concepts", icon: Lightbulb, href: "/concepts" },
   { label: "Research", icon: FlaskConical, href: "/research" },
-  { label: "Books", icon: BookOpen },
+  { label: "Books", icon: BookOpen, href: "/books" },
   { label: "System", icon: Cpu, href: "/system" },
 ];
 
@@ -59,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <RefreshContext.Provider value={intervals}>
     <div className="h-screen flex flex-col md:flex-row bg-[var(--bg-base)] text-[var(--text-primary)]">
-      {/* A sidebar from md up; on a phone a top bar of the built pages. */}
+      {/* A sidebar from md up; on a phone a top bar. */}
       <nav className="shrink-0 flex items-center md:items-stretch md:flex-col md:w-48 border-b md:border-b-0 md:border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
         <div className="flex items-center gap-2.5 px-4 py-3 md:py-5">
           <Logo />
@@ -69,33 +68,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <ul className="flex-1 flex md:block overflow-x-auto px-2 gap-0.5 md:space-y-0.5 text-sm">
           {NAV.map((item) => {
-            if (item.href) {
-              const current = isCurrent(pathname, item.href);
-              return (
-                <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-                      current
-                        ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
-                    )}
-                  >
-                    <item.icon size={15} className={current ? "text-[var(--accent-cyan)]" : undefined} />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            }
+            const current = isCurrent(pathname, item.href);
             return (
-              <li
-                key={item.label}
-                className="hidden md:flex items-center gap-2.5 px-2 py-1.5 text-[var(--text-muted)]"
-              >
-                <item.icon size={15} />
-                <span className="flex-1">{item.label}</span>
-                <span className="text-[0.6rem] uppercase tracking-wider">next</span>
+              <li key={item.label}>
+                <Link
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+                    current
+                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+                  )}
+                >
+                  <item.icon size={15} className={current ? "text-[var(--accent-cyan)]" : undefined} />
+                  {item.label}
+                </Link>
               </li>
             );
           })}

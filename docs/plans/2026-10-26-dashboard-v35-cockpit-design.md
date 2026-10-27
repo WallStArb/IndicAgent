@@ -171,6 +171,10 @@ Progress:
   today); it needs a `ui.dashboard.*` cap key in a migration numbered with the coordinating
   sessions. An attempt left `started` by a dead runner shows as unfinished with its age, not
   flagged stale.
+- Slice 6 (Books) landed 2026-10-27 as the honest empty state: what phase 188 builds and waits
+  on, and the whole-book attempts already in the ledger (the shared `RunsTable`, the same rows the
+  Research page lists). Every nav entry now has a page. OPEN: the book filter runs in the browser
+  over the full attempts list; it moves to the API with the attempts row cap.
 
 ## Out of scope
 
