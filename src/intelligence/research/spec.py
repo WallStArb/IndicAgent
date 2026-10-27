@@ -116,7 +116,12 @@ class MemberSpec(BaseModel):
 
 class ConstructionSpec(BaseModel):
     model_config = _STRICT
-    name: Literal["rank_vol_neutral"]
+    # R1 is the only rule during discovery (design 4.3); the other four are the construction
+    # attempt at capital readiness. The calibrated arms read their calibration from scoring.
+    # The vol fields size R1 and the runner's trailing vol under every rule.
+    name: Literal[
+        "rank_vol_neutral", "vol_normalized", "ic_proportional", "mean_variance", "fixed_sign"
+    ]
     direction: int
     coverage_floor: int = Field(ge=2)
     vol_window_sessions: int = Field(ge=2)

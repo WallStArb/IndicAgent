@@ -183,11 +183,9 @@ def arm_weights(
     return out
 
 
-def fixed_sign_returns(
-    alpha: np.ndarray, fwd_ret: np.ndarray, plan: CovariancePlan, *, direction: float
-) -> dict[str, np.ndarray]:
+def _fixed_sign_blocks(alpha: np.ndarray, plan: CovariancePlan, direction: float):
+    """Yield (block, symbol idx, weights [block_len, len(idx)]) per calibration segment."""
     n = alpha.shape[0]
-    out = np.full(n, np.nan)
     bounds = np.append(plan.refit_positions, n)
     state = None
     for k, p in enumerate(plan.refit_positions):
@@ -198,8 +196,30 @@ def fixed_sign_returns(
         idx, sig = state
         block = slice(p, bounds[k + 1])
         raw = direction * np.sign(np.nan_to_num(alpha[block][:, idx])) / sig
-        out[block] = (_normalize(raw) * np.nan_to_num(fwd_ret[block][:, idx])).sum(axis=1)
+        yield block, idx, _normalize(raw)
+
+
+def fixed_sign_returns(
+    alpha: np.ndarray, fwd_ret: np.ndarray, plan: CovariancePlan, *, direction: float
+) -> dict[str, np.ndarray]:
+    out = np.full(alpha.shape[0], np.nan)
+    for block, idx, w in _fixed_sign_blocks(alpha, plan, direction):
+        out[block] = (w * np.nan_to_num(fwd_ret[block][:, idx])).sum(axis=1)
     return {FIXED_SIGN_ARM: out}
+
+
+def fixed_sign_weights(
+    alpha: np.ndarray, plan: CovariancePlan, *, direction: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """The fixed-sign arm's weights [n, m] (0 outside a segment's admitted set and before the
+    first calibration) and has_position [n]: False on a row where no admitted name has a
+    finite nonzero forecast, which holds nothing."""
+    weights = np.zeros(alpha.shape)
+    has_position = np.zeros(alpha.shape[0], dtype=bool)
+    for block, idx, w in _fixed_sign_blocks(alpha, plan, direction):
+        weights[block, idx] = w
+        has_position[block] = (w != 0).any(axis=1)
+    return weights, has_position
 
 
 def trailing_vol(returns: np.ndarray, *, window_rows: int, min_finite: int) -> np.ndarray:
