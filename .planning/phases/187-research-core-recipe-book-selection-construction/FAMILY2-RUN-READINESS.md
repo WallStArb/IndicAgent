@@ -8,10 +8,12 @@ It is one counted look at vintage 1 under E18.
 
 ## Gates before firing (all must hold)
 
-1. Phase 191 plan 25 landed (final canonical 1d after the Tradier deletion).
-2. indicagent-3a's D-191-P message says all three: "5m reselect landed, 15m/1h grid re-derived
-   after D-191-P, 5m selection gate exit 0". Family 2's S0 reads canonical 15m 2006-2025, which
-   is derived from 5m. Only 2016-2025 moves, for 267 names.
+1. Phase 191 plan 20's 1d re-derive has landed (owner amendment 2026-10-27, commit 60e5a6dc3:
+   build-first lifts there, not at plan 25; the runner's import closure touches no file in
+   plans 191-21 to 191-25). indicagent-3a sends the notice.
+2. Done 2026-10-27: indicagent-3a's D-191-P message ("5m reselect landed, 15m/1h grid
+   re-derived after D-191-P, 5m selection gate exit 0"; logs/selection_gate_20261027T072705Z.json,
+   1529/1529 clean). Family 2's S0 reads canonical 15m 2006-2025, derived from 5m.
 3. The family 2 code is committed and the checked files are clean (`provenance.require_clean`).
 
 ## Staged and verified
