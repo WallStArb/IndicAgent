@@ -65,3 +65,28 @@ Full record: design doc D-191-Q.
    - No change to the universe rules: never screen names on history or returns, never
      deactivate a dead name, and todo 512's exclude-then-replace-by-fixed-rule stays the only
      replacement path.
+
+## Step 2 results (2026-10-27 20:45Z, full universe, read-only)
+
+Alpaca SIP 1d raw after the backfill: 1,529 names, 3,736,726 rows before 2026-10-01 (backfill
+`logs/alpaca_1d_backfill_20261027.log`, 0 errors). Compared with Tradier consolidated 1d over
+2016-01-04..2026-10-06, matched by session date (Alpaca in New York time, Tradier in UTC); query
+in 3a's scratchpad `cmp545.sql`.
+
+- Common sessions: 3,675,889 on 1,529 names. Only Alpaca: 66,949. Only Tradier: 51,565.
+- Open-to-open log-return difference: p50 0 bp, p90 0.003 bp, p99 56 bp; 1.89% of sessions over
+  25 bp, 0.58% over 1%. Returns, the quantity research reads, agree closely.
+- Opens: p50 0 bp, p90 0.24 bp; 4.97% over 25 bp, 4.35% over 1%. Closes: p50 0, p90 0;
+  5.06% over 25 bp, 4.42% over 1%. Nearly all of the level differences are 71 names whose median
+  Alpaca/Tradier close ratio is off by more than 1% for the whole span (M 0.416, GE 1.607,
+  MDU 2.633, ENOV 1.744, EXC 1.402, FLEX 1.375, BDX 1.304, FDX 1.242, J 1.210, LH 1.165 and
+  others): persistent level offsets from spin-off adjustment that one vendor applied and the
+  other did not. A level offset does not change returns except on the event date.
+- Volume, Alpaca over Tradier: p10 1.000, p50 1.028, p90 1.165. Both are consolidated.
+- Zero-volume Alpaca bars: 9,087 on 74 names (the zero-volume guard keeps them out).
+- Names whose Alpaca span starts more than 5 sessions before Tradier's: 62 (ticker-reuse
+  candidates for the arbitration in step 3).
+
+Reading: the 71 offset names and the 62 early-start names are exactly what the three-vendor
+arbitration (step 3 rework: `ops_d191q_arbitration.py`) must classify into dated policy rows
+before plan 20 deletes Tradier.
