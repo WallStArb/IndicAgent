@@ -1,24 +1,39 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/api";
 
-export const DEFAULT_REFRESH_MS = 60_000;
+/**
+ * The APR poll intervals, provided once by the app shell: `refresh` for the summary pages
+ * (`ui.dashboard.refresh_seconds`), `passport` for an instrument passport
+ * (`ui.dashboard.passport_refresh_seconds`). Each matches its route's server cache TTL, so a poll
+ * never re-downloads an unchanged cached answer.
+ */
+export interface PollIntervals {
+  refresh: number;
+  passport: number;
+}
 
-/** The APR poll interval (`ui.dashboard.refresh_seconds`), provided once by the app shell. */
-export const RefreshContext = createContext<number>(DEFAULT_REFRESH_MS);
+export const DEFAULT_INTERVALS: PollIntervals = { refresh: 60_000, passport: 900_000 };
+
+export const RefreshContext = createContext<PollIntervals>(DEFAULT_INTERVALS);
 
 /**
- * Poll a read-only API route at the dashboard-wide APR interval unless the caller passes one.
+ * Poll a read-only API route at one of the dashboard's APR intervals.
  * The last good payload is kept on a failed poll so a transient error does not blank the page;
- * the error is shown beside it. A poll is skipped while the tab is hidden (and runs again when it
+ * the error is shown beside it. Only a new path resets the payload: an interval change (the shell's
+ * config read landing) applies from the next poll without refetching or blanking the page. A poll is skipped while the tab is hidden (and runs again when it
  * becomes visible) and while the previous request is still in flight.
  */
-export function useApi<T>(path: string, refreshMs?: number) {
-  const contextMs = useContext(RefreshContext);
-  const intervalMs = refreshMs ?? contextMs;
+export function useApi<T>(path: string, interval: keyof PollIntervals = "refresh") {
+  const intervalMs = useContext(RefreshContext)[interval];
+  const intervalRef = useRef(intervalMs);
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    intervalRef.current = intervalMs;
+  }, [intervalMs]);
 
   useEffect(() => {
     // A new path is a new resource: never show the previous path's payload under it.
@@ -48,16 +63,24 @@ export function useApi<T>(path: string, refreshMs?: number) {
       if (!document.hidden) void poll();
     }
 
+    let timer: ReturnType<typeof setTimeout>;
+    function schedule() {
+      timer = setTimeout(() => {
+        void poll();
+        schedule();
+      }, intervalRef.current);
+    }
+
     void poll();
-    const id = setInterval(poll, intervalMs);
+    schedule();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
       controller.abort();
     };
-  }, [path, intervalMs]);
+  }, [path]);
 
   return { data, error, loading: !data && !error };
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { TOOLTIP } from "@/components/cockpit";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TOOLTIP, ToggleGroup } from "@/components/cockpit";
+import { dayLabel, toDay } from "@/lib/time";
 import type { CloseSeries, LaneRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -35,8 +36,6 @@ const RANGES: { label: string; days: number | null }[] = [
   { label: "3m", days: 91 },
 ];
 
-const toDay = (iso: string) => Math.floor(Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso) / DAY_MS);
-const dayLabel = (day: number) => new Date(day * DAY_MS).toISOString().slice(0, 10);
 const isWeekday = (day: number) => {
   const dow = new Date(day * DAY_MS).getUTCDay();
   return dow !== 0 && dow !== 6;
@@ -145,25 +144,14 @@ function RangePicker({
   caption: string;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Time range">
-      {RANGES.map((r) => (
-        <button
-          key={r.label}
-          type="button"
-          aria-pressed={range === r.days}
-          onClick={() => onRange(r.days)}
-          className={cn(
-            "rounded-md px-2.5 py-1 font-mono text-xs transition-colors",
-            range === r.days
-              ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-              : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
-          )}
-        >
-          {r.label}
-        </button>
-      ))}
+    <ToggleGroup
+      label="Time range"
+      options={RANGES.map((r) => ({ key: r.label, value: r.days, content: <span className="font-mono">{r.label}</span> }))}
+      selected={range}
+      onSelect={onRange}
+    >
       <span className="ml-auto font-mono text-[0.65rem] text-[var(--text-muted)]">{caption}</span>
-    </div>
+    </ToggleGroup>
   );
 }
 
@@ -245,15 +233,14 @@ export function HistoryChart({
     [closes],
   );
 
-  const today = Math.floor(Date.now() / DAY_MS);
-  const earliest = Math.min(today, ...lanes.map((l) => l.first), points.length ? points[0][0] : today);
-  const from = range === null ? earliest : Math.max(earliest, today - range);
-  const to = today;
+  const to = Math.floor(Date.now() / DAY_MS);
+  const earliest = Math.min(to, ...lanes.map((l) => l.first), points.length ? points[0][0] : to);
+  const from = range === null ? earliest : Math.max(earliest, to - range);
   const labelW = labelWidth(width);
   const plotW = width - labelW;
   const span = to - from + 1;
   const binDays = Math.max(1, Math.ceil((span * MIN_BIN_PX) / plotW));
-  const x = (day: number) => labelW + ((day - from) / span) * plotW;
+  const x = useCallback((day: number) => labelW + ((day - from) / span) * plotW, [labelW, from, span, plotW]);
 
   const bins = useMemo(() => buildBins(lanes, from, to, binDays), [lanes, from, to, binDays]);
 
@@ -271,10 +258,9 @@ export function HistoryChart({
     const scale = (c: number) => (log ? Math.log(c) : c);
     const y = (c: number) =>
       CLOSE_PAD + (1 - (scale(c) - scale(lo)) / (scale(hi) - scale(lo) || 1)) * (CLOSE_H - 2 * CLOSE_PAD);
-    const px = (day: number) => labelW + ((day - from) / span) * plotW;
-    const path = visible.map(([d, c], i) => `${i ? "L" : "M"}${px(d).toFixed(1)},${y(c).toFixed(1)}`).join("");
+    const path = visible.map(([d, c], i) => `${i ? "L" : "M"}${x(d).toFixed(1)},${y(c).toFixed(1)}`).join("");
     return { visible, lo, hi, log, path };
-  }, [points, from, span, labelW, plotW]);
+  }, [points, from, x]);
 
   const lanesTop = CLOSE_H + LANE_GAP;
   const height = lanesTop + lanes.length * (LANE_H + LANE_GAP) + AXIS_H;
@@ -296,6 +282,74 @@ export function HistoryChart({
     setCursor((c) => binStart(Math.min(to, Math.max(from, (c ?? binStart(to)) + step))));
   }
 
+  // Everything but the crosshair: hovering re-renders only the cursor line and its tooltip, not
+  // the lanes x bins rects (about 2,000 for a long-lived name at "All").
+  const layer = useMemo(
+    () => (
+      <>
+      <text x={0} y={LABEL_Y_TOP} className="fill-[var(--text-muted)] text-[10px]">
+        {closeTimeframe} close{close.log && ", log"}
+      </text>
+      {close.visible.length > 1 && (
+        <>
+          <text x={0} y={LABEL_Y_HIGH} className="fill-[var(--text-secondary)] font-mono text-[10px]">
+            {close.hi.toFixed(2)}
+          </text>
+          <text x={0} y={CLOSE_H - 4} className="fill-[var(--text-secondary)] font-mono text-[10px]">
+            {close.lo.toFixed(2)}
+          </text>
+          <path d={close.path} fill="none" stroke="var(--text-primary)" strokeWidth={1.25} strokeLinejoin="round" />
+        </>
+      )}
+
+      {lanes.map((lane, li) => {
+        const top = lanesTop + li * (LANE_H + LANE_GAP);
+        return (
+          <g key={lane.key}>
+            <text x={0} y={top + LANE_H - 4} className="fill-[var(--text-secondary)] font-mono text-[10px]">
+              {lane.label}
+            </text>
+            <rect x={labelW} y={top} width={plotW} height={LANE_H} rx={2} fill="var(--bg-elevated)" />
+            {bins.map((b) =>
+              b.lanes[li].sessions ? (
+                <rect
+                  key={b.start}
+                  x={x(b.start)}
+                  y={top}
+                  // Day bins keep a 1px gap so single sessions read apart; wider bins run continuous.
+                  width={Math.max(1, x(b.end) - x(b.start) - (binDays === 1 ? 1 : 0))}
+                  height={LANE_H}
+                  fill="var(--accent-cyan)"
+                  opacity={MIN_OPACITY + (1 - MIN_OPACITY) * b.lanes[li].fill}
+                />
+              ) : null,
+            )}
+          </g>
+        );
+      })}
+
+      {ticks(from, to).map((t) => (
+        <g key={t.day}>
+          <line x1={x(t.day)} x2={x(t.day)} y1={height - AXIS_H} y2={height - AXIS_H + 4} stroke="var(--text-muted)" />
+          <text x={x(t.day) + 3} y={height - 4} className="fill-[var(--text-muted)] font-mono text-[10px]">
+            {t.label}
+          </text>
+        </g>
+      ))}
+
+      {ended !== null && ended >= from && (
+        <g>
+          <line x1={x(ended)} x2={x(ended)} y1={0} y2={height - AXIS_H} stroke="var(--text-secondary)" strokeDasharray="3 3" />
+          <text x={x(ended) - 4} y={10} textAnchor="end" className="fill-[var(--text-secondary)] text-[10px]">
+            listing ended
+          </text>
+        </g>
+      )}
+      </>
+    ),
+    [close, lanes, bins, x, labelW, plotW, binDays, from, to, height, ended, closeTimeframe],
+  );
+
   const caption = `${dayLabel(from)} to ${dayLabel(to)}, ${binDays === 1 ? "one day" : `${binDays} days`} per bin`;
 
   return (
@@ -313,65 +367,7 @@ export function HistoryChart({
         onBlur={() => setCursor(null)}
       >
         <svg width={width} height={height} className="block">
-          <text x={0} y={LABEL_Y_TOP} className="fill-[var(--text-muted)] text-[10px]">
-            {closeTimeframe} close{close.log && ", log"}
-          </text>
-          {close.visible.length > 1 && (
-            <>
-              <text x={0} y={LABEL_Y_HIGH} className="fill-[var(--text-secondary)] font-mono text-[10px]">
-                {close.hi.toFixed(2)}
-              </text>
-              <text x={0} y={CLOSE_H - 4} className="fill-[var(--text-secondary)] font-mono text-[10px]">
-                {close.lo.toFixed(2)}
-              </text>
-              <path d={close.path} fill="none" stroke="var(--text-primary)" strokeWidth={1.25} strokeLinejoin="round" />
-            </>
-          )}
-
-          {lanes.map((lane, li) => {
-            const top = lanesTop + li * (LANE_H + LANE_GAP);
-            return (
-              <g key={lane.key}>
-                <text x={0} y={top + LANE_H - 4} className="fill-[var(--text-secondary)] font-mono text-[10px]">
-                  {lane.label}
-                </text>
-                <rect x={labelW} y={top} width={plotW} height={LANE_H} rx={2} fill="var(--bg-elevated)" />
-                {bins.map((b) =>
-                  b.lanes[li].sessions ? (
-                    <rect
-                      key={b.start}
-                      x={x(b.start)}
-                      y={top}
-                      // Day bins keep a 1px gap so single sessions read apart; wider bins run continuous.
-                      width={Math.max(1, x(b.end) - x(b.start) - (binDays === 1 ? 1 : 0))}
-                      height={LANE_H}
-                      fill="var(--accent-cyan)"
-                      opacity={MIN_OPACITY + (1 - MIN_OPACITY) * b.lanes[li].fill}
-                    />
-                  ) : null,
-                )}
-              </g>
-            );
-          })}
-
-          {ticks(from, to).map((t) => (
-            <g key={t.day}>
-              <line x1={x(t.day)} x2={x(t.day)} y1={height - AXIS_H} y2={height - AXIS_H + 4} stroke="var(--text-muted)" />
-              <text x={x(t.day) + 3} y={height - 4} className="fill-[var(--text-muted)] font-mono text-[10px]">
-                {t.label}
-              </text>
-            </g>
-          ))}
-
-          {ended !== null && ended >= from && (
-            <g>
-              <line x1={x(ended)} x2={x(ended)} y1={0} y2={height - AXIS_H} stroke="var(--text-secondary)" strokeDasharray="3 3" />
-              <text x={x(ended) - 4} y={10} textAnchor="end" className="fill-[var(--text-secondary)] text-[10px]">
-                listing ended
-              </text>
-            </g>
-          )}
-
+          {layer}
           {bin && <line x1={x(bin.start)} x2={x(bin.start)} y1={0} y2={height - AXIS_H} stroke="var(--text-secondary)" />}
         </svg>
 

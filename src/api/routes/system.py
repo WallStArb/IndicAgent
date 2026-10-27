@@ -8,7 +8,6 @@ what is installed and running. A oneshot that is `inactive`/`dead` between runs 
 
 import asyncio
 import json
-import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ...core.database_manager import DatabaseManager
 from ..apr import apr, refresh_seconds
+from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, envelope, newest
 from ..utils import translate_db_errors
@@ -23,9 +23,6 @@ from ..utils import translate_db_errors
 router = APIRouter()
 
 _UNIT_GLOB = "indicagent-*"
-# Unit state is cached for one refresh interval so N tabs polling /system do not fork 2N
-# systemctl processes.
-_units_cache: dict[str, Any] = {"expires": 0.0, "body": None}
 
 
 async def _systemctl_json(*args: str) -> list[dict[str, Any]]:
@@ -55,8 +52,12 @@ def _usec(value: int | None) -> datetime | None:
 
 @router.get("/units")
 async def units(config: Any = Depends(get_config_service)) -> Envelope:
-    if _units_cache["body"] is not None and time.monotonic() < _units_cache["expires"]:
-        return _units_cache["body"]
+    """Unit state, cached for one refresh interval so N tabs polling /system do not fork 2N
+    systemctl processes."""
+    return await cached("units", lambda: refresh_seconds(config), _units)
+
+
+async def _units() -> Envelope:
     services, timers = await asyncio.gather(
         _systemctl_json("list-units", "--type=service"),
         _systemctl_json("list-timers"),
@@ -76,10 +77,7 @@ async def units(config: Any = Depends(get_config_service)) -> Envelope:
                 "next_run": _usec(timer["next"]) if timer else None,
             }
         )
-    body = envelope("systemd", rows, datetime.now(UTC))
-    ttl = await refresh_seconds(config)
-    _units_cache.update(expires=time.monotonic() + ttl, body=body)
-    return body
+    return envelope("systemd", rows, datetime.now(UTC))
 
 
 @router.get("/dlq")

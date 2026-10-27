@@ -5,11 +5,12 @@
  * (docs/plans/2026-10-26-dashboard-v35-cockpit-design.md decision 4).
  */
 
+/** Every section's meta may carry `error`: its query raised and its rows are empty. */
 export interface Envelope<Row, Meta = Record<string, unknown>> {
   source: string | null;
   as_of: string | null;
   rows: Row[];
-  meta: Meta;
+  meta: Meta & { error?: string };
 }
 
 export type StageName = "ingest" | "feature" | "regime" | "measure" | "research" | "book";
@@ -29,6 +30,7 @@ export interface PipelineSummary {
 
 export interface UiConfig {
   refresh_seconds: number;
+  passport_refresh_seconds: number;
   stale_hours: number;
 }
 
@@ -174,7 +176,7 @@ export interface Passport {
   identity: Section<IdentityRow>;
   coverage: Section<Record<string, unknown>>;
   lanes: Section<LaneRow>;
-  closes: Envelope<CloseSeries, { error?: string; timeframe?: string }>;
+  closes: Envelope<CloseSeries, { timeframe: string }>;
   restatements: Section<Record<string, unknown>>;
   tags: Section<Record<string, unknown>>;
 }

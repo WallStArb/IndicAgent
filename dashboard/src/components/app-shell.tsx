@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/cockpit";
-import { DEFAULT_REFRESH_MS, RefreshContext } from "@/hooks/use-api";
+import { DEFAULT_INTERVALS, RefreshContext } from "@/hooks/use-api";
 import { fetchJson } from "@/lib/api";
 import type { UiConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -36,17 +36,28 @@ function isCurrent(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** Seconds from the API as a poll interval; a missing or non-positive value keeps the default,
+ *  so an API older than the dashboard can never make a page poll in a tight loop. */
+function intervalMs(seconds: unknown, fallback: number): number {
+  return typeof seconds === "number" && seconds > 0 ? seconds * 1000 : fallback;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // One read of the APR poll interval for every page (ui.dashboard.refresh_seconds).
-  const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS);
+  // One read of the APR poll intervals for every page.
+  const [intervals, setIntervals] = useState(DEFAULT_INTERVALS);
   useEffect(() => {
     fetchJson<UiConfig>("/api/pipeline/config")
-      .then((c) => setRefreshMs(c.refresh_seconds * 1000))
-      .catch(() => {}); // keep the default; each page shows its own poll errors
+      .then((c) =>
+        setIntervals({
+          refresh: intervalMs(c.refresh_seconds, DEFAULT_INTERVALS.refresh),
+          passport: intervalMs(c.passport_refresh_seconds, DEFAULT_INTERVALS.passport),
+        }),
+      )
+      .catch(() => {}); // keep the defaults; each page shows its own poll errors
   }, []);
   return (
-    <RefreshContext.Provider value={refreshMs}>
+    <RefreshContext.Provider value={intervals}>
     <div className="h-screen flex flex-col md:flex-row bg-[var(--bg-base)] text-[var(--text-primary)]">
       {/* A sidebar from md up; on a phone a top bar of the built pages. */}
       <nav className="shrink-0 flex items-center md:items-stretch md:flex-col md:w-48 border-b md:border-b-0 md:border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
@@ -57,26 +68,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </div>
         <ul className="flex-1 flex md:block overflow-x-auto px-2 gap-0.5 md:space-y-0.5 text-sm">
-          {NAV.map((item) =>
-            item.href ? (
-              <li key={item.label}>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-                    isCurrent(pathname, item.href)
-                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
-                  )}
-                >
-                  <item.icon
-                    size={15}
-                    className={isCurrent(pathname, item.href) ? "text-[var(--accent-cyan)]" : undefined}
-                  />
-                  {item.label}
-                </Link>
-              </li>
-            ) : (
+          {NAV.map((item) => {
+            if (item.href) {
+              const current = isCurrent(pathname, item.href);
+              return (
+                <li key={item.label}>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+                      current
+                        ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+                    )}
+                  >
+                    <item.icon size={15} className={current ? "text-[var(--accent-cyan)]" : undefined} />
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            }
+            return (
               <li
                 key={item.label}
                 className="hidden md:flex items-center gap-2.5 px-2 py-1.5 text-[var(--text-muted)]"
@@ -85,8 +97,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="flex-1">{item.label}</span>
                 <span className="text-[0.6rem] uppercase tracking-wider">next</span>
               </li>
-            ),
-          )}
+            );
+          })}
         </ul>
         <div className="hidden md:block px-4 py-3 text-[0.65rem] text-[var(--text-muted)]">read-only, UTC</div>
       </nav>

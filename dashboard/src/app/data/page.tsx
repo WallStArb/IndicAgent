@@ -12,12 +12,8 @@ const SCROLL = "520px";
 
 const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
 
-/** A section whose query failed reports it beside its own card; the others still render. */
-function SectionError({ error }: { error?: string }) {
-  return error ? (
-    <p className="text-xs text-[var(--red)] py-1">Query failed ({error}); the other sections are unaffected.</p>
-  ) : null;
-}
+/** A header count: "?" when its section's query failed, so a failure never reads as zero. */
+const count = (section: { meta: { error?: string } }, n: number) => (section.meta.error ? "?" : n);
 
 export default function DataPage() {
   const { data, error } = useApi<DataSummary>("/api/data/summary");
@@ -65,8 +61,8 @@ export default function DataPage() {
       <PageHeader title="Data">
         {data && (
           <>
-            {feedRows.length} feeds · {failingAll.length} failing names ·{" "}
-            {integrityRows.filter((r) => r._failed > 0).length} checks failing
+            {count(data.feeds, feedRows.length)} feeds · {count(data.failing, failingAll.length)} failing
+            names · {count(data.integrity, integrityRows.filter((r) => r._failed > 0).length)} checks failing
           </>
         )}
       </PageHeader>
@@ -82,7 +78,7 @@ export default function DataPage() {
           asOf={data?.feeds.as_of ?? null}
           tone={(f) => (f.status === "ok" ? undefined : "bad")}
           empty="The coverage ledger has no rows yet."
-          footer={<SectionError error={data?.feeds.meta.error} />}
+          error={data?.feeds.meta.error}
         />
 
         <Panel
@@ -95,7 +91,7 @@ export default function DataPage() {
           tone={(r) => (r._failed > 0 ? "bad" : "dim")}
           empty="No integrity check has run yet."
           scroll={SCROLL}
-          footer={<SectionError error={data?.integrity.meta.error} />}
+          error={data?.integrity.meta.error}
         />
 
         <Panel
@@ -107,19 +103,17 @@ export default function DataPage() {
           asOf={data?.failing.as_of ?? null}
           empty="No name is failing to fetch."
           scroll={SCROLL}
+          error={data?.failing.meta.error}
           footer={
-            <>
-              <SectionError error={data?.failing.meta.error} />
-              {failingAll.length > FAILING_PREVIEW && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllFailing((v) => !v)}
-                  className="self-start text-[0.65rem] font-mono text-[var(--accent-cyan)] hover:underline"
-                >
-                  {showAllFailing ? `show the worst ${FAILING_PREVIEW}` : `show all ${failingAll.length}`}
-                </button>
-              )}
-            </>
+            failingAll.length > FAILING_PREVIEW && (
+              <button
+                type="button"
+                onClick={() => setShowAllFailing((v) => !v)}
+                className="self-start text-[0.65rem] font-mono text-[var(--accent-cyan)] hover:underline"
+              >
+                {showAllFailing ? `show the worst ${FAILING_PREVIEW}` : `show all ${failingAll.length}`}
+              </button>
+            )
           }
         />
 
@@ -131,7 +125,7 @@ export default function DataPage() {
           source={data?.restatements.source ?? null}
           asOf={data?.restatements.as_of ?? null}
           empty="No unreviewed restatements."
-          footer={<SectionError error={data?.restatements.meta.error} />}
+          error={data?.restatements.meta.error}
         />
 
         <Panel
@@ -143,7 +137,7 @@ export default function DataPage() {
           asOf={data?.listing_ends.as_of ?? null}
           tone={() => "dim"}
           empty="No listing has ended."
-          footer={<SectionError error={data?.listing_ends.meta.error} />}
+          error={data?.listing_ends.meta.error}
         />
 
         <Panel
@@ -154,7 +148,7 @@ export default function DataPage() {
           source={data?.dividends.source ?? null}
           asOf={data?.dividends.as_of ?? null}
           empty="No dividend coverage recorded."
-          footer={<SectionError error={data?.dividends.meta.error} />}
+          error={data?.dividends.meta.error}
         />
       </div>
     </div>

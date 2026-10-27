@@ -18,6 +18,7 @@ costs one query set per interval. APR values are re-read on each computation, so
 shows within one interval without a restart.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,7 +26,13 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
-from ..apr import apr, refresh_seconds, stale_after
+from ..apr import (
+    ingest_failing_fraction,
+    passport_refresh_seconds,
+    refresh_seconds,
+    stale_after,
+    stale_hours,
+)
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, envelope, gather_sections, newest
@@ -60,11 +67,13 @@ async def regimes(db: DatabaseManager) -> Envelope:
 
 async def measure(db: DatabaseManager) -> Envelope:
     """Concept lifecycle counts; the fresh IC writer's row count and newest row go in meta."""
-    rows = await db.execute_query(
-        "SELECT status, count(*) AS count FROM concept_registry GROUP BY status ORDER BY status"
-    )
-    ic = await db.execute_query(
-        "SELECT count(*) AS ic_rows, max(computed_at) AS newest FROM feature_ic_scores_v2"
+    rows, ic = await asyncio.gather(
+        db.execute_query(
+            "SELECT status, count(*) AS count FROM concept_registry GROUP BY status ORDER BY status"
+        ),
+        db.execute_query(
+            "SELECT count(*) AS ic_rows, max(computed_at) AS newest FROM feature_ic_scores_v2"
+        ),
     )
     return envelope(
         "concept_registry, feature_ic_scores_v2", rows, ic[0]["newest"], ic_rows=ic[0]["ic_rows"]
@@ -126,9 +135,19 @@ def _status(
     return "ok"
 
 
-async def _compute(db: DatabaseManager, config: Any, refresh: int) -> dict[str, Any]:
-    stale = await stale_after(config)
-    frac = await apr(config, "ui.dashboard.ingest_failing_fraction", 0.1)
+async def judged_ingest(db: DatabaseManager, config: Any) -> Envelope:
+    """The ingest ledger with each feed row's status, as the Pipeline and Data pages show it."""
+    env, stale, frac = await asyncio.gather(
+        ingest(db), stale_after(config), ingest_failing_fraction(config)
+    )
+    ingest_status(env, stale, datetime.now(UTC), frac)
+    return env
+
+
+async def _compute(db: DatabaseManager, config: Any) -> dict[str, Any]:
+    refresh, stale, frac = await asyncio.gather(
+        refresh_seconds(config), stale_after(config), ingest_failing_fraction(config)
+    )
     now = datetime.now(UTC)
     results = await gather_sections({name: query(db) for name, query, _ in _STAGES})
     stages = []
@@ -151,10 +170,10 @@ async def _compute(db: DatabaseManager, config: Any, refresh: int) -> dict[str, 
 @router.get("/config")
 async def ui_config(config: Any = Depends(get_config_service)) -> dict[str, Any]:
     """The dashboard-wide APR values every page polls by (one source, not per page)."""
-    return {
-        "refresh_seconds": await refresh_seconds(config),
-        "stale_hours": (await stale_after(config)).total_seconds() / 3600,
-    }
+    refresh, passport, stale = await asyncio.gather(
+        refresh_seconds(config), passport_refresh_seconds(config), stale_hours(config)
+    )
+    return {"refresh_seconds": refresh, "passport_refresh_seconds": passport, "stale_hours": stale}
 
 
 @router.get("/summary")
@@ -162,5 +181,9 @@ async def summary(
     db: DatabaseManager = Depends(get_db_manager),
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
-    refresh = await refresh_seconds(config)
-    return await cached("pipeline", refresh, lambda: _compute(db, config, refresh))
+    return await cached(
+        "pipeline",
+        lambda: refresh_seconds(config),
+        lambda: _compute(db, config),
+        keep=lambda body: all(stage["status"] != "error" for stage in body["stages"]),
+    )

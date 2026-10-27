@@ -2,20 +2,11 @@
 
 import { ChevronRight } from "lucide-react";
 import { CARD, ErrorNote, LoadingNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
-import { Headline, UpdatedStamp } from "@/components/headline";
+import { Headline, STAGE_LABEL, UpdatedStamp } from "@/components/headline";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo } from "@/lib/time";
 import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const STAGE_LABEL: Record<StageName, string> = {
-  ingest: "Ingest",
-  feature: "Features",
-  regime: "Regimes",
-  measure: "Measure",
-  research: "Research",
-  book: "Books",
-};
 
 const STAGE_QUESTION: Record<StageName, string> = {
   ingest: "Vendor bars captured into the coverage ledger, per timeframe and provider",
@@ -74,6 +65,7 @@ function StageCard({ stage }: { stage: Stage }) {
       title={STAGE_LABEL[stage.stage]}
       question={STAGE_QUESTION[stage.stage]}
       rows={stage.rows}
+      error={stage.meta.error}
       source={stage.source}
       asOf={stage.as_of}
       tone={(row) => (Number(row.failing ?? 0) > 0 ? "bad" : undefined)}
@@ -89,9 +81,6 @@ function StageCard({ stage }: { stage: Stage }) {
       footer={
         <>
         {stage.meta.detail && <p className="text-xs text-[var(--text-muted)] py-2">{stage.meta.detail}</p>}
-        {stage.meta.error && (
-          <p className="text-xs text-[var(--red)] py-2">Query failed ({stage.meta.error}); the other stages are unaffected.</p>
-        )}
         {stage.meta.ic_rows !== undefined && (
           <p className="text-[0.65rem] font-mono text-[var(--text-muted)] pt-1">IC rows written: {stage.meta.ic_rows}</p>
         )}
@@ -112,7 +101,7 @@ export default function PipelinePage() {
       <LoadingNote loading={loading} />
       {data && (
         <div className="p-6 flex flex-col gap-4">
-          <Headline summary={data} label={(stage) => STAGE_LABEL[stage]} />
+          <Headline summary={data} />
           <StageFlow stages={data.stages} />
           <div id="stages" className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(420px,100%),1fr))]">
             {data.stages.map((stage) => (

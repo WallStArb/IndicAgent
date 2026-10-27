@@ -8,6 +8,15 @@ import { cn } from "@/lib/utils";
 // (design decision 5). Status words come from the API's stage status.
 const NEEDS_ACTION = new Set<StageStatus>(["failing", "error", "stale"]);
 
+export const STAGE_LABEL: Record<StageName, string> = {
+  ingest: "Ingest",
+  feature: "Features",
+  regime: "Regimes",
+  measure: "Measure",
+  research: "Research",
+  book: "Books",
+};
+
 function rowsOf(stage: Stage | undefined): Record<string, unknown>[] {
   return stage?.rows ?? [];
 }
@@ -21,13 +30,7 @@ function figure(stage: Stage | undefined, status: string, field: string): number
  * Data flows one way, so the first stage in DAG order that needs action is the most upstream
  * problem. Names that stage, why, and the evidence; later stages that also need action are listed.
  */
-function Bottleneck({
-  summary,
-  label,
-}: {
-  summary: PipelineSummary;
-  label: (stage: StageName) => string;
-}) {
+function Bottleneck({ summary }: { summary: PipelineSummary }) {
   const index = summary.stages.findIndex((s) => NEEDS_ACTION.has(s.status));
   if (index < 0) {
     return (
@@ -42,25 +45,22 @@ function Bottleneck({
   }
 
   const stage = summary.stages[index];
-  const name = label(stage.stage);
+  const name = STAGE_LABEL[stage.stage];
   const downstream = summary.stages
     .slice(index + 1)
     .filter((s) => NEEDS_ACTION.has(s.status))
-    .map((s) => label(s.stage));
+    .map((s) => STAGE_LABEL[s.stage]);
   const failingFeeds = rowsOf(stage).filter((r) => Number(r.failing ?? 0) > 0).length;
 
-  let headline: string;
+  const headline = stage.status === "error" ? `${name} could not be read` : `${name} is ${stage.status}`;
   let evidence: string;
   if (stage.status === "error") {
-    headline = `${name} could not be read`;
     evidence = `The stage query failed (${stage.meta.error ?? "no detail"}); the other stages are unaffected.`;
   } else if (stage.meta.failing_rows) {
-    headline = `${name} is ${stage.status}`;
     evidence =
       `${stage.meta.failing_rows.toLocaleString()} names have repeated fetch failures across ` +
       `${failingFeeds} of ${rowsOf(stage).length} feeds. Newest bar ${fmtAgo(stage.as_of)}.`;
   } else {
-    headline = `${name} is ${stage.status}`;
     evidence = stage.as_of
       ? `Newest row ${fmtAgo(stage.as_of)}, past the ${summary.stale_hours} h window.`
       : (stage.meta.detail ?? "The stage has no rows yet.");
@@ -90,36 +90,36 @@ function Bottleneck({
   );
 }
 
+/** One headline figure from one stage. A stage whose query failed shows "?", never a zero. */
 function StatTile({
   label,
+  stage,
   value,
   context,
-  source,
-  href,
 }: {
   label: string;
-  value: string;
-  context: string;
-  source: string;
-  href: string;
+  stage: Stage | undefined;
+  value: () => string;
+  context: () => string;
 }) {
+  const unread = !stage || stage.status === "error";
   return (
-    <a href={href} className={cn(CARD, "tile flex flex-col gap-1.5 py-4")} title={`Source: ${source}`}>
+    <a
+      href={stage ? `#stage-${stage.stage}` : "#stages"}
+      className={cn(CARD, "tile flex flex-col gap-1.5 py-4")}
+      title={`Source: ${stage?.source ?? "unknown"}`}
+    >
       <span className={SMALL_LABEL}>{label}</span>
-      <span className="text-[1.75rem] font-semibold leading-none tracking-tight">{value}</span>
-      <span className="text-xs text-[var(--text-secondary)]">{context}</span>
+      <span className="text-[1.75rem] font-semibold leading-none tracking-tight">{unread ? "?" : value()}</span>
+      <span className="text-xs text-[var(--text-secondary)]">
+        {unread ? "The stage query failed; the figure is unknown." : context()}
+      </span>
     </a>
   );
 }
 
 /** The Pipeline page's opening row: where to act, and the four figures an operator checks first. */
-export function Headline({
-  summary,
-  label,
-}: {
-  summary: PipelineSummary;
-  label: (stage: StageName) => string;
-}) {
+export function Headline({ summary }: { summary: PipelineSummary }) {
   const byName = new Map(summary.stages.map((s) => [s.stage, s]));
   const ingest = byName.get("ingest");
   const measure = byName.get("measure");
@@ -130,38 +130,36 @@ export function Headline({
 
   return (
     <section className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-      <Bottleneck summary={summary} label={label} />
+      <Bottleneck summary={summary} />
       <StatTile
         label="Newest bar"
-        value={ingest?.as_of ? fmtAgo(ingest.as_of) : "none"}
-        context={ingest?.as_of ? fmtUtc(ingest.as_of) : "No coverage rows yet"}
-        source={ingest?.source ?? "ohlcv_coverage"}
-        href="#stage-ingest"
+        stage={ingest}
+        value={() => (ingest!.as_of ? fmtAgo(ingest!.as_of) : "none")}
+        context={() => (ingest!.as_of ? fmtUtc(ingest!.as_of) : "No coverage rows yet")}
       />
       <StatTile
         label="Feeds current"
-        value={`${currentFeeds} of ${feeds.length}`}
-        context={`${(ingest?.meta.failing_rows ?? 0).toLocaleString()} names failing fetch`}
-        source={ingest?.source ?? "ohlcv_coverage"}
-        href="#stage-ingest"
+        stage={ingest}
+        value={() => `${currentFeeds} of ${feeds.length}`}
+        context={() => `${(ingest!.meta.failing_rows ?? 0).toLocaleString()} names failing fetch`}
       />
       <StatTile
         label="Active concepts"
-        value={figure(measure, "active", "count").toLocaleString()}
-        context={`${figure(measure, "candidate", "count")} candidates, IC rows written ${measure?.meta.ic_rows ?? 0}`}
-        source={measure?.source ?? "concept_registry"}
-        href="#stage-measure"
+        stage={measure}
+        value={() => figure(measure, "active", "count").toLocaleString()}
+        context={() =>
+          `${figure(measure, "candidate", "count")} candidates, IC rows written ${measure!.meta.ic_rows ?? 0}`
+        }
       />
       <StatTile
         label="Research runs"
-        value={runs.toLocaleString()}
-        context={
-          research?.as_of
-            ? `${figure(research, "completed", "runs")} completed, newest ${fmtAgo(research.as_of)}`
+        stage={research}
+        value={() => runs.toLocaleString()}
+        context={() =>
+          research!.as_of
+            ? `${figure(research, "completed", "runs")} completed, newest ${fmtAgo(research!.as_of)}`
             : "None recorded yet"
         }
-        source={research?.source ?? "research_run"}
-        href="#stage-research"
       />
     </section>
   );

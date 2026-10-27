@@ -36,6 +36,11 @@ def envelope(
     return {"source": source, "as_of": as_of, "rows": rows, "meta": meta}
 
 
+def all_ok(sections: Mapping[str, Envelope]) -> bool:
+    """No section failed: a page with a failed section is not cached, so the next poll retries."""
+    return not any("error" in env["meta"] for env in sections.values())
+
+
 async def gather_sections(sections: Mapping[str, Awaitable[Envelope]]) -> dict[str, Envelope]:
     """Run a page's section queries together; a section whose query raises becomes an empty
     envelope with `meta.error` (logged), so one failure cannot take down the page. Cancellation

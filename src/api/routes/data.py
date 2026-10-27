@@ -8,28 +8,18 @@ each check's most recent run, not a window's pile-up of repeated evaluations. Th
 cached summary of all six sections per refresh interval.
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
-from ..apr import apr, refresh_seconds, stale_after
+from ..apr import refresh_seconds
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
-from ..envelope import Envelope, envelope, gather_sections, newest
-from .pipeline import ingest, ingest_status
+from ..envelope import Envelope, all_ok, envelope, gather_sections, newest
+from .pipeline import judged_ingest
 
 router = APIRouter()
-
-
-async def feeds(db: DatabaseManager, config: Any) -> Envelope:
-    """The coverage ledger per (timeframe, provider), each row with the status the Pipeline ingest
-    card judges it by (same function, same APR bounds), so the two pages cannot disagree."""
-    env = await ingest(db)
-    frac = await apr(config, "ui.dashboard.ingest_failing_fraction", 0.1)
-    ingest_status(env, await stale_after(config), datetime.now(UTC), frac)
-    return env
 
 
 async def failing(db: DatabaseManager) -> Envelope:
@@ -95,7 +85,7 @@ _SECTIONS = {
 
 async def _compute(db: DatabaseManager, config: Any) -> dict[str, Any]:
     return await gather_sections(
-        {"feeds": feeds(db, config), **{name: fn(db) for name, fn in _SECTIONS.items()}}
+        {"feeds": judged_ingest(db, config), **{name: fn(db) for name, fn in _SECTIONS.items()}}
     )
 
 
@@ -105,5 +95,6 @@ async def summary(
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
     """All six Data sections in one cached response; a failing section reports meta.error."""
-    refresh = await refresh_seconds(config)
-    return await cached("data", refresh, lambda: _compute(db, config))
+    return await cached(
+        "data", lambda: refresh_seconds(config), lambda: _compute(db, config), keep=all_ok
+    )

@@ -6,7 +6,8 @@ import { SectionTitle, TOOLTIP } from "@/components/cockpit";
 import type { NameState, UniverseRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** Most severe first: the order of the legend, and of the names inside each sector block. */
+/** Most in need of action first: the order of the legend, and of the names inside each sector
+ *  block. This is display order; which state a name gets is the API's precedence (`name_state`). */
 export const STATE_ORDER: NameState[] = ["failing", "stale", "ended", "no_data", "inactive", "current"];
 
 export const STATE_LABEL: Record<NameState, string> = {
@@ -27,6 +28,11 @@ export const STATE_FILL: Record<NameState, string> = {
   inactive: "border border-[var(--border-bright)]",
   current: "bg-[var(--state-current)]",
 };
+
+/** The small square a state is drawn as, everywhere a state is named. */
+export function StateSwatch({ state, className = "size-2" }: { state: NameState; className?: string }) {
+  return <span className={cn("shrink-0 rounded-[2px]", STATE_FILL[state], className)} />;
+}
 
 export const passportHref = (symbol: string) => `/instruments/${encodeURIComponent(symbol)}`;
 
@@ -144,7 +150,7 @@ export function UniverseMap({
       {hover && (
         <div className={cn(TOOLTIP, "mt-2")} style={{ left: Math.max(0, hover.x - 8), top: hover.y }}>
           <div className="flex items-center gap-2">
-            <span className={cn("size-2 rounded-[2px]", STATE_FILL[hover.row.state])} />
+            <StateSwatch state={hover.row.state} />
             <span className="font-mono font-semibold">{hover.row.symbol}</span>
             <span className="text-[var(--text-secondary)]">{STATE_LABEL[hover.row.state]}</span>
           </div>

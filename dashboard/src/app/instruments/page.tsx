@@ -11,8 +11,9 @@ import {
   PageHeader,
   RowsTable,
   SectionTitle,
+  ToggleGroup,
 } from "@/components/cockpit";
-import { STATE_FILL, STATE_LABEL, STATE_ORDER, UniverseMap, passportHref } from "@/components/universe-map";
+import { STATE_LABEL, STATE_ORDER, StateSwatch, UniverseMap, passportHref } from "@/components/universe-map";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { NameState, UniverseRow, UniverseSummary } from "@/lib/types";
@@ -36,58 +37,54 @@ function Legend({
   const counts = new Map<NameState, number>();
   for (const row of rows) counts.set(row.state, (counts.get(row.state) ?? 0) + 1);
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter names by state">
-      {STATE_ORDER.filter((s) => counts.get(s)).map((state) => (
-        <button
-          key={state}
-          type="button"
-          aria-pressed={selected === state}
-          onClick={() => onToggle(state)}
-          className={cn(
-            "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors",
-            selected === state
-              ? "border-[var(--text-secondary)] bg-[var(--bg-elevated)]"
-              : "border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]",
-          )}
-        >
-          <span className={cn("size-2.5 rounded-[2px]", STATE_FILL[state])} />
-          {STATE_LABEL[state]}
-          <span className="font-mono text-[var(--text-secondary)]">{counts.get(state)!.toLocaleString()}</span>
-        </button>
-      ))}
-    </div>
+    <ToggleGroup
+      label="Filter names by state"
+      options={STATE_ORDER.filter((s) => counts.get(s)).map((state) => ({
+        key: state,
+        value: state,
+        content: (
+          <>
+            <StateSwatch state={state} className="size-2.5" />
+            <span className="text-[var(--text-primary)]">{STATE_LABEL[state]}</span>
+            <span className="font-mono">{counts.get(state)!.toLocaleString()}</span>
+          </>
+        ),
+      }))}
+      selected={selected}
+      onSelect={onToggle}
+    />
   );
 }
 
-/** The table's view of a name: what an operator scans for, in reading order. */
-function tableRow(row: UniverseRow) {
-  return {
-    symbol: row.symbol,
-    name: row.name ?? "-",
-    sector: row.sector ?? "-",
-    state: STATE_LABEL[row.state] + (row.listing_ended ? ` ${row.listing_ended}` : ""),
-    newest_bar: fmtAgo(row.newest_bar),
-    failing_feeds: `${row.failing_feeds ?? 0} of ${row.feeds ?? 0}`,
-    compute: compute(row),
-    _row: row,
-  };
-}
+/** The table's columns, in the order an operator scans a name; each renders from the raw row. */
+const COLUMNS: (keyof UniverseRow & string)[] = [
+  "symbol",
+  "name",
+  "sector",
+  "state",
+  "newest_bar",
+  "failing_feeds",
+  "compute_eligible",
+];
 
-type TableRow = ReturnType<typeof tableRow>;
+const LABELS: Partial<Record<keyof UniverseRow & string, string>> = { compute_eligible: "compute" };
 
-const RENDER = {
-  symbol: (r: TableRow) => (
+const RENDER: Partial<Record<keyof UniverseRow & string, (r: UniverseRow) => React.ReactNode>> = {
+  symbol: (r) => (
     <Link href={passportHref(r.symbol)} prefetch={false} className="font-semibold text-[var(--accent-cyan)] hover:underline">
       {r.symbol}
     </Link>
   ),
-  state: (r: TableRow) => (
+  state: (r) => (
     <span className="flex items-center gap-1.5">
-      <span className={cn("size-2 rounded-[2px]", STATE_FILL[r._row.state])} />
-      {r.state}
+      <StateSwatch state={r.state} />
+      {STATE_LABEL[r.state]}
+      {r.listing_ended && ` ${r.listing_ended}`}
     </span>
   ),
-  newest_bar: (r: TableRow) => <span title={fmtUtc(r._row.newest_bar)}>{r.newest_bar}</span>,
+  newest_bar: (r) => <span title={fmtUtc(r.newest_bar)}>{fmtAgo(r.newest_bar)}</span>,
+  failing_feeds: (r) => `${r.failing_feeds ?? 0} of ${r.feeds ?? 0}`,
+  compute_eligible: compute,
 };
 
 export default function InstrumentsPage() {
@@ -103,7 +100,7 @@ export default function InstrumentsPage() {
     (!q || row.symbol.startsWith(q) || (row.name ?? "").toUpperCase().includes(q));
   // With no filter the table answers "which names need attention"; with one, it lists the lit cells.
   const filtering = selected !== null || q !== "";
-  const listed = rows.filter((r) => (filtering ? isLit(r) : r.state !== "current")).map(tableRow);
+  const listed = rows.filter((r) => (filtering ? isLit(r) : r.state !== "current"));
   const title = selected ? STATE_LABEL[selected] : q ? "Matching names" : "Names needing attention";
 
   return (
@@ -137,7 +134,7 @@ export default function InstrumentsPage() {
 
           <section className={cn(CARD, "flex flex-col gap-2")}>
             <SectionTitle title={title} count={listed.length} />
-            <RowsTable rows={listed} render={RENDER} empty="No names match." />
+            <RowsTable rows={listed} columns={COLUMNS} render={RENDER} labels={LABELS} empty="No names match." />
           </section>
         </div>
       )}

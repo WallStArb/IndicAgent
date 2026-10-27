@@ -9,45 +9,53 @@ newest bar across feeds older than `ui.dashboard.stale_hours`), `no_data` (no co
 `/{symbol}` is that name's passport: identity and eligibility, the coverage ledger per feed, bars
 per session per (timeframe, vendor) lane over its whole history (from the tradeable view, so the
 holes are visible), the 1d close on the same axis, unreviewed and reviewed restatement flags and
-its current tags. Both are cached for one refresh interval.
+its current tags. The summary is cached for `ui.dashboard.refresh_seconds`, a passport for the
+longer `ui.dashboard.passport_refresh_seconds`; a response with a failed section is not cached.
 """
 
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ...config.classification_service import current_level_name_sql
 from ...core.database_manager import DatabaseManager
-from ..apr import apr, refresh_seconds, stale_after
+from ..apr import passport_refresh_seconds, refresh_seconds, stale_hours
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
-from ..envelope import Envelope, envelope, gather_sections, newest
+from ..envelope import Envelope, all_ok, envelope, gather_sections, newest
 
 router = APIRouter()
 
-_ASSET_CLASS = current_level_name_sql("i", level=1)
-_SECTOR = current_level_name_sql("i", level=2)
+# The SCH level names (1 asset class, 2 sector, 3 industry group, 4 industry), point in time.
+_LEVELS = {n: current_level_name_sql("i", level=n) for n in range(1, 5)}
+
+# The identity both pages show; the passport adds detail columns, the summary its coverage join.
+_IDENTITY_COLUMNS = (
+    "i.symbol, i.contract_details->>'name' AS name, i.is_active, i.compute_eligible, "
+    "i.compute_eligible_1d, le.last_session AS listing_ended"
+)
+_IDENTITY_FROM = "instruments i LEFT JOIN listing_end_current le ON le.symbol = i.symbol"
 
 _SUMMARY_SQL = f"""
-SELECT i.symbol, i.contract_details->>'name' AS name, i.is_active,
-       i.compute_eligible, i.compute_eligible_1d,
-       {_ASSET_CLASS} AS asset_class, {_SECTOR} AS sector,
-       c.newest_bar, c.failing_feeds, c.feeds,
-       le.last_session AS listing_ended
-FROM instruments i
+SELECT {_IDENTITY_COLUMNS},
+       {_LEVELS[1]} AS asset_class, {_LEVELS[2]} AS sector,
+       c.newest_bar, c.failing_feeds, c.feeds
+FROM {_IDENTITY_FROM}
 LEFT JOIN (
     SELECT symbol, max(latest_timestamp) AS newest_bar, count(*) AS feeds,
            count(*) FILTER (WHERE consecutive_failures > 0) AS failing_feeds
     FROM ohlcv_coverage GROUP BY symbol
 ) c ON c.symbol = i.symbol
-LEFT JOIN listing_end_current le ON le.symbol = i.symbol
 ORDER BY i.symbol
 """
 
 
 def name_state(row: dict[str, Any], stale_before: datetime) -> str:
-    """The one state a name shows, most severe first."""
+    """The one state a name shows: the first that applies, in this precedence (a name that is
+    inactive or ended is that before anything its feeds say). The map's legend orders states by
+    need for action instead (`STATE_ORDER` in the dashboard)."""
     if not row["is_active"]:
         return "inactive"
     if row["listing_ended"] is not None:
@@ -62,16 +70,15 @@ def name_state(row: dict[str, Any], stale_before: datetime) -> str:
 
 
 async def _summary(db: DatabaseManager, config: Any) -> Envelope:
-    rows = await db.execute_query(_SUMMARY_SQL)
-    stale = await stale_after(config)
-    stale_before = datetime.now(UTC) - stale
+    rows, hours = await asyncio.gather(db.execute_query(_SUMMARY_SQL), stale_hours(config))
+    stale_before = datetime.now(UTC) - timedelta(hours=hours)
     for row in rows:
         row["state"] = name_state(row, stale_before)
     return envelope(
         "instruments, ohlcv_coverage, listing_end_current, instrument_classification",
         rows,
         newest(rows, "newest_bar"),
-        stale_hours=stale.total_seconds() / 3600,
+        stale_hours=hours,
     )
 
 
@@ -81,19 +88,15 @@ async def summary(
     config: Any = Depends(get_config_service),
 ) -> Envelope:
     """Every instrument with its map state, asset class and sector."""
-    refresh = await refresh_seconds(config)
-    return await cached("universe", refresh, lambda: _summary(db, config))
+    return await cached("universe", lambda: refresh_seconds(config), lambda: _summary(db, config))
 
 
 async def _identity(db: DatabaseManager, symbol: str) -> Envelope:
-    levels = ", ".join(f"{current_level_name_sql('i', level=n)} AS level_{n}" for n in range(1, 5))
+    levels = ", ".join(f"{sql} AS level_{n}" for n, sql in _LEVELS.items())
     rows = await db.execute_query(
-        f"SELECT i.symbol, i.contract_details->>'name' AS name, "
-        f"i.contract_details->>'exchange' AS exchange, i.is_active, i.compute_eligible, "
-        f"i.compute_eligible_1d, i.live_tradeable, {levels}, "
-        f"le.last_session AS listing_ended, le.reason AS listing_end_reason "
-        f"FROM instruments i LEFT JOIN listing_end_current le ON le.symbol = i.symbol "
-        f"WHERE i.symbol = $1",
+        f"SELECT {_IDENTITY_COLUMNS}, i.contract_details->>'exchange' AS exchange, "
+        f"i.live_tradeable, {levels}, le.reason AS listing_end_reason "
+        f"FROM {_IDENTITY_FROM} WHERE i.symbol = $1",
         symbol,
     )
     return envelope("instruments, instrument_classification, listing_end_current", rows, None)
@@ -171,8 +174,10 @@ _SECTIONS = {
 
 
 async def _passport(db: DatabaseManager, symbol: str) -> dict[str, Any]:
-    identity = await _identity(db, symbol)
-    if not identity["rows"]:
+    """Identity first, so an unknown name 404s on one query instead of scanning bars; an identity
+    query that fails is a section error like any other, and the rest still render."""
+    identity = (await gather_sections({"identity": _identity(db, symbol)}))["identity"]
+    if not identity["rows"] and "error" not in identity["meta"]:
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
     sections = await gather_sections({name: fn(db, symbol) for name, fn in _SECTIONS.items()})
     return {"identity": identity, **sections}
@@ -186,7 +191,9 @@ async def passport(
 ) -> dict[str, Any]:
     """One name's data passport; a failing section reports meta.error, an unknown name 404s."""
     symbol = symbol.upper()
-    # A name's history changes about once a day, and reading it scans every bar the name has
-    # (about 2 s for a 26-year name), so the passport keeps its own longer TTL.
-    ttl = await apr(config, "ui.dashboard.passport_refresh_seconds", 900)
-    return await cached(f"universe:{symbol}", ttl, lambda: _passport(db, symbol))
+    return await cached(
+        f"universe:{symbol}",
+        lambda: passport_refresh_seconds(config),
+        lambda: _passport(db, symbol),
+        keep=all_ok,
+    )

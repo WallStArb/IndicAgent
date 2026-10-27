@@ -87,7 +87,11 @@ def test_refresh_interval_is_served_from_apr(client, mock_db):
     _db_answers(mock_db)
     body = client.get("/api/pipeline/summary").json()
     assert body["refresh_seconds"] == 60 and body["stale_hours"] == 36
-    assert client.get("/api/pipeline/config").json() == {"refresh_seconds": 60, "stale_hours": 36}
+    assert client.get("/api/pipeline/config").json() == {
+        "refresh_seconds": 60,
+        "passport_refresh_seconds": 900,
+        "stale_hours": 36,
+    }
 
 
 def test_summary_is_cached_for_one_refresh_interval(client, mock_db):

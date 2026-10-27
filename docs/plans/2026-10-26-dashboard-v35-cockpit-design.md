@@ -121,29 +121,38 @@ Progress:
   lists routers by hand (could derive from `app.openapi()` like the dashboard path guard).
 
 - Slice 2 (Data page) landed 2026-10-26 with one cached `/api/data/summary` (six sections, feed
-  rows carry the Pipeline's status) and the shared TTL cache `src/api/cache.py`. Open findings
-  from its /code-review, to fix first in the next session:
-  1. Integrity counts only rows sharing the exact max(evaluated_at); writers that commit per row
-     spread a run over many timestamps, so it undercounts. The correct per-subject latest query
+  rows carry the Pipeline's status) and the shared TTL cache `src/api/cache.py`. Its /code-review
+  findings, after the 2026-10-26 cleanup pass:
+  1. OPEN. Integrity counts only rows sharing the exact max(evaluated_at); writers that commit per
+     row spread a run over many timestamps, so it undercounts. The correct per-subject latest query
      (DISTINCT ON monitor, metric, subject) takes 10 s on 900k rows, 1.5 s bounded to 7 days: add
      an APR window key (next migration number from the coordinating sessions) or an index.
-  2. The Data header counts read empty rows as zero when a section errored; show "?" instead.
-  3. The refresh APR read runs before the cache check on every request; read it on a miss only.
-  4. Data feeds re-run ingest under their own key; take the ingest stage from the cached
-     pipeline summary so the two pages share one snapshot (ingest_status mutates its env).
-  5. cache.py: create locks per event loop and clear them in clear(); add unit tests (TTL, single
-     computation under concurrency, exception leaves no entry, key isolation).
-  6. FIXED in slice 3: `gather_sections` (`src/api/envelope.py`) logs a failed section and
-     re-raises cancellation; data and universe both use it. A failed section is still cached
-     for one TTL.
-  7. Assert the failing and restatements filters in tests; sticky table headers in scroll panels.
+  2. FIXED. A header count or headline tile whose section errored shows "?", never 0; `Panel`
+     takes the section's `error` and shows it in place of the table, so no page can render an
+     empty-state message over a failed query.
+  3. FIXED. `cached(key, ttl, compute, keep)` resolves the TTL (an APR read) on a miss only.
+  4. RESOLVED differently. Sharing the pipeline snapshot would save one 10 ms query and couple
+     two TTLs; instead `judged_ingest` (pipeline.py) is the one ingest judgement both pages call,
+     with its query and APR reads run concurrently.
+  5. FIXED. The cache keeps lock and value in one slot, evicts both, `clear()` drops both, and a
+     result with a failed section is returned but not stored (the next poll retries). Unit tests
+     in `tests/unit/api/test_cache.py`. `/system/units` uses it too.
+  6. FIXED in slice 3 (`gather_sections`).
+  7. Sticky table headers in scroll panels FIXED; asserting the failing and restatements filters
+     in tests is OPEN.
+  Also open from the cleanup review: a name's map state takes the newest bar across all its
+  feeds, so a dead 5m feed hides behind a current 1d one (judge per feed, as `ingest_status`
+  does); the history chart's partial-session shading counts weekdays as sessions (the trading
+  calendar belongs in the `_lanes` query); the pipeline features stage spends 2.3 s planning
+  `max(bar_ts)` over every chunk; the shared ConfigService has no TTL, so `src/api/apr.py`
+  invalidates per read.
 - Slice 3 (Instruments) landed 2026-10-26 as a concept change from the plan: a universe map
   and a data passport instead of a table and a candlestick chart. `/api/universe/summary` judges
   each name's one state (inactive, ended, no_data, failing, stale, current; `name_state` in
   `src/api/routes/universe.py`), `/api/universe/{symbol}` returns the passport (identity and
   eligibility, coverage ledger, bars per UTC session per lane over the full history, the 1d
   close, restatements, current tags; about 2 s and 650 kB for a 26-year name, cached per name
-  for one refresh). The map's legend is its filter; the table under it lists the names needing
+  and polled at `ui.dashboard.passport_refresh_seconds`). The map's legend is its filter; the table under it lists the names needing
   attention. The passport's history lanes show vendor handoffs and holes the coverage ledger
   cannot (AAPL: 1d Tradier to IBKR on 2026-10-07, derived 15m/1h stopping 2026-10-16).
 

@@ -15,7 +15,7 @@ const STATUS_STYLE: Record<StageStatus, string> = {
 export const CARD = "rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5";
 
 /** Uppercase tracked display label for section titles and column headers. */
-export const LABEL = "font-display uppercase tracking-[0.12em]";
+const LABEL = "font-display uppercase tracking-[0.12em]";
 
 /** The small muted form of LABEL: column headers, tile and fact labels. */
 export const SMALL_LABEL = cn(LABEL, "text-[0.6rem] font-semibold text-[var(--text-muted)]");
@@ -90,20 +90,31 @@ function cell(value: unknown): string {
   return String(value);
 }
 
-/** A compact table over API rows; columns default to the first row's keys. */
+/**
+ * A compact table over API rows; columns default to the first row's keys. `maxHeight` scrolls
+ * the rows inside their card under a header that stays in view.
+ */
 export function RowsTable<R extends object>({
   rows,
   columns,
   tone,
   render,
+  labels,
   empty = "No rows.",
+  maxHeight,
 }: {
   rows: R[];
   columns?: (keyof R & string)[];
   tone?: (row: R) => RowTone;
-  /** Per-column cell renderers (a link, a state swatch); other columns format by value. */
+  /**
+   * Per-column cell renderers (a link, a state swatch). A rendered column owns its presentation:
+   * the raw value's number alignment and state colour apply only to columns formatted by value.
+   */
   render?: Partial<Record<keyof R & string, (row: R) => React.ReactNode>>;
+  /** Header text per column where the key does not read as one (default: the key, spaced). */
+  labels?: Partial<Record<keyof R & string, string>>;
   empty?: string;
+  maxHeight?: string;
 }) {
   if (rows.length === 0) {
     return <p className="text-xs text-[var(--text-muted)] py-2">{empty}</p>;
@@ -111,10 +122,11 @@ export function RowsTable<R extends object>({
   // Keys starting with "_" are hidden fields a page passes for `tone` (e.g. _failed).
   const cols =
     columns ?? (Object.keys(rows[0]).filter((k) => !k.startsWith("_")) as (keyof R & string)[]);
+  const numeric = (c: keyof R & string, value: unknown) => !render?.[c] && typeof value === "number";
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-auto min-h-0" style={{ maxHeight }}>
     <table className="w-full text-xs">
-      <thead>
+      <thead className="sticky top-0 bg-[var(--bg-surface)]">
         <tr className="text-left text-[var(--text-muted)]">
           {cols.map((c) => (
             <th
@@ -122,10 +134,10 @@ export function RowsTable<R extends object>({
               className={cn(
                 SMALL_LABEL,
                 "py-1.5 pr-4 whitespace-nowrap",
-                typeof rows[0][c] === "number" && "text-right",
+                numeric(c, rows[0][c]) && "text-right",
               )}
             >
-              {c.replaceAll("_", " ")}
+              {labels?.[c] ?? c.replaceAll("_", " ")}
             </th>
           ))}
         </tr>
@@ -149,8 +161,8 @@ export function RowsTable<R extends object>({
                     key={c}
                     className={cn(
                       "py-1.5 pr-4 whitespace-nowrap",
-                      typeof value === "number" && "text-right",
-                      typeof value === "string" && VALUE_TONE[value],
+                      numeric(c, value) && "text-right",
+                      !render?.[c] && typeof value === "string" && VALUE_TONE[value],
                     )}
                   >
                     {render?.[c] ? render[c](row) : cell(value)}
@@ -170,11 +182,14 @@ export function RowsTable<R extends object>({
  * One titled block of a page: what it answers, its rows, and where they came from. `aside`
  * sits beside the title (a status chip, a count); `children` replaces the table when given;
  * `footer` renders below it; `scroll` caps the table's height and scrolls it inside the card.
+ * `error` (the section's meta.error) replaces the body, so a failed query can never read as an
+ * empty result.
  */
 export function Panel<R extends object>({
   title,
   question,
-  rows,
+  rows = [],
+  error,
   source,
   asOf,
   aside,
@@ -187,7 +202,8 @@ export function Panel<R extends object>({
 }: {
   title: string;
   question: string;
-  rows: R[];
+  rows?: R[];
+  error?: string;
   source: string | null;
   asOf: string | null;
   aside?: React.ReactNode;
@@ -201,23 +217,58 @@ export function Panel<R extends object>({
   return (
     <section className={cn("flex min-w-0 flex-col gap-2", className)}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className={cn(LABEL, "text-xs font-bold")}>{title}</h2>
+        <SectionTitle title={title} />
         {aside}
       </div>
       <p className="text-xs text-[var(--text-secondary)]">{question}</p>
-      {children ??
-        (scroll ? (
-          <div className="overflow-y-auto min-h-0" style={{ maxHeight: scroll }}>
-            <RowsTable rows={rows} tone={tone} empty={empty} />
-          </div>
-        ) : (
-          <RowsTable rows={rows} tone={tone} empty={empty} />
-        ))}
+      {error ? (
+        <p className="text-xs text-[var(--red)] py-1">Query failed ({error}); the other sections are unaffected.</p>
+      ) : (
+        (children ?? <RowsTable rows={rows} tone={tone} empty={empty} maxHeight={scroll} />)
+      )}
       {footer}
       <div className="mt-auto pt-1">
         <Lineage source={source} asOf={asOf} />
       </div>
     </section>
+  );
+}
+
+/** A row of pressed/unpressed buttons choosing one value (a time range, a state filter). */
+export function ToggleGroup<V>({
+  label,
+  options,
+  selected,
+  onSelect,
+  children,
+}: {
+  label: string;
+  options: { key: string; value: V; content: React.ReactNode }[];
+  selected: V | null;
+  onSelect: (value: V) => void;
+  /** Trailing content after the buttons (a caption). */
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          aria-pressed={selected === o.value}
+          onClick={() => onSelect(o.value)}
+          className={cn(
+            "flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors",
+            selected === o.value
+              ? "border-[var(--text-secondary)] bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+              : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+          )}
+        >
+          {o.content}
+        </button>
+      ))}
+      {children}
+    </div>
   );
 }
 

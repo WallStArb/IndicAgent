@@ -62,7 +62,7 @@ function Identity({ id }: { id: IdentityRow }) {
 
 export default function PassportPage() {
   const { symbol } = useParams<{ symbol: string }>();
-  const { data, error, loading } = useApi<Passport>(`/api/universe/${encodeURIComponent(symbol)}`);
+  const { data, error, loading } = useApi<Passport>(`/api/universe/${encodeURIComponent(symbol)}`, "passport");
   const id = data?.identity.rows[0];
 
   return (
@@ -76,6 +76,12 @@ export default function PassportPage() {
         </Link>
         <Title symbol={id?.symbol ?? decodeURIComponent(symbol)} name={id?.name} />
         {id && <Identity id={id} />}
+        {data?.identity.meta.error && (
+          <p className="text-xs text-[var(--red)]">
+            The identity query failed ({data.identity.meta.error}): eligibility, classification and any listing end are
+            unknown. The sections below are unaffected.
+          </p>
+        )}
       </header>
       <ErrorNote error={error} />
       <LoadingNote loading={loading}>Loading the full history...</LoadingNote>
@@ -85,20 +91,16 @@ export default function PassportPage() {
             className={cn(CARD, "min-w-0")}
             title="History"
             question="The daily close, and the bars each timeframe and vendor holds per session. A gap is an empty track; a pale bin holds partial sessions."
-            rows={[]}
+            error={data.lanes.meta.error ?? data.closes.meta.error}
             source={data.lanes.source}
             asOf={data.lanes.as_of}
           >
-            {data.lanes.meta.error ? (
-              <p className="text-xs text-[var(--red)]">The bar query failed ({data.lanes.meta.error}).</p>
-            ) : (
-              <HistoryChart
-                lanes={data.lanes.rows}
-                closes={data.closes.rows[0]}
-                closeTimeframe={data.closes.meta.timeframe ?? "1d"}
-                listingEnded={id?.listing_ended ?? null}
-              />
-            )}
+            <HistoryChart
+              lanes={data.lanes.rows}
+              closes={data.closes.rows[0]}
+              closeTimeframe={data.closes.meta.timeframe}
+              listingEnded={id?.listing_ended ?? null}
+            />
           </Panel>
 
           <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(460px,100%),1fr))]">
@@ -107,6 +109,7 @@ export default function PassportPage() {
               title="Coverage ledger"
               question="What the fetcher recorded per feed: the span held, the last ask and its failures."
               rows={data.coverage.rows}
+              error={data.coverage.meta.error}
               source={data.coverage.source}
               asOf={data.coverage.as_of}
               tone={(r) => (Number(r.failures ?? 0) > 0 ? "bad" : undefined)}
@@ -117,6 +120,7 @@ export default function PassportPage() {
               title="Restatements"
               question="Vendor re-serves that changed stored bars, flagged by the raw capture."
               rows={data.restatements.rows}
+              error={data.restatements.meta.error}
               source={data.restatements.source}
               asOf={data.restatements.as_of}
               tone={(r) => (r.reviewed_at ? "dim" : undefined)}
@@ -127,6 +131,7 @@ export default function PassportPage() {
               title="Tags"
               question="Current instrument tags: what it is (human) and how it behaves (measured)."
               rows={data.tags.rows}
+              error={data.tags.meta.error}
               source={data.tags.source}
               asOf={data.tags.as_of}
               empty="No current tags."

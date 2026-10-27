@@ -15,11 +15,26 @@ async def apr(config: Any, key: str, default: Any) -> Any:
     return await config.get(key, default)
 
 
+async def stale_hours(config: Any) -> float:
+    """How many hours old a newest row may be before a stage, feed or name shows stale."""
+    return float(await apr(config, "ui.dashboard.stale_hours", 36))
+
+
 async def stale_after(config: Any) -> timedelta:
-    """How old a newest row may be before a stage, feed or name shows stale."""
-    return timedelta(hours=await apr(config, "ui.dashboard.stale_hours", 36))
+    return timedelta(hours=await stale_hours(config))
+
+
+async def ingest_failing_fraction(config: Any) -> float:
+    """The share of a feed's names with fetch failures above which the feed shows failing."""
+    return float(await apr(config, "ui.dashboard.ingest_failing_fraction", 0.1))
 
 
 async def refresh_seconds(config: Any) -> int:
     """The dashboard poll interval, and the TTL of the summary caches."""
-    return await apr(config, "ui.dashboard.refresh_seconds", 60)
+    return int(await apr(config, "ui.dashboard.refresh_seconds", 60))
+
+
+async def passport_refresh_seconds(config: Any) -> int:
+    """The instrument passport's poll interval and cache TTL: a name's history changes about once
+    a day and each read scans every bar it has, so it is longer than the summaries'."""
+    return int(await apr(config, "ui.dashboard.passport_refresh_seconds", 900))

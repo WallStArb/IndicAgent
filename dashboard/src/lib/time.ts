@@ -21,3 +21,12 @@ export function fmtAgo(iso: string | null | undefined, now: number = Date.now())
   else text = `${Math.round(minutes / 1440)}d`;
   return future ? `in ${text}` : `${text} ago`;
 }
+
+const DAY_MS = 86_400_000;
+
+/** A UTC day number (days since the epoch) from an ISO date or timestamp. */
+export const toDay = (iso: string) =>
+  Math.floor(Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso) / DAY_MS);
+
+/** A UTC day number as YYYY-MM-DD. */
+export const dayLabel = (day: number) => new Date(day * DAY_MS).toISOString().slice(0, 10);

@@ -137,7 +137,9 @@ app = FastAPI(
 FastAPIInstrumentor().instrument_app(app)
 
 # The dashboard's passport carries a name's full bar history (hundreds of kB of JSON).
-app.add_middleware(GZipMiddleware)
+# Level 6 against Starlette's default 9: a 554 kB passport compresses to within 2% of level 9 in a
+# third of the time (28 ms against 77 ms), paid on every response including cache hits.
+app.add_middleware(GZipMiddleware, compresslevel=6)
 
 # Configure CORS
 app.add_middleware(
