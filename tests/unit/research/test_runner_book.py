@@ -157,8 +157,8 @@ def test_the_book_reaches_the_admission_check_before_the_ledger(repo, saved_pane
     certificate check in real mode, and a refusal stops the run before the ledger."""
     seen = []
 
-    def spy(kind, kappa, mode, ridge=None):
-        seen.append((kind, kappa, mode, ridge))
+    def spy(kind, kappa, mode, ridge=None, features=()):
+        seen.append((kind, kappa, mode, ridge, features))
         return "refused for the test"
 
     monkeypatch.setattr(runner_mod.certificate, "admission_refusal", spy)
@@ -171,6 +171,7 @@ def test_the_book_reaches_the_admission_check_before_the_ledger(repo, saved_pane
             None,
             "real",
             {"window_sessions": 80, "refit_sessions": 10, "penalty": 1.0, "min_obs": 200},
+            (),
         )
     ]
     assert "start_runs" not in ledger.calls
@@ -319,3 +320,9 @@ def test_synthetic_mode_real_power_and_override(repo):
                 power_replicates=2,
             )
         )
+
+
+def test_member_coverage_counts_only_forecast_cells():
+    present = np.array([[3, 2, 1], [3, 3, 0]])
+    scored = np.array([[True, True, False], [True, False, False]])
+    assert runner_mod._member_coverage(present, scored) == {"2": 1, "3": 2}

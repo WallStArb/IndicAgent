@@ -806,6 +806,19 @@ def _combiner_kind(book: BookSpec) -> str:
     return _COMBINER_KINDS[book.combiner.kind]
 
 
+def _member_coverage(present: np.ndarray, scored: np.ndarray) -> dict[str, int]:
+    """{members present: cells} over the scored cells the combiner forecast (plan 187-09): how
+    often the present-member rule combined fewer than every member."""
+    values, n = np.unique(present[scored], return_counts=True)
+    return {str(int(v)): int(c) for v, c in zip(values, n, strict=True)}
+
+
+def _combiner_features(book: BookSpec) -> tuple[str, ...]:
+    """The combiner's optional rules in use (plan 187-09); each needs its own battery cell."""
+    c = book.combiner
+    return () if c.min_members is None else (f"min_members_{c.min_members}",)
+
+
 def _ridge_settings(book: BookSpec) -> dict:
     c = book.combiner
     return {
@@ -824,13 +837,16 @@ def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) ->
     """The book's S7 combiner, its signs in the member stack's column order."""
     c = book.combiner
     if c.kind == "equal_weight":
-        return EqualWeight(signs=tuple(float(c.signs[k]) for k in member_keys))
+        return EqualWeight(
+            signs=tuple(float(c.signs[k]) for k in member_keys), min_members=c.min_members
+        )
     return RidgeSpec(
         window_rows=c.window_sessions * bps,
         refit_rows=c.refit_sessions * bps,
         penalty=c.penalty,
         embargo=fwd_span(horizon),
         min_obs=c.min_obs,
+        min_members=c.min_members,
     )
 
 
@@ -864,6 +880,7 @@ async def run_book(
         book.horizon_rule.kappa if book.horizon_rule else None,
         mode,
         _ridge_settings(book) if kind == "ridge" else None,
+        _combiner_features(book),
     )
     if refusal is not None:
         raise RunRefused(refusal)
@@ -1038,6 +1055,9 @@ async def run_book(
             horizon_rule=horizon_rule,
         )
         series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
+        stack_present = (
+            np.isfinite(stack).sum(axis=2) if book.combiner.min_members is not None else None
+        )
         del stack
         _log("S8 shift-null diagnostic")
         res, n_shifts = _shift_diagnostic(
@@ -1083,6 +1103,10 @@ async def run_book(
             },
             data_quality=panel.manifest.get("data_quality"),
         )
+        if book.combiner.min_members is not None:
+            record["member_coverage"] = _member_coverage(
+                stack_present, np.isfinite(booked.combined) & trade[:, None]
+            )
         # Design 4.5's parts of the book's L, in sessions (books only; member records unchanged).
         record["memory"] = {
             "member": mem.member,

@@ -263,6 +263,8 @@ class CombinerSpec(BaseModel):
     penalty: float | None = Field(default=None, gt=0)
     min_obs: int | None = Field(default=None, ge=1)
     signs: dict[str, Literal[1, -1]] | None = None
+    # Plan 187-09 (design 4.1): a cell needs this many members present; unset is complete-case.
+    min_members: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _fields_match_kind(self) -> CombinerSpec:
@@ -379,6 +381,7 @@ _OPTIONAL_COMBINER_FIELDS = (
     "penalty",
     "min_obs",
     "signs",
+    "min_members",
 )
 TIMING_STATISTIC = "e17"
 
@@ -435,6 +438,12 @@ def _check_book(book: BookSpec, families: tuple[LoadedSpec, ...]) -> None:
         for field in ("panel", "horizon", "factor_spec"):
             if getattr(f, field) != getattr(first, field):
                 raise ValueError(f"book {book.book}: families disagree on {field}")
+    n_members = sum(len(f.members) for f in models)
+    if book.combiner.min_members is not None and book.combiner.min_members > n_members:
+        raise ValueError(
+            f"book {book.book}: combiner min_members {book.combiner.min_members} exceeds its "
+            f"{n_members} members"
+        )
     if book.combiner.signs is not None:
         members = {f"{f.family}.{m.name}" for f in models for m in f.members}
         if set(book.combiner.signs) != members:

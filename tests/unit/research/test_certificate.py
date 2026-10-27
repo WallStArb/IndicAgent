@@ -107,3 +107,13 @@ def test_certificate_cells_come_from_book_arms():
     }
     assert book_cells(record) == {"ridge": {"0.05": {"rejected": 68, "bound": 67, "holds": False}}}
     assert record_sessions(record) == 4000
+
+
+def test_a_combiner_feature_needs_its_own_cell_at_its_own_value():
+    assert cert.required_cells("equal_weight", None, ("min_members_2",)) == (
+        "equal_weight_min_members_2",
+    )
+    refusal = cert.fitted_book_refusal(
+        "equal_weight", None, "real", GOOD, FP, None, ("min_members_2",)
+    )
+    assert "no certified battery cell equal_weight_min_members_2" in refusal

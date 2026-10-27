@@ -18,6 +18,14 @@ overlaps the first predicted row. Rows p up to the next refit are predicted with
 
 - Complete cases only (D-22): an observation enters training when the target and every member
   are finite; a prediction is NaN where any member is NaN. Nothing is filled.
+- With `min_members` (design 4.1, plan 187-09) training stays complete-case, and a cell with at
+  least `min_members` members present is predicted by the fold's best linear forecast from
+  those members alone: b_P = solve(R_PP + penalty I, c_P) on the same standardized moments
+  (R the members' correlation, c their covariance with the target), applied to z_P. Less
+  information gives a smaller, not an inflated, forecast. (A rescale to the full forecast's
+  spread, proposed in review, was rejected: it gives a lone member with a near-zero
+  coefficient a full-size position.) Complete cells use b itself, bit for bit as without the
+  field.
 - Members are standardized inside each fold on the fold's training moments only (population
   mean and sd of the complete cases); the penalty acts on that standardized scale:
   b = solve(corr + penalty * I, cov(z, y)). A fold with fewer than min_obs observations, a
@@ -56,13 +64,26 @@ class Combiner(Protocol):
 class EqualWeight:
     """The mean over members of sign_k * z_k, z_k member k's cross-sectional z-score per row
     over the complete-case names (every member finite, as D-22); NaN elsewhere, and on a row
-    with fewer than two such names or a member with zero spread. Signs are pre-registered."""
+    with fewer than two such names or a member with zero spread. Signs are pre-registered.
+
+    With `min_members` (design 4.1, plan 187-09) the rule is present-member: each member is
+    z-scored per row over the names where it is finite (positive spread), and a cell is
+    sum over the present members of sign_k * z_k / K, NaN with fewer than `min_members`
+    present. Each member keeps its 1/K weight and an absent member contributes nothing, so a
+    cell built from less information has a smaller forecast (closer to the median rank), the
+    equal-weight analogue of the ridge's subset forecast. Averaging over the present members
+    instead (design 4.1's wording) would give a lone member the full spread and push names
+    with missing members to the extremes (187-09 review). A combining rule, not a fill:
+    nothing is invented."""
 
     signs: tuple[float, ...]
+    min_members: int | None = None
 
     def __post_init__(self) -> None:
         if not self.signs or any(s not in (-1.0, 1.0) for s in self.signs):
             raise ValueError(f"signs must be a non-empty tuple of +1 and -1, got {self.signs}")
+        if self.min_members is not None and not 1 <= self.min_members <= len(self.signs):
+            raise ValueError(f"min_members must be in 1 .. {len(self.signs)}: {self.min_members}")
 
     @property
     def training_rows(self) -> int:
@@ -72,13 +93,18 @@ class EqualWeight:
         if stack.ndim != 3 or stack.shape[2] != len(self.signs):
             raise ValueError(f"stack {stack.shape} does not match {len(self.signs)} signs")
         x = stack.astype(np.float64)
-        complete = np.isfinite(x).all(axis=2, keepdims=True)
-        x = np.where(complete, x, np.nan)
+        if self.min_members is None:
+            complete = np.isfinite(x).all(axis=2, keepdims=True)
+            x = np.where(complete, x, np.nan)
         with warnings.catch_warnings(), np.errstate(invalid="ignore", divide="ignore"):
             warnings.simplefilter("ignore", RuntimeWarning)  # empty rows stay NaN
             sd = np.nanstd(x, axis=1, keepdims=True)
             z = (x - np.nanmean(x, axis=1, keepdims=True)) / np.where(sd > 0, sd, np.nan)
-        return (z * np.asarray(self.signs)).mean(axis=2)
+            if self.min_members is None:
+                return (z * np.asarray(self.signs)).mean(axis=2)
+        present = np.isfinite(z).sum(axis=2)
+        total = np.nansum(z * np.asarray(self.signs), axis=2) / len(self.signs)
+        return np.where(present >= self.min_members, total, np.nan)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -90,6 +116,9 @@ class RidgeSpec:
     penalty: float
     embargo: int
     min_obs: int
+    # Plan 187-09: predict on cells with at least this many members present (see
+    # walk_forward_ridge); None keeps the complete-case prediction.
+    min_members: int | None = None
 
     @property
     def training_rows(self) -> int:
@@ -103,6 +132,8 @@ class RidgeSpec:
             raise ValueError(f"window_rows, refit_rows and embargo must be positive: {self}")
         if not (np.isfinite(self.penalty) and self.penalty >= 0):
             raise ValueError(f"penalty must be finite and non-negative: {self}")
+        if self.min_members is not None and self.min_members < 1:
+            raise ValueError(f"min_members must be at least 1: {self}")
 
 
 def refit_positions(n: int, spec: RidgeSpec) -> np.ndarray:
@@ -195,4 +226,42 @@ def walk_forward_ridge(stack: np.ndarray, target: np.ndarray, spec: RidgeSpec) -
             continue
         rows = p + np.flatnonzero(live[p:q])
         combined[rows] = (stack[rows].astype(np.float64) - mu) @ (b / sd)
+        if spec.min_members is not None:
+            corr = cov / np.outer(sd, sd)
+            _subset_forecast(combined, stack, p, q, mu, sd, corr, rhs, spec)
     return combined
+
+
+def _subset_forecast(
+    combined: np.ndarray,
+    stack: np.ndarray,
+    p: int,
+    q: int,
+    mu: np.ndarray,
+    sd: np.ndarray,
+    corr: np.ndarray,
+    rhs: np.ndarray,
+    spec: RidgeSpec,
+) -> None:
+    """Fill rows p..q-1's incomplete cells with at least min_members present: one small ridge
+    solve per missing-member pattern on the fold's standardized moments (see the module
+    docstring). Complete cells are left as predicted."""
+    if stack.shape[2] < spec.min_members:
+        raise ValueError(f"min_members {spec.min_members} exceeds the {stack.shape[2]} members")
+    z = (stack[p:q].astype(np.float64) - mu) / sd
+    present = np.isfinite(z)
+    count = present.sum(axis=2)
+    partial = (count >= spec.min_members) & (count < z.shape[2])
+    if not partial.any():
+        return
+    patterns, inverse = np.unique(present[partial], axis=0, return_inverse=True)
+    cells = np.argwhere(partial)
+    block = combined[p:q]
+    for j, pattern in enumerate(patterns):
+        k = np.flatnonzero(pattern)
+        try:
+            b = np.linalg.solve(corr[np.ix_(k, k)] + spec.penalty * np.eye(len(k)), rhs[k])
+        except np.linalg.LinAlgError:
+            continue
+        r, i = cells[inverse.ravel() == j].T
+        block[r, i] = z[r, i][:, k] @ b

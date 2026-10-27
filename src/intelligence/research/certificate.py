@@ -43,6 +43,7 @@ CERTIFIED_CODE = (
     ("src/intelligence/research/combiner.py", "_prefix_moments"),
     ("src/intelligence/research/combiner.py", "_row_moments_kernel"),
     ("src/intelligence/research/combiner.py", "walk_forward_ridge"),
+    ("src/intelligence/research/combiner.py", "_subset_forecast"),
     ("src/intelligence/research/timing.py", "MIN_HISTORY_SESSIONS"),
     ("src/intelligence/research/timing.py", "e17_memory"),
     ("src/intelligence/research/timing.py", "timing_series"),
@@ -105,8 +106,17 @@ def code_fingerprint(read: Callable[[str], str]) -> dict[str, str]:
     return out
 
 
-def required_cells(combiner_kind: str, kappa: float | None) -> tuple[str, ...]:
-    """The gating battery cells a fitted book needs; () for an equal-weight, unsmoothed book."""
+def required_cells(
+    combiner_kind: str, kappa: float | None, features: tuple[str, ...] = ()
+) -> tuple[str, ...]:
+    """The gating battery cells a fitted book needs; () for a plain equal-weight, unsmoothed
+    book. `features` are the combiner's optional rules in use (plan 187-09: min_members,
+    refit_anchor, in_fold_signs); each needs its own cell, `<kind>_<feature>`."""
+    extra = tuple(f"{combiner_kind}_{f}" for f in features)
+    return _base_cells(combiner_kind, kappa) + extra
+
+
+def _base_cells(combiner_kind: str, kappa: float | None) -> tuple[str, ...]:
     if combiner_kind == "ridge" and kappa is not None:
         # Only a diagnostic cell (ridge_kappa_hostile) combines the two; nothing certifies it.
         return ("ridge_kappa",)
@@ -124,15 +134,18 @@ def fitted_book_refusal(
     certificate: dict | None,
     fingerprint: dict[str, str],
     ridge: dict | None = None,
+    features: tuple[str, ...] = (),
 ) -> str | None:
     """Why a book may not run in `mode`, or None. Synthetic mode is always open, so the battery
     itself and power checks run. `ridge` is the book's ridge settings (window_sessions,
     refit_sessions, penalty, min_obs); a ridge book is admitted only at the configuration the
     battery certified."""
-    cells = required_cells(combiner_kind, kappa)
+    cells = required_cells(combiner_kind, kappa, features)
     if not cells or mode == "synthetic":
         return None
     what = f"combiner {combiner_kind}, kappa {kappa if kappa is not None else 1}"
+    if features:
+        what += f", {', '.join(features)}"
     if certificate is None:
         return f"{what}: no E17 fitted-book certificate ({CERTIFICATE_PATH})"
     if certificate.get("schema") != SCHEMA:
@@ -168,12 +181,22 @@ def working_tree_fingerprint(root: Path = CODE_ROOT) -> dict[str, str]:
 
 
 def admission_refusal(
-    combiner_kind: str, kappa: float | None, mode: str, ridge: dict | None = None
+    combiner_kind: str,
+    kappa: float | None,
+    mode: str,
+    ridge: dict | None = None,
+    features: tuple[str, ...] = (),
 ) -> str | None:
     """fitted_book_refusal against the running code's certificate and fingerprint, read only
     when a fitted book asks for a non-synthetic run."""
-    if not required_cells(combiner_kind, kappa) or mode == "synthetic":
+    if not required_cells(combiner_kind, kappa, features) or mode == "synthetic":
         return None
     return fitted_book_refusal(
-        combiner_kind, kappa, mode, load_certificate(), working_tree_fingerprint(), ridge
+        combiner_kind,
+        kappa,
+        mode,
+        load_certificate(),
+        working_tree_fingerprint(),
+        ridge,
+        features,
     )
