@@ -92,7 +92,7 @@ This removes the archive-overwrite hazard: there is no archive timeframe path, a
 
 ## Owner exception: Tradier deletion (dated 2026-10-12)
 
-CLAUDE.md says raw market data is permanent except for names excluded under a written data-quality rule. The owner ruled 2026-10-12 that Tradier is not used at all and its data is junk. This design records a second, source-scoped exception: Tradier-sourced rows (`market_data_ohlcv` source `tradier`, `ohlcv_observation` route `TRADIER`, their `ohlcv_load` rows) are deleted after IBKR has been asked for every span Tradier covers and the residue is measured (todo 533, Tradier retirement steps 1-4). Preconditions, in order:
+CLAUDE.md says raw market data is permanent except for names excluded under a written data-quality rule. The owner ruled 2026-10-12 that Tradier is not used at all and its data is junk. This design records a second, source-scoped exception: Tradier-sourced rows (`market_data_ohlcv` source `tradier`, `ohlcv_observation` route `TRADIER`, their `ohlcv_load` rows (amended 2026-10-27: ohlcv_load rows are lineage and stay, like ohlcv_request)) are deleted after IBKR has been asked for every span Tradier covers and the residue is measured (todo 533, Tradier retirement steps 1-4). Preconditions, in order:
 
 1. IBKR 1d depth raised to 9800 days and the planner stops counting Tradier answers as coverage (done, 4fa3db578; the depth change runs).
 2. One full gap-fill cycle completes; measure per name the sessions answered only by Tradier.

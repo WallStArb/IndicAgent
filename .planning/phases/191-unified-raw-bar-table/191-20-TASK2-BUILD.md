@@ -21,7 +21,8 @@ Commit 56fa09baf (another session's) swept the two `infra.tradier_delete.*` pend
 - `tests/integration/test_ops_tradier_delete_scratch.py` (new): the real modes against copies of the seven tables in a throwaway schema on indicagent_test (see "Review fixes").
 - `production/migrations/524_tradier_delete_apr.sql` (new, applied live): `infra.tradier_delete.min_free_disk_gb` = 200, `infra.tradier_delete.batch_symbols` = 20.
 - Boundary tests, each entry marked TEMPORARY retire: 191-25:
-  - `test_ohlcv_load_revision_writer_boundary.py`: one segment each for ohlcv_load and ohlcv_revision.
+  - `test_ohlcv_load_revision_writer_boundary.py`: one ohlcv_revision segment (the ohlcv_load segment left with the simplify pass).
+  - `test_ohlcv_raw_writer_boundary.py`: pattern widened to UPDATE and DELETE FROM; one TEMPORARY entry for the script (simplify pass).
   - `test_ohlcv_coverage_writer_boundary.py`
   - `test_market_data_ohlcv_boundary.py`: raw read.
   - `test_market_data_ohlcv_writer_boundary.py`: writer row plus `_FENCE_EXEMPT`, because the 1d fence test requires it.
@@ -30,10 +31,10 @@ Commit 56fa09baf (another session's) swept the two `infra.tradier_delete.*` pend
 
 ## Tests
 
-- Plan verify command plus the four named boundary and reader tests and the expiry guard: 99 passed (after the second review; 68 script cases).
+- Plan verify command plus the named boundary and reader tests, the raw writer guard, the single-writer registry, the expiry guard and the old-store backup tests: 134 passed (after the simplify pass).
 - Integration test on the scratch schema: 1 passed.
 - `ruff check` and `black --check` are clean on all files I touched.
-- `pytest tests/unit/ -n auto`: 6708 passed, 1 skipped (after the second review; 6700 after the first, 6685 before).
+- `pytest tests/unit/ -n auto`: 6712 passed, 1 skipped (after the simplify pass).
   - One earlier run failed `tests/unit/api/test_research_route.py::test_runs_count_their_groups_and_date_from_the_latest_finish`. That test and `src/api/routes/research.py` carry another session's uncommitted dashboard edits, and the test passed on the next run once their edit settled. It is not mine.
   - A transient xdist "different tests collected" error came from the same concurrent editing.
 
@@ -47,8 +48,8 @@ Commit 56fa09baf (another session's) swept the two `infra.tradier_delete.*` pend
      - It deletes `ohlcv_revision WHERE vendor = 'tradier'` explicitly, and backs those rows up.
      - Its ohlcv_load predicate keeps any Tradier load that owns a revision row of another vendor. The manifest records these as `retained_loads`, and `--verify` checks the count.
      - Each batch checks that the load delete cascades into nothing.
-   - **Owner decision needed at Task 1:** keep those IBKR revision rows (the default) or accept losing them.
-2. **Five tables, not four.** ohlcv_revision is added, as above. So `ls data/backups/191/ | grep -c tradier_` will be 5.
+   - Superseded by the simplify pass (2026-10-27): no ohlcv_load row is deleted, so the IBKR revision rows stay by construction and no owner decision is needed.
+2. **Four value tables.** ohlcv_revision is added and ohlcv_load is dropped (simplify pass), so `ls data/backups/191/ | grep -c tradier_` will be 4.
 3. **Raw and canonical predicates carry `timeframe = '1d'`** (commit 927edc8af). See the risks section. Every Tradier bar is 1d (live: 7,140,397 raw, 6,661,722 canonical), and `--dump` refuses if any Tradier bar of another timeframe exists, so the predicate stays exact.
 4. **`--apply` is required for every write**, including `--trial` and `--dump`. Task 3's commands become `--dump --apply`, `--trial SYMBOL --apply` and `--delete --apply`.
 5. **The ohlcv_request check is stricter on the Tradier rows and looser on the total.** The Tradier-source count must be unchanged, and the total must not shrink (the plan said the total must be equal). This lets the fetcher resume without failing verify.
@@ -65,8 +66,8 @@ Commit 56fa09baf (another session's) swept the two `infra.tradier_delete.*` pend
 - **Slow full scans.**
   - The dump's off-1d guard (`vendor = 'tradier' AND timeframe <> '1d'` on market_data_ohlcv) decompresses every non-1d segment once, read-only. That is slow, probably minutes to tens of minutes.
   - `ohlcv_revision WHERE vendor = 'tradier'` has no vendor index, so every dump or verify count seq-scans the 7.2 GB table. Each `--verify` and each `--delete` start pays this.
-- **The VACUUM list grows.** After the delete, also run bare `VACUUM ohlcv_revision;` (the plan lists only raw, canonical and ohlcv_load). ohlcv_load and ohlcv_revision are plain tables, not hypertables.
-- **ohlcv_restatement_flag** references ohlcv_load with ON DELETE RESTRICT. There are 0 rows on Tradier loads today, and `--delete` refuses if any appear.
+- **The VACUUM list changes.** After the delete, run bare `VACUUM ohlcv_raw;`, `VACUUM market_data_ohlcv;` and `VACUUM ohlcv_revision;`. The plan's `VACUUM ohlcv_load;` is moot, since no load row is deleted. ohlcv_revision is a plain table, not a hypertable.
+- **ohlcv_restatement_flag** references ohlcv_load with ON DELETE RESTRICT; no load is deleted, so it no longer bears on the run (the gate was removed in the simplify pass).
 - **ohlcv_coverage has 0 Tradier rows today.** Its backup file will be empty, and no symbol has Tradier rows in all four of the plan's tables. Task 3's "a symbol with rows in all four tables" cannot be met, so pick a trial symbol with raw, canonical and load rows.
 - **bar_derivation must stay stopped between `--dump` and the last batch.** If the daily stage rewrites canonical Tradier 1d rows in that window, the per-batch count check rolls back and aborts the batch, which is loud but stops the run.
 - **Free disk is read on `/` by default.** The database volume (/var/lib/docker/volumes/production_timescale-data) and data/backups/ both sit on that filesystem. Use `--disk-path` to override.
@@ -93,14 +94,24 @@ Second review (2026-10-27), five LOW items (tests 5c9dd8809, fix 29254ba87):
 12. **Isolation reset.** `delete_batch` resets the connection to READ COMMITTED in a `finally`, refusals included.
 13. **Production schema.** The production `_connect` refuses a session whose `current_schemas(false)` is not `['public']`, so the unqualified table names can only reach the real tables there.
 
+## Simplify pass 2026-10-27
+
+Tests 03585d8eb, refactor 9f2d4da3a. The script is 57 lines shorter; the five touched files are 40 lines shorter net.
+
+- **ohlcv_load stays (design change).** Load rows are write lineage with no bar values, like ohlcv_request, so the delete covers only value rows: ohlcv_revision vendor tradier, raw and canonical 1d tradier, coverage provider tradier. Gone with it: the foreign-revision load exclusion, the cascade check, the retained-load count and check, the restatement-flag gate, the ohlcv_load backup file and its ohlcv_load writer-guard segment. The IBKR revision count under Tradier loads stays in the manifest and verify. The design doc's Owner exception carries the amendment.
+- **Raw writer guard.** `test_ohlcv_raw_writer_boundary.py` now also matches `UPDATE` and `DELETE FROM`; the only hit outside the raw writer is this script, allow-listed TEMPORARY retire: 191-25. No other existing hit.
+- **Structure.** One `repeatable_read` context (batch, verify, dump; resets isolation in `finally`), `delete_batch` merged with its transaction body, one `_run_one_batch` for the trial and the batches, one `_trial_report` builder, one `_per_table` reader with `_count_sql`/`_digest_sql`, one `_BAR_1D_PREDICATE`. `run_delete` refuses a missing or mismatched manifest first (`_bound_manifest`) and `apply_delete` takes a non-optional manifest. The settlement fold lives in its one caller. Manifest `per_symbol` is `{symbol: [rows, md5]}`; table rows and expected counts derive from it. The unread `state["complete"]` and the dead `setdefault` are gone, as is the source-text test for `xb`/fsync.
+- **Reuse and efficiency.** `sha256_of_file` and `_HashingWriter` come from `ops_old_store_backup` (both retire at 191-25); the dump hashes each file while writing; verify recounts a file's CSV records only when its sha256 differs; `--dump --apply` takes counts from the digest pass instead of a separate count pass; `--disk-path` defaults to APR `infra.compressed_hypertable_write_session.disk_path`.
+- **Skipped, as directed.** `DELETE ... RETURNING` merged with the digest (it would cost the compressed fast path for a small gain) and merging the dump digest with the COPY.
+
 ## Task 3 notes
 
 - **Stop list.** From the first trial or batch until the 1d re-derive is done, stop every writer of the five tables and every consumer of canonical 1d (`market_data_ohlcv` and `market_data_ohlcv_tradeable`), not only the fetcher and bar_derivation. Scheduled on 2026-10-27 (`systemctl list-timers --all | grep indicagent`): `indicagent-ibkr-history-fetcher`, `indicagent-bar-derivation-grid`, `indicagent-bar-reconciliation-audit` (D7), `indicagent-alpaca-nightly`, `indicagent-dividend-event-writer-yahoo`, `indicagent-regime-coverage-auditor`, `indicagent-gateway-auth-probe` (harmless, no bar reads). Running services: `indicagent-feature-vector-writer`. Cron: the hourly `ops_tradier_residue_gate.sh`. No regime-writer, ic-measure or feature batch timer is installed today; recheck both commands and crontab at Task 3 and stop any feature, regime-writer, ic-measure or other 1d consumer found then, plus any manual 186-26 or feature backfill run.
-- **ohlcv_load criterion.** With 743 retained Tradier loads today (the loads owning the IBKR revision rows), Task 3's done criterion "`select count(*) from ohlcv_load where source='tradier'` prints 0" becomes "prints the manifest's `retained_loads`" (plus any held-back names' loads). The owner rules on keeping them at Task 1.
+- **ohlcv_load criterion.** ohlcv_load rows are lineage and stay (design doc amendment 2026-10-27), so Task 3's done criterion "`select count(*) from ohlcv_load where source='tradier'` prints 0" becomes "ohlcv_load Tradier rows unchanged" (5,601 on 2026-10-27: 4,127 market_data_ohlcv, 1,455 d1, 19 raw destinations).
 - **TSV n_tradier.** The TSV's `n_tradier_sessions` comes from plan 19's measure, which leaves out raw rows whose request has a `test-%` caller; the delete itself takes every Tradier row. The owner should know the TSV count can be lower than the deleted raw count for a name.
 - **Check the trial's raw row count.** ohlcv_raw is segmented by vendor, so its Tradier delete may take TimescaleDB's compressed-batch path. Check in the trial report that `tables.ohlcv_raw.rows` equals the manifest's count for the symbol; the batch already refuses a mismatch, but if the compressed path reports a wrong rowcount, every batch would refuse and the run stops at the trial.
-- **Commands.** `--dump --apply [--hold A,B]`, `--verify`, `--trial SYMBOL --apply`, `--delete --apply`, then `--verify --require-complete`, then the four bare VACUUMs (raw, canonical, ohlcv_load, ohlcv_revision).
+- **Commands.** `--dump --apply [--hold A,B]`, `--verify`, `--trial SYMBOL --apply`, `--delete --apply`, then `--verify --require-complete`, then the three bare VACUUMs (raw, canonical, ohlcv_revision).
 
 ## Self-check: passed
 
-Commits df7eeab18, dd02a6f27, 927edc8af, 39e64670a, 90ea7f984, 5c9dd8809 and 29254ba87 are on origin/main. The script, tests and migration exist, and both APR keys are live in config_state.
+Commits df7eeab18, dd02a6f27, 927edc8af, 39e64670a, 90ea7f984, 5c9dd8809, 29254ba87, 03585d8eb and 9f2d4da3a are on origin/main. The script, tests and migration exist, and both APR keys are live in config_state.
