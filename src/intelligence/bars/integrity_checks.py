@@ -313,12 +313,7 @@ def judge_name_1d(
     contradicted = policy_conformance(
         [(d, values.vendor, values.kind) for d, values in stored.items()],
         inputs.policy_rows,
-        servable_primary_dates(
-            inputs.observations,
-            inputs.splits,
-            basis_window_sessions=thresholds.basis_window_sessions,
-            basis_tolerance_bp=thresholds.basis_tolerance_bp,
-        ),
+        servable_primary_dates(inputs.observations, inputs.splits),
         symbol=symbol,
     )
     verdicts.append(verdict("policy_conformance", not contradicted, len(contradicted), 0.0))

@@ -44,7 +44,7 @@ per run) and the corporate_action_current splits with their evidence, and run th
 (src/intelligence/bars/daily_rule.py): the source the policy row of each date names, IBKR as a
 recorded head, a basis-tested interior fallback, or the basis-tested restated answer where the
 primary answered only on a stale scale (data layer integrity design section 2 and the
-Amendment 2026-10-07; plan 185-52), with the Alpaca zero-volume and listing guards (D-191-Q). The
+Amendment 2026-10-07; plan 185-52), with the zero-volume guards (D-191-Q). The
 canonical bars
 are classified by the write contract against the stored 1d rows of every canonical
 (vendor, kind) pair (CANONICAL_1D_SOURCES), with
@@ -400,8 +400,7 @@ _DAILY_REPORT_COLUMNS = (
     "held",
     "restated",
     "zero_volume",
-    "pre_start",
-    "alpaca_start",
+    "zero_volume_fallback",
 )
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
@@ -629,8 +628,7 @@ class _DailyResult:
     held: str = ""
     restated: int = 0
     zero_volume: int = 0
-    pre_start: int = 0
-    alpaca_start: str = ""
+    zero_volume_fallback: int = 0
 
     def report_row(self) -> dict[str, str]:
         values: dict[str, Any] = {
@@ -653,13 +651,6 @@ def _stored_group(vendors: set[str]) -> str:
     if vendors == {"ibkr"}:
         return "ibkr_only"
     return "tradier_only" if vendors == {"tradier"} else "mixed"
-
-
-def _date_span(days: list[date]) -> dict[str, Any] | None:
-    """A long date list as its count and ends (a predecessor splice can span a decade)."""
-    if not days:
-        return None
-    return {"n": len(days), "first": days[0].isoformat(), "last": days[-1].isoformat()}
 
 
 def _batch_status(failed: list[str], n_written: int) -> str:
@@ -1696,8 +1687,7 @@ class BarDerivation(BaseBatch):
             stale_only=len(derived.stale_only),
             restated=len(derived.restated),
             zero_volume=len(derived.zero_volume),
-            pre_start=len(derived.pre_start),
-            alpaca_start=derived.alpaca_start.isoformat() if derived.alpaca_start else "",
+            zero_volume_fallback=len(derived.zero_volume_fallback),
             revision_ratio=ratio,
             revision_flag=flagged,
             would_refuse=would_refuse,
@@ -1766,8 +1756,9 @@ class BarDerivation(BaseBatch):
                         "stale_only": [d.isoformat() for d in derived.stale_only],
                         "restated": [d.isoformat() for d in derived.restated],
                         "zero_volume": [d.isoformat() for d in derived.zero_volume],
-                        "pre_start": _date_span(derived.pre_start),
-                        "alpaca_start": result.alpaca_start or None,
+                        "zero_volume_fallback": [
+                            d.isoformat() for d in derived.zero_volume_fallback
+                        ],
                     }
                 ),
                 _DAILY_LOAD_CALLER,
@@ -2177,7 +2168,7 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
         "stale_only": sum(r.stale_only for r in results),
         "restated": sum(r.restated for r in results),
         "zero_volume": sum(r.zero_volume for r in results),
-        "pre_start": sum(r.pre_start for r in results),
+        "zero_volume_fallback": sum(r.zero_volume_fallback for r in results),
         "revision_flag": sum(r.revision_flag for r in results),
         "would_refuse": sum(r.would_refuse for r in results),
         "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),

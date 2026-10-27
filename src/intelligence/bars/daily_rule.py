@@ -41,30 +41,24 @@ raises) names the primary and fallback source:
     canonical bar and is listed in refused_interior. Tradier observations end at 2026-10-06 (the
     loader is deleted, plan 185-48), so no Tradier re-ask exists; IBKR's latest answer is.
 
-Alpaca guards (d2-v4, D-191-Q). Alpaca is keyed by ticker, IBKR by contract, so two things an
-Alpaca daily answer can carry never reach canonical:
+Alpaca (d2-v4, D-191-Q). Which vendor serves a date is the policy's decision, never the rule's:
+under an Alpaca-primary row Alpaca serves every session it answered with a trade, and IBKR falls
+back only where Alpaca has no tradeable bar. Where Alpaca's level is wrong for the contract (a
+spin-off its split adjustment leaves unadjusted, a reused ticker splicing a predecessor), a dated
+IBKR symbol row says so, written from the three-vendor arbitration while Tradier still exists
+(src/intelligence/bars/vendor_arbitration.py, scripts/ops/bars/ops_d191q_arbitration.py). A
+runtime agreement test inside the rule was tried and rejected (review of 2026-10-27): it trusted
+IBKR wherever the two disagreed, which Tradier shows is often false (OKE drifts 0.76 to 1.42,
+RJF is exactly 2/3 before 2021-09-22), and its start date depended on future data. Two guards
+remain, both about tradeability, not about which vendor is right:
 
 - a zero-volume (or volume-less) Alpaca bar is no trade: Alpaca serves carry-forward placeholders
   across dead-ticker gaps. It is dropped before anything else reads it (no basis measurement, no
   head) and listed in zero_volume; the session falls to the IBKR fallback under the ordinary
   interior or head rule, or has no bar;
-- an Alpaca bar before the name's listing. No point-in-time listing date exists for the universe
-  (instrument_metadata.listing_date covers 63 of 166 rows and is overwritten in place;
-  listing_venue.valid_from and ohlcv_provider_head are IBKR's own first bar). The listing is
-  therefore read from the contract-keyed vendor: the Alpaca span starts at alpaca_start, the
-  first session both vendors answered where IBKR's current close agrees with Alpaca's within
-  basis_tolerance_bp on that session and in the median over the basis_window_sessions common
-  sessions from it (the head seam test). A splice of a predecessor that trades on before the
-  contract's regular-way start (AA, 2016-10-18 to 10-31: IBKR's when-issued bars at 16 against
-  the old Alcoa at 80 under the same ticker) fails the session test, so it is cut too, which a
-  bare "IBKR has a bar" anchor would not do. Alpaca dates before alpaca_start are listed in
-  pre_start and never served; a name with no agreeing session has no Alpaca span (alpaca_start
-  None), and its IBKR fallback is the series. Tradier, also ticker-keyed, keeps d2-v3 unguarded.
-  The same test refuses a basis difference that is not identity: IBKR (like Tradier) adjusts its
-  history for spin-offs, Alpaca's split adjustment does not (measured 2026-10-27: IBKR/Alpaca
-  0.9718 on ILMN before 2024-06-25, 0.7557 on WDC before 2025-02-24, 0.8265 then 0.9898 on J),
-  so an Alpaca span starts after the last such event in IBKR's adjusted history. Serving
-  Alpaca's unadjusted level there would put the spin-off on the ex-date as a false return.
+- under an Alpaca primary, a zero-volume IBKR fallback bar is never served either: the session
+  has no bar and is listed in zero_volume_fallback. (Under a Tradier or IBKR primary d2-v3 is
+  unchanged.)
 
 Session dates: the raw read dates each series by its own stamp convention
 (RAW_DAILY_SESSION_ZONE, raw_session_date): IBKR and Tradier stamp 1d at 00:00 UTC, Alpaca at
@@ -218,11 +212,10 @@ class DailyV2Result:
     # Dates whose primary answered only on a stale scale and whose fallback's current-scale
     # answer was served instead (d2-v3).
     restated: list[date] = field(default_factory=list)
-    # d2-v4 Alpaca guards (module docstring): zero-volume Alpaca dates, Alpaca dates before the
-    # span start, and the span start (None: no agreeing session, no Alpaca span).
+    # d2-v4 guards (module docstring): zero-volume Alpaca dates, and dates whose only fallback
+    # under an Alpaca primary was a zero-volume IBKR bar.
     zero_volume: list[date] = field(default_factory=list)
-    pre_start: list[date] = field(default_factory=list)
-    alpaca_start: date | None = None
+    zero_volume_fallback: list[date] = field(default_factory=list)
 
 
 def observation_from_raw(
@@ -493,36 +486,15 @@ def _within(ratio: float | None, tolerance_bp: float) -> bool:
     return ratio is not None and abs(ratio - 1.0) * BP <= tolerance_bp
 
 
-def _alpaca_start(
-    ratios: dict[date, float], window_sessions: int, tolerance_bp: float
-) -> date | None:
-    """The first common session where IBKR agrees with Alpaca on the session itself and in the
-    median of the window_sessions common sessions from it (module docstring, Alpaca guards)."""
-    common = list(ratios)
-    for i, day in enumerate(common):
-        if _within(ratios[day], tolerance_bp) and _within(
-            _median_ratio(common[i : i + window_sessions], ratios), tolerance_bp
-        ):
-            return day
-    return None
-
-
 @dataclass(frozen=True)
 class _Screened:
-    """The vendor-day pools after the Alpaca guards, and what the guards kept out."""
+    """The vendor-day pools after the zero-volume guard, and the Alpaca dates it dropped."""
 
     days: dict[str, dict[date, _VendorDay]]
     zero_volume: list[date]
-    pre_start: list[date]
-    alpaca_start: date | None
 
 
-def _screen(
-    observations: Sequence[Observation],
-    splits: Sequence[SplitRecord],
-    window_sessions: int,
-    tolerance_bp: float,
-) -> _Screened:
+def _screen(observations: Sequence[Observation], splits: Sequence[SplitRecord]) -> _Screened:
     is_alpaca = [_ROUTE_VENDOR.get(o.route) == VENDOR_ALPACA for o in observations]
     traded = {
         o.bar_date for o, a in zip(observations, is_alpaca, strict=True) if a and _is_trade(o)
@@ -534,26 +506,16 @@ def _screen(
         [o for o, a in zip(observations, is_alpaca, strict=True) if not a or _is_trade(o)],
         splits,
     )
-    alpaca = days[VENDOR_ALPACA]
-    start = _alpaca_start(
-        _basis_ratios(alpaca, days[VENDOR_IBKR], splits), window_sessions, tolerance_bp
-    )
-    days[VENDOR_ALPACA] = {d: v for d, v in alpaca.items() if start is not None and d >= start}
-    pre_start = sorted(d for d in alpaca if start is None or d < start)
-    return _Screened(days, zero_volume, pre_start, start)
+    return _Screened(days, zero_volume)
 
 
 def servable_primary_dates(
-    observations: Sequence[Observation],
-    splits: Sequence[SplitRecord],
-    *,
-    basis_window_sessions: int,
-    basis_tolerance_bp: float,
+    observations: Sequence[Observation], splits: Sequence[SplitRecord]
 ) -> dict[str, frozenset[date]]:
     """Per primary that names a fallback (Tradier, Alpaca): the dates it can serve on the
-    current scale, after the Alpaca guards. Where it cannot, an (ibkr, fallback) bar conforms to
-    the policy (integrity_checks.policy_conformance)."""
-    days = _screen(observations, splits, basis_window_sessions, basis_tolerance_bp).days
+    current scale, after the zero-volume guard. Where it cannot, an (ibkr, fallback) bar conforms
+    to the policy (integrity_checks.policy_conformance)."""
+    days = _screen(observations, splits).days
     return {
         vendor: frozenset(d for d, v in days[vendor].items() if v.current is not None)
         for vendor in FALLBACK_FOR
@@ -612,7 +574,7 @@ def derive_daily_v2(
     """The canonical 1d bars of one symbol under d2-v4 (module docstring)."""
     if basis_window_sessions < 1:
         raise ValueError("basis_window_sessions must be at least 1")
-    screened = _screen(observations, splits, basis_window_sessions, basis_tolerance_bp)
+    screened = _screen(observations, splits)
     days = screened.days
     frames = {
         vendor: _BasisFrame.build(
@@ -631,6 +593,7 @@ def derive_daily_v2(
     refused: list[date] = []
     stale_only: list[date] = []
     restated: list[date] = []
+    zero_volume_fallback: list[date] = []
 
     for day in axis:
         policy = resolve_policy(policy_rows, symbol, day)
@@ -646,6 +609,7 @@ def derive_daily_v2(
             if (
                 fallback is not None
                 and fallback.current is not None
+                and (vendor != VENDOR_ALPACA or _is_trade(fallback.current))
                 and frame is not None
                 and frame.within_tolerance(day, basis_window_sessions, basis_tolerance_bp)
             ):
@@ -658,6 +622,9 @@ def derive_daily_v2(
             continue
         if fallback.current is None:
             stale_only.append(day)
+            continue
+        if vendor == VENDOR_ALPACA and not _is_trade(fallback.current):
+            zero_volume_fallback.append(day)
             continue
         if frame.head is None:
             # No primary answer at all: nothing to splice against, the fallback is the series.
@@ -703,8 +670,7 @@ def derive_daily_v2(
         refused_head=refused_head,
         restated=restated,
         zero_volume=screened.zero_volume,
-        pre_start=screened.pre_start,
-        alpaca_start=screened.alpaca_start,
+        zero_volume_fallback=zero_volume_fallback,
     )
 
 
