@@ -88,6 +88,15 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
 
+- **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
+  (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
+  on the 187-08 battery run. Cross-AI review of 187 (Codex and AGY, 187-REVIEWS.md): code fixes
+  1e2d26419 and 7d8a14de2, amendments in plans 08-18. StepM: the 1,500-session battery failed two
+  cells; at 4,000 sessions both hold; owner decision 2026-10-27: the attestation is a complete
+  13-cell run at 4,000 sessions (next run). Plan 09 in-fold signs: trailing (owner 2026-10-27).
+  E17 amended: L adds a daily target's reach (`timing.e17_memory`; intraday unchanged). Daily
+  residual family (441 + 423) built to its battery (ee8c264df); prereg draft; h = 21 waits on
+  todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) still waits on the owner.
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
@@ -120,16 +129,17 @@ coordinate through cross-session messages before touching shared files.
 | Lane | Session | Boundary |
 |---|---|---|
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
-| Research: phase 187 planning | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*` |
+| Research: phase 187 (08-15), family 2 run, daily residual family | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
+| Research: phase 184 | indicagent-24 | `.planning/phases/184-*`; research code on 5b's go |
 
 Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
 
 ## Decisions waiting on the owner
 
-- Research lane restart (2026-10-27): the 187-03 backfill replays (8 of 20 left, then `--apply`)
-  and the 187-05 full 13-cell StepM battery were stopped by the session memory reaper before
-  finishing; 5b restarts them on the owner's go-ahead. Recommended: one at a time, battery first,
+- Research lane restart (2026-10-27): the StepM battery was restarted on the owner's go (and is
+  now judged at 4,000 sessions, owner decision). The 187-03 backfill replays (8 of 20 left, then
+  `--apply`) still wait on the owner's go-ahead. Recommended: one at a time,
   launched outside the Claude session with a memory cap (`systemd-run --user -p MemoryMax=...`)
   so a cap breach fails in its own log and a dying session cannot take the run with it.
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo

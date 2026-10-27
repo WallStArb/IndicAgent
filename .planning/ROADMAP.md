@@ -569,9 +569,11 @@ recipe book's feature domain: a base-versus-interaction composition key replaces
 the phase 183 runner's M = 30 accounting stays in force.
 **Order (owner 2026-10-27):** plans 08-15 first; 16, 17 and 18 and the FK indexes move after the
 first feature family, since none of them is needed to test one.
-**Plans:** 18 plans. Status 2026-10-27: plans 01-07 landed. 03's backfill run and 05's full
-battery run are pending (stopped by the session memory reaper; restart waits on the owner), so
-no StepM selection set counts as a result yet. Plan 18 renames the research package and waits
+**Plans:** 18 plans, each with review amendments (Codex and AGY, 187-REVIEWS.md). Status
+2026-10-27: plans 01-07 landed; 08 Tasks 1-2 landed, Task 3 waits on its battery run. StepM:
+the attestation is a complete 13-cell battery at 4,000 sessions (owner decision 2026-10-27;
+at 1,500 sessions two cells failed, at 4,000 both hold); until it runs and holds, no selection
+set counts as a result. 03's backfill (8 of 20 replays, then `--apply`) waits on the owner. Plan 18 renames the research package and waits
 until family 2's one evidence run (after plan 191-20's 1d re-derive) has finished; plans 08-17 do not
 move a recorded spec hash and proceed now.
 
@@ -584,7 +586,7 @@ Plans:
 - [x] 187-05-PLAN.md - StepM through the E17 H0 battery (code landed; full 13-cell run pending)
 - [x] 187-06-PLAN.md - the E18 switch: exploration mode, no M refusal, select_books, migration 516
 - [x] 187-07-PLAN.md - ConstructionRule protocol, five rules, E17 parity harness
-- [ ] 187-08-PLAN.md - horizon rule (fourth part of the book) and the E17 memory rule for fitted books
+- [ ] 187-08-PLAN.md - horizon rule (fourth part of the book) and the E17 memory rule for fitted books (Tasks 1-2 landed)
 - [ ] 187-09-PLAN.md - combining rules: missing members, in-fold signs, calendar-anchored refits
 - [ ] 187-10-PLAN.md - pod books (P&L-level combination across clocks)
 - [ ] 187-11-PLAN.md - recipe book identity and recipe writes on the clean schema
