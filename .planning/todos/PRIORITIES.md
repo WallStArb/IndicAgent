@@ -49,8 +49,8 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Lane | Order |
 |---|---|
-| Data (phase 191, 18/25) | 191-19 Task 2 (residue report) -> 191-20 (owner approves the Tradier deletion; 1d re-derive) -> 191-21 and 191-23 (23 ahead of 22 if nothing in 22 is a prerequisite; otherwise 21 -> 22 -> 23) -> start 186-26; 191-22, 24 and 25 land while the rebuild runs |
-| Build (phase 186, 25/29) | 186-17 Task 2 in a fetcher gap -> 186-26 rebuild (starts once 191-21 and 191-23 are in) -> 186-27 -> 186-28 (tf set from 471) |
+| Data (phase 191, 18/25) | 191-19 Task 2 (residue report) -> 191-20 (owner approves the Tradier deletion; 1d re-derive) -> 191-21 -> 22 -> 23 (23 depends on 22's integrity_checks changes; decided 2026-10-27) -> start 186-26; 191-24 and 25 land while the rebuild runs |
+| Build (phase 186, 25/29) | 186-17 Task 2 in a fetcher gap -> 186-26 rebuild (starts once 191-21..23 are in) -> 186-27 -> 186-28 (tf set from 471) |
 | Research inputs (phase 184, plan now) | `/gsd-plan-phase 184`: S0 reads `feature_vectors` across timeframes through the causal align node (todo 435 is its B1). Runs on the rebuilt table once 186-27 swaps it in; planning and the align node's code need no rebuilt data |
 | Research core (phase 187) | Selection core first: plans 08-15 (horizon and combining rules, pod books, recipe book, cards, contribution accounting, `generated_family`). Governance moves after the first feature family: 187-16 (DAG manifest, auditor inventory), 187-17 (per-writer DB roles), 187-18 (package renames), FK indexes |
 | Testing (unpauses at 191-20's re-derive) | Family 2's one evidence run; daily price-only families 441 + 423, then 440; after the rebuild and 184: feature families, then regime-segmented ones (466 and 481 fold into the rebuild) |

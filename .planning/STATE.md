@@ -45,9 +45,10 @@ bullets with current facts.
 ## Current position (2026-10-26)
 
 **Critical path (reordered 2026-10-27):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
-the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 and 191-23, the two plans
-that edit modules the rebuild imports (23 ahead of 22 only if 22 is not its prerequisite) ->
-186-26 feature rebuild, with 191-22, 24 and 25 landing alongside -> 186-27 -> 184 feature families.
+the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23 (decided
+2026-10-27: 23 depends on 22, whose integrity_checks changes bar_reconciliation_audit consumes;
+21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild, with
+191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
 Research lane in parallel: plan 184 now, 187 plans 08-15.
 
 - **Phase 191 (unified raw bar table, todo 533): 18 of 25 plans done.** Plans 01 to 18 landed and
