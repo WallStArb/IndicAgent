@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-26T14:45:00.000Z"
+last_updated: "2026-10-27T00:13:38.347Z"
 progress:
   total_phases: 9
   completed_phases: 2
-  total_plans: 130
-  completed_plans: 120
+  total_plans: 148
+  completed_plans: 128
   percent: 22
 ---
 
@@ -53,6 +53,7 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   were dropped, todo 530 closed). Canonical is `market_data_ohlcv` keyed by (vendor, kind), a pure
   function of `ohlcv_raw` plus `bar_source_policy`; the selection gate (`ops_selection_gate.py
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
+
 - **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
   (amended 2026-10-23). 2026-10-26 09:14Z: 1,113 settled, 412 unsettled, 4 frozen. A full-scan
   compute_1d pass over the 412 has run since 12:23Z (`logs/plan19_fullscan_20261026.log`, budget
@@ -60,32 +61,40 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at :47) runs readiness and, once it exits
   0, writes `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
   completed_plans stays 120 until plan 19 closes.
+
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so
   no IBKR bars landed 2026-10-17 to 2026-10-25; the backlog is catching up. Fixed today: explicit-UTC
   request end (540), an out-of-range client id no longer restarts the gateway (542), and the
   fetcher lock survives `idle_session_timeout` (543; before it, any run over an hour lost its lock).
+
 - **Alpaca nightly (todo 521):** `indicagent-alpaca-nightly.timer` installed 2026-10-26 (04:40
   UTC). It asks SIP with its window end held 20 minutes back (migration 513; the free plan 403s
   only a window ending within about 15 minutes of now). IEX answers are kind `iex_rth`, raw only,
   never selected. A one-time 20-day SIP catch-up is running
   (`logs/alpaca_nightly_catchup_20261026.log`) and fills canonical 5m where IBKR has no session.
+
 - **186-26 rebuild preconditions:** the selection gate exits 0, canonical 1d is current, plans
   through 191-25 have landed, and canonical 5m is caught up past the 2026-10-17..25 gap (the
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
+
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
   blocker for daily attempts 3/3b/4 is cleared; the build-first pause (owner 2026-09-27) still
   holds. Family 2's evidence run (187's gate) is approved for one run after plan 191-25 lands. `build_panel` refuses any end past `alpha.validation.oos_start` (2025-12-24, write-once).
+
 - **Frozen and ended names (todo 519):** WBD, QRVO, CCO ended (merger or buyout); PSKY trades as
   SKYD on NYSE and IBKR re-served its history on a 0.979 scale. Parked as non-critical; the
   rebuild gate already skips stale names.
+
 - **Other phases:** 185 done (53 plans); 186 at 25/29 (17 Task 2, 26, 27, 28 left; 186-14 open);
   189 and 190 are functionally done with stale ROADMAP boxes (189-09, 189-10, 189-11 verification
   items; 190-06/07 landed per their summaries).
+
 - **Universe:** 1,529 active, all intraday scope (owner 2026-10-09); 1,502 `compute_eligible_1d`.
   Never deactivate a name (onboarding SOP rule 6).
+
 - **Data freshness:** features and regimes stale since 2026-08-10 until the 186-26 rebuild; check
   `max(timestamp)` before citing freshness.
 
@@ -111,6 +120,14 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
   537 item 2 basis restore). Every other owner decision is closed (2026-10-26).
+
+D-191-P applied 2026-10-27 00:20Z (migration 520 retirement, ba03e9ff7; plan file
+`data/policy_plans/2026-10-26-d191p-5m-alpaca-primary.json`): live 5m policy is two defaults, IBKR
+before 2016-01-04 and Alpaca then IBKR from it; 1,641 symbol rows retired. The reselect of the 267
+names whose canonical changes runs detached (`logs/d191p_reselect_20261027.log`, about 63 s per
+name, about 4.7 h), then `scripts/ops/bars/ops_d191p_followon.sh` re-derives their grid in full and
+runs the selection gate over all 5m (`logs/d191p_followon_20261027.log`). No 5m snapshot and no
+186-26 until that gate exits 0 (research lane holding).
 
 Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
 Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
