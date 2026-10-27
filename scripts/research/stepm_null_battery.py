@@ -15,6 +15,7 @@ gate. Synthetic only: no database, no ledger. Writes one JSON record.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import sys
@@ -26,6 +27,7 @@ from scipy.stats import binom
 
 sys.path.insert(0, ".")
 from services._batch_utils import make_worker_pool  # noqa: E402
+from src.intelligence.statistics import stepm as stepm_module  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 
 _BOUND_QUANTILE = 0.99
@@ -48,6 +50,11 @@ def simulate_stepm(args: tuple) -> tuple[str, bool, float]:
         studentize=studentize,
     )
     return sc.name, bool(out.selected.any()), float(out.adjusted_p.min())
+
+
+def stepm_source_sha256() -> str:
+    """The content hash of the StepM module a battery record attests."""
+    return hashlib.sha256(Path(stepm_module.__file__).read_bytes()).hexdigest()
 
 
 def summarize(name: str, hits: list[bool], fwer: float, diagnostic: frozenset) -> dict:
@@ -113,6 +120,10 @@ def main() -> int:
     record = {
         "schema": "stepm_null_battery_v1",
         "battery": args.battery,
+        # select_books accepts a record as its attestation only when it covers every cell and
+        # was run on the StepM code it is about to use.
+        "complete": args.cells is None,
+        "stepm_sha256": stepm_source_sha256(),
         "sims_per_cell": args.sims,
         "reps": args.reps,
         "block_mean": args.block_mean,
@@ -125,7 +136,8 @@ def main() -> int:
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(record, indent=2))
-    print("FWER HOLDS" if not failures else f"FWER FAILS: {failures}")
+    verdict = "FWER HOLDS" if not failures else f"FWER FAILS: {failures}"
+    print(verdict if record["complete"] else f"{verdict} (partial run: not an attestation)")
     return 1 if failures else 0
 
 

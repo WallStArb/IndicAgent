@@ -22,4 +22,5 @@ Run state: the dry run replayed 12 of the 20 family 1 runs (h2, h26, h4) exactly
 the session's memory reaper stopped it. Remaining: a dry run of `--specs
 research/specs/family1_h8.yaml research/specs/family1_intraday_periodicity.yaml`, then
 `--apply` over all 20 once every replay is equal. Both wait on the owner's restart go-ahead.
-Until then `select_books.py` needs `--disclose-missing` for these runs.
+Until then `select_books.py` refuses (a missing series is not a result) and only
+`--diagnostic` prints a set, marked `"result": false`.

@@ -16,9 +16,12 @@ requirements: [R-187-07]
   diagnostic; `run_spec.py --mode exploration` (family specs only, a book spec is refused
   before any I/O with exit 2).
 - `scripts/research/select_books.py`: StepM over every charged attempt of the vintage from
-  `research_run_series` (statuses other than refused and guard_failed, `started` included); a
-  charged run without a series refuses unless `--disclose-missing`, which lists it with its
-  status. A book's horizon is the longest of its families'.
+  `research_run_series` (statuses other than refused and guard_failed, `started` included). A
+  book's horizon is the longest of its families'. After the Codex review (2026-10-27) a set is
+  a result only when every charged run has a series, no charged run sits on another vintage,
+  and `--battery` names a complete passing StepM battery record on this StepM code;
+  otherwise it refuses, and `--diagnostic` prints the set marked `"result": false` (exit 3).
+  StepM's adjusted p-values are now (k + 1) / (reps + 1).
 - Migration 516 (applied live): `alpha.selection.stepm.{fwer 0.05, block_mean_sessions 20,
   reps 2000, seed 187}`; budget_m and screen_alpha descriptions restated for E18.
 - Methodology ledger E18: implementation note (per-draw studentization, the plan 05 battery

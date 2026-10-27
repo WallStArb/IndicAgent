@@ -1063,6 +1063,10 @@ when this was found.
   runs, lets them repeat a spec, and no longer refuses a book test past M; `budget_m` stays on
   book_test rows. Selection is a read: `scripts/research/select_books.py` over
   `research_run_series`, with the four `alpha.selection.stepm.*` APR keys (migration 516).
-  Open: until the full 13-cell per-draw battery holds, no selection set is reported as a
+  Adjusted p-values count the observed statistic as one more draw, (k + 1) / (reps + 1).
+  `select_books` reports a set as a result only when every charged attempt has a series, no
+  charged attempt sits on another vintage (re-evaluation onto an extended vintage is not built),
+  and a complete passing battery record on the same StepM code attests it (Codex review,
+  2026-10-27). Open: until the full 13-cell per-draw battery holds, no selection set is a
   result. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
   under E18 is settled in plan 07.

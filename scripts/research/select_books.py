@@ -4,16 +4,25 @@ Unified design 7.3.2 (phase 187 plan 06). A read, never a verdict: the set is co
 from the stored D_s series (research_run_series) and printed; nothing is written. The universe is
 every attempt a person could have seen (7.1): evidence runs, book tests and pod books in real or
 exploration mode, in every status the ledger charges (refused and guard_failed computed no
-statistic). A charged run without a series is a gap in the universe: a pre-515 run the backfill
-could not replay, a run that failed or an interrupted run left `started`. The command refuses
-unless --disclose-missing, which prints each such run and its status beside the set.
+statistic).
+
+A selection set is a result only when every gate holds; otherwise the command refuses, and
+--diagnostic prints the set marked `"result": false` with the reasons (exit 3). The gates:
+- every charged run has a series. A gap (a pre-515 run the backfill could not replay, a run that
+  failed, an interrupted run left `started`) would leave its max-t out of the null and make the
+  selection anti-conservative;
+- no charged run sits on another vintage: E18 re-evaluates prior attempts on an extended vintage
+  and the count does not reset, which is not built, so a second vintage refuses;
+- `--battery` names a complete StepM null-battery record (plan 05) with no failing gating cell,
+  run on this StepM module (content hash) at the APR's fwer and block mean.
 
 Each attempt's holding horizon comes from its recorded spec (a book's: the longest of its
 families' at its code commit), and the bootstrap's mean block must exceed the longest in the
 universe. Parameters are APR keys
 alpha.selection.stepm.{fwer, block_mean_sessions, reps, seed}.
 
-    .venv/bin/python scripts/research/select_books.py [--vintage <id>] [--disclose-missing]
+    .venv/bin/python scripts/research/select_books.py --battery <record.json> [--vintage <id>]
+        [--diagnostic]
 """
 
 from __future__ import annotations
@@ -31,6 +40,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from scripts.research.stepm_null_battery import stepm_source_sha256  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
@@ -57,6 +67,47 @@ WHERE r.vintage = $1 AND NOT (r.status = ANY($2::text[]))
   AND r.kind IN ('evidence', 'book_test', 'pod_book')
 ORDER BY r.started_at, c.name
 """
+
+
+_OTHER_VINTAGES_SQL = """
+SELECT DISTINCT vintage FROM research_run
+WHERE vintage <> $1 AND NOT (status = ANY($2::text[]))
+ORDER BY vintage
+"""
+
+
+def battery_refusals(record: dict | None, apr: dict, stepm_sha256: str) -> list[str]:
+    """Why a StepM null-battery record does not attest this selection (empty: it does)."""
+    if record is None:
+        return ["no StepM null-battery record (--battery)"]
+    out = []
+    if record.get("schema") != "stepm_null_battery_v1":
+        out.append(f"battery schema {record.get('schema')!r} is not stepm_null_battery_v1")
+    if record.get("complete") is not True:
+        out.append("battery record covers only some cells")
+    if record.get("failures") != []:
+        out.append(f"battery fails in gating cells {record.get('failures')}")
+    if record.get("stepm_sha256") != stepm_sha256:
+        out.append("battery ran on different StepM code")
+    if record.get("studentize") != "draw":
+        out.append(f"battery studentize {record.get('studentize')!r} is not the default 'draw'")
+    for field, key in (("fwer", "fwer"), ("block_mean", "block_mean_sessions")):
+        if record.get(field) != float(apr[f"alpha.selection.stepm.{key}"]):
+            out.append(f"battery {field} {record.get(field)} is not the APR's")
+    return out
+
+
+def selection_refusals(
+    missing: list[dict], other_vintages: list[str], battery: list[str]
+) -> list[str]:
+    """Every reason the selection set is not a result (empty: it is)."""
+    out = [f"{len(missing)} charged runs have no series"] if missing else []
+    if other_vintages:
+        out.append(
+            f"charged runs on other vintages {other_vintages}: re-evaluation onto the extended "
+            "vintage (E18) is not built"
+        )
+    return out + battery
 
 
 def universe_matrix(rows: list[dict]) -> tuple[np.ndarray, np.ndarray]:
@@ -86,7 +137,7 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
-async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], dict, str]:
+async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], list[str], dict, str]:
     cfg = ConfigService(dsn)
     await cfg.initialize()
     try:
@@ -99,23 +150,26 @@ async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], dict, str]:
     vintage = vintage or str(apr["alpha.research.vintage_id"])
     conn = await connect_with_codecs(dsn)
     try:
-        rows = [dict(r) for r in await conn.fetch(_COUNTED_SQL, vintage, list(UNCHARGED_STATUSES))]
+        uncharged = list(UNCHARGED_STATUSES)
+        rows = [dict(r) for r in await conn.fetch(_COUNTED_SQL, vintage, uncharged)]
+        others = [r["vintage"] for r in await conn.fetch(_OTHER_VINTAGES_SQL, vintage, uncharged)]
     finally:
         await conn.close()
-    return rows, apr, vintage
+    return rows, others, apr, vintage
 
 
 async def main(args: argparse.Namespace) -> int:
     dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     root = repo_root(Path.cwd())
-    rows, apr, vintage = await _load(dsn, args.vintage)
+    rows, others, apr, vintage = await _load(dsn, args.vintage)
     with_series = [r for r in rows if r["sessions"] is not None]
     missing = [r for r in rows if r["sessions"] is None]
-    if missing and not args.disclose_missing:
-        raise SystemExit(
-            f"{len(missing)} counted runs have no series; rerun with --disclose-missing to "
-            "select over the rest and list them"
-        )
+    record = json.loads(Path(args.battery).read_text()) if args.battery else None
+    refusals = selection_refusals(
+        missing, others, battery_refusals(record, apr, stepm_source_sha256())
+    )
+    if refusals and not args.diagnostic:
+        raise SystemExit("selection is not a result: " + "; ".join(refusals))
     if not with_series:
         raise SystemExit("no counted attempt has a series")
     git = functools.cache(functools.partial(_git, root))
@@ -136,6 +190,8 @@ async def main(args: argparse.Namespace) -> int:
         seed=int(apr["alpha.selection.stepm.seed"]),
     )
     report = {
+        "result": not refusals,
+        "refusals": refusals,
         "vintage": vintage,
         "attempts": len(with_series),
         "sessions": [str(calendar[0]), str(calendar[-1]), len(calendar)],
@@ -159,14 +215,19 @@ async def main(args: argparse.Namespace) -> int:
         ],
     }
     print(json.dumps(report, indent=2))
-    return 0
+    return 3 if refusals else 0
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--vintage", default=None, help="default: APR alpha.research.vintage_id")
     parser.add_argument("--dsn", default=None)
-    parser.add_argument("--disclose-missing", action="store_true")
+    parser.add_argument("--battery", default=None, help="a complete StepM null-battery record")
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="print the set even when a gate fails, marked result false (exit 3)",
+    )
     return parser
 
 

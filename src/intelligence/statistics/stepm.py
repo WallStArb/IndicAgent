@@ -118,11 +118,14 @@ def _draw_t(column: np.ndarray, sample_mean: float) -> float:
 
 def _step_down_p(t_obs: np.ndarray, t_star: np.ndarray) -> np.ndarray:
     """Romano-Wolf adjusted p-values: in descending order of t, the share of draws whose max
-    over the still-active attempts reaches the attempt's t, made monotone."""
+    over the still-active attempts reaches the attempt's t, made monotone. The share counts the
+    observed statistic as one more draw, (k + 1) / (reps + 1), so a finite bootstrap never
+    rejects more often than its nominal level."""
     order = np.argsort(-t_obs, kind="stable")
     # Max over attempts ranked at or below position j (the active set when j is tested).
     tail_max = np.maximum.accumulate(t_star[:, order[::-1]], axis=1)[:, ::-1]
-    raw = (tail_max >= t_obs[order][None, :]).mean(axis=0)
+    hits = (tail_max >= t_obs[order][None, :]).sum(axis=0)
+    raw = (hits + 1) / (t_star.shape[0] + 1)
     adjusted = np.empty_like(raw)
     adjusted[order] = np.maximum.accumulate(raw)
     return adjusted

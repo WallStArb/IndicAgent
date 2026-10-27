@@ -37,6 +37,15 @@ Per-draw studentization repairs slot_effects and is now `stepm`'s default. The r
 just above 0.05 in gaussian and factor track the E17 per-arm tests' own small excess, within
 the bound.
 
+## Pass 3 pending (2026-10-27): plus-one adjusted p-values
+
+A Codex review found the adjusted p-values were the plain share of draws, k / reps; they are
+now (k + 1) / (reps + 1), the finite-bootstrap form that never rejects above nominal. Every
+number above was computed under k / reps, so the full run below uses the new form. The record
+it writes carries `complete` and `stepm_sha256`; `select_books.py --battery` accepts it as its
+attestation only when it covers every cell, holds in every gating cell, and matches the StepM
+code and the APR's fwer and block mean.
+
 ## Open
 
 The full 13-cell battery under studentize="draw" was started and then stopped by the session's
