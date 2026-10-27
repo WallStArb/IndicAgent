@@ -16,14 +16,16 @@ so the power check is a statement about exactly the statistic the test computes.
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Sequence
 
 import numpy as np
 
 from src.intelligence.research.combiner import Combiner
 from src.intelligence.research.construction import ConstructionRule
+from src.intelligence.research.horizon import HorizonRule
 from src.intelligence.research.panel import fwd_span
-from src.intelligence.research.timing import TimingResult, timing_test
+from src.intelligence.research.timing import TimingResult, e17_memory, timing_test
 
 
 @dataclasses.dataclass(frozen=True)
@@ -58,6 +60,44 @@ def book_timing(
         memory_sessions=memory_sessions,
     )
     return BookResult(timing, combined, weights, has_position)
+
+
+@dataclasses.dataclass(frozen=True)
+class BookMemory:
+    """A book's E17 memory (design 4.5): the timing statistic's L in sessions, and the shift
+    diagnostic's reach in rows. Each is member memory (with a daily target's reach, see
+    timing.e17_memory) + combiner training reach + horizon-rule reach; the two fitted reaches are
+    summed in rows and rounded up to sessions once, so L and `rows` agree."""
+
+    member: int  # sessions, the largest slot history over the members, with the target's reach
+    combiner_rows: int
+    horizon_rows: int
+    bars_per_session: int
+    rows: int
+
+    @property
+    def sessions(self) -> int:
+        fitted = self.combiner_rows + self.horizon_rows
+        return self.member + math.ceil(fitted / self.bars_per_session)
+
+
+def book_memory(
+    member_sessions: Sequence[int],
+    member_rows: Sequence[int],
+    horizon: int,
+    combiner: Combiner,
+    horizon_rule: HorizonRule,
+    bars_per_session: int,
+) -> BookMemory:
+    """The one source of a book's L; no caller computes it by hand."""
+    reach = horizon_rule.reach_rows
+    return BookMemory(
+        member=e17_memory(max(member_sessions), horizon, bars_per_session),
+        combiner_rows=combiner.training_rows,
+        horizon_rows=reach,
+        bars_per_session=bars_per_session,
+        rows=book_memory_rows(member_rows, horizon, combiner) + reach,
+    )
 
 
 def book_memory_rows(member_memory_rows: Sequence[int], horizon: int, combiner: Combiner) -> int:

@@ -288,6 +288,15 @@ class PowerSpec(BaseModel):
     calibration_tolerance: float = Field(gt=0)
 
 
+class HorizonRuleSpec(BaseModel):
+    """Design 4.4: partial adjustment w_t = w_(t-1) + kappa (w*_t - w_(t-1)); kappa pinned
+    before the attempt, never tuned on outcomes. The identity (kappa 1) is written by leaving
+    the rule unset, never as kappa 1.0, so one book has one canonical form and one hash."""
+
+    model_config = _STRICT
+    kappa: float = Field(gt=0, lt=1)
+
+
 class BookSpec(BaseModel):
     model_config = _STRICT
     kind: Literal["book"]
@@ -300,6 +309,8 @@ class BookSpec(BaseModel):
     guards: GuardSpec
     costs: CostSpec
     power: PowerSpec
+    # Plan 187-08. Optional and absent from book_v1, so its hash is unchanged.
+    horizon_rule: HorizonRuleSpec | None = None
 
     @field_validator("families")
     @classmethod
@@ -372,10 +383,15 @@ _OPTIONAL_COMBINER_FIELDS = (
 TIMING_STATISTIC = "e17"
 
 
-def _drop_unset(data: dict, section: str, keys: tuple[str, ...]) -> None:
+_OPTIONAL_BOOK_FIELDS = ("horizon_rule",)
+
+
+def _drop_unset(data: dict, section: str | None, keys: tuple[str, ...]) -> None:
+    """Drop each unset optional key from `section` of the canonical form (the root when None)."""
+    target = data if section is None else data[section]
     for key in keys:
-        if data[section][key] is None:
-            del data[section][key]
+        if target[key] is None:
+            del target[key]
 
 
 def _family_dump(model: FamilySpec) -> dict:
@@ -389,6 +405,7 @@ def _book_dump(model: BookSpec) -> dict:
     data = model.model_dump(mode="json")
     _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)
     _drop_unset(data, "combiner", _OPTIONAL_COMBINER_FIELDS)
+    _drop_unset(data, None, _OPTIONAL_BOOK_FIELDS)
     return data
 
 
