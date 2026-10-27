@@ -43,8 +43,8 @@ created: 2026-10-27
 |-------------|----------|-----------|-------------------|-------------|--------|
 | MTF-B1a | high/low on request; absent fields leave old snapshot bytes | unit | `pytest tests/unit/research/test_panel_optional_fields.py -q` (extends 187-15's file) | no | pending |
 | MTF-B1b | closes_at across half day, both DST days, missing final bar, NaT row, short 1h bucket | unit | `pytest tests/unit/research/test_clock.py -q` | no | pending |
-| MTF-B1c | warmup prefix fetched, scored span unchanged | unit | `pytest tests/unit/research/test_feature_inputs.py -k warmup -q` | no | pending |
-| MTF-B1d | non-derived 15m/1h vendor refused | unit | `... -k vendor` | no | pending |
+| MTF-B1c | warmup prefix fetched, scored span unchanged | unit | `pytest tests/unit/research/test_snapshot_mtf.py -k warmup -q`; `pytest tests/unit/research/test_runner_feature_spec.py -k scored -q` (184-07, 184-09) | no | pending |
+| MTF-B1d | non-derived 15m/1h vendor refused | unit | `pytest tests/unit/research/test_feature_inputs.py -k vendor -q`; `pytest tests/unit/research/test_snapshot_mtf.py -k vendor -q` (184-04, 184-07) | no | pending |
 | MTF-B1e | feature arrays content-hashed; edited array fails verify | unit | `... -k hash` | no | pending |
 | MTF-B1f | missing batch, APR mismatch, mixed code_key each refuse | unit | `... -k provenance` | no | pending |
 | MTF-B1g | first memory rows NaN; path-dependent column refused | unit | `... -k warmup_mask` | no | pending |
@@ -60,10 +60,10 @@ created: 2026-10-27
 | MTF-B3c | daily-on-intraday across half day and DST | unit | `... -k daily_on_intraday` | no | pending |
 | MTF-B4 | lag curve on synthetic AR predictor matches closed form; band from shifts; record unread | unit | `pytest tests/unit/research/test_term_structure_lag.py -q` | no | pending |
 | MTF-B5 | menu literal; FIR weights; memory reach <= declared | unit | `pytest tests/unit/research/test_smoothing.py -q` | no | pending |
-| MTF-B6 | E17 size at 0.05 / 0.01 / 0.00167 on persistent cells | battery | `.venv/bin/python scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6` | no | pending |
+| MTF-B6 | E17 size at 0.05 / 0.01 / 0.00167 on persistent cells (report: 184-05-BATTERY.md) | battery | `.venv/bin/python scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6` | no | pending |
 | MTF-B7 | bit-identical, pinned hashes, compare-all | gate | determinism and parity gates above | yes | pending |
 | MTF-B8a | knowledge cutoff, decision-time join, max age NaN, basis refusal | unit | `pytest tests/unit/research/test_economic_block.py -q` | no | pending |
-| MTF-B8b | shifted rerun recorded | unit | `... -k shift_test` | no | pending |
+| MTF-B8b | shifted rerun recorded | unit | `pytest tests/unit/research/test_economic_shift_test.py -k shift_test -q` (184-14) | no | pending |
 
 Status: pending · green · red · flaky
 
@@ -71,7 +71,7 @@ Status: pending · green · red · flaky
 
 ## Wave 0 requirements
 
-- [ ] Shared synthetic fixtures: a small multi-timeframe bar set (5m to derived 15m/1h to 1d) spanning a half day (2024-11-29) and both 2024 DST transitions (2024-03-11, 2024-11-04), plus a fake `provenance_batch` row set, in `tests/unit/research/conftest.py` or a fixture module.
+- [ ] Shared synthetic fixtures: a small multi-timeframe bar set (5m to derived 15m/1h to 1d) spanning a half day (2024-11-29) and both 2024 DST transitions (2024-03-11, 2024-11-04), plus a fake `provenance_batch` row set, in `tests/unit/research/mtf_fixtures.py` (184-01 Task 1); 184-04 keeps its fake provenance rows in its own test file so wave 1 plans stay file-disjoint.
 - No framework install needed.
 
 ---
@@ -81,7 +81,7 @@ Status: pending · green · red · flaky
 | Behavior | Requirement | Why manual | Instructions |
 |----------|-------------|------------|--------------|
 | E17 size on persistent predictors | MTF-B6 | Long battery run, recorded once | Run the battery command, commit the report to `184-BATTERY.md` |
-| Real-data S0 read of rebuilt `feature_vectors` | MTF-B1 | Needs 186-27's swapped table | After 186-27, one dry S0 build on the rebuilt table; record row counts and refusals |
+| Real-data S0 read of rebuilt `feature_vectors` | MTF-B1 | Needs 186-27's swapped table | Plan 184-12: gated on 186-27 by query; one dry S0 build; report in `184-12-DRY-S0.md` |
 
 ---
 
