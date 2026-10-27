@@ -27,20 +27,19 @@ Full record: design doc D-191-Q.
    in one only, zero-volume bars, ticker-reuse splices; record it here.
 3. Daily rule d2-v4 (`src/intelligence/bars/daily_rule.py`, `services/bar_derivation.py`
    `read_daily_inputs`): `(alpaca, sip_rth)` as a raw daily series and policy primary, matched by
-   session date (Alpaca stamps midnight New York); a zero-volume Alpaca bar never serves; the
-   Alpaca span starts at the name's listing. The nightly's "1d is raw capture only" fence and the
+   session date (Alpaca stamps midnight New York); a zero-volume bar never serves (either
+   vendor); exceptions are dated policy rows from the three-vendor arbitration
+   (`scripts/ops/bars/ops_d191q_arbitration.py`), never a runtime guard (the first draft's
+   agreement guard was rejected in review 2026-10-27: IBKR is wrong on OKE, RJF and others). The nightly's "1d is raw capture only" fence and the
    integrity checks that pin the 1d pairs follow. Fresh-context review.
-   - Status 2026-10-27: built (caab252ce RED, 1cc7bf759 GREEN), code and tests only, nothing
-     written live. Canonical kind `(alpaca, sip_rth)` (no CVR migration). Listing guard: the
-     Alpaca span starts at the first session where IBKR's contract-keyed close agrees (session
-     and window median within the basis tolerance); no point-in-time listing table exists. d2-v3
+   - Status 2026-10-27: first build (caab252ce RED, 1cc7bf759 GREEN), code and tests only,
+     nothing written live. Canonical kind `(alpaca, sip_rth)` (no CVR migration). Its agreement
+     guard was rejected in review and is being replaced by the policy-row arbitration above. d2-v3
      outputs are bit-identical where no policy names Alpaca (fixture goldens; 1,523 live names
      read-only, 0 mismatches).
-   - Spin-offs, decided 2026-10-27 (data lane; owner may override): keep the agreement guard.
-     On the 69 names where IBKR's history is spin-off adjusted and Alpaca's is not, 90,484
-     pre-spin sessions are served by IBKR (correct returns, NULL volume) instead of Alpaca (a
-     false return on every spin ex-date). Serving Alpaca there needs spin-off records, which
-     `corporate_action` does not hold yet.
+   - Spin-offs (2026-10-27): where IBKR and Tradier agree on a spin-off-adjusted history and
+     Alpaca does not, the arbitration emits an IBKR-primary row for the pre-spin span (correct
+     returns, NULL volume); where Alpaca and Tradier agree, Alpaca serves.
    - Open: the fresh-context review (Codex and AGY out of quota);
      `--plan` cannot express the 1d policy as written; D7 digests stale until a re-derive; no
      Alpaca 1d split re-ask; D7 `vendor_basis_run` is Tradier-only. Details:
@@ -51,7 +50,10 @@ Full record: design doc D-191-Q.
    for the research lane.
 6. Rules and docs, in the same commit that applies the policy rows (not before, so no doc claims
    a source that is not yet live):
-   - CLAUDE.md: the pipeline line reads `ingest (IBKR -> market_data_ohlcv)`; it becomes
+   - Done 2026-10-27 (doc sweep 5c2b5cef3..c6d209290, written as decided, not live): CLAUDE.md,
+     the onboarding SOP, the canonical-truth registry, the glossary, gotchas, the cheatsheet and
+     the operations docs. At the policy commit only the 'decided' wording flips to 'live'.
+   - (was) CLAUDE.md: the pipeline line reads `ingest (IBKR -> market_data_ohlcv)`; it becomes
      `ingest (IBKR + Alpaca -> ohlcv_raw -> market_data_ohlcv selection)`. The IBKR bullet's
      "Every history fetch goes through ohlcv_history_fetcher" becomes "every IBKR history fetch";
      Alpaca's path is `ops_bar_nightly.py` (raw capture under the load engine).
@@ -60,8 +62,12 @@ Full record: design doc D-191-Q.
      IBKR before.
    - `docs/foundation/glossary.md`, the daily source policy entry (around line 2052): the
      D-191-Q span, the agreement guard and the zero-volume rule.
-   - `scripts/ops/bars/ops_bar_nightly.py` docstring: "IBKR owns 1d" (left stale while the
-     backfill ran).
+   - Code docstrings still describing the old 1d source or the dropped D1 store (doc sweep
+     2026-10-27; edit once no fetch run imports them): `ops_bar_nightly.py:5-8`,
+     `ohlcv_history_fetcher.py:36`, `_fetch_queue.py:24`, `daily_rule.py:7`,
+     `_history_fetch_item.py:992`, `ops_head_rerun.py:421`, `vendor_kind.py:186`. The APR key
+     `infra.ohlcv_observation.copy_batch_rows` keeps the retired store's name (rename needs a
+     migration; todo 531 naming pass).
    - No change to the universe rules: never screen names on history or returns, never
      deactivate a dead name, and todo 512's exclude-then-replace-by-fixed-rule stays the only
      replacement path.
