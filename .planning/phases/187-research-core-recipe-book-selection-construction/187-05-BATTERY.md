@@ -79,9 +79,18 @@ Reading: the excess is spread across cells (0.054 to 0.071), not one mechanism, 
 at the E17 statistic StepM studentizes, not at StepM. E17's own battery found single tests
 about 1.4 times nominal at 0.00167 on these short 1,500-session panels, falling to about 1.1
 times at the real length of 4,000 sessions, and family 2's combined cell about 7 to 8 percent at
-0.05. Diagnostic running: the two failing cells at 4,000 sessions with fresh seeds
-(`logs/research/stepm_null_battery_length4000_20261027.json`). If they hold there, the decision
-whether the gate is judged at the real panel length is the owner's, as E17's criterion was.
+0.05. Diagnostic (2026-10-27): the two failing cells at 4,000 sessions, the real panel length, fresh
+seeds (`logs/research/stepm_null_battery_length4000_20261027.json`):
+
+| Cell | Sessions | Rejections / bound |
+|---|---|---|
+| slot_effects | 4,000 | 42 / 67 |
+| real_grid_hostile | 4,000 | 57 / 67 |
+
+Both hold. The pass 3 failures are the short-panel excess E17's own battery documented, not a
+StepM defect. Recommendation, for the owner's decision (the gate's panel length is a criterion,
+as E17's measured-size gate was): judge the StepM battery at the real panel length, rerun all 13
+cells at 4,000 sessions, and let that record be `select_books`'s attestation.
 
 ## Open
 
