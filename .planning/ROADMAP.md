@@ -113,7 +113,9 @@ the multi-timeframe design. The 5m aggregation moved to phase 185, the kernel ta
 the shrunk ic_engine.
 
 **Goal:** Predictors computed on any timeframe can enter a book on one clock without a lookahead,
-a filled value or a second implementation of a feature. Build section 7 of
+a filled value or a second implementation of a feature. Supported at phase close (Codex review 2026-10-27):
+daily books with 1d, 1h, 15m and 5m sources and 1h books with 1d sources, horizon 1, equal weight;
+every other route is refused at spec load until an E17 battery cell certifies it. Build section 7 of
 `docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 3): B1 S0 adds `high`, `low`
 and `closes_at` (NaT on untraded rows), fetches a warmup prefix, and reads phase 185's derived 15m
 and 1h bars; B2 new registry entries (vectorized percentile and 52-week, rolling VWAP) and a
@@ -130,18 +132,18 @@ cutoff in the panel manifest, and every book using them passes the one-session s
 **Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session), phase 185's
 derived 15m and 1h grid (B1), phase 186's kernel registry and shrunk ic_engine (B2, B4). Daily books
 with price-level members declare `panel.total_return` (todo 428, closed 2026-09-26).
-**Plans:** 14 plans in 8 waves (planned 2026-10-27). Wave 1 (01-04) is new files only and can run on indicagent-5b's go; the wiring wave (06-11) waits on 187-08, 187-09, 187-10 and 187-15 Task 2 and lands before 187-18; 12 waits on 186-27; 13-14 wait on todo 482.
+**Plans:** 14 plans in 8 waves (planned 2026-10-27; Codex-reviewed, 184-REVIEWS.md). Wave 1 (01-03) is new files only and can run on indicagent-5b's go; the wiring wave (06-11) waits on 187-08, 187-09, 187-10 and 187-15 Task 2 and lands before 187-18; 12 waits on 186-27; 13-14 wait on todo 482.
 
 Plans:
 
-- [ ] 184-01-PLAN.md - shared MTF fixtures, `clock.closes_at`, the causal `align` node and its probe (wave 1)
+- [ ] 184-01-PLAN.md - shared MTF fixtures, `clock.closes_at`, the causal `align` node (one implementation, int32 source-row index) (wave 1)
 - [ ] 184-02-PLAN.md - research kernels package and `kernel_source` (wave 1)
 - [ ] 184-03-PLAN.md - smoothing menu, member memory, lag term structure in statistics (wave 1)
-- [ ] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 1)
-- [ ] 184-05-PLAN.md - E17 battery for persistent predictors and composed member routes (wave 2)
+- [ ] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 2)
+- [ ] 184-05-PLAN.md - E17 battery for persistent predictors and battery-certificate admission (wave 3)
 - [ ] 184-06-PLAN.md - spec surface for feature and kernel members; `closes_at` in 187-15's fields (wave 2)
 - [ ] 184-07-PLAN.md - S0 bar side: closes_at, warmup prefix, derived-vendor refusal (wave 3)
-- [ ] 184-08-PLAN.md - S0 feature block with every todo 435 gate; finer sources aligned in S0 (wave 4)
+- [ ] 184-08-PLAN.md - S0 feature block with every todo 435 gate; compact source evidence and align index for finer sources (wave 4)
 - [ ] 184-09-PLAN.md - runner spec-time memory, route refusal, S0 request (wave 5)
 - [ ] 184-10-PLAN.md - member dispatch on the book clock and S3 for input members (wave 6)
 - [ ] 184-11-PLAN.md - IC term structure by lag as a record nothing reads (wave 7)
