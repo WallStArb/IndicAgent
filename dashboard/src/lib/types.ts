@@ -116,3 +116,65 @@ export interface DataSummary {
   listing_ends: Envelope<ListingEndRow, { error?: string }>;
   dividends: Envelope<DividendRow, { error?: string }>;
 }
+
+/** The one state the universe map colours a name by, judged by the API (src/api/routes/universe.py). */
+export type NameState = "current" | "stale" | "failing" | "ended" | "inactive" | "no_data";
+
+export interface UniverseRow {
+  symbol: string;
+  name: string | null;
+  is_active: boolean;
+  compute_eligible: boolean;
+  compute_eligible_1d: boolean;
+  asset_class: string | null;
+  sector: string | null;
+  newest_bar: string | null;
+  failing_feeds: number | null;
+  feeds: number | null;
+  listing_ended: string | null;
+  state: NameState;
+}
+
+/** GET /api/universe/summary. */
+export type UniverseSummary = Envelope<UniverseRow, { stale_hours: number }>;
+
+export interface IdentityRow {
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+  is_active: boolean;
+  compute_eligible: boolean;
+  compute_eligible_1d: boolean;
+  live_tradeable: boolean;
+  level_1: string | null;
+  level_2: string | null;
+  level_3: string | null;
+  level_4: string | null;
+  listing_ended: string | null;
+  listing_end_reason: string | null;
+}
+
+/** Bars per UTC session for one (timeframe, vendor) lane, as parallel arrays. */
+export interface LaneRow {
+  timeframe: string;
+  vendor: string;
+  sessions: string[];
+  bars: number[];
+}
+
+export interface CloseSeries {
+  t: string[];
+  close: number[];
+}
+
+type Section<R> = Envelope<R, { error?: string }>;
+
+/** GET /api/universe/{symbol}: one name's data passport; a failed section has meta.error. */
+export interface Passport {
+  identity: Section<IdentityRow>;
+  coverage: Section<Record<string, unknown>>;
+  lanes: Section<LaneRow>;
+  closes: Envelope<CloseSeries, { error?: string; timeframe?: string }>;
+  restatements: Section<Record<string, unknown>>;
+  tags: Section<Record<string, unknown>>;
+}

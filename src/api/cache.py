@@ -23,7 +23,15 @@ async def cached(key: str, ttl_s: float, compute: Callable[[], Awaitable[Any]]) 
         if entry is None or time.monotonic() >= entry[0]:
             entry = (time.monotonic() + ttl_s, await compute())
             _entries[key] = entry
+            _evict_expired()
     return entry[1]
+
+
+def _evict_expired() -> None:
+    """Drop expired values so per-key entries (one per instrument viewed) cannot accumulate."""
+    now = time.monotonic()
+    for key in [k for k, (expires, _) in _entries.items() if expires <= now]:
+        del _entries[key]
 
 
 def clear() -> None:

@@ -17,6 +17,27 @@ export const CARD = "rounded-xl border border-[var(--border-subtle)] bg-[var(--b
 /** Uppercase tracked display label for section titles and column headers. */
 export const LABEL = "font-display uppercase tracking-[0.12em]";
 
+/** The small muted form of LABEL: column headers, tile and fact labels. */
+export const SMALL_LABEL = cn(LABEL, "text-[0.6rem] font-semibold text-[var(--text-muted)]");
+
+/** A floating hover card (chart crosshair, map cell). */
+export const TOOLTIP =
+  "pointer-events-none absolute z-10 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-xs shadow-lg";
+
+/** A section title with an optional muted count beside it. */
+export function SectionTitle({ title, count }: { title: string; count?: number }) {
+  return (
+    <h2 className={cn(LABEL, "text-xs font-bold")}>
+      {title}
+      {count !== undefined && (
+        <span className="ml-2 font-sans font-normal normal-case tracking-normal text-[var(--text-muted)]">
+          {count.toLocaleString()}
+        </span>
+      )}
+    </h2>
+  );
+}
+
 export function Logo({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" aria-hidden>
@@ -74,11 +95,14 @@ export function RowsTable<R extends object>({
   rows,
   columns,
   tone,
+  render,
   empty = "No rows.",
 }: {
   rows: R[];
   columns?: (keyof R & string)[];
   tone?: (row: R) => RowTone;
+  /** Per-column cell renderers (a link, a state swatch); other columns format by value. */
+  render?: Partial<Record<keyof R & string, (row: R) => React.ReactNode>>;
   empty?: string;
 }) {
   if (rows.length === 0) {
@@ -96,8 +120,8 @@ export function RowsTable<R extends object>({
             <th
               key={c}
               className={cn(
-                LABEL,
-                "text-[0.6rem] font-semibold py-1.5 pr-4 whitespace-nowrap",
+                SMALL_LABEL,
+                "py-1.5 pr-4 whitespace-nowrap",
                 typeof rows[0][c] === "number" && "text-right",
               )}
             >
@@ -129,7 +153,7 @@ export function RowsTable<R extends object>({
                       typeof value === "string" && VALUE_TONE[value],
                     )}
                   >
-                    {cell(value)}
+                    {render?.[c] ? render[c](row) : cell(value)}
                   </td>
                 );
               })}
@@ -204,6 +228,11 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
       <div className="text-xs text-[var(--text-muted)]">{children}</div>
     </header>
   );
+}
+
+export function LoadingNote({ loading, children = "Loading..." }: { loading: boolean; children?: string }) {
+  if (!loading) return null;
+  return <p className="px-6 py-4 text-xs text-[var(--text-muted)]">{children}</p>;
 }
 
 export function ErrorNote({ error }: { error: string | null }) {

@@ -24,12 +24,17 @@ import { cn } from "@/lib/utils";
 const NAV: { label: string; icon: LucideIcon; href?: string }[] = [
   { label: "Pipeline", icon: Workflow, href: "/" },
   { label: "Data", icon: Database, href: "/data" },
-  { label: "Instruments", icon: ListTree },
+  { label: "Instruments", icon: ListTree, href: "/instruments" },
   { label: "Concepts", icon: Lightbulb },
   { label: "Research", icon: FlaskConical },
   { label: "Books", icon: BookOpen },
   { label: "System", icon: Cpu, href: "/system" },
 ];
+
+/** A page is current on its own path and below it (an instrument's passport is under Instruments). */
+function isCurrent(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -59,14 +64,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-                    pathname === item.href
+                    isCurrent(pathname, item.href)
                       ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
                       : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
                   )}
                 >
                   <item.icon
                     size={15}
-                    className={pathname === item.href ? "text-[var(--accent-cyan)]" : undefined}
+                    className={isCurrent(pathname, item.href) ? "text-[var(--accent-cyan)]" : undefined}
                   />
                   {item.label}
                 </Link>

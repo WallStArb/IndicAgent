@@ -15,10 +15,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from ...core.database_manager import DatabaseManager
+from ..apr import apr, refresh_seconds
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, envelope, newest
 from ..utils import translate_db_errors
-from .pipeline import apr
 
 router = APIRouter()
 
@@ -77,7 +77,7 @@ async def units(config: Any = Depends(get_config_service)) -> Envelope:
             }
         )
     body = envelope("systemd", rows, datetime.now(UTC))
-    ttl = await apr(config, "ui.dashboard.refresh_seconds", 60)
+    ttl = await refresh_seconds(config)
     _units_cache.update(expires=time.monotonic() + ttl, body=body)
     return body
 

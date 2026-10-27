@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { CARD, ErrorNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
+import { CARD, ErrorNote, LoadingNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
 import { Headline, UpdatedStamp } from "@/components/headline";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo } from "@/lib/time";
@@ -109,7 +109,7 @@ export default function PipelinePage() {
     <div>
       <PageHeader title="Pipeline">{data && <UpdatedStamp summary={data} />}</PageHeader>
       <ErrorNote error={error} />
-      {loading && <p className="px-6 py-4 text-xs text-[var(--text-muted)]">Loading...</p>}
+      <LoadingNote loading={loading} />
       {data && (
         <div className="p-6 flex flex-col gap-4">
           <Headline summary={data} label={(stage) => STAGE_LABEL[stage]} />

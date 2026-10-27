@@ -1,5 +1,5 @@
 import { AlertTriangle, CircleCheck, Clock } from "lucide-react";
-import { CARD, LABEL } from "@/components/cockpit";
+import { CARD, SMALL_LABEL } from "@/components/cockpit";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -7,8 +7,6 @@ import { cn } from "@/lib/utils";
 // Every figure here quotes a field of /api/pipeline/summary; nothing is re-judged in the browser
 // (design decision 5). Status words come from the API's stage status.
 const NEEDS_ACTION = new Set<StageStatus>(["failing", "error", "stale"]);
-
-const TILE_LABEL = cn(LABEL, "text-[0.6rem] font-semibold text-[var(--text-muted)]");
 
 function rowsOf(stage: Stage | undefined): Record<string, unknown>[] {
   return stage?.rows ?? [];
@@ -34,7 +32,7 @@ function Bottleneck({
   if (index < 0) {
     return (
       <a href="#stages" className={cn(CARD, "tile flex flex-col justify-center gap-2 md:row-span-2")}>
-        <span className={TILE_LABEL}>First stage to act on</span>
+        <span className={SMALL_LABEL}>First stage to act on</span>
         <span className="flex items-center gap-3 text-2xl md:text-3xl font-semibold tracking-tight">
           <CircleCheck size={26} className="shrink-0 text-[var(--green)]" />
           Every stage is passing
@@ -75,7 +73,7 @@ function Bottleneck({
       className={cn(CARD, "tile relative flex flex-col justify-between gap-4 overflow-hidden md:row-span-2")}
       style={{ borderTop: `2px solid ${tone}` }}
     >
-      <span className={TILE_LABEL}>First stage to act on</span>
+      <span className={SMALL_LABEL}>First stage to act on</span>
       <span className="flex flex-col gap-2">
         <span className="flex items-center gap-3 text-2xl md:text-3xl font-semibold tracking-tight">
           <AlertTriangle size={26} className="shrink-0 attention" style={{ color: tone }} />
@@ -107,7 +105,7 @@ function StatTile({
 }) {
   return (
     <a href={href} className={cn(CARD, "tile flex flex-col gap-1.5 py-4")} title={`Source: ${source}`}>
-      <span className={TILE_LABEL}>{label}</span>
+      <span className={SMALL_LABEL}>{label}</span>
       <span className="text-[1.75rem] font-semibold leading-none tracking-tight">{value}</span>
       <span className="text-xs text-[var(--text-secondary)]">{context}</span>
     </a>
@@ -173,7 +171,7 @@ export function Headline({
 export function UpdatedStamp({ summary }: { summary: PipelineSummary }) {
   return (
     <span className="flex flex-col items-end gap-0.5" title={`Stale after ${summary.stale_hours} h`}>
-      <span className={TILE_LABEL}>Last updated</span>
+      <span className={SMALL_LABEL}>Last updated</span>
       <span className="flex items-center gap-1.5 font-mono text-xs text-[var(--text-secondary)]">
         <Clock size={12} />
         {fmtUtc(summary.generated_at)}, every {summary.refresh_seconds} s

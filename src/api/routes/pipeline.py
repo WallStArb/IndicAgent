@@ -18,7 +18,6 @@ costs one query set per interval. APR values are re-read on each computation, so
 shows within one interval without a restart.
 """
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -26,17 +25,12 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
+from ..apr import apr, refresh_seconds, stale_after
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
-from ..envelope import Envelope, envelope, newest
+from ..envelope import Envelope, envelope, gather_sections, newest
 
 router = APIRouter()
-
-
-async def apr(config: Any, key: str, default: Any) -> Any:
-    """A fresh APR read: the shared ConfigService caches forever, the dashboard must not."""
-    config.invalidate(key)
-    return await config.get(key, default)
 
 
 async def ingest(db: DatabaseManager) -> Envelope:
@@ -133,22 +127,23 @@ def _status(
 
 
 async def _compute(db: DatabaseManager, config: Any, refresh: int) -> dict[str, Any]:
-    stale_after = timedelta(hours=await apr(config, "ui.dashboard.stale_hours", 36))
+    stale = await stale_after(config)
     frac = await apr(config, "ui.dashboard.ingest_failing_fraction", 0.1)
     now = datetime.now(UTC)
-    results = await asyncio.gather(*(query(db) for _, query, _ in _STAGES), return_exceptions=True)
+    results = await gather_sections({name: query(db) for name, query, _ in _STAGES})
     stages = []
-    for (name, _, bounded), result in zip(_STAGES, results, strict=True):
-        if isinstance(result, BaseException):
-            env = envelope(None, [], None, error=type(result).__name__)
-            stages.append({"stage": name, "status": "error", **env})
-            continue
-        status = _status(name, result, stale_after if bounded else None, now, frac)
-        stages.append({"stage": name, "status": status, **result})
+    for name, _, bounded in _STAGES:
+        env = results[name]
+        status = (
+            "error"
+            if "error" in env["meta"]
+            else _status(name, env, stale if bounded else None, now, frac)
+        )
+        stages.append({"stage": name, "status": status, **env})
     return {
         "generated_at": now,
         "refresh_seconds": refresh,
-        "stale_hours": stale_after.total_seconds() / 3600,
+        "stale_hours": stale.total_seconds() / 3600,
         "stages": stages,
     }
 
@@ -157,8 +152,8 @@ async def _compute(db: DatabaseManager, config: Any, refresh: int) -> dict[str, 
 async def ui_config(config: Any = Depends(get_config_service)) -> dict[str, Any]:
     """The dashboard-wide APR values every page polls by (one source, not per page)."""
     return {
-        "refresh_seconds": await apr(config, "ui.dashboard.refresh_seconds", 60),
-        "stale_hours": await apr(config, "ui.dashboard.stale_hours", 36),
+        "refresh_seconds": await refresh_seconds(config),
+        "stale_hours": (await stale_after(config)).total_seconds() / 3600,
     }
 
 
@@ -167,5 +162,5 @@ async def summary(
     db: DatabaseManager = Depends(get_db_manager),
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
-    refresh = await apr(config, "ui.dashboard.refresh_seconds", 60)
+    refresh = await refresh_seconds(config)
     return await cached("pipeline", refresh, lambda: _compute(db, config, refresh))

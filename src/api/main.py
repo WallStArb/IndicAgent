@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from src.observability.metrics import API_HEALTH
@@ -25,6 +26,7 @@ from .routes import (
     market_data,
     pipeline,
     system,
+    universe,
     vocabulary,
 )
 
@@ -134,6 +136,9 @@ app = FastAPI(
 # Wire OTel HTTP instrumentation: auto-emits rate/error/latency for every route
 FastAPIInstrumentor().instrument_app(app)
 
+# The dashboard's passport carries a name's full bar history (hundreds of kB of JSON).
+app.add_middleware(GZipMiddleware)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -150,6 +155,7 @@ app.include_router(instruments.router, prefix="/api", tags=["instruments"])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(universe.router, prefix="/api/universe", tags=["universe"])
 app.include_router(vocabulary.router, prefix="/api/vocabulary", tags=["vocabulary"])
 
 

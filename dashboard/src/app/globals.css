@@ -31,6 +31,11 @@
   /* Brand accent */
   --accent-cyan: #4ED6C8;
 
+  /* Universe map: a current name is the quiet majority (the brand teal, recessive). 40% is the
+     brightest step whose protan separation from --red still passes (dataviz validator, OKLab
+     dE 10.1); its 2.6:1 contrast is carried by the legend and table, which label every state. */
+  --state-current: #4ed6c866;
+
   /* Semantic */
   --background: var(--bg-base);
   --foreground: var(--text-primary);

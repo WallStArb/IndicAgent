@@ -59,8 +59,11 @@ trading terminal; there is no live feed and no book to trade until phase 188.
    `src/api/`).
 7. **Honest empty states.** A stage with no writer yet (books, capital) shows what will populate it
    and which phase builds it, not a blank card or demo data. `use-demo-data.ts` is deleted.
-8. **One chart dependency.** OHLC bars on the instrument page use `lightweight-charts`
-   (Apache-2.0, canvas, about 45 kB); sparklines stay the existing SVG component.
+8. **No chart dependency.** The instrument page's chart is a small SVG component
+   (`history-chart.tsx`): the 1d close and the per-lane bar counts share one time axis and one
+   crosshair, which a candlestick library does not give. Revised in slice 3 (owner asked for the
+   best concept, 2026-10-26): the page is a data passport, not a price chart, so
+   `lightweight-charts` was never added.
 
 ## Pages
 
@@ -68,8 +71,8 @@ trading terminal; there is no live feed and no book to trade until phase 188.
 |---|---|---|
 | Pipeline `/` | Is each stage fresh and passing? | one summary row per stage from the routes below |
 | Data `/data` | Where is the bar data, by vendor and timeframe, and is it clean? | `ohlcv_coverage`, `ohlcv_provider_head`, `ohlcv_revision` (counts), `integrity_monitor` (latest failures), `listing_end`, `dividend_event_coverage` |
-| Instruments `/instruments` | What is in the universe and in what state? | `instruments`, `instrument_classification` via `current_level_name_sql()`, `listing_end`, coverage per symbol |
-| Instrument `/instruments/[symbol]` | What do this name's bars, coverage and regimes look like? | `market_data_ohlcv_tradeable`, `ohlcv_coverage`, `market_regimes` |
+| Instruments `/instruments` | Where in the universe are the problem names? A map of every name, grouped by asset class and sector, coloured by state | `instruments`, `instrument_classification` via `current_level_name_sql()`, `listing_end_current`, `ohlcv_coverage` |
+| Instrument `/instruments/[symbol]` | Is this name's history complete, which vendor holds which span, where are the holes? | `market_data_ohlcv_tradeable` (bars per session per timeframe and vendor, the 1d close), `ohlcv_coverage`, `ohlcv_restatement_flag`, `instrument_tags` |
 | Concepts `/concepts` | Which concepts exist, in what lifecycle state, with what measured IC? | `concept_registry`, `concept_evaluation`, `feature_ic_scores_v2` (empty until the 186-26 rebuild; empty state says so) |
 | Research `/research` | What has been tested, what did it conclude, how many looks are spent? | `research_run` (status, decision, gross Sharpe, sessions, span), `gate_evaluations` |
 | Books `/books` | Which books are frozen and how are they doing forward? | empty state until phase 188 (`BookTracker`, `BookPositionWriter`) |
@@ -99,7 +102,7 @@ consumer in `main.py` are deleted.
 1. Shell, navigation, Pipeline home, System page; delete the trading dashboard, tier panels, SSE
    bridge, `use-market-stream.ts`, `use-demo-data.ts` and `socket.io-client`.
 2. Data page.
-3. Instruments list and instrument page (adds `lightweight-charts`).
+3. Instruments map and the per-name data passport.
 4. Concepts page.
 5. Research page.
 6. Books page (empty state now; real content with phase 188).
@@ -117,10 +120,6 @@ Progress:
   `Lineage` in `dashboard/src/components/cockpit.tsx`. Deferred: the route smoke test still
   lists routers by hand (could derive from `app.openapi()` like the dashboard path guard).
 
-## Out of scope
-
-Writes of any kind from the UI (no APR edits, no promotions), authentication (the dashboard runs on
-localhost), mobile layout beyond not breaking, and any live feed until phase 188.
 - Slice 2 (Data page) landed 2026-10-26 with one cached `/api/data/summary` (six sections, feed
   rows carry the Pipeline's status) and the shared TTL cache `src/api/cache.py`. Open findings
   from its /code-review, to fix first in the next session:
@@ -134,6 +133,21 @@ localhost), mobile layout beyond not breaking, and any live feed until phase 188
      pipeline summary so the two pages share one snapshot (ingest_status mutates its env).
   5. cache.py: create locks per event loop and clear them in clear(); add unit tests (TTL, single
      computation under concurrency, exception leaves no entry, key isolation).
-  6. Section errors are cached for a full TTL with only the class name: log them, and do not
-     catch CancelledError.
+  6. FIXED in slice 3: `gather_sections` (`src/api/envelope.py`) logs a failed section and
+     re-raises cancellation; data and universe both use it. A failed section is still cached
+     for one TTL.
   7. Assert the failing and restatements filters in tests; sticky table headers in scroll panels.
+- Slice 3 (Instruments) landed 2026-10-26 as a concept change from the plan: a universe map
+  and a data passport instead of a table and a candlestick chart. `/api/universe/summary` judges
+  each name's one state (inactive, ended, no_data, failing, stale, current; `name_state` in
+  `src/api/routes/universe.py`), `/api/universe/{symbol}` returns the passport (identity and
+  eligibility, coverage ledger, bars per UTC session per lane over the full history, the 1d
+  close, restatements, current tags; about 2 s and 650 kB for a 26-year name, cached per name
+  for one refresh). The map's legend is its filter; the table under it lists the names needing
+  attention. The passport's history lanes show vendor handoffs and holes the coverage ledger
+  cannot (AAPL: 1d Tradier to IBKR on 2026-10-07, derived 15m/1h stopping 2026-10-16).
+
+## Out of scope
+
+Writes of any kind from the UI (no APR edits, no promotions), authentication (the dashboard runs on
+localhost), mobile layout beyond not breaking, and any live feed until phase 188.

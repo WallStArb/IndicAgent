@@ -8,17 +8,17 @@ each check's most recent run, not a window's pile-up of repeated evaluations. Th
 cached summary of all six sections per refresh interval.
 """
 
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
+from ..apr import apr, refresh_seconds, stale_after
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
-from ..envelope import Envelope, envelope, newest
-from .pipeline import apr, ingest, ingest_status
+from ..envelope import Envelope, envelope, gather_sections, newest
+from .pipeline import ingest, ingest_status
 
 router = APIRouter()
 
@@ -27,9 +27,8 @@ async def feeds(db: DatabaseManager, config: Any) -> Envelope:
     """The coverage ledger per (timeframe, provider), each row with the status the Pipeline ingest
     card judges it by (same function, same APR bounds), so the two pages cannot disagree."""
     env = await ingest(db)
-    stale_after = timedelta(hours=await apr(config, "ui.dashboard.stale_hours", 36))
     frac = await apr(config, "ui.dashboard.ingest_failing_fraction", 0.1)
-    ingest_status(env, stale_after, datetime.now(UTC), frac)
+    ingest_status(env, await stale_after(config), datetime.now(UTC), frac)
     return env
 
 
@@ -95,18 +94,9 @@ _SECTIONS = {
 
 
 async def _compute(db: DatabaseManager, config: Any) -> dict[str, Any]:
-    names = ["feeds", *_SECTIONS]
-    results = await asyncio.gather(
-        feeds(db, config), *(fn(db) for fn in _SECTIONS.values()), return_exceptions=True
+    return await gather_sections(
+        {"feeds": feeds(db, config), **{name: fn(db) for name, fn in _SECTIONS.items()}}
     )
-    return {
-        name: (
-            envelope(None, [], None, error=type(result).__name__)
-            if isinstance(result, BaseException)
-            else result
-        )
-        for name, result in zip(names, results, strict=True)
-    }
 
 
 @router.get("/summary")
@@ -115,5 +105,5 @@ async def summary(
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
     """All six Data sections in one cached response; a failing section reports meta.error."""
-    refresh = await apr(config, "ui.dashboard.refresh_seconds", 60)
+    refresh = await refresh_seconds(config)
     return await cached("data", refresh, lambda: _compute(db, config))

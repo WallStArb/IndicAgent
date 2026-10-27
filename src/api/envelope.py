@@ -5,8 +5,14 @@ them (the lineage the page shows beside each figure); route-specific extras go i
 as new top-level keys, so the dashboard reads one shape.
 """
 
+import asyncio
+from collections.abc import Awaitable, Mapping
 from datetime import datetime
 from typing import Any, TypedDict
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class Envelope(TypedDict):
@@ -28,3 +34,20 @@ def envelope(
     **meta: Any,
 ) -> Envelope:
     return {"source": source, "as_of": as_of, "rows": rows, "meta": meta}
+
+
+async def gather_sections(sections: Mapping[str, Awaitable[Envelope]]) -> dict[str, Envelope]:
+    """Run a page's section queries together; a section whose query raises becomes an empty
+    envelope with `meta.error` (logged), so one failure cannot take down the page. Cancellation
+    is never swallowed."""
+    results = await asyncio.gather(*sections.values(), return_exceptions=True)
+    out: dict[str, Envelope] = {}
+    for name, result in zip(sections, results, strict=True):
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+        if isinstance(result, BaseException):
+            logger.warning("api.section_failed", section=name, error=repr(result))
+            out[name] = envelope(None, [], None, error=type(result).__name__)
+        else:
+            out[name] = result
+    return out

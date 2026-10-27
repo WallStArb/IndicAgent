@@ -1,7 +1,8 @@
 """Every /api path the dashboard fetches is a GET route the API registers.
 
 The 509 cleanup found the old UI still polling routes deleted months earlier (it showed error
-text forever). This scans dashboard/src for "/api/..." literals, treats each `${...}` template
+text forever). This scans dashboard/src with comments stripped (so a doc comment may name a
+route) for "/api/..." literals, treats each `${...}` template
 hole and each `{param}` route segment as one path segment, ignores query strings, and requires a
 match. Paths served by the dashboard's own Next.js route handlers (dashboard/src/app/api/) are
 excluded: they are not the FastAPI app's.
@@ -14,8 +15,10 @@ from src.api.main import app
 
 REPO = Path(__file__).resolve().parents[3]
 DASHBOARD_SRC = REPO / "dashboard" / "src"
+# Block comments, and line comments whose `//` is not a URL scheme's (`http://`).
+_COMMENT = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*", re.DOTALL)
 # "/api/..." after a quote or a template hole (`${base}/api/...`); `${...}` stays in the path.
-_PATH = re.compile(r"(?<!src)(/api/(?:[A-Za-z0-9_\-./]|\$\{[^}]*\})*)")
+_PATH = re.compile(r"(/api/(?:[A-Za-z0-9_\-./]|\$\{[^}]*\})*)")
 
 
 def _next_route_prefixes() -> set[str]:
@@ -28,7 +31,7 @@ def _dashboard_paths() -> dict[str, set[str]]:
     for path in DASHBOARD_SRC.rglob("*.ts*"):
         if "/app/api/" in path.as_posix():
             continue
-        for match in _PATH.findall(path.read_text()):
+        for match in _PATH.findall(_COMMENT.sub("", path.read_text())):
             normalized = re.sub(r"\$\{[^}]*\}", "{}", match).rstrip("/")
             found.setdefault(normalized, set()).add(path.relative_to(REPO).as_posix())
     return found
