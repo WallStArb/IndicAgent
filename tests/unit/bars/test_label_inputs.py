@@ -119,7 +119,7 @@ async def test_load_label_inputs_maps_rows_and_uses_array_parameters() -> None:
 
     # Policy: symbol rows plus the timeframe default, overlapping the span.
     sql, args = by_marker["bar_source_policy"]
-    assert "max(recorded_at)" in sql.lower().replace("MAX", "max")
+    assert "max(greatest(recorded_at, closed_at, retired_at))" in sql.lower().replace("MAX", "max")
     assert "symbol IS NULL" in sql
     assert args == (["AMD", "PEP", "SPY"], "1d", date(2006, 1, 1), date(2007, 1, 1))
 

@@ -69,9 +69,11 @@ WHERE symbol = ANY($1)
   AND "timestamp" < $3
 """
 
+# A retirement (migration 520) changes the policy state the bars were selected under, so the pin
+# reads every row's latest change stamp, retired rows included; GREATEST skips NULLs.
 _POLICY_AS_OF_SQL = """
-SELECT MAX(recorded_at)
-FROM bar_source_policy_current
+SELECT MAX(GREATEST(recorded_at, closed_at, retired_at))
+FROM bar_source_policy_changes
 WHERE (symbol = ANY($1) OR symbol IS NULL)
   AND timeframe = $2
   AND daterange(valid_from, valid_to, '[)') && daterange($3::date, $4::date, '[)')

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -105,13 +106,15 @@ async def temp_policy():
             " FOR EACH ROW EXECUTE FUNCTION public.bar_source_policy_append_only();"
             "CREATE TEMP VIEW bar_source_policy_current AS"
             " SELECT * FROM pg_temp.bar_source_policy WHERE retired_at IS NULL;"
+            "CREATE TEMP VIEW bar_source_policy_changes AS SELECT * FROM pg_temp.bar_source_policy;"
             "INSERT INTO bar_source_policy (timeframe, symbol, valid_from, ingress_mode,"
-            " primary_source, reason) VALUES"
-            " ('5m', NULL, DATE '1990-01-01', 'direct', 'ibkr', 'seed'),"
-            " ('5m', 'SPY', DATE '2006-06-02', 'direct', 'ibkr', 'seed');"
+            " primary_source, reason, recorded_at) VALUES"
+            " ('5m', NULL, DATE '1990-01-01', 'direct', 'ibkr', 'seed', '2026-01-01'),"
+            " ('5m', 'SPY', DATE '2006-06-02', 'direct', 'ibkr', 'seed', '2026-01-01');"
             "INSERT INTO bar_source_policy (timeframe, symbol, valid_from, valid_to, ingress_mode,"
-            " primary_source, fallback_source, reason) VALUES"
-            " ('5m', 'EMR', DATE '2026-03-10', DATE '2026-07-31', 'direct', 'alpaca', 'ibkr', 'w');"
+            " primary_source, fallback_source, reason, recorded_at) VALUES"
+            " ('5m', 'EMR', DATE '2026-03-10', DATE '2026-07-31', 'direct', 'alpaca', 'ibkr', 'w',"
+            " '2026-01-01');"
         )
         await conn.execute(
             "UPDATE bar_source_policy SET valid_to = DATE '2026-03-10'"
@@ -154,3 +157,21 @@ async def test_a_dry_run_plan_leaves_the_policy_untouched(temp_policy):
     before = await temp_policy.fetchval("SELECT count(*) FROM bar_source_policy_current")
     await apply_plan(temp_policy, parse_plan(_PLAN), apply=False)
     assert await temp_policy.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_a_retired_row_in_the_span_moves_the_snapshot_policy_as_of(temp_policy):
+    """point_in_time: two snapshots that straddle a retirement must not pin the same as-of."""
+    from src.intelligence.bars.label_inputs import _POLICY_AS_OF_SQL
+
+    args = (["EMR"], "5m", date(2026, 4, 1), date(2026, 5, 1))
+    before = await temp_policy.fetchval(_POLICY_AS_OF_SQL, *args)
+    await temp_policy.execute(
+        "UPDATE bar_source_policy SET retired_at = now(), retired_reason = 'test' WHERE symbol = 'EMR'"
+    )
+    retired_at = await temp_policy.fetchval(
+        "SELECT retired_at FROM bar_source_policy WHERE symbol = 'EMR'"
+    )
+    after = await temp_policy.fetchval(_POLICY_AS_OF_SQL, *args)
+    assert after == retired_at and after > before
