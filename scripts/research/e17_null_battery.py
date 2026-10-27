@@ -17,6 +17,7 @@ JSON record to the output path.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib
 import json
 import statistics
@@ -49,10 +50,18 @@ def main() -> int:
         default="src.intelligence.research.null_battery",
         help="module with scenarios(), simulate(scenario, seed) and DIAGNOSTIC_CELLS",
     )
+    parser.add_argument(
+        "--sessions",
+        type=int,
+        default=None,
+        help="override every cell's panel length (default: each cell's own)",
+    )
     args = parser.parse_args()
     battery = importlib.import_module(args.battery)
     diagnostic = battery.DIAGNOSTIC_CELLS
     cells = battery.scenarios()
+    if args.sessions is not None:
+        cells = tuple(dataclasses.replace(sc, sessions=args.sessions) for sc in cells)
     if args.cells:
         wanted = set(args.cells.split(","))
         cells = tuple(sc for sc in cells if sc.name in wanted)
