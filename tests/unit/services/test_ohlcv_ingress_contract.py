@@ -139,7 +139,7 @@ class RawFakeConn:
         def execute(self, sql: str, params: object = None) -> None:
             self.conn.statements.append((sql, params))
             if sql.startswith('SELECT "timestamp", open, high, low, close, volume, request_id'):
-                _sym, _tf, vendor, kind, stamps = params
+                _sym, _tf, vendor, kind, stamps, _lo, _hi = params
                 self._result = [
                     r for r in self.conn.stored.get((vendor, kind), []) if r[0] in stamps
                 ]

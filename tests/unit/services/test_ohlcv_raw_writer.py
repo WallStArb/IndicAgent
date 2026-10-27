@@ -361,3 +361,20 @@ def test_an_answer_time_in_the_future_raises():
 def test_the_repair_mode_is_gone():
     with pytest.raises(TypeError):
         _write(FakeConn(), [_row()], repair=True)
+
+
+def test_the_stored_read_is_bounded_per_calendar_year():
+    """A multi-year offer is read one bounded query per year (a single `= ANY` over a 10-year
+    1d array could not prune chunks: 22 s against 3 s, measured 2026-10-27); rows outside a
+    query's year never leak into it."""
+    from services.ohlcv_raw_writer import _read_stored
+
+    stamps = [datetime(2016, 12, 30, tzinfo=UTC), datetime(2017, 1, 3, tzinfo=UTC)]
+    stored = [(ts, 1.0, 1.0, 1.0, 1.0, 1, OLD_REQUEST, EARLIER) for ts in stamps]
+    cur = FakeCursor(stored)
+    rows = _read_stored(cur, "SPY", "1d", "alpaca", "sip_rth", reversed(stamps))
+    assert [r[0] for r in rows] == stamps
+    assert [p[-3:] for _sql, p in cur.executed] == [
+        [[stamps[0]], stamps[0], stamps[0]],
+        [[stamps[1]], stamps[1], stamps[1]],
+    ]
