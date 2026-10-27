@@ -112,6 +112,7 @@ coordinate through cross-session messages before touching shared files.
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
 | Research: phase 187 planning | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*` |
 | Cleanup: todo 509 v2.x remainder, 529 tests | indicagent-1a | DLQ, stream keys, observability, dashboards |
+| Dashboard v3.5 cockpit | indicagent-04 | `dashboard/`, `src/api/`, `tests/unit/api/`, the cockpit design doc |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
@@ -141,6 +142,12 @@ the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations:
 518 and up (515-517 reserved by the research lane).
 
 ## Open items that are not verdicts
+
+- Dashboard v3.5 cockpit (`docs/plans/2026-10-26-dashboard-v35-cockpit-design.md`): slices 1-3
+  (Pipeline, Data, Instruments) are committed and served on :3000; the cleanup and review pass is
+  98712e35c. Open items are listed under that doc's Progress: integrity undercount (slice 2
+  finding 1, needs an APR window key or an index), per-feed map state, trading-calendar session
+  shading, the 2.3 s features-stage query plan, two filter test assertions. Next slice: Concepts.
 
 - The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward window
   (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`; todo 483 records
