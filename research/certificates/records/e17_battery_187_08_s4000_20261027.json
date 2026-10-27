@@ -1,0 +1,969 @@
+{
+  "schema": "e17_null_battery_v1",
+  "battery": "src.intelligence.research.null_battery",
+  "sims_per_cell": 1000,
+  "bound_quantile": 0.99,
+  "scenarios": [
+    {
+      "name": "ridge",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.0,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "ridge",
+      "kappa": 1.0
+    },
+    {
+      "name": "kappa_0.5",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.0,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "equal_weight",
+      "kappa": 0.5
+    },
+    {
+      "name": "kappa_0.2",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.0,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "equal_weight",
+      "kappa": 0.2
+    },
+    {
+      "name": "ridge_static",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.038,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "ridge",
+      "kappa": 1.0
+    },
+    {
+      "name": "kappa_0.5_static",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.038,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "equal_weight",
+      "kappa": 0.5
+    },
+    {
+      "name": "kappa_0.2_static",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": false,
+      "static_cell_sd": 0.038,
+      "slot_effect_sd": 0.0,
+      "factor_sd": 0.0,
+      "vol_clustering": false,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "s1": false,
+      "combiner": "equal_weight",
+      "kappa": 0.2
+    },
+    {
+      "name": "ridge_kappa_hostile",
+      "sessions": 4000,
+      "bars_per_session": 8,
+      "names": 60,
+      "t4_noise": true,
+      "static_cell_sd": 0.038,
+      "slot_effect_sd": 0.0192,
+      "factor_sd": 0.5,
+      "vol_clustering": true,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "s1": false,
+      "combiner": "ridge",
+      "kappa": 0.5
+    }
+  ],
+  "report": [
+    {
+      "cell": "kappa_0.2",
+      "arm": "book_equal_weight_k0.2",
+      "sims": 1000,
+      "mean_t": 0.02419607223315074,
+      "sd_t": 0.9939717031922867,
+      "levels": {
+        "0.05": {
+          "rate": 0.056,
+          "rejected": 56,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.013,
+          "rejected": 13,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.0022629014963553512,
+      "sd_t": 0.9785920638926451,
+      "levels": {
+        "0.05": {
+          "rate": 0.05,
+          "rejected": 50,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.005,
+          "rejected": 5,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.0,
+          "rejected": 0,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": 0.014056007171805494,
+      "sd_t": 1.00470415238865,
+      "levels": {
+        "0.05": {
+          "rate": 0.054,
+          "rejected": 54,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.014,
+          "rejected": 14,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": 0.019377466926606475,
+      "sd_t": 1.0249677374603523,
+      "levels": {
+        "0.05": {
+          "rate": 0.05,
+          "rejected": 50,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.009,
+          "rejected": 9,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": 0.01898947014734733,
+      "sd_t": 0.97773662854796,
+      "levels": {
+        "0.05": {
+          "rate": 0.056,
+          "rejected": 56,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.011,
+          "rejected": 11,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "arm": "book_equal_weight_k0.2",
+      "sims": 1000,
+      "mean_t": 0.047381014699934165,
+      "sd_t": 1.0125076903431012,
+      "levels": {
+        "0.05": {
+          "rate": 0.06,
+          "rejected": 60,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.015,
+          "rejected": 15,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.05652944052190937,
+      "sd_t": 0.9922902672480527,
+      "levels": {
+        "0.05": {
+          "rate": 0.061,
+          "rejected": 61,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.011,
+          "rejected": 11,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": -0.012604829583555218,
+      "sd_t": 0.9980718758131852,
+      "levels": {
+        "0.05": {
+          "rate": 0.047,
+          "rejected": 47,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.008,
+          "rejected": 8,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.0,
+          "rejected": 0,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": -0.016199043746525973,
+      "sd_t": 1.0274698678218792,
+      "levels": {
+        "0.05": {
+          "rate": 0.048,
+          "rejected": 48,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.014,
+          "rejected": 14,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": 0.034196139602899814,
+      "sd_t": 1.0040057968527218,
+      "levels": {
+        "0.05": {
+          "rate": 0.058,
+          "rejected": 58,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5",
+      "arm": "book_equal_weight_k0.5",
+      "sims": 1000,
+      "mean_t": 0.03619596900418955,
+      "sd_t": 1.0304547130611075,
+      "levels": {
+        "0.05": {
+          "rate": 0.063,
+          "rejected": 63,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.008,
+          "rejected": 8,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.010525830242869098,
+      "sd_t": 0.9996120791335502,
+      "levels": {
+        "0.05": {
+          "rate": 0.059,
+          "rejected": 59,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.0,
+          "rejected": 0,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": -0.004209286322733539,
+      "sd_t": 1.0051496367116128,
+      "levels": {
+        "0.05": {
+          "rate": 0.047,
+          "rejected": 47,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": 0.017665281411159767,
+      "sd_t": 1.0410330563819843,
+      "levels": {
+        "0.05": {
+          "rate": 0.055,
+          "rejected": 55,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.015,
+          "rejected": 15,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.005,
+          "rejected": 5,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": 0.07415844283184064,
+      "sd_t": 0.9902855054977366,
+      "levels": {
+        "0.05": {
+          "rate": 0.059,
+          "rejected": 59,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.009,
+          "rejected": 9,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "arm": "book_equal_weight_k0.5",
+      "sims": 1000,
+      "mean_t": 0.10476565256483716,
+      "sd_t": 1.0247389426941815,
+      "levels": {
+        "0.05": {
+          "rate": 0.072,
+          "rejected": 72,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.014,
+          "rejected": 14,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.033374903360025285,
+      "sd_t": 1.00764161663929,
+      "levels": {
+        "0.05": {
+          "rate": 0.052,
+          "rejected": 52,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.012,
+          "rejected": 12,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": 0.0746361254551597,
+      "sd_t": 1.037920645282221,
+      "levels": {
+        "0.05": {
+          "rate": 0.069,
+          "rejected": 69,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.019,
+          "rejected": 19,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": 0.07979881748430581,
+      "sd_t": 1.0115611772902855,
+      "levels": {
+        "0.05": {
+          "rate": 0.062,
+          "rejected": 62,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": 0.08523566776445118,
+      "sd_t": 1.0000436215845565,
+      "levels": {
+        "0.05": {
+          "rate": 0.06,
+          "rejected": 60,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.019,
+          "rejected": 19,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge",
+      "arm": "book_ridge_k1",
+      "sims": 1000,
+      "mean_t": 0.014643634558504624,
+      "sd_t": 1.0080886963534583,
+      "levels": {
+        "0.05": {
+          "rate": 0.047,
+          "rejected": 47,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.014,
+          "rejected": 14,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.014409863803136466,
+      "sd_t": 1.0083386182848944,
+      "levels": {
+        "0.05": {
+          "rate": 0.047,
+          "rejected": 47,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.008,
+          "rejected": 8,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": -0.015527301548332734,
+      "sd_t": 0.9678911995996728,
+      "levels": {
+        "0.05": {
+          "rate": 0.046,
+          "rejected": 46,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.011,
+          "rejected": 11,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": -0.04518104101618207,
+      "sd_t": 0.9917527365317536,
+      "levels": {
+        "0.05": {
+          "rate": 0.044,
+          "rejected": 44,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.009,
+          "rejected": 9,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": -0.008727646613493843,
+      "sd_t": 1.0199760595611194,
+      "levels": {
+        "0.05": {
+          "rate": 0.05,
+          "rejected": 50,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.016,
+          "rejected": 16,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "arm": "book_ridge_k0.5",
+      "sims": 1000,
+      "mean_t": -0.02875761286343979,
+      "sd_t": 1.0734623870146485,
+      "levels": {
+        "0.05": {
+          "rate": 0.062,
+          "rejected": 62,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.015,
+          "rejected": 15,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": 0.061674706559729654,
+      "sd_t": 0.975735481845372,
+      "levels": {
+        "0.05": {
+          "rate": 0.055,
+          "rejected": 55,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.011,
+          "rejected": 11,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.004,
+          "rejected": 4,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": -0.010192470408897746,
+      "sd_t": 1.0015594595539936,
+      "levels": {
+        "0.05": {
+          "rate": 0.056,
+          "rejected": 56,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.013,
+          "rejected": 13,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": 0.0013379650949662512,
+      "sd_t": 1.023595594000452,
+      "levels": {
+        "0.05": {
+          "rate": 0.053,
+          "rejected": 53,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.013,
+          "rejected": 13,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": -0.006791054932113232,
+      "sd_t": 1.0254172326037874,
+      "levels": {
+        "0.05": {
+          "rate": 0.058,
+          "rejected": 58,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.006,
+          "rejected": 6,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_static",
+      "arm": "book_ridge_k1",
+      "sims": 1000,
+      "mean_t": -0.013277636680804051,
+      "sd_t": 1.0184838494258905,
+      "levels": {
+        "0.05": {
+          "rate": 0.048,
+          "rejected": 48,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.008,
+          "rejected": 8,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_static",
+      "arm": "mean1",
+      "sims": 1000,
+      "mean_t": -0.03320111661254279,
+      "sd_t": 0.9905670512463098,
+      "levels": {
+        "0.05": {
+          "rate": 0.056,
+          "rejected": 56,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.006,
+          "rejected": 6,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_static",
+      "arm": "mean20",
+      "sims": 1000,
+      "mean_t": -0.04123588389884413,
+      "sd_t": 0.9900750031705402,
+      "levels": {
+        "0.05": {
+          "rate": 0.041,
+          "rejected": 41,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.007,
+          "rejected": 7,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.001,
+          "rejected": 1,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_static",
+      "arm": "mean40",
+      "sims": 1000,
+      "mean_t": -0.025334788114223558,
+      "sd_t": 0.9901595108969783,
+      "levels": {
+        "0.05": {
+          "rate": 0.054,
+          "rejected": 54,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.002,
+          "rejected": 2,
+          "bound": 5
+        }
+      }
+    },
+    {
+      "cell": "ridge_static",
+      "arm": "mean5",
+      "sims": 1000,
+      "mean_t": -0.0515867321313402,
+      "sd_t": 1.027712884033288,
+      "levels": {
+        "0.05": {
+          "rate": 0.05,
+          "rejected": 50,
+          "bound": 67
+        },
+        "0.01": {
+          "rate": 0.01,
+          "rejected": 10,
+          "bound": 18
+        },
+        "0.00167": {
+          "rate": 0.003,
+          "rejected": 3,
+          "bound": 5
+        }
+      }
+    }
+  ],
+  "failures": [
+    "kappa_0.5_static/book_equal_weight_k0.5 at 0.05: 72 > 67",
+    "kappa_0.5_static/mean20 at 0.05: 69 > 67",
+    "kappa_0.5_static/mean20 at 0.01: 19 > 18",
+    "kappa_0.5_static/mean5 at 0.01: 19 > 18"
+  ],
+  "seconds": 3108.0133090019226
+}

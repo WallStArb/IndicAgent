@@ -39,6 +39,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from src.intelligence.research import (
+    certificate,
     data_quality,
     dividends,
     guards,
@@ -51,7 +52,7 @@ from src.intelligence.research import (
     transforms,
 )
 from src.intelligence.research import panel as panel_mod
-from src.intelligence.research.book import book_memory_rows, book_timing
+from src.intelligence.research.book import book_memory, book_timing
 from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec
 from src.intelligence.research.construction import resolve_rule
 from src.intelligence.research.evaluate import (
@@ -67,6 +68,7 @@ from src.intelligence.research.evidence import (
 )
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families.common import declared_memory_rows
+from src.intelligence.research.horizon import HorizonRule
 from src.intelligence.research.ledger import AttemptSeries, Identity, LedgerRefusal, RunRequest
 from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
@@ -749,6 +751,7 @@ def _power_problem(
     members,
     combiner: Combiner,
     memory_sessions: int,
+    horizon_rule: HorizonRule,
 ):
     """Synthetic replicates planted on the real test's availability: members read S1 residual
     bar returns, which are missing wherever S1 cannot fit (each name's loading warm-up, not
@@ -789,8 +792,32 @@ def _power_problem(
         cfg=book.scoring.evaluation_config(),
         memory_sessions=memory_sessions,
         bar=bar,
+        horizon_rule=horizon_rule,
     )
     return problem, plant
+
+
+_COMBINER_KINDS = {None: "ridge", "ridge": "ridge", "equal_weight": "equal_weight"}
+
+
+def _combiner_kind(book: BookSpec) -> str:
+    """'equal_weight' or 'ridge' (an unset kind is the ridge, as book_v1 pins it); a kind added
+    to CombinerSpec without a battery cell raises here instead of passing as a ridge."""
+    return _COMBINER_KINDS[book.combiner.kind]
+
+
+def _ridge_settings(book: BookSpec) -> dict:
+    c = book.combiner
+    return {
+        "window_sessions": c.window_sessions,
+        "refit_sessions": c.refit_sessions,
+        "penalty": c.penalty,
+        "min_obs": c.min_obs,
+    }
+
+
+def _horizon_rule(book: BookSpec) -> HorizonRule:
+    return HorizonRule(book.horizon_rule.kappa) if book.horizon_rule else HorizonRule()
 
 
 def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) -> Combiner:
@@ -830,6 +857,16 @@ async def run_book(
         raise RunRefused(f"book families differ in horizon: {[f.horizon for f in families]}")
     fam0 = families[0]
     check_family_plant(families, book.power)  # before the ledger: a refusal is never charged
+    horizon_rule = _horizon_rule(book)
+    kind = _combiner_kind(book)
+    refusal = certificate.admission_refusal(
+        kind,
+        book.horizon_rule.kappa if book.horizon_rule else None,
+        mode,
+        _ridge_settings(book) if kind == "ridge" else None,
+    )
+    if refusal is not None:
+        raise RunRefused(refusal)
     gates = {fam.family: static_gate(fam) for fam in families}
     subject = f"book.{book.book}"
     run_id = None
@@ -927,6 +964,7 @@ async def run_book(
         alpha_level, budget_m = ctx.budget.screen_alpha, ctx.budget.budget_m
         bar = alpha_level / budget_m
         combiner = _combiner(book, member_keys, bps, fam0.horizon)
+        mem = book_memory(slot_histories, memories, fam0.horizon, combiner, horizon_rule, bps)
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
@@ -938,7 +976,8 @@ async def run_book(
             bar,
             members,
             combiner,
-            e17_memory(max(slot_histories), fam0.horizon, bps),
+            mem.sessions,
+            horizon_rule,
         )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
@@ -993,14 +1032,17 @@ async def run_book(
             rule=resolve_rule(book, bps),
             bars_per_session=bps,
             warmup_sessions=cfg.warmup_sessions,
-            memory_sessions=e17_memory(max(slot_histories), fam0.horizon, bps),
+            memory_sessions=mem.sessions,
+            # No tradable mask: the battery certified the rule adjusting on every row, and a
+            # hold on untradable rows would stretch the reach past L (187-08 review).
+            horizon_rule=horizon_rule,
         )
         series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
         del stack
         _log("S8 shift-null diagnostic")
         res, n_shifts = _shift_diagnostic(
             booked.combined,
-            book_memory_rows(memories, fam0.horizon, combiner),
+            mem.rows,
             book,
             fam0.horizon,
             panel,
@@ -1041,6 +1083,13 @@ async def run_book(
             },
             data_quality=panel.manifest.get("data_quality"),
         )
+        # Design 4.5's parts of the book's L, in sessions (books only; member records unchanged).
+        record["memory"] = {
+            "member": mem.member,
+            "combiner_rows": mem.combiner_rows,
+            "horizon_rows": mem.horizon_rows,
+            "total": mem.sessions,
+        }
         _log("done")
         return await finish("completed", record, series)
     except Exception as error:

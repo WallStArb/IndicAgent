@@ -1029,6 +1029,17 @@ when this was found.
   under-cover a 5-session overlap (H0 t sd 1.07 to 1.14 in the same runs); the family's battery
   at 1,000 simulations decides whether h = 5 runs before a horizon-tied HAC lag is adopted.
 
+- **Amendment 2026-10-27 (L for fitted and smoothed books, design 4.5; plan 187-08).** A book's
+  L is now member memory (with a daily target's reach) plus the combiner's training reach plus
+  the horizon rule's reach, summed in rows and rounded up to sessions once (`book.book_memory`),
+  used by the book test, its power replicates and the shift diagnostic alike. For an
+  equal-weight book with kappa 1 nothing changes. For a ridge book L grows by its training reach
+  in sessions; no recorded verdict moves (book_v1 was refused before any statistic). A ridge or
+  smoothed (kappa < 1) book runs for real only under a certificate from the E17 battery at 4,000
+  sessions (`research/certificates/e17_fitted_books.json`): ridge and kappa 0.2 hold, kappa 0.5
+  on static means does not (72 of 67), and ridge with kappa has no gating cell
+  (`.planning/phases/187-*/187-08-BATTERY.md`).
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),

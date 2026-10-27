@@ -133,6 +133,54 @@ class BookLedger(FakeLedger):
         return await super().start_runs(request, identities, run_concepts)
 
 
+_REAL_ADMISSION = runner_mod.certificate.admission_refusal
+
+
+@pytest.fixture(autouse=True)
+def _certified(monkeypatch):
+    """These tests exercise a real ridge book's order and error paths; its E17 admission is
+    tested on its own below (test_uncertified_fitted_book_is_refused_before_the_ledger)."""
+    monkeypatch.setattr(runner_mod.certificate, "admission_refusal", lambda *a: None)
+
+
+def test_uncertified_fitted_book_is_refused_before_the_ledger(repo, saved_panel, monkeypatch):
+    monkeypatch.setattr(runner_mod.certificate, "admission_refusal", _REAL_ADMISSION)
+    monkeypatch.setattr(runner_mod.certificate, "load_certificate", lambda *a: None)
+    ledger = FakeLedger()
+    with pytest.raises(RunRefused, match="no E17 fitted-book certificate"):
+        _run(repo, ledger, saved_panel)
+    assert "start_runs" not in ledger.calls
+
+
+def test_the_book_reaches_the_admission_check_before_the_ledger(repo, saved_panel, monkeypatch):
+    """Through run_book's own wiring: the book's kind, kappa and ridge settings reach the
+    certificate check in real mode, and a refusal stops the run before the ledger."""
+    seen = []
+
+    def spy(kind, kappa, mode, ridge=None):
+        seen.append((kind, kappa, mode, ridge))
+        return "refused for the test"
+
+    monkeypatch.setattr(runner_mod.certificate, "admission_refusal", spy)
+    ledger = FakeLedger()
+    with pytest.raises(RunRefused, match="refused for the test"):
+        _run(repo, ledger, saved_panel)
+    assert seen == [
+        (
+            "ridge",
+            None,
+            "real",
+            {"window_sessions": 80, "refit_sessions": 10, "penalty": 1.0, "min_obs": 200},
+        )
+    ]
+    assert "start_runs" not in ledger.calls
+
+
+def test_an_unknown_combiner_kind_is_never_read_as_ridge():
+    with pytest.raises(KeyError):
+        runner_mod._COMBINER_KINDS["new_kind"]
+
+
 def _run(repo, ledger, saved_panel, **kw):
     loaded = load_spec_from_head(repo, BOOK_PATH)
     return asyncio.run(run_book(loaded, _ctx(repo, ledger, saved_panel, **kw), mode="real"))

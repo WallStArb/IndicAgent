@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 
 from src.intelligence.research.construction import ConstructionRule
+from src.intelligence.research.horizon import HorizonRule
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,8 +85,9 @@ class PowerProblem:
     vol_window_rows: int
     vol_min_finite: int
     cfg: Any  # an evaluate.EvaluationConfig (trade span, warmup_sessions)
-    memory_sessions: int  # the book's E17 memory: the largest slot history over its members
+    memory_sessions: int  # the book's E17 memory, book.book_memory(...).sessions
     bar: float  # alpha / M
+    horizon_rule: HorizonRule = HorizonRule()  # the book's (the identity unless the spec sets one)
 
 
 def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
@@ -117,6 +119,7 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
         bars_per_session=bps,
         warmup_sessions=problem.cfg.warmup_sessions,
         memory_sessions=problem.memory_sessions,
+        horizon_rule=problem.horizon_rule,
     )
     hac = result.timing.hac
     return ReplicateOutcome(passed=hac.p < problem.bar, p=hac.p, t=hac.t)

@@ -1,0 +1,162 @@
+{
+  "battery": "src.intelligence.research.null_battery",
+  "cells": {
+    "kappa_0.2": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 2
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 13
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 56
+      }
+    },
+    "kappa_0.2_static": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 3
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 15
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 60
+      }
+    },
+    "kappa_0.5": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 2
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 8
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 63
+      }
+    },
+    "kappa_0.5_static": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 3
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 14
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": false,
+        "rejected": 72
+      }
+    },
+    "ridge": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 2
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 14
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 47
+      }
+    },
+    "ridge_kappa_hostile": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 1
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 15
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 62
+      }
+    },
+    "ridge_static": {
+      "0.00167": {
+        "bound": 5,
+        "holds": true,
+        "rejected": 1
+      },
+      "0.01": {
+        "bound": 18,
+        "holds": true,
+        "rejected": 8
+      },
+      "0.05": {
+        "bound": 67,
+        "holds": true,
+        "rejected": 48
+      }
+    }
+  },
+  "code": {
+    "src/intelligence/research/book.py:BookMemory": "2cabfc744de82a3ea4d10570e682653b79004fd79534fbdc2ee69b027857576b",
+    "src/intelligence/research/book.py:book_memory": "bb79452c8dc046a0d534496953f55fbfb1433ca1d407092be6b48fab415ef7a8",
+    "src/intelligence/research/book.py:book_memory_rows": "1816018d474256071192d7b627a417025b5b67a80a5afd74fc80a903288e78b1",
+    "src/intelligence/research/combiner.py:EqualWeight": "bb9285055c8b7e87801bb444601ea0cd8cd2de74ab87359baf14c0172f21820d",
+    "src/intelligence/research/combiner.py:RidgeSpec": "d351e1a29264fc5ed555fe7ff84e0e7356b07ab453d2a43bb9fb4e72393d0824",
+    "src/intelligence/research/combiner.py:_prefix_moments": "49753e821abb412328b3fb0822c0dbde268fba033b485f047ff2c862d3e137fa",
+    "src/intelligence/research/combiner.py:_row_moments_kernel": "e05eb65f4c17de7cd293f2b8684dd39c4f1610acfd5733551e5934e8914a90b9",
+    "src/intelligence/research/combiner.py:refit_positions": "0d94931bf30bf964efc078fede09bc22ad3ec20e87b5affd94ed44c4093e7a80",
+    "src/intelligence/research/combiner.py:walk_forward_ridge": "c001970f1b253fdd9a361aa7f41c419ff4c99ddcf8a5d1b2ebb3f4f901433cbc",
+    "src/intelligence/research/horizon.py:HorizonRule": "a6eeff4556e5141b317ee0dc638b47124cd63f3026cb8c2b5e542277c86435da",
+    "src/intelligence/research/horizon.py:REACH_CUTOFF": "35f8cebb08ef3cabec9bc01d3fd655bc6eca082c7e8a70dcfb2a30622f67a062",
+    "src/intelligence/research/horizon.py:_read_only": "aff8d0598f59a9aa28fd28605248718f066455fb6927e40fd14ddb5688d1cfbc",
+    "src/intelligence/research/null_battery.py:*": "0e2c79fe30657d90dcf6619b12fcf63d1c21b371a90023e37626c6305f232f4c",
+    "src/intelligence/research/panel.py:fwd_span": "52316790df06011756b6e46017f1e8a6725d4e9a2b256f7211334de324f8c2f7",
+    "src/intelligence/research/portfolio.py:_check_r1_args": "0234b86615197c1aaad3f234728185a68f3ec608de62dced31a5e4916129e30c",
+    "src/intelligence/research/portfolio.py:_rank_vol_neutral_rows": "6d171ed83a206cfe279e27be217980e058b13f75bf5758675277e8c8ce109e9b",
+    "src/intelligence/research/portfolio.py:average_ranks": "78d7280d5a48a22384493c3650742baa05af5820be6a763663da80f20a90206a",
+    "src/intelligence/research/portfolio.py:rank_vol_neutral_weights": "a871c0a4aaf9beb6efb086efd2c5c2aff3b2053ae2df0c7d2f97d71e0b1dedc6",
+    "src/intelligence/research/portfolio.py:trailing_vol": "cb2ee3ce79f224a95d62c2c2864e3975ede1188e048221658b2d752a327b0ecd",
+    "src/intelligence/research/timing.py:MIN_HISTORY_SESSIONS": "1d19381622202839d01d313e56bb7e568c69f303c27279ba91b1b08c06f160b2",
+    "src/intelligence/research/timing.py:e17_memory": "ce6292bae70a8456b1d9b8ce344982cc6627487483ab34ec52c5d3fa383cf001",
+    "src/intelligence/research/timing.py:timing_series": "9698fe925635d6d73fd1bc807ad8360ddc6b456238e7a2fba61255c0694162f8",
+    "src/intelligence/research/timing.py:timing_test": "4f855f77e9a1622c2f8a9afedbb5fb61fc900fc981bffacf7aa612d7510ee9b6",
+    "src/intelligence/statistics/hac.py:hac_mean_test": "f3cc3e7b199d672e5143dac858993a537d8aa83bf1be0e6623bd67bc3f6386e7",
+    "src/intelligence/statistics/hac.py:newey_west_lag": "0401a1b2f9bb71728d38e3195e196b2aa2ca39325639b46f508e530924d6ea17"
+  },
+  "commit": "34af081ca",
+  "record": "research/certificates/records/e17_battery_187_08_s4000_20261027.json",
+  "ridge": {
+    "min_obs": 10000,
+    "penalty": 1.0,
+    "refit_sessions": 21,
+    "window_sessions": 252
+  },
+  "schema": "e17_fitted_book_certificate_v1",
+  "sessions": 4000,
+  "sims_per_cell": 1000
+}

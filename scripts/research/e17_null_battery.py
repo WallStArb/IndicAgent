@@ -21,6 +21,7 @@ import dataclasses
 import importlib
 import json
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ from scipy.stats import binom
 
 sys.path.insert(0, ".")
 from services._batch_utils import make_worker_pool  # noqa: E402
+from src.intelligence.research import certificate as cert  # noqa: E402
 from src.intelligence.research.null_battery import ALPHAS  # noqa: E402
 
 _BOUND_QUANTILE = 0.99
@@ -37,6 +39,12 @@ _BOUND_QUANTILE = 0.99
 def _run(args: tuple) -> tuple[str, dict]:
     module, sc, seed = args
     return sc.name, importlib.import_module(module).simulate(sc, seed)
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(cert.CODE_ROOT), *args], check=True, capture_output=True, text=True
+    ).stdout
 
 
 def main() -> int:
@@ -108,6 +116,12 @@ def main() -> int:
     record = {
         "schema": "e17_null_battery_v1",
         "battery": args.battery,
+        # Provenance for certify_fitted_books.py: the commit the cells ran at and any
+        # uncommitted change to the certified code (which refuses certification).
+        "commit": _git("rev-parse", "HEAD").strip(),
+        "dirty_certified_code": _git(
+            "status", "--porcelain", "--", *sorted({p for p, _ in cert.CERTIFIED_CODE})
+        ).split(),
         "sims_per_cell": args.sims,
         "bound_quantile": _BOUND_QUANTILE,
         "scenarios": [sc.__dict__ for sc in cells],
