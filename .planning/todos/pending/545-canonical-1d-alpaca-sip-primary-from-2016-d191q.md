@@ -36,8 +36,12 @@ Full record: design doc D-191-Q.
      and window median within the basis tolerance); no point-in-time listing table exists. d2-v3
      outputs are bit-identical where no policy names Alpaca (fixture goldens; 1,523 live names
      read-only, 0 mismatches).
-   - Open: the fresh-context review (Codex and AGY out of quota); owner call on the 69 spin-off
-     names (IBKR adjusts spin-offs, Alpaca does not: 90,484 sessions fall back to IBKR);
+   - Spin-offs, decided 2026-10-27 (data lane; owner may override): keep the agreement guard.
+     On the 69 names where IBKR's history is spin-off adjusted and Alpaca's is not, 90,484
+     pre-spin sessions are served by IBKR (correct returns, NULL volume) instead of Alpaca (a
+     false return on every spin ex-date). Serving Alpaca there needs spin-off records, which
+     `corporate_action` does not hold yet.
+   - Open: the fresh-context review (Codex and AGY out of quota);
      `--plan` cannot express the 1d policy as written; D7 digests stale until a re-derive; no
      Alpaca 1d split re-ask; D7 `vendor_basis_run` is Tradier-only. Details:
      `.planning/phases/191-unified-raw-bar-table/191-D191Q-DAILY-RULE-BUILD.md`.
