@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src.api import cache
+from src.api.routes.research import BOOK_KINDS
 from src.intelligence.research.ledger import UNCHARGED_STATUSES
 
 STARTED = datetime(2026, 9, 29, tzinfo=UTC)
@@ -24,6 +25,8 @@ def _answers(mock_db, *, fail_table=None):
     async def execute_query(sql, *args):
         if fail_table and f"FROM {fail_table}" in sql:
             raise TimeoutError("command_timeout")
+        if "count(DISTINCT run_group)" in sql:
+            return [{"run_groups": 40}]
         if "JOIN concept_registry" in sql:
             return [_run("a", FINISHED), _run("a"), _run("b")]
         if "FROM gate_evaluations" in sql:
@@ -52,11 +55,24 @@ def test_charged_looks_exclude_exactly_the_ledgers_uncharged_statuses(client, mo
     assert call.args[1] == list(UNCHARGED_STATUSES)
 
 
-def test_runs_count_their_groups_and_date_from_the_latest_finish(client, mock_db):
+def test_runs_are_capped_but_count_the_whole_ledger(client, mock_db):
     _answers(mock_db)
     runs = client.get("/api/research/summary").json()["runs"]
-    assert runs["meta"]["run_groups"] == 2
+    assert runs["meta"] == {"limit": 500, "run_groups": 40}
+    call = next(
+        c for c in mock_db.execute_query.call_args_list if c.args[0].rstrip().endswith("LIMIT $1")
+    )
+    assert call.args[1] == 500  # the ui.dashboard.research_rows default
+    # A terminal update lands after its start, so the lineage dates from the latest finish.
     assert runs["as_of"].startswith(FINISHED.strftime("%Y-%m-%dT%H"))
+
+
+def test_book_tests_are_the_whole_book_attempts_under_the_same_cap(client, mock_db):
+    _answers(mock_db)
+    body = client.get("/api/research/summary").json()
+    call = next(c for c in mock_db.execute_query.call_args_list if "r.kind = ANY" in c.args[0])
+    assert call.args[1:] == (list(BOOK_KINDS), 500)
+    assert len(body["book_tests"]["rows"]) == 3
 
 
 def test_headlines_fall_back_to_the_stored_decision(client, mock_db):

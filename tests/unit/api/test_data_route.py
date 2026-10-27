@@ -70,10 +70,29 @@ def test_a_failing_section_does_not_take_down_the_others(client, mock_db):
     assert body["listing_ends"]["rows"]
 
 
-def test_integrity_reads_each_checks_latest_run_only(client, mock_db):
+def _call(mock_db, fragment):
+    return next(c for c in mock_db.execute_query.call_args_list if fragment in c.args[0])
+
+
+def test_integrity_takes_each_subjects_newest_result_near_the_checks_newest_run(client, mock_db):
+    # A run commits per row, so it spans many timestamps: the window is anchored at the check's own
+    # newest row (not now), and each subject counts once, at its newest result.
+    _answers(mock_db)
+    body = client.get("/api/data/summary").json()
+    call = _call(mock_db, "FROM integrity_monitor")
+    assert "DISTINCT ON (m.monitor_type, m.metric_name, m.subject)" in call.args[0]
+    assert "l.evaluated_at - make_interval(hours => $1)" in call.args[0]
+    assert call.args[1] == 12  # the ui.dashboard.integrity_window_hours default
+    assert body["integrity"]["meta"]["window_hours"] == 12
+
+
+def test_failing_lists_only_names_with_fetch_failures(client, mock_db):
     _answers(mock_db)
     client.get("/api/data/summary")
-    sql = next(
-        c.args[0] for c in mock_db.execute_query.call_args_list if "integrity_monitor" in c.args[0]
-    )
-    assert "max(evaluated_at)" in sql and "USING (monitor_type, metric_name, evaluated_at)" in sql
+    assert "WHERE consecutive_failures > 0" in _call(mock_db, "consecutive_failures,").args[0]
+
+
+def test_restatements_lists_only_unreviewed_flags(client, mock_db):
+    _answers(mock_db)
+    client.get("/api/data/summary")
+    assert "WHERE reviewed_at IS NULL" in _call(mock_db, "FROM ohlcv_restatement_flag").args[0]

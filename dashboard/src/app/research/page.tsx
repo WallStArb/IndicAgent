@@ -29,15 +29,16 @@ const VINTAGE_RENDER: Partial<Record<keyof VintageRow & string, (v: VintageRow) 
 export default function ResearchPage() {
   const { data, error, loading } = useApi<ResearchSummary>("/api/research/summary");
   const runs = data?.runs.rows ?? [];
-  const unfinished = data?.vintages.rows.reduce((n, v) => n + v.unfinished, 0) ?? 0;
+  // Whole-ledger counts come from the vintages section; the attempts list is capped.
+  const sum = (key: "attempts" | "unfinished") => data?.vintages.rows.reduce((n, v) => n + v[key], 0) ?? 0;
 
   return (
     <div>
       <PageHeader title="Research">
         {data &&
-          (data.runs.meta.error
+          (data.vintages.meta.error
             ? "? attempts"
-            : `${runs.length.toLocaleString()} attempts in ${data.runs.meta.run_groups ?? "?"} runs · ${unfinished} unfinished`)}
+            : `${sum("attempts").toLocaleString()} attempts in ${data.runs.meta.run_groups ?? "?"} runs · ${sum("unfinished")} unfinished`)}
       </PageHeader>
       <ErrorNote error={error} />
       <LoadingNote loading={loading} />
@@ -63,7 +64,7 @@ export default function ResearchPage() {
             className={CARD}
             title="Attempts"
             count={data.runs.meta.error ? undefined : runs.length}
-            question="Each attempt newest first with the headline the runner stored: the decision statistic, its t and p, gross annualized Sharpe and mean P&L per session, before costs."
+            question={`The newest ${data.runs.meta.limit?.toLocaleString() ?? ""} attempts with the headline the runner stored: the decision statistic, its t and p, gross annualized Sharpe and mean P&L per session, before costs.`}
             source={data.runs.source}
             asOf={data.runs.as_of}
             error={data.runs.meta.error}

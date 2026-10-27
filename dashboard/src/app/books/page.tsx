@@ -5,9 +5,6 @@ import { RunsTable } from "@/components/runs-table";
 import { useApi } from "@/hooks/use-api";
 import type { ResearchSummary } from "@/lib/types";
 
-// The ledger kinds that test a whole book rather than one member's evidence.
-const BOOK_KINDS = new Set(["book_test", "pod_book"]);
-
 // What phase 188 builds to fill this page (ROADMAP phase 188; unified design track E).
 const PLANNED: { name: string; does: string }[] = [
   { name: "BookTracker", does: "runs a frozen book forward on the code that tested it, in sealed shadow" },
@@ -18,7 +15,7 @@ const PLANNED: { name: string; does: string }[] = [
 
 export default function BooksPage() {
   const { data, error, loading } = useApi<ResearchSummary>("/api/research/summary");
-  const tests = (data?.runs.rows ?? []).filter((r) => BOOK_KINDS.has(r.kind));
+  const tests = data?.book_tests;
 
   return (
     <div>
@@ -43,17 +40,17 @@ export default function BooksPage() {
           </ul>
         </section>
 
-        {data && (
+        {tests && (
           <Panel
             className={CARD}
             title="Book tests"
-            count={data.runs.meta.error ? undefined : tests.length}
+            count={tests.meta.error ? undefined : tests.rows.length}
             question="Every whole-book attempt in the research ledger: the road to a candidate book."
-            source={data.runs.source}
-            asOf={data.runs.as_of}
-            error={data.runs.meta.error}
+            source={tests.source}
+            asOf={tests.as_of}
+            error={tests.meta.error}
           >
-            <RunsTable rows={tests} empty="No book has been tested yet." />
+            <RunsTable rows={tests.rows} empty="No book has been tested yet." />
           </Panel>
         )}
       </div>

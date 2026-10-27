@@ -84,7 +84,7 @@ export default function DataPage() {
         <Panel
           className={CARD}
           title="Integrity"
-          question="Each check's latest run: subjects that failed of those evaluated."
+          question={`Each check's current state: every subject's newest result within ${data?.integrity.meta.window_hours ?? "-"} hours of the check's last run, failing of evaluated.`}
           rows={integrityRows}
           source={data?.integrity.source ?? null}
           asOf={data?.integrity.as_of ?? null}

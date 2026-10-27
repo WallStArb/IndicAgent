@@ -4,8 +4,10 @@ Each section is an `Envelope` read from the table its writer owns: the coverage 
 (`ohlcv_coverage`, the fetcher), integrity checks (`integrity_monitor`, the bar integrity and
 reconciliation audits), restatement flags (`ohlcv_restatement_flag`, the raw capture), listing
 ends (`listing_end`) and dividend coverage (`dividend_event_coverage`). Integrity is reported as
-each check's most recent run, not a window's pile-up of repeated evaluations. The page reads one
-cached summary of all six sections per refresh interval.
+each check's current state: every subject's newest result within `ui.dashboard.integrity_window_hours`
+of the check's own newest row (a run commits per row, so it spans many timestamps; a check that
+last ran weeks ago still shows its last run). The page reads one cached summary of all six
+sections per refresh interval.
 """
 
 from typing import Any
@@ -13,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
-from ..apr import refresh_seconds
+from ..apr import integrity_window_hours, refresh_seconds
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, all_ok, envelope, gather_sections, newest
@@ -32,18 +34,30 @@ async def failing(db: DatabaseManager) -> Envelope:
     return envelope("ohlcv_coverage", rows, newest(rows, "last_fetched_at"))
 
 
-async def integrity(db: DatabaseManager) -> Envelope:
-    """Each (monitor, metric) check's most recent run: subjects failed of subjects evaluated."""
-    rows = await db.execute_query(
-        "WITH latest AS (SELECT monitor_type, metric_name, max(evaluated_at) AS evaluated_at "
-        "FROM integrity_monitor GROUP BY monitor_type, metric_name) "
-        "SELECT m.monitor_type, m.metric_name, count(*) FILTER (WHERE NOT m.passed) AS failed, "
-        "count(*) AS evaluated, l.evaluated_at "
-        "FROM integrity_monitor m JOIN latest l USING (monitor_type, metric_name, evaluated_at) "
-        "GROUP BY m.monitor_type, m.metric_name, l.evaluated_at "
-        "ORDER BY failed DESC, m.monitor_type, m.metric_name"
-    )
-    return envelope("integrity_monitor", rows, newest(rows, "evaluated_at"))
+_INTEGRITY_SQL = """
+WITH latest AS (
+    SELECT monitor_type, metric_name, max(evaluated_at) AS evaluated_at
+    FROM integrity_monitor GROUP BY monitor_type, metric_name
+), current AS (
+    SELECT DISTINCT ON (m.monitor_type, m.metric_name, m.subject)
+           m.monitor_type, m.metric_name, m.passed
+    FROM integrity_monitor m JOIN latest l USING (monitor_type, metric_name)
+    WHERE m.evaluated_at > l.evaluated_at - make_interval(hours => $1)
+    ORDER BY m.monitor_type, m.metric_name, m.subject, m.evaluated_at DESC
+)
+SELECT c.monitor_type, c.metric_name, count(*) FILTER (WHERE NOT c.passed) AS failed,
+       count(*) AS evaluated, l.evaluated_at
+FROM current c JOIN latest l USING (monitor_type, metric_name)
+GROUP BY c.monitor_type, c.metric_name, l.evaluated_at
+ORDER BY failed DESC, c.monitor_type, c.metric_name
+"""
+
+
+async def integrity(db: DatabaseManager, config: Any) -> Envelope:
+    """Each (monitor, metric) check's current state: subjects failing of subjects evaluated."""
+    hours = await integrity_window_hours(config)
+    rows = await db.execute_query(_INTEGRITY_SQL, hours)
+    return envelope("integrity_monitor", rows, newest(rows, "evaluated_at"), window_hours=hours)
 
 
 async def restatements(db: DatabaseManager) -> Envelope:
@@ -75,7 +89,6 @@ async def dividends(db: DatabaseManager) -> Envelope:
 
 
 _SECTIONS = {
-    "integrity": integrity,
     "failing": failing,
     "restatements": restatements,
     "listing_ends": listing_ends,
@@ -85,7 +98,11 @@ _SECTIONS = {
 
 async def _compute(db: DatabaseManager, config: Any) -> dict[str, Any]:
     return await gather_sections(
-        {"feeds": judged_ingest(db, config), **{name: fn(db) for name, fn in _SECTIONS.items()}}
+        {
+            "feeds": judged_ingest(db, config),
+            "integrity": integrity(db, config),
+            **{name: fn(db) for name, fn in _SECTIONS.items()},
+        }
     )
 
 

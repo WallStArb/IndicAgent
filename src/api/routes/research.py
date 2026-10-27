@@ -6,25 +6,29 @@ page reads it three ways:
 - `vintages`: attempts per (vintage, kind, mode) by status, and the looks charged against the
   vintage (every attempt but the ledger's `UNCHARGED_STATUSES`, the rule its budget applies; an
   attempt still `started` is charged, and one whose runner died stays `started`);
-- `runs`: one row per attempt, newest first, with its stored headline: the decision statistic, t,
-  p, gross annualized Sharpe, mean session P&L, sessions and span, and why it was refused or
-  failed. Rows
+- `runs`: the newest `ui.dashboard.research_rows` attempts, with their stored headline: the
+  decision statistic, t, p, gross annualized Sharpe, mean session P&L, sessions and span, and why
+  it was refused or failed (meta carries the whole ledger's run-group count; its attempt count is
+  the vintages' sum). Rows
   written before migration 515 added the headline columns carry the same numbers in
   `evidence.decision`, so each headline reads the column and falls back to that object (the
   mapping the ledger's own `_headline` uses; the table is append-only, so the old rows can never
   be backfilled);
+- `book_tests`: the newest whole-book attempts (`BOOK_KINDS`), under the same cap, for the Books
+  page;
 - `gates`: the pre-v3.5 `gate_evaluations` verdicts, kept as the record they are.
 
 Nothing here judges a run: pass or fail at any alpha is the spec's call, stored by the runner.
 """
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
 from ...intelligence.research.ledger import UNCHARGED_STATUSES
-from ..apr import refresh_seconds
+from ..apr import refresh_seconds, research_rows
 from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, all_ok, envelope, gather_sections, newest
@@ -53,6 +57,10 @@ def _headline(column: str, key: str) -> str:
     return f"coalesce(r.{column}, (r.evidence->'decision'->>'{key}')::float8) AS {column}"
 
 
+# The ledger kinds that test a whole book rather than one member's evidence (migration 515's
+# research_run_kind_check).
+BOOK_KINDS: tuple[str, ...] = ("book_test", "pod_book")
+
 _RUNS_SQL = f"""
 SELECT r.run_group, r.started_at, r.finished_at, r.kind, r.mode, r.status,
        r.spec_path, c.name AS concept, r.evidence->'decision'->>'statistic' AS statistic,
@@ -62,21 +70,35 @@ SELECT r.run_group, r.started_at, r.finished_at, r.kind, r.mode, r.status,
        coalesce(r.n_sessions, (r.evidence->'decision'->>'n_sessions')::int) AS n_sessions,
        r.span_start, r.span_end, coalesce(r.evidence->>'refusal', r.evidence->>'error') AS note
 FROM research_run r JOIN concept_registry c USING (concept_id)
+WHERE {{where}}
 ORDER BY r.started_at DESC, r.spec_path, c.name
 """
 
+_RUNS_SOURCE = "research_run, concept_registry"
 
-async def runs(db: DatabaseManager) -> Envelope:
-    rows = await db.execute_query(_RUNS_SQL)
-    as_of = max(
+
+def _as_of(rows: list[dict[str, Any]]) -> Any:
+    """The newest start or finish: a terminal update lands after its start."""
+    return max(
         (t for t in (newest(rows, "started_at"), newest(rows, "finished_at")) if t), default=None
     )
-    return envelope(
-        "research_run, concept_registry",
-        rows,
-        as_of,
-        run_groups=len({r["run_group"] for r in rows}),
+
+
+async def runs(db: DatabaseManager, config: Any) -> Envelope:
+    limit = await research_rows(config)
+    rows, totals = await asyncio.gather(
+        db.execute_query(_RUNS_SQL.format(where="true") + " LIMIT $1", limit),
+        db.execute_query("SELECT count(DISTINCT run_group) AS run_groups FROM research_run"),
     )
+    return envelope(_RUNS_SOURCE, rows, _as_of(rows), limit=limit, **totals[0])
+
+
+async def book_tests(db: DatabaseManager, config: Any) -> Envelope:
+    limit = await research_rows(config)
+    rows = await db.execute_query(
+        _RUNS_SQL.format(where="r.kind = ANY($1::text[])") + " LIMIT $2", list(BOOK_KINDS), limit
+    )
+    return envelope(_RUNS_SOURCE, rows, _as_of(rows), limit=limit)
 
 
 async def gates(db: DatabaseManager) -> Envelope:
@@ -86,8 +108,15 @@ async def gates(db: DatabaseManager) -> Envelope:
     return envelope("gate_evaluations", rows, newest(rows, "run_ts"))
 
 
-async def _compute(db: DatabaseManager) -> dict[str, Any]:
-    return await gather_sections({"vintages": vintages(db), "runs": runs(db), "gates": gates(db)})
+async def _compute(db: DatabaseManager, config: Any) -> dict[str, Any]:
+    return await gather_sections(
+        {
+            "vintages": vintages(db),
+            "runs": runs(db, config),
+            "book_tests": book_tests(db, config),
+            "gates": gates(db),
+        }
+    )
 
 
 @router.get("/summary")
@@ -95,7 +124,7 @@ async def summary(
     db: DatabaseManager = Depends(get_db_manager),
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
-    """All three Research sections in one cached response; a failing section reports meta.error."""
+    """All four Research sections in one cached response; a failing section reports meta.error."""
     return await cached(
-        "research", lambda: refresh_seconds(config), lambda: _compute(db), keep=all_ok
+        "research", lambda: refresh_seconds(config), lambda: _compute(db, config), keep=all_ok
     )

@@ -113,7 +113,7 @@ export interface DividendRow {
 export interface DataSummary {
   feeds: Envelope<FeedRow, { error?: string; failing_rows?: number }>;
   failing: Envelope<FailingRow, { error?: string }>;
-  integrity: Envelope<IntegrityRow, { error?: string }>;
+  integrity: Envelope<IntegrityRow, { error?: string; window_hours?: number }>;
   restatements: Envelope<RestatementRow, { error?: string }>;
   listing_ends: Envelope<ListingEndRow, { error?: string }>;
   dividends: Envelope<DividendRow, { error?: string }>;
@@ -272,6 +272,9 @@ export interface GateRow {
 /** GET /api/research/summary. */
 export interface ResearchSummary {
   vintages: Section<VintageRow>;
-  runs: Envelope<RunRow, { run_groups?: number }>;
+  /** The newest attempts up to `limit`; `run_groups` counts the whole ledger. */
+  runs: Envelope<RunRow, { limit?: number; run_groups?: number }>;
+  /** The newest whole-book attempts, under the same cap. */
+  book_tests: Envelope<RunRow, { limit?: number }>;
   gates: Section<GateRow>;
 }

@@ -123,10 +123,10 @@ Progress:
 - Slice 2 (Data page) landed 2026-10-26 with one cached `/api/data/summary` (six sections, feed
   rows carry the Pipeline's status) and the shared TTL cache `src/api/cache.py`. Its /code-review
   findings, after the 2026-10-26 cleanup pass:
-  1. OPEN. Integrity counts only rows sharing the exact max(evaluated_at); writers that commit per
-     row spread a run over many timestamps, so it undercounts. The correct per-subject latest query
-     (DISTINCT ON monitor, metric, subject) takes 10 s on 900k rows, 1.5 s bounded to 7 days: add
-     an APR window key (next migration number from the coordinating sessions) or an index.
+  1. FIXED 2026-10-27 (migration 525). Each subject's newest result within
+     `ui.dashboard.integrity_window_hours` (12) before the check's own newest row, so a run that
+     commits per row counts whole (freshness_1d went from "1 / 1" to 563 / 1502) and a check that
+     last ran weeks ago still shows. 0.5 s.
   2. FIXED. A header count or headline tile whose section errored shows "?", never 0; `Panel`
      takes the section's `error` and shows it in place of the table, so no page can render an
      empty-state message over a failed query.
@@ -138,11 +138,12 @@ Progress:
      result with a failed section is returned but not stored (the next poll retries). Unit tests
      in `tests/unit/api/test_cache.py`. `/system/units` uses it too.
   6. FIXED in slice 3 (`gather_sections`).
-  7. Sticky table headers in scroll panels FIXED; asserting the failing and restatements filters
-     in tests is OPEN.
+  7. Sticky table headers in scroll panels FIXED; the failing and restatements filters are
+     asserted in `test_data_route.py` (2026-10-27).
   Also open from the cleanup review: a name's map state takes the newest bar across all its
-  feeds, so a dead 5m feed hides behind a current 1d one (judge per feed, as `ingest_status`
-  does); the history chart's partial-session shading counts weekdays as sessions (the trading
+  feeds, so a dead 5m feed hides behind a current 1d one. Judging every feed instead marks almost
+  every name stale today (1m IBKR is a dead lane, derived 15m/1h stopped 2026-10-16), so the fix
+  needs each name's expected feeds from `bar_source_policy_current`, not every coverage row; the history chart's partial-session shading counts weekdays as sessions (the trading
   calendar belongs in the `_lanes` query); the pipeline features stage spends 2.3 s planning
   `max(bar_ts)` over every chunk; the shared ConfigService has no TTL, so `src/api/apr.py`
   invalidates per read.
@@ -167,14 +168,14 @@ Progress:
   looks per (vintage, kind, mode) with the charged count from the ledger's own
   `UNCHARGED_STATUSES`; every attempt with its stored headline (pre-515 rows fall back to
   `evidence.decision`; the append-only ledger cannot backfill them) and why it was refused or
-  failed; the legacy `gate_evaluations` verdicts. OPEN: the attempts list has no row cap (21 rows
-  today); it needs a `ui.dashboard.*` cap key in a migration numbered with the coordinating
-  sessions. An attempt left `started` by a dead runner shows as unfinished with its age, not
-  flagged stale.
+  failed; the legacy `gate_evaluations` verdicts. The attempts list and the book tests are capped
+  at `ui.dashboard.research_rows` (migration 525, 2026-10-27); whole-ledger counts come from the
+  vintages section. An attempt left `started` by a dead runner shows as unfinished with its age,
+  not flagged stale.
 - Slice 6 (Books) landed 2026-10-27 as the honest empty state: what phase 188 builds and waits
   on, and the whole-book attempts already in the ledger (the shared `RunsTable`, the same rows the
-  Research page lists). Every nav entry now has a page. OPEN: the book filter runs in the browser
-  over the full attempts list; it moves to the API with the attempts row cap.
+  Research page lists). Every nav entry now has a page. The book filter moved to the API
+  (`book_tests`, `BOOK_KINDS` in research.py) with migration 525.
 
 ## Out of scope
 

@@ -38,3 +38,13 @@ async def passport_refresh_seconds(config: Any) -> int:
     """The instrument passport's poll interval and cache TTL: a name's history changes about once
     a day and each read scans every bar it has, so it is longer than the summaries'."""
     return int(await apr(config, "ui.dashboard.passport_refresh_seconds", 900))
+
+
+async def integrity_window_hours(config: Any) -> int:
+    """Hours before a check's newest row within which each subject's newest result is current."""
+    return int(await apr(config, "ui.dashboard.integrity_window_hours", 12))
+
+
+async def research_rows(config: Any) -> int:
+    """The newest research attempts the Research page lists."""
+    return int(await apr(config, "ui.dashboard.research_rows", 500))
