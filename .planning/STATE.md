@@ -127,7 +127,10 @@ before 2016-01-04 and Alpaca then IBKR from it; 1,641 symbol rows retired. The r
 names whose canonical changes runs detached (`logs/d191p_reselect_20261027.log`, about 63 s per
 name, about 4.7 h), then `scripts/ops/bars/ops_d191p_followon.sh` re-derives their grid in full and
 runs the selection gate over all 5m (`logs/d191p_followon_20261027.log`). No 5m snapshot and no
-186-26 until that gate exits 0 (research lane holding).
+186-26 until that gate exits 0 (research lane holding). The derived 15m/1h of every name had
+stopped at 2026-10-16 (no grid stage followed the Alpaca nightly); `indicagent-bar-derivation-grid`
+(05:45 UTC, --changed-only) now does, and writing derivation runs serialize on a stage lock
+(e48ddbfb6). Check after 06:00Z: AAPL (reselected) and WAB (not) have 15m/1h past 2026-10-16.
 
 Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
 Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
