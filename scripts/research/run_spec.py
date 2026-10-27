@@ -128,8 +128,9 @@ def _print(results: dict, loaded, out_dir: Path) -> None:
             ),
             flush=True,
         )
+        record = {k: v for k, v in row.items() if k != "series"}  # the series lives in S6
         (out_dir / f"{loaded.spec_hash[:16]}_{member}.json").write_text(
-            json.dumps(row, indent=2, sort_keys=True)
+            json.dumps(record, indent=2, sort_keys=True)
         )
 
 

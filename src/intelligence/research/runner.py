@@ -542,7 +542,12 @@ async def run_family(
     async def finish(
         name: str, status: str, evidence: dict, series: AttemptSeries | None = None
     ) -> None:
-        results[name] = {"status": status, "run_id": run_ids[name], "evidence": evidence}
+        results[name] = {
+            "status": status,
+            "run_id": run_ids[name],
+            "evidence": evidence,
+            "series": series,
+        }
         if real:
             await ctx.ledger.finish_run(
                 run_ids[name],

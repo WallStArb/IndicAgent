@@ -438,6 +438,16 @@ def load_spec_from_head(root: Path, rel: str) -> LoadedSpec:
     return _build(rel, model, blob, families)
 
 
+def load_spec_from_blob(root: Path, rel: str, blob: str) -> LoadedSpec:
+    """Parse a family spec from a recorded git blob (a research_run's spec_blob), so a recorded
+    attempt replays with exactly the spec it ran. Books name families by path, not blob, so only
+    family specs replay this way."""
+    model = parse_spec_text(_git(root, "cat-file", "-p", blob))
+    if isinstance(model, BookSpec):
+        raise ValueError("load_spec_from_blob replays family specs only")
+    return _build(rel, model, blob, ())
+
+
 def load_spec_from_file(path: Path, root: Path | None = None) -> LoadedSpec:
     """Synthetic mode: parse the working file; a book's families resolve against `root`
     (default: the current directory). No blob is recorded."""

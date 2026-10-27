@@ -282,6 +282,23 @@ class PostgresLedger:
             raise LedgerRefusal(f"unknown construction identity: {name}")
         return concept_id
 
+    async def backfill_series(self, run_id: str, series: AttemptSeries) -> None:
+        """Write the series of a run recorded before migration 515 (phase 187 plan 03). Only the
+        series table is written: the run row is terminal and stays as recorded, so its headline
+        columns stay NULL. The caller proves the replay reproduced the recorded decision."""
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                await conn.execute(
+                    "INSERT INTO research_run_series (run_id, sessions, d_s) VALUES ($1, $2, $3)",
+                    uuid.UUID(run_id),
+                    series.sessions_as_dates(),
+                    series.values.tolist(),
+                )
+        finally:
+            await conn.close()
+
     async def finish_run(
         self,
         run_id: str,
