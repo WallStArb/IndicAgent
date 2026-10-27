@@ -30,10 +30,10 @@ Commit 56fa09baf (another session's) swept the two `infra.tradier_delete.*` pend
 
 ## Tests
 
-- Plan verify command plus the four named boundary and reader tests and the expiry guard: 91 passed (after the review fixes).
+- Plan verify command plus the four named boundary and reader tests and the expiry guard: 99 passed (after the second review; 68 script cases).
 - Integration test on the scratch schema: 1 passed.
 - `ruff check` and `black --check` are clean on all files I touched.
-- `pytest tests/unit/ -n auto`: 6700 passed, 1 skipped (after the review fixes; 6685 before).
+- `pytest tests/unit/ -n auto`: 6708 passed, 1 skipped (after the second review; 6700 after the first, 6685 before).
   - One earlier run failed `tests/unit/api/test_research_route.py::test_runs_count_their_groups_and_date_from_the_latest_finish`. That test and `src/api/routes/research.py` carry another session's uncommitted dashboard edits, and the test passed on the next run once their edit settled. It is not mine.
   - A transient xdist "different tests collected" error came from the same concurrent editing.
 
@@ -85,6 +85,14 @@ A fresh-context review found no HIGH issues. Fixed, all under the same rules (no
 7. **Per-symbol counts.** As in deviation 8.
 8. **Other-vendor revision count.** The manifest records the count of non-Tradier revision rows under Tradier loads (3,179,829 ibkr rows on 2026-10-27), and `--verify` requires it unchanged (T-191-45).
 
+Second review (2026-10-27), five LOW items (tests 5c9dd8809, fix 29254ba87):
+
+9. **State lock.** `--dump`, `--trial` and `--delete` with `--apply` take an exclusive non-blocking flock on `logs/tradier_delete_state.json.lock` (a stable sibling, since the state file is replaced atomically) and refuse while another run holds it.
+10. **Recovered trials.** The trial gate refuses a report marked `recovered: true` and asks for a fresh trial on another symbol.
+11. **Verify wording.** The success message now says the live and backup-file row counts match the manifest; content is compared per batch at delete time, not by `--verify`.
+12. **Isolation reset.** `delete_batch` resets the connection to READ COMMITTED in a `finally`, refusals included.
+13. **Production schema.** The production `_connect` refuses a session whose `current_schemas(false)` is not `['public']`, so the unqualified table names can only reach the real tables there.
+
 ## Task 3 notes
 
 - **Stop list.** From the first trial or batch until the 1d re-derive is done, stop every writer of the five tables and every consumer of canonical 1d (`market_data_ohlcv` and `market_data_ohlcv_tradeable`), not only the fetcher and bar_derivation. Scheduled on 2026-10-27 (`systemctl list-timers --all | grep indicagent`): `indicagent-ibkr-history-fetcher`, `indicagent-bar-derivation-grid`, `indicagent-bar-reconciliation-audit` (D7), `indicagent-alpaca-nightly`, `indicagent-dividend-event-writer-yahoo`, `indicagent-regime-coverage-auditor`, `indicagent-gateway-auth-probe` (harmless, no bar reads). Running services: `indicagent-feature-vector-writer`. Cron: the hourly `ops_tradier_residue_gate.sh`. No regime-writer, ic-measure or feature batch timer is installed today; recheck both commands and crontab at Task 3 and stop any feature, regime-writer, ic-measure or other 1d consumer found then, plus any manual 186-26 or feature backfill run.
@@ -95,4 +103,4 @@ A fresh-context review found no HIGH issues. Fixed, all under the same rules (no
 
 ## Self-check: passed
 
-Commits df7eeab18, dd02a6f27, 927edc8af, 39e64670a and 90ea7f984 are on origin/main. The script, tests and migration exist, and both APR keys are live in config_state.
+Commits df7eeab18, dd02a6f27, 927edc8af, 39e64670a, 90ea7f984, 5c9dd8809 and 29254ba87 are on origin/main. The script, tests and migration exist, and both APR keys are live in config_state.
