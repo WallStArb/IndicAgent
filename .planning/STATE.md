@@ -55,20 +55,18 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
 
 - **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
-  (amended 2026-10-23). 2026-10-27 09:50Z: 1,399 settled, 125 unsettled, 5 frozen (MOD, PSKY by
-  flag; CCO, QRVO, WBD by listing_end). The relaunch pass (pid 338126, fetch_run 05c34a16,
-  `logs/plan19_fullscan_20261026.log`) settles every name it reaches: deep SMART asks answer bars
-  from 1999-2001, with 1 failed and no timeouts in 364 requests. 124 of the 125 are simply not
-  reached yet. Hard-tail rule, decided on that evidence: no change to the readiness basis. The
-  one stuck name, CLBK (listed 2018-04-20, threshold 2018-04-20), times out or fails every run
-  because its windows start at the 2000-01-03 floor seed, 18 years before listing; it gets one
-  ask bounded at the listing (`--days 3130`), which settles it by ask or raw-bar. A name still
-  unsettled after a bounded ask goes on the `--frozen-names` hold with its measured residue
-  class, as MOD and PSKY are, never a weakened basis. The successor watcher
-  (scratchpad `plan19_successor.sh`) waits for 338126's budget end (about 11:33Z), runs the
-  CLBK ask, relaunches the rest (budget 480 min), then restarts the fetcher timer. The crontab
-  gate `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at :47) runs readiness and, once
-  it exits 0, writes `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
+  (amended 2026-10-23). 2026-10-27 11:50Z: 1,442 settled, 81 unsettled, 6 frozen (MOD, PSKY,
+  CLBK by flag; CCO, QRVO, WBD by listing_end). The 05c34a16 pass (180 items, 175 ok) settled every
+  name it reached; the successor pass (fetch_run 60da77f8, 81 names, budget 480 min, started
+  11:45Z, `logs/plan19_fullscan_20261026.log`) runs the rest, then the watcher restarts the
+  fetcher timer. Hard-tail rule (decided, no change to the readiness basis): a name still
+  unsettled after an ask bounded at its listing goes on the `--frozen-names` hold with its
+  residue class. CLBK hit it: the bounded ask (2018-04-03 onward) got IBKR error 162 "No
+  historical market data ... NASDAQBBO Last 1d" for conId 902968711, whose bars start
+  2026-08-28, so its 2,100 Tradier-only sessions 2018-04-20..2026-08-27 are residue for the
+  plan 20 report. The crontab gate `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at
+  :47, FROZEN=MOD,PSKY,CLBK) runs readiness and, once it exits 0, writes
+  `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
   completed_plans stays 120 until plan 19 closes.
 
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so

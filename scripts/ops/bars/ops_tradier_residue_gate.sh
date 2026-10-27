@@ -8,7 +8,7 @@ PY=/home/bg/dev/indicagent/.venv/bin/python
 LOG=logs/191_19_gate.log
 STATE=logs/191_19_gate.state
 REPORT=.planning/phases/191-unified-raw-bar-table/191-TRADIER-RESIDUE.md
-FROZEN=MOD,PSKY  # holds a listing end does not describe; QRVO, WBD, CCO come from listing_end (518)
+FROZEN=MOD,PSKY,CLBK  # holds a listing end does not describe (CLBK: IBKR has no 1d history before 2026-08-28, 2026-10-27); QRVO, WBD, CCO come from listing_end (518)
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >>"$LOG"; }
 
 [ -f "$STATE" ] && grep -q done "$STATE" && exit 0

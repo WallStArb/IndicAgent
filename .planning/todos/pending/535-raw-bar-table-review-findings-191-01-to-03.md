@@ -393,3 +393,10 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     Tradier loads). The 191-20 tooling now keeps every `ohlcv_load` row, so it is not exposed,
     but the schema should not allow it for any future deleter: switch the FK to RESTRICT, as
     `ohlcv_restatement_flag` already uses (add NOT VALID, then VALIDATE, outside a fetch run).
+53. Fetcher error classification (2026-10-27, CLBK): IBKR error 162 "No historical market data
+    for <id>/STK@NASDAQBBO Last 1d" is logged as `ibkr.hist_pacing_error`, retried three times
+    and recorded as outcome `failed` with an empty error_text. It is a definitive answer (no
+    history for that contract over the window), so it should be `no_data` with the message
+    kept, which would also have settled CLBK by evidence instead of the frozen hold. Fix in
+    `src/providers/ibkr.py` error mapping when no fetch is running; add the message text to
+    error_text for every failed outcome.
