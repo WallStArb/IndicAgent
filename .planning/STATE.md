@@ -55,11 +55,20 @@ plans 21 to 25 strictly serial -> 186-26 feature rebuild (then 186-27, 186-28) -
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
 
 - **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
-  (amended 2026-10-23). 2026-10-26 09:14Z: 1,113 settled, 412 unsettled, 4 frozen. A full-scan
-  compute_1d pass over the 412 has run since 12:23Z (`logs/plan19_fullscan_20261026.log`, budget
-  15 h); the fetcher timer is off until it exits, then a watcher restarts it. The crontab gate
-  `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at :47) runs readiness and, once it exits
-  0, writes `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
+  (amended 2026-10-23). 2026-10-27 09:50Z: 1,399 settled, 125 unsettled, 5 frozen (MOD, PSKY by
+  flag; CCO, QRVO, WBD by listing_end). The relaunch pass (pid 338126, fetch_run 05c34a16,
+  `logs/plan19_fullscan_20261026.log`) settles every name it reaches: deep SMART asks answer bars
+  from 1999-2001, with 1 failed and no timeouts in 364 requests. 124 of the 125 are simply not
+  reached yet. Hard-tail rule, decided on that evidence: no change to the readiness basis. The
+  one stuck name, CLBK (listed 2018-04-20, threshold 2018-04-20), times out or fails every run
+  because its windows start at the 2000-01-03 floor seed, 18 years before listing; it gets one
+  ask bounded at the listing (`--days 3130`), which settles it by ask or raw-bar. A name still
+  unsettled after a bounded ask goes on the `--frozen-names` hold with its measured residue
+  class, as MOD and PSKY are, never a weakened basis. The successor watcher
+  (scratchpad `plan19_successor.sh`) waits for 338126's budget end (about 11:33Z), runs the
+  CLBK ask, relaunches the rest (budget 480 min), then restarts the fetcher timer. The crontab
+  gate `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at :47) runs readiness and, once
+  it exits 0, writes `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
   completed_plans stays 120 until plan 19 closes.
 
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so

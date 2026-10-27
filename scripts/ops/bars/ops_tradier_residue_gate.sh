@@ -16,7 +16,7 @@ log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >>"$LOG"; }
 "$PY" -m scripts.ops.bars.ops_tradier_residue --readiness --frozen-names "$FROZEN" >/tmp/r191.json 2>/tmp/r191.err
 rc=$?
 if [ "$rc" -eq 2 ]; then
-  log "not ready: $(tr -d '\n ' </tmp/r191.err | tail -c 160)"
+  log "not ready: $("$PY" -c 'import json,sys;d=json.load(open(sys.argv[1]));print("settled",d["n_settled"],"unsettled",d["n_unsettled"])' /tmp/r191.json 2>/dev/null)"
   exit 0
 fi
 if [ "$rc" -ne 0 ]; then
