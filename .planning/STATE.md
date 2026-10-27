@@ -122,16 +122,16 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
   537 item 2 basis restore). Every other owner decision is closed (2026-10-26).
 
-D-191-P applied 2026-10-27 00:20Z (migration 520 retirement, ba03e9ff7; plan file
+D-191-P done 2026-10-27 (migration 520 retirement, ba03e9ff7; plan file
 `data/policy_plans/2026-10-26-d191p-5m-alpaca-primary.json`): live 5m policy is two defaults, IBKR
-before 2016-01-04 and Alpaca then IBKR from it; 1,641 symbol rows retired. The reselect of the 267
-names whose canonical changes runs detached (`logs/d191p_reselect_20261027.log`, about 63 s per
-name, about 4.7 h), then `scripts/ops/bars/ops_d191p_followon.sh` re-derives their grid in full and
-runs the selection gate over all 5m (`logs/d191p_followon_20261027.log`). No 5m snapshot and no
-186-26 until that gate exits 0 (research lane holding). The derived 15m/1h of every name had
-stopped at 2026-10-16 (no grid stage followed the Alpaca nightly); `indicagent-bar-derivation-grid`
-(05:45 UTC, --changed-only) now does, and writing derivation runs serialize on a stage lock
-(e48ddbfb6). Check after 06:00Z: AAPL (reselected) and WAB (not) have 15m/1h past 2026-10-16.
+before 2016-01-04 and Alpaca then IBKR from it; 1,641 symbol rows retired. 267 names reselected
+(44.5M bars changed) and their grid re-derived in full; the other 1,261 names had their stale
+session-choice records rewritten by record-only shards (0 bar changes). Every name's 15m/1h grid
+is current through 2026-10-26 (`indicagent-bar-derivation-grid`, 05:45 UTC, --changed-only, now
+follows the Alpaca nightly; writing derivation runs serialize on a stage lock, e48ddbfb6). Final
+5m selection gate exit 0: 1,529/1,529 series clean, n_canonical == n_selected == 311,503,335,
+session_choices_unrecorded 0 (`logs/selection_gate_20261027T072705Z.json`). The research lane
+(5b) was told 2026-10-27 07:5xZ; the 5m snapshot and 186-26 are no longer held on D-191-P.
 
 Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
 Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
