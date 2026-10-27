@@ -96,7 +96,9 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   13-cell run at 4,000 sessions (next run). Plan 09 in-fold signs: trailing (owner 2026-10-27).
   E17 amended: L adds a daily target's reach (`timing.e17_memory`; intraday unchanged). Daily
   residual family (441 + 423) built to its battery (ee8c264df); prereg draft; h = 21 waits on
-  todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) still waits on the owner.
+  todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) is approved (owner 2026-10-27).
+  E17 v2 (owner 2026-10-27, todo 549): fixed-b critical values; the 4,000-session StepM run on v1
+  is a pre-v2 baseline only.
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
@@ -129,7 +131,7 @@ coordinate through cross-session messages before touching shared files.
 | Lane | Session | Boundary |
 |---|---|---|
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
-| Research: phase 187 (08-15), family 2 run, daily residual family | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
+| Research: phase 187 (08-15), E17 v2, family 2 run, daily residual family | indicagent-b1 (from 5b 2026-10-27) | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
 | Research: phase 184 | indicagent-24 | `.planning/phases/184-*`; research code on 5b's go |
 
 Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
@@ -137,13 +139,8 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 
 ## Decisions waiting on the owner
 
-- Research lane restart (2026-10-27): the StepM battery was restarted on the owner's go (and is
-  now judged at 4,000 sessions, owner decision). The 187-03 backfill replays (8 of 20 left, then
-  `--apply`) still wait on the owner's go-ahead. Recommended: one at a time,
-  launched outside the Claude session with a memory cap (`systemd-run --user -p MemoryMax=...`)
-  so a cap breach fails in its own log and a dying session cannot take the run with it.
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
-  537 item 2 basis restore). The only other open owner call is the research restart below. The tooling is
+  537 item 2 basis restore). This is the only open owner call (the research restart and E17 v2 were decided 2026-10-27). The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
   migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
   run live. D-191-Q (owner 2026-10-27, todo 545): canonical 1d becomes Alpaca
