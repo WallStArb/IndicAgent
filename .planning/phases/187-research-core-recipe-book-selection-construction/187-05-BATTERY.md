@@ -98,3 +98,23 @@ The full 13-cell battery under studentize="draw" was started and then stopped by
 memory reaper before any cell was saved (the driver now appends each finished cell to
 `<out>.partial.jsonl`). It must rerun and hold in every gating cell before any selection
 set from `select_books.py` (plan 06, landed) counts as a result. The diagnostic cells document known E17 limits and do not gate.
+
+## Step A (owner 2026-10-27): is the excess over 5% real? (2026-10-27)
+
+Pooled over every gating arm, 1,000 simulations each, 99% Clopper-Pearson intervals:
+
+| Source | 0.05 | 0.01 | 0.00167 |
+|---|---|---|---|
+| E17, 187-08 cells, 1,500 sessions (30 arms) | 5.47% [5.13, 5.81] | 1.13% [0.98, 1.29] | 0.20% [0.14, 0.27] |
+| E17, 187-08 cells, 4,000 sessions (30 arms) | 5.40% [5.07, 5.75] | 1.12% [0.97, 1.28] | 0.18% [0.13, 0.26] |
+| StepM, 1,500 sessions (10 gating cells) | 5.83% [5.24, 6.46] | | |
+| StepM, 4,000 sessions (first 10 gating cells) | 5.47% [4.90, 6.08] | | |
+
+The E17 excess is outside Monte Carlo error (the 99% interval excludes 5%) and does not shrink
+from 1,500 to 4,000 sessions; mean t is about 0 and its sd 1.006 to 1.016. So the statistic is
+unbiased with a slightly too wide t: the known finite-sample understatement of the Newey-West
+(Bartlett) long-run variance, not the null generator. StepM inherits it (it studentizes with the
+same HAC). Candidate fix: fixed-b critical values (Kiefer and Vogelsang 2005) for the Bartlett
+kernel at E17's lag, which correct exactly this. It would move every recorded E17 p-value
+(family 1's evidence records and any attestation), so per the owner's stop rule it waits for the
+owner before any code changes.
