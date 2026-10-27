@@ -30,6 +30,17 @@ Full record: design doc D-191-Q.
    session date (Alpaca stamps midnight New York); a zero-volume Alpaca bar never serves; the
    Alpaca span starts at the name's listing. The nightly's "1d is raw capture only" fence and the
    integrity checks that pin the 1d pairs follow. Fresh-context review.
+   - Status 2026-10-27: built (caab252ce RED, 1cc7bf759 GREEN), code and tests only, nothing
+     written live. Canonical kind `(alpaca, sip_rth)` (no CVR migration). Listing guard: the
+     Alpaca span starts at the first session where IBKR's contract-keyed close agrees (session
+     and window median within the basis tolerance); no point-in-time listing table exists. d2-v3
+     outputs are bit-identical where no policy names Alpaca (fixture goldens; 1,523 live names
+     read-only, 0 mismatches).
+   - Open: the fresh-context review (Codex and AGY out of quota); owner call on the 69 spin-off
+     names (IBKR adjusts spin-offs, Alpaca does not: 90,484 sessions fall back to IBKR);
+     `--plan` cannot express the 1d policy as written; D7 digests stale until a re-derive; no
+     Alpaca 1d split re-ask; D7 `vendor_basis_run` is Tradier-only. Details:
+     `.planning/phases/191-unified-raw-bar-table/191-D191Q-DAILY-RULE-BUILD.md`.
 4. Policy rows via `ops_source_policy.py --plan` (dry run, then apply): 1d default Alpaca primary
    with IBKR fallback from 2016-01-04, IBKR before; reconcile the 154 1d symbol rows (143 names).
 5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it; the 2016 volume seam is recorded
