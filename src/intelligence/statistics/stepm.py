@@ -7,10 +7,12 @@ trial, ten unrelated books about ten.
 
 Statistic: t_k = mean_k / se_k on series k's own finite sessions, se_k its Newey-West HAC
 standard error (hac.hac_mean_test, the E17 decision statistic), so differing spans, warmups and
-universes do not bias the comparison. Bootstrap: t*_k = (mean*_k - mean_k) / se_k, the resampled
-mean over the finite sessions the draw lands on, centred on the sample mean and scaled by the
-sample se (the studentization Hansen's SPA uses; re-estimating a HAC se per draw costs reps x K
-long-run variances for little change in the max-t quantiles). Missing sessions are excluded,
+universes do not bias the comparison. Bootstrap (default studentize="draw"): t*_k = (mean*_k -
+mean_k) / se*_k, each draw centred on the sample mean and scaled by its own HAC se over the
+finite sessions it lands on (Romano-Wolf's studentized form). studentize="sample" scales every
+draw by the sample se instead (the SPA shortcut): through the E17 H0 battery it oversized the
+slot_effects cell (74 family-wise rejections in 1,000 against a 67 bound; per-draw: 52), so it
+is kept only as a documented comparison (187-05-BATTERY.md). Missing sessions are excluded,
 never filled. Step-down adjusted p-values are monotone in the observed t ordering.
 
 Pure: arrays in, result out. Parameters come from the caller (APR keys alpha.selection.stepm.*).
@@ -44,6 +46,7 @@ def stepm(
     reps: int,
     fwer: float,
     seed: int,
+    studentize: str = "draw",
 ) -> StepMResult:
     """StepM over `series` [S sessions, K attempts] on one calendar (NaN where an attempt has
     no tested session). `block_mean` must exceed the longest holding horizon in the universe."""
@@ -67,7 +70,21 @@ def stepm(
 
     values = np.where(finite, x, 0.0)
     idx = stationary_bootstrap_indices(x.shape[0], block_mean, reps, np.random.default_rng(seed))
+    if studentize not in ("draw", "sample"):
+        raise ValueError(f"studentize must be 'draw' or 'sample', got {studentize!r}")
     t_star = np.empty((reps, x.shape[1]))
+    if studentize == "draw":
+        for b in range(reps):
+            t_star[b] = [_draw_t(x[idx[b], k], mean[k]) for k in range(x.shape[1])]
+        adjusted = _step_down_p(t_obs, t_star)
+        return StepMResult(
+            t=t_obs,
+            adjusted_p=adjusted,
+            selected=adjusted <= fwer,
+            fwer=fwer,
+            reps=reps,
+            block_mean=block_mean,
+        )
     for b in range(reps):
         count = finite[idx[b]].sum(axis=0)
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -84,6 +101,19 @@ def stepm(
         reps=reps,
         block_mean=block_mean,
     )
+
+
+def _draw_t(column: np.ndarray, sample_mean: float) -> float:
+    """One draw's centred t with the draw's own HAC se; -inf when the draw lands on fewer than
+    two of the attempt's sessions or its long-run variance is not positive (no evidence)."""
+    finite = column[np.isfinite(column)]
+    if len(finite) < 2:
+        return -np.inf
+    try:
+        h = hac_mean_test(finite)
+    except ValueError:
+        return -np.inf
+    return (h.mean - sample_mean) / h.se
 
 
 def _step_down_p(t_obs: np.ndarray, t_star: np.ndarray) -> np.ndarray:

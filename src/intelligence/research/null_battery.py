@@ -25,7 +25,7 @@ from src.intelligence.research import static_sizes
 from src.intelligence.research.families.intraday_periodicity import SLOT_BARS, same_slot_mean
 from src.intelligence.research.panel import Panel
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
-from src.intelligence.research.timing import timing_test
+from src.intelligence.research.timing import TimingResult, timing_test
 
 ALPHAS = (0.05, 0.01, 0.00167)
 MEMBER_WINDOWS = (1, 5, 20, 40)  # family 1's slot histories
@@ -156,6 +156,17 @@ def null_panel(sc: NullScenario, seed: int) -> tuple[np.ndarray, np.ndarray]:
 
 def simulate(sc: NullScenario, seed: int) -> dict[str, tuple[float, float]]:
     """One H0 panel: {arm: (t, p)} for each member window and the equal-weight book."""
+    return {arm: (r.hac.t, r.hac.p) for arm, r in simulate_timings(sc, seed).items()}
+
+
+def simulate_series(sc: NullScenario, seed: int) -> dict[str, np.ndarray]:
+    """One H0 panel: {arm: D_s per session} for every arm, so a selection test (StepM, phase
+    187) sees the arms' joint null distribution on one calendar."""
+    return {arm: r.series for arm, r in simulate_timings(sc, seed).items()}
+
+
+def simulate_timings(sc: NullScenario, seed: int) -> dict[str, TimingResult]:
+    """One H0 panel: {arm: E17 timing result} for each member window and the equal-weight book."""
     bps = sc.bars_per_session
     resid, target = null_panel(sc, seed)
     window = _VOL_WINDOW_SESSIONS * bps
@@ -163,7 +174,7 @@ def simulate(sc: NullScenario, seed: int) -> dict[str, tuple[float, float]]:
     trade = np.zeros(len(resid), dtype=bool)
     trade[_WARMUP_SESSIONS * bps :] = True
     kw = dict(bars_per_session=bps, warmup_sessions=_WARMUP_SESSIONS)
-    out: dict[str, tuple[float, float]] = {}
+    out: dict[str, TimingResult] = {}
     members = []
     for w in MEMBER_WINDOWS:
         alpha = same_slot_mean(
@@ -173,8 +184,7 @@ def simulate(sc: NullScenario, seed: int) -> dict[str, tuple[float, float]]:
         weights, has = rank_vol_neutral_weights(
             alpha, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
         )
-        res = timing_test(weights, target, has, trade, memory_sessions=w, **kw).hac
-        out[f"mean{w}"] = (res.t, res.p)
+        out[f"mean{w}"] = timing_test(weights, target, has, trade, memory_sessions=w, **kw)
     stack = np.stack(members, axis=2)
     with warnings.catch_warnings(), np.errstate(invalid="ignore"):
         warnings.simplefilter("ignore", RuntimeWarning)  # rows with no finite member stay NaN
@@ -185,8 +195,9 @@ def simulate(sc: NullScenario, seed: int) -> dict[str, tuple[float, float]]:
     weights, has = rank_vol_neutral_weights(
         book, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
     )
-    res = timing_test(weights, target, has, trade, memory_sessions=max(MEMBER_WINDOWS), **kw).hac
-    out["book_equal"] = (res.t, res.p)
+    out["book_equal"] = timing_test(
+        weights, target, has, trade, memory_sessions=max(MEMBER_WINDOWS), **kw
+    )
     return out
 
 
