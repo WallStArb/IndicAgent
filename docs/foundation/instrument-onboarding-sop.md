@@ -26,10 +26,10 @@ test can find. Six rules follow from that.
    (seed, parameters, script revision), manifest row, onboarding time. `config/universe/README.md`
    holds the lineage and every deviation from a clean draw.
 3. **One writer per fact.** `instruments`, `instrument_tags`, `instrument_classification` and
-   `instrument_metadata`: `onboard_instrument()` only, called by the manifest onboarder. Raw 1d
-   answers: the ingress write contract (D1, `ohlcv_load`, `ohlcv_revision`). Canonical 1d bars:
-   the d2-v3 daily derivation (`services/bar_derivation.py`), the one writer, choosing each
-   name's source by `bar_source_policy`. Verdicts: the D7 audit. Eligibility flags: the promote
+   `instrument_metadata`: `onboard_instrument()` only, called by the manifest onboarder. Raw
+   answers of every vendor: the ingress write contract (`ohlcv_raw`, `ohlcv_load`,
+   `ohlcv_revision`). Canonical 1d bars: the daily derivation (`services/bar_derivation.py`, rule
+   d2-v3 today), the one writer, choosing each date's source by `bar_source_policy`. Verdicts: the D7 audit. Eligibility flags: the promote
    script only. No hand `INSERT` or `UPDATE` on any of them.
 4. **Stages are a DAG over persisted state.** Each stage reads what the previous one wrote and
    nothing else, is dry-run by default, and is safe to rerun. A stage that fails leaves the
@@ -69,10 +69,12 @@ State them in the README entry for the batch; research discloses them through ph
   selector. A size or momentum claim needs point-in-time cap, never the holdings rank (todo 491 adds
   the entry date and cohort research needs to see it).
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
-  The former venues' answers are kept in D1 but stay out of canonical bars (the 185 D3 venue
-  study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6) records
-  the move. A name's Tradier history before 2026-10-07 does not have this truncation; a name
-  onboarded since has IBKR history only.
+  The former venues' answers are kept in `ohlcv_raw` but stay out of canonical bars (the 185 D3
+  venue study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6)
+  records the move. Alpaca SIP is consolidated, so its history from 2016-01-04 has no venue
+  truncation; once D-191-Q lands (plan 191-20, todo 545) a moved name's canonical 1d is short
+  only before 2016. Until then a name onboarded since 2026-10-07 has IBKR 1d only, and a name's
+  Tradier history before 2026-10-07 covers the truncation until plan 191-20 deletes Tradier.
 - **Scrubbed, not cleaned.** Bad prints are flagged, never edited: the daily derivation runs the
   D2a scrub rules and a quarantined bar disappears from `market_data_ohlcv_tradeable` while the
   stored bar stays. The 1d dry run on 2026-09-26 found 45 corrupt bars across the 932 names.
@@ -86,15 +88,15 @@ State them in the README entry for the batch; research discloses them through ph
 
 ```
 source snapshot ─> select ─> classify ─> manifest ─> qualify ─> write ─> fetch 1d ─> verify ─> promote ─> record
- (holdings CSV)   (draw,     (IBKR       (reviewed   (IBKR,     (one     (D1, then  (holds,    (compute_  (README,
+ (holdings CSV)   (draw,     (IBKR       (reviewed   (IBKR,     (one     (raw, then (holds,    (compute_  (README,
                   read-only)  details +   CSV)        no txn)    txn)     derive,    heads,     eligible_  commit)
                               review)                                     scrub)     flags)     1d)
 ```
 
 Stages 1-4 write no database table. Stages 5-6 are one script. Nothing downstream of `promote`
-needs a manual step once the IBKR history fetcher's timer runs (phase 189 plan 10): it keeps
-every active name's 1d current, the nightly D7 audit judges it, and research reads the name at
-its next snapshot.
+needs a manual step: the IBKR history fetcher's timer and the Alpaca nightly keep every active
+name current, the nightly D7 audit judges it, and research reads the name at its next
+snapshot.
 
 ## Stages
 
@@ -188,55 +190,72 @@ applies.
 
 ### 7. Fetch 1d
 
-IBKR is the 1d source for every name from 2026-10-07 and the only one for a new name (owner
-decision 2026-10-07: Tradier is not funded; plan 185-48 deleted its loader). The IBKR history
-fetcher is the only price-history CLI:
+A new name is fetched from both price vendors, never one by habit: every vendor answer is stored
+in `ohlcv_raw` under its `(vendor, kind)`, last-wins, and canonical is a selection from raw by
+`bar_source_policy` (see `docs/foundation/canonical-truth-registry.md`, provider matrix). The
+sources a new name's canonical bars come from:
+
+- 1d today: IBKR SMART TRADES (the open default row from 2026-10-07; Tradier is not funded and
+  answers nothing for a new name). Decided, lands with plan 191-20 (todo 545): D-191-Q makes
+  Alpaca SIP the 1d primary from 2016-01-04 with IBKR fallback only where Alpaca has no
+  tradeable bar, and IBKR alone before 2016. Fetch both now so the name is ready either way.
+- 5m (intraday names only): Alpaca SIP from 2016-01-04 with IBKR fallback, IBKR alone before
+  (D-191-P).
+
+IBKR. The history fetcher is the only IBKR history CLI:
 
 ```
-.venv/bin/python -u scripts/infrastructure/backfill/ibkr_history_fetcher.py \
+.venv/bin/python -u scripts/infrastructure/backfill/ohlcv_history_fetcher.py \
     --dimension backfill --timeframes 1d --symbols <comma-separated batch> --full-scan \
     --client-id <id> > <scratchpad>/fetch_<batch>.log 2>&1
 ```
 
 Add `--dry-run` first to see the queue. Named `--symbols` are asked even when the ledger calls
-them current. The fetcher service and timer are stopped and disabled by the owner until plan
-189-10's pilot; a manual batch run is the operator's call. Every request goes through the ingress
-write contract: the raw answer lands in D1 with an `ohlcv_request` row, each series gets an
-`ohlcv_load` row, and a changed stored bar keeps its old values in `ohlcv_revision`. Progress
-is the `ohlcv_coverage` ledger (one row per symbol and timeframe, with bounds and row count):
+them current. The fetcher's timer (`indicagent-ibkr-history-fetcher`, every 15 minutes after the
+last run ends) holds `FetcherLock`; a manual run started while a timer run holds it exits
+`lock_held`, so stop the timer for the batch run or wait for the timer to pick the names up from
+`instruments`. Every request goes through the ingress write contract: an `ohlcv_request` row,
+the answer in `ohlcv_raw`, an `ohlcv_load` row per series, and a replaced bar's old values in
+`ohlcv_revision`. Former listing venues are asked too and land in `ohlcv_raw` under the venue
+kinds (stage 8 reads them). If the run dies, rerun the same command: the contract writes only
+new and changed bars. Keep the log. Progress is the `ohlcv_coverage` ledger:
 
 ```sql
 SELECT symbol, earliest_timestamp::date, latest_timestamp::date, row_count, last_fetch_status
 FROM ohlcv_coverage WHERE timeframe = '1d' AND symbol = ANY(:batch) ORDER BY symbol;
 ```
 
-**Two-vendor capture model (2026-10-10 owner ruling; todo 528 enforces):** a new name is
-onboarded against both vendors, never single-vendor by habit: IBKR as above for 1d (and 5m
-depth per the phase 189 lane), and Alpaca 5m via `scripts/ops/bars/ops_bar_load.py --vendor
-alpaca`. Both vendors' served bars are saved raw per source (losers and extended-hours rows
-archive, they are never dropped); canonical authoring stays one source per timeframe (IBKR 1d,
-first-writer-stays 5m; Alpaca never authors 1d). Until todo 528 lands the loader still drops
-those categories, which is a known defect, not license to skip the second vendor.
+Alpaca. The nightly capture script asks SIP for every active name's recent window; a new name's
+history from 2016 is the same script with a wide window, dry run first (it still asks the
+vendor), then `--apply`:
 
+```
+.venv/bin/python -m scripts.ops.bars.ops_bar_nightly --vendor alpaca \
+    --symbols <space-separated batch> --days 3950 > <scratchpad>/alpaca_<batch>.log 2>&1
+```
 
-Former listing venues are asked too and their answers land in D1 as venue observations (stage 8
-reads them). If the run dies, rerun the same command: the contract writes only new and changed
-bars. Keep the log.
+`--timeframes 1d` or `5m` narrows it (default both; 5m only matters for intraday names). A run
+stops at `infra.alpaca.nightly_max_requests` or `infra.alpaca.nightly_deadline_minutes`, so
+shard a large batch. 1d answers are raw capture only: the load engine refuses a 1d canonical
+write, and the daily derivation decides what serves. 5m answers are selected into canonical in
+the same transaction.
 
-The fetch writes observations, not bars. Scrubbing is part of the chain, not a person's step,
+The fetch writes raw answers, not 1d bars. Scrubbing is part of the chain, not a person's step,
 and the chain is one direction:
 
-1. **1d fetch into D1** through the ingress write contract.
-2. **Daily derivation (D2, rule d2-v3).** `services/bar_derivation.py --stage daily` turns the
-   D1 observations into canonical 1d bars, taking each date's source from `bar_source_policy`
-   (`ibkr_named` for a new name; `tradier` and `ibkr_fallback` appear only in the history before
-   2026-10-07 of names onboarded earlier). Lineage is the
-   `canonical_bar_lineage` view over D1, not a stored table.
+1. **Fetch into `ohlcv_raw`** through the ingress write contract.
+2. **Daily derivation (rule d2-v3).** `services/bar_derivation.py --stage daily` selects each
+   date's canonical 1d bar from `ohlcv_raw` under `bar_source_policy` (`ibkr`/`named` for a new
+   name today; `tradier` and `ibkr`/`fallback` appear only in the history before 2026-10-07 of
+   names onboarded earlier). The code already carries rule d2-v4, which reads Alpaca and changes
+   nothing until the D-191-Q policy rows land. Lineage is the `canonical_bar_lineage` view over
+   raw, not a stored table.
 3. **Scrub (D2a).** The same daily stage reruns the scrub rules over the symbols it touched and
    writes `bar_quality_flag`; quarantined bars leave the tradeable view.
-4. **Grid (D2b).** For intraday names, `--stage grid` derives 15m/1h from tradeable 5m.
+4. **Grid (D2b).** For intraday names, `--stage grid` derives 15m/1h from tradeable 5m (the
+   `indicagent-bar-derivation-grid` timer, 05:45 UTC, after the Alpaca nightly).
 
-The fetcher runs steps 2 and 3 itself at exit, over every symbol whose 1d windows it asked,
+The IBKR fetcher runs steps 2 and 3 itself at exit, over every symbol whose 1d windows it asked,
 and fails loudly if the derivation fails. After a failed derivation, rerun it by hand
 (idempotent):
 

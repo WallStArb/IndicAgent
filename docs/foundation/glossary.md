@@ -2012,13 +2012,14 @@ inside fetch coverage. Reported by the daily audit with the threshold in APR.
 
 ## Bar data layer terms (phase 185)
 
-The daily data foundation: provider answers are kept as observations (D1), canonical bars are
-derived from them (D2), and side tables record what is wrong with a bar or why it moved, never by
-editing the bar itself. Operations view: `docs/operations/operations-database.md`. Since plan
-191-05 the one store of vendor answers is `ohlcv_raw` (last-wins); the D1/D2 stores below
-(`ohlcv_observation`, `ohlcv_intraday_raw_archive`) were dropped 2026-10-17 by plan 191-16,
-their rows folded into `ohlcv_raw` and kept on disk as the backup in `data/backups/191/` to
-2026-11-12.
+The bar data foundation: every vendor answer is kept in `ohlcv_raw` (last-wins, with a revision
+log), canonical bars are a rebuildable selection from it by `bar_source_policy` (the daily rule
+for 1d, the selection writer for 5m, 1m and 4h, the grid for 15m and 1h), and side tables
+record what is wrong with a bar or why it moved, never by editing the bar itself. Operations
+view: `docs/operations/operations-database.md`; owners: `docs/foundation/canonical-truth-registry.md`.
+The phase 185 stores (`ohlcv_observation`, called D1, and `ohlcv_intraday_raw_archive`) were
+dropped 2026-10-17 by plan 191-16, their rows folded into `ohlcv_raw` and kept on disk as the
+backup in `data/backups/191/` to 2026-11-12. Entries below that name them describe history.
 
 ### `observation`
 
@@ -2039,21 +2040,34 @@ writer module went with the table)
 
 The one bar per (symbol, timeframe, timestamp) that research reads, stored in
 `market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar is
-derived by the one 1d rule d2-v3 from the observations of the name's `daily source` for that
-date, with its lineage in the `canonical_bar_lineage` view. 15m and 1h canonical bars are the
-derived grid; 5m and 1m are the provider's bars as fetched. **Not:** an observation (raw answer)
-or a quarantined bar (stored, hidden from readers). **Banned:** (none)
-**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38; d2-v3 since 185-52)
-**Code surface:** `services/bar_derivation.py --stage daily`, `src/intelligence/bars/daily_rule.py`
+selected by the one 1d rule (d2-v3 in the stored canonical) from the `ohlcv_raw` answers of the
+name's `daily source` for that date, with its lineage in the `canonical_bar_lineage` view. 15m
+and 1h canonical bars are the derived grid; 5m, 1m and 4h are a selection from `ohlcv_raw` by
+policy, each session whole from one vendor (`services/bar_selection.py`). Canonical is
+rebuildable from raw plus policy; `scripts/ops/bars/ops_selection_gate.py --compare` is the
+standing proof. **Not:** a raw answer (a row of `ohlcv_raw`) or a quarantined bar (stored,
+hidden from readers). **Banned:** (none)
+**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38; d2-v3 since 185-52;
+selection from raw since phase 191)
+**Code surface:** `services/bar_derivation.py --stage daily`, `src/intelligence/bars/daily_rule.py`,
+`services/bar_selection.py`, `src/intelligence/bars/selection.py`
 
 ### `daily source`
 
-The vendor whose observations make a name's canonical 1d bar on one date, chosen per date by the
-`bar_source_policy` row that covers it (a symbol row beats the timeframe default): Tradier before
-D = 2026-10-07 (the closed default row; Tradier's observations end at 2026-10-06 and stay
-canonical history), IBKR SMART TRADES from D (the open default row, no fallback), and per-symbol
+The vendor whose raw answers make a name's canonical 1d bar on one date, chosen per date by the
+`bar_source_policy_current` row that covers it (a symbol row beats the timeframe default).
+Today: Tradier before D = 2026-10-07 (the closed default row, IBKR fallback; Tradier's answers
+end at 2026-10-06), IBKR SMART TRADES from D (the open default row, no fallback), and per-symbol
 exception rows (185-38 IBKR-primary rows, 185-37 bounded rows, 185-49 head rows, the 185-47 hold
-rows that keep MOD and QRVO on Tradier primary). After a split recorded once Tradier stopped
+rows that keep MOD and QRVO on Tradier primary). Decided, lands with plan 191-20 (todo 545):
+D-191-Q makes Alpaca SIP (`(alpaca, sip_rth)`, split-adjusted) the daily source from 2016-01-04
+with IBKR fallback only where Alpaca has no tradeable bar, and IBKR alone before 2016, the same
+seam as 5m (D-191-P). Without Tradier, IBKR alone would leave canonical 1d on a
+non-consolidated volume basis and short of sessions Alpaca holds. Under rule d2-v4 a zero-volume
+bar never serves, from either vendor. Exceptions (spin-off-adjusted history, ticker reuse) are
+dated per-name policy rows decided by a one-time three-vendor arbitration (Alpaca, IBKR,
+Tradier) run before plan 191-20 deletes Tradier; spans where all three disagree go to the
+owner. After a split recorded once Tradier stopped
 answering, a date whose Tradier answer is on the stale scale takes IBKR's re-fetched answer as
 `ibkr_fallback` when the basis over the nearest common sessions (the stale Tradier close divided
 by the split factor, a measurement only) is within the interior fallback tolerance; otherwise the
@@ -2064,13 +2078,15 @@ is more than the allowed sessions behind, and it stays active. **Not:** the prov
 waiting on a decision), or a name's listing venue. **Banned:** (none)
 **Avoid:** "Tradier-owned" for a name (the open-policy predicate of 185-38, deleted in 185-48; say
 which dates Tradier is the daily source for)
-**Status:** active (migration 438 Tradier default; migration 456 IBKR default from D, plan 185-47)
-**Code surface:** `bar_source_policy`, `scripts/ops/bars/ops_source_policy.py`, `src/intelligence/bars/daily_rule.py`
+**Status:** active (migration 438 Tradier default; migration 456 IBKR default from D, plan 185-47;
+row retirement, migration 520; D-191-Q decided 2026-10-27, not yet in the policy)
+**Code surface:** `bar_source_policy`, `bar_source_policy_current`, `scripts/ops/bars/ops_source_policy.py`, `src/intelligence/bars/daily_rule.py`
 
 ### `derived grid`
 
 The 15m and 1h bars rebuilt from a name's tradeable 5m bars on session-anchored edges (a 1h bar
-of a 16:00 close ends at 15:30-16:00), `source = 'derived_5m'`. The IBKR 15m/1h answers they
+of a 16:00 close ends at 15:30-16:00), vendor `derived` and kind `5m_grid` (the retired
+`source` label was `derived_5m`). The IBKR 15m/1h answers they
 replaced were kept in `ohlcv_intraday_raw_archive` until plan 191-16 dropped it (2026-10-17);
 those answers live in `ohlcv_raw`. A derived bar with an unanswered constituent
 slot carries a `partial_constituents` flag. **Not:** a provider 15m/1h bar, and not a synthetic
@@ -2166,7 +2182,7 @@ digest (a feature-side record). **Banned:** (none)
 
 ### `backfill`
 
-Fetching history a provider already has and storing it as observations/bars, whether the full
+Fetching history a provider already has and storing it in `ohlcv_raw`, whether the full
 depth for a timeframe or the nightly update slice. Named for what arrives (history), not for
 any effect on the system; nothing is drained, emptied, or reduced.
 **Not:** a queue drain (emptying a dead-letter queue or flushing Kafka offsets on shutdown);
@@ -2292,8 +2308,10 @@ from it by `bar_source_policy`, so canonical is rebuildable. `served_at`, `reque
 on vendor or kind: the writer validates against the CVR namespaces. **Not:** the canonical
 table, an append log of every request, or a store of derived bars. **Banned:** dummy ids or
 `now()` stamps for the nullable lineage columns.
-**Status:** active (migration 472, phase 191 plan 01; no writer until plan 02)
-**Code surface:** `ohlcv_raw`; `src/intelligence/bars/vendor_kind.py`
+**Status:** active (migration 472, phase 191 plan 01; the one store of vendor answers since plan
+191-05)
+**Code surface:** `ohlcv_raw`; `services/ohlcv_raw_writer.py` (the one writer, reached through
+`services/ohlcv_ingress_contract.py`); `src/intelligence/bars/vendor_kind.py`
 
 ### `bar_vendor`
 
@@ -2307,9 +2325,11 @@ The CVR namespace of who served a bar: `ibkr`, `alpaca`, `tradier` (stored histo
 
 ### `bar_kind`
 
-The CVR namespace of what a vendor served, within one vendor: `named`, `venue`, `continuous`,
-`official`, `generic`, `smart_trades`, `smart_adjusted`, `consolidated`, `sip_rth`, `5m_grid`,
-and `fallback`. A raw kind is what the vendor served, so `fallback` is a canonical-only kind: a
+The CVR namespace of what a vendor served, within one vendor: `named`, `venue` and the per-venue
+`venue_nyse`, `venue_arca`, `venue_island`, `venue_amex`, `venue_bats`, `continuous`,
+`official`, `generic`, `smart_trades`, `smart_adjusted`, `consolidated`, `sip_rth` (Alpaca SIP,
+regular hours, split-adjusted), `5m_grid`, `fallback`, and `iex_rth` (Alpaca feed=iex, kept in
+raw and never selected: IEX prints are a few percent of consolidated volume). A raw kind is what the vendor served, so `fallback` is a canonical-only kind: a
 selection outcome the daily rule assigns, never written to `ohlcv_raw`. Its `sort_order` is the
 within-vendor selection precedence. **Not:** a timeframe or a vendor.
 **Status:** active (migration 472)
@@ -2323,7 +2343,7 @@ A `revision` is one vendor changing its own answer for a slot; the old value is 
 differently; both rows stay in `ohlcv_raw` and selection resolves it by policy, never as an
 error and never as a refusal. **Not:** interchangeable: a cross-vendor difference is never a
 revision, and a revision ratio is measured against the same vendor's own stored rows.
-**Status:** active (phase 191 design; the refusal rule moves to this split in plan 02)
+**Status:** active (phase 191; nothing is refused or held, owner decision 2026-10-14, D-191-N)
 **Code surface:** `ohlcv_revision`, `ohlcv_raw`
 
 ---

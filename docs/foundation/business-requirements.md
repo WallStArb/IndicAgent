@@ -102,7 +102,7 @@ to clear first, and nothing downstream should be designed in detail before that 
 
 ## 3. Data Foundation
 
-**Today:** one data source — OHLCV bars via IBKR — feeding one intelligence module (V1 Quant).
+**Today:** OHLCV bars from two price vendors, IBKR and Alpaca SIP, captured raw in `ohlcv_raw` and selected into canonical bars by `bar_source_policy` (see `docs/foundation/canonical-truth-registry.md`), plus Yahoo dividends, feeding one intelligence module (V1 Quant).
 
 **Exchange-aware filtering already exists and is real, not a gap.** `src/core/market_calendar.py`
 is a proper `MarketCalendar` backed by `pandas_market_calendars` (real NYSE/CME session
