@@ -88,10 +88,10 @@ Status: pending · green · red · flaky
 ## Validation sign-off
 
 - [x] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all missing references
-- [ ] No watch-mode flags
-- [ ] Feedback latency under 120 s
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all missing references
+- [x] No watch-mode flags
+- [x] Feedback latency under 120 s
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
