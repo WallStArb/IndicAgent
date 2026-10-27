@@ -71,8 +71,7 @@ evidence must match ledger._headline (10); stage view precedence for reopened id
 - Plan 09's in-fold signs: Codex calls the trailing window an unauthorized change from design
   4.2's expanding IC. Design 4.5's memory rule makes an expanding fold's reach the whole history,
   so E17 could not score it; the two adopted sections conflict. Kept trailing, recorded in the
-  methodology-change ledger, and flagged for the owner: if the owner rules for expanding, in-fold
-  signs ship refused under E17.
+  methodology-change ledger. Owner decision 2026-10-27: trailing.
 - Plan 14's Shapley: AGY proposed making Shapley a non-counted diagnostic; the design counts
   diagnostic subset refits (E18), so the cap bounds the count instead.
 

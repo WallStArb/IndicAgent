@@ -9,12 +9,17 @@ gate. Synthetic only: no database, no ledger. Writes one JSON record.
 
     .venv/bin/python scripts/research/stepm_null_battery.py <out.json> [--sims 1000]
         [--workers 20] [--reps 500] [--block-mean 20] [--fwer 0.05] [--cells a,b]
-        [--studentize draw|sample]
+        [--studentize draw|sample] [--sessions 4000]
+
+The attestation select_books accepts is a complete run at REAL_SESSIONS, the real panel length
+(owner decision 2026-10-27: on the battery's 1,500-session default panels E17's short-panel
+excess pushes two cells over the bound; at 4,000 sessions they hold).
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import importlib
 import json
@@ -31,6 +36,9 @@ from src.intelligence.statistics import stepm as stepm_module  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 
 _BOUND_QUANTILE = 0.99
+# The panel length the attestation is judged at (owner decision 2026-10-27, methodology-change
+# ledger E18 implementation note): about the real span of the vintage-1 panels.
+REAL_SESSIONS = 4000
 # The battery's target is the next bar's return: the longest holding horizon is one session.
 _MAX_HORIZON_SESSIONS = 1
 
@@ -83,9 +91,12 @@ def main() -> int:
     parser.add_argument("--cells", default=None)
     parser.add_argument("--studentize", choices=("draw", "sample"), default="draw")
     parser.add_argument("--battery", default="src.intelligence.research.null_battery")
+    parser.add_argument(
+        "--sessions", type=int, default=REAL_SESSIONS, help="override every cell's panel length"
+    )
     args = parser.parse_args()
     battery = importlib.import_module(args.battery)
-    cells = battery.scenarios()
+    cells = tuple(dataclasses.replace(sc, sessions=args.sessions) for sc in battery.scenarios())
     if args.cells:
         wanted = set(args.cells.split(","))
         cells = tuple(sc for sc in cells if sc.name in wanted)
@@ -123,6 +134,7 @@ def main() -> int:
         # select_books accepts a record as its attestation only when it covers every cell and
         # was run on the StepM code it is about to use.
         "complete": args.cells is None,
+        "sessions": args.sessions,
         "stepm_sha256": stepm_source_sha256(),
         "sims_per_cell": args.sims,
         "reps": args.reps,

@@ -14,7 +14,8 @@ A selection set is a result only when every gate holds; otherwise the command re
 - no charged run sits on another vintage: E18 re-evaluates prior attempts on an extended vintage
   and the count does not reset, which is not built, so a second vintage refuses;
 - `--battery` names a complete StepM null-battery record (plan 05) with no failing gating cell,
-  run on this StepM module (content hash) at the APR's fwer and block mean.
+  run on this StepM module (content hash) at the APR's fwer and block mean and at the real panel
+  length (4,000 sessions, owner decision 2026-10-27).
 
 Each attempt's holding horizon comes from its recorded spec (a book's: the longest of its
 families' at its code commit), and the bootstrap's mean block must exceed the longest in the
@@ -40,7 +41,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.research.stepm_null_battery import stepm_source_sha256  # noqa: E402
+from scripts.research.stepm_null_battery import (  # noqa: E402
+    REAL_SESSIONS,
+    stepm_source_sha256,
+)
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
@@ -85,6 +89,11 @@ def battery_refusals(record: dict | None, apr: dict, stepm_sha256: str) -> list[
         out.append(f"battery schema {record.get('schema')!r} is not stepm_null_battery_v1")
     if record.get("complete") is not True:
         out.append("battery record covers only some cells")
+    if record.get("sessions") != REAL_SESSIONS:
+        out.append(
+            f"battery ran at {record.get('sessions')} sessions, not the real panel length "
+            f"{REAL_SESSIONS} (owner decision 2026-10-27)"
+        )
     if record.get("failures") != []:
         out.append(f"battery fails in gating cells {record.get('failures')}")
     if record.get("stepm_sha256") != stepm_sha256:

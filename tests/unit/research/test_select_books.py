@@ -55,6 +55,7 @@ GOOD = {
     "studentize": "draw",
     "fwer": 0.05,
     "block_mean": 20.0,
+    "sessions": 4000,
 }
 
 
@@ -71,6 +72,7 @@ def test_battery_gates_refuse_every_weaker_record():
         ({"studentize": "sample"}, "studentize"),
         ({"fwer": 0.1}, "fwer"),
         ({"block_mean": 10.0}, "block_mean"),
+        ({"sessions": 1500}, "real panel length"),
     ):
         (reason,) = battery_refusals({**GOOD, **change}, APR, "abc")
         assert word in reason

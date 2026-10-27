@@ -1087,5 +1087,12 @@ when this was found.
   fails after its statistic exists, refuses a synthetic run on a real snapshot (an uncounted
   look) except a replay of a recorded run, and refuses a real run of a spec already run in
   exploration (AGY review, 2026-10-27). Open: until the full 13-cell per-draw battery holds, no selection set is a
-  result. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
+  result.
+- **Owner decision 2026-10-27: the StepM battery is judged at the real panel length.** On the
+  battery's 1,500-session default panels two gating cells exceeded the bound (slot_effects 71,
+  real_grid_hostile 70, bound 67 of 1,000), the short-panel excess E17's own battery documented;
+  at 4,000 sessions, fresh seeds, both held (42 and 57). The attestation `select_books` accepts
+  is a complete 13-cell run at 4,000 sessions (`stepm_null_battery.REAL_SESSIONS`). Decided
+  after the 1,500-session failure was seen, as E17's measured-size gate was, so it is the
+  owner's call and recorded as such. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
   under E18 is settled in plan 07.
