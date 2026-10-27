@@ -14,6 +14,7 @@ Run: pytest tests/integration/test_research_ledger.py -m integration
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
@@ -251,8 +252,22 @@ async def test_budget_charge_rules(ledger, scope):
         run_id = await _started(ledger, scope, "book_test", vintage=vintage)
         await ledger.finish_run(run_id, status=final, snapshot_hash=None, evidence={})
     assert await ledger.charged_book_tests(vintage) == 3
-    with pytest.raises(LedgerRefusal, match="budget exhausted"):
-        await _started(ledger, scope, "book_test", vintage=vintage)
+    # E18 (phase 187 plan 06): past M the attempt is recorded, never refused; StepM prices it.
+    await _started(ledger, scope, "book_test", vintage=vintage)
+    assert await ledger.charged_book_tests(vintage) == 4
+
+
+async def test_exploration_may_repeat_a_spec_real_may_not(ledger, scope):
+    ids, members = scope.identities()
+    request = scope.request()
+    await ledger.start_runs(request, ids, [members[0]])
+    with pytest.raises(LedgerRefusal, match="already run"):
+        await ledger.start_runs(request, ids, [members[0]])
+    explore = dataclasses.replace(request, mode="exploration")
+    first = await ledger.start_runs(explore, ids, [members[0]])
+    second = await ledger.start_runs(explore, ids, [members[0]])
+    assert first != second
+    assert (await _row(first[members[0]]))["mode"] == "exploration"
 
 
 async def test_budget_apr_keys_seeded():

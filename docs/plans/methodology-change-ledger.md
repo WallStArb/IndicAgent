@@ -1055,3 +1055,14 @@ when this was found.
 - **Built by:** roadmap phase 187 (research core). Until it lands, the phase 183 runner's
   M = 30 accounting stays in force for any book test run.
 - **Pre-registered?** No real-data book test exists on vintage 1.
+- **Implementation (phase 187 plans 04-06, 2026-10-27).** `src/intelligence/statistics/stepm.py`
+  runs StepM on the joint index draw with each draw's series studentized by its own HAC
+  standard error (`studentize="draw"`). Studentizing every draw by the sample standard error
+  over-selected in the plan 05 battery (74 family-wise rejections per 1,000 against a bound of
+  67 in `slot_effects`; 52 with per-draw studentization). The ledger records `exploration`
+  runs, lets them repeat a spec, and no longer refuses a book test past M; `budget_m` stays on
+  book_test rows. Selection is a read: `scripts/research/select_books.py` over
+  `research_run_series`, with the four `alpha.selection.stepm.*` APR keys (migration 516).
+  Open: until the full 13-cell per-draw battery holds, no selection set is reported as a
+  result. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
+  under E18 is settled in plan 07.

@@ -385,3 +385,27 @@ def test_refuses_spec_written_before_e17(repo, saved_panel):
     _git(repo, "commit", "-qam", "pre-E17 spec")
     ledger = _refused(repo, saved_panel)
     assert "has_real_run" not in ledger.calls  # refused at the spec check, before the ledger
+
+
+def test_exploration_repeats_a_spec_is_counted_and_skips_the_shift_null(repo, saved_panel):
+    ledger = FakeLedger(prior=True)  # a real run of this spec already exists
+    requests = []
+    start = ledger.start_runs
+
+    async def capture(request, identities, run_concepts):
+        requests.append(request)
+        return await start(request, identities, run_concepts)
+
+    ledger.start_runs = capture
+    out = asyncio.run(
+        run_family(
+            load_spec_from_head(repo, SPEC_PATH),
+            _ctx(repo, ledger, saved_panel, []),
+            mode="exploration",
+        )
+    )
+    assert "has_real_run" not in ledger.calls  # E18: exploration may repeat a spec
+    assert requests[0].mode == "exploration"
+    assert {v["status"] for v in out.values()} == {"completed"}
+    assert all(v["evidence"]["shift_null"] is None for v in out.values())
+    assert all(s is not None for s in ledger.series.values())

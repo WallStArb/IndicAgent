@@ -6,6 +6,7 @@ the research_run ledger.
 
     .venv/bin/python scripts/research/run_spec.py --spec research/specs/<spec>.yaml
     .venv/bin/python scripts/research/run_spec.py --mode synthetic --spec <file> --panel <dir>
+    .venv/bin/python scripts/research/run_spec.py --mode exploration --spec research/specs/<spec>.yaml
 
 Exit codes: 0 when every row reached a terminal status (completed, guard_failed and refused
 are recorded outcomes), 2 when the run was refused before any row was written, 1 on an error.
@@ -166,6 +167,8 @@ async def _main(args: argparse.Namespace) -> int:
     dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     root = repo_root(Path.cwd())
     loaded = load_spec_from_head(root, args.spec)
+    if args.mode == "exploration" and isinstance(loaded.model, BookSpec):
+        raise RunRefused("exploration covers family specs; book exploration is phase 187 wave 3")
     apr = await _apr(dsn)
     workers = args.workers or int(apr["infra.research_runner.workers"])
     blas = int(apr["infra.blas_threads_per_worker"] or 1)
@@ -187,14 +190,14 @@ async def _main(args: argparse.Namespace) -> int:
     if isinstance(loaded.model, BookSpec):
         _print_book(await run_book(loaded, ctx, mode="real"), loaded, runs)
     else:
-        _print(await run_family(loaded, ctx, mode="real"), loaded, runs)
+        _print(await run_family(loaded, ctx, mode=args.mode), loaded, runs)
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--spec", required=True, help="repo-relative spec path")
-    parser.add_argument("--mode", choices=("real", "synthetic"), default="real")
+    parser.add_argument("--mode", choices=("real", "exploration", "synthetic"), default="real")
     parser.add_argument("--snapshot-dir", default="logs/research/snapshots")
     parser.add_argument("--snapshot", default=None, help="reuse a built snapshot directory")
     parser.add_argument("--panel", default=None, help="synthetic mode: a saved panel directory")

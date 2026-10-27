@@ -280,7 +280,7 @@ def _check_spec(spec: FamilySpec) -> None:
         resolve_member(m.signal)
 
 
-async def _gate(loaded: LoadedSpec, ctx: RunContext) -> tuple[Path, str]:
+async def _gate(loaded: LoadedSpec, ctx: RunContext, *, once: bool = True) -> tuple[Path, str]:
     root = provenance.repo_root(ctx.root)
     try:
         blob = provenance.require_committed(root, loaded.path)
@@ -292,7 +292,7 @@ async def _gate(loaded: LoadedSpec, ctx: RunContext) -> tuple[Path, str]:
         provenance.require_clean(root)
     except provenance.ProvenanceRefusal as error:
         raise RunRefused(str(error)) from error
-    if await ctx.ledger.has_real_run(loaded.spec_hash):
+    if once and await ctx.ledger.has_real_run(loaded.spec_hash):
         raise RunRefused(f"spec already run: {loaded.spec_hash}")
     return root, provenance.head_commit(root)
 
@@ -502,20 +502,24 @@ async def run_family(
     loaded: LoadedSpec,
     ctx: RunContext,
     *,
-    mode: Literal["real", "synthetic"],
+    mode: Literal["real", "exploration", "synthetic"],
     panel: Panel | None = None,
 ) -> dict[str, dict]:
+    """A family's member evidence runs. Exploration (E18, design 7.2) is a real-data run that is
+    recorded and counted like any other but may repeat a spec and skips the shift-null
+    diagnostic, so it stays cheap; its series joins the selection universe."""
     spec = loaded.model
     if not isinstance(spec, FamilySpec):
         raise TypeError("run_family needs a family spec")
-    real = mode == "real"
+    real = mode in ("real", "exploration")
+    exploring = mode == "exploration"
     gate = static_gate(spec)
     run_ids: dict[str, str | None] = {m.name: None for m in spec.members}
     code_commit = None
     if real:
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
-        _, code_commit = await _gate(loaded, ctx)
+        _, code_commit = await _gate(loaded, ctx, once=not exploring)
         identities = family_identities(loaded)
         concept = {m.name: f"member.{spec.family}.{m.name}" for m in spec.members}
         request = RunRequest(
@@ -525,6 +529,7 @@ async def run_family(
             spec_blob=loaded.blob_sha,
             code_commit=code_commit,
             vintage=ctx.budget.vintage_id,
+            mode="exploration" if exploring else "real",
         )
         try:
             started = await ctx.ledger.start_runs(request, identities, list(concept.values()))
@@ -621,15 +626,19 @@ async def run_family(
                 warmup_sessions=cfg.warmup_sessions,
                 memory_sessions=m.slot_history_sessions,
             )
-            res, n_shifts = _shift_diagnostic(
-                alpha,
-                m.declared_memory_rows + fwd_span(spec.horizon),
-                spec,
-                spec.horizon,
-                panel,
-                residuals,
-                vol,
-                ctx,
+            res, n_shifts = (
+                (None, 0)
+                if exploring
+                else _shift_diagnostic(
+                    alpha,
+                    m.declared_memory_rows + fwd_span(spec.horizon),
+                    spec,
+                    spec.horizon,
+                    panel,
+                    residuals,
+                    vol,
+                    ctx,
+                )
             )
             record = evidence_record(
                 timing,
@@ -793,7 +802,8 @@ async def run_book(
     panel: Panel | None = None,
     power_replicates: int | None = None,
 ) -> dict:
-    """The book test (S8) of one book version, budget-charged in real mode (D-08, D-11)."""
+    """The book test (S8) of one book version (D-08, D-11). Since E18 a real book test is
+    recorded and priced by StepM selection; budget_m stays on its row for the power bar."""
     book = loaded.model
     if not isinstance(book, BookSpec):
         raise TypeError("run_book needs a book spec")

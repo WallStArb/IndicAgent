@@ -75,6 +75,8 @@ class RunRequest:
     vintage: str
     budget_m: int | None = None
     screen_alpha: float | None = None
+    # E18 (phase 187): exploration is counted like any real-data attempt but may repeat a spec.
+    mode: Literal["real", "exploration"] = "real"
 
 
 @dataclass(frozen=True)
@@ -163,20 +165,16 @@ class PostgresLedger:
     async def charged_book_tests(self, vintage: str) -> int:
         conn = await connect_with_codecs(self._dsn)
         try:
-            return await self._count_charged(conn, vintage)
+            return int(
+                await conn.fetchval(
+                    "SELECT count(*) FROM research_run "
+                    "WHERE kind = 'book_test' AND vintage = $1 AND NOT (status = ANY($2::text[]))",
+                    vintage,
+                    list(UNCHARGED_STATUSES),
+                )
+            )
         finally:
             await conn.close()
-
-    @staticmethod
-    async def _count_charged(conn: Any, vintage: str) -> int:
-        return int(
-            await conn.fetchval(
-                "SELECT count(*) FROM research_run "
-                "WHERE kind = 'book_test' AND vintage = $1 AND NOT (status = ANY($2::text[]))",
-                vintage,
-                list(UNCHARGED_STATUSES),
-            )
-        )
 
     async def start_runs(
         self,
@@ -186,8 +184,10 @@ class PostgresLedger:
     ) -> dict[str, str]:
         """Write identity rows, lineage edges and one `started` research_run row per name in
         `run_concepts`, all sharing one new run_group, in one locked transaction. Returns
-        {concept name: run_id}. Raises LedgerRefusal on a prior real run for the spec hash or
-        an exhausted book-test budget."""
+        {concept name: run_id}. Raises LedgerRefusal on a prior real run for the spec hash (real
+        mode only). Since E18 the book-test budget no longer refuses: every attempt is recorded
+        and selection prices them all (StepM, design 7.3); budget_m stays on book_test rows as
+        the power bar's M and as disclosure."""
         if request.kind == "book_test" and (
             request.budget_m is None or request.screen_alpha is None
         ):
@@ -200,21 +200,14 @@ class PostgresLedger:
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
 
-                prior = await conn.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM research_run "
-                    "WHERE spec_hash = $1 AND mode = 'real')",
-                    request.spec_hash,
-                )
-                if prior:
-                    raise LedgerRefusal(f"spec already run: {request.spec_hash}")
-
-                if request.kind == "book_test":
-                    charged = await self._count_charged(conn, request.vintage)
-                    if charged >= request.budget_m:
-                        raise LedgerRefusal(
-                            f"budget exhausted for vintage {request.vintage}: "
-                            f"{charged} of {request.budget_m} book tests charged"
-                        )
+                if request.mode == "real":
+                    prior = await conn.fetchval(
+                        "SELECT EXISTS (SELECT 1 FROM research_run "
+                        "WHERE spec_hash = $1 AND mode = 'real')",
+                        request.spec_hash,
+                    )
+                    if prior:
+                        raise LedgerRefusal(f"spec already run: {request.spec_hash}")
 
                 concept_ids: dict[str, Any] = {}
                 for identity in identities:
@@ -253,7 +246,7 @@ class PostgresLedger:
                         "INSERT INTO research_run (run_group, concept_id, kind, mode, "
                         "spec_path, spec_hash, spec_blob, code_commit, vintage, budget_m, "
                         "screen_alpha) "
-                        "VALUES ($1, $2, $3, 'real', $4, $5, $6, $7, $8, $9, $10) "
+                        "VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10) "
                         "RETURNING run_id",
                         run_group,
                         concept_id,
@@ -265,6 +258,7 @@ class PostgresLedger:
                         request.vintage,
                         request.budget_m,
                         request.screen_alpha,
+                        request.mode,
                     )
                     run_ids[name] = str(run_id)
                 return run_ids

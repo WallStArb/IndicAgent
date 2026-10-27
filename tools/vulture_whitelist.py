@@ -473,7 +473,7 @@ _pairs  # unused method (src/intelligence/research/spec.py:126) - pydantic field
 _unique  # unused method (src/intelligence/research/spec.py:197) - pydantic field_validator (phase 183)
 _paths  # unused method (src/intelligence/research/spec.py:241) - pydantic field_validator (phase 183)
 _ordered  # unused method (src/intelligence/research/spec.py:134) - pydantic field_validator (phase 183)
-charged_book_tests  # unused method (src/intelligence/research/ledger.py:118) - the ledger's read API for the vintage budget count; start_runs enforces the budget itself under the advisory lock, this is for preflight and the integration tests (phase 183)
+charged_book_tests  # unused method (src/intelligence/research/ledger.py) - the ledger's read API for the vintage's charged book-test count; since E18 (phase 187) it no longer gates start_runs and is disclosure only, read by the integration tests
 same_slot_mean  # unused function (src/intelligence/research/families/intraday_periodicity.py:58) - family 1's member function, resolved at run time from the committed spec's dotted path (research/specs/family1_intraday_periodicity.yaml), which vulture cannot see (phase 183)
 run_guards  # unused function (src/intelligence/research/guards.py:70) - S3 entry point for panel-level SignalSource signals (architecture 3.3); the runner uses the D-25 split on real data, tests and the sleeve harness use this (phase 183)
 loadings_at  # unused method (src/intelligence/research/factors.py:131) - S1 public API (per-block factor loadings), tested; for S4 residualization diagnostics (architecture 3.2)
