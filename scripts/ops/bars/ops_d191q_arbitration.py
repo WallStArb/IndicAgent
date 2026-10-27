@@ -58,7 +58,6 @@ from src.intelligence.bars.vendor_arbitration import (  # noqa: E402
     NameArbitration,
     arbitrate,
     build_plan,
-    span_action,
 )
 
 _KEY_TOL = "threshold.bar_integrity.fallback_basis_tolerance_bp"
@@ -180,7 +179,7 @@ async def run(
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(json.dumps(plan, indent=1, sort_keys=True))
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(render_report(plan, results, params, plan_path))
+    report_path.write_text(render_report(plan, plan_path))
     print(json.dumps(plan["evidence"]["span_actions"]))
     return 0
 
@@ -189,32 +188,23 @@ def _fmt(value: float | None) -> str:
     return "" if value is None else f"{value:.4f}"
 
 
-def render_report(
-    plan: dict[str, Any],
-    results: Sequence[NameArbitration],
-    params: ArbitrationParams,
-    plan_path: Path,
-) -> str:
-    """The owner-facing evidence record of one arbitration run."""
-    rows: Counter[tuple[str, str]] = Counter()
-    sessions: Counter[tuple[str, str]] = Counter()
-    names: dict[tuple[str, str], set[str]] = {}
-    for result in results:
-        for span in result.spans:
-            key = (span.cls, span_action(span, params))
-            rows[key] += 1
-            sessions[key] += span.n_sessions
-            names.setdefault(key, set()).add(span.symbol)
+def _ratio(num: float | None, den: float | None) -> float | None:
+    return None if num is None or not den else num / den
+
+
+def render_report(plan: dict[str, Any], plan_path: Path) -> str:
+    """The owner-facing evidence record of one arbitration run, rendered from the plan alone."""
     ev = plan["evidence"]
+    prm = ev["params"]
     out = [
         "# D-191-Q three-vendor 1d arbitration (todo 545)",
         "",
         "Author: scripts/ops/bars/ops_d191q_arbitration.py (read-only session). Informed by: "
         "D-191-Q in docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545.",
         "",
-        f"Run {ev['run_at']}. Window {params.window_start} to {params.window_end} (Tradier's last "
-        f"1d session). Tolerance {params.tolerance_bp} bp per session, a span of at least "
-        f"{params.min_sessions} sessions, a class share of at least {params.min_class_share}. "
+        f"Run {ev['run_at']}. Window {prm['window_start']} to {prm['window_end']} (Tradier's last "
+        f"1d session). Tolerance {prm['tolerance_bp']} bp per session, a span of at least "
+        f"{prm['min_sessions']} sessions, a class share of at least {prm['min_class_share']}. "
         f"{ev['n_names']} names. Plan: `{plan_path}` (gitignored), the document "
         "`ops_source_policy.py --plan` takes; nothing was written to the database.",
         "",
@@ -222,14 +212,15 @@ def render_report(
         "",
         "| Class | Action | Spans | Sessions | Names |",
         "|-------|--------|-------|----------|-------|",
-    ]
-    for key in sorted(rows):
-        out.append(f"| {key[0]} | {key[1]} | {rows[key]} | {sessions[key]:,} | {len(names[key])} |")
-    out += [
+        *[
+            f"| {c['class']} | {c['action']} | {c['spans']} | {c['sessions']:,} | {c['names']} |"
+            for c in ev["classes"]
+        ],
         "",
         "Actions: row = an IBKR symbol row (IBKR = Tradier, Alpaca differs); evidence = IBKR is "
         "wrong and Alpaca serves (Alpaca = Tradier); hold = for the owner, no row; noise = shorter "
-        "than the span minimum; info = Alpaca before IBKR history IBKR has not verified.",
+        "than the span minimum (Alpaca serves); info = Alpaca before IBKR history IBKR has not "
+        "verified (Alpaca serves).",
         "",
         f"## IBKR symbol rows ({len(plan['symbol_rows'])})",
         "",
@@ -246,14 +237,21 @@ def render_report(
         "",
         f"## Hold list ({len(plan['hold'])})",
         "",
-        "| Symbol | Class | From | To | Sessions | With Tradier | IBKR/Alpaca | Tradier/Alpaca |",
-        "|--------|-------|------|----|----------|--------------|-------------|----------------|",
+        "IBKR/Tradier is the ratio of the two medians: near 1 on a three_way span means IBKR and "
+        "Tradier both adjusted the history (a spin-off) with factors a few bp apart, so the "
+        "per-session test could not call it alpaca_differs.",
+        "",
+        "| Symbol | Class | From | To | Sessions | With Tradier | IBKR/Alpaca | Tradier/Alpaca "
+        "| IBKR/Tradier |",
+        "|--------|-------|------|----|----------|--------------|-------------|----------------"
+        "|--------------|",
     ]
-    for h in plan["hold"]:
+    for h in sorted(plan["hold"], key=lambda h: (h["class"], -h["n_sessions"])):
         out.append(
             f"| {h['symbol']} | {h['class']} | {h['start']} | {h['end']} | {h['n_sessions']} | "
             f"{h['n_tradier']} | {_fmt(h['median_ibkr_over_alpaca'])} | "
-            f"{_fmt(h['median_tradier_over_alpaca'])} |"
+            f"{_fmt(h['median_tradier_over_alpaca'])} | "
+            f"{_fmt(_ratio(h['median_ibkr_over_alpaca'], h['median_tradier_over_alpaca']))} |"
         )
     defective: Counter[str] = Counter()
     for d in plan["ibkr_defective"]:
@@ -272,8 +270,14 @@ def render_report(
         "",
         f"## Live symbol rows ({len(plan['retire_symbol_rows']) + len(plan['keep_symbol_rows'])})",
         "",
-        f"Retired: {Counter(r['disposition'] for r in plan['retire_symbol_rows'])}. "
-        f"Kept: {len(plan['keep_symbol_rows'])}.",
+        "Retired: "
+        + ", ".join(
+            f"{k} {v}"
+            for k, v in sorted(
+                Counter(r["disposition"] for r in plan["retire_symbol_rows"]).items()
+            )
+        )
+        + f". Kept: {len(plan['keep_symbol_rows'])}.",
         "",
         "| Symbol | Kept because |",
         "|--------|--------------|",

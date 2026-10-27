@@ -258,9 +258,16 @@ def build_plan(
     hold: list[dict[str, Any]] = []
     defective: list[dict[str, Any]] = []
     counts = {k: 0 for k in ("row", "evidence", "hold", "noise", "info")}
+    classes: dict[tuple[str, str], dict[str, Any]] = {}
     for sym in sorted(actions):
         for span, action in actions[sym]:
             counts[action] += 1
+            entry = classes.setdefault(
+                (span.cls, action), {"spans": 0, "sessions": 0, "names": set()}
+            )
+            entry["spans"] += 1
+            entry["sessions"] += span.n_sessions
+            entry["names"].add(sym)
             if action == "row" and sym in held_names:
                 hold.append({**span.record(), "reason": "the name keeps its live row (hold)"})
             elif action == "row":
@@ -345,6 +352,16 @@ def build_plan(
                 "min_class_share": params.min_class_share,
             },
             "span_actions": counts,
+            "classes": [
+                {
+                    "class": cls,
+                    "action": action,
+                    "spans": v["spans"],
+                    "sessions": v["sessions"],
+                    "names": len(v["names"]),
+                }
+                for (cls, action), v in sorted(classes.items())
+            ],
             "n_names": len(results),
         },
     }
