@@ -145,12 +145,14 @@ def _manifest() -> dict[str, Any]:
     return {
         "held": ["HLD"],
         "retained_loads": 7,
+        "foreign_revisions": 3,
         "request_ledger": {"total": 100, "tradier": 10},
         "tables": [
             {
                 "table": table,
                 "rows": sum(counts.values()),
                 "per_symbol": counts,
+                "per_symbol_md5": {s: f"md5-{table}-{s}" for s in counts},
                 "file": f"tradier_{table}_2026-10-27.csv.gz",
                 "sha256": f"sha-{table}",
             }
@@ -166,6 +168,7 @@ def _agreeing(manifest: dict[str, Any]) -> dict[str, Any]:
         "digests": {t["table"]: t["sha256"] for t in manifest["tables"]},
         "completed": set(),
         "retained_live": 7,
+        "foreign_revisions_live": 3,
         "ledger_live": {"total": 100, "tradier": 10},
     }
 
@@ -235,6 +238,16 @@ def test_verify_requires_the_retained_load_count_unchanged():
     ]
 
 
+def test_verify_requires_the_other_vendor_revision_count_unchanged():
+    # T-191-45: the IBKR revision rows under the retained Tradier loads must not move.
+    manifest = _manifest()
+    observed = _agreeing(manifest)
+    observed["foreign_revisions_live"] = 2
+    assert mod.verify_problems(manifest, **observed) == [
+        "ohlcv_revision: other-vendor rows under Tradier loads 2 != manifest 3"
+    ]
+
+
 # --- fakes -----------------------------------------------------------------------------------
 
 
@@ -293,12 +306,31 @@ def _deletes(conn: _FakeConn) -> list[str]:
     return [s for s in conn.statements if s.startswith("DELETE")]
 
 
-def _responder_for(manifest: dict[str, Any], *, cascade: int = 0, skew: int = 0):
-    """Answers each DELETE with the manifest count of the batch's symbols (plus `skew`)."""
+def _responder_for(
+    manifest: dict[str, Any],
+    *,
+    cascade: int = 0,
+    skew: int = 0,
+    tamper: str | None = None,
+    on_delete: Callable[[], None] | None = None,
+):
+    """Answers each DELETE with the manifest count of the batch's symbols (plus `skew`) and each
+    batch digest with the manifest's content (the `tamper` table's md5 changed)."""
     per = {t["table"]: t["per_symbol"] for t in manifest["tables"]}
+    md5 = {t["table"]: t["per_symbol_md5"] for t in manifest["tables"]}
+    digest_tables = {spec.batch_digest_sql: spec.table for spec in mod.TABLES}
 
     def respond(sql: str, params: Any) -> Any:
+        if sql in digest_tables:
+            table = digest_tables[sql]
+            return [
+                (s, per[table][s], md5[table][s] + ("x" if table == tamper else ""))
+                for s in params["batch"]
+                if per[table].get(s)
+            ]
         if sql.startswith("DELETE"):
+            if on_delete is not None:
+                on_delete()
             table = sql.split()[2]
             return sum(per[table].get(s, 0) for s in params["batch"]) + skew
         if sql == mod.CASCADE_CHECK_SQL:
@@ -319,11 +351,13 @@ def _clock() -> Callable[[], float]:
 def test_delete_batch_runs_every_delete_in_order_in_one_transaction():
     manifest = _manifest()
     conn = _FakeConn(_responder_for(manifest))
-    expected = mod.expected_counts(manifest, ["AAA", "BBB"])
+    expected = mod.expected_content(manifest, ["AAA", "BBB"])
     timings = mod.delete_batch(
         conn, ["AAA", "BBB"], ["HLD"], expected, free_bytes=lambda: 10**12, clock=_clock()
     )
     assert conn.statements[0] == mod.DECOMPRESSION_LIMIT_SQL
+    # every content check precedes the first delete
+    assert conn.statements[1:6] == [spec.batch_digest_sql for spec in mod.TABLES]
     assert _deletes(conn) == [spec.delete_sql for spec in mod.TABLES]
     # the cascade check sits between the revision delete and the load delete
     order = conn.statements
@@ -333,7 +367,9 @@ def test_delete_batch_runs_every_delete_in_order_in_one_transaction():
         < order.index(mod.SPECS["ohlcv_load"].delete_sql)
     )
     assert conn.commits == 1 and conn.rollbacks == 0
-    assert {t: v["rows"] for t, v in timings.items()} == expected
+    assert {t: v["rows"] for t, v in timings.items()} == mod.expected_counts(
+        manifest, ["AAA", "BBB"]
+    )
     for params in conn.params[1:]:
         assert params == {"batch": ["AAA", "BBB"], "held": ["HLD"]}
 
@@ -352,7 +388,7 @@ def test_the_session_never_uses_the_hardened_decompress_all_helper():
 def test_delete_batch_rolls_back_on_a_count_mismatch():
     manifest = _manifest()
     conn = _FakeConn(_responder_for(manifest, skew=1))
-    expected = mod.expected_counts(manifest, ["AAA"])
+    expected = mod.expected_content(manifest, ["AAA"])
     with pytest.raises(mod.DeleteRefused, match="ohlcv_revision deleted 3 rows, manifest 2"):
         mod.delete_batch(conn, ["AAA"], [], expected, free_bytes=lambda: 1, clock=_clock())
     assert conn.commits == 0 and conn.rollbacks == 1
@@ -361,11 +397,46 @@ def test_delete_batch_rolls_back_on_a_count_mismatch():
 def test_delete_batch_refuses_a_load_delete_that_would_cascade():
     manifest = _manifest()
     conn = _FakeConn(_responder_for(manifest, cascade=4))
-    expected = mod.expected_counts(manifest, ["AAA"])
+    expected = mod.expected_content(manifest, ["AAA"])
     with pytest.raises(mod.DeleteRefused, match="cascade"):
         mod.delete_batch(conn, ["AAA"], [], expected, free_bytes=lambda: 1, clock=_clock())
     assert mod.SPECS["ohlcv_load"].delete_sql not in conn.statements
     assert conn.rollbacks == 1
+
+
+def test_delete_batch_refuses_content_that_differs_from_the_manifest():
+    manifest = _manifest()
+    conn = _FakeConn(_responder_for(manifest, tamper="ohlcv_raw"))
+    expected = mod.expected_content(manifest, ["AAA"])
+    with pytest.raises(mod.DeleteRefused, match="ohlcv_raw content differs .*AAA"):
+        mod.delete_batch(conn, ["AAA"], [], expected, free_bytes=lambda: 1, clock=_clock())
+    assert _deletes(conn) == [] and conn.rollbacks == 1
+
+
+def test_delete_batch_refuses_a_row_count_change_seen_by_the_digest_read():
+    manifest = _manifest()
+    conn = _FakeConn(_responder_for(manifest))
+    expected = mod.expected_content(manifest, ["AAA"])
+    expected["market_data_ohlcv"]["AAA"] = (5, expected["market_data_ohlcv"]["AAA"][1])
+    with pytest.raises(mod.DeleteRefused, match="market_data_ohlcv content differs"):
+        mod.delete_batch(conn, ["AAA"], [], expected, free_bytes=lambda: 1, clock=_clock())
+    assert _deletes(conn) == []
+
+
+def test_expected_content_holds_only_symbols_with_rows():
+    content = mod.expected_content(_manifest(), ["AAA", "BBB"])
+    assert content["ohlcv_revision"] == {"AAA": (2, "md5-ohlcv_revision-AAA")}
+    assert content["ohlcv_coverage"] == {}
+    assert content["ohlcv_raw"]["BBB"] == (3, "md5-ohlcv_raw-BBB")
+
+
+def test_digest_sql_orders_whole_row_text_under_the_same_predicate():
+    spec = mod.SPECS["ohlcv_load"]
+    assert spec.digest_sql == (
+        "SELECT symbol, count(*), md5(string_agg(ohlcv_load::text, E'\\n' ORDER BY "
+        f"ohlcv_load::text)) FROM ohlcv_load WHERE {spec.predicate} GROUP BY symbol"
+    )
+    assert spec.batch_digest_sql.endswith(f"WHERE {_BATCH} AND {spec.predicate} GROUP BY symbol")
 
 
 # --- batch run and the disk guard ------------------------------------------------------------
@@ -441,6 +512,139 @@ def test_run_batches_completes_and_skips_completed_symbols(tmp_path: Path):
     assert saved["completed"] == ["AAA", "BBB"]
     assert saved["complete"] is True
     assert {p["batch"][0] for p in conn.params if p and "batch" in p} == {"BBB"}
+
+
+def test_a_batch_is_recorded_in_flight_before_its_transaction(tmp_path: Path):
+    manifest = _manifest()
+    path = tmp_path / "state.json"
+    seen: list[Any] = []
+    conn = _FakeConn(
+        _responder_for(
+            manifest, on_delete=lambda: seen.append(json.loads(path.read_text())["in_flight"])
+        )
+    )
+    code = mod.run_batches(
+        conn,
+        manifest,
+        mod.new_state("msha"),
+        path,
+        batch_symbols=20,
+        floor_bytes=1,
+        free_bytes=lambda: 2,
+        clock=_clock(),
+    )
+    assert code == 0
+    assert seen and all(f["symbols"] == ["AAA", "BBB"] and f["trial"] is False for f in seen)
+    assert json.loads(path.read_text())["in_flight"] is None
+
+
+def test_a_refused_batch_clears_in_flight_and_exits_refused(tmp_path: Path):
+    manifest = _manifest()
+    conn = _FakeConn(_responder_for(manifest, tamper="ohlcv_load"))
+    code = mod.run_batches(
+        conn,
+        manifest,
+        mod.new_state("msha"),
+        tmp_path / "state.json",
+        batch_symbols=20,
+        floor_bytes=1,
+        free_bytes=lambda: 2,
+        clock=_clock(),
+    )
+    assert code == mod.EXIT_REFUSED
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert saved["in_flight"] is None and saved["completed"] == []
+    assert "content differs" in saved["aborted"]["reason"]
+
+
+def test_run_batches_refuses_an_unsettled_in_flight_batch(tmp_path: Path):
+    state = mod.new_state("msha")
+    state["in_flight"] = {"symbols": ["AAA"], "trial": False}
+    with pytest.raises(ValueError, match="in-flight"):
+        mod.run_batches(
+            _FakeConn(lambda sql, params: 0),
+            _manifest(),
+            state,
+            tmp_path / "state.json",
+            batch_symbols=1,
+            floor_bytes=1,
+            free_bytes=lambda: 2,
+            clock=_clock(),
+        )
+
+
+def _live_for(manifest: dict[str, Any], symbol: str, *, zero: set[str]) -> dict[str, Any]:
+    return {
+        t["table"]: {symbol: 0 if t["table"] in zero else t["per_symbol"][symbol]}
+        for t in manifest["tables"]
+        if symbol in t["per_symbol"]
+    }
+
+
+def test_settle_reads_committed_rolled_back_and_partial():
+    manifest = _manifest()
+    tables = {t["table"] for t in manifest["tables"]}
+    live = {t: {} for t in tables}
+    for table, counts in _live_for(manifest, "BBB", zero=set()).items():
+        live[table].update(counts)  # BBB untouched: rolled back
+    settlement = mod.settle(manifest, ["AAA", "BBB"], live)  # AAA gone everywhere: committed
+    assert settlement.committed == ["AAA"] and settlement.rolled_back == ["BBB"]
+    partial = _live_for(manifest, "AAA", zero={"ohlcv_revision", "ohlcv_load"})
+    assert mod.settle(manifest, ["AAA"], partial).partial == ["AAA"]
+
+
+def test_apply_settlement_marks_committed_done_and_refuses_partial():
+    state = mod.new_state("msha")
+    state["in_flight"] = {"symbols": ["AAA", "BBB"]}
+    assert mod.apply_settlement(state, mod.Settlement(["AAA"], ["BBB"], [])) is None
+    assert state["completed"] == ["AAA"] and state["in_flight"] is None
+    state["in_flight"] = {"symbols": ["BBB"]}
+    refusal = mod.apply_settlement(state, mod.Settlement([], [], ["BBB"]))
+    assert refusal is not None and "BBB" in refusal
+    assert state["in_flight"] == {"symbols": ["BBB"]} and state["completed"] == ["AAA"]
+
+
+def test_apply_refuses_an_unsettled_in_flight_state(tmp_path: Path):
+    state = _state()
+    state["in_flight"] = {"symbols": ["AAA"], "trial": False}
+    code, conn = _apply(tmp_path, state=state)
+    assert code == mod.EXIT_REFUSED and _deletes(conn) == []
+
+
+def test_ensure_tsv_writes_once_across_trial_and_batch(tmp_path: Path):
+    calls: list[int] = []
+    state = _state()
+    mod.ensure_tsv(state, tmp_path / "state.json", lambda: calls.append(1))
+    mod.ensure_tsv(state, tmp_path / "state.json", lambda: calls.append(1))
+    assert calls == [1]
+    assert json.loads((tmp_path / "state.json").read_text())["tsv_written"] is True
+
+
+def test_the_trial_writes_the_tsv_before_its_delete():
+    source = Path(mod.__file__).read_text()
+    trial = source[source.index("def run_trial(") : source.index("def run_delete(")]
+    assert trial.index("ensure_tsv(") < trial.index("delete_batch(")
+
+
+def test_sessions_lift_the_statement_timeout():
+    source = Path(mod.__file__).read_text()
+    connect = source[source.index("def _connect(") : source.index("async def _read_apr_async(")]
+    assert "statement_timeout=0" in connect and "timezone=UTC" in connect
+
+
+def test_dump_refuses_when_any_backup_file_exists(tmp_path: Path):
+    (tmp_path / "tradier_ohlcv_raw_2026-10-01.csv.gz").write_bytes(b"")
+    args = mod.build_parser().parse_args(
+        ["--dump", "--apply", "--backup-dir", str(tmp_path), "--log-dir", str(tmp_path)]
+    )
+
+    def _no_db() -> Any:
+        raise AssertionError("the refusal comes before any database access")
+
+    rt = mod.Runtime(connect=_no_db, read_apr=_no_db, measure=_no_db, tsv_path=tmp_path / "x.tsv")
+    assert mod.run_dump(args, rt) == mod.EXIT_REFUSED
+    source = Path(mod.__file__).read_text()
+    assert 'path.open("xb")' in source and "os.fsync(raw.fileno())" in source
 
 
 def test_manifest_symbols_exclude_nothing_but_come_from_every_table():
