@@ -43,27 +43,27 @@ created: 2026-10-27
 |-------------|----------|-----------|-------------------|-------------|--------|
 | MTF-B1a | high/low on request; absent fields leave old snapshot bytes | unit | `pytest tests/unit/research/test_panel_optional_fields.py -q` (extends 187-15's file) | no | pending |
 | MTF-B1b | closes_at across half day, both DST days, missing final bar, NaT row, short 1h bucket | unit | `pytest tests/unit/research/test_clock.py -q` | no | pending |
-| MTF-B1c | warmup prefix fetched, scored span unchanged | unit | `pytest tests/unit/research/test_snapshot_mtf.py -k warmup -q`; `pytest tests/unit/research/test_runner_feature_spec.py -k scored -q` (184-07, 184-09) | no | pending |
+| MTF-B1c | warmup prefix fetched (daily and 1h across a half day), scored span unchanged, fetch_start verified on the calendar | unit | `pytest tests/unit/research/test_snapshot_mtf.py -k warmup -q`; `pytest tests/unit/research/test_runner_feature_spec.py -k "scored or prefix_calendar" -q` (184-07, 184-09) | no | pending |
 | MTF-B1d | non-derived 15m/1h vendor refused | unit | `pytest tests/unit/research/test_feature_inputs.py -k vendor -q`; `pytest tests/unit/research/test_snapshot_mtf.py -k vendor -q` (184-04, 184-07) | no | pending |
 | MTF-B1e | feature arrays content-hashed; edited array fails verify | unit | `... -k hash` | no | pending |
-| MTF-B1f | missing batch, APR mismatch, mixed code_key each refuse | unit | `... -k provenance` | no | pending |
+| MTF-B1f | missing batch, config-projection hash mismatch, batches disagreeing on any projection field, mixed code_key each refuse; config round-trips | unit | `pytest tests/unit/research/test_feature_inputs.py -k "provenance or unpinned or round_trip or config" -q` (184-04) | no | pending |
 | MTF-B1g | first memory rows NaN; path-dependent column refused | unit | `... -k warmup_mask` | no | pending |
 | MTF-B1h | below-floor column refused | unit | `... -k coverage` | no | pending |
-| MTF-B1i | planted lookahead in a feature member fails S3 | unit | `pytest tests/unit/research/test_runner_feature_members.py -k causality -q` | no | pending |
+| MTF-B1i | every scored row's alignment checked against closes_at recomputed from the source grid; kernel end-to-end raw-bar probe; planted lookahead fails | unit | `pytest tests/unit/research/test_runner_feature_members.py -k "every_row or kernel_e2e or causality" -q` (184-10) | no | pending |
 | MTF-B1j | hmm_* member refused without rebuild batches | unit | `... -k hmm` | no | pending |
-| MTF-B1k | unlisted feature_vectors reader fails CI | unit | `pytest tests/unit/test_feature_vectors_read_boundary.py -q` | no | pending |
+| MTF-B1k | unlisted feature_vectors reader fails CI; legacy entries name removal todo 551 | unit | `pytest tests/unit/test_feature_vectors_read_boundary.py -q` (3 tests) | no | pending |
 | MTF-B2a | vectorized percentile / rolling max bit-equal after warmup; rolling VWAP memory bounded | unit | `pytest tests/unit/intelligence/test_research_kernels.py -q` | no | pending |
 | MTF-B2b | kernel_source over present rows, float32, NaN until memory, gap rule | unit | `pytest tests/unit/research/test_kernel_source.py -q` | no | pending |
-| MTF-B2c | expanding kernel refused; truncation probe passes research kernels, fails an acausal control | unit | `... -k guard5` | no | pending |
-| MTF-B3a | align: latest finite, max_age in source rows, weekend not aging, NaT dst, broadcast source | unit | `pytest tests/unit/research/test_align.py -q` | no | pending |
+| MTF-B2c | expanding kernel refused; truncation probe passes research kernels, fails an acausal control; research kernel at a stored window refused | unit | `pytest tests/unit/research/test_kernel_source.py -k "guard5 or stored_window" -q` | no | pending |
+| MTF-B3a | align: one implementation (align_index plus gather), latest finite, max_age in source-grid rows including invalid rows, weekend not aging, NaT dst, broadcast source, check_alignment | unit | `pytest tests/unit/research/test_align.py -q` (`-k index`, `-k age_grid_rows`) | no | pending |
 | MTF-B3b | planted leak rejected or no edge | unit | `... -k leak` | no | pending |
 | MTF-B3c | daily-on-intraday across half day and DST | unit | `... -k daily_on_intraday` | no | pending |
-| MTF-B4 | lag curve on synthetic AR predictor matches closed form; band from shifts; record unread | unit | `pytest tests/unit/research/test_term_structure_lag.py -q` | no | pending |
-| MTF-B5 | menu literal; FIR weights; memory reach <= declared | unit | `pytest tests/unit/research/test_smoothing.py -q` | no | pending |
-| MTF-B6 | E17 size at 0.05 / 0.01 / 0.00167 on persistent cells (report: 184-05-BATTERY.md) | battery | `.venv/bin/python scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6` | no | pending |
+| MTF-B4 | lag curve on synthetic AR predictor matches closed form; band from shifts; record in the `disclosure` namespace outside selection inputs; insufficient-shifts payload | unit | `pytest tests/unit/research/test_term_structure_lag.py -q`; `pytest tests/unit/research/test_term_structure_record.py -q` | no | pending |
+| MTF-B5 | menu literal; FIR weights; no renormalization (NaN in window gives NaN); memory reach <= declared | unit | `pytest tests/unit/research/test_smoothing.py -q` (`-k no_fill`) | no | pending |
+| MTF-B6 | E17 size gated at 0.05 and 0.01 (0.00167 descriptive) on every certificate's cells; admit() matches every discrete field and the memory bound; supported subset only | battery + unit | `.venv/bin/python scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6` (report: 184-05-BATTERY.md); `pytest tests/unit/research/test_null_battery_persistent.py -q`; `pytest tests/unit/research/test_runner_feature_spec.py -k "certificate or subset or e17_l" -q` | no | pending |
 | MTF-B7 | bit-identical, pinned hashes, compare-all | gate | determinism and parity gates above | yes | pending |
-| MTF-B8a | knowledge cutoff, decision-time join, max age NaN, basis refusal | unit | `pytest tests/unit/research/test_economic_block.py -q` | no | pending |
-| MTF-B8b | shifted rerun recorded | unit | `pytest tests/unit/research/test_economic_shift_test.py -k shift_test -q` (184-14) | no | pending |
+| MTF-B8a | spec-pinned knowledge cutoff, decision-time join, age from the first eligible close in NYSE sessions, max age NaN, basis refusal | unit | `pytest tests/unit/research/test_economic_block.py -q` (`-k age_calendar`) | no | pending |
+| MTF-B8b | shifted rerun to the next session's first eligible close recorded; B8 admission-refused pending todo 547 | unit | `pytest tests/unit/research/test_economic_shift_test.py -k "shift_test or shift_calendar" -q` (184-14) | no | pending |
 
 Status: pending · green · red · flaky
 
@@ -80,7 +80,7 @@ Status: pending · green · red · flaky
 
 | Behavior | Requirement | Why manual | Instructions |
 |----------|-------------|------------|--------------|
-| E17 size on persistent predictors | MTF-B6 | Long battery run, recorded once | Run the battery command, commit the report to `184-05-BATTERY.md` |
+| E17 size on persistent predictors (gated at 0.05 and 0.01) | MTF-B6 | Long battery run, recorded once | Run the battery command, commit the report to `184-05-BATTERY.md` |
 | Real-data S0 read of rebuilt `feature_vectors` | MTF-B1 | Needs 186-27's swapped table | Plan 184-12: gated on 186-27 by query; one dry S0 build; report in `184-12-DRY-S0.md` |
 
 ---
