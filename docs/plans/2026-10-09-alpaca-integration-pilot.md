@@ -2,6 +2,7 @@
 
 Author: Brandon with Claude Code (session, 2026-10-09)
 Status: workstream A executed 2026-10-09; results recorded below
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 Informed by: `docs/reference/alpaca-api.md`, the council review of 2026-10-09
 (rolling-seam nightly split rejected; Alpaca scoped to intraday depth campaign,
 nightly verifier, execution), `docs/reference/gotchas.md` for IBKR facts.

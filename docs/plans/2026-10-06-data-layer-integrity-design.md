@@ -3,6 +3,7 @@
 Author: Claude (Opus 5.5), 2026-10-06, at Brandon's request ("build the data layer right from the
 start, as Renaissance would")
 Status: implemented (plans 185-31, 185-33, 185-35 to 185-45, 185-52, 189-07, 189-08; 189-09 to 189-11 pull the new data)
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 Amendment 2026-10-10: the standing rule "capture is universal, authoring is
 single-source" was found unenforced: the load engine dropped 81.7M
 vendor-served rows and the raw archive cannot hold a second source. Rules and
@@ -380,6 +381,7 @@ route through `src/intelligence/bars/sources.py`.
 
 Author: Claude (Opus 5.5), 2026-10-08, recording the owner's decision of 2026-10-07
 Status: owner decision, implemented by plans 185-46 to 185-48
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 
 The Tradier account is unfunded and will not be funded. Section 2's decision "1d: primary
 Tradier for every name, fallback IBKR SMART TRADES" is superseded by shape F, forward from D

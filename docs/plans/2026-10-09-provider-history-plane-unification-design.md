@@ -1,6 +1,7 @@
 # Provider history plane unification: one fetcher, N leaves, policy at the capture layer
 
 Status: approved design, pre-plan (rev 2 after AGY design critique)
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 Author: Claude (session 2026-10-09), discussed and approved by Brandon
 Informed by: `docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md` (phase 189),
 `docs/plans/2026-10-09-alpaca-5m-admission-build.md` (todo 521),

@@ -2,6 +2,7 @@
 
 Author: Brandon with Claude Code (session, 2026-10-09)
 Status: green-lit by the owner 2026-10-09; plan gates the build
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 Amendment 2026-10-10: the 2026-10-10 audit found the T2 loader's drop
 categories (stored-held, extended-hours) hit the floor instead of persisting;
 81.7M rows from the phase 2 run survive only in scratch. Capture/authoring

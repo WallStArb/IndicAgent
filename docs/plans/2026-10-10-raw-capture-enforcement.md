@@ -1,6 +1,7 @@
 # Raw capture enforcement: no drops, losers archived, completeness counted
 
 Status: draft (filed 2026-10-10, todo 528)
+Superseded in part 2026-10-27 by D-191-Q (1d) / D-191-P (5m); see docs/plans/2026-10-12-unified-raw-bar-table-design.md
 Author: Brandon with Claude Code (session indicagent-49)
 Informed by: the 2026-10-10 all-names Alpaca load audit; the data-layer
 end-state design's standing rule that capture is universal and authoring is
