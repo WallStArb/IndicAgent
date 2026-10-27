@@ -11,6 +11,11 @@ new look: no research_run row is created.
 
     .venv/bin/python scripts/research/backfill_attempt_series.py            # dry run
     .venv/bin/python scripts/research/backfill_attempt_series.py --apply
+    .venv/bin/python scripts/research/backfill_attempt_series.py --compare-all
+
+--compare-all is the E17 parity gate (plan 07): it replays every completed evidence run, series
+or not, and requires the decision block and any stored D_s series (sessions and values) to equal
+the replay bit for bit. It never writes and exits non-zero on any difference.
 
 The run log lands in logs/research/series_backfill_<UTC>.json.
 """
@@ -24,6 +29,8 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -44,11 +51,11 @@ DECISION_FIELDS = ("t", "p", "se", "lag", "n_sessions", "mean_session_pnl", "mem
 
 _RUNS_SQL = """
 SELECT r.run_id::text AS run_id, r.spec_path, r.spec_hash, r.spec_blob, r.snapshot_hash,
-       c.name AS concept, r.evidence
+       c.name AS concept, r.evidence, s.sessions, s.d_s
 FROM research_run r
 JOIN concept_registry c USING (concept_id)
 LEFT JOIN research_run_series s USING (run_id)
-WHERE r.kind = 'evidence' AND r.status = 'completed' AND s.run_id IS NULL
+WHERE r.kind = 'evidence' AND r.status = 'completed' AND ($1 OR s.run_id IS NULL)
 ORDER BY r.spec_path, c.name
 """
 
@@ -59,6 +66,18 @@ def compare(recorded: dict, replayed: dict) -> dict:
     return {f: [rec.get(f), rep.get(f)] for f in DECISION_FIELDS if rec.get(f) != rep.get(f)}
 
 
+def series_differs(row: dict, series) -> bool:
+    """True when a stored D_s series is not bit-identical to the replay's (False: none stored)."""
+    if row["sessions"] is None:
+        return False
+    if series is None:
+        return True
+    return not (
+        np.array_equal(np.asarray(row["sessions"], dtype="datetime64[D]"), series.sessions)
+        and np.array_equal(np.asarray(row["d_s"], dtype=np.float64), series.values)
+    )
+
+
 def replay_refusal(spec) -> str | None:
     """Why the synthetic path cannot replay this spec faithfully, or None."""
     panel = spec.panel
@@ -67,10 +86,10 @@ def replay_refusal(spec) -> str | None:
     return None
 
 
-async def _rows(dsn: str) -> list[dict]:
+async def _rows(dsn: str, compare_all: bool) -> list[dict]:
     conn = await connect_with_codecs(dsn)
     try:
-        return [dict(r) for r in await conn.fetch(_RUNS_SQL)]
+        return [dict(r) for r in await conn.fetch(_RUNS_SQL, compare_all)]
     finally:
         await conn.close()
 
@@ -87,6 +106,8 @@ async def _workers(dsn: str) -> tuple[int, int]:
 
 
 async def main(args: argparse.Namespace) -> int:
+    if args.compare_all and args.apply:
+        raise SystemExit("--compare-all never writes; drop --apply")
     dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     root = repo_root(Path.cwd())
     workers, blas = await _workers(dsn)
@@ -98,7 +119,7 @@ async def main(args: argparse.Namespace) -> int:
     )
     ledger = PostgresLedger(dsn)
     by_spec: dict[tuple, list[dict]] = {}
-    for row in await _rows(dsn):
+    for row in await _rows(dsn, args.compare_all):
         if args.specs and row["spec_path"] not in args.specs:
             continue
         by_spec.setdefault((row["spec_path"], row["spec_blob"], row["snapshot_hash"]), []).append(
@@ -128,11 +149,13 @@ async def main(args: argparse.Namespace) -> int:
                 entry.update(outcome="series_unavailable", reason=reason or "member not replayed")
             elif diff := compare(row["evidence"], replayed["evidence"]):
                 entry.update(outcome="series_unavailable", reason="replay differs", diff=diff)
+            elif series_differs(row, replayed["series"]):
+                entry.update(outcome="series_unavailable", reason="stored series differs")
             elif replayed["series"] is None:
                 entry.update(outcome="series_unavailable", reason="no tested session")
             else:
                 entry.update(outcome="equal", n_sessions=len(replayed["series"].values))
-                if args.apply:
+                if args.apply and row["sessions"] is None:
                     await ledger.backfill_series(row["run_id"], replayed["series"])
                     entry["written"] = True
             print(json.dumps(entry), flush=True)
@@ -147,6 +170,11 @@ async def main(args: argparse.Namespace) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--apply", action="store_true", help="write the series (default: dry)")
+    parser.add_argument(
+        "--compare-all",
+        action="store_true",
+        help="parity gate: replay every completed evidence run, stored series included; never writes",
+    )
     parser.add_argument("--dsn", default=None)
     parser.add_argument("--snapshot-dir", default="logs/research/snapshots")
     parser.add_argument("--log-dir", default="logs/research")
