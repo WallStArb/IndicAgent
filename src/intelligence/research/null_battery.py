@@ -18,17 +18,26 @@ from __future__ import annotations
 import dataclasses
 import math
 import warnings
+from typing import Literal
 
 import numpy as np
 
 from src.intelligence.research import static_sizes
+from src.intelligence.research.book import book_memory
+from src.intelligence.research.combiner import EqualWeight, RidgeSpec
 from src.intelligence.research.families.intraday_periodicity import SLOT_BARS, same_slot_mean
-from src.intelligence.research.panel import Panel
+from src.intelligence.research.horizon import HorizonRule
+from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
 from src.intelligence.research.timing import TimingResult, timing_test
 
 ALPHAS = (0.05, 0.01, 0.00167)
 MEMBER_WINDOWS = (1, 5, 20, 40)  # family 1's slot histories
+# book_v1's ridge (research/specs/book_v1.yaml), in sessions; the cells convert to rows.
+_RIDGE_WINDOW_SESSIONS = 252
+_RIDGE_REFIT_SESSIONS = 21
+_RIDGE_PENALTY = 1.0
+_RIDGE_MIN_OBS = 10_000
 _WARMUP_SESSIONS = 252
 _COVERAGE_FLOOR = 20
 _VOL_WINDOW_SESSIONS = 20
@@ -48,6 +57,10 @@ class NullScenario:
     late_fraction: float = 0.0  # names listing at a uniform point in the first 60% of the span
     late_name: bool = False  # name 0 lists at 60% of the span
     s1: bool = False  # residualize through runner.compute_residuals
+    # Plan 187-08: the book's combiner and horizon rule. The defaults are the equal-weight book
+    # with kappa 1 every earlier cell ran, so those cells' outputs are unchanged.
+    combiner: Literal["equal_weight", "ridge"] = "equal_weight"
+    kappa: float = 1.0
 
 
 def _slot_returns(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
@@ -186,19 +199,42 @@ def simulate_timings(sc: NullScenario, seed: int) -> dict[str, TimingResult]:
         )
         out[f"mean{w}"] = timing_test(weights, target, has, trade, memory_sessions=w, **kw)
     stack = np.stack(members, axis=2)
-    with warnings.catch_warnings(), np.errstate(invalid="ignore"):
-        warnings.simplefilter("ignore", RuntimeWarning)  # rows with no finite member stay NaN
-        z = (stack - np.nanmean(stack, axis=1, keepdims=True)) / np.nanstd(
-            stack, axis=1, keepdims=True
+    if sc.combiner == "ridge":
+        combiner = RidgeSpec(
+            window_rows=_RIDGE_WINDOW_SESSIONS * bps,
+            refit_rows=_RIDGE_REFIT_SESSIONS * bps,
+            penalty=_RIDGE_PENALTY,
+            embargo=fwd_span(SLOT_BARS),
+            min_obs=_RIDGE_MIN_OBS,
         )
-    book = np.where(np.isfinite(z).all(axis=2), z.mean(axis=2), np.nan)
+        book = combiner.combine(stack, target)
+    else:
+        combiner = EqualWeight((1.0,) * len(MEMBER_WINDOWS))
+        with warnings.catch_warnings(), np.errstate(invalid="ignore"):
+            warnings.simplefilter("ignore", RuntimeWarning)  # rows with no finite member: NaN
+            z = (stack - np.nanmean(stack, axis=1, keepdims=True)) / np.nanstd(
+                stack, axis=1, keepdims=True
+            )
+        book = np.where(np.isfinite(z).all(axis=2), z.mean(axis=2), np.nan)
     weights, has = rank_vol_neutral_weights(
         book, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
     )
-    out["book_equal"] = timing_test(
-        weights, target, has, trade, memory_sessions=max(MEMBER_WINDOWS), **kw
+    rule = HorizonRule(sc.kappa)
+    weights, has = rule.apply(weights, has)
+    memory = book_memory(
+        MEMBER_WINDOWS, [w * bps for w in MEMBER_WINDOWS], SLOT_BARS, combiner, rule, bps
+    )
+    out[_book_arm(sc)] = timing_test(
+        weights, target, has, trade, memory_sessions=memory.sessions, **kw
     )
     return out
+
+
+def _book_arm(sc: NullScenario) -> str:
+    """'book_equal' for every earlier cell; a fitted book is named by its parts."""
+    if sc.combiner == "equal_weight" and sc.kappa >= 1.0:
+        return "book_equal"
+    return f"book_{sc.combiner}_k{sc.kappa:g}"
 
 
 # Stress sizes measured on family 1's panel (2010-2025, 13 half-hour slots, idiosyncratic slot
@@ -250,10 +286,21 @@ def scenarios() -> tuple[NullScenario, ...]:
         NullScenario("static_vol_stress", static_cell_sd=0.3, vol_clustering=True),
         NullScenario("hostile_stress", **stress),
         NullScenario("s1_slot_stress", s1=True, slot_effect_sd=0.3),
+        # Plan 187-08: fitted books. Appended, so every earlier cell keeps its position (the
+        # drivers seed by position).
+        NullScenario("ridge", combiner="ridge"),
+        NullScenario("kappa_0.5", kappa=0.5),
+        NullScenario("kappa_0.2", kappa=0.2),
+        NullScenario("ridge_static", combiner="ridge", static_cell_sd=two["static_cell_sd"]),
+        NullScenario("kappa_0.5_static", kappa=0.5, static_cell_sd=two["static_cell_sd"]),
+        NullScenario("kappa_0.2_static", kappa=0.2, static_cell_sd=two["static_cell_sd"]),
+        NullScenario("ridge_kappa_hostile", combiner="ridge", kappa=0.5, **hostile),
     )
 
 
-DIAGNOSTIC_CELLS = frozenset({"static_vol_stress", "hostile_stress", "s1_slot_stress"})
+DIAGNOSTIC_CELLS = frozenset(
+    {"static_vol_stress", "hostile_stress", "s1_slot_stress", "ridge_kappa_hostile"}
+)
 
 
 def static_gate() -> static_sizes.StaticGate:

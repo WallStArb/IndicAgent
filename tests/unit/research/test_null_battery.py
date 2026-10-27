@@ -86,3 +86,27 @@ def test_battery_catches_the_retired_e16_bias():
         )
     assert np.mean(e16) < -1.0
     assert abs(np.mean(e17)) < 0.6  # measured: E16 -2.13, E17 -0.23 (sd about 1.2, n = 20)
+
+
+def test_fitted_book_cells_run_and_name_their_book():
+    """Plan 187-08: ridge and kappa cells score their book under its own arm name and L from
+    book_memory; the defaults keep every earlier cell's 'book_equal'."""
+    import dataclasses as dc
+
+    from src.intelligence.research import null_battery as nb
+
+    cells = {c.name: c for c in nb.scenarios()}
+    assert nb._book_arm(cells["gaussian"]) == "book_equal"
+    for name, arm in (("ridge", "book_ridge_k1"), ("kappa_0.5", "book_equal_weight_k0.5")):
+        out = nb.simulate(dc.replace(cells[name], sessions=800, names=30), 3)
+        assert arm in out and "book_equal" not in out
+        t, p = out[arm]
+        assert np.isfinite(t) and 0 <= p <= 1
+
+
+def test_fitted_book_cells_do_not_move_the_static_gate():
+    from src.intelligence.research import null_battery as nb
+
+    gate = nb.static_gate()
+    assert gate.static_sd == (2 * nb.MEASURED_STATIC_CELL_SD,)
+    assert gate.time_of_day == (2 * nb.MEASURED_SLOT_EFFECT_SD,)
