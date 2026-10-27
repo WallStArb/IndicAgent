@@ -15,7 +15,7 @@ const STATUS_STYLE: Record<StageStatus, string> = {
 export const CARD = "rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5";
 
 /** Uppercase tracked display label for section titles and column headers. */
-const LABEL = "font-display uppercase tracking-[0.12em]";
+export const LABEL = "font-display uppercase tracking-[0.12em]";
 
 export function Logo({ size = 22 }: { size?: number }) {
   return (
@@ -199,7 +199,7 @@ export function Panel<R extends object>({
 
 export function PageHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
-    <header className="flex items-baseline justify-between gap-4 px-6 pt-5 pb-3 border-b border-[var(--border-subtle)]">
+    <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 px-6 pt-5 pb-3 border-b border-[var(--border-subtle)]">
       <h1 className="font-display text-xl font-bold tracking-tight">{title}</h1>
       <div className="text-xs text-[var(--text-muted)]">{children}</div>
     </header>

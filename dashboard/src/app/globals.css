@@ -58,3 +58,30 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ── Headline row ── */
+
+/* Linked tiles: a quiet hover and a visible keyboard focus. */
+.tile {
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.tile:hover {
+  background: var(--bg-elevated);
+}
+.tile:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* The one moving element: the warning on the first stage to act on (the v2.x pulse). */
+@keyframes attention-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.attention {
+  animation: attention-pulse 2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .attention { animation: none; }
+}

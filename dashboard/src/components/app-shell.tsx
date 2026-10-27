@@ -42,15 +42,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
   return (
     <RefreshContext.Provider value={refreshMs}>
-    <div className="h-screen flex bg-[var(--bg-base)] text-[var(--text-primary)]">
-      <nav className="w-48 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col">
-        <div className="flex items-center gap-2.5 px-4 py-5">
+    <div className="h-screen flex flex-col md:flex-row bg-[var(--bg-base)] text-[var(--text-primary)]">
+      {/* A sidebar from md up; on a phone a top bar of the built pages. */}
+      <nav className="shrink-0 flex items-center md:items-stretch md:flex-col md:w-48 border-b md:border-b-0 md:border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+        <div className="flex items-center gap-2.5 px-4 py-3 md:py-5">
           <Logo />
           <span className="font-display text-base font-extrabold tracking-tight">
             Indic<span className="text-[var(--accent-cyan)]">Agent</span>
           </span>
         </div>
-        <ul className="flex-1 px-2 space-y-0.5 text-sm">
+        <ul className="flex-1 flex md:block overflow-x-auto px-2 gap-0.5 md:space-y-0.5 text-sm">
           {NAV.map((item) =>
             item.href ? (
               <li key={item.label}>
@@ -73,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               <li
                 key={item.label}
-                className="flex items-center gap-2.5 px-2 py-1.5 text-[var(--text-muted)]"
+                className="hidden md:flex items-center gap-2.5 px-2 py-1.5 text-[var(--text-muted)]"
               >
                 <item.icon size={15} />
                 <span className="flex-1">{item.label}</span>
@@ -82,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ),
           )}
         </ul>
-        <div className="px-4 py-3 text-[0.65rem] text-[var(--text-muted)]">read-only, UTC</div>
+        <div className="hidden md:block px-4 py-3 text-[0.65rem] text-[var(--text-muted)]">read-only, UTC</div>
       </nav>
       <main className="flex-1 overflow-auto">{children}</main>
     </div>

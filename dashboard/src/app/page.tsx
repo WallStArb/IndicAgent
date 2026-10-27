@@ -2,8 +2,9 @@
 
 import { ChevronRight } from "lucide-react";
 import { CARD, ErrorNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
+import { Headline, UpdatedStamp } from "@/components/headline";
 import { useApi } from "@/hooks/use-api";
-import { fmtAgo, fmtUtc } from "@/lib/time";
+import { fmtAgo } from "@/lib/time";
 import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -106,20 +107,14 @@ export default function PipelinePage() {
 
   return (
     <div>
-      <PageHeader title="Pipeline">
-        {data && (
-          <>
-            generated {fmtUtc(data.generated_at)} · stale after {data.stale_hours} h · refresh{" "}
-            {data.refresh_seconds} s
-          </>
-        )}
-      </PageHeader>
+      <PageHeader title="Pipeline">{data && <UpdatedStamp summary={data} />}</PageHeader>
       <ErrorNote error={error} />
       {loading && <p className="px-6 py-4 text-xs text-[var(--text-muted)]">Loading...</p>}
       {data && (
         <div className="p-6 flex flex-col gap-4">
+          <Headline summary={data} label={(stage) => STAGE_LABEL[stage]} />
           <StageFlow stages={data.stages} />
-          <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(420px,1fr))]">
+          <div id="stages" className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(420px,100%),1fr))]">
             {data.stages.map((stage) => (
               <StageCard key={stage.stage} stage={stage} />
             ))}
