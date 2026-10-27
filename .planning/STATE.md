@@ -58,11 +58,11 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
 
 - **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
-  (amended 2026-10-23). 2026-10-27 17:45Z: 1,469 settled, 53 unsettled, 7 frozen (MOD, PSKY,
-  CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). The successor pass (60da77f8) settled 16
-  names, then died at 12:50Z when the gateway connection dropped mid-run at LCUT (fail-loud, as
-  designed). Pass 3 (watcher `plan19_pass3.sh` in 3a's scratchpad) starts when the timer's
-  routine run (pid 1088320) exits: full scan over the unsettled names, budget 420 min, then the
+  (amended 2026-10-23). 2026-10-27 20:50Z: 1,498 settled, 24 unsettled, 7 frozen (MOD, PSKY,
+  CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). The successor pass (60da77f8) died at 12:50Z
+  when the gateway connection dropped at LCUT; the timer's routine run (IBKR deep 5m, P2 under
+  D-191-P) was stopped by PID at 20:31Z so pass 3 (fetch_run 270530ec, 53 names, budget 420 min,
+  watcher `plan19_pass3.sh` in 3a's scratchpad) could start; it settles names as it goes, and the
   timer restarts. Hard-tail rule (no change to the readiness basis): a name still unsettled
   after an ask bounded at its listing goes on the `--frozen-names` hold with its residue class.
   CLBK: IBKR error 162 "No historical market data" for conId 902968711 before 2026-08-28, so its
