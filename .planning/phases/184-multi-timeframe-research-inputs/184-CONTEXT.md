@@ -71,7 +71,7 @@ Downstream agents MUST read these before planning or implementing.
 - `docs/plans/2026-09-25-alpha-research-architecture.md` - S0 to S8
 - `docs/plans/2026-09-24-evidence-framework.md` - E15-E18 rules
 - `.planning/todos/pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md` - B1 requirements
-- `.planning/todos/pending/482-economic-series-point-in-time-by-alfred-release-records.md` - B8 prerequisite
+- `.planning/todos/deferred/482-economic-series-point-in-time-by-alfred-release-records.md` - B8 prerequisite
 - `docs/ideas/signal-macro-context-layer.md` - B8 shift test
 - `.planning/phases/187-*/` plans 08, 09, 15 and `187-REVIEWS.md` - sequencing constraints above
 - `src/intelligence/research/` - panel.py, snapshot, spec.py, construction.py, runner, S8 book test

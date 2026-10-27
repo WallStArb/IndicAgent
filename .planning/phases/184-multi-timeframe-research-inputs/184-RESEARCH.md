@@ -80,7 +80,7 @@ No IDs were assigned (ROADMAP: "Requirements: TBD"). Derived here from design se
 | MTF-B3b | D7 guard 1: a planted leak routed through `align` (source bar closing after the destination row) is rejected or produces no edge | Design D7 |
 | MTF-B3c | D7 guard 2: a daily value on the intraday clock equals the previous session's value on every slot except the last, which carries the same session's value; across a half day and both DST transitions | Design D7 |
 | MTF-B4 | Every recorded run's evidence carries each member's IC term structure by lag (lags 1..60 on the daily clock, in-session lags on an intraday clock) on the one-row S1 residual target, with a joint band from the run's own session shifts; nothing reads it; the record states the book's pinned kappa | Finding F7 (glossary vs measure) |
-| MTF-B5 | Fixed smoothing menu: a member may pin `smoothing_half_life` in {5, 21, 63} sessions (daily clock); the smoother is causal with a declared finite memory that enters book memory | Pattern 6 |
+| MTF-B5 | Fixed smoothing menu: an input member (one with `input` set) may pin `smoothing_half_life`, and a member without `input` that sets it is refused at spec load; in {5, 21, 63} sessions (daily clock); the smoother is causal with a declared finite memory that enters book memory | Pattern 6 |
 | MTF-B6 | E17 H0 battery cells for persistent predictors (AR(1) at several autocorrelation times, routed through `align` and `kernel_source`); the feature family module exposes `NULL_BATTERY` so `runner.static_gate` admits it | Finding F8 |
 | MTF-B7 | After each item: `repro_frozen` bit-identical, `test_spec_hashes_pinned.py` green, `backfill_attempt_series.py --compare-all` all equal, `panel_81fa9178ca4ad603` verifies | Validation section |
 | MTF-B8a | (after todo 482) S0 economic block: `economic_series_observation` filtered on `available_at <= K` (knowledge cutoff in the manifest), joined on decision time through `align` with age and per-series max age; refuses rows whose `availability_basis` is not a measured or declared basis | Finding F9 |
@@ -383,15 +383,18 @@ For each shift s in `session_shifts(n, bps, min_shift, memory)`: compute the cur
 | A6 | The rebuild's units cover all columns, so one `code_key` per unit spans every column read | Pattern 5 | If units split columns, the pin check groups by column set |
 | A7 | 187-15 Task 2's `fields` literal can be extended with `closes_at` (or `closes_at` is always on for intraday as an `extra` array) without moving 187-15's tests | Pitfall 1 | Coordinate with 5b at execution |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where the lag term structure lives and whether `measure` should change.**
+Resolved 2026-10-27 at planning; each resolution is the recommendation below, adopted by the named plan.
+
+1. **Where the lag term structure lives and whether `measure` should change.** RESOLVED: pure function in `statistics/`, `measure` unchanged, naming todo filed (plan 184-11).
    - Known: `measure.term_structure` is cumulative horizons; the glossary and D2 define lags.
    - Recommendation: a pure function in `statistics/` used by the runner; file a todo to align `measure`'s job 2 naming with the glossary. Do not change `measure` in 184.
 2. **The shift test (B8b): counted attempt or part of the same record?**
    - Recommendation: the same attempt's evidence carries the shifted rerun's statistic as a robustness field (no new spec hash, no selection universe entry). Confirm against 187-10/11's attempt model when B8 is planned.
-3. **Todo 482's timing.** It is P2 and deferred, and the `economic_series_observation` check constraint allows only `assumed_lag` and `fetch` today. B8's plan starts with "todo 482 complete", and its S0 refuses any basis other than the post-482 values.
-4. **5m name and column set after the universe ruling.** Read 186-26's launch record at execution.
+   - RESOLVED: robustness field on the same attempt; plan 184-14 checks it against 187-10/11 at execution.
+3. **Todo 482's timing.** It is P2 and deferred, and the `economic_series_observation` check constraint allows only `assumed_lag` and `fetch` today. B8's plan starts with "todo 482 complete", and its S0 refuses any basis other than the post-482 values. RESOLVED: plan 184-13 opens with a mechanical gate on todo 482.
+4. **5m name and column set after the universe ruling.** Read 186-26's launch record at execution. RESOLVED: plan 184-12 reads it in its gate task.
 
 ## Environment Availability
 

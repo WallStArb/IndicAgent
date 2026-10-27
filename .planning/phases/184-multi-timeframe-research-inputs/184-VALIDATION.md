@@ -2,7 +2,7 @@
 phase: 184
 slug: multi-timeframe-research-inputs
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-10-27
 ---
@@ -32,7 +32,7 @@ created: 2026-10-27
 
 - After every task commit: the item's test file plus `test_spec_hashes_pinned.py`.
 - After every plan touching `src/intelligence/research/` or `src/intelligence/statistics/`: full unit suite, repro_frozen bit-identical, compare-all.
-- Before `/gsd-verify-work`: full suite green, B6 battery report committed, repro_frozen bit-identical.
+- Before `/gsd-verify-work`: full suite green, B6 battery report (184-05-BATTERY.md) committed, repro_frozen bit-identical.
 - Max feedback latency: 120 seconds (the B6 battery is a recorded run, not a per-commit check).
 
 ---
@@ -80,18 +80,18 @@ Status: pending · green · red · flaky
 
 | Behavior | Requirement | Why manual | Instructions |
 |----------|-------------|------------|--------------|
-| E17 size on persistent predictors | MTF-B6 | Long battery run, recorded once | Run the battery command, commit the report to `184-BATTERY.md` |
+| E17 size on persistent predictors | MTF-B6 | Long battery run, recorded once | Run the battery command, commit the report to `184-05-BATTERY.md` |
 | Real-data S0 read of rebuilt `feature_vectors` | MTF-B1 | Needs 186-27's swapped table | Plan 184-12: gated on 186-27 by query; one dry S0 build; report in `184-12-DRY-S0.md` |
 
 ---
 
 ## Validation sign-off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
 - [ ] Sampling continuity: no 3 consecutive tasks without automated verify
 - [ ] Wave 0 covers all missing references
 - [ ] No watch-mode flags
 - [ ] Feedback latency under 120 s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
