@@ -84,7 +84,9 @@ export function RowsTable<R extends object>({
   if (rows.length === 0) {
     return <p className="text-xs text-[var(--text-muted)] py-2">{empty}</p>;
   }
-  const cols = columns ?? (Object.keys(rows[0]) as (keyof R & string)[]);
+  // Keys starting with "_" are hidden fields a page passes for `tone` (e.g. _failed).
+  const cols =
+    columns ?? (Object.keys(rows[0]).filter((k) => !k.startsWith("_")) as (keyof R & string)[]);
   return (
     <div className="overflow-x-auto">
     <table className="w-full text-xs">
@@ -143,7 +145,7 @@ export function RowsTable<R extends object>({
 /**
  * One titled block of a page: what it answers, its rows, and where they came from. `aside`
  * sits beside the title (a status chip, a count); `children` replaces the table when given;
- * `footer` renders below it.
+ * `footer` renders below it; `scroll` caps the table's height and scrolls it inside the card.
  */
 export function Panel<R extends object>({
   title,
@@ -157,6 +159,7 @@ export function Panel<R extends object>({
   className,
   children,
   footer,
+  scroll,
 }: {
   title: string;
   question: string;
@@ -169,6 +172,7 @@ export function Panel<R extends object>({
   className?: string;
   children?: React.ReactNode;
   footer?: React.ReactNode;
+  scroll?: string;
 }) {
   return (
     <section className={cn("flex min-w-0 flex-col gap-2", className)}>
@@ -177,7 +181,14 @@ export function Panel<R extends object>({
         {aside}
       </div>
       <p className="text-xs text-[var(--text-secondary)]">{question}</p>
-      {children ?? <RowsTable rows={rows} tone={tone} empty={empty} />}
+      {children ??
+        (scroll ? (
+          <div className="overflow-y-auto min-h-0" style={{ maxHeight: scroll }}>
+            <RowsTable rows={rows} tone={tone} empty={empty} />
+          </div>
+        ) : (
+          <RowsTable rows={rows} tone={tone} empty={empty} />
+        ))}
       {footer}
       <div className="mt-auto pt-1">
         <Lineage source={source} asOf={asOf} />

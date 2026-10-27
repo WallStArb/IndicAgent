@@ -52,3 +52,67 @@ export interface DlqRow {
 
 export type UnitsResponse = Envelope<UnitRow>;
 export type DlqResponse = Envelope<DlqRow, { window_days: number }>;
+
+export interface FeedRow {
+  timeframe: string;
+  provider: string;
+  symbols: number;
+  newest_bar: string | null;
+  last_fetch: string | null;
+  failing: number;
+  /** Judged by the API with the Pipeline ingest card's function and APR bounds. */
+  status: "ok" | "stale" | "failing";
+}
+
+export interface FailingRow {
+  symbol: string;
+  timeframe: string;
+  provider: string;
+  consecutive_failures: number;
+  last_fetch_status: string | null;
+  last_fetched_at: string | null;
+}
+
+export interface IntegrityRow {
+  monitor_type: string;
+  metric_name: string;
+  failed: number;
+  evaluated: number;
+  evaluated_at: string;
+}
+
+export interface RestatementRow {
+  symbol: string;
+  timeframe: string;
+  vendor: string;
+  kind: string;
+  n_stored: number;
+  n_changed: number;
+  share: number;
+  flagged_at: string;
+}
+
+export interface ListingEndRow {
+  symbol: string;
+  last_session: string;
+  reason: string;
+  recorded_at: string;
+}
+
+export interface DividendRow {
+  source: string;
+  symbols: number;
+  covered_from: string | null;
+  covered_to: string | null;
+  checked_at: string | null;
+}
+
+/** GET /api/data/summary: the six Data sections; a failed section is empty with meta.error. */
+export interface DataSummary {
+  feeds: Envelope<FeedRow, { error?: string; failing_rows?: number }>;
+  failing: Envelope<FailingRow, { error?: string }>;
+  integrity: Envelope<IntegrityRow, { error?: string }>;
+  restatements: Envelope<RestatementRow, { error?: string }>;
+  listing_ends: Envelope<ListingEndRow, { error?: string }>;
+  dividends: Envelope<DividendRow, { error?: string }>;
+}

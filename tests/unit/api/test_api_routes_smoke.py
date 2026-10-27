@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from src.api import dependencies
 from src.api.routes import (
+    data,
     health,
     instruments,
     market_data,
@@ -121,6 +122,7 @@ _ROUTERS: list[tuple[APIRouter, str]] = [
     (market_data.router, "/api"),
     (instruments.router, "/api"),
     (pipeline.router, "/api/pipeline"),
+    (data.router, "/api/data"),
     (system.router, "/api/system"),
     (vocabulary.router, "/api/vocabulary"),
 ]

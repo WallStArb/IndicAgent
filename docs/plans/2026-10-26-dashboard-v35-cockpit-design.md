@@ -121,3 +121,19 @@ Progress:
 
 Writes of any kind from the UI (no APR edits, no promotions), authentication (the dashboard runs on
 localhost), mobile layout beyond not breaking, and any live feed until phase 188.
+- Slice 2 (Data page) landed 2026-10-26 with one cached `/api/data/summary` (six sections, feed
+  rows carry the Pipeline's status) and the shared TTL cache `src/api/cache.py`. Open findings
+  from its /code-review, to fix first in the next session:
+  1. Integrity counts only rows sharing the exact max(evaluated_at); writers that commit per row
+     spread a run over many timestamps, so it undercounts. The correct per-subject latest query
+     (DISTINCT ON monitor, metric, subject) takes 10 s on 900k rows, 1.5 s bounded to 7 days: add
+     an APR window key (next migration number from the coordinating sessions) or an index.
+  2. The Data header counts read empty rows as zero when a section errored; show "?" instead.
+  3. The refresh APR read runs before the cache check on every request; read it on a miss only.
+  4. Data feeds re-run ingest under their own key; take the ingest stage from the cached
+     pipeline summary so the two pages share one snapshot (ingest_status mutates its env).
+  5. cache.py: create locks per event loop and clear them in clear(); add unit tests (TTL, single
+     computation under concurrency, exception leaves no entry, key isolation).
+  6. Section errors are cached for a full TTL with only the class name: log them, and do not
+     catch CancelledError.
+  7. Assert the failing and restatements filters in tests; sticky table headers in scroll panels.

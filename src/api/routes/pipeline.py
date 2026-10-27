@@ -13,13 +13,12 @@ disagree. Status is a read of what the writers stored, never a recomputed statis
 - `empty` when a stage's own table has no rows, `error` when its query raised (the other stages
   still render), `not_built` for books until phase 188.
 
-The summary is cached for `ui.dashboard.refresh_seconds` behind a lock: any number of open tabs
+The summary is cached for `ui.dashboard.refresh_seconds` (src/api/cache.py): any number of open tabs
 costs one query set per interval. APR values are re-read on each computation, so a config change
 shows within one interval without a restart.
 """
 
 import asyncio
-import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -27,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ...core.database_manager import DatabaseManager
+from ..cache import cached
 from ..dependencies import get_config_service, get_db_manager
 from ..envelope import Envelope, envelope, newest
 
@@ -100,11 +100,9 @@ _STAGES: list[tuple[str, Callable[[DatabaseManager], Awaitable[Envelope]], bool]
 ]
 
 _SEVERITY = {"ok": 0, "stale": 1, "failing": 2}
-_cache: dict[str, Any] = {"expires": 0.0, "body": None}
-_lock = asyncio.Lock()
 
 
-def _ingest_status(env: Envelope, stale_after: timedelta, now: datetime, frac: float) -> str:
+def ingest_status(env: Envelope, stale_after: timedelta, now: datetime, frac: float) -> str:
     """Worst feed: each (timeframe, provider) row is judged on its own failures and newest bar."""
     worst = "ok"
     for row in env["rows"]:
@@ -128,7 +126,7 @@ def _status(
     if not env["rows"] or (stale_after is not None and env["as_of"] is None):
         return "empty"
     if stage == "ingest" and stale_after is not None:
-        return _ingest_status(env, stale_after, now, frac)
+        return ingest_status(env, stale_after, now, frac)
     if stale_after is not None and now - env["as_of"] > stale_after:
         return "stale"
     return "ok"
@@ -169,11 +167,5 @@ async def summary(
     db: DatabaseManager = Depends(get_db_manager),
     config: Any = Depends(get_config_service),
 ) -> dict[str, Any]:
-    if _cache["body"] is not None and time.monotonic() < _cache["expires"]:
-        return _cache["body"]
-    async with _lock:  # one computation per interval however many requests arrive at expiry
-        if _cache["body"] is None or time.monotonic() >= _cache["expires"]:
-            refresh = await apr(config, "ui.dashboard.refresh_seconds", 60)
-            body = await _compute(db, config, refresh)
-            _cache.update(expires=time.monotonic() + refresh, body=body)
-    return _cache["body"]
+    refresh = await apr(config, "ui.dashboard.refresh_seconds", 60)
+    return await cached("pipeline", refresh, lambda: _compute(db, config, refresh))

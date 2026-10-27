@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 // Entries without an href are later slices, listed so the shape of the cockpit is visible.
 const NAV: { label: string; icon: LucideIcon; href?: string }[] = [
   { label: "Pipeline", icon: Workflow, href: "/" },
-  { label: "Data", icon: Database },
+  { label: "Data", icon: Database, href: "/data" },
   { label: "Instruments", icon: ListTree },
   { label: "Concepts", icon: Lightbulb },
   { label: "Research", icon: FlaskConical },

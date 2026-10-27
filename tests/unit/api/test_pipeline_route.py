@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.api.routes import pipeline
+from src.api import cache
 
 FRESH = datetime.now(UTC) - timedelta(hours=1)
 OLD = datetime.now(UTC) - timedelta(days=30)
@@ -12,7 +12,7 @@ OLD = datetime.now(UTC) - timedelta(days=30)
 
 @pytest.fixture(autouse=True)
 def _fresh_cache():
-    pipeline._cache.update(expires=0.0, body=None)
+    cache.clear()
 
 
 def _db_answers(mock_db, *, failing=0, ic_newest=None, research=True):
@@ -69,12 +69,12 @@ def test_status_reads_freshness_and_failures(client, mock_db):
     assert stages["regime"]["status"] == "ok"
 
     _db_answers(mock_db, failing=1)  # 1 of 10 rows: at the 0.1 bound, not above it
-    pipeline._cache.update(expires=0.0, body=None)
+    cache.clear()
     ingest = _stages(client)["ingest"]
     assert ingest["status"] == "ok" and ingest["meta"]["failing_rows"] == 1
 
     _db_answers(mock_db, failing=4)
-    pipeline._cache.update(expires=0.0, body=None)
+    cache.clear()
     assert _stages(client)["ingest"]["status"] == "failing"
 
 
