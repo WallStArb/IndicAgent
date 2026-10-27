@@ -69,15 +69,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "outcome applied or refused (plans 185-39, 191-04 and 191-05). Never the caller "
             "raw-backfill-191.",
         ),
-        _TRADIER_DELETE: (
-            frozenset({"tradier"}),
-            frozenset({"delete:tradier-retirement"}),
-            "TEMPORARY retire: 191-25. DELETE FROM ohlcv_load where source tradier only (the "
-            "deleted Tradier loader's history), in symbol batches after the COPY backup, "
-            "keeping any Tradier load that owns another vendor's revision rows; it writes no "
-            "load row, so its segment is the deletion, not a caller (plan 191-20, owner "
-            "exception 2026-10-12).",
-        ),
     },
     "ohlcv_revision": {
         _DERIVATION: (
@@ -101,9 +92,9 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             frozenset({"vendor:tradier"}),
             frozenset({"delete:tradier-retirement"}),
             "TEMPORARY retire: 191-25. DELETE FROM ohlcv_revision where vendor tradier only "
-            "(old Tradier values under any load), in symbol batches after the COPY backup, so "
-            "the Tradier load delete cascades into nothing (plan 191-20, owner exception "
-            "2026-10-12).",
+            "(old Tradier values under any load), in symbol batches after the COPY backup; "
+            "ohlcv_load rows are lineage and are never deleted (plan 191-20, owner exception "
+            "2026-10-12, amended 2026-10-27).",
         ),
     },
 }

@@ -8,12 +8,13 @@ every statement there (a table missing from the scratch schema errors instead of
 public). The real tables, and the live database, are never touched: the fixture asserts the
 database name and the session's schema list before any write.
 
-The seeded case covers mixed vendors, a held-back name, a Tradier load that owns an ibkr
-revision row (kept), a derived load that owns a tradier revision row (row deleted, load kept),
-a restatement flag on a Tradier load (refuses until removed), a non-1d row of another vendor, a
-load detail with an embedded newline, a content change after the dump (the batch digest
-refuses) and a crash between batches (the in-flight batch settles). After the delete exactly the
-non-Tradier and held rows remain, and restoring the backup files reproduces every table.
+The seeded case covers mixed vendors, a held-back name, Tradier loads (lineage: every
+ohlcv_load row stays), a Tradier load that owns an ibkr revision row (kept), a derived load that
+owns a tradier revision row (the row goes, the load stays), a restatement flag on a Tradier load
+(no longer a gate, since no load is deleted), a non-1d row of another vendor, a content change
+after the dump (the batch digest refuses) and a crash between batches (the in-flight batch
+settles). After the delete exactly the non-Tradier and held value rows remain, and restoring the
+backup files reproduces every table.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ _TABLES = (
     "ohlcv_request",
     "ohlcv_restatement_flag",
 )
-_COMPARED = _TABLES[:-1]  # the flag is removed mid-test on purpose
+_COMPARED = _TABLES
 
 _L = {
     name: str(uuid.UUID(int=i + 1)) for i, name in enumerate(("L1", "L2", "L3", "L4", "L5", "L6"))
@@ -58,7 +59,7 @@ def _seed(conn: psycopg.Connection) -> None:
         # (id, symbol, source, caller, detail)
         ("L1", "AAA", "tradier", "tradier-daily-loader", "line one\nline two"),
         ("L2", "AAA", "tradier", "tradier-daily-loader", None),  # owns an ibkr revision: kept
-        ("L3", "BBB", "tradier", "tradier-daily-loader", None),  # flagged at first
+        ("L3", "BBB", "tradier", "tradier-daily-loader", None),  # carries a restatement flag
         ("L4", "BBB", "derived", "bar_derivation-daily", None),  # owns a tradier revision
         ("L5", "HLD", "tradier", "tradier-daily-loader", None),  # held back
         ("L6", "IBM", "ibkr", "ibkr-history-fetch", None),
@@ -230,7 +231,7 @@ def test_dump_trial_delete_verify_and_restore_on_a_scratch_schema(scratch: str, 
     ]
     rt = mod.Runtime(
         connect=lambda: _scratch_connect(scratch),
-        read_apr=lambda: (0, 1),
+        read_apr=lambda: (0, 1, str(tmp_path)),
         measure=lambda: measures,
         tsv_path=tmp_path / "first_bar.tsv",
     )
@@ -239,18 +240,19 @@ def test_dump_trial_delete_verify_and_restore_on_a_scratch_schema(scratch: str, 
     # --- dump: exact per-table, per-symbol counts; never overwrites
     assert mod.run_dump(_args(tmp_path, "--dump", "--apply", "--hold", "HLD"), rt) == 0
     manifest = json.loads((backup_dir / "tradier_delete_manifest.json").read_text())
-    per_symbol = {t["table"]: t["per_symbol"] for t in manifest["tables"]}
+    per_symbol = {
+        t["table"]: {s: v[0] for s, v in t["per_symbol"].items()} for t in manifest["tables"]
+    }
     assert per_symbol == {
         "ohlcv_revision": {"AAA": 1, "BBB": 1},
-        "ohlcv_load": {"AAA": 1, "BBB": 1},
         "ohlcv_raw": {"AAA": 3, "BBB": 2},
         "market_data_ohlcv": {"AAA": 3, "BBB": 2},
         "ohlcv_coverage": {"BBB": 1},
     }
     assert manifest["held"] == ["HLD"]
-    assert manifest["retained_loads"] == 1 and manifest["foreign_revisions"] == 1
+    assert manifest["foreign_revisions"] == 1
     assert manifest["request_ledger"] == {"total": 2, "tradier": 1}
-    assert len(list(backup_dir.glob("tradier_*.csv.gz"))) == 5
+    assert len(list(backup_dir.glob("tradier_*.csv.gz"))) == 4
     assert mod.run_dump(_args(tmp_path, "--dump", "--apply", "--hold", "HLD"), rt) == 2
 
     # --- verify, then the dry-run delete changes nothing
@@ -258,9 +260,7 @@ def test_dump_trial_delete_verify_and_restore_on_a_scratch_schema(scratch: str, 
     assert mod.run_delete(_args(tmp_path, "--delete"), rt) == 0
     assert _snapshot(scratch) == before
 
-    # --- trial: the flag on a Tradier load refuses; once removed, AAA goes and the TSV is first
-    assert mod.run_trial(_args(tmp_path, "--trial", "AAA", "--apply"), rt) == 2
-    _execute(scratch, "DELETE FROM ohlcv_restatement_flag WHERE load_id = %s", (_L["L3"],))
+    # --- trial: AAA goes (the flag on BBB's Tradier load is no gate) and the TSV comes first
     assert mod.run_trial(_args(tmp_path, "--trial", "AAA", "--apply"), rt) == 0
     assert (tmp_path / "first_bar.tsv").read_text().splitlines()[1:] == [
         "AAA\t3\t1\t2020-01-01\t2020-01-02\ttrue",
@@ -271,7 +271,6 @@ def test_dump_trial_delete_verify_and_restore_on_a_scratch_schema(scratch: str, 
     report = json.loads(trials[0].read_text())
     assert {t: v["rows"] for t, v in report["tables"].items()} == {
         "ohlcv_revision": 1,
-        "ohlcv_load": 1,
         "ohlcv_raw": 3,
         "market_data_ohlcv": 3,
         "ohlcv_coverage": 0,
@@ -306,10 +305,11 @@ def test_dump_trial_delete_verify_and_restore_on_a_scratch_schema(scratch: str, 
     assert mod.run_delete(_args(tmp_path, "--delete", "--apply"), rt) == 0
     assert mod.run_verify(_args(tmp_path, "--verify", "--require-complete"), rt) == 0
 
-    # --- exactly the non-Tradier and held rows remain
+    # --- exactly the non-Tradier and held value rows remain; every load and the flag stay
     assert _rows(scratch, "SELECT load_id::text FROM ohlcv_load ORDER BY 1") == [
-        (_L[k],) for k in ("L2", "L4", "L5", "L6")
+        (_L[k],) for k in ("L1", "L2", "L3", "L4", "L5", "L6")
     ]
+    assert _rows(scratch, "SELECT count(*) FROM ohlcv_restatement_flag") == [(1,)]
     assert _rows(scratch, "SELECT symbol, vendor FROM ohlcv_revision ORDER BY 1, 2") == [
         ("AAA", "ibkr"),
         ("HLD", "tradier"),
