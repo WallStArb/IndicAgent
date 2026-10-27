@@ -101,7 +101,7 @@ def _calendar(
 
 
 def _as_date(day: np.datetime64) -> date:
-    return day.astype("datetime64[D]").astype(object)
+    return date.fromisoformat(str(day.astype("datetime64[D]")))
 
 
 def _naive_utc(dt) -> np.datetime64:
