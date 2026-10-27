@@ -4,6 +4,11 @@
 S1 residual target (section 2 says why). No real-data number has been computed for either.
 **Author:** Claude (Opus 5.5), interactive session, 2026-09-25. Instrument coverage and S1's
 factor set verified live this session; literature citations from memory, not re-read.
+**Revised:** 2026-10-27, Claude (Opus 5.5), interactive session: brought in line with E18
+(counted attempts and StepM selection replace the M = 30 screen), E17's memory rule for state
+inputs (design 4.5), the R1-only runner, D-191-Q's 1d source change and todo 547's overlapping
+target lag. The pre-registrations below are unchanged in substance; no real-data number has been
+computed since.
 **Origin:** Owner idea, 2026-09-25: compare equal-weight and cap-weight index ETFs, keep a few
 ratios, and use them as momentum features or market regimes; trade relationships or specific
 names when participation is broad or narrow.
@@ -28,6 +33,10 @@ Stored prices are split-adjusted, not dividend-adjusted; a spec declaring `panel
 (todo 428, closed 2026-09-26) gets total-return prices. Either way the legs' yields differ by a
 fraction of a percent a year, noise against a quarter-long trend; declare it and the gap is gone.
 
+Canonical 1d is being re-derived under D-191-Q (Alpaca SIP primary from 2016-01-04, IBKR
+fallback, IBKR before; todo 545, plan 191-20). No spread or state value is computed before that
+re-derive lands, because a counted look would read 1d data that is about to change.
+
 ## 2. Why this is not a family on the S1 target
 
 S1 (`src/intelligence/research/factors.py`, `VINTAGE_1`) residualizes every target against the
@@ -47,8 +56,11 @@ differently when market participation is broad versus narrow? Participation does
 be predictable itself; it only conditions how much weight each signal deserves.
 
 Vehicle: the "regime-conditioned combiner" already listed in the ledger (section 3), with
-participation as its regime variable. A combiner variant is a new book version, so it costs
-one screen test of the M = 30 vintage 1 budget and needs a base book (S7) to exist first.
+participation as its regime variable (design 5.2 rule 3: conditioning only in one
+pre-registered S7 variant, through a continuous state, never through `market_regimes` buckets).
+A combiner variant is a new book version: under E18 it is one counted attempt that joins the
+selection universe, judged only at StepM selection, with no per-attempt bar. It needs a base
+book (S7) to exist first.
 
 Proposed pre-registration, one variant, no sweep:
 
@@ -59,13 +71,18 @@ Proposed pre-registration, one variant, no sweep:
   cut point someone chose; a trailing rank has no free threshold, is bounded against outliers,
   and is causal. 63 sessions is one quarter, declared, never swept. First usable value about
   2007-09, before the 2010 scored span.
+- **Memory.** The state reads 63 + 252 - 1 = 314 sessions of closes, so its reach enters the
+  book's E17 memory like a member's history (design 4.5: L = member memory + combiner training
+  reach + horizon-rule reach). The member term becomes the larger of the members' histories and
+  314 sessions, and `book_memory()` must include it; a state slot whose reach is left out of L
+  reintroduces the coupling E17 removed.
 - **Combiner inputs.** Every registered member `s` enters as `s` and `s x z_t`; ridge,
   walk-forward as in S7, sets both weights. This parametrization matters: ridge shrinks the
   interaction weight toward zero, which is "participation does not matter", the correct null.
   The alternative (`s x 1{broad}` and `s x 1{narrow}`) would shrink both halves toward zero and
   bias the book toward no position in either state. Nothing else changes against the base book.
-- **Diagnostic arm.** The same variant with the state series circularly shifted (E16: the shift
-  null is a diagnostic, not the decision). The standing regime rule (clear a scrambled-state
+- **Diagnostic arm.** The same variant with the state series circularly shifted (since E16 the
+  shift null is a diagnostic, not the decision; E17's timing statistic decides). The standing regime rule (clear a scrambled-state
   control first) is met by this arm being reported alongside.
 - **Prior.** Moderate. Momentum payoffs depend on the market regime (Cooper, Gutierrez and Hameed
   2004; Daniel and Moskowitz 2016 on momentum crashes after rebounds), and cross-sectional
@@ -89,13 +106,27 @@ Vehicle: a small time-series book on the spread returns, outside the residual pa
 turnover, daily, so costs are small against gross, the reverse of family 1's problem.
 
 Power is the likely blocker, and the E15 refusal rule (synthetic power below 50% at the
-declared effect size) should run before any real-data number. Rough arithmetic: the vintage 1
-bar is one-sided p < 0.00167 (z about 2.94), so 80% power needs a true annual Sharpe of about
-3.78 / sqrt(years): about 0.88 for the three 2006 spreads (about 18.5 scored years) and about
-1.10 for all six from 2014 (about 12 years). Published diversified factor momentum uses 15 to 20
-factors; 3 to 6 correlated spreads should be expected to sit well below those Sharpes. Expect
-the power check to refuse it on vintage 1. If it does, record the refusal; the idea is not
-dead, only unresolvable at this breadth.
+declared effect size) should run before any real-data number. E18 removed the per-attempt bar,
+so the power check runs against StepM: the share of synthetic draws in which the book survives
+step-down at family-wise 0.05 inside a selection universe of the size it would join. The
+2026-09-25 arithmetic used the old screen bar (one-sided p < 0.00167, z about 2.94), which is
+the single-step bound for about 30 independent series and still a fair first guess: 80% power
+needs a true annual Sharpe of about 3.78 / sqrt(years), about 0.88 for the three 2006 spreads
+(about 18.5 scored years) and about 1.10 for all six from 2014 (about 12 years). StepM's bound
+moves with the universe size and the series' correlation, and E17 v2's fixed-b critical values
+(owner 2026-10-27) are wider than the normal ones, so both push the required Sharpe up. Published
+diversified factor momentum uses 15 to 20 factors; 3 to 6 correlated spreads should be expected
+to sit well below those Sharpes. Expect the power check to refuse it. If it does, record the
+refusal; the idea is not dead, only unresolvable at this breadth.
+
+Two build gaps sit in front of a real run:
+
+- **Construction.** The runner runs only R1 (cross-sectional rank, vol-neutral; `_require_r1`
+  in `runner.py`). A time-series book that goes long or short one spread's two legs is a
+  construction the runner does not have yet (todo 548).
+- **Overlapping targets.** A holding horizon above one session overlaps the next rows'
+  targets, which E17's Newey-West lag under-covers (todo 547). Part B either holds one session
+  or waits for 547's horizon-tied lag.
 
 ## 5. Design review (council pass, 2026-09-25)
 
@@ -129,10 +160,12 @@ Checked against the principles in `docs/foundation/principles.md` before registr
 
 ## 6. Order
 
-1. Part A waits for S7 and a base book (phase 183), then is one pre-registered combiner
-   variant. Nothing to build before then except the state series, which is a few lines inside
-   the runner, not a service or table.
-2. Part B's synthetic power check can run any time; it reads no real data.
+1. Part A waits for a base book from phase 187's selection core (plans 08-15), then is one
+   pre-registered combiner variant. Nothing to build before then except the state series and
+   S7's regime input slot (a causal `[T]` float series whose reach enters `book_memory()`),
+   neither a service nor a table; no 187 plan carries the slot yet (todo 548).
+2. Part B's synthetic power check can run any time; it reads no real data. Its real run waits
+   for plan 191-20's 1d re-derive and todo 548's time-series construction.
 3. No writer, `factor_series` table, `FeatureVector` field or CVR regime code until one part
    passes (shadow first).
 
