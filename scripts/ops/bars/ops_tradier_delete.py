@@ -15,33 +15,43 @@ checkpoint (`--hold`, recorded in the manifest at `--dump` and read from it afte
   another vendor. The Tradier loader displaced IBKR canonical values on 2026-10-03 and the old
   IBKR values sit in ohlcv_revision under its loads (vendor ibkr); ON DELETE CASCADE would take
   that IBKR evidence with the load, so such loads are kept and counted as retained;
-- ohlcv_raw: vendor = 'tradier';
-- market_data_ohlcv: vendor = 'tradier';
+- ohlcv_raw: vendor = 'tradier' and timeframe = '1d';
+- market_data_ohlcv: vendor = 'tradier' and timeframe = '1d';
 - ohlcv_coverage: provider = 'tradier'.
 
 Modes (every write needs `--apply`; without it a mode reports and writes nothing):
 
 - `--dump`: per table, `COPY (SELECT * FROM <table> WHERE <predicate>) TO STDOUT` into
   data/backups/191/tradier_<table>_<UTC date>.csv.gz inside one REPEATABLE READ transaction,
-  plus a manifest of per-table and per-symbol row counts, file sha256, the retained-load count
-  and the ohlcv_request counts. The file's CSV records are recounted and must equal count(*).
+  plus a manifest of per-table and per-symbol row counts and content digests (md5 over the
+  ordered row text), file sha256, the retained-load count, the count of other-vendor revision
+  rows under Tradier loads and the ohlcv_request counts. The file's CSV records are recounted
+  and must equal count(*). The dump never overwrites: it refuses while any tradier_* backup file
+  exists, opens each file exclusively and fsyncs every file before the manifest is written.
 - `--verify`: recounts the live Tradier rows per (table, symbol) and reads every backup file
   back (CSV records and sha256), comparing both with the manifest; symbols the delete state
-  records as done must hold zero rows. Also checks the retained-load count, that the
-  ohlcv_request Tradier count is unchanged and that its total has not shrunk.
-  `--require-complete` additionally fails unless every symbol is deleted.
-- `--trial SYMBOL`: deletes exactly one symbol's Tradier rows, timing each table and reading
-  the free-disk delta, and writes logs/tradier_delete_trial_<SYMBOL>_<UTC>.json.
+  records as done must hold zero rows. Also checks the retained-load count, the other-vendor
+  revision count, that the ohlcv_request Tradier count is unchanged and that its total has not
+  shrunk. `--require-complete` additionally fails unless every symbol is deleted.
+- `--trial SYMBOL`: writes the first-bar change TSV if not yet written, then deletes exactly one
+  symbol's Tradier rows, timing each table and reading the free-disk delta, and writes
+  logs/tradier_delete_trial_<SYMBOL>_<UTC>.json.
 - `--delete`: refuses without a manifest that verifies, without a trial whose disk delta
   extrapolated over the remaining rows fits in the free space minus the APR floor, or while an
   ohlcv_restatement_flag row references a load to delete (ON DELETE RESTRICT). It writes the
-  first-bar change TSV before the first delete, then deletes per symbol batch (APR
-  `infra.tradier_delete.batch_symbols`), one transaction per batch across the five tables;
-  before every batch it reads free disk and stops (exit 3, state saved) below APR
-  `infra.tradier_delete.min_free_disk_gb`. Every DELETE's row count must equal the manifest's
-  count for the batch, and a load delete that would cascade into any ohlcv_revision row is
-  refused; either rolls the batch back. Progress lives in logs/tradier_delete_state.json, bound
-  to the manifest's sha256, so a rerun resumes after the last committed batch.
+  first-bar change TSV before the first delete (unless the trial did), then deletes per symbol
+  batch (APR `infra.tradier_delete.batch_symbols`), one REPEATABLE READ transaction per batch
+  across the five tables; before every batch it reads free disk and stops (exit 3, state saved)
+  below APR `infra.tradier_delete.min_free_disk_gb`.
+
+Inside every batch transaction, before any delete, each (table, symbol) is recounted and its
+content digest recomputed; any difference from the manifest refuses the batch. Every DELETE's
+row count must then equal the manifest's total for the batch, and a load delete that would
+cascade into any ohlcv_revision row is refused; each refusal rolls the batch back. Progress lives
+in logs/tradier_delete_state.json, bound to the manifest's sha256. A batch's symbols are recorded
+as in flight before its transaction starts; a rerun after a crash settles them by the live
+counts (zero in every table: committed, done; the manifest's counts: rolled back, pending;
+anything else refuses), and a trial settled as committed gets its report written then.
 
 Why plain DELETE batches (plan amendment 2026-10-13): compressed_hypertable_write_session
 (decompress=False included) is hardened for feature_vectors and feature_ic_scores only and
@@ -55,7 +65,11 @@ run the operator issues bare `VACUUM ohlcv_raw;`, `VACUUM market_data_ohlcv;`,
 `VACUUM ohlcv_load;` and `VACUUM ohlcv_revision;`.
 
 The free disk is read on the root filesystem by default, which holds the database volume
-(/var/lib/docker/volumes/production_timescale-data) and data/backups/.
+(/var/lib/docker/volumes/production_timescale-data) and data/backups/. Sessions run with
+statement_timeout 0: the dump's scans and digests outlast the role's default timeout.
+
+Table names in the SQL are unqualified, so they resolve through the session search_path; the
+integration test points a Runtime at a scratch schema on indicagent_test that way.
 
 TEMPORARY: retire with the backup at plan 191-25 (the two APR keys go with it).
 """
@@ -73,7 +87,7 @@ import shutil
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -97,6 +111,7 @@ EXIT_DISK_ABORT = 3
 
 _BACKUP_DIR = project_root / "data" / "backups" / "191"
 _MANIFEST_NAME = "tradier_delete_manifest.json"
+_BACKUP_GLOB = "tradier_*.csv.gz"
 _LOG_DIR = project_root / "logs"
 _STATE_NAME = "tradier_delete_state.json"
 _TRIAL_PREFIX = "tradier_delete_trial_"
@@ -152,8 +167,32 @@ class TableSpec:
         return f"SELECT symbol, count(*) FROM {self.table} WHERE {self.predicate} GROUP BY symbol"
 
     @property
+    def batch_count_sql(self) -> str:
+        return (
+            f"SELECT symbol, count(*) FROM {self.table} WHERE {_BATCH} AND {self.predicate} "
+            "GROUP BY symbol"
+        )
+
+    @property
     def select_sql(self) -> str:
         return f"SELECT * FROM {self.table} WHERE {self.predicate}"
+
+    def _digest_sql(self, where: str) -> str:
+        # The whole-row text of every selected row, ordered by that text, so the digest depends
+        # on content only. Sessions run with timezone UTC, so timestamps render the same way.
+        row = f"{self.table}::text"
+        return (
+            f"SELECT symbol, count(*), md5(string_agg({row}, E'\\n' ORDER BY {row})) "
+            f"FROM {self.table} WHERE {where} GROUP BY symbol"
+        )
+
+    @property
+    def digest_sql(self) -> str:
+        return self._digest_sql(self.predicate)
+
+    @property
+    def batch_digest_sql(self) -> str:
+        return self._digest_sql(f"{_BATCH} AND {self.predicate}")
 
 
 # Delete order inside a batch: Tradier revision rows first, so the load delete cascades into
@@ -166,6 +205,14 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("ohlcv_coverage", _COVERAGE_PREDICATE, _DELETE_COVERAGE_SQL),
 )
 SPECS: dict[str, TableSpec] = {spec.table: spec for spec in TABLES}
+# Restore order from the backup files: loads before the revision rows that reference them.
+RESTORE_ORDER: tuple[str, ...] = (
+    "ohlcv_load",
+    "ohlcv_revision",
+    "ohlcv_raw",
+    "market_data_ohlcv",
+    "ohlcv_coverage",
+)
 
 DECOMPRESSION_LIMIT_SQL = "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"
 
@@ -175,7 +222,7 @@ CASCADE_CHECK_SQL = (
     "SELECT count(*) FROM ohlcv_revision r WHERE r.load_id IN "
     "(SELECT load_id FROM ohlcv_load WHERE " + _BATCH + " AND " + _LOAD_PREDICATE + ")"
 )
-_RESTATEMENT_FLAG_SQL = (
+RESTATEMENT_FLAG_SQL = (
     "SELECT count(*) FROM ohlcv_restatement_flag f WHERE f.load_id IN "
     "(SELECT load_id FROM ohlcv_load WHERE " + _LOAD_PREDICATE + ")"
 )
@@ -184,6 +231,12 @@ _RETAINED_LOADS_SQL = (
     + _HELD
     + " AND EXISTS (SELECT 1 FROM ohlcv_revision v"
     " WHERE v.load_id = ohlcv_load.load_id AND v.vendor <> 'tradier')"
+)
+# Other-vendor revision rows under Tradier loads (3,179,829 ibkr rows on 2026-10-27): the
+# evidence the retained loads protect; it must not move (T-191-45).
+_FOREIGN_REVISIONS_SQL = (
+    "SELECT count(*) FROM ohlcv_revision v JOIN ohlcv_load l ON l.load_id = v.load_id "
+    "WHERE l.source = 'tradier' AND v.vendor <> 'tradier'"
 )
 _OFF_TIMEFRAME_SQL = (
     "SELECT (SELECT count(*) FROM ohlcv_raw WHERE vendor = 'tradier' AND timeframe <> '1d'), "
@@ -216,6 +269,10 @@ def backup_file_name(table: str, day: date) -> str:
     return f"tradier_{table}_{day.isoformat()}.csv.gz"
 
 
+def existing_backups(backup_dir: Path) -> list[str]:
+    return sorted(p.name for p in backup_dir.glob(_BACKUP_GLOB)) if backup_dir.exists() else []
+
+
 def count_csv_records(path: Path) -> int:
     """CSV records in a gzip file, parsed (a quoted field may hold a newline: ohlcv_load.detail)."""
     with gzip.open(path, "rt", newline="", encoding="utf-8") as stream:
@@ -234,6 +291,14 @@ def _sha256_of_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 # --- the manifest check ----------------------------------------------------------------------
 
 
@@ -247,6 +312,20 @@ def expected_counts(manifest: Mapping[str, Any], batch: Sequence[str]) -> dict[s
     }
 
 
+def expected_content(
+    manifest: Mapping[str, Any], batch: Sequence[str]
+) -> dict[str, dict[str, tuple[int, str]]]:
+    """table -> symbol -> (row count, md5) for the batch's symbols holding rows there."""
+    return {
+        t["table"]: {
+            s: (int(t["per_symbol"][s]), t["per_symbol_md5"][s])
+            for s in batch
+            if int(t["per_symbol"].get(s, 0))
+        }
+        for t in manifest["tables"]
+    }
+
+
 def verify_problems(
     manifest: Mapping[str, Any],
     *,
@@ -255,6 +334,7 @@ def verify_problems(
     digests: Mapping[str, str],
     completed: set[str],
     retained_live: int,
+    foreign_revisions_live: int,
     ledger_live: Mapping[str, int],
 ) -> list[str]:
     """Every disagreement between the manifest and the database or the files, one message each.
@@ -284,6 +364,11 @@ def verify_problems(
             f"ohlcv_load: retained Tradier loads {retained_live} != manifest "
             f"{manifest['retained_loads']}"
         )
+    if foreign_revisions_live != int(manifest["foreign_revisions"]):
+        problems.append(
+            f"ohlcv_revision: other-vendor rows under Tradier loads {foreign_revisions_live} "
+            f"!= manifest {manifest['foreign_revisions']}"
+        )
     ledger = manifest["request_ledger"]
     if int(ledger_live["tradier"]) != int(ledger["tradier"]):
         problems.append(
@@ -303,6 +388,7 @@ def new_state(manifest_sha256: str) -> dict[str, Any]:
     return {
         "manifest_sha256": manifest_sha256,
         "completed": [],
+        "in_flight": None,
         "batches": [],
         "tsv_written": False,
         "aborted": None,
@@ -314,8 +400,53 @@ def save_state(state: Mapping[str, Any], path: Path) -> None:
     """Atomic replace, so a crash never leaves a half-written state file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
+    with tmp.open("w") as stream:
+        stream.write(json.dumps(state, indent=2) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(tmp, path)
+
+
+@dataclass
+class Settlement:
+    """How the in-flight symbols of a crashed run stand against the live counts."""
+
+    committed: list[str] = field(default_factory=list)
+    rolled_back: list[str] = field(default_factory=list)
+    partial: list[str] = field(default_factory=list)
+
+
+def settle(
+    manifest: Mapping[str, Any], symbols: Sequence[str], live: Mapping[str, Mapping[str, int]]
+) -> Settlement:
+    """Committed: zero live rows in every table; rolled back: exactly the manifest's counts in
+    every table; anything else is partial. One transaction per batch makes partial impossible
+    unless something else wrote, so a partial symbol refuses the run."""
+    out = Settlement()
+    for symbol in symbols:
+        pairs = [
+            (int(t["per_symbol"].get(symbol, 0)), int(live.get(t["table"], {}).get(symbol, 0)))
+            for t in manifest["tables"]
+        ]
+        if all(have == 0 for _, have in pairs):
+            out.committed.append(symbol)
+        elif all(have == want for want, have in pairs):
+            out.rolled_back.append(symbol)
+        else:
+            out.partial.append(symbol)
+    return out
+
+
+def apply_settlement(state: dict[str, Any], settlement: Settlement) -> str | None:
+    """Folds a settlement into the state; returns a refusal when any symbol is partial."""
+    if settlement.partial:
+        return (
+            f"in-flight symbols {settlement.partial} are partly deleted; the live rows match "
+            "neither the manifest nor zero"
+        )
+    state["completed"] = sorted(set(state["completed"]) | set(settlement.committed))
+    state["in_flight"] = None
+    return None
 
 
 # --- the trial gate --------------------------------------------------------------------------
@@ -350,21 +481,36 @@ def delete_batch(
     conn: Any,
     batch: Sequence[str],
     held: Sequence[str],
-    expected: Mapping[str, int],
+    expected: Mapping[str, Mapping[str, tuple[int, str]]],
     *,
     free_bytes: Callable[[], int],
     clock: Callable[[], float],
 ) -> dict[str, dict[str, Any]]:
-    """Delete one symbol batch from the five tables in one transaction.
+    """Delete one symbol batch from the five tables in one REPEATABLE READ transaction.
 
-    Every DELETE's row count must equal the manifest's count for the batch, and the load delete
-    must cascade into nothing; otherwise DeleteRefused rolls the whole batch back.
+    Before any delete, each (table, symbol) is recounted and its content digest recomputed in the
+    transaction's snapshot and must equal the manifest; then every DELETE's row count must equal
+    the batch's manifest total and the load delete must cascade into nothing. Any difference
+    raises DeleteRefused and rolls the whole batch back.
     """
     params = {"batch": list(batch), "held": list(held)}
     timings: dict[str, dict[str, Any]] = {}
+    conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(DECOMPRESSION_LIMIT_SQL)
+            for spec in TABLES:
+                cur.execute(spec.batch_digest_sql, params)
+                found = {s: (int(n), md5) for s, n, md5 in cur.fetchall()}
+                want = dict(expected[spec.table])
+                if found != want:
+                    differing = sorted(
+                        s for s in set(found) | set(want) if found.get(s) != want.get(s)
+                    )
+                    raise DeleteRefused(
+                        f"batch {list(batch)}: {spec.table} content differs from the manifest "
+                        f"for {differing}"
+                    )
             for spec in TABLES:
                 if spec.table == "ohlcv_load":
                     cur.execute(CASCADE_CHECK_SQL, params)
@@ -374,23 +520,37 @@ def delete_batch(
                             f"batch {list(batch)}: the load delete would cascade into "
                             f"{cascading} ohlcv_revision rows"
                         )
+                want_rows = sum(n for n, _ in expected[spec.table].values())
                 free_before = free_bytes()
                 started = clock()
                 cur.execute(spec.delete_sql, params)
                 deleted = cur.rowcount
                 elapsed = clock() - started
                 free_after = free_bytes()
-                if deleted != expected[spec.table]:
+                if deleted != want_rows:
                     raise DeleteRefused(
                         f"batch {list(batch)}: {spec.table} deleted {deleted} rows, "
-                        f"manifest {expected[spec.table]}"
+                        f"manifest {want_rows}"
                     )
                 timings[spec.table] = {
                     "rows": deleted,
                     "seconds": round(elapsed, 3),
                     "disk_delta_bytes": free_before - free_after,
                 }
+    conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
     return timings
+
+
+def _begin_flight(
+    state: dict[str, Any], state_path: Path, batch: Sequence[str], free: int, *, trial: bool
+) -> None:
+    state["in_flight"] = {
+        "symbols": list(batch),
+        "trial": trial,
+        "free_bytes_before": free,
+        "started": datetime.now(UTC).isoformat(),
+    }
+    save_state(state, state_path)
 
 
 # --- the batch run ---------------------------------------------------------------------------
@@ -410,6 +570,8 @@ def run_batches(
     """Delete the not-yet-done symbols in batches; the disk guard runs before every batch."""
     if batch_symbols < 1:
         raise ValueError(f"batch size must be >= 1, got {batch_symbols}")
+    if state.get("in_flight"):
+        raise ValueError("unsettled in-flight batch; settle it before running batches")
     done = set(state["completed"])
     pending = [s for s in manifest_symbols(manifest) if s not in done]
     held = list(manifest["held"])
@@ -432,15 +594,28 @@ def run_batches(
                 file=sys.stderr,
             )
             return EXIT_DISK_ABORT
-        timings = delete_batch(
-            conn,
-            batch,
-            held,
-            expected_counts(manifest, batch),
-            free_bytes=free_bytes,
-            clock=clock,
-        )
+        _begin_flight(state, state_path, batch, free, trial=False)
+        try:
+            timings = delete_batch(
+                conn,
+                batch,
+                held,
+                expected_content(manifest, batch),
+                free_bytes=free_bytes,
+                clock=clock,
+            )
+        except DeleteRefused as error:
+            state["in_flight"] = None
+            state["aborted"] = {
+                "reason": str(error),
+                "next_batch": batch,
+                "at": datetime.now(UTC).isoformat(),
+            }
+            save_state(state, state_path)
+            print(f"REFUSED (batch rolled back): {error}", file=sys.stderr)
+            return EXIT_REFUSED
         state["completed"] = sorted(done | set(batch))
+        state["in_flight"] = None
         done = set(state["completed"])
         state["batches"].append({"symbols": batch, "free_bytes_before": free, "tables": timings})
         save_state(state, state_path)
@@ -470,12 +645,18 @@ def apply_delete(
     free_bytes: Callable[[], int],
     clock: Callable[[], float],
 ) -> int:
-    """The gated batch delete: manifest, verify, trial, flags, TSV, then the batches."""
+    """The gated batch delete: manifest, verify, trial, flags, TSV, then the batches.
+
+    The caller settles any in-flight batch before calling (state["in_flight"] must be empty).
+    """
     if manifest is None:
         print("REFUSED: no manifest; run --dump --apply and --verify first", file=sys.stderr)
         return EXIT_REFUSED
     if state["manifest_sha256"] != manifest_sha256:
         print("REFUSED: the delete state belongs to another manifest", file=sys.stderr)
+        return EXIT_REFUSED
+    if state.get("in_flight"):
+        print("REFUSED: an in-flight batch is unsettled", file=sys.stderr)
         return EXIT_REFUSED
     problems = verify()
     if problems:
@@ -500,10 +681,7 @@ def apply_delete(
             file=sys.stderr,
         )
         return EXIT_REFUSED
-    if not state["tsv_written"]:
-        write_tsv()
-        state["tsv_written"] = True
-        save_state(state, state_path)
+    ensure_tsv(state, state_path, write_tsv)
     return run_batches(
         conn,
         manifest,
@@ -526,6 +704,14 @@ _TSV_COLUMNS = (
     "first_bar_after",
     "first_bar_changed",
 )
+
+
+def ensure_tsv(state: dict[str, Any], state_path: Path, write_tsv: Callable[[], None]) -> None:
+    """Writes the first-bar TSV once, before the first delete of any kind (trial or batch)."""
+    if not state["tsv_written"]:
+        write_tsv()
+        state["tsv_written"] = True
+        save_state(state, state_path)
 
 
 def render_first_bar_tsv(measures: Sequence[Mapping[str, Any]], held: Sequence[str]) -> str:
@@ -591,14 +777,26 @@ def plan_counts(conn: Any, held: Sequence[str]) -> dict[str, dict[str, int]]:
     return counts
 
 
-# --- database plumbing -----------------------------------------------------------------------
+def batch_counts(conn: Any, batch: Sequence[str], held: Sequence[str]) -> dict[str, dict[str, int]]:
+    """plan_counts restricted to a batch of symbols (the in-flight settlement read)."""
+    counts: dict[str, dict[str, int]] = {}
+    with conn.cursor() as cur:
+        for spec in TABLES:
+            cur.execute(spec.batch_count_sql, {"batch": list(batch), "held": list(held)})
+            counts[spec.table] = {symbol: int(n) for symbol, n in cur.fetchall()}
+    return counts
+
+
+# --- runtime (production defaults; the integration test injects a scratch target) -------------
 
 
 def _connect() -> psycopg.Connection:
-    return psycopg.connect(get_settings().database_url, options="-c timezone=UTC")
+    return psycopg.connect(
+        get_settings().database_url, options="-c timezone=UTC -c statement_timeout=0"
+    )
 
 
-async def _read_apr() -> tuple[int, int]:
+async def _read_apr_async() -> tuple[int, int]:
     cfg = ConfigService(get_settings().database_url)
     await cfg.initialize()
     try:
@@ -607,6 +805,29 @@ async def _read_apr() -> tuple[int, int]:
     finally:
         await cfg.close()
     return floor_gb, batch
+
+
+def _read_apr() -> tuple[int, int]:
+    return asyncio.run(_read_apr_async())
+
+
+@dataclass(frozen=True)
+class Runtime:
+    """Where the script reads and writes: the database connection, the APR values
+    (floor GiB, batch symbols), the first-bar measurement and the TSV path."""
+
+    connect: Callable[[], psycopg.Connection]
+    read_apr: Callable[[], tuple[int, int]]
+    measure: Callable[[], list[dict[str, Any]]]
+    tsv_path: Path
+
+
+PRODUCTION = Runtime(
+    connect=_connect, read_apr=_read_apr, measure=_measure_first_bars, tsv_path=_TSV_PATH
+)
+
+
+# --- database plumbing -----------------------------------------------------------------------
 
 
 def _scalar(conn: psycopg.Connection, sql: str, params: Any = None) -> Any:
@@ -624,10 +845,19 @@ def _columns(conn: psycopg.Connection, table: str) -> list[str]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position",
+            "WHERE table_schema = current_schema() AND table_name = %s ORDER BY ordinal_position",
             (table,),
         )
         return [row[0] for row in cur.fetchall()]
+
+
+def _digests(conn: psycopg.Connection, held: Sequence[str]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    with conn.cursor() as cur:
+        for spec in TABLES:
+            cur.execute(spec.digest_sql, {"held": list(held)})
+            out[spec.table] = {s: (int(n), md5) for s, n, md5 in cur.fetchall()}
+    return out
 
 
 def _paths(args: argparse.Namespace) -> tuple[Path, Path]:
@@ -643,7 +873,9 @@ def _load_manifest(path: Path) -> tuple[dict[str, Any] | None, str]:
 
 def _load_state(path: Path, manifest_sha256: str) -> dict[str, Any]:
     if path.exists():
-        return json.loads(path.read_text())
+        state = json.loads(path.read_text())
+        state.setdefault("in_flight", None)
+        return state
     return new_state(manifest_sha256)
 
 
@@ -670,18 +902,82 @@ def _free_reader(path: Path) -> Callable[[], int]:
     return lambda: shutil.disk_usage(path).free
 
 
+def _write_trial_report(log_dir: Path, report: Mapping[str, Any]) -> Path:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    path = log_dir / f"{_TRIAL_PREFIX}{report['symbol']}_{stamp}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
+    print(f"trial report: {path}")
+    return path
+
+
+def _settle_in_flight(
+    conn: psycopg.Connection,
+    manifest: Mapping[str, Any],
+    state: dict[str, Any],
+    state_path: Path,
+    log_dir: Path,
+    free_bytes: Callable[[], int],
+    digest: str,
+) -> str | None:
+    """Settles a crashed run's in-flight batch from the live counts and saves the state; a
+    committed trial gets its (recovered) report. Returns a refusal for a partial symbol."""
+    flight = state.get("in_flight")
+    if not flight:
+        return None
+    symbols = list(flight["symbols"])
+    live = batch_counts(conn, symbols, list(manifest["held"]))
+    conn.rollback()
+    settlement = settle(manifest, symbols, live)
+    refusal = apply_settlement(state, settlement)
+    if refusal is not None:
+        return refusal
+    save_state(state, state_path)
+    print(
+        f"settled in-flight batch: committed {settlement.committed}, "
+        f"rolled back {settlement.rolled_back}"
+    )
+    if flight.get("trial") and settlement.committed:
+        symbol = settlement.committed[0]
+        free_now = free_bytes()
+        rows = sum(expected_counts(manifest, [symbol]).values())
+        _write_trial_report(
+            log_dir,
+            {
+                "symbol": symbol,
+                "manifest_sha256": digest,
+                "recovered": True,
+                "started": flight["started"],
+                "finished": datetime.now(UTC).isoformat(),
+                "tables": None,
+                "rows_total": rows,
+                "seconds_total": None,
+                "free_bytes_before": flight["free_bytes_before"],
+                "free_bytes_after_commit": free_now,
+                "disk_delta_bytes": int(flight["free_bytes_before"]) - free_now,
+            },
+        )
+    return None
+
+
 # --- modes -----------------------------------------------------------------------------------
 
 
-def run_dump(args: argparse.Namespace) -> int:
+def run_dump(args: argparse.Namespace, rt: Runtime = PRODUCTION) -> int:
     manifest_path, _ = _paths(args)
-    if manifest_path.exists():
-        print(f"REFUSED: {manifest_path} exists; a manifest is written once", file=sys.stderr)
+    present = existing_backups(args.backup_dir)
+    if manifest_path.exists() or present:
+        print(
+            f"REFUSED: a backup exists in {args.backup_dir} ({present or manifest_path.name}); "
+            "a dump never overwrites",
+            file=sys.stderr,
+        )
         return EXIT_REFUSED
     held = parse_held(args.hold)
-    floor_gb, _ = asyncio.run(_read_apr())
+    floor_gb, _ = rt.read_apr()
     free = shutil.disk_usage(args.disk_path).free
-    with _connect() as conn:
+    with rt.connect() as conn:
         counts = plan_counts(conn, held)
         conn.rollback()
     for table, per_symbol in counts.items():
@@ -698,26 +994,27 @@ def run_dump(args: argparse.Namespace) -> int:
     args.backup_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
         "created": datetime.now(UTC).isoformat(),
-        "database": get_settings().database_url.rsplit("/", 1)[-1],
         "retention_until": RETENTION_UNTIL,
         "held": held,
         "tables": [],
     }
-    with _connect() as conn:
+    with rt.connect() as conn:
         conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         with conn.transaction():
+            manifest["database"] = _scalar(conn, "SELECT current_database()")[0]
             off_raw, off_canonical = _scalar(conn, _OFF_TIMEFRAME_SQL)
             if off_raw or off_canonical:
                 raise SystemExit(
                     f"REFUSED: Tradier bars outside 1d (raw {off_raw}, canonical "
                     f"{off_canonical}); the 1d-scoped predicates would miss them"
                 )
-            snapshot = plan_counts(conn, held)
+            content = _digests(conn, held)
             manifest["retained_loads"] = int(_scalar(conn, _RETAINED_LOADS_SQL, {"held": held})[0])
+            manifest["foreign_revisions"] = int(_scalar(conn, _FOREIGN_REVISIONS_SQL)[0])
             manifest["request_ledger"] = _ledger(conn)
             for spec in TABLES:
                 path = args.backup_dir / backup_file_name(spec.table, today)
-                with path.open("wb") as raw:
+                with path.open("xb") as raw:
                     with gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=6, mtime=0) as gz:
                         with conn.cursor() as cur:
                             with cur.copy(
@@ -726,7 +1023,9 @@ def run_dump(args: argparse.Namespace) -> int:
                             ) as copy:
                                 for block in copy:
                                     gz.write(bytes(block))
-                per_symbol = snapshot[spec.table]
+                    raw.flush()
+                    os.fsync(raw.fileno())
+                per_symbol = {s: n for s, (n, _md5) in content[spec.table].items()}
                 rows = sum(per_symbol.values())
                 records = count_csv_records(path)
                 if records != rows:
@@ -738,6 +1037,7 @@ def run_dump(args: argparse.Namespace) -> int:
                         "columns": _columns(conn, spec.table),
                         "rows": rows,
                         "per_symbol": per_symbol,
+                        "per_symbol_md5": {s: md5 for s, (_n, md5) in content[spec.table].items()},
                         "file": path.name,
                         "sha256": sha256_of_file(path),
                         "bytes_on_disk": path.stat().st_size,
@@ -745,7 +1045,12 @@ def run_dump(args: argparse.Namespace) -> int:
                 )
                 print(f"{spec.table}: {rows} rows -> {path.name}", flush=True)
     manifest["completed"] = datetime.now(UTC).isoformat()
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    _fsync_dir(args.backup_dir)
+    with manifest_path.open("x") as stream:
+        stream.write(json.dumps(manifest, indent=2) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    _fsync_dir(args.backup_dir)
     print(f"manifest: {manifest_path} (retention until {RETENTION_UNTIL})")
     return EXIT_OK
 
@@ -758,6 +1063,7 @@ def _verify_against_db(
     with conn.transaction():
         live = plan_counts(conn, held)
         retained = int(_scalar(conn, _RETAINED_LOADS_SQL, {"held": held})[0])
+        foreign = int(_scalar(conn, _FOREIGN_REVISIONS_SQL)[0])
         ledger = _ledger(conn)
     conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
     files: dict[str, int] = {}
@@ -774,11 +1080,12 @@ def _verify_against_db(
         digests=digests,
         completed=completed,
         retained_live=retained,
+        foreign_revisions_live=foreign,
         ledger_live=ledger,
     )
 
 
-def run_verify(args: argparse.Namespace) -> int:
+def run_verify(args: argparse.Namespace, rt: Runtime = PRODUCTION) -> int:
     manifest_path, state_path = _paths(args)
     manifest, digest = _load_manifest(manifest_path)
     if manifest is None:
@@ -790,7 +1097,20 @@ def run_verify(args: argparse.Namespace) -> int:
         print("VERIFY FAILED: the delete state belongs to another manifest", file=sys.stderr)
         return EXIT_VERIFY_FAILED
     completed = set(state["completed"])
-    with _connect() as conn:
+    with rt.connect() as conn:
+        flight = state.get("in_flight")
+        if flight:
+            # Read-only here: count the in-flight symbols as their live rows show, never save.
+            settlement = settle(
+                manifest,
+                flight["symbols"],
+                batch_counts(conn, flight["symbols"], manifest["held"]),
+            )
+            conn.rollback()
+            if settlement.partial:
+                print(f"VERIFY FAILED: partial in-flight {settlement.partial}", file=sys.stderr)
+                return EXIT_VERIFY_FAILED
+            completed |= set(settlement.committed)
         problems = _verify_against_db(conn, manifest, manifest_path.parent, completed)
     symbols = manifest_symbols(manifest)
     complete = set(symbols) <= completed
@@ -798,6 +1118,8 @@ def run_verify(args: argparse.Namespace) -> int:
         "manifest": str(manifest_path),
         "held_back": manifest["held"],
         "retained_tradier_loads": manifest["retained_loads"],
+        "foreign_revisions": manifest["foreign_revisions"],
+        "in_flight_unsettled": bool(state.get("in_flight")),
         "symbols_done": len(completed & set(symbols)),
         "symbols_total": len(symbols),
         "complete": complete,
@@ -815,7 +1137,15 @@ def run_verify(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def run_trial(args: argparse.Namespace) -> int:
+def _tsv_writer(rt: Runtime, held: Sequence[str]) -> Callable[[], None]:
+    def write() -> None:
+        rt.tsv_path.write_text(render_first_bar_tsv(rt.measure(), held))
+        print(f"first-bar changes: {rt.tsv_path}", flush=True)
+
+    return write
+
+
+def run_trial(args: argparse.Namespace, rt: Runtime = PRODUCTION) -> int:
     manifest_path, state_path = _paths(args)
     manifest, digest = _load_manifest(manifest_path)
     if manifest is None:
@@ -830,60 +1160,85 @@ def run_trial(args: argparse.Namespace) -> int:
     if symbol in held or symbol not in manifest_symbols(manifest):
         print(f"REFUSED: {symbol} is held back or has no Tradier rows", file=sys.stderr)
         return EXIT_REFUSED
-    if symbol in state["completed"]:
-        print(f"REFUSED: {symbol} is already deleted", file=sys.stderr)
-        return EXIT_REFUSED
-    expected = expected_counts(manifest, [symbol])
-    print(f"trial {symbol}: {expected}")
+    print(f"trial {symbol}: {expected_counts(manifest, [symbol])}")
     if not args.apply:
         print("dry run: nothing deleted (add --apply to run the trial)")
         return EXIT_OK
-    floor_gb, _ = asyncio.run(_read_apr())
+    floor_gb, _ = rt.read_apr()
     free_bytes = _free_reader(args.disk_path)
-    with _connect() as conn:
+    with rt.connect() as conn:
+        refusal = _settle_in_flight(
+            conn, manifest, state, state_path, args.log_dir, free_bytes, digest
+        )
+        if refusal is not None:
+            print(f"REFUSED: {refusal}", file=sys.stderr)
+            return EXIT_REFUSED
+        if symbol in state["completed"]:
+            print(f"{symbol} is already deleted; nothing to trial", file=sys.stderr)
+            return EXIT_REFUSED
         problems = _verify_against_db(conn, manifest, manifest_path.parent, set(state["completed"]))
         if problems:
             print(f"REFUSED: manifest does not verify: {problems}", file=sys.stderr)
+            return EXIT_REFUSED
+        flags = int(_scalar(conn, RESTATEMENT_FLAG_SQL, {"held": held})[0])
+        conn.rollback()
+        if flags:
+            print(
+                f"REFUSED: {flags} ohlcv_restatement_flag rows reference loads to delete",
+                file=sys.stderr,
+            )
             return EXIT_REFUSED
         free_before = free_bytes()
         if free_before < floor_gb * _GIB:
             print("ABORT: free disk below the APR floor", file=sys.stderr)
             return EXIT_DISK_ABORT
+        ensure_tsv(state, state_path, _tsv_writer(rt, held))
         started = datetime.now(UTC)
-        timings = delete_batch(
-            conn, [symbol], held, expected, free_bytes=free_bytes, clock=time.monotonic
-        )
+        _begin_flight(state, state_path, [symbol], free_before, trial=True)
+        try:
+            timings = delete_batch(
+                conn,
+                [symbol],
+                held,
+                expected_content(manifest, [symbol]),
+                free_bytes=free_bytes,
+                clock=time.monotonic,
+            )
+        except DeleteRefused as error:
+            state["in_flight"] = None
+            save_state(state, state_path)
+            print(f"REFUSED (trial rolled back): {error}", file=sys.stderr)
+            return EXIT_REFUSED
         free_after = free_bytes()
     state["completed"] = sorted(set(state["completed"]) | {symbol})
+    state["in_flight"] = None
     state["batches"].append({"symbols": [symbol], "trial": True, "tables": timings})
     save_state(state, state_path)
-    report = {
-        "symbol": symbol,
-        "manifest_sha256": digest,
-        "started": started.isoformat(),
-        "finished": datetime.now(UTC).isoformat(),
-        "tables": timings,
-        "rows_total": sum(t["rows"] for t in timings.values()),
-        "seconds_total": round(sum(t["seconds"] for t in timings.values()), 3),
-        "free_bytes_before": free_before,
-        "free_bytes_after_commit": free_after,
-        "disk_delta_bytes": free_before - free_after,
-    }
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = args.log_dir / f"{_TRIAL_PREFIX}{symbol}_{stamp}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(report, indent=2))
-    print(f"trial report: {path}")
+    _write_trial_report(
+        args.log_dir,
+        {
+            "symbol": symbol,
+            "manifest_sha256": digest,
+            "recovered": False,
+            "started": started.isoformat(),
+            "finished": datetime.now(UTC).isoformat(),
+            "tables": timings,
+            "rows_total": sum(t["rows"] for t in timings.values()),
+            "seconds_total": round(sum(t["seconds"] for t in timings.values()), 3),
+            "free_bytes_before": free_before,
+            "free_bytes_after_commit": free_after,
+            "disk_delta_bytes": free_before - free_after,
+        },
+    )
     return EXIT_OK
 
 
-def run_delete(args: argparse.Namespace) -> int:
+def run_delete(args: argparse.Namespace, rt: Runtime = PRODUCTION) -> int:
     manifest_path, state_path = _paths(args)
     manifest, digest = _load_manifest(manifest_path)
     held = _held_for(args, manifest)
     if not args.apply:
-        with _connect() as conn:
+        with rt.connect() as conn:
             counts = plan_counts(conn, held)
             conn.rollback()
         for table, per_symbol in counts.items():
@@ -893,24 +1248,24 @@ def run_delete(args: argparse.Namespace) -> int:
         print(f"held back: {held or 'none'}; manifest: {'present' if manifest else 'missing'}")
         print("dry run: nothing deleted (add --apply to delete)")
         return EXIT_OK
-    floor_gb, batch_symbols = asyncio.run(_read_apr())
+    floor_gb, batch_symbols = rt.read_apr()
     state = _load_state(state_path, digest)
-    with _connect() as conn:
+    free_bytes = _free_reader(args.disk_path)
+    with rt.connect() as conn:
         flags = 0
-        if manifest is not None:
-            flags = int(_scalar(conn, _RESTATEMENT_FLAG_SQL, {"held": held})[0])
+        if manifest is not None and state["manifest_sha256"] == digest:
+            refusal = _settle_in_flight(
+                conn, manifest, state, state_path, args.log_dir, free_bytes, digest
+            )
+            if refusal is not None:
+                print(f"REFUSED: {refusal}", file=sys.stderr)
+                return EXIT_REFUSED
+            flags = int(_scalar(conn, RESTATEMENT_FLAG_SQL, {"held": held})[0])
             conn.rollback()
 
         def _verify() -> list[str]:
             assert manifest is not None
-            problems = _verify_against_db(
-                conn, manifest, manifest_path.parent, set(state["completed"])
-            )
-            return problems
-
-        def _write_tsv() -> None:
-            _TSV_PATH.write_text(render_first_bar_tsv(_measure_first_bars(), held))
-            print(f"first-bar changes: {_TSV_PATH}", flush=True)
+            return _verify_against_db(conn, manifest, manifest_path.parent, set(state["completed"]))
 
         return apply_delete(
             conn=conn,
@@ -921,15 +1276,15 @@ def run_delete(args: argparse.Namespace) -> int:
             verify=_verify,
             trial_report=_latest_trial(args.log_dir, digest) if manifest else None,
             restatement_flags=flags,
-            write_tsv=_write_tsv,
+            write_tsv=_tsv_writer(rt, held),
             batch_symbols=batch_symbols,
             floor_bytes=floor_gb * _GIB,
-            free_bytes=_free_reader(args.disk_path),
+            free_bytes=free_bytes,
             clock=time.monotonic,
         )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -946,14 +1301,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--backup-dir", type=Path, default=_BACKUP_DIR)
     parser.add_argument("--log-dir", type=Path, default=_LOG_DIR)
     parser.add_argument("--disk-path", type=Path, default=Path("/"))
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None, rt: Runtime = PRODUCTION) -> int:
+    args = build_parser().parse_args(argv)
     if args.dump:
-        return run_dump(args)
+        return run_dump(args, rt)
     if args.verify:
-        return run_verify(args)
+        return run_verify(args, rt)
     if args.trial:
-        return run_trial(args)
-    return run_delete(args)
+        return run_trial(args, rt)
+    return run_delete(args, rt)
 
 
 if __name__ == "__main__":
