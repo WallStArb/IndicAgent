@@ -145,6 +145,9 @@ _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
     (VENDOR_IBKR, "smart_trades"): "named",
     (VENDOR_IBKR, "venue"): "venue",
     (VENDOR_TRADIER, "consolidated"): "consolidated",
+    # D-191-Q: Alpaca SIP is the 1d primary from 2016-01-04 and keeps its raw kind, as canonical
+    # 5m carries it; iex_rth is never canonical.
+    (VENDOR_ALPACA, "sip_rth"): "sip_rth",
 }
 
 _ROUTE_SMART = "SMART"
@@ -224,7 +227,7 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
     """The canonical 1d kind a raw (vendor, kind) row becomes.
 
     (ibkr, smart_trades) -> named; (ibkr, venue) -> venue; (tradier, consolidated) ->
-    consolidated. Adjusted bars are never canonical, and `fallback` is assigned by the daily
+    consolidated; (alpaca, sip_rth) -> sip_rth. Adjusted bars and iex_rth are never canonical, and `fallback` is assigned by the daily
     rule, never derived from a raw kind; both raise.
     """
     if vendor == VENDOR_IBKR and kind in VENUE_ROUTE_KINDS:

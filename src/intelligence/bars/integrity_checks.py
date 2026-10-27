@@ -20,9 +20,9 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     PolicyRow,
     basis_closes,
-    current_closes,
     derive_daily_v2,
     resolve_policy,
+    servable_primary_dates,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
@@ -63,15 +63,16 @@ def session_coverage(
 def policy_conformance(
     rows: Sequence[tuple[date, str, str]],
     policy_rows: Sequence[PolicyRow],
-    tradier_current_dates: Collection[date],
+    primary_dates: Mapping[str, Collection[date]],
     *,
     symbol: str,
 ) -> list[date]:
     """Dates of (date, vendor, kind) rows whose identity contradicts the policy open on that date.
 
     The pair must be the policy primary's; (ibkr, fallback) is accepted only under a policy
-    that names IBKR as fallback, on a date with no current-scale Tradier observation (a hole, a
-    head, or a date Tradier answered only on a stale scale; d2-v3).
+    that names IBKR as fallback, on a date the primary cannot serve on the current scale
+    (primary_dates[primary], daily_rule.servable_primary_dates: a hole, a head, a date answered
+    only on a stale scale, d2-v3; for Alpaca also a zero-volume or pre-listing date, d2-v4).
     """
     bad: list[date] = []
     for bar_date, vendor, kind in rows:
@@ -81,7 +82,7 @@ def policy_conformance(
         if (
             (vendor, kind) == FALLBACK_PAIR
             and policy.fallback_source == "ibkr"
-            and bar_date not in tradier_current_dates
+            and bar_date not in primary_dates.get(policy.primary_source, ())
         ):
             continue
         bad.append(bar_date)
@@ -309,11 +310,15 @@ def judge_name_1d(
     timed("session_coverage", started)
 
     started = time.perf_counter()
-    tradier_current, _ = current_closes(inputs.observations, inputs.splits)
     contradicted = policy_conformance(
         [(d, values.vendor, values.kind) for d, values in stored.items()],
         inputs.policy_rows,
-        tradier_current.keys(),
+        servable_primary_dates(
+            inputs.observations,
+            inputs.splits,
+            basis_window_sessions=thresholds.basis_window_sessions,
+            basis_tolerance_bp=thresholds.basis_tolerance_bp,
+        ),
         symbol=symbol,
     )
     verdicts.append(verdict("policy_conformance", not contradicted, len(contradicted), 0.0))

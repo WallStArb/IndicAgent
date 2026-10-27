@@ -45,10 +45,11 @@ SOURCE_TRADIER = "tradier"
 ROUTE_TRADIER = "TRADIER"
 
 # Alpaca, the intraday depth source (SIP via Polygon/Massive) admitted by the 521 admission
-# build: 5m fills from 2016-01-01 forward, RTH-window aggregates only (its 1d bars carry
-# extended-hours volume and are never stored). Evidence and measured conventions:
-# docs/plans/2026-10-09-alpaca-5m-admission-build.md. Not a canonical-1d source: the 1d
-# primary stays IBKR (Alpaca's daily history is split-adjusted with a hard 2016 floor).
+# build: 5m fills from 2016-01-01 forward, RTH-window aggregates only. Evidence and measured
+# conventions: docs/plans/2026-10-09-alpaca-5m-admission-build.md. Since D-191-Q (2026-10-27)
+# its split-adjusted SIP daily answer, raw kind sip_rth, is also the canonical 1d primary from
+# 2016-01-04 with IBKR fallback (daily rule d2-v4); the 1d volume basis is consolidated, matching
+# Tradier at 1.03x on the 21-name sample of todo 545.
 SOURCE_ALPACA = "alpaca"
 ROUTE_ALPACA = "ALPACA"
 
@@ -59,8 +60,8 @@ SOURCE_IBKR_FALLBACK = "ibkr_fallback"
 
 # The 1d market_data_ohlcv (vendor, kind) pairs that are canonical bars: IBKR named (an
 # IBKR-primary policy range), venue (stored history from the deleted d2-v1 rule), the
-# admitted IBKR fallback (d2-v2) and Tradier, the 1d primary source before D
-# (bar_source_policy). The 1d content digest and the daily stage's value comparison read
+# admitted IBKR fallback (d2-v2), Tradier, the 1d primary source before D, and Alpaca SIP, the
+# primary from 2016-01-04 under D-191-Q (bar_source_policy). The 1d content digest and the daily stage's value comparison read
 # every one of them. Literal pairs, not vendor_kind imports: vendor_kind builds its map
 # from the label constants here, so importing the map back would be circular.
 CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
@@ -68,6 +69,7 @@ CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
     ("ibkr", "venue"),
     ("ibkr", "fallback"),
     ("tradier", "consolidated"),
+    ("alpaca", "sip_rth"),
 )
 
 # The two ANY arrays every canonical 1d read filters on (plan 191-13): the vendors and kinds

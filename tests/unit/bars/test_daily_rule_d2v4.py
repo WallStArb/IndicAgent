@@ -204,7 +204,7 @@ def test_alpaca_policy_admits_only_ibkr_as_fallback():
     day = date(2024, 3, 8)
     bad = PolicyRow("1d", None, date(1990, 1, 1), None, "observed", "alpaca", "tradier")
     with pytest.raises(ValueError, match="fallback"):
-        _derive([_obs("ALPACA", day, 1.0)], policy=[bad])
+        _derive([_obs("SMART", day, 1.0), _obs("ALPACA", day, 1.0)], policy=[bad])
     ibkr_over_alpaca = PolicyRow("1d", None, date(1990, 1, 1), None, "observed", "ibkr", "alpaca")
     with pytest.raises(ValueError, match="fallback"):
         _derive([_obs("SMART", day, 1.0)], policy=[ibkr_over_alpaca])
@@ -252,7 +252,7 @@ def test_a_name_whose_vendors_never_agree_has_no_alpaca_span():
     days = _sessions(date(2024, 3, 4), 20)
     observations = [_obs("SMART", d, 10.1) for d in days] + [_obs("ALPACA", d, 10.0) for d in days]
     result = _derive(observations)
-    assert result.alpaca_start is None and result.pre_listing == days
+    assert result.alpaca_start is None and result.pre_start == days
     assert set(_pairs(result).values()) == {IBKR_FALLBACK}
 
 
@@ -317,7 +317,7 @@ def test_alpaca_bars_before_ibkr_history_never_serve():
     result = _derive(observations)
     pairs = _pairs(result)
     assert result.alpaca_start == listing
-    assert result.pre_listing == days[:15]
+    assert result.pre_start == days[:15]
     assert all(d not in pairs for d in days[:15])
     assert all(pairs[d] == ALPACA for d in days[15:])
 
@@ -333,7 +333,7 @@ def test_a_predecessor_splice_after_ibkr_head_is_cut_at_agreement():
     result = _derive(observations, policy=_D191Q)
     pairs = _pairs(result)
     assert result.alpaca_start == regular_way
-    assert result.pre_listing == [d for d in days if d < regular_way]
+    assert result.pre_start == [d for d in days if d < regular_way]
     assert all(pairs[d] == ALPACA for d in days if d >= regular_way)
     # The contract's own pre-regular-way sessions are the IBKR head, recorded at the seam.
     assert all(pairs[d] == IBKR_FALLBACK for d in days if ibkr_head <= d < regular_way)
@@ -347,7 +347,7 @@ def test_alpaca_with_no_ibkr_history_at_all_never_serves():
     result = _derive([_obs("ALPACA", d, 10.0) for d in days])
     assert result.bars == []
     assert result.alpaca_start is None
-    assert result.pre_listing == days
+    assert result.pre_start == days
 
 
 def test_one_disagreeing_session_after_the_anchor_does_not_cut_the_span():
@@ -358,7 +358,7 @@ def test_one_disagreeing_session_after_the_anchor_does_not_cut_the_span():
     ]
     result = _derive(observations)
     assert result.alpaca_start == days[0]
-    assert result.pre_listing == []
+    assert result.pre_start == []
     assert set(_pairs(result).values()) == {ALPACA}
 
 
@@ -540,3 +540,21 @@ def test_d2v3_fixture_outputs_are_bit_identical_without_alpaca():
 
 def test_alpaca_rows_change_nothing_under_a_policy_that_never_names_alpaca():
     assert {key: _result_digest(r) for key, r in _golden_runs(True)} == _D2V3_GOLDEN
+
+
+def test_a_spin_off_adjusted_ibkr_history_starts_the_alpaca_span_after_the_event():
+    # WDC 2025-02-24: IBKR adjusts its pre-spin history (0.7557 of Alpaca's printed level),
+    # Alpaca's split adjustment does not. Alpaca's unadjusted level would put the spin-off on the
+    # ex-date as a false return, so its span starts at the event; IBKR's adjusted history before
+    # it is the head, admitted at the seam.
+    days = _sessions(date(2025, 1, 6), 60)
+    spin = days[34]
+    observations = [_obs("SMART", d, 49.0 if d >= spin else 52.0) for d in days] + [
+        _obs("ALPACA", d, 49.0 if d >= spin else 68.8) for d in days
+    ]
+    result = _derive(observations)
+    pairs = _pairs(result)
+    assert result.alpaca_start == spin
+    assert result.pre_start == days[:34]
+    assert all(pairs[d] == IBKR_FALLBACK for d in days[:34])
+    assert all(pairs[d] == ALPACA for d in days[34:])

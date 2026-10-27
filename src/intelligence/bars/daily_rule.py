@@ -1,6 +1,7 @@
-"""The unified canonical 1d rule d2-v3 (phase 185 plans 36 and 52; data layer integrity design
+"""The unified canonical 1d rule d2-v4 (phase 185 plans 36 and 52; data layer integrity design
 sections 2 and 4 and its Amendment 2026-10-07,
-docs/plans/2026-10-06-data-layer-integrity-design.md).
+docs/plans/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
+docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3).
 
 One pure function replaces both D2's derive_daily (d2-v1) and the Tradier loader's inline rule
 (tradier-v1): D1 observations of both vendors, the bar_source_policy rows and the current
@@ -12,8 +13,11 @@ raises) names the primary and fallback source:
 - primary: the latest current-scale observation of the primary vendor. Tradier observations are
   route TRADIER (canonical identity (tradier, consolidated)); IBKR observations are route SMART
   TRADES, then the LEGACY_IMPORT copy of the stored corpus as a lower rank (identity
-  (ibkr, named) when IBKR is primary). Venue routes are never read (the D-17 venue study
-  failed).
+  (ibkr, named) when IBKR is primary); Alpaca observations are route ALPACA, the split-adjusted
+  SIP daily answer (identity (alpaca, sip_rth), the raw kind, as canonical 5m carries it).
+  Venue routes are never read (the D-17 venue study failed). A primary that names a fallback
+  is Tradier or Alpaca, and its fallback is IBKR; Tradier's head and interior rules below apply
+  to either (the "primary vendor" of the date's policy row).
 - a primary with only stale-scale observations (d2-v3, plan 185-52, todo 517): when the policy
   names a fallback and the fallback has a current-scale answer for the date, that answer is
   served (identity (ibkr, fallback), the date listed in restated) if the basis over the
@@ -36,6 +40,36 @@ raises) names the primary and fallback source:
     ties to the earlier session) is within basis_tolerance_bp of 1. Otherwise the date has no
     canonical bar and is listed in refused_interior. Tradier observations end at 2026-10-06 (the
     loader is deleted, plan 185-48), so no Tradier re-ask exists; IBKR's latest answer is.
+
+Alpaca guards (d2-v4, D-191-Q). Alpaca is keyed by ticker, IBKR by contract, so two things an
+Alpaca daily answer can carry never reach canonical:
+
+- a zero-volume (or volume-less) Alpaca bar is no trade: Alpaca serves carry-forward placeholders
+  across dead-ticker gaps. It is dropped before anything else reads it (no basis measurement, no
+  head) and listed in zero_volume; the session falls to the IBKR fallback under the ordinary
+  interior or head rule, or has no bar;
+- an Alpaca bar before the name's listing. No point-in-time listing date exists for the universe
+  (instrument_metadata.listing_date covers 63 of 166 rows and is overwritten in place;
+  listing_venue.valid_from and ohlcv_provider_head are IBKR's own first bar). The listing is
+  therefore read from the contract-keyed vendor: the Alpaca span starts at alpaca_start, the
+  first session both vendors answered where IBKR's current close agrees with Alpaca's within
+  basis_tolerance_bp on that session and in the median over the basis_window_sessions common
+  sessions from it (the head seam test). A splice of a predecessor that trades on before the
+  contract's regular-way start (AA, 2016-10-18 to 10-31: IBKR's when-issued bars at 16 against
+  the old Alcoa at 80 under the same ticker) fails the session test, so it is cut too, which a
+  bare "IBKR has a bar" anchor would not do. Alpaca dates before alpaca_start are listed in
+  pre_start and never served; a name with no agreeing session has no Alpaca span (alpaca_start
+  None), and its IBKR fallback is the series. Tradier, also ticker-keyed, keeps d2-v3 unguarded.
+  The same test refuses a basis difference that is not identity: IBKR (like Tradier) adjusts its
+  history for spin-offs, Alpaca's split adjustment does not (measured 2026-10-27: IBKR/Alpaca
+  0.9718 on ILMN before 2024-06-25, 0.7557 on WDC before 2025-02-24, 0.8265 then 0.9898 on J),
+  so an Alpaca span starts after the last such event in IBKR's adjusted history. Serving
+  Alpaca's unadjusted level there would put the spin-off on the ex-date as a false return.
+
+Session dates: the raw read dates each series by its own stamp convention
+(RAW_DAILY_SESSION_ZONE, raw_session_date): IBKR and Tradier stamp 1d at 00:00 UTC, Alpaca at
+midnight New York (04:00 or 05:00 UTC). Observations carry the session date, the rule compares
+sessions only, and every canonical bar is one row per session at 00:00 UTC.
 
 Scale (D-21): an observation is stale for a date when some recorded split takes effect after
 the date and the observation was fetched before that split's recorded_at, unless its request is
@@ -61,7 +95,8 @@ missing provider volume carries the no_provider_volume flag.
 Inputs from raw (phase 191 plan 08): the stage reads the current ohlcv_raw 1d rows of
 RAW_DAILY_SERIES, one per (date, vendor, kind), and observation_from_raw turns each into the
 rule's Observation: Tradier consolidated is route TRADIER, IBKR smart_trades is route SMART, or
-LEGACY_IMPORT when the request that first served the value was the corpus import. fetched_at is
+LEGACY_IMPORT when the request that first served the value was the corpus import, Alpaca sip_rth
+is route ALPACA (iex_rth is raw only and never read). fetched_at is
 the raw row's served_at (when the current value was first served; an unchanged re-serve does not
 move it), request_id the request that first served it. Raw is last-wins (D-191-N), so a date
 carries one value per series and the rule's choice among observations collapses to that value.
@@ -79,18 +114,20 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
-from src.intelligence.bars.sources import ROUTE_TRADIER
+from src.intelligence.bars.sources import ROUTE_ALPACA, ROUTE_TRADIER
 from src.intelligence.bars.vendor_basis import BP
 
-RULE_VERSION = "d2-v3"
+RULE_VERSION = "d2-v4"
 
 TIMEFRAME = "1d"
 ROUTE_SMART = "SMART"
 ROUTE_LEGACY = "LEGACY_IMPORT"
 VENDOR_TRADIER = "tradier"
 VENDOR_IBKR = "ibkr"
+VENDOR_ALPACA = "alpaca"
 
 FLAG_FALLBACK_SEAM = "fallback_seam"
 FLAG_PRE_SPLIT = "pre_split_unrefetched"
@@ -105,16 +142,38 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
 
 # The canonical (vendor, kind) identity each policy primary serves under (plan 191-13). The
 # single definition: integrity_checks imports these rather than retyping the pairs.
-PRIMARY_PAIR = {VENDOR_TRADIER: ("tradier", "consolidated"), VENDOR_IBKR: ("ibkr", "named")}
+PRIMARY_PAIR = {
+    VENDOR_TRADIER: ("tradier", "consolidated"),
+    VENDOR_IBKR: ("ibkr", "named"),
+    VENDOR_ALPACA: ("alpaca", "sip_rth"),
+}
 FALLBACK_PAIR = ("ibkr", "fallback")
+# The one fallback each primary may name; IBKR, the contract-keyed vendor, names none.
+FALLBACK_FOR = {VENDOR_TRADIER: VENDOR_IBKR, VENDOR_ALPACA: VENDOR_IBKR}
 
-# The raw 1d series d2-v3 reads, as (vendor, kind). Listing-venue kinds and smart_adjusted are
-# never inputs (the D-17 venue study failed; adjusted bars are never canonical).
+# The raw 1d series d2-v4 reads, as (vendor, kind). Listing-venue kinds, smart_adjusted and
+# Alpaca's iex_rth are never inputs (the D-17 venue study failed; adjusted bars are never
+# canonical; iex_rth is not a consolidated basis, D-191-A).
 RAW_DAILY_SERIES: tuple[tuple[str, str], ...] = (
     (VENDOR_TRADIER, "consolidated"),
     (VENDOR_IBKR, "smart_trades"),
+    (VENDOR_ALPACA, "sip_rth"),
 )
-_ROUTE_VENDOR = {ROUTE_TRADIER: VENDOR_TRADIER, ROUTE_SMART: VENDOR_IBKR, ROUTE_LEGACY: VENDOR_IBKR}
+# The zone whose calendar date of a series' 1d stamp is the NYSE session date: IBKR and Tradier
+# stamp 00:00 UTC, Alpaca midnight New York. An identifier of each vendor's convention, not a
+# tunable; the daily read dates rows with it, so canonical keeps one row per session.
+RAW_DAILY_SESSION_ZONE: dict[tuple[str, str], str] = {
+    (VENDOR_TRADIER, "consolidated"): "UTC",
+    (VENDOR_IBKR, "smart_trades"): "UTC",
+    (VENDOR_ALPACA, "sip_rth"): "America/New_York",
+}
+_ROUTE_VENDOR = {
+    ROUTE_TRADIER: VENDOR_TRADIER,
+    ROUTE_SMART: VENDOR_IBKR,
+    ROUTE_LEGACY: VENDOR_IBKR,
+    ROUTE_ALPACA: VENDOR_ALPACA,
+}
+_VENDORS = (VENDOR_TRADIER, VENDOR_IBKR, VENDOR_ALPACA)
 
 
 @dataclass(frozen=True)
@@ -159,6 +218,11 @@ class DailyV2Result:
     # Dates whose primary answered only on a stale scale and whose fallback's current-scale
     # answer was served instead (d2-v3).
     restated: list[date] = field(default_factory=list)
+    # d2-v4 Alpaca guards (module docstring): zero-volume Alpaca dates, Alpaca dates before the
+    # span start, and the span start (None: no agreeing session, no Alpaca span).
+    zero_volume: list[date] = field(default_factory=list)
+    pre_start: list[date] = field(default_factory=list)
+    alpaca_start: date | None = None
 
 
 def observation_from_raw(
@@ -188,8 +252,10 @@ def observation_from_raw(
         route = ROUTE_TRADIER
     elif (vendor, kind) == (VENDOR_IBKR, "smart_trades"):
         route = ROUTE_LEGACY if legacy else ROUTE_SMART
+    elif (vendor, kind) == (VENDOR_ALPACA, "sip_rth"):
+        route = ROUTE_ALPACA
     else:
-        raise ValueError(f"raw ({vendor!r}, {kind!r}) is not a d2-v3 input series")
+        raise ValueError(f"raw ({vendor!r}, {kind!r}) is not a d2-v4 input series")
     return Observation(
         request_id=request_id or "",
         route=route,
@@ -202,6 +268,18 @@ def observation_from_raw(
         fetched_at=served_at,
         legacy=route == ROUTE_LEGACY,
     )
+
+
+def raw_session_date(vendor: str, kind: str, stamp: datetime) -> date:
+    """The NYSE session date of a raw 1d row: its stamp's calendar date in the series' zone
+    (RAW_DAILY_SESSION_ZONE). The daily read computes the same in SQL; this is the definition."""
+    try:
+        zone = RAW_DAILY_SESSION_ZONE[(vendor, kind)]
+    except KeyError:
+        raise ValueError(f"raw ({vendor!r}, {kind!r}) is not a d2-v4 input series") from None
+    if stamp.tzinfo is None:
+        raise ValueError("a raw 1d stamp must be timezone-aware")
+    return stamp.astimezone(ZoneInfo(zone)).date()
 
 
 def resolve_policy(rows: Sequence[PolicyRow], symbol: str, bar_date: date) -> PolicyRow:
@@ -262,7 +340,8 @@ class _VendorDay:
     stale: Observation | None = None
 
 
-def _tradier_basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None:
+def _basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None:
+    """A primary vendor's close on the current scale for the basis (module docstring, Basis)."""
     if day.current is not None:
         return day.current.close
     if day.stale is not None:
@@ -274,8 +353,7 @@ def _by_vendor_day(
     observations: Sequence[Observation], splits: Sequence[SplitRecord]
 ) -> dict[str, dict[date, _VendorDay]]:
     pools: dict[str, dict[date, tuple[list[Observation], list[Observation]]]] = {
-        VENDOR_TRADIER: {},
-        VENDOR_IBKR: {},
+        vendor: {} for vendor in _VENDORS
     }
     for obs in observations:
         if obs.what_to_show != "TRADES":
@@ -329,7 +407,7 @@ def basis_closes(
     tradier = {
         d: close
         for d, v in days[VENDOR_TRADIER].items()
-        if (close := _tradier_basis_close(v, splits)) is not None
+        if (close := _basis_close(v, splits)) is not None
     }
     ibkr = {d: v.current.close for d, v in days[VENDOR_IBKR].items() if v.current is not None}
     return tradier, ibkr
@@ -378,18 +456,148 @@ def _bar(obs: Observation, pair: tuple[str, str], flags: tuple[str, ...]) -> Can
 def _check_policy(policy: PolicyRow) -> None:
     if policy.ingress_mode != "observed":
         raise ValueError(
-            f"1d policy is {policy.ingress_mode!r}; d2-v3 derives only an observed timeframe"
+            f"1d policy is {policy.ingress_mode!r}; d2-v4 derives only an observed timeframe"
         )
     if policy.primary_source not in PRIMARY_PAIR:
-        raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v3 rule")
-    if policy.fallback_source is not None and (
-        policy.primary_source,
-        policy.fallback_source,
-    ) != (VENDOR_TRADIER, VENDOR_IBKR):
+        raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v4 rule")
+    if (
+        policy.fallback_source is not None
+        and FALLBACK_FOR.get(policy.primary_source) != policy.fallback_source
+    ):
         raise ValueError(
             f"fallback {policy.fallback_source!r} under primary {policy.primary_source!r} has "
-            "no d2-v3 rule (only IBKR may fall back for Tradier)"
+            "no d2-v4 rule (only IBKR may fall back, for Tradier or Alpaca)"
         )
+
+
+def _is_trade(obs: Observation) -> bool:
+    return obs.volume is not None and obs.volume > 0
+
+
+def _basis_ratios(
+    primary: dict[date, _VendorDay], ibkr: dict[date, _VendorDay], splits: Sequence[SplitRecord]
+) -> dict[date, float]:
+    """IBKR's current close over the primary's basis close, per common session (sorted)."""
+    return {
+        d: ibkr_current.close / primary_close
+        for d in sorted(primary)
+        if d in ibkr
+        and (ibkr_current := ibkr[d].current) is not None
+        and (primary_close := _basis_close(primary[d], splits)) is not None
+        # A non-positive close is a provider defect the scrub flags; it measures no basis.
+        and primary_close > 0
+    }
+
+
+def _within(ratio: float | None, tolerance_bp: float) -> bool:
+    return ratio is not None and abs(ratio - 1.0) * BP <= tolerance_bp
+
+
+def _alpaca_start(
+    ratios: dict[date, float], window_sessions: int, tolerance_bp: float
+) -> date | None:
+    """The first common session where IBKR agrees with Alpaca on the session itself and in the
+    median of the window_sessions common sessions from it (module docstring, Alpaca guards)."""
+    common = list(ratios)
+    for i, day in enumerate(common):
+        if _within(ratios[day], tolerance_bp) and _within(
+            _median_ratio(common[i : i + window_sessions], ratios), tolerance_bp
+        ):
+            return day
+    return None
+
+
+@dataclass(frozen=True)
+class _Screened:
+    """The vendor-day pools after the Alpaca guards, and what the guards kept out."""
+
+    days: dict[str, dict[date, _VendorDay]]
+    zero_volume: list[date]
+    pre_start: list[date]
+    alpaca_start: date | None
+
+
+def _screen(
+    observations: Sequence[Observation],
+    splits: Sequence[SplitRecord],
+    window_sessions: int,
+    tolerance_bp: float,
+) -> _Screened:
+    is_alpaca = [_ROUTE_VENDOR.get(o.route) == VENDOR_ALPACA for o in observations]
+    traded = {
+        o.bar_date for o, a in zip(observations, is_alpaca, strict=True) if a and _is_trade(o)
+    }
+    zero_volume = sorted(
+        {o.bar_date for o, a in zip(observations, is_alpaca, strict=True) if a} - traded
+    )
+    days = _by_vendor_day(
+        [o for o, a in zip(observations, is_alpaca, strict=True) if not a or _is_trade(o)],
+        splits,
+    )
+    alpaca = days[VENDOR_ALPACA]
+    start = _alpaca_start(
+        _basis_ratios(alpaca, days[VENDOR_IBKR], splits), window_sessions, tolerance_bp
+    )
+    days[VENDOR_ALPACA] = {d: v for d, v in alpaca.items() if start is not None and d >= start}
+    pre_start = sorted(d for d in alpaca if start is None or d < start)
+    return _Screened(days, zero_volume, pre_start, start)
+
+
+def servable_primary_dates(
+    observations: Sequence[Observation],
+    splits: Sequence[SplitRecord],
+    *,
+    basis_window_sessions: int,
+    basis_tolerance_bp: float,
+) -> dict[str, frozenset[date]]:
+    """Per primary that names a fallback (Tradier, Alpaca): the dates it can serve on the
+    current scale, after the Alpaca guards. Where it cannot, an (ibkr, fallback) bar conforms to
+    the policy (integrity_checks.policy_conformance)."""
+    days = _screen(observations, splits, basis_window_sessions, basis_tolerance_bp).days
+    return {
+        vendor: frozenset(d for d, v in days[vendor].items() if v.current is not None)
+        for vendor in FALLBACK_FOR
+    }
+
+
+@dataclass(frozen=True)
+class _BasisFrame:
+    """One primary vendor against the IBKR fallback: its head, the common sessions on the pair's
+    own session axis (the dates either answered), and the head seam verdict."""
+
+    head: date | None
+    position: dict[date, int]
+    ratios: dict[date, float]
+    common_dates: list[date]
+    common_index: list[int]
+    head_admitted: bool
+
+    @classmethod
+    def build(
+        cls,
+        primary: dict[date, _VendorDay],
+        ibkr: dict[date, _VendorDay],
+        splits: Sequence[SplitRecord],
+        window_sessions: int,
+        tolerance_bp: float,
+    ) -> _BasisFrame:
+        head = min(primary, default=None)
+        position = {d: i for i, d in enumerate(sorted(set(primary) | set(ibkr)))}
+        ratios = _basis_ratios(primary, ibkr, splits)
+        common_dates = sorted(ratios)
+        seam = [d for d in common_dates if d >= head][:window_sessions] if head else []
+        return cls(
+            head=head,
+            position=position,
+            ratios=ratios,
+            common_dates=common_dates,
+            common_index=[position[d] for d in common_dates],
+            head_admitted=_within(_median_ratio(seam, ratios), tolerance_bp),
+        )
+
+    def within_tolerance(self, day: date, window_sessions: int, tolerance_bp: float) -> bool:
+        window = _nearest(self.position[day], self.common_index, self.common_dates, window_sessions)
+        return _within(_median_ratio(window, self.ratios), tolerance_bp)
 
 
 def derive_daily_v2(
@@ -401,90 +609,77 @@ def derive_daily_v2(
     basis_window_sessions: int,
     basis_tolerance_bp: float,
 ) -> DailyV2Result:
-    """The canonical 1d bars of one symbol under d2-v3 (module docstring)."""
+    """The canonical 1d bars of one symbol under d2-v4 (module docstring)."""
     if basis_window_sessions < 1:
         raise ValueError("basis_window_sessions must be at least 1")
-    days = _by_vendor_day(observations, splits)
-    tradier, ibkr = days[VENDOR_TRADIER], days[VENDOR_IBKR]
-    tradier_head = min(tradier, default=None)
-
-    axis = sorted(set(tradier) | set(ibkr))
-    position = {d: i for i, d in enumerate(axis)}
-    ratios = {
-        d: ibkr_current.close / tradier_close
-        for d in axis
-        if d in tradier
-        and d in ibkr
-        and (ibkr_current := ibkr[d].current) is not None
-        and (tradier_close := _tradier_basis_close(tradier[d], splits)) is not None
-        # A non-positive close is a provider defect the scrub flags; it measures no basis.
-        and tradier_close > 0
+    screened = _screen(observations, splits, basis_window_sessions, basis_tolerance_bp)
+    days = screened.days
+    frames = {
+        vendor: _BasisFrame.build(
+            days[vendor], days[VENDOR_IBKR], splits, basis_window_sessions, basis_tolerance_bp
+        )
+        for vendor in FALLBACK_FOR
     }
-    common_dates = sorted(ratios)
-    common_index = [position[d] for d in common_dates]
-    seam_window = (
-        [d for d in common_dates if d >= tradier_head][:basis_window_sessions]
-        if tradier_head is not None
-        else []
-    )
-    seam_median = _median_ratio(seam_window, ratios)
-    head_admitted = seam_median is not None and (abs(seam_median - 1.0) * BP <= basis_tolerance_bp)
+    axis = sorted(set().union(*(days[vendor] for vendor in _VENDORS)))
 
     bars: list[CanonicalBar] = []
     flags: list[DerivedFlag] = []
     head: list[date] = []
+    seam_heads: dict[str, list[date]] = {vendor: [] for vendor in FALLBACK_FOR}
     refused_head: list[date] = []
     admitted: list[date] = []
     refused: list[date] = []
     stale_only: list[date] = []
     restated: list[date] = []
 
-    def within_tolerance(day: date) -> bool:
-        window = _nearest(position[day], common_index, common_dates, basis_window_sessions)
-        median = _median_ratio(window, ratios)
-        return median is not None and abs(median - 1.0) * BP <= basis_tolerance_bp
-
     for day in axis:
         policy = resolve_policy(policy_rows, symbol, day)
         _check_policy(policy)
-        primary = days[policy.primary_source].get(day)
+        vendor = policy.primary_source
+        primary = days[vendor].get(day)
         if primary is not None and primary.current is not None:
-            bars.append(_bar(primary.current, PRIMARY_PAIR[policy.primary_source], ()))
+            bars.append(_bar(primary.current, PRIMARY_PAIR[vendor], ()))
             continue
         fallback = days[policy.fallback_source].get(day) if policy.fallback_source else None
+        frame = frames.get(vendor)
         if primary is not None and primary.stale is not None:
-            if fallback is not None and fallback.current is not None and within_tolerance(day):
+            if (
+                fallback is not None
+                and fallback.current is not None
+                and frame is not None
+                and frame.within_tolerance(day, basis_window_sessions, basis_tolerance_bp)
+            ):
                 restated.append(day)
                 bars.append(_bar(fallback.current, FALLBACK_PAIR, ()))
             else:
-                bars.append(
-                    _bar(primary.stale, PRIMARY_PAIR[policy.primary_source], (FLAG_PRE_SPLIT,))
-                )
+                bars.append(_bar(primary.stale, PRIMARY_PAIR[vendor], (FLAG_PRE_SPLIT,)))
             continue
-        if fallback is None:
+        if fallback is None or frame is None:
             continue
         if fallback.current is None:
             stale_only.append(day)
             continue
-        if tradier_head is None:
-            # No Tradier answer at all: nothing to splice against, the fallback is the series.
+        if frame.head is None:
+            # No primary answer at all: nothing to splice against, the fallback is the series.
             head.append(day)
-        elif day < tradier_head:
-            if not head_admitted:
+        elif day < frame.head:
+            if not frame.head_admitted:
                 refused_head.append(day)
                 continue
             head.append(day)
+            seam_heads[vendor].append(day)
         else:
-            if not within_tolerance(day):
+            if not frame.within_tolerance(day, basis_window_sessions, basis_tolerance_bp):
                 refused.append(day)
                 continue
             admitted.append(day)
         bars.append(_bar(fallback.current, FALLBACK_PAIR, ()))
 
-    if head and tradier_head is not None:
-        bars = _with_seam(
-            bars, flags, head, tradier_head, common_dates, ratios, basis_window_sessions
-        )
+    for vendor, vendor_head in seam_heads.items():
+        if vendor_head:
+            bars = _with_seam(
+                bars, flags, vendor, vendor_head, frames[vendor], basis_window_sessions
+            )
 
     for bar in bars:
         for rule in bar.flags:
@@ -507,31 +702,35 @@ def derive_daily_v2(
         stale_only=stale_only,
         refused_head=refused_head,
         restated=restated,
+        zero_volume=screened.zero_volume,
+        pre_start=screened.pre_start,
+        alpaca_start=screened.alpaca_start,
     )
 
 
 def _with_seam(
     bars: list[CanonicalBar],
     flags: list[DerivedFlag],
+    vendor: str,
     head: list[date],
-    tradier_head: date,
-    common_dates: list[date],
-    ratios: dict[date, float],
+    frame: _BasisFrame,
     window_sessions: int,
 ) -> list[CanonicalBar]:
-    """Mark the first Tradier bar after an admitted head with the measured seam."""
+    """Mark the first primary bar after an admitted head with the measured seam."""
+    primary_head = frame.head
+    assert primary_head is not None  # a seam head exists only before a primary head
     first = next(
         (
             i
             for i, b in enumerate(bars)
-            if (b.vendor, b.kind) == PRIMARY_PAIR[VENDOR_TRADIER] and b.bar_date >= tradier_head
+            if (b.vendor, b.kind) == PRIMARY_PAIR[vendor] and b.bar_date >= primary_head
         ),
         None,
     )
     if first is None:
         return bars
-    overlap = [d for d in common_dates if d >= tradier_head][:window_sessions]
-    median = _median_ratio(overlap, ratios)
+    overlap = [d for d in frame.common_dates if d >= primary_head][:window_sessions]
+    median = _median_ratio(overlap, frame.ratios)
     seam_bar = bars[first]
     flags.append(
         DerivedFlag(

@@ -34,7 +34,13 @@ pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 _LIVE_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _SAMPLE_SEED = 185
 _SAMPLE_RANDOM = 14
-_ALLOWED_1D_PAIRS = {("tradier", "consolidated"), ("ibkr", "fallback"), ("ibkr", "named")}
+# (alpaca, sip_rth) is the d2-v4 primary from 2016-01-04 once the D-191-Q policy rows land.
+_ALLOWED_1D_PAIRS = {
+    ("tradier", "consolidated"),
+    ("ibkr", "fallback"),
+    ("ibkr", "named"),
+    ("alpaca", "sip_rth"),
+}
 # two ANY arrays, not a composite-array parameter: the cross product they admit holds no rows
 _ALLOWED_1D_VENDORS = sorted({v for v, _k in _ALLOWED_1D_PAIRS})
 _ALLOWED_1D_KINDS = sorted({k for _v, k in _ALLOWED_1D_PAIRS})

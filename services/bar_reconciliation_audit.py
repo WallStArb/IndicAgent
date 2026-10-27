@@ -72,6 +72,7 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
     _RAW_DAILY_KINDS,
     _RAW_DAILY_VENDORS,
+    _RAW_DAILY_ZONES,
     _SELECT_1D_FLAG_RULES_SQL,
     _SELECT_5M_FLAGS_SQL,
     _SELECT_5M_SQL,
@@ -2284,7 +2285,11 @@ class BarReconciliationAudit(BaseBatch):
             symbol=symbol,
             observations=_observations(
                 await conn.fetch(
-                    _SELECT_DAILY_RAW_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+                    _SELECT_DAILY_RAW_SQL,
+                    symbol,
+                    _RAW_DAILY_VENDORS,
+                    _RAW_DAILY_KINDS,
+                    _RAW_DAILY_ZONES,
                 )
             ),
             policy_rows=policy_rows,

@@ -147,7 +147,7 @@ def test_known_case_fixture_is_present_and_documented():
 def test_rule_version():
     # d2-v3 (plan 185-52, todo 517): a stale-only primary yields to a basis-tested current
     # fallback answer.
-    assert RULE_VERSION == "d2-v3"
+    assert RULE_VERSION == "d2-v4"
 
 
 def test_tradier_date_takes_the_latest_tradier_observation():

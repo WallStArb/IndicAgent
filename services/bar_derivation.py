@@ -37,13 +37,15 @@ answered 5m window arrived since. Default is a dry run: the same reads and class
 writes, no batch row; --apply is the explicit opt-in.
 
 Daily stage (plans 17 and 36; reads ohlcv_raw since phase 191 plan 08). Per symbol: load the
-current raw 1d rows of Tradier consolidated and IBKR smart_trades (daily_rule.RAW_DAILY_SERIES;
-the corpus import is told by its request's route), the 1d bar_source_policy rows (read once per run) and the
-corporate_action_current splits with their evidence, and run the pure d2-v3 rule
+current raw 1d rows of Tradier consolidated, IBKR smart_trades and Alpaca sip_rth
+(daily_rule.RAW_DAILY_SERIES, each dated by its session zone: Alpaca stamps 1d at midnight New
+York; the corpus import is told by its request's route), the 1d bar_source_policy rows (read once
+per run) and the corporate_action_current splits with their evidence, and run the pure d2-v4 rule
 (src/intelligence/bars/daily_rule.py): the source the policy row of each date names, IBKR as a
 recorded head, a basis-tested interior fallback, or the basis-tested restated answer where the
-Tradier primary answered only on a stale scale (data layer integrity design section 2 and the
-Amendment 2026-10-07; plan 185-52). The canonical bars
+primary answered only on a stale scale (data layer integrity design section 2 and the
+Amendment 2026-10-07; plan 185-52), with the Alpaca zero-volume and listing guards (D-191-Q). The
+canonical bars
 are classified by the write contract against the stored 1d rows of every canonical
 (vendor, kind) pair (CANONICAL_1D_SOURCES), with
 removal inside the name's derived span (its first to last raw date). A dry run (the default)
@@ -97,6 +99,7 @@ from src.intelligence.bars.daily_rule import (
     FLAG_NO_VOLUME,
     FLAG_PRE_SPLIT,
     RAW_DAILY_SERIES,
+    RAW_DAILY_SESSION_ZONE,
     RULE_VERSION,
     DailyV2Result,
     PolicyRow,
@@ -368,6 +371,7 @@ _RESTORE_LOAD_CALLER = "bar_derivation-restore"
 _DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
 _RAW_DAILY_VENDORS = [vendor for vendor, _kind in RAW_DAILY_SERIES]
 _RAW_DAILY_KINDS = [kind for _vendor, kind in RAW_DAILY_SERIES]
+_RAW_DAILY_ZONES = [RAW_DAILY_SESSION_ZONE[series] for series in RAW_DAILY_SERIES]
 _DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed", "held")
 _DAILY_ROW_COUNTS = ("new", "changed", "unchanged", "removed")
 _DAILY_REPORT_COLUMNS = (
@@ -395,6 +399,9 @@ _DAILY_REPORT_COLUMNS = (
     "error",
     "held",
     "restated",
+    "zero_volume",
+    "pre_start",
+    "alpaca_start",
 )
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
@@ -403,18 +410,20 @@ WHERE is_active AND compute_eligible_1d
 ORDER BY symbol
 """
 
-# The current raw 1d rows of the d2-v3 series ($2 vendors, $3 kinds, zipped pairwise:
-# daily_rule.RAW_DAILY_SERIES). The request join keeps test fixtures out: a value first served
+# The current raw 1d rows of the d2-v4 series ($2 vendors, $3 kinds, $4 session zones, zipped
+# pairwise: daily_rule.RAW_DAILY_SERIES and RAW_DAILY_SESSION_ZONE). bar_date is the session date,
+# the stamp's calendar date in the series' zone (daily_rule.raw_session_date): Alpaca's midnight
+# New York and IBKR's 00:00 UTC land on one session. The request join keeps test fixtures out: a value first served
 # by a request whose caller starts 'test-' never becomes a canonical bar (2026-10-03: fixture
 # rows on SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5). A row with no
 # request (a legacy migrated row) is no test row. legacy marks the corpus import.
 _SELECT_DAILY_RAW_SQL = """
 SELECT r.request_id::text AS request_id, r.vendor, r.kind,
-       (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+       (r."timestamp" AT TIME ZONE s.zone)::date AS bar_date,
        r.open, r.high, r.low, r.close, r.volume, r.served_at,
        COALESCE(q.route = 'LEGACY_IMPORT', false) AS legacy
 FROM ohlcv_raw r
-JOIN unnest($2::text[], $3::text[]) AS s(vendor, kind)
+JOIN unnest($2::text[], $3::text[], $4::text[]) AS s(vendor, kind, zone)
   ON s.vendor = r.vendor AND s.kind = r.kind
 LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
 WHERE r.symbol = $1 AND r.timeframe = '1d'
@@ -490,7 +499,7 @@ last_load AS (
 # a retirement (migration 520) is a policy change too, so change detection reads every row
 _POLICY_CHANGED_AT = "GREATEST({p}.recorded_at, {p}.closed_at, {p}.retired_at)"
 
-# --changed-only: a symbol is due when a raw value of its d2-v3 series was served (served_at moves
+# --changed-only: a symbol is due when a raw value of its d2-v4 series was served (served_at moves
 # only when the value changes, and the rule reads nothing else of a serve), or a corporate action
 # or a 1d source policy row (the symbol's or the default) was recorded or closed, after its
 # baseline. $2/$3 as _SELECT_DAILY_RAW_SQL.
@@ -619,6 +628,9 @@ class _DailyResult:
     waived: bool | None = None
     held: str = ""
     restated: int = 0
+    zero_volume: int = 0
+    pre_start: int = 0
+    alpaca_start: str = ""
 
     def report_row(self) -> dict[str, str]:
         values: dict[str, Any] = {
@@ -638,9 +650,16 @@ def _stored_group(vendors: set[str]) -> str:
     """Which vendors a name's stored 1d rows come from before the run."""
     if not vendors:
         return "none"
-    if "tradier" not in vendors:
+    if vendors == {"ibkr"}:
         return "ibkr_only"
     return "tradier_only" if vendors == {"tradier"} else "mixed"
+
+
+def _date_span(days: list[date]) -> dict[str, Any] | None:
+    """A long date list as its count and ends (a predecessor splice can span a decade)."""
+    if not days:
+        return None
+    return {"n": len(days), "first": days[0].isoformat(), "last": days[-1].isoformat()}
 
 
 def _batch_status(failed: list[str], n_written: int) -> str:
@@ -727,8 +746,8 @@ async def write_1d_digests(
     run it after their scrub so the flags it adds or clears are in the digest.
     The daily stage's writer (daily_rule.RULE_VERSION). force_rule_version also writes a month
     whose content is unchanged but whose current digest carries another rule version (the
-    185-38 cutover and the 185-52 d2-v3 bump relabel every month). write=False counts without inserting. Returns the number
-    of rows inserted (or that would be).
+    185-38 cutover and the 185-52 d2-v3 and D-191-Q d2-v4 bumps relabel every month).
+    write=False counts without inserting. Returns the number of rows inserted (or that would be).
     """
     rows = await conn.fetch(
         _SELECT_DIGEST_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
@@ -1460,7 +1479,7 @@ class BarDerivation(BaseBatch):
         if changed_rows:
             await conn.executemany(_UPSERT_DERIVED_SQL, changed_rows)
 
-    # --- D2 daily stage (plans 17, 36 and 52; d2-v3) ----------------------
+    # --- D2 daily stage (plans 17, 36 and 52; d2-v4) ----------------------
 
     async def _execute_daily(self, pool: asyncpg.Pool) -> dict[str, Any]:
         async with pool.acquire() as conn:
@@ -1676,6 +1695,9 @@ class BarDerivation(BaseBatch):
             refused_dates=tuple(derived.refused_interior),
             stale_only=len(derived.stale_only),
             restated=len(derived.restated),
+            zero_volume=len(derived.zero_volume),
+            pre_start=len(derived.pre_start),
+            alpaca_start=derived.alpaca_start.isoformat() if derived.alpaca_start else "",
             revision_ratio=ratio,
             revision_flag=flagged,
             would_refuse=would_refuse,
@@ -1743,6 +1765,9 @@ class BarDerivation(BaseBatch):
                         "refused_interior": [d.isoformat() for d in result.refused_dates],
                         "stale_only": [d.isoformat() for d in derived.stale_only],
                         "restated": [d.isoformat() for d in derived.restated],
+                        "zero_volume": [d.isoformat() for d in derived.zero_volume],
+                        "pre_start": _date_span(derived.pre_start),
+                        "alpaca_start": result.alpaca_start or None,
                     }
                 ),
                 _DAILY_LOAD_CALLER,
@@ -2107,9 +2132,11 @@ async def read_daily_params(conn: Any, apr: dict) -> _DailyParams:
 
 
 async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], list[SplitRecord]]:
-    """The symbol's d2-v3 inputs: its current raw 1d rows of RAW_DAILY_SERIES as observations
-    (daily_rule.observation_from_raw) and its current corporate actions."""
-    rows = await conn.fetch(_SELECT_DAILY_RAW_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS)
+    """The symbol's d2-v4 inputs: its current raw 1d rows of RAW_DAILY_SERIES as observations
+    on their session dates (daily_rule.observation_from_raw) and its current corporate actions."""
+    rows = await conn.fetch(
+        _SELECT_DAILY_RAW_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS, _RAW_DAILY_ZONES
+    )
     observations = [
         observation_from_raw(
             request_id=r["request_id"],
@@ -2149,6 +2176,8 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
         "refused_interior": sum(len(r.refused_dates) for r in results),
         "stale_only": sum(r.stale_only for r in results),
         "restated": sum(r.restated for r in results),
+        "zero_volume": sum(r.zero_volume for r in results),
+        "pre_start": sum(r.pre_start for r in results),
         "revision_flag": sum(r.revision_flag for r in results),
         "would_refuse": sum(r.would_refuse for r in results),
         "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),

@@ -848,7 +848,7 @@ def test_legacy_import_value_ranks_below_smart_and_is_stale_across_a_split():
         **{**common, "vendor": "tradier", "kind": "consolidated"}, legacy=False
     )
     assert tradier.route == "TRADIER" and tradier.fetched_at == _FETCHED
-    with pytest.raises(ValueError, match="not a d2-v3 input"):
+    with pytest.raises(ValueError, match="not a d2-v4 input"):
         observation_from_raw(**{**common, "kind": "venue_arca"}, legacy=False)
     with pytest.raises(ValueError, match="no served_at"):
         observation_from_raw(**{**common, "served_at": None}, legacy=False)

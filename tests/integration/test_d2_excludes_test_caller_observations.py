@@ -17,6 +17,7 @@ import pytest
 from services.bar_derivation import (
     _RAW_DAILY_KINDS,
     _RAW_DAILY_VENDORS,
+    _RAW_DAILY_ZONES,
     _SELECT_DAILY_CHANGED_SINCE_SQL,
     _SELECT_DAILY_RAW_SQL,
 )
@@ -70,7 +71,7 @@ async def test_a_test_caller_value_is_never_read_and_a_null_request_row_is():
         await _serve(conn, _DAY, "test-d2-exclusion", 100.5, datetime(2026, 10, 3, tzinfo=UTC))
         await _serve(conn, _DAY2, None, 472.65, datetime(2026, 9, 30, tzinfo=UTC))
         rows = await conn.fetch(
-            _SELECT_DAILY_RAW_SQL, _SYMBOL, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+            _SELECT_DAILY_RAW_SQL, _SYMBOL, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS, _RAW_DAILY_ZONES
         )
         by_day = {r["bar_date"]: r for r in rows}
         assert _DAY.date() not in by_day
@@ -95,7 +96,7 @@ async def test_a_test_caller_serve_does_not_make_a_symbol_due_by_itself():
         # a live symbol re-derives it, and the re-derivation reads no test value).
         assert probe["obs_since"]
         rows = await conn.fetch(
-            _SELECT_DAILY_RAW_SQL, _SYMBOL, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+            _SELECT_DAILY_RAW_SQL, _SYMBOL, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS, _RAW_DAILY_ZONES
         )
         assert _DAY.date() not in {r["bar_date"] for r in rows}
     finally:
