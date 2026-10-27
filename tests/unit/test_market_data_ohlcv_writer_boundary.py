@@ -58,13 +58,25 @@ _ALLOW_LIST: dict[str, str] = {
         "same refusal for 5m/4h aggregator output, which has no canonical "
         "(vendor, kind) identity."
     ),
+    "scripts/ops/bars/ops_tradier_delete.py": (
+        "TEMPORARY retire: 191-25 (Tradier source-scoped deletion, owner exception 2026-10-12). "
+        "DELETE FROM market_data_ohlcv where vendor tradier only, in symbol batches after the "
+        "COPY backup (plan 191-20); it never inserts or updates a row, and the daily stage "
+        "re-derives 1d afterwards."
+    ),
 }
 
 
 # Writers other than the daily stage that cannot write the derivation-owned timeframes (1d,
 # 15m, 1h) without referencing the DERIVATION_OWNED_TIMEFRAMES fence: why each cannot (plan
 # 185-38: the daily stage is the only 1d writer).
-_FENCE_EXEMPT: dict[str, str] = {}
+_FENCE_EXEMPT: dict[str, str] = {
+    "scripts/ops/bars/ops_tradier_delete.py": (
+        "TEMPORARY retire: 191-25. Deletes only, never writes a value: removing the vendor "
+        "tradier 1d rows is the owner's Tradier exception, and the daily stage re-derives 1d "
+        "after the run (plan 191-20)."
+    ),
+}
 
 
 @functools.lru_cache(maxsize=1)

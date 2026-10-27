@@ -106,6 +106,12 @@ _ALLOW_LIST: dict[str, str] = {
     "scripts/ops/bars/ops_tradier_residue.py": (
         "TEMPORARY retire: 191-25 (Tradier retirement record script)"
     ),
+    "scripts/ops/bars/ops_tradier_delete.py": (
+        "TEMPORARY retire: 191-25 (Tradier source-scoped deletion, owner exception 2026-10-12): "
+        "counts, backs up and deletes the stored vendor tradier rows, zero-volume bars "
+        "included; the tradeable view would hide some of the rows the backup and the delete "
+        "must cover exactly."
+    ),
 }
 
 

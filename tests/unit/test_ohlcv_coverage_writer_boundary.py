@@ -37,6 +37,11 @@ _ALLOW_LIST: dict[str, str] = {
         "upsert inside persist_chunk_atomically's transaction, the per-item outcome "
         "write and the --reset-failures path."
     ),
+    "scripts/ops/bars/ops_tradier_delete.py": (
+        "TEMPORARY retire: 191-25. DELETE FROM ohlcv_coverage where provider tradier only, in "
+        "symbol batches after the COPY backup (plan 191-20, Tradier source-scoped deletion, "
+        "owner exception 2026-10-12); it never inserts or updates the ledger."
+    ),
 }
 
 

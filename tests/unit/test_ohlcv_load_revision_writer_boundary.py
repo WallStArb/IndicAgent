@@ -44,6 +44,7 @@ _TABLES = {
 _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
+_TRADIER_DELETE = "scripts/ops/bars/ops_tradier_delete.py"
 
 # table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
 # records: sources MAY overlap between writers (vendor names are shared), the callers MAY NOT.
@@ -68,6 +69,15 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "outcome applied or refused (plans 185-39, 191-04 and 191-05). Never the caller "
             "raw-backfill-191.",
         ),
+        _TRADIER_DELETE: (
+            frozenset({"tradier"}),
+            frozenset({"delete:tradier-retirement"}),
+            "TEMPORARY retire: 191-25. DELETE FROM ohlcv_load where source tradier only (the "
+            "deleted Tradier loader's history), in symbol batches after the COPY backup, "
+            "keeping any Tradier load that owns another vendor's revision rows; it writes no "
+            "load row, so its segment is the deletion, not a caller (plan 191-20, owner "
+            "exception 2026-10-12).",
+        ),
     },
     "ohlcv_revision": {
         _DERIVATION: (
@@ -86,6 +96,14 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "superseded; migration 485) under the load row its caller inserted. "
             "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
             "the revision origin, not a caller.",
+        ),
+        _TRADIER_DELETE: (
+            frozenset({"vendor:tradier"}),
+            frozenset({"delete:tradier-retirement"}),
+            "TEMPORARY retire: 191-25. DELETE FROM ohlcv_revision where vendor tradier only "
+            "(old Tradier values under any load), in symbol batches after the COPY backup, so "
+            "the Tradier load delete cascades into nothing (plan 191-20, owner exception "
+            "2026-10-12).",
         ),
     },
 }
