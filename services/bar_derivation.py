@@ -865,6 +865,28 @@ def _month_digest_rows(
     return rows
 
 
+# One writing derivation run per stage at a time (BarDerivation.execute).
+_STAGE_LOCK_SQL = "SELECT pg_advisory_lock(hashtextextended($1, 0))"
+
+
+async def acquire_stage_lock(dsn: str, stage: str) -> asyncpg.Connection:
+    """Open a dedicated session, opted out of idle_session_timeout (todo 543), and wait for the
+    stage's advisory lock on it; the caller closes the connection to release."""
+    conn = await asyncpg.connect(
+        dsn,
+        server_settings={
+            "idle_session_timeout": "0",
+            "application_name": f"lock:bar_derivation:{stage}",
+        },
+    )
+    try:
+        await conn.execute(_STAGE_LOCK_SQL, f"bar_derivation|{stage}")
+    except BaseException:
+        await conn.close()
+        raise
+    return conn
+
+
 class BarDerivation(BaseBatch):
     """Batch service: tradeable 5m bars -> derived 15m/1h grid + digests (D2b),
     and D1 TRADES observations -> canonical 1d bars + lineage (D2, plan 17)."""
@@ -903,6 +925,20 @@ class BarDerivation(BaseBatch):
             raise ValueError("--rewrite-digests and --restore-snapshot belong to --stage daily")
 
     async def execute(self, pool: asyncpg.Pool) -> dict[str, int]:
+        """A writing run holds a stage-wide advisory lock for its whole length, so two runs of
+        one stage (the fetcher's run-end stage, the alpaca nightly's grid pass, a manual or
+        follow-on run) never write the same series at once; a later run waits. The lock lives
+        on its own connection that opts out of idle_session_timeout (todo 543). Dry runs write
+        nothing and take no lock."""
+        if not self._apply:
+            return await self._dispatch(pool)
+        lock_conn = await acquire_stage_lock(self._db_dsn, self._stage)
+        try:
+            return await self._dispatch(pool)
+        finally:
+            await lock_conn.close()  # closing the session releases the lock
+
+    async def _dispatch(self, pool: asyncpg.Pool) -> dict[str, int]:
         if self._restore_snapshot:
             return await self._execute_restore(pool)
         if self._rewrite_digests:

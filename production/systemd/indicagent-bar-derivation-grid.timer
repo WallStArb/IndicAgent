@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily 15m/1h grid derivation, 05:45 UTC (after the 04:40 UTC Alpaca nightly and its budget)
+
+[Timer]
+OnCalendar=*-*-* 05:45:00 UTC
+Persistent=true
+Unit=indicagent-bar-derivation-grid.service
+
+[Install]
+WantedBy=timers.target

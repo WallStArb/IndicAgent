@@ -1,0 +1,12 @@
+[Unit]
+Description=IndicAgent Alpaca nightly bar capture leaf (todo 521 T4; scripts/ops/bars/ops_bar_nightly.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m scripts.ops.bars.ops_bar_nightly --vendor alpaca --apply
+# A partial night (errors or unselected slots) exits 1; the next timer fire re-asks the window.
+TimeoutStartSec=2h

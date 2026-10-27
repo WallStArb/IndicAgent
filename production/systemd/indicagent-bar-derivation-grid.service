@@ -1,0 +1,15 @@
+[Unit]
+Description=IndicAgent 15m/1h grid derivation after the Alpaca nightly (services/bar_derivation.py --stage grid --changed-only)
+After=network-online.target indicagent-alpaca-nightly.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+# The alpaca nightly writes canonical 5m but runs no grid stage; the fetcher's run-end grid stage
+# only follows an IBKR run. --changed-only derives every name whose 5m digests moved. The stage
+# lock (bar_derivation.acquire_stage_lock) serializes it with any other grid run.
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.bar_derivation --stage grid --changed-only --apply
+TimeoutStartSec=6h

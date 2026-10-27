@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Alpaca nightly bar capture (after the 02:00 UTC IBKR backfill, before the 06:30 UTC Yahoo dividends)
+
+[Timer]
+OnCalendar=*-*-* 04:40:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

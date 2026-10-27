@@ -50,6 +50,21 @@ _DEFAULT_POLICY = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_stage_lock(monkeypatch):
+    """Writing runs take a stage-wide advisory lock on a real connection; these fake-pool tests
+    stub it (the lock itself is tested in test_bar_derivation_stage_lock.py)."""
+
+    class _Released:
+        async def close(self) -> None:
+            return None
+
+    async def _lock(dsn, stage):
+        return _Released()
+
+    monkeypatch.setattr("services.bar_derivation.acquire_stage_lock", _lock)
+
+
 def _ts(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 

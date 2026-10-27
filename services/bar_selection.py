@@ -192,7 +192,9 @@ def select_and_write(
             for choice in outcome.choices:
                 n_fallback += choice.vendor != choice.ranking[0]
                 n_incomplete += not choice.complete
-                logger.info(
+                # one line per non-trivial session; the durable record is bar_session_choice, so
+                # this is debug detail, never info in a full-corpus loop (CLAUDE.md logging rule)
+                logger.debug(
                     "bar_selection.session_choice",
                     symbol=symbol,
                     timeframe=timeframe,
