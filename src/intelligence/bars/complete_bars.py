@@ -80,7 +80,13 @@ def split_complete[T](
     if not bars:
         return [], []
     if timeframe == "1d":
-        complete = [b for b in bars if session_complete_at(_stamp(b).date(), answered_at)]
+        days = [_stamp(b).date() for b in bars]
+        # One calendar build for the whole window, not one per bar (a 10-year history page
+        # took minutes asking the calendar day by day).
+        sessions = nyse_sessions(min(days), max(days))
+        complete = [
+            b for b, day in zip(bars, days) if session_complete_at(day, answered_at, sessions)
+        ]
         kept = {id(b) for b in complete}
         return complete, [b for b in bars if id(b) not in kept]
     if timeframe not in INTRADAY_BAR_SECONDS:

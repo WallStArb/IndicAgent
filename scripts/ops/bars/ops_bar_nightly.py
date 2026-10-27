@@ -99,13 +99,32 @@ def _bars_frame(bars) -> pd.DataFrame:
     )
 
 
+_TIMEFRAMES = ("5m", "1d")
+
+
+def parse_timeframes(value: str | None) -> tuple[str, ...]:
+    """The timeframes to ask, in nightly order: both by default; one for a history backfill
+    (the 1d-only Alpaca history pull, 2026-10-27)."""
+    if value is None:
+        return _TIMEFRAMES
+    asked = {part.strip() for part in value.split(",") if part.strip()}
+    unknown = asked - set(_TIMEFRAMES)
+    if unknown or not asked:
+        raise ValueError(f"--timeframes takes a subset of {_TIMEFRAMES}, got {value!r}")
+    return tuple(tf for tf in _TIMEFRAMES if tf in asked)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vendor", default="alpaca", help="capture vendor (default alpaca)")
     parser.add_argument("--days", type=int, default=None, help="window; default the APR key")
     parser.add_argument("--symbols", nargs="*", help="subset; default every active instrument")
+    parser.add_argument(
+        "--timeframes", default=None, help="comma-separated subset of 5m,1d; default both"
+    )
     parser.add_argument("--apply", action="store_true", help="write; default plans and prints")
     args = parser.parse_args()
+    timeframes = parse_timeframes(args.timeframes)
 
     settings = get_settings()
     conn = psycopg.connect(settings.database_url, autocommit=True)
@@ -164,6 +183,7 @@ def main() -> int:
                     ),
                     max_requests=_apr_int(conn, "infra.alpaca.nightly_max_requests", 4000),
                 ),
+                timeframes=timeframes,
             )
         )
     finally:
@@ -223,7 +243,19 @@ def exit_code(summary: dict) -> int:
 
 
 async def _run(
-    leaf, conn, sink, policy_5m, params, settle, universe, start, end, write: bool, budget
+    leaf,
+    conn,
+    sink,
+    policy_5m,
+    params,
+    settle,
+    universe,
+    start,
+    end,
+    write: bool,
+    budget,
+    *,
+    timeframes: tuple[str, ...] = _TIMEFRAMES,
 ) -> dict:
     await leaf.connect()
     summary = {
@@ -240,7 +272,8 @@ async def _run(
     try:
         for symbol in universe:
             try:
-                for timeframe, load_canonical in (("5m", True), ("1d", False)):
+                for timeframe in timeframes:
+                    load_canonical = timeframe == "5m"
                     asked_at = datetime.now(UTC)
                     sink.last_answered_at = None
                     page = await leaf.fetch_ohlcv(

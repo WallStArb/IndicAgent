@@ -26,3 +26,16 @@ def test_an_empty_answer_is_an_empty_typed_frame():
     frame = _bars_frame([])
     assert frame.empty and pd.api.types.is_datetime64_any_dtype(frame["t"])
     assert len(frame["t"].dt.to_pydatetime()) == 0
+
+
+def test_timeframes_default_to_both_and_accept_one():
+    """The 1d-only Alpaca history backfill (2026-10-27) asks one timeframe; the nightly asks both."""
+    import pytest
+
+    from scripts.ops.bars.ops_bar_nightly import parse_timeframes
+
+    assert parse_timeframes(None) == ("5m", "1d")
+    assert parse_timeframes("1d") == ("1d",)
+    assert parse_timeframes("1d,5m") == ("5m", "1d")
+    with pytest.raises(ValueError):
+        parse_timeframes("1h")
