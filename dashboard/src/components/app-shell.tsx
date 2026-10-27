@@ -25,7 +25,7 @@ const NAV: { label: string; icon: LucideIcon; href?: string }[] = [
   { label: "Pipeline", icon: Workflow, href: "/" },
   { label: "Data", icon: Database, href: "/data" },
   { label: "Instruments", icon: ListTree, href: "/instruments" },
-  { label: "Concepts", icon: Lightbulb },
+  { label: "Concepts", icon: Lightbulb, href: "/concepts" },
   { label: "Research", icon: FlaskConical },
   { label: "Books", icon: BookOpen },
   { label: "System", icon: Cpu, href: "/system" },

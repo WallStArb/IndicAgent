@@ -7,7 +7,7 @@ import { CARD, ErrorNote, LoadingNote, Panel, SMALL_LABEL } from "@/components/c
 import { HistoryChart } from "@/components/history-chart";
 import { useApi } from "@/hooks/use-api";
 import type { IdentityRow, Passport } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, spaced } from "@/lib/utils";
 
 function Fact({ label, children, dim }: { label: string; children: React.ReactNode; dim?: boolean }) {
   return (
@@ -45,7 +45,7 @@ function Identity({ id }: { id: IdentityRow }) {
       </p>
       {id.listing_ended && (
         <p className="w-fit rounded-lg border border-[var(--border-bright)] px-3 py-1.5 text-xs">
-          Listing ended {id.listing_ended} ({id.listing_end_reason?.replaceAll("_", " ")}). Its bars stay as
+          Listing ended {id.listing_ended} ({id.listing_end_reason && spaced(id.listing_end_reason)}). Its bars stay as
           history.
         </p>
       )}

@@ -6,7 +6,7 @@ import { Headline, STAGE_LABEL, UpdatedStamp } from "@/components/headline";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo } from "@/lib/time";
 import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, spaced } from "@/lib/utils";
 
 const STAGE_QUESTION: Record<StageName, string> = {
   ingest: "Vendor bars captured into the coverage ledger, per timeframe and provider",
@@ -43,7 +43,7 @@ function StageFlow({ stages }: { stages: Stage[] }) {
             <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[stage.status])} />
             <span className="text-sm">{STAGE_LABEL[stage.stage]}</span>
             <span className="font-mono text-[0.65rem] text-[var(--text-muted)]">
-              {stage.as_of ? fmtAgo(stage.as_of) : stage.status.replace("_", " ")}
+              {stage.as_of ? fmtAgo(stage.as_of) : spaced(stage.status)}
             </span>
           </a>
         </div>

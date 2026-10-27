@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, spaced } from "@/lib/utils";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { StageStatus } from "@/lib/types";
 
@@ -57,7 +57,7 @@ export function StatusChip({ status }: { status: StageStatus }) {
         STATUS_STYLE[status],
       )}
     >
-      {status.replace("_", " ")}
+      {spaced(status)}
     </span>
   );
 }
@@ -137,7 +137,7 @@ export function RowsTable<R extends object>({
                 numeric(c, rows[0][c]) && "text-right",
               )}
             >
-              {labels?.[c] ?? c.replaceAll("_", " ")}
+              {labels?.[c] ?? spaced(c)}
             </th>
           ))}
         </tr>
@@ -187,6 +187,7 @@ export function RowsTable<R extends object>({
  */
 export function Panel<R extends object>({
   title,
+  count,
   question,
   rows = [],
   error,
@@ -201,6 +202,8 @@ export function Panel<R extends object>({
   scroll,
 }: {
   title: string;
+  /** A muted count beside the title. */
+  count?: number;
   question: string;
   rows?: R[];
   error?: string;
@@ -216,8 +219,8 @@ export function Panel<R extends object>({
 }) {
   return (
     <section className={cn("flex min-w-0 flex-col gap-2", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <SectionTitle title={title} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionTitle title={title} count={count} />
         {aside}
       </div>
       <p className="text-xs text-[var(--text-secondary)]">{question}</p>
@@ -231,6 +234,44 @@ export function Panel<R extends object>({
         <Lineage source={source} asOf={asOf} />
       </div>
     </section>
+  );
+}
+
+/** The border and fill of a filter button, pressed or not (toggle groups, the lifecycle matrix). */
+export function pressable(pressed: boolean): string {
+  return cn(
+    "border transition-colors",
+    pressed
+      ? "border-[var(--text-secondary)] bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+      : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+  );
+}
+
+/** The finder box a list page filters its rows with. */
+export function SearchInput({
+  value,
+  onChange,
+  label,
+  hint,
+  onKeyDown,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  /** What a keystroke does, for screen readers (appended to the label). */
+  hint?: string;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+}) {
+  return (
+    <input
+      type="search"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder={label}
+      aria-label={hint ? `${label}; ${hint}` : label}
+      className="w-full sm:w-64 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm placeholder:text-[var(--text-muted)] focus:border-[var(--accent-cyan)] focus:outline-none"
+    />
   );
 }
 
@@ -258,10 +299,8 @@ export function ToggleGroup<V>({
           aria-pressed={selected === o.value}
           onClick={() => onSelect(o.value)}
           className={cn(
-            "flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors",
-            selected === o.value
-              ? "border-[var(--text-secondary)] bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-              : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+            "flex items-center gap-2 rounded-md px-2.5 py-1 text-xs",
+            pressable(selected === o.value),
           )}
         >
           {o.content}

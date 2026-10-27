@@ -180,3 +180,46 @@ export interface Passport {
   restatements: Section<Record<string, unknown>>;
   tags: Section<Record<string, unknown>>;
 }
+
+/** The UCR lifecycle, in the order a concept moves through it. */
+export const CONCEPT_STATUSES = ["candidate", "shadow_only", "active", "deprecated"] as const;
+export type ConceptStatus = (typeof CONCEPT_STATUSES)[number];
+
+/** One registry concept with its latest evaluation and transition (src/api/routes/concepts.py). */
+export interface ConceptRow {
+  domain: string;
+  name: string;
+  group_name: string | null;
+  status: ConceptStatus;
+  enabled: boolean;
+  is_control: boolean;
+  control_expectation: string | null;
+  evidence_kind: string | null;
+  /** The IC regime-shift guard (feature_ic evidence only); the verdict is `passed`. */
+  guard_status: string | null;
+  passed: boolean | null;
+  statistic: number | null;
+  n_cells: number | null;
+  evaluated_at: string | null;
+  from_status: string | null;
+  to_status: string | null;
+  trigger_reason: string | null;
+  triggered_at: string | null;
+}
+
+export interface IcStoreRow {
+  tf: string;
+  regime_scope: string;
+  lookahead_bars: number;
+  rows: number;
+  features: number;
+  features_passing_fdr: number;
+  window_end: string | null;
+  computed_at: string | null;
+}
+
+/** GET /api/concepts/summary. */
+export interface ConceptsSummary {
+  concepts: Section<ConceptRow>;
+  ic: Envelope<IcStoreRow, { detail?: string }>;
+}

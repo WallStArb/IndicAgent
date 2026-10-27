@@ -20,6 +20,7 @@ from src.observability.metrics import API_HEALTH
 from ..core import DatabaseManager
 from . import dependencies
 from .routes import (
+    concepts,
     data,
     health,
     instruments,
@@ -158,6 +159,7 @@ app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(universe.router, prefix="/api/universe", tags=["universe"])
+app.include_router(concepts.router, prefix="/api/concepts", tags=["concepts"])
 app.include_router(vocabulary.router, prefix="/api/vocabulary", tags=["vocabulary"])
 
 

@@ -155,6 +155,14 @@ Progress:
   and polled at `ui.dashboard.passport_refresh_seconds`). The map's legend is its filter; the table under it lists the names needing
   attention. The passport's history lanes show vendor handoffs and holes the coverage ledger
   cannot (AAPL: 1d Tradier to IBKR on 2026-10-07, derived 15m/1h stopping 2026-10-16).
+- Slice 4 (Concepts) landed 2026-10-27. `/api/concepts/summary` (`src/api/routes/concepts.py`)
+  returns every registry concept with the evaluation for its newest window (the window the
+  lifecycle judges on), the stored pass/fail and IC guard, and its latest transition; plus the
+  fresh IC store per (timeframe, regime scope, horizon) at each group's newest training window,
+  with an empty state naming 186-26. The page's lifecycle matrix (domain by state) is its filter.
+  Shared UI added: `SearchInput`, `pressable`, `Panel` `count`, `spaced` in `lib/utils.ts`.
+  Deferred from the review: `Panel` taking a whole section envelope (`section={env}`) instead of
+  source, as_of, error and empty text one by one, which touches every page.
 
 ## Out of scope
 

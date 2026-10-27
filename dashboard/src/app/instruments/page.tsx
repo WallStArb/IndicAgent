@@ -10,6 +10,7 @@ import {
   LoadingNote,
   PageHeader,
   RowsTable,
+  SearchInput,
   SectionTitle,
   ToggleGroup,
 } from "@/components/cockpit";
@@ -114,16 +115,14 @@ export default function InstrumentsPage() {
         <div className="flex flex-col gap-4 p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Legend rows={rows} selected={selected} onToggle={(s) => setSelected(selected === s ? null : s)} />
-            <input
-              type="search"
+            <SearchInput
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={setQuery}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && rows.some((r) => r.symbol === q)) router.push(passportHref(q));
               }}
-              placeholder="Find a symbol or name"
-              aria-label="Find a symbol or name; Enter opens an exact symbol"
-              className="w-64 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm placeholder:text-[var(--text-muted)] focus:border-[var(--accent-cyan)] focus:outline-none"
+              label="Find a symbol or name"
+              hint="Enter opens an exact symbol"
             />
           </div>
 
