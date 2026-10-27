@@ -46,7 +46,7 @@ time goes to the build. STATE.md holds current position only; PRIORITIES.md tier
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition built (todo 447, 2026-09-27); attempts (442) continue in this lane |
 | 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. Tradier is the primary 1d source from 2026-10-03 (IBKR serves intraday and the names Tradier cannot). Clears the data bar for daily attempts | Planned 2026-09-27, plan 25 added 2026-10-03: 26 plans in 12 waves; plan-checker passed (`959ec85ea`) before plan 25; ready to execute |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Planned 2026-09-27: 29 plans written; plan-checker pass in progress (186 session); no live ic_engine run |
-| 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on family 2's evidence run (183 plan 10 done) |
+| 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Executing: plans 01-07 landed (03 and 05 runs pending), 08-17 next; plan 18 (package renames) waits on family 2's evidence run |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
 
@@ -547,11 +547,32 @@ recipe book's feature domain: a base-versus-interaction composition key replaces
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
 the phase 183 runner's M = 30 accounting stays in force.
-**Plans:** 0 plans
+**Plans:** 18 plans. Status 2026-10-27: plans 01-07 landed. 03's backfill run and 05's full
+battery run are pending (stopped by the session memory reaper; restart waits on the owner), so
+no StepM selection set counts as a result yet. Plan 18 renames the research package and waits
+until family 2's one evidence run (after phase 191 plan 25) has finished; plans 08-17 do not
+move a recorded spec hash and proceed now.
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 187 to break down)
+- [x] 187-01-PLAN.md - migration 515: recipe book and selection-universe schema (wave 1)
+- [x] 187-02-PLAN.md - S6 ledger records each attempt's E17 D_s series and headline numbers
+- [x] 187-03-PLAN.md - replay backfill of the pre-515 series (code landed; 8 of 20 replays and --apply pending)
+- [x] 187-04-PLAN.md - Romano-Wolf StepM in statistics/
+- [x] 187-05-PLAN.md - StepM through the E17 H0 battery (code landed; full 13-cell run pending)
+- [x] 187-06-PLAN.md - the E18 switch: exploration mode, no M refusal, select_books, migration 516
+- [x] 187-07-PLAN.md - ConstructionRule protocol, five rules, E17 parity harness
+- [ ] 187-08-PLAN.md - horizon rule (fourth part of the book) and the E17 memory rule for fitted books
+- [ ] 187-09-PLAN.md - combining rules: missing members, in-fold signs, calendar-anchored refits
+- [ ] 187-10-PLAN.md - pod books (P&L-level combination across clocks)
+- [ ] 187-11-PLAN.md - recipe book identity and recipe writes on the clean schema
+- [ ] 187-12-PLAN.md - ConceptRegistryService on the clean schema; todo 459
+- [ ] 187-13-PLAN.md - summary cards and the generated ledger
+- [ ] 187-14-PLAN.md - contribution accounting (S8 extension)
+- [ ] 187-15-PLAN.md - generated_family grammar support in the spec
+- [ ] 187-16-PLAN.md - YAML DAG manifest read by service_auditor and the orchestrator
+- [ ] 187-17-PLAN.md - single_writer enforced by per-writer database roles
+- [ ] 187-18-PLAN.md - research package split and renames, todo 430 step 4 (after family 2)
 
 ### Phase 188: Forward runner and capital tier
 

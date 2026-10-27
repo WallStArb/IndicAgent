@@ -41,5 +41,5 @@ the bound.
 
 The full 13-cell battery under studentize="draw" was started and then stopped by the session's
 memory reaper before any cell was saved (the driver now appends each finished cell to
-`<out>.partial.jsonl`). It must rerun and hold in every gating cell before plan 06 enables
-selection. The diagnostic cells document known E17 limits and do not gate.
+`<out>.partial.jsonl`). It must rerun and hold in every gating cell before any selection
+set from `select_books.py` (plan 06, landed) counts as a result. The diagnostic cells document known E17 limits and do not gate.
