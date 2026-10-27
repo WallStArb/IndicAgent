@@ -522,10 +522,22 @@ def _parse_date(text: str) -> date:
     return date.fromisoformat(text)
 
 
-# --plan (migration 520, D-191-P): a ranking decision applied as one transaction.
+# --plan (migration 520, D-191-P): a ranking decision applied as one transaction. The 1d decision
+# (D-191-Q, todo 545) extends it: retire_defaults takes every live default of the timeframe out of
+# force (the closed Tradier default and the open IBKR default) instead of closing the open one at
+# the seam, and the plan names every live symbol row explicitly, each either retired with a
+# disposition (replaced by a new symbol row, or confirmed by the arbitration) or kept.
 _RETIRE_SYMBOL_ROWS_SQL = """
 UPDATE bar_source_policy SET retired_at = now(), retired_reason = $2
 WHERE timeframe = $1 AND symbol IS NOT NULL AND retired_at IS NULL
+"""
+_RETIRE_ROW_SQL = """
+UPDATE bar_source_policy SET retired_at = now(), retired_reason = $2
+WHERE policy_id = $1::uuid AND symbol IS NOT NULL AND retired_at IS NULL
+"""
+_RETIRE_DEFAULTS_SQL = """
+UPDATE bar_source_policy SET retired_at = now(), retired_reason = $2
+WHERE timeframe = $1 AND symbol IS NULL AND retired_at IS NULL
 """
 _CLOSE_DEFAULT_SQL = """
 UPDATE bar_source_policy SET valid_to = $2
@@ -535,25 +547,87 @@ _LIVE_ROWS_SQL = """
 SELECT count(*) FILTER (WHERE symbol IS NOT NULL), count(*) FILTER (WHERE symbol IS NULL)
 FROM bar_source_policy_current WHERE timeframe = $1
 """
+_LIVE_SYMBOL_IDS_SQL = """
+SELECT policy_id::text AS policy_id FROM bar_source_policy_current
+WHERE timeframe = $1 AND symbol IS NOT NULL
+"""
+DISPOSITIONS = ("replaced", "confirmed")
+# Timeframes whose plan must name every live symbol row (an implicit retire-all would drop the
+# 185-37 evidence rows unread).
+EXPLICIT_TIMEFRAMES = frozenset({"1d"})
 
 
 @dataclass(frozen=True)
 class PolicyPlan:
-    """A ranking decision for one timeframe (--plan): retire every live symbol row, close the live
-    default at `seam` (it stays the rule before the seam), insert `defaults` from the seam on. All
-    or nothing, one transaction."""
+    """A ranking decision for one timeframe (--plan). Default: retire every live symbol row,
+    close the live default at `seam` (it stays the rule before the seam), insert `defaults` from
+    the seam on. With retire_defaults every live default is retired and `defaults` tile the whole
+    span; with explicit symbol-row lists only the named rows retire and `symbol_rows` are
+    inserted. All or nothing, one transaction."""
 
     timeframe: str
     seam: date
     defaults: tuple[dict[str, Any], ...]
     reason: str
     evidence: dict[str, Any]
+    retire_defaults: bool = False
+    symbol_rows: tuple[dict[str, Any], ...] = ()
+    retire_symbol_rows: tuple[dict[str, Any], ...] | None = None
+    keep_symbol_rows: tuple[dict[str, Any], ...] = ()
+
+
+def _plan_row(raw: dict[str, Any], row: dict[str, Any], symbol: str | None) -> dict[str, Any]:
+    return {
+        "timeframe": raw["timeframe"],
+        "symbol": symbol,
+        "valid_from": _parse_date(row["valid_from"]),
+        "valid_to": _parse_date(row["valid_to"]) if row.get("valid_to") else None,
+        "primary_source": row["primary"],
+        "fallback_source": row.get("fallback"),
+        "reason": raw["reason"],
+        "evidence": row.get("evidence", raw["evidence"]) if symbol else raw["evidence"],
+    }
+
+
+def _parse_symbol_lists(
+    raw: dict[str, Any], symbol_rows: list[dict[str, Any]]
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    retire = tuple(raw["retire_symbol_rows"])
+    keep = tuple(raw.get("keep_symbol_rows") or ())
+    new_symbols = {r["symbol"] for r in symbol_rows}
+    seen: set[str] = set()
+    for row in (*retire, *keep):
+        if row["policy_id"] in seen:
+            raise ValueError(f"symbol row {row['policy_id']} is listed twice")
+        seen.add(row["policy_id"])
+    for row in retire:
+        if row.get("disposition") not in DISPOSITIONS:
+            raise ValueError(
+                f"{row['symbol']}: disposition {row.get('disposition')!r} is not one of "
+                f"{DISPOSITIONS}"
+            )
+        if not isinstance(row.get("evidence"), dict):
+            raise ValueError(f"{row['symbol']}: a retired row needs its evidence object")
+        if row["disposition"] == "replaced" and row["symbol"] not in new_symbols:
+            raise ValueError(
+                f"{row['symbol']}: replaced, but the plan has no new symbol row for it"
+            )
+    for row in keep:
+        if not row.get("reason"):
+            raise ValueError(f"{row['symbol']}: a kept row needs its reason")
+        if row["symbol"] in new_symbols:
+            raise ValueError(
+                f"{row['symbol']}: a kept row and new symbol rows of one name would overlap"
+            )
+    return retire, keep
 
 
 def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
-    """Validate a --plan file. The new defaults must tile [seam, open end) with no gap or overlap:
-    the closed old default covers everything before the seam, so the timeframe is never left
-    without a policy and no new row can overlap it."""
+    """Validate a --plan file. The new defaults must tile [first, open end) with no gap or
+    overlap. Without retire_defaults they start at the seam (the closed old default covers the
+    span before it); with it the seam is one of their boundaries. A 1d plan names every live
+    symbol row: retire_symbol_rows (disposition replaced or confirmed, with evidence) and
+    keep_symbol_rows (with a reason); a replaced name has new symbol_rows."""
     for key in ("timeframe", "seam", "defaults", "reason", "evidence"):
         if key not in raw:
             raise ValueError(f"plan needs {key!r}")
@@ -562,32 +636,98 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
     if not isinstance(raw["evidence"], dict) or not raw["evidence"]:
         raise ValueError("plan evidence must be a non-empty JSON object")
     seam = _parse_date(raw["seam"])
-    defaults = []
-    for row in raw["defaults"]:
-        defaults.append(
-            {
-                "timeframe": raw["timeframe"],
-                "symbol": None,
-                "valid_from": _parse_date(row["valid_from"]),
-                "valid_to": _parse_date(row["valid_to"]) if row.get("valid_to") else None,
-                "primary_source": row["primary"],
-                "fallback_source": row.get("fallback"),
-                "reason": raw["reason"],
-                "evidence": raw["evidence"],
-            }
+    retire_defaults = bool(raw.get("retire_defaults", False))
+    explicit = raw.get("retire_symbol_rows") is not None
+    if raw["timeframe"] in EXPLICIT_TIMEFRAMES and not explicit:
+        raise ValueError(
+            f"a {raw['timeframe']} plan must name every live symbol row explicitly "
+            "(retire_symbol_rows and keep_symbol_rows)"
         )
-    defaults.sort(key=lambda r: r["valid_from"])
+    defaults = sorted(
+        (_plan_row(raw, row, None) for row in raw["defaults"]), key=lambda r: r["valid_from"]
+    )
     if not defaults or defaults[-1]["valid_to"] is not None:
         raise ValueError("the last new default must be open-ended")
     for before, after in zip(defaults, defaults[1:], strict=False):
         if before["valid_to"] != after["valid_from"]:
             raise ValueError(f"new defaults leave a gap or overlap at {before['valid_to']}")
-    if defaults[0]["valid_from"] != seam:
+    if retire_defaults:
+        if seam not in {r["valid_from"] for r in defaults}:
+            raise ValueError(f"the seam {seam} is not a boundary of the new defaults")
+    elif defaults[0]["valid_from"] != seam:
         raise ValueError(
             f"the new defaults must start at the seam {seam}; the closed old default covers "
             "the span before it"
         )
-    return PolicyPlan(raw["timeframe"], seam, tuple(defaults), raw["reason"], raw["evidence"])
+    symbol_rows: list[dict[str, Any]] = []
+    for row in raw.get("symbol_rows") or ():
+        if not isinstance(row.get("evidence"), dict) or not row["evidence"]:
+            raise ValueError(f"{row.get('symbol')}: a symbol row needs a non-empty evidence object")
+        symbol_rows.append(_plan_row(raw, row, row["symbol"]))
+    if symbol_rows and not explicit:
+        raise ValueError("new symbol rows need the explicit symbol-row lists")
+    symbol_rows.sort(key=lambda r: (r["symbol"], r["valid_from"]))
+    for before, after in zip(symbol_rows, symbol_rows[1:], strict=False):
+        if before["symbol"] == after["symbol"] and (
+            before["valid_to"] is None or before["valid_to"] > after["valid_from"]
+        ):
+            raise ValueError(
+                f"{before['symbol']}: new symbol rows overlap at {after['valid_from']}"
+            )
+    retire, keep = _parse_symbol_lists(raw, symbol_rows) if explicit else (None, ())
+    return PolicyPlan(
+        raw["timeframe"],
+        seam,
+        tuple(defaults),
+        raw["reason"],
+        raw["evidence"],
+        retire_defaults=retire_defaults,
+        symbol_rows=tuple(symbol_rows),
+        retire_symbol_rows=retire,
+        keep_symbol_rows=keep,
+    )
+
+
+def _count(status: object) -> int:
+    return int(str(status).split()[-1])
+
+
+async def _retire_named_symbol_rows(conn: Any, plan: PolicyPlan) -> int:
+    """Retire exactly the rows the plan names; refuse when a live row is unnamed or a named row
+    is not live (the plan was built on another state of the table)."""
+    assert plan.retire_symbol_rows is not None
+    live = {r["policy_id"] for r in await conn.fetch(_LIVE_SYMBOL_IDS_SQL, plan.timeframe)}
+    named = {r["policy_id"] for r in (*plan.retire_symbol_rows, *plan.keep_symbol_rows)}
+    if live - named:
+        raise ValueError(
+            f"{plan.timeframe}: {len(live - named)} live symbol row(s) not named by the plan: "
+            f"{sorted(live - named)[:10]}"
+        )
+    if named - live:
+        raise ValueError(
+            f"{plan.timeframe}: {len(named - live)} named row(s) are not live: "
+            f"{sorted(named - live)[:10]}"
+        )
+    for row in plan.retire_symbol_rows:
+        reason = f"{plan.reason}: {row['disposition']}"
+        if _count(await conn.execute(_RETIRE_ROW_SQL, row["policy_id"], reason)) != 1:
+            raise ValueError(f"symbol row {row['policy_id']} did not retire")
+    return len(plan.retire_symbol_rows)
+
+
+async def _insert(conn: Any, plan: PolicyPlan, row: dict[str, Any]) -> None:
+    await conn.execute(
+        _INSERT_POLICY_SQL,
+        plan.timeframe,
+        row["symbol"],
+        row["valid_from"],
+        row["valid_to"],
+        INGRESS_MODE.get(plan.timeframe, DEFAULT_INGRESS_MODE),
+        row["primary_source"],
+        row["fallback_source"],
+        row["reason"],
+        json.dumps(row["evidence"]),
+    )
 
 
 async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, int]:
@@ -596,29 +736,25 @@ async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, i
     await tx.start()
     try:
         before = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
-        retired = int(
-            str(await conn.execute(_RETIRE_SYMBOL_ROWS_SQL, plan.timeframe, plan.reason)).split()[
-                -1
-            ]
-        )
-        closed = int(
-            str(await conn.execute(_CLOSE_DEFAULT_SQL, plan.timeframe, plan.seam)).split()[-1]
-        )
-        if closed != 1:
-            raise ValueError(f"{plan.timeframe}: {closed} live open defaults closed, not 1")
-        for row in plan.defaults:
-            await conn.execute(
-                _INSERT_POLICY_SQL,
-                plan.timeframe,
-                None,
-                row["valid_from"],
-                row["valid_to"],
-                INGRESS_MODE.get(plan.timeframe, DEFAULT_INGRESS_MODE),
-                row["primary_source"],
-                row["fallback_source"],
-                row["reason"],
-                json.dumps(row["evidence"]),
+        if plan.retire_symbol_rows is not None:
+            retired = await _retire_named_symbol_rows(conn, plan)
+        else:
+            retired = _count(
+                await conn.execute(_RETIRE_SYMBOL_ROWS_SQL, plan.timeframe, plan.reason)
             )
+        closed = defaults_retired = 0
+        if plan.retire_defaults:
+            defaults_retired = _count(
+                await conn.execute(_RETIRE_DEFAULTS_SQL, plan.timeframe, plan.reason)
+            )
+            if defaults_retired < 1:
+                raise ValueError(f"{plan.timeframe}: no live default to retire")
+        else:
+            closed = _count(await conn.execute(_CLOSE_DEFAULT_SQL, plan.timeframe, plan.seam))
+            if closed != 1:
+                raise ValueError(f"{plan.timeframe}: {closed} live open defaults closed, not 1")
+        for row in (*plan.defaults, *plan.symbol_rows):
+            await _insert(conn, plan, row)
         after = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
     except BaseException:
         await tx.rollback()
@@ -631,8 +767,11 @@ async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, i
         "symbol_rows_before": before[0],
         "defaults_before": before[1],
         "retired": retired,
+        "kept": len(plan.keep_symbol_rows),
         "default_closed": closed,
+        "defaults_retired": defaults_retired,
         "inserted": len(plan.defaults),
+        "symbol_rows_inserted": len(plan.symbol_rows),
         "symbol_rows_after": after[0],
         "defaults_after": after[1],
     }
@@ -751,10 +890,19 @@ async def _main(args: argparse.Namespace) -> int:
             plan = parse_plan(json.loads(Path(args.plan).read_text()))
             check_vendors(
                 await read_vendor_codes(conn),
-                *[v for r in plan.defaults for v in (r["primary_source"], r["fallback_source"])],
+                *[
+                    v
+                    for r in (*plan.defaults, *plan.symbol_rows)
+                    for v in (r["primary_source"], r["fallback_source"])
+                ],
             )
             counts = await apply_plan(conn, plan, apply=args.apply)
             print(f"{'applied' if args.apply else 'dry run (rolled back)'}: {counts}")
+            if plan.timeframe == "1d":
+                print(
+                    "next: the daily stage re-derives 1d under the new rows (plan 20 Task 3, "
+                    "services.bar_derivation --stage daily); D7 judges it"
+                )
             if plan.timeframe in DIRECT_TIMEFRAMES:
                 print(
                     f"next, before any {plan.timeframe} consumer runs: --reselect-only "
