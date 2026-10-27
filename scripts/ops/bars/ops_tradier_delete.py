@@ -79,6 +79,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import fcntl
 import gzip
 import hashlib
 import json
@@ -86,7 +87,8 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -459,6 +461,11 @@ def trial_refusal(
     free space above the floor. A trial that freed disk counts as zero growth."""
     if report is None:
         return "no trial report for this manifest: run --trial SYMBOL --apply first"
+    if report.get("recovered"):
+        return (
+            "the latest trial report was recovered after a crash (no per-table timings, and its "
+            "disk delta spans the crash); run a fresh trial on another symbol"
+        )
     rows = int(report["rows_total"])
     if rows <= 0:
         return "the trial deleted no rows; its disk delta says nothing"
@@ -491,11 +498,30 @@ def delete_batch(
     Before any delete, each (table, symbol) is recounted and its content digest recomputed in the
     transaction's snapshot and must equal the manifest; then every DELETE's row count must equal
     the batch's manifest total and the load delete must cascade into nothing. Any difference
-    raises DeleteRefused and rolls the whole batch back.
+    raises DeleteRefused and rolls the whole batch back. The connection returns to READ COMMITTED
+    however the batch ends.
     """
+    conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+    try:
+        return _delete_batch_transaction(
+            conn, batch, held, expected, free_bytes=free_bytes, clock=clock
+        )
+    finally:
+        conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
+
+
+def _delete_batch_transaction(
+    conn: Any,
+    batch: Sequence[str],
+    held: Sequence[str],
+    expected: Mapping[str, Mapping[str, tuple[int, str]]],
+    *,
+    free_bytes: Callable[[], int],
+    clock: Callable[[], float],
+) -> dict[str, dict[str, Any]]:
+    """delete_batch's transaction (the caller sets and resets the isolation level)."""
     params = {"batch": list(batch), "held": list(held)}
     timings: dict[str, dict[str, Any]] = {}
-    conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(DECOMPRESSION_LIMIT_SQL)
@@ -537,7 +563,6 @@ def delete_batch(
                     "seconds": round(elapsed, 3),
                     "disk_delta_bytes": free_before - free_after,
                 }
-    conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
     return timings
 
 
@@ -791,9 +816,16 @@ def batch_counts(conn: Any, batch: Sequence[str], held: Sequence[str]) -> dict[s
 
 
 def _connect() -> psycopg.Connection:
-    return psycopg.connect(
+    """The production connection; its unqualified table names must resolve to public only."""
+    conn = psycopg.connect(
         get_settings().database_url, options="-c timezone=UTC -c statement_timeout=0"
     )
+    schemas = conn.execute("SELECT current_schemas(false)").fetchone()[0]
+    conn.rollback()
+    if list(schemas) != ["public"]:
+        conn.close()
+        raise SystemExit(f"REFUSED: session schemas {schemas}, expected ['public'] only")
+    return conn
 
 
 async def _read_apr_async() -> tuple[int, int]:
@@ -1132,7 +1164,12 @@ def run_verify(args: argparse.Namespace, rt: Runtime = PRODUCTION) -> int:
     if args.require_complete and not complete:
         print("VERIFY FAILED: the delete is not complete", file=sys.stderr)
         return EXIT_VERIFY_FAILED
-    phase = "deleted, zero Tradier rows remain" if complete else "backup matches live"
+    phase = (
+        "deleted, zero Tradier rows remain"
+        if complete
+        else "live and backup-file row counts match the manifest (counts and file sha256 only; "
+        "row content is compared per batch at delete time)"
+    )
     print(f"verify ok: {phase}")
     return EXIT_OK
 
@@ -1304,8 +1341,37 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@contextmanager
+def state_lock(log_dir: Path) -> Iterator[bool]:
+    """An exclusive non-blocking flock beside the state file (the state file itself is replaced
+    atomically, so the lock lives on a stable sibling); yields False when another run holds it."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with (log_dir / f"{_STATE_NAME}.lock").open("a") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def main(argv: Sequence[str] | None = None, rt: Runtime = PRODUCTION) -> int:
     args = build_parser().parse_args(argv)
+    if args.apply and (args.dump or args.trial or args.delete):
+        with state_lock(args.log_dir) as acquired:
+            if not acquired:
+                print(
+                    "REFUSED: another dump, trial or delete holds the state lock", file=sys.stderr
+                )
+                return EXIT_REFUSED
+            return _run_mode(args, rt)
+    return _run_mode(args, rt)
+
+
+def _run_mode(args: argparse.Namespace, rt: Runtime) -> int:
     if args.dump:
         return run_dump(args, rt)
     if args.verify:
