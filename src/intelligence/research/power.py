@@ -22,6 +22,8 @@ from typing import Any
 
 import numpy as np
 
+from src.intelligence.research.construction import ConstructionRule
+
 
 @dataclasses.dataclass(frozen=True)
 class ReplicateOutcome:
@@ -77,7 +79,7 @@ class PowerProblem:
     valid: np.ndarray
     members: tuple[tuple[Callable, dict], ...]
     coverage_floor: int
-    direction: float
+    rule: ConstructionRule  # R1 during discovery; its coverage_floor sizes the book
     combiner: Any  # a combiner.Combiner (EqualWeight or RidgeSpec)
     vol_window_rows: int
     vol_min_finite: int
@@ -111,8 +113,7 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
         vol,
         trade_mask(problem.dates, problem.cfg) & problem.valid,
         combiner=problem.combiner,
-        direction=problem.direction,
-        coverage_floor=problem.coverage_floor,
+        rule=problem.rule,
         bars_per_session=bps,
         warmup_sessions=problem.cfg.warmup_sessions,
         memory_sessions=problem.memory_sessions,

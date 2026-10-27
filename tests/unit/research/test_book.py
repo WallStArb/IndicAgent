@@ -4,6 +4,7 @@ import numpy as np
 
 from src.intelligence.research.book import book_memory_rows, book_timing
 from src.intelligence.research.combiner import RidgeSpec, walk_forward_ridge
+from src.intelligence.research.construction import RankVolNeutral
 from src.intelligence.research.portfolio import rank_vol_neutral_weights
 from src.intelligence.research.timing import timing_test
 
@@ -25,8 +26,7 @@ def test_book_timing_is_ridge_then_r1_then_timing():
         vol,
         trade,
         combiner=RIDGE,
-        direction=1.0,
-        coverage_floor=20,
+        rule=RankVolNeutral(1.0, 20),
         bars_per_session=BPS,
         warmup_sessions=60,
         memory_sessions=5,

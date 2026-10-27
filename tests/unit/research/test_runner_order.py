@@ -387,6 +387,17 @@ def test_refuses_spec_written_before_e17(repo, saved_panel):
     assert "has_real_run" not in ledger.calls  # refused at the spec check, before the ledger
 
 
+def test_refuses_a_construction_other_than_r1(repo, saved_panel):
+    """The calibrated and fixed-sign rules are the construction attempt at capital readiness:
+    the runner refuses them before the ledger until it builds their covariance plan."""
+    other = _spec_text().replace("name: rank_vol_neutral", "name: mean_variance")
+    assert other != _spec_text()
+    (repo / SPEC_PATH).write_text(other)
+    _git(repo, "commit", "-qam", "mean-variance construction")
+    ledger = _refused(repo, saved_panel)
+    assert "has_real_run" not in ledger.calls
+
+
 def test_exploration_repeats_a_spec_is_counted_and_skips_the_shift_null(repo, saved_panel):
     ledger = FakeLedger(prior=True)  # a real run of this spec already exists
     requests = []

@@ -11,6 +11,7 @@ import pytest
 
 from src.intelligence.research.book import book_timing
 from src.intelligence.research.combiner import RidgeSpec
+from src.intelligence.research.construction import RankVolNeutral
 from src.intelligence.research.evaluate import trade_mask
 from src.intelligence.research.families.intraday_periodicity import SameSlotPlant, same_slot_mean
 from src.intelligence.research.portfolio import trailing_vol
@@ -97,7 +98,7 @@ def _problem(plant, sessions=400, m=30, bar=0.05):
         valid=np.ones(n, dtype=bool),
         members=MEMBERS2,
         coverage_floor=20,
-        direction=1.0,
+        rule=RankVolNeutral(1.0, 20),
         combiner=RIDGE,
         vol_window_rows=20 * BPS,
         vol_min_finite=10 * BPS,
@@ -120,8 +121,7 @@ def test_replicate_is_the_real_statistic_on_a_planted_panel():
         vol,
         trade,
         combiner=RIDGE,
-        direction=1.0,
-        coverage_floor=20,
+        rule=RankVolNeutral(1.0, 20),
         bars_per_session=BPS,
         warmup_sessions=60,
         memory_sessions=5,

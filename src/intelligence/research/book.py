@@ -21,8 +21,8 @@ from collections.abc import Sequence
 import numpy as np
 
 from src.intelligence.research.combiner import Combiner
+from src.intelligence.research.construction import ConstructionRule
 from src.intelligence.research.panel import fwd_span
-from src.intelligence.research.portfolio import rank_vol_neutral_weights
 from src.intelligence.research.timing import TimingResult, timing_test
 
 
@@ -30,7 +30,7 @@ from src.intelligence.research.timing import TimingResult, timing_test
 class BookResult:
     timing: TimingResult
     combined: np.ndarray  # [n, m] walk-forward combined alpha
-    weights: np.ndarray  # [n, m] R1 weights of the combined alpha
+    weights: np.ndarray  # [n, m] the construction rule's weights of the combined alpha
     has_position: np.ndarray  # [n]
 
 
@@ -41,16 +41,13 @@ def book_timing(
     trade: np.ndarray,
     *,
     combiner: Combiner,
-    direction: float,
-    coverage_floor: int,
+    rule: ConstructionRule,
     bars_per_session: int,
     warmup_sessions: int,
     memory_sessions: int,
 ) -> BookResult:
     combined = combiner.combine(stack, fwd)
-    weights, has_position = rank_vol_neutral_weights(
-        combined, vol=vol, direction=direction, coverage_floor=coverage_floor
-    )
+    weights, has_position = rule.weights(combined, vol=vol, fwd=fwd, plan=None)
     timing = timing_test(
         weights,
         fwd,

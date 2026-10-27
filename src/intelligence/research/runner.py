@@ -53,6 +53,7 @@ from src.intelligence.research import (
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.book import book_memory_rows, book_timing
 from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec
+from src.intelligence.research.construction import resolve_rule
 from src.intelligence.research.evaluate import (
     PoolFactory,
     evaluate,
@@ -68,11 +69,7 @@ from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.ledger import AttemptSeries, Identity, LedgerRefusal, RunRequest
 from src.intelligence.research.panel import Panel, fwd_span
-from src.intelligence.research.portfolio import (
-    rank_vol_neutral_returns,
-    rank_vol_neutral_weights,
-    trailing_vol,
-)
+from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
 from src.intelligence.research.spec import (
     TIMING_STATISTIC,
     BookSpec,
@@ -304,7 +301,14 @@ def _check_spec_tree(loaded: LoadedSpec) -> None:
             _check_spec(spec)
     # A real record's spec hash names its decision statistic (E17): a spec written before E17
     # never runs, and re-scoring one under E17 is a new spec hash, not the old one reused.
+    # The calibrated and fixed-sign rules size from a covariance plan the runner does not build
+    # yet: they are the construction attempt at capital readiness (design 4.3), not discovery.
     for spec in {id(s): s for s in [loaded.model, *specs]}.values():
+        if spec.construction.name != RANK_VOL_NEUTRAL_ARM:
+            raise RunRefused(
+                f"construction {spec.construction.name}: the runner runs R1 "
+                f"({RANK_VOL_NEUTRAL_ARM}) only during discovery (design 4.3)"
+            )
         if spec.scoring.timing_statistic != TIMING_STATISTIC:
             raise RunRefused(
                 f"spec predates {TIMING_STATISTIC}: scoring.timing_statistic must be "
@@ -421,7 +425,7 @@ def _shift_diagnostic(
     """The whole-session shift null of alpha under R1 and session scoring, a diagnostic since
     E16. (None, 0) when the panel admits no shift for this memory: the diagnostic is then
     absent, which never blocks a record."""
-    c, s = spec.construction, spec.scoring
+    s = spec.scoring
     n, bps = len(panel.timestamps), panel.bars_per_session
     try:
         shifts = session_shifts(n, bps, s.min_shift, memory)
@@ -437,12 +441,7 @@ def _shift_diagnostic(
         ic_shrinkage_k=s.ic_shrinkage_k,
         shifts=shifts,
         workers=ctx.workers,
-        construction=functools.partial(
-            rank_vol_neutral_returns,
-            vol=vol,
-            direction=float(c.direction),
-            coverage_floor=c.coverage_floor,
-        ),
+        construction=functools.partial(resolve_rule(spec, bps).returns, vol=vol),
         memory=memory,
         bars_per_session=bps,
         valid=panel.valid,
@@ -609,14 +608,10 @@ async def run_family(
                 if k in panel.manifest
             },
         }
+        rule = resolve_rule(spec, bps)
         for m in spec.members:
             alpha = members[m.name]
-            weights, has_position = rank_vol_neutral_weights(
-                alpha,
-                vol=vol,
-                direction=float(spec.construction.direction),
-                coverage_floor=spec.construction.coverage_floor,
-            )
+            weights, has_position = rule.weights(alpha, vol=vol, fwd=residuals.fwd, plan=None)
             timing = timing_test(
                 weights,
                 residuals.fwd,
@@ -769,7 +764,7 @@ def _power_problem(
         valid=np.asarray(panel.valid),
         members=tuple(members),
         coverage_floor=c.coverage_floor,
-        direction=float(c.direction),
+        rule=resolve_rule(book, bps),
         combiner=combiner,
         vol_window_rows=window,
         vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
@@ -956,7 +951,6 @@ async def run_book(
         _log("S8 book test")
         vol = _vol(book, residuals.bar, bps)
         cfg = book.scoring.evaluation_config()
-        c = book.construction
         trade = trade_mask(panel.timestamps, cfg) & panel.valid
         booked = book_timing(
             stack,
@@ -964,8 +958,7 @@ async def run_book(
             vol,
             trade,
             combiner=combiner,
-            direction=float(c.direction),
-            coverage_floor=c.coverage_floor,
+            rule=resolve_rule(book, bps),
             bars_per_session=bps,
             warmup_sessions=cfg.warmup_sessions,
             memory_sessions=max(slot_histories),
