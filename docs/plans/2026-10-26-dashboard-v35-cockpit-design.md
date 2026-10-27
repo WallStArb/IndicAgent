@@ -1,7 +1,10 @@
 # Dashboard for v3.5: a pipeline cockpit, one page per DAG stage
 
-Status: design, decided in session (owner asked 2026-10-26 to reimagine the dashboard for the new
-concepts and to keep going without checkpoints; every call below is open to override)
+Status: closed 2026-10-27. All six slices are served; the owner closed the lane because a
+dashboard cannot find edge, so the items left under Progress are recorded, not scheduled. Reopen
+only when phase 188 needs the Books page filled.
+Origin: owner asked 2026-10-26 to reimagine the dashboard for the new concepts and to keep going
+without checkpoints
 Author: Claude (session 2026-10-26)
 Informed by: `docs/plans/2026-09-26-unified-research-to-production-design.md` (the v3.5 DAG and
 invariants), `.planning/ROADMAP.md` phases 185-190, todo 509 (v2.x surface deleted 2026-10-26)
@@ -176,6 +179,12 @@ Progress:
   on, and the whole-book attempts already in the ledger (the shared `RunsTable`, the same rows the
   Research page lists). Every nav entry now has a page. The book filter moved to the API
   (`book_tests`, `BOOK_KINDS` in research.py) with migration 525.
+
+Closed 2026-10-27, not pursued (owner: the dashboard does not find edge): per-feed map state
+from `bar_source_policy_current`, trading-calendar session shading, the 2.3 s features-stage
+query plan, a ConfigService TTL, `Panel section={env}`, flagging attempts a dead runner left
+`started`, and deriving the route smoke test from OpenAPI. Each is a display refinement; none
+blocks research or phase 188.
 
 ## Out of scope
 

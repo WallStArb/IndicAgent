@@ -118,7 +118,6 @@ coordinate through cross-session messages before touching shared files.
 |---|---|---|
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
 | Research: phase 187 planning | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*` |
-| Dashboard v3.5 cockpit open items; todo 509 remainder | indicagent-1a | `dashboard/`, `src/api/`, `tests/unit/api/`, the cockpit design doc, DLQ, stream keys, observability |
 | Coordination: lane status, STATE, memory, priorities | indicagent-04 | cross-session messages; edits shared planning files only between lane commits |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
@@ -156,12 +155,9 @@ the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations:
 
 ## Open items that are not verdicts
 
-- Dashboard v3.5 cockpit (`docs/plans/2026-10-26-dashboard-v35-cockpit-design.md`): all six
-  slices are served on :3000 (Pipeline, Data, Instruments, Concepts, Research, Books; slice 6
-  `5d7d09e55`, migration 525 `576766c4f`). Books is the empty state until phase 188. Open items
-  are under that doc's Progress: per-feed map state (needs each name's expected feeds from
-  `bar_source_policy_current`), trading-calendar session shading, the 2.3 s features-stage query
-  plan, ConfigService without a TTL, and `Panel section={env}`.
+- Dashboard v3.5 cockpit closed 2026-10-27 (owner: a dashboard does not find edge). Six pages
+  are served on :3000; Books stays an empty state until phase 188. Unscheduled refinements are
+  listed in `docs/plans/2026-10-26-dashboard-v35-cockpit-design.md`.
 
 - The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward window
   (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`; todo 483 records
