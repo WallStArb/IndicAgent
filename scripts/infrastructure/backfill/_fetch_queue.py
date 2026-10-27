@@ -736,7 +736,7 @@ _LATEST_OWN_1D_SQL = (
 # symbol set the way _COVERAGE_SQL batches, timeframe defaults included (symbol IS NULL).
 _SOURCE_POLICY_SQL = (
     "SELECT timeframe, symbol, primary_source, fallback_source, valid_from, valid_to "
-    "FROM bar_source_policy WHERE symbol = ANY($1::text[]) OR symbol IS NULL"
+    "FROM bar_source_policy_current WHERE symbol = ANY($1::text[]) OR symbol IS NULL"
 )
 _DERIVED_SOURCE = "derived"
 

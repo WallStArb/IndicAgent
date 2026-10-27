@@ -124,7 +124,7 @@ SELECT EXISTS (SELECT 1 FROM market_data_ohlcv
                WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = $3)
 """
 _OVERLAPPING_ROW_SQL = """
-SELECT policy_id FROM bar_source_policy
+SELECT policy_id FROM bar_source_policy_current
 WHERE timeframe = $1 AND symbol = $2
   AND daterange(valid_from, valid_to, '[)') && daterange($3::date, $4::date, '[)')
 LIMIT 1
@@ -138,7 +138,7 @@ INGRESS_MODE = {"1d": "observed", "15m": "derived", "1h": "derived"}
 DEFAULT_INGRESS_MODE = "direct"
 TIMEFRAMES = ("1d", "5m", "1m", "15m", "1h", "4h")
 _DECIDED_SYMBOLS_SQL = """
-SELECT DISTINCT symbol FROM bar_source_policy WHERE timeframe = '1d' AND symbol IS NOT NULL
+SELECT DISTINCT symbol FROM bar_source_policy_current WHERE timeframe = '1d' AND symbol IS NOT NULL
 """
 _INSERT_POLICY_SQL = """
 INSERT INTO bar_source_policy
@@ -148,7 +148,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
 """
 _CLOSE_POLICY_SQL = """
 UPDATE bar_source_policy SET valid_to = $3
-WHERE timeframe = $1 AND symbol = $2 AND valid_to IS NULL
+WHERE timeframe = $1 AND symbol = $2 AND valid_to IS NULL AND retired_at IS NULL
 """
 # The same three statements for the --reselect path, which runs on one psycopg connection so the
 # policy write and select_and_write share a transaction.
@@ -521,6 +521,156 @@ def _parse_date(text: str) -> date:
     return date.fromisoformat(text)
 
 
+# --plan (migration 520, D-191-P): a ranking decision applied as one transaction.
+_RETIRE_SYMBOL_ROWS_SQL = """
+UPDATE bar_source_policy SET retired_at = now(), retired_reason = $2
+WHERE timeframe = $1 AND symbol IS NOT NULL AND retired_at IS NULL
+"""
+_CLOSE_DEFAULT_SQL = """
+UPDATE bar_source_policy SET valid_to = $2
+WHERE timeframe = $1 AND symbol IS NULL AND valid_to IS NULL AND retired_at IS NULL
+"""
+_LIVE_ROWS_SQL = """
+SELECT count(*) FILTER (WHERE symbol IS NOT NULL), count(*) FILTER (WHERE symbol IS NULL)
+FROM bar_source_policy_current WHERE timeframe = $1
+"""
+
+
+@dataclass(frozen=True)
+class PolicyPlan:
+    """A ranking decision for one timeframe (--plan): retire every live symbol row, close the live
+    default at `seam` (it stays the rule before the seam), insert `defaults` from the seam on. All
+    or nothing, one transaction."""
+
+    timeframe: str
+    seam: date
+    defaults: tuple[dict[str, Any], ...]
+    reason: str
+    evidence: dict[str, Any]
+
+
+def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
+    """Validate a --plan file. The new defaults must tile [seam, open end) with no gap or overlap:
+    the closed old default covers everything before the seam, so the timeframe is never left
+    without a policy and no new row can overlap it."""
+    for key in ("timeframe", "seam", "defaults", "reason", "evidence"):
+        if key not in raw:
+            raise ValueError(f"plan needs {key!r}")
+    if raw["timeframe"] not in TIMEFRAMES:
+        raise ValueError(f"unknown timeframe {raw['timeframe']!r}")
+    if not isinstance(raw["evidence"], dict) or not raw["evidence"]:
+        raise ValueError("plan evidence must be a non-empty JSON object")
+    seam = _parse_date(raw["seam"])
+    defaults = []
+    for row in raw["defaults"]:
+        defaults.append(
+            {
+                "timeframe": raw["timeframe"],
+                "symbol": None,
+                "valid_from": _parse_date(row["valid_from"]),
+                "valid_to": _parse_date(row["valid_to"]) if row.get("valid_to") else None,
+                "primary_source": row["primary"],
+                "fallback_source": row.get("fallback"),
+                "reason": raw["reason"],
+                "evidence": raw["evidence"],
+            }
+        )
+    defaults.sort(key=lambda r: r["valid_from"])
+    if not defaults or defaults[-1]["valid_to"] is not None:
+        raise ValueError("the last new default must be open-ended")
+    for before, after in zip(defaults, defaults[1:], strict=False):
+        if before["valid_to"] != after["valid_from"]:
+            raise ValueError(f"new defaults leave a gap or overlap at {before['valid_to']}")
+    if defaults[0]["valid_from"] != seam:
+        raise ValueError(
+            f"the new defaults must start at the seam {seam}; the closed old default covers "
+            "the span before it"
+        )
+    return PolicyPlan(raw["timeframe"], seam, tuple(defaults), raw["reason"], raw["evidence"])
+
+
+async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, int]:
+    """Retire, close and insert in one transaction; a dry run rolls it back. Returns the counts."""
+    tx = conn.transaction()
+    await tx.start()
+    try:
+        before = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
+        retired = int(
+            str(await conn.execute(_RETIRE_SYMBOL_ROWS_SQL, plan.timeframe, plan.reason)).split()[
+                -1
+            ]
+        )
+        closed = int(
+            str(await conn.execute(_CLOSE_DEFAULT_SQL, plan.timeframe, plan.seam)).split()[-1]
+        )
+        if closed != 1:
+            raise ValueError(f"{plan.timeframe}: {closed} live open defaults closed, not 1")
+        for row in plan.defaults:
+            await conn.execute(
+                _INSERT_POLICY_SQL,
+                plan.timeframe,
+                None,
+                row["valid_from"],
+                row["valid_to"],
+                INGRESS_MODE.get(plan.timeframe, DEFAULT_INGRESS_MODE),
+                row["primary_source"],
+                row["fallback_source"],
+                row["reason"],
+                json.dumps(row["evidence"]),
+            )
+        after = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
+    except BaseException:
+        await tx.rollback()
+        raise
+    if apply:
+        await tx.commit()
+    else:
+        await tx.rollback()
+    return {
+        "symbol_rows_before": before[0],
+        "defaults_before": before[1],
+        "retired": retired,
+        "default_closed": closed,
+        "inserted": len(plan.defaults),
+        "symbol_rows_after": after[0],
+        "defaults_after": after[1],
+    }
+
+
+def reselect_series(settings: Any, *, timeframe: str, symbols: Sequence[str], start: date) -> int:
+    """--reselect-only: re-select each series from `start` on, one transaction per symbol under
+    its selection lock (select_and_write takes it), then gate the series. Run after a backdated
+    --plan on a direct timeframe."""
+    from scripts.ops.bars import ops_selection_gate as gate
+
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    totals = dict.fromkeys(("new", "changed", "unchanged", "unselected", "excluded", "dropped"), 0)
+    with psycopg.connect(dsn) as conn:
+        for i, symbol in enumerate(symbols, 1):
+            with conn.cursor() as cur:
+                params = read_raw_params(cur)
+            result = select_and_write(
+                conn,
+                symbols=[symbol],
+                timeframe=timeframe,
+                start=session_start(start),
+                end=_FAR_FUTURE,
+                policy_rows=None,
+                kind_order=params.kind_order,
+                batch_rows=params.write.batch_rows,
+            )
+            conn.commit()
+            for key in totals:
+                totals[key] += getattr(result, key)
+            print(
+                f"[{i}/{len(symbols)}] {symbol} {timeframe}: new {result.new} replaced "
+                f"{result.changed} unchanged {result.unchanged} retracted {result.dropped}",
+                flush=True,
+            )
+    print(f"reselect totals: {totals}", flush=True)
+    return gate.main(["--compare", "--symbols", *symbols, "--timeframes", timeframe])
+
+
 async def _main(args: argparse.Namespace) -> int:
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -582,7 +732,32 @@ async def _main(args: argparse.Namespace) -> int:
             n = await close_row(conn, args.symbol, _parse_date(args.valid_to), args.timeframe)
             print(f"closed {n} row(s)")
             return 0 if n == 1 else 2
-        raise SystemExit("choose --admission-sweep, --add or --close")
+        if args.plan:
+            plan = parse_plan(json.loads(Path(args.plan).read_text()))
+            check_vendors(
+                await read_vendor_codes(conn),
+                *[v for r in plan.defaults for v in (r["primary_source"], r["fallback_source"])],
+            )
+            counts = await apply_plan(conn, plan, apply=args.apply)
+            print(f"{'applied' if args.apply else 'dry run (rolled back)'}: {counts}")
+            if plan.timeframe in DIRECT_TIMEFRAMES:
+                print(
+                    f"next, before any {plan.timeframe} consumer runs: --reselect-only "
+                    f"--timeframe {plan.timeframe} --valid-from {plan.seam} --symbols <every name "
+                    "whose canonical changes>; then ops_selection_gate --compare over all "
+                    f"{plan.timeframe} names, then a full (not --changed-only) grid derivation of "
+                    "the reselected names"
+                )
+            return 0
+        if args.reselect_only:
+            symbols = [s.strip() for part in args.symbols for s in part.split(",") if s.strip()]
+            return reselect_series(
+                settings,
+                timeframe=args.timeframe,
+                symbols=symbols,
+                start=_parse_date(args.valid_from),
+            )
+        raise SystemExit("choose --admission-sweep, --add, --close, --plan or --reselect-only")
     finally:
         await conn.close()
 
@@ -593,6 +768,8 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--admission-sweep", action="store_true")
     mode.add_argument("--add", action="store_true")
     mode.add_argument("--close", action="store_true")
+    mode.add_argument("--plan", help="JSON ranking decision applied in one transaction (520)")
+    mode.add_argument("--reselect-only", action="store_true")
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
     parser.add_argument("--symbols", nargs="*", default=None)
     parser.add_argument("--report", default=None, help="sweep: per-name TSV path")
@@ -625,6 +802,8 @@ def _validate(args: argparse.Namespace) -> None:
             raise SystemExit("--add needs --evidence, a non-empty JSON object")
     if args.close and not (args.symbol and args.valid_to and args.reason):
         raise SystemExit("--close needs --symbol, --valid-to and --reason")
+    if args.reselect_only and not (args.symbols and args.valid_from):
+        raise SystemExit("--reselect-only needs --symbols, --valid-from and --timeframe")
 
 
 if __name__ == "__main__":

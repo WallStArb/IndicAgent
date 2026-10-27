@@ -759,7 +759,9 @@ def test_waiver_and_probe_share_the_per_symbol_baseline_and_see_closes():
         flat = " ".join(sql.split())
         assert "l.caller = 'bar_derivation-daily'" in flat
         assert "COALESCE(b.started_at, l.loaded_at)" in flat
-        assert "GREATEST(p.recorded_at, p.closed_at)" in flat
+        assert (
+            "GREATEST(p.recorded_at, p.closed_at, p.retired_at)" in flat
+        )  # retirement is a change (520)
     assert "max(finished_at)" not in probe
 
 

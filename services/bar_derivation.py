@@ -433,7 +433,7 @@ ORDER BY effective_date
 # The 1d source decisions (migration 446), read once per run.
 _SELECT_POLICY_1D_SQL = """
 SELECT timeframe, symbol, valid_from, valid_to, ingress_mode, primary_source, fallback_source
-FROM bar_source_policy
+FROM bar_source_policy_current
 WHERE timeframe = '1d'
 """
 
@@ -487,7 +487,8 @@ last_load AS (
 # When a 1d policy row last changed: its insert (recorded_at) or its close (closed_at, stamped
 # by the append-only trigger since migration 460; NULL on rows closed before it, which then
 # count as changed at recorded_at only). GREATEST ignores NULL. Format with p = the alias.
-_POLICY_CHANGED_AT = "GREATEST({p}.recorded_at, {p}.closed_at)"
+# a retirement (migration 520) is a policy change too, so change detection reads every row
+_POLICY_CHANGED_AT = "GREATEST({p}.recorded_at, {p}.closed_at, {p}.retired_at)"
 
 # --changed-only: a symbol is due when a raw value of its d2-v3 series was served (served_at moves
 # only when the value changes, and the rule reads nothing else of a serve), or a corporate action
@@ -517,7 +518,7 @@ EXISTS (
       AND c.recorded_at > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
 ) AS action_since,
 EXISTS (
-    SELECT 1 FROM bar_source_policy p
+    SELECT 1 FROM bar_source_policy_changes p
     WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
       AND {_POLICY_CHANGED_AT.format(p='p')}
           > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
@@ -535,7 +536,7 @@ WITH {_LAST_DAILY_LOAD_CTE}
 SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
                WHERE c.symbol = $1 AND c.recorded_at > l.at)
-    OR EXISTS (SELECT 1 FROM bar_source_policy p, last_load l
+    OR EXISTS (SELECT 1 FROM bar_source_policy_changes p, last_load l
                WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
                  AND {_POLICY_CHANGED_AT.format(p='p')} > l.at)
     OR EXISTS (SELECT 1 FROM ohlcv_load r, last_load l

@@ -48,9 +48,7 @@ _ENDS_SQL = (
     "SELECT window_end FROM ohlcv_request WHERE symbol = %s AND timeframe = '5m' "
     "AND source = 'ibkr' AND window_end = ANY(%s)"
 )
-_PAIRED_SYMBOLS_SQL = (
-    "SELECT DISTINCT symbol FROM bar_source_policy WHERE timeframe = '5m' AND symbol IS NOT NULL"
-)
+_PAIRED_SYMBOLS_SQL = "SELECT DISTINCT symbol FROM bar_source_policy_current WHERE timeframe = '5m' AND symbol IS NOT NULL"
 
 
 def candidates(

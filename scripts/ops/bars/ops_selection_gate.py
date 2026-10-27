@@ -669,7 +669,7 @@ _RAW_SQL = (
 )
 _POLICY_SQL = (
     "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
-    "FROM bar_source_policy"
+    "FROM bar_source_policy_current"
 )
 _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE namespace = 'bar_kind'"
 _UNMAPPED_SQL = "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = %s"

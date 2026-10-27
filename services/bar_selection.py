@@ -96,7 +96,7 @@ def session_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
 
 _POLICY_SQL = (
     "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
-    "FROM bar_source_policy WHERE timeframe = %s AND (symbol IS NULL OR symbol = %s)"
+    "FROM bar_source_policy_current WHERE timeframe = %s AND (symbol IS NULL OR symbol = %s)"
 )
 
 _READ_CANONICAL_SQL = (

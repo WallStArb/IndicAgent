@@ -304,7 +304,7 @@ def read_raw_params(cur: Any) -> RawContractParams:
         raise RuntimeError("controlled_vocabulary has no bar_vendor or bar_kind codes")
     cur.execute(
         "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
-        "FROM bar_source_policy"
+        "FROM bar_source_policy_current"
     )
     policy = tuple(PolicyRow(*row) for row in cur.fetchall())
     return RawContractParams(

@@ -71,7 +71,7 @@ WHERE symbol = ANY($1)
 
 _POLICY_AS_OF_SQL = """
 SELECT MAX(recorded_at)
-FROM bar_source_policy
+FROM bar_source_policy_current
 WHERE (symbol = ANY($1) OR symbol IS NULL)
   AND timeframe = $2
   AND daterange(valid_from, valid_to, '[)') && daterange($3::date, $4::date, '[)')

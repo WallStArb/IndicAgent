@@ -65,6 +65,10 @@ CREATE TEMP TABLE ohlcv_raw (
 CREATE TEMP TABLE bar_source_policy (
     timeframe text, symbol text, valid_to date, primary_source text,
     recorded_at timestamptz, closed_at timestamptz);
+-- readers read the live-rows view (migration 520); shadow it over the temp copy
+CREATE TEMP VIEW bar_source_policy_current AS SELECT * FROM pg_temp.bar_source_policy;
+CREATE TEMP VIEW bar_source_policy_changes AS
+    SELECT *, NULL::timestamptz AS retired_at FROM pg_temp.bar_source_policy;
 """
 
 
