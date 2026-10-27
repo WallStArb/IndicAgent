@@ -235,7 +235,7 @@ members:
       column: price_percentile_slow # registry output name
       tf: 1d
       max_age_rows: 1               # source rows
-      apr: {percentile_window_slow: 252}   # pinned values S0 checks against batch apr_snapshot
+      config_projection_hash: <64 hex>   # hash of the FeatureFactoryConfig projection S0 checks against the batches' apr_snapshot (superseded the dict pin, 184-REVIEWS row 15)
     smoothing_half_life: 21         # NEW optional, Literal[5, 21, 63]
 ```
 `_check_book` requires families to agree on `panel` (the book clock), so the source tf lives on the member, not the panel.
@@ -260,7 +260,7 @@ Ages count source rows (sessions for a 1d source), so a weekend never ages a val
 - `_check_spec`'s rule today (`declared_memory_rows == slot history + S1 reach`) holds for resid_bar members only. Feature members need their own branch, with one function computing their declared rows. 187-08's `book_memory(member_sessions, ...)` consumes it, and nothing computes L by hand.
 
 ### Pattern 5: provenance pin check (B1f)
-For each (tf, column) read: select the `provenance_batch` rows with `status = 'completed'`, `target_table IN ('feature_vectors_v2', 'feature_vectors')` (186-27 keeps old rows named `_v2`), the tf, overlapping range and symbol membership. Refuse when any (symbol, range) of the span has no covering completed batch, when the pinned `apr` values differ from `apr_snapshot`, or when the covering batches carry more than one `code_key`. Record the `batch_key` set, `code_key`, `apr_hash` and `input_digest`s in the snapshot manifest, so the content hash covers them.
+For each (tf, column) read: select the `provenance_batch` rows with `status = 'completed'`, `target_table IN ('feature_vectors_v2', 'feature_vectors')` (186-27 keeps old rows named `_v2`), the tf, overlapping range and symbol membership. Refuse when any (symbol, range) of the span has no covering completed batch, when the pinned `config_projection_hash` differs from the hash of the batches' `apr_snapshot` projection, or when the covering batches carry more than one `code_key`. Record the `batch_key` set, `code_key`, `apr_hash` and `input_digest`s in the snapshot manifest, so the content hash covers them.
 
 ### Pattern 6: smoothing menu (B5)
 EWMA at half-life h with weights `a(1-a)^k`, `a = 1 - 2^(-1/h)`, truncated at the declared memory where the impulse response falls below 1e-4 of peak (the `signals.py` convention): `k_max = ceil(h * log2(1e4))`, which is 67, 280 and 838 sessions for 5, 21 and 63. Implement it as a finite FIR over the trailing `k_max + 1` rows, renormalized over finite inputs and NaN where the current input is NaN. A recursion never decays to zero, and `memory_check` would then measure past the declaration. The menu values are a design constant (APR-exempt, like `MEMORY_TOLERANCE`), validated by a `Literal[5, 21, 63]`.

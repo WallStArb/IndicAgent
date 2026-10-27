@@ -51,7 +51,7 @@ created: 2026-10-27
 | MTF-B1h | below-floor column refused | unit | `... -k coverage` | no | pending |
 | MTF-B1i | every scored row's alignment checked against closes_at recomputed from the source grid; kernel end-to-end raw-bar probe; planted lookahead fails | unit | `pytest tests/unit/research/test_runner_feature_members.py -k "every_row or kernel_e2e or causality" -q` (184-10) | no | pending |
 | MTF-B1j | hmm_* member refused without rebuild batches | unit | `... -k hmm` | no | pending |
-| MTF-B1k | unlisted feature_vectors reader fails CI; legacy entries name removal todo 551 | unit | `pytest tests/unit/test_feature_vectors_read_boundary.py -q` (3 tests) | no | pending |
+| MTF-B1k | unlisted feature_vectors reader fails CI; legacy entries name an existing removal todo file (matched by pattern) | unit | `pytest tests/unit/test_feature_vectors_read_boundary.py -q` (3 tests) | no | pending |
 | MTF-B2a | vectorized percentile / rolling max bit-equal after warmup; rolling VWAP memory bounded | unit | `pytest tests/unit/intelligence/test_research_kernels.py -q` | no | pending |
 | MTF-B2b | kernel_source over present rows, float32, NaN until memory, gap rule | unit | `pytest tests/unit/research/test_kernel_source.py -q` | no | pending |
 | MTF-B2c | expanding kernel refused; truncation probe passes research kernels, fails an acausal control; research kernel at a stored window refused | unit | `pytest tests/unit/research/test_kernel_source.py -k "guard5 or stored_window" -q` | no | pending |
@@ -63,7 +63,7 @@ created: 2026-10-27
 | MTF-B6 | E17 size gated at 0.05 and 0.01 (0.00167 descriptive) on every certificate's cells; admit() matches every discrete field and the memory bound; supported subset only | battery + unit | `.venv/bin/python scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6` (report: 184-05-BATTERY.md); `pytest tests/unit/research/test_null_battery_persistent.py -q`; `pytest tests/unit/research/test_runner_feature_spec.py -k "certificate or subset or e17_l" -q` | no | pending |
 | MTF-B7 | bit-identical, pinned hashes, compare-all | gate | determinism and parity gates above | yes | pending |
 | MTF-B8a | spec-pinned knowledge cutoff, decision-time join, age from the first eligible close in NYSE sessions, max age NaN, basis refusal | unit | `pytest tests/unit/research/test_economic_block.py -q` (`-k age_calendar`) | no | pending |
-| MTF-B8b | shifted rerun to the next session's first eligible close recorded; B8 admission-refused pending todo 547 | unit | `pytest tests/unit/research/test_economic_shift_test.py -k "shift_test or shift_calendar" -q` (184-14) | no | pending |
+| MTF-B8b | shifted rerun to the next session's first eligible close recorded; B8 admission-refused pending the economic battery-cell todo | unit | `pytest tests/unit/research/test_economic_shift_test.py -k "shift_test or shift_calendar" -q` (184-14) | no | pending |
 
 Status: pending · green · red · flaky
 
