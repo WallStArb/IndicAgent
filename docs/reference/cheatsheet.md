@@ -65,37 +65,29 @@ cd production && docker compose up -d prometheus grafana
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Pipeline Reset (full housekeeping + fetch + replay)
-# pipeline_reset.py is the single entry point -- handles everything in order:
-#   1. Truncates signal_ledger, intelligence_features (+ market_data_ohlcv unless --keep-ohlcv)
-#   2. Clears Redpanda topics (indicators, intelligence, signals, narratives)
-#   3. Fetches OHLCV from IBKR per-TF: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous
-#   4. Replays I1→I7 pipeline through all stored bars → signal_ledger + intelligence_features
-#   5. Verifies row counts and signal distribution
-# Script pauses at stop/start boundaries and prints the sudo commands for you to run.
+## Bar data layer
+# Every vendor answer lands in ohlcv_raw (last-wins, old values in ohlcv_revision); canonical
+# market_data_ohlcv is a selection from raw by bar_source_policy. Sources and owners:
+# docs/foundation/canonical-truth-registry.md. The v2.x pipeline reset script is gone (185-45).
 ```bash
-# Step 1 -- preview (no changes made)
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --dry-run
+systemctl list-timers | grep indicagent   # fetcher (15 min), alpaca-nightly 04:40 UTC, grid 05:45 UTC, D7 06:00 UTC
 
-# Step 2 -- full reset (requires IBKR Gateway reachable at localhost:7497; expect 30–60 min)
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
-# → when prompted to STOP, run:
-sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
-  indicagent-feature-vector-writer indicagent-narrative-compute
-# → press Enter, let fetch + replay complete
-# → when prompted to START, run:
-sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-vector-writer \
-  indicagent-signal-writer indicagent-signal-tracker-compute indicagent-narrative-compute
+# IBKR history (one at a time under FetcherLock; dry run first)
+.venv/bin/python -u scripts/infrastructure/backfill/ohlcv_history_fetcher.py --dry-run \
+    --dimension backfill --timeframes 1d --symbols AAPL,MSFT --full-scan --client-id 41
 
-# Fast reset -- skip IBKR fetch, re-replay from existing market_data_ohlcv
-# (use after plugin/signal logic changes, no IBKR connection needed)
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --keep-ohlcv
+# Alpaca SIP capture (dry run still asks the vendor; add --apply to write)
+.venv/bin/python -m scripts.ops.bars.ops_bar_nightly --vendor alpaca --symbols AAPL MSFT --days 5
 
-# Limit to specific symbols
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --keep-ohlcv --symbols ESH6,NQH6
+# Proof that canonical is a pure function of raw plus policy (read-only)
+.venv/bin/python scripts/ops/bars/ops_selection_gate.py --compare --timeframes 5m --symbols AAPL
 
-# Also wipe LLM audit log (llm_calls, llm_model_scores)
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --clear-llm
+# Current source policy
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
+  "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source FROM bar_source_policy_current WHERE symbol IS NULL ORDER BY 1, 3"
+
+# Re-derive canonical 1d for named symbols (idempotent)
+PYTHONPATH=. .venv/bin/python services/bar_derivation.py --stage daily --symbols AAPL,MSFT --apply
 ```
 
 ## Development & Testing

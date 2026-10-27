@@ -1,7 +1,7 @@
 # Database — TimescaleDB Operations
 
 **Version:** 2.11
-**Last Updated:** 2026-10-17 (phase 185 section only)
+**Last Updated:** 2026-10-27 (bar data layer and backfill sections only)
 **Status:** stale (v2.x, see banner)
 
 ---
@@ -54,7 +54,7 @@ TimescaleDB operations: tables, migrations, backfill, compression, backup, and a
 
 ---
 
-## Daily data foundation (phase 185, current as of 2026-10-17)
+## Bar data layer (phases 185 and 191, current as of 2026-10-27)
 
 This section is current; the banner above applies to the rest of the file. Terms (observation,
 canonical bar, scrub flag, quarantine, corporate action, listing venue, bar content digest,
@@ -67,10 +67,12 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 |-------|-------|--------|
 | `ohlcv_request` | Every provider history request and its outcome (`bars`, `no_data`, `timeout`, `failed`, `legacy_import`), any timeframe, with route, `primary_exchange` and `caller` | `services/ohlcv_request_writer.py` |
 | `ohlcv_raw` | The single raw store of vendor answers (todo 533): every bar a supplier served, under its `(vendor, kind)` label, one row per (symbol, timeframe, vendor, kind, timestamp), any timeframe | `services/ohlcv_raw_writer.py` (single writer) |
-| `ohlcv_load`, `ohlcv_revision` | The write record of every bar writer (ingress write contract, migration 448): one `ohlcv_load` row per series written, with `caller`, `destination` (`d1` or `market_data_ohlcv`), `batch_id`, `n_new`, `n_changed`, `n_unchanged`, `n_removed`; the old values of any bar a write changed in `ohlcv_revision`, with `origin` (`load`, `archive_segment`) | every bar writer through the contract (`bar_derivation` stages, the fetch paths) |
-| `bar_source_policy` | Dated 1d source policy: per timeframe and per symbol exception, `[valid_from, valid_to)`, `ingress_mode`, `primary_source`, `fallback_source`, reason, evidence | `scripts/ops/bars/ops_source_policy.py` |
-| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25). 1d: `tradier`, `ibkr_fallback` or `ibkr_named` by policy (d2-v3); 15m/1h: `derived_5m`; 5m/1m: provider bars | 1d, 15m, 1h: `bar_derivation`; 5m/1m: the IBKR history fetcher |
-| `ohlcv_coverage` | Per (symbol, timeframe) bounds, row count and last fetch status: the fetcher's ranking cache, derived and rebuildable (`--rebuild-coverage`) | the IBKR history fetcher |
+| `ohlcv_load`, `ohlcv_revision` | The write record of every bar writer (ingress write contract, migration 448; raw-first since phase 191): one `ohlcv_load` row per series written, with `caller`, `destination` (`raw` or `market_data_ohlcv`; `d1` and `archive` on older rows), `batch_id`, `n_new`, `n_changed`, `n_unchanged`, `n_removed`, `n_superseded`; the old values of any bar a write replaced in `ohlcv_revision`, with `origin` (`raw`, `superseded`; `load`, `archive_segment` on older rows). Both are permanent lineage | every bar writer through the contract (`bar_derivation` stages, the fetch paths, the load engine) |
+| `bar_source_policy` | Dated source policy per timeframe and per symbol exception, `[valid_from, valid_to)`, `ingress_mode`, `primary_source`, `fallback_source`, reason, evidence; a row is closed or retired (migration 520), never edited. Read through `bar_source_policy_current` (live rows; a guard test forbids reading the table) | `scripts/ops/bars/ops_source_policy.py` |
+| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25), labeled `vendor` and `kind`. 1d: `(tradier, consolidated)`, `(ibkr, fallback)` or `(ibkr, named)` by policy (rule d2-v3); 5m: `(alpaca, sip_rth)` from 2016-01-04 and `(ibkr, named)` by policy (D-191-P); 15m/1h: `(derived, 5m_grid)` | 1d, 15m, 1h: `bar_derivation`; 5m, 1m, 4h: `services/bar_selection.py`, called by the ingress contract after each raw write |
+| `bar_session_choice` | One row per non-trivial 5m/1m/4h session choice (a fallback session, a session no vendor holds completely), migration 480 | `services/bar_selection.py` |
+| `ohlcv_coverage` | Per (symbol, timeframe, provider) bounds, row count and last fetch status: the fetcher's ranking cache, derived and rebuildable (`--rebuild-coverage`) | the fetch paths (`services/ohlcv_coverage_writer.py`) |
+| `listing_end` | A name's recorded last session after a merger, buyout or delisting (migration 518); `freshness_1d` judges the name up to it. Read `listing_end_current` | migration only |
 | `integrity_monitor` (`monitor_type = 'bar_integrity'`) | D7 verdict rows, subject `SYM\|tf`, one per check; the promotion and rebuild gate reads them (`verdict_gate.py`) | `services/bar_reconciliation_audit.py` |
 | `canonical_bar_lineage` | View (migration 447): which stored vendor bar each canonical 1d bar equals (`ohlcv_raw` joined to `ohlcv_request`), derived on read | none (a view) |
 | `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
@@ -91,6 +93,12 @@ manifest without a database. The fetch-ledger and raw tables are plain tables (n
 `ohlcv_request` is mutable since migration 438; `corporate_action`, `bar_content_digest` and
 `listing_venue` refuse rewrites in a trigger (superuser included).
 
+Tradier (not funded since 2026-10-07; nothing answered after 2026-10-06): plan 191-20 deletes
+its bar rows (`ohlcv_raw` and canonical vendor `tradier`, its `ohlcv_revision` rows, its
+`ohlcv_coverage` rows) after the owner approves the residue report, with a COPY backup in
+`data/backups/191/` kept until about 2026-11-12. Its `ohlcv_request` and `ohlcv_load` rows stay
+as lineage. Until then its history is canonical 1d before 2026-10-07.
+
 ### Roles
 
 Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
@@ -100,7 +108,7 @@ Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
   on `instruments`); the name outlives the 191-16 drop of its old tables (a role rename is a
   migration with no benefit) and its live user is `services/ohlcv_request_writer.py`.
 - `bar_derivation_writer`: DML on `market_data_ohlcv` and the derivation side tables; read-only on
-  D1; INSERT and `UPDATE (valid_to)` only on `listing_venue`.
+  the raw layer; INSERT and `UPDATE (valid_to)` only on `listing_venue`.
 
 ### Views
 
@@ -113,19 +121,26 @@ Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
   `pre_move` marks venue history before the head (the moved-name inventory). It also lists
   the `TRADIER` route; filter routes to the venue list.
 
-Readers of D1 exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'` (todo 494).
+Readers of the raw layer exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'`
+(todo 494).
 
-### Daily data chain
+### Nightly bar chain
 
-Two units replace the nightly backfill script, which plan 189-07 deleted. The 1d source is
-chosen per date by `bar_source_policy`: Tradier before D = 2026-10-07 (its bars stay canonical
-history; the account is not funded and plan 185-48 deleted its loader, units and provider),
-IBKR SMART TRADES from D (migration 456), and per-symbol exception rows (MOD and QRVO keep
-Tradier primary through hold rows).
+Four timers. Sources are chosen per date by `bar_source_policy_current`:
 
-1. `indicagent-ibkr-history-fetcher.timer` (every 15 min after the last run ends; disabled
-   until plan 189-10 by owner decision 2026-10-06) runs
-   `scripts/infrastructure/backfill/ibkr_history_fetcher.py`: the `ohlcv_coverage` queue over
+- 1d today: Tradier before D = 2026-10-07 (closed default row, IBKR fallback), IBKR SMART
+  TRADES from D (migration 456), and per-symbol exception rows (MOD and QRVO keep Tradier
+  primary through hold rows). Decided, lands with plan 191-20 (todo 545): D-191-Q makes Alpaca
+  SIP the 1d primary from 2016-01-04 with IBKR fallback only where Alpaca has no tradeable bar,
+  IBKR alone before; a zero-volume bar never serves; spin-off and ticker-reuse exceptions are
+  per-name rows from a one-time three-vendor arbitration (Alpaca, IBKR, Tradier) before
+  Tradier is deleted, and spans where all three disagree go to the owner.
+- 5m (D-191-P, done 2026-10-27): Alpaca SIP (`sip_rth`) from 2016-01-04 with IBKR fallback,
+  IBKR alone before. `iex_rth` is raw only and never selected.
+
+1. `indicagent-ibkr-history-fetcher.timer` (enabled; every 15 min after the last run ends) runs
+   `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` under `FetcherLock`: the
+   `ohlcv_coverage` queue over
    APR `infra.backfill.default_scopes` in two lanes, the update lane (every active name's 1d
    and 5m since its latest stored bar, overlapping the stored tail) and the gap-fill lane (a
    series' full depth once every `infra.backfill.gap_fill_interval_days`), then at run end split
@@ -134,7 +149,15 @@ Tradier primary through hold rows).
    --changed-only --apply`: D2b 15m/1h), then the status file
    `logs/ibkr_history_fetcher_status.json` (D7's `nightly_skipped` reads it) and
    `job_completed_total`.
-2. `indicagent-bar-reconciliation-audit.timer` (06:00 UTC) runs the D7 audit
+2. `indicagent-alpaca-nightly.timer` (04:40 UTC) runs `scripts/ops/bars/ops_bar_nightly.py
+   --vendor alpaca --apply`: every active name's recent 5m and 1d SIP window
+   (`infra.alpaca.nightly_window_days`), ending `infra.alpaca.sip_recent_lag_minutes` (20)
+   before now because the free plan refuses recent SIP, bounded by
+   `infra.alpaca.nightly_max_requests` and `infra.alpaca.nightly_deadline_minutes`. 5m is
+   selected into canonical in the same transaction; 1d is raw capture only.
+3. `indicagent-bar-derivation-grid.timer` (05:45 UTC) runs `bar_derivation --stage grid
+   --changed-only --apply`, deriving 15m/1h from the night's 5m.
+4. `indicagent-bar-reconciliation-audit.timer` (06:00 UTC) runs the D7 audit
    (`services/bar_reconciliation_audit.py`).
 
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
@@ -152,8 +175,9 @@ rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate
 
 Grafana rules on these gauges: `bar_integrity_failing`, `bar_integrity_report_stale`,
 `bar_freshness_1d` (a name more than `threshold.bar_integrity.freshness_max_lag_sessions_1d`
-sessions behind), `ibkr_fetcher_sla_breached` and `revision_refused` (ibkr and derived loads
-refused or gated in the last 24 h).
+sessions behind, judged only up to a recorded `listing_end`), `ibkr_fetcher_sla_breached` and
+`revision_refused` (refused derived loads plus unreviewed basis-change restatement flags; vendor
+loads are never refused, D-191-N).
 
 Not in the chain: `services/listing_venue_writer.py` (run after an onboarding batch is
 promoted; append-only, idempotent).
@@ -315,89 +339,19 @@ SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
 
 ## Backfill and Gap-Fill
 
-> One IBKR history stream: `scripts/infrastructure/backfill/ibkr_history_fetcher.py`
-> (`indicagent-ibkr-history-fetcher`, phase 189) works the `ohlcv_coverage` queue under its
-> singleton lock. The todo 449 lane scripts under `logs/backfill_ops/` were deleted in plan
-> 189-07. Concurrent history streams measured no added throughput (todo 449, 2026-09-27) and
-> contend for the same pacing budget.
+One IBKR history stream: `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`
+(`indicagent-ibkr-history-fetcher`, phase 189) works the `ohlcv_coverage` queue under its
+singleton `FetcherLock`; its update and gap-fill lanes are the gap fill after downtime, so there
+is no separate recovery script. Concurrent history streams measured no added throughput (todo
+449, 2026-09-27) and contend for the same pacing budget. Alpaca history is
+`scripts/ops/bars/ops_bar_nightly.py` with a wide `--days` window. Both write `ohlcv_raw`
+last-wins through the ingress contract: a re-fetch replaces a vendor's own stored answer and logs
+the old values in `ohlcv_revision`, it never skips an existing row. Commands:
+`docs/foundation/instrument-onboarding-sop.md` stage 7 and `docs/reference/cheatsheet.md`.
 
-### Full pipeline reset (reset_pipeline_data.py)
-
-Wipes all intelligence-derived tables and re-runs full fetch + replay. Use when signal logic, stop/target geometry, or lifecycle logic changes substantially enough that historical P&L is no longer trustworthy.
-
-```bash
-# Dry run — prints row counts, exits without touching data
-python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
-
-# Full reset: wipe + fetch + replay (stop pipeline first)
-sudo systemctl stop indicagent-intelligence-pipeline
-python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm
-
-# Wipe only — skip re-fetch and replay
-python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --wipe-only
-
-# More workers for faster replay
-python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --workers 8
-```
-
-**Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. (`drift_monitor` was dropped 2026-09-28, migration 385 — empty, no code writer.) Shadow registry enrollment kept; eval stats reset.
-
-### Lifecycle replay (lifecycle_replay.py)
-
-Evaluates signal outcomes for all signals that lack them, by replaying `market_data_ohlcv` bars chronologically. Run after any full replay to compute pnl_r, mae, mfe, exit_reason.
-
-```bash
-# Normal run — fills in missing outcomes only
-python -u scripts/debug/replay/debug_lifecycle_replay.py --workers 8
-
-# Reset + replay (for corrupt outcomes — stop pipeline first)
-sudo systemctl stop indicagent-intelligence-pipeline
-python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --workers 8
-
-# Dry run to verify schema compatibility
-python -u scripts/debug/replay/debug_lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
-
-# Specific symbols only
-python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
-```
-
-**After replay:** `setup_performance` and `swarm_agent_weights` are empty — they repopulate on next scheduled runs (nightly ml-training at 11pm; weekly ml-orchestrator on Monday).
-
-### Gap-fill after downtime
-
-Fetches only the missing recent bars and replays only that window. Safe — `ON CONFLICT DO NOTHING` means existing rows are never touched.
-
-```bash
-# Step 1: Fetch missing OHLCV bars
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
-  --fetch-only --symbols EURUSD,BTCUSD --days 2
-
-# Step 2: Replay only those 2 days through I1→I7
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
-  --replay-only --symbols EURUSD,BTCUSD --days 2
-```
-
-### Default TF fetch depths
-
-| TF | Depth | Contract |
-|----|-------|---------|
-| 1m | 14 days | Named |
-| 5m | 90 days | Named (chunked) |
-| 15m | 180 days | Continuous adjusted |
-| 1h | 365 days | Continuous adjusted |
-| 1d | 2555 days (7yr) | Continuous adjusted |
-
-### Full replay without re-fetching OHLCV
-
-Re-runs I1→I7 from existing DB bars.
-
-```bash
-# Idempotent — only fills gaps
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --symbols SYM,SYM
-
-# Clean re-generate — deletes existing signals then replays
-.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --clean --symbols SYM,SYM
-```
+The v2.x reset, replay and historical-pipeline scripts this section used to list
+(`infrastructure_reset_pipeline_data.py`, `infrastructure_run_historical_pipeline.py`,
+`debug_lifecycle_replay.py`) were deleted with the v2.x path (plan 185-45).
 
 ---
 

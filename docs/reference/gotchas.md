@@ -65,14 +65,6 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history.** `generate_session_slots()` expects a full extended-hours session from day one, but real IBKR extended-hours coverage ramps up over a symbol's first year (or the first days of a timeframe's retention window). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)`; if so it is benign ramp-up, not a connection-drop artifact.
 
-## Alpaca scratch retention (until todo 528 lands)
-
-**`data/scratch/alpaca-pilot/depth/` must not be cleaned.** The load engine
-(`services/bar_load.load_series`) drops stored-held and extended-hours rows on
-the floor; the 2026-10-10 all-names run discarded 81.7M vendor-served rows and
-these parquets are their only copy. Deletion is gated on todo 528's archive
-backfill and completeness check, not on `ohlcv_load` reconciliation alone.
-
 ## Fetcher external-identity freeze (phase 190)
 
 The code renamed to `ohlcv_history_fetcher.py` / `OHLCVHistoryFetcher`, but these external
@@ -192,13 +184,13 @@ requires `SUDO_PASS` exported), do the work, clear each held unit with `--plan`,
 2026-10-15, `logs/legacy_restamp_20261015T174031Z.json`) were deleted at phase close (plan
 191-17); the drop migration and the phase summaries are the record.
 
-## Tests must never append to D1 or spawn derivation against the live database
+## Tests must never write raw bars or spawn derivation against the live database
 
 `bar_derivation` takes the latest answer per bar from the raw layer (`ohlcv_request`, `ohlcv_raw`), so a
-fixture row a test appends on a real symbol and date becomes a canonical bar (27 rows on SPY 2024-01-02 to
-01-04 would have stored close 100.5 for 472.65; found 2026-10-03). D1 was append-only then and those rows stayed;
-the owner has since made D1 mutable (migration 438, 2026-10-03), so such rows are removable now, but the
-exposure is the same until D2 reads them. D2 excludes requests whose caller starts with `test-`; point every
+fixture row a test writes on a real symbol and date becomes a canonical bar (27 rows on SPY 2024-01-02 to
+01-04 would have stored close 100.5 for 472.65; found 2026-10-03, in the phase 185 observation store that
+`ohlcv_raw` replaced). Such rows are removable, but the exposure is the same until the derivation reads
+them. The derivation excludes requests whose caller starts with `test-`; point every
 test that appends at `indicagent_test`. A unit test that drives the IBKR history fetcher's run-end stages must
 inject a fake `stage_runner` (the fetcher's split detection, daily and grid stages run through it); an unpatched
 stage spawns a real `bar_derivation --apply` against production. Todo 494 tracks the CI guard.
@@ -221,13 +213,13 @@ reserved 404 to 408) never reaches the test database. Check this before trusting
 
 ## Moved from CLAUDE.md (5.60.0 trim): backfill and IBKR
 
-- Historical backfill: `scripts/infrastructure/backfill/ibkr_history_fetcher.py` is the only IBKR history CLI (default `--client-id 40`; provider uses 35; IDs stay <= `_MAX_CLIENT_ID=50` in `ibkr.py`). Every IBKR history caller takes the fail-fast `FetcherLock` (`scripts/infrastructure/backfill/_fetcher_lock.py`, CI: `test_ibkr_history_lock_boundary.py`): one fetch at a time, and a second one exits with `LOCK_HELD_MESSAGE` instead of waiting. The ibkr_history_stream lease was retired in plan 189-08.
+- Historical backfill: `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` is the only IBKR history CLI (the `ibkr_history_fetcher.py` shim was deleted at the 190-06 cutover) (default `--client-id 40`; provider uses 35; IDs stay <= `_MAX_CLIENT_ID=50` in `ibkr.py`). Every IBKR history caller takes the fail-fast `FetcherLock` (`scripts/infrastructure/backfill/_fetcher_lock.py`, CI: `test_ibkr_history_lock_boundary.py`): one fetch at a time, and a second one exits with `LOCK_HELD_MESSAGE` instead of waiting. The ibkr_history_stream lease was retired in plan 189-08.
 - The todo 449 lane scripts, chain and retry loop under `logs/backfill_ops/` were deleted in plan 189-07; the IBKR history fetcher (`indicagent-ibkr-history-fetcher`) replaces them, and a name's repeated failures live in `ohlcv_coverage.consecutive_failures`, not a quarantine file.
 - IBKR history starts at a stock's last listing-venue move: SMART-routed requests (1d and intraday) serve nothing before it (AMD 2015, PEP 2017, TLT 2016); the same contract routed to the old venue (`NYSE`, `ARCA`, `ISLAND`=Nasdaq, `AMEX`, `BATS`) serves it with venue-only volume. Error 162 "Query failed" marks it. `ohlcv_empty_history` rows written before todo 433's fix may be false.
 - Lane pauses are usually pacing, not hangs: the in-process limiter (58 req/10 min shared) logs nothing while a request waits for budget; the fetcher unit's systemd WatchdogSec is the backstop (todo 485 adds a wait log line). Before calling the gateway down, probe a known-good symbol on a spare client ID (e.g. 41): a name-specific hang (HOOD 2026-10-01) looks identical in the fetcher log.
 - Gateway 2FA hang: login state lives in `docker logs ib-gateway` ("Second Factor Authentication" = waiting on human Keychain approval; "Login has completed" = authed). `docker restart ib-gateway` re-sends the push; IBKR's server-side rate limit survives the restart (~5 min wait), then IBC's fresh login fires a new push. The nightly 23:59 UTC restart can re-trigger it (todo 395).
 - Clock surfaces differ: host `uptime`/`journalctl` print EDT; Postgres and container logs are UTC; IBC's gateway log lines are container-local. Correlate with `date -u` before computing elapsed times.
-- Timers: `systemctl list-timers | grep indicagent`. The D7 audit (`indicagent-bar-reconciliation-audit.timer`, 02:00 EDT), the Yahoo dividend writer and the regime coverage auditor fire; the IBKR history fetcher timer is enabled (every 15 minutes; the queue decides what runs, and a run takes the FetcherLock or exits `lock_held`); the Tradier daily units are deleted (185-48); `indicagent-roll-batch.timer` is disabled (`scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`). Docker logging caps (`max-size/max-file`) must stay (TimescaleDB grew a 29GB log without them).
+- Timers: `systemctl list-timers | grep indicagent`. The D7 audit (`indicagent-bar-reconciliation-audit.timer`, 02:00 EDT), the Yahoo dividend writer and the regime coverage auditor fire; the IBKR history fetcher timer is enabled (every 15 minutes after the last run ends; the queue decides what runs, and a run takes the FetcherLock or exits `lock_held`); `indicagent-alpaca-nightly.timer` (04:40 UTC, `scripts/ops/bars/ops_bar_nightly.py`, the SIP window ends 20 minutes back, APR `infra.alpaca.sip_recent_lag_minutes`) and `indicagent-bar-derivation-grid.timer` (05:45 UTC, the 15m/1h grid) fire; the Tradier daily units are deleted (185-48); `indicagent-roll-batch.timer` is disabled (`scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`). Docker logging caps (`max-size/max-file`) must stay (TimescaleDB grew a 29GB log without them).
 
 ## Moved from CLAUDE.md (5.60.0 trim): data and code patterns
 

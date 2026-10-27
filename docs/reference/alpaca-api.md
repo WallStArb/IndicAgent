@@ -1,6 +1,6 @@
 # Alpaca API reference card
 
-Version: 5.61.0
+Version: 5.63.4
 Status: current
 Author: Brandon with Claude Code (session, 2026-10-09)
 Informed by: Alpaca docs (fetched 2026-10-09, links below), measured against
@@ -13,20 +13,27 @@ numbers and constraints a plan or review would otherwise have to re-derive.
 Anything marked **unverified** gets measured in the pilot before it enters a
 plan.
 
-## Role in the pipeline (decided 2026-10-09)
+## Role in the pipeline (current 2026-10-27)
 
+The 2026-10-09 roles (shallow nightly writer, nightly verifier under d2-v3) are superseded by
+the phase 191 raw-capture design (`docs/plans/2026-10-12-unified-raw-bar-table-design.md`):
+every Alpaca answer lands in `ohlcv_raw` and canonical is a selection by `bar_source_policy`.
+
+- **5m primary from 2016-01-04** (D-191-P, done 2026-10-27): kind `sip_rth`
+  (split-adjusted, regular hours selected), IBKR fallback, IBKR alone before 2016.
+  `iex_rth` (feed=iex) is raw only and never selected. Capture is
+  `scripts/ops/bars/ops_bar_nightly.py` (unit `indicagent-alpaca-nightly`, 04:40 UTC,
+  window ending 20 minutes back for the free plan's SIP recency hold, APR `infra.alpaca.*`).
+- **1d: raw capture today; primary from 2016-01-04 decided, lands with plan 191-20**
+  (D-191-Q, todo 545): IBKR fallback only where Alpaca has no tradeable bar, IBKR alone
+  before 2016, a zero-volume bar never serves, and spin-off or ticker-reuse exceptions are
+  per-name policy rows from a one-time three-vendor arbitration (Alpaca, IBKR, Tradier).
+  The reason: with Tradier deleted, IBKR alone carries a non-consolidated volume basis and
+  misses sessions Alpaca SIP holds.
 - **Execution venue** (paper first), zero commission; the todo 445 rerun at
   commission 0 becomes the realistic cost model, not a best case.
-- **Shallow nightly writer** (1d + 5m recent window, full universe): the
-  date-partitioned primary. Owner constraint: IBKR rate limits are too slow for
-  the nightly. Precedent for a date-boundary primary swap: migration 456
-  (Tradier -> IBKR at D = 2026-10-07).
-- **Intraday depth builder**: 1m/5m back to Alpaca's depth floor for the
-  intraday universe, where IBKR's 58 req/10min made 12-18 days take weeks.
-- **Nightly verifier**: d2-v3 rule, a disagreeing shallow primary yields to the
-  basis-tested restated IBKR answer.
-- IBKR stays the **deep authority**: initial history for new names, gaps older
-  than the shallow window, restatement. 1d depth is the reason (below).
+- IBKR stays the deep source: 1d before 2016 (Alpaca's floor, below) and 5m before 2016,
+  plus the fallback wherever Alpaca has no tradeable bar.
 
 ## Account, plans, and access
 
@@ -67,7 +74,7 @@ plan.
 
 - **Daily bars: hard floor at 2016.** Minute bars ~5 years effective, with gaps
   at the old end. This is why IBKR (20-year 1d, one request per symbol) keeps
-  the deep-history role: <https://alpaca.markets/support/alpaca-data-timeline>.
+  the history before 2016: <https://alpaca.markets/support/alpaca-data-timeline>.
 - **Historical bars:** multi-symbol endpoint, results sorted by symbol,
   `next_page_token` pagination. Page size **unverified** (forum reports vary);
   the pilot measures bars/sec end-to-end.
