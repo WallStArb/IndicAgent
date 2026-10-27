@@ -58,19 +58,19 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
 
 - **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
-  (amended 2026-10-23). 2026-10-27 11:50Z: 1,442 settled, 81 unsettled, 6 frozen (MOD, PSKY,
-  CLBK by flag; CCO, QRVO, WBD by listing_end). The 05c34a16 pass (180 items, 175 ok) settled every
-  name it reached; the successor pass (fetch_run 60da77f8, 81 names, budget 480 min, started
-  11:45Z, `logs/plan19_fullscan_20261026.log`) runs the rest, then the watcher restarts the
-  fetcher timer. Hard-tail rule (decided, no change to the readiness basis): a name still
-  unsettled after an ask bounded at its listing goes on the `--frozen-names` hold with its
-  residue class. CLBK hit it: the bounded ask (2018-04-03 onward) got IBKR error 162 "No
-  historical market data ... NASDAQBBO Last 1d" for conId 902968711, whose bars start
-  2026-08-28, so its 2,100 Tradier-only sessions 2018-04-20..2026-08-27 are residue for the
-  plan 20 report. The crontab gate `scripts/ops/bars/ops_tradier_residue_gate.sh` (hourly at
-  :47, FROZEN=MOD,PSKY,CLBK) runs readiness and, once it exits 0, writes
-  `191-TRADIER-RESIDUE.md` (measure, prove, report), then stops for plan 20.
-  completed_plans stays 120 until plan 19 closes.
+  (amended 2026-10-23). 2026-10-27 17:45Z: 1,469 settled, 53 unsettled, 7 frozen (MOD, PSKY,
+  CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). The successor pass (60da77f8) settled 16
+  names, then died at 12:50Z when the gateway connection dropped mid-run at LCUT (fail-loud, as
+  designed). Pass 3 (watcher `plan19_pass3.sh` in 3a's scratchpad) starts when the timer's
+  routine run (pid 1088320) exits: full scan over the unsettled names, budget 420 min, then the
+  timer restarts. Hard-tail rule (no change to the readiness basis): a name still unsettled
+  after an ask bounded at its listing goes on the `--frozen-names` hold with its residue class.
+  CLBK: IBKR error 162 "No historical market data" for conId 902968711 before 2026-08-28, so its
+  2,100 Tradier-only sessions 2018-04-20..2026-08-27 are residue. BZH: listing ended about
+  2026-10-19 (Alpaca inactive, IBKR "No security definition"), held until its listing_end row
+  lands (todo 519, with ACA and MSGS). The crontab gate `scripts/ops/bars/ops_tradier_residue_gate.sh`
+  (hourly at :47, FROZEN=MOD,PSKY,CLBK,BZH) writes `191-TRADIER-RESIDUE.md` once readiness exits
+  0, then stops for plan 20. completed_plans stays 120 until plan 19 closes.
 
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so
   no IBKR bars landed 2026-10-17 to 2026-10-25; the backlog is catching up. Fixed today: explicit-UTC

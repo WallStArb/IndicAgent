@@ -117,3 +117,16 @@ merger terms before choosing a basis.
   does not hold, hold it explicitly before the next daily apply. Alpaca has no spelling override:
   PSKY 5m comes from the IBKR fallback until the alpaca leaf maps symbols (small leaf change).
   MOD keeps its class C hold (`--frozen-names MOD,PSKY` until the PSKY hold is decided).
+
+## New ended listings found 2026-10-27 (listing_end rows needed)
+
+Found by the plan 19 pass: IBKR answers "Error 200 No security definition" at qualify, and
+Alpaca's asset endpoint reports the name inactive. Confirm each against SEC EDGAR (Form 25 or
+Form 15) before writing a `listing_end` row through a migration, as with CCO, QRVO and WBD.
+- BZH (Beazer Homes): last Alpaca 1d bar 2026-10-19, Alpaca status inactive. On the plan 19
+  frozen hold (`FROZEN` in `ops_tradier_residue_gate.sh`) until its listing_end row lands.
+- ACA (Arcosa): last Alpaca 1d bar 2026-10-22, Alpaca status inactive. Already settled for plan
+  19; freshness_1d will fail it nightly until its listing_end row lands.
+- MSGS (Madison Square Garden Sports): IBKR qualify fails and Alpaca's asset endpoint returns
+  "not found", yet Alpaca served 1d bars through 2026-10-26. Likely a ticker change; check
+  before treating it as ended.
