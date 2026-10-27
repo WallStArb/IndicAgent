@@ -20,16 +20,20 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 | `ohlcv_raw_writer.py` | The one writer of `ohlcv_raw` (every vendor answer, last-wins by serve time) and its `ohlcv_revision` log (phase 191) |
 | `ohlcv_ingress_contract.py` | The raw-first ingress contract every fetch path writes through (`ohlcv_load` ledger rows) |
 | `ohlcv_request_writer.py` | The fetch ledger writer (`ohlcv_request`) |
-| `bar_derivation.py` | The one writer of canonical 1d (rule d2-v3 over `ohlcv_raw`, source from `bar_source_policy`) and the derived 15m/1h grid |
+| `bar_derivation.py` | The one writer of canonical 1d (rule d2-v3 over `ohlcv_raw` in the stored canonical, d2-v4 in code; source from `bar_source_policy_current`) and the derived 15m/1h grid |
+| `bar_selection.py` | The canonical writer for 5m, 1m and 4h: a per-session selection from `ohlcv_raw` by policy, called by the ingress contract after each raw write; non-trivial choices in `bar_session_choice` |
+| `bar_load.py` | The load engine the Alpaca capture writes through (`ops_bar_nightly.py`, `ops_bar_load.py`) |
 | `bar_scrub.py` | Scrub rules; flags in `bar_quality_flag`, run by the daily stage |
 | `bar_reconciliation_audit.py` | D7: integrity findings and the `bar_integrity` verdicts promotion reads |
-| `ohlcv_observation_writer.py` | Retired D1 writer: no caller since plan 191-11; deleted with `ohlcv_observation` in plan 191-16 |
 | `listing_venue_writer.py` | D6 listing venue spans |
 | `dividend_event_writer.py` | Dividend events (Yahoo) |
 
 The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`)
-run by `indicagent-ibkr-history-fetcher.timer`. The
-Tradier daily loader and its units were deleted in plan 185-48 (the account is not funded).
+run by `indicagent-ibkr-history-fetcher.timer`; the Alpaca capture is
+`scripts/ops/bars/ops_bar_nightly.py`, run by `indicagent-alpaca-nightly.timer` (04:40 UTC), and
+`indicagent-bar-derivation-grid.timer` (05:45 UTC) derives the grid after it. The Tradier daily
+loader and its units were deleted in plan 185-48 (the account is not funded); its bar rows go in
+plan 191-20.
 
 ## Removed
 
