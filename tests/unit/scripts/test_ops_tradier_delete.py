@@ -26,6 +26,7 @@ from scripts.ops.bars import ops_tradier_delete as mod
 
 _HELD = "NOT (symbol = ANY(%(held)s::text[]))"
 _BATCH = "symbol = ANY(%(batch)s::text[])"
+_BAR_TABLES = {"ohlcv_raw", "market_data_ohlcv"}
 
 
 def test_tables_are_the_five_in_delete_order():
@@ -50,7 +51,8 @@ def test_tables_are_the_five_in_delete_order():
 )
 def test_each_table_has_one_exact_tradier_predicate(table: str, column: str):
     spec = mod.SPECS[table]
-    assert spec.predicate.startswith(f"{column} = 'tradier' AND {_HELD}")
+    scope = " AND timeframe = '1d'" if table in _BAR_TABLES else ""
+    assert spec.predicate.startswith(f"{column} = 'tradier'{scope} AND {_HELD}")
     assert spec.delete_sql == f"DELETE FROM {table} WHERE {_BATCH} AND {spec.predicate}"
     assert spec.count_sql == (
         f"SELECT symbol, count(*) FROM {table} WHERE {spec.predicate} GROUP BY symbol"
@@ -61,7 +63,8 @@ def test_each_table_has_one_exact_tradier_predicate(table: str, column: str):
 def test_only_the_load_predicate_carries_an_extra_clause():
     for spec in mod.TABLES:
         column = spec.predicate.split(" ", 1)[0]
-        bare = f"{column} = 'tradier' AND {_HELD}"
+        scope = " AND timeframe = '1d'" if spec.table in _BAR_TABLES else ""
+        bare = f"{column} = 'tradier'{scope} AND {_HELD}"
         if spec.table == "ohlcv_load":
             assert spec.predicate == bare + mod.LOAD_KEEPS_FOREIGN_REVISIONS
         else:
@@ -80,7 +83,18 @@ def test_a_tradier_load_owning_another_vendors_revision_is_kept():
 def test_the_vendor_literal_is_the_only_one_in_every_predicate():
     for spec in mod.TABLES:
         literals = set(re.findall(r"'([^']*)'", spec.predicate))
-        assert literals == {"tradier"}, spec.table
+        want = {"tradier", "1d"} if spec.table in _BAR_TABLES else {"tradier"}
+        assert literals == want, spec.table
+
+
+def test_bar_deletes_are_scoped_to_the_1d_segments_and_the_dump_guards_the_scope():
+    # timeframe is segmentby on both bar hypertables; vendor is not on market_data_ohlcv, so
+    # without the 1d scope a batch delete decompresses every timeframe of each name.
+    for table in _BAR_TABLES:
+        assert "timeframe = '1d'" in mod.SPECS[table].delete_sql
+    guard = mod._OFF_TIMEFRAME_SQL
+    assert "FROM ohlcv_raw WHERE vendor = 'tradier' AND timeframe <> '1d'" in guard
+    assert "FROM market_data_ohlcv WHERE vendor = 'tradier' AND timeframe <> '1d'" in guard
 
 
 # --- files -----------------------------------------------------------------------------------

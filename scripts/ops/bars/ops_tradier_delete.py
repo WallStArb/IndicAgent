@@ -122,8 +122,13 @@ LOAD_KEEPS_FOREIGN_REVISIONS = (
 
 _REVISION_PREDICATE = "vendor = 'tradier' AND " + _HELD
 _LOAD_PREDICATE = "source = 'tradier' AND " + _HELD + LOAD_KEEPS_FOREIGN_REVISIONS
-_RAW_PREDICATE = "vendor = 'tradier' AND " + _HELD
-_CANONICAL_PREDICATE = "vendor = 'tradier' AND " + _HELD
+# timeframe is a segmentby column on both bar hypertables and vendor is not one on
+# market_data_ohlcv: without it, a symbol-batch delete there decompresses every timeframe of the
+# name (AAPL: 611k rows for 6.7k Tradier 1d rows). Every Tradier bar is 1d; the dump refuses
+# while any Tradier bar of another timeframe exists (_OFF_TIMEFRAME_SQL), so the predicate stays
+# exact.
+_RAW_PREDICATE = "vendor = 'tradier' AND timeframe = '1d' AND " + _HELD
+_CANONICAL_PREDICATE = "vendor = 'tradier' AND timeframe = '1d' AND " + _HELD
 _COVERAGE_PREDICATE = "provider = 'tradier' AND " + _HELD
 
 # Written out literally so the single-writer boundary tests see each statement.
@@ -179,6 +184,10 @@ _RETAINED_LOADS_SQL = (
     + _HELD
     + " AND EXISTS (SELECT 1 FROM ohlcv_revision v"
     " WHERE v.load_id = ohlcv_load.load_id AND v.vendor <> 'tradier')"
+)
+_OFF_TIMEFRAME_SQL = (
+    "SELECT (SELECT count(*) FROM ohlcv_raw WHERE vendor = 'tradier' AND timeframe <> '1d'), "
+    "(SELECT count(*) FROM market_data_ohlcv WHERE vendor = 'tradier' AND timeframe <> '1d')"
 )
 _LEDGER_SQL = "SELECT count(*), count(*) FILTER (WHERE source = 'tradier') FROM ohlcv_request"
 
@@ -697,6 +706,12 @@ def run_dump(args: argparse.Namespace) -> int:
     with _connect() as conn:
         conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         with conn.transaction():
+            off_raw, off_canonical = _scalar(conn, _OFF_TIMEFRAME_SQL)
+            if off_raw or off_canonical:
+                raise SystemExit(
+                    f"REFUSED: Tradier bars outside 1d (raw {off_raw}, canonical "
+                    f"{off_canonical}); the 1d-scoped predicates would miss them"
+                )
             snapshot = plan_counts(conn, held)
             manifest["retained_loads"] = int(_scalar(conn, _RETAINED_LOADS_SQL, {"held": held})[0])
             manifest["request_ledger"] = _ledger(conn)
@@ -744,6 +759,7 @@ def _verify_against_db(
         live = plan_counts(conn, held)
         retained = int(_scalar(conn, _RETAINED_LOADS_SQL, {"held": held})[0])
         ledger = _ledger(conn)
+    conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
     files: dict[str, int] = {}
     digests: dict[str, str] = {}
     for entry in manifest["tables"]:
@@ -890,7 +906,6 @@ def run_delete(args: argparse.Namespace) -> int:
             problems = _verify_against_db(
                 conn, manifest, manifest_path.parent, set(state["completed"])
             )
-            conn.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
             return problems
 
         def _write_tsv() -> None:
