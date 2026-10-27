@@ -121,15 +121,19 @@ coordinate through cross-session messages before touching shared files.
 |---|---|---|
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
 | Research: phase 187 planning | indicagent-5b | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*` |
-| Coordination: lane status, STATE, memory, priorities | indicagent-04 | cross-session messages; edits shared planning files only between lane commits |
 
-Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
+Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
 
 ## Decisions waiting on the owner
 
+- Research lane restart (2026-10-27): the 187-03 backfill replays (8 of 20 left, then `--apply`)
+  and the 187-05 full 13-cell StepM battery were stopped by the session memory reaper before
+  finishing; 5b restarts them on the owner's go-ahead. Recommended: one at a time, battery first,
+  launched outside the Claude session with a memory cap (`systemd-run --user -p MemoryMax=...`)
+  so a cap breach fails in its own log and a dying session cannot take the run with it.
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
-  537 item 2 basis restore). Every other owner decision is closed (2026-10-26). The tooling is
+  537 item 2 basis restore). The only other open owner call is the research restart below. The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
   migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
   run live. Simplify pass 2026-10-27: every ohlcv_load row stays (lineage,
