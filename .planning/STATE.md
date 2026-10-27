@@ -132,8 +132,9 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
   537 item 2 basis restore). Every other owner decision is closed (2026-10-26). The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
   migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
-  run live. Also for the owner at that checkpoint: keep the 3,179,829 IBKR revision rows that
-  Tradier loads own (default: keep; 743 Tradier loads stay to hold them). Task 3 must stop every
+  run live. Simplify pass 2026-10-27: every ohlcv_load row stays (lineage,
+  like ohlcv_request), so only value rows go and the IBKR revision rows under Tradier loads stay
+  by construction; the design doc carries the amendment. Task 3 must stop every
   1d consumer, not only the fetcher and bar_derivation, from the first batch to the 1d re-derive.
 
 D-191-P done 2026-10-27 (migration 520 retirement, ba03e9ff7; plan file
