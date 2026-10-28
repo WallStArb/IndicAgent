@@ -42,14 +42,12 @@ whichever bars canonical holds. The seam is disclosed, not corrected:
   Alpaca ratio of ln(high / low) has median 1.000, p05 to p95 0.975 to 1.018 and p99 1.062. The
   per-name level ratio of the estimates is 0.991 to 1.018 for Corwin-Schultz and 0.985 to 1.025
   for Roll, so the seam moves either level by about 2% at most.
-- A price-level step between the last IBKR bar and the first Alpaca bar is not a property of
-  the seam but a data defect the D-191-Q three-vendor arbitration owns (an IBKR symbol row or
-  an owner hold for the span). Where one survives, every cross-bar statistic sees it, these two
-  included: the spurious return enters every Roll window that holds it (up to `window` rows),
-  and the shifted Corwin-Schultz pair (bounded by the overnight adjustment, never undefined)
-  enters up to `window` window means (21 at the seed). The worst case in canonical 1d today is
-  AXSM on 2016-01-04 at a level ratio of 1.31, and 4 steps above 10% exist. The kernels do not
-  detect or repair it.
+- Reach of a large move (a documented property of both estimators): any large real price move,
+  or any vendor step that survives arbitration, enters every Roll window that holds its return
+  (up to `window` rows) and, through its two-bar pair (bounded by the overnight adjustment,
+  never undefined), up to `window` Corwin-Schultz window means (21 at the seed). Vendor seams
+  and bad prints are settled in the bar layer (the D-191-Q arbitration and the quarantine
+  list), never in the kernel; the kernels do not detect or repair either.
 - Volume is not an input here, so the 2016 volume-basis step does not touch either output.
 """
 

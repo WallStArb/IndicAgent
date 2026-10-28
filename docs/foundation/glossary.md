@@ -562,6 +562,8 @@ The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a 
 
 **Code surface:** feature column `high_low_spread` (feature_vectors_v2); APR `feature.high_low_spread.window`.
 
+**Reach of a large move:** any large real price move, or a vendor step that survives arbitration, enters every Roll window holding its return (up to `window` rows) and up to 21 Corwin-Schultz window means. Vendor seams and bad prints are settled in the bar layer (D-191-Q arbitration, quarantine list), never in the kernel.
+
 ---
 
 ### `Roll spread` (`roll_spread`)
@@ -574,6 +576,8 @@ The Roll (1984) implied bid-ask spread, `2 sqrt(-cov)`, where `cov` is the seria
 **Status:** active (todo 553, kernel `src/intelligence/features/kernels/liquidity.py`)
 
 **Code surface:** feature column `roll_spread` (feature_vectors_v2); APR `feature.roll_spread.window`.
+
+**Reach of a large move:** see `high-low spread`; the same holds for every Roll window that holds the move's return.
 
 ---
 

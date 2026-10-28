@@ -77,10 +77,14 @@ Landed 2026-10-27 together with todo 390, before the 186-26 launch.
   only price ratios, so a constant level difference cancels within an era. Full vendor overlap on
   raw 1d (1,162 names, 560,005 sessions): IBKR over Alpaca ln(high / low) median 1.000, p05 to
   p95 0.975 to 1.018, p99 1.062; per-name level ratio 0.991 to 1.018 for Corwin-Schultz and
-  0.985 to 1.025 for Roll. A level step that survives at the seam is a data defect the D-191-Q
-  arbitration owns, not handled in the kernels: its return enters every Roll window that holds
-  it (up to `window` rows) and its pair up to 21 Corwin-Schultz window means. Worst case in
-  canonical 1d today: AXSM on 2016-01-04 at a level ratio of 1.31, plus 4 steps above 10%.
+  0.985 to 1.025 for Roll. Any large real price move, or any vendor step
+  that survives arbitration, enters every Roll window that holds its return (up to `window`
+  rows) and up to 21 Corwin-Schultz window means: a documented property of the estimators.
+  Vendor seams and bad prints are settled in the bar layer (D-191-Q arbitration, quarantine
+  list), never in the kernel. (Corrected 2026-10-28: the earlier text named AXSM on 2016-01-04
+  and four other steps above 10% as seam level steps. indicagent-3a checked them: AXSM's move
+  shows in all three vendors (open 9.54, close 12.19) with Tradier canonical on both sides, and
+  CRC, FCEL, EXE and SD are same-vendor real moves.)
 - Windows are counted in bars at every timeframe (one key per estimator for 5m, 15m, 1h, 1d);
   the 21 and 252 rationale holds only on 1d. Intraday levels are not comparable to 1d levels,
   intraday Roll windows span overnight returns, and flat bars floor Corwin-Schultz pairs toward
