@@ -1,0 +1,11 @@
+[Unit]
+Description=IndicAgent research ledger render (phase 187 plan 13; scripts/research/render_research_ledger.py)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m scripts.research.render_research_ledger
+# Renders docs/research/research-ledger.md and commits that one path when it changed; never pushes.
+TimeoutStartSec=15min

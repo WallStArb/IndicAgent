@@ -76,6 +76,7 @@ ORDER BY r.started_at, c.name
 _OTHER_VINTAGES_SQL = """
 SELECT DISTINCT vintage FROM research_run
 WHERE vintage <> $1 AND NOT (status = ANY($2::text[]))
+  AND kind IN ('evidence', 'book_test', 'pod_book')
 ORDER BY vintage
 """
 
@@ -172,18 +173,22 @@ async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], list[str], d
     return rows, others, apr, vintage
 
 
-async def main(args: argparse.Namespace) -> int:
-    dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+async def build_report(
+    dsn: str, vintage: str | None, battery: str | None, *, diagnostic: bool
+) -> dict:
+    """The selection report. Under a failed gate and not `diagnostic` it is the refusal alone
+    ({"result": False, "refusals": [...]}); StepM is not computed for a selection that is not a
+    result. Raises SystemExit when no counted attempt has a series."""
     root = repo_root(Path.cwd())
-    rows, others, apr, vintage = await _load(dsn, args.vintage)
+    rows, others, apr, vintage = await _load(dsn, vintage)
     with_series = [r for r in rows if r["sessions"] is not None]
     missing = [r for r in rows if r["sessions"] is None]
-    record = json.loads(Path(args.battery).read_text()) if args.battery else None
+    record = json.loads(Path(battery).read_text()) if battery else None
     refusals = selection_refusals(
         missing, others, battery_refusals(record, apr, stepm_source_sha256())
     )
-    if refusals and not args.diagnostic:
-        raise SystemExit("selection is not a result: " + "; ".join(refusals))
+    if refusals and not diagnostic:
+        return {"result": False, "refusals": refusals, "vintage": vintage}
     if not with_series:
         raise SystemExit("no counted attempt has a series")
     git = functools.cache(functools.partial(_git, root))
@@ -230,8 +235,16 @@ async def main(args: argparse.Namespace) -> int:
             {"run_id": r["run_id"], "concept": r["concept"], "status": r["status"]} for r in missing
         ],
     }
+    return report
+
+
+async def main(args: argparse.Namespace) -> int:
+    dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    report = await build_report(dsn, args.vintage, args.battery, diagnostic=args.diagnostic)
+    if not report["result"] and not args.diagnostic:
+        raise SystemExit("selection is not a result: " + "; ".join(report["refusals"]))
     print(json.dumps(report, indent=2))
-    return 3 if refusals else 0
+    return 0 if report["result"] else 3
 
 
 def _parser() -> argparse.ArgumentParser:

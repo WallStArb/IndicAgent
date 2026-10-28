@@ -92,6 +92,10 @@ _DAG_ORDER: dict[str, int] = {
     # Phase 189 (plan 06 cutover): the single IBKR history fetcher on a 15-minute
     # OnUnitInactiveSec timer. A BaseBatch-style oneshot, no Kafka consumer, so no lag entry.
     "indicagent-ibkr-history-fetcher": 8,  # Type=exec oneshot run; inactive between fires is correct
+    # Phase 187 plan 13: nightly render of docs/research/research-ledger.md from the database.
+    # A oneshot with no Kafka consumer, so no alert.lag.* key (the ibkr-history-fetcher
+    # precedent); plan 16 replaces _DAG_ORDER with the manifest.
+    "indicagent-research-ledger-render": 8,  # oneshot; DB -> research-ledger.md, commits on change
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events

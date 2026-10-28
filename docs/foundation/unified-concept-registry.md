@@ -133,7 +133,7 @@ These are the stable mechanics — the part of this design meant to survive unch
 
 ## `ConceptRegistryService` — two call surfaces
 
-The registry has three writers (design 10.2.5): this service (identity, status, new ideas), the S6 ledger (recipes, attempts, research identities) and `feature_lifecycle` (feature evaluations).
+The generated `docs/research/research-ledger.md` renders the registry, its attempts and the current StepM selection nightly (`scripts/research/render_research_ledger.py`). The registry has three writers (design 10.2.5): this service (identity, status, new ideas), the S6 ledger (recipes, attempts, research identities) and `feature_lifecycle` (feature evaluations).
 
 `src/intelligence/concept_registry_service.py`. Stateless; every method takes an asyncpg connection.
 

@@ -475,3 +475,9 @@ async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
     agent._restart_service_by_unit.assert_called_once_with(_SVC_DATA_PROVIDER)
     event_types = [c[1]["event_type"] for c in agent._emit_health_event.call_args_list]
     assert "data_stoppage" in event_types
+
+
+def test_research_ledger_render_is_a_registered_oneshot():
+    from services.service_auditor import _DAG_ORDER
+
+    assert _DAG_ORDER["indicagent-research-ledger-render"] == 8  # oneshot tier, no lag key

@@ -1,3 +1,5 @@
+> **Frozen 2026-10-28 (phase 187 plan 13).** Superseded by the generated `docs/research/research-ledger.md`, which is rendered from the database nightly. This file is kept unchanged because the summary cards cite its section anchors; do not edit it. Its sections 1 to 3 were loaded into the concept registry as idea rows by `scripts/research/import_ledger_ideas.py`, and every legacy verdict is a `research_run` attempt.
+
 # Research ledger: every alpha idea and where it stands
 
 **Status:** current, edited in place. Last full reconciliation 2026-10-08; condensed 2026-10-28 (the longer prior text is `git show 114ae8854:docs/research/construction-verdict-ledger.md`). Under the adopted unified design (phase 187) this file becomes a report generated from the UCR recipe book; until then it is hand-edited and the sole verdict source. New results count under E18 (every look at the vintage recorded).

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily research ledger render (07:15 UTC: after the 04:40 Alpaca capture and the 06:00 reconciliation audit, clear of the 06:30 Yahoo dividends)
+
+[Timer]
+OnCalendar=*-*-* 07:15:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

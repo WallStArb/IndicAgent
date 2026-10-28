@@ -1643,7 +1643,7 @@ in; the combiner sets weights.
 **Not:** an `intelligence vector`. A vector is an information domain (V1 quant, V3 macro, V5
 flow); a family is one mechanism inside a domain, and a vector holds many families.
 **Banned:** (none)
-**Status:** active; queue and status in `docs/research/construction-verdict-ledger.md` section 1
+**Status:** active; queue and status in the generated `docs/research/research-ledger.md` (the frozen `construction-verdict-ledger.md` section 1 is its hand-edited predecessor)
 
 ---
 

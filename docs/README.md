@@ -209,7 +209,7 @@ Eleven specs and plans written July to September 2026 under the brainstorming to
 
 ### `research/` — Research notes and verdict records
 
-Research documents, verdict records (for example `construction-verdict-ledger.md`) and design explorations. Docs may be filename-stable (edited in place). `archive/` holds superseded and historical research.
+Research documents, the generated `research-ledger.md` (the one list of ideas, attempts and verdicts, rendered from the database nightly; the hand-edited `construction-verdict-ledger.md` is frozen) and design explorations. Docs may be filename-stable (edited in place). `archive/` holds superseded and historical research.
 
 ### `analysis/` — Analysis outputs
 
