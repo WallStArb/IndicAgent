@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in review
 priority: P1
 filed: 2026-10-28
 source: scope guard of the todo 555 change (amihud volume_basis); sequencing call belongs to indicagent-3a
@@ -48,15 +48,30 @@ Definition changes, so each moves its parity goldens with the reason recorded.
 sequencing call. The rebuild loaders already carry `volume_basis` and NULL volume as NaN (555),
 so these kernels need no loader change.
 
-## Hard blocker for 186-26 (found in the 555 review, 2026-10-28)
+## Resolution (indicagent-24, 2026-10-28; in review)
 
-NULL volume is NaN in the rebuild loaders (555). Measured on the synthetic fixture with one NaN
-volume bar: `volume_z`, `ofi_z`, `cvd_slope_z`, `dollar_vol_z`, `vol_range_ratio`, `vol_std_z`
-and `obv_z` read exactly 0.0 on every later row; `rel_volume`, `vol_trend_ratio`,
-`up_vol_ratio`, `mfi`, `vwap_dev_sigma` differ from the clean run on every later row;
-`vol_percentile`, `vol_persistence`, `price_vol_corr`, `cmf` differ for one window. Before 555 a
-NULL-volume bar crashed the loader, which was loud; now it would be silent. `compute_kernels`
-therefore refuses NaN volume for any kernel not marked `nan_volume_safe` (only `amihud_illiq_z`
-is). Until each kernel above is made NaN-aware, the 186-26 rebuild fails loudly on every series
-holding a NULL-volume bar (880 names on 1d today). Making them NaN-aware with the basis reset is
-this todo, so it must land before the 186-26 launch, not after.
+One guard in `compute_kernels` (`_compute_basis_guarded`, `features/contract/registry.py`) covers
+every kernel that reads `volume` and is not marked `nan_volume_safe` (25 kernels: the 17 listed
+above plus the VP/SR, swing, session-level, CTF and statistics kernels). `amihud_illiq_z` and the
+HMM kernels handle it themselves. The guard:
+
+- runs the kernel on each volume-basis segment alone, so no window spans a basis change;
+- feeds NaN volume (a NULL-volume bar) as 0.0, finite, so a cumulative sum or rolling std is not
+  poisoned (one NaN used to turn `volume_z`, `ofi_z`, `cvd_slope_z`, `dollar_vol_z`,
+  `vol_range_ratio`, `vol_std_z` and `obv_z` into 0.0 on every later row);
+- masks the output NaN (a none-mask row 1) for any row whose trailing `memory + 1` bars hold a
+  dropped bar or a segment start, so the declared memory still holds and the gap is loud; a
+  path-dependent kernel has no finite memory, so only the dropped bar's own row is masked and
+  its accumulation restarts at a segment;
+- requires the `volume_basis` bar field from the caller.
+
+Measured on the synthetic fixture with one NaN bar: every output is NaN only inside its declared
+memory and equals the clean run after it (cumulative-sum kernels to 1e-11 relative). No change
+where there is no NULL volume and no basis change, so the parity goldens are unchanged.
+A window counts calendar bars; a missing session blanks `memory + 1` rows of each affected
+kernel, unlike amihud's minimum-valid-fraction rule. Per-kernel nan-aware rewrites are a possible
+refinement, not a blocker.
+
+Research: `kernel_source` still needs the caller to supply `volume_basis`, so the promoted
+`rk_vwap_dev` kernels refuse without it until the panel carries vendor provenance (a 184
+follow-up).

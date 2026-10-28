@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import scripts.research.determinism.repro_frozen as rf
 
+import scripts.research.determinism.repro_frozen as rf
 from src.intelligence.research.evaluate import EvaluationResult
 
 REPO = Path(rf.__file__).resolve().parents[3]

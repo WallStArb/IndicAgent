@@ -11,6 +11,7 @@ the todo 449 chain and 45 to the nightly, and a collision there costs the stream
 from __future__ import annotations
 
 import pytest
+
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 
 _APR = {"infra.bar_campaign.client_ids": "[47, 48, 49]"}

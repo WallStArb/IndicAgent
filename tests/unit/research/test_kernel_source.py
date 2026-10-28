@@ -112,7 +112,14 @@ def test_invalid_rows_are_absent():
     valid[50] = False
     shut = Panel(**{**{f: getattr(panel, f) for f in panel.__dataclass_fields__}, "valid": valid})
     out = kernel_source(
-        shut, ["rk_vwap_dev_w5"], {"rk_vwap_dev": 5}, None, max_gap_rows=1, high=high, low=low
+        shut,
+        ["rk_vwap_dev_w5"],
+        {"rk_vwap_dev": 5},
+        None,
+        max_gap_rows=1,
+        high=high,
+        low=low,
+        volume_basis=np.ones(panel.close.shape),
     )
     assert np.isnan(out.values["rk_vwap_dev_w5"][50]).all()
 
@@ -241,7 +248,14 @@ def test_config_composed_kernel_resolves_upstream_with_explicit_config(monkeypat
 def test_config_free_research_kernel_runs_with_none():
     panel, high, low = _panel()
     out = kernel_source(
-        panel, ["rk_vwap_dev_w20"], {"rk_vwap_dev": 20}, None, max_gap_rows=0, high=high, low=low
+        panel,
+        ["rk_vwap_dev_w20"],
+        {"rk_vwap_dev": 20},
+        None,
+        max_gap_rows=0,
+        high=high,
+        low=low,
+        volume_basis=np.ones(panel.close.shape),
     )
     kernel = rolling_vwap_deviation_kernel(20)
     j = 1

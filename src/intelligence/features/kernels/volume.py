@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.contract.registry import Kernel, volume_basis_segment_starts
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     EPS,
@@ -290,25 +290,6 @@ def _cvd_slope_z_series_full(
     return np.concatenate([np.zeros(slope_bars, dtype=float), z])
 
 
-def _volume_basis_segment_starts(basis: np.ndarray) -> np.ndarray:
-    """Row index where each row's volume-basis segment starts (todo 555).
-
-    A segment is a run of rows on one volume basis. A bar with no volume (code 0) carries no
-    basis, so it neither starts nor ends a segment: the basis it follows is the last nonzero one
-    before it. A row starts a new segment when its nonzero code differs from the previous
-    nonzero code, wherever that change falls in the series (per name and timeframe; never a
-    date).
-    """
-    codes = np.asarray(basis, dtype=np.int64)
-    n = len(codes)
-    rows = np.arange(n)
-    last_coded = np.maximum.accumulate(np.where(codes != 0, rows, -1))
-    previous = np.concatenate([[-1], last_coded[:-1]])
-    has_previous = previous >= 0
-    changed = (codes != 0) & has_previous & (codes != codes[np.maximum(previous, 0)])
-    return np.maximum.accumulate(np.where(changed, rows, 0))
-
-
 def _amihud_illiq_z_series_full(
     closes: np.ndarray,
     volumes: np.ndarray,
@@ -324,7 +305,7 @@ def _amihud_illiq_z_series_full(
       the price-times-volume scale, so the z-score is taken on ln(illiq).
     - Basis. Vendors count volume differently (IBKR SMART about 0.41 to 0.91 of consolidated),
       so a window spanning a basis change carries a level shift of ln(0.41..0.91). The window
-      restarts where `volume_basis` changes (`_volume_basis_segment_starts`) and the output is
+      restarts where `volume_basis` changes (`volume_basis_segment_starts`) and the output is
       NaN until it is warm again: a loud gap beats a silent level shift.
     - Missing values. A bar with NaN volume (NULL), a zero return (no log) or a non-positive
       close (todo 390) gives no observation. The z-score runs over the observations the window
@@ -354,7 +335,7 @@ def _amihud_illiq_z_series_full(
     cs2 = np.concatenate([[0.0], np.cumsum(filled * filled)])
     cn = np.concatenate([[0], np.cumsum(valid)])
     rows = np.arange(n)
-    start = np.maximum(rows - zscore_window + 1, _volume_basis_segment_starts(volume_basis))
+    start = np.maximum(rows - zscore_window + 1, volume_basis_segment_starts(volume_basis))
     count = cn[rows + 1] - cn[start]
     total = cs[rows + 1] - cs[start]
     total2 = cs2[rows + 1] - cs2[start]

@@ -37,6 +37,25 @@ BAR_FIELDS: tuple[str, ...] = ("ts", "open", "high", "low", "close", "volume", "
 # live in bars/vendor_kind.py, the one source.
 
 
+def volume_basis_segment_starts(basis: np.ndarray) -> np.ndarray:
+    """Row index where each row's volume-basis segment starts (todo 555).
+
+    A segment is a run of rows on one volume basis. A bar with no volume (code 0) carries no
+    basis, so it neither starts nor ends a segment: the basis it follows is the last nonzero one
+    before it. A row starts a new segment when its nonzero code differs from the previous
+    nonzero code, wherever that change falls in the series (per name and timeframe; never a
+    date).
+    """
+    codes = np.asarray(basis, dtype=np.int64)
+    n = len(codes)
+    rows = np.arange(n)
+    last_coded = np.maximum.accumulate(np.where(codes != 0, rows, -1))
+    previous = np.concatenate([[-1], last_coded[:-1]])
+    has_previous = previous >= 0
+    changed = (codes != 0) & has_previous & (codes != codes[np.maximum(previous, 0)])
+    return np.maximum.accumulate(np.where(changed, rows, 0))
+
+
 def constant_volume_basis(n: int) -> np.ndarray:
     """A `volume_basis` array for a single-vendor input (the live stream, the probe fixtures, a
     research panel): every bar consolidated, so no segment boundary exists."""
@@ -79,10 +98,10 @@ class Kernel:
     memory_atol: float = 0.0
     # A deliberate lookahead positive control: the causality probe must fail it.
     acausal_control: bool = False
-    # The kernel handles NaN in `volume` (a NULL-volume bar) without corrupting later rows.
+    # The kernel handles NaN `volume` (a NULL-volume bar) and a volume-basis change itself.
     # Most volume kernels do not: one NaN poisons a cumulative sum or a rolling std and every
-    # later row reads 0.0 or garbage, silently. `compute_kernels` refuses NaN volume for a
-    # kernel that is not marked safe (todo 560 makes the others safe).
+    # later row reads 0.0 or garbage. `compute_kernels` runs those per basis segment with NaN
+    # volume as 0.0 and masks the affected rows (`_compute_basis_guarded`, todo 560).
     nan_volume_safe: bool = False
 
 
@@ -396,6 +415,64 @@ def feature_memory_bars(
     return reg.effective_memory_bars(reg.by_output(output).name, config)
 
 
+def _is_none_mask(name: str) -> bool:
+    return name.startswith("_") and name.endswith("_is_none")
+
+
+def _compute_basis_guarded(
+    kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
+) -> Mapping[str, np.ndarray]:
+    """Run a volume-reading kernel that is not NaN-safe per volume-basis segment (todo 555/560).
+
+    A NaN volume (a NULL-volume bar) would turn a cumulative sum or a rolling std into 0.0 or
+    garbage on every later row, and a window spanning a basis change carries a level shift. So
+    the kernel runs on each basis segment alone, NaN volume enters as 0.0 (no volume traded,
+    finite), and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
+    bars hold a dropped bar or a segment start: the declared memory then still holds, and the
+    gap is loud. A path-dependent kernel has no finite memory, so only the dropped bar's own row
+    is masked and the accumulation restarts at a segment.
+    """
+    volume = np.asarray(cut["volume"], dtype=float)
+    dropped = ~np.isfinite(volume)
+    starts = volume_basis_segment_starts(basis)
+    n = len(volume)
+    if not dropped.any() and not starts.any():
+        return kernel.compute(cut, config)  # type: ignore[arg-type]
+    clean = np.where(dropped, 0.0, volume)
+    bounds = np.unique(starts)
+    out: dict[str, np.ndarray] = {}
+    for lo, hi in zip(bounds, [*bounds[1:], n], strict=True):
+        part = {
+            k: (
+                (clean if k == "volume" else v)[lo:hi]
+                if getattr(v, "ndim", 0) >= 1 and len(v) == n
+                else v
+            )
+            for k, v in cut.items()
+        }
+        for name, column in kernel.compute(part, config).items():  # type: ignore[arg-type]
+            column = np.asarray(column)
+            if name not in out:
+                out[name] = (
+                    np.full(n, np.nan) if column.dtype.kind == "f" else np.empty(n, column.dtype)
+                )
+            out[name][lo:hi] = column
+    if kernel.path_dependent:
+        masked = dropped
+    else:
+        events = np.cumsum(dropped | (starts == np.arange(n)) & (np.arange(n) > 0))
+        reach = np.maximum(np.arange(n) - int(kernel.memory(config)) - 1, -1)  # type: ignore[arg-type]
+        masked = events - np.where(reach >= 0, events[np.maximum(reach, 0)], 0) > 0
+    for name, column in out.items():
+        if column.dtype.kind != "f":
+            raise KernelRegistryError(
+                f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the volume "
+                "basis guard can only mask float outputs"
+            )
+        column[masked] = 1.0 if _is_none_mask(name) else np.nan
+    return out
+
+
 def compute_kernels(
     registry: KernelRegistry,
     inputs: Mapping[str, np.ndarray],
@@ -419,14 +496,12 @@ def compute_kernels(
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} needs {kind} {name!r}, which the caller did not supply"
                 )
-    if "volume" in inputs and np.isnan(inputs["volume"]).any():
-        unsafe = [k.name for k in order if "volume" in k.inputs and not k.nan_volume_safe]
-        if unsafe:
-            raise KernelRegistryError(
-                f"volume holds NaN (a NULL-volume bar) and these kernels are not NaN-safe, so "
-                f"one NaN would turn every later row into 0.0 or garbage: {sorted(unsafe)} "
-                "(todo 560)"
-            )
+    guarded = [k for k in order if "volume" in k.inputs and not k.nan_volume_safe]
+    if guarded and "volume_basis" not in inputs:
+        raise KernelRegistryError(
+            f"kernels {sorted(k.name for k in guarded)} read volume and need the bar field "
+            "'volume_basis', which the caller did not supply"
+        )
     n = next((len(inputs[f]) for f in BAR_FIELDS if f in inputs), None)
     if n is None:
         raise KernelRegistryError("compute_kernels needs at least one bar field in inputs")
@@ -441,7 +516,10 @@ def compute_kernels(
     result: dict[str, np.ndarray] = {}
     for kernel in order:
         cut = {name: values[name] for name in kernel.inputs}
-        out = kernel.compute(cut, config)
+        if "volume" in kernel.inputs and not kernel.nan_volume_safe:
+            out = _compute_basis_guarded(kernel, cut, values["volume_basis"], config)
+        else:
+            out = kernel.compute(cut, config)
         for name in kernel.outputs:
             if name not in out:
                 raise KernelRegistryError(f"kernel {_where(kernel)} did not return output {name!r}")

@@ -19,7 +19,7 @@ from src.intelligence.bars.vendor_kind import (
 from src.intelligence.features.contract.registry import compute_kernels, default_registry
 from src.intelligence.features.kernels.volume import (
     _amihud_illiq_z_series_full,
-    _volume_basis_segment_starts,
+    volume_basis_segment_starts,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
 
@@ -119,14 +119,14 @@ def test_window_restarts_at_a_basis_change_and_matches_a_series_started_there():
 
 def test_a_basis_change_is_per_row_not_a_date():
     basis = np.array([SMART] * 5 + [CONSOLIDATED] * 3 + [SMART] * 2)
-    assert _volume_basis_segment_starts(basis).tolist() == [0] * 5 + [5] * 3 + [8] * 2
+    assert volume_basis_segment_starts(basis).tolist() == [0] * 5 + [5] * 3 + [8] * 2
 
 
 def test_no_volume_rows_carry_no_basis_and_never_reset():
     basis = np.array([CONSOLIDATED, NONE, NONE, CONSOLIDATED, NONE, CONSOLIDATED])
-    assert _volume_basis_segment_starts(basis).tolist() == [0] * 6
+    assert volume_basis_segment_starts(basis).tolist() == [0] * 6
     leading = np.array([NONE, NONE, SMART, NONE, CONSOLIDATED])
-    assert _volume_basis_segment_starts(leading).tolist() == [0, 0, 0, 0, 4]
+    assert volume_basis_segment_starts(leading).tolist() == [0, 0, 0, 0, 4]
 
 
 def test_all_null_volume_series_is_all_nan_not_a_crash():
@@ -157,14 +157,38 @@ def test_short_series_is_all_nan(bad):
     assert np.isnan(_z(closes, np.full(len(closes), 1e6))).all()
 
 
-def test_compute_kernels_refuses_nan_volume_for_kernels_that_are_not_nan_safe():
-    from src.intelligence.features.contract.registry import KernelRegistryError
-
+def test_a_null_volume_bar_is_masked_within_memory_for_kernels_that_are_not_nan_safe():
     inputs, config = ref.synthetic_inputs()
     registry = default_registry()
+    n = len(inputs["ts"])
+    clean = compute_kernels(registry, dict(inputs), config, outputs=["volume_z", "obv_z"])
     nulled = dict(inputs)
     nulled["volume"] = inputs["volume"].copy()
     nulled["volume"][100] = np.nan
-    compute_kernels(registry, nulled, config, outputs=["amihud_illiq_z"])
-    with pytest.raises(KernelRegistryError, match="volume_z"):
-        compute_kernels(registry, nulled, config, outputs=["amihud_illiq_z", "volume_z"])
+    nulled["volume_basis"] = inputs["volume_basis"].copy()
+    nulled["volume_basis"][100] = NONE
+    got = compute_kernels(registry, nulled, config, outputs=["volume_z", "obv_z"])
+    for name in ("volume_z", "obv_z"):
+        memory = registry.by_output(name).memory(config)
+        assert np.isnan(got[name][100 : 101 + memory]).all(), name
+        # past its memory the row equals the clean run (obv_z to cumulative-sum rounding)
+        np.testing.assert_allclose(
+            got[name][102 + memory :], clean[name][102 + memory :], rtol=1e-5, atol=1e-6
+        )
+        assert np.isfinite(got[name][102 + memory :]).all() and len(got[name]) == n
+
+
+def test_a_basis_change_restarts_a_rolling_volume_kernel_like_a_series_started_there():
+    inputs, config = ref.synthetic_inputs()
+    registry = default_registry()
+    k = 150
+    mixed = dict(inputs)
+    mixed["volume"] = inputs["volume"].copy()
+    mixed["volume"][:k] *= 0.5
+    mixed["volume_basis"] = np.where(np.arange(len(inputs["ts"])) < k, SMART, CONSOLIDATED)
+    got = compute_kernels(registry, mixed, config, outputs=["volume_z"])["volume_z"]
+    tail = {name: np.asarray(v)[k:] for name, v in inputs.items() if np.ndim(v) == 1}
+    alone = compute_kernels(registry, tail, config, outputs=["volume_z"])["volume_z"]
+    memory = registry.by_output("volume_z").memory(config)
+    assert np.isnan(got[k : k + memory + 1]).all()
+    np.testing.assert_allclose(got[k + memory + 1 :], alone[memory + 1 :], rtol=1e-9)
