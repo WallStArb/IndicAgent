@@ -1040,6 +1040,20 @@ when this was found.
   on static means does not (72 of 67), and ridge with kappa has no gating cell
   (`.planning/phases/187-*/187-08-BATTERY.md`).
 
+- **Amendment 2026-10-27 (in-fold equal-weight signs are trailing, an amendment to design 4.2;
+  plan 187-09 Task 3, owner decision 2026-10-27).** Design 4.2 gives a family with no stated
+  prior (`corpus_family`, `generated_family`) the sign of its expanding training-fold IC. Under
+  design 4.5 every fitted part's training reach enters L, and an expanding fold's reach is the
+  whole history, so L would cover the panel and leave E17 nothing to score. The fold is
+  trailing instead: a pinned `sign_window_sessions`, refit every `sign_refit_sessions` (on the
+  calendar grid when `refit_anchor` is set), with the ridge's embargo (fwd_span(horizon))
+  between the last training row and the refit row. The fold IC is the mean over training rows
+  of the per-row cross-sectional Pearson correlation of the member's z-score with the S1
+  target; a zero or undefined IC makes the member absent for that block. The window plus the
+  embargo is the combiner's training reach in `book_memory()`. A book using it runs for real
+  only under a battery cell `equal_weight_in_fold_signs`. No recorded spec uses the field, so
+  nothing moves.
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),

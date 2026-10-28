@@ -7,6 +7,16 @@ members' per-row z-scores, nothing fitted. RidgeSpec is the walk-forward ridge b
 per-slot IC of 0.002 its fold estimates cost about half the book's t (todo 432), so it is a
 separately counted book version, not the default.
 
+In-fold signs (design 4.2, plan 187-09 R-187-17): an equal-weight member with no stated prior
+takes its sign from a training fold. At each refit row p (the ridge's grid: refit_positions, or
+anchored_refit_positions with refit_anchor) the sign is the sign of the member's fold IC, the
+mean over training rows [max(0, hi - window_rows), hi), hi = p - embargo + 1, of the per-row
+cross-sectional Pearson correlation between its z-score and the target, and holds for rows p up
+to the next refit. The fold is trailing, not expanding (owner 2026-10-27): design 4.5 puts every
+fitted part's reach into L, and an expanding fold's reach is the whole history. A zero or
+undefined fold IC makes the member absent for that block, as are rows before the first refit;
+without min_members an absent member makes the cell NaN (complete-case).
+
 Walk-forward ridge:
 
 Inputs are the factor-residualized member alphas stack[t, i, k] and the S1 residual forward
@@ -92,23 +102,27 @@ class EqualWeight:
     with missing members to the extremes (187-09 review). A combining rule, not a fill:
     nothing is invented."""
 
-    signs: tuple[float, ...]
+    signs: tuple[float | None, ...]  # None: the member's sign comes from the fold (in-fold)
     min_members: int | None = None
+    fold: SignFold | None = None  # required exactly when some sign is None
 
     def __post_init__(self) -> None:
-        if not self.signs or any(s not in (-1.0, 1.0) for s in self.signs):
-            raise ValueError(f"signs must be a non-empty tuple of +1 and -1, got {self.signs}")
+        if not self.signs or any(s not in (-1.0, 1.0, None) for s in self.signs):
+            raise ValueError(f"signs must be a non-empty tuple of +1, -1 or None: {self.signs}")
+        if (self.fold is None) != (None not in self.signs):
+            raise ValueError("a fold is required exactly when some sign is in-fold (None)")
         if self.min_members is not None and not 1 <= self.min_members <= len(self.signs):
             raise ValueError(f"min_members must be in 1 .. {len(self.signs)}: {self.min_members}")
 
     @property
     def training_rows(self) -> int:
-        return 0
+        return 0 if self.fold is None else self.fold.window_rows + self.fold.embargo
 
     def combine(
         self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
     ) -> np.ndarray:
-        # Nothing is fitted, so there are no refits and the session dates are not read.
+        # With fixed signs nothing is fitted, so there are no refits and the session dates are
+        # not read; in-fold signs refit on the fold's grid (refit_anchor reads them).
         if stack.ndim != 3 or stack.shape[2] != len(self.signs):
             raise ValueError(f"stack {stack.shape} does not match {len(self.signs)} signs")
         x = stack.astype(np.float64)
@@ -119,10 +133,14 @@ class EqualWeight:
             warnings.simplefilter("ignore", RuntimeWarning)  # empty rows stay NaN
             sd = np.nanstd(x, axis=1, keepdims=True)
             z = (x - np.nanmean(x, axis=1, keepdims=True)) / np.where(sd > 0, sd, np.nan)
+            if self.fold is None:
+                signs = np.asarray(self.signs)
+            else:
+                signs = in_fold_signs(z, target, self.signs, self.fold, row_session_dates)[:, None]
             if self.min_members is None:
-                return (z * np.asarray(self.signs)).mean(axis=2)
-        present = np.isfinite(z).sum(axis=2)
-        total = np.nansum(z * np.asarray(self.signs), axis=2) / len(self.signs)
+                return (z * signs).mean(axis=2)
+        present = np.isfinite(z * signs).sum(axis=2)
+        total = np.nansum(z * signs, axis=2) / len(self.signs)
         return np.where(present >= self.min_members, total, np.nan)
 
 
@@ -201,6 +219,81 @@ def anchored_refit_positions(row_session_dates: np.ndarray, spec: RidgeSpec) -> 
     return rows[rows >= spec.window_rows + spec.embargo - 1].astype(np.int64)
 
 
+@dataclasses.dataclass(frozen=True)
+class SignFold:
+    """In-fold sign settings in panel rows (the runner converts sessions): the trailing window,
+    the refit cadence, the embargo (fwd_span(horizon)) and the optional calendar anchor, read
+    by the same refit grid as the ridge's."""
+
+    window_rows: int
+    refit_rows: int
+    embargo: int
+    refit_anchor: datetime.date | None = None
+
+    def __post_init__(self) -> None:
+        if self.window_rows < 1 or self.refit_rows < 1 or self.embargo < 1:
+            raise ValueError(f"SignFold rows must be positive: {self}")
+
+
+def _refit_grid(n: int, spec: RidgeSpec | SignFold, row_session_dates: np.ndarray | None):
+    """The refit rows of a fitted part: row-0 anchored, or on the calendar grid with
+    spec.refit_anchor (which needs each row's session date)."""
+    if spec.refit_anchor is None:
+        return refit_positions(n, spec)  # type: ignore[arg-type]  # same three fields
+    if row_session_dates is None:
+        raise ValueError("an anchored refit (refit_anchor) needs row_session_dates")
+    if len(row_session_dates) != n:
+        raise ValueError(f"{len(row_session_dates)} row_session_dates for {n} rows")
+    return anchored_refit_positions(row_session_dates, spec)  # type: ignore[arg-type]
+
+
+def _row_correlation(z: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """[n] per-row Pearson correlation of z [n, m] and y [n, m] over the names where both are
+    finite; NaN with fewer than two such names or no spread in either."""
+    both = np.isfinite(z) & np.isfinite(y)
+    count = both.sum(axis=1)
+    zc = np.where(both, z, 0.0)
+    yc = np.where(both, y, 0.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        zm = zc.sum(axis=1) / count
+        ym = yc.sum(axis=1) / count
+        dz = np.where(both, z - zm[:, None], 0.0)
+        dy = np.where(both, y - ym[:, None], 0.0)
+        szz = (dz * dz).sum(axis=1)
+        syy = (dy * dy).sum(axis=1)
+        corr = (dz * dy).sum(axis=1) / np.sqrt(szz * syy)
+    return np.where((count >= 2) & (szz > 0) & (syy > 0), corr, np.nan)
+
+
+def in_fold_signs(
+    z: np.ndarray,
+    target: np.ndarray,
+    signs: tuple[float | None, ...],
+    fold: SignFold,
+    row_session_dates: np.ndarray | None,
+) -> np.ndarray:
+    """[n, K] sign per row and member: fixed signs as given, in-fold (None) ones the sign of
+    the fold IC (see the module docstring) on rows p up to the next refit, NaN before the
+    first refit or where the fold IC is zero or undefined. z is the members' z-scores [n, m, K]."""
+    n = z.shape[0]
+    out = np.tile(np.asarray([np.nan if s is None else s for s in signs]), (n, 1))
+    positions = _refit_grid(n, fold, row_session_dates)
+    if positions.size == 0:  # no full window: every in-fold member is absent
+        return out
+    ends = np.append(positions[1:], n)
+    for k in (k for k, s in enumerate(signs) if s is None):
+        ic = _row_correlation(z[:, :, k], target)
+        for p, q in zip(positions, ends, strict=True):
+            hi = p - fold.embargo + 1
+            window = ic[max(0, hi - fold.window_rows) : hi]
+            window = window[np.isfinite(window)]
+            # Summed over the window itself, not differenced prefix sums, so a zero fold IC is
+            # exactly zero (absent) and the sign never depends on history before the window.
+            mean = window.mean() if window.size else np.nan
+            out[p:q, k] = np.sign(mean) if np.isfinite(mean) and mean != 0 else np.nan
+    return out
+
+
 def _prefix_moments(stack: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, ...]:
     """Prefix sums over rows of the complete-case moments (count, sum x, sum xx', sum xy,
     sum y), index r holding rows < r, plus `live` [n]: rows where some name has every member
@@ -263,14 +356,7 @@ def walk_forward_ridge(
         raise ValueError(f"stack {stack.shape} and target {target.shape} do not align")
     n, m, k = stack.shape
     combined = np.full((n, m), np.nan)
-    if spec.refit_anchor is None:
-        positions = refit_positions(n, spec)
-    elif row_session_dates is None:
-        raise ValueError("an anchored ridge (refit_anchor) needs row_session_dates")
-    elif len(row_session_dates) != n:
-        raise ValueError(f"{len(row_session_dates)} row_session_dates for {n} rows")
-    else:
-        positions = anchored_refit_positions(row_session_dates, spec)
+    positions = _refit_grid(n, spec, row_session_dates)
     if positions.size == 0:
         return combined
     # `live`: rows where some name has every member finite; prediction touches only those.

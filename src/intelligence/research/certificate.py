@@ -43,6 +43,10 @@ CERTIFIED_CODE = (
     ("src/intelligence/research/combiner.py", "_EXCHANGE"),
     ("src/intelligence/research/combiner.py", "exchange_sessions"),
     ("src/intelligence/research/combiner.py", "anchored_refit_positions"),
+    ("src/intelligence/research/combiner.py", "SignFold"),
+    ("src/intelligence/research/combiner.py", "_refit_grid"),
+    ("src/intelligence/research/combiner.py", "_row_correlation"),
+    ("src/intelligence/research/combiner.py", "in_fold_signs"),
     ("src/intelligence/research/combiner.py", "_prefix_moments"),
     ("src/intelligence/research/combiner.py", "_row_moments_kernel"),
     ("src/intelligence/research/combiner.py", "walk_forward_ridge"),
@@ -138,11 +142,13 @@ def fitted_book_refusal(
     fingerprint: dict[str, str],
     ridge: dict | None = None,
     features: tuple[str, ...] = (),
+    in_fold: dict | None = None,
 ) -> str | None:
     """Why a book may not run in `mode`, or None. Synthetic mode is always open, so the battery
     itself and power checks run. `ridge` is the book's ridge settings (window_sessions,
     refit_sessions, penalty, min_obs); a ridge book is admitted only at the configuration the
-    battery certified."""
+    battery certified. `in_fold` (sign_window_sessions, sign_refit_sessions) is the same for a
+    book with in-fold signs."""
     cells = required_cells(combiner_kind, kappa, features)
     if not cells or mode == "synthetic":
         return None
@@ -159,6 +165,11 @@ def fitted_book_refusal(
         return f"{what}: the certified code has changed since the battery ran; rerun and recertify"
     if combiner_kind == "ridge" and ridge != certificate.get("ridge"):
         return f"{what}: ridge settings {ridge} are not the certified {certificate.get('ridge')}"
+    if "in_fold_signs" in features and in_fold != certificate.get("in_fold"):
+        return (
+            f"{what}: in-fold sign settings {in_fold} are not the certified "
+            f"{certificate.get('in_fold')}"
+        )
     for cell in cells:
         levels = certificate.get("cells", {}).get(cell)
         if levels is None:
@@ -189,6 +200,7 @@ def admission_refusal(
     mode: str,
     ridge: dict | None = None,
     features: tuple[str, ...] = (),
+    in_fold: dict | None = None,
 ) -> str | None:
     """fitted_book_refusal against the running code's certificate and fingerprint, read only
     when a fitted book asks for a non-synthetic run."""
@@ -202,4 +214,5 @@ def admission_refusal(
         working_tree_fingerprint(),
         ridge,
         features,
+        in_fold,
     )

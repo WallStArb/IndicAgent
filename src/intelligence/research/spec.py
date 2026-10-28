@@ -263,23 +263,37 @@ class CombinerSpec(BaseModel):
     refit_sessions: int | None = Field(default=None, ge=1)
     penalty: float | None = Field(default=None, gt=0)
     min_obs: int | None = Field(default=None, ge=1)
-    signs: dict[str, Literal[1, -1]] | None = None
+    # "in_fold" (plan 187-09, R-187-17): the sign of the member's trailing fold IC, for a family
+    # with no stated prior; needs sign_window_sessions and sign_refit_sessions.
+    signs: dict[str, Literal[1, -1, "in_fold"]] | None = None
     # Plan 187-09 (design 4.1): a cell needs this many members present; unset is complete-case.
     min_members: int | None = Field(default=None, ge=1)
     # Plan 187-09 (R-187-18): refits on the exchange-session grid through this date (every
     # refit_sessions-th session counted from it); unset anchors refits to the panel's row 0.
     refit_anchor: IsoDate | None = None
+    # Plan 187-09 (R-187-17): the in-fold sign's trailing window and refit cadence, sessions.
+    sign_window_sessions: int | None = Field(default=None, ge=1)
+    sign_refit_sessions: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _fields_match_kind(self) -> CombinerSpec:
         ridge = (self.window_sessions, self.refit_sessions, self.penalty, self.min_obs)
+        fold = (self.sign_window_sessions, self.sign_refit_sessions)
         if self.kind == "equal_weight":
             if any(v is not None for v in ridge) or not self.signs:
                 raise ValueError("an equal_weight combiner takes signs and no ridge fields")
-            if self.refit_anchor is not None:
-                raise ValueError("refit_anchor needs refits; an equal_weight combiner has none")
+            in_fold = "in_fold" in self.signs.values()
+            if any((v is None) == in_fold for v in fold):
+                raise ValueError(
+                    "sign_window_sessions and sign_refit_sessions are set exactly when some "
+                    "sign is in_fold"
+                )
+            if self.refit_anchor is not None and not in_fold:
+                raise ValueError("refit_anchor needs refits; fixed equal_weight signs have none")
         elif any(v is None for v in ridge) or self.signs is not None:
             raise ValueError("a ridge combiner takes all four ridge fields and no signs")
+        elif any(v is not None for v in fold):
+            raise ValueError("a ridge combiner takes no in-fold sign fields")
         if self.refit_anchor is not None:
             date.fromisoformat(self.refit_anchor)  # a real date, not only the pattern
         return self
@@ -391,6 +405,8 @@ _OPTIONAL_COMBINER_FIELDS = (
     "signs",
     "min_members",
     "refit_anchor",
+    "sign_window_sessions",
+    "sign_refit_sessions",
 )
 TIMING_STATISTIC = "e17"
 

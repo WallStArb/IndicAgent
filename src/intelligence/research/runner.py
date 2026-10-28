@@ -53,7 +53,7 @@ from src.intelligence.research import (
 )
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.book import book_memory, book_timing
-from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec
+from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec, SignFold
 from src.intelligence.research.construction import resolve_rule
 from src.intelligence.research.evaluate import (
     PoolFactory,
@@ -819,7 +819,9 @@ def _combiner_features(book: BookSpec) -> tuple[str, ...]:
     """The combiner's optional rules in use (plan 187-09); each needs its own battery cell."""
     c = book.combiner
     features = () if c.min_members is None else (f"min_members_{c.min_members}",)
-    return features + (() if c.refit_anchor is None else ("refit_anchor",))
+    features += () if c.refit_anchor is None else ("refit_anchor",)
+    in_fold = c.signs is not None and "in_fold" in c.signs.values()
+    return features + (("in_fold_signs",) if in_fold else ())
 
 
 def _ridge_settings(book: BookSpec) -> dict:
@@ -832,6 +834,16 @@ def _ridge_settings(book: BookSpec) -> dict:
     }
 
 
+def _in_fold_settings(book: BookSpec) -> dict | None:
+    c = book.combiner
+    if c.sign_window_sessions is None:
+        return None
+    return {
+        "sign_window_sessions": c.sign_window_sessions,
+        "sign_refit_sessions": c.sign_refit_sessions,
+    }
+
+
 def _horizon_rule(book: BookSpec) -> HorizonRule:
     return HorizonRule(book.horizon_rule.kappa) if book.horizon_rule else HorizonRule()
 
@@ -839,10 +851,18 @@ def _horizon_rule(book: BookSpec) -> HorizonRule:
 def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) -> Combiner:
     """The book's S7 combiner, its signs in the member stack's column order."""
     c = book.combiner
+    anchor = None if c.refit_anchor is None else date.fromisoformat(c.refit_anchor)
     if c.kind == "equal_weight":
-        return EqualWeight(
-            signs=tuple(float(c.signs[k]) for k in member_keys), min_members=c.min_members
-        )
+        signs = tuple(None if c.signs[k] == "in_fold" else float(c.signs[k]) for k in member_keys)
+        fold = None
+        if c.sign_window_sessions is not None and c.sign_refit_sessions is not None:
+            fold = SignFold(
+                window_rows=c.sign_window_sessions * bps,
+                refit_rows=c.sign_refit_sessions * bps,
+                embargo=fwd_span(horizon),
+                refit_anchor=anchor,
+            )
+        return EqualWeight(signs=signs, min_members=c.min_members, fold=fold)
     return RidgeSpec(
         window_rows=c.window_sessions * bps,
         refit_rows=c.refit_sessions * bps,
@@ -850,7 +870,7 @@ def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) ->
         embargo=fwd_span(horizon),
         min_obs=c.min_obs,
         min_members=c.min_members,
-        refit_anchor=None if c.refit_anchor is None else date.fromisoformat(c.refit_anchor),
+        refit_anchor=anchor,
     )
 
 
@@ -885,6 +905,7 @@ async def run_book(
         mode,
         _ridge_settings(book) if kind == "ridge" else None,
         _combiner_features(book),
+        _in_fold_settings(book),
     )
     if refusal is not None:
         raise RunRefused(refusal)
