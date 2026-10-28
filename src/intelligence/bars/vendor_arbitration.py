@@ -4,40 +4,52 @@ deletes them).
 
 Under the D-191-Q policy Alpaca serves 1d from 2016-01-04 and the daily rule never second-guesses
 a tradeable Alpaca bar (daily_rule, module docstring). Where Alpaca's level is wrong for the
-contract, the policy says so with a dated IBKR symbol row. This module decides which spans those
-are, as evidence frozen once, never as a runtime test inside the rule.
+contract, or nobody can tell, the policy says so with a dated IBKR symbol row (primary ibkr, no
+fallback). This module decides which spans those are, as evidence frozen once, never as a
+runtime test inside the rule.
 
-Per name over the arbitration window, a session both Alpaca and IBKR answered disagrees when
-their closes differ by more than tolerance_bp. A maximal run of disagreeing common sessions is a
-span; the sessions of the span Tradier also answered classify it (each session: Alpaca = Tradier
-and IBKR off, IBKR = Tradier and Alpaca off, or neither):
+Disagreement spans. Per name over the arbitration window, a session both Alpaca and IBKR answered
+disagrees when their closes differ by more than tolerance_bp. A maximal run of disagreeing common
+sessions is a span; the sessions of the span Tradier also answered classify it (each: Alpaca =
+Tradier and IBKR off, IBKR = Tradier and Alpaca off, or neither):
 
-- ibkr_defective: Alpaca agrees with Tradier on at least min_class_share of them. Alpaca is
-  right and serves under the default; the span is evidence that IBKR's history is wrong there
-  (OKE's drift, RJF's 2/3 level), no row;
+- ibkr_defective: Alpaca agrees with Tradier on at least min_class_share of them. Alpaca is right
+  and serves; the span is evidence that IBKR's history is wrong there (OKE, RJF), no row;
 - alpaca_differs: IBKR agrees with Tradier on at least min_class_share. A spin-off Alpaca's split
-  adjustment leaves unadjusted, or a reused ticker splicing a predecessor: an IBKR symbol row,
-  no fallback, over [start, end + 1 day). A span still open at the window end is held instead
-  (the disagreement may continue past Tradier's last day, where a dated row would end too soon);
-- three_way: neither share reaches min_class_share; two_vendor: Tradier answered none of the
-  span. Both go to the owner's hold list, no row;
-- a span shorter than min_sessions is noise (a bad print), counted, no row, no hold.
+  adjustment leaves unadjusted, or a reused ticker: an IBKR row over [start, end + 1 day). A span
+  still open at the window end is held (it may run past Tradier's last day);
+- three_way: neither share reaches min_class_share. When IBKR and Tradier both adjusted the
+  history with factors a few bp apart (second review): the median log IBKR/Tradier is within
+  three_way_max_it_bp, its median absolute deviation is under tolerance_bp, and it is at most
+  three_way_log_share of the median log IBKR/Alpaca, the span gets an IBKR row; otherwise held;
+- two_vendor: Tradier answered none of the span; held;
+- a span shorter than min_sessions (the basis window) is noise: Alpaca serves. Where IBKR agrees
+  with Tradier on such a session and Alpaca is more than quarantine_rel off Tradier, the session
+  goes to the quarantine list (a bar_quality_flag the policy apply writes through the flag
+  writer).
 
-Alpaca sessions before IBKR's first bar (pre_ibkr_history) are not disagreements: Alpaca serves
-them. When IBKR verified its own 1d head (ohlcv_provider_head) after the span, IBKR asserts the
-contract has no earlier history, so the span may be a predecessor under a reused ticker and goes
-to the hold list; otherwise IBKR's history is simply not fetched yet and the span is reported.
+Alpaca before IBKR's first bar (pre_ibkr_history). Alpaca serves it only when its series runs into
+IBKR's first bar: the span's last session and IBKR's first bar are consecutive NYSE sessions, and
+on IBKR's first session Alpaca's close agrees within tolerance_bp with IBKR's or, where IBKR is the
+one off, with Tradier's. Otherwise (a gap, or a level break: a predecessor under a reused ticker)
+the span has no bar: an IBKR row from its start to IBKR's first bar. A name IBKR never answered is
+held. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
+the same test (second review).
 
-The plan (build_plan) is the exact shape scripts/ops/bars/ops_source_policy.py --plan takes: both
-current 1d defaults retired, IBKR before the seam, Alpaca with IBKR fallback from it, the
-alpaca_differs rows, and a disposition for every live 1d symbol row (retired as replaced or
-confirmed, or kept when the name has a hold or nothing to arbitrate).
+A hold means Alpaca does not serve (second review H1): build_plan gives every held span an interim
+IBKR row over it, and the hold list is the owner's to turn into final rows. The plan is the exact
+document scripts/ops/bars/ops_source_policy.py --plan takes: both 1d defaults retired (their
+policy_ids pinned), IBKR before the seam, Alpaca with IBKR fallback from it, the rows, a
+disposition for every live 1d symbol row (replaced by new rows, superseded_by_default, or kept
+when the arbitration has nothing on the name), the quarantine list and the raw-data fingerprint
+the apply checks.
 
 Pure: closes in, spans and the plan dict out. No database, no APR (thresholds are parameters).
 """
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -55,20 +67,25 @@ PRE_IBKR_HISTORY = "pre_ibkr_history"
 SEAM = date(2016, 1, 4)  # D-191-Q's policy seam, a decision record, not a tunable
 _EPOCH = date(1990, 1, 1)  # the policy table's first default valid_from (migration 446)
 _N_EXAMPLES = 3
+QUARANTINE_RULE = "vendor_disagreement"
 
 
 @dataclass(frozen=True)
 class ArbitrationParams:
-    """Window (Tradier's span from the seam) and the APR thresholds the script reads:
-    fallback_basis_tolerance_bp, fallback_basis_window_sessions (min_sessions: a basis
-    difference is a level held over the basis window) and tradier_admission_min_agree_share.
-    """
+    """Window (Tradier's span from the seam) and the thresholds the script reads: APR
+    fallback_basis_tolerance_bp, fallback_basis_window_sessions (min_sessions: a basis difference
+    is a level held over the basis window), tradier_admission_min_agree_share and
+    threshold.bar_scrub.view_disagreement_rel (quarantine_rel); the two three-way thresholds are
+    the second review's decision values, recorded in the plan's evidence."""
 
     window_start: date
     window_end: date
     tolerance_bp: float
     min_sessions: int
     min_class_share: float
+    quarantine_rel: float = 0.02
+    three_way_max_it_bp: float = 50.0
+    three_way_log_share: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -82,16 +99,22 @@ class Span:
     shares: dict[str, float] = field(default_factory=dict, compare=False, hash=False)
     median_ibkr_over_alpaca: float | None = None
     median_tradier_over_alpaca: float | None = None
+    median_log_it_bp: float | None = None
+    mad_log_it_bp: float | None = None
+    median_log_ia_bp: float | None = None
     examples: tuple[dict[str, Any], ...] = ()
     touches_window_end: bool = False
+    ibkr_head: date | None = None
     ibkr_head_verified: bool = False
+    continuous: bool = False
+    continuity: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
 
     def record(self) -> dict[str, Any]:
         """JSON-safe evidence of the span."""
         out = asdict(self)
         out["class"] = out.pop("cls")
-        out["start"] = self.start.isoformat()
-        out["end"] = self.end.isoformat()
+        for key in ("start", "end", "ibkr_head"):
+            out[key] = out[key].isoformat() if out[key] else None
         out["examples"] = list(self.examples)
         return out
 
@@ -101,6 +124,7 @@ class NameArbitration:
     symbol: str
     n_common: int
     spans: tuple[Span, ...]
+    quarantine: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -121,6 +145,10 @@ def _agree(a: float, b: float, tolerance_bp: float) -> bool:
 
 def _median(values: Sequence[float]) -> float | None:
     return statistics.median(values) if values else None
+
+
+def _log_bp(a: float, b: float) -> float:
+    return math.log(a / b) * BP
 
 
 def _span(
@@ -153,6 +181,8 @@ def _span(
         cls = ALPACA_DIFFERS
     else:
         cls = THREE_WAY
+    log_it = [_log_bp(ibkr[d], tradier[d]) for d in with_tradier]
+    med_it = _median(log_it)
     picks = sorted({run[0], run[len(run) // 2], run[-1]})[:_N_EXAMPLES]
     return Span(
         symbol=symbol,
@@ -162,10 +192,11 @@ def _span(
         n_sessions=len(run),
         n_tradier=n_t,
         shares=shares,
-        median_ibkr_over_alpaca=_median([ibkr[d] / alpaca[d] for d in run if alpaca[d] > 0]),
-        median_tradier_over_alpaca=_median(
-            [tradier[d] / alpaca[d] for d in with_tradier if alpaca[d] > 0]
-        ),
+        median_ibkr_over_alpaca=_median([ibkr[d] / alpaca[d] for d in run]),
+        median_tradier_over_alpaca=_median([tradier[d] / alpaca[d] for d in with_tradier]),
+        median_log_it_bp=med_it,
+        mad_log_it_bp=(None if med_it is None else _median([abs(x - med_it) for x in log_it])),
+        median_log_ia_bp=_median([_log_bp(ibkr[d], alpaca[d]) for d in run]),
         examples=tuple(
             {
                 "session": d.isoformat(),
@@ -179,6 +210,85 @@ def _span(
     )
 
 
+def _quarantine(
+    symbol: str,
+    span: Span,
+    run: list[date],
+    alpaca: Mapping[date, float],
+    ibkr: Mapping[date, float],
+    tradier: Mapping[date, float],
+    params: ArbitrationParams,
+) -> list[dict[str, Any]]:
+    """The sessions of a short span where IBKR = Tradier and Alpaca is quarantine_rel off."""
+    if span.n_sessions >= params.min_sessions or span.cls == IBKR_DEFECTIVE:
+        return []
+    out = []
+    for d in run:
+        t = tradier.get(d, 0.0)
+        if (
+            t > 0
+            and _agree(ibkr[d], t, params.tolerance_bp)
+            and abs(alpaca[d] / t - 1.0) > params.quarantine_rel
+        ):
+            out.append(
+                {
+                    "symbol": symbol,
+                    "session": d.isoformat(),
+                    "alpaca": alpaca[d],
+                    "ibkr": ibkr[d],
+                    "tradier": t,
+                    "alpaca_over_tradier": alpaca[d] / t,
+                }
+            )
+    return out
+
+
+def _pre_ibkr(
+    symbol: str,
+    pre: list[date],
+    alpaca: Mapping[date, float],
+    ibkr: Mapping[date, float],
+    tradier: Mapping[date, float],
+    params: ArbitrationParams,
+    sessions: Sequence[date] | None,
+    ibkr_head_verified: date | None,
+) -> Span:
+    head = min(ibkr, default=None)
+    continuity: dict[str, Any] = {}
+    continuous = False
+    if head is not None:
+        index = {d: i for i, d in enumerate(sessions or ())}
+        consecutive = pre[-1] in index and head in index and index[head] - index[pre[-1]] == 1
+        a_head = alpaca.get(head)
+        agrees_ibkr = a_head is not None and _agree(a_head, ibkr[head], params.tolerance_bp)
+        t_head = tradier.get(head, 0.0)
+        agrees_tradier = (
+            a_head is not None and t_head > 0 and _agree(a_head, t_head, params.tolerance_bp)
+        )
+        continuous = consecutive and (agrees_ibkr or agrees_tradier)
+        continuity = {
+            "consecutive": consecutive,
+            "alpaca_at_head": a_head,
+            "ibkr_at_head": ibkr[head],
+            "tradier_at_head": t_head or None,
+            "overnight_gap_bp": (
+                _log_bp(ibkr[head], alpaca[pre[-1]]) if alpaca[pre[-1]] > 0 else None
+            ),
+        }
+    return Span(
+        symbol=symbol,
+        cls=PRE_IBKR_HISTORY,
+        start=pre[0],
+        end=pre[-1],
+        n_sessions=len(pre),
+        n_tradier=sum(1 for d in pre if tradier.get(d, 0.0) > 0),
+        ibkr_head=head,
+        ibkr_head_verified=ibkr_head_verified is not None,
+        continuous=continuous,
+        continuity=continuity,
+    )
+
+
 def arbitrate(
     symbol: str,
     alpaca: Mapping[date, float],
@@ -186,10 +296,12 @@ def arbitrate(
     tradier: Mapping[date, float],
     params: ArbitrationParams,
     *,
+    sessions: Sequence[date] | None = None,
     ibkr_head_verified: date | None = None,
 ) -> NameArbitration:
     """The disagreement spans of one name (module docstring). Closes are each vendor's current
-    1d close per session date (Alpaca's tradeable bars only)."""
+    1d close per session date (Alpaca's tradeable bars only); sessions is the NYSE session
+    calendar the continuity test reads."""
 
     def in_window(d: date) -> bool:
         return params.window_start <= d <= params.window_end
@@ -198,44 +310,69 @@ def arbitrate(
         d for d in alpaca if in_window(d) and d in ibkr and alpaca[d] > 0 and ibkr[d] > 0
     )
     spans: list[Span] = []
-    ibkr_head = min(ibkr, default=None)
-    pre = sorted(d for d in alpaca if in_window(d) and (ibkr_head is None or d < ibkr_head))
+    quarantine: list[dict[str, Any]] = []
+    head = min(ibkr, default=None)
+    pre = sorted(d for d in alpaca if in_window(d) and (head is None or d < head))
     if pre:
         spans.append(
-            Span(
-                symbol=symbol,
-                cls=PRE_IBKR_HISTORY,
-                start=pre[0],
-                end=pre[-1],
-                n_sessions=len(pre),
-                n_tradier=sum(1 for d in pre if tradier.get(d, 0.0) > 0),
-                ibkr_head_verified=ibkr_head_verified is not None and ibkr_head_verified > pre[0],
-            )
+            _pre_ibkr(symbol, pre, alpaca, ibkr, tradier, params, sessions, ibkr_head_verified)
         )
+
+    def close(run: list[date]) -> None:
+        span = _span(symbol, run, alpaca, ibkr, tradier, params, common[-1])
+        spans.append(span)
+        quarantine.extend(_quarantine(symbol, span, run, alpaca, ibkr, tradier, params))
+
     run: list[date] = []
     for d in common:
         if _agree(ibkr[d], alpaca[d], params.tolerance_bp):
             if run:
-                spans.append(_span(symbol, run, alpaca, ibkr, tradier, params, common[-1]))
+                close(run)
                 run = []
         else:
             run.append(d)
     if run:
-        spans.append(_span(symbol, run, alpaca, ibkr, tradier, params, common[-1]))
-    return NameArbitration(symbol, len(common), tuple(sorted(spans, key=lambda s: s.start)))
+        close(run)
+    return NameArbitration(
+        symbol, len(common), tuple(sorted(spans, key=lambda s: s.start)), tuple(quarantine)
+    )
+
+
+def _adjusted_three_way(span: Span, params: ArbitrationParams) -> bool:
+    """IBKR and Tradier both adjusted the history, a few bp apart (module docstring)."""
+    it, mad, ia = span.median_log_it_bp, span.mad_log_it_bp, span.median_log_ia_bp
+    if it is None or mad is None or ia is None:
+        return False
+    return (
+        abs(it) <= params.three_way_max_it_bp
+        and mad < params.tolerance_bp
+        and abs(it) <= params.three_way_log_share * abs(ia)
+    )
 
 
 def span_action(span: Span, params: ArbitrationParams) -> str:
     """row, evidence, hold, noise or info (module docstring)."""
     if span.cls == PRE_IBKR_HISTORY:
-        return "hold" if span.ibkr_head_verified else "info"
+        if span.ibkr_head is None:
+            return "hold"
+        return "info" if span.continuous else "row"
     if span.cls == IBKR_DEFECTIVE:
         return "evidence"
     if span.n_sessions < params.min_sessions:
         return "noise"
-    if span.cls == ALPACA_DIFFERS and not span.touches_window_end:
+    if span.cls == ALPACA_DIFFERS:
+        return "hold" if span.touches_window_end else "row"
+    if span.cls == THREE_WAY and _adjusted_three_way(span, params):
         return "row"
     return "hold"
+
+
+def _row_end(span: Span) -> date:
+    """valid_to of the IBKR row over a span: IBKR's head for a pre-IBKR span (no bar until it),
+    the day after the span otherwise."""
+    if span.cls == PRE_IBKR_HISTORY and span.ibkr_head is not None:
+        return span.ibkr_head
+    return span.end + timedelta(days=1)
 
 
 def build_plan(
@@ -244,92 +381,84 @@ def build_plan(
     params: ArbitrationParams,
     *,
     evidence: Mapping[str, Any],
+    live_default_ids: Sequence[str],
+    raw_fingerprint: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The ops_source_policy --plan document for the D-191-Q 1d decision (module docstring)."""
     by_symbol = {r.symbol: r for r in results}
-    live_symbols = {r.symbol for r in live_rows}
-    actions = {r.symbol: [(s, span_action(s, params)) for s in r.spans] for r in results}
-    held_names = {
-        sym
-        for sym, acts in actions.items()
-        if any(a == "hold" for _s, a in acts) and sym in live_symbols
-    }
     symbol_rows: list[dict[str, Any]] = []
     hold: list[dict[str, Any]] = []
     defective: list[dict[str, Any]] = []
-    counts = {k: 0 for k in ("row", "evidence", "hold", "noise", "info")}
+    quarantine: list[dict[str, Any]] = []
+    counts = dict.fromkeys(("row", "evidence", "hold", "noise", "info"), 0)
     classes: dict[tuple[str, str], dict[str, Any]] = {}
-    for sym in sorted(actions):
-        for span, action in actions[sym]:
+    for result in sorted(results, key=lambda r: r.symbol):
+        quarantine.extend(result.quarantine)
+        for span in result.spans:
+            action = span_action(span, params)
             counts[action] += 1
             entry = classes.setdefault(
                 (span.cls, action), {"spans": 0, "sessions": 0, "names": set()}
             )
             entry["spans"] += 1
             entry["sessions"] += span.n_sessions
-            entry["names"].add(sym)
-            if action == "row" and sym in held_names:
-                hold.append({**span.record(), "reason": "the name keeps its live row (hold)"})
-            elif action == "row":
+            entry["names"].add(result.symbol)
+            if action in ("row", "hold"):
                 symbol_rows.append(
                     {
-                        "symbol": sym,
+                        "symbol": result.symbol,
                         "valid_from": span.start.isoformat(),
-                        "valid_to": (span.end + timedelta(days=1)).isoformat(),
+                        "valid_to": _row_end(span).isoformat(),
                         "primary": "ibkr",
                         "fallback": None,
-                        "evidence": span.record(),
+                        "evidence": {**span.record(), "interim": action == "hold"},
                     }
                 )
-            elif action == "hold":
+            if action == "hold":
                 hold.append(span.record())
             elif action == "evidence":
                 defective.append(span.record())
-    replaced = {r["symbol"] for r in symbol_rows}
+    new_symbols = {r["symbol"] for r in symbol_rows}
     retire: list[dict[str, Any]] = []
     keep: list[dict[str, Any]] = []
     for row in sorted(live_rows, key=lambda r: (r.symbol, r.valid_from)):
         result = by_symbol.get(row.symbol)
-        if row.symbol in held_names:
+        old = {
+            "valid_from": row.valid_from.isoformat(),
+            "valid_to": row.valid_to.isoformat() if row.valid_to else None,
+            "primary": row.primary,
+            "fallback": row.fallback,
+        }
+        if result is None:
             keep.append(
                 {
                     "policy_id": row.policy_id,
                     "symbol": row.symbol,
-                    "reason": "hold: the arbitration left spans for the owner",
+                    **{k: old[k] for k in ("valid_from", "valid_to")},
+                    "reason": "no Alpaca 1d history to arbitrate",
                 }
             )
-        elif result is None or result.n_common == 0:
-            keep.append(
-                {
-                    "policy_id": row.policy_id,
-                    "symbol": row.symbol,
-                    "reason": "no common Alpaca and IBKR sessions to arbitrate",
-                }
-            )
-        else:
-            n_disagree = sum(s.n_sessions for s in result.spans if s.cls != PRE_IBKR_HISTORY)
-            retire.append(
-                {
-                    "policy_id": row.policy_id,
-                    "symbol": row.symbol,
-                    "disposition": "replaced" if row.symbol in replaced else "confirmed",
-                    "evidence": {
-                        "old_row": {
-                            "valid_from": row.valid_from.isoformat(),
-                            "valid_to": row.valid_to.isoformat() if row.valid_to else None,
-                            "primary": row.primary,
-                            "fallback": row.fallback,
-                        },
-                        "n_common": result.n_common,
-                        "n_disagreeing_sessions": n_disagree,
-                        "classes": sorted({s.cls for s in result.spans}),
-                    },
-                }
-            )
+            continue
+        retire.append(
+            {
+                "policy_id": row.policy_id,
+                "symbol": row.symbol,
+                "disposition": (
+                    "replaced" if row.symbol in new_symbols else "superseded_by_default"
+                ),
+                "evidence": {
+                    "old_row": old,
+                    "n_common": result.n_common,
+                    "classes": sorted({s.cls for s in result.spans}),
+                },
+            }
+        )
     return {
         "timeframe": "1d",
         "seam": SEAM.isoformat(),
         "retire_defaults": True,
+        "retire_default_ids": list(live_default_ids),
+        "raw_fingerprint": dict(raw_fingerprint),
         "defaults": [
             {"valid_from": _EPOCH.isoformat(), "valid_to": SEAM.isoformat(), "primary": "ibkr"},
             {"valid_from": SEAM.isoformat(), "primary": "alpaca", "fallback": "ibkr"},
@@ -339,6 +468,8 @@ def build_plan(
         "keep_symbol_rows": keep,
         "hold": hold,
         "ibkr_defective": defective,
+        "quarantine": quarantine,
+        "quarantine_rule": QUARANTINE_RULE,
         "reason": "D-191-Q: canonical 1d Alpaca SIP primary from 2016-01-04, IBKR before "
         "(todo 545 step 4)",
         "evidence": {
@@ -350,6 +481,9 @@ def build_plan(
                 "tolerance_bp": params.tolerance_bp,
                 "min_sessions": params.min_sessions,
                 "min_class_share": params.min_class_share,
+                "quarantine_rel": params.quarantine_rel,
+                "three_way_max_it_bp": params.three_way_max_it_bp,
+                "three_way_log_share": params.three_way_log_share,
             },
             "span_actions": counts,
             "classes": [
@@ -363,5 +497,6 @@ def build_plan(
                 for (cls, action), v in sorted(classes.items())
             ],
             "n_names": len(results),
+            "n_quarantine": len(quarantine),
         },
     }
