@@ -347,14 +347,60 @@ class BookSpec(BaseModel):
         return value
 
 
+Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+RunId = Annotated[
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+]
+
+
+class PodMemberSpec(BaseModel):
+    """One member book of a pod, pinned to the completed attempt whose D_s series the pod sums:
+    its run_id and the series content hash (pod.series_sha256), so a later rerun of the book can
+    never change the pod's inputs (plan 187-10 review amendment)."""
+
+    model_config = _STRICT
+    book: str
+    run_id: RunId
+    series_sha256: Sha256
+
+    @field_validator("book")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        if not value.startswith("research/specs/"):
+            raise ValueError(f"book spec outside research/specs/: {value}")
+        return value
+
+
+class PodBookSpec(BaseModel):
+    """A pod book (design 4.1, plan 187-10): families on different clocks combine only at the
+    P&L level, so a pod's series is the session-level sum of its member books' recorded E17
+    D_s series. Its own book type and counted attempt."""
+
+    model_config = _STRICT
+    kind: Literal["pod_book"]
+    pod: Identifier
+    prior_source: str
+    books: list[PodMemberSpec] = Field(min_length=2)
+
+    @field_validator("books")
+    @classmethod
+    def _unique(cls, value: list[PodMemberSpec]) -> list[PodMemberSpec]:
+        paths = [b.book for b in value]
+        if len(set(paths)) != len(paths):
+            raise ValueError(f"duplicate member books: {paths}")
+        return value
+
+
 @dataclasses.dataclass(frozen=True)
 class LoadedSpec:
     path: str
-    model: FamilySpec | BookSpec
+    model: FamilySpec | BookSpec | PodBookSpec
     canonical: str
     spec_hash: str
     blob_sha: str | None
-    families: tuple[LoadedSpec, ...] = ()
+    families: tuple[LoadedSpec, ...] = ()  # a book's family specs
+    books: tuple[LoadedSpec, ...] = ()  # a pod's member book specs
 
 
 class _SpecLoader(yaml.SafeLoader):
@@ -371,7 +417,7 @@ _SpecLoader.add_implicit_resolver(
 )
 
 
-def parse_spec_text(text: str) -> FamilySpec | BookSpec:
+def parse_spec_text(text: str) -> FamilySpec | BookSpec | PodBookSpec:
     loader = _SpecLoader(text)
     try:
         data = loader.get_single_data()
@@ -384,6 +430,8 @@ def parse_spec_text(text: str) -> FamilySpec | BookSpec:
         return FamilySpec.model_validate(data)
     if kind == "book":
         return BookSpec.model_validate(data)
+    if kind == "pod_book":
+        return PodBookSpec.model_validate(data)
     raise ValueError(f"unknown spec kind: {kind!r}")
 
 
@@ -438,10 +486,24 @@ def _book_dump(model: BookSpec) -> dict:
 
 
 def _build(
-    path: str, model: FamilySpec | BookSpec, blob_sha: str | None, families: tuple[LoadedSpec, ...]
+    path: str,
+    model: FamilySpec | BookSpec | PodBookSpec,
+    blob_sha: str | None,
+    families: tuple[LoadedSpec, ...] = (),
+    books: tuple[LoadedSpec, ...] = (),
 ) -> LoadedSpec:
     if isinstance(model, FamilySpec):
         canonical = canonical_json(_family_dump(model))
+    elif isinstance(model, PodBookSpec):
+        if any(not isinstance(b.model, BookSpec) for b in books):
+            raise ValueError(f"pod {model.pod}: members must be book specs")
+        canonical = canonical_json(
+            {
+                "pod": model.model_dump(mode="json"),
+                "books": [json.loads(b.canonical) for b in books],
+            }
+        )
+        return LoadedSpec(path, model, canonical, _sha(canonical), blob_sha, (), books)
     else:
         _check_book(model, families)
         canonical = canonical_json(
@@ -492,7 +554,10 @@ def load_spec_from_head(root: Path, rel: str) -> LoadedSpec:
     families: tuple[LoadedSpec, ...] = ()
     if isinstance(model, BookSpec):
         families = tuple(load_spec_from_head(root, f) for f in model.families)
-    return _build(rel, model, blob, families)
+    books: tuple[LoadedSpec, ...] = ()
+    if isinstance(model, PodBookSpec):
+        books = tuple(load_spec_from_head(root, b.book) for b in model.books)
+    return _build(rel, model, blob, families, books)
 
 
 def load_spec_from_blob(root: Path, rel: str, blob: str) -> LoadedSpec:
@@ -500,7 +565,7 @@ def load_spec_from_blob(root: Path, rel: str, blob: str) -> LoadedSpec:
     attempt replays with exactly the spec it ran. Books name families by path, not blob, so only
     family specs replay this way."""
     model = parse_spec_text(_git(root, "cat-file", "-p", blob))
-    if isinstance(model, BookSpec):
+    if not isinstance(model, FamilySpec):
         raise ValueError("load_spec_from_blob replays family specs only")
     return _build(rel, model, blob, ())
 
@@ -514,12 +579,15 @@ def load_spec_from_file(path: Path, root: Path | None = None) -> LoadedSpec:
     families: tuple[LoadedSpec, ...] = ()
     if isinstance(model, BookSpec):
         families = tuple(load_spec_from_file(root / f, root) for f in model.families)
+    books: tuple[LoadedSpec, ...] = ()
+    if isinstance(model, PodBookSpec):
+        books = tuple(load_spec_from_file(root / b.book, root) for b in model.books)
     rel = (
         str(path.relative_to(root))
         if path.is_absolute() and path.is_relative_to(root)
         else str(path)
     )
-    return _build(rel, model, None, families)
+    return _build(rel, model, None, families, books)
 
 
 def _check_member_path(dotted: str) -> None:
