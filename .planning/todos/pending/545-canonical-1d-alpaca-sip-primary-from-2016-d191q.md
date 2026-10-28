@@ -45,19 +45,39 @@ Full record: design doc D-191-Q.
      rows (72,826 sessions), 194 IBKR-defective names (19,344 sessions, Alpaca serves), 55 holds
      (26 three_way, 2 two_vendor, 27 pre-IBKR history); 136 of 154 live symbol rows retire
      (132 confirmed, 4 replaced), 18 kept.
+   - Status 2026-10-28, second review: built (d672e2bcc + 0b99c09c5 M1, 71079481c + 07752ae7b
+     arbitration, 6f369cf80 + 1930730a4 `--plan`, 84e63f454 + 4df252223 script). A hold means
+     Alpaca does not serve: every hold span carries an interim IBKR row and `--plan` refuses an
+     uncovered hold. Inside the Alpaca era an IBKR-served session is `(ibkr, fallback)` (one
+     volume basis from 2016; d2-v3 goldens hold). Three-way spans where IBKR and Tradier both
+     adjusted get rows; Alpaca before IBKR's first bar serves only when continuous with it.
+     Re-run read-only 2026-10-28 01:48Z (`191-D191Q-ARBITRATION.md`; plan
+     `data/policy_plans/d191q_1d_plan_20261028.json`, sha256 in the report): 88 IBKR rows (46
+     alpaca_differs, 7 three-way adjusted, 13 pre-IBKR no-bar, 22 interim holds), 285 quarantine
+     sessions on 215 names, 154 live symbol rows retire (21 replaced, 133 superseded_by_default),
+     none kept. DHC fails the log-share test (47 bp against 36) and stays held.
    - Spin-offs (2026-10-27): where IBKR and Tradier agree on a spin-off-adjusted history and
      Alpaca does not, the arbitration emits an IBKR-primary row for the pre-spin span (correct
      returns, NULL volume); where Alpaca and Tradier agree, Alpaca serves.
-   - Open: a review of the rework; the owner's hold list (three_way spans with IBKR/Tradier near
-     1 are spin-off adjustments with factors a few bp apart; pre-IBKR holds are predecessor or
-     IBKR-coverage questions); D7 digests stale until a re-derive; no
+   - Open: a review of the second rework; the owner's hold list (22 interim rows); D7 digests
+     stale until a re-derive; no
      Alpaca 1d split re-ask; D7 `vendor_basis_run` is Tradier-only. Details:
      `.planning/phases/191-unified-raw-bar-table/191-D191Q-DAILY-RULE-BUILD.md`.
 4. Policy rows via `ops_source_policy.py --plan` (dry run, then apply): 1d default Alpaca primary
    with IBKR fallback from 2016-01-04, IBKR before; reconcile the 154 1d symbol rows (143 names).
-   - Ready 2026-10-27: `ops_source_policy.py --plan data/policy_plans/d191q_1d_plan_20261027.json`
-     (dry run first) retires both 1d defaults and names every live symbol row; owner decisions on
-     the hold list can add rows to the plan file before it applies.
+   - Ready 2026-10-28: `ops_source_policy.py --plan data/policy_plans/d191q_1d_plan_20261028.json`
+     (dry run first). Under a table lock it refuses when the 2 pinned default ids or the 1d raw
+     fingerprint (rows and last serve per series through 2026-10-06) changed: IBKR re-serves old
+     1d sessions (last serve 2026-10-28 01:09Z), so re-run the arbitration right before the
+     apply with the fetchers idle. Before an apply with the quarantine list:
+     `vendor_disagreement` must be added to `threshold.bar_scrub.quarantine_rules` (a migration;
+     the apply refuses otherwise); the flags go through `bar_scrub.write_flags` under one
+     `scrub` batch.
+5a. D7 Alpaca-against-IBKR basis check (second review M3), before plan 20 deletes Tradier:
+   `vendor_basis_run` compares Tradier with IBKR and goes empty without Tradier; its successor
+   (`services/bar_reconciliation_audit.py`, `integrity_checks`) flags an Alpaca/IBKR level run
+   after 2026-10-06 (a spin-off Alpaca leaves unadjusted) for a dated row. Not built in this
+   round: it changes D7's verdict set and the verdict gate.
 5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it; the 2016 volume seam is recorded
    for the research lane.
 6. Rules and docs, in the same commit that applies the policy rows (not before, so no doc claims
