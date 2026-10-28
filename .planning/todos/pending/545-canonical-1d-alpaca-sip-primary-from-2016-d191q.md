@@ -37,15 +37,27 @@ Full record: design doc D-191-Q.
      guard was rejected in review and is being replaced by the policy-row arbitration above. d2-v3
      outputs are bit-identical where no policy names Alpaca (fixture goldens; 1,523 live names
      read-only, 0 mismatches).
+   - Status 2026-10-27, rework: built (4ab0babc0 RED, e1355c906 rule, 4457a66ef `--plan`,
+     c171920c7 + 907c445bf arbitration, 183d11fd1 span minimum = basis window, 61e939bea report).
+     The rule has no agreement screen; the IBKR zero-volume fallback guard applies under an Alpaca
+     primary (d2-v3 unchanged elsewhere, goldens hold). Arbitration ran read-only over 1,529 names
+     (`191-D191Q-ARBITRATION.md`; plan `data/policy_plans/d191q_1d_plan_20261027.json`): 46 IBKR
+     rows (72,826 sessions), 194 IBKR-defective names (19,344 sessions, Alpaca serves), 55 holds
+     (26 three_way, 2 two_vendor, 27 pre-IBKR history); 136 of 154 live symbol rows retire
+     (132 confirmed, 4 replaced), 18 kept.
    - Spin-offs (2026-10-27): where IBKR and Tradier agree on a spin-off-adjusted history and
      Alpaca does not, the arbitration emits an IBKR-primary row for the pre-spin span (correct
      returns, NULL volume); where Alpaca and Tradier agree, Alpaca serves.
-   - Open: the fresh-context review (Codex and AGY out of quota);
-     `--plan` cannot express the 1d policy as written; D7 digests stale until a re-derive; no
+   - Open: a review of the rework; the owner's hold list (three_way spans with IBKR/Tradier near
+     1 are spin-off adjustments with factors a few bp apart; pre-IBKR holds are predecessor or
+     IBKR-coverage questions); D7 digests stale until a re-derive; no
      Alpaca 1d split re-ask; D7 `vendor_basis_run` is Tradier-only. Details:
      `.planning/phases/191-unified-raw-bar-table/191-D191Q-DAILY-RULE-BUILD.md`.
 4. Policy rows via `ops_source_policy.py --plan` (dry run, then apply): 1d default Alpaca primary
    with IBKR fallback from 2016-01-04, IBKR before; reconcile the 154 1d symbol rows (143 names).
+   - Ready 2026-10-27: `ops_source_policy.py --plan data/policy_plans/d191q_1d_plan_20261027.json`
+     (dry run first) retires both 1d defaults and names every live symbol row; owner decisions on
+     the hold list can add rows to the plan file before it applies.
 5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it; the 2016 volume seam is recorded
    for the research lane.
 6. Rules and docs, in the same commit that applies the policy rows (not before, so no doc claims

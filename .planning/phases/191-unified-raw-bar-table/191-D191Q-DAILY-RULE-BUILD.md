@@ -1,77 +1,90 @@
 # D-191-Q daily rule d2-v4 build note (todo 545 step 3)
 
-Author: Claude (executor session, 2026-10-27). Informed by: D-191-Q and D-191-P in `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, todo 545.
+Author: Claude (executor session, 2026-10-27). Informed by: D-191-Q and D-191-P in `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, todo 545, and the fresh-context review of the first build (2026-10-27).
 
-This step changes code and tests only. No bar_source_policy row was written, no daily stage or derive ran against the live database, and nothing was written to a live table. Every live query was read-only: the CVR, policy and raw lookups, plus a read-only session that ran the pure rule over live inputs.
+This step changes code and tests and runs one read-only arbitration. No bar_source_policy row was written, no daily stage or derive ran against the live database, and nothing was written to a live table.
 
 ## Commits
 
 | Commit | What |
 |--------|------|
-| caab252ce | test(545): failing tests (RED) |
-| 1cc7bf759 | feat(545): daily rule d2-v4 (GREEN) |
+| caab252ce | test: first build (RED) |
+| 1cc7bf759 | feat: first build, with an agreement guard (GREEN) |
+| 4ab0babc0 | test: rework (RED) |
+| e1355c906 | feat: d2-v4 rework, so the policy decides which vendor serves |
+| 4457a66ef | feat: `--plan` expresses the 1d decision |
+| c171920c7 | feat: three-vendor arbitration, pure |
+| e31dfd664 | test: arbitration script (RED) |
+| 907c445bf | feat: arbitration script (GREEN) |
+| 183d11fd1 | fix: the span minimum is the basis window |
+| 61e939bea | feat: the report renders from the plan |
 
-## What changed
+The docs commit for this note and the report follows them. `git log --oneline --grep 545` lists them all.
 
-- `src/intelligence/bars/daily_rule.py`: `RULE_VERSION = "d2-v4"`.
-  - `(alpaca, sip_rth)` is in `RAW_DAILY_SERIES`, `PRIMARY_PAIR["alpaca"] = ("alpaca", "sip_rth")` and route `ALPACA`.
-  - `FALLBACK_FOR` allows IBKR as the only fallback, for Tradier or Alpaca.
-  - `RAW_DAILY_SESSION_ZONE` and `raw_session_date` define the session date of each series.
-  - The Alpaca guards run in `_screen`. The head and interior rules work per primary through `_BasisFrame`, each on its own pair axis, so a Tradier-era decision never depends on Alpaca rows.
-  - `servable_primary_dates` is new.
-  - The result gains `zero_volume`, `pre_start` and `alpaca_start`.
-- `services/bar_derivation.py`: the raw read joins a third array of session zones and dates each row `(timestamp AT TIME ZONE s.zone)::date` (`_RAW_DAILY_ZONES`). The report, load detail and run summary carry the guard counts.
-- `services/bar_reconciliation_audit.py` (D7) passes the zone array.
-- `src/intelligence/bars/integrity_checks.py`: `policy_conformance` takes the servable dates per primary, so `(ibkr, fallback)` conforms wherever the primary cannot serve: a hole, a head, stale scale, or, for Alpaca, zero volume or a date before the span start.
-- `sources.CANONICAL_1D_SOURCES` gains `("alpaca", "sip_rth")`, and `vendor_kind.canonical_kind_for_raw` maps it to `sip_rth`.
+## Review and rework
 
-## Decisions
+The first build put an agreement guard inside the rule: Alpaca served only from the first session where IBKR agreed with it. The fresh-context review found three problems:
 
-- Canonical kind `sip_rth`. Canonical 5m already carries Alpaca rows as `(alpaca, sip_rth)`, and the CVR `bar_kind` namespace holds `sip_rth` (sort order 10). No migration was needed. The tradeable view leaves `sip_rth` volume intact (it nulls only `venue` and `fallback`), so the consolidated volume reaches research. An IBKR fallback session inside the Alpaca era reads NULL volume, the d2-v2 convention.
-- Session dates. Alpaca's 04:00 or 05:00 UTC stamp is dated in New York; IBKR's and Tradier's 00:00 UTC stamp in UTC. Observations carry only the session date. The rule emits one bar per session, and the writer stamps it 00:00 UTC (`_utc_day`), so no second row can exist for a session.
-- Guard 1, zero volume. An Alpaca bar with volume 0 or NULL is dropped before any other read: no basis ratio, no head, no anchor. The session falls through to the IBKR fallback under the ordinary interior or head test, or has no bar.
-- Guard 2, listing. No trustworthy point-in-time listing date exists:
-  - `instrument_metadata.listing_date` covers 63 of 166 rows and is upserted in place.
-  - `listing_venue.valid_from` and `ohlcv_provider_head` are both IBKR's own first bar.
+- HIGH: the guard trusts IBKR wherever the two disagree, and Tradier shows IBKR is often the one that is wrong. OKE's IBKR/Alpaca ratio drifts from 0.76 to 1.42 over 2018 to 2023 while Alpaca equals Tradier to the cent. RJF's IBKR is exactly 2/3 before 2021-09-22.
+- MEDIUM: the guard's start date depended on future data.
+- MEDIUM: it dropped valid Alpaca history on names IBKR has not fetched.
 
-  The guard therefore anchors on the contract-keyed vendor. The Alpaca span starts at the first session where IBKR's current close agrees with Alpaca's within `fallback_basis_tolerance_bp`, both on that session and in the median of the `fallback_basis_window_sessions` common sessions from it (the head seam test). This is stricter than "IBKR has a bar". AA shows why: IBKR's contract trades when-issued from 2016-10-18 at about 16 while Alpaca's ticker still prints the old Alcoa at about 80 until 2016-11-01. An IBKR-has-a-bar anchor would serve 10 predecessor bars. The agreement anchor starts at 2016-11-01, and the 10 IBKR sessions before it are a seam-flagged head. Alpaca dates before the start are listed in `pre_start` and never served.
-- Tradier code stays, and Tradier stays unguarded so that d2-v3 is unchanged.
+The rework moves the decision to its own level, as dated policy evidence:
 
-## Verification
+- Rule (`src/intelligence/bars/daily_rule.py`, d2-v4): no agreement screen. Under an Alpaca-primary row, Alpaca serves every session it answered with a trade, and IBKR falls back only where Alpaca has no tradeable bar. Two guards remain, both about tradeability:
+  - a zero-volume Alpaca bar is dropped;
+  - under an Alpaca primary, a zero-volume IBKR fallback bar is never served, so the session is missing (`zero_volume_fallback`).
 
-- Bit identity on the fixture: golden sha256 digests of every d2-v3 result over the known-case fixture (5 cases, 4 policy shapes) were taken at 1e88ae9aa before the bump. d2-v4 reproduces all 20, with and without synthetic Alpaca rows that include zero-volume and off-axis sessions.
-- Bit identity on live inputs: a read-only session ran the HEAD d2-v3 copy and d2-v4 over all 1,523 names holding Alpaca 1d rows, under the live policy rows. Mismatches: 0.
-- Gate: targeted suites pass, `pytest tests/unit/ -n auto` is green, and ruff and black are clean.
-- Fresh-context review did not run. Codex is out of quota until 2026-11-26 and AGY for about 162 hours. The executor reviewed its own diff. That item of step 3 stays open.
+  The session-date mapping is unchanged: Alpaca in New York time, IBKR and Tradier in UTC, one canonical row per session at 00:00 UTC. The d2-v3 golden digests (5 fixture cases × 4 policy shapes, with and without Alpaca rows) still match, so output is bit-identical wherever no policy names Alpaca.
+- Arbitration (`src/intelligence/bars/vendor_arbitration.py` is the pure part; `scripts/ops/bars/ops_d191q_arbitration.py` is the read-only script):
+  - Tradier decides each maximal span where Alpaca and IBKR disagree by more than 10 bp.
+  - Alpaca = Tradier: IBKR is defective there; this is evidence only, and Alpaca serves.
+  - IBKR = Tradier: a spin-off Alpaca leaves unadjusted, or a reused ticker. The span gets an IBKR symbol row with no fallback.
+  - All three differ, or Tradier is absent: the span goes on the owner's hold list.
+  - A span shorter than the basis window (APR `fallback_basis_window_sessions`, 20) is noise.
+  - Alpaca history before IBKR's first bar is held only where IBKR verified its 1d head; otherwise it is reported and Alpaca serves.
+  - The script refuses to run without Tradier 1d raw rows.
+  - It writes the plan document and the report `191-D191Q-ARBITRATION.md`.
+- `scripts/ops/bars/ops_source_policy.py --plan`:
+  - `retire_defaults` retires both live 1d defaults: the closed Tradier default and the open IBKR default.
+  - A 1d plan must name every live symbol row: retired with a disposition (`replaced` or `confirmed`, with evidence) or kept with a reason. An unnamed live row refuses the whole plan.
+  - New symbol rows insert in the same transaction.
+  - Dry run by default. Tests run on temp copies of the table and its trigger.
 
-## Measured under an in-memory D-191-Q policy (read-only, 2026-10-27, step 1 backfill still running)
+## Span minimum
 
-Policy: IBKR before 2016-01-04; Alpaca primary with IBKR fallback from 2016-01-04. Over 1,523 names:
+The first full run used D7's `vendor_ratio_run_min_sessions` (5) as the span minimum and wrote 129 IBKR rows. 64 of them were 5 to 16 session close-definition episodes at 0.2 to 111 bp (thin ETFs, plus SPY and IWM in March 2020). Every genuine basis span is at least 62 sessions with at least 88 bp, except DELL (717 sessions, 19 bp). The basis window (20) separates the two groups.
 
-| Quantity | Value |
-|----------|-------|
-| Alpaca sessions served | 2,549,972 |
-| IBKR fallback sessions | 847,250 (includes names whose Alpaca history the backfill has not reached) |
-| zero-volume Alpaca sessions | 5,604 on 51 names (CORZ 276) |
-| Alpaca sessions before the span start | 189,886 |
-| of those, IBKR holds a bar (basis disagreement) | 90,484 on 69 names |
-| of those, IBKR has no bar yet | 99,402 on 87 names |
-| refused interior | 14 |
-| names with no Alpaca span | 0 |
+## Results
 
-The 69 disagreement names are spin-offs. IBKR (and Tradier) adjust a name's history for a spin-off; Alpaca's split adjustment does not. IBKR/Alpaca measured 0.9718 on ILMN before 2024-06-25, 0.7557 on WDC before 2025-02-24, and 0.8265 then 0.9898 on J. The largest cases are SCCO, SPGI, HON, FDX, BDX, CMCSA, J, WDC, LEN, FTV, ILMN, APTV, GE (2024-04-03), MMM (2024-04-01), DHR (2023-10-02) and LH (2023-07-03). Under the guard, these names serve IBKR's adjusted history as the fallback head until the event: returns are right, volume is NULL. Serving Alpaca there would put each spin-off on its ex-date as a false return. The D-191-Q sample (21 names against Tradier) contains no such event, which is why it did not show this.
+Read-only full run, 2026-10-27 21:24Z, 1,529 names, window 2016-01-04 to 2026-10-06. The class table, rows, hold list and dispositions are in `191-D191Q-ARBITRATION.md`. The plan is `data/policy_plans/d191q_1d_plan_20261027.json` (gitignored).
 
-The 87 IBKR-missing names (CORZ, PCTY and others) are mostly names whose IBKR 1d history currently starts at 2026-08-28. The running IBKR pass should shrink this count. A re-derive after it lands reports the rest.
+| Class | Action | Spans | Sessions | Names |
+|-------|--------|-------|----------|-------|
+| alpaca_differs | row | 46 | 72,826 | 46 |
+| ibkr_defective | evidence | 1,318 | 19,344 | 194 |
+| three_way | hold | 26 | 30,975 | 23 |
+| two_vendor | hold | 2 | 1,368 | 2 |
+| pre_ibkr_history | hold | 27 | 18,934 | 27 |
+| pre_ibkr_history | info | 116 | 186,015 | 116 |
+| noise (all classes) | none | 5,479 | 7,396 | |
+
+Of the 154 live 1d symbol rows, 136 retire (132 confirmed, 4 replaced) and 18 are kept: 17 on hold names, plus QRVO, which has no common sessions to arbitrate.
+
+## Gate
+
+- Targeted suites pass.
+- `pytest tests/unit/ -n auto` shows 4 failures in `tests/unit/research/test_runner_book.py`. They come from another session's uncommitted WIP in `src/intelligence/research/` (missing E17 certificate) and touch nothing here.
+- ruff and black are clean.
+- The fresh-context review of the first build came from the coordinator. The rework has had no second review.
 
 ## For step 4 and later
 
-1. Owner decision before step 4: spin-off names. The guard keeps returns right and gives up Alpaca's consolidated volume before each spin. The alternative is spin-off-adjusting Alpaca's 1d history from a corporate-action record (no such record exists; `corporate_action` holds splits). The guard keeps returns right and loses data rather than inventing it, so it stays the default.
-2. `ops_source_policy.py --plan` cannot express the 1d decision as written:
-   - `_CLOSE_DEFAULT_SQL` closes the open 1d default (IBKR from 2026-10-07) at the seam, and 2016-01-04 precedes that row's `valid_from`, which violates its `valid_to > valid_from` check.
-   - The closed Tradier default (1990-01-01 to 2026-10-07) overlaps a new Alpaca default from 2016-01-04.
-
-   The 1d plan has to retire both defaults and insert two: IBKR from 1990-01-01 to 2016-01-04, and Alpaca with IBKR fallback from 2016-01-04. `--plan` also retires every live symbol row, so the 154 1d symbol rows (143 names) need their disposition decided first.
-3. The rule version moved. The IBKR fetcher's end stage (`--stage daily --apply` on the names it touched) now runs d2-v4 from this checkout. Its bars are identical under the current policy, but it relabels those names' 1d digests d2-v4. D7's `digest_fresh` fails for every name until a daily run rewrites its digests (plan 20 Task 3's re-derive, or a `--rewrite-digests` run). `tests/integration/test_d2_single_writer_live.py` asserts the live lineage rule version and fails until then too.
-4. Splits. An Alpaca 1d row served before a recorded split is stale for earlier dates. The nightly asks only the tail, so after each split a name's older Alpaca sessions take the restated IBKR fallback (or are quarantined `pre_split_unrefetched`) until Alpaca's history is asked again. The split re-ask that IBKR has (`_escalate`) has no Alpaca 1d counterpart yet.
-5. D7's `vendor_basis_run` measures Tradier against IBKR only and goes vacuous after the Tradier deletion. It needs an Alpaca-against-IBKR run before step 5 relies on D7. `services/bar_hold.py` `_VENDOR_RATIOS_SQL` reads SMART and TRADIER only.
-6. `scripts/ops/bars/ops_bar_nightly.py` docstring ("a vendor daily can never author -- IBKR owns 1d") is stale in its last clause. It was left alone because the backfill is running. The fence itself (`LoadPolicy` refuses a derivation-owned timeframe) is still correct, because the daily stage, not the vendor load, writes canonical 1d.
+1. Owner decisions in the hold list:
+   - The three_way spans whose IBKR/Tradier column is near 1 (HON, ATRO, CBSH, FTV, CNH and others) are spin-off adjustments that IBKR and Tradier applied with factors a few bp apart. Each could become an IBKR row, but per the spec none is written automatically.
+   - The pre_ibkr_history holds (SW, AKTS, COO, CRH, CR and others) are Alpaca history before an IBKR head that IBKR verified. Each is either a predecessor under a reused ticker or the limit of IBKR's coverage.
+2. Step 4 runs `ops_source_policy.py --plan data/policy_plans/d191q_1d_plan_20261027.json`, a dry run first. Names whose live row is kept stay as they are today until the owner decides.
+3. The rule version moved. The IBKR fetcher's end stage (`--stage daily --apply`) runs d2-v4 from this checkout. Under the current policy its bars are identical (read-only check, 1,523 names, 0 mismatches), but it relabels the touched names' 1d digests. D7's `digest_fresh` fails for the other names until plan 20 Task 3 re-derives, or until a `--rewrite-digests` run.
+4. Splits: Alpaca has no 1d split re-ask. After a recorded split, older Alpaca sessions take the restated IBKR fallback until Alpaca's history is asked again.
+5. D7: `vendor_basis_run` compares Tradier against IBKR only. `services/bar_hold.py` `_VENDOR_RATIOS_SQL` reads SMART and TRADIER only.
+6. The arbitration is evidence frozen at Tradier's last day, 2026-10-06. A name's spin-off after that date has no third vendor to decide it; the D7 extension in item 5 is where later events surface.
