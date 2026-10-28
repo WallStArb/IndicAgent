@@ -1,0 +1,63 @@
+"""The volume basis mapping (todo 555): one table, unknown pairs raise, grid bars inherit."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from src.intelligence.bars.vendor_kind import (
+    VOLUME_BASIS_BY_VENDOR_KIND,
+    grid_volume_basis,
+    volume_basis,
+)
+
+# Every (vendor, kind) canonical market_data_ohlcv holds on 2026-10-28, plus the kinds the
+# 1d daily rule and the IBKR smart_trades re-derive will write.
+CANONICAL_PAIRS = {
+    ("alpaca", "sip_rth"): "consolidated",
+    ("tradier", "consolidated"): "consolidated",
+    ("ibkr", "named"): "smart",
+    ("ibkr", "smart_trades"): "smart",
+    ("ibkr", "fallback"): "none",
+    ("ibkr", "venue"): "none",
+}
+
+
+def test_every_canonical_pair_is_mapped():
+    assert VOLUME_BASIS_BY_VENDOR_KIND == CANONICAL_PAIRS
+    for pair, name in CANONICAL_PAIRS.items():
+        assert volume_basis(*pair) == name
+
+
+@pytest.mark.parametrize("pair", [("alpaca", "iex_rth"), ("ibkr", "smart_adjusted"), ("x", "y")])
+def test_an_unmapped_pair_raises(pair):
+    with pytest.raises(ValueError, match="no volume basis"):
+        volume_basis(*pair)
+
+
+def test_a_derived_pair_has_no_basis_of_its_own():
+    with pytest.raises(ValueError, match="constituents"):
+        volume_basis("derived", "5m_grid")
+
+
+def test_grid_bar_is_mixed_only_when_constituents_differ():
+    stamps = np.arange(0, 6 * 300, 300)
+    bases = ["consolidated"] * 3 + ["consolidated", "smart", "smart"]
+    grid = [0, 900]
+    assert grid_volume_basis(grid, 15, stamps, bases) == ["consolidated", "mixed"]
+
+
+def test_a_grid_bar_never_reads_constituents_past_the_next_grid_stamp():
+    stamps = np.arange(0, 4 * 300, 300)
+    bases = ["smart", "smart", "consolidated", "consolidated"]
+    assert grid_volume_basis([0, 600], 60, stamps, bases) == ["smart", "consolidated"]
+
+
+def test_a_grid_bar_without_a_constituent_raises():
+    with pytest.raises(ValueError, match="no 5m constituent"):
+        grid_volume_basis([10_000], 15, np.array([0, 300]), ["smart", "smart"])
+
+
+def test_stamp_and_basis_lengths_must_match():
+    with pytest.raises(ValueError, match="constituent stamps"):
+        grid_volume_basis([0], 15, np.array([0, 300]), ["smart"])

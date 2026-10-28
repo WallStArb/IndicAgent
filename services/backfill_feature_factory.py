@@ -94,7 +94,8 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.real_column_range import clamp_to_real_range_array
 from src.core.service_utils import setup_service_logging
-from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
+from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES, GRID_TIMEFRAMES
+from src.intelligence.bars.vendor_kind import DERIVED_PAIR, grid_volume_basis, volume_basis
 from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     _batch_kernel_inputs,
@@ -102,6 +103,7 @@ from src.intelligence.feature_factory import (
     _macro_kernel_inputs,
 )
 from src.intelligence.features.contract.registry import (
+    VOLUME_BASIS_CODES,
     Kernel,
     KernelRegistry,
     compute_kernels,
@@ -279,7 +281,7 @@ _REBUILD_BLOCK_ROWS_DEFAULT: int = 10_000
 # ---------------------------------------------------------------------------
 
 _FETCH_BARS_SQL = """
-SELECT timestamp, open, high, low, close, volume
+SELECT timestamp, open, high, low, close, volume, vendor, kind
 FROM market_data_ohlcv_tradeable
 WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
@@ -287,6 +289,59 @@ ORDER BY timestamp ASC
 
 _FETCH_BARS_SINCE_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp >= %s\nORDER BY")
 _FETCH_BARS_UNTIL_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp < %s\nORDER BY")
+
+
+# The 5m rows a derived grid bar was built from, by (vendor, kind): the evidence for the grid
+# bar's volume basis (bars/vendor_kind.grid_volume_basis).
+_FETCH_5M_PROVENANCE_SQL = """
+SELECT timestamp, vendor, kind
+FROM market_data_ohlcv_tradeable
+WHERE symbol = %s AND timeframe = '5m' AND timestamp >= %s AND timestamp < %s
+ORDER BY timestamp ASC
+"""
+
+
+def _volume_basis_codes(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    times: Sequence[datetime],
+    vendors: Sequence[str],
+    kinds: Sequence[str],
+) -> np.ndarray:
+    """The `volume_basis` code of each bar (todo 555), derived from its canonical (vendor, kind)
+    through the one mapping in bars/vendor_kind.py. A derived grid bar takes its basis from its
+    5m constituents. An unmapped pair raises: a basis never defaults. Bars come from the
+    tradeable view, which NULLs volume for the basis-`none` kinds."""
+    names: list[str] = [""] * len(times)
+    derived = [i for i, pair in enumerate(zip(vendors, kinds)) if pair == DERIVED_PAIR]
+    derived_rows = set(derived)
+    for i, (vendor, kind) in enumerate(zip(vendors, kinds)):
+        if i not in derived_rows:
+            names[i] = volume_basis(vendor, kind)
+    if derived:
+        minutes = GRID_TIMEFRAMES[tf]
+        with conn.cursor() as cur:
+            cur.execute(
+                _FETCH_5M_PROVENANCE_SQL,
+                (symbol, times[derived[0]], times[derived[-1]] + timedelta(minutes=minutes)),
+            )
+            constituents = cur.fetchall()
+        stamps = np.array([int(t.timestamp()) for t, _, _ in constituents], dtype=np.int64)
+        grid_names = grid_volume_basis(
+            np.array([int(times[i].timestamp()) for i in derived], dtype=np.int64),
+            minutes,
+            stamps,
+            [volume_basis(vendor, kind) for _, vendor, kind in constituents],
+        )
+        for i, name in zip(derived, grid_names):
+            names[i] = name
+    return np.array([VOLUME_BASIS_CODES[name] for name in names], dtype=np.int64)
+
+
+def _nan_if_null(value: Any) -> float:
+    """A NULL volume (the tradeable view's basis-`none` kinds) is NaN, never filled."""
+    return float("nan") if value is None else float(value)
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -575,6 +630,7 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         earnings_season_end_days=int(cfg.get_sync("feature.earnings_season.end_days", 42)),
         high_low_spread_window=int(cfg.get_sync("feature.high_low_spread.window", 21)),
         roll_spread_window=int(cfg.get_sync("feature.roll_spread.window", 252)),
+        amihud_min_valid_fraction=float(cfg.get_sync("feature.amihud.min_valid_fraction", 0.8)),
         hmm=HmmConfig.from_values(cfg.get_sync),
     )
 
@@ -598,16 +654,19 @@ def _fetch_bars_from_db(
         else:
             cur.execute(_FETCH_BARS_SQL, (symbol, tf))
         rows = cur.fetchall()
+    times = [r[0] if r[0].tzinfo else r[0].replace(tzinfo=UTC) for r in rows]
+    basis = _volume_basis_codes(conn, symbol, tf, times, [r[6] for r in rows], [r[7] for r in rows])
     return [
         {
-            "ts": r[0] if r[0].tzinfo else r[0].replace(tzinfo=UTC),
+            "ts": times[i],
             "open": float(r[1]),
             "high": float(r[2]),
             "low": float(r[3]),
             "close": float(r[4]),
-            "volume": float(r[5]),
+            "volume": _nan_if_null(r[5]),
+            "volume_basis": int(basis[i]),
         }
-        for r in rows
+        for i, r in enumerate(rows)
     ]
 
 
@@ -986,8 +1045,8 @@ def _series_kernel_inputs(
     """The bar arrays and every external input of one series, built as compute_batch builds them
     (the same three helpers, so one definition of each alignment): the symbol and tf constants,
     the ten daily macro columns as-of the bar end (NaN before the first record, no_fill), and the
-    higher-timeframe and 1m externals. `bars` holds ts (UTC nanoseconds), open, high, low, close
-    and volume arrays.
+    higher-timeframe and 1m externals. `bars` holds ts (UTC nanoseconds), open, high, low, close,
+    volume and volume_basis arrays.
 
     An empty `htf_bars` yields an empty CTF series (the kernels' own pre-first-HTF-close values),
     never a fabricated record. The cache argument of the two helpers is read only on the live
@@ -1010,6 +1069,7 @@ def _series_kernel_inputs(
             bars["volume"],
             symbol,
             tf,
+            bars["volume_basis"],
         ),
         **_macro_kernel_inputs(
             row_ns,
@@ -1129,6 +1189,8 @@ def _fetch_bar_arrays(
     the aware bar times. `ts` is UTC int64 nanoseconds, the registry's timestamp input."""
     times: list[datetime] = []
     columns: list[list[float]] = [[], [], [], [], []]
+    vendors: list[str] = []
+    kinds: list[str] = []
     with conn.cursor(name="rebuild_bars") as cur:
         cur.itersize = block_rows
         cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, horizon))
@@ -1140,14 +1202,18 @@ def _fetch_bar_arrays(
             # five interpreted appends per row.
             transposed = list(zip(*block))
             times.extend(t if t.tzinfo else t.replace(tzinfo=UTC) for t in transposed[0])
-            for k, column in enumerate(transposed[1:]):
+            for k, column in enumerate(transposed[1:5]):
                 columns[k].extend(map(float, column))
+            columns[4].extend(map(_nan_if_null, transposed[5]))
+            vendors.extend(transposed[6])
+            kinds.extend(transposed[7])
     arrays = {
         "ts": np.array([bar_ts_ns(t) for t in times], dtype=np.int64),
         **{
             name: np.array(columns[k], dtype=np.float64)
             for k, name in enumerate(("open", "high", "low", "close", "volume"))
         },
+        "volume_basis": _volume_basis_codes(conn, symbol, tf, times, vendors, kinds),
     }
     return arrays, times
 

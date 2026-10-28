@@ -183,6 +183,9 @@ def kernel_source(
         "low": low,
         "close": panel.close,
         "volume": panel.volume,
+        # The panel carries no vendor provenance, so a volume statistic here runs on one
+        # constant basis (todo 555): a research panel is a single selected series per name.
+        "volume_basis": np.ones((n, m)),
     }
     for name in ("high", "low"):
         if fields[name] is not None and np.shape(fields[name]) != (n, m):

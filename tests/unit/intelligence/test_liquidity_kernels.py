@@ -18,7 +18,6 @@ from src.intelligence.features.kernels.liquidity import (
     _high_low_spread_series_full,
     _roll_spread_series_full,
 )
-from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
 
 _K = 3.0 - 2.0 * math.sqrt(2.0)
 
@@ -185,10 +184,16 @@ def _bars(n: int, seed: int = 7, zero_close_at: int | None = None) -> dict[str, 
         "low": lows,
         "close": closes,
         "volume": rng.uniform(1.0, 10.0, n),
+        "volume_basis": np.ones(n, dtype=np.int64),
     }
 
 
-_CONFIG = SimpleNamespace(high_low_spread_window=21, roll_spread_window=60, amihud_zscore_window=40)
+_CONFIG = SimpleNamespace(
+    high_low_spread_window=21,
+    roll_spread_window=60,
+    amihud_zscore_window=40,
+    amihud_min_valid_fraction=0.8,
+)
 _ROWS = np.array([0, 5, 21, 22, 60, 61, 62, 100, 150, 199])
 
 
@@ -220,54 +225,3 @@ def test_outputs_are_finite_or_nan_on_clean_bars():
     assert not np.isinf(roll).any() and np.isnan(roll[:61]).all()
     finite = roll[np.isfinite(roll)]
     assert (finite > 0.0).all()
-
-
-# ---------------------------------------------------------------------------
-# Todo 390: amihud_illiq_z on a close == 0 bar
-# ---------------------------------------------------------------------------
-
-
-def _amihud_reference(closes: np.ndarray, volumes: np.ndarray, window: int) -> np.ndarray:
-    """The pre-390 body, for series with no zero close."""
-    from src.intelligence.features.kernels._primitives import _fixed_window_zscore_series
-
-    log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
-    dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
-    z = _fixed_window_zscore_series(log_rets_abs / dollar_vols, window)
-    return np.concatenate([[0.0], z])
-
-
-def test_amihud_zero_close_is_nan_within_its_windows_never_inf():
-    window = 5
-    bars = _bars(40)
-    closes, volumes = bars["close"].copy(), bars["volume"]
-    closes[20] = 0.0
-    with np.errstate(all="raise"):
-        out = _amihud_illiq_z_series_full(closes, volumes, window)
-    assert not np.isinf(out).any()
-    # illiq at bars 20 and 21 is undefined (each reads close 20); a z-score whose trailing
-    # window of `window` illiq values holds either is NaN: bars 20 .. 21 + window - 1.
-    nan_rows = np.flatnonzero(np.isnan(out))
-    assert nan_rows.tolist() == list(range(20, 21 + window))
-    assert np.isfinite(out[:20]).all() and np.isfinite(out[21 + window :]).all()
-    assert np.abs(out[21 + window :]).max() > 0.0
-
-
-def test_amihud_without_a_zero_close_is_unchanged():
-    bars = _bars(300)
-    got = _amihud_illiq_z_series_full(bars["close"], bars["volume"], 40)
-    want = _amihud_reference(bars["close"], bars["volume"], 40)
-    assert np.array_equal(got, want)
-
-
-def test_amihud_rows_past_the_zero_close_windows_match_a_series_without_it():
-    """The old body sent inf into the cumulative sums, which zeroed every later z-score; now a
-    row whose window no longer holds the bad bar matches the same series started after it."""
-    window = 5
-    bars = _bars(60)
-    closes, volumes = bars["close"].copy(), bars["volume"]
-    closes[20] = 0.0
-    full = _amihud_illiq_z_series_full(closes, volumes, window)
-    tail = _amihud_illiq_z_series_full(closes[21:], volumes[21:], window)
-    np.testing.assert_allclose(full[21 + window :], tail[window:], rtol=1e-9, atol=1e-12)
-    assert np.abs(full[21 + window :]).max() > 0.0

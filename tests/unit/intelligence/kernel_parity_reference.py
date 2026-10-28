@@ -22,6 +22,8 @@ from typing import Any
 
 import numpy as np
 
+from src.intelligence.features.contract.registry import constant_volume_basis
+
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "kernel_parity"
 
 # Columns holding strings, UUIDs or datetimes; every other column must be None or a number.
@@ -101,6 +103,7 @@ def synthetic_inputs(fixture_dir: Path = FIXTURE_DIR) -> tuple[dict[str, np.ndar
     """Synthetic bar arrays (ts int64 ns, ohlcv float64) and the synthetic config."""
     npz = _load_npz("synthetic_golden.npz", fixture_dir)
     inputs = {f: npz[f"in/{f}"] for f in ("ts", "open", "high", "low", "close", "volume")}
+    inputs["volume_basis"] = constant_volume_basis(len(inputs["ts"]))
     return inputs, build_config(load_manifest(fixture_dir)["synthetic_config"])
 
 

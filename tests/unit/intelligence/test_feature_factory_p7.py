@@ -273,21 +273,26 @@ def test_ofi_div_in_feature_vector():
 # ---------------------------------------------------------------------------
 
 
+def _amihud(closes, volumes, window=20, fraction=0.8):
+    return _amihud_illiq_z_series_full(closes, volumes, np.ones(len(closes)), window, fraction)
+
+
 def test_amihud_zero_returns():
+    # ln(0) is undefined: every observation is missing, so there is no z-score (no_fill).
     closes = np.full(30, 100.0)
     volumes = np.full(30, 1000.0)
-    assert _amihud_illiq_z_series_full(closes, volumes, 20)[-1] == 0.0
+    assert np.isnan(_amihud(closes, volumes)).all()
 
 
 def test_amihud_cold_start():
-    assert _amihud_illiq_z_series_full(np.array([100.0]), np.array([1000.0]), 20)[-1] == 0.0
+    assert np.isnan(_amihud(np.array([100.0]), np.array([1000.0]))[-1])
 
 
 def test_amihud_finite():
     rng = np.random.default_rng(11)
     closes = 100.0 + np.cumsum(rng.standard_normal(40))
     volumes = rng.uniform(500, 2000, 40)
-    assert math.isfinite(_amihud_illiq_z_series_full(closes, volumes, 20)[-1])
+    assert math.isfinite(_amihud(closes, volumes)[-1])
 
 
 # ---------------------------------------------------------------------------

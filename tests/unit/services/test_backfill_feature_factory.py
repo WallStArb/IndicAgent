@@ -33,7 +33,11 @@ from services.backfill_feature_factory import (
 )
 from src.config.config_service import ConfigService
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
-from src.intelligence.features.contract.registry import compute_kernels, default_registry
+from src.intelligence.features.contract.registry import (
+    compute_kernels,
+    constant_volume_basis,
+    default_registry,
+)
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_v2_row_values,
     feature_vectors_v2_numeric_columns,
@@ -1740,7 +1744,10 @@ class _WorkerConn:
 
 
 def _bar_tuples(bars: list[dict]) -> list[tuple]:
-    return [(b["ts"], b["open"], b["high"], b["low"], b["close"], b["volume"]) for b in bars]
+    return [
+        (b["ts"], b["open"], b["high"], b["low"], b["close"], b["volume"], "alpaca", "sip_rth")
+        for b in bars
+    ]
 
 
 def _bar_arrays(bars: list[dict]):
@@ -1751,6 +1758,7 @@ def _bar_arrays(bars: list[dict]):
             name: np.array([float(b[name]) for b in bars])
             for name in ("open", "high", "low", "close", "volume")
         },
+        "volume_basis": constant_volume_basis(len(times)),
     }
     return arrays, times
 
@@ -2052,3 +2060,64 @@ def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
     empty = ScriptedConn([{"fetchall": []}])
     assert module._plan_group(empty, 0, ("AAA",), "1d", horizon, "c" * 64, {"k": 1}) is None
     assert BAR_DIGEST_ABSENT_SYMBOL == "absent"
+
+
+# ---------------------------------------------------------------------------
+# Todo 555: NULL volume is NaN and volume_basis is derived per row from (vendor, kind)
+# ---------------------------------------------------------------------------
+
+
+def _day(i: int) -> datetime:
+    return datetime(2026, 1, 5, tzinfo=UTC) + timedelta(days=i)
+
+
+def test_fetch_bar_arrays_turns_null_volume_into_nan_and_maps_the_basis():
+    rows = [
+        (_day(0), 10.0, 11.0, 9.0, 10.5, 1000, "alpaca", "sip_rth"),
+        (_day(1), 10.5, 11.5, 10.0, 11.0, None, "ibkr", "fallback"),
+        (_day(2), 11.0, 12.0, 10.5, 11.5, 800, "ibkr", "named"),
+    ]
+    arrays, times = module._fetch_bar_arrays(
+        _WorkerConn(rows, []), "SPY", "1d", _day(10), block_rows=2
+    )
+    assert np.isnan(arrays["volume"]).tolist() == [False, True, False]
+    assert arrays["close"].tolist() == [10.5, 11.0, 11.5]
+    assert arrays["volume_basis"].tolist() == [1, 0, 2]
+    assert len(times) == 3
+
+
+def test_fetch_bars_from_db_null_volume_is_nan_with_a_basis():
+    rows = _bar_tuples(
+        [{"ts": _day(0), "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": None}]
+    )
+    rows.append((_day(1), 1.0, 2.0, 0.5, 1.5, None, "ibkr", "venue"))
+    bars = module._fetch_bars_from_db(_WorkerConn([], [rows]), "SPY", "1d")
+    assert [math.isnan(b["volume"]) for b in bars] == [True, True]
+    assert [b["volume_basis"] for b in bars] == [1, 0]
+
+
+def test_an_unmapped_vendor_kind_raises_instead_of_defaulting():
+    rows = [(_day(0), 1.0, 2.0, 0.5, 1.5, 10, "alpaca", "iex_rth")]
+    with pytest.raises(ValueError, match="no volume basis"):
+        module._fetch_bar_arrays(_WorkerConn(rows, []), "SPY", "1d", _day(10), block_rows=10)
+
+
+def test_a_derived_grid_bar_takes_its_basis_from_its_5m_constituents():
+    t0 = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
+    grid_times = [t0, t0 + timedelta(minutes=15)]
+    constituents = [
+        (t0 + timedelta(minutes=5 * i), vendor, kind)
+        for i, (vendor, kind) in enumerate(
+            [("alpaca", "sip_rth")] * 3
+            + [("alpaca", "sip_rth"), ("ibkr", "named"), ("ibkr", "named")]
+        )
+    ]
+    codes = module._volume_basis_codes(
+        _WorkerConn([], [constituents]),
+        "SPY",
+        "15m",
+        grid_times,
+        ["derived", "derived"],
+        ["5m_grid", "5m_grid"],
+    )
+    assert codes.tolist() == [1, 3]  # consolidated; then SIP + IBKR constituents = mixed

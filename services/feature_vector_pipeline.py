@@ -808,6 +808,8 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 526: todo 553 spread estimators ---
         ("feature.high_low_spread.window", 21),
         ("feature.roll_spread.window", 252),
+        # --- migration 533: todo 555 amihud_illiq_z ---
+        ("feature.amihud.min_valid_fraction", 0.8),
     )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
@@ -1120,6 +1122,7 @@ class FeatureVectorPipeline(BaseDaemon):
             earnings_season_end_days=_int("feature.earnings_season.end_days", 42),
             high_low_spread_window=_int("feature.high_low_spread.window", 21),
             roll_spread_window=_int("feature.roll_spread.window", 252),
+            amihud_min_valid_fraction=_float("feature.amihud.min_valid_fraction", 0.8),
             hmm=hmm_config,
         )
 

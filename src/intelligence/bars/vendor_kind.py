@@ -236,3 +236,74 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
         return _CANONICAL_KIND_FOR_RAW[(vendor, kind)]
     except KeyError:
         raise ValueError(f"({vendor!r}, {kind!r}) has no canonical 1d kind") from None
+
+
+# ---------------------------------------------------------------------------
+# Volume basis (todo 555): what a canonical bar's volume counts. Vendors count volume differently
+# (IBKR SMART volume is about 0.41 to 0.91 of consolidated on 1d, 0.38 to 0.95 on 5m), so a
+# rolling volume statistic must never span two bases. This table is the one mapping from a
+# canonical (vendor, kind) to its basis; the feature rebuild's loaders derive the per-row
+# `volume_basis` bar field from it (the integer codes are in features/contract/registry.py).
+# The basis is data: a seam is wherever the selected rows' basis changes, per name and per
+# timeframe, never a date (D-191-Q gives 53 names IBKR symbol rows inside the Alpaca era).
+# ---------------------------------------------------------------------------
+
+VOLUME_BASIS_CONSOLIDATED = "consolidated"  # every venue's prints (SIP, Tradier consolidated)
+VOLUME_BASIS_SMART = "smart"  # IBKR SMART-routed TRADES volume
+VOLUME_BASIS_NONE = "none"  # no volume: the tradeable view NULLs it for this kind
+VOLUME_BASIS_MIXED = "mixed"  # a derived bar whose 5m constituents carry different bases
+
+VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], str] = {
+    (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
+    (VENDOR_TRADIER, "consolidated"): VOLUME_BASIS_CONSOLIDATED,
+    (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
+    (VENDOR_IBKR, "smart_trades"): VOLUME_BASIS_SMART,
+    # The tradeable view NULLs volume for these two kinds (market_data_ohlcv_tradeable).
+    (VENDOR_IBKR, "fallback"): VOLUME_BASIS_NONE,
+    (VENDOR_IBKR, "venue"): VOLUME_BASIS_NONE,
+}
+
+
+def volume_basis(vendor: str, kind: str) -> str:
+    """The volume basis of a canonical (vendor, kind). A derived grid bar has no basis of its
+    own (`grid_volume_basis` takes it from its 5m constituents), and an unmapped pair raises:
+    a basis never defaults."""
+    try:
+        return VOLUME_BASIS_BY_VENDOR_KIND[(vendor, kind)]
+    except KeyError:
+        if (vendor, kind) == DERIVED_PAIR:
+            raise ValueError(
+                "a derived grid bar's volume basis comes from its 5m constituents "
+                "(grid_volume_basis), not from its (vendor, kind)"
+            ) from None
+        raise ValueError(f"({vendor!r}, {kind!r}) has no volume basis") from None
+
+
+def grid_volume_basis(
+    grid_ts_seconds, minutes: int, constituent_ts_seconds, constituent_basis
+) -> list[str]:
+    """The volume basis of each derived grid bar: its 5m constituents' basis when they agree,
+    `mixed` when they differ. Constituents of the bar stamped t are the 5m bars stamped in
+    [t, t + minutes) and before the next grid stamp (the session-anchored bucket of
+    bars/session_grid.py). Both stamp arrays are ascending epoch seconds. A grid bar with no
+    constituent raises: its volume came from somewhere, so the evidence is missing, not the
+    basis."""
+    import numpy as np
+
+    grid = np.asarray(grid_ts_seconds, dtype=np.int64)
+    stamps = np.asarray(constituent_ts_seconds, dtype=np.int64)
+    bases = list(constituent_basis)
+    if len(bases) != len(stamps):
+        raise ValueError(f"{len(stamps)} constituent stamps but {len(bases)} bases")
+    ends = grid + 60 * int(minutes)
+    if len(grid) > 1:
+        ends[:-1] = np.minimum(ends[:-1], grid[1:])
+    lo = np.searchsorted(stamps, grid, side="left")
+    hi = np.searchsorted(stamps, ends, side="left")
+    out: list[str] = []
+    for i in range(len(grid)):
+        found = set(bases[lo[i] : hi[i]])
+        if not found:
+            raise ValueError(f"derived grid bar at {int(grid[i])} has no 5m constituent")
+        out.append(found.pop() if len(found) == 1 else VOLUME_BASIS_MIXED)
+    return out

@@ -519,8 +519,15 @@ def test_ret_acf1_z_parity(ohlcv, cfg, streaming):
 def test_amihud_illiq_z_parity(ohlcv, cfg, streaming):
     from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
 
-    batch = _amihud_illiq_z_series_full(ohlcv["closes"], ohlcv["volumes"], cfg.amihud_zscore_window)
-    _assert_parity(batch, streaming, "amihud_illiq_z")
+    batch = _amihud_illiq_z_series_full(
+        ohlcv["closes"],
+        ohlcv["volumes"],
+        np.ones(len(ohlcv["closes"])),
+        cfg.amihud_zscore_window,
+        cfg.amihud_min_valid_fraction,
+    )
+    # The legacy FeatureVector field is a non-nullable float: NaN (window not warm) reads 0.0.
+    _assert_parity(np.nan_to_num(batch), streaming, "amihud_illiq_z")
 
 
 def test_high_52w_dist_parity(ohlcv, cfg, streaming):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     EPS,
+    STD_FLOOR,
     _fixed_window_zscore_series,
     _is_valid_atr,
     _k,
@@ -288,34 +290,88 @@ def _cvd_slope_z_series_full(
     return np.concatenate([np.zeros(slope_bars, dtype=float), z])
 
 
-def _amihud_illiq_z_series_full(
-    closes: np.ndarray, volumes: np.ndarray, zscore_window: int
-) -> np.ndarray:
-    """Amihud illiquidity z-score series. result[i] == streaming amihud_illiq_z at bar i.
-    Prepends 0.0 at index 0 (cold start — streaming returns 0.0 when len(closes) < 2).
+def _volume_basis_segment_starts(basis: np.ndarray) -> np.ndarray:
+    """Row index where each row's volume-basis segment starts (todo 555).
 
-    Todo 390: bar i's illiq, |ln(C[i] / C[i-1])| / (C[i] * V[i]), is undefined when either
-    close is not positive (a genuine historical close == 0 bar): the return has no log and the
-    dollar-volume divisor is zero. It is NaN there, and so is every z-score whose trailing
-    window holds it (no_fill), never inf. The z-score runs on cumulative sums, so the undefined
-    value enters them as 0.0 and its windows are masked afterwards: a NaN or inf in the sums
-    would otherwise reach every later row, not only the windows that hold the bar. A series
-    with no such bar computes exactly as before.
+    A segment is a run of rows on one volume basis. A bar with no volume (code 0) carries no
+    basis, so it neither starts nor ends a segment: the basis it follows is the last nonzero one
+    before it. A row starts a new segment when its nonzero code differs from the previous
+    nonzero code, wherever that change falls in the series (per name and timeframe; never a
+    date).
+    """
+    codes = np.asarray(basis).astype(np.int64)
+    n = len(codes)
+    rows = np.arange(n)
+    last_coded = np.maximum.accumulate(np.where(codes != 0, rows, -1))
+    previous = np.concatenate([[-1], last_coded[:-1]])
+    has_previous = previous >= 0
+    changed = (codes != 0) & has_previous & (codes != codes[np.maximum(previous, 0)])
+    return np.maximum.accumulate(np.where(changed, rows, 0))
+
+
+def _amihud_illiq_z_series_full(
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    volume_basis: np.ndarray,
+    zscore_window: int,
+    min_valid_fraction: float,
+) -> np.ndarray:
+    """Amihud illiquidity z-score series. result[i] is the z-score of ln(illiq[i]) over the last
+    `zscore_window` bars of the same volume basis.
+
+    Todo 555 definition (changes the pre-555 statistic):
+
+    - Scale. Bar i's illiq, |ln(C[i] / C[i-1])| / (C[i] * V[i]), is about 1e-10 on a liquid name,
+      below the absolute std floor, so the pre-555 z-score of the raw value was 0.0 on almost
+      every row. Amihud values are roughly log-normal across time and names, and the log removes
+      the price-times-volume scale, so the z-score is taken on ln(illiq). A zero return has no
+      log: that bar's observation is missing (NaN), counted against the minimum below.
+    - Basis. Vendors count volume differently (IBKR SMART about 0.41 to 0.91 of consolidated), so
+      a window spanning a basis change would carry a level shift of ln(0.41..0.91) as signal.
+      The window restarts at the row where the basis changes (`_volume_basis_segment_starts`)
+      and the output is NaN until it holds enough observations again: a loud gap beats a silent
+      level shift.
+    - Missing values. A bar with no volume (NULL, so NaN), a zero return or a close that is not
+      positive (todo 390) gives no observation. The z-score runs over the observations the
+      window holds, and is NaN when the bar's own observation is missing or the window holds
+      fewer than ceil(min_valid_fraction * zscore_window) of them. One missing session does not
+      blank the next 252 rows.
+    - Cold start. Rows before the window is warm are NaN (no_fill), not the pre-555 0.0.
+
+    The z-score runs on cumulative sums over the observations (missing ones enter as 0.0 and are
+    not counted), so a window's moments are differences of the sums at its ends. Row 0 has no
+    previous close and is NaN.
     """
     n = len(closes)
+    z = np.full(n, np.nan, dtype=float)
     if n < 2:
-        return np.zeros(n, dtype=float)
+        return z
     c = closes.astype(float)
-    log_rets_abs = np.abs(np.diff(np.log(np.maximum(c, 1e-10))))
-    dollar_vols = c[1:] * np.maximum(volumes[1:].astype(float), 1.0)
-    defined = (c[1:] > 0.0) & (c[:-1] > 0.0)
-    illiq = np.where(defined, log_rets_abs / np.where(defined, dollar_vols, 1.0), 0.0)
-    z = _fixed_window_zscore_series(illiq, zscore_window)
-    if not defined.all():
-        undefined = np.cumsum(~defined)
-        before = np.concatenate([np.zeros(zscore_window, dtype=int), undefined[:-zscore_window]])
-        z[(undefined - before[: len(undefined)]) > 0] = np.nan
-    return np.concatenate([[0.0], z])
+    v = volumes.astype(float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_ret_abs = np.abs(np.log(c[1:] / c[:-1]))
+        illiq = log_ret_abs / (c[1:] * np.maximum(v[1:], 1.0))
+        obs = np.full(n, np.nan, dtype=float)
+        obs[1:] = np.log(illiq)
+    obs[~np.isfinite(obs)] = np.nan
+    valid = ~np.isnan(obs)
+    filled = np.where(valid, obs, 0.0)
+    cs = np.concatenate([[0.0], np.cumsum(filled)])
+    cs2 = np.concatenate([[0.0], np.cumsum(filled * filled)])
+    cn = np.concatenate([[0], np.cumsum(valid)])
+    rows = np.arange(n)
+    start = np.maximum(rows - zscore_window + 1, _volume_basis_segment_starts(volume_basis))
+    count = cn[rows + 1] - cn[start]
+    total = cs[rows + 1] - cs[start]
+    total2 = cs2[rows + 1] - cs2[start]
+    needed = max(2, math.ceil(min_valid_fraction * zscore_window))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = total / count
+        std = np.sqrt(np.maximum(total2 / count - mean * mean, 0.0))
+        score = np.where(std > STD_FLOOR, (obs - mean) / std, 0.0)
+    ok = valid & (count >= needed)
+    z[ok] = score[ok]
+    return z
 
 
 def _vwap_dev_sigma_series_full(
@@ -624,7 +680,11 @@ def _compute_rel_volume(x, config):
 def _compute_amihud(x, config):
     return {
         "amihud_illiq_z": _amihud_illiq_z_series_full(
-            x["close"], x["volume"], config.amihud_zscore_window
+            x["close"],
+            x["volume"],
+            x["volume_basis"],
+            config.amihud_zscore_window,
+            config.amihud_min_valid_fraction,
         )
     }
 
@@ -814,7 +874,7 @@ KERNELS = (
     _k(
         "amihud_illiq_z",
         ("amihud_illiq_z",),
-        ("close", "volume"),
+        ("close", "volume", "volume_basis"),
         lambda c: c.amihud_zscore_window + 1,
         _compute_amihud,
     ),

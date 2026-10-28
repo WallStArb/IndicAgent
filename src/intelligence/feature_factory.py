@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -36,7 +36,12 @@ from typing import Any
 import numpy as np
 import structlog
 
-from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
+from src.intelligence.features.contract.registry import (
+    Alignment,
+    compute_kernels,
+    constant_volume_basis,
+    default_registry,
+)
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import KeyGroup, none_mask_name
@@ -985,6 +990,10 @@ class FeatureFactoryConfig:
     # feature_vector_pipeline.py wire both from ConfigService.
     high_low_spread_window: int = 21  # feature.high_low_spread.window
     roll_spread_window: int = 252  # feature.roll_spread.window
+    # Amihud z-score (todo 555, migration 533): the share of the window that must hold a valid
+    # observation; below it the output is NaN. Defaulted like the keys above; both production
+    # entrypoints wire it from ConfigService.
+    amihud_min_valid_fraction: float = 0.8  # feature.amihud.min_valid_fraction
     # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py). The
     # names, APR keys and casts are declared once, in kernels._hmm.HmmConfig, and there are no
     # defaults: every value changes stored regime labels and the live APR values differ from
@@ -1137,6 +1146,18 @@ _SERIES_FIELDS: tuple[str, ...] = tuple(
 _SERIES_KERNEL_OUTPUTS: tuple[str, ...] = (*_SERIES_FIELDS, "_atr_raw_padded")
 
 
+def _bars_volume_basis(bars: Sequence[Mapping[str, Any]]) -> np.ndarray | None:
+    """The per-bar `volume_basis` codes of a bar list, or None when the bars carry none (a
+    single-vendor input). Bars either all carry the key or none do: a partial list is a loader
+    bug, and a basis never defaults per bar."""
+    carrying = sum("volume_basis" in b for b in bars)
+    if carrying == 0:
+        return None
+    if carrying != len(bars):
+        raise ValueError(f"{carrying} of {len(bars)} bars carry volume_basis; all or none must")
+    return np.array([b["volume_basis"] for b in bars], dtype=np.int64)
+
+
 def _series_from_kernel_outputs(out: dict[str, np.ndarray]) -> _PrecomputedSeries:
     return _PrecomputedSeries(
         atr_raw=out["_atr_raw_padded"][1:], **{name: out[name] for name in _SERIES_FIELDS}
@@ -1150,6 +1171,7 @@ def _precompute_series(
     closes: np.ndarray,
     volumes: np.ndarray,
     config: FeatureFactoryConfig,
+    volume_basis: np.ndarray | None = None,
 ) -> _PrecomputedSeries:
     """Bundle every series array for a bar window from the registry's kernels.
 
@@ -1158,7 +1180,16 @@ def _precompute_series(
     """
     out = compute_kernels(
         default_registry(),
-        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volumes},
+        {
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": volumes,
+            "volume_basis": (
+                constant_volume_basis(len(closes)) if volume_basis is None else volume_basis
+            ),
+        },
         config,
         outputs=list(_SERIES_KERNEL_OUTPUTS),
     )
@@ -1236,8 +1267,12 @@ def _batch_kernel_inputs(
     volumes: np.ndarray,
     symbol: str,
     tf: str,
+    volume_basis: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Bar arrays plus the per-row `symbol` and `tf` external inputs for compute_kernels."""
+    """Bar arrays plus the per-row `symbol` and `tf` external inputs for compute_kernels.
+
+    `volume_basis` is None for a single-vendor input (the live stream, a bar list without
+    provenance): every bar then counts as consolidated and no basis boundary exists."""
     return {
         "ts": row_ns,
         "open": opens,
@@ -1245,6 +1280,9 @@ def _batch_kernel_inputs(
         "low": lows,
         "close": closes,
         "volume": volumes,
+        "volume_basis": (
+            constant_volume_basis(len(row_ns)) if volume_basis is None else volume_basis
+        ),
         "symbol": np.array([symbol] * len(row_ns), dtype=object),
         "tf": np.array([tf] * len(row_ns), dtype=object),
     }
@@ -1974,7 +2012,9 @@ def _build_feature_vector(
             variance_ratio_momentum_product, "variance_ratio_momentum_product"
         ),
         illiquidity_momentum_product=_guard_counted(
-            illiquidity_momentum_product, "illiquidity_momentum_product"
+            illiquidity_momentum_product,
+            "illiquidity_momentum_product",
+            inputs=(amihud_illiq_z, momentum_z_fast),
         ),
         yield_slope_momentum_product=_guard_counted(
             yield_slope_momentum_product,
@@ -2199,7 +2239,9 @@ class FeatureFactory:
         if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
             bar_ts = bar_ts.replace(tzinfo=UTC)
 
-        s = _precompute_series(opens, highs, lows, closes, volumes, config)
+        s = _precompute_series(
+            opens, highs, lows, closes, volumes, config, _bars_volume_basis(bars)
+        )
 
         atr_val = float(s.atr_raw[-1]) if len(s.atr_raw) > 0 else 0.0
 
@@ -2759,7 +2801,17 @@ class FeatureFactory:
         k = compute_kernels(
             default_registry(),
             {
-                **_batch_kernel_inputs(row_ns, opens, highs, lows, closes, volumes, symbol, tf),
+                **_batch_kernel_inputs(
+                    row_ns,
+                    opens,
+                    highs,
+                    lows,
+                    closes,
+                    volumes,
+                    symbol,
+                    tf,
+                    _bars_volume_basis(bars),
+                ),
                 **_macro_kernel_inputs(
                     row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
                 ),
