@@ -92,7 +92,11 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   residual family (441 + 423) built to its battery (ee8c264df); prereg draft; h = 21 waits on
   todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) is approved (owner 2026-10-27).
   E17 v2 (owner 2026-10-27, todo 549): fixed-b critical values; the 4,000-session StepM run on v1
-  is a pre-v2 baseline only.
+  is a pre-v2 baseline only. 2026-10-28: 187-09 and 187-10 landed, and 187-15 Task 2
+  (`PanelSpec.fields`, 184-06's dependency). 187-03's `--apply` runs from 11:32Z under
+  `indicagent-187-03-apply` (about 4 h; hold other compare-all runs). Todo 549 carries a finding
+  that fixed-b may not be needed (step A pooled correlated arms; fresh 4,000-session H0 runs show
+  size 4.3 to 4.9%): the owner decides whether to rerun step A with a cluster-robust interval first.
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
@@ -125,7 +129,7 @@ coordinate through cross-session messages before touching shared files.
 | Lane | Session | Boundary |
 |---|---|---|
 | Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
-| Research: phase 187 (08-15), E17 v2, family 2 run, daily residual family | indicagent-b1 (from 5b 2026-10-27) | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
+| Research: phase 187 (08-15), E17 v2, family 2 run, daily residual family | indicagent-5b (b1's session ended 2026-10-28) | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
 | Research: phase 184 | indicagent-24 | `.planning/phases/184-*`; research code on 5b's go |
 
 Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
