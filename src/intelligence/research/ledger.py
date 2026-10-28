@@ -338,19 +338,7 @@ class PostgresLedger:
         for name in run_concepts:
             if request.recipes and name not in request.recipes:
                 raise LedgerRefusal(f"run concept {name} has no recipe")
-        codes = {(ns, code) for r in request.recipes.values() for ns, code in r.cvr_codes.items()}
-        if codes:
-            known = {
-                (r["namespace"], r["code"])
-                for r in await conn.fetch(
-                    "SELECT namespace, code FROM controlled_vocabulary "
-                    "WHERE namespace = ANY($1::text[]) AND NOT is_deprecated",
-                    sorted({ns for ns, _ in codes}),
-                )
-            }
-            unknown = sorted(codes - known)
-            if unknown:
-                raise LedgerRefusal(f"controlled-vocabulary codes not registered: {unknown}")
+        await PostgresLedger._check_cvr_codes(conn, request.recipes)
         if request.informed_by is not None:
             try:
                 informing = uuid.UUID(request.informed_by)
@@ -367,15 +355,44 @@ class PostgresLedger:
                 )
 
     @staticmethod
+    async def _check_cvr_codes(conn: Any, recipes: Mapping[str, RecipeContent]) -> None:
+        codes = {(ns, code) for r in recipes.values() for ns, code in r.cvr_codes.items()}
+        if not codes:
+            return
+        known = {
+            (r["namespace"], r["code"])
+            for r in await conn.fetch(
+                "SELECT namespace, code FROM controlled_vocabulary "
+                "WHERE namespace = ANY($1::text[]) AND NOT is_deprecated",
+                sorted({ns for ns, _ in codes}),
+            )
+        }
+        unknown = sorted(codes - known)
+        if unknown:
+            raise LedgerRefusal(f"controlled-vocabulary codes not registered: {unknown}")
+
+    @staticmethod
     async def _write_recipes(
         conn: Any, request: RunRequest, concept_ids: Mapping[str, Any]
+    ) -> dict[str, str]:
+        return await PostgresLedger._insert_recipes(
+            conn, request.recipes, concept_ids, request.code_commit, request.author or "unknown"
+        )
+
+    @staticmethod
+    async def _insert_recipes(
+        conn: Any,
+        recipes: Mapping[str, RecipeContent],
+        concept_ids: Mapping[str, Any],
+        code_commit: str,
+        author: str,
     ) -> dict[str, str]:
         """Insert a recipe version for each concept whose recipe hash is new; return
         {concept name: recipe hash}. A known hash is reused, so a re-run of the same definition
         at a new commit adds no version (concept_recipe.code_commit is the commit that first
         recorded it; research_run.code_commit is the code behind each attempt)."""
         hashes: dict[str, str] = {}
-        for name, recipe in request.recipes.items():
+        for name, recipe in recipes.items():
             concept_id = concept_ids[name]
             digest = recipe.recipe_hash
             hashes[name] = digest
@@ -394,7 +411,7 @@ class PostgresLedger:
                 version,
                 digest,
                 recipe.code_pointer,
-                request.code_commit,
+                code_commit,
                 jsonable(recipe.params),
                 jsonable(recipe.apr_values),
                 jsonable(list(recipe.inputs)),
@@ -402,7 +419,7 @@ class PostgresLedger:
                 jsonable(recipe.cvr_codes),
                 recipe.mechanism,
                 list(recipe.sources),
-                request.author or "unknown",
+                author,
             )
         return hashes
 
@@ -416,6 +433,37 @@ class PostgresLedger:
         if concept_id is None:
             raise LedgerRefusal(f"unknown construction identity: {name}")
         return concept_id
+
+    async def seed_recipes(
+        self,
+        domain: str,
+        recipes: Mapping[str, RecipeContent],
+        *,
+        code_commit: str,
+        author: str,
+    ) -> dict[str, str]:
+        """Write a recipe version for concepts registered outside a run (the HMM feature columns,
+        187-12): the same insert as a run's, under the same lock, for existing concept_registry
+        rows of `domain`. Refuses an unregistered concept or CVR code before any write. Returns
+        {concept name: recipe hash}."""
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                await self._check_cvr_codes(conn, recipes)
+                concept_ids: dict[str, Any] = {}
+                for name in recipes:
+                    concept_id = await conn.fetchval(
+                        "SELECT concept_id FROM concept_registry WHERE domain = $1 AND name = $2",
+                        domain,
+                        name,
+                    )
+                    if concept_id is None:
+                        raise LedgerRefusal(f"recipe for unregistered {domain} concept: {name}")
+                    concept_ids[name] = concept_id
+                return await self._insert_recipes(conn, recipes, concept_ids, code_commit, author)
+        finally:
+            await conn.close()
 
     async def backfill_series(self, run_id: str, series: AttemptSeries) -> None:
         """Write the series of a run recorded before migration 515 (phase 187 plan 03). Only the

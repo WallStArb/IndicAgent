@@ -345,14 +345,14 @@ A quantity directly computable from market data with no derivation from other pr
 
 ### `calendar primitive`
 
-A tier-0 atomic feature computed as a deterministic, stateless, O(1) function of the bar timestamp alone - no OHLCV input, no cross-bar state, no external event data. Cyclical calendar primitives ship as `_sin`/`_cos` pairs (the pair spans every phase of the cycle's first harmonic, so no turning point is assumed); linear ones as `[0, 1]` fractions with the `_position` suffix. The atomic calendar set encodes coordinates on natural calendar cycles (day, week, month, quarter, year, session); it never encodes event conjunctions or fitted boundaries - those are tier-1 interaction features with a stated hypothesis. Full doctrine: `docs/research/signal-temporal-atomic-primitives.md`.
+A base feature computed as a deterministic, stateless, O(1) function of the bar timestamp alone - no OHLCV input, no cross-bar state, no external event data. Cyclical calendar primitives ship as `_sin`/`_cos` pairs (the pair spans every phase of the cycle's first harmonic, so no turning point is assumed); linear ones as `[0, 1]` fractions with the `_position` suffix. The atomic calendar set encodes coordinates on natural calendar cycles (day, week, month, quarter, year, session); it never encodes event conjunctions or fitted boundaries - those are tier-1 interaction features with a stated hypothesis. Full doctrine: `docs/research/signal-temporal-atomic-primitives.md`.
 
 **Not:** the tag-system sense of `primitive` above (known naming collision, unresolved - see that entry); not any feature merely correlated with time; not `above_wk_vwap` (price-dependent and stateful, grouped `calendar` in `concept_registry` for legacy reasons only, see todo 116).
 
 **Banned:** temporal coordinate primitive, temporal primitive, time feature, seasonality feature
 **Status:** active
 
-**Code surface:** `concept_registry` rows with `metadata->>'tier' = '0_atomic'` and `group_name = 'calendar'` (domain='feature'; `feature_registry`, the table this used to live in, was retired by migration 311, Phase 170); calendar helpers in `src/intelligence/feature_factory.py`.
+**Code surface:** `concept_registry` rows with `metadata->>'composition' = 'base'` and `group_name = 'calendar'` (domain='feature'; `feature_registry`, the table this used to live in, was retired by migration 311, Phase 170); calendar helpers in `src/intelligence/feature_factory.py`.
 
 ---
 
@@ -777,13 +777,11 @@ architecture) — unrelated numbering scheme, see `AlphaEngine`.
 **Banned:** (none)
 **Avoid:** "measurement layer" or "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
 sub-structure *within* Stage 0's mechanism, not the stage itself)
-**Status:** active (mechanism live), and so is the feature tier taxonomy: `0_atomic` (plain
-transforms of the data, no theory), `1_interaction` (a combination with a stated hypothesis),
-`2_theory` (assumes a market theory, e.g. support and resistance). First proposed against the
-`feature_registry` table (`docs/research/archive/feature-registry.md`); Phase 170's cutover
-(migration 311, 2026-08-10) carried it into `concept_registry.metadata->>'tier'` for every
-feature row, the three codes are CVR namespace `tier`, and `vocabulary_drift.py` audits it.
-Corrected 2026-10-14: an earlier note here called the taxonomy stale.
+**Status:** active (mechanism live). The feature tier taxonomy (`0_atomic`, `1_interaction`,
+`2_theory`) is retired (migration 533, 2026-10-28): the `2_theory` split was not a real
+distinction. A feature row carries `concept_registry.metadata->>'composition'`, `base` (computed
+from a name's own bars or the timestamp) or `interaction` (built from other features); the two
+codes are CVR namespace `composition` and `vocabulary_drift.py` audits it.
 **Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
 
 ---

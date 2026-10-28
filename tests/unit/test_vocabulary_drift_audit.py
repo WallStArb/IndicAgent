@@ -303,3 +303,12 @@ def test_assert_namespace_coverage_raises_when_regime_volatility_missing():
             queried_namespaces=["regime_hmm", "regime_volatility"],
             known_namespaces={"regime_hmm"},
         )
+
+
+def test_composition_query_replaces_the_tier_query():
+    from src.config import vocabulary_drift
+
+    queries = vocabulary_drift._UNWINDOWED_NAMESPACE_QUERIES
+    assert "tier" not in queries
+    assert "metadata->>'composition'" in queries["composition"]
+    assert "metadata ? 'composition'" in queries["composition"]

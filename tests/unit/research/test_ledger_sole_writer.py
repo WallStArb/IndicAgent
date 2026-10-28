@@ -52,6 +52,10 @@ _RUN_WRITE_ALLOW_LIST: dict[str, str] = {
 
 _CONSTRUCTION_IDENTITY_ALLOW_LIST: dict[str, str] = {
     _LEDGER: "PERMANENT: the S6 sole writer of construction identity rows (phase 183, D-05).",
+    "src/intelligence/concept_registry_service.py": (
+        "PERMANENT: register_idea logs a candidate row with no recipe, no lineage and no run "
+        "(design 10.2.5); ON CONFLICT DO NOTHING, so it never overwrites a ledger identity."
+    ),
     "production/migrations/328_concept_registry_phase148_placement_verdict.sql": _LEGACY_REASON,
     "production/migrations/329_concept_registry_construction_domain.sql": _LEGACY_REASON,
     "production/migrations/330_concept_registry_residual_single_security_verdict.sql": (
