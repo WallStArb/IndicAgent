@@ -11,6 +11,25 @@ high == low == previous close would read as a zero-spread bar). A value the defi
 undefined is NaN (no_fill): a window holding an unusable bar, rows inside the declared memory,
 and the Roll estimate whenever the serial covariance is not negative.
 
+Windows are counted in bars at every timeframe. One APR key per estimator serves 5m, 15m, 1h
+and 1d alike; the window rationale (21 = a month of daily estimates, 252 = a year of daily
+returns) holds only on 1d. Consequences a reader must carry:
+
+- Levels are not comparable across timeframes: an intraday spread estimate from 5m ranges is not
+  the 1d estimate at a finer clock, so compare a column within one timeframe only.
+- An intraday Roll window spans session boundaries, so it holds overnight returns, whose serial
+  covariance is not the bid-ask bounce Roll models.
+- A flat bar (high == low, about 1.7% of 15m bars since 2024) has a zero one-bar range, which
+  pushes its Corwin-Schultz pairs toward a negative estimate, floored to 0 (always when both
+  bars of a pair are flat and the prices moved).
+
+Roll coverage. `roll_spread` is NaN on a large share of rows after warmup: on canonical 1d about
+40% (per-name median 0.41, p95 0.63 over 145 names), and about 15% even on a simulated series
+with a clean 1% spread. The missingness is informative, not random: a non-negative serial
+covariance is what trending regimes produce, so the NaN rows select on the return process.
+Research must never treat a missing `roll_spread` as missing at random (no listwise deletion or
+imputation without conditioning on it).
+
 Vendor seam (D-191-Q, D-191-P). Canonical 1d and 5m bars are Alpaca SIP from 2016-01-04 and
 IBKR before (with dated per-name policy rows as exceptions). Neither kernel branches on the
 vendor (asset_agnostic): a window that spans the seam is computed like any other window, from
@@ -19,15 +38,17 @@ whichever bars canonical holds. The seam is disclosed, not corrected:
 - Both estimators read only ratios of prices (log high/low ranges, log close-to-close changes),
   so a constant price-level difference between two vendors cancels within each era. What can
   move at the seam is the range basis: SMART TRADES highs and lows against consolidated SIP.
-  Measured on raw 1d bars for 16 names over 2016-2017 (7,678 sessions both vendors served):
-  the IBKR over Alpaca ratio of ln(high / low) has median 1.000 and p05 to p95 0.992 to 1.013,
-  so the range basis is continuous to about 1% and the Corwin-Schultz level carries at most
-  that step.
+  Measured on raw 1d over the full vendor overlap (1,162 names, 560,005 sessions): the IBKR over
+  Alpaca ratio of ln(high / low) has median 1.000, p05 to p95 0.975 to 1.018 and p99 1.062. The
+  per-name level ratio of the estimates is 0.991 to 1.018 for Corwin-Schultz and 0.985 to 1.025
+  for Roll, so the seam moves either level by about 2% at most.
 - A price-level step between the last IBKR bar and the first Alpaca bar is not a property of
   the seam but a data defect the D-191-Q three-vendor arbitration owns (an IBKR symbol row or
   an owner hold for the span). Where one survives, every cross-bar statistic sees it, these two
-  included: one Roll window carries a spurious price change, and one Corwin-Schultz two-bar
-  pair is shifted by the overnight adjustment (bounded, never undefined). The kernels do not
+  included: the spurious return enters every Roll window that holds it (up to `window` rows),
+  and the shifted Corwin-Schultz pair (bounded by the overnight adjustment, never undefined)
+  enters up to `window` window means (21 at the seed). The worst case in canonical 1d today is
+  AXSM on 2016-01-04 at a level ratio of 1.31, and 4 steps above 10% exist. The kernels do not
   detect or repair it.
 - Volume is not an input here, so the 2016 volume-basis step does not touch either output.
 """
@@ -73,7 +94,8 @@ def _high_low_spread_series_full(
     Output row t is the mean of the `window` pair estimates ending at t, so it reads bars
     t - window .. t (declared memory `window`). Rows t < window are NaN. A pair is NaN when a
     price it reads is not positive or a high is below its low (including after the overnight
-    adjustment against a zero close), and a window holding a NaN pair is NaN: never averaged
+    adjustment against a zero close), when bar t-1's close is not finite (the adjustment cannot
+    be made, and an unadjusted pair would be a silent wrong answer), and a window holding a NaN pair is NaN: never averaged
     over fewer pairs.
     """
     n = len(closes)
@@ -92,7 +114,7 @@ def _high_low_spread_series_full(
     )
     h1 = h1 - shift
     l1 = l1 - shift
-    valid = (l0 > 0.0) & (l1 > 0.0) & (h0 >= l0) & (h1 >= l1)
+    valid = np.isfinite(prev_close) & (l0 > 0.0) & (l1 > 0.0) & (h0 >= l0) & (h1 >= l1)
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         beta = np.log(h0 / l0) ** 2 + np.log(h1 / l1) ** 2
         gamma = np.log(np.maximum(h0, h1) / np.minimum(l0, l1)) ** 2
@@ -112,7 +134,8 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
         S[t]   = 2 sqrt(-cov[t])   when cov[t] < 0, else NaN
 
     Roll's model implies a negative serial covariance; a covariance >= 0 has no implied spread,
-    so the value is NaN (missing), never 0 and never a sign-flipped root. Using log changes makes
+    so the value is NaN (missing), never 0 and never a sign-flipped root. This is frequent (about
+    40% of 1d rows after warmup) and informative: see the module docstring's Roll coverage. Using log changes makes
     the spread proportional to price rather than in price units.
 
     Output row t reads closes t - window - 1 .. t (declared memory `window + 1`). Rows

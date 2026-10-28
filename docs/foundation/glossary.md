@@ -553,7 +553,7 @@ Derived from statistical measurement on market data. An `source='empirical'` tag
 
 ### `high-low spread` (`high_low_spread`)
 
-The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a fraction of price. A bar's high-low range holds both volatility and the spread; the range over two bars holds twice the volatility but the spread once, so the two separate. Each two-bar estimate is overnight-adjusted, negative estimates are set to 0 (the paper's convention), and the stored value is the mean over `feature.high_low_spread.window` pairs.
+The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a fraction of price. A bar's high-low range holds both volatility and the spread; the range over two bars holds twice the volatility but the spread once, so the two separate. Each two-bar estimate is overnight-adjusted, negative estimates are set to 0 (the paper's convention), and the stored value is the mean over `feature.high_low_spread.window` pairs. The window is counted in bars at every timeframe (one key for 5m, 15m, 1h and 1d); its monthly rationale holds only on 1d, levels are comparable only within one timeframe, and flat bars (high == low, about 1.7% of 15m bars since 2024) floor their pairs toward 0.
 
 **Not:** `cross-sectional spread construction` (a portfolio-level long-short return), or a quoted spread (no quotes are read).
 
@@ -566,7 +566,7 @@ The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a 
 
 ### `Roll spread` (`roll_spread`)
 
-The Roll (1984) implied bid-ask spread, `2 sqrt(-cov)`, where `cov` is the serial covariance of consecutive log close changes over `feature.roll_spread.window` pairs, as a fraction of price. Bid-ask bounce makes consecutive price changes negatively correlated; a covariance of 0 or above implies no spread and the value is missing (NaN), never 0.
+The Roll (1984) implied bid-ask spread, `2 sqrt(-cov)`, where `cov` is the serial covariance of consecutive log close changes over `feature.roll_spread.window` pairs, as a fraction of price. Bid-ask bounce makes consecutive price changes negatively correlated; a covariance of 0 or above implies no spread and the value is missing (NaN), never 0. Coverage is partial: about 40% of 1d rows after warmup are NaN (per-name median 0.41, p95 0.63 over 145 names), about 15% even on a simulated clean 1% spread. The missingness is informative (a non-negative serial covariance tracks trending regimes), so research must never treat a missing `roll_spread` as missing at random. The window is counted in bars at every timeframe; its yearly rationale holds only on 1d, levels are comparable only within one timeframe, and an intraday window spans overnight returns.
 
 **Not:** `cross-sectional spread construction`, or Amihud illiquidity (`amihud_illiq_z`, price impact per dollar traded).
 

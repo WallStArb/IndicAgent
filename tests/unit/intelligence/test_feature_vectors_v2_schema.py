@@ -70,10 +70,11 @@ def created_columns() -> list[str]:
 
 
 def added_columns() -> list[str]:
-    """Columns later migrations add, in migration order: 4-space-indented `ADD COLUMN name real`
-    lines under `ALTER TABLE feature_vectors_v2`, one per line."""
+    """Columns later migrations add, in migration order: 4-space-indented
+    `ADD COLUMN [IF NOT EXISTS] name real` lines under `ALTER TABLE feature_vectors_v2`, one per line.
+    """
     created = int(migration_path().name.split("_", 1)[0])
-    pattern = re.compile(r"^    ADD COLUMN ([a-z_][a-z0-9_]*) real[,;]$")
+    pattern = re.compile(r"^    ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*) real[,;]$")
     columns: list[str] = []
     for path in sorted(_MIGRATIONS.glob("*.sql")):
         number = path.name.split("_", 1)[0]

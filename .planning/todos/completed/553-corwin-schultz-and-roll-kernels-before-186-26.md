@@ -74,11 +74,23 @@ Landed 2026-10-27 together with todo 390, before the 186-26 launch.
   FeatureVector and the old `feature_vectors` table do not carry them.
 - Vendor seam (condition 2): neither kernel branches on the vendor; a window spanning the
   2016-01-04 seam computes normally and the module docstring discloses it. Both estimators read
-  only price ratios, so a constant level difference cancels within an era; the IBKR over Alpaca
-  ln(high / low) ratio on raw 1d (16 names, 2016-2017, 7,678 sessions) has median 1.000 and p05
-  to p95 0.992 to 1.013. A level step left at the seam by an unresolved D-191-Q hold (HON: IBKR
-  97.38 on 2015-12-31, Alpaca 195.57 on 2016-01-04) is a data defect every cross-bar column
-  sees, not handled in the kernels.
+  only price ratios, so a constant level difference cancels within an era. Full vendor overlap on
+  raw 1d (1,162 names, 560,005 sessions): IBKR over Alpaca ln(high / low) median 1.000, p05 to
+  p95 0.975 to 1.018, p99 1.062; per-name level ratio 0.991 to 1.018 for Corwin-Schultz and
+  0.985 to 1.025 for Roll. A level step that survives at the seam is a data defect the D-191-Q
+  arbitration owns, not handled in the kernels: its return enters every Roll window that holds
+  it (up to `window` rows) and its pair up to 21 Corwin-Schultz window means. Worst case in
+  canonical 1d today: AXSM on 2016-01-04 at a level ratio of 1.31, plus 4 steps above 10%.
+- Windows are counted in bars at every timeframe (one key per estimator for 5m, 15m, 1h, 1d);
+  the 21 and 252 rationale holds only on 1d. Intraday levels are not comparable to 1d levels,
+  intraday Roll windows span overnight returns, and flat bars floor Corwin-Schultz pairs toward
+  0. Stated in the docstring, the glossary and the APR descriptions (migration 529).
+- `roll_spread` coverage: about 40% NaN after warmup on 1d (per-name median 0.41, p95 0.63 over
+  145 names), about 15% on a simulated clean 1% spread. The missingness is informative (no
+  negative serial covariance tracks trending regimes); research never treats it as missing at
+  random.
+- Review follow-up: migration 526's ADD COLUMN clauses are IF NOT EXISTS (a rerun is a no-op),
+  and a NaN prior close makes a Corwin-Schultz pair NaN instead of an unadjusted pair.
 - Tests: `tests/unit/intelligence/test_liquidity_kernels.py` (hand values, NaN contract,
   causality probe and memory check, the zero-close Amihud case).
 - Found on the way, filed as todo 555: `amihud_illiq_z` is 0 on almost every stored row (the

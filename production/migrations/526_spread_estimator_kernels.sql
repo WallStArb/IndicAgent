@@ -13,7 +13,8 @@
 --    roll_spread). The table holds 0 rows when this is applied (the 186-26 rebuild has not
 --    launched), so this is a catalog change only. ADD COLUMN puts them after migration 425's
 --    columns; the rebuild writer COPYs with an explicit column list, so physical order does not
---    matter. No decompress or recompress and no VACUUM: no chunk holds data.
+--    matter. No decompress or recompress and no VACUUM: no chunk holds data. IF NOT EXISTS keeps
+--    a rerun a no-op (the seeds are ON CONFLICT DO NOTHING and the history insert is guarded).
 
 BEGIN;
 
@@ -50,7 +51,7 @@ WHERE NOT EXISTS (
 );
 
 ALTER TABLE feature_vectors_v2
-    ADD COLUMN high_low_spread real,
-    ADD COLUMN roll_spread real;
+    ADD COLUMN IF NOT EXISTS high_low_spread real,
+    ADD COLUMN IF NOT EXISTS roll_spread real;
 
 COMMIT;

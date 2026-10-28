@@ -110,6 +110,14 @@ def test_high_low_spread_zero_close_makes_the_next_pair_nan():
     assert math.isnan(out[2])
 
 
+def test_high_low_spread_nan_prior_close_is_nan_not_an_unadjusted_pair():
+    """Bar 1 gaps up past a NaN close: the overnight adjustment cannot be made, so the pair is
+    NaN rather than read unadjusted (which would floor it to 0)."""
+    out = _hl([101.0, 110.5, 111.0], [99.0, 108.5, 109.0], [np.nan, 110.0, 110.5], window=1)
+    assert math.isnan(out[1])
+    assert out[2] == pytest.approx(max(_cs_pair(110.5, 108.5, 111.0, 109.0), 0.0), abs=1e-15)
+
+
 def test_high_low_spread_short_series_is_all_nan():
     assert np.isnan(_hl([101.0], [99.0], [100.0], window=1)).all()
     assert np.isnan(_hl([101.0, 101.0], [99.0, 99.0], [100.0, 100.0], window=2)).all()
