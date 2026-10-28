@@ -762,3 +762,100 @@ def test_an_ibkr_fallback_where_alpaca_could_serve_fails_conformance():
     first = inputs.stored[0]
     bad = [replace(first, vendor="ibkr", kind="fallback"), *inputs.stored[1:]]
     assert not _by_check(_judge(replace(inputs, stored=bad)))["policy_conformance"].passed
+
+
+# --- alpaca_basis_run: the Alpaca-against-IBKR successor of vendor_basis_run (todo 545 step 5a) ---
+
+from src.intelligence.bars.integrity_checks import alpaca_basis_runs  # noqa: E402
+from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH  # noqa: E402
+
+_D191Q = [
+    PolicyRow("1d", None, date(2000, 1, 1), date(2016, 1, 4), "observed", "ibkr", None),
+    PolicyRow("1d", None, date(2016, 1, 4), None, "observed", "alpaca", "ibkr"),
+]
+
+
+def _weekdays(start: date, n: int) -> list[date]:
+    out, day = [], start
+    while len(out) < n:
+        if day.weekday() < 5:
+            out.append(day)
+        day += timedelta(days=1)
+    return out
+
+
+def _pair_obs(days, ibkr_close, alpaca_close, *, alpaca_volume=1000):
+    return [replace(_obs(d, ibkr_close(d), "SMART"), volume=1000) for d in days] + [
+        replace(_obs(d, alpaca_close(d), "ALPACA"), volume=alpaca_volume) for d in days
+    ]
+
+
+def _runs(observations, policy=_D191Q, splits=(), min_sessions=5):
+    return alpaca_basis_runs(
+        observations,
+        list(splits),
+        policy,
+        symbol="AAA",
+        since=ARBITRATED_THROUGH,
+        tolerance_bp=10.0,
+        min_sessions=min_sessions,
+    )
+
+
+_AFTER = _weekdays(date(2026, 10, 7), 30)
+_SPIN = _AFTER[20]
+
+
+def _spin_obs():
+    # a spin-off after the arbitration: IBKR adjusts the pre-spin history, Alpaca does not
+    return _pair_obs(
+        _AFTER,
+        lambda d: 52.0 if d < _SPIN else 49.0,
+        lambda d: 68.8 if d < _SPIN else 49.0,
+    )
+
+
+def test_a_disagreement_run_after_the_arbitration_is_reported():
+    (run,) = _runs(_spin_obs())
+    assert (run.start, run.end, run.n_sessions) == (_AFTER[0], _AFTER[19], 20)
+
+
+def test_a_run_inside_the_arbitrated_span_is_not_judged_again():
+    days = _weekdays(date(2026, 8, 3), 30)
+    assert _runs(_pair_obs(days, lambda d: 52.0, lambda d: 68.8)) == []
+
+
+def test_a_run_shorter_than_the_minimum_is_noise():
+    obs = _pair_obs(_AFTER, lambda d: 50.0, lambda d: 51.0 if d in _AFTER[3:6] else 50.0)
+    assert _runs(obs) == []
+
+
+def test_an_ibkr_symbol_row_over_the_run_explains_it():
+    row = PolicyRow("1d", "AAA", _AFTER[0], _SPIN, "observed", "ibkr", None)
+    assert _runs(_spin_obs(), policy=[*_D191Q, row]) == []
+
+
+def test_a_recorded_corporate_action_ending_the_run_explains_it():
+    action = SplitRecord(_SPIN, datetime(2026, 11, 20, tzinfo=UTC), 1.404)
+    assert _runs(_spin_obs(), splits=[action]) == []
+
+
+def test_zero_volume_alpaca_bars_are_no_disagreement():
+    obs = _pair_obs(_AFTER, lambda d: 50.0, lambda d: 60.0, alpaca_volume=0)
+    assert _runs(obs) == []
+
+
+def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
+    assert "alpaca_basis_run" in CHECKS_1D
+    clean = _by_check(_judge(_clean()))
+    assert clean["alpaca_basis_run"].passed and clean["alpaca_basis_run"].metric_value == 0
+    report = judge_name_1d(
+        replace(_clean(), observations=_spin_obs(), policy_rows=_D191Q),
+        _SESSIONS,
+        _SESSIONS[-1],
+        _RUN_START,
+        _Thresholds(),
+    )
+    verdict = _by_check(report)["alpaca_basis_run"]
+    assert not verdict.passed and verdict.metric_value == 1
+    assert [(r.start, r.end) for r in report.alpaca_runs] == [(_AFTER[0], _AFTER[19])]
