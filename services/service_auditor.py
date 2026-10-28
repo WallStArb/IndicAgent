@@ -162,6 +162,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-economic-series-writer",  # Type=oneshot, daily timer (todo 480); inactive between runs is correct
         "indicagent-bar-reconciliation-audit",  # Type=oneshot, daily timer (189-06; chained from the nightly before); inactive between runs is correct
         "indicagent-ibkr-history-fetcher",  # Type=exec run per 15-min timer fire (phase 189); inactive between fires is correct
+        "indicagent-research-ledger-render",  # Type=oneshot, daily 07:15 UTC timer (187-13); inactive between runs is correct
     }
 )
 

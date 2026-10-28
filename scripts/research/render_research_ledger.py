@@ -76,7 +76,7 @@ ORDER BY pod, member
 _AS_OF_SQL = """
 SELECT greatest(
     (SELECT max(greatest(started_at, finished_at)) FROM research_run),
-    (SELECT max(created_at) FROM concept_registry)
+    (SELECT max(created_at) FROM concept_registry WHERE domain <> 'feature')
 )
 """
 
@@ -285,8 +285,8 @@ def write_and_commit(
     retries: int,
     sleep: Callable[[float], None] = time.sleep,
 ) -> str:
-    """Write the file atomically and commit that one path. Returns unchanged, committed or
-    skipped:<reason>. Skips when the file holds uncommitted edits (its hash differs from HEAD's
+    """Write the file atomically and commit that one path. Returns unchanged, committed,
+    skipped:<reason> (nothing was written) or failed:<reason> (the file is restored). Skips when the file holds uncommitted edits (its hash differs from HEAD's
     blob): the job never overwrites work it did not render."""
     target = root / OUT
     head = run(["rev-parse", f"HEAD:{OUT}"])
@@ -305,9 +305,21 @@ def write_and_commit(
         if done.returncode == 0:
             return "committed"
         if "index.lock" not in done.stderr or attempt == retries:
-            return f"skipped:git failed: {done.stderr.strip()[:200]}"
+            _undo(root, run, tracked, current)
+            return f"failed:git failed: {done.stderr.strip()[:200]}"
         sleep(_LOCK_WAIT_SECONDS)
-    return "skipped:unreachable"
+    return "failed:unreachable"
+
+
+def _undo(root: Path, run: GitRunner, tracked: bool, previous: str | None) -> None:
+    """Put the file back as it was when the commit failed, so the next night does not find a
+    file that differs from HEAD and stall behind the uncommitted-edits guard."""
+    run(["reset", "-q", "--", OUT])
+    target = root / OUT
+    if tracked and previous is not None:
+        target.write_text(previous)
+    else:
+        target.unlink(missing_ok=True)
 
 
 async def _main(args: argparse.Namespace) -> int:
@@ -331,8 +343,8 @@ async def _main(args: argparse.Namespace) -> int:
         outcome = write_and_commit(root, rendered, run=_git_runner(root), retries=retries)
         _logger.info("research_ledger_render.done", outcome=outcome)
         print(outcome)
-        status = "success" if not outcome.startswith("skipped") else "skipped"
-        return 0
+        status = {"skipped": "skipped", "failed": "failure"}.get(outcome.split(":")[0], "success")
+        return 1 if status == "failure" else 0
     finally:
         JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
         flush_and_shutdown_metrics()

@@ -117,10 +117,10 @@ async def run(dsn: str, ideas: list[LedgerIdea], apply: bool) -> dict[str, int]:
     conn = await connect_with_codecs(dsn)
     counts = {"matched": 0, "new": 0}
     try:
-        # Features are columns, not ideas: a backticked feature name in a row is not a match.
+        # An idea is a family; a feature column, book or member with the same name is not it.
         known = {
             r["name"]
-            for r in await conn.fetch("SELECT name FROM concept_registry WHERE domain <> 'feature'")
+            for r in await conn.fetch("SELECT name FROM concept_registry WHERE domain = 'family'")
         }
         author = _author()
         for idea in ideas:

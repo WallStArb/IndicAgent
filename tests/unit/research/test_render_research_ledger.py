@@ -166,8 +166,24 @@ def test_index_lock_is_retried_up_to_the_apr_count_then_skipped(tmp_path):
     busy = FakeGit(head_blob=r._blob_hash("old\n"), fail_add=99)
     out = r.write_and_commit(root2, "new\n", run=busy, retries=2, sleep=lambda s: None)
     assert (
-        out.startswith("skipped:git failed") and len([c for c in busy.calls if c[0] == "add"]) == 3
+        out.startswith("failed:git failed") and len([c for c in busy.calls if c[0] == "add"]) == 3
     )
+    assert (root2 / r.OUT).read_text() == "old\n"  # restored: no stall behind the HEAD guard
+
+
+def test_a_failed_first_commit_removes_the_untracked_file(tmp_path):
+    root = _root(tmp_path, None)
+    (root / "docs" / "research").mkdir(parents=True)
+
+    class Broken(FakeGit):
+        def __call__(self, args):
+            self.calls.append(args)
+            if args[0] == "rev-parse":
+                return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="pre-commit failed")
+
+    assert r.write_and_commit(root, "first\n", run=Broken(), retries=0).startswith("failed:")
+    assert not (root / r.OUT).exists()
 
 
 def test_blob_hash_matches_git(tmp_path):

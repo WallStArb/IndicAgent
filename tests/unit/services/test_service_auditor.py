@@ -478,6 +478,8 @@ async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
 
 
 def test_research_ledger_render_is_a_registered_oneshot():
-    from services.service_auditor import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER, _ONESHOT_UNITS
 
     assert _DAG_ORDER["indicagent-research-ledger-render"] == 8  # oneshot tier, no lag key
+    # Without this the auditor restarts the inactive unit and escalates it as a dead daemon.
+    assert "indicagent-research-ledger-render" in _ONESHOT_UNITS

@@ -178,7 +178,7 @@ async def build_report(
 ) -> dict:
     """The selection report. Under a failed gate and not `diagnostic` it is the refusal alone
     ({"result": False, "refusals": [...]}); StepM is not computed for a selection that is not a
-    result. Raises SystemExit when no counted attempt has a series."""
+    result; so is a vintage with no counted attempt that has a series."""
     root = repo_root(Path.cwd())
     rows, others, apr, vintage = await _load(dsn, vintage)
     with_series = [r for r in rows if r["sessions"] is not None]
@@ -190,7 +190,11 @@ async def build_report(
     if refusals and not diagnostic:
         return {"result": False, "refusals": refusals, "vintage": vintage}
     if not with_series:
-        raise SystemExit("no counted attempt has a series")
+        return {
+            "result": False,
+            "refusals": ["no counted attempt has a series"],
+            "vintage": vintage,
+        }
     git = functools.cache(functools.partial(_git, root))
     horizons = [
         horizon_sessions(
