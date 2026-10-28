@@ -103,6 +103,11 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | Front-weighted put ladder | `docs/ideas/signal-credit-put-reverse-diagonal.md` | Idea, 2026-10-05. One OptionNet book (SPX weeklies, projection 2026-10-02): two 1:2 calendars, uncovered front longs, and a 2:1 short at the 7400 wing. Portfolio margin required (strategy margin on the 15 Oct shorts is about $13M). Needs an SPX put-chain snapshot before this inventory can be priced. Not an S1 family |
 | Orderflow setups (delta divergence, imbalance, absorption) | `.planning/IDEAS.md` | Needs tick-level bid/ask data |
 | News sentiment, alternative data | `.planning/IDEAS.md`, `docs/research/data-alt-data-sources.md` | Needs a data source |
+| Equity stat arb: residual mean reversion on PCA or sector-ETF residuals (OU z-score, factor neutral) | `docs/ideas/signal-equity-stat-arb-method-map.md` (quantguy_usa slides, 2026-10-28) | Idea, not queued. `statistical_factor_residual` DEAD tested residualized IC on `ctf_momentum`, not a residual reversion book; fits as a member of the daily residual family beside residual reversal R1-R3 (todos 441, 423), one more counted look |
+| Equity stat arb: fundamental factor residuals (size, value, momentum, industry) | same | Idea, needs a fundamentals source (none stored; `docs/research/data-alt-data-sources.md` has the as-reported design) |
+| Equity stat arb: ML on residuals (lagged residuals plus features, out-of-sample forecast deciles) | same | Idea, not queued. Overlaps todo 440 and the S7 combiner; the slide's IC of about 0.11 is a leakage warning, not a target |
+| Equity stat arb: Kalman or OU spread with a time-varying hedge ratio | same | Idea. New estimator on pairs already closed DEAD (`cointegrated_pairs_residual`); needs an explicit owner reopen |
+| Equity stat arb: ETF or index arbitrage | same | Not pursued: speed and creation-redemption bound, conflicts with the no hyper-traded rule; the lead-lag form is row 3 of section 1 |
 
 ## 4. Verdict record (frozen, chronological)
 
