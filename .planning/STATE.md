@@ -113,11 +113,15 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   and its CLI; migration 533 live (feature `composition` base or interaction replaces `tier`, CVR
   namespace `composition`, the 11 HMM columns registered with v1 recipes through
   `ledger.seed_recipes`); todo 459 is ready to close. Next 187-13. The 187-03 apply has finished.
-  The step A cluster-robust rerun (todo 549) is a running user unit (`systemctl --user status
-  e17-step-a-rerun`); its output file is in a scratchpad, so copy the pooled interval into todo 549
-  when it ends. compare-all (`backfill_attempt_series.py --compare-all`) has not run: it waits on
-  that unit and on the data lane's all-clear after plan 191-20's 1d re-derive (1d churn). Todos 558
-  and 559 are specified only in indicagent-47's inbox.
+  The step A cluster-robust rerun (todo 549) finished: pooled size 5.02%, 99% interval [4.66,
+  5.37], so E17 v1 stands and fixed-b is not built. Step B's pass rule is pre-registered in
+  `scripts/research/stepm_null_battery.py` and 187-05-BATTERY.md; the one fresh run is the user
+  unit `stepm-step-b` (`systemctl --user status stepm-step-b`, about 14 h from 2026-10-28 14:16 ET,
+  output `logs/research/stepm_null_battery_s4000_stepb_20261028.json`; its worktree
+  `wt_stepb` in the session scratchpad must stay). compare-all
+  (`backfill_attempt_series.py --compare-all`) has not run: it waits on the data lane's all-clear
+  after plan 191-20's 1d re-derive (1d churn). Todos 558 and 559 are specified only in
+  indicagent-47's inbox.
 
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
