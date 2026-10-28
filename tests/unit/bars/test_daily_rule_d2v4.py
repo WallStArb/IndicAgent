@@ -23,6 +23,7 @@ from src.intelligence.bars.daily_rule import (
     RAW_DAILY_SESSION_ZONE,
     RULE_VERSION,
     PolicyRow,
+    alpaca_era_start,
     derive_daily_v2,
     observation_from_raw,
     raw_session_date,
@@ -346,8 +347,36 @@ def test_an_ibkr_symbol_row_serves_ibkr_over_a_spin_off_span():
         _obs("ALPACA", d, 49.0 if d >= spin else 68.8) for d in days
     ]
     pairs = _pairs(_derive(observations, policy=(*_D191Q, row)))
-    assert all(pairs[d] == IBKR_NAMED for d in days[:34])
+    # second review M1: inside the Alpaca era an IBKR-served session is a fallback (its SMART
+    # volume reads NULL), so the volume basis is consolidated from 2016 on.
+    assert all(pairs[d] == IBKR_FALLBACK for d in days[:34])
     assert all(pairs[d] == ALPACA for d in days[34:])
+
+
+def test_ibkr_before_the_alpaca_era_stays_named():
+    days = _sessions(date(2015, 11, 2), 60)
+    observations = [_obs("SMART", d, 10.0) for d in days] + [
+        _obs("ALPACA", d, 10.0) for d in days if d >= _SEAM
+    ]
+    pairs = _pairs(_derive(observations, policy=_D191Q))
+    assert all(pairs[d] == IBKR_NAMED for d in days if d < _SEAM)
+    assert all(pairs[d] == ALPACA for d in days if d >= _SEAM)
+
+
+def test_an_ibkr_symbol_row_without_an_alpaca_default_stays_named():
+    # d2-v3 bit identity: no policy row names Alpaca, so there is no Alpaca era.
+    days = _sessions(date(2024, 3, 4), 5)
+    rows = (
+        PolicyRow("1d", None, date(1990, 1, 1), None, "observed", "tradier", "ibkr"),
+        PolicyRow("1d", "TEST", date(1990, 1, 1), None, "observed", "ibkr", None),
+    )
+    pairs = _pairs(_derive([_obs("SMART", d, 10.0) for d in days], policy=rows))
+    assert set(pairs.values()) == {IBKR_NAMED}
+
+
+def test_the_alpaca_era_starts_at_the_alpaca_default():
+    assert alpaca_era_start(_D191Q) == _SEAM
+    assert alpaca_era_start([_D191Q[0]]) is None
 
 
 def test_an_ibkr_symbol_row_cuts_a_ticker_reuse_splice():

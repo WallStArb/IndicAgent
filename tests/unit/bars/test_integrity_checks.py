@@ -83,6 +83,16 @@ def test_policy_conformance_accepts_alpaca_under_an_alpaca_primary():
     ) == [d[1]]
 
 
+def test_policy_conformance_takes_an_ibkr_row_as_fallback_inside_the_alpaca_era():
+    d = _days(2)
+    rows = [
+        PolicyRow("1d", None, date(2000, 1, 1), None, "observed", "alpaca", "ibkr"),
+        PolicyRow("1d", "AAA", date(2000, 1, 1), None, "observed", "ibkr", None),
+    ]
+    assert policy_conformance([(d[0], *IBKR_FALLBACK)], rows, {}, symbol="AAA") == []
+    assert policy_conformance([(d[1], *IBKR_NAMED)], rows, {}, symbol="AAA") == [d[1]]
+
+
 def test_policy_conformance_flags_alpaca_under_a_policy_that_does_not_name_it():
     d = _days(1)
     assert policy_conformance([(d[0], *ALPACA)], _POLICY, {}, symbol="AAA") == [d[0]]
