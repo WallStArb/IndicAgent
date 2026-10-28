@@ -97,6 +97,19 @@ The first full run used D7's `vendor_ratio_run_min_sessions` (5) as the span min
 - M1: bar_scrub's `_DELETE_STALE_SQL` exempts `vendor_disagreement` from the stale prune (test added). The quarantine apply now replaces the rule globally: every name holding the rule's 1d flags today goes through `write_flags`, with an empty list when the plan dropped it.
 - M2: todo 545 step 5a is a blocker. D7's acceptance of the re-derived canonical 1d, and the research notice, wait on it. The judge for a future spin-off is a recorded corporate action (a spin-off factor in `corporate_action`), not a third vendor. The final arbitration re-run and the policy apply must happen before plan 20 deletes Tradier.
 
+## Decisions and step 5a (2026-10-28)
+
+- Tradier veto (data lane), in e2de94c0c and 9afb353c0. In the long-span pre-IBKR test, where Tradier answered inside the span its agreement alone decides; the gap test applies only without Tradier. The read-only re-run at 11:34Z (`{"row": 66, "evidence": 1318, "hold": 30, "noise": 5484, "info": 116}`) holds CRH. Among the spans with a gap over 300 bp, nothing else changed. Five more spans with smaller gaps are held because Tradier contradicts Alpaca: MDU, MSGS, ONTO, TPL and ZWS. That makes 30 interim holds.
+- Migration 528 (applied): `vendor_disagreement` joins `threshold.bar_scrub.quarantine_rules`, with a config_history row by data_lane. The list only sets the quarantine bit of a flag when the flag is written, and no such flag exists yet, so today's tradeable view is unchanged.
+- The 30 interim holds, DHC and SW included, stay IBKR rows as the decided state: no bar where IBKR is missing (NaN under no_fill). The owner overrides any of them by adding a row to a future plan. No Alpaca 1d split re-ask is built now (todo 557, P2).
+- Step 5a, built in c39f24de2 and 43237be90: `alpaca_basis_run`, a required 1d check in `CHECKS_1D` and the verdict gate.
+  - It fails a name on a run of at least 5 sessions (`vendor_ratio_run_min_sessions`) after 2026-10-06 where the Alpaca and IBKR 1d closes differ beyond 10 bp (`fallback_basis_tolerance_bp`).
+  - The closes are at the current scale, by session date, with zero-volume Alpaca bars dropped.
+  - A run is explained by a corporate action inside it or ending it, or by an IBKR symbol row covering it.
+  - D7 logs unexplained runs with the blocking samples.
+  - Read-only over live data, it fails 0 of 1,502 compute_1d names. `vendor_basis_run` stays until Tradier is deleted; plan 25 retires it.
+- Pre-apply items (c3 review): the arbitration writes a gzip copy of the plan under `.planning/phases/191-unified-raw-bar-table/evidence/` (about 130 KB against 1.27 MB raw; no pre-commit size rule applies), with its sha256 in the report. `build_plan` lists, rather than writes, any row or hold whose IBKR row would end after the window end, and `--plan` refuses such a row. The 11:34Z run had 0. The final arbitration and the apply are the coordinator's, run with the fetcher stopped and before plan 20 deletes Tradier.
+
 ## Results (read-only re-run, 2026-10-28 06:50Z)
 
 The plan is `data/policy_plans/d191q_1d_plan_20261028.json` (gitignored); its sha256 is in `191-D191Q-ARBITRATION.md`. 1,529 names, window 2016-01-04 to 2026-10-06.
