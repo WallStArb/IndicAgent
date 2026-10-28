@@ -73,6 +73,7 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Todo | Why now |
 |---|---|
+| [553](pending/553-corwin-schultz-and-roll-kernels-before-186-26.md) | New 2026-10-27, from the 184 kernel placement discussion. Corwin-Schultz and Roll spread kernels go into the stored kernel registry before 186-26 launches, with todo 390 closed in the same change. Why now: after the launch they need a follow-up rebuild. Sequencing call: indicagent-3a (186-26 owner). |
 | [466](pending/466-regime-columns-lookahead-dependents-303-304-benchmark.md) | Stored regime columns carry the todo 451 label-mask lookahead until the 186-26 rebuild. Dependents: the DEAD 303/304 verdicts benchmarked against stored `regime_volatility`; `feature_matrix.py` does not exclude the numeric `hmm_*` columns. |
 | [461](pending/461-gap-z-read-the-next-bars-open.md) | `gap_z` read bar T+1's open (fixed in code in 186-12; stored rows fixed by the rebuild). Annotate the ledger's `gap_z` intraday IC read and the n1 combiner card's fold-1 G1 breach, then re-measure after the rebuild. |
 | [471](pending/471-ic-measure-intraday-full-universe-memory-and-time.md) | The fresh IC writer on 15m (40 symbols) takes 17 minutes and 6.9 GB; the full universe extrapolates past host memory at block width 32. Measure block widths 4 and 8 and decide before 186-28 names its tf set. |
