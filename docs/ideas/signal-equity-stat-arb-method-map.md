@@ -34,3 +34,21 @@ pre-registered family members, counted under E18, and run after the 1d re-derive
 fundamentals source; 4 and 5 are closed; 6 is already queued; 7 is out of scope.
 
 Feature candidates these methods imply, and the pre-rebuild window for stored columns: `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md` (todo 558).
+
+## External read, checked against the repo (2026-10-28)
+
+The owner pasted an assessment (source not stated) of how the seven methods fit IndicAgent. Checked
+claim by claim; the assessment is not a source of record.
+
+| Claim | Check |
+|---|---|
+| "The market is taken out" is a north-star truth | Holds: `docs/foundation/north-star-truths.md`, truth 12 |
+| Short-term reversal is already among the families under study | Holds: ledger row 4 (todo 423) and the daily residual family (todo 441) |
+| The slide workflow matches the pipeline (universe, factor model, residuals, signal, book, costs) | Holds in substance: S0 to S8, S1 residualizes, costs gate promotion only |
+| Cointegration pairs "fit the research families" | Does not hold: `cointegrated_pairs_residual` is DEAD, closed for good (ETF pairs and 471 same-sector single-name pairs) |
+| Kalman and OU map to time-varying features | Partly: it is a new estimator on the closed pairs, so it needs an explicit owner reopen; the OU half-life of a market residual is a separate, testable candidate (see the pre-rebuild pass) |
+| ETF and index arbitrage aligns with the cost-aware standard | Does not hold as stated: the arbitrage form is speed-bound and conflicts with the owner's rule against hyper-traded strategies; only the 5m to 1h lead-lag form is in the ledger (row 3) |
+| Residual constructions should be implemented as point-in-time features | Partly: market-only residuals can be stored columns; sector and PCA residuals stay in the research layer (S1 and S0 kernels), as in the pre-rebuild pass |
+| Monotonic out-of-sample decile spreads should be explicit promotion criteria | Not in the framework today: E15 to E18 gate on StepM selection, positive net expectation and one forward confirmation. A decile-monotonicity check could be a diagnostic; adopting it as a gate is an owner decision on the evidence framework |
+| "The planned agentic research direction" | Not supported: no current design doc plans one, and the v2.x AI stack was removed in phase 185-45 |
+| Fundamental factor residuals are a natural extension | Holds in principle; blocked on a fundamentals source (none stored) |
