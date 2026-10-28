@@ -182,11 +182,19 @@ async def test_a_retired_row_in_the_span_moves_the_snapshot_policy_as_of(temp_po
 _ID_A = "00000000-0000-0000-0000-00000000000a"
 _ID_B = "00000000-0000-0000-0000-00000000000b"
 _ID_C = "00000000-0000-0000-0000-00000000000c"
+_ID_DT = "00000000-0000-0000-0000-0000000000d1"
+_ID_DI = "00000000-0000-0000-0000-0000000000d2"
+_FINGERPRINT = {
+    "through": "2026-10-06",
+    "series": {"alpaca/sip_rth": {"rows": 10, "max_served_at": "2026-10-27T18:00:00+00:00"}},
+}
 
 _PLAN_1D = {
     "timeframe": "1d",
     "seam": "2016-01-04",
     "retire_defaults": True,
+    "retire_default_ids": [_ID_DT, _ID_DI],
+    "raw_fingerprint": _FINGERPRINT,
     "defaults": [
         {"valid_from": "1990-01-01", "valid_to": "2016-01-04", "primary": "ibkr"},
         {"valid_from": "2016-01-04", "primary": "alpaca", "fallback": "ibkr"},
@@ -203,9 +211,28 @@ _PLAN_1D = {
     ],
     "retire_symbol_rows": [
         {"policy_id": _ID_A, "symbol": "WDC", "disposition": "replaced", "evidence": {"n": 1}},
-        {"policy_id": _ID_B, "symbol": "OKE", "disposition": "confirmed", "evidence": {"n": 2}},
+        {
+            "policy_id": _ID_B,
+            "symbol": "OKE",
+            "disposition": "superseded_by_default",
+            "evidence": {"n": 2},
+        },
     ],
-    "keep_symbol_rows": [{"policy_id": _ID_C, "symbol": "SSP", "reason": "hold: three-way"}],
+    "keep_symbol_rows": [
+        {
+            "policy_id": _ID_C,
+            "symbol": "SSP",
+            "valid_from": "2000-01-03",
+            "valid_to": None,
+            "reason": "no Alpaca 1d history to arbitrate",
+        }
+    ],
+    "hold": [
+        {"symbol": "WDC", "class": "three_way", "start": "2018-01-02", "end": "2019-01-02"},
+        {"symbol": "SSP", "class": "two_vendor", "start": "2018-01-02", "end": "2019-01-02"},
+    ],
+    "quarantine": [],
+    "quarantine_rule": "vendor_disagreement",
     "reason": "D-191-Q",
     "evidence": {"decision": "D-191-Q"},
 }
@@ -253,6 +280,34 @@ def test_a_1d_plan_parses_with_retired_defaults_and_explicit_dispositions():
             "kept",
         ),
         ({"symbol_rows": [{**_PLAN_1D["symbol_rows"][0], "evidence": {}}]}, "evidence"),
+        ({"retire_default_ids": [_ID_DT]}, "default"),
+        ({"raw_fingerprint": None}, "fingerprint"),
+        (
+            {
+                "hold": [
+                    {
+                        "symbol": "OKE",
+                        "class": "three_way",
+                        "start": "2018-01-02",
+                        "end": "2019-01-02",
+                    }
+                ]
+            },
+            "not covered",
+        ),
+        (
+            {
+                "retire_symbol_rows": [
+                    {
+                        "policy_id": _ID_B,
+                        "symbol": "OKE",
+                        "disposition": "confirmed",
+                        "evidence": {},
+                    }
+                ]
+            },
+            "disposition",
+        ),
     ],
 )
 def test_an_invalid_1d_plan_is_refused(change, message):
@@ -281,7 +336,7 @@ async def temp_policy_1d():
         await conn.execute(
             "INSERT INTO bar_source_policy (policy_id, timeframe, symbol, valid_from, ingress_mode,"
             " primary_source, fallback_source, reason, recorded_at) VALUES"
-            " (gen_random_uuid(), '1d', NULL, DATE '1990-01-01', 'observed', 'tradier', 'ibkr',"
+            f" ('{_ID_DT}', '1d', NULL, DATE '1990-01-01', 'observed', 'tradier', 'ibkr',"
             " 'seed', '2026-01-01'),"
             f" ('{_ID_A}', '1d', 'WDC', DATE '1990-01-01', 'observed', 'ibkr', NULL, 's', '2026-01-01'),"
             f" ('{_ID_B}', '1d', 'OKE', DATE '1990-01-01', 'observed', 'ibkr', NULL, 's', '2026-01-01'),"
@@ -298,14 +353,25 @@ async def temp_policy_1d():
             " WHERE timeframe = '1d' AND symbol IN ('WDC', 'OKE')"
         )
         await conn.execute(
-            "INSERT INTO bar_source_policy (timeframe, symbol, valid_from, ingress_mode,"
-            " primary_source, reason, recorded_at) VALUES"
-            " ('1d', NULL, DATE '2026-10-07', 'observed', 'ibkr', 'seed', '2026-01-01')"
+            "INSERT INTO bar_source_policy (policy_id, timeframe, symbol, valid_from,"
+            " ingress_mode, primary_source, reason, recorded_at) VALUES"
+            f" ('{_ID_DI}', '1d', NULL, DATE '2026-10-07', 'observed', 'ibkr', 'seed',"
+            " '2026-01-01')"
         )
         yield conn
     finally:
         await txn.rollback()
         await conn.close()
+
+
+@pytest.fixture(autouse=True)
+def _plan_fingerprint(monkeypatch):
+    """The apply re-reads the raw fingerprint; these tests stub it to the plan's own."""
+
+    async def same(conn, through):
+        return _FINGERPRINT
+
+    monkeypatch.setattr("scripts.ops.bars.ops_source_policy.read_raw_fingerprint", same)
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
@@ -334,7 +400,7 @@ async def test_the_1d_plan_retires_both_defaults_and_writes_the_arbitrated_rows(
             " WHERE retired_at IS NOT NULL AND symbol IS NOT NULL"
         )
     )
-    assert reasons == {_ID_A: "D-191-Q: replaced", _ID_B: "D-191-Q: confirmed"}
+    assert reasons == {_ID_A: "D-191-Q: replaced", _ID_B: "D-191-Q: superseded_by_default"}
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
@@ -360,3 +426,105 @@ async def test_a_1d_dry_run_leaves_the_policy_untouched(temp_policy_1d):
     counts = await apply_plan(conn, parse_plan(_PLAN_1D), apply=False)
     assert counts["defaults_retired"] == 2
     assert await conn.fetch("SELECT * FROM bar_source_policy_current ORDER BY policy_id") == before
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_the_1d_apply_holds_a_share_row_exclusive_lock(temp_policy_1d):
+    from scripts.ops.bars.ops_source_policy import apply_plan
+
+    conn = temp_policy_1d
+    await apply_plan(conn, parse_plan(_PLAN_1D), apply=True)
+    modes = {
+        r["mode"]
+        for r in await conn.fetch(
+            "SELECT mode FROM pg_locks WHERE relation = 'pg_temp.bar_source_policy'::regclass"
+            " AND pid = pg_backend_pid()"
+        )
+    }
+    assert "ShareRowExclusiveLock" in modes
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_a_changed_raw_fingerprint_refuses_the_plan(temp_policy_1d, monkeypatch):
+    from scripts.ops.bars.ops_source_policy import apply_plan
+
+    async def moved(conn, through):
+        return {**_FINGERPRINT, "series": {"alpaca/sip_rth": {"rows": 11, "max_served_at": "x"}}}
+
+    monkeypatch.setattr("scripts.ops.bars.ops_source_policy.read_raw_fingerprint", moved)
+    conn = temp_policy_1d
+    before = await conn.fetchval("SELECT count(*) FROM bar_source_policy_current")
+    with pytest.raises(ValueError, match="fingerprint"):
+        await apply_plan(conn, parse_plan(_PLAN_1D), apply=True)
+    assert await conn.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_unpinned_live_defaults_refuse_the_plan(temp_policy_1d):
+    from scripts.ops.bars.ops_source_policy import apply_plan
+
+    other = {**_PLAN_1D, "retire_default_ids": [_ID_DT, _ID_A]}
+    with pytest.raises(ValueError, match="default"):
+        await apply_plan(temp_policy_1d, parse_plan(other), apply=True)
+
+
+_QUARANTINE = [
+    {"symbol": "GDX", "session": "2020-03-16", "alpaca": 18.0, "ibkr": 19.0, "tradier": 19.0},
+    {"symbol": "GDX", "session": "2020-03-17", "alpaca": 18.5, "ibkr": 19.5, "tradier": 19.5},
+]
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_quarantine_sessions_go_through_the_flag_writer(temp_policy_1d, monkeypatch):
+    import scripts.ops.bars.ops_source_policy as osp
+
+    calls: dict = {"flags": [], "batches": []}
+
+    async def rules(conn):
+        return frozenset({"vendor_disagreement", "price_sanity"})
+
+    async def open_batch(conn, **kwargs):
+        calls["batches"].append(kwargs)
+        return "batch-1"
+
+    async def write_flags(conn, **kwargs):
+        calls["flags"].append(kwargs)
+        return len(kwargs["flags"])
+
+    async def close_batch(conn, batch_id, **kwargs):
+        calls["closed"] = (batch_id, kwargs["status"])
+
+    monkeypatch.setattr(osp, "read_quarantine_rules", rules)
+    monkeypatch.setattr(osp, "open_batch", open_batch)
+    monkeypatch.setattr(osp, "write_flags", write_flags)
+    monkeypatch.setattr(osp, "close_batch", close_batch)
+    counts = await osp.apply_plan(
+        temp_policy_1d, parse_plan({**_PLAN_1D, "quarantine": _QUARANTINE}), apply=True
+    )
+    assert counts["quarantined"] == 2 and calls["closed"] == ("batch-1", "completed")
+    (call,) = calls["flags"]
+    assert call["symbol"] == "GDX" and call["tf"] == "1d"
+    assert call["rules_evaluated"] == frozenset({"vendor_disagreement"})
+    assert [(f.timestamp.isoformat(), f.rule, f.quarantine) for f in call["flags"]] == [
+        ("2020-03-16T00:00:00+00:00", "vendor_disagreement", True),
+        ("2020-03-17T00:00:00+00:00", "vendor_disagreement", True),
+    ]
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_a_quarantine_rule_outside_the_apr_list_refuses_the_plan(temp_policy_1d, monkeypatch):
+    import scripts.ops.bars.ops_source_policy as osp
+
+    async def rules(conn):
+        return frozenset({"price_sanity"})
+
+    monkeypatch.setattr(osp, "read_quarantine_rules", rules)
+    with pytest.raises(ValueError, match="quarantine_rules"):
+        await osp.apply_plan(
+            temp_policy_1d, parse_plan({**_PLAN_1D, "quarantine": _QUARANTINE}), apply=True
+        )
