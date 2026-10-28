@@ -133,11 +133,13 @@ These are the stable mechanics — the part of this design meant to survive unch
 
 ## `ConceptRegistryService` — two call surfaces
 
+The registry has three writers (design 10.2.5): this service (identity, status, new ideas), the S6 ledger (recipes, attempts, research identities) and `feature_lifecycle` (feature evaluations).
+
 `src/intelligence/concept_registry_service.py`. Stateless; every method takes an asyncpg connection.
 
-### `record_comparison_outcome()`
+### `register_idea()`
 
-The **sole** status-flipping code path for `domain='ensemble_strategy'` (Invariant 1's deterministic engine, concretely). Its only caller, `scripts/ops/alpha/ops_ensemble_weight_compare.py`, was deleted in phase 186 (186-21); the method keeps these semantics for any future caller. Runs read-decide-write inside one transaction with `FOR UPDATE` held throughout, so a concurrent evaluator for the same concept blocks rather than racing. Possible outcomes: `promote` (CAS `candidate→active`), `record_win`/`record_win_not_promotable`/`record_loss` (eval-cache bookkeeping only), or one of several `blocked_*`/`noop_*` results that write nothing — including `blocked_fdr_unverified`, which fails closed whenever `concept_gate.fdr_required=true` and the caller cannot prove FDR correction actually ran this round.
+Logs an idea the day it is had: one `candidate` row in a typed domain (`feature`, `family`, `member`, `combiner`, `construction_rule`, `book`, `method`) with metadata `{description, sources, author, logged_at}`, no recipe and no gate. It refuses an invalid domain before any SQL and an existing `(domain, name)` (`ConceptExistsError`). CLI: `scripts/research/register_idea.py`. The old `record_comparison_outcome()` path served only the removed `ensemble_strategy` domain and is deleted.
 
 ### `record_transition()`
 

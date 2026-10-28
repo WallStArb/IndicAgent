@@ -1,26 +1,21 @@
-"""ConceptRegistryService - Concept Registry lifecycle governance (todo 058).
+"""ConceptRegistryService - Concept Registry writer for identity and status (todo 058, 187-12).
 
-Invariant 1 (canonical doc, docs/research/concept-unified-registry.md):
-proposal and decision are different roles, structurally. The ONLY code path that
-flips concept_registry.status for domain='ensemble_strategy' is
-record_comparison_outcome() below, called by ops_ensemble_weight_compare.py's
-deterministic win-decision gate (no LLM anywhere in the path). No other caller,
-human or AI, gets a code path that both writes annotation content and flips status.
-
-Structure: decide_comparison_action() is the pure invariant-enforcement core
-(unit-tested without DB); record_comparison_outcome() reads the registry+gate row
-under FOR UPDATE inside one transaction, delegates the decision, and applies it
-with a compare-and-swap status write (invariant 9) before releasing the lock.
+Invariant 1 (docs/foundation/unified-concept-registry.md): proposal and decision are
+different roles, structurally. This service is the only code path that flips
+concept_registry.status (record_transition) and the only one that logs a new idea
+(register_idea). Recipes and attempts are the S6 ledger's; feature evaluations reach the
+registry through feature_lifecycle. No LLM anywhere in the path.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 import structlog
+
+from src.core.service_utils import format_iso_ts
 
 _logger = structlog.get_logger()
 
@@ -52,238 +47,16 @@ _VALID_TRANSITION_REASONS = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class GateState:
-    """Snapshot of one concept's registry status + gate/eval-cache state.
-
-    min_* fields arrive APR-resolved by the caller (per-concept concept_gate
-    override when non-NULL, else the alpha.concept_registry.<domain>_* default) -
-    never hard-coded here.
-    """
-
-    status: str
-    promotion_consecutive: int
-    promotion_eval_metrics: tuple[float, ...]
-    last_eval_corpus_build_ref: str | None
-    last_eval_n: float | None
-    min_promotion_consecutive: int
-    min_new_observations: float
-    min_gate_n: float
-    fdr_required: bool
-
-
-@dataclass(frozen=True)
-class ComparisonDecision:
-    """What the registry should do with one A/B comparison outcome.
-
-    action vocabulary:
-        'promote'                - CAS candidate -> active + transition log row
-        'record_win'             - update eval cache, advance consecutive counter
-        'record_win_not_promotable' - like record_win, but the status can never
-                                     reach 'promote' (e.g. 'shadow_only'); service
-                                     logs a warning instead of info
-        'record_loss'            - update eval cache, reset consecutive counter
-        'blocked_same_corpus'    - invariant 2 precondition: corpus has not advanced
-        'blocked_min_n'          - invariant 7: initial effective-N floor unmet
-        'blocked_evidence_floor' - F3: < min_new_observations new evidence since last eval
-        'blocked_fdr_unverified' - a win whose concept_gate.fdr_required is True but the
-                                   caller did not prove (fdr_passed is not True) that BH-FDR
-                                   multiplicity correction was actually applied and survived
-                                   this round (todo 118 L-6); the guard applies to wins only
-                                   -- a loss is always recorded regardless of fdr_required
-        'noop_deprecated'        - deprecated is operator-only; automated path never touches it
-    Blocked/noop decisions write nothing to the DB. The service layer (Task 4's
-    record_comparison_outcome) additionally produces 'blocked_status_race' when its
-    compare-and-swap promotion UPDATE matches zero rows; the pure core never emits it.
-    """
-
-    action: str
-    new_promotion_consecutive: int
-    new_promotion_eval_metrics: tuple[float, ...]
-    baseline_metric: float | None
-
-
-def decide_comparison_action(
-    state: GateState,
-    *,
-    won: bool,
-    eval_metric: float | None,
-    eval_n: float,
-    corpus_build_ref: str,
-    fdr_passed: bool | None = None,
-) -> ComparisonDecision:
-    """Pure decision core for one A/B comparison outcome against one concept.
-
-    Ordering matters: status guard, then invariant 2's corpus-advance precondition,
-    then invariant 7's initial floor, then F3's evidence-mass floor, then the
-    FDR-verification guard (todo 118 L-6), then the win/loss bookkeeping.
-    eval_metric is the challenger's mean ic_ci_lower over WIN strata (D-15 citation
-    rule: never ic_value); eval_n is the challenger's summed n_independent over all
-    compared strata (effective N, not raw bars).
-
-    fdr_passed means "this outcome's win determination survived an actually-executed
-    multiplicity correction across the strata compared this round". None means the
-    caller ran no such correction -- which is NOT the same as False and must be
-    treated as unproven, i.e. blocked, whenever state.fdr_required is True.
-    """
-    if won and eval_metric is None:
-        raise ValueError("won=True requires eval_metric (mean ic_ci_lower over WIN strata)")
-
-    if state.status == "deprecated":
-        return ComparisonDecision(
-            "noop_deprecated",
-            state.promotion_consecutive,
-            state.promotion_eval_metrics,
-            None,
-        )
-
-    # L-1 (Phase 160 cross-AI review, accepted risk): this guard compares only
-    # against last_eval_corpus_build_ref, so an A-B-A corpus_build_ref replay
-    # would pass it (a complete replay check would need to consult the full
-    # transition log). Accepted because WEIGHT_EPOCHs are monotone in practice,
-    # so A-B-A does not occur.
-    if corpus_build_ref == state.last_eval_corpus_build_ref:
-        return ComparisonDecision(
-            "blocked_same_corpus",
-            state.promotion_consecutive,
-            state.promotion_eval_metrics,
-            None,
-        )
-
-    if eval_n < state.min_gate_n:
-        return ComparisonDecision(
-            "blocked_min_n",
-            state.promotion_consecutive,
-            state.promotion_eval_metrics,
-            None,
-        )
-
-    if state.last_eval_n is not None and (eval_n - state.last_eval_n) < state.min_new_observations:
-        return ComparisonDecision(
-            "blocked_evidence_floor",
-            state.promotion_consecutive,
-            state.promotion_eval_metrics,
-            None,
-        )
-
-    # T-170-04 / todo 118 L-6: this guard applies to WINS only. A loss is never a
-    # promotion and must still be recorded -- swallowing losses would keep a
-    # decaying concept's consecutive counter alive, the opposite of fail-closed.
-    if won and state.fdr_required and fdr_passed is not True:
-        return ComparisonDecision(
-            "blocked_fdr_unverified",
-            state.promotion_consecutive,
-            state.promotion_eval_metrics,
-            None,
-        )
-
-    if not won:
-        return ComparisonDecision("record_loss", 0, (), None)
-
-    new_consecutive = state.promotion_consecutive + 1
-    # L-10 (Phase 160 cross-AI review, accepted risk): promotion_eval_metrics
-    # grows unboundedly for an active concept (every record_win appends, never
-    # trimmed). Accepted as cosmetic at this domain's eval cadence.
-    new_metrics = state.promotion_eval_metrics + (float(eval_metric),)
-
-    if new_consecutive >= state.min_promotion_consecutive:
-        if state.status == "candidate":
-            baseline = sum(new_metrics) / len(new_metrics)
-            return ComparisonDecision("promote", new_consecutive, new_metrics, baseline)
-        if state.status != "active":
-            # e.g. shadow_only (or any future non-candidate, non-active status):
-            # only 'candidate' can ever reach 'promote' above, so this status is
-            # stuck accumulating wins forever without this action. Distinct
-            # action so the service layer logs it loudly instead of silently
-            # recording another win (Phase 160 review finding 2).
-            return ComparisonDecision(
-                "record_win_not_promotable", new_consecutive, new_metrics, None
-            )
-
-    return ComparisonDecision("record_win", new_consecutive, new_metrics, None)
-
-
-# ---------------------------------------------------------------------------
-# Transactional apply (asyncpg)
-# ---------------------------------------------------------------------------
-
-# FOR UPDATE: locks both joined rows for the duration of the caller's
-# transaction, so a concurrent evaluator for the same concept blocks here
-# instead of reading a state this call is about to invalidate (Phase 160
-# review finding 1 -- see record_comparison_outcome).
-_LOAD_CONCEPT_SQL = """
-    SELECT r.concept_id, r.status,
-           g.promotion_consecutive, g.promotion_eval_metrics,
-           g.last_eval_corpus_build_ref, g.last_eval_n,
-           g.min_promotion_consecutive, g.min_new_observations, g.min_gate_n,
-           g.fdr_required
-    FROM concept_registry r
-    JOIN concept_gate g USING (concept_id)
-    WHERE r.domain = $1 AND r.name = $2
-    FOR UPDATE
-"""
-
-# Invariant 9: compare-and-swap. _LOAD_CONCEPT_SQL's FOR UPDATE already makes a
-# zero-row match unreachable in normal operation (the row is locked from load
-# through this write in the same transaction) -- the `AND status = $3` predicate
-# is kept as defense-in-depth against any future caller that reads this row
-# without that lock. Zero rows updated means the status changed under us (or a
-# rerun raced). L-5 correction (Phase 160 cross-AI review): the CAS matched zero
-# rows, so no status change, transition, or gate update is executed - the empty
-# transaction commits harmlessly (it does NOT roll back/abort; returning from
-# inside `async with conn.transaction()` commits an empty transaction).
-_CAS_PROMOTE_SQL = """
-    UPDATE concept_registry SET status = $1
-    WHERE concept_id = $2 AND status = $3
-"""
-
-_TRANSITION_INSERT_SQL = """
-    INSERT INTO concept_transition_log
-        (concept_id, domain, name, from_status, to_status, trigger_reason,
-         corpus_build_ref, gate_metric, gate_n, ci_lower, triggered_at, notes)
-    VALUES ($1, $2, $3, $4, $5, 'promotion', $6, $7, $8, $9, $10, $11)
-"""
-
-# L-2 (Phase 160 cross-AI review, finding 1): this read-modify-write carries no
-# CAS of its own -- it is safe only because _LOAD_CONCEPT_SQL's FOR UPDATE holds
-# the gate row locked from load through this write inside record_comparison_outcome's
-# single transaction. Without that lock, a promote path racing a concurrent
-# record_loss could commit a wrong status flip, not just a stale cache.
-# L-2 closed by verification under Phase 170: no second CAS was added; the FOR
-# UPDATE lock already provides the guarantee, and test_load_concept_sql_holds_row_lock
-# pins both halves (the lock clause and the single conn.transaction() scope) as a
-# regression test that fails if either is ever removed.
-_GATE_CACHE_UPDATE_SQL = """
-    UPDATE concept_gate
-    SET last_eval_metric = $2, last_eval_n = $3, last_eval_at = $4,
-        last_eval_corpus_build_ref = $5,
-        promotion_consecutive = $6, promotion_eval_metrics = $7,
-        updated_at = $4
-    WHERE concept_id = $1
-"""
-
-_GATE_PROMOTE_UPDATE_SQL = """
-    UPDATE concept_gate
-    SET last_eval_metric = $2, last_eval_n = $3, last_eval_at = $4,
-        last_eval_corpus_build_ref = $5,
-        promotion_consecutive = $6, promotion_eval_metrics = $7,
-        baseline_metric = $8, decay_ratio = 1.0,
-        updated_at = $4
-    WHERE concept_id = $1
-"""
-
-
 # ---------------------------------------------------------------------------
 # Generic lifecycle transition (record_transition below)
 # ---------------------------------------------------------------------------
 #
-# Todo 402: the one status-flip path outside record_comparison_outcome. Called by the
-# feature_lifecycle node (automated promotion/demotion derived from concept_evaluation)
+# Todo 402: the one status-flip path. Called by the feature_lifecycle node (automated promotion/demotion derived from concept_evaluation)
 # and by ops_concept_registry_override.py (operator_override). The psycopg twins
 # ic_engine's in-process lifecycle hook used, and the concept_gate run counters they
 # advanced, were deleted with that hook.
 
-# FOR UPDATE: same lock discipline as _LOAD_CONCEPT_SQL -- the row stays locked from
+# FOR UPDATE: the row stays locked from
 # the fdr_required read through the CAS write inside one transaction.
 _LOAD_TRANSITION_TARGET_SQL = """
     SELECT r.concept_id, g.fdr_required
@@ -309,6 +82,21 @@ _TRANSITION_LOG_INSERT_SQL = """
 """
 
 
+# The typed domains (concept_registry_domain_check, design 10.2.5).
+TYPED_DOMAINS = frozenset(
+    {"feature", "family", "member", "combiner", "construction_rule", "book", "method"}
+)
+
+# ON CONFLICT DO NOTHING returns no row on a duplicate, so the check and the insert are one
+# statement and two concurrent callers cannot both win.
+_REGISTER_IDEA_SQL = """
+    INSERT INTO concept_registry (domain, name, description, status, enabled, metadata)
+    VALUES ($1, $2, $3, 'candidate', false, $4)
+    ON CONFLICT (domain, name) DO NOTHING
+    RETURNING concept_id
+"""
+
+
 class TransitionResult(StrEnum):
     """What record_transition did. The two refusals are distinct because only a lock
     miss is fixed by rerunning; an FDR block needs the caller to attest fdr_passed."""
@@ -322,6 +110,10 @@ class ConceptNotFoundError(Exception):
     """No concept_registry+concept_gate row for the given (domain, name)."""
 
 
+class ConceptExistsError(Exception):
+    """register_idea found the (domain, name) already registered."""
+
+
 def _rowcount(execute_status: str) -> int:
     """Parse asyncpg's execute() status string ('UPDATE 1' -> 1)."""
     return int(execute_status.rsplit(" ", 1)[-1])
@@ -330,207 +122,45 @@ def _rowcount(execute_status: str) -> int:
 class ConceptRegistryService:
     """Narrowly-scoped Concept Registry writer (invariant 1).
 
-    Stateless: every method takes an asyncpg connection. Two status-flipping paths:
-    record_comparison_outcome (domain='ensemble_strategy', candidate -> active only)
-    and record_transition (the feature_lifecycle node's derived promotions/demotions,
-    and operator overrides). Neither can target 'deprecated' with an automated reason
-    or write annotation content.
+    Stateless: every method takes an asyncpg connection. record_transition is the one
+    status-flipping path (the feature_lifecycle node's derived promotions and demotions,
+    and operator overrides); it cannot target 'deprecated' with an automated reason or
+    write annotation content. register_idea logs a new candidate with no recipe.
 
-    FDR enforcement is fail-closed on both paths (todo 118 L-6, Phase 170):
-    concept_gate.fdr_required IS read here (_LOAD_CONCEPT_SQL), and a caller that
-    cannot prove multiplicity correction was applied and survived this round
-    (fdr_passed is not True) cannot record a win or a promotion for a concept whose
-    gate requires it -- record_comparison_outcome's fdr_passed argument, threaded
-    into decide_comparison_action's 'blocked_fdr_unverified' guard, makes this an
-    invariant of the service, not a documented assumption a second caller could
-    forget.
+    FDR enforcement is fail-closed (todo 118 L-6): concept_gate.fdr_required is read
+    under the row lock, and a caller that cannot prove multiplicity correction survived
+    (fdr_passed is not True) cannot promote a concept whose gate requires it.
     """
 
-    async def record_comparison_outcome(
+    async def register_idea(
         self,
         conn: Any,
         *,
         domain: str,
         name: str,
-        won: bool,
-        eval_metric: float | None,
-        eval_n: float,
-        corpus_build_ref: str,
-        default_min_promotion_consecutive: int,
-        default_min_new_observations: float,
-        default_min_gate_n: float,
-        notes: str | None = None,
-        fdr_passed: bool | None = None,
-    ) -> ComparisonDecision:
-        """Apply one A/B comparison outcome for one concept, transactionally.
+        description: str,
+        sources: list[str],
+        author: str,
+    ) -> str:
+        """Log an idea the day it is had: one `candidate` row, no recipe, no gate.
 
-        The default_* floors are APR-resolved by the caller
-        (alpha.concept_registry.<domain>_* keys); a non-NULL concept_gate column
-        overrides its default. Blocked/noop decisions write nothing.
-
-        fdr_passed (todo 118 L-6): "this outcome's win determination survived an
-        actually-executed multiplicity correction across the strata compared this
-        round". None means the caller ran none -- treated as unproven, i.e. blocked,
-        whenever this concept's concept_gate.fdr_required is True. A caller whose
-        gate does not require FDR (fdr_required=False) is unaffected regardless of
-        what it passes here.
-
-        The entire read-decide-write sequence runs inside one transaction, with
-        _LOAD_CONCEPT_SQL's FOR UPDATE row lock held throughout: a concurrent
-        evaluator for the same concept blocks on the lock instead of reading a
-        state this call is about to invalidate (Phase 160 review finding 1).
+        Returns the new concept_id. An unknown domain raises before any SQL; an existing
+        (domain, name) raises ConceptExistsError, never an overwrite. Recipes and attempts
+        are the S6 ledger's to write.
         """
-        async with conn.transaction():
-            row = await conn.fetchrow(_LOAD_CONCEPT_SQL, domain, name)
-            if row is None:
-                raise ConceptNotFoundError(
-                    f"no concept_registry+concept_gate row for domain={domain!r} name={name!r}"
-                )
-
-            state = GateState(
-                status=row["status"],
-                promotion_consecutive=row["promotion_consecutive"],
-                promotion_eval_metrics=tuple(row["promotion_eval_metrics"] or ()),
-                last_eval_corpus_build_ref=row["last_eval_corpus_build_ref"],
-                last_eval_n=row["last_eval_n"],
-                min_promotion_consecutive=(
-                    row["min_promotion_consecutive"]
-                    if row["min_promotion_consecutive"] is not None
-                    else default_min_promotion_consecutive
-                ),
-                min_new_observations=(
-                    row["min_new_observations"]
-                    if row["min_new_observations"] is not None
-                    else default_min_new_observations
-                ),
-                min_gate_n=(
-                    row["min_gate_n"] if row["min_gate_n"] is not None else default_min_gate_n
-                ),
-                fdr_required=row["fdr_required"],
-            )
-
-            decision = decide_comparison_action(
-                state,
-                won=won,
-                eval_metric=eval_metric,
-                eval_n=eval_n,
-                corpus_build_ref=corpus_build_ref,
-                fdr_passed=fdr_passed,
-            )
-
-            if decision.action in (
-                "noop_deprecated",
-                "blocked_same_corpus",
-                "blocked_min_n",
-                "blocked_evidence_floor",
-                "blocked_fdr_unverified",
-            ):
-                _logger.info(
-                    "concept_registry.comparison_blocked",
-                    domain=domain,
-                    name=name,
-                    action=decision.action,
-                    corpus_build_ref=corpus_build_ref,
-                    fdr_required=state.fdr_required,
-                    fdr_passed=fdr_passed,
-                )
-                return decision
-
-            now = datetime.now(UTC)
-            metrics_list = list(decision.new_promotion_eval_metrics)
-
-            async def _update_gate(sql: str, *args: Any, stage: str) -> None:
-                """Run a gate UPDATE and crash loudly if the row vanished mid-transaction."""
-                status = await conn.execute(sql, *args)
-                if _rowcount(status) != 1:
-                    raise RuntimeError(
-                        f"concept_gate row vanished {stage} for domain={domain!r} "
-                        f"name={name!r} concept_id={row['concept_id']!r}"
-                    )
-
-            if decision.action == "promote":
-                cas_status = await conn.execute(
-                    _CAS_PROMOTE_SQL, "active", row["concept_id"], "candidate"
-                )
-                if _rowcount(cas_status) == 0:
-                    _logger.warning(
-                        "concept_registry.promotion_cas_race",
-                        domain=domain,
-                        name=name,
-                        corpus_build_ref=corpus_build_ref,
-                    )
-                    return ComparisonDecision(
-                        "blocked_status_race",
-                        state.promotion_consecutive,
-                        state.promotion_eval_metrics,
-                        None,
-                    )
-                await conn.execute(
-                    _TRANSITION_INSERT_SQL,
-                    row["concept_id"],
-                    domain,
-                    name,
-                    "candidate",
-                    "active",
-                    corpus_build_ref,
-                    decision.baseline_metric,
-                    eval_n,
-                    eval_metric,
-                    now,
-                    notes,
-                )
-                await _update_gate(
-                    _GATE_PROMOTE_UPDATE_SQL,
-                    row["concept_id"],
-                    eval_metric,
-                    eval_n,
-                    now,
-                    corpus_build_ref,
-                    decision.new_promotion_consecutive,
-                    metrics_list,
-                    decision.baseline_metric,
-                    stage="mid-promote",
-                )
-                _logger.info(
-                    "concept_registry.promoted",
-                    domain=domain,
-                    name=name,
-                    baseline_metric=decision.baseline_metric,
-                    corpus_build_ref=corpus_build_ref,
-                )
-                return decision
-
-            # record_win / record_win_not_promotable / record_loss: eval-cache
-            # bookkeeping only.
-            await _update_gate(
-                _GATE_CACHE_UPDATE_SQL,
-                row["concept_id"],
-                eval_metric,
-                eval_n,
-                now,
-                corpus_build_ref,
-                decision.new_promotion_consecutive,
-                metrics_list,
-                stage="mid-update",
-            )
-            if decision.action == "record_win_not_promotable":
-                _logger.warning(
-                    "concept_registry.win_not_promotable",
-                    domain=domain,
-                    name=name,
-                    status=state.status,
-                    promotion_consecutive=decision.new_promotion_consecutive,
-                    corpus_build_ref=corpus_build_ref,
-                )
-            else:
-                _logger.info(
-                    "concept_registry.comparison_recorded",
-                    domain=domain,
-                    name=name,
-                    action=decision.action,
-                    corpus_build_ref=corpus_build_ref,
-                )
-            return decision
+        if domain not in TYPED_DOMAINS:
+            raise ValueError(f"invalid domain {domain!r}: not one of {sorted(TYPED_DOMAINS)}")
+        metadata = {
+            "description": description,
+            "sources": sources,
+            "author": author,
+            "logged_at": format_iso_ts(datetime.now(UTC)),
+        }
+        concept_id = await conn.fetchval(_REGISTER_IDEA_SQL, domain, name, description, metadata)
+        if concept_id is None:
+            raise ConceptExistsError(f"concept_registry already has {domain}/{name}")
+        _logger.info("concept_registry.idea_registered", domain=domain, name=name, author=author)
+        return str(concept_id)
 
     async def record_transition(
         self,
