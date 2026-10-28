@@ -50,8 +50,15 @@ WHERE NOT EXISTS (
     SELECT 1 FROM config_history h WHERE h.config_key = s.k AND h.changed_by = 'migration_526'
 );
 
-ALTER TABLE feature_vectors_v2
-    ADD COLUMN IF NOT EXISTS high_low_spread real,
-    ADD COLUMN IF NOT EXISTS roll_spread real;
+-- Conditional: the integration baseline replay (tests/integration/conftest.py) has no
+-- feature_vectors_v2, so an unconditional ALTER failed every integration session (2026-10-28).
+DO $$
+BEGIN
+    IF to_regclass('feature_vectors_v2') IS NOT NULL THEN
+        ALTER TABLE feature_vectors_v2
+            ADD COLUMN IF NOT EXISTS high_low_spread real,
+            ADD COLUMN IF NOT EXISTS roll_spread real;
+    END IF;
+END $$;
 
 COMMIT;
