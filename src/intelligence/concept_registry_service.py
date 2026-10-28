@@ -9,6 +9,7 @@ registry through feature_lifecycle. No LLM anywhere in the path.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -146,6 +147,7 @@ class ConceptRegistryService:
         description: str,
         sources: list[str],
         author: str,
+        extra: Mapping[str, Any] | None = None,
     ) -> str:
         """Log an idea the day it is had: one `candidate` row, no recipe, no gate.
 
@@ -158,6 +160,7 @@ class ConceptRegistryService:
         if not name.strip() or not description.strip():
             raise ValueError("an idea needs a non-empty name and description")
         metadata = {
+            **(extra or {}),
             "description": description,
             "sources": sources,
             "author": author,
