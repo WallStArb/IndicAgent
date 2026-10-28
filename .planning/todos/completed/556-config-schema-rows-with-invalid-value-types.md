@@ -1,6 +1,7 @@
 ---
-status: pending
+status: closed
 priority: P2
+closed: 2026-10-28
 filed: 2026-10-28
 source: found raising infra.backfill.fetch_concurrency; ConfigService.set refused it
 ---
@@ -37,3 +38,13 @@ string), and readers may rely on either. Read each key's readers first.
 ## Done when
 
 No `config_schema` row has a value type the validator rejects, and the schema test is green.
+
+## Closed 2026-10-28
+
+Migration 532 sets the seven `integer` keys to `int` and the three `text` keys to `str`, applied live
+and verified (zero rows with an unknown type; `validate_value` accepts the stored values).
+Readers checked: the integer keys are cast with `int()` or unread (`alpha.ic.min_obs_daily_features`
+has no reader); the write-method keys are read with `str()`; `rebuild_state_table` is a JSON
+document read as a raw string and parsed by `ops_intraday_venue_recovery.py`, so it is `str`, not
+`json`. The schema test is `tests/integration/test_config_schema_value_types.py`; it did not run
+here because the integration replay fails at migration 526 on the stale test baseline (todo 495).
