@@ -118,3 +118,29 @@ same HAC). Candidate fix: fixed-b critical values (Kiefer and Vogelsang 2005) fo
 kernel at E17's lag, which correct exactly this. It would move every recorded E17 p-value
 (family 1's evidence records and any attestation), so per the owner's stop rule it waits for the
 owner before any code changes.
+
+## Step A rerun (2026-10-28): the excess is not there; E17 v1 stands
+
+The step A reading above pooled 30 arms x 1,000 simulations as independent trials; the arms of a
+simulation share one panel, so its interval was too narrow. The rerun (todo 549: 16 gating cells x
+600 simulations at 4,000 sessions, fresh seeds, one cluster per simulation) gives pooled size
+5.02% with a cluster-robust 99% interval [4.66, 5.37], which contains 5%. By the owner's rule
+E17 v1 stands: no fixed-b, no new code key, no repro_frozen rebaseline. The tables above stay as
+recorded; the 5.40% and 5.47% readings are superseded by this one. Detail and evidence paths are
+in todo 549.
+
+## Step B (pre-registered 2026-10-28, before the run it judges)
+
+One fresh StepM null-battery run at 4,000 sessions
+(`scripts/research/stepm_null_battery.py <out.json> --seed-base 20000000`), judged on that run
+only; its result is the attestation `select_books.py` accepts or refuses. It passes when both hold:
+
+1. Per gating cell, the family-wise rejection count is at most the binomial upper quantile at
+   level 1 - 0.01 / 20 = 0.9995 under fwer 0.05 (74 of 1,000 simulations).
+2. The rejection rate pooled over all gating cells is at most 6.0%.
+
+Diagnostic cells report and do not gate. The seed base is new (the 2026-10-27 run used base 0),
+so this is not a re-judgement of those draws. A failure is not rerun on other seeds to find a
+pass: it opens a todo naming the failing cell. Code: `_BOUND_QUANTILE` and `_POOLED_TOLERANCE`
+in the driver; a pooled failure appears in the record's `failures` as `"pooled"`, so
+`select_books.py` refuses it with no change.

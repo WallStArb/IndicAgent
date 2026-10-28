@@ -3,8 +3,8 @@
 Each simulation of a battery cell yields every arm's null D_s series on one calendar (family 1's
 four members and their equal-weight book: a small, highly correlated null universe). StepM runs
 over them; a simulation is a family-wise error when StepM selects any arm. Per cell, the
-family-wise rejection count must be at most the upper 99% binomial quantile under `fwer` (the
-E17 driver's one-sided rule). Cells in the battery's DIAGNOSTIC_CELLS are reported but do not
+family-wise rejection count must be at most the upper binomial quantile under `fwer` at the
+Bonferroni level 1 - 0.01 / 20 (step B), and the pooled gating rate at most 6%. Cells in the battery's DIAGNOSTIC_CELLS are reported but do not
 gate. Synthetic only: no database, no ledger. Writes one JSON record.
 
     .venv/bin/python scripts/research/stepm_null_battery.py <out.json> [--sims 1000]
@@ -35,7 +35,13 @@ from services._batch_utils import make_worker_pool  # noqa: E402
 from src.intelligence.statistics import stepm as stepm_module  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 
-_BOUND_QUANTILE = 0.99
+# Step B pass rule (owner decision 2026-10-27, todo 549; written before the run it judges, and
+# judged on that run only): each cell's family-wise rejection count is at most the upper binomial
+# quantile at a Bonferroni level over the battery's 20 cells (1 - 0.01 / 20), and the rejection
+# rate pooled over the gating cells is at most _POOLED_TOLERANCE.
+_BATTERY_CELLS = 20
+_BOUND_QUANTILE = 1 - 0.01 / _BATTERY_CELLS
+_POOLED_TOLERANCE = 0.06
 # The panel length the attestation is judged at (owner decision 2026-10-27, methodology-change
 # ledger E18 implementation note): about the real span of the vintage-1 panels.
 REAL_SESSIONS = 4000
@@ -65,6 +71,12 @@ def stepm_source_sha256() -> str:
     return hashlib.sha256(Path(stepm_module.__file__).read_bytes()).hexdigest()
 
 
+def pooled_rate(report: list[dict]) -> float:
+    """Family-wise rejection rate over every simulation of every gating cell."""
+    gating = [r for r in report if r["gating"]]
+    return sum(r["familywise_rejections"] for r in gating) / sum(r["sims"] for r in gating)
+
+
 def summarize(name: str, hits: list[bool], fwer: float, diagnostic: frozenset) -> dict:
     n = len(hits)
     rejected = sum(hits)
@@ -92,6 +104,13 @@ def main() -> int:
     parser.add_argument("--studentize", choices=("draw", "sample"), default="draw")
     parser.add_argument("--battery", default="src.intelligence.research.null_battery")
     parser.add_argument(
+        "--seed-base",
+        type=int,
+        default=0,
+        help="added to every simulation seed; a new base is a fresh run (0 reproduces the "
+        "2026-10-27 run's seeds)",
+    )
+    parser.add_argument(
         "--sessions", type=int, default=REAL_SESSIONS, help="override every cell's panel length"
     )
     args = parser.parse_args()
@@ -102,7 +121,15 @@ def main() -> int:
         cells = tuple(sc for sc in cells if sc.name in wanted)
     start = time.time()
     jobs = [
-        (args.battery, sc, 10_000 * k + i, args.reps, args.block_mean, args.fwer, args.studentize)
+        (
+            args.battery,
+            sc,
+            args.seed_base + 10_000 * k + i,
+            args.reps,
+            args.block_mean,
+            args.fwer,
+            args.studentize,
+        )
         for k, sc in enumerate(cells)
         for i in range(args.sims)
     ]
@@ -128,6 +155,9 @@ def main() -> int:
                 flush=True,
             )
     failures = [r["cell"] for r in report if r["gating"] and not r["holds"]]
+    pooled = pooled_rate(report)
+    if pooled > _POOLED_TOLERANCE:
+        failures.append("pooled")
     record = {
         "schema": "stepm_null_battery_v1",
         "battery": args.battery,
@@ -142,6 +172,9 @@ def main() -> int:
         "fwer": args.fwer,
         "studentize": args.studentize,
         "bound_quantile": _BOUND_QUANTILE,
+        "seed_base": args.seed_base,
+        "pooled_rate": pooled,
+        "pooled_tolerance": _POOLED_TOLERANCE,
         "report": report,
         "failures": failures,
         "seconds": time.time() - start,
