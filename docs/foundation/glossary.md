@@ -1965,6 +1965,31 @@ any single member; selection and weighting happen only inside training folds.
 
 ---
 
+### `research kernel`
+
+A `Kernel` under the phase 186 registry contract (declared inputs, declared memory, pure
+compute, the same causality probe and memory check) that lives in
+`src/intelligence/features/research_kernels/`, outside `kernels/`: `default_registry()` never
+discovers it and no stored column holds its output. Research computes it at spec-pinned
+windows, and only for a (statistic, window) no stored column carries (184-REVIEWS row 10). Each
+family has a pending todo to move it into the 186 registry once the rebuild's import closure
+unfreezes. **Banned:** (none)
+**Status:** active (phase 184 plan 02)
+
+---
+
+### `kernel_source`
+
+The research S2 node (`src/intelligence/research/kernel_source.py`) that runs registry and
+research kernels on an S0 panel, per symbol over its present rows, at pinned windows under the
+provenance config. Output is float32 on the panel grid, NaN until the declared memory and NaN
+where the trailing window spans more than the pinned `max_gap_rows` absent grid rows. It refuses
+expanding (path-dependent) outputs and a research window equal to a stored column's.
+**Banned:** (none)
+**Status:** active (phase 184 plan 02)
+
+---
+
 ### `synthetic fill`
 
 A stored bar the backfill fabricates for an interval slot the provider returned nothing for:
