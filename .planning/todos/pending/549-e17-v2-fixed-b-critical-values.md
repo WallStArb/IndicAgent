@@ -70,6 +70,15 @@ selection unblocks without a new statistic, a new code key or a repro_frozen reb
 cells not rerun here (t4, vol_clustering, factor, slot_effects, late_listings,
 real_grid_hostile, s1_hostile) are the ones to check first.
 
+## Owner decision 2026-10-28
+
+Rerun step A with a cluster-robust interval before building anything. Unit `e17-step-a-rerun`
+(`scripts/research/e17_size_diagnostic.py`, seeds from 9,100,000, 16 gating cells x 600
+simulations at 4,000 sessions, output `e17acf/stepA_rerun.json` in the session scratchpad) starts
+when the 187-03 apply ends. If the pooled 99% cluster-robust interval contains 5%, E17 v1
+stands and only step B's pass rule changes; if it excludes 5%, fixed-b is built as planned.
+Record the result here.
+
 ## Done when
 
 E17 v2 is on main with its ledger entry, the step B rule is written, one fresh battery holds

@@ -92,11 +92,11 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   residual family (441 + 423) built to its battery (ee8c264df); prereg draft; h = 21 waits on
   todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) is approved (owner 2026-10-27).
   E17 v2 (owner 2026-10-27, todo 549): fixed-b critical values; the 4,000-session StepM run on v1
-  is a pre-v2 baseline only. 2026-10-28: 187-09 and 187-10 landed, and 187-15 Task 2
+  is a pre-v2 baseline only. 2026-10-28: 187-09, 187-10 and 187-11 landed (migration 530 live: typed concept domains, recipes, `concept_research_stage`), and 187-15 Task 2
   (`PanelSpec.fields`, 184-06's dependency). 187-03's `--apply` runs from 11:32Z under
   `indicagent-187-03-apply` (about 4 h; hold other compare-all runs). Todo 549 carries a finding
   that fixed-b may not be needed (step A pooled correlated arms; fresh 4,000-session H0 runs show
-  size 4.3 to 4.9%): the owner decides whether to rerun step A with a cluster-robust interval first.
+  size 4.3 to 4.9%); owner 2026-10-28: rerun step A cluster-robust first (unit `e17-step-a-rerun`, starts when the 187-03 apply ends). `tools/gate.py` runs the mechanical gate and holds the cross-session parity lock.
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
@@ -138,7 +138,7 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 ## Decisions waiting on the owner
 
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
-  537 item 2 basis restore). This is the only open owner call (the research restart and E17 v2 were decided 2026-10-27). The tooling is
+  537 item 2 basis restore). This is the only open owner call (the research restart was decided 2026-10-27; for E17 v2 the owner chose on 2026-10-28 to rerun step A cluster-robust before building fixed-b). The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
   migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
   run live. D-191-Q (owner 2026-10-27, todo 545): canonical 1d becomes Alpaca

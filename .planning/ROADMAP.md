@@ -47,7 +47,7 @@ runs. STATE.md holds current position; PRIORITIES.md holds the lane order and th
 | 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | 18/25. Plan 19 Task 2 (residue report) running; plan 20 waits on owner approval of the deletion; then 21 -> 22 -> 23 before the rebuild (23 depends on 22), 24 and 25 alongside it |
 | 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2, 186-26 (starts once 191-23 is in), 186-27, 186-28 |
 | 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Planned 2026-10-27: 14 plans in 8 waves; wave 1 runs on 5b's go; wiring after 187-15 Task 2; real data after 186-27 |
-| 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-08 landed; 09 and 10 next (they unblock 184's wiring), then E17 v2 (todo 549, fixed-b critical values; gates StepM selection), then 11-15. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
+| 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-11 landed, and 15 Task 2 (`PanelSpec.fields`, which with 09 and 10 unblocks 184's wiring); 12 next, then 13-15. E17 v2 (todo 549) waits on a cluster-robust rerun of step A (owner 2026-10-28); StepM selection waits on that. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
 | 5 | Testing | Family 2's one evidence run and the daily price-only families at 191-20's re-derive; feature and regime families after 184 | Unpauses at 191-20's 1d re-derive |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing | Not planned; waits on a candidate book |
 
@@ -572,10 +572,10 @@ the phase 183 runner's M = 30 accounting stays in force.
 **Order (owner 2026-10-27):** plans 08-15 first; 16, 17 and 18 and the FK indexes move after the
 first feature family, since none of them is needed to test one.
 **Plans:** 18 plans, each with review amendments (Codex and AGY, 187-REVIEWS.md). Status
-2026-10-27: plans 01-08 landed (ridge and kappa 0.2 books certified; kappa 0.5 refused). StepM:
+2026-10-28: plans 01-11 landed (ridge and kappa 0.2 books certified; kappa 0.5 refused) and 15 Task 2; migration 530 typed the concept domains live. StepM:
 the attestation is a complete 13-cell battery at 4,000 sessions (owner decision 2026-10-27;
 at 1,500 sessions two cells failed, at 4,000 both hold); until it runs and holds, no selection
-set counts as a result. 03's backfill (8 of 20 replays, then `--apply`) is approved by the owner (2026-10-27), one at a time under a memory cap. E17 v2 (owner 2026-10-27, todo 549): E17's HAC over-rejects (5.40% size, 857cdff9f); fixed-b critical values as a versioned statistic, old records kept, family 1 re-scored as new rows; the StepM attestation and the fitted-book certificate rerun under v2 with the step B battery rule. Plan 18 renames the research package and waits
+set counts as a result. 03's backfill (8 of 20 replays, then `--apply`) is approved by the owner (2026-10-27), one at a time under a memory cap. E17 v2 (todo 549): step A found 5.40% size, but its interval treated an H0 simulation's correlated arms as independent (design effect 1.5 to 2.1) and fresh 4,000-session runs show 4.3 to 4.9%; owner 2026-10-28: rerun step A with a cluster-robust interval over every gating cell before building fixed-b (unit `e17-step-a-rerun`); fixed-b, if it still stands, is a versioned statistic with old records kept and family 1 re-scored as new rows; the StepM attestation and the fitted-book certificate rerun under the step B battery rule. Plan 18 renames the research package and waits
 until family 2's one evidence run (after plan 191-20's 1d re-derive) has finished; plans 08-17 do not
 move a recorded spec hash and proceed now.
 
@@ -589,13 +589,13 @@ Plans:
 - [x] 187-06-PLAN.md - the E18 switch: exploration mode, no M refusal, select_books, migration 516
 - [x] 187-07-PLAN.md - ConstructionRule protocol, five rules, E17 parity harness
 - [x] 187-08-PLAN.md - horizon rule (fourth part of the book) and the E17 memory rule for fitted books; fitted books run under a battery certificate
-- [ ] 187-09-PLAN.md - combining rules: missing members, in-fold signs, calendar-anchored refits
-- [ ] 187-10-PLAN.md - pod books (P&L-level combination across clocks)
-- [ ] 187-11-PLAN.md - recipe book identity and recipe writes on the clean schema
+- [x] 187-09-PLAN.md - combining rules: missing members, in-fold signs, calendar-anchored refits
+- [x] 187-10-PLAN.md - pod books (P&L-level combination across clocks)
+- [x] 187-11-PLAN.md - recipe book identity and recipe writes on the clean schema
 - [ ] 187-12-PLAN.md - ConceptRegistryService on the clean schema; todo 459
 - [ ] 187-13-PLAN.md - summary cards and the generated ledger
 - [ ] 187-14-PLAN.md - contribution accounting (S8 extension)
-- [ ] 187-15-PLAN.md - generated_family grammar support in the spec
+- [ ] 187-15-PLAN.md - generated_family grammar support in the spec (Task 2, `PanelSpec.fields`, landed 2026-10-28)
 - [ ] 187-16-PLAN.md - YAML DAG manifest read by service_auditor and the orchestrator
 - [ ] 187-17-PLAN.md - single_writer enforced by per-writer database roles
 - [ ] 187-18-PLAN.md - research package split and renames, todo 430 step 4 (after family 2)
