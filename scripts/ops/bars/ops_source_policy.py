@@ -777,6 +777,16 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
             )
         if not isinstance(fingerprint, dict) or not fingerprint.get("series"):
             raise ValueError("a 1d plan carries the raw fingerprint its arbitration read")
+    if isinstance(fingerprint, dict) and fingerprint.get("through"):
+        # No IBKR row may end after the arbitrated window: past it Alpaca would serve again at a
+        # level nobody arbitrated (c3 review, 2026-10-28).
+        through = _parse_date(fingerprint["through"])
+        for row in symbol_rows:
+            if row["valid_to"] is None or row["valid_to"] > through:
+                raise ValueError(
+                    f"{row['symbol']}: symbol row {row['valid_from']}..{row['valid_to']} reaches "
+                    f"past the window end {through}"
+                )
     hold = tuple(raw.get("hold") or ())
     _check_hold_coverage(hold, symbol_rows, keep)
     quarantine = tuple(raw.get("quarantine") or ())

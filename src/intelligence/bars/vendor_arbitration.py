@@ -43,7 +43,10 @@ span (the Tradier veto, data lane 2026-10-28: Tradier's disagreement holds CRH w
 Otherwise it is held under an interim IBKR row. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
 the same test (second review).
 
-A hold means Alpaca does not serve (second review H1): build_plan gives every held span an interim
+A row or hold whose IBKR row would end after the window end (Tradier's last day) is never
+written: past it Alpaca would serve again at a level nobody arbitrated. Such spans are listed in
+window_end_spans for a decision (c3 review, 2026-10-28). A hold means Alpaca does not serve
+(second review H1): build_plan gives every held span an interim
 IBKR row over it, and the hold list is the owner's to turn into final rows. The plan is the exact
 document scripts/ops/bars/ops_source_policy.py --plan takes: both 1d defaults retired (their
 policy_ids pinned), IBKR before the seam, Alpaca with IBKR fallback from it, the rows, a
@@ -423,6 +426,7 @@ def build_plan(
     by_symbol = {r.symbol: r for r in results}
     symbol_rows: list[dict[str, Any]] = []
     hold: list[dict[str, Any]] = []
+    window_end: list[dict[str, Any]] = []
     defective: list[dict[str, Any]] = []
     quarantine: list[dict[str, Any]] = []
     counts = dict.fromkeys(("row", "evidence", "hold", "noise", "info"), 0)
@@ -438,6 +442,11 @@ def build_plan(
             entry["spans"] += 1
             entry["sessions"] += span.n_sessions
             entry["names"].add(result.symbol)
+            if action in ("row", "hold") and _row_end(span) > params.window_end:
+                # The row would end after Tradier's last day, where Alpaca would serve again at
+                # a level nobody arbitrated: reported for a decision, never written (c3 review).
+                window_end.append({**span.record(), "action": action})
+                continue
             if action in ("row", "hold"):
                 symbol_rows.append(
                     {
@@ -502,6 +511,7 @@ def build_plan(
         "retire_symbol_rows": retire,
         "keep_symbol_rows": keep,
         "hold": hold,
+        "window_end_spans": window_end,
         "ibkr_defective": defective,
         "quarantine": quarantine,
         "quarantine_rule": QUARANTINE_RULE,

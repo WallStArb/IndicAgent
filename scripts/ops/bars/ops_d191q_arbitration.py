@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import hashlib
 import json
 import sys
@@ -102,6 +103,9 @@ WHERE timeframe = '1d' AND symbol IS NOT NULL
 """
 
 
+EVIDENCE_DIR = project_root / ".planning" / "phases" / "191-unified-raw-bar-table" / "evidence"
+
+
 def default_paths(now: datetime) -> tuple[Path, Path]:
     stamp = now.strftime("%Y%m%d")
     return (
@@ -121,6 +125,7 @@ async def run(
     report_path: Path,
     symbols: Sequence[str] | None = None,
     now: datetime | None = None,
+    evidence_dir: Path = EVIDENCE_DIR,
 ) -> int:
     """The arbitration over one read-only session; 2 when Tradier's rows are gone."""
     now = now or datetime.now(UTC)
@@ -211,9 +216,20 @@ async def run(
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(plan, indent=1, sort_keys=True)
     plan_path.write_text(text)
+    # The tracked evidence copy: the decisions that leave no policy row (IBKR-defective spans,
+    # admitted pre-IBKR history, noise) exist only in the plan once Tradier is deleted.
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = evidence_dir / f"d191q_1d_plan_{now:%Y%m%d}.json.gz"
+    packed = gzip.compress(text.encode(), mtime=0)
+    evidence_path.write_bytes(packed)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(
-        render_report(plan, plan_path, hashlib.sha256(text.encode()).hexdigest())
+        render_report(
+            plan,
+            plan_path,
+            hashlib.sha256(text.encode()).hexdigest(),
+            evidence=(evidence_path, hashlib.sha256(packed).hexdigest()),
+        )
     )
     print(json.dumps(plan["evidence"]["span_actions"]))
     return 0
@@ -227,7 +243,13 @@ def _ratio(num: float | None, den: float | None) -> float | None:
     return None if num is None or not den else num / den
 
 
-def render_report(plan: dict[str, Any], plan_path: Path, plan_sha256: str) -> str:
+def render_report(
+    plan: dict[str, Any],
+    plan_path: Path,
+    plan_sha256: str,
+    *,
+    evidence: tuple[Path, str] | None = None,
+) -> str:
     """The owner-facing evidence record of one arbitration run, rendered from the plan alone."""
     ev = plan["evidence"]
     prm = ev["params"]
@@ -247,7 +269,13 @@ def render_report(plan: dict[str, Any], plan_path: Path, plan_sha256: str) -> st
             f"{k} {v['rows']:,} rows, last served {v['max_served_at']}"
             for k, v in plan["raw_fingerprint"]["series"].items()
         )
-        + f". Retired defaults pinned: {', '.join(plan['retire_default_ids'])}.",
+        + f". Retired defaults pinned: {', '.join(plan['retire_default_ids'])}."
+        + (
+            f" Evidence copy (tracked): `{evidence[0].relative_to(project_root)}`, sha256 "
+            f"`{evidence[1]}`."
+            if evidence and evidence[0].is_relative_to(project_root)
+            else (f" Evidence copy: `{evidence[0]}`, sha256 `{evidence[1]}`." if evidence else "")
+        ),
         "",
         "## Classes",
         "",
@@ -267,7 +295,9 @@ def render_report(plan: dict[str, Any], plan_path: Path, plan_sha256: str) -> st
         "",
         f"## IBKR symbol rows ({len(plan['symbol_rows'])})",
         "",
-        "Interim rows are the holds: IBKR serves until the owner decides.",
+        "Interim rows are the holds. They are the decided state (data lane and owner, "
+        "2026-10-28): IBKR serves, with no bar where IBKR is missing; the owner overrides any of "
+        "them by adding a row to a future plan.",
         "",
         "| Symbol | Class | Interim | From | To (excl.) | Sessions | IBKR/Alpaca | Tradier/Alpaca |",
         "|--------|-------|---------|------|------------|----------|-------------|----------------|",
@@ -299,6 +329,22 @@ def render_report(plan: dict[str, Any], plan_path: Path, plan_sha256: str) -> st
             f"{_fmt(h['median_tradier_over_alpaca'])} | "
             f"{_fmt(_ratio(h['median_ibkr_over_alpaca'], h['median_tradier_over_alpaca']))} |"
         )
+    out += [
+        "",
+        f"## Window-end spans ({len(plan.get('window_end_spans', []))})",
+        "",
+        "A row or hold whose IBKR row would end after the window end: past it Alpaca would "
+        "serve again at a level nobody arbitrated, so no row is written; each needs a decision.",
+        "",
+        "| Symbol | Class | Action | From | To | Sessions | IBKR/Alpaca | Tradier/Alpaca |",
+        "|--------|-------|--------|------|----|----------|-------------|----------------|",
+        *[
+            f"| {w['symbol']} | {w['class']} | {w['action']} | {w['start']} | {w['end']} | "
+            f"{w['n_sessions']} | {_fmt(w['median_ibkr_over_alpaca'])} | "
+            f"{_fmt(w['median_tradier_over_alpaca'])} |"
+            for w in plan.get("window_end_spans", [])
+        ],
+    ]
     out += [
         "",
         f"## Quarantine ({len(plan['quarantine'])} sessions, rule `{plan['quarantine_rule']}`)",
