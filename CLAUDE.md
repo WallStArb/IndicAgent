@@ -29,7 +29,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 3. git push origin main; CI is the backstop
 ```
 
-`/gsd-execute-phase` runs its own simplify gate. `.venv/bin/python tools/gate.py` runs steps 1's mechanical part for you (classifies the diff, stops on a migration-number clash, runs the suite, `repro_frozen` when research or statistics changed, and `--compare-all` when asked, the last two under one cross-session lock); `/simplify` and `/review` stay yours. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
+`/gsd-execute-phase` runs its own simplify gate. `.venv/bin/python tools/gate.py` runs the mechanical part of step 1 for you (classifies the diff, stops on a migration-number clash, runs the suite, `repro_frozen` when research or statistics changed, and `--compare-all` when asked, the last two under one cross-session lock); `/simplify` and `/review` stay yours. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
 
 ## Architecture
 
