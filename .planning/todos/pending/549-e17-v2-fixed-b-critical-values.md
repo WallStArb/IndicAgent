@@ -83,3 +83,30 @@ Record the result here.
 
 E17 v2 is on main with its ledger entry, the step B rule is written, one fresh battery holds
 under it, and StepM selection is attested on v2.
+
+## Step A rerun result (2026-10-28)
+
+Unit `e17-step-a-rerun` finished 13:53 ET: 16 gating cells x 600 simulations at 4,000 sessions,
+fresh seeds from 9,100,000 (not the battery's, not a counted look), the E17 lag-1 Newey-West
+statistic, one-sided 5% test. One cluster per simulation (the arms of a simulation share a panel).
+
+| Measure | Size at 0.05 |
+|---|---|
+| Pooled, 9,600 simulations | 5.02%, cluster-robust 99% interval [4.66, 5.37] |
+| Per cell (mean over arms) | 4.70% to 5.53% |
+| Per arm (600 each) | 3.83% to 6.67%; highest static_cell_means/mean5 6.67%, slot_effects/mean5 6.17% |
+| Fixed-b critical values, pooled | 4.91%, [4.56, 5.27] |
+| Longer lags (x2, x4, x8), pooled | 5.11%, 5.21%, 5.39% |
+
+The pooled interval contains 5%, so by the owner decision above E17 v1 stands: no fixed-b, no new
+code key, no repro_frozen rebaseline. Fixed-b would move pooled size by 0.11pp, within noise.
+D_s shows no serial dependence (mean ACF within +-0.003 at lags 1-5), and longer lags still make
+size worse. Evidence kept under `logs/research/` (git-ignored): `e17_step_a_rerun_20261028.txt`
+(the per-arm table) and `e17_step_a_rerun_20261028.json.gz` (the 9,600 raw simulations).
+
+Remaining work: write step B's pass rule down before one fresh run, judged on that run only. Per
+arm at 600 simulations the standard error is about 0.9pp, so a per-arm bound at the Bonferroni
+level is wide; the pooled tolerance (for example at most 6%) carries the test. Then the 4,000-
+session StepM attestation and the fitted-book certificate run under v1, and StepM selection
+unblocks. This todo's plan steps 1 and 4 (fixed-b p-values, family 1 re-score under v2) are not
+built; rename or close the todo once step B is written.
