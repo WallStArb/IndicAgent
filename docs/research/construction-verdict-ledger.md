@@ -1,11 +1,7 @@
 # Research ledger: every alpha idea and where it stands
 
-**Status:** current, filename-stable (edited in place). Last full reconciliation 2026-10-08 (every row checked against todos, `research_run`, the unified design's attempt list and the file tree; corrections listed in the git message of that commit). Previous: 2026-09-25.
-**Interim (2026-09-26):** under the adopted unified design this file becomes a report generated from the UCR recipe book (phase 187, design section 10). Until then it stays hand-edited and remains the sole verdict source. New results count under E18 (every look at the vintage recorded).
-**Purpose:** the one list of alpha research. Section 1 is what is queued or running, section 2
-what is reopened, section 3 what was never tested, section 4 the frozen verdict record. It
-replaces the idea rows of the deleted `docs/research/catalog.md` and the alpha bullets of
-`.planning/IDEAS.md`. Designs live in the linked docs; status lives here only.
+**Status:** current, edited in place. Last full reconciliation 2026-10-08; condensed 2026-10-28 (the longer prior text is `git show 114ae8854:docs/research/construction-verdict-ledger.md`). Under the adopted unified design (phase 187) this file becomes a report generated from the UCR recipe book; until then it is hand-edited and the sole verdict source. New results count under E18 (every look at the vintage recorded).
+**Purpose:** the one list of alpha research: section 1 is what is queued or running, section 2 what is reopened, section 3 what was never tested, section 4 the frozen verdict record, section 5 supporting measurements. Designs live in the linked docs; status lives here only.
 
 **How status works under E15** (`docs/plans/2026-09-24-evidence-framework.md`, adopted
 2026-09-25): the unit of test is a book version, not an idea. Ideas enter as pre-registered
@@ -17,34 +13,27 @@ means a new pre-registered family member ("reopened as family X"), which enters 
 version. The 18 pre-E15 verdicts count toward nothing now, but every family built on seen data
 discloses that look.
 
-**Maintenance:** change a row's status in the same commit as the work that changes it. Add a
-section 4 row when a pre-E15-style standalone verdict is recorded (none are expected now).
-
-**Interim source (2026-09-26):** this file is the home for ideas and verdicts until todo 436's
-UCR recipe book holds them; it then becomes a report rendered from `concept_registry`.
+**Maintenance:** change a row's status in the same commit as the work that changes it.
 
 ## 1. Active queue
 
-Family designs are in `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. Attempt numbers in the unified design (`docs/plans/2026-09-26-unified-research-to-production-design.md` section 6) map to rows here: 1a to 1c are family 1 (todo 442), 2 is the low-turnover form of family 1 (todo 437, the cost model), 3 is rows 4 and 11, 3b is row 12, 4 is row 3, 5 to 8 are `corpus_family` books over rows 9 and 10 and the section 3 feature rows. All attempts are paused until 185 and 186 land (owner 2026-09-27, build first). Only
-family 1 has real-data numbers, all member evidence (a book test was refused before any
-real-data statistic); every number comes from a recorded `research_run` row, never from
-outside one.
+Family designs: `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. Attempt numbers in the unified design (`docs/plans/2026-09-26-unified-research-to-production-design.md` section 6) map to rows here: 1a to 1c are family 1 (todo 442), 2 is the low-turnover form of family 1 (todo 437, the cost model), 3 is rows 4 and 11, 3b is row 12, 4 is row 3, 5 to 8 are `corpus_family` books over rows 9 and 10 and the section 3 feature rows. Attempts unpause at plan 191-20's 1d re-derive (owner 2026-10-27). Only family 1 has real-data numbers, all member evidence; every number comes from a recorded `research_run` row.
 
 | # | Family | Status | Blocked on |
 |---|---|---|---|
-| 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **EVIDENCE RECORDED; BOOK V1 REFUSED** 2026-09-25. Member evidence, run group `5a564f09` (spec `b828c285`, code `531da089d`): HAC timing t 13.53 (lag1), 18.32 (mean5), 18.56 (mean20), 18.41 (mean40); gross Sharpe 3.81 to 5.28; about 26x gross turnover per session, so 1 bp per side costs about 65% a year against about 4.7% gross (diagnostic only). The E16 statistic these used is biased toward zero for own-history members (methodology-change-ledger E17, migration 377 annotation): the detection stands, the magnitudes are understated. Book v1 (run `ba36e5b7`, group `a683f4a5`) refused, underpowered at IC 0.002 (0 of 51), uncharged; the refusal came from E16's bias, not from the data's resolution (todo 432). A known intraday anomaly found at the expected sign and horizon: the research layer's first real-data positive control. **Exploration 2026-09-29** (in-sample; iteration 1 ran through the runner as specs `family1_h{2,4,8,26}.yaml` (16 completed evidence rows in `research_run`, 2026-09-29); iterations 2 to 4 ran outside it with no rows; `docs/plans/2026-09-29-family1-iteration-{1-horizon,2-conviction-gating,3-open-close-slots}.md`): edge per unit traded falls with hold (mean5 E 0.100, 0.087, 0.065, 0.020 bp at h2, h4, h8, h26); concentrating on the extreme names raises it (keep 0.05: 0.25 bp) at lower Sharpe; about 78% of profit is in the opening and closing half hours (E 0.72 and 0.28 bp at keep 0.5), and both slots replicate on 201 names outside the original 233 (E 1.17 and 0.62, t 12 and 24); measured IBKR half-spreads are 1.5 to 1.9 bp (233 set) and 3.6 to 4.9 bp (other 201), so no slot, keep or liquidity cut tried clears cost as a standalone book (E18 promotion gate; costs do not gate discovery, and the edge stands). Series looked at outside the runner (open-slot and liquidity subsets, 30-cell gating grid, keep curve, 32-cell liquid-close grid) join the selection universe when rerun through the runner (todo 457). Iteration 4 (5m timing, `docs/plans/2026-09-29-family1-iteration-4-5m-timing.md`): the opening slot's P&L is all earned by 09:35 and about 60 to 70% of the closing slot's after 15:50, so the edge sits at the two auction prints; the best exit (11:00) and entry (15:40) on the pre-set grid are still net negative (-0.20 and -0.22 bp per unit). Untested next question: an opening-auction-to-closing-auction hold, which crosses no spread, after checking the stored open and close are the official auction prices (todo 460) | E17's gating decision (owner), then attempts 1a (family 1 single-family book, equal weight) and 1c (pod book with family 2), todo 442. Promotion needs positive net expectation (E18), which this construction's turnover rules out as built |
-| 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data; and the corpus `power_hour` pooled IC (section 5), a pending member |
-| 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019; Berkman et al. 2012 for the same-day gap) | Registered 2026-09-25: `docs/plans/2026-09-25-family2-overnight-intraday-prereg.md`. Six members on one signal row (09:45, first 15m bar's close) targeting the rest of the session: intraday persistence 20/60, overnight-to-intraday 20/60, gap fade, scaled gap fade. Members' universe US-session equities (187 names). Gap members disclosed as seen-data re-specifications (section 5 look); low-liquidity gap fade kept as a diagnostic, not a member. Overnight persistence (overnight target) not tested here | B1 (session-legs panel, per-leg S1) and B3 (universe filter) landed (`a678d9e63`); the E17 static-size guard passes (todo 447); no `research_run` row exists yet for `family2_overnight_intraday.yaml` (checked 2026-10-08), so the evidence run is unblocked but not run. Paused with the attempts (build first, owner 2026-09-27); then the book run (one of M = 30) |
+| 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **EVIDENCE RECORDED; BOOK V1 REFUSED** 2026-09-25. Member HAC timing t 13.5 to 18.6, gross Sharpe 3.8 to 5.3 (run group `5a564f09`, spec `b828c285`); the E16 statistic is biased toward zero for own-history members (E17), so the detection stands and the magnitudes are understated. Book v1 refused, underpowered at IC 0.002 (todo 432). Exploration 2026-09-29 (in-sample): the edge sits at the two auction prints (about 78% of profit in the opening and closing half hours, replicating on 201 names outside the original 233), falls with hold length, and turns over about 26x gross per session, so no slot, keep or liquidity cut tried clears the measured half-spreads (1.5 to 1.9 bp on the 233 set, 3.6 to 4.9 bp on the other 201) as a standalone book. Costs do not gate discovery; promotion needs positive net expectation (E18), which this construction as built does not reach. Iteration 1 ran through the runner (specs `family1_h{2,4,8,26}.yaml`); iterations 2 to 4 ran outside it and join the selection universe only when rerun through it (todo 457). Details: `docs/plans/2026-09-29-family1-iteration-{1-horizon,2-conviction-gating,3-open-close-slots,4-5m-timing}.md`. Untested next: an opening-auction-to-closing-auction hold, after checking the stored open and close are the official auction prints (todo 460) | E17's gating decision (owner), then attempts 1a (single-family book) and 1c (pod book with family 2), todo 442 |
+| 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration; must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum in every group) and the corpus `power_hour` pooled IC (section 5) |
+| 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019; Berkman et al. 2012) | Registered 2026-09-25 (`docs/plans/2026-09-25-family2-overnight-intraday-prereg.md`): six members on one signal row (09:45) targeting the rest of the session, 187 US-session names. Gap members are seen-data re-specifications (section 5); low-liquidity gap fade is a diagnostic, not a member | Evidence run unblocked, not run (no `research_run` row, checked 2026-10-08); fires on the data lane's notice at plan 191-20's re-derive, then the book run (one of M = 30) |
 | 3 | ETF-to-constituent and cross-asset lead-lag, 5m to 1h (unified design attempt 4) | Design only; same idea as the Edge Source Thesis's never-run `cross_asset_lead_lag` | Pre-registration |
-| 4 | Short-term reversal (todo 423) | Design only. In-sample panel is seen data (2026-09-13 screen); daily form excludes the 231 names that screen saw and never touches the forward span; todo 423 (paused). The universe is now 1,502 `compute_eligible_1d` names of 1,529 active (checked 2026-10-08), not the 931 the todo text states | Pre-registration with disclosure and one-bar skip variants |
+| 4 | Short-term reversal (todo 423) | Design only. The 2026-09-13 screen panel is seen data; the daily form excludes its 231 names and never touches the forward span. Universe 1,502 `compute_eligible_1d` names of 1,529 active | Pre-registration with disclosure and one-bar skip variants |
 | 5 | Period-end marking (Carhart, Kaniel, Musto, Reed 2002) | Design only (owner-proposed) | Power check, then pre-registration |
-| 6 | Period-end disclosure and liquidation flows (window dressing, tax-loss selling) | Design only (owner-proposed) | Power check (the survivorship bound was retired by the owner 2026-10-09, todo 514) |
+| 6 | Period-end disclosure and liquidation flows (window dressing, tax-loss selling) | Design only (owner-proposed) | Power check |
 | 7 | Index reconstitution | **Held** | A point-in-time event history (no source) |
 | 8 | Options expiry flows (pinning and release, quarterly dose-response) | Design only | A split history (stored prices are split-adjusted); no open-interest capture (owner decision 2026-09-25) |
-| 9 | Price anchoring and slow reversal (George and Hwang 2004 for the 52-week-high anchor, which predicts continuation, the opposite sign to the raw corpus result; the pre-registration states the expected sign). Pending members: `vwap_dev_sigma`, `high_52w_dist`, `rsi_slow`, `aroon_slow`, `price_percentile_slow`, `stoch_k_slow`, `dist_from_high_slow` | Design only, proposed 2026-09-25. Daily clock, one-session target; persistence enters as declared smoothing or lag members, and the run reports each member's IC term structure to lag 60 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`; section 5: predictability had not decayed by the longest horizon measured). Before confirmation: none beyond the D0 labels (the survivorship bound was retired by the owner 2026-10-09, todo 514). Its spec declares `panel.total_return` (todo 428, closed 2026-09-26): price-only prices can manufacture this signal on high-yield names, and the family 9 guard in `tests/unit/research/test_dividends.py` shows the total-return panel removes it. Screenable only if its alpha's autocorrelation time passes the proposed effective-draw refusal (design D6), or under a within-cluster permutation null. Must declare how it relates to family 4 so the same reversal edge is not counted twice | Pre-registration; E15 step 0 residual n_eff at 1d, which sets whether h 20 and 60 have power |
-| 10 | Volume and order flow. Pending members: `up_vol_ratio_fast`, `ofi_z`, `obv_z`, `mfi_slow`, and the todo 281 systematic-dominance and volume-price-confirmation statistics (rejected as HMM axes, not as features) | Design only, proposed 2026-09-25. Weak per-feature support (about 8-9 of 232 names FDR-pass each), the many-weak-members shape ridge pools | Pre-registration; step 0 residual n_eff at 5m and 15m |
-| 11 | Price-only daily families: residual and industry momentum, daily sector lead-lag (unified design attempt 3; todo 441) | Design only, paused. Residual momentum is the §2 reopen of the TSMOM sleeve FAIL. Universe stated in the todo as 931 names; now 1,502 `compute_eligible_1d`, so the pre-registration restates the count. Must declare `panel.total_return`; must declare its overlap with family 4 so one reversal or momentum edge is not counted twice | Pre-registration; 185 clears the daily data bar; S1 residual target on the daily panel |
-| 12 | `generated_family`: a registered grammar over daily OHLCV primitives, in-fold selection plus ridge (attempt 3b; todo 440) | Design only, paused. Discovery without preconceptions; every grammar expansion is a counted look | Family 11's S1 target; grammar registered; E17 H0 battery ridge cells |
+| 9 | Price anchoring and slow reversal (George and Hwang 2004: the 52-week-high anchor predicts continuation, the opposite sign to the raw corpus result; the pre-registration states the expected sign). Pending members: `vwap_dev_sigma`, `high_52w_dist`, `rsi_slow`, `aroon_slow`, `price_percentile_slow`, `stoch_k_slow`, `dist_from_high_slow` | Design only, proposed 2026-09-25. Daily clock, one-session target; persistence enters as declared smoothing or lag members, with each member's IC term structure to lag 60 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`). Declares `panel.total_return` (price-only prices can manufacture this signal on high-yield names; the family 9 guard in `tests/unit/research/test_dividends.py`). Screenable only if its alpha's autocorrelation time passes the effective-draw refusal (design D6) or under a within-cluster permutation null. Must declare its overlap with family 4 so one reversal edge is not counted twice | Pre-registration; E15 step 0 residual n_eff at 1d, which sets whether h 20 and 60 have power |
+| 10 | Volume and order flow. Pending members: `up_vol_ratio_fast`, `ofi_z`, `obv_z`, `mfi_slow`, and the todo 281 statistics (rejected as HMM axes, not as features) | Design only, proposed 2026-09-25. Weak per-feature support (about 8-9 of 232 names FDR-pass each), the many-weak-members shape ridge pools | Pre-registration; step 0 residual n_eff at 5m and 15m |
+| 11 | Price-only daily families: residual and industry momentum, daily sector lead-lag (unified design attempt 3; todo 441) | Design only. Residual momentum is the section 2 reopen of the TSMOM sleeve FAIL. Universe 1,502 `compute_eligible_1d` (the todo text says 931). Declares `panel.total_return` and its overlap with family 4 | Pre-registration; S1 residual target on the daily panel |
+| 12 | `generated_family`: a registered grammar over daily OHLCV primitives, in-fold selection plus ridge (attempt 3b; todo 440) | Design only. Discovery without preconceptions; every grammar expansion is a counted look | Family 11's S1 target; grammar registered; E17 H0 battery ridge cells |
 
 ## 2. Reopened as new family members (pre-registration pending)
 
@@ -62,53 +51,45 @@ Each is disclosed as seen data. The section 4 rows stay frozen.
 
 ## 3. Open, never tested
 
-Candidates with no verdict. None is queued; each needs a family spec to enter a book. The v2.x rows (Confluence, PrecedentEngine, palette brainstorm, BOCPD, Kalman, I7 audit, Renaissance refinements) were written against the I1-I7 plugin tier, which plan 185-45 removed on 2026-10-07 (archive tag `archive/v2x-ai-stack-2026-10`; todo 509 holds the remainder): treat each as an idea to re-derive on the v3 kernel registry, not as code to revive.
+Candidates with no verdict. None is queued; each needs a family spec to enter a book.
 
 | Idea | Where | Note |
 |---|---|---|
-| Overnight futures path to ETF open | `docs/research/data-edge-source-thesis.md` | Falsification pre-registered in that doc, never run |
+| Overnight futures path to ETF open | `docs/research/data-edge-source-thesis.md` | Falsification pre-registered there, never run |
 | `ctf_momentum` combined with the other untested `_build_ctf_series()` siblings | same | "Both proven independently, combination untested" |
-| Adaptive combiner weights (regime-aware ensemble weights) | `docs/research/measurement-adaptive-combiner-weights.md` | Gated-open since 2026-08-07; overlaps S7's walk-forward ridge, decide there |
-| Volume-price confirmation and systematic-dominance statistics as features (todo 281) | `.planning/milestones/v3.1-phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-CANDIDATE-REGIME-AXES-FINDINGS.md` §6 | Rejected as regime axes, never tested as features |
-| Cross-sectional relative-value feature family (`momentum_rank_z`, `volatility_rank_z`, `volume_rank_z`, never computed; the empty columns were dropped from `feature_vectors_v2` in 186-24, so a family recomputes them as kernels) | `.planning/todos/completed/073-cross-sectional-relative-value-feature-family.md` | Moved from todo 073 in the 2026-09-26 triage. The three columns overlap todo 421 step 2 (implement or deprecate). Includes the 5m-vs-15m timeframe choice from closed todo 235 |
-| OHLCV microstructure proxies (Corwin-Schultz and Roll spreads, Amihud, spread regime) | `.planning/todos/completed/074-microstructure-proxy-feature-family.md` | Moved from todo 074, 2026-09-26. Dual use: a measured per-symbol spread for the cost band diagnostics |
-| Small additions: permutation entropy, dollar-bar clock pilot, sub-bar path summaries | `.planning/todos/completed/075-small-feature-additions-entropy-dollar-bars-subbar.md` | Moved from todo 075, 2026-09-26. Dollar bars are a sampling change, not a member; would be its own book version |
-| Rolling volume profile at 1d (`poc_rolling_dist_atr`, `poc_session_rolling_divergence_atr`, suppressed for 1d with session VP) | `.planning/todos/completed/213-rolling-vp-suppressed-for-1d-never-independently-reviewed.md` | Moved from todo 213, 2026-09-26. Needs the 1d columns computed before any family can use them |
-| Outcome-target refinements (beta-hedged residual, overnight/intraday decomposition) | `.planning/todos/completed/077-outcome-target-refinements-vol-normalized-residual-overnight.md` | Moved from todo 077, 2026-09-26. Mostly covered by S1's residualized target and family 2; remaining piece is the overnight leg as a separate target |
-| Confluence as a governed predictor family | `docs/research/intel-confluence-detection-persistence-layer.md` | Draft |
-| PrecedentEngine (k-NN retrieval of similar states) | `docs/research/intel-precedent-engine.md` | Draft; glossary gates it on the ensemble showing IC > 0 |
-| Curated interaction layer (Interaction Factory v2) | `docs/research/intel-feature-interaction-factory.md`, `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md` | Pilot (todo 037) cleared 22.2% of terms at BH-FDR; never run at full scale. Highest-value ensemble candidate: enters as a family of 20-30 theory-motivated pairwise terms |
-| Gradient-boosted (LightGBM) scoring or ensemble pilot | `docs/research/archive/2026-03-19-ml-scoring-research.md` | Designed, never run; would enter as a combiner variant, a new book version |
-| Extended-hours tape family: premarket momentum and liquidity, earnings/news pre-open reaction, overnight-vs-open-auction decomposition beyond family 2's overnight leg | Owner suggestion 2026-10-10 ("we might find premarket edge"); enabled by todo 528's extended-hours raw archive (already pulled, 31.3M extended bars in scratch) | Blocked on 528's archive landing; kernels then compute from the archived extended bars, never from the canonical grid. Adjacent: family 2 owns the overnight/intraday decomposition; a spec must position against it (the overnight leg as target is family 2's remaining piece). Alpaca 1m would need a pull decision if sub-5m resolution is required |
-| Nonlinear combiner (N1) redesign | `docs/research/measurement-nonlinear-interaction-combiner.md` | Inconclusive (hyperparameter-unstable, reproduced exactly); only worth a new design with a per-feature gain cap, as a combiner variant (a new book version) |
-| Regime-conditioned combiner (regime labels as S7 interaction inputs) | section 4 rows: regime-conditional persistence (0/270 cells), `bars_since_high` regime gate | Poor prior; admissible only as a pre-registered combiner variant |
-| Participation-state combiner variant (RSP/SPY concentration trend as the S7 regime input, members enter as `s` and `s x z_t`) | `docs/ideas/signal-participation-state-style-spreads.md` part A | Owner idea 2026-09-25. The concrete first case of the row above: one variant, continuous trailing-rank state, no threshold sweep. Needs a base book from phase 187's selection core and an S7 regime input slot whose 314-session reach enters `book_memory()` (todo 548); one counted attempt under E18, judged at StepM selection. Revised 2026-10-27 |
-| Factor momentum on style spreads (RSP/SPY, IWM/SPY, VTV/VUG; SPHB/USMV, MTUM/SPY, QUAL/SPY from 2011-2013) | same, part B | Raw-return time-series book (S1 removes style returns, so not a residual family). Synthetic power check first, now against StepM at the selection universe's size (E18): the old screen bar gave 80% power at annual Sharpe about 0.9 (3 spreads) to 1.1 (6 spreads), and StepM plus E17 v2's fixed-b values push that up; expected to be refused. A real run needs a time-series construction (the runner is R1 only, todo 548) and plan 191-20's 1d re-derive. Revised 2026-10-27 |
+| Adaptive combiner weights (regime-aware) | `docs/research/measurement-adaptive-combiner-weights.md` | Gated open since 2026-08-07; overlaps S7's walk-forward ridge, decide there |
+| Volume-price confirmation and systematic-dominance statistics as features (todo 281) | `.planning/milestones/v3.1-phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-CANDIDATE-REGIME-AXES-FINDINGS.md` section 6 | Rejected as regime axes, never tested as features |
+| Cross-sectional relative-value features (`momentum_rank_z`, `volatility_rank_z`, `volume_rank_z`; never computed, dropped from `feature_vectors_v2` in 186-24, so a family recomputes them as kernels) | `.planning/todos/completed/073-cross-sectional-relative-value-feature-family.md` | Overlaps todo 421 step 2; includes the 5m-vs-15m choice from todo 235 |
+| OHLCV microstructure proxies (Corwin-Schultz and Roll spreads, Amihud, spread regime) | `.planning/todos/completed/074-microstructure-proxy-feature-family.md` | Dual use: a measured per-symbol spread for the cost band diagnostics; spread kernels landed as todo 553 |
+| Small additions: permutation entropy, dollar-bar clock pilot, sub-bar path summaries | `.planning/todos/completed/075-small-feature-additions-entropy-dollar-bars-subbar.md` | Dollar bars are a sampling change, not a member; would be its own book version |
+| Rolling volume profile at 1d (`poc_rolling_dist_atr`, `poc_session_rolling_divergence_atr`, suppressed for 1d) | `.planning/todos/completed/213-rolling-vp-suppressed-for-1d-never-independently-reviewed.md` | Needs the 1d columns computed first |
+| Outcome-target refinements (beta-hedged residual, overnight/intraday decomposition) | `.planning/todos/completed/077-outcome-target-refinements-vol-normalized-residual-overnight.md` | Mostly covered by S1 and family 2; the remaining piece is the overnight leg as a separate target |
+| Curated interaction layer (Interaction Factory v2) | `docs/research/intel-feature-interaction-factory.md`, `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md` | Pilot (todo 037) cleared 22.2% of terms at BH-FDR; never run at full scale. Highest-value ensemble candidate: a family of 20-30 theory-motivated pairwise terms |
+| Extended-hours tape family: premarket momentum and liquidity, earnings and news pre-open reaction | Owner suggestion 2026-10-10; todo 528's extended-hours raw archive | Kernels compute from the archived extended bars, never the canonical grid; must position against family 2's overnight leg. Alpaca 1m needs a pull decision if sub-5m resolution is wanted |
+| Nonlinear combiner (N1) redesign | `docs/research/measurement-nonlinear-interaction-combiner.md` | Inconclusive (hyperparameter-unstable, reproduced exactly); worth a new design only with a per-feature gain cap, as a combiner variant |
+| Regime-conditioned combiner (regime labels as S7 interaction inputs) | section 4: regime-conditional persistence (0/270 cells), `bars_since_high` regime gate | Poor prior; admissible only as a pre-registered combiner variant |
+| Participation-state combiner variant (RSP/SPY concentration trend as the S7 regime input) | `docs/ideas/signal-participation-state-style-spreads.md` part A | Owner idea 2026-09-25: one variant, continuous trailing-rank state, no threshold sweep. Needs a base book from phase 187's selection core and an S7 regime slot (todo 548); one counted attempt, judged at StepM selection |
+| Factor momentum on style spreads (RSP/SPY, IWM/SPY, VTV/VUG; SPHB/USMV, MTUM/SPY, QUAL/SPY from 2011-2013) | same, part B | Raw-return time-series book (S1 removes style returns). Synthetic power check first, against StepM at the selection universe's size; expected to be refused. A real run needs a time-series construction (the runner is R1 only, todo 548) and plan 191-20's 1d re-derive |
 | OHLCV primitive expansion | `docs/research/signal-renaissance-primitives-ohlcv.md` | Idea |
-| Candlestick pattern expansion | `docs/research/archive/candlestick-pattern-expansion-research.md` | Untested as v3 features (the feature factory carries only body/range ratios); weak prior |
-| Intelligence palette brainstorm (I2-I6, SMC additions) | `docs/research/archive/intelligence-redo-brainstorm.md` | Shipped in v2.x; SMC and OFI features are in the v3 feature factory, BOCPD and Kalman (next rows) are not |
-| BOCPD change-point features | `docs/plans/archive/2026-02-14-bocpd-changepoint-design.md` | v2.x plugin design; not a v3 feature-factory column |
-| Kalman trend features | `docs/plans/archive/2026-02-19-kalman-trend-design.md` | v2.x plugin design; not a v3 feature-factory column |
-| I7 quant audit, "10 structural gaps" | `docs/research/archive/i7-quant-audit-2026-03-16.md` | Written for the v2.x I7 layer; OFI is now a v3 feature; recheck the other gaps (divergence stack, CIS learning loop) against the E15 book |
-| Renaissance refinement ideas (105 across 48 sections) | `docs/research/archive/signal-06-renaissance-refinements.md`, `docs/plans/archive/2026-03-07-i7-i8-renaissance-refinement-design.md` | Written against the v2.x I7/I8 tiers; not yet read at v3 altitude, so unsorted |
 | Sensitivity x regime interaction primitives | `docs/ideas/signal-sensitivity-regime-interaction-primitives.md` | Revision required after its 2026-09-18 review |
-| Quarterly seasonality / OPEX risk-off | `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` | Overlaps families 5 and 8 |
-| Macro context layer (market-wide series, events and derived measures in one read surface) | `docs/ideas/signal-macro-context-layer.md` | Idea, council pass 2026-10-01. Series table built (todo 480); events are schedule series in the same table (no event table); point in time by ALFRED release records is todo 482; every result must survive a one-session availability shift |
-| Political / policy regime (incl. post-midterm presidential-cycle seasonal) | `docs/ideas/signal-political-policy-regime.md` | Idea. Pre-registered look 2026-10-01 on S&P 500 1928-2025 (24 midterms): +8.1 points over 6 months vs other years, permutation p 0.0008, both halves positive; famous-anomaly selection discounts it; needs a runner attempt; forward window 2026-11-03 to 2027-05-03. Look 3 (exploratory window scan, no new evidence): excess sits from ~1 month before to ~6-9 months after; leave-one-out keeps the committed cell at +7.6 or more; best searched cell (1m before, 9m) not adopted. Earlier look on 5 midterms (SPY 2006+): +6m mean +8.5% vs +5.0% unconditional, no +12m edge; underpowered, needs pre-2006 history before any test |
+| Quarterly seasonality and OPEX risk-off | `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` | Overlaps families 5 and 8 |
+| Macro context layer (market-wide series, events and derived measures in one read surface) | `docs/ideas/signal-macro-context-layer.md` | Series table built (todo 480); point in time by ALFRED release records is todo 482; every result must survive a one-session availability shift |
+| Political and policy regime (incl. post-midterm presidential-cycle seasonal) | `docs/ideas/signal-political-policy-regime.md` | Pre-registered look 2026-10-01 on S&P 500 1928-2025 (24 midterms): +8.1 points over 6 months against other years, permutation p 0.0008, both halves positive; famous-anomaly selection discounts it. Needs a runner attempt; forward window 2026-11-03 to 2027-05-03. Later looks and the 5-midterm SPY check are in the doc |
 | Event catalog and impact measurement | `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md` | Idea |
 | Factor sensitivity, cross-asset regime levels | `docs/ideas/from-ssfi/signal-factor-sensitivity-cross-asset.md` | Idea |
 | Convolutional raw-window representation | `docs/ideas/signal-convolutional-raw-window-representation.md` | Idea, skeptical on arrival |
-| Corporate-action event family: dividend month premium (Hartzmark and Solomon 2013, JFE: abnormal returns in months a stock is predicted to pay) and ex-dividend day pricing (Elton and Gruber 1970) | Added 2026-10-12, the one transferable ingredient from arXiv 2512.21804 (which feeds split and dividend events to a CNN raw) | Idea, not queued. Built from stored data only: `dividend_events_reconciled` (Yahoo; outside `dividend_event_coverage` dividends are unknown, never zero) and the split history. Predicted pay month from the past payment pattern is point in time by construction; ex-dates enter only from their availability time, never back-filled. Daily clock, executable open-to-open target, declares `panel.total_return`. Must declare its overlap with family 5 and 6 (period-end flows) so one calendar effect is not counted twice |
-| Pretrained time-series foundation model (TimesFM 2.5, 200M, Apache-2.0) as a volatility and volume forecast feature | Web check 2026-10-08: arXiv 2606.27100, 2511.18578, 2505.11163, 2607.05291 | Idea, not queued. Direction: zero-shot return forecasts do not reliably beat random-walk or linear baselines; the one candidate use is realized volatility or volume, where results are mixed (2505.11163 beats HAR on 21 indices with incremental fine-tuning; 2607.05291, 9 zero-shot models x 8 econometric specs on 50 assets, finds no uniform gain). Gate if ever run: pre-registered against the HAR-RV baseline on the same panel and loss (QLIKE), counted as a look. Blockers: pretraining cutoff and corpus are undisclosed, so `temporal_integrity` cannot be audited; weights, framework and device numerics must be pinned into `code_content_key` for `determinism`; inference over about 1,500 names x timeframes is a new heavy dependency. Do not start before 185/186 land |
+| Corporate-action event family: dividend month premium (Hartzmark and Solomon 2013) and ex-dividend day pricing (Elton and Gruber 1970) | Added 2026-10-12 (arXiv 2512.21804) | Idea, not queued. Built from stored data only (`dividend_events_reconciled`, split history); outside `dividend_event_coverage` dividends are unknown, never zero; ex-dates enter only from their availability time. Daily clock, executable open-to-open target, declares `panel.total_return`; must declare its overlap with families 5 and 6 |
+| Pretrained time-series foundation model (TimesFM 2.5) as a volatility or volume forecast feature | Web check 2026-10-08: arXiv 2606.27100, 2511.18578, 2505.11163, 2607.05291 | Idea, not queued. Zero-shot return forecasts do not reliably beat random-walk or linear baselines; the one candidate use is realized volatility or volume, results mixed. Gate: pre-registered against the HAR-RV baseline on the same panel and loss (QLIKE), counted. Blockers: pretraining corpus undisclosed (`temporal_integrity` cannot be audited), weights and device numerics must be pinned into `code_content_key`, and inference over about 1,500 names x timeframes is a heavy new dependency |
 | Implied borrow cost from listed derivatives | `docs/ideas/signal-implied-borrow-cost-from-listed-derivatives.md` | Needs options data |
-| Front-weighted put ladder | `docs/ideas/signal-credit-put-reverse-diagonal.md` | Idea, 2026-10-05. One OptionNet book (SPX weeklies, projection 2026-10-02): two 1:2 calendars, uncovered front longs, and a 2:1 short at the 7400 wing. Portfolio margin required (strategy margin on the 15 Oct shorts is about $13M). Needs an SPX put-chain snapshot before this inventory can be priced. Not an S1 family |
+| Front-weighted put ladder | `docs/ideas/signal-credit-put-reverse-diagonal.md` | Idea, 2026-10-05; portfolio margin required and an SPX put-chain snapshot needed to price it. Not an S1 family |
 | Orderflow setups (delta divergence, imbalance, absorption) | `.planning/IDEAS.md` | Needs tick-level bid/ask data |
 | News sentiment, alternative data | `.planning/IDEAS.md`, `docs/research/data-alt-data-sources.md` | Needs a data source |
-| Equity stat arb: residual mean reversion on PCA or sector-ETF residuals (OU z-score, factor neutral) | `docs/ideas/signal-equity-stat-arb-method-map.md` (quantguy_usa slides, 2026-10-28) | Idea, not queued. `statistical_factor_residual` DEAD tested residualized IC on `ctf_momentum`, not a residual reversion book; fits as a member of the daily residual family beside residual reversal R1-R3 (todos 441, 423), one more counted look |
-| Equity stat arb: fundamental factor residuals (size, value, momentum, industry) | same | Idea, needs a fundamentals source (none stored; `docs/research/data-alt-data-sources.md` has the as-reported design) |
-| Equity stat arb: ML on residuals (lagged residuals plus features, out-of-sample forecast deciles) | same | Idea, not queued. Overlaps todo 440 and the S7 combiner; the slide's IC of about 0.11 is a leakage warning, not a target |
-| Equity stat arb: Kalman or OU spread with a time-varying hedge ratio | same | Reopened by the owner 2026-10-28 with `cointegrated_pairs_residual`: see section 2 and todo 559 |
+| Equity stat arb: residual mean reversion on PCA or sector-ETF residuals (OU z-score, factor neutral) | `docs/ideas/signal-equity-stat-arb-method-map.md` | Idea, not queued. `statistical_factor_residual` DEAD tested residualized IC on `ctf_momentum`, not a residual reversion book; fits as a member of the daily residual family beside residual reversal R1-R3 (todos 441, 423), one more counted look |
+| Equity stat arb: fundamental factor residuals (size, value, momentum, industry) | same | Needs a fundamentals source (none stored; `docs/research/data-alt-data-sources.md` has the as-reported design) |
+| Equity stat arb: ML on residuals | same | Idea, not queued. Overlaps todo 440 and the S7 combiner; the slide's IC of about 0.11 is a leakage warning, not a target |
+| Equity stat arb: Kalman or OU spread with a time-varying hedge ratio | same | Reopened by the owner 2026-10-28 with `cointegrated_pairs_residual`: section 2 and todo 559 |
 | Equity stat arb: ETF or index arbitrage | same | Not pursued: speed and creation-redemption bound, conflicts with the no hyper-traded rule; the lead-lag form is row 3 of section 1 |
+| v2.x-era ideas (written against the I1-I7 plugin tier removed in 185-45; archive tag `archive/v2x-ai-stack-2026-10`; todo 509 holds the remainder): treat each as an idea to re-derive on the v3 kernel registry, not code to revive | Confluence `docs/research/intel-confluence-detection-persistence-layer.md`; PrecedentEngine `docs/research/intel-precedent-engine.md`; LightGBM scoring `docs/research/archive/2026-03-19-ml-scoring-research.md`; candlestick patterns `docs/research/archive/candlestick-pattern-expansion-research.md`; palette brainstorm `docs/research/archive/intelligence-redo-brainstorm.md`; BOCPD `docs/plans/archive/2026-02-14-bocpd-changepoint-design.md`; Kalman trend `docs/plans/archive/2026-02-19-kalman-trend-design.md`; I7 quant audit `docs/research/archive/i7-quant-audit-2026-03-16.md`; Renaissance refinements (105 ideas, unsorted) `docs/research/archive/signal-06-renaissance-refinements.md` | Confluence and PrecedentEngine are drafts (the glossary gates PrecedentEngine on the ensemble showing IC > 0); the rest are archived. SMC and OFI features from the palette brainstorm are already v3 columns |
 
 ## 4. Verdict record (frozen, chronological)
 
@@ -128,7 +109,6 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | `bars_since_high_fast_xs_ls_h5` (cross-sectional long-short) | 2026-09-11 | **DEAD (unconditional net-negative; regime-gate refinement also fails on decomposition)** | Unconditional full-history spread check: negative gross return (mean -0.0004/rebalance) despite positive pooled regime-averaged IC of 0.1118; low beta (0.19/R²=0.085) rules out beta-contamination. The apparent "0.11 avg IC, 46-symbol support" (`scripts/analysis/personal_edge_paper_screen.py`, H=5) decomposes into 5 FDR-passing `feature_ic_scores` cells drawn from FOUR STRUCTURALLY DIFFERENT regime taxonomies (`market_regimes.regime_group`: equity trend×vol, commodity contango/backwardation, rates curve-shape, fx dollar risk) — not one coherent "hold in regime X" signal. The standout cell, commodity `down_primary_backwardation` (IC=0.299, p=2e-5, FDR-pass), occurred on only 52 total days across 16 years (2008-2024) — a handful of macro-shock episodes (2008 crash, 2014-15 oil collapse, 2020 COVID, 2022 bear), not 52 independent bets; passing a mechanical FDR/CI gate doesn't rescue episode-clustered thinness this severe. Stripping it out, the only broad/robust cells are two equity ones (`mid_neutral` IC=0.043, `high_bear` IC=0.040, n_independent 24k/24k) — barely above the already-failed unconditional pooled IC, not enough to plausibly flip the spread result. No untried regime-gate construction survives this decomposition; graveyard reconsideration item #2 closed on this basis, not merely unreproduced. Structurally-motivated successor (SR-level-support divergence via `_compute_sr_dist_atr`) also tested, also flat (51-58% sign consistency). `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md` (graveyard #4); `project_strategic_plans_2026_09_11` memory. |
 | `alpha_score_residual_single_security_15m` | 2026-09-03 | **FAIL, bucketed retest also FAIL — closed** | Family stat 0.00277 clears the effect-size floor and both bootstrap/null conditions pass, but 0/231 symbols individually qualify BY-FDR positive (floor 10%) — a uniformly dilute common effect, not concentrated per-name alpha. Raw (non-residualized) arm was ~3.8x stronger, confirming the predictivity is dominated by the common/market component the demeaning strips. `concept_registry` (`alpha_score_residual_single_security_15m`); workstream 2 of the personal-scale edge program. **Reconsidered 2026-09-11, bucketed retest run same day — FAST-KILL**: pre-registered 8-bucket sector split (`instruments.contract_details->>'sector'`, fixed mapping, 24 NULL-sector symbols ex-ante excluded) re-ran condition (d) as BY-FDR across 8 bucket-level null p-values instead of 231 per-symbol ones. 0/8 qualify — every raw bucket null_p was already >= 0.15 (range 0.15-0.80), well short of 0.05 before correction even applied. Per the pre-registered fast-kill rule (<=1 of ~8 clearing → abandon), this closes the construction: both per-symbol and bucketed forms of condition (d) have now failed. `scripts/analysis/alpha_score_residual_bucketed_retest_15m.py`. |
 | `range_pct_fast_xs_ls_h5_single_name_only` (successor, Pre-registration 3) | 2026-09-13 | **DEAD (stability criterion fails)** | Successor to the pooled `range_pct_fast_xs_ls_h5` verdict above, restricted to the 128-symbol single-name-equity subset after a diagnostic found the pooled verdict's beta contamination was disproportionately an ETF-subset property (single-name β=0.91/R²=0.44 vs. ETF-only β=1.31/R²=0.82). Full pre-registration written, AGY-reviewed before running (raised valid meta-FDR/cost-realism/null-validity/survivorship objections, recorded but not resolved — moot for this verdict) and specifically flagged that the stability criterion (net > 0 in 3/3 subperiods) fails. AGY's own specific subperiod numbers were independently verified and found WRONG, but the qualitative call held: true numbers +17.87bp / **-1.14bp** / +4.87bp (subperiod 2, 2013-10-02..2019-11-06, at anchor cost) — criterion (c) requires strict positivity in all three, fails on subperiod 2 alone. Per the pre-registration's own no-post-hoc-loosening clause, this is DEAD on criterion (c) without needing the full bootstrap CI/shuffled-null machinery (all three criteria are required; (c) already fails). The preliminary diagnostic's headline 10.17bp (primary-phase-only) masked this — excess return concentrated in the 2007-2013 crisis era, not uniform. `concept_registry` (`range_pct_fast_xs_ls_h5_single_name_only`, migration 334); `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` (Pre-registration 3); todo 375 (completed). |
-
 | H-A `extreme_volume_divergence` (15m, within-symbol) | 2026-09-24 | **FAIL (all five gated criteria), weak effect in the reverse direction** | Pre-registered Track 1, 233 symbols, B=2000, N=1000, panel-synchronous whole-date shift null (todo 372's reviewed fix). Gated 1-bar: family IC -0.0022, CI [-0.0051, +0.0005], null p 0.92 for the predicted direction, negative in all 3 thirds, 0.9% of symbols BY-qualify. 2-bar (reported): IC -0.0033, CI [-0.0067, -0.0002] entirely negative, 8 symbols significant the wrong way. Light volume at a fresh extreme leans very slightly toward continuation (capitulation read), not the predicted reversal; afternoon more negative than morning, so not the open's volume smile. The reverse direction was not pre-registered and is at the effect floor: not claimable from this run. `logs/extreme_volume/h_a_h_b_track1_20260924T201208Z.json` (commit f461bdc54); `scripts/analysis/extreme_volume_divergence_track1.py`; pre-reg `docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`. |
 | H-B `confirmed_reversal` K=3 (15m, within-symbol) | 2026-09-24 | **FAIL (all five gated criteria), no detectable signal** | Same run and machinery. Gated 1-bar: family IC +0.0007, CI [-0.0030, +0.0046], null p 0.37, sub-thirds +0.0029/+0.0017/-0.0022, 0/233 symbols qualify. 2-bar (reported) +0.0029, CI through zero, positive in all thirds but 0 qualifiers. Ungated K robustness: K=1 +0.0006, K=2 +0.0004, K=5 +0.0042 (positive in all thirds) -- choosing K=5 after seeing it is the forking path the pre-registration forbids; not a lead without a fresh pre-registration and its own N_tested increment. |
 | `tsmom_sleeve` classic time-series momentum, 13-symbol cross-asset sleeve (1d, fixed sign) | 2026-09-24 | **FAIL (p 0.22), weak positive excess in all sub-periods** | Pre-registered (`docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md`, frozen 0c33a2596; V2 2.0%, V3 54% at excess 0.50). 12-month trailing log return, sign/vol book, phase 179 evaluator with memory-aware whole-panel shift null (K=3,389). Observed Sharpe 0.47 gross vs null median 0.27: excess +0.19, bootstrap CI [-0.32, +0.73], permutation p 0.22; sub-period excess positive 3/3. Most of the book's return is drift a shifted copy also earns; the timing part is below detection at 13 years. Closes classic TSMOM and its variants (unsigned, 12-1, other lookbacks) on this sleeve. First test of the paradigm here (the 2026-09-13 screen measured a daily RSI). N_tested 18. |
@@ -142,143 +122,74 @@ The `scripts/analysis/*.py` files cited in the rows above were deleted in 186-16
 
 ## 5. Supporting measurements (not verdicts, but load-bearing context)
 
-- **Forward-span looks, 2025-12-24 onward (disclosure for every book, E18; todo 439).** Seven
-  scored looks read data after `alpha.validation.oos_start` (2025-12-24T05:15:00Z), all recorded
-  in `.planning/gate_look_log.jsonl`: 2026-07-22T21:02Z `gate1_signal` (Phase 148
-  `alpha_score`); 2026-07-23T00:26Z (no gate id, Phase 148 gate, fail); 2026-07-23T13:07Z
-  `gate166_baseline` (fail); 2026-07-23T13:21Z `gate166_scalar` (fail); 2026-08-04T23:13Z
-  `gate1_ctf_momentum_decile_ls` (pass); 2026-08-07T11:59Z
-  `gate1_ctf_momentum_decile_ls_ctf_join_v2` (fail); 2026-08-07T12:00Z
-  `gate2_ctf_momentum_decile_ls_ctf_join_v2` (fail). Until 2026-07-02 every IC and ensemble
-  computation also included the span. Consequence (design 7.3 item 4, UD-20): books with
-  `feature_vectors` or `ctf_momentum`-like members confirm only on data after their own freeze
-  and never before 2026-08-08; price-only families 1 and 2 keep 2025-12-24, disclosed as adjacent
-  to the `ctf_momentum` looks. The log's eighth row (2026-09-28, todo 445) read data up to
-  `oos_start` only and is not a forward-span look. Since 2026-10-26 the key itself is
-  write-once (migration 506), so the span cannot be reopened by a config write.
-- **5m features, incremental IC over 15m, 2026-09-28 (disclosure for the phase 186 rebuild).**
-  Todo 445: does a 5m-computed feature carry cross-sectional information the same feature's 15m
-  value does not, at matched clock horizons, net of the personal cost hurdle? Ran as a committed
-  script (R-08: the phase 183 runner has no exploration mode), one counted look
-  (`scripts/research/todo445_5m_incremental_ic.py`, `gate_look_log.jsonl` run_ts
-  2026-09-28T20:25:04Z). 233 `compute_eligible` names, 2016-01-01 to `oos_start`, 240 features
-  tested at 2 horizons (about 2.5 hours and half a session): 176 of 480 (feature, horizon) cells
-  BH-significant at q=0.05 (94 at the shorter horizon, 83 at the longer), but only 2 features
-  cleared the cost hurdle at every grid point: `ret_autocorr_1` (t 2.65-2.72, partial rank IC
-  0.003-0.0035) and `sweep_detected` (t 2.60-2.75, partial rank IC 0.002-0.0025), both horizons.
-  Decision: keep 5m in the rebuild, scoped to these two features at the 233 names that already
-  have 5m data. This is a scoping measurement, not a verdict: phase 187 imports it as an
-  exploration attempt (R-08), and the other 174 BH-significant cells that failed the cost hurdle
-  are not evidence against those features, just too small (or too high-turnover) to trade alone
-  at this personal cost model.
-- **Corpus feature IC by timeframe and horizon, 2026-09-25 (disclosure for families 1b, 9, 10).**
-  Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, vintage 1) while scoping feature
-  families. The largest pooled ICs are one mechanism: price position within its recent range, 1d
-  h 10 (`vwap_dev_sigma` -0.061, `high_52w_dist` -0.058, `rsi_slow` -0.052, `price_percentile_slow`
-  -0.046), with 0 or 1 of 227 names FDR-passing (overlapping 10-day windows, few independent
-  observations). The IC depends on calendar horizon, not timeframe: the same features at 1h reach
-  -0.03 at h 20 (about 3 sessions) and -0.036 to -0.056 at h 60 (about 9 sessions), matching 1d at
-  h 5 to 10, and are about 0 at every 5m and 15m horizon (all within one session). IC over the square
-  root of horizon is roughly flat from 1 to 10 days, so the predictability had not decayed by the
-  longest horizon measured (`alpha.ic.lookahead.1d.extended` = 10); 20 to 60 days was never
-  measured. Broad support is rare: `power_hour` 57/232 at 5m (+0.011), `gap_z` 95/232 (a bar-to-bar
-  artifact, see the next note); everything else is at most about 9/232. `canary_acausal_placebo`
-  at 0.654 on 229/229 confirms the lookahead canary works.
-- **Corpus gap features, pooled IC look, 2026-09-25 (disclosure for family 2).** Gap fade was never
-  tested as a construction or book; it existed only as five corpus features scored per feature by
-  `ic_engine`. Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, not residualized,
-  vintage 1) while scoping family 2: `opening_gap_pct` (session open vs prior close) is about 0 at 1d
-  (0/229 FDR passes) and slightly positive intraday (+0.004 to +0.006, continuation, not reversion;
-  magnitude-conditional IC +0.008 to +0.011 intraday, about -0.014 at 1d h 5-10); `overnight_gap_z`
-  and `gap_filled` are about 0 at every timeframe. `gap_z` is strongly negative intraday (-0.023 at
-  5m and 15m, 95/232 and 69/233 names FDR-pass) but is misnamed: it is `open[i] - close[i-1]` over
-  ATR on every bar (`feature_factory.py::_gap_z_series_full`), so intraday it measures the
-  bar-to-bar open discontinuity, most likely bid-ask bounce or open-print noise, not the overnight
-  gap (unverified; `overnight_gap_z`, the same raw input on a gap-history scale, is flat). Family 2's
-  gap members are specified on seen data and must say so; the `gap_z` effect is a separate
-  microstructure idea, not evidence for gap fade.
-- **Earnings-season conditioning re-decided, 2026-09-24 (todo 403).** Pre-registered with a
-  dependence-robust, size-matched null on the persisted per-partition CIs
-  (`docs/research/earnings-season-conditioning-null-controlled-prereg.md`, pre-registration commit
-  `9ac9cbac2`). 0 of 249 eligible (feature, tf) units BY-significant in the in-season arm and 0 of
-  249 in the mirror arm; median z is null in every tf. `CONDITIONING_VERDICT=NOT_SHARPENED`;
-  `alpha.ic.earnings_season_conditioned` set to `false` (migration 359). It supersedes 176-08's
-  SHARPENS token. A conditioning-flag decision, not a construction verdict, so it has no section 4
-  row.
-- **Residual breadth of the compute_eligible panel, 2026-09-25 (step 0 of the architecture doc).**
-  Participation ratio of the correlation matrix, 1d 2019-2025 on 227 names: 5.5 raw, 29.6 market
-  residual, 51.0 market-and-sector residual (61.5 after the migration 363 label cleanup; S1 now
-  clusters on prices and no longer reads labels); hourly 63 to 83; the 13-symbol sleeve 6.3 raw and
-  8.4 residualized. The breadth premise of the families holds on the 233-name panel
-  (`docs/research/measurement-residual-breadth.md`). This is name breadth; the "~8.4 vs ~230"
-  note below is feature breadth.
-- **Universe-breadth records from phase 174 (decisions about the universe, not alpha verdicts).**
-  The D-10 down-cap pilot gate FAILED: unconditional average pairwise correlation 0.3025 against
-  a 0.10 ceiling and 0.4303 under `high_bear` against 0.30
-  (`docs/research/phase174-down-cap-correlation-gate-verdict.md`); the cross-asset follow-on
-  (`docs/research/phase174-cross-asset-diversification-prereg-2026-09-16.md`) fixed a candidate list
-  but its Gate A was never run, and the single-name breadth design
-  (`docs/research/correlation-regime-and-single-name-breadth-design.md`, v2, 2026-09-24) is a
-  pre-registration with nothing measured. Raw correlation among long-only US equities is dominated
-  by shared market beta (stripping SPY beta takes 0.30 to 0.10), which is why S1 residualizes.
-  The 1,502-name daily universe (2026-10) changes what is feasible; reopen these as part of
-  families 4 and 11 if breadth becomes the binding question.
-- **TSMOM per-symbol (time-series/absolute momentum) screen — NEGATIVE, 2026-09-13.**
-  Council review of the fired decision gate found this construction TYPE (per-symbol,
-  no cross-sectional ranking — structurally distinct from every construction actually
-  falsified in this program) had been proposed
-  (`docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`) but
-  never executed. Ran the "near-free" screen that doc specified: per-symbol Spearman IC
-  of `ctf_momentum` vs. `forward_returns.return_mid` (H=5, IS window), circular-shift
-  null, BH-FDR per symbol family (`scripts/analysis/tsmom_per_symbol_ic_screen.py`).
-  **Mean IC negative across every split** — pooled -0.0261, single-name-only -0.0280,
-  ETF-only -0.0239; 0/231, 0/128, 0/103 qualify BY-FDR positive at any split. A screen,
-  not a falsification (per 0c's own convention — shortlists, doesn't verdict), but a
-  clean negative closes this thread: the one genuinely untried construction paradigm
-  flagged before the gate fired has now been tried and doesn't clear even the screening
-  bar. Does not itself get a ledger row (no construction was ever pre-registered off it
-  — nothing to verdict), recorded here so the gap doesn't get re-flagged as untested.
-  **Corrected 2026-09-24: this screen did not test time-series momentum, and TSMOM is still
-  untested.** At 1d, `ctf_momentum` is a same-timeframe 14-period Wilder RSI scaled to
-  [-1, +1] (`feature_factory.py`'s `ctf_higher_tf_map` comment, todo 189;
-  `services/backfill_feature_factory.py::_build_ctf_series`), and 1d `return_mid` is 2
-  sessions (`alpha.ic.lookahead.1d.mid`, per-tf keys since todo 146), not the H=5 the script's
-  docstring states. So the screen measured a two-week oscillator against a two-day forward
-  return, which is short-term reversal territory. Classic TSMOM (Moskowitz, Ooi and Pedersen
-  2012: 12-month lookback, monthly holding, volatility-scaled positions) was never run. The
-  consistent negative IC is itself a short-term reversal hint (same sign in every split), seen
-  in-sample, so any reversal pre-registration must disclose it and exclude this screen's
-  symbols and window from its evidence. Both are queued in phase 181
-  (`docs/plans/2026-09-24-edge-proof-program.md`, "Phase 181 queue").
-- **`range_pct_fast_xs_ls_h5` beta-by-universe-composition diagnostic — led to a real
-  pre-registered successor test, now CLOSED DEAD, 2026-09-13.** The diagnostic itself
-  (single-name-only β=0.91/R²=0.44 vs. pooled β=1.14/R²=0.75, neutralized intercept
-  10.17bp vs. 4.87bp) was real but explicitly preliminary/non-load-bearing. Followed up
-  same day with a full pre-registration (Pre-registration 3) and AGY review — see the
-  `range_pct_fast_xs_ls_h5_single_name_only` row above for the verdict. Superseded; kept
-  here only as the provenance trail from diagnostic → pre-registration → verdict.
-- **Personal-cost-hurdle tautology check — RESOLVED, hurdle confirmed non-tautological,
-  2026-09-13.** Same review questioned whether 0c's 218/218 (100%) hurdle-clear rate
-  meant the hurdle was a rubber stamp rather than doing real discriminating work. Checked
-  live: across the full population of 554 BH-FDR-passing pooled 1d cells in
-  `feature_ic_scores` (not just the curated 218-cell shortlist), the minimum |IC| is
-  0.0228 — roughly 5-7x above the hurdle's worst-case floor (~0.003-0.004). Nothing in
-  this corpus's FDR-passing population sits anywhere near the hurdle boundary, so the
-  100% pass rate is a real gap between statistical detectability and the personal cost
-  floor, not a tautology artifact of feeding a pre-filtered population into an
-  always-true test. Closes this objection; don't re-raise it.
-- **Effective breadth ~8.4 vs. raw feature count ~230** (measured alongside the discovery-track
-  pilots, 2026-08-07/08) — the corpus has far fewer genuinely independent bets than its column
-  count suggests. Relevant whenever a new candidate's "how much room is left" question comes up.
-- **Personal-scale cost hurdle is not the binding constraint at this account size** (0b,
-  2026-09-02) — worst-case `IC_min` ~0.003-0.004 at H=5-10 vs. measured signal mass 0.03-0.055;
-  the institutional Gate 2 that killed Phase 148 was calibrated to a different (larger) trader.
-  This is why several of the DEAD verdicts above are about *signal not existing at the
-  personal-name level* (alpha_score_residual) or being *a disguised factor bet*
-  (range_pct_fast), not about costs — costs stopped being the limiting factor from 0b onward.
-- **Phase-family feature-quality audit** (2026-08-25, live `feature_ic_scores`): SMC (order
-  blocks, FVG, sweeps) 66.7% gate-clear rate, best family in the corpus; classical
-  swing/Fibonacci structure 27%, with several columns (including `swing_volume_confirmation`
-  — the same column round 1 of the 2026-09-06 volume-divergence pre-registration found
-  measures the wrong thing for that construction) showing literally zero gate-clears anywhere.
-  Corroborating, not conclusive on its own.
+- **Forward-span looks, 2025-12-24 onward (disclosure for every book, E18; todo 439).** Seven scored looks
+  read data after `alpha.validation.oos_start` (2025-12-24T05:15:00Z), all in
+  `.planning/gate_look_log.jsonl`: 2026-07-22 `gate1_signal`, 2026-07-23 (Phase 148 gate, fail),
+  `gate166_baseline` (fail), `gate166_scalar` (fail), 2026-08-04 `gate1_ctf_momentum_decile_ls` (pass),
+  2026-08-07 `gate1_..._ctf_join_v2` (fail) and `gate2_..._ctf_join_v2` (fail). Until 2026-07-02 every IC
+  and ensemble computation also included the span. Consequence (design 7.3 item 4, UD-20): books with
+  `feature_vectors` or `ctf_momentum`-like members confirm only on data after their own freeze and never
+  before 2026-08-08; price-only families 1 and 2 keep 2025-12-24, disclosed as adjacent to the
+  `ctf_momentum` looks. The log's eighth row (2026-09-28, todo 445) read data up to `oos_start` only. The
+  key has been write-once since 2026-10-26 (migration 506).
+- **5m features, incremental IC over 15m, 2026-09-28 (todo 445; disclosure for the phase 186 rebuild).** One
+  counted look (`scripts/research/todo445_5m_incremental_ic.py`, run_ts 2026-09-28T20:25:04Z): 233
+  `compute_eligible` names, 2016-01-01 to `oos_start`, 240 features at 2 horizons; 176 of 480 cells
+  BH-significant at q=0.05, but only `ret_autocorr_1` (t 2.65-2.72) and `sweep_detected` (t 2.60-2.75) cleared
+  the cost hurdle at every grid point. Decision: keep 5m in the rebuild, scoped to those two features. A
+  scoping measurement, not a verdict; the other 174 cells are too small or too high-turnover to trade alone,
+  not evidence against those features.
+- **Corpus feature IC by timeframe and horizon, 2026-09-25 (disclosure for families 1b, 9, 10).** From
+  `feature_ic_scores` (pooled, raw IC, vintage 1). The largest ICs are one mechanism, price position within
+  its recent range at 1d h 10 (`vwap_dev_sigma` -0.061, `high_52w_dist` -0.058, `rsi_slow` -0.052,
+  `price_percentile_slow` -0.046), with 0 or 1 of 227 names FDR-passing (few independent observations). IC
+  depends on calendar horizon, not timeframe: 1h at h 20 to 60 matches 1d at h 5 to 10 and is about 0 at every
+  5m and 15m horizon. IC over the square root of horizon is flat from 1 to 10 days, so predictability had not
+  decayed by the longest horizon measured (`alpha.ic.lookahead.1d.extended` = 10); 20 to 60 days was never
+  measured. Broad support is rare: `power_hour` 57/232 at 5m (+0.011), `gap_z` 95/232 (next note), the rest at
+  most about 9/232. `canary_acausal_placebo` at 0.654 on 229/229 confirms the lookahead canary works.
+- **Corpus gap features, pooled IC look, 2026-09-25 (disclosure for family 2).** Gap fade was never tested as a
+  construction; it existed only as five corpus features. `opening_gap_pct` is about 0 at 1d (0/229 FDR
+  passes) and slightly positive intraday (+0.004 to +0.006, continuation not reversion); `overnight_gap_z`
+  and `gap_filled` are about 0 everywhere. `gap_z` is strongly negative intraday (-0.023 at 5m and 15m) but
+  is misnamed: it is `open[i] - close[i-1]` over ATR on every bar, so intraday it measures the bar-to-bar open
+  discontinuity (likely bid-ask bounce or open-print noise, unverified), not the overnight gap. Family 2's gap
+  members are specified on seen data and must say so; the `gap_z` effect is a separate microstructure idea.
+- **Earnings-season conditioning re-decided, 2026-09-24 (todo 403).** Pre-registered with a dependence-robust
+  null (`docs/research/earnings-season-conditioning-null-controlled-prereg.md`, commit `9ac9cbac2`): 0 of 249
+  units BY-significant in the in-season arm and 0 of 249 in the mirror arm. `CONDITIONING_VERDICT=NOT_SHARPENED`;
+  `alpha.ic.earnings_season_conditioned` set to `false` (migration 359). A conditioning-flag decision, not a
+  construction verdict.
+- **Residual breadth of the compute_eligible panel, 2026-09-25 (`docs/research/measurement-residual-breadth.md`).**
+  Participation ratio, 1d 2019-2025 on 227 names: 5.5 raw, 29.6 market residual, 51.0 market-and-sector
+  residual; hourly 63 to 83; the 13-symbol sleeve 6.3 raw and 8.4 residualized. The breadth premise holds on
+  the 233-name panel. This is name breadth; the "8.4 vs 230" note below is feature breadth.
+- **Universe-breadth records from phase 174 (universe decisions, not alpha verdicts).** The D-10 down-cap pilot
+  gate failed: unconditional average pairwise correlation 0.3025 against a 0.10 ceiling, 0.4303 under
+  `high_bear` against 0.30 (`docs/research/phase174-down-cap-correlation-gate-verdict.md`); the cross-asset
+  follow-on's Gate A was never run, and the single-name breadth design
+  (`docs/research/correlation-regime-and-single-name-breadth-design.md`) has nothing measured. Raw correlation
+  among long-only US equities is dominated by shared market beta (stripping SPY beta takes 0.30 to 0.10), which
+  is why S1 residualizes. Reopen under families 4 and 11 if breadth becomes the binding question.
+- **TSMOM per-symbol screen, 2026-09-13, corrected 2026-09-24.** Per-symbol Spearman IC of `ctf_momentum` against
+  `return_mid`, circular-shift null: mean IC negative in every split (pooled -0.0261, single-name -0.0280,
+  ETF -0.0239), 0 qualifying. The 2026-09-24 correction: this did not test time-series momentum. At 1d,
+  `ctf_momentum` is a 14-period Wilder RSI and `return_mid` is 2 sessions, so it measured a two-week
+  oscillator against a two-day return, which is short-term reversal territory. Classic TSMOM (12-month
+  lookback) was run later as the `tsmom_sleeve` verdict (section 4). The consistent negative IC is a
+  short-term reversal hint seen in-sample, so any reversal pre-registration must disclose it and exclude this
+  screen's symbols and window from its evidence.
+- **Cost hurdle is not a rubber stamp (checked 2026-09-13; do not re-raise).** Across all 554 BH-FDR-passing
+  pooled 1d cells in `feature_ic_scores` the minimum |IC| is 0.0228, about 5 to 7x above the hurdle's
+  worst-case floor (about 0.003 to 0.004), so the 100% hurdle-clear rate is a real gap between statistical
+  detectability and the personal cost floor.
+- **Effective breadth is about 8.4 against about 230 raw features** (2026-08-07/08): the corpus has far fewer
+  independent bets than its column count suggests. Relevant whenever "how much room is left" comes up.
+- **The personal-scale cost hurdle is not the binding constraint** (0b, 2026-09-02): worst-case `IC_min` about
+  0.003 to 0.004 at H=5 to 10 against measured signal mass 0.03 to 0.055. This is why several DEAD verdicts are
+  about signal not existing at the personal-name level (`alpha_score_residual`) or being a disguised factor
+  bet (`range_pct_fast`), not about costs.
+- **Phase-family feature-quality audit** (2026-08-25, `feature_ic_scores`): SMC (order blocks, FVG, sweeps) has a
+  66.7% gate-clear rate, the best family in the corpus; classical swing and Fibonacci structure 27%, with
+  several columns, including `swing_volume_confirmation`, showing zero gate-clears anywhere. Corroborating,
+  not conclusive on its own.
