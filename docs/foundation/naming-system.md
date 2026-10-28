@@ -540,7 +540,7 @@ Calendar primitives (glossary: `calendar primitive`) use a fixed form vocabulary
 | Cyclical coordinate | `<cycle>_sin` + `<cycle>_cos`, always shipped as a pair | `quarter_cycle_sin`, `quarter_cycle_cos` |
 | Linear position | `<cycle>_position`, bounded [0, 1] | `month_position`, `quarter_position` |
 | Session membership | `in_<session>` | `in_ny_session`, `in_overlap` |
-| Event flag | `<event>_flag`, permitted at `tier='1_interaction'` only, never `0_atomic` | `opex_flag`, `quad_witching_flag` |
+| Event flag | `<event>_flag`, permitted at `composition='interaction'` only, never `base` | `opex_flag`, `quad_witching_flag` |
 
 The cycle name states the period in words, never numbers (`quarter_cycle`, not `cycle_63`), the same number-free rule Section 7 applies to gradient columns. Event flags are prohibited at tier 0 by the calendar-primitive doctrine (`docs/research/signal-temporal-atomic-primitives.md`): coordinates span cycles, flags select points, and point selection is a hypothesis that must be declared at tier 1.
 

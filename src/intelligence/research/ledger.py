@@ -444,6 +444,11 @@ class PostgresLedger:
         187-12): the same insert as a run's, under the same lock, for existing concept_registry
         rows of `domain`. Refuses an unregistered concept or CVR code before any write. Returns
         {concept name: recipe hash}."""
+        mismatched = sorted(name for name, recipe in recipes.items() if recipe.concept != name)
+        if mismatched:
+            raise LedgerRefusal(
+                f"recipe content names a different concept than its key: {mismatched}"
+            )
         conn = await connect_with_codecs(self._dsn)
         try:
             async with conn.transaction():

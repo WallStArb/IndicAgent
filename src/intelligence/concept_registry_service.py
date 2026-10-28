@@ -87,6 +87,11 @@ TYPED_DOMAINS = frozenset(
     {"feature", "family", "member", "combiner", "construction_rule", "book", "method"}
 )
 
+# Domains an idea can be logged in. A feature row needs a concept_gate row and a kernel, which
+# arrive with the feature kernel registry, so a feature idea is refused here (a gate-less
+# candidate could never pass record_transition's inner join).
+IDEA_DOMAINS = TYPED_DOMAINS - {"feature"}
+
 # ON CONFLICT DO NOTHING returns no row on a duplicate, so the check and the insert are one
 # statement and two concurrent callers cannot both win.
 _REGISTER_IDEA_SQL = """
@@ -148,8 +153,10 @@ class ConceptRegistryService:
         (domain, name) raises ConceptExistsError, never an overwrite. Recipes and attempts
         are the S6 ledger's to write.
         """
-        if domain not in TYPED_DOMAINS:
-            raise ValueError(f"invalid domain {domain!r}: not one of {sorted(TYPED_DOMAINS)}")
+        if domain not in IDEA_DOMAINS:
+            raise ValueError(f"invalid idea domain {domain!r}: not one of {sorted(IDEA_DOMAINS)}")
+        if not name.strip() or not description.strip():
+            raise ValueError("an idea needs a non-empty name and description")
         metadata = {
             "description": description,
             "sources": sources,

@@ -111,3 +111,12 @@ def test_the_research_modules_read_no_apr_directly():
         if "ConfigService" in p.read_text() or "config_service" in p.read_text()
     )
     assert readers == []
+
+
+def test_seed_recipes_refuses_a_recipe_filed_under_another_concept():
+    with pytest.raises(LedgerRefusal, match="different concept"):
+        asyncio.run(
+            PostgresLedger("postgresql://unused").seed_recipes(
+                "feature", {"a": _recipe("b")}, code_commit="0" * 40, author="x"
+            )
+        )

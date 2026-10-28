@@ -145,7 +145,7 @@ async def test_register_idea_refuses_an_existing_name():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("domain", ["ensemble_strategy", "signal", ""])
+@pytest.mark.parametrize("domain", ["ensemble_strategy", "signal", "", "feature"])
 async def test_register_idea_refuses_an_invalid_domain_before_any_sql(domain):
     conn = _FakeConn(row=None)
     with pytest.raises(ValueError):
@@ -273,3 +273,12 @@ async def test_data_quality_reasons_cannot_deprecate(reason):
     with pytest.raises(ValueError):
         await _transition(conn, to_status="deprecated", reason=reason)
     assert conn.executed == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overrides", [{"name": " "}, {"description": ""}])
+async def test_register_idea_refuses_empty_name_or_description(overrides):
+    conn = _FakeConn(row=None)
+    with pytest.raises(ValueError):
+        await _register(conn, **overrides)
+    assert conn.fetchvals == []

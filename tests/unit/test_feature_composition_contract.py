@@ -64,3 +64,11 @@ def test_seed_recipes_are_distinct_valid_recipes():
     assert all(isinstance(r, RecipeContent) for r in recipes.values())
     assert len({r.recipe_hash for r in recipes.values()}) == len(recipes)
     assert all(r.cvr_codes == {"composition": "base"} for r in recipes.values())
+
+
+def test_genesis_seed_migration_covers_exactly_the_registered_columns():
+    sql = re.sub(
+        r"--[^\n]*", "", read_source("production", "migrations", "534_hmm_columns_genesis_seed.sql")
+    )
+    assert "'genesis_seed'" in sql and "registered_by' = 'migration_533'" in sql
+    assert "NOT EXISTS" in sql  # idempotent

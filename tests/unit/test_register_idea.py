@@ -17,10 +17,30 @@ from src.intelligence.concept_registry_service import ConceptExistsError
 _ARGV = ["--domain", "family", "--name", "gap_reversal", "--description", "d", "--source", "a.md"]
 
 
-def test_dry_run_prints_the_row_and_touches_no_database(capsys, monkeypatch):
-    monkeypatch.setattr(register_idea, "_register", lambda args: pytest.fail("db touched"))
+def test_dry_run_prints_the_row_and_writes_nothing(capsys, monkeypatch):
+    async def absent(args):
+        return False
+
+    monkeypatch.setattr(register_idea, "_register", lambda args: pytest.fail("wrote"))
+    monkeypatch.setattr(register_idea, "_check", absent)
     assert register_idea.main([*_ARGV, "--dry-run"]) == 0
     assert "candidate family/gap_reversal" in capsys.readouterr().out
+
+
+def test_dry_run_refuses_an_existing_name(capsys, monkeypatch):
+    async def present(args):
+        return True
+
+    monkeypatch.setattr(register_idea, "_check", present)
+    assert register_idea.main([*_ARGV, "--dry-run"]) == 1
+    assert "refused" in capsys.readouterr().err
+
+
+def test_feature_domain_and_empty_text_are_rejected_by_the_parser():
+    with pytest.raises(SystemExit):
+        register_idea.main(["--domain", "feature", "--name", "x", "--description", "d"])
+    with pytest.raises(SystemExit):
+        register_idea.main(["--domain", "family", "--name", " ", "--description", "d"])
 
 
 def test_invalid_domain_is_rejected_by_the_parser():

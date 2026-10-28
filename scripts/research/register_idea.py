@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.intelligence.concept_registry_service import (  # noqa: E402
-    TYPED_DOMAINS,
+    IDEA_DOMAINS,
     ConceptExistsError,
     ConceptRegistryService,
 )
@@ -28,13 +28,35 @@ from src.intelligence.concept_registry_service import (  # noqa: E402
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--domain", required=True, choices=sorted(TYPED_DOMAINS))
+    parser.add_argument("--domain", required=True, choices=sorted(IDEA_DOMAINS))
     parser.add_argument("--name", required=True)
     parser.add_argument("--description", required=True)
     parser.add_argument("--source", action="append", default=[], dest="sources")
     parser.add_argument("--author", default=getpass.getuser())
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.name.strip() or not args.description.strip():
+        parser.error("--name and --description must be non-empty")
+    return args
+
+
+async def _exists(conn, args: argparse.Namespace) -> bool:
+    return bool(
+        await conn.fetchval(
+            "SELECT 1 FROM concept_registry WHERE domain = $1 AND name = $2",
+            args.domain,
+            args.name,
+        )
+    )
+
+
+async def _check(args: argparse.Namespace) -> bool:
+    dsn = Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await connect_with_codecs(dsn)
+    try:
+        return await _exists(conn, args)
+    finally:
+        await conn.close()
 
 
 async def _register(args: argparse.Namespace) -> str:
@@ -56,6 +78,11 @@ async def _register(args: argparse.Namespace) -> str:
 def main(argv: list[str] | None = None) -> int:
     args = _parse(argv)
     if args.dry_run:
+        if asyncio.run(_check(args)):
+            print(
+                f"refused: concept_registry already has {args.domain}/{args.name}", file=sys.stderr
+            )
+            return 1
         print(
             f"candidate {args.domain}/{args.name} author={args.author} "
             f"sources={args.sources} description={args.description!r}"
