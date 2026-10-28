@@ -569,3 +569,9 @@ async def test_the_quarantine_write_clears_the_rule_on_names_the_plan_dropped(
         temp_policy_1d, parse_plan({**_PLAN_1D, "quarantine": _QUARANTINE}), apply=True
     )
     assert written == {"GDX": ["2020-03-16", "2020-03-17"], "OLD": []}
+
+
+def test_a_plan_listing_window_end_spans_is_refused():
+    """A window-end span has no row; applying would let Alpaca serve it (2026-10-28 review)."""
+    with pytest.raises(ValueError, match="window-end"):
+        parse_plan({**_PLAN, "window_end_spans": [{"symbol": "X", "start": "2026-09-01"}]})

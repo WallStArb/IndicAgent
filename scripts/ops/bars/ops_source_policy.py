@@ -725,6 +725,12 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
             raise ValueError(f"plan needs {key!r}")
     if raw["timeframe"] not in TIMEFRAMES:
         raise ValueError(f"unknown timeframe {raw['timeframe']!r}")
+    if raw.get("window_end_spans"):
+        # build_plan lists, never writes, a span whose IBKR row would run past the arbitration
+        # window; left unrowed, Alpaca would serve it by default (fourth review, 2026-10-28).
+        raise ValueError(
+            f"{len(raw['window_end_spans'])} window-end span(s) need a decision before apply"
+        )
     if not isinstance(raw["evidence"], dict) or not raw["evidence"]:
         raise ValueError("plan evidence must be a non-empty JSON object")
     seam = _parse_date(raw["seam"])
