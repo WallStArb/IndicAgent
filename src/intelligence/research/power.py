@@ -88,6 +88,7 @@ class PowerProblem:
     memory_sessions: int  # the book's E17 memory, book.book_memory(...).sessions
     bar: float  # alpha / M
     horizon_rule: HorizonRule = HorizonRule()  # the book's (the identity unless the spec sets one)
+    row_session_dates: np.ndarray | None = None  # each row's session date (anchored refits)
 
 
 def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
@@ -120,6 +121,7 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
         warmup_sessions=problem.cfg.warmup_sessions,
         memory_sessions=problem.memory_sessions,
         horizon_rule=problem.horizon_rule,
+        row_session_dates=problem.row_session_dates,
     )
     hac = result.timing.hac
     return ReplicateOutcome(passed=hac.p < problem.bar, p=hac.p, t=hac.t)

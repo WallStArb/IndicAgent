@@ -37,6 +37,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -265,6 +266,9 @@ class CombinerSpec(BaseModel):
     signs: dict[str, Literal[1, -1]] | None = None
     # Plan 187-09 (design 4.1): a cell needs this many members present; unset is complete-case.
     min_members: int | None = Field(default=None, ge=1)
+    # Plan 187-09 (R-187-18): refits on the exchange-session grid through this date (every
+    # refit_sessions-th session counted from it); unset anchors refits to the panel's row 0.
+    refit_anchor: IsoDate | None = None
 
     @model_validator(mode="after")
     def _fields_match_kind(self) -> CombinerSpec:
@@ -272,8 +276,12 @@ class CombinerSpec(BaseModel):
         if self.kind == "equal_weight":
             if any(v is not None for v in ridge) or not self.signs:
                 raise ValueError("an equal_weight combiner takes signs and no ridge fields")
+            if self.refit_anchor is not None:
+                raise ValueError("refit_anchor needs refits; an equal_weight combiner has none")
         elif any(v is None for v in ridge) or self.signs is not None:
             raise ValueError("a ridge combiner takes all four ridge fields and no signs")
+        if self.refit_anchor is not None:
+            date.fromisoformat(self.refit_anchor)  # a real date, not only the pattern
         return self
 
 
@@ -382,6 +390,7 @@ _OPTIONAL_COMBINER_FIELDS = (
     "min_obs",
     "signs",
     "min_members",
+    "refit_anchor",
 )
 TIMING_STATISTIC = "e17"
 

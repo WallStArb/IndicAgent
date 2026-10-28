@@ -32,7 +32,7 @@ import importlib
 import math
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -752,6 +752,7 @@ def _power_problem(
     combiner: Combiner,
     memory_sessions: int,
     horizon_rule: HorizonRule,
+    row_session_dates: np.ndarray,
 ):
     """Synthetic replicates planted on the real test's availability: members read S1 residual
     bar returns, which are missing wherever S1 cannot fit (each name's loading warm-up, not
@@ -793,6 +794,7 @@ def _power_problem(
         memory_sessions=memory_sessions,
         bar=bar,
         horizon_rule=horizon_rule,
+        row_session_dates=row_session_dates,
     )
     return problem, plant
 
@@ -816,7 +818,8 @@ def _member_coverage(present: np.ndarray, scored: np.ndarray) -> dict[str, int]:
 def _combiner_features(book: BookSpec) -> tuple[str, ...]:
     """The combiner's optional rules in use (plan 187-09); each needs its own battery cell."""
     c = book.combiner
-    return () if c.min_members is None else (f"min_members_{c.min_members}",)
+    features = () if c.min_members is None else (f"min_members_{c.min_members}",)
+    return features + (() if c.refit_anchor is None else ("refit_anchor",))
 
 
 def _ridge_settings(book: BookSpec) -> dict:
@@ -847,6 +850,7 @@ def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) ->
         embargo=fwd_span(horizon),
         min_obs=c.min_obs,
         min_members=c.min_members,
+        refit_anchor=None if c.refit_anchor is None else date.fromisoformat(c.refit_anchor),
     )
 
 
@@ -982,6 +986,7 @@ async def run_book(
         bar = alpha_level / budget_m
         combiner = _combiner(book, member_keys, bps, fam0.horizon)
         mem = book_memory(slot_histories, memories, fam0.horizon, combiner, horizon_rule, bps)
+        row_session_dates = np.repeat(snapshot.session_dates(panel), bps)
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
@@ -995,6 +1000,7 @@ async def run_book(
             combiner,
             mem.sessions,
             horizon_rule,
+            row_session_dates,
         )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
@@ -1053,6 +1059,7 @@ async def run_book(
             # No tradable mask: the battery certified the rule adjusting on every row, and a
             # hold on untradable rows would stretch the reach past L (187-08 review).
             horizon_rule=horizon_rule,
+            row_session_dates=row_session_dates,
         )
         series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
         stack_present = (

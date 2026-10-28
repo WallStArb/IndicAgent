@@ -16,6 +16,15 @@ across names, is fitted on the stacked (row, name) observations of the training 
 (panel.fwd_span(horizon)) sits between the last training row and p, so no target the fit sees
 overlaps the first predicted row. Rows p up to the next refit are predicted with that fit.
 
+- Refits anchor to row 0 by default. With `refit_anchor` (plan 187-09, R-187-18) they fall on
+  calendar dates instead, so two panels over the same dates, or a forward run that starts on a
+  later row, refit on the same sessions: the grid is every refit_rows / bars_per_session-th
+  exchange session counted from the first session on or after the anchor (in both
+  directions, so the anchor sets a phase, not a start), and each grid date maps to the first
+  row of the first panel session on or after it. A session the panel lacks never skips a
+  refit; it moves to the next panel session. The first-refit rule (a full window) is kept.
+  The sessions are the exchange calendar S0's grid is checked against, never business days.
+
 - Complete cases only (D-22): an observation enters training when the target and every member
   are finite; a prediction is NaN where any member is NaN. Nothing is filled.
 - With `min_members` (design 4.1, plan 187-09) training stays complete-case, and a cell with at
@@ -44,20 +53,27 @@ ProcessPoolExecutor worker (D-17).
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import warnings
 from typing import Protocol
 
 import numpy as np
 from numba import njit
 
+from src.core.market_calendar import get_market_calendar
+
 _EPS = np.finfo(np.float64).eps
+# The exchange whose sessions S0's grid is checked against (snapshot._EXCHANGE, test-pinned).
+_EXCHANGE = "NYSE"
 
 
 class Combiner(Protocol):
     @property
     def training_rows(self) -> int: ...
 
-    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray: ...
+    def combine(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,7 +105,10 @@ class EqualWeight:
     def training_rows(self) -> int:
         return 0
 
-    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray:
+    def combine(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        # Nothing is fitted, so there are no refits and the session dates are not read.
         if stack.ndim != 3 or stack.shape[2] != len(self.signs):
             raise ValueError(f"stack {stack.shape} does not match {len(self.signs)} signs")
         x = stack.astype(np.float64)
@@ -119,13 +138,18 @@ class RidgeSpec:
     # Plan 187-09: predict on cells with at least this many members present (see
     # walk_forward_ridge); None keeps the complete-case prediction.
     min_members: int | None = None
+    # Plan 187-09: refits on the exchange-session grid through this date (anchored_refit_positions);
+    # None keeps row-0 anchoring.
+    refit_anchor: datetime.date | None = None
 
     @property
     def training_rows(self) -> int:
         return self.window_rows + self.embargo
 
-    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray:
-        return walk_forward_ridge(stack, target, self)
+    def combine(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        return walk_forward_ridge(stack, target, self, row_session_dates=row_session_dates)
 
     def __post_init__(self) -> None:
         if self.window_rows < 1 or self.refit_rows < 1 or self.embargo < 1:
@@ -139,6 +163,42 @@ class RidgeSpec:
 def refit_positions(n: int, spec: RidgeSpec) -> np.ndarray:
     """Refit rows: the first whose training window holds window_rows rows, then every refit_rows."""
     return np.arange(spec.window_rows + spec.embargo - 1, n, spec.refit_rows)
+
+
+def exchange_sessions(first: np.datetime64, last: np.datetime64) -> np.ndarray:
+    """datetime64[D], the exchange's sessions from first through last inclusive, sorted."""
+    days = np.arange(first, last + np.timedelta64(1, "D"), dtype="datetime64[D]")
+    calendar = get_market_calendar()
+    return days[[calendar.is_trading_day(_EXCHANGE, d) for d in days.tolist()]]
+
+
+def anchored_refit_positions(row_session_dates: np.ndarray, spec: RidgeSpec) -> np.ndarray:
+    """Refit rows on the calendar grid through spec.refit_anchor (see the module docstring):
+    the first row of the first panel session on or after each grid session, from the first
+    whose training window is full. `row_session_dates` is each row's session date, sorted,
+    with the same number of rows in every session."""
+    if spec.refit_anchor is None:
+        raise ValueError("anchored_refit_positions needs spec.refit_anchor")
+    dates = np.asarray(row_session_dates, dtype="datetime64[D]")
+    if dates.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    if np.any(dates[1:] < dates[:-1]):
+        raise ValueError("row_session_dates must be sorted")
+    sessions, starts, counts = np.unique(dates, return_index=True, return_counts=True)
+    if np.any(counts != counts[0]):
+        raise ValueError("row_session_dates must give every session the same number of rows")
+    if spec.refit_rows % counts[0]:
+        raise ValueError(
+            f"refit_rows {spec.refit_rows} is not a whole number of sessions of {counts[0]} rows"
+        )
+    step = spec.refit_rows // int(counts[0])
+    anchor = np.datetime64(spec.refit_anchor, "D")
+    calendar = exchange_sessions(min(anchor, sessions[0]), max(anchor, sessions[-1]))
+    origin = int(np.searchsorted(calendar, anchor))  # the first session on or after the anchor
+    grid = calendar[origin % step :: step]
+    first = np.unique(np.searchsorted(sessions, grid))  # first panel session on or after
+    rows = starts[first[first < len(sessions)]]
+    return rows[rows >= spec.window_rows + spec.embargo - 1].astype(np.int64)
 
 
 def _prefix_moments(stack: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -189,13 +249,28 @@ def _row_moments_kernel(stack, target):  # pragma: no cover - numba
     return count, sx, sxx, sxy, sy, live
 
 
-def walk_forward_ridge(stack: np.ndarray, target: np.ndarray, spec: RidgeSpec) -> np.ndarray:
-    """Combined alpha [n, m] float64 from a member stack [n, m, K] and its target [n, m]."""
+def walk_forward_ridge(
+    stack: np.ndarray,
+    target: np.ndarray,
+    spec: RidgeSpec,
+    *,
+    row_session_dates: np.ndarray | None = None,
+) -> np.ndarray:
+    """Combined alpha [n, m] float64 from a member stack [n, m, K] and its target [n, m].
+    `row_session_dates` [n] (each row's session date) is required with spec.refit_anchor and
+    not read without it."""
     if stack.ndim != 3 or target.shape != stack.shape[:2]:
         raise ValueError(f"stack {stack.shape} and target {target.shape} do not align")
     n, m, k = stack.shape
     combined = np.full((n, m), np.nan)
-    positions = refit_positions(n, spec)
+    if spec.refit_anchor is None:
+        positions = refit_positions(n, spec)
+    elif row_session_dates is None:
+        raise ValueError("an anchored ridge (refit_anchor) needs row_session_dates")
+    elif len(row_session_dates) != n:
+        raise ValueError(f"{len(row_session_dates)} row_session_dates for {n} rows")
+    else:
+        positions = anchored_refit_positions(row_session_dates, spec)
     if positions.size == 0:
         return combined
     # `live`: rows where some name has every member finite; prediction touches only those.

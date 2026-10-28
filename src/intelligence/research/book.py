@@ -49,11 +49,13 @@ def book_timing(
     memory_sessions: int,
     horizon_rule: HorizonRule = HorizonRule(),
     tradable: np.ndarray | None = None,
+    row_session_dates: np.ndarray | None = None,
 ) -> BookResult:
     """Combine, construct, smooth (the horizon rule; the identity by default), then the E17
     test on the smoothed book. `tradable` (the panel's valid rows) is where the rule may
-    trade; `memory_sessions` must come from book_memory() with the same rule."""
-    combined = combiner.combine(stack, fwd)
+    trade; `memory_sessions` must come from book_memory() with the same rule;
+    `row_session_dates` (each row's session date) places an anchored combiner's refits."""
+    combined = combiner.combine(stack, fwd, row_session_dates=row_session_dates)
     weights, has_position = rule.weights(combined, vol=vol, fwd=fwd, plan=None)
     weights, has_position = horizon_rule.apply(weights, has_position, tradable)
     timing = timing_test(
