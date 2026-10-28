@@ -109,6 +109,16 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   `indicagent-187-03-apply` (about 4 h; hold other compare-all runs). Todo 549 carries a finding
   that fixed-b may not be needed (step A pooled correlated arms; fresh 4,000-session H0 runs show
   size 4.3 to 4.9%); owner 2026-10-28: rerun step A cluster-robust first (unit `e17-step-a-rerun`, starts when the 187-03 apply ends). `tools/gate.py` runs the mechanical gate and holds the cross-session parity lock.
+- **Research, 2026-10-28 afternoon:** 187-12 landed (`442049351`, `6d6784a85`): `register_idea`
+  and its CLI; migration 533 live (feature `composition` base or interaction replaces `tier`, CVR
+  namespace `composition`, the 11 HMM columns registered with v1 recipes through
+  `ledger.seed_recipes`); todo 459 is ready to close. Next 187-13. The 187-03 apply has finished.
+  The step A cluster-robust rerun (todo 549) is a running user unit (`systemctl --user status
+  e17-step-a-rerun`); its output file is in a scratchpad, so copy the pooled interval into todo 549
+  when it ends. compare-all (`backfill_attempt_series.py --compare-all`) has not run: it waits on
+  that unit and on the data lane's all-clear after plan 191-20's 1d re-derive (1d churn). Todos 558
+  and 559 are specified only in indicagent-47's inbox.
+
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
