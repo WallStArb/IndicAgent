@@ -54,6 +54,17 @@ class _FakeConn:
         self.statements.append(sql)
         if "config_state" in sql:
             return []
+        if "count(*) AS n_rows" in sql:
+            return [
+                {
+                    "vendor": "alpaca",
+                    "kind": "sip_rth",
+                    "n_rows": 300,
+                    "max_served_at": datetime(2026, 10, 27, tzinfo=UTC),
+                }
+            ]
+        if "symbol IS NULL" in sql:
+            return [{"policy_id": "id-default-tradier"}, {"policy_id": "id-default-ibkr"}]
         if "ohlcv_provider_head" in sql:
             return [{"symbol": "PINS", "head": date(2019, 4, 18)}]
         if "bar_source_policy_current" in sql:
@@ -103,7 +114,13 @@ def test_the_session_is_read_only_and_writes_the_plan_and_report(tmp_path, monke
     (row,) = plan["symbol_rows"]
     assert row["symbol"] == "WDC" and row["primary"] == "ibkr"
     assert plan["retire_symbol_rows"][0]["disposition"] == "replaced"
+    assert plan["retire_default_ids"] == ["id-default-ibkr", "id-default-tradier"]
+    assert plan["raw_fingerprint"]["series"]["alpaca/sip_rth"]["rows"] == 300
     report = (tmp_path / "r.md").read_text()
+    import hashlib
+
+    digest = hashlib.sha256((tmp_path / "p.json").read_bytes()).hexdigest()
+    assert digest in report and "## Quarantine" in report
     for heading in ("## Classes", "## IBKR symbol rows", "## Hold list", "## Live symbol rows"):
         assert heading in report
     assert str(tmp_path / "p.json") in report
