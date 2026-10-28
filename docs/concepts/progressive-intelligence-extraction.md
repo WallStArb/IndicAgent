@@ -12,7 +12,7 @@
 > underlying principle — each layer is a hard prerequisite for the next, no skipping — still
 > holds; the concrete tiers below now describe the live AlphaEngine (v3.0) stack instead. See
 > `docs/architecture/architecture-v3-alphaengine-pipeline.md` for full layer detail and
-> `docs/architecture/architecture-v2-event-driven-pipeline.md` for the superseded version.
+> `docs/architecture/archive/architecture-v2-event-driven-pipeline.md` for the superseded version.
 
 ## The Problem It Solves
 
@@ -66,6 +66,6 @@ When designing a progressive extraction pipeline for any domain:
 ## See Also
 
 - Implementation: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — full layer-by-layer detail, what's built vs. measured vs. open
-- Superseded: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived I1-I8 tier system this doc previously described
+- Superseded: `docs/architecture/archive/architecture-v2-event-driven-pipeline.md` — the archived I1-I8 tier system this doc previously described
 - Related concept: `docs/concepts/dag-execution.md` — how layer ordering is enforced via DAG
 - Related concept: `docs/concepts/regime-awareness.md` — why regime is a stratification variable, not a gate, at Layer 2

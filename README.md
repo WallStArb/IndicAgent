@@ -133,7 +133,7 @@ Python (async), PostgreSQL with TimescaleDB, and Redpanda as a durable, replayab
 
 ## The first generation: built, now archived
 
-The first generation was built and run in production in early 2026, then archived in October 2026 (phase 185, plan 45) when the work moved to measurement-first discovery. The code is preserved at the git tag `archive/v2x-ai-stack-2026-10`, and its design is documented in [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md). Figures below describe it as it ran at the time.
+The first generation was built and run in production in early 2026, then archived in October 2026 (phase 185, plan 45) when the work moved to measurement-first discovery. The code is preserved at the git tag `archive/v2x-ai-stack-2026-10`, and its design is documented in [`docs/architecture/archive/architecture-v2-event-driven-pipeline.md`](docs/architecture/archive/architecture-v2-event-driven-pipeline.md). Figures below describe it as it ran at the time.
 
 **An event-driven, real-time pipeline.** Eight analytical tiers ran end to end in under 10 ms per bar, live across 60 instruments spanning futures, ETFs, FX and crypto, computing about 729 data points per bar, per symbol, per timeframe, every one persisted and streamed.
 

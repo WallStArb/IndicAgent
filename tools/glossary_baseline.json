@@ -139,14 +139,14 @@
   "docs/architecture/architecture-evolution.md": {
    "drain": 1
   },
-  "docs/architecture/architecture-v2-event-driven-pipeline.md": {
-   "counterfactual recording": 1,
-   "counterfactual tracking": 2,
-   "execution engine": 1
-  },
   "docs/architecture/architecture-v3-alphaengine-pipeline.md": {
    "alpha discovery": 1,
    "combined score": 1
+  },
+  "docs/architecture/archive/architecture-v2-event-driven-pipeline.md": {
+   "counterfactual recording": 1,
+   "counterfactual tracking": 2,
+   "execution engine": 1
   },
   "docs/data/data-streaming.md": {
    "drain": 2

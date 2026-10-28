@@ -67,6 +67,6 @@ When designing regime awareness for a new system:
 ## See Also
 
 - Implementation: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — Layer 2, full regime-layer detail and the gating-vs-conditioning argument
-- Superseded: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived I4 tier / I7 hard gate this doc previously described
+- Superseded: `docs/architecture/archive/architecture-v2-event-driven-pipeline.md` — the archived I4 tier / I7 hard gate this doc previously described
 - Related concept: `docs/concepts/progressive-intelligence-extraction.md` — regime's place in the layer stack
 - Related concept: `docs/concepts/evidence-graded-signals.md` — the evidence bar a regime candidate (or any feature) must clear

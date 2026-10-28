@@ -90,7 +90,7 @@ This recipe is still sound advice for a domain where the extensibility unit genu
 
 - Live equivalent: `docs/intelligence/intelligence-alphaengine.md` — "What Gets Cut" section; the direct statement that the plugin registry was replaced by a typed function library, not reimplemented
 - Live pipeline: `docs/architecture/architecture-v3-alphaengine-pipeline.md` — full v3.0 layer detail
-- Superseded implementation: `docs/architecture/architecture-v2-event-driven-pipeline.md` — the archived plugin-tier pipeline this doc describes
+- Superseded implementation: `docs/architecture/archive/architecture-v2-event-driven-pipeline.md` — the archived plugin-tier pipeline this doc describes
 - Governance for the new extensibility path: `docs/foundation/unified-concept-registry.md` — evidence-gated feature lifecycle replacing `PluginValidator`
 - Related concept: `docs/concepts/dag-execution.md` — how plugin dependency declarations became execution order (v2.x)
 - Related concept: `docs/concepts/incremental-computation.md` — how the bounded-window/incremental-state split survived independently of the plugin protocol

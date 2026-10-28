@@ -196,7 +196,7 @@ System design docs that predate the domain-folder taxonomy. Files carry an `arch
 | `architecture-overview.md` | Architecture overview (draft, staleness-quarantined 2026-08-11) |
 | `architecture-dag-topology.md` | DAG topology and methodology for the v2.x intelligence pipeline (historical / future-revival reference) |
 | `architecture-evolution.md` | v2.8 historical architecture snapshot of the archived v2.x I1-I7 pipeline |
-| `architecture-v2-event-driven-pipeline.md` | V2 event-driven real-time pipeline, architecture generation 1 (built, dormant) |
+| `archive/architecture-v2-event-driven-pipeline.md` | V2 event-driven real-time pipeline, architecture generation 1 (archived 2026-10-28; the stack was removed in phase 185-45) |
 | `architecture-v3-alphaengine-pipeline.md` | V3.0 statistical IC-discovery architecture, generation 2 (status as of 2026-08-05; predates the v3.5 unified design) |
 
 ### `plans/` — Design specs, preregistrations and implementation plans

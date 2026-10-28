@@ -1,16 +1,18 @@
 # IndicAgent V2 — Event-Driven Real-Time Pipeline (Architecture Generation 1)
 
+> **Archived 2026-10-28.** The v2.x stack this describes was removed in phase 185 plan 45 (git tag `archive/v2x-ai-stack-2026-10`); the status note below predates that removal and is kept as written. For the current pipeline see the root `CLAUDE.md` and `docs/plans/2026-09-26-unified-research-to-production-design.md`.
+
 > **Status (as of 2026-08-05): designed and fully built, dormant since the V3.0 rebuild began
 > 2026-06-20.** `indicagent-ibkr-provider` and `indicagent-intelligence-pipeline` are confirmed
 > stopped; `ExecStart` on the latter points at a deleted file. This is not an outage —
 > live ingestion was deliberately paused to focus on proving statistical edge before running
-> production infrastructure (see root [`CLAUDE.md`](../../CLAUDE.md)'s Architecture section and
-> the [dual intelligence-path plan](../../.planning/) for why this generation may run again as a
+> production infrastructure (see root [`CLAUDE.md`](../../../CLAUDE.md)'s Architecture section and
+> the [dual intelligence-path plan](../../../.planning/) for why this generation may run again as a
 > second, conventional path alongside V3.0's AlphaEngine, not a dead end). Every claim below
 > describes what this generation was designed to do and, where it ran, did do — not what is
 > running today. For the architecture actually being developed right now, see
-> [`architecture-v3-alphaengine-pipeline.md`](architecture-v3-alphaengine-pipeline.md) and the
-> root [`README.md`](../../README.md).
+> [`architecture-v3-alphaengine-pipeline.md`](../architecture-v3-alphaengine-pipeline.md) and the
+> root [`README.md`](../../../README.md).
 
 A Renaissance-inspired market intelligence platform where every decision is measured, every component earns its place through statistical proof, and the system learns from every outcome — winners and counterfactuals alike.
 
@@ -189,7 +191,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 6. **All timestamps UTC** - `datetime.now(UTC)` only. Every bar, event, and DB write is timezone-aware.
 7. **Scaling via systemd + Prometheus lag** - no Kubernetes HPA. Consumer lag is the scaling signal.
 
-Full system map with Mermaid diagram and topic registry: [`docs/architecture/architecture-dag-topology.md`](../architecture/architecture-dag-topology.md).
+Full system map with Mermaid diagram and topic registry: [`docs/architecture/architecture-dag-topology.md`](../../architecture/architecture-dag-topology.md).
 
 ---
 
@@ -375,7 +377,7 @@ I7 plugin fires
 
 **[10] CUSUM + shadow gate - the two feedback loops** - CUSUM control charts track win rate per setup and feed back into `perf_multiplier` without waiting for the 30-day window to catch up. Shadow gate requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive EV at 95% CI) before a plugin enters the live stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles.
 
-Full stage-by-stage detail: [`docs/signals/signals-foundation.md`](../signals/signals-foundation.md) · CIS bucket weights and adaptive weight systems: [`docs/intelligence/intelligence-foundation.md`](../intelligence/intelligence-foundation.md)
+Full stage-by-stage detail: [`docs/signals/signals-foundation.md`](../../signals/signals-foundation.md) · CIS bucket weights and adaptive weight systems: [`docs/intelligence/intelligence-foundation.md`](../../intelligence/intelligence-foundation.md)
 
 ---
 
@@ -527,7 +529,7 @@ The APR is the write target for every learning system in the platform:
 
 Every parameter the system acts on has a path from human prior to empirically calibrated value. The APR is what makes "self-improving" a structural property rather than a marketing claim.
 
-Full spec: [`docs/foundation/adaptive-parameter-registry.md`](../foundation/adaptive-parameter-registry.md)
+Full spec: [`docs/foundation/adaptive-parameter-registry.md`](../../foundation/adaptive-parameter-registry.md)
 
 ---
 
@@ -612,7 +614,7 @@ The VIL substrate is domain-agnostic. The same embed → label → retrieve arch
 
 Each domain plugs into the same VIL tables, the same k-NN primitive, the same scoring engine. No new infrastructure per domain - the substrate compounds with every domain added and every bar processed. The older the system, the more valuable it becomes.
 
-Full design (archived — never carried past the design stage): [`docs/research/archive/analog-engine-substrate.md`](../research/archive/analog-engine-substrate.md) through `analog-engine-scoring-engine.md`/`analog-engine-correlation.md`/`analog-engine-ideas.md` (this generation's `vil-01` through `vil-06` numbering).
+Full design (archived — never carried past the design stage): [`docs/research/archive/analog-engine-substrate.md`](../../research/archive/analog-engine-substrate.md) through `analog-engine-scoring-engine.md`/`analog-engine-correlation.md`/`analog-engine-ideas.md` (this generation's `vil-01` through `vil-06` numbering).
 
 ---
 
@@ -699,49 +701,49 @@ New domains attach the same way. The fundamental analysis engine subscribes to m
 
 ## Documentation
 
-Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signals/`, `agents/`, `platform/`) carry a verification contract: a document with `Status: current` has had every factual claim traced to a source file, table, or live system state at the date shown. A wrong claim is treated as corrupted data - downgraded to `draft` immediately. See [Documentation System](../foundation/documentation-system.md) for the full quality model.
+Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signals/`, `agents/`, `platform/`) carry a verification contract: a document with `Status: current` has had every factual claim traced to a source file, table, or live system state at the date shown. A wrong claim is treated as corrupted data - downgraded to `draft` immediately. See [Documentation System](../../foundation/documentation-system.md) for the full quality model.
 
 ### Foundation - verified, portable
 
 | Document | Covers |
 |----------|--------|
-| [Principles](../foundation/principles.md) | The invariants behind every design decision |
-| [Naming System](../foundation/naming-system.md) | Complete vocabulary: rings, taxonomy, surfaces, mechanical derivation rules |
-| [Documentation System](../foundation/documentation-system.md) | Taxonomy, recipe-card format, verification lifecycle, decay model |
+| [Principles](../../foundation/principles.md) | The invariants behind every design decision |
+| [Naming System](../../foundation/naming-system.md) | Complete vocabulary: rings, taxonomy, surfaces, mechanical derivation rules |
+| [Documentation System](../../foundation/documentation-system.md) | Taxonomy, recipe-card format, verification lifecycle, decay model |
 
 ### Intelligence Domain - verified
 
 | Document | Covers |
 |----------|--------|
-| [Intelligence Foundation](../intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, CIS bucket weights, adaptive weight systems |
-| [Intelligence Plugins](../intelligence/intelligence-plugins.md) | Plugin protocol, 132-plugin inventory, how to add a plugin |
-| [Intelligence AI](../intelligence/intelligence-ai.md) | Swarm agents, LLM chain, shadow governance, graduation criteria |
-| [Intelligence Operations](../intelligence/intelligence-operations.md) | Services, monitoring, debugging the intelligence pipeline |
+| [Intelligence Foundation](../../intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, CIS bucket weights, adaptive weight systems |
+| [Intelligence Plugins](../../intelligence/intelligence-plugins.md) | Plugin protocol, 132-plugin inventory, how to add a plugin |
+| [Intelligence AI](../../intelligence/intelligence-ai.md) | Swarm agents, LLM chain, shadow governance, graduation criteria |
+| [Intelligence Operations](../../intelligence/intelligence-operations.md) | Services, monitoring, debugging the intelligence pipeline |
 
 ### Signals Domain - verified
 
 | Document | Covers |
 |----------|--------|
-| [Signals Foundation](../signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
-| [Signals Lifecycle](../signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
-| [Signals Operations](../signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
-| [Signal-Trade Separation ADR](../signals/signal-trade-separation-ADR.md) | 3-table schema decision (signal_events/trade_frames/trade_executions) - why, full schema, dropped columns, FK design, G0 audit |
+| [Signals Foundation](../../signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
+| [Signals Lifecycle](../../signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
+| [Signals Operations](../../signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
+| [Signal-Trade Separation ADR](../../signals/signal-trade-separation-ADR.md) | 3-table schema decision (signal_events/trade_frames/trade_executions) - why, full schema, dropped columns, FK design, G0 audit |
 
 ### Research & Planning - not authoritative
 
 | Document | Covers |
 |----------|--------|
-| [ML Architecture](../research/archive/ai-02-ml-agent-architecture.md) | ML layer design - 5 agents, LangGraph orchestration, promotion gates (archived) |
-| [eAI Design](../research/archive/ai-03-evolvable-ai-agents.md) | Evolvable AI framework - genome model, reproductive operators, fitness function (archived) |
-| [VIL - Substrate](../research/archive/analog-engine-substrate.md) | pgvector retrieval substrate - embed, label, retrieve; schema; serialization spec (archived, this doc's `vil-01`) |
-| [VIL - Feature IC](../research/archive/analog-engine-ic-factory.md) | Outcome Labeler, IC Factory, Analog Finder - what predicts price (archived, this doc's `vil-02`) |
-| [VIL - Scoring Engine](../research/archive/analog-engine-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope (archived, this doc's `vil-03`) |
-| [VIL - Correlation](../research/archive/analog-engine-correlation.md) | Effective-N; plugin/signal independence; redundancy suppression (archived, this doc's `vil-04`) |
+| [ML Architecture](../../research/archive/ai-02-ml-agent-architecture.md) | ML layer design - 5 agents, LangGraph orchestration, promotion gates (archived) |
+| [eAI Design](../../research/archive/ai-03-evolvable-ai-agents.md) | Evolvable AI framework - genome model, reproductive operators, fitness function (archived) |
+| [VIL - Substrate](../../research/archive/analog-engine-substrate.md) | pgvector retrieval substrate - embed, label, retrieve; schema; serialization spec (archived, this doc's `vil-01`) |
+| [VIL - Feature IC](../../research/archive/analog-engine-ic-factory.md) | Outcome Labeler, IC Factory, Analog Finder - what predicts price (archived, this doc's `vil-02`) |
+| [VIL - Scoring Engine](../../research/archive/analog-engine-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope (archived, this doc's `vil-03`) |
+| [VIL - Correlation](../../research/archive/analog-engine-correlation.md) | Effective-N; plugin/signal independence; redundancy suppression (archived, this doc's `vil-04`) |
 | VIL - Signal Combiner | IC-weighted, decorrelated combination of the live edge set (this doc's `vil-05` — never reached a standalone file; folded into the other analog-engine archive docs) |
-| [VIL - Platform Ideas](../research/archive/analog-engine-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory (archived, this doc's `vil-06`) |
-| [DAG Execution](../concepts/dag-execution.md) | Service DAG topology and execution model |
-| [Roadmap](../../.planning/ROADMAP.md) | Phase roadmap and current position |
+| [VIL - Platform Ideas](../../research/archive/analog-engine-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory (archived, this doc's `vil-06`) |
+| [DAG Execution](../../concepts/dag-execution.md) | Service DAG topology and execution model |
+| [Roadmap](../../../.planning/ROADMAP.md) | Phase roadmap and current position |
 
 ### AI Assistant
 
-- [CLAUDE.md](../../CLAUDE.md) - architecture, commands, conventions, gotchas
+- [CLAUDE.md](../../../CLAUDE.md) - architecture, commands, conventions, gotchas

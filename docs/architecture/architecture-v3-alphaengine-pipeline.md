@@ -6,7 +6,7 @@
 > a claim below is "designed" vs. "built" vs. "measured," it says so explicitly. For the prior
 > generation this replaced — a fully-built, real-time event-driven pipeline, dormant since this
 > rebuild began 2026-06-20 — see
-> [`architecture-v2-event-driven-pipeline.md`](architecture-v2-event-driven-pipeline.md).
+> [`architecture-v2-event-driven-pipeline.md`](archive/architecture-v2-event-driven-pipeline.md).
 
 ## Why V3.0 Exists
 
@@ -68,7 +68,7 @@ Nothing here is a straight line drawn once and never revisited. Nearly every sta
 
 **Why it's there:** every downstream number — a feature value, an IC estimate, a backtested return — is only as trustworthy as the bars it was computed from. Data integrity here has no IC, no statistical gate, no Concept Registry row; its correctness bar is simpler and stricter: no gaps, no duplicate writes, no silent drops, no synthetic fill masquerading as a real trade.
 
-**How it's approached today:** this is corpus-driven, not real-time. V2's real-time ingestion chain (`indicagent-ibkr-provider`, sub-10ms bar-to-signal) is intentionally stopped — deliberate, not an outage; see [`architecture-v2-event-driven-pipeline.md`](architecture-v2-event-driven-pipeline.md)'s status banner for why it may run again as a second path once edge is proven. Live data isn't required to find edge; historical depth is what IC measurement actually needs, and IBKR's historical API (`reqHistoricalDataAsync`, paced by IBKR's own rate limits rather than the live-subscription cap) supplies it. Backfill runs via `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py`, targeting 20-year depth on 1d/1h/15m/5m and 90-day depth on 1m (enough to capture time-of-day/day-of-week structure without the storage cost of 20 years of 1m bars).
+**How it's approached today:** this is corpus-driven, not real-time. V2's real-time ingestion chain (`indicagent-ibkr-provider`, sub-10ms bar-to-signal) is intentionally stopped — deliberate, not an outage; see [`architecture-v2-event-driven-pipeline.md`](archive/architecture-v2-event-driven-pipeline.md)'s status banner for why it may run again as a second path once edge is proven. Live data isn't required to find edge; historical depth is what IC measurement actually needs, and IBKR's historical API (`reqHistoricalDataAsync`, paced by IBKR's own rate limits rather than the live-subscription cap) supplies it. Backfill runs via `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py`, targeting 20-year depth on 1d/1h/15m/5m and 90-day depth on 1m (enough to capture time-of-day/day-of-week structure without the storage cost of 20 years of 1m bars).
 
 `market_data_ohlcv_tradeable` (a view filtering `volume > 0`) is the read path for any compute or measurement — the raw table is a continuous calendar grid that includes synthetic-fill and provider flat-carry-forward placeholder bars for roughly 82% of intraday rows. Reading the raw table for anything except a documented exception is treated as a data-integrity bug, enforced by a CI allow-list test.
 
@@ -261,7 +261,7 @@ The single question gating everything downstream right now: does the cross-secti
 
 ## See Also
 
-- **Prior generation, full detail:** [`architecture-v2-event-driven-pipeline.md`](architecture-v2-event-driven-pipeline.md)
+- **Prior generation, full detail:** [`architecture-v2-event-driven-pipeline.md`](archive/architecture-v2-event-driven-pipeline.md)
 - **AlphaEngine concept + vocabulary (canonical):** [`docs/intelligence/intelligence-alphaengine.md`](../intelligence/intelligence-alphaengine.md)
 - **IC/ensemble methodology (canonical, current):** [`docs/intelligence/intelligence-alphaengine-methodology.md`](../intelligence/intelligence-alphaengine-methodology.md)
 - **North Star / intelligence vectors (V1-V8) full spec:** [`docs/foundation/v3-north-star.md`](../foundation/v3-north-star.md)
