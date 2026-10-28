@@ -14,13 +14,13 @@ import dataclasses
 import json
 import sys
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from services._batch_utils import make_worker_pool  # noqa: E402
 from src.intelligence.research import null_battery as nb  # noqa: E402
 from src.intelligence.statistics.hac import newey_west_lag  # noqa: E402
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         sys.argv[5],
     )
     jobs = [(c, SEED0 + i, sessions) for c in cells for i in range(n_sims)]
-    with ProcessPoolExecutor(workers) as ex:
+    with make_worker_pool(workers, blas_threads_per_worker=1) as ex:
         results = list(ex.map(one, jobs))
     json.dump(results, open(out, "w"))
     print("done", len(results))
