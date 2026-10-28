@@ -52,3 +52,32 @@ h = 5), and the cost in power of a longer lag.
 Next: parametrize the daily battery by horizon, run h = 5 and h = 21 at the real length with a
 cluster-robust interval under three candidate rules (L, L + c (h - 1), 2L), then an owner-approved E17
 amendment. Diagnostic script (scratch): `scratchpad/d547/diag.py`; copy it into `scripts/research/` if kept.
+
+## Diagnostic at the real panel length (2026-10-28, exploratory, not a counted look)
+
+Daily residual battery, 150 simulations per cell (6 arms each), fresh seeds from 9,300,000, 6,000
+sessions (n about 5,420 after warmup), NW lag L = 9. One-sided rejection at 1.645; the interval is a 99%
+cluster interval with one cluster per simulation. The battery's horizon was hard-coded to 5; it now
+takes `DailyScenario.horizon` (default 5, so existing results are unchanged).
+
+| Rule (Bartlett lag) | gaussian h=5 | hostile h=5 | gaussian h=21 | hostile h=21 |
+|---|---|---|---|---|
+| L (current E17) | 5.89% [2.6, 9.2] | 5.33% [2.5, 8.2] | 11.89% [7.1, 16.7] | 10.89% [7.0, 14.7] |
+| L + (h-1) | 5.33% | 5.11% | 7.22% [3.8, 10.7] | 6.00% [3.0, 9.0] |
+| L + 3 (h-1) | 5.22% | 4.78% | 6.33% [3.1, 9.6] | 5.11% [2.3, 7.9] |
+| 2 L | 5.22% | 4.78% | 8.33% [4.4, 12.2] | 7.56% [4.3, 10.8] |
+| max(L, 2h) | 5.78% | 5.33% | 6.56% [3.3, 9.9] | 5.89% [2.9, 8.9] |
+
+Reading: at h = 5 the current rule is acceptable on the real length (5.3% to 5.9%; the 8% in the first
+note was a short-panel effect), so the h = 5 members can run under E17 as it stands. At h = 21 the
+current lag fails outright (11% to 12%, interval excludes 5%) because the overlap (20 sessions) exceeds
+L = 9. A lag of L + 3 (h - 1) is the best of the candidates tried here (5.1% to 6.3% at h = 21, 4.8% to
+5.2% at h = 5); L + (h - 1) and max(L, 2h) are close behind. The intervals are wide (150 simulations,
++-3 points), so the choice among the three is not settled by this run.
+
+Recommendation for the owner: adopt a horizon-tied lag, lag = L + c (h - 1) with c pinned, as an E17
+amendment that leaves every intraday statistic and every h <= 5 daily run unchanged only if c (h - 1)
+is added solely for daily targets with h > 5 (otherwise h = 5 moves by 12 lags; the table shows it
+changes size by less than 1 point). Certify c = 3 on a full daily battery (1,000 simulations, the same
+cells plus the S1 cell, h = 5 and 21) before the amendment; measure the power cost on a planted-signal
+cell at the same time. Until then h = 21 momentum stays blocked and h = 5 runs may proceed.
