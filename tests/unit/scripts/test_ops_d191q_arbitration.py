@@ -85,9 +85,17 @@ class _FakeConn:
 
 def test_refuses_without_tradier_rows(tmp_path):
     conn = _FakeConn(tradier=False)
-    code = asyncio.run(arb.run(conn, plan_path=tmp_path / "p.json", report_path=tmp_path / "r.md"))
+    code = asyncio.run(
+        arb.run(
+            conn,
+            plan_path=tmp_path / "p.json",
+            report_path=tmp_path / "r.md",
+            evidence_dir=tmp_path / "evidence",
+        )
+    )
     assert code == 2
     assert not (tmp_path / "p.json").exists() and not (tmp_path / "r.md").exists()
+    assert not (tmp_path / "evidence").exists()
 
 
 def test_the_session_is_read_only_and_writes_the_plan_and_report(tmp_path, monkeypatch):
@@ -104,8 +112,19 @@ def test_the_session_is_read_only_and_writes_the_plan_and_report(tmp_path, monke
 
     monkeypatch.setattr(arb, "read_daily_inputs", inputs)
     conn = _FakeConn(tradier=True)
-    code = asyncio.run(arb.run(conn, plan_path=tmp_path / "p.json", report_path=tmp_path / "r.md"))
+    code = asyncio.run(
+        arb.run(
+            conn,
+            plan_path=tmp_path / "p.json",
+            report_path=tmp_path / "r.md",
+            evidence_dir=tmp_path / "evidence",
+        )
+    )
     assert code == 0
+    import gzip
+
+    (gz,) = (tmp_path / "evidence").glob("d191q_1d_plan_*.json.gz")
+    assert gzip.decompress(gz.read_bytes()) == (tmp_path / "p.json").read_bytes()
     assert "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY" in conn.statements[0]
     assert not any(
         s.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for s in conn.statements
@@ -121,6 +140,8 @@ def test_the_session_is_read_only_and_writes_the_plan_and_report(tmp_path, monke
 
     digest = hashlib.sha256((tmp_path / "p.json").read_bytes()).hexdigest()
     assert digest in report and "## Quarantine" in report
+    assert hashlib.sha256(gz.read_bytes()).hexdigest() in report
+    assert "## Window-end spans" in report
     for heading in ("## Classes", "## IBKR symbol rows", "## Hold list", "## Live symbol rows"):
         assert heading in report
     assert str(tmp_path / "p.json") in report

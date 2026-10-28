@@ -413,3 +413,42 @@ def test_tradier_contradicting_a_long_span_holds_it_even_with_an_ordinary_gap():
     _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=9.8, tradier_pre=13.0)
     (pre,) = _only(_arb("CRH", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
     assert pre.continuous and span_action(pre, _PARAMS) == "hold"
+
+
+# --- window-end guard: no row may end at Tradier's last day (c3 review, 2026-10-28) -------------
+
+
+def test_a_row_or_hold_reaching_the_window_end_is_reported_not_written():
+    days = _sessions(date(2026, 8, 3), 40)
+    window = replace(_PARAMS, window_end=days[-1])
+    # three-way (held) and IBKR = Tradier (alpaca_differs) spans running to Tradier's last day
+    three = _arb(
+        "SSP",
+        dict.fromkeys(days, 10.0),
+        dict.fromkeys(days, 12.0),
+        dict.fromkeys(days, 14.0),
+        window,
+    )
+    differs = _arb(
+        "WDC",
+        dict.fromkeys(days, 10.0),
+        dict.fromkeys(days, 12.0),
+        dict.fromkeys(days, 12.0),
+        window,
+    )
+    plan = _plan([three, differs], params=window)
+    assert plan["symbol_rows"] == [] and plan["hold"] == []
+    assert sorted((s["symbol"], s["end"]) for s in plan["window_end_spans"]) == [
+        ("SSP", days[-1].isoformat()),
+        ("WDC", days[-1].isoformat()),
+    ]
+
+
+def test_parse_plan_refuses_a_symbol_row_reaching_past_the_window_end():
+    from scripts.ops.bars.ops_source_policy import parse_plan
+
+    wdc, _ = _wdc()
+    plan = _plan([wdc])
+    plan["symbol_rows"][0]["valid_to"] = "2026-10-07"
+    with pytest.raises(ValueError, match="window end"):
+        parse_plan(plan)
