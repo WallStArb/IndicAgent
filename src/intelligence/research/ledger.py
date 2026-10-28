@@ -59,7 +59,7 @@ class Identity:
     child -> parent in concept_parent."""
 
     name: str
-    kind: Literal["family", "member", "book_version"]
+    kind: Literal["family", "member", "book_version", "pod_book"]
     description: str
     metadata: dict = field(default_factory=dict)
     parents: tuple[str, ...] = ()
@@ -67,7 +67,7 @@ class Identity:
 
 @dataclass(frozen=True)
 class RunRequest:
-    kind: Literal["evidence", "book_test"]
+    kind: Literal["evidence", "book_test", "pod_book"]
     spec_path: str
     spec_hash: str
     spec_blob: str
@@ -99,6 +99,19 @@ class AttemptSeries:
 
     def sessions_as_dates(self) -> list:
         return self.sessions.astype(object).tolist()
+
+
+@dataclass(frozen=True)
+class PinnedRun:
+    """A recorded attempt read by run_id, as a pod pins it (plan 187-10)."""
+
+    run_id: str
+    kind: str
+    status: str
+    spec_hash: str
+    vintage: str
+    evidence: dict
+    series: AttemptSeries | None  # None when no series was stored
 
 
 def _headline(payload: dict, series: AttemptSeries | None) -> tuple:
@@ -162,6 +175,36 @@ class PostgresLedger:
             )
         finally:
             await conn.close()
+
+    async def pinned_run(self, run_id: str) -> PinnedRun | None:
+        """The attempt `run_id` with its stored series, or None when no such run exists."""
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT r.run_id::text AS run_id, r.kind, r.status, r.spec_hash, r.vintage, "
+                "r.evidence, s.sessions, s.d_s FROM research_run r "
+                "LEFT JOIN research_run_series s USING (run_id) WHERE r.run_id = $1",
+                uuid.UUID(run_id),
+            )
+        finally:
+            await conn.close()
+        if row is None:
+            return None
+        series = None
+        if row["sessions"] is not None:
+            series = AttemptSeries(
+                sessions=np.array(row["sessions"], dtype="datetime64[D]"),
+                values=np.array(row["d_s"], dtype=np.float64),
+            )
+        return PinnedRun(
+            row["run_id"],
+            row["kind"],
+            row["status"],
+            row["spec_hash"],
+            row["vintage"],
+            row["evidence"] or {},
+            series,
+        )
 
     async def charged_book_tests(self, vintage: str) -> int:
         conn = await connect_with_codecs(self._dsn)

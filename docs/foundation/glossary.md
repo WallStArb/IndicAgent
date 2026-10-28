@@ -1615,6 +1615,22 @@ versions: every attempt is counted and priced by the `selection test` (E18).
 
 ---
 
+### `pod book`
+
+Books on different clocks (for example 15m intraday and session-level) combined at the P&L
+level: the pod's series is the session-level sum of its member books' recorded E17 D_s series on
+the sessions every member tested, never recomputed and never filled. Each member is pinned by
+run_id and the series' content hash, so rerunning a member book never changes a pod. A pod is
+its own spec kind (`pod_book`) and its own counted attempt, tested with E17's HAC statistic on
+the summed series; its power is inherited from the members' passing power blocks.
+
+**Not:** a `book version` with several families. One book's families share a panel and horizon;
+a pod is how books that cannot share them combine.
+**Banned:** (none)
+**Status:** active, phase 187 (plan 187-10); `src/intelligence/research/pod.py`
+
+---
+
 ### `family`
 
 A group of 3 to 8 `family member`s sharing one pre-registered mechanism and prior (a paper or a

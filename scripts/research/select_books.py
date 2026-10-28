@@ -50,7 +50,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.intelligence.research.ledger import UNCHARGED_STATUSES  # noqa: E402
 from src.intelligence.research.provenance import repo_root  # noqa: E402
-from src.intelligence.research.spec import BookSpec, parse_spec_text  # noqa: E402
+from src.intelligence.research.spec import BookSpec, PodBookSpec, parse_spec_text  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 
 APR_KEYS = (
@@ -133,8 +133,11 @@ def universe_matrix(rows: list[dict]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def horizon_sessions(spec_text: str, family_text_at) -> int:
-    """The spec's holding horizon in sessions (a book's: the longest of its families')."""
+    """The spec's holding horizon in sessions (a book's: the longest of its families'; a pod's:
+    the longest of its member books'). `family_text_at(path)` reads any spec by path."""
     model = parse_spec_text(spec_text)
+    if isinstance(model, PodBookSpec):
+        return max(horizon_sessions(family_text_at(b.book), family_text_at) for b in model.books)
     if isinstance(model, BookSpec):
         return max(
             horizon_sessions(family_text_at(path), family_text_at) for path in model.families

@@ -69,7 +69,13 @@ from src.intelligence.research.evidence import (
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.horizon import HorizonRule
-from src.intelligence.research.ledger import AttemptSeries, Identity, LedgerRefusal, RunRequest
+from src.intelligence.research.ledger import (
+    AttemptSeries,
+    Identity,
+    LedgerRefusal,
+    PinnedRun,
+    RunRequest,
+)
 from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
 from src.intelligence.research.spec import (
@@ -102,6 +108,8 @@ class LedgerPort(Protocol):
     async def start_runs(self, request, identities, run_concepts) -> dict[str, str]: ...
 
     async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None) -> None: ...
+
+    async def pinned_run(self, run_id: str) -> PinnedRun | None: ...
 
 
 async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
@@ -287,7 +295,12 @@ async def _gate(loaded: LoadedSpec, ctx: RunContext, *, once: bool = True) -> tu
             raise RunRefused(f"spec blob {blob} is not the loaded blob {loaded.blob_sha}")
         for fam in loaded.families:
             provenance.require_committed(root, fam.path)
-        _check_spec_tree(loaded)
+        for book in loaded.books:  # a pod (plan 187-10): each member book and its families
+            provenance.require_committed(root, book.path)
+            for fam in book.families:
+                provenance.require_committed(root, fam.path)
+        if not loaded.books:  # a pod's members were checked when their own attempts ran
+            _check_spec_tree(loaded)
         provenance.require_clean(root)
     except provenance.ProvenanceRefusal as error:
         raise RunRefused(str(error)) from error

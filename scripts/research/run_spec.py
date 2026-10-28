@@ -29,6 +29,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.intelligence.research import panel as panel_mod  # noqa: E402
 from src.intelligence.research.families.intraday_periodicity import SameSlotPlant  # noqa: E402
 from src.intelligence.research.ledger import PostgresLedger  # noqa: E402
+from src.intelligence.research.pod import run_pod  # noqa: E402
 from src.intelligence.research.provenance import repo_root  # noqa: E402
 from src.intelligence.research.runner import (  # noqa: E402
     BudgetConfig,
@@ -39,6 +40,7 @@ from src.intelligence.research.runner import (  # noqa: E402
 )
 from src.intelligence.research.spec import (  # noqa: E402
     BookSpec,
+    PodBookSpec,
     load_spec_from_file,
     load_spec_from_head,
 )
@@ -139,6 +141,8 @@ async def _main(args: argparse.Namespace) -> int:
     snapshot_dir = Path(args.snapshot_dir)
     if args.mode == "synthetic":
         loaded = load_spec_from_file(Path(args.spec), root=Path.cwd())
+        if isinstance(loaded.model, PodBookSpec):
+            raise RunRefused("a pod sums recorded member series; it has no synthetic mode")
         workers = args.workers or 1
         ctx = RunContext(
             root=Path.cwd(),
@@ -187,7 +191,9 @@ async def _main(args: argparse.Namespace) -> int:
         snapshot=Path(args.snapshot) if args.snapshot else None,
     )
     runs = snapshot_dir.parent / "runs"
-    if isinstance(loaded.model, BookSpec):
+    if isinstance(loaded.model, PodBookSpec):
+        _print({"pod": await run_pod(loaded, ctx, mode=args.mode)}, loaded, runs)
+    elif isinstance(loaded.model, BookSpec):
         _print_book(await run_book(loaded, ctx, mode="real"), loaded, runs)
     else:
         _print(await run_family(loaded, ctx, mode=args.mode), loaded, runs)

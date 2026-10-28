@@ -405,3 +405,54 @@ async def test_refused_run_writes_no_series(ledger, scope):
     )
     assert await _series(run_id) is None
     assert (await _row(run_id))["decision_t"] is None
+
+
+async def test_a_pod_run_sums_pinned_member_series_through_s6(ledger, scope, tmp_path):
+    """Plan 187-10: two completed book tests with series, then a pod pinned to them. The pod's
+    stored series is the sum on the common sessions, every headline column is set, and the
+    spec-once rule refuses a second real pod run of the same hash."""
+    from src.intelligence.research.pod import run_pod, series_sha256
+    from src.intelligence.research.runner import BudgetConfig, RunContext, RunRefused
+    from tests.unit.research.test_pod_book import A, B, _pod_repo
+
+    vintage = _name()
+    scope.vintages.append(vintage)
+    pins = [("a", str(uuid4()), series_sha256(A)), ("b", str(uuid4()), series_sha256(B))]
+    probe = _pod_repo(tmp_path / "probe", pins)  # the member spec hashes, before the run ids
+    run_ids = []
+    for book, series in zip(probe.books, (A, B), strict=True):
+        name = f"book.{book.model.book}"
+        scope.names.append(name)
+        request = dataclasses.replace(
+            scope.request("book_test", vintage=vintage), spec_hash=book.spec_hash
+        )
+        started = await ledger.start_runs(
+            request, [Identity(name, "book_version", "test book")], [name]
+        )
+        run_id = started[name]
+        evidence = {
+            "decision": {**_DECISION["decision"], "statistic": "hac_timing_t_e17"},
+            "power": {"powered": True},
+            "turnover_per_session": 0.5,
+        }
+        await ledger.finish_run(
+            run_id, status="completed", snapshot_hash=None, evidence=evidence, series=series
+        )
+        run_ids.append(run_id)
+    pinned = await ledger.pinned_run(run_ids[0])
+    assert series_sha256(pinned.series) == pins[0][2]
+
+    pins = [(x, r, h) for (x, _, h), r in zip(pins, run_ids, strict=True)]
+    loaded = _pod_repo(tmp_path / "pod", pins)
+    scope.names.append("pod.pod_one")
+    ctx = RunContext(root=tmp_path / "pod", budget=BudgetConfig(vintage, 1, 0.05), ledger=ledger)
+    result = await run_pod(loaded, ctx, mode="real")
+    row = await _row(result["run_id"])
+    assert row["kind"] == "pod_book" and row["status"] == "completed"
+    headline = ("decision_t", "decision_p", "gross_sharpe", "mean_session_pnl")
+    assert all(row[c] is not None for c in (*headline, "turnover_per_session", "n_sessions"))
+    stored = await _series(result["run_id"])
+    assert [d.isoformat() for d in stored["sessions"]] == ["2024-01-03", "2024-01-05", "2024-01-08"]
+    assert list(stored["d_s"]) == [2.5, 2.0, 4.25]
+    with pytest.raises(RunRefused, match="already run"):
+        await run_pod(loaded, ctx, mode="real")
