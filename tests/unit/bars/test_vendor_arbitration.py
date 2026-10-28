@@ -344,3 +344,64 @@ def test_the_plan_parses_as_an_ops_source_policy_plan():
 
 def test_name_arbitration_defaults_to_no_quarantine():
     assert NameArbitration("X", 0, ()).quarantine == ()
+
+
+# --- third review: a long pre-IBKR span needs Tradier's word or an ordinary gap -----------------
+
+
+def _handover(n_pre: int, *, alpaca_last: float, tradier_pre: float | None):
+    """Alpaca answers n_pre sessions before IBKR's first bar, then both agree from it on. IBKR's
+    own daily moves alternate +-1% (median absolute move about 100 bp)."""
+    days = _sessions(date(2020, 1, 2), n_pre + 40)
+    pre, post = days[:n_pre], days[n_pre:]
+    ibkr = {d: 10.0 * (1.01 if i % 2 else 1.0) for i, d in enumerate(post)}
+    alpaca = {d: alpaca_last for d in pre} | dict(ibkr)
+    tradier = {} if tradier_pre is None else {d: tradier_pre for d in pre}
+    return days, alpaca, ibkr, tradier
+
+
+def test_a_long_span_tradier_contradicts_with_a_large_gap_is_held():
+    # SW: WestRock under the reused ticker; Tradier disagrees, the gap is 8 daily moves.
+    days, alpaca, ibkr, tradier = _handover(60, alpaca_last=10.8, tradier_pre=13.0)
+    (pre,) = _only(_arb("SW", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
+    assert pre.continuous and span_action(pre, _PARAMS) == "hold"
+    rows = _plan([_arb("SW", alpaca, ibkr, tradier)])["symbol_rows"]
+    assert [(r["valid_from"], r["evidence"]["interim"]) for r in rows] == [
+        (days[0].isoformat(), True)
+    ]
+
+
+def test_a_long_span_without_tradier_and_a_large_gap_is_held():
+    # GRNT: no Tradier inside the span, the gap is about 7 daily moves.
+    _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=10.7, tradier_pre=None)
+    (pre,) = _only(_arb("GRNT", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
+    assert span_action(pre, _PARAMS) == "hold"
+
+
+def test_a_long_span_tradier_corroborates_is_admitted_whatever_the_gap():
+    # RKT: Tradier agrees with Alpaca across the span; the gap is a real move.
+    _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=10.5, tradier_pre=10.5)
+    (pre,) = _only(_arb("RKT", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
+    assert span_action(pre, _PARAMS) == "info"
+
+
+def test_a_long_span_with_an_ordinary_gap_is_admitted_without_tradier():
+    _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=9.8, tradier_pre=None)
+    (pre,) = _only(_arb("X", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
+    assert span_action(pre, _PARAMS) == "info"
+
+
+def test_a_short_span_keeps_the_same_session_test_alone():
+    # An IPO-day bar (20 sessions or fewer): a large first-day gap is an ordinary IPO move.
+    _days, alpaca, ibkr, tradier = _handover(5, alpaca_last=13.0, tradier_pre=None)
+    (pre,) = _only(
+        _arb("IPO", alpaca, ibkr, tradier, replace(_PARAMS, min_sessions=20)), PRE_IBKR_HISTORY
+    )
+    assert span_action(pre, replace(_PARAMS, min_sessions=20)) == "info"
+
+
+def test_the_gap_bound_is_a_parameter():
+    _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=10.7, tradier_pre=None)
+    loose = replace(_PARAMS, gap_max_moves=10.0)
+    (pre,) = _only(_arb("GRNT", alpaca, ibkr, tradier, loose), PRE_IBKR_HISTORY)
+    assert span_action(pre, loose) == "info"

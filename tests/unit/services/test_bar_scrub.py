@@ -400,3 +400,13 @@ def test_scrub_symbols_passes_start_end_into_bar_reads() -> None:
         if "market_data_ohlcv_scrub_input" in sql and "DISTINCT symbol" not in sql
     ]
     assert bar_reads and all(args[-2:] == (start, end) for args in bar_reads)
+
+
+def test_prune_stale_never_deletes_the_arbitration_quarantine_flags():
+    """vendor_disagreement rows are written by the D-191-Q policy apply, not by a scrub rule;
+    a pruning scrub must leave them (todo 545, third review M1)."""
+    from services.bar_scrub import _DELETE_STALE_SQL
+
+    flat = " ".join(_DELETE_STALE_SQL.split())
+    assert "'vendor_disagreement'" in flat
+    assert "rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement')" in flat

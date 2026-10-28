@@ -528,3 +528,44 @@ async def test_a_quarantine_rule_outside_the_apr_list_refuses_the_plan(temp_poli
         await osp.apply_plan(
             temp_policy_1d, parse_plan({**_PLAN_1D, "quarantine": _QUARANTINE}), apply=True
         )
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.asyncio
+async def test_the_quarantine_write_clears_the_rule_on_names_the_plan_dropped(
+    temp_policy_1d, monkeypatch
+):
+    import scripts.ops.bars.ops_source_policy as osp
+
+    written: dict = {}
+
+    async def rules(conn):
+        return frozenset({"vendor_disagreement"})
+
+    async def flagged(conn, rule):
+        assert rule == "vendor_disagreement"
+        return ["GDX", "OLD"]
+
+    async def open_batch(conn, **kwargs):
+        return "batch-1"
+
+    async def write_flags(conn, **kwargs):
+        written[kwargs["symbol"]] = [f.timestamp.date().isoformat() for f in kwargs["flags"]]
+        assert kwargs["start"] is None and kwargs["end"] is None
+        return len(kwargs["flags"])
+
+    async def close_batch(conn, batch_id, **kwargs):
+        return None
+
+    for name, fn in {
+        "read_quarantine_rules": rules,
+        "read_flagged_symbols": flagged,
+        "open_batch": open_batch,
+        "write_flags": write_flags,
+        "close_batch": close_batch,
+    }.items():
+        monkeypatch.setattr(osp, name, fn)
+    await osp.apply_plan(
+        temp_policy_1d, parse_plan({**_PLAN_1D, "quarantine": _QUARANTINE}), apply=True
+    )
+    assert written == {"GDX": ["2020-03-16", "2020-03-17"], "OLD": []}
