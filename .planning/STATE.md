@@ -57,20 +57,14 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   function of `ohlcv_raw` plus `bar_source_policy`; the selection gate (`ops_selection_gate.py
   --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
 
-- **Plan 19 (Tradier residue readiness):** Task 1 harness landed; readiness is evidence-based
-  (amended 2026-10-23). 2026-10-28 01:30Z: readiness GREEN, 1,522 settled, 0 unsettled, 7 frozen
-  (MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). Pass 3 (270530ec) settled 45
-  names; the last 8 (EIS, H, IOT, KNSL, PNFP, REMX, RPRX, SHEN) sat outside the compute_1d scope
-  every pass used and settled in pass 4 under `--dimension backfill` (de88a62f). The hourly gate
-  writes `191-TRADIER-RESIDUE.md` at its next run, then plan 20 waits on the owner. The fetcher
-  timer restarts. Hard-tail rule (no change to the readiness basis): a name still unsettled
-  after an ask bounded at its listing goes on the `--frozen-names` hold with its residue class.
-  CLBK: IBKR error 162 "No historical market data" for conId 902968711 before 2026-08-28, so its
-  2,100 Tradier-only sessions 2018-04-20..2026-08-27 are residue. BZH: listing ended about
-  2026-10-19 (Alpaca inactive, IBKR "No security definition"), held until its listing_end row
-  lands (todo 519, with ACA and MSGS). The crontab gate `scripts/ops/bars/ops_tradier_residue_gate.sh`
-  (hourly at :47, FROZEN=MOD,PSKY,CLBK,BZH) writes `191-TRADIER-RESIDUE.md` once readiness exits
-  0, then stops for plan 20. completed_plans stays 120 until plan 19 closes.
+- **Plan 19 (Tradier residue readiness): Task 2 done 2026-10-28.** Readiness green 01:30Z
+  (1,522 settled, 0 unsettled, 7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by
+  listing_end). `191-TRADIER-RESIDUE.md` (measure, prove, report; the gate's report step now passes
+  its inputs). Residue after D-191-Q coverage: 314,522 Tradier-only sessions on 799 names, 90%
+  before 2016, much of it predecessor splices under reused tickers. Proof: 1,466 of 1,529 proven;
+  62 of 63 unproven are venue-moved (todo 433), plus ETHA. Owner decision summary:
+  `191-20-OWNER-DECISION.md`, relayed to indicagent-5b for the owner. Plan 19 SUMMARY and
+  completed_plans follow with the plan 20 approval.
 
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so
   no IBKR bars landed 2026-10-17 to 2026-10-25; the backlog is catching up. Fixed today: explicit-UTC
