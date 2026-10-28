@@ -155,3 +155,16 @@ def test_null_volume_on_a_bar_leaves_every_price_feature_bit_unchanged():
 def test_short_series_is_all_nan(bad):
     closes = np.array(bad, dtype=float) + 100.0
     assert np.isnan(_z(closes, np.full(len(closes), 1e6))).all()
+
+
+def test_compute_kernels_refuses_nan_volume_for_kernels_that_are_not_nan_safe():
+    from src.intelligence.features.contract.registry import KernelRegistryError
+
+    inputs, config = ref.synthetic_inputs()
+    registry = default_registry()
+    nulled = dict(inputs)
+    nulled["volume"] = inputs["volume"].copy()
+    nulled["volume"][100] = np.nan
+    compute_kernels(registry, nulled, config, outputs=["amihud_illiq_z"])
+    with pytest.raises(KernelRegistryError, match="volume_z"):
+        compute_kernels(registry, nulled, config, outputs=["amihud_illiq_z", "volume_z"])

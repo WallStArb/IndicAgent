@@ -31,6 +31,11 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # Adding a new call site requires adding a row here with a real reason, not just silencing
 # the test.
 _ALLOW_LIST: dict[str, str] = {
+    "services/backfill_feature_factory.py": (
+        "PERMANENT (todo 555): the rebuild reads the (vendor, kind) of the 5m rows a derived grid "
+        "bar was built from to label its volume basis; a quarantined or zero-volume constituent "
+        "still built the bar, so the tradeable view's filters would drop real provenance."
+    ),
     "services/bar_selection.py": (
         "PERMANENT (phase 191 plan 02): the canonical selection writer compares each selected "
         "raw row with the stored canonical row of the same slot, zero-volume provider bars "

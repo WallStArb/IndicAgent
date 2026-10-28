@@ -79,6 +79,11 @@ class Kernel:
     memory_atol: float = 0.0
     # A deliberate lookahead positive control: the causality probe must fail it.
     acausal_control: bool = False
+    # The kernel handles NaN in `volume` (a NULL-volume bar) without corrupting later rows.
+    # Most volume kernels do not: one NaN poisons a cumulative sum or a rolling std and every
+    # later row reads 0.0 or garbage, silently. `compute_kernels` refuses NaN volume for a
+    # kernel that is not marked safe (todo 560 makes the others safe).
+    nan_volume_safe: bool = False
 
 
 class Alignment(enum.Enum):
@@ -414,6 +419,14 @@ def compute_kernels(
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} needs {kind} {name!r}, which the caller did not supply"
                 )
+    if "volume" in inputs and np.isnan(inputs["volume"]).any():
+        unsafe = [k.name for k in order if "volume" in k.inputs and not k.nan_volume_safe]
+        if unsafe:
+            raise KernelRegistryError(
+                f"volume holds NaN (a NULL-volume bar) and these kernels are not NaN-safe, so "
+                f"one NaN would turn every later row into 0.0 or garbage: {sorted(unsafe)} "
+                "(todo 560)"
+            )
     n = next((len(inputs[f]) for f in BAR_FIELDS if f in inputs), None)
     if n is None:
         raise KernelRegistryError("compute_kernels needs at least one bar field in inputs")

@@ -215,6 +215,9 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
         compute=_heavy_compute(spec),
         path_dependent=True,
         path_dependent_reason=_HEAVY_REASON,
+        # It owns its non-finite handling: a non-finite tail is unlabeled and a non-finite value
+        # followed by finite rows raises (test_regime_kernel.py), so a NaN volume is never silent.
+        nan_volume_safe=True,
     )
     label = Kernel(
         name=f"hmm_{family}_label",

@@ -291,10 +291,12 @@ _FETCH_BARS_UNTIL_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp < %
 
 
 # The 5m rows a derived grid bar was built from, by (vendor, kind): the evidence for the grid
-# bar's volume basis (bars/vendor_kind.grid_volume_basis).
+# bar's volume basis (bars/vendor_kind.grid_volume_basis). Read from the canonical table, not the
+# tradeable view: a constituent later quarantined or zero-volume still built the derived bar, and
+# hiding it would fail the series with "no constituent" for a basis that is known.
 _FETCH_5M_PROVENANCE_SQL = """
 SELECT timestamp, vendor, kind
-FROM market_data_ohlcv_tradeable
+FROM market_data_ohlcv
 WHERE symbol = %s AND timeframe = '5m' AND timestamp >= %s AND timestamp < %s
 ORDER BY timestamp ASC
 """

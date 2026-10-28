@@ -808,7 +808,7 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 526: todo 553 spread estimators ---
         ("feature.high_low_spread.window", 21),
         ("feature.roll_spread.window", 252),
-        # --- migration 533: todo 555 amihud_illiq_z ---
+        # --- migration 534: todo 555 amihud_illiq_z ---
         ("feature.amihud.min_valid_fraction", 0.8),
     )
 

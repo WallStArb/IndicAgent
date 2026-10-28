@@ -1,4 +1,4 @@
--- Migration 533: APR seed for the amihud_illiq_z minimum valid fraction (todo 555,
+-- Migration 534: APR seed for the amihud_illiq_z minimum valid fraction (todo 555,
 -- src/intelligence/features/kernels/volume.py).
 --
 -- feature.amihud.min_valid_fraction: the share of the z-score window (feature.amihud.zscore_window,
@@ -30,11 +30,11 @@ INSERT INTO config_state (config_key, config_value, version) VALUES
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
-SELECT now(), 'feature.amihud.min_valid_fraction', 1, '0.8', 'migration_533',
+SELECT now(), 'feature.amihud.min_valid_fraction', 1, '0.8', 'migration_534',
        'seed: amihud_illiq_z minimum valid fraction (todo 555)'
 WHERE NOT EXISTS (
     SELECT 1 FROM config_history h
-    WHERE h.config_key = 'feature.amihud.min_valid_fraction' AND h.changed_by = 'migration_533'
+    WHERE h.config_key = 'feature.amihud.min_valid_fraction'
 );
 
 COMMIT;

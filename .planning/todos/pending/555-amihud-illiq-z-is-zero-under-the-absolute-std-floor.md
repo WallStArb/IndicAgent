@@ -52,7 +52,7 @@ basis. The spec says which, and why it holds across the seam.
 Definition: `amihud_illiq_z` is the z-score of ln(illiq) over the last `feature.amihud.zscore_window`
 bars of one volume basis. The window restarts where `volume_basis` changes and the row is NaN
 until the window holds ceil(`feature.amihud.min_valid_fraction` x window) valid observations
-(0.8, migration 533). A NULL-volume bar, a zero return or a non-positive close is a missing
+(0.8, migration 534). A NULL-volume bar, a zero return or a non-positive close is a missing
 observation, not a fill. `illiquidity_momentum_product` reads the new z, so it is NaN where the
 z is. Cold-start rows are NaN (they were 0.0).
 

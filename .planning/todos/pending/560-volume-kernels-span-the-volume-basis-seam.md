@@ -47,3 +47,16 @@ Definition changes, so each moves its parity goldens with the reason recorded.
 555: land before the launch or pay a follow-up rebuild of these columns. indicagent-3a makes the
 sequencing call. The rebuild loaders already carry `volume_basis` and NULL volume as NaN (555),
 so these kernels need no loader change.
+
+## Hard blocker for 186-26 (found in the 555 review, 2026-10-28)
+
+NULL volume is NaN in the rebuild loaders (555). Measured on the synthetic fixture with one NaN
+volume bar: `volume_z`, `ofi_z`, `cvd_slope_z`, `dollar_vol_z`, `vol_range_ratio`, `vol_std_z`
+and `obv_z` read exactly 0.0 on every later row; `rel_volume`, `vol_trend_ratio`,
+`up_vol_ratio`, `mfi`, `vwap_dev_sigma` differ from the clean run on every later row;
+`vol_percentile`, `vol_persistence`, `price_vol_corr`, `cmf` differ for one window. Before 555 a
+NULL-volume bar crashed the loader, which was loud; now it would be silent. `compute_kernels`
+therefore refuses NaN volume for any kernel not marked `nan_volume_safe` (only `amihud_illiq_z`
+is). Until each kernel above is made NaN-aware, the 186-26 rebuild fails loudly on every series
+holding a NULL-volume bar (880 names on 1d today). Making them NaN-aware with the basis reset is
+this todo, so it must land before the 186-26 launch, not after.

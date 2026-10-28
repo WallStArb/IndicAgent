@@ -990,7 +990,7 @@ class FeatureFactoryConfig:
     # feature_vector_pipeline.py wire both from ConfigService.
     high_low_spread_window: int = 21  # feature.high_low_spread.window
     roll_spread_window: int = 252  # feature.roll_spread.window
-    # Amihud z-score (todo 555, migration 533): the share of the window that must hold a valid
+    # Amihud z-score (todo 555, migration 534): the share of the window that must hold a valid
     # observation; below it the output is NaN. Defaulted like the keys above; both production
     # entrypoints wire it from ConfigService.
     amihud_min_valid_fraction: float = 0.8  # feature.amihud.min_valid_fraction

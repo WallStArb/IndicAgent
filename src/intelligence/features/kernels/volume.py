@@ -330,7 +330,8 @@ def _amihud_illiq_z_series_full(
       close (todo 390) gives no observation. The z-score runs over the observations the window
       holds and is NaN when the bar's own is missing or the window holds fewer than
       ceil(min_valid_fraction * zscore_window): one missing session does not blank 252 rows.
-    - Rows before the window is warm, and row 0, are NaN (no_fill).
+    - Warm means ceil(min_valid_fraction * zscore_window) valid observations in the segment, so a
+      row can emit before the full window is filled. Earlier rows, and row 0, are NaN (no_fill).
 
     Cumulative sums over the valid observations (missing ones enter as 0.0 and are not counted)
     give each window's moments as a difference of the sums at its ends.
@@ -869,6 +870,7 @@ KERNELS = (
         ("close", "volume", "volume_basis"),
         lambda c: c.amihud_zscore_window + 1,
         _compute_amihud,
+        nan_volume_safe=True,
     ),
     _k(
         "vwap_dev_sigma",

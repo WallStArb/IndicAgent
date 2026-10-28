@@ -80,3 +80,17 @@ def test_every_canonical_1d_source_has_a_basis():
             VOLUME_BASIS_SMART,
             VOLUME_BASIS_NONE,
         }
+
+
+def test_a_new_source_label_forces_a_basis_decision():
+    # continuous, official and generic are labels no canonical row carries (checked against
+    # market_data_ohlcv 2026-10-28: only the six mapped pairs and the derived grid exist). A new
+    # label that is not mapped and not listed here fails this test instead of a rebuild.
+    from src.intelligence.bars.vendor_kind import DERIVED_PAIR, LABEL_TO_VENDOR_KIND
+
+    unmapped = {
+        pair
+        for pair in LABEL_TO_VENDOR_KIND.values()
+        if pair not in VOLUME_BASIS_BY_VENDOR_KIND and pair != DERIVED_PAIR
+    }
+    assert unmapped == {("ibkr", "continuous"), ("ibkr", "official"), ("ibkr", "generic")}
