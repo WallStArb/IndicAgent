@@ -17,6 +17,12 @@ new look: no research_run row is created.
 or not, and requires the decision block and any stored D_s series (sessions and values) to equal
 the replay bit for bit. It never writes and exits non-zero on any difference.
 
+A run whose decision block has no `memory_sessions` was scored by the E16 timing statistic,
+before E17 was adopted (the four family 1 periodicity runs of 2026-09-25, annotated by
+migration 377). The E17 code cannot reproduce it by construction, so it is logged as
+`pre_e17` and never replayed or given a series; it is a record, not a parity failure. The
+class is read from the record itself, never from a replay's outcome.
+
 The run log lands in logs/research/series_backfill_<UTC>.json.
 """
 
@@ -78,6 +84,11 @@ def series_differs(row: dict, series) -> bool:
     )
 
 
+def pre_e17(row: dict) -> bool:
+    """True for a run scored by the E16 statistic: its decision block records no memory."""
+    return "memory_sessions" not in ((row["evidence"] or {}).get("decision") or {})
+
+
 def replay_refusal(spec) -> str | None:
     """Why the synthetic path cannot replay this spec faithfully, or None."""
     panel = spec.panel
@@ -126,7 +137,16 @@ async def main(args: argparse.Namespace) -> int:
             row
         )
     log: list[dict] = []
-    for (spec_path, blob, snapshot_hash), rows in by_spec.items():
+    for (spec_path, blob, snapshot_hash), group in by_spec.items():
+        for row in (r for r in group if pre_e17(r)):
+            member = row["concept"].rsplit(".", 1)[-1]
+            entry = {"run_id": row["run_id"], "spec_path": spec_path, "member": member}
+            entry.update(outcome="pre_e17", reason="E16 statistic, no E17 replay (migration 377)")
+            print(json.dumps(entry), flush=True)
+            log.append(entry)
+        rows = [r for r in group if not pre_e17(r)]
+        if not rows:
+            continue
         loaded = load_spec_from_blob(root, spec_path, blob)
         reason = replay_refusal(loaded.model)
         if loaded.spec_hash != rows[0]["spec_hash"]:
@@ -164,7 +184,7 @@ async def main(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"apply": args.apply, "runs": log}, indent=2))
     print(f"log: {out}")
-    return 0 if all(e["outcome"] == "equal" for e in log) else 3
+    return 0 if all(e["outcome"] in ("equal", "pre_e17") for e in log) else 3
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from scripts.research.backfill_attempt_series import compare, replay_refusal, series_differs
+from scripts.research.backfill_attempt_series import (
+    compare,
+    pre_e17,
+    replay_refusal,
+    series_differs,
+)
 from src.intelligence.research.ledger import AttemptSeries
 
 DECISION = {
@@ -73,3 +78,10 @@ def test_stored_series_differs_on_one_ulp_a_session_or_a_lost_replay():
     assert series_differs(_stored(dates, [0.1, np.nextafter(-0.2, 0)]), SERIES)
     assert series_differs(_stored([date(2020, 1, 2), date(2020, 1, 6)], [0.1, -0.2]), SERIES)
     assert series_differs(_stored(dates, [0.1, -0.2]), None)
+
+
+def test_a_decision_without_memory_is_pre_e17():
+    assert not pre_e17({"evidence": DECISION})
+    e16 = {k: v for k, v in DECISION["decision"].items() if k != "memory_sessions"}
+    assert pre_e17({"evidence": {"decision": e16}})
+    assert pre_e17({"evidence": None})  # nothing recorded is not an E17 record either
