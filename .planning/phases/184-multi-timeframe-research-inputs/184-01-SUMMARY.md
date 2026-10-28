@@ -58,7 +58,7 @@ phase 181 S3: bit-identical [0.19424572]
 
 test_spec_hashes_pinned: `8 passed`.
 
-`backfill_attempt_series.py --compare-all` exited 0 but did not report all equal. Log: `logs/research/series_backfill_2026-10-28T05:32:19.554747Z.json`.
+`backfill_attempt_series.py --compare-all`: exit 3 (the 0 first recorded was `tail`'s, from a `| tail -15` pipe). The only differences are the 4 never-replayed `family1_intraday_periodicity.yaml` runs (187-03 open item), owned by indicagent-5b; their records predate the memory field (memory_sessions null versus 1 on replay), so this is a recorded-statistic question, not WIP or 184-01 code. 187-09 T2 is committed (0e3d292bb) with repro_frozen bit-identical and is a no-op for these specs. Log: `logs/research/series_backfill_2026-10-28T05:32:19.554747Z.json`.
 
 ```
 replaying research/specs/family1_h8.yaml (4 runs)
