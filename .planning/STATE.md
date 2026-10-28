@@ -65,6 +65,14 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   62 of 63 unproven are venue-moved (todo 433), plus ETHA. Owner decision summary:
   `191-20-OWNER-DECISION.md`, relayed to indicagent-5b for the owner. Plan 19 SUMMARY and
   completed_plans follow with the plan 20 approval.
+- **Plan 20 approved by the owner 2026-10-28:** delete all Tradier bar rows, no names held back (recorded in
+  `191-20-OWNER-DECISION.md`). It runs after todo 545 lands. Review findings for 3a: keep the final
+  arbitration plan JSON in a tracked place, refuse a row whose span touches `window_end`, stop the fetcher
+  timer for the final re-run and apply. The 30 interim daily holds stay as gaps (todo 557).
+- **Research docs, 2026-10-28:** the ledger is condensed (sections 2 and 4 verbatim); the cointegration concept is
+  reopened as a spread family (ledger section 2, todo 559, pre-registration before any look); the stat arb
+  method map and the pre-rebuild feature pass (todo 558, window closes when 186-26 starts) are unreviewed
+  Sonnet drafts that need an Opus or Fable pass.
 
 - **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so
   no IBKR bars landed 2026-10-17 to 2026-10-25; the backlog is catching up. Fixed today: explicit-UTC
