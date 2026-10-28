@@ -1,37 +1,32 @@
 {
- "version": "1.0",
- "timestamp": "2026-10-26T14:50:00Z",
- "phase": "191",
- "phase_name": "unified-raw-bar-table",
- "plan": "191-19 Task 2 pending (readiness 1,113/412/4 at 09:14Z); plans 20-25 queued behind the owner checkpoint at 20",
- "status": "in_progress",
- "remaining_tasks": [
-  "Plan 19: the crontab gate scripts/ops/bars/ops_tradier_residue_gate.sh (hourly :47, log logs/191_19_gate.log, state logs/191_19_gate.state) writes 191-TRADIER-RESIDUE.md once readiness exits 0; then commit it, write the 191-19 SUMMARY addendum and close plan 19 (completed_plans 121)",
-  "Full-scan pass over the 412 unsettled names (pid 3791890, logs/plan19_fullscan_20261026.log, budget 900 min from 12:23Z); the fetcher timer stays off until it exits, a detached watcher restarts it (check the log's 'timer restarted' line)",
-  "Plan 20: owner confirms the Tradier deletion (also settles the todo 537 item 2 basis restore), then plans 21-25 strictly serial with a fresh-context review and fix cycle after each",
-  "Alpaca: one-time 20-day SIP catch-up (logs/alpaca_nightly_catchup_20261026.log) then the nightly timer (04:40 UTC); run ops_selection_gate --compare on 5m after it lands",
-  "Feature rebuild 186-26 after plan 25, canonical 1d current, and canonical 5m past the 2026-10-17..25 gateway gap (selection gate exit 0 on 5m)"
- ],
- "blockers": [],
- "human_actions_pending": [
-  "plan 20 Tradier deletion checkpoint",
-  "owner acknowledgement of D-191-B, D and G",
-  "todo 519 listing end and PSKY->SKYD repoint",
-  "family 2 evidence run (lift build-first for that run)"
- ],
- "uncommitted_files": [],
- "next_action": "Check logs/191_19_gate.log and logs/plan19_fullscan_20261026.log; when the residue report exists, review it and bring plan 20 to the owner.",
- "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Window ops need SUDO_PASS in the environment (ops_raw_cutover_window.py uses /usr/bin/sudo.ws -S systemctl when set; without it the open dies stopping the first active timer). Window re-open requires deleting logs/raw_cutover_window.json first unless its state is opening (a cleared-empty record from a prior window blocks). The shell cwd resets to logs/ between agent Bash calls: use absolute paths (both ops scripts bootstrap their own sys.path, so running them by absolute file path from any cwd works). Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15). Owner 2026-10-15: Alpaca 1d as a second daily source is a post-191 todo. ohlcv_raw compression (migration 486) ran 2026-10-15; check logs/ohlcv_raw_compress_486.log ends DONE. D-191-O live: ratio breach flags and applies last-wins, removal breach refuses one name only. bar_source_policy is append-only (closed rows immutable; migrations may correct via session_replication_role=replica). d2-v3 supports (tradier primary, ibkr fallback) and (ibkr primary, no fallback) only. --rewrite-digests is a maintenance-only path that skips the daily load. Tradier consolidated 1d is back-adjusted before 2023-01-03. 2026-10-26: gateway wedged 10-18..10-26 (2FA); fetcher lock lost to idle_session_timeout on runs over an hour until 543; an out-of-range IBKR client id restarted the gateway until 542 (probe with plain ib_async, clientId <= 50); iex_rth is raw-only and never selected; the selection writer retracts slots whose candidates are all unselectable (7dfd60574).",
- "next_steps": [],
- "history_2026_10_16": [
-  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
- ],
- "completed_tasks": [
-  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
-  "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
-  "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
-  "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
-  "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
-  "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
- ]
+  "version": "1.0",
+  "timestamp": "2026-10-28T17:20:00Z",
+  "phase": "191",
+  "phase_name": "unified-raw-bar-table",
+  "plan": "191-20 owner approved 2026-10-28; paused before the D-191-Q policy apply (todo 545 runbook)",
+  "status": "paused",
+  "remaining_tasks": [
+    "Plan 20 window (todo 545 'Paused 2026-10-28' runbook), from a worktree at origin/main, all fetcher/bar timers stopped: final ops_d191q_arbitration run and commit of report plus evidence gz; ops_source_policy --plan dry run then apply; ops_tradier_delete --dump/--verify (check CLBK Alpaca coverage), --trial, --delete, --verify --require-complete; 1d re-derive under d2-v4; VACUUM; D7; restart timers",
+    "Notice to the research lane (family 2 and daily families 441+423, 440) after the re-derive, listing family 2 universe names with holds or pending spans",
+    "Plan 19 SUMMARY addendum and completed_plans with plan 20",
+    "191-21 -> 22 -> 23, then 186-26 (todo 553 merged; todo 555 and the NULL-volume loader fix land first, owned by the 184 lane)",
+    "Follow-ups: todo 545 fourth-review M2 (spin-off fix path after the delete), todo 557 (Alpaca split re-ask), todo 519 listing_end rows for BZH, ACA, MSGS check, stale docstrings listed in todo 545 step 6"
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "uncommitted_files": [],
+  "next_action": "Run the todo 545 'Paused 2026-10-28' runbook (plan 191-20 window)",
+  "context_notes": "Plan 19 readiness green 2026-10-28 (1,522/0/7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). Residue after D-191-Q: 314,522 Tradier-only sessions on 799 names, 90% pre-2016, much of it predecessor splices. Shared checkout local main carries other sessions' unpushed commits: commit and push from a scratch worktree off origin/main. Kill processes by PID, never pgrep -f/pkill -f patterns that match your own shell.",
+  "next_steps": [],
+  "history_2026_10_16": [
+    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
+  ],
+  "completed_tasks": [
+    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
+    "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
+    "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
+    "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
+    "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
+    "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
+  ]
 }
