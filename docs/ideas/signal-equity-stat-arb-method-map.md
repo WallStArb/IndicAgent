@@ -32,3 +32,5 @@ Only 1 (as a residual reversal member with a statistical factor model) and 3 (as
 member, after E17's memory rule) are testable on the stored data without new inputs. Both would be
 pre-registered family members, counted under E18, and run after the 1d re-derive. 2 waits on a
 fundamentals source; 4 and 5 are closed; 6 is already queued; 7 is out of scope.
+
+Feature candidates these methods imply, and the pre-rebuild window for stored columns: `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md` (todo 558).
