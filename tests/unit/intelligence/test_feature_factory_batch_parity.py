@@ -635,7 +635,9 @@ def test_precompute_series_returns_all_fields(ohlcv, cfg):
     closes = np.array([b["close"] for b in ohlcv["bars"]], dtype=float)
     volumes = np.array([b["volume"] for b in ohlcv["bars"]], dtype=float)
 
-    series = _precompute_series(opens, highs, lows, closes, volumes, cfg)
+    series = _precompute_series(
+        opens, highs, lows, closes, volumes, cfg, np.ones(len(closes), dtype=np.int64)
+    )
 
     assert isinstance(series, _PrecomputedSeries)
     n = len(ohlcv["bars"])

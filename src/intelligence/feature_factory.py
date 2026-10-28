@@ -1146,16 +1146,16 @@ _SERIES_FIELDS: tuple[str, ...] = tuple(
 _SERIES_KERNEL_OUTPUTS: tuple[str, ...] = (*_SERIES_FIELDS, "_atr_raw_padded")
 
 
-def _bars_volume_basis(bars: Sequence[Mapping[str, Any]]) -> np.ndarray | None:
-    """The per-bar `volume_basis` codes of a bar list, or None when the bars carry none (a
-    single-vendor input). Bars either all carry the key or none do: a partial list is a loader
-    bug, and a basis never defaults per bar."""
-    carrying = sum("volume_basis" in b for b in bars)
-    if carrying == 0:
-        return None
-    if carrying != len(bars):
-        raise ValueError(f"{carrying} of {len(bars)} bars carry volume_basis; all or none must")
-    return np.array([b["volume_basis"] for b in bars], dtype=np.int64)
+def _bars_volume_basis(bars: Sequence[Mapping[str, Any]]) -> np.ndarray:
+    """The per-bar `volume_basis` codes of a bar list. Bars that carry none are a single-vendor
+    input (the live stream), all consolidated. Bars either all carry the key or none do: a
+    partial list is a loader bug, and a basis never defaults per bar."""
+    codes = [b.get("volume_basis") for b in bars]
+    if all(c is None for c in codes):
+        return constant_volume_basis(len(bars))
+    if any(c is None for c in codes):
+        raise ValueError("some bars carry volume_basis and some do not; all or none must")
+    return np.array(codes, dtype=np.int64)
 
 
 def _series_from_kernel_outputs(out: dict[str, np.ndarray]) -> _PrecomputedSeries:
@@ -1171,7 +1171,7 @@ def _precompute_series(
     closes: np.ndarray,
     volumes: np.ndarray,
     config: FeatureFactoryConfig,
-    volume_basis: np.ndarray | None = None,
+    volume_basis: np.ndarray,
 ) -> _PrecomputedSeries:
     """Bundle every series array for a bar window from the registry's kernels.
 
@@ -1186,9 +1186,7 @@ def _precompute_series(
             "low": lows,
             "close": closes,
             "volume": volumes,
-            "volume_basis": (
-                constant_volume_basis(len(closes)) if volume_basis is None else volume_basis
-            ),
+            "volume_basis": volume_basis,
         },
         config,
         outputs=list(_SERIES_KERNEL_OUTPUTS),
@@ -1267,12 +1265,9 @@ def _batch_kernel_inputs(
     volumes: np.ndarray,
     symbol: str,
     tf: str,
-    volume_basis: np.ndarray | None = None,
+    volume_basis: np.ndarray,
 ) -> dict[str, np.ndarray]:
-    """Bar arrays plus the per-row `symbol` and `tf` external inputs for compute_kernels.
-
-    `volume_basis` is None for a single-vendor input (the live stream, a bar list without
-    provenance): every bar then counts as consolidated and no basis boundary exists."""
+    """Bar arrays plus the per-row `symbol` and `tf` external inputs for compute_kernels."""
     return {
         "ts": row_ns,
         "open": opens,
@@ -1280,9 +1275,7 @@ def _batch_kernel_inputs(
         "low": lows,
         "close": closes,
         "volume": volumes,
-        "volume_basis": (
-            constant_volume_basis(len(row_ns)) if volume_basis is None else volume_basis
-        ),
+        "volume_basis": volume_basis,
         "symbol": np.array([symbol] * len(row_ns), dtype=object),
         "tf": np.array([tf] * len(row_ns), dtype=object),
     }

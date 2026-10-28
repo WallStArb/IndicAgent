@@ -251,7 +251,7 @@ def _constant_per_series_outputs(bars: list[dict]) -> dict[str, np.ndarray]:
 
     z = np.zeros(len(bars))
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
-    built = _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL, "5m")
+    built = _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL, "5m", np.ones(len(ts), dtype=np.int64))
     return {"symbol": built["symbol"], "tf": built["tf"]}
 
 

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.intelligence.bars.vendor_kind import VOLUME_BASIS_CONSOLIDATED
 from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
 
 if TYPE_CHECKING:
@@ -29,24 +30,17 @@ if TYPE_CHECKING:
 
 # Raw inputs every kernel may declare. Timestamps enter as int64 UTC nanoseconds. `volume_basis`
 # (todo 555) is one small integer per bar saying what that bar's `volume` counts; a rolling
-# volume statistic never spans a change of it (the codes are VOLUME_BASIS_CODES).
+# volume statistic never spans a change of it.
 BAR_FIELDS: tuple[str, ...] = ("ts", "open", "high", "low", "close", "volume", "volume_basis")
 
-# The `volume_basis` encoding. The names are bars/vendor_kind.py's VOLUME_BASIS_* constants,
-# which own the (vendor, kind) -> basis mapping; this table only gives each name its integer.
-# 0 marks a bar with no volume (NULL, so NaN in `volume`): it carries no basis, so it never
-# starts or ends a basis segment. 1 is every venue's prints (Alpaca SIP, Tradier), 2 is IBKR
-# SMART-routed volume (about 0.41 to 0.91 of consolidated), 3 is a derived bar whose 5m
-# constituents differ.
-VOLUME_BASIS_CODES: dict[str, int] = {"none": 0, "consolidated": 1, "smart": 2, "mixed": 3}
-VOLUME_BASIS_NONE_CODE: int = VOLUME_BASIS_CODES["none"]
-VOLUME_BASIS_CONSOLIDATED_CODE: int = VOLUME_BASIS_CODES["consolidated"]
+# `volume_basis` codes (none 0, consolidated 1, smart 2, mixed 3) and their (vendor, kind) mapping
+# live in bars/vendor_kind.py, the one source.
 
 
 def constant_volume_basis(n: int) -> np.ndarray:
     """A `volume_basis` array for a single-vendor input (the live stream, the probe fixtures, a
     research panel): every bar consolidated, so no segment boundary exists."""
-    return np.full(n, VOLUME_BASIS_CONSOLIDATED_CODE, dtype=np.int64)
+    return np.full(n, VOLUME_BASIS_CONSOLIDATED, dtype=np.int64)
 
 
 _DEFAULT_PACKAGE = "src.intelligence.features.kernels"

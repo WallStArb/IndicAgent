@@ -62,7 +62,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -103,7 +103,6 @@ from src.intelligence.feature_factory import (
     _macro_kernel_inputs,
 )
 from src.intelligence.features.contract.registry import (
-    VOLUME_BASIS_CODES,
     Kernel,
     KernelRegistry,
     compute_kernels,
@@ -301,6 +300,18 @@ ORDER BY timestamp ASC
 """
 
 
+def _pair_bases(pairs: Iterable[tuple[str, str]]) -> np.ndarray:
+    """The volume basis of each (vendor, kind), mapped once per distinct pair. A derived pair has
+    no basis of its own and reads -1 (the caller takes it from the 5m constituents)."""
+    rows = list(pairs)
+    table = {p: -1 if p == DERIVED_PAIR else volume_basis(*p) for p in set(rows)}
+    return np.fromiter((table[p] for p in rows), dtype=np.int64, count=len(rows))
+
+
+def _epoch_seconds(times: Iterable[datetime]) -> np.ndarray:
+    return np.fromiter((int(t.timestamp()) for t in times), dtype=np.int64)
+
+
 def _volume_basis_codes(
     conn: Any,
     symbol: str,
@@ -313,13 +324,9 @@ def _volume_basis_codes(
     through the one mapping in bars/vendor_kind.py. A derived grid bar takes its basis from its
     5m constituents. An unmapped pair raises: a basis never defaults. Bars come from the
     tradeable view, which NULLs volume for the basis-`none` kinds."""
-    names: list[str] = [""] * len(times)
-    derived = [i for i, pair in enumerate(zip(vendors, kinds)) if pair == DERIVED_PAIR]
-    derived_rows = set(derived)
-    for i, (vendor, kind) in enumerate(zip(vendors, kinds)):
-        if i not in derived_rows:
-            names[i] = volume_basis(vendor, kind)
-    if derived:
+    codes = _pair_bases(zip(vendors, kinds))
+    derived = np.flatnonzero(codes < 0)
+    if derived.size:
         minutes = GRID_TIMEFRAMES[tf]
         with conn.cursor() as cur:
             cur.execute(
@@ -327,21 +334,22 @@ def _volume_basis_codes(
                 (symbol, times[derived[0]], times[derived[-1]] + timedelta(minutes=minutes)),
             )
             constituents = cur.fetchall()
-        stamps = np.array([int(t.timestamp()) for t, _, _ in constituents], dtype=np.int64)
-        grid_names = grid_volume_basis(
-            np.array([int(times[i].timestamp()) for i in derived], dtype=np.int64),
+        codes[derived] = grid_volume_basis(
+            _epoch_seconds(times[i] for i in derived),
             minutes,
-            stamps,
-            [volume_basis(vendor, kind) for _, vendor, kind in constituents],
+            _epoch_seconds(t for t, _, _ in constituents),
+            _pair_bases((vendor, kind) for _, vendor, kind in constituents),
         )
-        for i, name in zip(derived, grid_names):
-            names[i] = name
-    return np.array([VOLUME_BASIS_CODES[name] for name in names], dtype=np.int64)
+    return codes
 
 
 def _nan_if_null(value: Any) -> float:
     """A NULL volume (the tradeable view's basis-`none` kinds) is NaN, never filled."""
     return float("nan") if value is None else float(value)
+
+
+# open, high, low, close, volume: only volume can be NULL (the tradeable view NULLs it).
+_BAR_CONVERTERS = (float, float, float, float, _nan_if_null)
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -658,15 +666,15 @@ def _fetch_bars_from_db(
     basis = _volume_basis_codes(conn, symbol, tf, times, [r[6] for r in rows], [r[7] for r in rows])
     return [
         {
-            "ts": times[i],
+            "ts": t,
             "open": float(r[1]),
             "high": float(r[2]),
             "low": float(r[3]),
             "close": float(r[4]),
             "volume": _nan_if_null(r[5]),
-            "volume_basis": int(basis[i]),
+            "volume_basis": int(code),
         }
-        for i, r in enumerate(rows)
+        for t, r, code in zip(times, rows, basis, strict=True)
     ]
 
 
@@ -1202,9 +1210,8 @@ def _fetch_bar_arrays(
             # five interpreted appends per row.
             transposed = list(zip(*block))
             times.extend(t if t.tzinfo else t.replace(tzinfo=UTC) for t in transposed[0])
-            for k, column in enumerate(transposed[1:5]):
-                columns[k].extend(map(float, column))
-            columns[4].extend(map(_nan_if_null, transposed[5]))
+            for column, out, convert in zip(transposed[1:6], columns, _BAR_CONVERTERS, strict=True):
+                out.extend(map(convert, column))
             vendors.extend(transposed[6])
             kinds.extend(transposed[7])
     arrays = {

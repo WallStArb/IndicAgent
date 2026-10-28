@@ -299,7 +299,7 @@ def _volume_basis_segment_starts(basis: np.ndarray) -> np.ndarray:
     nonzero code, wherever that change falls in the series (per name and timeframe; never a
     date).
     """
-    codes = np.asarray(basis).astype(np.int64)
+    codes = np.asarray(basis, dtype=np.int64)
     n = len(codes)
     rows = np.arange(n)
     last_coded = np.maximum.accumulate(np.where(codes != 0, rows, -1))
@@ -316,38 +316,31 @@ def _amihud_illiq_z_series_full(
     zscore_window: int,
     min_valid_fraction: float,
 ) -> np.ndarray:
-    """Amihud illiquidity z-score series. result[i] is the z-score of ln(illiq[i]) over the last
-    `zscore_window` bars of the same volume basis.
+    """Amihud illiquidity z-score series (todo 555): z-score of ln(illiq[i]) over the last
+    `zscore_window` bars of one volume basis, illiq[i] = |ln(C[i] / C[i-1])| / (C[i] * V[i]).
 
-    Todo 555 definition (changes the pre-555 statistic):
+    - Scale. Raw illiq is about 1e-10 on a liquid name, below the absolute std floor, so a raw
+      z-score is 0.0 almost everywhere. Amihud values are roughly log-normal and the log removes
+      the price-times-volume scale, so the z-score is taken on ln(illiq).
+    - Basis. Vendors count volume differently (IBKR SMART about 0.41 to 0.91 of consolidated),
+      so a window spanning a basis change carries a level shift of ln(0.41..0.91). The window
+      restarts where `volume_basis` changes (`_volume_basis_segment_starts`) and the output is
+      NaN until it is warm again: a loud gap beats a silent level shift.
+    - Missing values. A bar with NaN volume (NULL), a zero return (no log) or a non-positive
+      close (todo 390) gives no observation. The z-score runs over the observations the window
+      holds and is NaN when the bar's own is missing or the window holds fewer than
+      ceil(min_valid_fraction * zscore_window): one missing session does not blank 252 rows.
+    - Rows before the window is warm, and row 0, are NaN (no_fill).
 
-    - Scale. Bar i's illiq, |ln(C[i] / C[i-1])| / (C[i] * V[i]), is about 1e-10 on a liquid name,
-      below the absolute std floor, so the pre-555 z-score of the raw value was 0.0 on almost
-      every row. Amihud values are roughly log-normal across time and names, and the log removes
-      the price-times-volume scale, so the z-score is taken on ln(illiq). A zero return has no
-      log: that bar's observation is missing (NaN), counted against the minimum below.
-    - Basis. Vendors count volume differently (IBKR SMART about 0.41 to 0.91 of consolidated), so
-      a window spanning a basis change would carry a level shift of ln(0.41..0.91) as signal.
-      The window restarts at the row where the basis changes (`_volume_basis_segment_starts`)
-      and the output is NaN until it holds enough observations again: a loud gap beats a silent
-      level shift.
-    - Missing values. A bar with no volume (NULL, so NaN), a zero return or a close that is not
-      positive (todo 390) gives no observation. The z-score runs over the observations the
-      window holds, and is NaN when the bar's own observation is missing or the window holds
-      fewer than ceil(min_valid_fraction * zscore_window) of them. One missing session does not
-      blank the next 252 rows.
-    - Cold start. Rows before the window is warm are NaN (no_fill), not the pre-555 0.0.
-
-    The z-score runs on cumulative sums over the observations (missing ones enter as 0.0 and are
-    not counted), so a window's moments are differences of the sums at its ends. Row 0 has no
-    previous close and is NaN.
+    Cumulative sums over the valid observations (missing ones enter as 0.0 and are not counted)
+    give each window's moments as a difference of the sums at its ends.
     """
     n = len(closes)
     z = np.full(n, np.nan, dtype=float)
     if n < 2:
         return z
-    c = closes.astype(float)
-    v = volumes.astype(float)
+    c = np.asarray(closes, dtype=float)
+    v = np.asarray(volumes, dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
         log_ret_abs = np.abs(np.log(c[1:] / c[:-1]))
         illiq = log_ret_abs / (c[1:] * np.maximum(v[1:], 1.0))
@@ -365,12 +358,11 @@ def _amihud_illiq_z_series_full(
     total = cs[rows + 1] - cs[start]
     total2 = cs2[rows + 1] - cs2[start]
     needed = max(2, math.ceil(min_valid_fraction * zscore_window))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mean = total / count
-        std = np.sqrt(np.maximum(total2 / count - mean * mean, 0.0))
-        score = np.where(std > STD_FLOOR, (obs - mean) / std, 0.0)
     ok = valid & (count >= needed)
-    z[ok] = score[ok]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = total[ok] / count[ok]
+        std = np.sqrt(np.maximum(total2[ok] / count[ok] - mean * mean, 0.0))
+        z[ok] = np.where(std > STD_FLOOR, (obs[ok] - mean) / std, 0.0)
     return z
 
 

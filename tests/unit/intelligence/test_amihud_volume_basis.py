@@ -7,20 +7,21 @@ import math
 import numpy as np
 import pytest
 
-from src.intelligence.features.contract.registry import (
-    VOLUME_BASIS_CODES,
-    compute_kernels,
-    default_registry,
+from src.intelligence.bars.vendor_kind import (
+    VOLUME_BASIS_CONSOLIDATED as CONSOLIDATED,
 )
+from src.intelligence.bars.vendor_kind import (
+    VOLUME_BASIS_NONE as NONE,
+)
+from src.intelligence.bars.vendor_kind import (
+    VOLUME_BASIS_SMART as SMART,
+)
+from src.intelligence.features.contract.registry import compute_kernels, default_registry
 from src.intelligence.features.kernels.volume import (
     _amihud_illiq_z_series_full,
     _volume_basis_segment_starts,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
-
-CONSOLIDATED = VOLUME_BASIS_CODES["consolidated"]
-SMART = VOLUME_BASIS_CODES["smart"]
-NONE = VOLUME_BASIS_CODES["none"]
 
 
 def _series(n: int, seed: int = 3, price: float = 100.0, volume: float = 1e6):

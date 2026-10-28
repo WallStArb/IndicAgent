@@ -23,6 +23,10 @@ the label map stays the raw-side vocabulary's one definition.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+import numpy as np
+
 from src.core.bar_normalizer import (
     SOURCE_IBKR_CONTINUOUS,
     SOURCE_IBKR_GENERIC,
@@ -241,19 +245,19 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
 # ---------------------------------------------------------------------------
 # Volume basis (todo 555): what a canonical bar's volume counts. Vendors count volume differently
 # (IBKR SMART volume is about 0.41 to 0.91 of consolidated on 1d, 0.38 to 0.95 on 5m), so a
-# rolling volume statistic must never span two bases. This table is the one mapping from a
-# canonical (vendor, kind) to its basis; the feature rebuild's loaders derive the per-row
-# `volume_basis` bar field from it (the integer codes are in features/contract/registry.py).
-# The basis is data: a seam is wherever the selected rows' basis changes, per name and per
-# timeframe, never a date (D-191-Q gives 53 names IBKR symbol rows inside the Alpaca era).
+# rolling volume statistic must never span two bases. The basis is one small integer per bar (the
+# `volume_basis` bar field), derived from the canonical (vendor, kind) by the one table below. It
+# is data: a seam is wherever the selected rows' basis changes, per name and per timeframe, never
+# a date (D-191-Q gives 53 names IBKR symbol rows inside the Alpaca era).
 # ---------------------------------------------------------------------------
 
-VOLUME_BASIS_CONSOLIDATED = "consolidated"  # every venue's prints (SIP, Tradier consolidated)
-VOLUME_BASIS_SMART = "smart"  # IBKR SMART-routed TRADES volume
-VOLUME_BASIS_NONE = "none"  # no volume: the tradeable view NULLs it for this kind
-VOLUME_BASIS_MIXED = "mixed"  # a derived bar whose 5m constituents carry different bases
+VOLUME_BASIS_NONE = 0  # no volume (NULL): carries no basis, never starts or ends a segment
+VOLUME_BASIS_CONSOLIDATED = 1  # every venue's prints (SIP, Tradier consolidated)
+VOLUME_BASIS_SMART = 2  # IBKR SMART-routed TRADES volume
+VOLUME_BASIS_MIXED = 3  # a derived bar whose 5m constituents carry different bases
+_N_VOLUME_BASES = 4
 
-VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], str] = {
+VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], int] = {
     (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
     (VENDOR_TRADIER, "consolidated"): VOLUME_BASIS_CONSOLIDATED,
     (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
@@ -264,7 +268,7 @@ VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], str] = {
 }
 
 
-def volume_basis(vendor: str, kind: str) -> str:
+def volume_basis(vendor: str, kind: str) -> int:
     """The volume basis of a canonical (vendor, kind). A derived grid bar has no basis of its
     own (`grid_volume_basis` takes it from its 5m constituents), and an unmapped pair raises:
     a basis never defaults."""
@@ -280,19 +284,20 @@ def volume_basis(vendor: str, kind: str) -> str:
 
 
 def grid_volume_basis(
-    grid_ts_seconds, minutes: int, constituent_ts_seconds, constituent_basis
-) -> list[str]:
+    grid_ts_seconds: Sequence[int] | np.ndarray,
+    minutes: int,
+    constituent_ts_seconds: Sequence[int] | np.ndarray,
+    constituent_basis: Sequence[int] | np.ndarray,
+) -> np.ndarray:
     """The volume basis of each derived grid bar: its 5m constituents' basis when they agree,
-    `mixed` when they differ. Constituents of the bar stamped t are the 5m bars stamped in
-    [t, t + minutes) and before the next grid stamp (the session-anchored bucket of
+    `VOLUME_BASIS_MIXED` when they differ. Constituents of the bar stamped t are the 5m bars
+    stamped in [t, t + minutes) and before the next grid stamp (the session-anchored bucket of
     bars/session_grid.py). Both stamp arrays are ascending epoch seconds. A grid bar with no
     constituent raises: its volume came from somewhere, so the evidence is missing, not the
     basis."""
-    import numpy as np
-
     grid = np.asarray(grid_ts_seconds, dtype=np.int64)
     stamps = np.asarray(constituent_ts_seconds, dtype=np.int64)
-    bases = list(constituent_basis)
+    bases = np.asarray(constituent_basis, dtype=np.int64)
     if len(bases) != len(stamps):
         raise ValueError(f"{len(stamps)} constituent stamps but {len(bases)} bases")
     ends = grid + 60 * int(minutes)
@@ -302,17 +307,9 @@ def grid_volume_basis(
     hi = np.searchsorted(stamps, ends, side="left")
     empty = hi <= lo
     if empty.any():
-        first = int(grid[np.argmax(empty)])
-        raise ValueError(f"derived grid bar at {first} has no 5m constituent")
+        raise ValueError(f"derived grid bar at {int(grid[np.argmax(empty)])} has no 5m constituent")
     # Per-basis prefix counts: a bar is mixed when more than one basis has a constituent in
-    # [lo, hi). One vectorized pass, no per-bar Python loop.
-    names = sorted(set(bases))
-    present = np.zeros((len(grid), len(names)), dtype=bool)
-    for j, name in enumerate(names):
-        counts = np.concatenate([[0], np.cumsum(np.fromiter((b == name for b in bases), bool))])
-        present[:, j] = counts[hi] - counts[lo] > 0
-    only = np.array(names, dtype=object)[present.argmax(axis=1)]
-    return [
-        VOLUME_BASIS_MIXED if many else str(name)
-        for many, name in zip(present.sum(axis=1) > 1, only, strict=True)
-    ]
+    # [lo, hi).
+    counts = [np.concatenate([[0], np.cumsum(bases == code)]) for code in range(_N_VOLUME_BASES)]
+    present = np.stack([c[hi] > c[lo] for c in counts], axis=1)
+    return np.where(present.sum(axis=1) > 1, VOLUME_BASIS_MIXED, present.argmax(axis=1))
