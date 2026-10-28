@@ -1,4 +1,4 @@
--- Migration 534: genesis_seed transition rows for the 11 HMM columns migration 533 registered
+-- Migration 535: genesis_seed transition rows for the 11 HMM columns migration 533 registered
 -- (187-12 review). Every governed feature has one (migration 284 wrote hmm_entropy's); without
 -- it the transition log has no origin entry for these columns. Like 284's, it establishes the
 -- status at registration time without fabricating a promotion event.

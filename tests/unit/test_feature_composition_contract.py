@@ -68,7 +68,7 @@ def test_seed_recipes_are_distinct_valid_recipes():
 
 def test_genesis_seed_migration_covers_exactly_the_registered_columns():
     sql = re.sub(
-        r"--[^\n]*", "", read_source("production", "migrations", "534_hmm_columns_genesis_seed.sql")
+        r"--[^\n]*", "", read_source("production", "migrations", "535_hmm_columns_genesis_seed.sql")
     )
     assert "'genesis_seed'" in sql and "registered_by' = 'migration_533'" in sql
     assert "NOT EXISTS" in sql  # idempotent
