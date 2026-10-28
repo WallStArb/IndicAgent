@@ -1,6 +1,6 @@
 # Cointegrated Pairs Residual — Idea (Edge Source Thesis cointegrated_pairs_residual)
 
-**Status:** Pre-registered and run 2026-08-07. **DEAD.** 0/6 named pairs cointegrate in-sample
+**Status:** Reopened by the owner 2026-10-28 as a spread family tested on its trading statistic (ledger section 2, todo 559); the frozen result below stands. Pre-registered and run 2026-08-07. **DEAD.** 0/6 named pairs cointegrate in-sample
 (Stage 1) — Stages 2-5 never needed to run. See Result below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-07 — not a Fable dispatch.
 **Origin:** Post-mortem of Phase 167's retraction (`ctf_momentum`'s batch-join lookahead leak,
