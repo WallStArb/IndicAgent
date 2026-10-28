@@ -719,3 +719,46 @@ async def test_stage_legacy_verdicts_alone_are_refused_until_a_recipe_reopens_th
     ids = [Identity(other, "member", "o"), Identity(name, "family", "reopened")]
     await ledger.start_runs(request, ids, [other])
     assert await _stage(name) == "specified"
+
+
+def _card(card_id: str):
+    from src.intelligence.research.legacy_cards import LegacyCard
+
+    return LegacyCard(
+        card_id=card_id,
+        concept_name=card_id.removeprefix("legacy-").replace("-", "_"),
+        title="a test verdict",
+        spec_path="docs/x.md",
+        spec_hash=_hash(),
+        spec_blob="---\ncard_id: x\n---\n",
+        code_commit=_commit(),
+        evidence={"card_id": card_id, "verdict": "DEAD", "reproducible": False},
+    )
+
+
+async def test_import_legacy_card_is_one_terminal_row_and_idempotent(ledger, scope):
+    card = _card(f"legacy-{uuid4().hex[:8]}")
+    scope.names.append(card.concept_name)
+    scope.vintages.append("legacy")
+    run_id = await ledger.import_legacy_card(card)
+    assert run_id is not None
+    assert await ledger.import_legacy_card(card) is None
+    row = await _row(run_id)
+    assert (row["kind"], row["status"], row["vintage"], row["mode"]) == (
+        "legacy_verdict",
+        "completed",
+        "legacy",
+        "real",
+    )
+    assert row["evidence"]["card_id"] == card.card_id and row["recipe_hash"] is None
+    conn = await connect_with_codecs(_TEST_DB_URL)
+    try:
+        assert not await conn.fetchval(
+            "SELECT 1 FROM research_run_series WHERE run_id = $1::uuid", run_id
+        )
+        domain = await conn.fetchval(
+            "SELECT domain FROM concept_registry WHERE concept_id = $1", row["concept_id"]
+        )
+    finally:
+        await conn.close()
+    assert domain == "family"

@@ -34,6 +34,7 @@ from typing import Any, Literal
 import numpy as np
 
 from src.core.database_manager import connect_with_codecs
+from src.intelligence.research.legacy_cards import LEGACY_VINTAGE, LegacyCard
 from src.intelligence.research.recipe import RecipeContent
 
 # Fixed advisory-lock key covering research_run, construction identity rows and their
@@ -465,6 +466,61 @@ class PostgresLedger:
                 if missing:
                     raise LedgerRefusal(f"recipes for unregistered {domain} concepts: {missing}")
                 return await self._write_recipes(conn, recipes, concept_ids, code_commit, author)
+        finally:
+            await conn.close()
+
+    async def import_legacy_card(self, card: LegacyCard) -> str | None:
+        """Write one summary card as a completed `legacy_verdict` attempt (plan 187-13), or return
+        None when the card is already imported (idempotent by card_id). The card's concept is its
+        retyped family row when one exists, else a new `family` identity: an old verdict is a
+        tested idea. The row goes started -> completed in one locked transaction like any
+        attempt; it has no series, no recipe and no headline numbers, never joins the selection
+        universe (vintage `legacy`) and is never re-scored. Returns the new run_id."""
+        evidence = jsonable(card.evidence)
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                if await conn.fetchval(
+                    "SELECT 1 FROM research_run "
+                    "WHERE kind = 'legacy_verdict' AND evidence->>'card_id' = $1",
+                    card.card_id,
+                ):
+                    return None
+                await conn.execute(
+                    "INSERT INTO concept_registry "
+                    "(domain, name, description, status, enabled, metadata, added_phase) "
+                    "VALUES ('family', $1, $2, 'candidate', false, $3, $4) "
+                    "ON CONFLICT (domain, name) DO NOTHING",
+                    card.concept_name,
+                    card.title,
+                    {"kind": "family", "legacy_card": card.card_id},
+                    _ADDED_PHASE,
+                )
+                concept_id = await conn.fetchval(
+                    "SELECT concept_id FROM concept_registry WHERE domain = 'family' AND name = $1",
+                    card.concept_name,
+                )
+                run_id = await conn.fetchval(
+                    "INSERT INTO research_run (run_group, concept_id, kind, mode, spec_path, "
+                    "spec_hash, spec_blob, code_commit, vintage) "
+                    "VALUES ($1, $2, 'legacy_verdict', 'real', $3, $4, $5, $6, $7) "
+                    "RETURNING run_id",
+                    uuid.uuid4(),
+                    concept_id,
+                    card.spec_path,
+                    card.spec_hash,
+                    card.spec_blob,
+                    card.code_commit,
+                    LEGACY_VINTAGE,
+                )
+                await conn.execute(
+                    "UPDATE research_run SET status = 'completed', evidence = $2, "
+                    "finished_at = now() WHERE run_id = $1",
+                    run_id,
+                    evidence,
+                )
+                return str(run_id)
         finally:
             await conn.close()
 

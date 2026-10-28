@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from src.intelligence.research.legacy_cards import parse_front_matter
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _CARD_DIR = _REPO_ROOT / "docs" / "research" / "summary-cards"
 _GATE_LOOK_LOG = _REPO_ROOT / ".planning" / "gate_look_log.jsonl"
@@ -83,20 +85,6 @@ _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _KNOWN_REF_PREFIXES = frozenset({"db", "gate_look_log"})
 
 
-class _CardLoader(yaml.SafeLoader):
-    """SafeLoader with YAML 1.2 booleans: only true/false. YAML 1.1 also reads yes/no/on/off
-    as booleans, which would let `reproducible: no` pass silently as False."""
-
-
-_CardLoader.yaml_implicit_resolvers = {
-    first: [(tag, rx) for tag, rx in resolvers if tag != "tag:yaml.org,2002:bool"]
-    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
-_CardLoader.add_implicit_resolver(
-    "tag:yaml.org,2002:bool", re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")
-)
-
-
 def _as_date(value) -> bool:
     """Accept a YAML-parsed date or an ISO string (hand-built dicts in tests)."""
     if isinstance(value, date):
@@ -112,16 +100,7 @@ def _as_date(value) -> bool:
 
 def _parse_card(path: Path) -> dict:
     """Split a card file into front matter via the strict loader. Raises on missing fences."""
-    text = path.read_text()
-    if not text.startswith("---\n"):
-        raise ValueError(f"{path.name}: card must start with a '---' front matter fence")
-    end = text.find("\n---", 4)
-    if end == -1:
-        raise ValueError(f"{path.name}: card front matter has no closing '---' fence")
-    front = yaml.load(text[4:end], Loader=_CardLoader)
-    if not isinstance(front, dict):
-        raise ValueError(f"{path.name}: front matter must be a YAML mapping")
-    return front
+    return parse_front_matter(path.read_text(), path.name)
 
 
 def _lint_card(front: dict, *, gate_ids: set[str], gate_run_ts: set[str]) -> list[str]:
