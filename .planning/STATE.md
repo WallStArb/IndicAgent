@@ -103,6 +103,9 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   blocker for daily attempts 3/3b/4 is cleared; the build-first pause (owner 2026-09-27) still
   holds. Family 2's evidence run (187's gate) is approved for one run once plan 191-20's 1d re-derive lands (moved up from 191-25 by the owner 2026-10-27; the runner's import closure touches no file in plans 21-25). `build_panel` refuses any end past `alpha.validation.oos_start` (2025-12-24, write-once).
 
+- **Pre-2016 IBKR 5m backfill (todo 534, P0 again, owner 2026-10-28):** 289 of 1,529 names hold any IBKR 5m; of 1,279 listed before 2016, 43 are complete, 217 partial, 1,019 none (about 9,200 name-years). Alpaca SIP covers all names only from 2016-01-01. The fetcher runs near continuously at 76 to 88 requests an hour (73 s median answer); `infra.backfill.fetch_concurrency` is 4 from 2026-10-28 (applies from the run starting about 15:47Z; expect about 175/h). Canonical 1d lags raw (1,317 names to 10-23) until plan 191-20's re-derive; raw 1d is complete through 10-27.
+- **Ops, 2026-10-28:** `tools/gate.py` runs the mechanical gate with a cross-session parity lock; rolling service logs cleared (kept evidence under logs/); unit `e17-step-a-rerun` waits on the 187-03 apply; migration 530 (typed concept domains) and 531 (fetch_concurrency type) live; migration 526 breaks the integration baseline replay (3a).
+
 - **Frozen and ended names (todo 519):** WBD, QRVO, CCO ended (merger or buyout); PSKY trades as
   SKYD on NYSE and IBKR re-served its history on a 0.979 scale. Parked as non-critical; the
   rebuild gate already skips stale names.

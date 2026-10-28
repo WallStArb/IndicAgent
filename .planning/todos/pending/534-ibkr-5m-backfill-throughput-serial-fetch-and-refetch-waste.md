@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P0
 filed: 2026-10-12
 source: 5m backfill throughput check, 2026-10-12 (ohlcv_request, fetcher log)
 owner: phase 189 fetcher
@@ -61,3 +61,17 @@ slots minus its own answered windows. Plan 191-04 deletes the cross-vendor refus
 gap planner (`_plan_gaps`, overlap and refetch lanes) moves to the per-source rule in the plan that
 cuts the fetcher over to `ohlcv_raw`. Do not restrict the queue to pre-2016: post-2016 IBKR chunks
 are IBKR raw we want. Cause 2 (serial fetch, bounded concurrency) is unchanged and still first.
+
+## Status 2026-10-28 (indicagent-5b, owner prompt)
+
+Owner expected the pre-2016 5m for names missing it done by now. Measured (read-only): 1,279
+active names listed before 2016; 43 have IBKR 5m to their start, 217 partial, 1,019 none; about
+9,200 name-years remain. The fetcher timer re-fires 15 min after each run, so the lane is near
+continuous, but 5m throughput is 76 to 88 requests an hour: median answer latency 73 s (the
+pilot saw 28 s) times 2 workers. Concurrency is the lever: `infra.backfill.fetch_concurrency`
+set 2 to 4 on 2026-10-28 13:54Z (config version 3; migration 531 corrected the key's value type,
+which had blocked ConfigService.set). Read the next run's request rate (expect about 175/h) and
+pacing errors; revert to 2 if pacing errors or gateway drops appear. Idle time between runs is
+about 45 min (post-fetch stages, then the 15 min timer). Remaining decisions for 3a: ETA, name
+order (feature-family names first), shortening the post-fetch gap. Todo 556 covers ten other
+config rows whose value types the validator rejects.
