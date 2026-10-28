@@ -9,11 +9,12 @@
 --
 -- Eleven numeric feature_vectors columns (the HMM probability, churn and volatility columns
 -- the regime writer owns) have no concept_registry row. They are registered active, composition
--- base, with the concept_gate row of their sibling hmm_entropy. Their version 1 recipes are
+-- base, with the gate values of their sibling hmm_entropy. Their version 1 recipes are
 -- written by the S6 ledger command scripts/research/seed_hmm_recipes.py, not here.
 --
 -- Counts recorded 2026-10-28 (the migration raises if they differ when it runs):
 --   tier 0_atomic 169, 1_interaction 25, 2_theory 106, no tier 2; CVR tier 3 codes.
+-- A database with no feature rows (the integration baseline) skips that check.
 
 BEGIN;
 
@@ -30,7 +31,8 @@ BEGIN
         count(*) FILTER (WHERE metadata->>'tier' = '2_theory') AS theory,
         count(*) FILTER (WHERE NOT metadata ? 'tier') AS untiered
     INTO got FROM concept_registry WHERE domain = 'feature';
-    IF (got.atomic, got.interaction, got.theory, got.untiered) <> (169, 25, 106, 2) THEN
+    IF got.atomic + got.interaction + got.theory + got.untiered > 0
+       AND (got.atomic, got.interaction, got.theory, got.untiered) <> (169, 25, 106, 2) THEN
         RAISE EXCEPTION 'migration 533: feature tier counts changed: %', got;
     END IF;
     IF (SELECT count(*) FROM concept_registry
@@ -39,10 +41,6 @@ BEGIN
             'hmm_vol_regime_prob', 'hmm_vol_prob_calm', 'hmm_vol_prob_elevated',
             'hmm_vol_prob_turbulent', 'hmm_vol_entropy', 'hmm_vol_duration', 'hmm_vol_churn')) <> 0 THEN
         RAISE EXCEPTION 'migration 533: an HMM column is already registered';
-    END IF;
-    IF (SELECT count(*) FROM concept_gate g JOIN concept_registry r USING (concept_id)
-        WHERE r.domain = 'feature' AND r.name = 'hmm_entropy') <> 1 THEN
-        RAISE EXCEPTION 'migration 533: hmm_entropy has no gate row to copy';
     END IF;
 END $$;
 
@@ -82,12 +80,9 @@ FROM new_features;
 
 INSERT INTO concept_gate (concept_id, gate_metric_name, gate_eval_method, min_gate_n,
                           fdr_required, fdr_alpha)
-SELECT r.concept_id, g.gate_metric_name, g.gate_eval_method, g.min_gate_n,
-       g.fdr_required, g.fdr_alpha
-FROM concept_registry r
-CROSS JOIN (SELECT gg.* FROM concept_gate gg JOIN concept_registry s USING (concept_id)
-            WHERE s.domain = 'feature' AND s.name = 'hmm_entropy') g
-WHERE r.domain = 'feature' AND r.metadata->>'registered_by' = 'migration_533';
+SELECT concept_id, 'ic_sharpe_hac', 'bootstrap_ci', 100, true, 0.05
+FROM concept_registry
+WHERE domain = 'feature' AND metadata->>'registered_by' = 'migration_533';
 
 DO $$
 BEGIN

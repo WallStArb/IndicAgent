@@ -293,7 +293,13 @@ class PostgresLedger:
                             parent_id,
                         )
 
-                recipe_hashes = await self._write_recipes(conn, request, concept_ids)
+                recipe_hashes = await self._write_recipes(
+                    conn,
+                    request.recipes,
+                    concept_ids,
+                    request.code_commit,
+                    request.author or "unknown",
+                )
 
                 run_group = uuid.uuid4()
                 run_ids: dict[str, str] = {}
@@ -373,14 +379,6 @@ class PostgresLedger:
 
     @staticmethod
     async def _write_recipes(
-        conn: Any, request: RunRequest, concept_ids: Mapping[str, Any]
-    ) -> dict[str, str]:
-        return await PostgresLedger._insert_recipes(
-            conn, request.recipes, concept_ids, request.code_commit, request.author or "unknown"
-        )
-
-    @staticmethod
-    async def _insert_recipes(
         conn: Any,
         recipes: Mapping[str, RecipeContent],
         concept_ids: Mapping[str, Any],
@@ -451,17 +449,17 @@ class PostgresLedger:
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
                 await self._check_cvr_codes(conn, recipes)
-                concept_ids: dict[str, Any] = {}
-                for name in recipes:
-                    concept_id = await conn.fetchval(
-                        "SELECT concept_id FROM concept_registry WHERE domain = $1 AND name = $2",
-                        domain,
-                        name,
-                    )
-                    if concept_id is None:
-                        raise LedgerRefusal(f"recipe for unregistered {domain} concept: {name}")
-                    concept_ids[name] = concept_id
-                return await self._insert_recipes(conn, recipes, concept_ids, code_commit, author)
+                rows = await conn.fetch(
+                    "SELECT name, concept_id FROM concept_registry "
+                    "WHERE domain = $1 AND name = ANY($2::text[])",
+                    domain,
+                    list(recipes),
+                )
+                concept_ids = {row["name"]: row["concept_id"] for row in rows}
+                missing = sorted(set(recipes) - set(concept_ids))
+                if missing:
+                    raise LedgerRefusal(f"recipes for unregistered {domain} concepts: {missing}")
+                return await self._write_recipes(conn, recipes, concept_ids, code_commit, author)
         finally:
             await conn.close()
 
