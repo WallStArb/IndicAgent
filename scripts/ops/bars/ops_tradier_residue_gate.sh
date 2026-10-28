@@ -26,6 +26,6 @@ fi
 log "readiness green, running measure/prove/report"
 "$PY" -m scripts.ops.bars.ops_tradier_residue --measure --frozen-names "$FROZEN" --out logs/191-19/measure.json >>"$LOG" 2>&1 || { log "measure FAILED"; exit 0; }
 "$PY" -m scripts.ops.bars.ops_tradier_residue --prove --frozen-names "$FROZEN" --out logs/191-19/prove.json >>"$LOG" 2>&1 || log "prove exited nonzero (unproven names recorded in the payload)"
-"$PY" -m scripts.ops.bars.ops_tradier_residue --report >>"$LOG" 2>&1 || { log "report FAILED"; exit 0; }
+"$PY" -m scripts.ops.bars.ops_tradier_residue --report --measure-json logs/191-19/measure.json --prove-json logs/191-19/prove.json >>"$LOG" 2>&1 || { log "report FAILED"; exit 0; }
 echo done >"$STATE"
 log "residue report written to $REPORT; ready for session review and plan 20 (owner checkpoint)"
