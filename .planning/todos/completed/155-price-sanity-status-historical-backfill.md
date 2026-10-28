@@ -78,7 +78,7 @@ TimescaleDB cost traps to avoid re-discovering empirically.
 
 - `.superpowers/sdd/task-6-report.md` in the `todo-149-price-sanity-guard` worktree --
   exact pilot numbers (7.55s/500 rows, 215,618,330 row backlog)
-- `docs/superpowers/plans/2026-07-20-bar-ingestion-price-sanity-guard.md` -- todo 149's
+- `docs/superpowers/archive/plans/2026-07-20-bar-ingestion-price-sanity-guard.md` -- todo 149's
   full plan; this backfill is explicitly out of scope for that plan's Task 6 ("present the
   number, do not silently pick a new batch size ... without review")
 - `src/intelligence/statistics/price_sanity.py` -- shared classification/corroboration

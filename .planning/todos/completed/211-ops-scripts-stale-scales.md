@@ -3,7 +3,7 @@ status: completed
 priority: P2
 filed: 2026-07-30
 completed: 2026-07-30
-source: final whole-branch review of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
+source: final whole-branch review of docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md
   found these two additional consumers, distinct from todos 209/210
 ---
 
@@ -76,7 +76,7 @@ when someone next touches this cluster of scripts.
 - `.planning/todos/pending/209-ops-vol-normalized-target-ab-scales.md`,
   `.planning/todos/pending/210-ensemble-ic-worker-scales.md` -- sibling findings, same
   defect class
-- `docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose final
+- `docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose final
   review surfaced this
 - `scripts/ops/alpha/ops_ensemble_ablation.py:80,363-365,442,562,1098`
 - `scripts/ops/alpha/ops_interaction_primitives_pilot.py:54,56,65,66,92`

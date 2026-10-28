@@ -506,7 +506,7 @@ correct, only the starting file shape assumption needs correcting.
 
 ### Pitfall 4: Migration number collision with an independent in-flight workstream
 **What goes wrong:** Migration `247_regime_groups_dual_write_symbol_hmm.sql` is reserved (text
-exists in a not-yet-executed plan doc, `docs/superpowers/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`)
+exists in a not-yet-executed plan doc, `docs/superpowers/archive/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`)
 by Task 2 of the symbol_hmm restoration work on this exact worktree — separate from Phase 162,
 not yet run. If Phase 162's planner also picks 247, whichever migration lands second either
 fails outright (file already exists) or silently overwrites migration history depending on how
@@ -747,7 +747,7 @@ table is included since none apply.
   to `main`)
 - `.planning/todos/deferred/{129,133,134,139,140}-*.md`, `.planning/todos/completed/122-*.md`
   (deferred-todo source text, cross-checked against live code)
-- `.planning/STATE.md`, `docs/superpowers/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`
+- `.planning/STATE.md`, `docs/superpowers/archive/plans/2026-07-21-restore-symbol-hmm-ic-measurement-for-routed-symbols.md`
   (migration 247 reservation, confirmed via grep — not yet executed)
 - `pytest.ini`, `ls production/migrations/` (test framework config, next-free-migration-number check)
 

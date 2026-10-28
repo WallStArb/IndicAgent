@@ -3,7 +3,7 @@ status: completed
 priority: P3
 filed: 2026-07-30
 completed: 2026-07-30
-source: final-review re-review of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
+source: final-review re-review of docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md
 ---
 
 **CLOSED 2026-07-30** — fixed in commit `739b434f`: `_load_apr_values` now checks
@@ -45,5 +45,5 @@ an active bug.
 - `src/observability/corpus_manifest_verifier.py:111`
 - `services/_batch_utils.py`'s `canonicalize_active_scales` -- the Ring 2 path this
   should match semantics with
-- `docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose final
+- `docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose final
   review surfaced this

@@ -769,7 +769,7 @@ it with:
 ```markdown
 ## Fix
 
-1. **Canary seeding -- DONE 2026-07-29** (`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`
+1. **Canary seeding -- DONE 2026-07-29** (`docs/superpowers/archive/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`
    Task 1): `symbol` added into `_canary_sub_seed`'s hash input, mirroring
    `ic_engine.py`'s own `_derive_worker_rng_seed(cell_key, bootstrap_seed)` pattern.
    No historical backfill triggered -- these 3 columns have zero live consumers today
@@ -801,7 +801,7 @@ negative-control...` through `...horizon-response diagnostic.`) with:
 
 ```markdown
 — **seeding fix + broadcast-feature audit DONE 2026-07-29** (see plan
-`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`);
+`docs/superpowers/archive/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`);
 `symbol` now included in `_canary_sub_seed`'s hash, `ops_broadcast_feature_audit.py`
 confirms `vix_z`/`yield_slope_z`/`flight_quality` + all session/calendar features
 share the same pseudo-replication exposure the canaries had. Building an actual

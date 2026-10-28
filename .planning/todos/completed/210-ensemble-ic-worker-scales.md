@@ -3,7 +3,7 @@ status: completed
 priority: P1
 filed: 2026-07-30
 completed: 2026-07-30
-source: task reviewer finding during SDD execution of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
+source: task reviewer finding during SDD execution of docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md
   Task 4 (services/ensemble_ic_engine.py's EnsembleICConfig mirror + audit); premise
   corrected by the plan's final whole-branch review same day -- see Correction below
 ---
@@ -102,7 +102,7 @@ ahead of todo 209 (which really is compute-waste-only, a standalone diagnostic s
 
 ## References
 
-- `docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose Task 4
+- `docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose Task 4
   review surfaced this
 - `services/ensemble_ic_engine.py:953` (`_run_ensemble_ic_worker`) -- the site to fix
 - `services/ensemble_ic_engine.py:944-947` -- the existing `min_reliable_n` guard that

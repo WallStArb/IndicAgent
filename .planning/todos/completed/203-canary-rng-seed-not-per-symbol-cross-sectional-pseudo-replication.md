@@ -78,7 +78,7 @@ statistically correct tool for those, no exposure.
 
 ## Fix
 
-1. **Canary seeding -- DONE 2026-07-29** (`docs/superpowers/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`
+1. **Canary seeding -- DONE 2026-07-29** (`docs/superpowers/archive/plans/2026-07-29-canary-seed-and-broadcast-feature-audit.md`
    Task 1): `symbol` added into `_canary_sub_seed`'s hash input, mirroring
    `ic_engine.py`'s own `_derive_worker_rng_seed(cell_key, bootstrap_seed)` pattern.
    No historical backfill triggered -- these 3 columns have zero live consumers today

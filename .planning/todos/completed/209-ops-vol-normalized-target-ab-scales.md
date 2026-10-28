@@ -3,7 +3,7 @@ status: completed
 priority: P2
 filed: 2026-07-30
 completed: 2026-07-30
-source: task reviewer finding during SDD execution of docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md
+source: task reviewer finding during SDD execution of docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md
   Task 3 (services/ic_engine.py's 12 _SCALES call-site substitution)
 ---
 
@@ -19,7 +19,7 @@ replacing all 5 `_SCALES` call sites. 3 new unit tests
 
 ## Problem
 
-The 2026-07-30 per-tf active-scale-set design (`docs/superpowers/plans/2026-07-30-per-tf-
+The 2026-07-30 per-tf active-scale-set design (`docs/superpowers/archive/plans/2026-07-30-per-tf-
 active-scale-set.md`, `docs/superpowers/specs/2026-07-30-per-tf-active-scale-set-design.md`)
 replaced `ic_engine.py`'s hardcoded global `_SCALES = ("fast","mid","slow","extended")`
 with a per-tf `active_scales_for(tf)` resolver, sourced from a new APR key
@@ -57,7 +57,7 @@ in case other analysis/ops scripts have the same independent copy-paste of the f
 
 ## References
 
-- `docs/superpowers/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose Task 3
+- `docs/superpowers/archive/plans/2026-07-30-per-tf-active-scale-set.md` -- the plan whose Task 3
   review surfaced this
 - `services/ic_engine.py`'s `active_scales_for(tf)` method -- the resolver to migrate to
 - `services/_batch_utils.py`'s `ACTIVE_SCALES_FALLBACKS_BY_TF` -- live per-tf default,

@@ -14,7 +14,7 @@ source: /simplify altitude review of todo 148 (services/forward_return_writer.py
 Shipped to `main` (`dabf5fc5`, fast-forwarded from branch `todo-149-price-sanity-guard`,
 rebased onto main's tip first since main had gained one docs-only commit in the interim).
 Design: `docs/superpowers/specs/2026-07-20-bar-ingestion-price-sanity-guard-design.md`. Plan:
-`docs/superpowers/plans/2026-07-20-bar-ingestion-price-sanity-guard.md`. All 6 tasks complete,
+`docs/superpowers/archive/plans/2026-07-20-bar-ingestion-price-sanity-guard.md`. All 6 tasks complete,
 each individually reviewed and approved, plus a final whole-branch review (Opus) before merge.
 Full suite green throughout (4311 passed, 3 pre-existing skips, 0 failures).
 
@@ -83,7 +83,7 @@ plausibility check at all.
 ## References
 
 - `docs/superpowers/specs/2026-07-20-bar-ingestion-price-sanity-guard-design.md`
-- `docs/superpowers/plans/2026-07-20-bar-ingestion-price-sanity-guard.md`
+- `docs/superpowers/archive/plans/2026-07-20-bar-ingestion-price-sanity-guard.md`
 - `.planning/todos/pending/155-price-sanity-status-historical-backfill.md` -- rollout-pacing
   follow-up
 - `.planning/todos/pending/156-otel-span-coverage-gap-v3-pipeline.md` -- tracing gap found in
