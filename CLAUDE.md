@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.6
+Version: 5.63.7
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -18,6 +18,7 @@ Version: 5.63.6
 ## Done-Coding SOP
 
 Gate by diff class; the push is the only publishing boundary. Commit directly on main (branch switching moves HEAD for every concurrent session in this shared checkout; when another session's WIP is dirty, use the detached-HEAD scratch worktree in `docs/reference/gotchas.md`). Always `git commit -m "..." -- <paths>`; never chain `git push` with a first-time commit.
+Before any commit, `git fetch` and read `git status -sb`; if main is ahead and behind, `git cherry -v origin/main HEAD` shows which local commits are already upstream as rebased copies (`-`). Do the work in a detached scratch worktree off `origin/main` and `git push origin HEAD:main`. A scratch worktree has no `.venv`: run `/home/bg/dev/indicagent/.venv/bin/pytest -n 0 -p no:cacheprovider <test>` from inside it.
 
 ```
 1. Gate by diff class (decide up front):
@@ -57,7 +58,7 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 
 **Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `roll.*` · `ui.*` · `alpha.*` · `infra.*`. **Lifecycle:** seed → user/operator preference → ml_learned → user_override; every write is recorded in `config_history` with `changed_by` and `reason`.
 
-**Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. The description notes provenance (`[initial_estimate]`, `[conventional]`, `[rca_analysis]`, `[user_preference]`) and whether it is an ML learning target.
+**Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration (`value_type` is `int`, `float`, `bool`, `str`, `string` or `json`; `integer`/`text` make `ConfigService.set` raise; a JSON document read as a raw string is `str`); (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. The description notes provenance (`[initial_estimate]`, `[conventional]`, `[rca_analysis]`, `[user_preference]`) and whether it is an ML learning target.
 
 **Also APR:** seeds that affect output (`alpha.hmm.random_state`; warn that changing it invalidates downstream outputs), behavioral lists (JSON via `json.loads(cfg.get_sync(key, default_json))`), infrastructure constants (`infra.*`), operator-visible switches. **Exempt:** service identity, schema identifiers, statistical concept definitions (the `5` in `momentum_z_5`), derived values, mathematical constants, DAG topology.
 
