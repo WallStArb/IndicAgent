@@ -32,8 +32,12 @@ _RUN_WRITE_PATTERN = re.compile(
     r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(research_run|research_run_series|concept_recipe)\b",
     re.IGNORECASE | re.DOTALL,
 )
+# A research-domain identity row (migration 530's typed domains; 'construction' before it), the
+# domain written as a literal or as a bound parameter (the ledger binds it from the identity kind).
 _CONSTRUCTION_IDENTITY_PATTERN = re.compile(
-    r"INSERT\s+INTO\s+concept_registry\b[^;]{0,3000}?'construction'", re.IGNORECASE | re.DOTALL
+    r"INSERT\s+INTO\s+concept_registry\b[^;]{0,3000}?VALUES\s*\(\s*"
+    r"(?:'(?:construction|family|member|combiner|construction_rule|book)'|\$\d+)",
+    re.IGNORECASE | re.DOTALL,
 )
 
 _LEDGER = "src/intelligence/research/ledger.py"

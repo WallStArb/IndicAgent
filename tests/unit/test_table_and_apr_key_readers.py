@@ -127,11 +127,6 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
 # data is permanent; a table written here and read by another surface). Each needs a reason.
 # Empty on 2026-10-06: every raw market data table has a reader today.
 _KEEP_TABLES: dict[str, str] = {
-    "concept_recipe": (
-        "phase 187 recipe book (migration 515, design 10.2.2), empty until its S6 writer and "
-        "first reader land in plan 187-11 (recipe registration and the research-stage view); "
-        "remove this entry in that plan's commit"
-    ),
     "shadow_registry": (
         "36 rows of I7 plugin enrollment settings; its readers (feature_validation_analyzer, the "
         "v2.x shadow path) were deleted in todo 509 item 2. Not empty, so outside the owner's "

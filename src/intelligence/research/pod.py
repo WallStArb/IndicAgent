@@ -30,6 +30,8 @@ import numpy as np
 from src.intelligence.research.evaluate import SESSIONS_PER_YEAR
 from src.intelligence.research.evidence import SCHEMA
 from src.intelligence.research.ledger import AttemptSeries, Identity, LedgerRefusal, RunRequest
+from src.intelligence.research.provenance import git_author
+from src.intelligence.research.recipe import pod_recipes
 from src.intelligence.research.runner import RunContext, RunRefused, _gate
 from src.intelligence.research.spec import LoadedSpec, PodBookSpec
 from src.intelligence.statistics.hac import hac_mean_test
@@ -84,7 +86,7 @@ def pod_identity(loaded: LoadedSpec) -> Identity:
     pod = loaded.model
     return Identity(
         f"pod.{pod.pod}",
-        "pod_book",
+        "pod",
         f"Pod book {pod.pod} ({pod.prior_source})",
         {"spec_path": loaded.path, "books": [b.book for b in pod.books]},
         parents=tuple(f"book.{b.model.book}" for b in loaded.books),
@@ -144,7 +146,7 @@ async def run_pod(
     sd = float(np.std(values, ddof=1))
     sharpe = float(np.mean(values)) / sd * math.sqrt(SESSIONS_PER_YEAR) if sd > 0 else None
     turnover = [m["run"].evidence.get("turnover_per_session") for m in members]
-    _, code_commit = await _gate(loaded, ctx, once=mode == "real")
+    root, code_commit = await _gate(loaded, ctx, once=mode == "real")
     subject = f"pod.{pod.pod}"
     request = RunRequest(
         kind="pod_book",
@@ -154,6 +156,9 @@ async def run_pod(
         code_commit=code_commit,
         vintage=ctx.budget.vintage_id,
         mode=mode,
+        recipes=pod_recipes(loaded),
+        informed_by=ctx.informed_by,
+        author=git_author(root),
     )
     try:
         started = await ctx.ledger.start_runs(request, [pod_identity(loaded)], [subject])

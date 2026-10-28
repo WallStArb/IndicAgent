@@ -52,6 +52,7 @@ from src.intelligence.research import (
     transforms,
 )
 from src.intelligence.research import panel as panel_mod
+from src.intelligence.research import recipe as recipe_mod
 from src.intelligence.research.book import book_memory, book_timing
 from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec, SignFold
 from src.intelligence.research.construction import resolve_rule
@@ -138,6 +139,11 @@ class RunContext:
     snapshot_dir: Path | None = None
     snapshot: Path | None = None
     build_snapshot: Callable[..., Awaitable[Path]] | None = None
+    # Plan 187-11: the APR values the run's definition depends on (the book test's bar reads the
+    # budget M and the screen alpha; recorded in the book's recipe), and the attempt that
+    # prompted this one (research_run.informed_by).
+    apr_values: dict = dataclasses.field(default_factory=dict)
+    informed_by: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -553,7 +559,7 @@ async def run_family(
     if real:
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
-        _, code_commit = await _gate(loaded, ctx, once=not exploring)
+        root, code_commit = await _gate(loaded, ctx, once=not exploring)
         identities = family_identities(loaded)
         concept = {m.name: f"member.{spec.family}.{m.name}" for m in spec.members}
         request = RunRequest(
@@ -564,6 +570,9 @@ async def run_family(
             code_commit=code_commit,
             vintage=ctx.budget.vintage_id,
             mode="exploration" if exploring else "real",
+            recipes=recipe_mod.family_recipes(loaded),
+            informed_by=ctx.informed_by,
+            author=provenance.git_author(root),
         )
         try:
             started = await ctx.ledger.start_runs(request, identities, list(concept.values()))
@@ -717,10 +726,18 @@ def book_identities(loaded: LoadedSpec) -> list[Identity]:
     ids: list[Identity] = []
     for fam in loaded.families:
         ids.extend(family_identities(fam))
+    combiner = f"combiner.{recipe_mod.combiner_kind(book)}"
+    rule = f"construction_rule.{book.construction.name}"
+    ids.append(
+        Identity(
+            combiner, "combiner", f"Combiner {combiner.split('.', 1)[1]} ({book.prior_source})"
+        )
+    )
+    ids.append(Identity(rule, "construction_rule", f"Construction rule {book.construction.name}"))
     ids.append(
         Identity(
             f"book.{book.book}",
-            "book_version",
+            "book",
             f"Book version {book.book} ({book.prior_source})",
             {"spec_path": loaded.path, "families": list(book.families)},
             parents=tuple(f"family.{f.model.family}" for f in loaded.families),
@@ -936,7 +953,7 @@ async def run_book(
     if real:
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
-        _, code_commit = await _gate(loaded, ctx)
+        root, code_commit = await _gate(loaded, ctx)
         request = RunRequest(
             kind="book_test",
             spec_path=loaded.path,
@@ -946,6 +963,9 @@ async def run_book(
             vintage=ctx.budget.vintage_id,
             budget_m=ctx.budget.budget_m,
             screen_alpha=ctx.budget.screen_alpha,
+            recipes=recipe_mod.book_recipes(loaded, ctx.apr_values),
+            informed_by=ctx.informed_by,
+            author=provenance.git_author(root),
         )
         try:
             started = await ctx.ledger.start_runs(request, book_identities(loaded), [subject])

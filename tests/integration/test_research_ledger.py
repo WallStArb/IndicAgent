@@ -95,7 +95,8 @@ async def scope() -> AsyncIterator[_Scope]:
                 r["concept_id"]
                 for r in await conn.fetch(
                     "SELECT concept_id FROM concept_registry "
-                    "WHERE domain = 'construction' AND name = ANY($1::text[])",
+                    "WHERE domain = ANY(ARRAY['family','member','combiner','construction_rule','book']) "
+                    "AND name = ANY($1::text[])",
                     tracked.names,
                 )
             ]
@@ -116,6 +117,11 @@ async def scope() -> AsyncIterator[_Scope]:
                     tracked.vintages,
                 )
                 await conn.execute("ALTER TABLE research_run ENABLE TRIGGER USER")
+                await conn.execute("ALTER TABLE concept_recipe DISABLE TRIGGER USER")
+                await conn.execute(
+                    "DELETE FROM concept_recipe WHERE concept_id = ANY($1::uuid[])", ids
+                )
+                await conn.execute("ALTER TABLE concept_recipe ENABLE TRIGGER USER")
             await conn.execute(
                 "DELETE FROM concept_parent WHERE child_concept_id = ANY($1::uuid[]) "
                 "OR parent_concept_id = ANY($1::uuid[])",
@@ -312,7 +318,8 @@ async def test_identity_rows_and_edges(ledger, scope):
     try:
         rows = await conn.fetch(
             "SELECT concept_id, status, enabled, added_phase FROM concept_registry "
-            "WHERE domain = 'construction' AND name = ANY($1::text[])",
+            "WHERE domain = ANY(ARRAY['family','member','combiner','construction_rule','book']) "
+            "AND name = ANY($1::text[])",
             [i.name for i in ids],
         )
         edges = await conn.fetchval(
@@ -426,9 +433,7 @@ async def test_a_pod_run_sums_pinned_member_series_through_s6(ledger, scope, tmp
         request = dataclasses.replace(
             scope.request("book_test", vintage=vintage), spec_hash=book.spec_hash
         )
-        started = await ledger.start_runs(
-            request, [Identity(name, "book_version", "test book")], [name]
-        )
+        started = await ledger.start_runs(request, [Identity(name, "book", "test book")], [name])
         run_id = started[name]
         evidence = {
             "decision": {**_DECISION["decision"], "statistic": "hac_timing_t_e17"},
@@ -456,3 +461,261 @@ async def test_a_pod_run_sums_pinned_member_series_through_s6(ledger, scope, tmp
     assert list(stored["d_s"]) == [2.5, 2.0, 4.25]
     with pytest.raises(RunRefused, match="already run"):
         await run_pod(loaded, ctx, mode="real")
+
+
+# Plan 187-11: typed domains, recipe versions, informed_by.
+
+
+def _recipe(name: str, **over):
+    from src.intelligence.research.recipe import RecipeContent
+
+    base = dict(
+        concept=name,
+        code_pointer="some.module:fn",
+        params={"window": 5},
+        apr_values={},
+        inputs=(),
+        universe_selector=None,
+        cvr_codes={"research_timeframe": "15m"},
+        mechanism="mechanism",
+        sources=("docs/x.md",),
+    )
+    return RecipeContent(**{**base, **over})
+
+
+async def _recipes(name: str) -> list[asyncpg.Record]:
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        return await conn.fetch(
+            "SELECT r.version, r.recipe_hash, r.code_commit, r.author FROM concept_recipe r "
+            "JOIN concept_registry c USING (concept_id) WHERE c.name = $1 ORDER BY r.version",
+            name,
+        )
+    finally:
+        await conn.close()
+
+
+async def test_identities_land_in_typed_domains(ledger, scope):
+    names = {
+        k: _name() for k in ("family", "member", "combiner", "construction_rule", "book", "pod")
+    }
+    scope.names += list(names.values())
+    ids = [Identity(n, k, "typed") for k, n in names.items()]
+    await ledger.start_runs(scope.request(), ids, [names["member"]])
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        rows = await conn.fetch(
+            "SELECT name, domain, metadata ->> 'kind' AS kind FROM concept_registry "
+            "WHERE name = ANY($1::text[])",
+            list(names.values()),
+        )
+    finally:
+        await conn.close()
+    got = {r["name"]: (r["domain"], r["kind"]) for r in rows}
+    assert got[names["pod"]] == ("book", "pod")  # a pod is a book
+    assert got[names["book"]] == ("book", "book")
+    for kind in ("family", "member", "combiner", "construction_rule"):
+        assert got[names[kind]] == (kind, kind)
+
+
+async def test_first_run_writes_version_1_and_the_run_points_at_its_recipe(ledger, scope):
+    ids, members = scope.identities()
+    family = ids[0].name
+    recipes = {family: _recipe(family), members[0]: _recipe(members[0], params={"window": 1})}
+    request = scope.request(recipes=recipes, author="tester")
+    run_id = (await ledger.start_runs(request, ids, [members[0]]))[members[0]]
+    for name, recipe in recipes.items():
+        (row,) = await _recipes(name)
+        assert (row["version"], row["recipe_hash"]) == (1, recipe.recipe_hash)
+        assert (row["code_commit"], row["author"]) == (request.code_commit, "tester")
+    assert (await _row(run_id))["recipe_hash"] == recipes[members[0]].recipe_hash
+
+
+async def test_a_changed_definition_adds_a_version_for_that_concept_only(ledger, scope):
+    ids, members = scope.identities(2)
+    family = ids[0].name
+    first = {n: _recipe(n) for n in (family, *members)}
+    await ledger.start_runs(scope.request(recipes=first), ids, [members[0]])
+    changed = {**first, members[0]: _recipe(members[0], params={"window": 6})}
+    request = scope.request(recipes=changed, mode="exploration")
+    second_commit = _commit()
+    request = dataclasses.replace(request, code_commit=second_commit)
+    run_id = (await ledger.start_runs(request, ids, [members[0]]))[members[0]]
+    assert [r["version"] for r in await _recipes(members[0])] == [1, 2]
+    assert [r["version"] for r in await _recipes(members[1])] == [1]
+    assert [r["version"] for r in await _recipes(family)] == [1]
+    row = await _row(run_id)
+    assert row["recipe_hash"] == changed[members[0]].recipe_hash
+    # The unchanged member's recipe keeps the commit that first recorded it; the attempt records
+    # the code behind it.
+    (unchanged,) = await _recipes(members[1])
+    assert unchanged["code_commit"] != second_commit and row["code_commit"] == second_commit
+
+
+async def test_an_existing_idea_row_is_adopted_not_duplicated(ledger, scope):
+    name = _name()
+    scope.names.append(name)
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        await conn.execute(
+            "INSERT INTO concept_registry (domain, name, description, status, enabled, metadata, "
+            "added_phase) VALUES ('member', $1, 'an idea', 'candidate', false, '{}'::jsonb, '187')",
+            name,
+        )
+    finally:
+        await conn.close()
+    request = scope.request(recipes={name: _recipe(name)})
+    await ledger.start_runs(request, [Identity(name, "member", "again")], [name])
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        assert (
+            await conn.fetchval("SELECT count(*) FROM concept_registry WHERE name = $1", name) == 1
+        )
+    finally:
+        await conn.close()
+    assert len(await _recipes(name)) == 1
+
+
+async def test_an_unregistered_cvr_code_writes_nothing(ledger, scope):
+    ids, members = scope.identities()
+    bad = {members[0]: _recipe(members[0], cvr_codes={"research_timeframe": "4h"})}
+    with pytest.raises(LedgerRefusal, match="4h"):
+        await ledger.start_runs(scope.request(recipes=bad), ids, [members[0]])
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        assert not await conn.fetchval(
+            "SELECT count(*) FROM concept_registry WHERE name = ANY($1::text[])",
+            [i.name for i in ids],
+        )
+    finally:
+        await conn.close()
+
+
+async def test_informed_by_names_a_terminal_run(ledger, scope):
+    run_id = await _started(ledger, scope)
+    ids, members = scope.identities()
+    with pytest.raises(LedgerRefusal, match="not a terminal"):
+        await ledger.start_runs(scope.request(informed_by=run_id), ids, [members[0]])
+    await ledger.finish_run(run_id, status="refused", snapshot_hash=None, evidence={})
+    informed = (await ledger.start_runs(scope.request(informed_by=run_id), ids, [members[0]]))[
+        members[0]
+    ]
+    assert str((await _row(informed))["informed_by"]) == run_id
+
+
+# The research stage view (migration 530): one test per branch of the precedence.
+
+
+async def _stage(name: str) -> str:
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        return await conn.fetchval("SELECT stage FROM concept_research_stage WHERE name = $1", name)
+    finally:
+        await conn.close()
+
+
+async def _set_status(name: str, status: str) -> None:
+    await _execute("UPDATE concept_registry SET status = $2 WHERE name = $1", name, status)
+
+
+async def _run_for(ledger, scope, kind: str, status: str | None, **recipe_over) -> str:
+    """A concept of `kind` with a recipe and one attempt finished as `status` (None: left
+    started); returns the concept name."""
+    name = _name()
+    scope.names.append(name)
+    request = scope.request(recipes={name: _recipe(name, **recipe_over)})
+    run_id = (await ledger.start_runs(request, [Identity(name, kind, "stage")], [name]))[name]
+    if status is not None:
+        await ledger.finish_run(run_id, status=status, snapshot_hash=None, evidence={})
+    return name
+
+
+async def test_stage_idea_specified_registered_tested(ledger, scope):
+    idea = _name()
+    scope.names.append(idea)
+    await _execute(
+        "INSERT INTO concept_registry (domain, name, description, status, enabled, metadata, "
+        "added_phase) VALUES ('family', $1, 'idea', 'candidate', false, '{}'::jsonb, '187')",
+        idea,
+    )
+    assert await _stage(idea) == "idea"
+
+    # A recipe and no attempt: specified.
+    runner, specified = _name(), _name()
+    scope.names += [runner, specified]
+    request = scope.request(recipes={runner: _recipe(runner), specified: _recipe(specified)})
+    ids = [Identity(runner, "member", "r"), Identity(specified, "member", "s")]
+    await ledger.start_runs(request, ids, [runner])
+    assert await _stage(specified) == "specified"
+    assert await _stage(runner) == "registered"  # its attempt is still started
+
+    tested = await _run_for(ledger, scope, "member", "completed")
+    assert await _stage(tested) == "tested"
+
+
+async def test_stage_refused_attempt_then_a_newer_recipe_reopens_it(ledger, scope):
+    name = await _run_for(ledger, scope, "member", "refused")
+    assert await _stage(name) == "refused"
+    other = _name()
+    scope.names.append(other)
+    request = scope.request(
+        recipes={other: _recipe(other), name: _recipe(name, params={"window": 99})}
+    )
+    ids = [Identity(other, "member", "o"), Identity(name, "member", "again")]
+    await ledger.start_runs(request, ids, [other])
+    assert await _stage(name) == "specified"
+
+
+async def test_stage_deprecated_beats_a_tested_attempt(ledger, scope):
+    name = await _run_for(ledger, scope, "member", "completed")
+    await _set_status(name, "deprecated")
+    assert await _stage(name) == "refused"
+
+
+async def test_stage_a_book_is_frozen_or_confirmed_by_its_status(ledger, scope):
+    name = await _run_for(ledger, scope, "book", "completed")
+    assert await _stage(name) == "tested"
+    await _set_status(name, "shadow_only")
+    assert await _stage(name) == "frozen"
+    await _set_status(name, "active")
+    assert await _stage(name) == "confirmed"
+    # Only a book is promoted: a member with the same status stays tested.
+    member = await _run_for(ledger, scope, "member", "completed")
+    await _set_status(member, "active")
+    assert await _stage(member) == "tested"
+
+
+async def test_stage_legacy_verdicts_alone_are_refused_until_a_recipe_reopens_them(ledger, scope):
+    name = _name()
+    scope.names.append(name)
+    vintage = _name()
+    scope.vintages.append(vintage)
+    await _execute(
+        "INSERT INTO concept_registry (domain, name, description, status, enabled, metadata, "
+        "added_phase) VALUES ('family', $1, 'old verdict', 'candidate', false, '{}'::jsonb, '187')",
+        name,
+    )
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        async with conn.transaction():
+            await conn.execute("ALTER TABLE research_run DISABLE TRIGGER USER")
+            await conn.execute(
+                "INSERT INTO research_run (run_group, concept_id, kind, mode, spec_path, spec_hash, "
+                "spec_blob, code_commit, vintage, status) SELECT gen_random_uuid(), concept_id, "
+                "'legacy_verdict', 'real', 'docs/x.md', $2, 'b', $3, $4, 'completed' "
+                "FROM concept_registry WHERE name = $1",
+                name,
+                _hash(),
+                _commit(),
+                vintage,
+            )
+            await conn.execute("ALTER TABLE research_run ENABLE TRIGGER USER")
+    finally:
+        await conn.close()
+    assert await _stage(name) == "refused"
+    other = _name()
+    scope.names.append(other)
+    request = scope.request(recipes={other: _recipe(other), name: _recipe(name)})
+    ids = [Identity(other, "member", "o"), Identity(name, "family", "reopened")]
+    await ledger.start_runs(request, ids, [other])
+    assert await _stage(name) == "specified"

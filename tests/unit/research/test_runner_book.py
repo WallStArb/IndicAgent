@@ -223,8 +223,14 @@ def test_real_order_and_request(repo, saved_panel, fast_power, monkeypatch):
 
 def test_identities_link_book_to_family(repo):
     ids = {i.name: i for i in book_identities(load_spec_from_head(repo, BOOK_PATH))}
-    assert ids["book.test_book"].kind == "book_version"
+    assert ids["book.test_book"].kind == "book"
+    # Only families are parents: a deprecated shared combiner or rule must not cascade to every
+    # book (concept_parent's deprecation trigger); the book's recipe inputs carry the rest.
     assert ids["book.test_book"].parents == ("family.test_fam",)
+    assert {ids["combiner.ridge"].kind, ids["construction_rule.rank_vol_neutral"].kind} == {
+        "combiner",
+        "construction_rule",
+    }
     assert ids["member.test_fam.lag1"].parents == ("family.test_fam",)
 
 

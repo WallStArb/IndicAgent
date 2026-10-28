@@ -41,6 +41,11 @@ def repo_root(start: Path) -> Path:
     return Path(_git(Path(start), "rev-parse", "--show-toplevel").stdout.strip())
 
 
+def git_author(root: Path) -> str:
+    """The recipe author: git's configured user.name, or "unknown"."""
+    return _git(root, "config", "user.name", check=False).stdout.strip() or "unknown"
+
+
 def head_commit(root: Path) -> str:
     return _git(root, "rev-parse", "HEAD").stdout.strip()
 

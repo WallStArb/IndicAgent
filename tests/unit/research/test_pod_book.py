@@ -156,7 +156,7 @@ def test_a_pod_run_records_the_summed_series_and_its_headline(tmp_path):
     result = asyncio.run(run_pod(loaded, ctx, mode="real"))
     assert ledger.request.kind == "pod_book" and ledger.request.mode == "real"
     (identity,) = ledger.identities
-    assert identity.kind == "pod_book" and identity.parents == ("book.book_one", "book.book_two")
+    assert identity.kind == "pod" and identity.parents == ("book.book_one", "book.book_two")
     pod = pod_series([A, B]).series
     stored = ledger.series[result["run_id"]]
     np.testing.assert_array_equal(stored.values, pod.values)

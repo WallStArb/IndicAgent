@@ -140,6 +140,8 @@ def _print(results: dict, loaded, out_dir: Path) -> None:
 async def _main(args: argparse.Namespace) -> int:
     snapshot_dir = Path(args.snapshot_dir)
     if args.mode == "synthetic":
+        if args.informed_by:
+            raise SystemExit("--informed-by names a recorded attempt; synthetic runs record none")
         loaded = load_spec_from_file(Path(args.spec), root=Path.cwd())
         if isinstance(loaded.model, PodBookSpec):
             raise RunRefused("a pod sums recorded member series; it has no synthetic mode")
@@ -189,6 +191,11 @@ async def _main(args: argparse.Namespace) -> int:
         dsn=dsn,
         snapshot_dir=snapshot_dir,
         snapshot=Path(args.snapshot) if args.snapshot else None,
+        # The APR values a book's bar depends on, recorded in its recipe (plan 187-11).
+        apr_values={
+            key: apr[key] for key in ("alpha.research.budget_m", "alpha.research.screen_alpha")
+        },
+        informed_by=args.informed_by,
     )
     runs = snapshot_dir.parent / "runs"
     if isinstance(loaded.model, PodBookSpec):
@@ -210,6 +217,12 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=None, help="default: APR (throughput only)")
     parser.add_argument("--budget-m", type=int, default=1, help="synthetic mode only")
     parser.add_argument("--dsn", default=None, help="default: Settings().database_url")
+    parser.add_argument(
+        "--informed-by",
+        default=None,
+        metavar="RUN_ID",
+        help="the terminal research_run whose result prompted this attempt (design 10.2.3)",
+    )
     parser.add_argument("--synthetic-sessions", type=int, default=400)
     parser.add_argument("--synthetic-names", type=int, default=30)
     parser.add_argument("--synthetic-seed", type=int, default=0)

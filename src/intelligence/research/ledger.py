@@ -1,8 +1,9 @@
 """S6 ledger: the sole writer of research run records and construction identity rows.
 
 This module is the only code that writes `research_run` rows (migration 366), rows of
-`concept_registry` with `domain = 'construction'`, and the `concept_parent` edges between
-them (phase 183, D-05; enforced by tests/unit/research/test_ledger_sole_writer.py).
+`concept_registry` in the research domains (family, member, combiner, construction_rule, book;
+migration 530), their `concept_recipe` versions, and the `concept_parent` edges between them
+(phase 183, D-05; enforced by tests/unit/research/test_ledger_sole_writer.py).
 
 Writer contract (migrations 283 and 366): every write transaction here takes
 `pg_advisory_xact_lock(LEDGER_LOCK_KEY)` as its first statement, then counts and inserts in
@@ -26,13 +27,14 @@ from __future__ import annotations
 import json
 import math
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import numpy as np
 
 from src.core.database_manager import connect_with_codecs
+from src.intelligence.research.recipe import RecipeContent
 
 # Fixed advisory-lock key covering research_run, construction identity rows and their
 # concept_parent edges. A schema identifier, APR-exempt.
@@ -44,7 +46,8 @@ UNCHARGED_STATUSES: tuple[str, ...] = ("refused", "guard_failed")
 # A run that computed a statistic counts even when it then failed (design 7.1).
 SERIES_STATUSES: tuple[str, ...] = ("completed", "failed")
 
-_DOMAIN = "construction"
+# Typed research domains (migration 530). A pod is a book; its metadata kind says pod.
+_RESEARCH_DOMAINS = ("family", "member", "combiner", "construction_rule", "book")
 _ADDED_PHASE = "183"
 
 
@@ -55,11 +58,11 @@ class LedgerRefusal(Exception):
 
 @dataclass(frozen=True)
 class Identity:
-    """A construction-domain concept_registry row. `parents` are identity names; edges run
-    child -> parent in concept_parent."""
+    """A research-domain concept_registry row. `parents` are identity names; edges run
+    child -> parent in concept_parent. A pod lands in the book domain."""
 
     name: str
-    kind: Literal["family", "member", "book_version", "pod_book"]
+    kind: Literal["family", "member", "combiner", "construction_rule", "book", "pod"]
     description: str
     metadata: dict = field(default_factory=dict)
     parents: tuple[str, ...] = ()
@@ -77,6 +80,11 @@ class RunRequest:
     screen_alpha: float | None = None
     # E18 (phase 187): exploration is counted like any real-data attempt but may repeat a spec.
     mode: Literal["real", "exploration"] = "real"
+    # Plan 187-11: the recipe of each concept the run touches (written as a new version when its
+    # hash is new), the attempt that prompted this one, and the author the recipe records.
+    recipes: Mapping[str, RecipeContent] = field(default_factory=dict)
+    informed_by: str | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +140,10 @@ def _headline(payload: dict, series: AttemptSeries | None) -> tuple:
         None if n is None else int(n),
         *span,
     )
+
+
+def _domain_of(kind: str) -> str:
+    return "book" if kind == "pod" else kind
 
 
 def jsonable(value: Any) -> Any:
@@ -243,6 +255,7 @@ class PostgresLedger:
         try:
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                await self._check_recipes(conn, request, identities, run_concepts)
 
                 if request.mode == "real":
                     prior = await conn.fetchval(
@@ -258,12 +271,13 @@ class PostgresLedger:
                     await conn.execute(
                         "INSERT INTO concept_registry "
                         "(domain, name, description, status, enabled, metadata, added_phase) "
-                        "VALUES ('construction', $1, $2, 'candidate', false, $3, $4) "
+                        "VALUES ($5, $1, $2, 'candidate', false, $3, $4) "
                         "ON CONFLICT (domain, name) DO NOTHING",
                         identity.name,
                         identity.description,
                         jsonable(metadata),
                         _ADDED_PHASE,
+                        _domain_of(identity.kind),
                     )
                     concept_ids[identity.name] = await self._concept_id(conn, identity.name)
 
@@ -279,6 +293,8 @@ class PostgresLedger:
                             parent_id,
                         )
 
+                recipe_hashes = await self._write_recipes(conn, request, concept_ids)
+
                 run_group = uuid.uuid4()
                 run_ids: dict[str, str] = {}
                 for name in run_concepts:
@@ -288,8 +304,8 @@ class PostgresLedger:
                     run_id = await conn.fetchval(
                         "INSERT INTO research_run (run_group, concept_id, kind, mode, "
                         "spec_path, spec_hash, spec_blob, code_commit, vintage, budget_m, "
-                        "screen_alpha) "
-                        "VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10) "
+                        "screen_alpha, recipe_hash, informed_by) "
+                        "VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10, $12, $13) "
                         "RETURNING run_id",
                         run_group,
                         concept_id,
@@ -302,6 +318,8 @@ class PostgresLedger:
                         request.budget_m,
                         request.screen_alpha,
                         request.mode,
+                        recipe_hashes.get(name),
+                        None if request.informed_by is None else uuid.UUID(request.informed_by),
                     )
                     run_ids[name] = str(run_id)
                 return run_ids
@@ -309,10 +327,90 @@ class PostgresLedger:
             await conn.close()
 
     @staticmethod
+    async def _check_recipes(
+        conn: Any, request: RunRequest, identities: Sequence[Identity], run_concepts: Sequence[str]
+    ) -> None:
+        """Every refusal about a recipe or the informing attempt, before anything is written."""
+        named = {i.name for i in identities}
+        for name in request.recipes:
+            if name not in named:
+                raise LedgerRefusal(f"recipe for {name}, which is not an identity of this run")
+        for name in run_concepts:
+            if request.recipes and name not in request.recipes:
+                raise LedgerRefusal(f"run concept {name} has no recipe")
+        codes = {(ns, code) for r in request.recipes.values() for ns, code in r.cvr_codes.items()}
+        if codes:
+            known = {
+                (r["namespace"], r["code"])
+                for r in await conn.fetch(
+                    "SELECT namespace, code FROM controlled_vocabulary "
+                    "WHERE namespace = ANY($1::text[]) AND NOT is_deprecated",
+                    sorted({ns for ns, _ in codes}),
+                )
+            }
+            unknown = sorted(codes - known)
+            if unknown:
+                raise LedgerRefusal(f"controlled-vocabulary codes not registered: {unknown}")
+        if request.informed_by is not None:
+            try:
+                informing = uuid.UUID(request.informed_by)
+            except ValueError as error:
+                raise LedgerRefusal(
+                    f"informed_by {request.informed_by!r} is not a run id"
+                ) from error
+            status = await conn.fetchval(
+                "SELECT status FROM research_run WHERE run_id = $1", informing
+            )
+            if status not in TERMINAL_STATUSES:
+                raise LedgerRefusal(
+                    f"informed_by {request.informed_by} is not a terminal research_run"
+                )
+
+    @staticmethod
+    async def _write_recipes(
+        conn: Any, request: RunRequest, concept_ids: Mapping[str, Any]
+    ) -> dict[str, str]:
+        """Insert a recipe version for each concept whose recipe hash is new; return
+        {concept name: recipe hash}. A known hash is reused, so a re-run of the same definition
+        at a new commit adds no version (concept_recipe.code_commit is the commit that first
+        recorded it; research_run.code_commit is the code behind each attempt)."""
+        hashes: dict[str, str] = {}
+        for name, recipe in request.recipes.items():
+            concept_id = concept_ids[name]
+            digest = recipe.recipe_hash
+            hashes[name] = digest
+            if await conn.fetchval("SELECT 1 FROM concept_recipe WHERE recipe_hash = $1", digest):
+                continue
+            version = await conn.fetchval(
+                "SELECT coalesce(max(version), 0) + 1 FROM concept_recipe WHERE concept_id = $1",
+                concept_id,
+            )
+            await conn.execute(
+                "INSERT INTO concept_recipe (concept_id, version, recipe_hash, code_pointer, "
+                "code_commit, params, apr_values, inputs, universe_selector, cvr_codes, "
+                "mechanism, sources, author) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                concept_id,
+                version,
+                digest,
+                recipe.code_pointer,
+                request.code_commit,
+                jsonable(recipe.params),
+                jsonable(recipe.apr_values),
+                jsonable(list(recipe.inputs)),
+                jsonable(recipe.universe_selector),
+                jsonable(recipe.cvr_codes),
+                recipe.mechanism,
+                list(recipe.sources),
+                request.author or "unknown",
+            )
+        return hashes
+
+    @staticmethod
     async def _concept_id(conn: Any, name: str) -> Any:
         concept_id = await conn.fetchval(
-            "SELECT concept_id FROM concept_registry WHERE domain = $1 AND name = $2",
-            _DOMAIN,
+            "SELECT concept_id FROM concept_registry WHERE domain = ANY($1::text[]) AND name = $2",
+            list(_RESEARCH_DOMAINS),
             name,
         )
         if concept_id is None:

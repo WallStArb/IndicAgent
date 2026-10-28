@@ -10,9 +10,9 @@ above conftest.py's _BASELINE_MIGRATION_CUTOFF) is replayed into indicagent_test
 session-scoped autouse fixture before this module's tests run.
 
 Every test creates its own throwaway concept rows with unique names
-(f"_t170_{uuid4().hex[:8]}"), domain='ensemble_strategy' (already-allowed, keeps this test
+(f"_t170_{uuid4().hex[:8]}"), domain='method' (an allowed domain with no real rows, keeps this test
 independent of Plan 03's feature seeding), and cleans up afterward. The 5 real seeded
-domain='ensemble_strategy' rows are never touched.
+domain='method' rows are never touched.
 
 NOT covered here, deliberately: a concurrent two-transaction cycle (A->B and B->A inserted
 simultaneously by two sessions) is NOT tested and NOT prevented, because
@@ -89,10 +89,10 @@ async def conn() -> AsyncIterator[_TrackedConnection]:
 async def _make_concept(
     connection: _TrackedConnection, *, status: str = "active", enabled: bool = True
 ) -> str:
-    """Insert one throwaway domain='ensemble_strategy' concept_registry row and return its id."""
+    """Insert one throwaway domain='method' concept_registry row and return its id."""
     concept_id = await connection.connection.fetchval(
         "INSERT INTO concept_registry (domain, name, description, status, enabled) "
-        "VALUES ('ensemble_strategy', $1, 'phase 170 plan 01 lineage test fixture', $2, $3) "
+        "VALUES ('method', $1, 'phase 170 plan 01 lineage test fixture', $2, $3) "
         "RETURNING concept_id",
         _name(),
         status,
@@ -200,7 +200,7 @@ async def test_cascade_single_level_audits_true_from_status(conn: _TrackedConnec
     )
     for row in log_rows.values():
         assert row["to_status"] == "deprecated"
-        assert row["domain"] == "ensemble_strategy"
+        assert row["domain"] == "method"
 
 
 @pytest.mark.asyncio
