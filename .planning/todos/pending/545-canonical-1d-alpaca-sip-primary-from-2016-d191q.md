@@ -161,3 +161,34 @@ in 3a's scratchpad `cmp545.sql`.
 Reading: the 71 offset names and the 62 early-start names are exactly what the three-vendor
 arbitration (step 3 rework: `ops_d191q_arbitration.py`) must classify into dated policy rows
 before plan 20 deletes Tradier.
+
+## Paused 2026-10-28 ~17:05Z, before the apply (resume runbook)
+
+The owner approved plan 191-20 in the data lane's session ("approved", 2026-10-28; recorded in
+`191-20-OWNER-DECISION.md`, no names held back). Every step so far is code or read-only; no policy
+row, backup, flag or delete has been written. The fourth review passed (no HIGH); its M1 is fixed
+(6aa15642d: `--plan` refuses a plan listing window-end spans).
+
+Resume, in one window, from a worktree at origin/main (the shared checkout's local main carries
+other sessions' unpushed commits):
+1. Stop the timers: ibkr-history-fetcher (and stop its running service by PID), alpaca-nightly,
+   bar-derivation-grid, bar-reconciliation-audit, regime-coverage-auditor,
+   dividend-event-writer-yahoo. Tell the other sessions.
+2. `ops_d191q_arbitration --plan-out data/policy_plans/d191q_1d_plan_<date>_final.json --report
+   .planning/phases/191-unified-raw-bar-table/191-D191Q-ARBITRATION.md` (writes the tracked
+   evidence gz too). Commit the report and the evidence before anything else.
+3. `ops_source_policy --plan <file>` dry run, then `--apply`.
+4. `ops_tradier_delete --dump --apply`, then `--verify`; confirm CLBK's Alpaca 1d covers
+   2018-04-20 onward.
+5. `--trial <symbol> --apply`, then `--delete --apply`, then `--verify --require-complete`.
+6. 1d re-derive under d2-v4 for every name, then D7 (digest_fresh needs the re-derive first);
+   VACUUM ohlcv_raw, market_data_ohlcv, ohlcv_revision.
+7. Restart the timers; send indicagent-5b (or the research lane owner) the notice, listing the
+   family 2 universe names with holds or pending spans.
+
+Follow-up (fourth review M2, not blocking): after the Tradier delete, an `alpaca_basis_run`
+failure has no fix path. `corporate_action` holds splits only, so a spin-off cannot explain a
+run, and a new 1d plan needs a raw fingerprint the arbitration script can no longer produce. A
+split inside a run also silences the check while canonical stays unadjusted. Fix: a `--plan` mode
+that writes an IBKR row on D7 evidence, and count a corporate action only when its type matches
+the event (spin-off records in `corporate_action`, todo 557's lane).

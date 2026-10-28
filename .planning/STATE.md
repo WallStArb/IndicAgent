@@ -65,6 +65,10 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   62 of 63 unproven are venue-moved (todo 433), plus ETHA. Owner decision summary:
   `191-20-OWNER-DECISION.md`, relayed to indicagent-5b for the owner. Plan 19 SUMMARY and
   completed_plans follow with the plan 20 approval.
+- **Plan 20 (Tradier deletion): owner approved 2026-10-28, paused before the apply.** Todo 545
+  (D-191-Q) is built and passed four review rounds; the resume runbook is in todo 545 ("Paused
+  2026-10-28"). Nothing destructive has run. Order: final arbitration with the fetcher stopped,
+  --plan apply, backup, trial, batched delete, 1d re-derive, D7, notice to the research lane.
 - **Plan 20 approved by the owner 2026-10-28:** delete all Tradier bar rows, no names held back (recorded in
   `191-20-OWNER-DECISION.md`). It runs after todo 545 lands. Review findings for 3a: keep the final
   arbitration plan JSON in a tracked place, refuse a row whose span touches `window_end`, stop the fetcher
