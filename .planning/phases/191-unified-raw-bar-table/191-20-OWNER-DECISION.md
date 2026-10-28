@@ -59,3 +59,15 @@ before 2026-08-28; Alpaca covers it from 2018 under D-191-Q), BZH (listing ended
 
 Recommendation: approve. The residue that only Tradier holds is mostly pre-2016 history and
 predecessor splices; the post-2016 loss is small once Alpaca serves.
+
+## Owner decision (2026-10-28)
+
+Approved by the owner: delete all Tradier bar rows. No names are held back, so no name is excluded
+from any delete predicate. Held and ended names (MOD, PSKY, CLBK, BZH, CCO, QRVO, WBD) follow the
+same rule as every other name; their Tradier residue goes with the rest.
+
+The order above stands: todo 545 lands first (the final three-vendor arbitration re-run while
+Tradier still exists), then the verified backup, the one-name trial and the batched delete with
+per-batch content checks, then the 1d re-derive under d2-v4. The backup stays until about
+2026-11-12. `ohlcv_load` and `ohlcv_request` rows stay as lineage. The data lane (indicagent-3a)
+executes; the notice to indicagent-5b follows the re-derive.
