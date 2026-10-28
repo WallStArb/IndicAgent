@@ -405,3 +405,11 @@ def test_the_gap_bound_is_a_parameter():
     loose = replace(_PARAMS, gap_max_moves=10.0)
     (pre,) = _only(_arb("GRNT", alpaca, ibkr, tradier, loose), PRE_IBKR_HISTORY)
     assert span_action(pre, loose) == "info"
+
+
+def test_tradier_contradicting_a_long_span_holds_it_even_with_an_ordinary_gap():
+    # CRH (data lane decision 2026-10-28): Tradier answered inside the span and disagrees with
+    # Alpaca, so the gap test does not apply; the span is held.
+    _days, alpaca, ibkr, tradier = _handover(60, alpaca_last=9.8, tradier_pre=13.0)
+    (pre,) = _only(_arb("CRH", alpaca, ibkr, tradier), PRE_IBKR_HISTORY)
+    assert pre.continuous and span_action(pre, _PARAMS) == "hold"
