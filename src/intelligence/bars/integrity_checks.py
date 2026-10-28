@@ -19,8 +19,10 @@ from src.intelligence.bars.daily_rule import (
     PRIMARY_PAIR,
     RULE_VERSION,
     PolicyRow,
+    alpaca_era_start,
     basis_closes,
     derive_daily_v2,
+    primary_pair,
     resolve_policy,
     servable_primary_dates,
 )
@@ -75,9 +77,12 @@ def policy_conformance(
     only on a stale scale, d2-v3; for Alpaca also a zero-volume or pre-listing date, d2-v4).
     """
     bad: list[date] = []
+    era_start = alpaca_era_start(policy_rows)
     for bar_date, vendor, kind in rows:
         policy = resolve_policy(policy_rows, symbol, bar_date)
-        if (vendor, kind) == PRIMARY_PAIR.get(policy.primary_source):
+        if policy.primary_source in PRIMARY_PAIR and (vendor, kind) == primary_pair(
+            policy.primary_source, bar_date, era_start
+        ):
             continue
         if (
             (vendor, kind) == FALLBACK_PAIR

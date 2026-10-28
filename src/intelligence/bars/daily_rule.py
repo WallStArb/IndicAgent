@@ -60,6 +60,13 @@ remain, both about tradeability, not about which vendor is right:
   has no bar and is listed in zero_volume_fallback. (Under a Tradier or IBKR primary d2-v3 is
   unchanged.)
 
+One volume basis from the Alpaca era on (second review M1): on or after the first valid_from of
+a default row naming Alpaca primary (alpaca_era_start), every session IBKR serves, whether as
+the fallback or under an IBKR symbol row the arbitration wrote, carries (ibkr, fallback), so the
+tradeable view reads its SMART volume as NULL. Before the era, and under any policy that never
+names Alpaca, an IBKR primary serves (ibkr, named) as in d2-v3. A dedicated kind would say the
+same with a CVR migration; fallback already means "an IBKR bar the consolidated series lacks".
+
 Session dates: the raw read dates each series by its own stamp convention
 (RAW_DAILY_SESSION_ZONE, raw_session_date): IBKR and Tradier stamp 1d at 00:00 UTC, Alpaca at
 midnight New York (04:00 or 05:00 UTC). Observations carry the session date, the rule compares
@@ -273,6 +280,25 @@ def raw_session_date(vendor: str, kind: str, stamp: datetime) -> date:
     if stamp.tzinfo is None:
         raise ValueError("a raw 1d stamp must be timezone-aware")
     return stamp.astimezone(ZoneInfo(zone)).date()
+
+
+def alpaca_era_start(rows: Sequence[PolicyRow]) -> date | None:
+    """The first valid_from of a 1d default row naming Alpaca primary, or None (module
+    docstring, one volume basis)."""
+    starts = [
+        r.valid_from
+        for r in rows
+        if r.timeframe == TIMEFRAME and r.symbol is None and r.primary_source == VENDOR_ALPACA
+    ]
+    return min(starts, default=None)
+
+
+def primary_pair(vendor: str, day: date, era_start: date | None) -> tuple[str, str]:
+    """The canonical identity a policy primary serves under on `day`: an IBKR primary inside the
+    Alpaca era serves as (ibkr, fallback)."""
+    if vendor == VENDOR_IBKR and era_start is not None and day >= era_start:
+        return FALLBACK_PAIR
+    return PRIMARY_PAIR[vendor]
 
 
 def resolve_policy(rows: Sequence[PolicyRow], symbol: str, bar_date: date) -> PolicyRow:
@@ -598,6 +624,7 @@ def derive_daily_v2(
         for vendor in FALLBACK_FOR
     }
     axis = sorted(set().union(*(days[vendor] for vendor in _VENDORS)))
+    era_start = alpaca_era_start(policy_rows)
 
     bars: list[CanonicalBar] = []
     flags: list[DerivedFlag] = []
@@ -616,7 +643,7 @@ def derive_daily_v2(
         vendor = policy.primary_source
         primary = days[vendor].get(day)
         if primary is not None and primary.current is not None:
-            bars.append(_bar(primary.current, PRIMARY_PAIR[vendor], ()))
+            bars.append(_bar(primary.current, primary_pair(vendor, day, era_start), ()))
             continue
         fallback = days[policy.fallback_source].get(day) if policy.fallback_source else None
         frame = frames.get(vendor)
@@ -631,7 +658,9 @@ def derive_daily_v2(
                 restated.append(day)
                 bars.append(_bar(fallback.current, FALLBACK_PAIR, ()))
             else:
-                bars.append(_bar(primary.stale, PRIMARY_PAIR[vendor], (FLAG_PRE_SPLIT,)))
+                bars.append(
+                    _bar(primary.stale, primary_pair(vendor, day, era_start), (FLAG_PRE_SPLIT,))
+                )
             continue
         if fallback is None or frame is None:
             continue
