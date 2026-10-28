@@ -192,3 +192,12 @@ run, and a new 1d plan needs a raw fingerprint the arbitration script can no lon
 split inside a run also silences the check while canonical stays unadjusted. Fix: a `--plan` mode
 that writes an IBKR row on D7 evidence, and count a corporate action only when its type matches
 the event (spin-off records in `corporate_action`, todo 557's lane).
+
+## Progress 2026-10-28 ~19:00Z (window open)
+
+Done: timers stopped, fetcher stopped; step 2 (final arbitration, commit 395035646); step 3 applied
+(96 symbol rows, 2 defaults, 285 vendor_disagreement quarantine flags). Step 4 `--dump --apply`
+then `--verify` started in the background from worktree /home/bg/dev/indicagent-545 (log
+/tmp/claude-1000/scratch545/dump.log). Check the manifest under data/backups before anything else:
+if `--verify` did not pass, re-run `--dump --apply`. Then CLBK check, step 5 onward. Timers stay
+stopped until step 7. An orphaned 11 h psql query (pid 3093438) was cancelled; it had starved the DB.
