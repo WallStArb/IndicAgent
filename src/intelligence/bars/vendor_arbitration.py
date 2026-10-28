@@ -38,7 +38,9 @@ ticker handover (third review: SW served WestRock's 2016-2024 history): it is ad
 Tradier answered inside it and agrees with Alpaca on at least min_class_share of those sessions,
 or the close-to-close gap at IBKR's first bar is at most gap_max_moves (APR
 threshold.bar_integrity.arbitration_gap_max_daily_moves) times the name's median absolute daily
-log move on IBKR's own closes. Otherwise it is held under an interim IBKR row. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
+log move on IBKR's own closes, the gap test applying only where Tradier has no session in the
+span (the Tradier veto, data lane 2026-10-28: Tradier's disagreement holds CRH whatever its gap).
+Otherwise it is held under an interim IBKR row. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
 the same test (second review).
 
 A hold means Alpaca does not serve (second review H1): build_plan gives every held span an interim
@@ -379,10 +381,12 @@ def span_action(span: Span, params: ArbitrationParams) -> str:
         if span.n_sessions <= params.min_sessions:
             return "info"
         share = span.continuity.get("tradier_agree_share")
+        if share is not None:
+            # Tradier answered inside the span: its word decides (the Tradier veto, data lane
+            # 2026-10-28; CRH).
+            return "info" if share >= params.min_class_share else "hold"
         moves = span.continuity.get("gap_in_daily_moves")
-        corroborated = share is not None and share >= params.min_class_share
-        ordinary_gap = moves is not None and moves <= params.gap_max_moves
-        return "info" if corroborated or ordinary_gap else "hold"
+        return "info" if moves is not None and moves <= params.gap_max_moves else "hold"
     if span.cls == IBKR_DEFECTIVE:
         return "evidence"
     if span.n_sessions < params.min_sessions:
