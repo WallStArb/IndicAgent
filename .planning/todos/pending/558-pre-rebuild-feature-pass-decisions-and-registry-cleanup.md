@@ -9,6 +9,8 @@ source: owner question 2026-10-28 (new features, factors and signals; missing at
 
 ## What
 
+Unreviewed Sonnet 5.5 draft; the cleanup items and candidate list are the assistant's proposals, not owner or lane decisions. Needs an Opus or Fable rigor pass before anyone relies on it. The rank_z finding rests on todo 421 and a kernel grep; the `ret_acf1_z` duplicate is an unmeasured inference.
+
 `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added after the
 rebuild starts forces a follow-up rebuild. The draft pass
 `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md` lists the candidates (market residual

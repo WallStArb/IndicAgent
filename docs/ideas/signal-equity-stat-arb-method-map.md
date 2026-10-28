@@ -1,6 +1,6 @@
 # Equity stat arb methods: the seven-method map against the ledger
 
-**Status:** Idea, 2026-10-28. Not reviewed. A catalogue entry; nothing here is queued and no look has been taken.
+**Status:** Idea, 2026-10-28. Not reviewed: Sonnet 5.5 mapping against the ledger; needs an Opus or Fable rigor pass before it moves to `docs/research/`. A catalogue entry; nothing here is queued and no look has been taken.
 **Source:** seven stat arb slides from quantguy_usa, pasted by the owner 2026-10-28.
 **Mapped by:** Claude (Sonnet 5.5), interactive session, against `docs/research/construction-verdict-ledger.md`.
 **Ledger rows:** section 3 of the ledger, "Equity stat arb" rows; verdict rows and queued families are

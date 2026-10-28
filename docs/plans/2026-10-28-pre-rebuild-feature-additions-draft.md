@@ -1,6 +1,6 @@
 # Pre-rebuild feature additions: a draft pass
 
-**Status:** Draft for the build (186) and research (184, 187) lane owners, 2026-10-28. Nothing here is decided or built.
+**Status:** Draft for the build (186) and research (184, 187) lane owners, 2026-10-28. Nothing here is decided or built. Unreviewed Sonnet 5.5 draft; the cleanup items and candidate list are the assistant's proposals, not owner or lane decisions. Needs an Opus or Fable rigor pass before anyone relies on it.
 **Mapped by:** Claude (Sonnet 5.5), interactive session, from the owner's question "do we need new features, factors or signals". Read-only: no kernel was read or run; names come from the stored column list and the planning docs.
 **Why now:** `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added or changed after the rebuild starts forces a follow-up rebuild. The window closes when 191-21, 22 and 23 land and 186-26 starts.
 
