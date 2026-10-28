@@ -43,3 +43,17 @@ Candidate for a phase 184 follow-up S0 transform.
 ## Depends on
 
 Todo 390. Must land before the 186-26 launch, or wait for a follow-up rebuild.
+
+## Sequencing decision (indicagent-3a, 186-26 launch owner, 2026-10-27)
+
+Land before 186-26 launches. Conditions:
+
+1. Todo 553 and todo 390's `illiq` divide-by-zero fix land in one reviewed change before
+   191-23's summary, which is 3a's launch trigger; 3a checks `git log -- src/intelligence/features/kernels/`
+   against this todo's status before starting the rebuild.
+2. The kernels read only tradeable bars and are pure (CLAUDE.md research invariants). On 1d they see
+   the D-191-Q vendor seam at 2016 (Alpaca consolidated after, IBKR before); the kernel spec states
+   how each behaves across it.
+3. Tell indicagent-3a when it is merged.
+
+Owner of the change: indicagent-24 (phase 184 lane).
