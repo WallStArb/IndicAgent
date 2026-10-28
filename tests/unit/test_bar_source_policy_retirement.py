@@ -410,7 +410,7 @@ async def test_a_live_symbol_row_the_plan_does_not_name_refuses_the_whole_plan(t
 
     conn = temp_policy_1d
     before = await conn.fetchval("SELECT count(*) FROM bar_source_policy_current")
-    unnamed = {**_PLAN_1D, "keep_symbol_rows": []}
+    unnamed = {**_PLAN_1D, "keep_symbol_rows": [], "hold": _PLAN_1D["hold"][:1]}
     with pytest.raises(ValueError, match="not named"):
         await apply_plan(conn, parse_plan(unnamed), apply=True)
     assert await conn.fetchval("SELECT count(*) FROM bar_source_policy_current") == before

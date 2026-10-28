@@ -72,9 +72,12 @@ from services.bar_derivation import (  # noqa: E402
     _DISCOVER_DAILY_SYMBOLS_SQL,
     read_daily_inputs,
 )
+from services.bar_derivation_batch import close_batch, open_batch  # noqa: E402
+from services.bar_scrub import FlagRow, write_flags  # noqa: E402
 from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.intelligence.bars.daily_rule import RAW_DAILY_SERIES  # noqa: E402
 from src.intelligence.bars.derivation import Observation, SplitRecord  # noqa: E402
 from src.intelligence.bars.selection import SESSION_TZ  # noqa: E402
 from src.intelligence.bars.source_admission import (  # noqa: E402
@@ -551,7 +554,26 @@ _LIVE_SYMBOL_IDS_SQL = """
 SELECT policy_id::text AS policy_id FROM bar_source_policy_current
 WHERE timeframe = $1 AND symbol IS NOT NULL
 """
-DISPOSITIONS = ("replaced", "confirmed")
+DISPOSITIONS = ("replaced", "superseded_by_default")
+_LOCK_SQL = "LOCK TABLE bar_source_policy IN SHARE ROW EXCLUSIVE MODE"
+_LIVE_DEFAULT_IDS_SQL = """
+SELECT policy_id::text AS policy_id FROM bar_source_policy_current
+WHERE timeframe = $1 AND symbol IS NULL
+"""
+# The 1d raw rows the arbitration read, through its window end ($1): per series the row count and
+# the latest serve. A plan built on other raw data is refused (second review M2).
+_RAW_FINGERPRINT_SQL = """
+SELECT r.vendor, r.kind, count(*) AS n_rows, max(r.served_at) AS max_served_at
+FROM ohlcv_raw r
+JOIN unnest($2::text[], $3::text[]) AS s(vendor, kind) ON s.vendor = r.vendor AND s.kind = r.kind
+WHERE r.timeframe = '1d' AND r."timestamp" < (($1::date + 1)::timestamp AT TIME ZONE 'UTC')
+GROUP BY r.vendor, r.kind
+"""
+_QUARANTINE_RULES_SQL = """
+SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'
+"""
+QUARANTINE_RULE_VERSION = "d191q-arbitration"
+_QUARANTINE_FIELDS = ("open", "high", "low", "close")
 # Timeframes whose plan must name every live symbol row (an implicit retire-all would drop the
 # 185-37 evidence rows unread).
 EXPLICIT_TIMEFRAMES = frozenset({"1d"})
@@ -574,6 +596,37 @@ class PolicyPlan:
     symbol_rows: tuple[dict[str, Any], ...] = ()
     retire_symbol_rows: tuple[dict[str, Any], ...] | None = None
     keep_symbol_rows: tuple[dict[str, Any], ...] = ()
+    retire_default_ids: tuple[str, ...] | None = None
+    raw_fingerprint: dict[str, Any] | None = None
+    hold: tuple[dict[str, Any], ...] = ()
+    quarantine: tuple[dict[str, Any], ...] = ()
+    quarantine_rule: str | None = None
+
+
+async def read_raw_fingerprint(conn: Any, through: date) -> dict[str, Any]:
+    """Per 1d raw input series, its row count and latest served_at through `through`."""
+    rows = await conn.fetch(
+        _RAW_FINGERPRINT_SQL,
+        through,
+        [v for v, _k in RAW_DAILY_SERIES],
+        [k for _v, k in RAW_DAILY_SERIES],
+    )
+    return {
+        "through": through.isoformat(),
+        "series": {
+            f"{r['vendor']}/{r['kind']}": {
+                "rows": int(r["n_rows"]),
+                "max_served_at": r["max_served_at"].isoformat() if r["max_served_at"] else None,
+            }
+            for r in sorted(rows, key=lambda r: (r["vendor"], r["kind"]))
+        },
+    }
+
+
+async def read_quarantine_rules(conn: Any) -> frozenset[str]:
+    """The APR list of rules whose flags quarantine a bar (threshold.bar_scrub.quarantine_rules)."""
+    raw = await conn.fetchval(_QUARANTINE_RULES_SQL)
+    return frozenset(json.loads(raw)) if raw else frozenset()
 
 
 def _plan_row(raw: dict[str, Any], row: dict[str, Any], symbol: str | None) -> dict[str, Any]:
@@ -620,6 +673,37 @@ def _parse_symbol_lists(
                 f"{row['symbol']}: a kept row and new symbol rows of one name would overlap"
             )
     return retire, keep
+
+
+def _covers(row: dict[str, Any], start: date, end: date) -> bool:
+    valid_to = row["valid_to"]
+    return row["valid_from"] <= start and (valid_to is None or valid_to > end)
+
+
+def _check_hold_coverage(
+    hold: Sequence[dict[str, Any]],
+    symbol_rows: Sequence[dict[str, Any]],
+    keep: Sequence[dict[str, Any]],
+) -> None:
+    """A hold means the name's consolidated source does not serve the span: a new symbol row or
+    a kept row must cover it (second review H1)."""
+    kept = [
+        {
+            "symbol": k["symbol"],
+            "valid_from": _parse_date(k["valid_from"]),
+            "valid_to": _parse_date(k["valid_to"]) if k.get("valid_to") else None,
+        }
+        for k in keep
+        if k.get("valid_from")
+    ]
+    for h in hold:
+        start, end = _parse_date(h["start"]), _parse_date(h["end"])
+        if not any(
+            r["symbol"] == h["symbol"] and _covers(r, start, end) for r in (*symbol_rows, *kept)
+        ):
+            raise ValueError(
+                f"{h['symbol']}: hold span {h['start']}..{h['end']} is not covered by a symbol row"
+            )
 
 
 def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
@@ -675,6 +759,21 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
                 f"{before['symbol']}: new symbol rows overlap at {after['valid_from']}"
             )
     retire, keep = _parse_symbol_lists(raw, symbol_rows) if explicit else (None, ())
+    default_ids = raw.get("retire_default_ids")
+    fingerprint = raw.get("raw_fingerprint")
+    if raw["timeframe"] in EXPLICIT_TIMEFRAMES:
+        if retire_defaults and (not default_ids or len(set(default_ids)) != 2):
+            raise ValueError(
+                "a 1d plan pins exactly the 2 live default policy_ids it retires "
+                "(retire_default_ids)"
+            )
+        if not isinstance(fingerprint, dict) or not fingerprint.get("series"):
+            raise ValueError("a 1d plan carries the raw fingerprint its arbitration read")
+    hold = tuple(raw.get("hold") or ())
+    _check_hold_coverage(hold, symbol_rows, keep)
+    quarantine = tuple(raw.get("quarantine") or ())
+    if quarantine and not raw.get("quarantine_rule"):
+        raise ValueError("a quarantine list needs its quarantine_rule")
     return PolicyPlan(
         raw["timeframe"],
         seam,
@@ -685,6 +784,11 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
         symbol_rows=tuple(symbol_rows),
         retire_symbol_rows=retire,
         keep_symbol_rows=keep,
+        retire_default_ids=tuple(default_ids) if default_ids else None,
+        raw_fingerprint=fingerprint,
+        hold=hold,
+        quarantine=quarantine,
+        quarantine_rule=raw.get("quarantine_rule"),
     )
 
 
@@ -735,6 +839,8 @@ async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, i
     tx = conn.transaction()
     await tx.start()
     try:
+        await conn.execute(_LOCK_SQL)
+        await _check_plan_preconditions(conn, plan)
         before = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
         if plan.retire_symbol_rows is not None:
             retired = await _retire_named_symbol_rows(conn, plan)
@@ -756,6 +862,7 @@ async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, i
         for row in (*plan.defaults, *plan.symbol_rows):
             await _insert(conn, plan, row)
         after = await conn.fetchrow(_LIVE_ROWS_SQL, plan.timeframe)
+        quarantined = await _write_quarantine(conn, plan) if plan.quarantine else 0
     except BaseException:
         await tx.rollback()
         raise
@@ -774,7 +881,79 @@ async def apply_plan(conn: Any, plan: PolicyPlan, *, apply: bool) -> dict[str, i
         "symbol_rows_inserted": len(plan.symbol_rows),
         "symbol_rows_after": after[0],
         "defaults_after": after[1],
+        "quarantined": quarantined,
     }
+
+
+async def _check_plan_preconditions(conn: Any, plan: PolicyPlan) -> None:
+    """Under the table lock: the raw data and the live defaults are the ones the plan was built
+    on, and a quarantine rule really quarantines."""
+    if plan.raw_fingerprint is not None:
+        through = _parse_date(plan.raw_fingerprint["through"])
+        now = await read_raw_fingerprint(conn, through)
+        if now != plan.raw_fingerprint:
+            raise ValueError(
+                f"raw fingerprint changed since the arbitration (plan {plan.raw_fingerprint}, "
+                f"now {now}): re-run ops_d191q_arbitration"
+            )
+    if plan.retire_default_ids is not None:
+        live = {r["policy_id"] for r in await conn.fetch(_LIVE_DEFAULT_IDS_SQL, plan.timeframe)}
+        if live != set(plan.retire_default_ids):
+            raise ValueError(
+                f"{plan.timeframe}: live default ids {sorted(live)} are not the pinned "
+                f"{sorted(plan.retire_default_ids)}"
+            )
+    if plan.quarantine:
+        rules = await read_quarantine_rules(conn)
+        if plan.quarantine_rule not in rules:
+            raise ValueError(
+                f"{plan.quarantine_rule!r} is not in threshold.bar_scrub.quarantine_rules, so its "
+                "flags would not quarantine; add it to the APR list first"
+            )
+
+
+async def _write_quarantine(conn: Any, plan: PolicyPlan) -> int:
+    """The quarantine sessions as bar_quality_flag rows through the flag writer (bar_scrub's
+    write_flags, the table's one writer path), under one scrub batch. Runs last: the batch and
+    flag writes SET LOCAL ROLE bar_derivation_writer for the rest of the transaction."""
+    rule = plan.quarantine_rule
+    assert rule is not None
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for q in plan.quarantine:
+        by_symbol.setdefault(q["symbol"], []).append(q)
+    batch_id = await open_batch(
+        conn,
+        stage="scrub",
+        rule_version=QUARANTINE_RULE_VERSION,
+        apr_snapshot={"threshold.bar_scrub.quarantine_rules": [rule]},
+        n_symbols=len(by_symbol),
+        detail={"source": "ops_source_policy --plan", "reason": plan.reason},
+    )
+    written = 0
+    for symbol, sessions in sorted(by_symbol.items()):
+        flags = [
+            FlagRow(
+                timestamp=datetime.combine(_parse_date(q["session"]), datetime.min.time(), UTC),
+                rule=rule,
+                rule_version=QUARANTINE_RULE_VERSION,
+                fields=_QUARANTINE_FIELDS,
+                quarantine=True,
+                detail={k: v for k, v in q.items() if k not in ("symbol", "session")},
+            )
+            for q in sorted(sessions, key=lambda q: q["session"])
+        ]
+        written += await write_flags(
+            conn,
+            tf="1d",
+            symbol=symbol,
+            rules_evaluated=frozenset({rule}),
+            flags=flags,
+            start=None,
+            end=None,
+            batch_id=batch_id,
+        )
+    await close_batch(conn, batch_id, status="completed", detail={"quarantined": written})
+    return written
 
 
 def reselect_series(settings: Any, *, timeframe: str, symbols: Sequence[str], start: date) -> int:
@@ -898,6 +1077,10 @@ async def _main(args: argparse.Namespace) -> int:
             )
             counts = await apply_plan(conn, plan, apply=args.apply)
             print(f"{'applied' if args.apply else 'dry run (rolled back)'}: {counts}")
+            if plan.quarantine:
+                print(
+                    f"quarantine: {len(plan.quarantine)} session flag(s) ({plan.quarantine_rule})"
+                )
             if plan.timeframe == "1d":
                 print(
                     "next: the daily stage re-derives 1d under the new rows (plan 20 Task 3, "

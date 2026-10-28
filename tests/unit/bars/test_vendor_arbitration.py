@@ -31,7 +31,10 @@ _PARAMS = ArbitrationParams(
     min_class_share=0.9,
 )
 _DEFAULT_IDS = ("id-default-tradier", "id-default-ibkr")
-_FINGERPRINT = {"alpaca/sip_rth": {"rows": 1, "max_served_at": "2026-10-27T00:00:00+00:00"}}
+_FINGERPRINT = {
+    "through": "2026-10-06",
+    "series": {"alpaca/sip_rth": {"rows": 1, "max_served_at": "2026-10-27T00:00:00+00:00"}},
+}
 
 
 def _sessions(start: date, n: int) -> list[date]:
