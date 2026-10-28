@@ -33,7 +33,12 @@ IBKR's first bar: the span's last session and IBKR's first bar are consecutive N
 on IBKR's first session Alpaca's close agrees within tolerance_bp with IBKR's or, where IBKR is the
 one off, with Tradier's. Otherwise (a gap, or a level break: a predecessor under a reused ticker)
 the span has no bar: an IBKR row from its start to IBKR's first bar. A name IBKR never answered is
-held. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
+held. A span longer than min_sessions needs more than the same-session test, which cannot see a
+ticker handover (third review: SW served WestRock's 2016-2024 history): it is admitted only when
+Tradier answered inside it and agrees with Alpaca on at least min_class_share of those sessions,
+or the close-to-close gap at IBKR's first bar is at most gap_max_moves (APR
+threshold.bar_integrity.arbitration_gap_max_daily_moves) times the name's median absolute daily
+log move on IBKR's own closes. Otherwise it is held under an interim IBKR row. Whether IBKR verified its head (ohlcv_provider_head) is recorded as evidence; both cases take
 the same test (second review).
 
 A hold means Alpaca does not serve (second review H1): build_plan gives every held span an interim
@@ -86,6 +91,7 @@ class ArbitrationParams:
     quarantine_rel: float = 0.02
     three_way_max_it_bp: float = 50.0
     three_way_log_share: float = 0.1
+    gap_max_moves: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -256,6 +262,13 @@ def _pre_ibkr(
     head = min(ibkr, default=None)
     continuity: dict[str, Any] = {}
     continuous = False
+    with_tradier = [d for d in pre if tradier.get(d, 0.0) > 0]
+    continuity["tradier_agree_share"] = (
+        sum(1 for d in with_tradier if _agree(alpaca[d], tradier[d], params.tolerance_bp))
+        / len(with_tradier)
+        if with_tradier
+        else None
+    )
     if head is not None:
         index = {d: i for i, d in enumerate(sessions or ())}
         consecutive = pre[-1] in index and head in index and index[head] - index[pre[-1]] == 1
@@ -266,13 +279,19 @@ def _pre_ibkr(
             a_head is not None and t_head > 0 and _agree(a_head, t_head, params.tolerance_bp)
         )
         continuous = consecutive and (agrees_ibkr or agrees_tradier)
-        continuity = {
+        ibkr_days = sorted(d for d in ibkr if ibkr[d] > 0)
+        moves = [abs(_log_bp(ibkr[b], ibkr[a])) for a, b in zip(ibkr_days, ibkr_days[1:])]
+        gap = _log_bp(ibkr[head], alpaca[pre[-1]]) if alpaca[pre[-1]] > 0 else None
+        median_move = _median(moves)
+        continuity |= {
             "consecutive": consecutive,
             "alpaca_at_head": a_head,
             "ibkr_at_head": ibkr[head],
             "tradier_at_head": t_head or None,
-            "overnight_gap_bp": (
-                _log_bp(ibkr[head], alpaca[pre[-1]]) if alpaca[pre[-1]] > 0 else None
+            "overnight_gap_bp": gap,
+            "median_abs_daily_move_bp": median_move,
+            "gap_in_daily_moves": (
+                abs(gap) / median_move if gap is not None and median_move else None
             ),
         }
     return Span(
@@ -355,7 +374,15 @@ def span_action(span: Span, params: ArbitrationParams) -> str:
     if span.cls == PRE_IBKR_HISTORY:
         if span.ibkr_head is None:
             return "hold"
-        return "info" if span.continuous else "row"
+        if not span.continuous:
+            return "row"
+        if span.n_sessions <= params.min_sessions:
+            return "info"
+        share = span.continuity.get("tradier_agree_share")
+        moves = span.continuity.get("gap_in_daily_moves")
+        corroborated = share is not None and share >= params.min_class_share
+        ordinary_gap = moves is not None and moves <= params.gap_max_moves
+        return "info" if corroborated or ordinary_gap else "hold"
     if span.cls == IBKR_DEFECTIVE:
         return "evidence"
     if span.n_sessions < params.min_sessions:
@@ -484,6 +511,7 @@ def build_plan(
                 "quarantine_rel": params.quarantine_rel,
                 "three_way_max_it_bp": params.three_way_max_it_bp,
                 "three_way_log_share": params.three_way_log_share,
+                "gap_max_moves": params.gap_max_moves,
             },
             "span_actions": counts,
             "classes": [

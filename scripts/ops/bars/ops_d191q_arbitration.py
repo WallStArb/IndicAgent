@@ -69,11 +69,13 @@ _KEY_TOL = "threshold.bar_integrity.fallback_basis_tolerance_bp"
 _KEY_RUN = "threshold.bar_integrity.fallback_basis_window_sessions"
 _KEY_SHARE = "threshold.bar_integrity.tradier_admission_min_agree_share"
 _KEY_QUARANTINE = "threshold.bar_scrub.view_disagreement_rel"
+_KEY_GAP_MOVES = "threshold.bar_integrity.arbitration_gap_max_daily_moves"
 # Fallbacks equal to the seeded APR values; the run reads APR.
 _DEFAULT_TOL = 10.0
 _DEFAULT_RUN = 20
 _DEFAULT_SHARE = 0.9
 _DEFAULT_QUARANTINE = 0.02
+_DEFAULT_GAP_MOVES = 4.0  # migration 527's seed
 _PROGRESS_EVERY = 100
 
 _READ_ONLY_SQL = "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
@@ -135,7 +137,7 @@ async def run(
         r["config_key"]: r["config_value"]
         for r in await conn.fetch(
             "SELECT config_key, config_value FROM config_state WHERE config_key = ANY($1::text[])",
-            [_KEY_TOL, _KEY_RUN, _KEY_SHARE, _KEY_QUARANTINE],
+            [_KEY_TOL, _KEY_RUN, _KEY_SHARE, _KEY_QUARANTINE, _KEY_GAP_MOVES],
         )
     }
     params = ArbitrationParams(
@@ -145,6 +147,7 @@ async def run(
         min_sessions=int(_cfg(apr, _KEY_RUN, _DEFAULT_RUN)),
         min_class_share=float(_cfg(apr, _KEY_SHARE, _DEFAULT_SHARE)),
         quarantine_rel=float(_cfg(apr, _KEY_QUARANTINE, _DEFAULT_QUARANTINE)),
+        gap_max_moves=float(_cfg(apr, _KEY_GAP_MOVES, _DEFAULT_GAP_MOVES)),
     )
     fingerprint = await read_raw_fingerprint(conn, window_end)
     default_ids = sorted(r["policy_id"] for r in await conn.fetch(_LIVE_DEFAULT_IDS_SQL))

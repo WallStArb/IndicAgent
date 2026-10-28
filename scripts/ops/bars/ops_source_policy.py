@@ -573,6 +573,9 @@ _QUARANTINE_RULES_SQL = """
 SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'
 """
 QUARANTINE_RULE_VERSION = "d191q-arbitration"
+_FLAGGED_SYMBOLS_SQL = """
+SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1
+"""
 _QUARANTINE_FIELDS = ("open", "high", "low", "close")
 # Timeframes whose plan must name every live symbol row (an implicit retire-all would drop the
 # 185-37 evidence rows unread).
@@ -621,6 +624,11 @@ async def read_raw_fingerprint(conn: Any, through: date) -> dict[str, Any]:
             for r in sorted(rows, key=lambda r: (r["vendor"], r["kind"]))
         },
     }
+
+
+async def read_flagged_symbols(conn: Any, rule: str) -> list[str]:
+    """The names holding 1d flags of `rule` now (a later plan replaces them all)."""
+    return [r["symbol"] for r in await conn.fetch(_FLAGGED_SYMBOLS_SQL, rule)]
 
 
 async def read_quarantine_rules(conn: Any) -> frozenset[str]:
@@ -915,10 +923,14 @@ async def _check_plan_preconditions(conn: Any, plan: PolicyPlan) -> None:
 async def _write_quarantine(conn: Any, plan: PolicyPlan) -> int:
     """The quarantine sessions as bar_quality_flag rows through the flag writer (bar_scrub's
     write_flags, the table's one writer path), under one scrub batch. Runs last: the batch and
-    flag writes SET LOCAL ROLE bar_derivation_writer for the rest of the transaction."""
+    flag writes SET LOCAL ROLE bar_derivation_writer for the rest of the transaction. The rule is
+    the plan's alone, so it is replaced globally: a name holding its flags today but absent from
+    the plan has them cleared (third review M1)."""
     rule = plan.quarantine_rule
     assert rule is not None
-    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    by_symbol: dict[str, list[dict[str, Any]]] = {
+        symbol: [] for symbol in await read_flagged_symbols(conn, rule)
+    }
     for q in plan.quarantine:
         by_symbol.setdefault(q["symbol"], []).append(q)
     batch_id = await open_batch(
