@@ -35,7 +35,41 @@ A stored column is a single-name function of that name's own bars and fixed macr
 
 Land the spread kernels and the Amihud fix before 186-26, as already planned. Add idiosyncratic volatility, MAX, maximum drawdown and downside deviation to the rebuild only if a family in the first feature batch names them as members; otherwise they enter later through the research kernels (184-02's `kernel_source`) at no rebuild cost and join the stored registry after 186-27 (todos 550 to 552 are the pattern). Everything else is research-layer or blocked on data.
 
+## Candidates the stat arb ideas imply
+
+Added 2026-10-28 after the owner's follow-up. The same consumer test applies to each.
+
+| Candidate | Kind | State | Note |
+|---|---|---|---|
+| Residual return against the market (return minus beta times the market series), its z-score and lag-1 autocorrelation | Atomic, single-name on a fixed macro series | Not stored; `equity_beta_z` shows the pattern | Market-only residual can be stored; the sector residual needs point-in-time classification, so it stays in S1 |
+| Rolling OU half-life and equilibrium sigma of a residual (`ln 2 / kappa`, `sigma_eq`) | Composite over the residual above | Not stored | Defines the stat arb z-score `(X - m) / sigma_eq`; test in the research layer first |
+| Residual beta stability (rolling change in beta) | Atomic | Not stored | The slides' "factor-model drift" risk, measured instead of assumed |
+| Size proxy (rolling mean log dollar volume) | Atomic | Not stored (`dollar_vol_z` is a z-score) | Gives a size factor for a residual model without shares outstanding |
+| Dividend yield and days to ex-dividend | Atomic, event | Not stored; data exists in `dividend_events_reconciled` | Ledger row "corporate-action event family"; needs outside-coverage handling (unknown, never zero) |
+| Residual reversal conditioned on a volume shock, on illiquidity or on regime | Composite interaction | Nine stored `*_product` columns exist | Test through the S7 combiner, not as new stored products |
+| Rolling PCA factor loadings and eigenvalue spectrum | Cross-sectional | Not stored | Research layer by design |
+| Rolling cointegration statistics | Pair-level | Not stored | Pairs verdict is DEAD, closed for good; no work |
+
+Composite features are better tested through the combiner than hard-coded: the stored `*_product`
+columns are the pattern the registry already carries, and its `nonlinear_interaction_combiner` result
+is inconclusive, so adding more of them buys nothing until that is settled.
+
+## Cleanup found
+
+- **Dead columns:** `momentum_rank_z`, `volume_rank_z` and `volatility_rank_z` are stored and registered
+  active, but no kernel computes them (never computed, todo 421). The rebuild replaces the table;
+  confirm the registry rows retire with it, since the registry still lists them as active features.
+- **Possible duplicate:** `ret_acf1_z` and `ret_autocorr_1` both measure lag-1 return autocorrelation
+  (one z-scored). Check their correlation on the rebuilt table before judging; the rule is never to
+  drop data that could carry signal, so this is a measurement, not a deletion.
+- **No redundancy handling:** the registry's `redundancy_group` is empty for all 302 features. Many
+  stored columns are near-duplicates by construction (three range-based volatility estimators and
+  their velocities, fast and slow pairs). Filling the groups is the registry's mechanism for this.
+- **Correct as they are:** the five `canary_*` columns are controls, and `new_high_flag` and
+  `new_low_flag` are deprecated tombstones.
+
 ## Open decisions for the lane owners
 
 1. Does the first feature family name any of the candidate columns above? If yes, they ride the rebuild.
 2. Is a fundamentals source worth sourcing before the first feature family, or after it?
+3. Fill `redundancy_group` after the rebuild, from measured correlations?
