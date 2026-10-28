@@ -12,6 +12,7 @@ battery's positional seeds.
 
 import dataclasses
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -25,8 +26,9 @@ from src.intelligence.research import null_battery as nb  # noqa: E402
 from src.intelligence.statistics.hac import newey_west_lag  # noqa: E402
 
 MAXLAG = 80
-SEED0 = 9_000_000
+SEED0 = int(os.environ.get("E17_DIAG_SEED0", 9_000_000))
 Z95 = 1.6449
+Z99 = 2.3263
 
 
 def t_bartlett(x: np.ndarray, lag: int) -> float:
@@ -86,6 +88,30 @@ def report(path: str) -> None:
         p = x.mean()
         deff = (x.mean(axis=1).var(ddof=1) / len(x)) / (p * (1 - p) / x.size)
         print(f"{cell}: pooled {p * 100:.2f}% design effect {deff:.2f}")
+    pooled(res)
+
+
+def _ratio(rejected: list[tuple[int, int]]) -> tuple[float, float]:
+    """(rate, cluster-robust se) of rejections over tests, one cluster per simulation."""
+    r = np.array([a for a, _ in rejected], float)
+    n = np.array([b for _, b in rejected], float)
+    rate = r.sum() / n.sum()
+    var = ((r - rate * n) ** 2).sum() / n.sum() ** 2
+    return float(rate), float(np.sqrt(var))
+
+
+def pooled(res: list) -> None:
+    """Size pooled over every cell and arm with simulation clusters (an H0 panel's arms share it)."""
+    for label, key, z, target in (("0.05", "lag1", Z95, 0.05), ("0.01", "lag1", Z99, 0.01)):
+        clusters = [(sum(out[a][key] > z for a in out), len(out)) for _cell, _seed, out in res]
+        rate, se = _ratio(clusters)
+        lo, hi = rate - 2.576 * se, rate + 2.576 * se
+        verdict = "contains" if lo <= target <= hi else "EXCLUDES"
+        print(
+            f"POOLED size at {label}: {rate * 100:.2f}% 99% cluster-robust CI "
+            f"[{lo * 100:.2f}, {hi * 100:.2f}] ({verdict} {target * 100:g}%), "
+            f"{len(clusters)} simulations, {sum(b for _, b in clusters)} tests"
+        )
 
 
 if __name__ == "__main__":

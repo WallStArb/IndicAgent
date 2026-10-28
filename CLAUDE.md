@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.4
+Version: 5.63.5
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -29,7 +29,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 3. git push origin main; CI is the backstop
 ```
 
-`/gsd-execute-phase` runs its own simplify gate. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
+`/gsd-execute-phase` runs its own simplify gate. `.venv/bin/python tools/gate.py` runs steps 1's mechanical part for you (classifies the diff, stops on a migration-number clash, runs the suite, `repro_frozen` when research or statistics changed, and `--compare-all` when asked, the last two under one cross-session lock); `/simplify` and `/review` stay yours. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
 
 ## Architecture
 
