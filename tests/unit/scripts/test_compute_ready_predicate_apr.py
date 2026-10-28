@@ -145,7 +145,9 @@ def test_hold_reasons_name_the_failing_check():
     )
     holds = mod._fetch_holds(conn, mod._DIMENSION_CONFIG["compute_1d"], [], 30.0)
     assert holds["AAA"] == ["1d:session_coverage failed"]
-    assert len(holds["BBB"]) == 7 and all("missing" in reason for reason in holds["BBB"])
+    assert len(holds["BBB"]) == len(REQUIRED_CHECKS["1d"]) and all(
+        "missing" in reason for reason in holds["BBB"]
+    )
     assert mod._hold_check_counts(holds)["1d:session_coverage"] == 2
 
 
@@ -170,4 +172,6 @@ def test_fetch_verdict_failures_applies_the_latest_load_freshness_rule():
     conn = _GateConn([], _fresh_1d_verdicts("AAA"), loads=[("AAA", "1d", loaded)])
     scan = fetch_verdict_scan(conn, ["AAA"], ["1d"], 30.0)
     failures = scan.failures
-    assert len(failures["AAA"]) == 7 and all("newer load" in r for r in failures["AAA"])
+    assert len(failures["AAA"]) == len(REQUIRED_CHECKS["1d"]) and all(
+        "newer load" in r for r in failures["AAA"]
+    )

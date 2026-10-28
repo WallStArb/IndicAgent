@@ -81,7 +81,7 @@ def test_a_symbol_with_no_rows_names_every_required_check():
 def test_a_verdict_older_than_max_age_is_stale():
     old = NOW - timedelta(hours=31)
     result = _gate(_rows("AAA", "1d", when=old))
-    assert len(result["AAA"]) == 7
+    assert len(result["AAA"]) == len(REQUIRED_CHECKS["1d"])
     assert all("stale" in reason and "older than" in reason for reason in result["AAA"])
 
 
@@ -92,7 +92,7 @@ def test_a_verdict_exactly_at_max_age_passes():
 def test_a_verdict_older_than_the_latest_load_is_stale():
     loaded = NOW - timedelta(minutes=30)
     result = _gate(_rows("AAA", "1d"), latest_load={("AAA", "1d"): loaded})
-    assert len(result["AAA"]) == 7
+    assert len(result["AAA"]) == len(REQUIRED_CHECKS["1d"])
     assert all("newer load" in reason for reason in result["AAA"])
 
 

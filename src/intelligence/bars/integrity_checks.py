@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
@@ -25,10 +25,12 @@ from src.intelligence.bars.daily_rule import (
     primary_pair,
     resolve_policy,
     servable_primary_dates,
+    vendor_basis_closes,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
+from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH
 from src.intelligence.bars.vendor_basis import (
     BasisRun,
     blocking,
@@ -60,6 +62,49 @@ def session_coverage(
         return 1.0
     answered = set(bar_dates) | set(empty_dates)
     return len(answered.intersection(sessions)) / len(sessions)
+
+
+def alpaca_basis_runs(
+    observations: Sequence[Observation],
+    splits: Sequence[SplitRecord],
+    policy_rows: Sequence[PolicyRow],
+    *,
+    symbol: str,
+    since: date,
+    tolerance_bp: float,
+    min_sessions: int,
+) -> list[BasisRun]:
+    """Runs of at least min_sessions sessions after `since` where IBKR's and Alpaca's 1d closes
+    (current scale, session dates, zero-volume Alpaca bars dropped) differ by more than
+    tolerance_bp, and nothing recorded explains them (todo 545 step 5a; the successor of
+    vendor_basis_run, which needs Tradier). Such a run is a spin-off, split or ticker event since
+    the D-191-Q arbitration. Explained, and not reported: a corporate action whose effective date
+    falls inside the run or on the first common session after it (the event that ends it; a
+    recorded spin-off factor is the judge once Tradier is gone), or an IBKR symbol row covering
+    the whole run."""
+    closes = vendor_basis_closes(observations, splits)
+    alpaca, ibkr = closes["alpaca"], closes["ibkr"]
+    pairs = [(d, ibkr[d], alpaca[d]) for d in sorted(ibkr.keys() & alpaca.keys()) if d > since]
+    common = [d for d, _i, _a in pairs]
+
+    def explained(run: BasisRun) -> bool:
+        after = next((d for d in common if d > run.end), None)
+        if any(
+            run.start <= s.effective_date and (after is None or s.effective_date <= after)
+            for s in splits
+        ):
+            return True
+        return any(
+            r.timeframe == TIMEFRAME_1D
+            and r.symbol == symbol
+            and r.primary_source == "ibkr"
+            and r.valid_from <= run.start
+            and (r.valid_to is None or r.valid_to > run.end)
+            for r in policy_rows
+        )
+
+    runs = find_basis_runs(pairs, tolerance_bp=tolerance_bp, min_sessions=min_sessions)
+    return [run for run in runs if not explained(run)]
 
 
 def policy_conformance(
@@ -110,6 +155,7 @@ CHECKS_1D = (
     "digest_fresh",
     "unexplained_seam",
     "vendor_basis_run",
+    "alpaca_basis_run",
     "report_age",
     CHECK_FRESHNESS_1D,
 )
@@ -176,6 +222,8 @@ class NameReport1d:
     refused_head: int
     basis_runs: list[BasisRun]
     blocking_runs: list[BasisRun]
+    # unexplained Alpaca/IBKR runs after the arbitration (alpaca_basis_run)
+    alpaca_runs: list[BasisRun] = field(default_factory=list)
 
 
 def month_digests(
@@ -396,6 +444,19 @@ def judge_name_1d(
     verdicts.append(verdict("vendor_basis_run", not blocking_runs, len(blocking_runs), 0.0))
     timed("vendor_basis_run", started)
 
+    started = time.perf_counter()
+    alpaca_runs = alpaca_basis_runs(
+        inputs.observations,
+        inputs.splits,
+        inputs.policy_rows,
+        symbol=symbol,
+        since=ARBITRATED_THROUGH,
+        tolerance_bp=thresholds.basis_tolerance_bp,
+        min_sessions=thresholds.vendor_run_min_sessions,
+    )
+    verdicts.append(verdict("alpaca_basis_run", not alpaca_runs, len(alpaca_runs), 0.0))
+    timed("alpaca_basis_run", started)
+
     age_hours = (
         0.0
         if inputs.latest_load_at is None
@@ -420,7 +481,7 @@ def judge_name_1d(
             listing_end=inputs.listing_end,
         )
     )
-    return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs)
+    return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs, alpaca_runs)
 
 
 # ---------------------------------------------------------------------------

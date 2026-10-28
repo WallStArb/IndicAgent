@@ -707,14 +707,14 @@ def _run(names, seam_samples=()):
     return conn, run
 
 
-def test_each_name_gets_nine_verdict_rows_and_two_informational_rows():
+def test_each_name_gets_ten_verdict_rows_and_two_informational_rows():
     conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
     rows = [f for f in run.facts if f[1] == "AAA|1d"]
-    assert len(rows) == 11
+    assert len(rows) == 12
     assert {f[0] for f in run.facts} == {"bar_integrity"}
-    assert [f[2] for f in rows][:9] == list(audit.CHECKS_1D)
+    assert [f[2] for f in rows][:10] == list(audit.CHECKS_1D)
     assert "freshness_1d" in audit.CHECKS_1D
-    assert [f[2] for f in rows][9:] == ["refused_head_1d", "held_1d"]
+    assert [f[2] for f in rows][10:] == ["refused_head_1d", "held_1d"]
     assert all(f[5] for f in run.facts)
     assert run.failing_by_check == {}
 

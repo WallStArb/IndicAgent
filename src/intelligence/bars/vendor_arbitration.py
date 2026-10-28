@@ -74,6 +74,10 @@ PRE_IBKR_HISTORY = "pre_ibkr_history"
 SEAM = date(2016, 1, 4)  # D-191-Q's policy seam, a decision record, not a tunable
 _EPOCH = date(1990, 1, 1)  # the policy table's first default valid_from (migration 446)
 _N_EXAMPLES = 3
+# The last session the D-191-Q arbitration judged (Tradier's last 1d session). After it no third
+# vendor exists; D7's alpaca_basis_run judges later Alpaca/IBKR disagreement against recorded
+# corporate actions and policy rows. A decision record, not a tunable.
+ARBITRATED_THROUGH = date(2026, 10, 6)
 QUARANTINE_RULE = "vendor_disagreement"
 
 

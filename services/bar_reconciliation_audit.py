@@ -33,8 +33,9 @@ with the venue study):
 - the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
   row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
   compute_1d name: session_coverage, policy_conformance, lineage_missing, canonical_recompute
-  (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam, vendor_basis_run
-  and report_age, plus refused_head_1d as an informational row. The pure judgement is
+  (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam, vendor_basis_run,
+  alpaca_basis_run (Alpaca/IBKR runs after the D-191-Q arbitration, todo 545 step 5a) and
+  report_age, plus refused_head_1d as an informational row. The pure judgement is
   src/intelligence/bars/integrity_checks.judge_name_1d; the gates (185-41) read the rows.
 
 Observability only, the classification-coverage contract: a finding is reported loudly
@@ -2247,6 +2248,12 @@ class BarReconciliationAudit(BaseBatch):
             blocking_samples.extend(
                 f"{symbol}|{run.start}..{run.end}|{run.continuous_vendor}"
                 for run in report.blocking_runs
+            )
+            # alpaca_basis_run (todo 545 step 5a): an Alpaca/IBKR level run after the D-191-Q
+            # arbitration that no corporate action or policy row explains.
+            blocking_samples.extend(
+                f"{symbol}|{run.start}..{run.end}|alpaca_vs_ibkr|{run.median_ratio:.4f}"
+                for run in report.alpaca_runs
             )
         n_hidden = sum(hidden.values())
         untraced = _Judged(
