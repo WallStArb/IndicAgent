@@ -117,14 +117,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Todo | Why now |
 |---|---|
-
-**Closed by the rebuild (no separate work)**
-
-| Todo | Why now |
-|---|---|
-| [411](pending/411-feature-vectors-and-regimes-stale-since-2026-08-10-nightly-job-refreshes-ohlcv-only.md) | Closed by 186-27 (the rebuild replaces the in-place refresh; design 14.2). Features and regimes stale since 2026-08-10 until then. |
-| [426](pending/426-compressed-write-session-decompresses-whole-feature-vectors-exceeds-disk.md) | Closed by 186-27. Step 1 (headroom guard, migration 362) and native-DML writes landed; the rebuilt table is written append-only and compressed per chunk, so the whole-table decompress session is not needed. |
-| [421](pending/421-feature-vectors-partial-coverage-velocity-and-never-computed-rank-z.md) | Removed at the source by the rebuild: the rank_z trio was dropped in 186-24 (migration 425), and the rebuild recomputes velocity for every symbol. Close after 186-26 with the per-feature coverage check (S0 floor, todo 435). |
 | [494](pending/494-unit-tests-can-spawn-live-writers-ci-guard.md) | New 2026-10-06, from 185-18. Unit tests leaked into the live database three times (a real grid derivation, permanent D1 fixture rows, a self-cleaning live write). Add a conftest guard on subprocess spawns of derivation and pipeline scripts and a boundary test on live-DSN writes; move the atomic-write test to indicagent_test. |
 | [491](pending/491-universe-membership-pinned-in-the-s0-snapshot.md) | New 2026-10-03. The research spec names a universe dimension, not a snapshot, and `instruments` has only `created_at`, so promoting wave 2 changes the panel silently. Store entry date and cohort per name and hash the promoted symbol set into the S0 snapshot and `research_run`, before the first counted run. Also records that today's-cap-rank selection is outcome-conditioned. |
 | [520](pending/520-future-timestamp-guard-on-ingested-bars.md) | New 2026-10-09. The writer guard landed in 191-02 (`services/ohlcv_raw_writer.py`, APR `threshold.bar_integrity.future_bar_tolerance_s`, tested). Open remainder: the D7 1d condition, explicit deferral D-191-H (owner acknowledgement pending). |
@@ -133,6 +125,14 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 | [521](pending/521-alpaca-intraday-depth-build.md) | Green-lit by the owner 2026-10-09; Phase 2 all-names canonical 5m load landed 2026-10-10 (1,502/1,502 eligible). Nightly installed 2026-10-26 (`indicagent-alpaca-nightly.timer`, 04:40 UTC): it asks SIP with its window end 20 minutes back (migration 513; the free plan 403s only a window ending near now); IEX answers carry `iex_rth`, raw only, never selected (528adc7c4). A one-time 20-day catch-up ran 2026-10-26. Left: the 33-name thin-tail no_data evidence. |
 | [524](pending/524-intraday-parity-volume-basis-and-dividend-price-buckets.md) | New 2026-10-09, from the pilot's C7. WEAT parity mismatches are 100 percent volume-only (vendor volume basis); five dividend payers show handfuls of price-only buckets. The parity lane now serves into `ohlcv_raw` (191-16); the open remainder is D7's dated tolerance rule and price/volume split in its output, explicit deferral D-191-H (owner acknowledgement pending). |
 | [525](pending/525-single-day-provider-gaps-need-a-recorded-span.md) | New 2026-10-09, from the pilot's C8. DBMF misses 0.995 slot coverage on 3 single-day IBKR 5m gaps that the backward walk can never confirm empty; extend ohlcv_empty_history to record mid-history single-day spans evidenced by answered-chunk neighbors. |
+
+**Closed by the rebuild (no separate work)**
+
+| Todo | Why now |
+|---|---|
+| [411](pending/411-feature-vectors-and-regimes-stale-since-2026-08-10-nightly-job-refreshes-ohlcv-only.md) | Closed by 186-27 (the rebuild replaces the in-place refresh; design 14.2). Features and regimes stale since 2026-08-10 until then. |
+| [426](pending/426-compressed-write-session-decompresses-whole-feature-vectors-exceeds-disk.md) | Closed by 186-27. Step 1 (headroom guard, migration 362) and native-DML writes landed; the rebuilt table is written append-only and compressed per chunk, so the whole-table decompress session is not needed. |
+| [421](pending/421-feature-vectors-partial-coverage-velocity-and-never-computed-rank-z.md) | Removed at the source by the rebuild: the rank_z trio was dropped in 186-24 (migration 425), and the rebuild recomputes velocity for every symbol. Close after 186-26 with the per-feature coverage check (S0 floor, todo 435). |
 
 ## P2: Real value, not urgent
 
