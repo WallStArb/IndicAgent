@@ -56,6 +56,12 @@ Full record: design doc D-191-Q.
      alpaca_differs, 7 three-way adjusted, 13 pre-IBKR no-bar, 22 interim holds), 285 quarantine
      sessions on 215 names, 154 live symbol rows retire (21 replaced, 133 superseded_by_default),
      none kept. DHC fails the log-share test (47 bp against 36) and stays held.
+   - Status 2026-10-28, third review: built (dc961d149 RED, d724430d9 GREEN; migration 527
+     applied). A pre-IBKR span over 20 sessions needs Tradier agreement (90%) or a gap of at most
+     `threshold.bar_integrity.arbitration_gap_max_daily_moves` (4) daily moves; SW and GRNT are
+     held. Re-run 06:50Z: 90 IBKR rows (24 interim holds), 285 quarantine sessions, all 154 live
+     symbol rows retire (21 replaced, 133 superseded_by_default). Owner: the holds, and CRH
+     (admitted on the gap while Tradier contradicts Alpaca).
    - Spin-offs (2026-10-27): where IBKR and Tradier agree on a spin-off-adjusted history and
      Alpaca does not, the arbitration emits an IBKR-primary row for the pre-spin span (correct
      returns, NULL volume); where Alpaca and Tradier agree, Alpaca serves.
@@ -72,14 +78,21 @@ Full record: design doc D-191-Q.
      apply with the fetchers idle. Before an apply with the quarantine list:
      `vendor_disagreement` must be added to `threshold.bar_scrub.quarantine_rules` (a migration;
      the apply refuses otherwise); the flags go through `bar_scrub.write_flags` under one
-     `scrub` batch.
-5a. D7 Alpaca-against-IBKR basis check (second review M3), before plan 20 deletes Tradier:
-   `vendor_basis_run` compares Tradier with IBKR and goes empty without Tradier; its successor
+     `scrub` batch, replacing the rule globally (bar_scrub's stale prune exempts it).
+   - Order (third review M2): the final arbitration re-run and this apply happen before plan 20
+     deletes Tradier. The arbitration refuses to run without Tradier's 1d rows, and no other
+     source can arbitrate the 2016-2026-10-06 spans afterwards.
+5a. BLOCKER: D7 Alpaca-against-IBKR basis check (second review M3). `vendor_basis_run` compares
+   Tradier with IBKR and goes empty without Tradier; its successor
    (`services/bar_reconciliation_audit.py`, `integrity_checks`) flags an Alpaca/IBKR level run
-   after 2026-10-06 (a spin-off Alpaca leaves unadjusted) for a dated row. Not built in this
-   round: it changes D7's verdict set and the verdict gate.
-5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it; the 2016 volume seam is recorded
-   for the research lane.
+   after 2026-10-06 for a dated row. D7's acceptance of the re-derived canonical 1d (step 5) and
+   the research notice that 1d is Alpaca-primary both wait on it. The judge for a future
+   spin-off is a recorded corporate action (a spin-off factor in `corporate_action`, beside the
+   splits it holds today), not a third vendor: after Tradier is gone no vendor arbitrates, and
+   a recorded factor says which side of the run is the adjusted history. Not built yet: it
+   changes D7's verdict set and the verdict gate.
+5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it (acceptance waits on 5a); the 2016
+   volume seam is recorded for the research lane.
 6. Rules and docs, in the same commit that applies the policy rows (not before, so no doc claims
    a source that is not yet live):
    - Done 2026-10-27 (doc sweep 5c2b5cef3..c6d209290, written as decided, not live): CLAUDE.md,

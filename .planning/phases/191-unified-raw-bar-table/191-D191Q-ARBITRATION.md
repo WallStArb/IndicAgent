@@ -2,7 +2,7 @@
 
 Author: scripts/ops/bars/ops_d191q_arbitration.py (read-only session). Informed by: D-191-Q in docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545.
 
-Run 2026-10-28T01:48:42.188853+00:00. Window 2016-01-04 to 2026-10-06 (Tradier's last 1d session). Tolerance 10.0 bp per session, a span of at least 20 sessions, a class share of at least 0.9. 1529 names. Plan: `/home/bg/dev/indicagent/data/policy_plans/d191q_1d_plan_20261028.json` (gitignored), sha256 `e278a9fc65f400bb86f27ee68120ed4dfac518bbff76c7e132ecba6fe6c8becd`, the document `ops_source_policy.py --plan` takes; nothing was written to the database. Raw fingerprint through 2026-10-06: alpaca/sip_rth 3,742,838 rows, last served 2026-10-27T18:12:32.192204+00:00, ibkr/smart_trades 6,787,183 rows, last served 2026-10-28T01:09:40.399112+00:00, tradier/consolidated 7,140,397 rows, last served 2026-10-07T11:52:38.451995+00:00. Retired defaults pinned: 5e356439-b9c8-4f9c-980c-31a429403848, f1bf2154-6447-4e5b-a7b5-f879c7179873.
+Run 2026-10-28T06:50:40.655584+00:00. Window 2016-01-04 to 2026-10-06 (Tradier's last 1d session). Tolerance 10.0 bp per session, a span of at least 20 sessions, a class share of at least 0.9. 1529 names. Plan: `/home/bg/dev/indicagent/data/policy_plans/d191q_1d_plan_20261028.json` (gitignored), sha256 `3e946ba6d317031dad7e5d71fd8d1018ef246933017f67315fbad686516ecf6a`, the document `ops_source_policy.py --plan` takes; nothing was written to the database. Raw fingerprint through 2026-10-06: alpaca/sip_rth 3,742,838 rows, last served 2026-10-27T18:12:32.192204+00:00, ibkr/smart_trades 6,787,183 rows, last served 2026-10-28T01:09:40.399112+00:00, tradier/consolidated 7,140,397 rows, last served 2026-10-07T11:52:38.451995+00:00. Retired defaults pinned: 5e356439-b9c8-4f9c-980c-31a429403848, f1bf2154-6447-4e5b-a7b5-f879c7179873.
 
 ## Classes
 
@@ -11,8 +11,8 @@ Run 2026-10-28T01:48:42.188853+00:00. Window 2016-01-04 to 2026-10-06 (Tradier's
 | alpaca_differs | noise | 5031 | 6,591 | 875 |
 | alpaca_differs | row | 46 | 72,826 | 46 |
 | ibkr_defective | evidence | 1318 | 19,344 | 194 |
-| pre_ibkr_history | hold | 1 | 2,703 | 1 |
-| pre_ibkr_history | info | 124 | 180,094 | 124 |
+| pre_ibkr_history | hold | 3 | 5,330 | 3 |
+| pre_ibkr_history | info | 122 | 177,467 | 122 |
 | pre_ibkr_history | row | 13 | 11,360 | 13 |
 | three_way | hold | 19 | 18,319 | 16 |
 | three_way | noise | 413 | 749 | 150 |
@@ -22,7 +22,7 @@ Run 2026-10-28T01:48:42.188853+00:00. Window 2016-01-04 to 2026-10-06 (Tradier's
 
 Actions: row = an IBKR symbol row (IBKR = Tradier and Alpaca differs; a three-way span where IBKR and Tradier both adjusted; Alpaca history discontinuous with IBKR's first bar, no bar until it); evidence = IBKR is wrong and Alpaca serves (Alpaca = Tradier); hold = an interim IBKR row for the owner to decide (Alpaca does not serve); noise = shorter than the span minimum (Alpaca serves, quarantine below); info = Alpaca history continuous with IBKR's first bar (Alpaca serves).
 
-## IBKR symbol rows (88)
+## IBKR symbol rows (90)
 
 Interim rows are the holds: IBKR serves until the owner decides.
 
@@ -76,6 +76,7 @@ Interim rows are the holds: IBKR serves until the owner decides.
 | FWONK | pre_ibkr_history |  | 2016-04-18 | 2017-01-25 | 195 |  |  |
 | FWONK | alpaca_differs |  | 2017-01-25 | 2023-07-20 | 1631 | 0.9832 | 0.9829 |
 | GE | alpaca_differs |  | 2016-01-04 | 2024-04-03 | 2075 | 0.6223 | 0.6223 |
+| GRNT | pre_ibkr_history | yes | 2020-11-06 | 2022-10-25 | 487 |  |  |
 | GYRE | three_way | yes | 2017-02-13 | 2023-01-13 | 1490 | 0.6731 | 0.0667 |
 | HON | three_way |  | 2016-01-04 | 2026-06-27 | 2635 | 0.4938 | 0.4954 |
 | IJR | three_way | yes | 2016-01-04 | 2017-01-18 | 262 | 0.5000 | 1.9999 |
@@ -106,6 +107,7 @@ Interim rows are the holds: IBKR serves until the owner decides.
 | SCCO | alpaca_differs |  | 2016-01-04 | 2026-08-11 | 2665 | 0.9157 | 0.9157 |
 | SNEX | three_way | yes | 2016-01-04 | 2019-10-23 | 577 | 1.5000 | 0.9783 |
 | SPGI | alpaca_differs |  | 2016-01-04 | 2026-07-01 | 2637 | 0.9459 | 0.9459 |
+| SW | pre_ibkr_history | yes | 2016-01-04 | 2024-07-08 | 2140 |  |  |
 | T | alpaca_differs |  | 2016-01-04 | 2022-04-09 | 1579 | 0.7548 | 0.7548 |
 | TT | alpaca_differs |  | 2016-01-04 | 2020-02-29 | 1046 | 0.8824 | 0.8824 |
 | UHAL | alpaca_differs |  | 2016-01-04 | 2022-11-10 | 1727 | 0.1000 | 0.1000 |
@@ -117,13 +119,15 @@ Interim rows are the holds: IBKR serves until the owner decides.
 | ZBH | alpaca_differs |  | 2016-01-04 | 2022-03-01 | 1550 | 0.9701 | 0.9701 |
 | ZD | alpaca_differs |  | 2016-01-04 | 2021-10-08 | 1452 | 0.8692 | 0.8692 |
 
-## Hold list (22)
+## Hold list (24)
 
 IBKR/Tradier is the ratio of the two medians: near 1 on a three_way span means IBKR and Tradier both adjusted the history (a spin-off) with factors a few bp apart, so the per-session test could not call it alpaca_differs.
 
 | Symbol | Class | From | To | Sessions | With Tradier | IBKR/Alpaca | Tradier/Alpaca | IBKR/Tradier |
 |--------|-------|------|----|----------|--------------|-------------|----------------|--------------|
 | QRVO | pre_ibkr_history | 2016-01-04 | 2026-10-02 | 2703 | 2703 |  |  |  |
+| SW | pre_ibkr_history | 2016-01-04 | 2024-07-05 | 2140 | 911 |  |  |  |
+| GRNT | pre_ibkr_history | 2020-11-06 | 2022-10-24 | 487 | 0 |  |  |  |
 | BDX | three_way | 2016-01-04 | 2026-02-09 | 2540 | 2540 | 0.7802 | 0.7667 | 1.0177 |
 | LEN | three_way | 2016-01-04 | 2025-01-17 | 2275 | 2275 | 0.9609 | 0.9256 | 1.0381 |
 | CENT | three_way | 2016-01-04 | 2024-02-08 | 2039 | 2039 | 0.7827 | 0.8000 | 0.9784 |

@@ -22,6 +22,7 @@ This step changes code and tests and runs one read-only arbitration. No bar_sour
 | 71079481c, 07752ae7b | second review H1: holds get interim IBKR rows, three-way rule, continuity, quarantine |
 | 6f369cf80, 1930730a4 | second review `--plan`: lock, pinned defaults, coverage, fingerprint, quarantine |
 | 84e63f454, 4df252223 | second review script: pinned ids, fingerprint, plan sha256 |
+| dc961d149, d724430d9 | third review: long pre-IBKR spans, migration 527, prune exemption, global quarantine clear |
 
 The docs commit for this note and the report follows them. `git log --oneline --grep 545` lists them all.
 
@@ -80,7 +81,23 @@ The first full run used D7's `vendor_ratio_run_min_sessions` (5) as the span min
 - M2, the raw fingerprint. Per 1d raw series, the plan records the row count and the last served_at through Tradier's last day. The script reads the fingerprint before and after it reads the names (exit 3 if they differ). The apply re-reads it under the table lock and refuses on any change. The 2 live default policy_ids are pinned the same way. `--plan` starts with `LOCK TABLE bar_source_policy IN SHARE ROW EXCLUSIVE MODE`, and the report carries the plan's sha256.
 - M3, the D7 Alpaca-against-IBKR basis check, is recorded as todo 545 step 5a and not built this round: it changes D7's verdict set and the verdict gate.
 
-## Results (read-only re-run, 2026-10-28 01:48Z)
+## Third review (2026-10-28)
+
+- H1: a long pre-IBKR span needs more than the same-session test, which cannot see a ticker handover (SW served WestRock's 2016-01-04 to 2024-07-05, 2,140 sessions). A span of more than the basis window (20 sessions) is admitted only when the same-session test passes and one of these holds:
+  - Tradier answered inside the span and agrees with Alpaca on at least 90% of those sessions;
+  - the close-to-close gap at IBKR's first bar is at most 4 of the name's median absolute daily log moves, measured on IBKR's own closes.
+
+  The 4 is APR `threshold.bar_integrity.arbitration_gap_max_daily_moves`, seeded by migration 527, applied live and committed with the code. A span that fails both is held under an interim IBKR row. Spans of 20 sessions or fewer keep the same-session test alone. The rule holds SW (Tradier agreement 0.2%, gap 7.9 moves) and GRNT (no Tradier, 6.8 moves). It admits RKT (Tradier 99.7%, gap 4.5 moves) and SVRA (Tradier 99.1%, 2.1 moves).
+- Spans with a gap over 300 bp, 42 in all:
+  - Already no bar (discontinuous): AA, AKTS, BAM, BTU, CART, CR, CRC, DD, DOW, EXE and FOXA.
+  - Newly held: SW and GRNT.
+  - Admitted through Tradier agreement (condition a): APG, APO, ASPN, CORZ, CRCL, DOCN, ESTC, EVER, FIGR, GFL, GH, MOD, NCMI, PRAX, RKT, RYTM, SVRA, TAN, TROX, TXG and XENE.
+  - Admitted on the gap alone (condition b), with Tradier contradicting Alpaca on that span (agreement 3.1%): CRH. CRH is the one to look at.
+  - Admitted as short spans (20 sessions or fewer): ARRY, AVGO, FCFS, IBEX, RBLX, RLAY and VOR.
+- M1: bar_scrub's `_DELETE_STALE_SQL` exempts `vendor_disagreement` from the stale prune (test added). The quarantine apply now replaces the rule globally: every name holding the rule's 1d flags today goes through `write_flags`, with an empty list when the plan dropped it.
+- M2: todo 545 step 5a is a blocker. D7's acceptance of the re-derived canonical 1d, and the research notice, wait on it. The judge for a future spin-off is a recorded corporate action (a spin-off factor in `corporate_action`), not a third vendor. The final arbitration re-run and the policy apply must happen before plan 20 deletes Tradier.
+
+## Results (read-only re-run, 2026-10-28 06:50Z)
 
 The plan is `data/policy_plans/d191q_1d_plan_20261028.json` (gitignored); its sha256 is in `191-D191Q-ARBITRATION.md`. 1,529 names, window 2016-01-04 to 2026-10-06.
 
@@ -91,23 +108,23 @@ The plan is `data/policy_plans/d191q_1d_plan_20261028.json` (gitignored); its sh
 | pre_ibkr_history | row (no bar until IBKR's head) | 13 | 11,360 | 13 |
 | three_way | hold, interim row | 19 | 18,319 | 16 |
 | two_vendor | hold, interim row | 2 | 1,368 | 2 |
-| pre_ibkr_history | hold, interim row (QRVO) | 1 | 2,703 | 1 |
-| pre_ibkr_history | info, Alpaca serves | 124 | 180,094 | 124 |
+| pre_ibkr_history | hold, interim row (SW, GRNT, QRVO) | 3 | 5,330 | 3 |
+| pre_ibkr_history | info, Alpaca serves | 122 | 177,467 | 122 |
 | ibkr_defective | evidence, Alpaca serves | 1,318 | 19,344 | 194 |
 | noise (all classes) | Alpaca serves | 5,484 | 7,401 | |
 
-That is 88 IBKR symbol rows in all, 22 of them interim. 285 quarantine sessions on 215 names. All 154 live 1d symbol rows retire: 21 replaced, 133 superseded_by_default, none kept.
+That is 90 IBKR symbol rows in all, 24 of them interim. 285 quarantine sessions on 215 names. All 154 live 1d symbol rows retire: 21 replaced, 133 superseded_by_default, none kept.
 
 ## Gate
 
-- Targeted suites pass. The full `pytest tests/unit/ -n auto` had one failure, `test_regime_signals_causal_rank`'s scaling-time test. It ran while the arbitration was loading the machine and passes alone.
+- Targeted suites pass, and the full `pytest tests/unit/ -n auto` is green after the third-review fixes.
 - ruff and black are clean.
-- Commits went through a detached scratch worktree off main, because another session's untracked test file tripped the duplicate-test pre-commit check in the shared checkout.
+- Commits go through a detached scratch worktree off origin/main: another session's untracked test file trips the duplicate-test pre-commit check in the shared checkout, and local main holds another session's unpushed commit.
 
 ## For step 4 and later
 
 1. The plan is perishable. IBKR still re-serves old 1d sessions (last serve inside the window: 2026-10-28 01:09Z), so the apply refuses once the fingerprint moves. Re-run the arbitration immediately before the dry run and the apply, with the fetchers idle.
 2. Before an apply that carries the quarantine list, add `vendor_disagreement` to `threshold.bar_scrub.quarantine_rules`, through a migration with its APR history row.
-3. Owner: the 22 interim holds (the report's hold list), DHC, and SW's admitted pre-IBKR span with its -832 bp overnight gap.
+3. Owner: the 24 interim holds (the report's hold list; DHC, SW and GRNT among them) and CRH, admitted on the gap alone while Tradier contradicts Alpaca.
 4. The fetcher's end stage runs d2-v4 from this checkout. Under today's policy the bars are unchanged, but the touched names' digests relabel, so D7's `digest_fresh` fails until the plan 20 Task 3 re-derive.
-5. Alpaca has no 1d split re-ask; D7 still has no Alpaca-against-IBKR check (step 5a); `services/bar_hold.py` `_VENDOR_RATIOS_SQL` reads SMART and TRADIER only.
+5. Alpaca has no 1d split re-ask; D7 has no Alpaca-against-IBKR check yet (step 5a, a blocker for D7's acceptance and the research notice); `services/bar_hold.py` `_VENDOR_RATIOS_SQL` reads SMART and TRADIER only.
