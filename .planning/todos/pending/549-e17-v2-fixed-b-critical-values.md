@@ -38,6 +38,38 @@ and the StepM attestation stay blocked until it is corrected.
    1) under v2, judged by step B; 184-05's persistent battery cells go into the v2 certificate.
 4. Family 1 re-scored under v2 as new rows.
 
+## Finding before build (indicagent-5b, 2026-10-28): fixed-b may be solving a problem that is not there
+
+Measured with `scripts/research/e17_size_diagnostic.py` (synthetic H0 panels, seeds from
+9,000,000, so not the battery's; not a counted look). Raw results:
+`/tmp/claude-1000/-home-bg-dev-indicagent/1734d8bc-89a4-4e71-834b-de1559dfe27d/scratchpad/e17acf/`
+(scratch; rerun the script to reproduce).
+
+1. **Step A's interval is too narrow.** It pooled 30 arms x 1,000 simulations as 30,000
+   independent trials, but an H0 simulation's arms (mean1, 5, 20, 40 and the book) share one
+   panel: their rejection indicators correlate about 0.2 and the design effect of pooling them
+   is 1.5 to 2.1. Widened by sqrt(1.8), step A's 4,000-session 99% interval [5.07, 5.75]
+   becomes about [4.95, 5.85], which contains 5%.
+2. **Fresh seeds at 4,000 sessions show no excess.** Pooled size at 0.05: gaussian 4.86%
+   (1,000 sims), kappa_0.5 4.60%, kappa_0.5_static 4.63%, kappa_0.2 4.87%, static cell means
+   4.67% (600 each), ridge and ridge_static 4.27% (300 each). At 1,500 sessions: gaussian
+   5.50%, static 5.32%, hostile 4.93% (2,000 each), so any excess is a short-panel effect.
+3. **D_s has no serial dependence for a HAC to miss.** Mean ACF at lags 1-5 is within
+   +-0.004 in every cell, and the summed ACF over lags 10-80 equals the -1/n demeaning bias.
+   Longer Bartlett lags make size worse (1,500 sessions pooled: x1 5.25%, x2 5.37%, x4 5.56%,
+   x8 5.98%), the opposite of under-covered dependence.
+4. **Fixed-b barely moves size at E17's bandwidth.** b = lag / n is about 0.004 at 1,500
+   sessions and 0.002 at 4,000; the 5% value moves from 1.645 to about 1.65, cutting pooled
+   size by 0.14pp at 1,500 (5.25 to 5.11) and nothing measurable at 4,000.
+
+Recommendation for the owner: do not build fixed-b as E17 v2 on step A's evidence. Rerun
+step A with a cluster-robust interval (one cluster per simulation) over all gating cells at
+4,000 sessions on fresh seeds, and decide from that. If no excess holds, E17 v1 stands, step
+B's family-wise rule (Bonferroni per cell plus pooled tolerance) is the only change, and StepM
+selection unblocks without a new statistic, a new code key or a repro_frozen rebaseline. The
+cells not rerun here (t4, vol_clustering, factor, slot_effects, late_listings,
+real_grid_hostile, s1_hostile) are the ones to check first.
+
 ## Done when
 
 E17 v2 is on main with its ledger entry, the step B rule is written, one fresh battery holds
