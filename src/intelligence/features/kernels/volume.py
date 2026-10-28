@@ -293,14 +293,28 @@ def _amihud_illiq_z_series_full(
 ) -> np.ndarray:
     """Amihud illiquidity z-score series. result[i] == streaming amihud_illiq_z at bar i.
     Prepends 0.0 at index 0 (cold start — streaming returns 0.0 when len(closes) < 2).
+
+    Todo 390: bar i's illiq, |ln(C[i] / C[i-1])| / (C[i] * V[i]), is undefined when either
+    close is not positive (a genuine historical close == 0 bar): the return has no log and the
+    dollar-volume divisor is zero. It is NaN there, and so is every z-score whose trailing
+    window holds it (no_fill), never inf. The z-score runs on cumulative sums, so the undefined
+    value enters them as 0.0 and its windows are masked afterwards: a NaN or inf in the sums
+    would otherwise reach every later row, not only the windows that hold the bar. A series
+    with no such bar computes exactly as before.
     """
     n = len(closes)
     if n < 2:
         return np.zeros(n, dtype=float)
-    log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
-    dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
-    illiq = log_rets_abs / dollar_vols
+    c = closes.astype(float)
+    log_rets_abs = np.abs(np.diff(np.log(np.maximum(c, 1e-10))))
+    dollar_vols = c[1:] * np.maximum(volumes[1:].astype(float), 1.0)
+    defined = (c[1:] > 0.0) & (c[:-1] > 0.0)
+    illiq = np.where(defined, log_rets_abs / np.where(defined, dollar_vols, 1.0), 0.0)
     z = _fixed_window_zscore_series(illiq, zscore_window)
+    if not defined.all():
+        undefined = np.cumsum(~defined)
+        before = np.concatenate([np.zeros(zscore_window, dtype=int), undefined[:-zscore_window]])
+        z[(undefined - before[: len(undefined)]) > 0] = np.nan
     return np.concatenate([[0.0], z])
 
 

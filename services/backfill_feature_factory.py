@@ -573,6 +573,8 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ),
         earnings_season_start_days=int(cfg.get_sync("feature.earnings_season.start_days", 14)),
         earnings_season_end_days=int(cfg.get_sync("feature.earnings_season.end_days", 42)),
+        high_low_spread_window=int(cfg.get_sync("feature.high_low_spread.window", 21)),
+        roll_spread_window=int(cfg.get_sync("feature.roll_spread.window", 252)),
         hmm=HmmConfig.from_values(cfg.get_sync),
     )
 

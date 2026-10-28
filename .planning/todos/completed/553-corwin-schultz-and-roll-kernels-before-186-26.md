@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-10-27
+closed: 2026-10-27
 source: indicagent-24 and indicagent-5b, phase 184 kernel placement discussion (184-REVIEWS row 10); routed to indicagent-3a, owner of the 186-26 launch
 ---
 
@@ -57,3 +58,28 @@ Land before 186-26 launches. Conditions:
 3. Tell indicagent-3a when it is merged.
 
 Owner of the change: indicagent-24 (phase 184 lane).
+
+## Resolution
+
+Landed 2026-10-27 together with todo 390, before the 186-26 launch.
+
+- `src/intelligence/features/kernels/liquidity.py` (origin `liquidity`): `high_low_spread`
+  (Corwin-Schultz, overnight-adjusted two-bar estimates, negatives set to 0 per the paper,
+  mean over `feature.high_low_spread.window` = 21 pairs; declared memory = window) and
+  `roll_spread` (Roll, `2 sqrt(-cov)` of consecutive log close changes over
+  `feature.roll_spread.window` = 252 pairs, NaN when the covariance is >= 0; declared memory =
+  window + 1). Both proportional spreads, NaN rather than filled, neither path dependent.
+- Migration 526 seeds the two APR keys and adds both columns to `feature_vectors_v2` (applied
+  live; the table had 0 rows). The two outputs are `V2_ONLY_COLUMNS` in the registry: the legacy
+  FeatureVector and the old `feature_vectors` table do not carry them.
+- Vendor seam (condition 2): neither kernel branches on the vendor; a window spanning the
+  2016-01-04 seam computes normally and the module docstring discloses it. Both estimators read
+  only price ratios, so a constant level difference cancels within an era; the IBKR over Alpaca
+  ln(high / low) ratio on raw 1d (16 names, 2016-2017, 7,678 sessions) has median 1.000 and p05
+  to p95 0.992 to 1.013. A level step left at the seam by an unresolved D-191-Q hold (HON: IBKR
+  97.38 on 2015-12-31, Alpaca 195.57 on 2016-01-04) is a data defect every cross-bar column
+  sees, not handled in the kernels.
+- Tests: `tests/unit/intelligence/test_liquidity_kernels.py` (hand values, NaN contract,
+  causality probe and memory check, the zero-close Amihud case).
+- Found on the way, filed as todo 555: `amihud_illiq_z` is 0 on almost every stored row (the
+  z-score's absolute std floor is above the raw Amihud scale).

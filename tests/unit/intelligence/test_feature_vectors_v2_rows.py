@@ -21,6 +21,8 @@ from src.intelligence.features.feature_vector_persistence import (
 from tests.unit.intelligence.test_feature_vectors_v2_schema import (
     _EVIDENCE,
     METADATA_DROPPED,
+    added_columns,
+    created_columns,
     expected_columns,
     parsed_columns,
 )
@@ -35,7 +37,7 @@ _DROPPED_METADATA = (
 
 
 def test_column_count_and_order_match_the_migration() -> None:
-    assert len(FEATURE_VECTORS_V2_COLUMNS) == 312
+    assert len(FEATURE_VECTORS_V2_COLUMNS) == 314
     assert FEATURE_VECTORS_V2_COLUMNS[:5] == (
         "symbol",
         "tf",
@@ -43,15 +45,19 @@ def test_column_count_and_order_match_the_migration() -> None:
         "regime",
         "regime_volatility",
     )
-    # Same set and the same order as the DDL the 186-24 test parses.
-    assert list(FEATURE_VECTORS_V2_COLUMNS) == parsed_columns()
+    # Migration 425's columns keep their DDL order; migration 526 appended the todo 553 pair.
+    # The writer COPYs with an explicit column list, so the physical order of the appended
+    # columns does not need to match the registry order.
+    assert added_columns() == ["high_low_spread", "roll_spread"]
+    assert [c for c in FEATURE_VECTORS_V2_COLUMNS if c not in added_columns()] == created_columns()
+    assert sorted(FEATURE_VECTORS_V2_COLUMNS) == sorted(parsed_columns())
     assert set(FEATURE_VECTORS_V2_COLUMNS) == expected_columns()
 
 
 def test_numeric_columns_are_the_registry_derivation_never_typed() -> None:
     registry = default_registry()
     numeric = feature_vectors_v2_numeric_columns()
-    assert len(numeric) == 307
+    assert len(numeric) == 309
     assert list(numeric) == [
         c
         for c in registry.feature_columns()

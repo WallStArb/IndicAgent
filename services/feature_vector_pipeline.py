@@ -805,6 +805,9 @@ class FeatureVectorPipeline(BaseDaemon):
         # --- migration 350: Phase 176 Plan 03 Earnings-Season Calendar Primitive ---
         ("feature.earnings_season.start_days", 14),
         ("feature.earnings_season.end_days", 42),
+        # --- migration 526: todo 553 spread estimators ---
+        ("feature.high_low_spread.window", 21),
+        ("feature.roll_spread.window", 252),
     )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
@@ -1115,6 +1118,8 @@ class FeatureVectorPipeline(BaseDaemon):
             ),
             earnings_season_start_days=_int("feature.earnings_season.start_days", 14),
             earnings_season_end_days=_int("feature.earnings_season.end_days", 42),
+            high_low_spread_window=_int("feature.high_low_spread.window", 21),
+            roll_spread_window=_int("feature.roll_spread.window", 252),
             hmm=hmm_config,
         )
 

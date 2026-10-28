@@ -30,6 +30,7 @@ from src.intelligence.features.contract.causality_probe import (
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import (
     UNOWNED_COLUMNS,
+    V2_ONLY_COLUMNS,
     KernelRegistry,
     compute_kernels,
     default_registry,
@@ -165,7 +166,11 @@ def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_unowned():
     # three that FeatureVector carries (the labels and the other numeric ones are not in it).
     assert REGIME_COLUMNS <= owned
     assert REGIME_COLUMNS & numeric == {"hmm_regime_prob", "hmm_entropy", "hmm_duration"}
-    assert (owned - (REGIME_COLUMNS - numeric)) | set(UNOWNED_COLUMNS) == numeric
+    # V2_ONLY_COLUMNS are stored in feature_vectors_v2 only; FeatureVector does not carry them.
+    assert set(V2_ONLY_COLUMNS) <= owned
+    assert not set(V2_ONLY_COLUMNS) & numeric
+    legacy = owned - set(V2_ONLY_COLUMNS)
+    assert (legacy - (REGIME_COLUMNS - numeric)) | set(UNOWNED_COLUMNS) == numeric
     assert not owned & set(UNOWNED_COLUMNS)
 
 
@@ -237,14 +242,18 @@ def _synthetic_case():
 
 
 def test_feature_columns_are_persisted_columns():
-    columns = default_registry().feature_columns()
+    columns = set(default_registry().feature_columns()) - set(V2_ONLY_COLUMNS)
     assert columns
-    assert set(columns) <= set(_ALL_COLUMN_NAMES) | REGIME_COLUMNS
+    assert columns <= set(_ALL_COLUMN_NAMES) | REGIME_COLUMNS
+    assert not set(V2_ONLY_COLUMNS) & set(_ALL_COLUMN_NAMES)
 
 
 def test_kernel_outputs_equal_compute_batch_rows_1_onward():
     kernels, batch, n = _synthetic_case()
-    columns = [c for c in default_registry().feature_columns() if c in kernels]  # no regime
+    # no regime; the V2_ONLY_COLUMNS have no compute_batch counterpart
+    columns = [
+        c for c in default_registry().feature_columns() if c in kernels and c not in V2_ONLY_COLUMNS
+    ]
     for name in columns:
         assert name in batch, f"{name} is not a FeatureVector field"
         got = kernels[name][1:].astype(np.float32)

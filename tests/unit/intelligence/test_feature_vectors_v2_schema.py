@@ -1,8 +1,10 @@
-"""Source-level guard: migration 425's columns equal the kernel registry's column set (186-24).
+"""Source-level guard: feature_vectors_v2's columns equal the kernel registry's column set (186-24).
 
-The expectation is derived from `default_registry()` and `UNOWNED_COLUMNS`, never from a
-hardcoded list, so a later registry change fails here instead of silently skewing the
-rebuilt table against what the kernels compute (train-serve skew for 186-25 and 186-27).
+The table's columns are migration 425's CREATE TABLE plus every later migration's
+`ALTER TABLE feature_vectors_v2 ... ADD COLUMN` (migration 526, todo 553). The expectation is
+derived from `default_registry()` and `UNOWNED_COLUMNS`, never from a hardcoded list, so a later
+registry change fails here instead of silently skewing the rebuilt table against what the
+kernels compute (train-serve skew for 186-25 and 186-27).
 """
 
 from __future__ import annotations
@@ -59,11 +61,37 @@ def _migration_lines() -> list[str]:
     return [line.split("--", 1)[0].rstrip() for line in migration_path().read_text().splitlines()]
 
 
-def parsed_columns() -> list[str]:
+def created_columns() -> list[str]:
+    """Migration 425's CREATE TABLE columns, in DDL order."""
     pattern = re.compile(r"^    ([a-z_][a-z0-9_]*) (real|text|timestamptz|varchar|uuid)")
     columns = [m.group(1) for line in _migration_lines() if (m := pattern.match(line))]
     assert columns, "no columns parsed: keep 4-space-indented `name type` lines, one per line"
     return columns
+
+
+def added_columns() -> list[str]:
+    """Columns later migrations add, in migration order: 4-space-indented `ADD COLUMN name real`
+    lines under `ALTER TABLE feature_vectors_v2`, one per line."""
+    created = int(migration_path().name.split("_", 1)[0])
+    pattern = re.compile(r"^    ADD COLUMN ([a-z_][a-z0-9_]*) real[,;]$")
+    columns: list[str] = []
+    for path in sorted(_MIGRATIONS.glob("*.sql")):
+        number = path.name.split("_", 1)[0]
+        if not number.isdigit() or int(number) <= created:
+            continue
+        text = path.read_text()
+        if "ALTER TABLE feature_vectors_v2" not in text:
+            continue
+        lines = [line.split("--", 1)[0].rstrip() for line in text.splitlines()]
+        found = [m.group(1) for line in lines if (m := pattern.match(line))]
+        assert found, f"{path.name} alters feature_vectors_v2 but no ADD COLUMN line parsed"
+        columns.extend(found)
+    return columns
+
+
+def parsed_columns() -> list[str]:
+    """The table's columns in physical order: 425's, then the later additions."""
+    return [*created_columns(), *added_columns()]
 
 
 def test_migration_source_strings() -> None:
@@ -84,8 +112,10 @@ def test_migration_columns_equal_registry_derivation() -> None:
     columns = parsed_columns()
     assert len(columns) == len(set(columns)), "duplicate column in migration"
     assert set(columns) == expected_columns()
+    # The 186-24 evidence counts migration 425's table; later additions are counted on top.
     evidence = json.loads(_EVIDENCE.read_text())
-    assert len(columns) == evidence["expected_column_count"]
+    assert len(created_columns()) == evidence["expected_column_count"]
+    assert len(columns) == evidence["expected_column_count"] + len(added_columns())
 
 
 def test_dropped_columns_absent_and_unowned_contract_intact() -> None:

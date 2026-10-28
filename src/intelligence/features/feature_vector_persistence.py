@@ -995,8 +995,10 @@ def feature_vectors_v2_numeric_columns() -> tuple[str, ...]:
 
 @functools.cache
 def feature_vectors_v2_columns() -> tuple[str, ...]:
-    """Column order of feature_vectors_v2 as migration 425 created it: keys, the two regime text
-    columns, then the numeric columns."""
+    """Column order of the feature_vectors_v2 rows the writer builds: keys, the two regime text
+    columns, then the numeric columns in registry order. Migration 425 created the table in this
+    order; columns a later migration adds (526) sit last physically, which is harmless because
+    the writer COPYs with this explicit column list."""
     return (
         *FEATURE_VECTORS_V2_KEY_COLUMNS,
         *FEATURE_VECTORS_V2_TEXT_COLUMNS,

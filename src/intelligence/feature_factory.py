@@ -693,6 +693,8 @@ class FeatureFactoryConfig:
         session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
         atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
         ctf_higher_tf_map: APR feature.ctf.higher_tf_map
+        high_low_spread_window: APR feature.high_low_spread.window
+        roll_spread_window: APR feature.roll_spread.window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -978,6 +980,11 @@ class FeatureFactoryConfig:
     # feature_vector_pipeline.py) explicitly wire these from ConfigService.
     earnings_season_start_days: int = 14  # feature.earnings_season.start_days
     earnings_season_end_days: int = 42  # feature.earnings_season.end_days
+    # Spread estimators (todo 553, kernels/liquidity.py, migration 526). Same defaulting
+    # rationale as earnings_season_* above; backfill_feature_factory.py and
+    # feature_vector_pipeline.py wire both from ConfigService.
+    high_low_spread_window: int = 21  # feature.high_low_spread.window
+    roll_spread_window: int = 252  # feature.roll_spread.window
     # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py). The
     # names, APR keys and casts are declared once, in kernels._hmm.HmmConfig, and there are no
     # defaults: every value changes stored regime labels and the live APR values differ from

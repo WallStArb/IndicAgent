@@ -551,6 +551,32 @@ Derived from statistical measurement on market data. An `source='empirical'` tag
 
 ---
 
+### `high-low spread` (`high_low_spread`)
+
+The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a fraction of price. A bar's high-low range holds both volatility and the spread; the range over two bars holds twice the volatility but the spread once, so the two separate. Each two-bar estimate is overnight-adjusted, negative estimates are set to 0 (the paper's convention), and the stored value is the mean over `feature.high_low_spread.window` pairs.
+
+**Not:** `cross-sectional spread construction` (a portfolio-level long-short return), or a quoted spread (no quotes are read).
+
+**Banned:** (none)
+**Status:** active (todo 553, kernel `src/intelligence/features/kernels/liquidity.py`)
+
+**Code surface:** feature column `high_low_spread` (feature_vectors_v2); APR `feature.high_low_spread.window`.
+
+---
+
+### `Roll spread` (`roll_spread`)
+
+The Roll (1984) implied bid-ask spread, `2 sqrt(-cov)`, where `cov` is the serial covariance of consecutive log close changes over `feature.roll_spread.window` pairs, as a fraction of price. Bid-ask bounce makes consecutive price changes negatively correlated; a covariance of 0 or above implies no spread and the value is missing (NaN), never 0.
+
+**Not:** `cross-sectional spread construction`, or Amihud illiquidity (`amihud_illiq_z`, price impact per dollar traded).
+
+**Banned:** (none)
+**Status:** active (todo 553, kernel `src/intelligence/features/kernels/liquidity.py`)
+
+**Code surface:** feature column `roll_spread` (feature_vectors_v2); APR `feature.roll_spread.window`.
+
+---
+
 ## System Architecture Terms
 
 ### `daemon`
