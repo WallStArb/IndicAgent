@@ -19,6 +19,16 @@ import numpy as np
 from src.intelligence.research import store
 
 _PRICE_FIELDS = ("open", "close", "volume")
+# Plan 187-15: arrays S0 captures only when a spec asks (PanelSpec.fields). Absent, a panel's
+# bytes and hash are exactly those of panels written before them.
+OPTIONAL_BAR_FIELDS = ("high", "low")  # [n, m], NaN where missing, like the price fields
+SECTOR_PIT = "sector_pit"  # [n_sessions, m] int16: index into manifest["sector_codes"], -1 none
+OPTIONAL_ARRAY_FIELDS = (*OPTIONAL_BAR_FIELDS, SECTOR_PIT)
+
+
+def present(panel: Panel, names: tuple[str, ...] = OPTIONAL_ARRAY_FIELDS) -> dict[str, np.ndarray]:
+    """The named optional arrays this panel carries (those not None), by field name."""
+    return {name: getattr(panel, name) for name in names if getattr(panel, name) is not None}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,6 +47,11 @@ class Panel:
     # and phase 182 stopped maintaining the flat label. S1 groups names by prices.
     sectors: tuple[str, ...] = ()
     manifest: dict = dataclasses.field(default_factory=dict)
+    high: np.ndarray | None = None  # [n, m] on request (plan 187-15)
+    low: np.ndarray | None = None
+    # Each name's SCH sector as of each session (point in time, plan 187-15), on request: an
+    # index into manifest["sector_codes"], -1 for a session in which the name has no bar.
+    sector_pit: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         n, m = len(self.timestamps), len(self.symbols)
@@ -44,13 +59,20 @@ class Panel:
             raise ValueError(
                 f"{n} rows is not a whole number of {self.bars_per_session}-bar sessions"
             )
-        for name in _PRICE_FIELDS:
-            if getattr(self, name).shape != (n, m):
-                raise ValueError(f"{name} has shape {getattr(self, name).shape}, expected {(n, m)}")
+        arrays = {name: getattr(self, name) for name in _PRICE_FIELDS}
+        for name, array in {**arrays, **present(self, OPTIONAL_BAR_FIELDS)}.items():
+            if array.shape != (n, m):
+                raise ValueError(f"{name} has shape {array.shape}, expected {(n, m)}")
         if self.valid.shape != (n,):
             raise ValueError("valid must be one entry per row")
         if self.sectors and len(self.sectors) != m:
             raise ValueError(f"{len(self.sectors)} sectors for {m} symbols")
+        if self.sector_pit is not None:
+            if self.sector_pit.shape != (n // self.bars_per_session, m):
+                raise ValueError(f"sector_pit has shape {self.sector_pit.shape}")
+            codes = self.manifest.get("sector_codes")
+            if codes is None or self.sector_pit.max(initial=-1) >= len(codes):
+                raise ValueError("sector_pit needs manifest['sector_codes'] covering its indices")
 
     @property
     def n_sessions(self) -> int:
@@ -164,6 +186,7 @@ def save(panel: Panel, out_dir: Path, extra: dict[str, np.ndarray] | None = None
         "timestamps": panel.timestamps,
         "valid": panel.valid,
         **{name: getattr(panel, name) for name in _PRICE_FIELDS},
+        **present(panel),
         **(extra or {}),
     }
     meta = {
@@ -187,6 +210,11 @@ def load(path: Path) -> Panel:
         sectors=tuple(meta.get("sectors", ())),  # panels saved before sectors were captured
         manifest=meta["manifest"],
         **{name: store.read_array(path, name) for name in ("timestamps", "valid", *_PRICE_FIELDS)},
+        **{
+            name: store.read_array(path, name)
+            for name in OPTIONAL_ARRAY_FIELDS
+            if store.has_array(path, name)
+        },
     )
 
 
@@ -222,4 +250,5 @@ def select_symbols(panel: Panel, symbols: list[str]) -> Panel:
         volume=np.asarray(panel.volume)[:, idx],
         sectors=tuple(panel.sectors[j] for j in keep) if panel.sectors else (),
         valid=np.isfinite(np.asarray(panel.close)[:, idx]).any(axis=1),
+        **{name: np.asarray(array)[:, idx] for name, array in present(panel).items()},
     )

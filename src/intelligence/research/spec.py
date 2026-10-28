@@ -84,11 +84,26 @@ class PanelSpec(BaseModel):
     members_universe: Literal["us_session_equity", "daily_unseen"] | None = None
     # todo 428. Optional, absent from every earlier spec, so their hashes are unchanged.
     total_return: TotalReturnSpec | None = None
+    # Plan 187-15: optional S0 arrays (high and low bars, each name's point-in-time SCH sector);
+    # absent from every earlier spec, so their hashes are unchanged.
+    fields: list[Literal["high", "low", "sector_pit"]] | None = None
+
+    @field_validator("fields")
+    @classmethod
+    def _fields_unique(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and (not value or len(set(value)) != len(value)):
+            raise ValueError(f"panel fields must be non-empty and unique: {value}")
+        # One canonical order, so the same request never hashes two ways.
+        return None if value is None else sorted(value)
 
     @model_validator(mode="after")
     def _transform_needs_intraday(self) -> PanelSpec:
         if self.transform is not None and self.bars_per_session < 2:
             raise ValueError(f"transform {self.transform!r} needs an intraday source panel")
+        if self.transform is not None and {"high", "low"} & set(self.fields or ()):
+            # session_legs re-rows the panel from open and close; a leg's high and low are not
+            # defined from bar highs and lows without new code.
+            raise ValueError(f"transform {self.transform!r} does not carry high or low")
         return self
 
     @property
@@ -441,7 +456,7 @@ def _sha(text: str) -> str:
 
 # PanelSpec fields added after specs were run: left out of the canonical form while unset, so
 # every spec written before them keeps its recorded hash (family 1, book_v1).
-_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe", "total_return")
+_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe", "total_return", "fields")
 # The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
 _OPTIONAL_COMBINER_FIELDS = (

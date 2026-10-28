@@ -59,3 +59,7 @@ def read_meta(path: Path) -> dict:
 
 def read_array(path: Path, name: str) -> np.ndarray:
     return np.load(Path(path) / f"{name}.npy", mmap_mode="r", allow_pickle=False)
+
+
+def has_array(path: Path, name: str) -> bool:
+    return (Path(path) / f"{name}.npy").exists()

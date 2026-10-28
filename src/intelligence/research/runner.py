@@ -76,7 +76,7 @@ from src.intelligence.research.ledger import (
     PinnedRun,
     RunRequest,
 )
-from src.intelligence.research.panel import Panel, fwd_span
+from src.intelligence.research.panel import SECTOR_PIT, Panel, fwd_span, present
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
 from src.intelligence.research.spec import (
     TIMING_STATISTIC,
@@ -123,6 +123,7 @@ async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
         end_exclusive=spec.panel.end_exclusive,
         manifest_extra={"universe": spec.panel.universe},
         dividends=spec.panel.total_return is not None,
+        fields=tuple(spec.panel.fields or ()),
     )
 
 
@@ -177,7 +178,12 @@ def compute_members(
 
 
 def _sub_panel(panel: Panel, sessions: int) -> Panel:
-    rows = slice(0, min(sessions, panel.n_sessions) * panel.bars_per_session)
+    kept = min(sessions, panel.n_sessions)
+    rows = slice(0, kept * panel.bars_per_session)
+    optional = {
+        name: np.asarray(array[:kept] if name == SECTOR_PIT else array[rows])
+        for name, array in present(panel).items()
+    }
     return dataclasses.replace(
         panel,
         timestamps=panel.timestamps[rows],
@@ -185,6 +191,7 @@ def _sub_panel(panel: Panel, sessions: int) -> Panel:
         open=np.asarray(panel.open[rows]),
         close=np.asarray(panel.close[rows]),
         volume=np.asarray(panel.volume[rows]),
+        **optional,
     )
 
 

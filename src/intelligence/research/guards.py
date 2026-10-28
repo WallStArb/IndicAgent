@@ -33,7 +33,7 @@ from collections.abc import Callable
 import numpy as np
 
 from src.intelligence.research.evaluate import EvaluatorMisuse
-from src.intelligence.research.panel import _PRICE_FIELDS, Panel
+from src.intelligence.research.panel import _PRICE_FIELDS, OPTIONAL_BAR_FIELDS, Panel, present
 from src.intelligence.research.signals import SignalSource
 
 # Evidence framework section 6 (methodology-change-ledger E15): a test below this synthetic
@@ -110,7 +110,10 @@ def probe_rows(panel: Panel, *, n_random: int, seed: int, max_rows: int) -> np.n
 
 def _working_copy(panel: Panel) -> tuple[Panel, dict[str, np.ndarray]]:
     """A panel over copies of the price fields, and those copies, for editing in place."""
-    work = {name: getattr(panel, name).copy() for name in _PRICE_FIELDS}
+    # High and low (plan 187-15) are bar prices too: a member reading them is probed through them.
+    work = {name: getattr(panel, name).copy() for name in _PRICE_FIELDS} | {
+        name: array.copy() for name, array in present(panel, OPTIONAL_BAR_FIELDS).items()
+    }
     return dataclasses.replace(panel, **work), work
 
 

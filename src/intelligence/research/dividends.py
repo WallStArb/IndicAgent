@@ -37,7 +37,8 @@ from pathlib import Path
 import numpy as np
 
 from src.intelligence.research import store
-from src.intelligence.research.panel import Panel
+from src.intelligence.research.panel import OPTIONAL_BAR_FIELDS, Panel
+from src.intelligence.research.panel import present as present_arrays
 
 SEGMENT_SEPARATOR = "~"
 _FIELDS = ("div_yield", "div_unconfirmed_yield", "div_covered")
@@ -197,7 +198,10 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
         out[np.broadcast_to(uncovered, out.shape)] = np.nan
         return out.reshape(n_s * bps, m)
 
+    # Every price scales by the total-return factor, high and low included (plan 187-15);
+    # volume does not.
     fields = {"open": True, "close": True, "volume": False}
+    fields.update(dict.fromkeys(present_arrays(panel, OPTIONAL_BAR_FIELDS), True))
     adjusted = {f: adjust(getattr(panel, f), scale) for f, scale in fields.items()}
 
     # Output columns: (symbol, segment) pairs with a covered session, segments next to their
@@ -218,6 +222,9 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
     cols = np.array([j for j, _ in take])
     identity = len(cols) == m and not splits
     out = adjusted if identity else {f: a[:, cols] for f, a in adjusted.items()}
+    sector_pit = None
+    if panel.sector_pit is not None:
+        sector_pit = np.where(cov, panel.sector_pit, -1).astype(np.int16)[:, cols]
     if not identity:
         split_cols = [c for c, (j, _) in enumerate(take) if segment[-1, j] > 0]
         for c in split_cols:
@@ -225,10 +232,13 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
             other = np.repeat(segment[:, j] != k, bps)
             for a in out.values():
                 a[other, c] = np.nan
+            if sector_pit is not None:
+                sector_pit[segment[:, j] != k, c] = -1
     return dataclasses.replace(
         panel,
         symbols=tuple(names),
         **out,
+        **({} if sector_pit is None else {"sector_pit": sector_pit}),
         sectors=tuple(panel.sectors[j] for j, _ in take) if panel.sectors else (),
         valid=np.isfinite(out["close"]).any(axis=1),
         manifest={

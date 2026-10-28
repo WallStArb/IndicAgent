@@ -23,6 +23,7 @@ import asyncpg
 import numpy as np
 import pandas as pd
 
+from src.config.classification_service import DEFAULT_SCHEME, SECTOR_LEVEL
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
 from src.intelligence.bars.label_inputs import load_label_inputs
@@ -47,9 +48,21 @@ _OOS_START_SQL = (
 )
 _KNOWN_SQL = "SELECT symbol FROM instruments WHERE symbol = ANY($1)"
 _BARS_SQL = (
-    "SELECT timestamp, open, close, volume FROM market_data_ohlcv_tradeable "
+    "SELECT timestamp, open, close, volume{extra} FROM market_data_ohlcv_tradeable "
     "WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4 "
     "ORDER BY timestamp"
+)
+
+# Plan 187-15: each name's SCH sector (the level-SECTOR_LEVEL ancestor of its classification)
+# over every assignment the span touches. Assignments never overlap (exclusion constraint), so a
+# session is covered by at most one; sector_grid refuses a traded session covered by none.
+_SECTOR_SQL = (
+    "SELECT ic.symbol, anc.code, anc.name, ic.valid_from, ic.valid_to "
+    "FROM instrument_classification ic "
+    "JOIN classification_node n ON (n.scheme, n.code) = (ic.scheme, ic.code) "
+    "JOIN classification_node anc ON anc.scheme = ic.scheme AND anc.code = n.path[$2] "
+    "WHERE ic.scheme = $1 AND ic.symbol = ANY($3) AND ic.valid_from < $5 "
+    "AND (ic.valid_to IS NULL OR ic.valid_to > $4)"
 )
 
 # Dividends (todo 428, migrations 376 and 379): Yahoo's coverage span decides known vs unknown;
@@ -87,7 +100,8 @@ _VERDICTS_SQL = (
 # so a column name never comes from caller text.
 UNIVERSE_DIMENSIONS = ("compute_eligible", "compute_eligible_1d", "live_tradeable")
 
-Bars = dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]  # ts[ns UTC], o, c, v
+# ts[ns UTC], o, c, v, then one array per requested optional bar field (high, low) in order.
+Bars = dict[str, tuple[np.ndarray, ...]]
 
 
 async def read_only_pool(dsn: str) -> asyncpg.Pool:
@@ -100,8 +114,9 @@ async def read_only_pool(dsn: str) -> asyncpg.Pool:
     )
 
 
-def build_grid(bars: Bars, tf: str) -> Panel:
-    """Pure: per-symbol bars -> a dense Panel on the session grid. Symbols keep input order."""
+def build_grid(bars: Bars, tf: str, fields: tuple[str, ...] = ()) -> Panel:
+    """Pure: per-symbol bars -> a dense Panel on the session grid. Symbols keep input order.
+    `fields` names the optional bar arrays each tuple carries after volume (high, low)."""
     symbols = tuple(bars)
     stamps = {s: pd.DatetimeIndex(b[0]).tz_localize(UTC) for s, b in bars.items()}
     if tf == "1d":
@@ -149,13 +164,16 @@ def build_grid(bars: Bars, tf: str) -> Panel:
         timestamps = local_rows.tz_convert(UTC).tz_localize(None).values.astype("datetime64[m]")
 
     n, m = len(sessions) * bars_per_session, len(symbols)
-    arrays = {f: np.full((n, m), np.nan) for f in ("open", "close", "volume")}
+    names = ("open", "close", "volume", *fields)
+    arrays = {f: np.full((n, m), np.nan) for f in names}
     for j, s in enumerate(symbols):
+        if len(bars[s]) != 1 + len(names):
+            raise ValueError(f"{s}: {len(bars[s]) - 1} bar arrays for fields {names}")
         keep = keys[s] >= 0
         rows = keys[s][keep] * bars_per_session + slot_of[s][keep]
         if len(np.unique(rows)) != len(rows):
             raise ValueError(f"{s}: two bars map to one grid slot")
-        for f, values in zip(("open", "close", "volume"), bars[s][1:]):
+        for f, values in zip(names, bars[s][1:], strict=True):
             arrays[f][rows, j] = np.asarray(values, dtype=float)[keep]
     valid = np.isfinite(arrays["close"]).any(axis=1)
     return Panel(
@@ -167,6 +185,41 @@ def build_grid(bars: Bars, tf: str) -> Panel:
         manifest={"dropped_off_grid_bars": dropped, "n_sessions": int(len(sessions))},
         **arrays,
     )
+
+
+def sector_grid(
+    sessions: np.ndarray, symbols: tuple[str, ...], traded: np.ndarray, rows: list[tuple]
+) -> tuple[np.ndarray, list[list[str]]]:
+    """Pure (plan 187-15): ([n_sessions, m] int16 index into the code table, the code table as
+    [code, name] pairs sorted by code). `rows` are (symbol, sector code, sector name,
+    valid_from, valid_to) assignments, half open [valid_from, valid_to). A session in which a
+    name traded (`traded` [n_sessions, m]) must be covered by exactly one assignment, or this
+    raises: a sector is never assumed for a session the classification history does not cover.
+    A session the name did not trade is -1. Codes are point in time (a node's path never
+    changes; a reparent mints a new code); the table's names are as read when S0 ran."""
+    dates = np.asarray(sessions, dtype="datetime64[D]")
+    table = sorted({(code, name) for _, code, name, _, _ in rows})
+    index = {code: i for i, (code, _) in enumerate(table)}
+    column = {sym: j for j, sym in enumerate(symbols)}
+    out = np.full((len(dates), len(symbols)), -1, dtype=np.int16)
+    covered = np.zeros(out.shape, dtype=np.int16)
+    for sym, code, _name, valid_from, valid_to in rows:
+        j = column.get(sym)
+        if j is None:
+            continue
+        inside = dates >= np.datetime64(valid_from, "D")
+        if valid_to is not None:
+            inside &= dates < np.datetime64(valid_to, "D")
+        out[inside, j] = index[code]
+        covered[inside, j] += 1
+    bad = traded & (covered != 1)
+    if bad.any():
+        i, j = np.argwhere(bad)[0]
+        raise ValueError(
+            f"sector_pit: {int(bad.sum())} traded (session, name) cells without exactly one SCH "
+            f"classification, first {symbols[j]} on {dates[i]}"
+        )
+    return np.where(traded, out, -1).astype(np.int16), [list(t) for t in table]
 
 
 def session_dates(panel: Panel) -> np.ndarray:
@@ -298,11 +351,19 @@ async def build_panel(
     end_exclusive: str,
     manifest_extra: dict | None = None,
     dividends: bool = False,
+    fields: tuple[str, ...] = (),
 ) -> Path:
     """Fetch, grid, and write a content-hashed panel directory; returns its path.
     `manifest_extra` (for example the universe dimension) is merged into the manifest.
     `dividends` also captures the per-session dividend grid a total-return spec needs, so the
-    snapshot hash covers the dividend facts the run used."""
+    snapshot hash covers the dividend facts the run used. `fields` (PanelSpec.fields) adds the
+    high and low arrays and each name's point-in-time sector; without it the bytes are those of
+    every earlier snapshot."""
+    unknown = set(fields) - {*panel_mod.OPTIONAL_BAR_FIELDS, panel_mod.SECTOR_PIT}
+    if unknown:
+        raise ValueError(f"unknown panel fields: {sorted(unknown)}")
+    bar_fields = tuple(f for f in panel_mod.OPTIONAL_BAR_FIELDS if f in fields)
+    bars_sql = _BARS_SQL.format(extra="".join(f", {f}" for f in bar_fields))
     lo, hi = (utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
     pool = await read_only_pool(dsn)
     try:
@@ -313,16 +374,14 @@ async def build_panel(
             raise ValueError(f"end_exclusive {end_exclusive} is past oos_start {oos.isoformat()}")
 
         async def fetch(sym: str):
-            rows = await pool.fetch(_BARS_SQL, sym, tf, lo, hi)
+            rows = await pool.fetch(bars_sql, sym, tf, lo, hi)
             if not rows:
                 return sym, None
-            ts, o, c, v = zip(*rows)  # one pass over the records
+            ts, *values = zip(*rows)  # one pass over the records
             stamps = pd.DatetimeIndex(ts).tz_convert(UTC).tz_localize(None)
             return sym, (
                 stamps.values.astype("datetime64[ns]"),
-                np.array(o, dtype=float),
-                np.array(c, dtype=float),
-                np.array(v, dtype=float),
+                *(np.array(x, dtype=float) for x in values),
             )
 
         requested = sorted(symbols)
@@ -359,10 +418,17 @@ async def build_panel(
                 (r["symbol"], r["ex_date"], r["yahoo_yield"], r["ibkr_yield"], r["ibkr_prev_close"])
                 for r in await pool.fetch(_DIV_EVENTS_SQL, requested, lo.date(), hi.date())
             ]
+        if panel_mod.SECTOR_PIT in fields:
+            sector_rows = [
+                tuple(r)
+                for r in await pool.fetch(
+                    _SECTOR_SQL, DEFAULT_SCHEME, SECTOR_LEVEL, requested, lo.date(), hi.date()
+                )
+            ]
     finally:
         await pool.close()
     empty = [s for s, b in fetched if b is None]
-    grid = build_grid({s: b for s, b in fetched if b is not None}, tf)
+    grid = build_grid({s: b for s, b in fetched if b is not None}, tf, bar_fields)
     manifest = {
         **grid.manifest,
         "source": PRICE_SOURCE,
@@ -387,5 +453,15 @@ async def build_panel(
             "events": len(events),
             "dispute_rule": dataclasses.asdict(rule),
         }
-    grid = dataclasses.replace(grid, manifest=manifest)
+    sector_pit = None
+    if panel_mod.SECTOR_PIT in fields:
+        traded = (
+            np.isfinite(grid.close)
+            .reshape(grid.n_sessions, grid.bars_per_session, len(grid.symbols))
+            .any(axis=1)
+        )
+        sector_pit, codes = sector_grid(session_dates(grid), grid.symbols, traded, sector_rows)
+        manifest["sector_codes"] = codes
+        manifest["sector_source"] = {"scheme": DEFAULT_SCHEME, "level": SECTOR_LEVEL}
+    grid = dataclasses.replace(grid, manifest=manifest, sector_pit=sector_pit)
     return panel_mod.save(grid, Path(out_dir), extra)
