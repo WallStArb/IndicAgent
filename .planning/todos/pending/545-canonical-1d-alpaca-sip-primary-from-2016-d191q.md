@@ -201,3 +201,14 @@ then `--verify` started in the background from worktree /home/bg/dev/indicagent-
 /tmp/claude-1000/scratch545/dump.log). Check the manifest under data/backups before anything else:
 if `--verify` did not pass, re-run `--dump --apply`. Then CLBK check, step 5 onward. Timers stay
 stopped until step 7. An orphaned 11 h psql query (pid 3093438) was cancelled; it had starved the DB.
+
+## Progress 2026-10-28 ~22:30Z (supersedes the timer note above)
+
+Step 4 done: backup verified, CLBK Alpaca 1d covers 2018-04-20 to 2026-10-27. Step 5 done: AAPL
+trial, then full delete, `--verify --require-complete` ok (zero Tradier rows, 1,529 symbols). Step 6
+started: `python -m services.bar_derivation --stage daily --apply` in the background, worktree
+/home/bg/dev/indicagent-545, log /tmp/claude-1000/scratch545/rederive.log. Timers: ibkr-history-fetcher
+and alpaca-nightly are running again; bar-derivation-grid, bar-reconciliation-audit,
+regime-coverage-auditor and dividend-event-writer-yahoo stay stopped until D7 and VACUUM are done
+(step 7). Still to do: D7, VACUUM ohlcv_raw/market_data_ohlcv/ohlcv_revision, restart those four
+timers, notice to the research lane owner, all-clear to peers.
