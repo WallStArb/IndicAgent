@@ -136,10 +136,10 @@ with price-level members declare `panel.total_return` (todo 428, closed 2026-09-
 
 Plans:
 
-- [ ] 184-01-PLAN.md - shared MTF fixtures, `clock.closes_at`, the causal `align` node (one implementation, int32 source-row index) (wave 1)
-- [ ] 184-02-PLAN.md - research kernels package and `kernel_source` (wave 1)
-- [ ] 184-03-PLAN.md - smoothing menu, member memory, lag term structure in statistics (wave 1)
-- [ ] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 2)
+- [x] 184-01-PLAN.md - shared MTF fixtures, `clock.closes_at`, the causal `align` node (one implementation, int32 source-row index) (wave 1)
+- [x] 184-02-PLAN.md - research kernels package and `kernel_source` (wave 1)
+- [x] 184-03-PLAN.md - smoothing menu, member memory, lag term structure in statistics (wave 1)
+- [x] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 2)
 - [ ] 184-05-PLAN.md - E17 battery for persistent predictors and battery-certificate admission (wave 3)
 - [ ] 184-06-PLAN.md - spec surface for feature and kernel members; `closes_at` in 187-15's fields (wave 2)
 - [ ] 184-07-PLAN.md - S0 bar side: closes_at, warmup prefix, derived-vendor refusal (wave 3)
