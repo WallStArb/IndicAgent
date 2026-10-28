@@ -29,3 +29,26 @@ monthly momentum test cannot run under E17 as adopted.
 ## Done when
 
 The daily battery holds at h = 5 and h = 21 under the adopted rule, and the ledger records it.
+
+## Diagnostic 2026-10-28 (exploratory, synthetic H0, not a counted look)
+
+Daily residual battery cells, h = 5, 300 simulations each (6 arms), fresh seeds from 9,300,000, n = 1,431
+sessions (the cell default, not the real panel length), NW lag L = 7. One-sided rejection at 1.645 of the
+E17 statistic under alternative Bartlett lags:
+
+| Cell | L = 7 (current) | L + 4 | max(L, 8) | L + 12 | 2L |
+|---|---|---|---|---|---|
+| daily_gaussian | 5.94% | 5.61% | 5.89% | 5.39% | 5.56% |
+| daily_hostile | 7.28% | 6.72% | 7.00% | 6.17% | 6.44% |
+| daily_static_means | 6.94% | 6.17% | 6.72% | 5.72% | 5.94% |
+
+D_s has MA(4) structure at h = 5 (mean ACF 0.74, 0.49, 0.29, 0.13, then about 0.00), so L = 7 already spans
+the overlap; the excess is the short-panel Bartlett variance understatement, which a longer lag trims by 0.5 to
+1.1 points here. The arms of a simulation share a panel, so the effective interval per cell is about +-1 point:
+read the ordering, not the third digit. Not yet measured: the real panel length (about 5,800 sessions; the
+excess shrinks with n, as todo 549's step A found for the intraday battery), h = 21 (the battery hard-codes
+h = 5), and the cost in power of a longer lag.
+
+Next: parametrize the daily battery by horizon, run h = 5 and h = 21 at the real length with a
+cluster-robust interval under three candidate rules (L, L + c (h - 1), 2L), then an owner-approved E17
+amendment. Diagnostic script (scratch): `scratchpad/d547/diag.py`; copy it into `scripts/research/` if kept.
