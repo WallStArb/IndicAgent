@@ -34,7 +34,8 @@ phase 187, makes UCR the recipe book and renders the ledger from it). Before re-
 stratification candidates read `docs/research/stratification-dimension-unification.md`
 (cross-links 135/167/224/225/111). The v2.x remainder is todo 509 (plan 185-45 removed the rest;
 the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History of past triage passes lives in
-git and in each todo's own closure note, not in this file.
+git and in each todo's own closure note, not in this file. Durable reasoning behind this file (process rules,
+active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
 ## Critical path (reordered by the owner 2026-10-27: testing features, factors and regimes ASAP)
 

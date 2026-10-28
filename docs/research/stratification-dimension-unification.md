@@ -85,7 +85,7 @@ rather than starting a new one — this is still the right single home for the t
    collisions, takes effect on the next corpus rebuild. Commodity sub-groups remain disabled,
    gated on unifying three too-thin sub-groups into one (`commodity_agri` is N=1) plus an
    equity-tag collision for 5 symbols (`XLE`/`OIH`/`XOP`/`AMLP`/`GDX`) — tracked as
-   [todo 224](../../.planning/todos/pending/224-commodity-fx-regime-group-reenablement-decision-todo-041.md).
+   [todo 224](../../.planning/todos/completed/224-commodity-fx-regime-group-reenablement-decision-todo-041.md).
 2. **D-05's verdict landed 2026-07-22** (ROADMAP Phase 144 section): F1 not triggered (per-symbol
    HMM stays deficient for TLT/rates, demotion holds), F2 triggered for rates cross-sectional at
    15m/5m (also deficient at high frequency). **This unblocked Phase 145
@@ -235,10 +235,10 @@ per-symbol candidates queued:**
     capture trend, so a separate trend axis would double-count it. Item 14 above establishes that
     assumption was false: the incumbent never actually separated on trend. The redundancy premise
     that killed these two candidates no longer holds as stated. Filed as
-    [todo 303](../../.planning/todos/pending/303-per-symbol-trend-regime-null-arm-tested-candidate.md)
+    [todo 303](../../.planning/todos/completed/303-per-symbol-trend-regime-null-arm-tested-candidate.md)
     — a pre-registered, null-arm-gated re-test, not a build task yet.
 16. **Three more per-symbol candidates from this table, not yet tested, queued together as**
-    [todo 304](../../.planning/todos/pending/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md):
+    [todo 304](../../.planning/todos/completed/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md):
     - `volume_pct` and `skew_tail` — both already in the Percentile-rank candidates table below,
       gated only on a mechanical orthogonality study against `regime_volatility`, not new design.
     - `volatility_pct` — re-examined this session as a genuinely interesting *simplification*

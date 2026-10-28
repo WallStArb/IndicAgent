@@ -5,7 +5,7 @@
 Stage 3 (falsification + null-arm) FAILED for both `hurst_rank` and `autocorr_rank` at both
 5m and 15m, after BH-FDR correction — see "Result — Stage 3" below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-12 — not a Fable dispatch.
-**Origin:** [todo 303](../../.planning/todos/pending/303-per-symbol-trend-regime-null-arm-tested-candidate.md).
+**Origin:** [todo 303](../../.planning/todos/completed/303-per-symbol-trend-regime-null-arm-tested-candidate.md).
 Phase 171/172 (2026-08-08/09) found via a null-arm control that the incumbent per-symbol HMM's
 K=5 `regime` labels — despite being named `trending_up`/`ranging`/`trending_down` — empirically
 separate on volatility, not trend (see `docs/research/stratification-dimension-unification.md`
@@ -15,7 +15,7 @@ never actually captured trend. The rejection is worth re-running against current
 repeating from the stale premise.
 **Companion to:** `docs/research/stratification-dimension-unification.md` (candidate table,
 "Explicitly rejected" section and Reconciliation pass item 15) and
-[todo 304](../../.planning/todos/pending/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md)
+[todo 304](../../.planning/todos/completed/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md)
 (same session, disjoint mechanism family — percentile-rank, not Hurst/autocorrelation — same
 blocker).
 

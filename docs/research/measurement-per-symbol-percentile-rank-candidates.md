@@ -5,11 +5,11 @@
 for all 3 candidates (`volatility_pct`, `skew_tail`, `volume_pct`) at both 5m and 15m, after
 BH-FDR correction — see "Result — Stage 3" below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-12 — not a Fable dispatch.
-**Origin:** [todo 304](../../.planning/todos/pending/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md).
+**Origin:** [todo 304](../../.planning/todos/completed/304-per-symbol-percentile-rank-candidates-volume-skew-volatility.md).
 Three candidates already named in `docs/research/stratification-dimension-unification.md`'s
 candidate table but never tested.
 **Companion to:**
-[todo 303](../../.planning/todos/pending/303-per-symbol-trend-regime-null-arm-tested-candidate.md)
+[todo 303](../../.planning/todos/completed/303-per-symbol-trend-regime-null-arm-tested-candidate.md)
 (same session, disjoint mechanism family — Hurst/autocorrelation, not percentile-rank — same
 blocker, kept as a separate todo/doc per that candidate's own note not to merge them).
 

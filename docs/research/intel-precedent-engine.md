@@ -46,7 +46,7 @@ Flattening a bar's ~50-100 numeric fields straight into a vector fails for borin
 
 1. **Distance-weighted neighbor sets, never equal-weighted.** A neighbor at cosine distance 0.02 is more analogous than one at 0.18; discarding that gradient throws away real information.
 2. **The null result is a first-class return value, never a silent fallback.** If nothing falls within the distance threshold, the honest answer is "we have not seen conditions like these" — not "nearest available anyway."
-3. **Regime-conditioned retrieval is the default, resolved as a hard filter.** Same RSI reading means different things in a trending regime versus a ranging one; retrieval finds neighbors similar in feature space *and* in the same regime. Filter labels resolve as `(dimension, label)` pairs per intel-12's label-identity invariant, never a bare label. (This is exactly why PrecedentEngine's correctness is downstream of [`docs/research/intel-12-stratification-dimension.md`](intel-12-stratification-dimension.md) — a bad regime label doesn't just dilute this substrate's output, it corrupts which neighbors get returned at all.)
+3. **Regime-conditioned retrieval is the default, resolved as a hard filter.** Same RSI reading means different things in a trending regime versus a ranging one; retrieval finds neighbors similar in feature space *and* in the same regime. Filter labels resolve as `(dimension, label)` pairs per intel-12's label-identity invariant, never a bare label. (This is exactly why PrecedentEngine's correctness is downstream of [`docs/research/stratification-dimension-unification.md`](intel-12-stratification-dimension.md) — a bad regime label doesn't just dilute this substrate's output, it corrupts which neighbors get returned at all.)
 4. **Staleness and version gates.** Retrieval filters out embeddings older than `precedent.embedding.staleness_days` (default 30) and never mixes `embedding_version` values. A version bump without backfill shrinks the comparable history; that shrinkage is surfaced (via the returned precedent count), never hidden.
 
 ### The retrieval primitive (the entire interface)
@@ -194,7 +194,7 @@ Kafka posture: consume-where-convenient (batch reads TimescaleDB directly, never
 
 ## Sequencing
 
-**Hard prerequisite, not a preference:** [`intel-12-stratification-dimension.md`](intel-12-stratification-dimension.md)'s conditioning-layer unification must land first. PrecedentEngine's retrieval *hard-filters* on regime labels — a bad label doesn't dilute an estimate the way it would in the IC engine, it silently corrupts which neighbors come back at all, with no downstream signal anything went wrong. Worse, embeddings are versioned and expensive to rebuild; building the substrate on top of known-suspect strata bakes the bias into stored vectors before anyone notices. This is the concrete reason v3.15 (Conditioning & Identity Foundation) is sequenced before v3.2 in the roadmap.
+**Hard prerequisite, not a preference:** [`stratification-dimension-unification.md`](stratification-dimension-unification.md)'s conditioning-layer unification must land first. PrecedentEngine's retrieval *hard-filters* on regime labels — a bad label doesn't dilute an estimate the way it would in the IC engine, it silently corrupts which neighbors come back at all, with no downstream signal anything went wrong. Worse, embeddings are versioned and expensive to rebuild; building the substrate on top of known-suspect strata bakes the bias into stored vectors before anyone notices. This is the concrete reason v3.15 (Conditioning & Identity Foundation) is sequenced before v3.2 in the roadmap.
 
 Within v3.2 itself, the original doc set's own dependency order still holds and is worth preserving as a design invariant independent of scheduling:
 
@@ -237,5 +237,5 @@ A consumer never builds before the substrate it reads. The substrate itself shou
   closed 2026-07-13, superseded duplicate); `.planning/todos/completed/017-non-parametric-hypothesis-backtester.md` — still-gated backlog entry
 - `docs/foundation/principles.md` — the "one model, one book" invariant this doc's rescope is a
   direct application of (promoted 2026-07-03 from `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
-- `docs/research/intel-12-stratification-dimension.md` — hard sequencing prerequisite; regime labels this substrate hard-filters on
+- `docs/research/stratification-dimension-unification.md` — hard sequencing prerequisite; regime labels this substrate hard-filters on
 - ROADMAP.md v3.2 entry (Phases 148-150, renumbered 2026-07-04 — originally 145-147)
