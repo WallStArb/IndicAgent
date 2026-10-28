@@ -160,7 +160,7 @@ is current through 2026-10-26 (`indicagent-bar-derivation-grid`, 05:45 UTC, --ch
 follows the Alpaca nightly; writing derivation runs serialize on a stage lock, e48ddbfb6). Final
 5m selection gate exit 0: 1,529/1,529 series clean, n_canonical == n_selected == 311,503,335,
 session_choices_unrecorded 0 (`logs/selection_gate_20261027T072705Z.json`). The research lane
-(5b) was told 2026-10-27 about 08:28Z; the 5m snapshot and 186-26 are no longer held on D-191-P. 5b fires the family 2 run on a one-line notice from the data lane when plan 20's 1d re-derive lands.
+(5b) was told 2026-10-27 about 08:28Z; the 5m snapshot and 186-26 are no longer held on D-191-P. 5b fires the family 2 run on a one-line notice from the data lane when plan 20's 1d re-derive lands; the notice lists, among family 2's 187-name US-session universe, every name with a pending span, a frozen hold or a D-191-Q arbitration hold.
 
 Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
 Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
