@@ -60,8 +60,10 @@ Contract: `volume_basis` is a new bar field (`BAR_FIELDS`; codes none 0, consoli
 mixed 3 in `features/contract/registry.py`), derived per row from (vendor, kind) by the one table
 in `bars/vendor_kind.py`; an unmapped pair raises; a derived grid bar takes its basis from its 5m
 constituents. Both rebuild loaders carry it, and NULL volume is NaN there (the 186-26 loader
-crash on `float(None)` is fixed). The research panel and the bar-list paths use a constant
-consolidated basis, because they carry no vendor provenance.
+crash on `float(None)` is fixed). `kernel_source` takes an optional `volume_basis` and refuses a kernel that
+needs it when the caller supplies none (the research panel carries no vendor provenance, and a
+constant would hide the seam); bar lists without a basis (the legacy compute paths) run as one
+consolidated basis.
 
 Measured 2026-10-28, read-only on stored bars. Non-zero share of `amihud_illiq_z`, 10 liquid
 names since 2025-06-01: before 0.0 on 9 of 10 on 1d (PG 0.29) and 0.0 on all 10 on 5m; after

@@ -300,10 +300,19 @@ def grid_volume_basis(
         ends[:-1] = np.minimum(ends[:-1], grid[1:])
     lo = np.searchsorted(stamps, grid, side="left")
     hi = np.searchsorted(stamps, ends, side="left")
-    out: list[str] = []
-    for i in range(len(grid)):
-        found = set(bases[lo[i] : hi[i]])
-        if not found:
-            raise ValueError(f"derived grid bar at {int(grid[i])} has no 5m constituent")
-        out.append(found.pop() if len(found) == 1 else VOLUME_BASIS_MIXED)
-    return out
+    empty = hi <= lo
+    if empty.any():
+        first = int(grid[np.argmax(empty)])
+        raise ValueError(f"derived grid bar at {first} has no 5m constituent")
+    # Per-basis prefix counts: a bar is mixed when more than one basis has a constituent in
+    # [lo, hi). One vectorized pass, no per-bar Python loop.
+    names = sorted(set(bases))
+    present = np.zeros((len(grid), len(names)), dtype=bool)
+    for j, name in enumerate(names):
+        counts = np.concatenate([[0], np.cumsum(np.fromiter((b == name for b in bases), bool))])
+        present[:, j] = counts[hi] - counts[lo] > 0
+    only = np.array(names, dtype=object)[present.argmax(axis=1)]
+    return [
+        VOLUME_BASIS_MIXED if many else str(name)
+        for many, name in zip(present.sum(axis=1) > 1, only, strict=True)
+    ]

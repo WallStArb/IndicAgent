@@ -144,6 +144,18 @@ def test_missing_high_low_refused():
         kernel_source(panel, ["rk_vwap_dev_w20"], {"rk_vwap_dev": 20}, None, max_gap_rows=0)
 
 
+def test_volume_basis_kernel_is_refused_without_the_basis_and_runs_with_it():
+    panel, _, _ = _panel(n=300)
+    config = SimpleNamespace(**vars(CONFIG), amihud_zscore_window=40, amihud_min_valid_fraction=0.8)
+    with pytest.raises(KernelSourceRefused, match="volume_basis"):
+        kernel_source(panel, ["amihud_illiq_z"], {}, config, max_gap_rows=0)
+    basis = np.ones(panel.close.shape)
+    result = kernel_source(
+        panel, ["amihud_illiq_z"], {}, config, max_gap_rows=0, volume_basis=basis
+    )
+    assert np.isfinite(result.values["amihud_illiq_z"][100:]).all()
+
+
 def test_bad_max_gap_rows_refused():
     panel, _, _ = _panel()
     for bad in (-1, 1.5, True):

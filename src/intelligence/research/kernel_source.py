@@ -158,6 +158,7 @@ def kernel_source(
     max_gap_rows: int,
     high: np.ndarray | None = None,
     low: np.ndarray | None = None,
+    volume_basis: np.ndarray | None = None,
 ) -> KernelSourceResult:
     """Run `outputs` per symbol over its present rows; float32 [n, m] per output on the grid."""
     if isinstance(max_gap_rows, bool) or not isinstance(max_gap_rows, (int, np.integer)):
@@ -183,11 +184,11 @@ def kernel_source(
         "low": low,
         "close": panel.close,
         "volume": panel.volume,
-        # The panel carries no vendor provenance, so a volume statistic here runs on one
-        # constant basis (todo 555): a research panel is a single selected series per name.
-        "volume_basis": np.ones((n, m)),
+        # The panel carries no vendor provenance (todo 555), so a kernel that needs the volume
+        # basis is refused unless the caller supplies it: a constant would hide the seam.
+        "volume_basis": volume_basis,
     }
-    for name in ("high", "low"):
+    for name in ("high", "low", "volume_basis"):
         if fields[name] is not None and np.shape(fields[name]) != (n, m):
             raise KernelSourceRefused(
                 f"{name} has shape {np.shape(fields[name])}, expected {(n, m)}"
