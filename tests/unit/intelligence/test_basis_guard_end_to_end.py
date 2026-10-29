@@ -46,6 +46,15 @@ def _run(volume: np.ndarray, basis: np.ndarray):
         )
 
 
+# a week (above_wk_vwap) and a 479-row rolling POC outlast the 500-row fixture
+_LONGER_THAN_THE_FIXTURE = {
+    "above_wk_vwap",
+    "_poc_price_rolling",
+    "poc_rolling_dist_atr",
+    "poc_session_rolling_divergence_atr",
+}
+
+
 def _accepted_unmasked() -> set[str]:
     """Outputs of the no-reset path-dependent kernels and of everything downstream of them."""
     roots = {"vwap_dev_sigma", "ctf_source"}
@@ -78,7 +87,11 @@ def test_a_dropped_bar_leaves_no_unmasked_difference_anywhere_in_the_registry():
         leak = ~masked & ~np.isclose(got, want, rtol=1e-6, atol=1e-7, equal_nan=True)
         if leak.any():
             leaks[name] = int(leak.sum())
-    assert not leaks, f"unmasked rows differ from the clean run: {leaks}"
+        # masking is bounded: one dropped bar never blanks a quarter of an output
+        newly_nan = int((np.isnan(got) & ~np.isnan(want)).sum())
+        if newly_nan > len(got) // 4 and name not in _LONGER_THAN_THE_FIXTURE:
+            leaks[name] = -newly_nan
+    assert not leaks, f"unmasked rows differ from the clean run (negative: over-masked): {leaks}"
 
 
 def _htf_bars(n: int = 400) -> list[dict]:

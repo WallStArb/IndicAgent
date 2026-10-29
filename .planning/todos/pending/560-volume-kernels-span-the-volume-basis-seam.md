@@ -71,8 +71,9 @@ guarded kernels found every one but `session_levels` changes with volume.
   entered as 0.0 is a fill whose effect outlives its row, so a kernel with a reset anchor
   (`Kernel.volume_reset`: `calendar_above_wk_vwap` week, `session_vp` ET session) is masked from the
   dropped bar to the next reset; `vwap_dev_sigma` and `ctf_source` never reset, so they mask the dropped
-  row and every row while dropped bars exceed `Kernel.max_dropped_fraction` (5%, [initial_estimate])
-  of the bars accumulated so far: a drop at row 20 of the test series (4.8%) moves `vwap_dev_sigma` by
+  row and every row while dropped bars exceed the APR share (5%, [initial_estimate])
+  of the bars accumulated since the first bar with volume (APR `feature.volume.dropped_max_fraction`,
+  migration 541; leading NULLs before the first volume bar do not count, though their rows are NaN): a drop at row 20 of the test series (4.8%) moves `vwap_dev_sigma` by
   0.025 sigma, and at 5% or less the error stays below about 0.1 sigma. Real 1d heavy names (SPGI,
   SCCO, HON: about 2,600 NULL bars each) are masked for most of the series, loudly; plan 191-20's
   Alpaca 1d re-derive (todo 545) may remove those NULLs. The weekly flag also masks the first row of
@@ -87,3 +88,9 @@ guarded kernels found every one but `session_levels` changes with volume.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.
+
+`illiquidity_momentum_product` left `flow_products` for its own kernel, so its effective warmup fell from
+300 to 35 bars (correct: it reads only `amihud_illiq_z` and `momentum_z_fast`); on the rebuild rows between
+`first_row` and the old flow-products memory hold values instead of NULL. Live and legacy paths that still
+feed NaN volume to the cache (`feature_vector_pipeline` into `update_wk_vwap`, legacy `feature_factory`
+helpers, `ops_ctf_columns_recompute_15m`) are off the 186-26 rebuild path and stay as they are.

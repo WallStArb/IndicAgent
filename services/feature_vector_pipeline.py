@@ -810,6 +810,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.roll_spread.window", 252),
         # --- migration 534: todo 555 amihud_illiq_z ---
         ("feature.amihud.min_valid_fraction", 0.8),
+        ("feature.volume.dropped_max_fraction", 0.05),
     )
 
     async def _prewarm_timeframe_vocabulary(self) -> None:
@@ -1123,6 +1124,7 @@ class FeatureVectorPipeline(BaseDaemon):
             high_low_spread_window=_int("feature.high_low_spread.window", 21),
             roll_spread_window=_int("feature.roll_spread.window", 252),
             amihud_min_valid_fraction=_float("feature.amihud.min_valid_fraction", 0.8),
+            dropped_volume_max_fraction=_float("feature.volume.dropped_max_fraction", 0.05),
             hmm=hmm_config,
         )
 

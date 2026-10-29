@@ -18,6 +18,7 @@ from src.intelligence.features.contract.registry import (
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 _REGISTRY = default_registry()
+_CONFIG = ref.synthetic_inputs()[1]
 _GUARDED = [
     k.name
     for k in _REGISTRY.kernels
@@ -147,7 +148,7 @@ def test_masked_until_reset_covers_the_dropped_bar_to_the_next_anchor(anchor, ba
     ts = _bars_ts(400)
     dropped = np.zeros(400, dtype=bool)
     dropped[30] = True
-    masked = _masked_until_reset(kernel, {"ts_dt": ts}, dropped)
+    masked = _masked_until_reset(kernel, {"ts_dt": ts}, dropped, _CONFIG)
     assert not masked[:30].any()
     assert masked[30 : 30 + bars_to_reset].all()
     assert not masked[30 + bars_to_reset :].any()
@@ -157,13 +158,14 @@ def test_no_reset_anchor_masks_the_dropped_row_and_rows_past_the_dropped_share()
     kernel = _REGISTRY.by_name("vwap_dev_sigma")
     dropped = np.zeros(200, dtype=bool)
     dropped[100] = True  # 1 of 101 bars so far: 1%, under max_dropped_fraction
-    assert (_masked_until_reset(kernel, {}, dropped) == dropped).all()
+    assert (_masked_until_reset(kernel, {}, dropped, _CONFIG) == dropped).all()
     early = np.zeros(200, dtype=bool)
     early[2] = True  # 1 of 3 bars: past 5% until 20 bars have accumulated
-    masked = _masked_until_reset(kernel, {}, early)
+    masked = _masked_until_reset(kernel, {}, early, _CONFIG)
     assert masked[2:19].all() and not masked[:2].any() and not masked[19:].any()
-    heavy = np.arange(200) % 2 == 0  # half the bars dropped: masked for the whole series
-    assert _masked_until_reset(kernel, {}, heavy).all()
+    heavy = np.arange(200) % 2 == 0  # half the bars dropped: masked once any has accumulated
+    heavy[:2] = False
+    assert _masked_until_reset(kernel, {}, heavy, _CONFIG)[2:].all()
 
 
 def test_weekly_vwap_flag_recovers_exactly_after_the_week_with_a_dropped_bar():
@@ -199,3 +201,14 @@ def test_session_levels_ignores_nan_volume_so_it_is_declared_nan_volume_safe():
         np.testing.assert_array_equal(
             np.asarray(got[out_name], dtype=float), np.asarray(column, dtype=float)
         )
+
+
+def test_leading_dropped_bars_do_not_count_toward_the_share_but_stay_masked():
+    from src.intelligence.features.contract.dropped_volume import dropped_share_mask
+
+    dropped = np.zeros(300, dtype=bool)
+    dropped[:60] = True  # 52 of the production names: every NULL precedes the first volume bar
+    masked = dropped_share_mask(dropped, 0.05)
+    assert masked[:60].all() and not masked[60:].any()
+    assert dropped_share_mask(np.ones(5, dtype=bool), 0.05).all()
+    assert not dropped_share_mask(np.zeros(5, dtype=bool), 0.05).any()

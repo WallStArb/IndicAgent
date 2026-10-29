@@ -994,6 +994,9 @@ class FeatureFactoryConfig:
     # observation; below it the output is NaN. Defaulted like the keys above; both production
     # entrypoints wire it from ConfigService.
     amihud_min_valid_fraction: float = 0.8  # feature.amihud.min_valid_fraction
+    # Cumulative-VWAP kernels without a reset anchor are NaN while NULL-volume bars exceed this
+    # share of the bars accumulated since the first bar with volume (todo 560).
+    dropped_volume_max_fraction: float = 0.05  # feature.volume.dropped_max_fraction
     # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py). The
     # names, APR keys and casts are declared once, in kernels._hmm.HmmConfig, and there are no
     # defaults: every value changes stored regime labels and the live APR values differ from

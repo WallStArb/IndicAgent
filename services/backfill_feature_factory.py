@@ -641,6 +641,9 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         high_low_spread_window=int(cfg.get_sync("feature.high_low_spread.window", 21)),
         roll_spread_window=int(cfg.get_sync("feature.roll_spread.window", 252)),
         amihud_min_valid_fraction=float(cfg.get_sync("feature.amihud.min_valid_fraction", 0.8)),
+        dropped_volume_max_fraction=float(
+            cfg.get_sync("feature.volume.dropped_max_fraction", 0.05)
+        ),
         hmm=HmmConfig.from_values(cfg.get_sync),
     )
 

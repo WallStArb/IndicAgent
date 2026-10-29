@@ -78,7 +78,7 @@ def _build_ctf_series(
 
     # ctf_vwap_align: sign(close - cumulative VWAP)
     # A NULL-volume bar enters as zero weight and its row, with every row while dropped bars
-    # exceed MAX_DROPPED_FRACTION of the bars so far, is NaN rather than a silent 0.0 (todo 560;
+    # exceed the APR share (feature.volume.dropped_max_fraction) of the bars so far, is NaN rather than a silent 0.0 (todo 560;
     # the same rule as the ctf_source kernel, whose guard this series bypasses).
     dropped = ~np.isfinite(volumes)
     volumes = np.where(dropped, 0.0, volumes)
@@ -87,7 +87,7 @@ def _build_ctf_series(
     cum_vol = np.cumsum(volumes)
     vwap = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, closes)
     ctf_vwap = np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0))
-    ctf_vwap[dropped_share_mask(dropped)] = np.nan
+    ctf_vwap[dropped_share_mask(dropped, config.dropped_volume_max_fraction)] = np.nan
 
     # ctf_regime_align: HMM forward pass — 0.0 (ranging) or 1.0 (trending)
     ctf_regime = np.zeros(n, dtype=float)
