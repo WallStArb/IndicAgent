@@ -208,8 +208,27 @@ Runbook steps 1 to 6 are done except D7 acceptance and VACUUM. Worktree /home/bg
   starts a run. Read the verdicts from `integrity_monitor` (monitor_type bar_integrity) before
   accepting.
 
-Left: read the D7 verdicts, VACUUM ohlcv_raw, market_data_ohlcv and ohlcv_revision, restart the
-four stopped timers (bar-derivation-grid, bar-reconciliation-audit, regime-coverage-auditor,
-dividend-event-writer-yahoo), notice to the research lane owner listing family 2 universe names
-with holds or pending spans, all-clear to peer sessions. ibkr-history-fetcher and alpaca-nightly
-timers are running again (the pre-2016 5m backfill continues).
+D7 result after the re-derive and `--rewrite-digests` (42,316 digests, 0 failed), 1,502 names:
+alpaca_basis_run and vendor_basis_run pass for all (step 5a blocker cleared); digest_fresh passes;
+policy_conformance fails 1 (the held name), freshness_1d 6, unexplained_seam 22, session_coverage
+288, canonical_recompute 1,309, lineage_missing 1,501. D7 acceptance and the research notice that
+1d is Alpaca-primary wait on the last two.
+
+Cause of lineage_missing (verified): `canonical_bar_lineage` joins a canonical bar to
+`ohlcv_raw` JOIN `ohlcv_request`, and no Alpaca raw row has an `ohlcv_request` row (AAPL: 2,720 of
+2,720 sip_rth 1d, 610,861 5m for CLBK and AAPL, nightly rows too; the request ids resolve in
+neither ohlcv_request, ohlcv_load nor ohlcv_revision). Extending the view to alpaca sip_rth
+cannot fix it, and Alpaca stamps 1d raw at the New York session open (04:00 or 05:00 UTC) while
+canonical sits at 00:00 UTC, so the view also needs a session_ts mapping (daily_rule.py
+RAW_DAILY_SESSION_ZONE). I tried migration 537 for the view, saw no effect, rolled the live view
+back to its 491 definition and did not commit it. The fix is where Alpaca raw gets its provenance:
+either the Alpaca loader writes an ohlcv_request row per fetch (then the view needs the alpaca
+branch and the session_ts mapping), or lineage for Alpaca resolves through another table.
+canonical_recompute (1,309) was not diagnosed; check whether it shares this cause first.
+
+Left: VACUUM (started 02:26Z, log /tmp/claude-1000/scratch545/vacuum.log), restart the four
+stopped timers (bar-derivation-grid, bar-reconciliation-audit, regime-coverage-auditor,
+dividend-event-writer-yahoo), the lineage and canonical_recompute fix above, notice to the research
+lane owner listing family 2 universe names with holds or pending spans (it waits on D7 acceptance),
+all-clear to peer sessions. ibkr-history-fetcher and alpaca-nightly timers are running (the
+pre-2016 5m backfill continues).
