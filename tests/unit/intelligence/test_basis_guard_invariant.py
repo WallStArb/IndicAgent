@@ -101,3 +101,21 @@ def test_a_none_mask_column_is_never_nan_at_a_segment_start():
     for out_name, column in got.items():
         if out_name.startswith("_") and out_name.endswith("_is_none"):
             assert not np.isnan(np.asarray(column, dtype=float)).any(), out_name
+
+
+@pytest.mark.parametrize("name", ["vwap_dev_sigma", "ctf_source"])
+def test_a_path_dependent_kernel_runs_through_a_seam_and_masks_only_dropped_bars(name):
+    kernel = _REGISTRY.by_name(name)
+    full, config, volume, basis = _case(0)
+    cut = {k: full[k] for k in kernel.inputs if k in full}
+    cut["volume"] = volume
+    got = _compute_basis_guarded(kernel, cut, basis, config)
+    dropped = ~np.isfinite(volume)
+    whole = kernel.compute({**cut, "volume": np.where(dropped, 0.0, volume)}, config)
+    for out_name, column in got.items():
+        column = np.asarray(column, dtype=float)
+        is_mask = out_name.startswith("_") and out_name.endswith("_is_none")
+        assert (column[dropped] == 1.0).all() if is_mask else np.isnan(column[dropped]).all()
+        np.testing.assert_array_equal(
+            column[~dropped], np.asarray(whole[out_name], dtype=float)[~dropped]
+        )

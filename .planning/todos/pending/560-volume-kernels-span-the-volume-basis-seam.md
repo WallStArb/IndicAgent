@@ -24,8 +24,8 @@ closes before the launch.
 - NaN volume enters as 0.0;
 - an output row is NaN (a none-mask row is 1) when its trailing `memory + 1` bars hold a dropped
   bar or span a segment boundary, so the declared memory holds and the gap is loud;
-- a path-dependent kernel has no finite memory: only the dropped bar's row is masked and its
-  accumulation restarts at a segment;
+- a path-dependent kernel has no finite memory: it runs through the whole series and only the
+  dropped bar's row is masked (a restart at a seam erred up to 4.2 sigma-units, a run-through 0.07);
 - the caller must supply `volume_basis`.
 
 `tests/unit/intelligence/test_basis_guard_invariant.py` proves, for every non-path-dependent
@@ -63,12 +63,12 @@ guarded kernels found every one but `session_levels` changes with volume.
 - Independent review of the guard commits (`d6a8da8de`, `96458db71`), 2026-10-29. Arithmetic of the
   masks is correct. Fixed: a none-mask column was NaN at each segment's row 0 (now 1); the invariant
   test passed vacuously for `rolling_poc` (now asserts a finite comparison, `rolling_poc` listed as
-  too long for the fixture). Open, a design decision: a path-dependent kernel masks only the dropped
-  bar, so one mid-session `ibkr/fallback` bar (basis flip at row 251 of the test fixture) restarts
-  `vwap_dev_sigma` (249 rows differ to the end), `above_wk_vwap` (58) and `session_vp` outputs (~37)
-  from that bar without a NaN. Proposed: mask from a segment start until the kernel's next anchor
-  (session or week), or to the segment end when it has none. Needs a decision before 186-26 since
-  the kernels are in the fingerprinted closure. Reviewer probe: scratchpad `probe4.py`.
+  too long for the fixture). Fixed after measuring: a path-dependent kernel
+  (`vwap_dev_sigma`, `ctf_source`, `calendar_above_wk_vwap`, `session_vp`, `session_levels`) used to
+  restart at a seam, which erred by up to 4.2 sigma-units on `vwap_dev_sigma` (one flip bar at row 251
+  of the test series). These kernels weight by volume rather than read its level, so running through
+  with the later volume scaled to 0.75 errs by at most 0.066. The guard now runs them through the
+  seam and masks only the dropped bar's row. Needs a second independent review before 186-26.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.

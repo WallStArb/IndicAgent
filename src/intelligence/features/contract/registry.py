@@ -429,8 +429,8 @@ def _compute_basis_guarded(
     the kernel runs on each basis segment alone, NaN volume enters as 0.0 (no volume traded,
     finite), and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
     bars hold a dropped bar or span a segment boundary: the declared memory then still holds,
-    and the gap is loud (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways). A path-dependent kernel has no finite memory, so only the dropped bar's own row
-    is masked and the accumulation restarts at a segment.
+    and the gap is loud (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways). A path-dependent kernel has no finite memory and weights by volume, so it
+    runs through the whole series and only the dropped bar's own row is masked.
     """
     volume = np.asarray(cut["volume"], dtype=float)
     dropped = ~np.isfinite(volume)
@@ -439,6 +439,23 @@ def _compute_basis_guarded(
     if not dropped.any() and not starts.any():
         return kernel.compute(cut, config)  # type: ignore[arg-type]
     clean = np.where(dropped, 0.0, volume)
+    if kernel.path_dependent:
+        # These kernels weight by volume (VWAP, volume profile) rather than read its level, so a
+        # basis change shifts weights by the basis ratio (at most about 5% of a sigma on the
+        # synthetic seam probe), while a restart at the seam lost the accumulated state and erred
+        # by up to 3 sigma. Run through, mask only the dropped bar's own row.
+        out = {
+            name: np.array(column)
+            for name, column in kernel.compute({**cut, "volume": clean}, config).items()  # type: ignore[arg-type]
+        }
+        for name, column in out.items():
+            if column.dtype.kind != "f":
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the "
+                    "volume basis guard can only mask float outputs"
+                )
+            column[dropped] = 1.0 if _is_none_mask(name) else np.nan
+        return out
     bounds = np.unique(starts)
     out: dict[str, np.ndarray] = {}
     for lo, hi in zip(bounds, [*bounds[1:], n], strict=True):
@@ -457,21 +474,18 @@ def _compute_basis_guarded(
                     np.full(n, np.nan) if column.dtype.kind == "f" else np.empty(n, column.dtype)
                 )
             out[name][lo:hi] = column
-    if kernel.path_dependent:
-        masked = dropped
-    else:
-        memory = int(kernel.memory(config))  # type: ignore[arg-type]
-        rows = np.arange(n)
+    memory = int(kernel.memory(config))  # type: ignore[arg-type]
+    rows = np.arange(n)
 
-        def hits(event: np.ndarray, reach: int) -> np.ndarray:
-            """Rows whose trailing `reach + 1` bars hold an event row."""
-            counts = np.cumsum(event)
-            before = np.where(rows - reach - 1 >= 0, counts[np.maximum(rows - reach - 1, 0)], 0)
-            return counts - before > 0
+    def hits(event: np.ndarray, reach: int) -> np.ndarray:
+        """Rows whose trailing `reach + 1` bars hold an event row."""
+        counts = np.cumsum(event)
+        before = np.where(rows - reach - 1 >= 0, counts[np.maximum(rows - reach - 1, 0)], 0)
+        return counts - before > 0
 
-        # A dropped bar d sits in the windows of rows d .. d + memory. A segment start s splits
-        # the windows that hold both s - 1 and s: rows s .. s + memory - 1.
-        masked = hits(dropped, memory) | hits((starts == rows) & (rows > 0), memory - 1)
+    # A dropped bar d sits in the windows of rows d .. d + memory. A segment start s splits
+    # the windows that hold both s - 1 and s: rows s .. s + memory - 1.
+    masked = hits(dropped, memory) | hits((starts == rows) & (rows > 0), memory - 1)
     for name, column in out.items():
         if column.dtype.kind != "f":
             raise KernelRegistryError(
