@@ -153,11 +153,17 @@ def test_masked_until_reset_covers_the_dropped_bar_to_the_next_anchor(anchor, ba
     assert not masked[30 + bars_to_reset :].any()
 
 
-def test_no_reset_anchor_masks_only_the_dropped_row():
+def test_no_reset_anchor_masks_the_dropped_row_and_rows_past_the_dropped_share():
     kernel = _REGISTRY.by_name("vwap_dev_sigma")
-    dropped = np.zeros(50, dtype=bool)
-    dropped[7] = True
+    dropped = np.zeros(200, dtype=bool)
+    dropped[100] = True  # 1 of 101 bars so far: 1%, under max_dropped_fraction
     assert (_masked_until_reset(kernel, {}, dropped) == dropped).all()
+    early = np.zeros(200, dtype=bool)
+    early[2] = True  # 1 of 3 bars: past 5% until 20 bars have accumulated
+    masked = _masked_until_reset(kernel, {}, early)
+    assert masked[2:19].all() and not masked[:2].any() and not masked[19:].any()
+    heavy = np.arange(200) % 2 == 0  # half the bars dropped: masked for the whole series
+    assert _masked_until_reset(kernel, {}, heavy).all()
 
 
 def test_weekly_vwap_flag_recovers_exactly_after_the_week_with_a_dropped_bar():

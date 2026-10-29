@@ -111,6 +111,11 @@ class Kernel:
     # None: no reset, a dropped bar's own row is masked and the residual error is the accepted
     # tolerance recorded in todo 560 (one missing weight among the accumulated bars).
     volume_reset: str | None = None
+    # Without a reset anchor: a row is masked while dropped bars exceed this share of the bars
+    # accumulated so far (the dropped bars' weight is missing from the cumulative statistic, so
+    # the error grows with their share; at 5% it stays below about 0.1 sigma on the probe series).
+    # [initial_estimate] a declared property of the kernel definition, as `memory_atol` is.
+    max_dropped_fraction: float = 0.05
 
 
 class Alignment(enum.Enum):
@@ -432,10 +437,14 @@ def _masked_until_reset(
 ) -> np.ndarray:
     """Rows a dropped bar corrupts in a path-dependent kernel: from the bar to its next reset.
 
-    A kernel without a `volume_reset` anchor masks only the dropped bar's own row.
+    A kernel without a `volume_reset` anchor masks the dropped bar's own row, and every row
+    while the dropped bars exceed `max_dropped_fraction` of the bars accumulated so far.
     """
-    if kernel.volume_reset is None or not dropped.any():
+    if not dropped.any():
         return dropped
+    if kernel.volume_reset is None:
+        share = np.cumsum(dropped) / np.arange(1, len(dropped) + 1)
+        return dropped | (share > kernel.max_dropped_fraction)
     ids = [_reset_id(ts, kernel.volume_reset) for ts in cut["ts_dt"]]
     n = len(ids)
     new_id = np.array([True, *(ids[i] != ids[i - 1] for i in range(1, n))])
@@ -465,6 +474,13 @@ def _reset_id(ts: object, anchor: str) -> tuple[int, ...] | object:
 def _compute_basis_guarded(
     kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
 ) -> Mapping[str, np.ndarray]:
+    """The outputs of `_guard_volume` (the masked rows are `compute_kernels`' business)."""
+    return _guard_volume(kernel, cut, basis, config)[0]
+
+
+def _guard_volume(
+    kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
+) -> tuple[Mapping[str, np.ndarray], np.ndarray]:
     """Run a volume-reading kernel that is not NaN-safe per volume-basis segment (todo 555/560).
 
     A NaN volume (a NULL-volume bar) would turn a cumulative sum or a rolling std into 0.0 or
@@ -480,7 +496,7 @@ def _compute_basis_guarded(
     starts = volume_basis_segment_starts(basis)
     n = len(volume)
     if not dropped.any() and not starts.any():
-        return kernel.compute(cut, config)  # type: ignore[arg-type]
+        return kernel.compute(cut, config), np.zeros(n, dtype=bool)  # type: ignore[arg-type]
     clean = np.where(dropped, 0.0, volume)
     if kernel.path_dependent:
         # These kernels weight by volume (VWAP, volume profile) rather than read its level, so a
@@ -499,7 +515,7 @@ def _compute_basis_guarded(
                     "volume basis guard can only mask float outputs"
                 )
             column[masked] = 1.0 if _is_none_mask(name) else np.nan
-        return out
+        return out, masked
     bounds = np.unique(starts)
     out: dict[str, np.ndarray] = {}
     for lo, hi in zip(bounds, [*bounds[1:], n], strict=True):
@@ -520,12 +536,7 @@ def _compute_basis_guarded(
             out[name][lo:hi] = column
     memory = int(kernel.memory(config))  # type: ignore[arg-type]
     rows = np.arange(n)
-
-    def hits(event: np.ndarray, reach: int) -> np.ndarray:
-        """Rows whose trailing `reach + 1` bars hold an event row."""
-        counts = np.cumsum(event)
-        before = np.where(rows - reach - 1 >= 0, counts[np.maximum(rows - reach - 1, 0)], 0)
-        return counts - before > 0
+    hits = _trailing_hits
 
     # A dropped bar d sits in the windows of rows d .. d + memory. A segment start s splits
     # the windows that hold both s - 1 and s: rows s .. s + memory - 1.
@@ -541,7 +552,52 @@ def _compute_basis_guarded(
             # present nor missing, so it reads as missing (1)
             column[np.isnan(column)] = 1.0
         column[masked] = 1.0 if _is_none_mask(name) else np.nan
-    return out
+    return out, masked
+
+
+def _trailing_hits(event: np.ndarray, reach: int) -> np.ndarray:
+    """Rows whose trailing `reach + 1` bars hold an event row."""
+    rows = np.arange(len(event))
+    counts = np.cumsum(event)
+    before = np.where(rows - reach - 1 >= 0, counts[np.maximum(rows - reach - 1, 0)], 0)
+    return counts - before > 0
+
+
+def _guard_downstream(
+    kernel: Kernel,
+    cut: Mapping[str, np.ndarray],
+    dirty: Mapping[str, np.ndarray],
+    config: object,
+) -> tuple[Mapping[str, np.ndarray], np.ndarray]:
+    """Run a kernel that reads a guarded kernel's masked output (todo 560, transitive).
+
+    The guard's masked rows arrive as NaN, and a cumulative or cumsum-based statistic downstream
+    turns one NaN into 0.0 on every later row, or reads NaN as "no event". So a masked input row
+    enters as 0.0 and an output row is masked (NaN, 1 for a none-mask column) when its trailing
+    `memory + 1` input rows hold a masked row. The output's own masked rows feed the next kernel.
+    """
+    if kernel.path_dependent:
+        raise KernelRegistryError(
+            f"kernel {_where(kernel)} is path dependent and reads a volume-guarded output; the "
+            "guard has no reset anchor for it"
+        )
+    event = np.logical_or.reduce([dirty[name] for name in kernel.inputs if name in dirty])
+    clean = {
+        name: (
+            np.where(dirty[name], 0.0, np.asarray(column, dtype=float)) if name in dirty else column
+        )
+        for name, column in cut.items()
+    }
+    out = {name: np.array(column) for name, column in kernel.compute(clean, config).items()}  # type: ignore[arg-type]
+    masked = _trailing_hits(event, int(kernel.memory(config)))  # type: ignore[arg-type]
+    for name, column in out.items():
+        if column.dtype.kind != "f":
+            raise KernelRegistryError(
+                f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the volume "
+                "basis guard can only mask float outputs"
+            )
+        column[masked] = 1.0 if _is_none_mask(name) else np.nan
+    return out, masked
 
 
 def compute_kernels(
@@ -585,12 +641,17 @@ def compute_kernels(
                 )
     values.update(build_derived_inputs(derived, inputs))
     result: dict[str, np.ndarray] = {}
+    dirty: dict[str, np.ndarray] = {}  # output -> rows the volume guard masked
     for kernel in order:
         cut = {name: values[name] for name in kernel.inputs}
         if "volume" in kernel.inputs and not kernel.nan_volume_safe:
-            out = _compute_basis_guarded(kernel, cut, values["volume_basis"], config)
+            out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
+        elif any(name in dirty for name in kernel.inputs):
+            out, masked = _guard_downstream(kernel, cut, dirty, config)
         else:
-            out = kernel.compute(cut, config)
+            out, masked = kernel.compute(cut, config), None
+        if masked is not None and masked.any():
+            dirty.update({name: masked for name in kernel.outputs})
         for name in kernel.outputs:
             if name not in out:
                 raise KernelRegistryError(f"kernel {_where(kernel)} did not return output {name!r}")

@@ -70,13 +70,20 @@ guarded kernels found every one but `session_levels` changes with volume.
   0.055 sigma (`vwap_dev_sigma`) and flips about 1% of `ctf_source` vwap-align signs. A dropped bar
   entered as 0.0 is a fill whose effect outlives its row, so a kernel with a reset anchor
   (`Kernel.volume_reset`: `calendar_above_wk_vwap` week, `session_vp` ET session) is masked from the
-  dropped bar to the next reset; `vwap_dev_sigma` and `ctf_source` never reset and mask the dropped
-  row only. The residual error is the dropped bar's share of the accumulated volume, so it is large
-  near the series start (one drop at row 5 of the test series moves `vwap_dev_sigma` by 0.30 sigma
-  for the rest of the series, and `ctf_source` flips its vwap-align sign on 1 to 4 rows) and small
-  later (0.025 sigma at row 20, up to 0.086 sigma over the series); accepted, since NULL volume sits
-  on 1d fallback bars and the first bars of a name are warmup. The weekly flag also masks the first
-  row of the next week (it reads state before the bar is added). `session_levels` never reads volume and is now `nan_volume_safe`.
+  dropped bar to the next reset; `vwap_dev_sigma` and `ctf_source` never reset, so they mask the dropped
+  row and every row while dropped bars exceed `Kernel.max_dropped_fraction` (5%, [initial_estimate])
+  of the bars accumulated so far: a drop at row 20 of the test series (4.8%) moves `vwap_dev_sigma` by
+  0.025 sigma, and at 5% or less the error stays below about 0.1 sigma. Real 1d heavy names (SPGI,
+  SCCO, HON: about 2,600 NULL bars each) are masked for most of the series, loudly; plan 191-20's
+  Alpaca 1d re-derive (todo 545) may remove those NULLs. The weekly flag also masks the first row of
+  the next week (it reads state before the bar is added). Kernels that read a guarded output
+  (`volume_z_velocity`, `ofi_z_velocity`, `cvd_slope_z_velocity`, `vwap_dev_sigma_velocity`,
+  `vol_spike_events`, `bars_since_vol_spike_*`, `flow_products`) are guarded transitively
+  (`_guard_downstream`: a masked input row enters as 0.0 and the output is masked over the kernel's
+  memory); before this a dropped bar zeroed the four velocity features to the end of the series and
+  read as "no spike". `vol_spike_events` now emits float 1.0/0.0 with NaN where `rel_volume` is NaN.
+  `tests/unit/intelligence/test_basis_guard_end_to_end.py` runs the whole intraday registry with one
+  dropped bar and fails on any unmasked difference. `session_levels` never reads volume and is now `nan_volume_safe`.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.

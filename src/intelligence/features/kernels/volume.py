@@ -774,7 +774,10 @@ def _compute_informed_flow(x, config):
 
 
 def _compute_vol_spike_events(x, config):
-    events = x["rel_volume"] > config.vol_spike_threshold
+    rel = x["rel_volume"]
+    # float 1.0/0.0 with NaN where rel_volume is NaN: a masked volume row must read as unknown,
+    # not as "no spike", and the volume guard can only mask float outputs (todo 560)
+    events = np.where(np.isnan(rel), np.nan, (rel > config.vol_spike_threshold).astype(float))
     return {"_vol_spike_event_fast": events, "_vol_spike_event_slow": events}
 
 
@@ -791,7 +794,7 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                 (event,),
                 lambda c, w=window: getattr(c, w),
                 lambda x, c, w=window, ev=event, col=column: {
-                    col: _bars_since_event_series_full(x[ev], getattr(c, w))
+                    col: _bars_since_event_series_full(x[ev] > 0.5, getattr(c, w))
                 },
             )
         )
