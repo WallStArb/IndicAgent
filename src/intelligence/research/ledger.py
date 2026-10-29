@@ -24,6 +24,7 @@ method opens its own connection and closes it, so a long run never holds an idle
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import uuid
@@ -89,6 +90,16 @@ class RunRequest:
 
 
 @dataclass(frozen=True)
+class SubsetRefit:
+    """A diagnostic refit of a book on a subset of its families (plan 187-14): a counted attempt.
+    `recipe` is its own recipe (the parent's recipe hash, the canonical subset and the accounting
+    method are in its params), written through S6 before the attempt starts."""
+
+    subset: tuple[str, ...]
+    recipe: RecipeContent
+
+
+@dataclass(frozen=True)
 class AttemptSeries:
     """An attempt's tested sessions and their E17 D_s (finite only, session order)."""
 
@@ -143,6 +154,28 @@ def _headline(payload: dict, series: AttemptSeries | None) -> tuple:
     )
 
 
+_CONTRIBUTION_COLUMNS = (
+    "n_families",
+    "effective_breadth",
+    "top_group_share",
+    "lofo_max_t_drop",
+    "sign_stability_min",
+)
+
+
+def _contribution_headline(payload: dict) -> tuple:
+    """The five typed headline columns of the evidence's contribution block (plan 187-14), None
+    where the block or a number is absent."""
+    block = (payload.get("contribution") or {}).get("headline") or {}
+    out = []
+    for column in _CONTRIBUTION_COLUMNS:
+        value = block.get(column)
+        out.append(
+            None if value is None else (int(value) if column == "n_families" else float(value))
+        )
+    return tuple(out)
+
+
 def _domain_of(kind: str) -> str:
     return "book" if kind == "pod" else kind
 
@@ -182,7 +215,8 @@ class PostgresLedger:
         try:
             return bool(
                 await conn.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM research_run " "WHERE spec_hash = $1)",
+                    "SELECT EXISTS (SELECT 1 FROM research_run "
+                    "WHERE spec_hash = $1 AND kind <> 'subset_refit')",
                     spec_hash,
                 )
             )
@@ -260,7 +294,8 @@ class PostgresLedger:
 
                 if request.mode == "real":
                     prior = await conn.fetchval(
-                        "SELECT EXISTS (SELECT 1 FROM research_run " "WHERE spec_hash = $1)",
+                        "SELECT EXISTS (SELECT 1 FROM research_run "
+                        "WHERE spec_hash = $1 AND kind <> 'subset_refit')",
                         request.spec_hash,
                     )
                     if prior:
@@ -469,6 +504,65 @@ class PostgresLedger:
         finally:
             await conn.close()
 
+    async def start_subset_refits(
+        self, parent_run_id: str, refits: Sequence[SubsetRefit], author: str
+    ) -> dict[tuple[str, ...], str]:
+        """Write one `started` subset_refit attempt per refit, sharing the parent book run's
+        run_group, mode, spec, vintage and code, in one locked transaction; each gets its own
+        recipe version first and a spec_hash of sha256(parent spec_hash + the sorted subset), so a
+        subset is never mistaken for its parent's spec (and never trips spec-once). Returns
+        {subset: run_id}. Refuses an unknown or non-book parent and a repeated subset."""
+        if not refits:
+            raise ValueError("start_subset_refits needs at least one refit")
+        subsets = [tuple(sorted(r.subset)) for r in refits]
+        if len(set(subsets)) != len(subsets):
+            raise LedgerRefusal("a subset refit is listed twice")
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                parent = await conn.fetchrow(
+                    "SELECT r.run_group, r.concept_id, r.kind, r.mode, r.spec_path, r.spec_hash, "
+                    "r.spec_blob, r.code_commit, r.vintage, c.name AS concept "
+                    "FROM research_run r JOIN concept_registry c USING (concept_id) "
+                    "WHERE r.run_id = $1",
+                    uuid.UUID(parent_run_id),
+                )
+                if parent is None or parent["kind"] not in ("book_test", "pod_book"):
+                    raise LedgerRefusal(f"{parent_run_id} is not a book run")
+                await self._check_cvr_codes(conn, {r.recipe.concept: r.recipe for r in refits})
+                run_ids: dict[tuple[str, ...], str] = {}
+                for subset, refit in zip(subsets, refits, strict=True):
+                    hashes = await self._write_recipes(
+                        conn,
+                        {parent["concept"]: refit.recipe},
+                        {parent["concept"]: parent["concept_id"]},
+                        parent["code_commit"],
+                        author,
+                    )
+                    spec_hash = hashlib.sha256(
+                        (parent["spec_hash"] + "|" + ",".join(subset)).encode()
+                    ).hexdigest()
+                    run_id = await conn.fetchval(
+                        "INSERT INTO research_run (run_group, concept_id, kind, mode, spec_path, "
+                        "spec_hash, spec_blob, code_commit, vintage, recipe_hash) "
+                        "VALUES ($1, $2, 'subset_refit', $3, $4, $5, $6, $7, $8, $9) "
+                        "RETURNING run_id",
+                        parent["run_group"],
+                        parent["concept_id"],
+                        parent["mode"],
+                        parent["spec_path"],
+                        spec_hash,
+                        parent["spec_blob"],
+                        parent["code_commit"],
+                        parent["vintage"],
+                        hashes[parent["concept"]],
+                    )
+                    run_ids[subset] = str(run_id)
+                return run_ids
+        finally:
+            await conn.close()
+
     async def import_legacy_card(self, card: LegacyCard) -> str | None:
         """Write one summary card as a completed `legacy_verdict` attempt (plan 187-13), or return
         None when the card is already imported (idempotent by card_id). The card's concept is its
@@ -571,7 +665,7 @@ class PostgresLedger:
             status = "failed"
             payload = {"error": f"evidence not serializable: {error}"}
 
-        headline = _headline(payload, series)
+        headline = _headline(payload, series) + _contribution_headline(payload)
         conn = await connect_with_codecs(self._dsn)
         try:
             async with conn.transaction():
@@ -579,7 +673,9 @@ class PostgresLedger:
                     "UPDATE research_run SET status = $2, snapshot_hash = $3, evidence = $4, "
                     "finished_at = now(), decision_t = $5, decision_p = $6, gross_sharpe = $7, "
                     "mean_session_pnl = $8, turnover_per_session = $9, n_sessions = $10, "
-                    "span_start = $11, span_end = $12 WHERE run_id = $1",
+                    "span_start = $11, span_end = $12, n_families = $13, "
+                    "effective_breadth = $14, top_group_share = $15, lofo_max_t_drop = $16, "
+                    "sign_stability_min = $17 WHERE run_id = $1",
                     uuid.UUID(run_id),
                     status,
                     snapshot_hash,

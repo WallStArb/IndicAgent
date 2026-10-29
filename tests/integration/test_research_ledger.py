@@ -762,3 +762,91 @@ async def test_import_legacy_card_is_one_terminal_row_and_idempotent(ledger, sco
     finally:
         await conn.close()
     assert domain == "family"
+
+
+async def _book(ledger, scope):
+    ids, members = scope.identities()
+    book_name = _name()
+    scope.names.append(book_name)
+    ids = [*ids, Identity(book_name, "book", "test book", {}, parents=(ids[0].name,))]
+    runs = await ledger.start_runs(scope.request("book_test"), ids, [book_name])
+    return runs[book_name], book_name
+
+
+def _subset_recipe(concept, subset):
+    from src.intelligence.research.recipe import RecipeContent
+
+    return RecipeContent(
+        concept, "m:f", {"subset": list(subset), "parent": "x" * 8}, {}, (), None, {}, None, ()
+    )
+
+
+async def test_subset_refits_round_trip_and_are_not_spec_once(ledger, scope):
+    from src.intelligence.research.ledger import SubsetRefit
+
+    book_run, book_name = await _book(ledger, scope)
+    refits = [SubsetRefit(s, _subset_recipe(book_name, s)) for s in (("a",), ("b",), ("a", "b"))]
+    run_ids = await ledger.start_subset_refits(book_run, refits, "tester")
+    assert set(run_ids) == {("a",), ("b",), ("a", "b")}
+    parent = await _row(book_run)
+    for subset, run_id in run_ids.items():
+        row = await _row(run_id)
+        assert (row["kind"], row["status"], row["mode"]) == (
+            "subset_refit",
+            "started",
+            parent["mode"],
+        )
+        assert row["run_group"] == parent["run_group"] and row["recipe_hash"] is not None
+        await ledger.finish_run(
+            run_id,
+            status="completed",
+            snapshot_hash=None,
+            evidence={
+                "decision": {"t": 1.0, "p": 0.1, "n_sessions": 3},
+                "contribution": {"headline": {"n_families": 2, "effective_breadth": 1.5}},
+            },
+            series=AttemptSeries(
+                np.array(["2020-01-02", "2020-01-03"], dtype="datetime64[D]"), np.array([0.1, 0.2])
+            ),
+        )
+    done = await _row(run_ids[("a",)])
+    assert (
+        done["n_families"] == 2
+        and done["effective_breadth"] == 1.5
+        and done["top_group_share"] is None
+    )
+    # A subset refit is never a real run of its book's spec (spec-once ignores the kind).
+    assert not await ledger.has_real_run((await _row(run_ids[("a",)]))["spec_hash"])
+    with pytest.raises(LedgerRefusal):
+        await ledger.start_subset_refits(book_run, [refits[0], refits[0]], "tester")
+
+
+async def test_a_second_headline_write_and_an_insert_with_headline_are_refused(ledger, scope):
+    from src.intelligence.research.ledger import SubsetRefit
+
+    book_run, book_name = await _book(ledger, scope)
+    (run_id,) = (
+        await ledger.start_subset_refits(
+            book_run, [SubsetRefit(("a",), _subset_recipe(book_name, ("a",)))], "tester"
+        )
+    ).values()
+    await ledger.finish_run(
+        run_id,
+        status="completed",
+        snapshot_hash=None,
+        evidence={"contribution": {"headline": {"n_families": 3}}},
+    )
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await _execute("UPDATE research_run SET n_families = 9 WHERE run_id = $1::uuid", run_id)
+    parent = await _row(book_run)
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await _execute(
+            "INSERT INTO research_run (run_group, concept_id, kind, mode, spec_path, spec_hash, "
+            "spec_blob, code_commit, vintage, n_families) VALUES ($1, $2, 'subset_refit', 'real', "
+            "'x', $3, 'b', $4, $5, 4)",
+            parent["run_group"],
+            parent["concept_id"],
+            _hash(),
+            _commit(),
+            parent["vintage"],
+        )
