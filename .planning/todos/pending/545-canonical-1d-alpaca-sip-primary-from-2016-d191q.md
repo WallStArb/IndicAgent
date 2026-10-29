@@ -225,6 +225,13 @@ restated after the re-derive; a daily derive clears them) and 1,852 ibkr NULLs o
 derived 1,493 names, 0 failed (41,982 rows new, 801 changed). canonical_recompute (1,309 at the
 first read) was not diagnosed; read the D7 re-run's verdicts before looking.
 
+D7 re-run 2026-10-29 (after migration 537, the changed-only derive and the digest rewrite), 1,502
+names: 1,273 pass every required 1d check; 229 carry a hold, listed in
+`191-20-D7-HOLDS.tsv` (session_coverage 208, unexplained_seam 25, freshness_1d 6, and CTVA alone on
+lineage_missing, canonical_recompute and policy_conformance: the held rescale name). alpaca_basis_run,
+vendor_basis_run and digest_fresh pass for all. Most holds are one missing session. The gate keeps
+a held name out of promotion; they are not a fault in the re-derive.
+
 Window closed 2026-10-29 ~02:55Z: VACUUM done; all six timers running; peers 47 and 1f told. Left:
-the lineage and canonical_recompute fix above (D7 acceptance), then the notice to the research lane
-owner listing family 2 universe names with holds or pending spans.
+the research notice (sent 2026-10-29 to the peers in the session; indicagent-5b was not reachable),
+resolving holds name by name as a separate piece of work (todo 557 covers the 30 interim daily holds).
