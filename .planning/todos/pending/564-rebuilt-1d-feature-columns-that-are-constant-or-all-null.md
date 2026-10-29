@@ -30,6 +30,19 @@ Related property, not a defect: `adx`, `hurst`, `shannon`, `garch_ratio` change 
 `regime_cache_refresh_bars` rows (the replay of the v2 cache cadence), so on 1d they are piecewise
 constant for about 30 sessions. A research spec reading them should know the effective lag.
 
+## Root cause of `hma_slope_z` (research lane, 2026-10-29)
+
+Not a kernel bug: a placeholder. `FeatureCache.refresh_regime` appends one HMA slope per refresh
+(every `feature.regime.cache_refresh_bars` = 30 rows) and `_zscore_from_deque` returns 0.0 until the
+history holds `feature.momentum.zscore_window` = 252 slopes, so the first non-zero value needs about
+252 x 30 = 7,560 rows. SPY 1d has 5,465 rows, so the column is 0.0 on every row of every 1d name; it
+becomes non-zero on 5m and 15m after about 7,560 rows (a warmup of 0.0 on the first two to three
+months, then real values). The 0.0 is a fill that breaks `no_fill` (warmup masked by declared memory,
+NaN not 0.0). The fix is a kernel edit: return NaN while the history is short (`bar_statistics_refresh`
+declared memory then covers 252 x 30 rows, or the output is NaN-masked by the guard's memory rule),
+which changes the golden parity of the v2 cache replay for the first 7,560 rows. It moves the code
+pin, so apply it to every stage in one rebuild, not between stages.
+
 ## Done when
 
 1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
