@@ -1,0 +1,18 @@
+symbol	failing_checks (name=count of findings)
+ARKK	session_coverage=1
+CTVA	canonical_recompute=1868 freshness_1d=20 lineage_missing=1848 policy_conformance=1848 session_coverage=1
+IGV	session_coverage=1
+IPO	session_coverage=1
+IYT	session_coverage=1
+IYZ	session_coverage=1
+R	unexplained_seam=1
+RSPG	session_coverage=1
+RSPU	session_coverage=1
+SPHB	session_coverage=1
+TMUS	session_coverage=1
+USMV	session_coverage=1
+VCR	session_coverage=1
+VGT	session_coverage=1
+VOX	session_coverage=1
+XTL	session_coverage=1
+XTN	session_coverage=1
