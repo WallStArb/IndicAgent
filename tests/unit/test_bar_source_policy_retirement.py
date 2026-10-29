@@ -498,7 +498,12 @@ async def test_quarantine_sessions_go_through_the_flag_writer(temp_policy_1d, mo
     async def close_batch(conn, batch_id, **kwargs):
         calls["closed"] = (batch_id, kwargs["status"])
 
+    async def no_flagged_names(conn, rule):
+        # The live table holds this rule's flags for names the plan dropped; the test is about the plan.
+        return []
+
     monkeypatch.setattr(osp, "read_quarantine_rules", rules)
+    monkeypatch.setattr(osp, "read_flagged_symbols", no_flagged_names)
     monkeypatch.setattr(osp, "open_batch", open_batch)
     monkeypatch.setattr(osp, "write_flags", write_flags)
     monkeypatch.setattr(osp, "close_batch", close_batch)

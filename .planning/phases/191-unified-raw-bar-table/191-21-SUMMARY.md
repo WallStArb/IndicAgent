@@ -50,3 +50,18 @@ Read-only probe (a scratch script, not committed) over 31 names: 10 with the mos
 Full tests/unit: all pass except 4 failures that also fail on a clean `git archive HEAD` copy (pre-existing, unrelated): test_bar_source_policy_retirement::test_quarantine_sessions_go_through_the_flag_writer, test_feature_vectors_v2_rows::test_column_count_and_order_match_the_migration, test_feature_vectors_v2_schema (2 tests, migration 526 parse).
 
 ## Self-check: PASSED
+
+## Review and handoff to plans 23 and 25
+
+Fresh-context review 2026-10-29: PASS WITH FIXES. Live behavior is unchanged (0 Tradier rows in `market_data_ohlcv` and `ohlcv_raw`; every service, ops script and rebuild module imports). The digest baseline and the after file are kept in the shared checkout's `logs/` (`tradier_code_delete_digest_before.json`, `..._after.json`, 31 names); the probe computed, per name, the stored canonical 1d `bar_content_digest` and the `read_daily_inputs` + `derive_daily_v2` output.
+
+Plan 23 removes, then re-runs the 31-name digests:
+- The `("tradier", "consolidated")` pair in `sources.py` (`CANONICAL_1D_SOURCES`) and `vendor_kind.py` (`VOLUME_BASIS_BY_VENDOR_KIND`), with the Tradier-primary fixtures in `tests/unit/services/test_bar_derivation_daily*.py`; this also drops the two codes from `CANONICAL_1D_VENDORS` and `CANONICAL_1D_KINDS`, which the SQL filters in `bar_derivation.py` and `bar_reconciliation_audit.py` read.
+- `vendor_basis.py` `VENDOR_TRADIER` and its verdict in `classify_run`, with `tests/unit/bars/test_vendor_basis.py` cases (`ops_d191q_arbitration.py` imports it, so it goes with plan 25's script removal).
+- `bar_reconciliation_audit.py` `SOURCE_TRADIER` literal and the agreement report; `listing_venue_writer.py` `VENDOR_TRADIER` and its official-close read.
+- The `bar_derivation._read_1d_snapshot` restore arm: the one 1d snapshot (`data/backups/185-38/market_data_ohlcv_1d_pre_d2v2.csv.gz`) is 6,273,097 Tradier rows of 7,010,186, so a restore now raises KeyError, which is correct. Delete the arm or limit it to IBKR-only snapshots; fix the "Tradier-owned name" docstring.
+- Stale comments citing "the closed pre-D policy row" (`daily_rule.py`, `vendor_kind.py`): all three Tradier policy rows were retired 2026-10-28.
+
+Plan 25 removes `ops_source_policy._TRADIER_PAIR` and `tradier_admission`, `ops_data_bar_check._stored_label` and `_TRADIER_HISTORY_LATE_SQL`, and the scripts `ops_tradier_residue`, `ops_d191q_arbitration` and `ops_tradier_delete`.
+
+Kept for good: `BAR_VENDORS` "tradier" and `BAR_KINDS` "consolidated" (CVR codes from migration 472, pinned by a contract test). The Tradier arm of `daily_rule` cannot run against live policy; deleting it needs an owner-approved follow-up with the 31-name digest proof, landed before 186-26 if its code key covers the module.
