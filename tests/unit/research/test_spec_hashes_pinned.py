@@ -26,6 +26,7 @@ PINNED = {
     "family1_intraday_periodicity.yaml": (
         "b828c285a369b97f35790585327e7a8d8ae98af2db65ec059204603fae172466"
     ),
+    "daily_residual_h5.yaml": "affc57c74b5bac58dfa45b787532d821f5ba2c6848031d17870c030104b82bc6",
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"
     ),

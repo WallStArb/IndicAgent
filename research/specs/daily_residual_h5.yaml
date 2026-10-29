@@ -1,0 +1,76 @@
+# Daily residual momentum and short-term reversal (ledger families 11 and 4, todos 441 and 423).
+# Pre-registration: docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md (sections 2-5).
+# This file is the machine form of that pre-registration. Editing any value after a real run is
+# a new spec hash, a new recorded run and, per the prereg, a methodology change.
+# Dates are quoted and floats carry a decimal point: the loader is strict (spec.py).
+kind: family
+family: daily_residual
+prior_source: docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md
+horizon: 5  # prereg 4: row d signal, enter at d+1's open, exit at d+6's open
+factor_spec: vintage_1  # prereg 2: S1 vintage 1 on the members' universe
+panel:
+  universe: compute_eligible_1d  # prereg 2
+  tf: "1d"
+  bars_per_session: 1
+  start: "2000-01-03"
+  end_exclusive: "2025-12-24"  # alpha.validation.oos_start; the forward span is never read
+  members_universe: daily_unseen  # prereg 2 and 9 B1: names created on or after 2026-09-13, minus the TSMOM sleeve
+  total_return: {suspect_yield: 0.10}  # prereg 2: total-return prices (todo 428)
+members:  # prereg 3; declared memory = slot history + S1's 252 + 21 sessions
+  - name: residual_momentum_12_1
+    signal: src.intelligence.research.families.daily_residual.residual_momentum
+    params: {}
+    slot_history_sessions: 252
+    declared_memory_rows: 525
+  - name: residual_momentum_12_1_z
+    signal: src.intelligence.research.families.daily_residual.residual_momentum_z
+    params: {}
+    slot_history_sessions: 252
+    declared_memory_rows: 525
+  - name: reversal_5
+    signal: src.intelligence.research.families.daily_residual.residual_reversal
+    params: {window_sessions: 5}
+    slot_history_sessions: 5
+    declared_memory_rows: 278
+  - name: reversal_21
+    signal: src.intelligence.research.families.daily_residual.residual_reversal
+    params: {window_sessions: 21}
+    slot_history_sessions: 21
+    declared_memory_rows: 294
+  - name: reversal_5_skip1
+    signal: src.intelligence.research.families.daily_residual.residual_reversal
+    params: {window_sessions: 5, skip_sessions: 1}
+    slot_history_sessions: 6
+    declared_memory_rows: 279
+construction:  # prereg 4, R1
+  name: rank_vol_neutral
+  direction: 1  # member signs are applied inside each member (prereg 3)
+  coverage_floor: 20
+  vol_window_sessions: 60  # prereg 4: 60 sessions of residuals, at least half finite
+  vol_min_finite_fraction: 0.5
+scoring:
+  timing_statistic: e17  # methodology-change-ledger E17 incl. the 2026-10-27 amendment (L = memory + h)
+  session_scoring: true  # one P&L per session
+  trading_start: "2003-01-02"  # prereg 2: alpha rows from 2003-01-02
+  sub_periods:  # prereg 2: reported, not voted on
+    - ["2003-01-02", "2008-12-31"]
+    - ["2009-01-01", "2016-12-31"]
+    - ["2017-01-01", "2025-12-23"]
+  min_shift: 63
+  bootstrap_mean_block: 21
+  bootstrap_reps: 2000
+  seed: 183
+  warmup_sessions: 252
+  calibration_refit_sessions: 21
+  coverage_fraction: 0.95
+  ridge_epsilon_fraction: 0.10
+  mv_condition_max: 1000.0
+  ic_shrinkage_k: 100.0
+guards:
+  seed: 183
+  n_random: 4
+  max_rows: 12
+  s1_probe_sessions: 330
+costs:  # diagnostics only, never a gate (prereg 4)
+  bps_low: 1.0
+  bps_high: 5.0
