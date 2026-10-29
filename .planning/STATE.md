@@ -160,13 +160,22 @@ Read in order: this file -> `ROADMAP.md` (active milestone table) ->
 for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run in parallel and
 coordinate through cross-session messages before touching shared files.
 
-## Lanes (2026-10-26)
+## Restart order (2026-10-29; two sessions only)
 
-| Lane | Session | Boundary |
+The server stays up through a reboot of the owner's PC: timers, the 5m backfill and the
+`stepm-diag-561b` user unit keep running. Open exactly two sessions. Each works in its own
+worktree off origin/main (`git worktree add --detach ../indicagent-<name> origin/main`, symlink
+`.venv`, `.env`, `data`); neither commits from the shared checkout.
+
+| Session | Lane | Order |
 |---|---|---|
-| Data: IBKR fetch, phase 191, Alpaca nightly | indicagent-3a | `src/providers/`, fetcher, `src/intelligence/bars/`, `services/bar_*`, phase 191 files |
-| Research: phase 187 (08-15), E17 v2, family 2 run, daily residual family | indicagent-5b (b1's session ended 2026-10-28) | `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `research/specs/` |
-| Research: phase 184 | indicagent-24 | `.planning/phases/184-*`; research code on 5b's go |
+| A: data | phase 191, Alpaca nightly, IBKR fetch; `src/providers/`, `src/intelligence/bars/`, `services/bar_*`, phase 191 files | 1. Check `stepm-diag-561b` has exited, then `git reset --hard origin/main` in the shared checkout (its dirty files and 2 unpushed commits are backed up in `data/backups/worktree-salvage-20261029/` and already on origin). 2. Plan 191-21, then 22, then 23 (21 and 23 edit the rebuild import closure; 23 needs 22). 3. 186-26 launch only after 21 and 23 land and session B reports the 555/560 path-dependent check and review done. 4. Then the spin-off gap (todo 545 follow-up, M2) and the 229 D7 holds name by name (todo 557). |
+| B: research | phase 187, 184, E17, family 2; `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `.planning/phases/184-*`, `research/specs/` | 1. Read the D7 notice and `191-20-D7-HOLDS.tsv`. 2. 555/560 path-dependent check and review (gates 186-26). 3. Todo 561 (step B failed s1_hostile) and 562 (multi-family plant gap). 4. Family 2 one owner-approved run, with the 187-name universe intersected with the D7 holds first. |
+
+Rules for both: never run two backfills at once; the 5m backfill is a systemd timer, do not
+start another; kill processes by PID only; do not edit modules a live fingerprinted run imports;
+message the other session before touching a shared file. Lanes before 2026-10-29 (3a, 5b, 24,
+47) are gone; their work is on origin/main.
 
 Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
