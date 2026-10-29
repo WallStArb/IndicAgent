@@ -54573,5 +54573,254 @@
    "data"
   ],
   "supersedes": "the 2026-10-11 blocked-run evidence previously in this file (in git history)"
+ },
+ "stage1_1d": {
+  "scope": "stage 1 of N: tf 1d only, 1,273 compute_1d names that are not D7 holds (229 holds excluded, rebuilt in a later stage)",
+  "recorded_utc": "2026-10-29T22:20Z",
+  "pin": {
+   "run_tree": "/home/bg/dev/indicagent-186-26",
+   "code_sha": "92e5883854f98abb771ca9f36245556a58541029",
+   "unit_code_key_prefix": "8c3ab364de21",
+   "why_moved_from_107f9a395": "services/backfill_feature_factory.py:1590 called get_active_contracts(dimension='compute_eligible_1d'); valid dimensions are backfill, compute, live, compute_1d, so the rebuild raised ValueError at startup (the test stub accepted any dimension). One-line fix to 'compute_1d' (same clause: is_active AND compute_eligible_1d) plus a stub that asserts a real dimension. No unit existed, so the move cost nothing. The same fix is NOT yet on origin/main (b7fc94948 has the bug).",
+   "later_stages_must_run_from_this_tree": "unit_code_key hashes the writer module; a different sha gives different batch keys and recomputes every completed unit"
+  },
+  "checker_1d_scope": {
+   "file": "186-26-stage1-1d-checker.json",
+   "intraday_scope": false,
+   "passed": true,
+   "gates": {
+    "bar_coverage": "pass (1273 symbols, 1d verdicts incl. stray_vendor_rows/freshness_1d; 252 ohlcv_empty_history spans listed verbatim in the file)",
+    "derived_grid_landed": "not applicable (1d-only)",
+    "d2_landed": "pass, 1273/1273 fresh (evaluated 2026-10-29 13:24Z)",
+    "data_layer_final_landed": "pass; 189-11 SUMMARY not applicable to 1d-only (185-42/43/45/47/48 present)",
+    "todo445_decision": "pass; keep_5m, decision tfs [15m,1h,1d,5m] == configured [5m,15m,1h,1d]; no correction, no config_history row; 1d-only restriction is the --tf flag",
+    "dependencies_landed": "pass",
+    "drops_landed": "pass (no old-chain relation)",
+    "disk_guard": "pass (pre-launch bound, see disk_guard)",
+    "no_live_run": "pass (no ic_engine/backfill_feature_factory/regime_writer/feature_vector_rebuild process)"
+   },
+   "driver": "scratchpad pre_driver_1d.py, run from /home/bg/dev/indicagent so services.rebuild_preconditions (intraday_scope=False, b7fc94948) is importable"
+  },
+  "todo420": {
+   "owed_by_plan": true,
+   "part_of_stage_1": false,
+   "reason": "grep market_regimes over services/backfill_feature_factory.py and src/intelligence/features/ returns nothing: the factory computes the HMM regime families in-kernel (hmm_trend_walk_forward, hmm_volatility_walk_forward) and never reads the market_regimes table. Left open (pending/420), not run."
+  },
+  "universe": {
+   "source": "get_active_contracts(compute_1d) after _filter_etf_contracts, minus 191-20-D7-HOLDS.tsv",
+   "eligible": 1502,
+   "holds": 229,
+   "stage1_symbols": 1273,
+   "symbols_file": "186-26-stage1-1d-symbols.txt",
+   "chunks": 51,
+   "symbols_per_chunk": 25
+  },
+  "unit_keying": {
+   "batch_key_inputs": "writer, target_table, tf, range_start, range_end, sha256(sorted chunk symbols), code_key, apr_hash, input_digest, unit_key",
+   "chunk_composition": "split_symbol_chunks(sorted(universe passed), 25): depends on the symbol list given to --symbols",
+   "stability_conclusion": "A completed 1d unit is invalidated only by a change to its own 25-name chunk, the code sha, the APR snapshot, the horizon or its own bars. Adding timeframes never touches it (tf is in the key). Adding the 229 holds does NOT touch it IF the later stage passes --symbols <holds only> (or any set disjoint from these 1,273) with --tf 1d: new chunks, new keys. Running the 1d stage over the merged 1,502 list would re-chunk (sorted interleave) and recompute everything.",
+   "choice_made": "--symbols is the explicit non-hold list; chunk size left at the APR 25. Later 1d stage: --symbols <229 holds> --tf 1d --data-horizon 2026-10-01 from this tree. Intraday stage: any symbol set, tfs differ.",
+   "horizon": "pinned --data-horizon 2026-10-01 (exclusive); it is in range_end for 1d, so every stage and every resume must pass the same value. Bars from 2026-10-01 on are not in these features.",
+   "compression_caveat": "run_rebuild_stage compresses only for a full-scope run (no --symbols, no --tf), which would re-plan with different chunks and recompute 1d. Stage 1 therefore leaves feature_vectors_v2 uncompressed; compression needs a standalone _batch_utils.compress_completed_chunks call after all stages, or a rule change. Not decided here."
+  },
+  "regime_pilot": {
+   "method": "compute-only run of services.backfill_feature_factory._rebuild_worker (same code, same pin) for 6 names into a scratch spool, no DB write; then compute_regime_columns per family for status counts",
+   "names": [
+    "SPY",
+    "AAPL",
+    "MSFT",
+    "SCCO",
+    "HON",
+    "SPGI"
+   ],
+   "wall_s_6_workers": 26.7,
+   "errors": 0,
+   "spool_rows": {
+    "SPY": 5465,
+    "AAPL": 5470,
+    "MSFT": 5468,
+    "SCCO": 3929,
+    "HON": 5469,
+    "SPGI": 5469
+   },
+   "raised": false,
+   "segment_status_counts": {
+    "SPY": {
+     "bars": 6849,
+     "nan_volume": 0,
+     "trend": {
+      "NO_MODEL": 543,
+      "WRITTEN": 5802,
+      "DEGENERATE_OCCUPATION": 504
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 6226
+     }
+    },
+    "AAPL": {
+     "bars": 6923,
+     "nan_volume": 0,
+     "trend": {
+      "NO_MODEL": 543,
+      "DEGENERATE_OCCUPATION": 6380
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 6300
+     }
+    },
+    "MSFT": {
+     "bars": 6822,
+     "nan_volume": 0,
+     "trend": {
+      "NO_MODEL": 543,
+      "WRITTEN": 1743,
+      "DEGENERATE_OCCUPATION": 4536
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 6199
+     }
+    },
+    "SCCO": {
+     "bars": 4181,
+     "nan_volume": 2665,
+     "trend": {
+      "INPUT_GAP": 4181
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 3558
+     }
+    },
+    "HON": {
+     "bars": 6912,
+     "nan_volume": 2635,
+     "trend": {
+      "INPUT_GAP": 6912
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 6289
+     }
+    },
+    "SPGI": {
+     "bars": 6788,
+     "nan_volume": 2637,
+     "trend": {
+      "INPUT_GAP": 6788
+     },
+     "volatility": {
+      "NO_MODEL": 623,
+      "WRITTEN": 6165
+     }
+    }
+   },
+   "note": "AAPL and MSFT (no NULL volume) have mostly DEGENERATE_OCCUPATION trend status; that is the walk-forward model gate, not a crash, and it is not part of todo 563."
+  },
+  "pilot_units": {
+   "definition": "the real run's first units (stated before launch); the 6-name scratch run above is a compute check only, because a pilot unit written for SPY etc. would collide on the append-only PK with the real chunk holding SPY",
+   "first_unit": {
+    "chunk_index": 0,
+    "symbols": 25,
+    "rows": 106688,
+    "batch_key_prefix": "4aff5f3bdfee",
+    "load_s": 13.4,
+    "launch_to_loaded_s": 77
+   },
+   "steady_state_s_per_unit": 33,
+   "rows_per_unit": "82k-107k",
+   "worker_rss_mb_each": "310-380 (max 370)",
+   "workers_rss_sum_mb": 4700,
+   "unit_memory_peak_gb": 3.4,
+   "bytes_per_row_uncompressed_incl_indexes": 1379,
+   "bytes_per_row_compressed": "not measured: a partial-scope run never compresses, and an incomplete group is never compressed early"
+  },
+  "workers": {
+   "chosen": 12,
+   "basis": "APR infra.feature_factory.workers = 12; load average 16 on 24 cores with nice 10; RSS 0.37 GB x 12 = 4.7 GB vs MemoryMax 14G; the IBKR 5m fetcher and the data lane's bar_reconciliation_audit (about 62% of one core) run alongside without iowait (nvme 2% util)"
+  },
+  "disk_guard": {
+   "stated_before_launch": {
+    "margin_rule": "max(50 GB, 15% of projected)",
+    "margin_bytes": 50000000000,
+    "fixed_at_utc": "2026-10-29T22:08Z"
+   },
+   "pre_launch_bound": {
+    "rows": 6058938,
+    "bytes_per_row": 4520,
+    "projected_bytes": 27386399760,
+    "free_bytes": 679651594240,
+    "reserve_bytes": 98066699878,
+    "verdict": "pass",
+    "detail": "582 GB available covers the 105 GB requirement"
+   },
+   "measured_after_10_units": {
+    "rows_loaded": 983998,
+    "chunk_total_bytes_incl_indexes": 1356619776,
+    "bytes_per_row": 1379,
+    "projected_rows": 5084947,
+    "projected_bytes": 7011000000,
+    "largest_chunk_working_set_bytes": 7011000000,
+    "margin_bytes": 50000000000,
+    "free_bytes": 679000000000,
+    "reserve_bytes": 98066699878,
+    "verdict": "pass",
+    "detail": "578 GB available covers the 64 GB requirement (projected 7 GB, working set 7 GB, margin 50 GB)",
+    "reserve_basis": "10% of / total, the services/_batch_utils.check_decompress_headroom default (infra.compressed_hypertable_write_session.min_free_after_fraction, no APR row, default 0.10)"
+   },
+   "margin_stated": "free after the run is about 570 GB; margin is 50 GB literal"
+  },
+  "launch": {
+   "unit": "feature-rebuild-1d.service (systemd --user transient)",
+   "script": "186-26-stage1-1d-launch.sh (same command for launch and resume)",
+   "command": "systemd-run --user --unit=feature-rebuild-1d --working-directory=/home/bg/dev/indicagent-186-26 -p MemoryMax=14G -p Nice=10 -p Restart=no -p StandardOutput=append:/home/bg/dev/indicagent/logs/feature_rebuild_1d.log -p StandardError=append:... -E PYTHONPATH=/home/bg/dev/indicagent-186-26 /home/bg/dev/indicagent/.venv/bin/python services/backfill_feature_factory.py --compute-only --tf 1d --data-horizon 2026-10-01 --workers 12 --symbols <186-26-stage1-1d-symbols.txt>",
+   "launch_utc": "2026-10-29T22:08:49Z",
+   "main_pid_first": 3707416,
+   "main_pid_after_resume": 3710821,
+   "stdout_stderr_log": "/home/bg/dev/indicagent/logs/feature_rebuild_1d.log (warnings and crash traces)",
+   "structlog_log": "/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log (10 MB x 4 rotation; unit_loaded lines; provenance_batch is the durable record)"
+  },
+  "db_load": {
+   "samples_utc": [
+    "22:14:58",
+    "22:15:43",
+    "22:16:28"
+   ],
+   "non_idle_backends": "12 idle-in-transaction worker read cursors (ClientRead) + 1-3 active",
+   "ungranted_locks": 0,
+   "iowait_pct": 0.04,
+   "nvme_util_pct": 2,
+   "load_avg_1m": 16.4,
+   "verdict": "acceptable: no lock waits, no iowait, other lanes unaffected"
+  },
+  "wall_clock": {
+   "units": 51,
+   "steady_s_per_unit": 33,
+   "expected_minutes": 28,
+   "expected_finish_utc": "2026-10-29T22:42Z",
+   "basis": "10 units in 6.75 min incl. a 1.4 min kill/resume gap; workers 12, compute-bound (about 25 s per name per core), COPY 13 s per unit overlapped with the next group's compute"
+  },
+  "kill_resume": {
+   "completed_before_kill": 4,
+   "rows_before_kill": 389469,
+   "noncompleted_provenance_rows_before_kill": 0,
+   "kill_utc": "2026-10-29T22:12:16Z",
+   "kill": "kill 3707416 (main PID); systemd cgroup cleanup took the forkserver workers; then ps|awk with bracketed pattern showed 0 backfill_feature_factory processes; pg_stat_activity showed 0 backends on feature_vectors_v2 and none in ClientWrite",
+   "orphan_workers_after_kill": 0,
+   "leftover_backends_terminated": 0,
+   "killed_mid_group": "spool dirs group-1d-0004 and group-1d-0005 left, purged by the relaunch's startup",
+   "relaunch_utc": "2026-10-29T22:12:33Z",
+   "relaunch": "same script, same argv, same sha, same logs",
+   "units_skipped_after_resume": 4,
+   "skip_proof": "after the relaunch the first new unit was chunk 4 (6a75766a98ed) 56 s after start, the four pre-kill provenance rows are unchanged (same batch_key, generation 1, started_at), feature_vectors_v2 rows grew 389469 -> 680204 by exactly the three new units (102439+102167+86129), and no duplicate (symbol, bar_ts). The run's closing stage2_complete line carries units_skipped=4.",
+   "completed_after_resume_at_record_time": 10
+  },
+  "resume_procedure": [
+   "1. kill <MainPID from systemctl --user show feature-rebuild-1d -p MainPID> (or systemctl --user stop feature-rebuild-1d, which also reaps the cgroup)",
+   "2. ps -eo pid,cmd | awk '/[b]ackfill_feature_factory/ && !/awk/ {print $1}' | xargs kill ; confirm zero remain; terminate any pg_stat_activity backend on feature_vectors_v2 in ClientWrite",
+   "3. .planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/186-26-stage1-1d-launch.sh (from /home/bg/dev/indicagent-186-26; systemctl --user reset-failed feature-rebuild-1d first if the unit is failed)"
+  ]
  }
 }
