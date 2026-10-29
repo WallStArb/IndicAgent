@@ -443,7 +443,12 @@ def _masked_until_reset(
     start_of_row = starts[np.searchsorted(starts, np.arange(n), side="right") - 1]
     counts = np.cumsum(dropped)
     before = np.where(start_of_row > 0, counts[np.maximum(start_of_row - 1, 0)], 0)
-    return counts - before > 0
+    masked = counts - before > 0
+    if kernel.volume_reset == "week":
+        # The weekly flag reads its state before the same bar is added (row i holds bars < i), so
+        # the first row of the next week still carries the corrupted week.
+        masked[1:] |= masked[:-1].copy()
+    return masked
 
 
 def _reset_id(ts: object, anchor: str) -> tuple[int, ...] | object:

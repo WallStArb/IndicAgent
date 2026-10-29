@@ -138,7 +138,7 @@ def _bars_ts(n: int) -> np.ndarray:
 
 
 @pytest.mark.parametrize(
-    ("anchor", "bars_to_reset"), [("week", 5 * 26 - 30), ("session", 26 - 30 % 26)]
+    ("anchor", "bars_to_reset"), [("week", 5 * 26 - 30 + 1), ("session", 26 - 30 % 26)]
 )
 def test_masked_until_reset_covers_the_dropped_bar_to_the_next_anchor(anchor, bars_to_reset):
     from dataclasses import replace
@@ -171,9 +171,10 @@ def test_weekly_vwap_flag_recovers_exactly_after_the_week_with_a_dropped_bar():
     cut["volume"][40] = np.nan
     got = _compute_basis_guarded(kernel, cut, np.ones(n, dtype=np.int64), config)["above_wk_vwap"]
     week_end = 5 * 26  # bars 0..129 are week 1
-    assert np.isnan(got[40:week_end]).all()
-    assert not np.isnan(got[:40]).any() and not np.isnan(got[week_end:]).any()
-    np.testing.assert_array_equal(got[week_end:], truth[week_end:])
+    # the flag at row i reads bars < i, so the first row of the next week is still corrupted
+    assert np.isnan(got[40 : week_end + 1]).all()
+    assert not np.isnan(got[:40]).any() and not np.isnan(got[week_end + 1 :]).any()
+    np.testing.assert_array_equal(got[week_end + 1 :], truth[week_end + 1 :])
     np.testing.assert_array_equal(got[:40], truth[:40])
 
 

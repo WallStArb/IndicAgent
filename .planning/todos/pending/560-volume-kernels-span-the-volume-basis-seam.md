@@ -71,8 +71,12 @@ guarded kernels found every one but `session_levels` changes with volume.
   entered as 0.0 is a fill whose effect outlives its row, so a kernel with a reset anchor
   (`Kernel.volume_reset`: `calendar_above_wk_vwap` week, `session_vp` ET session) is masked from the
   dropped bar to the next reset; `vwap_dev_sigma` and `ctf_source` never reset and mask the dropped
-  row only (accepted tolerance: up to 0.086 sigma after a dropped bar, one missing weight among the
-  accumulated bars). `session_levels` never reads volume and is now `nan_volume_safe`.
+  row only. The residual error is the dropped bar's share of the accumulated volume, so it is large
+  near the series start (one drop at row 5 of the test series moves `vwap_dev_sigma` by 0.30 sigma
+  for the rest of the series, and `ctf_source` flips its vwap-align sign on 1 to 4 rows) and small
+  later (0.025 sigma at row 20, up to 0.086 sigma over the series); accepted, since NULL volume sits
+  on 1d fallback bars and the first bars of a name are warmup. The weekly flag also masks the first
+  row of the next week (it reads state before the bar is added). `session_levels` never reads volume and is now `nan_volume_safe`.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.
