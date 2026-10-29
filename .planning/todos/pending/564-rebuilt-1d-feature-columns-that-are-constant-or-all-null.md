@@ -1,0 +1,43 @@
+---
+status: pending
+priority: P1
+filed: 2026-10-29
+source: data lane check of the 186-26 stage 1 output (feature_vectors_v2, tf 1d)
+---
+
+# Rebuilt 1d feature columns that are constant or all NULL must not reach the research read
+
+After the 1d rebuild (5,127,577 rows, 1,257 names, 2005-01-03 to 2026-09-30), a pooled screen over
+eight names (SPY, AAPL, MSFT, JPM, XOM, SCCO, HON, KO) finds, of 309 real columns, 18 all NULL and 22
+constant. Most are intraday-session concepts that are degenerate on a daily bar by construction
+(`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`, `in_overlap`, `power_hour`,
+`session_time_pos`, `opening_range`, the Asian and overnight session distances, the intraday return
+divergences). Those are not defects of the kernels, but a column with no information on a timeframe
+looks real to a reader.
+
+Two groups need a closer look because a daily bar should give them values:
+
+- `hma_slope_z` is exactly 0 on every row for every name checked (SPY: 5,465 of 5,465). It sits in the
+  `bar_statistics_refresh` group beside `hurst`, `shannon`, `garch_ratio` and `adx`, which vary. A zero
+  column is a silent wrong answer.
+- Volume-profile and structure outputs on 1d: `poc_dist_atr`, `price_in_value_area`, `va_position`,
+  `hmm_vol_prob_elevated`, `amd_phase`, `amd_distribution_direction`, `amd_manipulation_detected`,
+  `manip_strength`, `sweep_detected` are constant; `distance_to_vah_atr`, `distance_to_val_atr`,
+  `va_width_atr`, `nearest_hvn_*`, `nearest_lvn_*`, `poc_rolling_dist_atr` are all NULL. Decide for each
+  whether 1d is out of scope for the concept (then it is NaN by declaration) or the kernel is wrong.
+
+Related property, not a defect: `adx`, `hurst`, `shannon`, `garch_ratio` change only every
+`regime_cache_refresh_bars` rows (the replay of the v2 cache cadence), so on 1d they are piecewise
+constant for about 30 sessions. A research spec reading them should know the effective lag.
+
+## Done when
+
+1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
+2. Every other column above has a declared timeframe applicability in the registry (UCR), so the S0
+   read excludes a column on a timeframe where it carries no information, instead of reading zeros.
+3. A check in the rebuild's completion record screens each stage's output for constant and all-NULL
+   columns per timeframe, so a dead column is named when it appears. Run it for the later intraday
+   stage as well.
+
+Edits under `src/intelligence/features/` after the 186-26 pin are a code-key change: they apply to
+later stages only if the pin moves, so batch them with the next kernel edit window.
