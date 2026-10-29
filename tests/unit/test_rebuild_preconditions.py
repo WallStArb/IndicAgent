@@ -616,7 +616,7 @@ def test_a_1d_only_stage_does_not_require_the_intraday_markers():
     }
     with pytest.raises(RebuildPreconditionFailure):
         run_all(**inputs)
-    results = {r.name: r for r in run_all(**inputs, intraday_scope=False)}
+    results = {r.name: r for r in run_all(**inputs, includes_intraday=False)}
     assert (
         results["derived_grid_landed"].ok
         and "not applicable" in results["derived_grid_landed"].detail
@@ -633,7 +633,7 @@ def test_a_1d_only_stage_still_requires_every_other_summary_and_every_scan():
     }
     inputs["d2_scan"] = VerdictScan({"SPY": ["1d:digest_fresh failed"]}, 3, _AT1, _AT2)
     with pytest.raises(RebuildPreconditionFailure) as excinfo:
-        run_all(**inputs, intraday_scope=False)
+        run_all(**inputs, includes_intraday=False)
     message = str(excinfo.value)
     assert "185-42-SUMMARY.md" in message and "d2_landed" in message
     assert "missing SUMMARY files: 185-42-SUMMARY.md;" in message

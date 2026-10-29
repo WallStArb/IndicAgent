@@ -334,17 +334,17 @@ def run_all(
     disk: Mapping[str, int],
     process_lines: Sequence[str],
     resumable_log_evidence: str,
-    intraday_scope: bool = True,
+    includes_intraday: bool = True,
 ) -> list[CheckResult]:
     """Run every D-32 check, return all results, and raise `RebuildPreconditionFailure`
     naming EVERY failure when any check fails.
 
-    `intraday_scope=False` is a 1d-only stage: the daily series reads neither the derived 15m/1h
+    `includes_intraday=False` is a 1d-only stage: the daily series reads neither the derived 15m/1h
     grid nor the 5m backfill, so the two checks about those (`derived_grid_landed`, and the 189-11
     part of `data_layer_final_landed`) are reported as not applicable instead of required. The
     caller then passes `bar_scan` and `d2_scan` for the 1d verdicts of exactly the symbols it
     rebuilds. A later intraday stage runs with the default and every gate."""
-    if intraday_scope:
+    if includes_intraday:
         grid_result = check_derived_grid_landed(grid_marker_present, grid_marker_detail)
         final_result = check_data_layer_final_landed(final_landed_markers)
     else:
