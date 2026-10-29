@@ -178,3 +178,128 @@ def correlation_clusters(z_train: np.ndarray, threshold: float) -> np.ndarray:
     np.fill_diagonal(dist, 0.0)
     tree = linkage(squareform(dist, checks=False), method="complete")
     return fcluster(tree, t=1.0 - threshold, criterion="distance")
+
+
+# ---------------------------------------------------------------------------
+# The contribution block of a book test (plan 187-14 Task 3)
+# ---------------------------------------------------------------------------
+
+SCHEMA = 1
+# Subset refits a book may run (each is a counted attempt, design 7.1). Shapley over families is
+# exact only while 2^F - 2 stays within it; above, the block records leave-one-family-out only
+# and says Shapley was not computed (the 187-14 review amendment pins this cap with the spec; it
+# is a code constant here because a new spec field would move every recorded spec hash).
+MAX_SUBSET_REFITS = 256
+
+
+def required_subsets(n_families: int, exact_max_families: int) -> list[tuple[int, ...]]:
+    """The family subsets whose refits the block needs: every leave-one-out set when there are
+    at least two families, and (at four or more families, within the exact and refit caps) every
+    nonempty proper subset for exact Shapley. Sorted, each once."""
+    if n_families < 2:
+        return []
+    everyone = tuple(range(n_families))
+    out = {tuple(j for j in everyone if j != i) for i in everyone}
+    if shapley_possible(n_families, exact_max_families):
+        for size in range(1, n_families):
+            out.update(itertools.combinations(everyone, size))
+    return sorted(out, key=lambda s: (len(s), s))
+
+
+def shapley_possible(n_families: int, exact_max_families: int) -> bool:
+    return (
+        n_families >= 4
+        and n_families <= exact_max_families
+        and 2**n_families - 2 <= MAX_SUBSET_REFITS
+    )
+
+
+def account(
+    terms: np.ndarray,
+    target: np.ndarray,
+    member_keys: Sequence[str],
+    member_families: Sequence[str],
+    full_t: float,
+    subset_t: dict[tuple[int, ...], float],
+    *,
+    exact_max_families: int,
+    fold_weights: np.ndarray | None = None,
+) -> dict:
+    """The evidence block. `terms` [n, m, K] are the combiner's member terms on the scored cells
+    (NaN elsewhere), `member_families` the family of each member, `full_t` the book's E17 t and
+    `subset_t` the t of each refit family subset named by required_subsets (a subset with an
+    undefined refit maps to NaN). Groups are the family: feature-origin and in-fold cluster
+    groups inside corpus or generated families arrive with the generated_family grammar
+    (plan 187-15), where a family has members to split. Diagnostics only: no number here is a
+    test."""
+    families = list(dict.fromkeys(member_families))
+    per_member, total = attribution(terms, target)
+    groups = group_totals(per_member, member_families)
+    z = np.where(np.isfinite(terms).any(axis=2, keepdims=True), np.nan_to_num(terms), np.nan)
+    z = z.reshape(-1, z.shape[2])
+    uniq = uniqueness(z)
+    breadth = effective_breadth(z)
+    block: dict = {
+        "schema": SCHEMA,
+        "groups_method": "family",
+        "families": families,
+        "attribution": {
+            "total": total,
+            "members": dict(zip(member_keys, per_member.tolist(), strict=True)),
+            "groups": groups,
+        },
+        "uniqueness": dict(zip(member_keys, uniq.tolist(), strict=True)),
+        "effective_breadth": breadth,
+    }
+    lofo_drop = None
+    if len(families) >= 2:
+        everyone = tuple(range(len(families)))
+        lofo = {}
+        for i, family in enumerate(families):
+            t_without = subset_t[tuple(j for j in everyone if j != i)]
+            lofo[family] = {"t_without": t_without, "t_drop": full_t - t_without}
+        block["lofo"] = lofo
+        drops = [v["t_drop"] for v in lofo.values() if np.isfinite(v["t_drop"])]
+        lofo_drop = max(drops) if drops else None
+        if shapley_possible(len(families), exact_max_families):
+            values = {s: v for s, v in subset_t.items()}
+            if all(np.isfinite(v) for v in values.values()) and np.isfinite(full_t):
+
+                def value(subset: tuple[int, ...]) -> float:
+                    if not subset:
+                        return 0.0
+                    return full_t if len(subset) == len(families) else values[tuple(sorted(subset))]
+
+                phi = shapley_exact(value, len(families))
+                block["shapley"] = {
+                    "method": "exact",
+                    "values": dict(zip(families, phi.tolist(), strict=True)),
+                }
+                block["pnl_split"] = {"method": "family_shapley_of_t", "sum": float(phi.sum())}
+            else:
+                block["shapley"] = {
+                    "method": "not_computed",
+                    "reason": "a subset refit is undefined",
+                }
+        else:
+            block["shapley"] = {
+                "method": "not_computed",
+                "reason": f"{len(families)} families: exact Shapley needs 4 to "
+                f"{exact_max_families} families and at most {MAX_SUBSET_REFITS} subset refits",
+            }
+    stability = None
+    if fold_weights is not None and fold_weights.shape[0] > 0:
+        stab = sign_stability(fold_weights)
+        block["sign_stability"] = dict(zip(member_keys, stab.tolist(), strict=True))
+        finite = stab[np.isfinite(stab)]
+        stability = float(finite.min()) if finite.size else None
+    mags = np.abs(np.array(list(groups.values())))
+    share = float(mags.max() / mags.sum()) if mags.sum() > 0 else None
+    block["headline"] = {
+        "n_families": len(families),
+        "effective_breadth": breadth if np.isfinite(breadth) else None,
+        "top_group_share": share,
+        "lofo_max_t_drop": lofo_drop,
+        "sign_stability_min": stability,
+    }
+    return block

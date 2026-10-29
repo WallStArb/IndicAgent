@@ -203,3 +203,73 @@ def test_attribution_of_a_real_book_sums_to_its_forecast_covariance():
     forecast = spec.combine(stack, target)
     assert per.sum() == pytest.approx(total, rel=1e-12)
     assert total == pytest.approx(_cov(forecast, target), rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# account(): the block a book test records
+# ---------------------------------------------------------------------------
+
+
+def _block_inputs(n_families, members_per_family=2):
+    rng = np.random.default_rng(5)
+    k = n_families * members_per_family
+    terms = rng.standard_normal((60, 10, k))
+    target = rng.standard_normal((60, 10))
+    fams = [f"f{i // members_per_family}" for i in range(k)]
+    keys = [f"{f}.m{i}" for i, f in enumerate(fams)]
+    return terms, target, keys, fams
+
+
+def test_required_subsets_by_family_count():
+    assert c.required_subsets(1, 12) == []
+    assert c.required_subsets(2, 12) == [(0,), (1,)] and len(c.required_subsets(3, 12)) == 3
+    four = c.required_subsets(4, 12)  # every nonempty proper subset: 2^4 - 2
+    assert len(four) == 14 and four[0] == (0,) and four[-1] == (1, 2, 3)
+    assert len(c.required_subsets(9, 12)) == 9  # 2^9 - 2 exceeds the refit cap: leave-one-out only
+
+
+def test_single_family_book_has_attribution_uniqueness_and_breadth_only():
+    terms, target, keys, fams = _block_inputs(1)
+    block = c.account(terms, target, keys, fams, 2.0, {}, exact_max_families=12)
+    assert "lofo" not in block and "shapley" not in block
+    assert block["headline"]["n_families"] == 1 and block["headline"]["lofo_max_t_drop"] is None
+    assert block["attribution"]["total"] == pytest.approx(
+        sum(block["attribution"]["members"].values())
+    )
+
+
+def test_four_family_book_records_lofo_exact_shapley_and_headline():
+    terms, target, keys, fams = _block_inputs(4)
+    weights = [3.0, 1.0, 0.0, -1.0]  # an additive game over families
+    subset_t = {s: float(sum(weights[i] for i in s)) for s in c.required_subsets(4, 12)}
+    block = c.account(terms, target, keys, fams, 3.0, subset_t, exact_max_families=12)
+    assert block["shapley"]["method"] == "exact"
+    assert list(block["shapley"]["values"].values()) == pytest.approx(weights)
+    assert block["lofo"]["f0"]["t_drop"] == pytest.approx(3.0)
+    assert block["headline"]["lofo_max_t_drop"] == pytest.approx(3.0)
+    assert block["pnl_split"]["sum"] == pytest.approx(3.0)
+    assert set(block["attribution"]["groups"]) == {"f0", "f1", "f2", "f3"}
+
+
+def test_above_the_caps_shapley_is_not_computed_and_says_why():
+    terms, target, keys, fams = _block_inputs(9, 1)
+    subset_t = {s: 1.0 for s in c.required_subsets(9, 12)}
+    block = c.account(terms, target, keys, fams, 2.0, subset_t, exact_max_families=12)
+    assert block["shapley"]["method"] == "not_computed" and "refits" in block["shapley"]["reason"]
+    assert "lofo" in block
+
+
+def test_sign_stability_feeds_the_headline_minimum():
+    terms, target, keys, fams = _block_inputs(2)
+    folds = np.array([[1.0, 1.0, -1.0, 1.0], [1.0, -1.0, -1.0, 1.0], [1.0, 1.0, -1.0, 1.0]])
+    block = c.account(
+        terms,
+        target,
+        keys,
+        fams,
+        1.0,
+        {(0,): 0.5, (1,): 0.2},
+        exact_max_families=12,
+        fold_weights=folds,
+    )
+    assert block["headline"]["sign_stability_min"] == pytest.approx(2 / 3)

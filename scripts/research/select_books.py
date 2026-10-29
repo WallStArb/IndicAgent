@@ -62,13 +62,13 @@ APR_KEYS = (
 )
 
 _COUNTED_SQL = """
-SELECT r.run_id::text AS run_id, c.name AS concept, r.status, r.spec_blob, r.code_commit,
+SELECT r.run_id::text AS run_id, c.name AS concept, r.kind, r.status, r.spec_blob, r.code_commit,
        s.sessions, s.d_s
 FROM research_run r
 JOIN concept_registry c USING (concept_id)
 LEFT JOIN research_run_series s USING (run_id)
 WHERE r.vintage = $1 AND NOT (r.status = ANY($2::text[]))
-  AND r.kind IN ('evidence', 'book_test', 'pod_book')
+  AND r.kind IN ('evidence', 'book_test', 'pod_book', 'subset_refit')
 ORDER BY r.started_at, c.name
 """
 
@@ -76,7 +76,7 @@ ORDER BY r.started_at, c.name
 _OTHER_VINTAGES_SQL = """
 SELECT DISTINCT vintage FROM research_run
 WHERE vintage <> $1 AND NOT (status = ANY($2::text[]))
-  AND kind IN ('evidence', 'book_test', 'pod_book')
+  AND kind IN ('evidence', 'book_test', 'pod_book', 'subset_refit')
 ORDER BY vintage
 """
 
@@ -217,6 +217,9 @@ async def build_report(
         "refusals": refusals,
         "vintage": vintage,
         "attempts": len(with_series),
+        # Diagnostic subset refits are counted attempts too (design 7.1): they price the
+        # correlation of a subset with its parent book, so StepM sees them.
+        "subset_refits": sum(r["kind"] == "subset_refit" for r in with_series),
         "sessions": [str(calendar[0]), str(calendar[-1]), len(calendar)],
         "fwer": out.fwer,
         "block_mean": out.block_mean,
@@ -228,6 +231,7 @@ async def build_report(
             {
                 "run_id": r["run_id"],
                 "concept": r["concept"],
+                "kind": r["kind"],
                 "t": float(out.t[k]),
                 "adjusted_p": float(out.adjusted_p[k]),
             }
@@ -236,7 +240,13 @@ async def build_report(
         ],
         "not_selected": len(with_series) - int(out.selected.sum()),
         "missing_series": [
-            {"run_id": r["run_id"], "concept": r["concept"], "status": r["status"]} for r in missing
+            {
+                "run_id": r["run_id"],
+                "concept": r["concept"],
+                "kind": r["kind"],
+                "status": r["status"],
+            }
+            for r in missing
         ],
     }
     return report

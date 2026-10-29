@@ -117,8 +117,9 @@ def test_dry_run_writes_nothing(tmp_path, monkeypatch):
 def test_selection_universe_excludes_legacy_rows():
     from scripts.research import select_books
 
-    assert "r.kind IN ('evidence', 'book_test', 'pod_book')" in select_books._COUNTED_SQL
+    kinds = "('evidence', 'book_test', 'pod_book', 'subset_refit')"
+    assert f"r.kind IN {kinds}" in select_books._COUNTED_SQL
     # Legacy rows have vintage `legacy`: counted as "other vintages" they would refuse every
     # selection, so that query takes the same kinds.
-    assert "kind IN ('evidence', 'book_test', 'pod_book')" in select_books._OTHER_VINTAGES_SQL
+    assert f"kind IN {kinds}" in select_books._OTHER_VINTAGES_SQL
     assert legacy_cards.LEGACY_VINTAGE == "legacy"

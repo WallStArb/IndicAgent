@@ -40,6 +40,7 @@ import numpy as np
 
 from src.intelligence.research import (
     certificate,
+    contribution,
     data_quality,
     dividends,
     guards,
@@ -76,9 +77,11 @@ from src.intelligence.research.ledger import (
     LedgerRefusal,
     PinnedRun,
     RunRequest,
+    SubsetRefit,
 )
 from src.intelligence.research.panel import SECTOR_PIT, Panel, fwd_span, present
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
+from src.intelligence.research.recipe import RecipeContent
 from src.intelligence.research.spec import (
     TIMING_STATISTIC,
     BookSpec,
@@ -99,6 +102,17 @@ class BudgetConfig:
     screen_alpha: float
 
 
+@dataclasses.dataclass(frozen=True)
+class ContributionConfig:
+    """Contribution accounting settings (APR alpha.research.contribution.*, read by the caller,
+    never inside the research layer). A RunContext without one skips accounting."""
+
+    exact_max_families: int
+    shapley_samples: int
+    shapley_seed: int
+    cluster_corr: float
+
+
 class RunRefused(Exception):
     """A real run refused before any ledger row exists (D-02, or a ledger refusal)."""
 
@@ -111,6 +125,8 @@ class LedgerPort(Protocol):
     async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None) -> None: ...
 
     async def pinned_run(self, run_id: str) -> PinnedRun | None: ...
+
+    async def start_subset_refits(self, parent_run_id: str, refits, author: str) -> dict: ...
 
 
 async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
@@ -144,6 +160,8 @@ class RunContext:
     # prompted this one (research_run.informed_by).
     apr_values: dict = dataclasses.field(default_factory=dict)
     informed_by: str | None = None
+    # Plan 187-14: contribution accounting of a book test; None records none.
+    contribution: ContributionConfig | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1016,6 +1034,7 @@ async def run_book(
         )
         _log("S2 members")
         columns, members, memories, slot_histories, member_keys = [], [], [], [], []
+        member_fams: list[str] = []
         for fam in families:
             fam_members = compute_members(fam, residuals.bar, bars_per_session=bps)
             _log(f"S3 guards {fam.family}")
@@ -1039,6 +1058,7 @@ async def run_book(
                 memories.append(m.declared_memory_rows)
                 slot_histories.append(m.slot_history_sessions)
                 member_keys.append(f"{fam.family}.{m.name}")
+                member_fams.append(fam.family)
             del fam_members
         stack = np.stack(columns, axis=2).astype(np.float32)
         del columns
@@ -1126,6 +1146,33 @@ async def run_book(
         stack_present = (
             np.isfinite(stack).sum(axis=2) if book.combiner.min_members is not None else None
         )
+        contribution_block = None
+        if ctx.contribution is not None:
+            _log("S8 contribution accounting")
+            contribution_block = await _contribution(
+                loaded=loaded,
+                ctx=ctx,
+                run_id=run_id,
+                subject=subject,
+                code_root=root if real else None,
+                snapshot_hash=snapshot_hash,
+                session_dates=snapshot.session_dates(panel),
+                stack=stack,
+                member_keys=member_keys,
+                member_fams=member_fams,
+                slot_histories=slot_histories,
+                memories=memories,
+                residuals=residuals,
+                vol=vol,
+                trade=trade,
+                combiner=combiner,
+                booked=booked,
+                bps=bps,
+                horizon=fam0.horizon,
+                cfg=cfg,
+                horizon_rule=horizon_rule,
+                row_session_dates=row_session_dates,
+            )
         del stack
         _log("S8 shift-null diagnostic")
         res, n_shifts = _shift_diagnostic(
@@ -1182,6 +1229,8 @@ async def run_book(
             "horizon_rows": mem.horizon_rows,
             "total": mem.sessions,
         }
+        if contribution_block is not None:
+            record["contribution"] = contribution_block
         _log("done")
         return await finish("completed", record, series)
     except Exception as error:
@@ -1195,3 +1244,200 @@ async def run_book(
             except Exception:  # noqa: BLE001 - the original error is the one to raise
                 pass
         raise
+
+
+def _refit_subset(
+    book: BookSpec,
+    stack: np.ndarray,
+    cols: list[int],
+    *,
+    member_keys,
+    slot_histories,
+    memories,
+    residuals: Residuals,
+    vol,
+    trade,
+    bps: int,
+    horizon: int,
+    cfg,
+    horizon_rule: HorizonRule,
+    row_session_dates,
+):
+    """The book refit on the members at `cols` with its own combiner, construction rule, horizon
+    rule and E17 statistic (memory recomputed for the subset). None when the combiner cannot be
+    built on so few members (a present-member floor above the subset's size)."""
+    min_members = book.combiner.min_members
+    if min_members is not None and min_members > len(cols):
+        return None
+    combiner = _combiner(book, [member_keys[i] for i in cols], bps, horizon)
+    mem = book_memory(
+        [slot_histories[i] for i in cols],
+        [memories[i] for i in cols],
+        horizon,
+        combiner,
+        horizon_rule,
+        bps,
+    )
+    return book_timing(
+        stack[:, :, cols],
+        residuals.fwd,
+        vol,
+        trade,
+        combiner=combiner,
+        rule=resolve_rule(book, bps),
+        bars_per_session=bps,
+        warmup_sessions=cfg.warmup_sessions,
+        memory_sessions=mem.sessions,
+        horizon_rule=horizon_rule,
+        row_session_dates=row_session_dates,
+    )
+
+
+async def _contribution(
+    *,
+    loaded: LoadedSpec,
+    ctx: RunContext,
+    run_id,
+    subject: str,
+    code_root,
+    snapshot_hash,
+    session_dates,
+    stack,
+    member_keys,
+    member_fams,
+    slot_histories,
+    memories,
+    residuals: Residuals,
+    vol,
+    trade,
+    combiner,
+    booked,
+    bps: int,
+    horizon: int,
+    cfg,
+    horizon_rule: HorizonRule,
+    row_session_dates,
+) -> dict:
+    """The contribution block of a book test (design 13): member terms and their attribution on
+    the traded cells, and, for a book of two or more families, the leave-one-family-out and
+    Shapley subset refits. Each refit is a counted attempt in real mode (kind subset_refit, own
+    recipe, its series), written through the ledger before its statistic is computed. Reads the
+    member stack the S8 statistic used; never edits the book."""
+    book = loaded.model
+    settings = ctx.contribution
+    terms = combiner.member_terms(stack, residuals.fwd, row_session_dates=row_session_dates)
+    terms = np.where(trade[:, None, None], terms, np.nan)
+    families = list(dict.fromkeys(member_fams))
+    fold_weights = (
+        combiner.fold_weights(stack, residuals.fwd, row_session_dates=row_session_dates)
+        if isinstance(combiner, RidgeSpec)
+        else None
+    )
+
+    subsets = contribution.required_subsets(len(families), settings.exact_max_families)
+    refits: dict[tuple[int, ...], object] = {}
+    for subset in subsets:
+        chosen = {families[i] for i in subset}
+        cols = [i for i, f in enumerate(member_fams) if f in chosen]
+        refits[subset] = _refit_subset(
+            book,
+            stack,
+            cols,
+            member_keys=member_keys,
+            slot_histories=slot_histories,
+            memories=memories,
+            residuals=residuals,
+            vol=vol,
+            trade=trade,
+            bps=bps,
+            horizon=horizon,
+            cfg=cfg,
+            horizon_rule=horizon_rule,
+            row_session_dates=row_session_dates,
+        )
+    if subsets and run_id is not None:
+        await _record_subset_refits(
+            loaded, ctx, run_id, subject, code_root, snapshot_hash, session_dates, families, refits
+        )
+    subset_t = {
+        s: (float(r.timing.hac.t) if r is not None else float("nan")) for s, r in refits.items()
+    }
+    return contribution.account(
+        terms,
+        residuals.fwd,
+        member_keys,
+        member_fams,
+        float(booked.timing.hac.t),
+        subset_t,
+        exact_max_families=settings.exact_max_families,
+        fold_weights=fold_weights,
+    )
+
+
+async def _record_subset_refits(
+    loaded: LoadedSpec,
+    ctx: RunContext,
+    run_id,
+    subject,
+    code_root,
+    snapshot_hash,
+    session_dates,
+    families,
+    refits,
+) -> None:
+    """Each computed subset refit as a counted attempt: its recipe (the parent's recipe hash, the
+    canonical subset and the accounting method) first, then its row, its evidence and series."""
+    book = loaded.model
+    parent_hash = recipe_mod.book_recipes(loaded, ctx.apr_values)[subject].recipe_hash
+    keyed = {s: tuple(sorted(families[i] for i in s)) for s in refits}
+    requests = [
+        SubsetRefit(
+            keyed[s],
+            RecipeContent(
+                concept=subject,
+                code_pointer="src.intelligence.research.contribution:account",
+                params={
+                    "parent_recipe_hash": parent_hash,
+                    "subset": list(keyed[s]),
+                    "accounting": "family_lofo_shapley_v1",
+                },
+                apr_values={},
+                inputs=(),
+                universe_selector=None,
+                cvr_codes={},
+                mechanism="contribution accounting subset refit of a book test",
+                sources=(book.prior_source,),
+            ),
+        )
+        for s in sorted(refits, key=lambda s: (len(s), s))
+    ]
+    started = await ctx.ledger.start_subset_refits(
+        run_id, requests, provenance.git_author(code_root)
+    )
+    for subset, result in refits.items():
+        sub_run = started[keyed[subset]]
+        if result is None:
+            await ctx.ledger.finish_run(
+                sub_run,
+                status="failed",
+                snapshot_hash=snapshot_hash,
+                evidence={"stage": "subset_refit", "error": "combiner undefined on this subset"},
+            )
+            continue
+        t = result.timing
+        await ctx.ledger.finish_run(
+            sub_run,
+            status="completed",
+            snapshot_hash=snapshot_hash,
+            evidence={
+                "stage": "subset_refit",
+                "subset": list(keyed[subset]),
+                "decision": {
+                    "t": t.hac.t,
+                    "p": t.hac.p,
+                    "n_sessions": t.hac.n,
+                    "annualized_sharpe": t.annualized_sharpe,
+                },
+            },
+            series=AttemptSeries.from_timing(session_dates, t.series),
+        )

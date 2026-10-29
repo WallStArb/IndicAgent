@@ -33,6 +33,7 @@ from src.intelligence.research.pod import run_pod  # noqa: E402
 from src.intelligence.research.provenance import repo_root  # noqa: E402
 from src.intelligence.research.runner import (  # noqa: E402
     BudgetConfig,
+    ContributionConfig,
     RunContext,
     RunRefused,
     run_book,
@@ -210,6 +211,12 @@ async def _main(args: argparse.Namespace) -> int:
             key: apr[key] for key in ("alpha.research.budget_m", "alpha.research.screen_alpha")
         },
         informed_by=args.informed_by,
+        contribution=ContributionConfig(
+            exact_max_families=int(apr["alpha.research.contribution.shapley_exact_max_families"]),
+            shapley_samples=int(apr["alpha.research.contribution.shapley_samples"]),
+            shapley_seed=int(apr["alpha.research.contribution.shapley_seed"]),
+            cluster_corr=float(apr["alpha.research.contribution.cluster_corr"]),
+        ),
     )
     runs = snapshot_dir.parent / "runs"
     if isinstance(loaded.model, PodBookSpec):
