@@ -193,22 +193,23 @@ split inside a run also silences the check while canonical stays unadjusted. Fix
 that writes an IBKR row on D7 evidence, and count a corporate action only when its type matches
 the event (spin-off records in `corporate_action`, todo 557's lane).
 
-## Progress 2026-10-28 ~19:00Z (window open)
+## Progress 2026-10-28, window open (resume point)
 
-Done: timers stopped, fetcher stopped; step 2 (final arbitration, commit 395035646); step 3 applied
-(96 symbol rows, 2 defaults, 285 vendor_disagreement quarantine flags). Step 4 `--dump --apply`
-then `--verify` started in the background from worktree /home/bg/dev/indicagent-545 (log
-/tmp/claude-1000/scratch545/dump.log). Check the manifest under data/backups before anything else:
-if `--verify` did not pass, re-run `--dump --apply`. Then CLBK check, step 5 onward. Timers stay
-stopped until step 7. An orphaned 11 h psql query (pid 3093438) was cancelled; it had starved the DB.
+Runbook steps 1 to 6 are done except D7 acceptance and VACUUM. Worktree /home/bg/dev/indicagent-545.
+- Step 2: final arbitration, report and evidence committed (395035646).
+- Step 3: policy plan applied (96 symbol rows, 2 defaults, 285 vendor_disagreement quarantine flags).
+- Step 4: backup verified; CLBK Alpaca 1d covers 2018-04-20 to 2026-10-27.
+- Step 5: AAPL trial, full delete (7,133,667 raw, 6,695,283 canonical, 155,350 revision rows),
+  `--verify --require-complete` ok, zero Tradier rows.
+- Step 6: `bar_derivation --stage daily --apply` finished 23:09Z (1,501 derived, 0 failed, 1 held;
+  6,415,823 rows new). The service logs to logs/bar_derivation.log, not stdout.
+- D7: `python -m services.bar_reconciliation_audit` run from the worktree (the unit would run the
+  shared checkout's older code, which lacks alpaca_basis_run); it ignores arguments, so `--help`
+  starts a run. Read the verdicts from `integrity_monitor` (monitor_type bar_integrity) before
+  accepting.
 
-## Progress 2026-10-28 ~22:30Z (supersedes the timer note above)
-
-Step 4 done: backup verified, CLBK Alpaca 1d covers 2018-04-20 to 2026-10-27. Step 5 done: AAPL
-trial, then full delete, `--verify --require-complete` ok (zero Tradier rows, 1,529 symbols). Step 6
-started: `python -m services.bar_derivation --stage daily --apply` in the background, worktree
-/home/bg/dev/indicagent-545, log /tmp/claude-1000/scratch545/rederive.log. Timers: ibkr-history-fetcher
-and alpaca-nightly are running again; bar-derivation-grid, bar-reconciliation-audit,
-regime-coverage-auditor and dividend-event-writer-yahoo stay stopped until D7 and VACUUM are done
-(step 7). Still to do: D7, VACUUM ohlcv_raw/market_data_ohlcv/ohlcv_revision, restart those four
-timers, notice to the research lane owner, all-clear to peers.
+Left: read the D7 verdicts, VACUUM ohlcv_raw, market_data_ohlcv and ohlcv_revision, restart the
+four stopped timers (bar-derivation-grid, bar-reconciliation-audit, regime-coverage-auditor,
+dividend-event-writer-yahoo), notice to the research lane owner listing family 2 universe names
+with holds or pending spans, all-clear to peer sessions. ibkr-history-fetcher and alpaca-nightly
+timers are running again (the pre-2016 5m backfill continues).
