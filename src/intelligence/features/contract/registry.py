@@ -478,6 +478,10 @@ def _compute_basis_guarded(
                 f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the volume "
                 "basis guard can only mask float outputs"
             )
+        if _is_none_mask(name):
+            # a segment's own row 0 is NaN in a none-mask column; the writer reads NaN as neither
+            # present nor missing, so it reads as missing (1)
+            column[np.isnan(column)] = 1.0
         column[masked] = 1.0 if _is_none_mask(name) else np.nan
     return out
 

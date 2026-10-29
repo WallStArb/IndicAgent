@@ -60,7 +60,15 @@ guarded kernels found every one but `session_levels` changes with volume.
   feeds it to `advance_bar`, which only feeds the weekly VWAP the kernel does not read). The guard
   masks it on NULL-volume 1d bars; left as is, since `session_levels` does not classify on 1d.
   Splitting the helper would touch a fingerprinted module for no change in output.
-- Independent review of the guard commits (`d6a8da8de`, `96458db71`).
+- Independent review of the guard commits (`d6a8da8de`, `96458db71`), 2026-10-29. Arithmetic of the
+  masks is correct. Fixed: a none-mask column was NaN at each segment's row 0 (now 1); the invariant
+  test passed vacuously for `rolling_poc` (now asserts a finite comparison, `rolling_poc` listed as
+  too long for the fixture). Open, a design decision: a path-dependent kernel masks only the dropped
+  bar, so one mid-session `ibkr/fallback` bar (basis flip at row 251 of the test fixture) restarts
+  `vwap_dev_sigma` (249 rows differ to the end), `above_wk_vwap` (58) and `session_vp` outputs (~37)
+  from that bar without a NaN. Proposed: mask from a segment start until the kernel's next anchor
+  (session or week), or to the segment end when it has none. Needs a decision before 186-26 since
+  the kernels are in the fingerprinted closure. Reviewer probe: scratchpad `probe4.py`.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.

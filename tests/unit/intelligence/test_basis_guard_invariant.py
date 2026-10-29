@@ -19,6 +19,8 @@ _GUARDED = [
     for k in _REGISTRY.kernels
     if "volume" in k.inputs and not k.nan_volume_safe and not k.path_dependent
 ]
+# memory 479 against a 500-row fixture: every row is dirty or warmup, nothing finite to compare
+_TOO_LONG_FOR_FIXTURE = {"rolling_poc"}
 
 
 def _case(seed: int):
@@ -54,6 +56,7 @@ def test_unmasked_rows_equal_the_kernel_on_their_trailing_window(name, seed):
     got = _compute_basis_guarded(kernel, cut, basis, config)
     memory = int(kernel.memory(config))
     clean_volume = np.where(np.isfinite(volume), volume, 0.0)
+    compared = 0
     for out_name, column in got.items():
         column = np.asarray(column, dtype=float)
         is_mask = out_name.startswith("_") and out_name.endswith("_is_none")
@@ -79,3 +82,22 @@ def test_unmasked_rows_equal_the_kernel_on_their_trailing_window(name, seed):
                 out_name,
                 t,
             )
+            compared += np.isfinite(want) and not is_mask
+    if name not in _TOO_LONG_FOR_FIXTURE:
+        assert compared, f"{name}: no clean finite row was compared, the test would pass vacuously"
+
+
+def test_a_none_mask_column_is_never_nan_at_a_segment_start():
+    kernel = _REGISTRY.by_name("swing_momentum")
+    full, config, volume, _ = _case(0)
+    n = len(volume)
+    basis = np.ones(n, dtype=np.int64)
+    basis[251] = 2
+    cut = {k: full[k] for k in kernel.inputs if k in full}
+    if "_atr_raw_padded" in kernel.inputs:
+        pytest.skip("needs an upstream kernel output; covered by the end-to-end checks")
+    cut["volume"] = volume
+    got = _compute_basis_guarded(kernel, cut, basis, config)
+    for out_name, column in got.items():
+        if out_name.startswith("_") and out_name.endswith("_is_none"):
+            assert not np.isnan(np.asarray(column, dtype=float)).any(), out_name
