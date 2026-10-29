@@ -259,7 +259,7 @@ are removed on schedule and nothing protected is removed by accident. Everything
 | `data/backups/185-45` | 5.6 GB | after 2026-11-06 | dumps of the removed v2.x AI stack; `CLAUDE.md` keeps them until about that date (the git tag `archive/v2x-ai-stack-2026-10` stays) |
 | `data/backups/191` | 3.2 GB | when the owner closes the Tradier work (plan 191-20 done 2026-10-29; D7 holds, todo 545, still open) | backup taken before the irreversible Tradier bar delete |
 | `data/backups/185-38` | 142 MB | unknown: find its phase's retention rule first | an earlier phase's drop backup |
-| `indicagent-5b-t3` (worktree) | 86 MB | after its 10 uncommitted files are reviewed | a finished research session's unsaved work |
+| `data/backups/worktree-salvage-20261029` | 1 MB | about 2026-11-12 | patches and a bundle from the removed 5b-t3, prev3 and shared-checkout work; the shared checkout was stale, its commits are on origin under other hashes |
 
 Never delete: `logs/phase181` and `logs/phase179` (`repro_frozen` replays the frozen verdicts from
 them), `logs/research/snapshots` and the step A and B evidence under `logs/research/` (`compare-all`
