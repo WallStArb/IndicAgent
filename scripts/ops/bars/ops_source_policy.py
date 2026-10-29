@@ -85,8 +85,6 @@ from src.intelligence.bars.source_admission import (  # noqa: E402
     common_session_closes,
     tradier_admission,
 )
-from src.intelligence.bars.sources import SOURCE_TRADIER  # noqa: E402
-from src.intelligence.bars.vendor_kind import label_to_vendor_kind  # noqa: E402
 
 ACTION_ADMIT = "admit"
 ACTION_WRITE = "write"
@@ -121,7 +119,8 @@ _REPORT_COLUMNS = (
 
 # The (vendor, kind) of the tradier label; canonical rows carry the pair since the 191-14
 # swap.
-_TRADIER_PAIR = label_to_vendor_kind(SOURCE_TRADIER)
+# The label was removed from vendor_kind in 191-21; plan 25 deletes this script's Tradier arm.
+_TRADIER_PAIR = ("tradier", "consolidated")
 
 _INCUMBENT_SQL = """
 SELECT EXISTS (SELECT 1 FROM market_data_ohlcv

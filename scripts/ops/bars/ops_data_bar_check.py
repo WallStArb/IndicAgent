@@ -74,7 +74,6 @@ from scripts.ops.bars.ops_head_rerun import (
 )
 from src.config.settings import Settings
 from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
-from src.intelligence.bars.sources import SOURCE_TRADIER
 from src.intelligence.bars.vendor_kind import (
     label_to_vendor_kind,
     vendor_kind_to_label,
@@ -466,6 +465,14 @@ def _rows(conn: Any, sql: str, params: tuple = ()) -> list[tuple]:
         return cur.fetchall()
 
 
+def _stored_label(vendor: str, kind: str) -> str:
+    """The source label of a stored pair. The retired vendor's label left vendor_kind in
+    191-21; the judged status still keys on it until plan 191-25 removes this script's arm."""
+    if (vendor, kind) == ("tradier", "consolidated"):
+        return "tradier"
+    return vendor_kind_to_label(vendor, kind)
+
+
 def _known_answer_counts(
     conn: Any, keys: Sequence[tuple[str, str]], scrub_at: datetime | None
 ) -> Counter[str]:
@@ -482,9 +489,7 @@ def _known_answer_counts(
     for _, _, quarantined, vendor, kind, has_revision, revised_at, stale_status in rows:
         status = known_answer_status(
             quarantined=bool(quarantined),
-            stored_source=(
-                None if vendor is None or kind is None else vendor_kind_to_label(vendor, kind)
-            ),
+            stored_source=(None if vendor is None or kind is None else _stored_label(vendor, kind)),
             has_ibkr_revision=bool(has_revision),
             last_revision_at=revised_at,
             scrub_at=scrub_at,
@@ -530,7 +535,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
         for row in _rows(
             conn,
             _TRADIER_HISTORY_LATE_SQL,
-            (sorted(late), *label_to_vendor_kind(SOURCE_TRADIER)),
+            (sorted(late), "tradier", "consolidated"),
         )
     }
 

@@ -130,7 +130,6 @@ from src.intelligence.bars.sources import (
     CANONICAL_1D_VENDORS,
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
-    SOURCE_TRADIER,
 )
 from src.intelligence.bars.vendor_kind import DERIVED_PAIR, VENDOR_IBKR
 from src.observability.metrics import counter, point_gauge
@@ -138,6 +137,9 @@ from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
 
 logger = structlog.get_logger(__name__)
+
+# Removed from sources.py in 191-21; the Tradier agreement report is deleted in plan 191-23.
+SOURCE_TRADIER = "tradier"
 
 _JOB = "bar-reconciliation-audit"
 

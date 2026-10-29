@@ -36,39 +36,34 @@ GRID_SOURCE_TF = "5m"
 # this is the only definition that changes.
 DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"}
 
-# Tradier, the 1d primary source before D = 2026-10-07 (migration 438; IBKR primary from D,
-# migration 456). The account is unfunded and the loader is deleted (plan 185-48); its stored
-# observations (route TRADIER) and canonical bars ((tradier, consolidated)) are canonical
-# history before D, read by the daily stage, D7 and the lineage view, so the two identifiers
-# stay here.
-SOURCE_TRADIER = "tradier"
-ROUTE_TRADIER = "TRADIER"
-
 # Alpaca, the intraday depth source (SIP via Polygon/Massive) admitted by the 521 admission
 # build: 5m fills from 2016-01-01 forward, RTH-window aggregates only. Evidence and measured
 # conventions: docs/plans/2026-10-09-alpaca-5m-admission-build.md. Since D-191-Q (2026-10-27)
 # its split-adjusted SIP daily answer, raw kind sip_rth, is also the canonical 1d primary from
 # 2016-01-04 with IBKR fallback (daily rule d2-v4); the 1d volume basis is consolidated, matching
-# Tradier at 1.03x on the 21-name sample of todo 545.
+# the retired pre-D vendor at 1.03x on the 21-name sample of todo 545.
 SOURCE_ALPACA = "alpaca"
 ROUTE_ALPACA = "ALPACA"
 
-# An IBKR SMART TRADES 1d bar the d2-v2 rule admitted where the policy's primary source
-# (Tradier) has none: a head before Tradier's first bar, or an interior hole within the basis
-# tolerance (plan 185-36, migration 446).
+# An IBKR SMART TRADES 1d bar the daily rule admitted where the policy's primary source has
+# none: a head before the primary's first bar, or an interior hole within the basis tolerance
+# (plan 185-36, migration 446).
 SOURCE_IBKR_FALLBACK = "ibkr_fallback"
 
 # The 1d market_data_ohlcv (vendor, kind) pairs that are canonical bars: IBKR named (an
 # IBKR-primary policy range), venue (stored history from the deleted d2-v1 rule), the
-# admitted IBKR fallback (d2-v2), Tradier, the 1d primary source before D, and Alpaca SIP, the
-# primary from 2016-01-04 under D-191-Q (bar_source_policy). The 1d content digest and the daily stage's value comparison read
+# admitted IBKR fallback (d2-v2), the retired pre-D vendor, and Alpaca SIP, the primary from
+# 2016-01-04 under D-191-Q (bar_source_policy). The 1d content digest and the daily stage's value comparison read
 # every one of them. Literal pairs, not vendor_kind imports: vendor_kind builds its map
 # from the label constants here, so importing the map back would be circular.
 CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
     ("ibkr", "named"),
     ("ibkr", "venue"),
     ("ibkr", "fallback"),
-    ("tradier", "consolidated"),
+    (
+        "tradier",
+        "consolidated",
+    ),  # retired vendor; removed with the daily-stage fixtures, plan 191-23
     ("alpaca", "sip_rth"),
 )
 

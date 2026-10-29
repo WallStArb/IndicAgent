@@ -118,7 +118,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
-from src.intelligence.bars.sources import ROUTE_ALPACA, ROUTE_TRADIER
+from src.intelligence.bars.sources import ROUTE_ALPACA
 from src.intelligence.bars.vendor_basis import BP
 
 RULE_VERSION = "d2-v4"
@@ -126,6 +126,7 @@ RULE_VERSION = "d2-v4"
 TIMEFRAME = "1d"
 ROUTE_SMART = "SMART"
 ROUTE_LEGACY = "LEGACY_IMPORT"
+ROUTE_TRADIER = "TRADIER"  # policy data of the closed pre-D row; sources.py no longer defines it
 VENDOR_TRADIER = "tradier"
 VENDOR_IBKR = "ibkr"
 VENDOR_ALPACA = "alpaca"

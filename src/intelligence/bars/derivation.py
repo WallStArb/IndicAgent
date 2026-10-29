@@ -40,7 +40,7 @@ class Observation:
 class SplitRecord:
     """One recorded corporate action that rescales earlier observations.
 
-    evidence_request_ids names the requests whose answers showed the new scale (a Tradier
+    evidence_request_ids names the requests whose answers showed the new scale (a vendor
     refetch records the split after its own fetch, so its observations predate recorded_at by
     milliseconds yet carry the new scale). d2-v2 counts them as current.
     """

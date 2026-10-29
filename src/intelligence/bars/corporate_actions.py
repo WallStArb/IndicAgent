@@ -103,7 +103,7 @@ def recognised_split_ratio(factor: float, rule: SplitRatioRule) -> float | None:
     split). The smallest denominator wins, and the exact ratio is returned in the factor's own
     orientation (1/3 for a 1-for-3 reverse split, 1.5 for 3-for-2).
 
-    A rescale that happens to land on a small ratio still passes (Tradier's CTVA factor 6.665 is
+    A rescale that happens to land on a small ratio still passes (a CTVA factor of 6.665 is
     0.025 % from 20/3): the rule bounds the false-split rate, it does not identify spin-offs.
     """
     if not (math.isfinite(factor) and factor > 0):

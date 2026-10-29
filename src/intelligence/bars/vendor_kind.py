@@ -1,6 +1,6 @@
 """The one map between bar source labels and (vendor, kind), phase 191 plan 01.
 
-A bar source label (`ibkr_named`, `tradier`, `derived_5m`) mixes vendor, kind and sometimes a
+A bar source label (`ibkr_named`, `alpaca`, `derived_5m`) mixes vendor, kind and sometimes a
 computation. The unified raw table (`ohlcv_raw`, design doc
 docs/plans/2026-10-12-unified-raw-bar-table-design.md) splits it: `vendor` names who served the
 bar, `kind` names what was served. This module is the single definition of that split. The
@@ -9,7 +9,7 @@ migration seeds, the backfill and the writers all derive from it; none retypes a
 Planner decisions (D-191-A, resolving design doc ambiguity):
 - Raw `kind` is what the vendor served. `fallback` is therefore a canonical-only kind: it is a
   selection outcome the daily rule assigns, never something a vendor serves.
-- Tradier's kind is `consolidated`; Alpaca's is `sip_rth` (RTH-window SIP aggregates,
+- Alpaca's kind is `sip_rth` (RTH-window SIP aggregates,
   docs/plans/2026-10-09-alpaca-5m-admission-build.md). An answer on feed=iex carries `iex_rth`
   (raw only, never selected); the feed->kind split lives in ALPACA_FEED_KINDS.
 - Canonical 1d rows keep the winning raw row's (vendor, kind), so the tradeable view can null
@@ -36,15 +36,12 @@ from src.core.bar_normalizer import (
 )
 from src.intelligence.bars.sources import (
     ROUTE_ALPACA,
-    ROUTE_TRADIER,
     SOURCE_ALPACA,
     SOURCE_DERIVED_5M,
     SOURCE_IBKR_FALLBACK,
-    SOURCE_TRADIER,
 )
 
 VENDOR_IBKR = "ibkr"
-VENDOR_TRADIER = "tradier"
 VENDOR_ALPACA = "alpaca"
 VENDOR_DERIVED = "derived"
 
@@ -55,7 +52,6 @@ LABEL_TO_VENDOR_KIND: dict[str, tuple[str, str]] = {
     SOURCE_IBKR_OFFICIAL: (VENDOR_IBKR, "official"),
     SOURCE_IBKR_GENERIC: (VENDOR_IBKR, "generic"),
     SOURCE_IBKR_FALLBACK: (VENDOR_IBKR, "fallback"),
-    SOURCE_TRADIER: (VENDOR_TRADIER, "consolidated"),
     SOURCE_ALPACA: (VENDOR_ALPACA, "sip_rth"),
     SOURCE_DERIVED_5M: (VENDOR_DERIVED, "5m_grid"),
 }
@@ -105,7 +101,6 @@ def alpaca_kind_for_feed(feed: str, adjustment: str) -> str:
 # the label map already owns, so neither is listed.
 VENDOR_SERVED_KINDS: dict[str, frozenset[str]] = {
     VENDOR_ALPACA: frozenset(ALPACA_FEED_KINDS.values()),
-    VENDOR_TRADIER: frozenset({"consolidated"}),
 }
 
 
@@ -117,7 +112,9 @@ def pair_token(vendor: str, kind: str) -> str:
     return f"{vendor}/{kind}"
 
 
-BAR_VENDORS: tuple[str, ...] = (VENDOR_IBKR, VENDOR_ALPACA, VENDOR_TRADIER, VENDOR_DERIVED)
+# The CVR bar_vendor codes as migration 472 seeded them. The retired vendor's code stays as
+# history (the closed pre-D bar_source_policy row names it), so it is a literal, not a constant.
+BAR_VENDORS: tuple[str, ...] = (VENDOR_IBKR, VENDOR_ALPACA, "tradier", VENDOR_DERIVED)
 
 # kind -> one-line description, in within-vendor selection precedence order (the migration seeds
 # sort_order from this order: named lowest, then venue, continuous, official, generic).
@@ -130,7 +127,7 @@ BAR_KINDS: dict[str, str] = {
     "smart_trades": "IBKR SMART-routed TRADES daily answer",
     "smart_adjusted": "IBKR SMART-routed ADJUSTED_LAST daily answer (never canonical)",
     "fallback": "IBKR 1d bar admitted by the daily rule where the primary has none (canonical only)",
-    "consolidated": "Tradier consolidated-volume bar",
+    "consolidated": "retired vendor consolidated-volume bar (CVR history code)",
     "sip_rth": "Alpaca SIP aggregate over the regular trading hours window",
     "iex_rth": "Alpaca IEX aggregate over the regular trading hours window",
     "5m_grid": "15m or 1h bar derived from 5m on the session-anchored grid",
@@ -148,7 +145,6 @@ VENUE_ROUTE_KINDS: dict[str, str] = {
 _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
     (VENDOR_IBKR, "smart_trades"): "named",
     (VENDOR_IBKR, "venue"): "venue",
-    (VENDOR_TRADIER, "consolidated"): "consolidated",
     # D-191-Q: Alpaca SIP is the 1d primary from 2016-01-04 and keeps its raw kind, as canonical
     # 5m carries it; iex_rth is never canonical.
     (VENDOR_ALPACA, "sip_rth"): "sip_rth",
@@ -202,16 +198,13 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
                 return "smart_trades"
             if what_to_show == _ADJUSTED_LAST and route == _ROUTE_SMART:
                 return "smart_adjusted"
-        elif what_to_show == _TRADES and route not in (ROUTE_TRADIER, ROUTE_ALPACA):
+        elif what_to_show == _TRADES and route != ROUTE_ALPACA:
             if route not in VENUE_ROUTES:
                 raise UnmappedObservation(
                     f"unmapped ibkr listing-venue route {route!r}; add it to VENUE_ROUTES "
                     "and seed its bar_kind code"
                 )
             return f"venue_{route.lower()}"
-    elif source == VENDOR_TRADIER and route in (ROUTE_TRADIER, _ROUTE_LEGACY_IMPORT):
-        if what_to_show == _TRADES:
-            return "consolidated"
     elif source == VENDOR_ALPACA and route in (
         ROUTE_ALPACA,
         _ROUTE_ALPACA_SIP,
@@ -230,8 +223,8 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
 def canonical_kind_for_raw(vendor: str, kind: str) -> str:
     """The canonical 1d kind a raw (vendor, kind) row becomes.
 
-    (ibkr, smart_trades) -> named; (ibkr, venue) -> venue; (tradier, consolidated) ->
-    consolidated; (alpaca, sip_rth) -> sip_rth. Adjusted bars and iex_rth are never canonical, and `fallback` is assigned by the daily
+    (ibkr, smart_trades) -> named; (ibkr, venue) -> venue; (alpaca, sip_rth) -> sip_rth.
+    Adjusted bars and iex_rth are never canonical, and `fallback` is assigned by the daily
     rule, never derived from a raw kind; both raise.
     """
     if vendor == VENDOR_IBKR and kind in VENUE_ROUTE_KINDS:
@@ -252,14 +245,14 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
 # ---------------------------------------------------------------------------
 
 VOLUME_BASIS_NONE = 0  # no volume (NULL): carries no basis, never starts or ends a segment
-VOLUME_BASIS_CONSOLIDATED = 1  # every venue's prints (SIP, Tradier consolidated)
+VOLUME_BASIS_CONSOLIDATED = 1  # every venue's prints (SIP)
 VOLUME_BASIS_SMART = 2  # IBKR SMART-routed TRADES volume
 VOLUME_BASIS_MIXED = 3  # a derived bar whose 5m constituents carry different bases
 _N_VOLUME_BASES = 4
 
 VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], int] = {
     (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
-    (VENDOR_TRADIER, "consolidated"): VOLUME_BASIS_CONSOLIDATED,
+    ("tradier", "consolidated"): VOLUME_BASIS_CONSOLIDATED,  # retired vendor; goes with 191-23
     (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
     (VENDOR_IBKR, "smart_trades"): VOLUME_BASIS_SMART,
     # The tradeable view NULLs volume for these two kinds (market_data_ohlcv_tradeable).

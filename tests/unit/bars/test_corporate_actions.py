@@ -165,7 +165,7 @@ def test_ctva_spin_off_rescale_is_not_a_recognised_split_ratio() -> None:
 
 
 def test_a_rescale_that_lands_on_a_small_ratio_passes_the_rule() -> None:
-    # The rule's known limit, measured on the same event: Tradier's CTVA factor 6.665 sits
+    # The rule's known limit, measured on the same event: a CTVA factor 6.665 sits
     # 0.025 % from 20/3 and would read as a 20-for-3 split. The rule bounds the false-split rate,
     # it does not identify spin-offs; the company record does.
     assert recognised_split_ratio(6.665, _RULE) == pytest.approx(20 / 3)

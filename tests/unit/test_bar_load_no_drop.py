@@ -91,8 +91,8 @@ def test_explicit_kind_names_the_served_basis_and_an_unserved_kind_raises() -> N
     frame = _frame(["2026-10-09 13:30:00"])
     rows = frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m", kind="iex_rth")
     assert {(r.vendor, r.kind) for r in rows} == {("alpaca", "iex_rth")}
-    with pytest.raises(ValueError, match="does not serve kind 'sip_rth'"):
-        frame_to_raw_rows(frame, "SPY", vendor="tradier", timeframe="1d", kind="sip_rth")
+    with pytest.raises(ValueError, match="does not serve kind 'bogus'"):
+        frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="1d", kind="bogus")
 
 
 def test_policy_kind_reaches_the_raw_rows(persisted) -> None:

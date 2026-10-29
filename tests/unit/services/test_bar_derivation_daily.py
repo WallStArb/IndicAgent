@@ -932,19 +932,23 @@ def test_restore_rewrites_the_symbol_from_the_snapshot_through_the_contract(tmp_
     snapshot = _snapshot(
         tmp_path,
         [
-            ("TEST", _D1, 10.0, "tradier"),
+            ("TEST", _D1, 10.0, "ibkr_named"),
             ("TEST", _D2, 11.5, "ibkr_named"),
-            ("TEST", _D5, 13.5, "tradier"),
-            ("OTHER", _D1, 99.0, "tradier"),
+            ("TEST", _D5, 13.5, "ibkr_named"),
+            ("OTHER", _D1, 99.0, "ibkr_named"),
         ],
     )
-    stored = {_D1: _row(10.0), _D2: _row(11.0), _D3: _row(12.0)}
+    stored = {
+        _D1: _row(10.0, vendor="ibkr", kind="named"),
+        _D2: _row(11.0, vendor="ibkr", kind="named"),
+        _D3: _row(12.0, vendor="ibkr", kind="named"),
+    }
     conn = FakeConn(observations={"TEST": [_obs(_D1, 10.0)]}, stored={"TEST": stored})
     result, scrub_calls = _run(conn, restore_snapshot=snapshot, symbols=["TEST"])
     assert {d: (r["close"], (r["vendor"], r["kind"])) for d, r in conn.stored["TEST"].items()} == {
-        _D1: (10.0, ("tradier", "consolidated")),
+        _D1: (10.0, ("ibkr", "named")),
         _D2: (11.5, ("ibkr", "named")),
-        _D5: (13.5, ("tradier", "consolidated")),
+        _D5: (13.5, ("ibkr", "named")),
     }
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     assert load_args[15] == "bar_derivation-restore" and load_args[6] == "applied"
@@ -960,8 +964,11 @@ def test_restore_rewrites_the_symbol_from_the_snapshot_through_the_contract(tmp_
 
 
 def test_restore_without_apply_reports_counts_only(tmp_path):
-    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "tradier")])
-    stored = {_D1: _row(10.0), _D2: _row(11.0)}
+    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "ibkr_named")])
+    stored = {
+        _D1: _row(10.0, vendor="ibkr", kind="named"),
+        _D2: _row(11.0, vendor="ibkr", kind="named"),
+    }
     conn = FakeConn(observations={}, stored={"TEST": stored})
     result, _ = _run(conn, restore_snapshot=snapshot, symbols=["TEST"], apply=False)
     assert result["rows"]["removed"] == 1
@@ -969,7 +976,7 @@ def test_restore_without_apply_reports_counts_only(tmp_path):
 
 
 def test_restore_needs_symbols(tmp_path):
-    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "tradier")])
+    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "ibkr_named")])
     conn = FakeConn(observations={}, stored={})
     with pytest.raises(ValueError, match="--symbols"):
         _run(conn, restore_snapshot=snapshot)

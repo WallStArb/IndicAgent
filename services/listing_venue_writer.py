@@ -52,10 +52,11 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
-from src.intelligence.bars.vendor_kind import VENDOR_TRADIER
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
 
+# Removed from vendor_kind.py in 191-21; the official-close read is deleted in plan 191-23.
+VENDOR_TRADIER = "tradier"
 _JOB = "listing-venue-writer"
 _STAGE = "listing_venue"
 RULE_VERSION = "1"

@@ -99,7 +99,8 @@ def test_revision_mapping_values_equal_the_vendor_kind_module():
         (label, (vendor, kind))
         for label, vendor, kind in re.findall(r"\('([^']+)', '([^']+)', '([^']+)'\)", block)
     )
-    assert pairs == LABEL_TO_VENDOR_KIND
+    # Migration 472 is history: it still maps the retired vendor's label, which the module dropped.
+    assert pairs == {**LABEL_TO_VENDOR_KIND, "tradier": ("tradier", "consolidated")}
 
 
 def test_revision_gains_nullable_columns_and_admits_raw():

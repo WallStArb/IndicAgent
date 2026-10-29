@@ -24,7 +24,6 @@ _EXPECTED = {
     "ibkr_official": ("ibkr", "official"),
     "ibkr": ("ibkr", "generic"),
     "ibkr_fallback": ("ibkr", "fallback"),
-    "tradier": ("tradier", "consolidated"),
     "alpaca": ("alpaca", "sip_rth"),
     "derived_5m": ("derived", "5m_grid"),
 }
@@ -46,7 +45,6 @@ def test_every_label_constant_is_mapped_and_none_else():
         bar_normalizer.SOURCE_IBKR_OFFICIAL,
         bar_normalizer.SOURCE_IBKR_GENERIC,
         sources.SOURCE_IBKR_FALLBACK,
-        sources.SOURCE_TRADIER,
         sources.SOURCE_ALPACA,
         sources.SOURCE_DERIVED_5M,
     }
@@ -75,12 +73,10 @@ def test_unknown_pair_raises_keyerror_naming_it():
         ("ibkr", "SMART", "ADJUSTED_LAST", "smart_adjusted"),
         ("ibkr", "ARCA", "TRADES", "venue_arca"),
         ("ibkr", "ISLAND", "TRADES", "venue_island"),
-        ("tradier", "TRADIER", "TRADES", "consolidated"),
         ("alpaca", "ALPACA", "TRADES", "sip_rth"),
         ("alpaca", "SIP", "TRADES", "sip_rth"),
         ("alpaca", "IEX", "TRADES", "iex_rth"),
         ("ibkr", "LEGACY_IMPORT", "TRADES", "smart_trades"),
-        ("tradier", "LEGACY_IMPORT", "TRADES", "consolidated"),
     ],
 )
 def test_observation_kind(source, route, wts, kind):
@@ -109,7 +105,7 @@ def test_vendor_served_kinds_gate_the_explicit_kind():
     from src.intelligence.bars.vendor_kind import VENDOR_SERVED_KINDS
 
     assert "iex_rth" in VENDOR_SERVED_KINDS["alpaca"]
-    assert VENDOR_SERVED_KINDS["tradier"] == frozenset({"consolidated"})
+    assert "tradier" not in VENDOR_SERVED_KINDS
     assert "alpaca" in VENDOR_SERVED_KINDS and "ibkr" not in VENDOR_SERVED_KINDS
 
 
@@ -120,11 +116,13 @@ def test_vendor_served_kinds_gate_the_explicit_kind():
         ("ibkr", "LEGACY_IMPORT", "ADJUSTED_LAST"),
         ("ibkr", "TRADIER", "TRADES"),
         ("tradier", "SMART", "TRADES"),
+        ("tradier", "TRADIER", "TRADES"),
+        ("tradier", "LEGACY_IMPORT", "TRADES"),
         ("derived", "SMART", "TRADES"),
     ],
 )
 def test_observation_kind_unknown_combination_raises(args):
-    with pytest.raises(ValueError, match="unmapped observation"):
+    with pytest.raises(ValueError, match="unmapped"):
         observation_kind(*args)
 
 
@@ -132,7 +130,8 @@ def test_canonical_kind_for_raw():
     assert canonical_kind_for_raw("ibkr", "smart_trades") == "named"
     assert canonical_kind_for_raw("ibkr", "venue") == "venue"
     assert canonical_kind_for_raw("ibkr", "venue_nyse") == "venue"
-    assert canonical_kind_for_raw("tradier", "consolidated") == "consolidated"
+    with pytest.raises(ValueError):
+        canonical_kind_for_raw("tradier", "consolidated")
     # D-191-Q: Alpaca SIP is a canonical 1d primary and keeps its raw kind, as canonical 5m does.
     assert canonical_kind_for_raw("alpaca", "sip_rth") == "sip_rth"
     for pair in (("ibkr", "smart_adjusted"), ("ibkr", "fallback"), ("alpaca", "iex_rth")):
