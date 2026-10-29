@@ -190,5 +190,5 @@ def test_a_basis_change_restarts_a_rolling_volume_kernel_like_a_series_started_t
     tail = {name: np.asarray(v)[k:] for name, v in inputs.items() if np.ndim(v) == 1}
     alone = compute_kernels(registry, tail, config, outputs=["volume_z"])["volume_z"]
     memory = registry.by_output("volume_z").memory(config)
-    assert np.isnan(got[k : k + memory + 1]).all()
-    np.testing.assert_allclose(got[k + memory + 1 :], alone[memory + 1 :], rtol=1e-9)
+    assert np.isnan(got[k : k + memory]).all()
+    np.testing.assert_allclose(got[k + memory :], alone[memory:], rtol=1e-9)

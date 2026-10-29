@@ -428,8 +428,8 @@ def _compute_basis_guarded(
     garbage on every later row, and a window spanning a basis change carries a level shift. So
     the kernel runs on each basis segment alone, NaN volume enters as 0.0 (no volume traded,
     finite), and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
-    bars hold a dropped bar or a segment start: the declared memory then still holds, and the
-    gap is loud. A path-dependent kernel has no finite memory, so only the dropped bar's own row
+    bars hold a dropped bar or span a segment boundary: the declared memory then still holds,
+    and the gap is loud (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways). A path-dependent kernel has no finite memory, so only the dropped bar's own row
     is masked and the accumulation restarts at a segment.
     """
     volume = np.asarray(cut["volume"], dtype=float)
@@ -460,9 +460,18 @@ def _compute_basis_guarded(
     if kernel.path_dependent:
         masked = dropped
     else:
-        events = np.cumsum(dropped | (starts == np.arange(n)) & (np.arange(n) > 0))
-        reach = np.maximum(np.arange(n) - int(kernel.memory(config)) - 1, -1)  # type: ignore[arg-type]
-        masked = events - np.where(reach >= 0, events[np.maximum(reach, 0)], 0) > 0
+        memory = int(kernel.memory(config))  # type: ignore[arg-type]
+        rows = np.arange(n)
+
+        def hits(event: np.ndarray, reach: int) -> np.ndarray:
+            """Rows whose trailing `reach + 1` bars hold an event row."""
+            counts = np.cumsum(event)
+            before = np.where(rows - reach - 1 >= 0, counts[np.maximum(rows - reach - 1, 0)], 0)
+            return counts - before > 0
+
+        # A dropped bar d sits in the windows of rows d .. d + memory. A segment start s splits
+        # the windows that hold both s - 1 and s: rows s .. s + memory - 1.
+        masked = hits(dropped, memory) | hits((starts == rows) & (rows > 0), memory - 1)
     for name, column in out.items():
         if column.dtype.kind != "f":
             raise KernelRegistryError(
