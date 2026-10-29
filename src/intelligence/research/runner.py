@@ -1149,7 +1149,7 @@ async def run_book(
         contribution_block = None
         if ctx.contribution is not None:
             _log("S8 contribution accounting")
-            contribution_block = await _contribution(
+            contribution_block = await _safe_contribution(
                 loaded=loaded,
                 ctx=ctx,
                 run_id=run_id,
@@ -1325,21 +1325,22 @@ async def _contribution(
     member stack the S8 statistic used; never edits the book."""
     book = loaded.model
     settings = ctx.contribution
-    terms = combiner.member_terms(stack, residuals.fwd, row_session_dates=row_session_dates)
-    terms = np.where(trade[:, None, None], terms, np.nan)
+    if isinstance(combiner, RidgeSpec):
+        terms, fold_weights = combiner.terms_and_fold_weights(
+            stack, residuals.fwd, row_session_dates=row_session_dates
+        )
+    else:
+        terms = combiner.member_terms(stack, residuals.fwd, row_session_dates=row_session_dates)
+        fold_weights = None
+    # Only the sessions the E17 statistic scored (it drops the warm-up and the memory span).
+    tested = np.repeat(np.isfinite(booked.timing.series), bps)[: len(terms)]
+    terms = np.where((trade & tested)[:, None, None], terms, np.nan)
     families = list(dict.fromkeys(member_fams))
-    fold_weights = (
-        combiner.fold_weights(stack, residuals.fwd, row_session_dates=row_session_dates)
-        if isinstance(combiner, RidgeSpec)
-        else None
-    )
 
-    subsets = contribution.required_subsets(len(families), settings.exact_max_families)
-    refits: dict[tuple[int, ...], object] = {}
-    for subset in subsets:
+    def refit(subset: tuple[int, ...]):
         chosen = {families[i] for i in subset}
         cols = [i for i, f in enumerate(member_fams) if f in chosen]
-        refits[subset] = _refit_subset(
+        return cols, _refit_subset(
             book,
             stack,
             cols,
@@ -1355,13 +1356,39 @@ async def _contribution(
             horizon_rule=horizon_rule,
             row_session_dates=row_session_dates,
         )
-    if subsets and run_id is not None:
-        await _record_subset_refits(
-            loaded, ctx, run_id, subject, code_root, snapshot_hash, session_dates, families, refits
-        )
-    subset_t = {
-        s: (float(r.timing.hac.t) if r is not None else float("nan")) for s, r in refits.items()
+
+    subsets = contribution.required_subsets(len(families), settings.exact_max_families)
+    # A subset the book's present-member floor cannot be built on is undefined, not an attempt.
+    floor = book.combiner.min_members or 0
+    undefined = {
+        s for s in subsets if floor > sum(1 for f in member_fams if f in {families[i] for i in s})
     }
+    runnable = [s for s in subsets if s not in undefined]
+    keyed = {s: tuple(sorted(families[i] for i in s)) for s in runnable}
+    started: dict = {}
+    if runnable and run_id is not None:
+        started = await _start_subset_refits(loaded, ctx, run_id, subject, code_root, keyed)
+    subset_t: dict[tuple[int, ...], float] = {s: float("nan") for s in undefined}
+    for subset in runnable:
+        result, error = None, None
+        try:
+            result = refit(subset)[1]
+        except Exception as failure:  # noqa: BLE001 - one subset must not lose the others
+            error = f"{type(failure).__name__}: {failure}"
+        if result is not None:
+            subset_t[subset] = float(result.timing.hac.t)
+        else:
+            subset_t[subset] = float("nan")
+        if started:
+            await _finish_subset_refit(
+                ctx,
+                started[keyed[subset]],
+                snapshot_hash,
+                session_dates,
+                keyed[subset],
+                result,
+                error,
+            )
     return contribution.account(
         terms,
         residuals.fwd,
@@ -1371,34 +1398,26 @@ async def _contribution(
         subset_t,
         exact_max_families=settings.exact_max_families,
         fold_weights=fold_weights,
+        present=np.isfinite(stack),
     )
 
 
-async def _record_subset_refits(
-    loaded: LoadedSpec,
-    ctx: RunContext,
-    run_id,
-    subject,
-    code_root,
-    snapshot_hash,
-    session_dates,
-    families,
-    refits,
-) -> None:
-    """Each computed subset refit as a counted attempt: its recipe (the parent's recipe hash, the
-    canonical subset and the accounting method) first, then its row, its evidence and series."""
+async def _start_subset_refits(
+    loaded: LoadedSpec, ctx: RunContext, run_id, subject, code_root, keyed
+):
+    """Each subset refit's recipe and `started` row, written before any statistic is computed
+    (the parent's recipe hash, the canonical subset and the accounting method key the recipe)."""
     book = loaded.model
     parent_hash = recipe_mod.book_recipes(loaded, ctx.apr_values)[subject].recipe_hash
-    keyed = {s: tuple(sorted(families[i] for i in s)) for s in refits}
     requests = [
         SubsetRefit(
-            keyed[s],
+            names,
             RecipeContent(
                 concept=subject,
                 code_pointer="src.intelligence.research.contribution:account",
                 params={
                     "parent_recipe_hash": parent_hash,
-                    "subset": list(keyed[s]),
+                    "subset": list(names),
                     "accounting": "family_lofo_shapley_v1",
                 },
                 apr_values={},
@@ -1409,35 +1428,50 @@ async def _record_subset_refits(
                 sources=(book.prior_source,),
             ),
         )
-        for s in sorted(refits, key=lambda s: (len(s), s))
+        for _, names in sorted(keyed.items(), key=lambda item: (len(item[0]), item[0]))
     ]
-    started = await ctx.ledger.start_subset_refits(
-        run_id, requests, provenance.git_author(code_root)
-    )
-    for subset, result in refits.items():
-        sub_run = started[keyed[subset]]
-        if result is None:
-            await ctx.ledger.finish_run(
-                sub_run,
-                status="failed",
-                snapshot_hash=snapshot_hash,
-                evidence={"stage": "subset_refit", "error": "combiner undefined on this subset"},
-            )
-            continue
-        t = result.timing
+    return await ctx.ledger.start_subset_refits(run_id, requests, provenance.git_author(code_root))
+
+
+async def _finish_subset_refit(
+    ctx: RunContext, sub_run, snapshot_hash, session_dates, names, result, error
+) -> None:
+    """One subset refit's terminal row: completed with its evidence and series, or failed."""
+    if result is None:
         await ctx.ledger.finish_run(
             sub_run,
-            status="completed",
+            status="failed",
             snapshot_hash=snapshot_hash,
             evidence={
                 "stage": "subset_refit",
-                "subset": list(keyed[subset]),
-                "decision": {
-                    "t": t.hac.t,
-                    "p": t.hac.p,
-                    "n_sessions": t.hac.n,
-                    "annualized_sharpe": t.annualized_sharpe,
-                },
+                "error": error or "combiner undefined on the subset",
             },
-            series=AttemptSeries.from_timing(session_dates, t.series),
         )
+        return
+    t = result.timing
+    await ctx.ledger.finish_run(
+        sub_run,
+        status="completed",
+        snapshot_hash=snapshot_hash,
+        evidence={
+            "stage": "subset_refit",
+            "subset": list(names),
+            "decision": {
+                "t": t.hac.t,
+                "p": t.hac.p,
+                "n_sessions": t.hac.n,
+                "annualized_sharpe": t.annualized_sharpe,
+            },
+        },
+        series=AttemptSeries.from_timing(session_dates, t.series),
+    )
+
+
+async def _safe_contribution(**kwargs) -> dict:
+    """The contribution block, or {"error": ...} when accounting fails: a diagnostic never turns a
+    finished book test into a failed one (its statistic and series are already computed)."""
+    try:
+        return await _contribution(**kwargs)
+    except Exception as error:  # noqa: BLE001
+        _log(f"S8 contribution accounting failed: {type(error).__name__}: {error}")
+        return {"schema": contribution.SCHEMA, "error": f"{type(error).__name__}: {error}"}

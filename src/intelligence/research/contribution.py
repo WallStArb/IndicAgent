@@ -143,6 +143,8 @@ def effective_breadth(z: np.ndarray) -> float:
     x = z[rows]
     if x.shape[0] < 2 or x.shape[1] < 1:
         return float("nan")
+    if (x.std(axis=0) == 0).any():
+        return float("nan")  # a constant member has no correlation to measure
     corr = np.corrcoef(x, rowvar=False)
     lam = np.linalg.eigvalsh(np.atleast_2d(corr))
     return float(lam.sum() ** 2 / (lam**2).sum())
@@ -185,11 +187,9 @@ def correlation_clusters(z_train: np.ndarray, threshold: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 SCHEMA = 1
-# Subset refits a book may run (each is a counted attempt, design 7.1). Shapley over families is
-# exact only while 2^F - 2 stays within it; above, the block records leave-one-family-out only
-# and says Shapley was not computed (the 187-14 review amendment pins this cap with the spec; it
-# is a code constant here because a new spec field would move every recorded spec hash).
-MAX_SUBSET_REFITS = 256
+# The number of families up to which Shapley is exact is APR (alpha.research.contribution.
+# shapley_exact_max_families): 2^F - 2 subset refits, each a counted attempt (design 7.1). Above
+# it the block records leave-one-family-out only and says Shapley was not computed.
 
 
 def required_subsets(n_families: int, exact_max_families: int) -> list[tuple[int, ...]]:
@@ -207,11 +207,7 @@ def required_subsets(n_families: int, exact_max_families: int) -> list[tuple[int
 
 
 def shapley_possible(n_families: int, exact_max_families: int) -> bool:
-    return (
-        n_families >= 4
-        and n_families <= exact_max_families
-        and 2**n_families - 2 <= MAX_SUBSET_REFITS
-    )
+    return 4 <= n_families <= exact_max_families
 
 
 def account(
@@ -224,6 +220,7 @@ def account(
     *,
     exact_max_families: int,
     fold_weights: np.ndarray | None = None,
+    present: np.ndarray | None = None,
 ) -> dict:
     """The evidence block. `terms` [n, m, K] are the combiner's member terms on the scored cells
     (NaN elsewhere), `member_families` the family of each member, `full_t` the book's E17 t and
@@ -235,8 +232,12 @@ def account(
     families = list(dict.fromkeys(member_families))
     per_member, total = attribution(terms, target)
     groups = group_totals(per_member, member_families)
-    z = np.where(np.isfinite(terms).any(axis=2, keepdims=True), np.nan_to_num(terms), np.nan)
-    z = z.reshape(-1, z.shape[2])
+    # Member terms on the cells where every member is present: an absent member's term is 0 only
+    # so the terms still sum to the forecast, it is not a zero signal, so cells with a missing
+    # member (`present` [n, m, K], the member stack's finite mask) are left out of uniqueness and
+    # breadth. Without a mask the terms' own NaNs mark absence.
+    everyone = np.isfinite(terms).all(axis=2) if present is None else present.all(axis=2)
+    z = np.where(everyone[:, :, None], terms, np.nan).reshape(-1, terms.shape[2])
     uniq = uniqueness(z)
     breadth = effective_breadth(z)
     block: dict = {
@@ -285,7 +286,7 @@ def account(
             block["shapley"] = {
                 "method": "not_computed",
                 "reason": f"{len(families)} families: exact Shapley needs 4 to "
-                f"{exact_max_families} families and at most {MAX_SUBSET_REFITS} subset refits",
+                f"{exact_max_families} families",
             }
     stability = None
     if fold_weights is not None and fold_weights.shape[0] > 0:

@@ -43,3 +43,13 @@ def test_apr_keys_are_seeded_in_all_three_tables():
     for key in ("shapley_exact_max_families", "shapley_samples", "shapley_seed", "cluster_corr"):
         assert _SQL.count(f"alpha.research.contribution.{key}") >= 2
     assert "INSERT INTO config_history" in _SQL and "INSERT INTO config_state" in _SQL
+
+
+def test_exact_shapley_limit_migration_updates_schema_state_and_history():
+    sql = re.sub(
+        r"--[^\n]*",
+        "",
+        read_source("production", "migrations", "539_contribution_shapley_exact_limit_8.sql"),
+    )
+    assert "SET default_value = '8'" in sql and "config_value = '8'" in sql
+    assert "INSERT INTO config_history" in sql and sql.count("BEGIN;") == 1

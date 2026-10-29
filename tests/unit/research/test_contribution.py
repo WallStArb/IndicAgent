@@ -225,7 +225,7 @@ def test_required_subsets_by_family_count():
     assert c.required_subsets(2, 12) == [(0,), (1,)] and len(c.required_subsets(3, 12)) == 3
     four = c.required_subsets(4, 12)  # every nonempty proper subset: 2^4 - 2
     assert len(four) == 14 and four[0] == (0,) and four[-1] == (1, 2, 3)
-    assert len(c.required_subsets(9, 12)) == 9  # 2^9 - 2 exceeds the refit cap: leave-one-out only
+    assert len(c.required_subsets(9, 8)) == 9  # above the APR exact limit: leave-one-out only
 
 
 def test_single_family_book_has_attribution_uniqueness_and_breadth_only():
@@ -253,9 +253,9 @@ def test_four_family_book_records_lofo_exact_shapley_and_headline():
 
 def test_above_the_caps_shapley_is_not_computed_and_says_why():
     terms, target, keys, fams = _block_inputs(9, 1)
-    subset_t = {s: 1.0 for s in c.required_subsets(9, 12)}
-    block = c.account(terms, target, keys, fams, 2.0, subset_t, exact_max_families=12)
-    assert block["shapley"]["method"] == "not_computed" and "refits" in block["shapley"]["reason"]
+    subset_t = {s: 1.0 for s in c.required_subsets(9, 8)}
+    block = c.account(terms, target, keys, fams, 2.0, subset_t, exact_max_families=8)
+    assert block["shapley"]["method"] == "not_computed" and "families" in block["shapley"]["reason"]
     assert "lofo" in block
 
 
@@ -273,3 +273,23 @@ def test_sign_stability_feeds_the_headline_minimum():
         fold_weights=folds,
     )
     assert block["headline"]["sign_stability_min"] == pytest.approx(2 / 3)
+
+
+def test_a_constant_member_does_not_crash_breadth_or_uniqueness():
+    rng = np.random.default_rng(0)
+    z = np.column_stack([rng.standard_normal(100), np.zeros(100), rng.standard_normal(100)])
+    assert np.isnan(c.effective_breadth(z))
+    assert c.uniqueness(z).shape == (3,)
+
+
+def test_cells_with_an_absent_member_are_left_out_of_uniqueness_and_breadth():
+    terms, target, keys, fams = _block_inputs(1, 3)
+    present = np.ones(terms.shape, dtype=bool)
+    present[:, :5, 1] = False  # member 1 absent on half the names
+    zeroed = np.where(present, terms, 0.0)  # absent members contribute 0 to the forecast
+    left_out = c.account(
+        zeroed, target, keys, fams, 1.0, {}, exact_max_families=12, present=present
+    )
+    as_zero_signal = c.account(zeroed, target, keys, fams, 1.0, {}, exact_max_families=12)
+    assert left_out["effective_breadth"] != as_zero_signal["effective_breadth"]
+    assert left_out["attribution"]["total"] == as_zero_signal["attribution"]["total"]

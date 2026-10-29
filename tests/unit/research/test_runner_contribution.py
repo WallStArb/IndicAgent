@@ -4,6 +4,7 @@ subset refits, and the book's own decision block unchanged by the extension."""
 
 import asyncio
 
+import numpy as np
 import pytest
 
 from src.intelligence.research import runner as runner_mod
@@ -152,3 +153,44 @@ def test_real_two_family_book_records_each_subset_refit_as_an_attempt(
         and recipe.params["parent_recipe_hash"]
     )
     assert "contribution" in ledger.evidence and ledger.evidence["contribution"]["lofo"]
+
+
+def test_a_failing_accounting_never_fails_the_finished_book_test(repo1, fast_power, monkeypatch):
+    def boom(*args, **kwargs):
+        raise np.linalg.LinAlgError("Eigenvalues did not converge")
+
+    monkeypatch.setattr(runner_mod.contribution, "account", boom)
+    out = _synthetic(repo1, SETTINGS)
+    assert out["status"] == "completed"
+    assert "LinAlgError" in out["evidence"]["contribution"]["error"]
+    assert out["evidence"]["decision"]["t"] is not None
+
+
+def test_one_failing_subset_refit_is_recorded_failed_and_the_other_still_completes(
+    repo2, saved_panel, fast_power, monkeypatch
+):
+    real = runner_mod._refit_subset
+    seen = []
+
+    def flaky(book, stack, cols, **kwargs):
+        seen.append(tuple(cols))
+        if len(seen) == 1:
+            raise ValueError("refit blew up")
+        return real(book, stack, cols, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_refit_subset", flaky)
+    ledger = SubsetLedger()
+    ctx = _ctx(repo2, ledger, saved_panel)
+    ctx.contribution = SETTINGS
+    out = asyncio.run(run_book(load_spec_from_head(repo2, BOOK_PATH), ctx, mode="real"))
+    assert out["status"] == "completed"
+    assert sorted(s for _, s, _, _ in ledger.finished) == ["completed", "failed"]
+    assert any("refit blew up" in e.get("error", "") for _, _, e, _ in ledger.finished)
+    lofo = ledger.evidence["contribution"]["lofo"]
+    assert sorted(np.isfinite(v["t_without"]) for v in lofo.values()) == [False, True]
+
+
+def test_attribution_covers_only_the_sessions_the_statistic_scored(repo1, fast_power):
+    out = _synthetic(repo1, SETTINGS)["evidence"]
+    assert out["contribution"]["attribution"]["total"] is not None
+    assert out["decision"]["n_sessions"] > 0

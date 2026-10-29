@@ -205,6 +205,23 @@ class RidgeSpec:
         terms[~np.isfinite(combined)] = np.nan  # an unpredicted cell has no terms
         return terms
 
+    def terms_and_fold_weights(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """member_terms and fold_weights from one walk-forward pass (the ridge refits once)."""
+        terms = np.full(stack.shape, np.nan)
+        weights: list = []
+        combined = walk_forward_ridge(
+            stack,
+            target,
+            self,
+            row_session_dates=row_session_dates,
+            terms_out=terms,
+            fold_weights_out=weights,
+        )
+        terms[~np.isfinite(combined)] = np.nan
+        return terms, np.array(weights).reshape(len(weights), stack.shape[2])
+
     def fold_weights(
         self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
     ) -> np.ndarray:
