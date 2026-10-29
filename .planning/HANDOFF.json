@@ -13,7 +13,7 @@
   "blockers": [],
   "human_actions_pending": [],
   "uncommitted_files": [],
-  "next_action": "Start plan 191-21; the research lane has the D7 notice",
+  "next_action": "Resume with: 'Resume from STATE: plan 191-21.' Start plan 191-21; the research lane has the D7 notice. Delete data/backups Tradier dump about 2026-11-12.",
   "context_notes": "Plan 19 readiness green 2026-10-28 (1,522/0/7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). Residue after D-191-Q: 314,522 Tradier-only sessions on 799 names, 90% pre-2016, much of it predecessor splices. Shared checkout local main carries other sessions' unpushed commits: commit and push from a scratch worktree off origin/main. Kill processes by PID, never pgrep -f/pkill -f patterns that match your own shell.",
   "next_steps": [],
   "history_2026_10_16": [
