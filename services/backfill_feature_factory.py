@@ -1587,7 +1587,7 @@ def run_rebuild_stage(
     spool_root = spool_root or _SPOOL_ROOT_DEFAULT
     _purge_spool_root(spool_root)
 
-    contracts = get_active_contracts(settings, dimension="compute_eligible_1d")
+    contracts = get_active_contracts(settings, dimension="compute_1d")
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
     chunks = split_symbol_chunks(universe, symbols_per_chunk)
 

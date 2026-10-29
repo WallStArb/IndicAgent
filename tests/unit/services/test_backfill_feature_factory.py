@@ -1371,6 +1371,14 @@ def _write_spool(path: Path, symbol: str, tf: str, times, regime=None) -> int:
     return len(times)
 
 
+def _stub_contracts(dimension):
+    """The rebuild's universe call must name a real dimension; a made-up name raises in prod."""
+    from src.config.settings import _ACTIVE_CONTRACTS_DIMENSION_CLAUSES
+
+    assert dimension in _ACTIVE_CONTRACTS_DIMENSION_CLAUSES, dimension
+    return [SimpleNamespace(symbol=s) for s in ("AAA", "BBB", "CCC")]
+
+
 def _stub_worker(times_by_symbol: dict[str, dict[int, list]]):
     """A _rebuild_worker stand-in: writes each (symbol, unit) spool with the row times the
     test prescribes (order preserved, so a test can interleave deliberately)."""
@@ -1473,7 +1481,7 @@ def _run_rebuild_stage(
     monkeypatch.setattr(
         module,
         "get_active_contracts",
-        lambda settings, dimension=None: [SimpleNamespace(symbol=s) for s in ("AAA", "BBB", "CCC")],
+        lambda settings, dimension=None: _stub_contracts(dimension),
     )
     monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
