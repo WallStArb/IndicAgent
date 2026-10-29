@@ -91,6 +91,14 @@ def _finite_prefix_rows(*arrays: np.ndarray) -> int:
     return first
 
 
+def _has_interior_gap(values: np.ndarray) -> bool:
+    """True when a non-finite value is followed by a finite one (a non-finite tail is not a gap)."""
+    bad = ~np.isfinite(values)
+    if not bad.any():
+        return False
+    return not bad[int(np.argmax(bad)) :].all()
+
+
 def _compute_family(
     close: np.ndarray,
     volume: np.ndarray | None,
@@ -105,6 +113,16 @@ def _compute_family(
     n = len(close)
     if spec.needs_volume:
         volume = np.asarray(volume, dtype=float)
+        prefix = _finite_prefix_rows(close)  # a hole in close still raises
+        if _has_interior_gap(volume[:prefix]):
+            # A NULL-volume stretch inside the series (the 1d IBKR fallback rows, todo 563): the
+            # family has no walk-forward over a hole, so the series is explicitly unlabeled with
+            # its own status and every other kernel of the series still computes.
+            return _hmm.FamilyResult(
+                np.full(n, np.nan),
+                np.full(n, _hmm.STATUS_INPUT_GAP),
+                np.full((N_NUMERIC_COLUMNS, n), np.nan),
+            )
         prefix = _finite_prefix_rows(close, volume)
         volume = volume[:prefix]
     else:

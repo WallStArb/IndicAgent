@@ -240,6 +240,27 @@ def test_non_finite_value_followed_by_finite_rows_raises(family):
 
 
 @pytest.mark.parametrize("family", FAMILIES)
+def test_a_mid_series_volume_gap_unlabels_a_volume_family_with_the_input_gap_status(family):
+    spec = FAMILY_SPECS[family]
+    bars = {k: v.copy() for k, v in _bars().items()}
+    bars["volume"][900:1100] = np.nan  # a stretch of NULL volume, then volume again
+    if not spec.needs_volume:
+        # a family that does not read volume is unaffected: bit-identical to the clean run
+        clean = _run(_bars(), family)
+        got = _run(bars, family)
+        for name in clean:
+            same = got[name] == clean[name]
+            if got[name].dtype.kind == "f":
+                same |= np.isnan(got[name]) & np.isnan(clean[name])
+            assert same.all(), name
+        return
+    out = _run(bars, family)
+    assert np.isnan(out[spec.code_output]).all()
+    assert (out[spec.status_output] == _hmm.STATUS_INPUT_GAP).all()
+    assert (out[spec.regime_column] == None).all()  # noqa: E711
+
+
+@pytest.mark.parametrize("family", FAMILIES)
 def test_unknown_or_changing_tf_raises(family):
     with pytest.raises(ValueError, match="timeframes"):
         _run(_bars(), family, tf="7m")
