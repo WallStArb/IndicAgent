@@ -1370,6 +1370,7 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV[1:], _POC, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_vp_columns,
+        volume_reset="session",
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
     ),
@@ -1400,6 +1401,7 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
+        nan_volume_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
     ),

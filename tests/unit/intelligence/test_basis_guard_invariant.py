@@ -10,7 +10,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.intelligence.features.contract.registry import _compute_basis_guarded, default_registry
+from src.intelligence.features.contract.registry import (
+    _compute_basis_guarded,
+    _masked_until_reset,
+    default_registry,
+)
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 _REGISTRY = default_registry()
@@ -118,4 +122,73 @@ def test_a_path_dependent_kernel_runs_through_a_seam_and_masks_only_dropped_bars
         assert (column[dropped] == 1.0).all() if is_mask else np.isnan(column[dropped]).all()
         np.testing.assert_array_equal(
             column[~dropped], np.asarray(whole[out_name], dtype=float)[~dropped]
+        )
+
+
+def _bars_ts(n: int) -> np.ndarray:
+    """n 15m RTH-ish bars from Monday 2023-01-02 14:30 UTC, 26 bars a day, weekdays only."""
+    from datetime import UTC, datetime, timedelta
+
+    out, day = [], datetime(2023, 1, 2, 14, 30, tzinfo=UTC)
+    while len(out) < n:
+        if day.weekday() < 5:
+            out.extend(day + timedelta(minutes=15 * k) for k in range(26))
+        day += timedelta(days=1)
+    return np.array(out[:n], dtype=object)
+
+
+@pytest.mark.parametrize(
+    ("anchor", "bars_to_reset"), [("week", 5 * 26 - 30), ("session", 26 - 30 % 26)]
+)
+def test_masked_until_reset_covers_the_dropped_bar_to_the_next_anchor(anchor, bars_to_reset):
+    from dataclasses import replace
+
+    kernel = replace(_REGISTRY.by_name("vwap_dev_sigma"), volume_reset=anchor)
+    ts = _bars_ts(400)
+    dropped = np.zeros(400, dtype=bool)
+    dropped[30] = True
+    masked = _masked_until_reset(kernel, {"ts_dt": ts}, dropped)
+    assert not masked[:30].any()
+    assert masked[30 : 30 + bars_to_reset].all()
+    assert not masked[30 + bars_to_reset :].any()
+
+
+def test_no_reset_anchor_masks_only_the_dropped_row():
+    kernel = _REGISTRY.by_name("vwap_dev_sigma")
+    dropped = np.zeros(50, dtype=bool)
+    dropped[7] = True
+    assert (_masked_until_reset(kernel, {}, dropped) == dropped).all()
+
+
+def test_weekly_vwap_flag_recovers_exactly_after_the_week_with_a_dropped_bar():
+    kernel = _REGISTRY.by_name("calendar_above_wk_vwap")
+    full, config, volume, _ = _case(0)
+    n = len(volume)
+    ts = _bars_ts(n)
+    volume = full["volume"].astype(float).copy()
+    cut = {**{k: full[k] for k in kernel.inputs if k in full}, "ts_dt": ts, "volume": volume.copy()}
+    truth = kernel.compute(dict(cut), config)["above_wk_vwap"]
+    cut["volume"][40] = np.nan
+    got = _compute_basis_guarded(kernel, cut, np.ones(n, dtype=np.int64), config)["above_wk_vwap"]
+    week_end = 5 * 26  # bars 0..129 are week 1
+    assert np.isnan(got[40:week_end]).all()
+    assert not np.isnan(got[:40]).any() and not np.isnan(got[week_end:]).any()
+    np.testing.assert_array_equal(got[week_end:], truth[week_end:])
+    np.testing.assert_array_equal(got[:40], truth[:40])
+
+
+def test_session_levels_ignores_nan_volume_so_it_is_declared_nan_volume_safe():
+    kernel = _REGISTRY.by_name("session_levels")
+    assert kernel.nan_volume_safe
+    full, config, volume, _ = _case(0)
+    n = len(volume)
+    x = {**full, "tf": np.array(["15m"] * n, dtype=object), "ts_dt": _bars_ts(n)}
+    x["_atr_raw_padded"] = np.full(n, 1.5)
+    cut = {k: x[k] for k in kernel.inputs}
+    want = kernel.compute(dict(cut), config)
+    got = kernel.compute({**cut, "volume": volume}, config)  # `_case` volume holds NaN bars
+    assert np.isnan(volume).any()
+    for out_name, column in want.items():
+        np.testing.assert_array_equal(
+            np.asarray(got[out_name], dtype=float), np.asarray(column, dtype=float)
         )

@@ -63,12 +63,16 @@ guarded kernels found every one but `session_levels` changes with volume.
 - Independent review of the guard commits (`d6a8da8de`, `96458db71`), 2026-10-29. Arithmetic of the
   masks is correct. Fixed: a none-mask column was NaN at each segment's row 0 (now 1); the invariant
   test passed vacuously for `rolling_poc` (now asserts a finite comparison, `rolling_poc` listed as
-  too long for the fixture). Fixed after measuring: a path-dependent kernel
-  (`vwap_dev_sigma`, `ctf_source`, `calendar_above_wk_vwap`, `session_vp`, `session_levels`) used to
-  restart at a seam, which erred by up to 4.2 sigma-units on `vwap_dev_sigma` (one flip bar at row 251
-  of the test series). These kernels weight by volume rather than read its level, so running through
-  with the later volume scaled to 0.75 errs by at most 0.066. The guard now runs them through the
-  seam and masks only the dropped bar's row. Needs a second independent review before 186-26.
+  too long for the fixture). Fixed after measuring:
+  a path-dependent kernel used to restart at a seam, which erred by up to 4.2 sigma-units on
+  `vwap_dev_sigma`. These kernels weight by volume rather than read its level (confirmed per kernel
+  by the second review), so the guard runs them through the seam: a 0.75 scaling errs by at most
+  0.055 sigma (`vwap_dev_sigma`) and flips about 1% of `ctf_source` vwap-align signs. A dropped bar
+  entered as 0.0 is a fill whose effect outlives its row, so a kernel with a reset anchor
+  (`Kernel.volume_reset`: `calendar_above_wk_vwap` week, `session_vp` ET session) is masked from the
+  dropped bar to the next reset; `vwap_dev_sigma` and `ctf_source` never reset and mask the dropped
+  row only (accepted tolerance: up to 0.086 sigma after a dropped bar, one missing weight among the
+  accumulated bars). `session_levels` never reads volume and is now `nan_volume_safe`.
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
 - The 186-26 launch has no owner.

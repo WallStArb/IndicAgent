@@ -18,10 +18,12 @@ import importlib
 import pkgutil
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.core.bar_accumulator import _ET, _RTH_OPEN_ET
 from src.intelligence.bars.vendor_kind import VOLUME_BASIS_CONSOLIDATED
 from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
 
@@ -103,6 +105,12 @@ class Kernel:
     # later row reads 0.0 or garbage. `compute_kernels` runs those per basis segment with NaN
     # volume as 0.0 and masks the affected rows (`_compute_basis_guarded`, todo 560).
     nan_volume_safe: bool = False
+    # A path-dependent volume kernel whose accumulator resets on a calendar anchor: "week" (ISO
+    # week of the bar timestamp) or "session" (the ET session day). A dropped bar (NULL volume,
+    # entered as 0.0) corrupts the accumulator until that reset, so the guard masks those rows.
+    # None: no reset, a dropped bar's own row is masked and the residual error is the accepted
+    # tolerance recorded in todo 560 (one missing weight among the accumulated bars).
+    volume_reset: str | None = None
 
 
 class Alignment(enum.Enum):
@@ -419,6 +427,36 @@ def _is_none_mask(name: str) -> bool:
     return name.startswith("_") and name.endswith("_is_none")
 
 
+def _masked_until_reset(
+    kernel: Kernel, cut: Mapping[str, np.ndarray], dropped: np.ndarray
+) -> np.ndarray:
+    """Rows a dropped bar corrupts in a path-dependent kernel: from the bar to its next reset.
+
+    A kernel without a `volume_reset` anchor masks only the dropped bar's own row.
+    """
+    if kernel.volume_reset is None or not dropped.any():
+        return dropped
+    ids = [_reset_id(ts, kernel.volume_reset) for ts in cut["ts_dt"]]
+    n = len(ids)
+    new_id = np.array([True, *(ids[i] != ids[i - 1] for i in range(1, n))])
+    starts = np.flatnonzero(new_id)
+    start_of_row = starts[np.searchsorted(starts, np.arange(n), side="right") - 1]
+    counts = np.cumsum(dropped)
+    before = np.where(start_of_row > 0, counts[np.maximum(start_of_row - 1, 0)], 0)
+    return counts - before > 0
+
+
+def _reset_id(ts: object, anchor: str) -> tuple[int, ...] | object:
+    """The accumulator reset bucket of a bar: ISO (year, week), or the ET session day."""
+    if anchor == "week":
+        iso = ts.isocalendar()  # type: ignore[attr-defined]
+        return (iso.year, iso.week)
+    if anchor == "session":
+        et = ts.astimezone(_ET)  # type: ignore[attr-defined]
+        return et.date() if et.time() >= _RTH_OPEN_ET else et.date() - timedelta(days=1)
+    raise KernelRegistryError(f"unknown volume_reset anchor {anchor!r}")
+
+
 def _compute_basis_guarded(
     kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
 ) -> Mapping[str, np.ndarray]:
@@ -430,7 +468,7 @@ def _compute_basis_guarded(
     finite), and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
     bars hold a dropped bar or span a segment boundary: the declared memory then still holds,
     and the gap is loud (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways). A path-dependent kernel has no finite memory and weights by volume, so it
-    runs through the whole series and only the dropped bar's own row is masked.
+    runs through the whole series; a dropped bar masks its rows until the kernel's next reset anchor.
     """
     volume = np.asarray(cut["volume"], dtype=float)
     dropped = ~np.isfinite(volume)
@@ -448,13 +486,14 @@ def _compute_basis_guarded(
             name: np.array(column)
             for name, column in kernel.compute({**cut, "volume": clean}, config).items()  # type: ignore[arg-type]
         }
+        masked = _masked_until_reset(kernel, cut, dropped)
         for name, column in out.items():
             if column.dtype.kind != "f":
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the "
                     "volume basis guard can only mask float outputs"
                 )
-            column[dropped] = 1.0 if _is_none_mask(name) else np.nan
+            column[masked] = 1.0 if _is_none_mask(name) else np.nan
         return out
     bounds = np.unique(starts)
     out: dict[str, np.ndarray] = {}

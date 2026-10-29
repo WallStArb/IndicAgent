@@ -435,6 +435,7 @@ KERNELS = (
         inputs=("ts_dt", "high", "low", "close", "volume"),
         memory=lambda config: 0,
         compute=_compute_above_wk_vwap,
+        volume_reset="week",
         path_dependent=True,
         path_dependent_reason=(
             "weekly accumulator state and row-0 exclusion depend on the series start; the weekly "
