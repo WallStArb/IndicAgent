@@ -125,9 +125,11 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   the current lag is fine at h = 5 (5.3% to 5.9%) and fails at h = 21 (11% to 12%); L + 3 (h - 1)
   is the best candidate; an owner-approved E17 amendment and a 1,000-simulation certification are
   next. A book over two or more families cannot run: `check_family_plant` refuses it (todo 562).
-  Todos 558 and 559 are specified only in indicagent-47's inbox. Data lane: plan 191-20 window
-  closed 2026-10-29, D7 acceptance still open (todo 545); the family 2 and daily-family notice is
-  held until D7 passes.
+  Todos 558 and 559 are specified only in indicagent-47's inbox. Data lane: plan 191-20 done
+  2026-10-29 (canonical 1d is Alpaca SIP primary from 2016, Tradier rows deleted, 1d re-derived,
+  migration 537 live); D7: 1,273 of 1,502 names pass every required 1d check, the 229 holds are in
+  `191-20-D7-HOLDS.tsv`. The family 2 and daily-family notice went to indicagent-47 to relay: those
+  runs may start (holds excluded) once a research session picks them up.
 - **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
   pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
   digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
