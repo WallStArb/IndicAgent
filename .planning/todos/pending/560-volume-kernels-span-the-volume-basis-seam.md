@@ -48,12 +48,18 @@ and the `sr_*` and `ob_*` outputs highest at 37.5% heavy. The `rolling_poc` outp
 with clean volume too (they need intraday sessions) and 5m has no NULL volume, so the 480-row
 blanking does not bite on current data and the nan-aware rewrite is not needed.
 
+## Fixed 2026-10-29
+
+`bar_statistics_refresh` no longer declares `volume` (it reads only high, low and close), so the guard
+leaves `hurst`, `shannon`, `garch_ratio`, `hma_slope_z` and `adx` alone. A perturbation scan of the other
+guarded kernels found every one but `session_levels` changes with volume.
+
 ## Open
 
-- Fix `bar_statistics_refresh` (`kernels/price.py`): it declares `volume` as an input but reads only
-  high, low and close, so the guard masks `hurst`, `shannon`, `garch_ratio`, `hma_slope_z` and `adx`
-  on every NULL-volume bar for nothing. Drop `volume` from its inputs (and check what else lists
-  `volume` without reading it) before 186-26; it changes a kernel in the fingerprinted closure.
+- `session_levels` also declares `volume` without using it in any output (the shared `_replay_cache`
+  feeds it to `advance_bar`, which only feeds the weekly VWAP the kernel does not read). The guard
+  masks it on NULL-volume 1d bars; left as is, since `session_levels` does not classify on 1d.
+  Splitting the helper would touch a fingerprinted module for no change in output.
 - Independent review of the guard commits (`d6a8da8de`, `96458db71`).
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.

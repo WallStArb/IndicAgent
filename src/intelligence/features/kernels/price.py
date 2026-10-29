@@ -2174,7 +2174,7 @@ KERNELS = (
     _k(
         "bar_statistics_refresh",
         _BAR_STATISTICS,
-        ("open", "high", "low", "close", "volume"),
+        ("open", "high", "low", "close"),
         lambda c: 0,
         _compute_bar_statistics_refresh,
         path_dependent=True,
