@@ -46,3 +46,9 @@ only the regime columns of these names later.
 
 Follow-up todo to file after the fix lands: marginalize a mid-series volume gap in the trend HMM
 (145 names, 125,174 rows).
+
+## Landed 2026-10-29
+
+Containment (the decision above): `_compute_family` returns the all-NaN result with `STATUS_INPUT_GAP` (5.0, `_hmm.py`)
+when a `needs_volume` family sees a non-finite volume followed by finite rows; a close gap still raises, a non-finite
+tail and a clean series are unchanged. The marginalizing walk-forward stays a P2 follow-up (todo 248 review).
