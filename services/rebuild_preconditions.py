@@ -50,6 +50,7 @@ WRITER_MODULE_NAME = "services.backfill_feature_factory"
 # (census exit proof), 185-47/185-48 (the 1d primary swap to IBKR applied and the retired 1d
 # loader removed) and 189-11 (5m backfill complete, vendor rows out). Presence of the SUMMARY file is
 # the landing marker, as for the other dependency markers.
+BACKFILL_COMPLETE_SUMMARY = "189-11-SUMMARY.md"
 REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
     {
         "185-42-SUMMARY.md",
@@ -57,7 +58,7 @@ REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
         "185-45-SUMMARY.md",
         "185-47-SUMMARY.md",
         "185-48-SUMMARY.md",
-        "189-11-SUMMARY.md",
+        BACKFILL_COMPLETE_SUMMARY,
     }
 )
 
@@ -333,14 +334,36 @@ def run_all(
     disk: Mapping[str, int],
     process_lines: Sequence[str],
     resumable_log_evidence: str,
+    intraday_scope: bool = True,
 ) -> list[CheckResult]:
     """Run every D-32 check, return all results, and raise `RebuildPreconditionFailure`
-    naming EVERY failure when any check fails."""
+    naming EVERY failure when any check fails.
+
+    `intraday_scope=False` is a 1d-only stage: the daily series reads neither the derived 15m/1h
+    grid nor the 5m backfill, so the two checks about those (`derived_grid_landed`, and the 189-11
+    part of `data_layer_final_landed`) are reported as not applicable instead of required. The
+    caller then passes `bar_scan` and `d2_scan` for the 1d verdicts of exactly the symbols it
+    rebuilds. A later intraday stage runs with the default and every gate."""
+    if intraday_scope:
+        grid_result = check_derived_grid_landed(grid_marker_present, grid_marker_detail)
+        final_result = check_data_layer_final_landed(final_landed_markers)
+    else:
+        grid_result = CheckResult(
+            "derived_grid_landed", True, "not applicable: a 1d-only stage reads no derived grid"
+        )
+        landed = check_data_layer_final_landed(
+            {**final_landed_markers, BACKFILL_COMPLETE_SUMMARY: True}
+        )
+        final_result = CheckResult(
+            landed.name,
+            landed.ok,
+            f"{landed.detail}; {BACKFILL_COMPLETE_SUMMARY} not applicable to a 1d-only stage",
+        )
     results = [
         check_bar_coverage(bar_scan, empty_history_spans),
-        check_derived_grid_landed(grid_marker_present, grid_marker_detail),
+        grid_result,
         check_d2_landed(d2_scan),
-        check_data_layer_final_landed(final_landed_markers),
+        final_result,
         check_todo445_decision(todo445_decision, configured_tfs),
         check_dependencies_landed(dependency_markers),
         check_drops_landed(present_relations),

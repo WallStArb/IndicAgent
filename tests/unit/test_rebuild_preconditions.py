@@ -606,3 +606,37 @@ def test_the_module_writes_nothing():
             if forbidden in line and not line.lstrip().startswith("#")
         ]
         assert lines == [], (forbidden, lines)
+
+
+def test_a_1d_only_stage_does_not_require_the_intraday_markers():
+    inputs = _all_passing_inputs()
+    inputs["grid_marker_present"] = False
+    inputs["final_landed_markers"] = {
+        name: name != rp.BACKFILL_COMPLETE_SUMMARY for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES
+    }
+    with pytest.raises(RebuildPreconditionFailure):
+        run_all(**inputs)
+    results = {r.name: r for r in run_all(**inputs, intraday_scope=False)}
+    assert (
+        results["derived_grid_landed"].ok
+        and "not applicable" in results["derived_grid_landed"].detail
+    )
+    assert results["data_layer_final_landed"].ok
+    assert rp.BACKFILL_COMPLETE_SUMMARY in results["data_layer_final_landed"].detail
+
+
+def test_a_1d_only_stage_still_requires_every_other_summary_and_every_scan():
+    inputs = _all_passing_inputs()
+    inputs["final_landed_markers"] = {
+        name: name not in {"185-42-SUMMARY.md", rp.BACKFILL_COMPLETE_SUMMARY}
+        for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES
+    }
+    inputs["d2_scan"] = VerdictScan({"SPY": ["1d:digest_fresh failed"]}, 3, _AT1, _AT2)
+    with pytest.raises(RebuildPreconditionFailure) as excinfo:
+        run_all(**inputs, intraday_scope=False)
+    message = str(excinfo.value)
+    assert "185-42-SUMMARY.md" in message and "d2_landed" in message
+    assert (
+        rp.BACKFILL_COMPLETE_SUMMARY
+        not in message.split("data_layer_final_landed:")[1].split("\n")[0]
+    )
