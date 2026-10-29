@@ -62,7 +62,31 @@ On these seeds S1 does not inflate StepM's size. That sits uneasily with 89 of 1
 of 1,000 (6.0%) on the 2026-10-27 seeds: all three runs together are 180 of 2,600 (6.9%, 99% interval about
 [5.5, 8.4]), the 91 of 1,600 that exclude the failing run are 5.7% ([4.4, 7.0]). 600 simulations cannot
 separate a true size of 5% from 6 to 7%, so a 3,000-simulation exploratory run on `s1_hostile` alone
-(seed base 40,000,000) is under way (unit `stepm-diag-561b`, output
-`logs/research/diag_561b_s1_hostile_3000.json`). If its interval contains 5%, the step B failure is a tail
+(seed base 40,000,000) ran (unit `stepm-diag-561b`; result in
+`logs/research/diag_561b_s1_hostile_3000.result.jsonl`, see "Diagnostic result" below). If its interval contains 5%, the step B failure is a tail
 draw of a cell whose bound (0.9995 quantile) leaves little room; the response is a new pre-registered run
 with more simulations on that cell (the binomial bound tightens with n), not a rerun of step B's seeds.
+
+## Diagnostic result (2026-10-29)
+
+The 3,000-simulation run on `s1_hostile` finished its compute: 175 family-wise rejections of 3,000
+(5.83%, 99% interval about [4.7, 6.9]), bound 191, `holds` true, median minimum adjusted p 0.485. The
+interval contains 5%, so the step B failure reads as a tail draw. The unit then exited 1 because
+`stepm_source_sha256()` read `stepm.py` from a scratch worktree that had been deleted, so the final
+JSON was never written; the finished row survives in the `.partial.jsonl`, copied to the `.result.jsonl`
+above. The call on the cell (new pre-registered run with more simulations on that cell) is still open.
+
+## Script fix: do not lose a finished battery to a late failure
+
+`scripts/research/stepm_null_battery.py` computes `stepm_source_sha256()` only when it builds the final
+record (line 168), after hours of compute. Two changes:
+
+1. Hash the StepM source once at startup, so a missing or unreadable file fails the run in seconds, not
+   after the last cell.
+2. Write the per-cell result row durably before any step that can fail (it already appends the
+   `.partial.jsonl`; assert the final record builder cannot raise on inputs known at startup).
+
+Also run long batteries from a worktree that outlives the session (`git worktree add --detach
+../indicagent-<name> origin/main`, per STATE.md), never from a session scratchpad. A change under
+`scripts/research/` is not the fingerprinted writer path, but run `repro_frozen` if it touches
+`src/intelligence/statistics/`.
