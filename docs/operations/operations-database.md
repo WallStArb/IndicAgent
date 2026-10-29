@@ -169,7 +169,7 @@ the stored overlap; Tradier ends at 2026-10-06, so the table is constant and sta
 operations dashboard). It also writes the verdict
 report: one `bar_integrity` row per (symbol, timeframe, check) for the 1d checks
 (session_coverage, policy_conformance, lineage_missing, canonical_recompute, digest_fresh,
-unexplained_seam, vendor_basis_run, freshness_1d) and the intraday checks (slot_coverage,
+unexplained_seam, alpaca_basis_run, freshness_1d) and the intraday checks (slot_coverage,
 digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
 
