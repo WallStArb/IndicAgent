@@ -226,9 +226,6 @@ either the Alpaca loader writes an ohlcv_request row per fetch (then the view ne
 branch and the session_ts mapping), or lineage for Alpaca resolves through another table.
 canonical_recompute (1,309) was not diagnosed; check whether it shares this cause first.
 
-Left: VACUUM (started 02:26Z, log /tmp/claude-1000/scratch545/vacuum.log), restart the four
-stopped timers (bar-derivation-grid, bar-reconciliation-audit, regime-coverage-auditor,
-dividend-event-writer-yahoo), the lineage and canonical_recompute fix above, notice to the research
-lane owner listing family 2 universe names with holds or pending spans (it waits on D7 acceptance),
-all-clear to peer sessions. ibkr-history-fetcher and alpaca-nightly timers are running (the
-pre-2016 5m backfill continues).
+Window closed 2026-10-29 ~02:55Z: VACUUM done; all six timers running; peers 47 and 1f told. Left:
+the lineage and canonical_recompute fix above (D7 acceptance), then the notice to the research lane
+owner listing family 2 universe names with holds or pending spans.
