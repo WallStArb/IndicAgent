@@ -30,3 +30,18 @@ def test_gate_is_the_largest_gating_cell():
     assert gate.cell_rows == 1
     assert gate.static_sd == (b.GATE_STATIC_SD,)
     assert gate.time_of_day == (b.GATE_MARKET_MEAN,)
+
+
+def test_horizon_defaults_to_the_spec_and_a_longer_one_shortens_the_target():
+    import dataclasses
+
+    import numpy as np
+
+    from src.intelligence.research import null_battery_daily_residual as nb
+
+    base = nb.scenarios()[0]
+    assert base.horizon == nb.HORIZON == 5
+    _, t5 = nb.null_panel(base, 1)
+    _, t21 = nb.null_panel(dataclasses.replace(base, horizon=21), 1)
+    assert np.isfinite(t5).sum() > np.isfinite(t21).sum()  # 21 rows lost at the end, not 5
+    assert np.isfinite(t5).sum() - np.isfinite(t21).sum() == 16 * base.names

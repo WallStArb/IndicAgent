@@ -72,6 +72,7 @@ class DailyScenario:
     late_name: bool = False
     s1: bool = False
     bars_per_session: int = 1  # listing_mask's row unit
+    horizon: int = HORIZON  # target horizon in sessions (todo 547 certifies h = 5 and 21)
 
 
 def _returns(sc: DailyScenario, rng: np.random.Generator) -> np.ndarray:
@@ -104,17 +105,17 @@ def _split(u: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, np.ndar
     return overnight, u - overnight
 
 
-def _forward(overnight: np.ndarray, intraday: np.ndarray) -> np.ndarray:
+def _forward(overnight: np.ndarray, intraday: np.ndarray, horizon: int = HORIZON) -> np.ndarray:
     """[S, m] row d: log(open[d+1+h] / open[d+1]) = intraday d+1 .. d+h plus overnight
     d+2 .. d+1+h (NaN if any is missing or past the end)."""
     s_n = len(intraday)
     out = np.full(intraday.shape, np.nan)
-    rows = s_n - 1 - HORIZON
+    rows = s_n - 1 - horizon
     if rows <= 0:
         return out
     win = np.lib.stride_tricks.sliding_window_view
-    intra = win(intraday[1:], HORIZON, axis=0)[:rows].sum(axis=-1)
-    over = win(overnight[2:], HORIZON, axis=0)[:rows].sum(axis=-1)
+    intra = win(intraday[1:], horizon, axis=0)[:rows].sum(axis=-1)
+    over = win(overnight[2:], horizon, axis=0)[:rows].sum(axis=-1)
     out[:rows] = intra + over
     return out
 
@@ -152,16 +153,18 @@ def null_panel(sc: DailyScenario, seed: int) -> tuple[np.ndarray, np.ndarray]:
 
         res = compute_residuals(
             _price_panel(overnight, intraday, listed),
-            horizon=HORIZON,
+            horizon=sc.horizon,
             factor_spec=FACTOR_SPECS["vintage_1"],
         )
         return res.bar, res.fwd
     resid = np.where(listed, u, np.nan)
-    target = _forward(np.where(listed, overnight, np.nan), np.where(listed, intraday, np.nan))
+    target = _forward(
+        np.where(listed, overnight, np.nan), np.where(listed, intraday, np.nan), sc.horizon
+    )
     return resid, target
 
 
-def _score(alpha, vol, target, trade, memory: int):
+def _score(alpha, vol, target, trade, memory: int, horizon: int):
     weights, has = rank_vol_neutral_weights(
         alpha, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
     )
@@ -172,7 +175,7 @@ def _score(alpha, vol, target, trade, memory: int):
         trade,
         bars_per_session=1,
         warmup_sessions=_WARMUP_SESSIONS,
-        memory_sessions=e17_memory(memory, HORIZON, 1),
+        memory_sessions=e17_memory(memory, horizon, 1),
     )
 
 
@@ -187,10 +190,10 @@ def _arms(sc: DailyScenario, seed: int):
     for name, fn, params, memory in MEMBERS:
         alpha = fn(resid, bars_per_session=1, coverage_floor=_COVERAGE_FLOOR, **params)
         alphas.append(alpha)
-        yield name, _score(alpha, vol, target, trade, memory)
+        yield name, _score(alpha, vol, target, trade, memory, sc.horizon)
     # The runner's combiner, so the battery certifies the book run_book scores.
     book = EqualWeight((1.0,) * len(MEMBERS)).combine(np.stack(alphas, axis=2), None)
-    yield "book_equal", _score(book, vol, target, trade, max(m[3] for m in MEMBERS))
+    yield "book_equal", _score(book, vol, target, trade, max(m[3] for m in MEMBERS), sc.horizon)
 
 
 def simulate(sc: DailyScenario, seed: int) -> dict[str, tuple[float, float]]:

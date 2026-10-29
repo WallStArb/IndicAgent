@@ -118,9 +118,11 @@ class EqualWeight:
     def training_rows(self) -> int:
         return 0 if self.fold is None else self.fold.window_rows + self.fold.embargo
 
-    def combine(
-        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    def _signed_scores(
+        self, stack: np.ndarray, target: np.ndarray, row_session_dates: np.ndarray | None
     ) -> np.ndarray:
+        """z * signs [n, m, K]: each member's signed cross-sectional z-score per cell (NaN where
+        the member is absent, or on a non-complete row under the complete-case rule)."""
         # With fixed signs nothing is fitted, so there are no refits and the session dates are
         # not read; in-fold signs refit on the fold's grid (refit_anchor reads them).
         if stack.ndim != 3 or stack.shape[2] != len(self.signs):
@@ -137,11 +139,32 @@ class EqualWeight:
                 signs = np.asarray(self.signs)
             else:
                 signs = in_fold_signs(z, target, self.signs, self.fold, row_session_dates)[:, None]
-            if self.min_members is None:
-                return (z * signs).mean(axis=2)
-        present = np.isfinite(z * signs).sum(axis=2)
-        total = np.nansum(z * signs, axis=2) / len(self.signs)
+            return z * signs
+
+    def combine(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        scores = self._signed_scores(stack, target, row_session_dates)
+        if self.min_members is None:
+            return scores.mean(axis=2)
+        with warnings.catch_warnings(), np.errstate(invalid="ignore"):
+            warnings.simplefilter("ignore", RuntimeWarning)
+            present = np.isfinite(scores).sum(axis=2)
+            total = np.nansum(scores, axis=2) / len(self.signs)
         return np.where(present >= self.min_members, total, np.nan)
+
+    def member_terms(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Each member's additive term of the forecast [n, m, K]: sign_k z_k / K, so that where the
+        forecast is finite its sum over members is the forecast (to rounding). NaN where the cell
+        is not scored; an absent member of a scored cell contributes 0 (its 1/K share is not
+        redistributed, as in combine)."""
+        scores = self._signed_scores(stack, target, row_session_dates) / len(self.signs)
+        if self.min_members is None:
+            return scores
+        present = np.isfinite(scores).sum(axis=2, keepdims=True)
+        return np.where(present >= self.min_members, np.nan_to_num(scores), np.nan)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -168,6 +191,29 @@ class RidgeSpec:
         self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
     ) -> np.ndarray:
         return walk_forward_ridge(stack, target, self, row_session_dates=row_session_dates)
+
+    def member_terms(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Each member's additive term z_k b_k of the forecast [n, m, K] under the fold in force;
+        its sum over members is the forecast where it is finite. NaN where the cell is not
+        predicted; an absent member of a predicted cell contributes 0."""
+        terms = np.full(stack.shape, np.nan)
+        combined = walk_forward_ridge(
+            stack, target, self, row_session_dates=row_session_dates, terms_out=terms
+        )
+        terms[~np.isfinite(combined)] = np.nan  # an unpredicted cell has no terms
+        return terms
+
+    def fold_weights(
+        self, stack: np.ndarray, target: np.ndarray, *, row_session_dates: np.ndarray | None = None
+    ) -> np.ndarray:
+        """The complete-member standardized weights b of every refit [F, K]."""
+        weights: list = []
+        walk_forward_ridge(
+            stack, target, self, row_session_dates=row_session_dates, fold_weights_out=weights
+        )
+        return np.array(weights).reshape(len(weights), stack.shape[2])
 
     def __post_init__(self) -> None:
         if self.window_rows < 1 or self.refit_rows < 1 or self.embargo < 1:
@@ -348,10 +394,14 @@ def walk_forward_ridge(
     spec: RidgeSpec,
     *,
     row_session_dates: np.ndarray | None = None,
+    terms_out: np.ndarray | None = None,
+    fold_weights_out: list | None = None,
 ) -> np.ndarray:
     """Combined alpha [n, m] float64 from a member stack [n, m, K] and its target [n, m].
     `row_session_dates` [n] (each row's session date) is required with spec.refit_anchor and
-    not read without it."""
+    not read without it. `terms_out` [n, m, K] (NaN-filled by the caller) receives each member's
+    additive term z_k b_k of every predicted cell, and `fold_weights_out` the fitted standardized
+    weight vector b of each refit (plan 187-14); neither changes the returned alpha."""
     if stack.ndim != 3 or target.shape != stack.shape[:2]:
         raise ValueError(f"stack {stack.shape} and target {target.shape} do not align")
     n, m, k = stack.shape
@@ -387,9 +437,13 @@ def walk_forward_ridge(
             continue
         rows = p + np.flatnonzero(live[p:q])
         combined[rows] = (stack[rows].astype(np.float64) - mu) @ (b / sd)
+        if terms_out is not None:
+            terms_out[rows] = (stack[rows].astype(np.float64) - mu) / sd * b
+        if fold_weights_out is not None:
+            fold_weights_out.append(b.copy())
         if spec.min_members is not None:
             corr = cov / np.outer(sd, sd)
-            _subset_forecast(combined, stack, p, q, mu, sd, corr, rhs, spec)
+            _subset_forecast(combined, stack, p, q, mu, sd, corr, rhs, spec, terms_out)
     return combined
 
 
@@ -403,6 +457,7 @@ def _subset_forecast(
     corr: np.ndarray,
     rhs: np.ndarray,
     spec: RidgeSpec,
+    terms_out: np.ndarray | None = None,
 ) -> None:
     """Fill rows p..q-1's incomplete cells with at least min_members present: one small ridge
     solve per missing-member pattern on the fold's standardized moments (see the module
@@ -426,3 +481,6 @@ def _subset_forecast(
             continue
         r, i = cells[inverse.ravel() == j].T
         block[r, i] = z[r, i][:, k] @ b
+        if terms_out is not None:
+            terms_out[p + r, i] = 0.0  # absent members contribute nothing
+            terms_out[p + r[:, None], i[:, None], k[None, :]] = z[r, i][:, k] * b
