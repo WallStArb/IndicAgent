@@ -11,8 +11,10 @@ from datetime import date, timedelta
 import pytest
 
 from services.listing_venue_writer import (
+    ListingVenueWriter,
     RangeScore,
     SpanPlan,
+    _SymbolInputs,
     infer_listing_spans,
     reconcile_spans,
     score_range,
@@ -291,3 +293,24 @@ def test_the_daily_evidence_reads_raw_kinds_never_the_observation_store():
     assert "'venue_' || lower(v)" in lvw._VENUE_BARS_SQL
     assert "q.route = 'SMART'" in lvw._SMART_HEAD_SQL
     assert not hasattr(lvw, "_OFFICIAL_CLOSE_SQL")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply", [False, True])
+async def test_a_moved_name_without_an_official_close_series_writes_nothing(apply):
+    first = date(2009, 1, 2)
+    head = date(2015, 1, 2)
+    item = _SymbolInputs(
+        "XYZ",
+        first,
+        head,
+        ("NASDAQ", "req-1", None),
+        [("NYSE", first, date(2014, 12, 30))],
+        {"NYSE": _bars(first, date(2014, 12, 30), 10.0, 1000.0)},
+        NO_OFFICIAL,
+        {},
+    )
+    writer = ListingVenueWriter("postgresql://unused", symbols=None, apply=apply)
+    # The guard returns before the connection is touched.
+    outcome = await writer._write_symbol(None, item, None)
+    assert outcome.startswith("unresolved")

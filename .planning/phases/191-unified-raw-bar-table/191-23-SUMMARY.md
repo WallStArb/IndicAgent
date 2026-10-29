@@ -70,3 +70,11 @@ The retired vendor's `("tradier", "consolidated")` pair is gone from `CANONICAL_
 `services/backfill_feature_factory.py` `unit_code_key` closure (row contract plus every kernel module) includes `src/intelligence/bars/sources.py` and `src/intelligence/bars/vendor_kind.py`, so the key moves with this plan. It excludes `bar_derivation`, `bar_hold`, `bar_reconciliation_audit`, `listing_venue_writer` and `rebuild_preconditions`. No `backfill_feature_factory` or ic run was live when edited.
 
 ## Self-check: PASSED
+
+## Review and fix (2026-10-29)
+
+Fresh-context review: PASS WITH FIXES. Canonical 1d is unchanged (7,084,546 rows under the old and new vendor and kind sets), the 252 empty-session spans are identical, `check_stray_sources` returns 0 on live counts, `bar_hold` ratios match, every module imports, and no changed service is in the 186-26 code key.
+
+Fixed: `listing_venue_writer._write_symbol` now returns `unresolved` for a name whose inferred spans include a closed former-venue span while the official-close series is empty, instead of appending it. On live data a volume-only run would have inserted 21 moved names, 8 of them with a BATS span before BATS existed (2008-10-17), into the append-only `listing_venue`. Open spans from the SMART primary are unaffected. The writer has no timer. Restoring the official-close source (or a different evidence basis with its own `RULE_VERSION`) is the way to resolve those names; until then the 564 conflicts and 21 moved names stay unwritten.
+
+Left for plans 24 and 25: `daily_rule.PRIMARY_PAIR` and `RAW_DAILY_SERIES` still map the Tradier pair, which the canonical sets no longer include; unreachable with zero Tradier rows.

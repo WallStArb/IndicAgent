@@ -463,6 +463,11 @@ class ListingVenueWriter(BaseBatch):
         if not desired:
             return "no_primary"
         moved = any(end is not None for _, _, end in desired)
+        if moved and not item.official_close:
+            # A former-venue span is decided by nearest close to the official close; with no
+            # official-close source the volume rule alone would append a permanent span under an
+            # evidence label that claims otherwise (listing_venue refuses rewrites).
+            return "unresolved: a former-venue span needs an official-close series"
         async with conn.transaction():
             if self._apply:
                 await conn.execute("SET LOCAL ROLE bar_derivation_writer")
