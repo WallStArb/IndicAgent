@@ -40,13 +40,20 @@ Path-dependent guarded kernels, 37 outputs, synthetic series with 8 random NULL-
 (2026-10-29): every row before the first NULL is bit-identical to the clean run, every NULL bar's
 own row is masked, and the largest deviation after it is `vwap_dev_sigma` at a median 0.2%.
 
+Masked share on real names (2026-10-29, 1d, 23 of the 308 names with NULL-volume bars, 12 heavy
+at 553 or more, 11 light; synthetic 5m config for the memories): NULL volume exists only on 1d
+`ibkr/fallback` rows (125,174 of 7.08M, 1.8%). A guarded output loses about its name's NULL share
+plus a little for memory: 36% of rows on heavy names, 6 to 13% on light ones, `support_strength`
+and the `sr_*` and `ob_*` outputs highest at 37.5% heavy. The `rolling_poc` outputs are NaN on 1d
+with clean volume too (they need intraday sessions) and 5m has no NULL volume, so the 480-row
+blanking does not bite on current data and the nan-aware rewrite is not needed.
+
 ## Open
 
-- Cost to measure on real names: `rolling_poc` has a 479-bar memory, so each NULL-volume bar blanks
-  about 480 rows of `poc_rolling_dist_atr` and `poc_session_rolling_divergence_atr`. Canonical 1d
-  holds 125,001 `ibkr/fallback` rows (NULL volume) scattered over the names that have them. Measure
-  the masked share per guarded output on those names before 186-26; if a column is mostly masked,
-  rewrite that kernel nan-aware instead of using the guard.
+- Fix `bar_statistics_refresh` (`kernels/price.py`): it declares `volume` as an input but reads only
+  high, low and close, so the guard masks `hurst`, `shannon`, `garch_ratio`, `hma_slope_z` and `adx`
+  on every NULL-volume bar for nothing. Drop `volume` from its inputs (and check what else lists
+  `volume` without reading it) before 186-26; it changes a kernel in the fingerprinted closure.
 - Independent review of the guard commits (`d6a8da8de`, `96458db71`).
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
