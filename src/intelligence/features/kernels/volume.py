@@ -817,7 +817,6 @@ def _compute_flow_products(x, config):
         "up_vol_body_diff": up_vol_body,
         "vol_skew_product": x["ret_skew_z"] * x["volume_z"],
         "breakout_volume_product": x["dist_from_high_fast"] * x["volume_z"],
-        "illiquidity_momentum_product": x["amihud_illiq_z"] * x["momentum_z_fast"],
         "efficiency_volume_product": x["efficiency_ratio_fast"] * x["volume_z"],
     }
 
@@ -959,7 +958,6 @@ KERNELS = (
             "up_vol_body_diff",
             "vol_skew_product",
             "breakout_volume_product",
-            "illiquidity_momentum_product",
             "efficiency_volume_product",
         ),
         (
@@ -972,10 +970,18 @@ KERNELS = (
             "up_vol_ratio_fast",
             "ret_skew_z",
             "dist_from_high_fast",
-            "amihud_illiq_z",
             "efficiency_ratio_fast",
         ),
         lambda c: 0,
         _compute_flow_products,
+    ),
+    # Its own kernel: amihud_illiq_z handles NaN volume itself, so the volume guard must not mask
+    # this product with the other flow products' volume inputs (todo 560).
+    _k(
+        "illiquidity_momentum_product",
+        ("illiquidity_momentum_product",),
+        ("amihud_illiq_z", "momentum_z_fast"),
+        lambda c: 0,
+        lambda x, c: {"illiquidity_momentum_product": x["amihud_illiq_z"] * x["momentum_z_fast"]},
     ),
 )

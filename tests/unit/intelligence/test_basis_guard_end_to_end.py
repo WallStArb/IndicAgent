@@ -79,3 +79,37 @@ def test_a_dropped_bar_leaves_no_unmasked_difference_anywhere_in_the_registry():
         if leak.any():
             leaks[name] = int(leak.sum())
     assert not leaks, f"unmasked rows differ from the clean run: {leaks}"
+
+
+def _htf_bars(n: int = 400) -> list[dict]:
+    rng = np.random.default_rng(5)
+    close = 100 + np.cumsum(rng.normal(0, 1, n))
+    return [
+        {
+            "ts": i,
+            "high": float(c + 1),
+            "low": float(c - 1),
+            "close": float(c),
+            "volume": float(rng.uniform(1e3, 1e4)),
+        }
+        for i, c in enumerate(close)
+    ]
+
+
+def test_the_higher_timeframe_series_does_not_collapse_to_neutral_after_a_null_volume_bar():
+    from src.intelligence.features.kernels.cross_tf import _build_ctf_series
+
+    _, config = synthetic_inputs()
+    bars = _htf_bars()
+    clean = _build_ctf_series(bars, config)
+    # a NULL volume at row 100 was a silent 0.0 on every later row (cumsum of NaN)
+    nulled = [{**b, "volume": float("nan")} if i == 100 else b for i, b in enumerate(bars)]
+    got = _build_ctf_series(nulled, config)
+    align = np.array([r.ctf_vwap_align for r in got.values()])
+    want = np.array([r.ctf_vwap_align for r in clean.values()])
+    assert np.isnan(align[100]) and not np.isnan(np.delete(align, 100)).any()  # 1 of 101 bars
+    assert (align[101:] == want[101:]).mean() > 0.9  # not a run of 0.0
+    early = [{**b, "volume": float("nan")} if i == 2 else b for i, b in enumerate(bars)]
+    assert np.isnan(
+        [r.ctf_vwap_align for r in _build_ctf_series(early, config).values()][2:19]
+    ).all()

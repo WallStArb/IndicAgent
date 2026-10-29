@@ -26,6 +26,10 @@ import numpy as np
 from src.core.bar_accumulator import _ET, _RTH_OPEN_ET
 from src.intelligence.bars.vendor_kind import VOLUME_BASIS_CONSOLIDATED
 from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
+from src.intelligence.features.contract.dropped_volume import (
+    MAX_DROPPED_FRACTION,
+    dropped_share_mask,
+)
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -115,7 +119,7 @@ class Kernel:
     # accumulated so far (the dropped bars' weight is missing from the cumulative statistic, so
     # the error grows with their share; at 5% it stays below about 0.1 sigma on the probe series).
     # [initial_estimate] a declared property of the kernel definition, as `memory_atol` is.
-    max_dropped_fraction: float = 0.05
+    max_dropped_fraction: float = MAX_DROPPED_FRACTION
 
 
 class Alignment(enum.Enum):
@@ -443,8 +447,7 @@ def _masked_until_reset(
     if not dropped.any():
         return dropped
     if kernel.volume_reset is None:
-        share = np.cumsum(dropped) / np.arange(1, len(dropped) + 1)
-        return dropped | (share > kernel.max_dropped_fraction)
+        return dropped_share_mask(dropped, kernel.max_dropped_fraction)
     ids = [_reset_id(ts, kernel.volume_reset) for ts in cut["ts_dt"]]
     n = len(ids)
     new_id = np.array([True, *(ids[i] != ids[i - 1] for i in range(1, n))])

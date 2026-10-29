@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numpy.typing import ArrayLike
 
+from src.intelligence.features.contract.dropped_volume import dropped_share_mask
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
 from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
 from src.intelligence.features.kernels._primitives import constant_tf, wilder_rsi_series
@@ -76,11 +77,17 @@ def _build_ctf_series(
     ctf_mom = np.clip((rsi_series - 50.0) / 50.0, -1.0, 1.0)
 
     # ctf_vwap_align: sign(close - cumulative VWAP)
+    # A NULL-volume bar enters as zero weight and its row, with every row while dropped bars
+    # exceed MAX_DROPPED_FRACTION of the bars so far, is NaN rather than a silent 0.0 (todo 560;
+    # the same rule as the ctf_source kernel, whose guard this series bypasses).
+    dropped = ~np.isfinite(volumes)
+    volumes = np.where(dropped, 0.0, volumes)
     typical = (highs + lows + closes) / 3.0
     cum_tp_vol = np.cumsum(typical * volumes)
     cum_vol = np.cumsum(volumes)
     vwap = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, closes)
     ctf_vwap = np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0))
+    ctf_vwap[dropped_share_mask(dropped)] = np.nan
 
     # ctf_regime_align: HMM forward pass — 0.0 (ranging) or 1.0 (trending)
     ctf_regime = np.zeros(n, dtype=float)
