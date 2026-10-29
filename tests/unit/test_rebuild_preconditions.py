@@ -636,7 +636,4 @@ def test_a_1d_only_stage_still_requires_every_other_summary_and_every_scan():
         run_all(**inputs, intraday_scope=False)
     message = str(excinfo.value)
     assert "185-42-SUMMARY.md" in message and "d2_landed" in message
-    assert (
-        rp.BACKFILL_COMPLETE_SUMMARY
-        not in message.split("data_layer_final_landed:")[1].split("\n")[0]
-    )
+    assert "missing SUMMARY files: 185-42-SUMMARY.md;" in message
