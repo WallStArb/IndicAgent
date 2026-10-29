@@ -1,6 +1,7 @@
 ---
-status: pending
+status: closed
 priority: P3
+closed: 2026-10-29
 filed: 2026-09-29
 source: owner question 2026-09-29 while describing the feature corpus; scoped into phase 187 (ROADMAP goal) by owner decision 2026-09-29
 ---
@@ -43,3 +44,8 @@ feature columns.
 
 `feature_vectors`: 322 columns, 311 numeric features. `concept_registry` domain `feature`: 295
 active (164 / 25 / 106), 5 candidate `0_atomic`, 2 deprecated.
+
+
+## Closed
+
+Closed 2026-10-29: plan 187-12 (migrations 533 and 535, scripts/research/seed_hmm_recipes.py).

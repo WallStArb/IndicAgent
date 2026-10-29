@@ -1,6 +1,7 @@
 ---
-status: pending
+status: closed
 priority: P0
+closed: 2026-10-29
 filed: 2026-10-27
 source: 187-05-BATTERY.md step A (857cdff9f); owner decision 2026-10-27
 ---
@@ -110,3 +111,8 @@ level is wide; the pooled tolerance (for example at most 6%) carries the test. T
 session StepM attestation and the fitted-book certificate run under v1, and StepM selection
 unblocks. This todo's plan steps 1 and 4 (fixed-b p-values, family 1 re-score under v2) are not
 built; rename or close the todo once step B is written.
+
+
+## Closed
+
+Closed 2026-10-29: step A rerun pooled size 5.02% [4.66, 5.37]; E17 v1 stands, fixed-b not built. Step B's pass rule ran and failed one cell: todo 561.

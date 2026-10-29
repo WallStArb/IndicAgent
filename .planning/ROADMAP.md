@@ -592,9 +592,9 @@ Plans:
 - [x] 187-09-PLAN.md - combining rules: missing members, in-fold signs, calendar-anchored refits
 - [x] 187-10-PLAN.md - pod books (P&L-level combination across clocks)
 - [x] 187-11-PLAN.md - recipe book identity and recipe writes on the clean schema
-- [ ] 187-12-PLAN.md - ConceptRegistryService on the clean schema; todo 459
-- [ ] 187-13-PLAN.md - summary cards and the generated ledger
-- [ ] 187-14-PLAN.md - contribution accounting (S8 extension)
+- [x] 187-12-PLAN.md - ConceptRegistryService on the clean schema; todo 459 (landed 2026-10-28, migrations 533 and 535)
+- [x] 187-13-PLAN.md - summary cards and the generated ledger (landed 2026-10-28, migration 536; render timer installed, not enabled)
+- [x] 187-14-PLAN.md - contribution accounting (S8 extension) (landed 2026-10-29, migrations 538 and 539; sampled Shapley and cluster groups wait on 187-15; multi-family books wait on todo 562)
 - [ ] 187-15-PLAN.md - generated_family grammar support in the spec (Task 2, `PanelSpec.fields`, landed 2026-10-28)
 - [ ] 187-16-PLAN.md - YAML DAG manifest read by service_auditor and the orchestrator
 - [ ] 187-17-PLAN.md - single_writer enforced by per-writer database roles
