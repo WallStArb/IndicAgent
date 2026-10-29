@@ -94,6 +94,20 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
 
+- **186-26 rebuild stage 1 (1d, 1,273 non-hold names), launched 2026-10-29 22:08Z, live and resumable
+  until `feature-rebuild-1d` exits:** systemd user unit `feature-rebuild-1d`, 12 workers, 51 units of
+  25 names, expected about 28 minutes, horizon `--data-horizon 2026-10-01`. Run tree
+  `/home/bg/dev/indicagent-186-26` pinned at code sha `92e588385` (unit code key `8c3ab364de21`); every
+  later stage (the 229 D7 holds on 1d with `--symbols <holds>`, then the intraday tfs) runs from that
+  tree, not from main. Logs: `/home/bg/dev/indicagent/logs/feature_rebuild_1d.log` and
+  `/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log`. Evidence and the resume procedure:
+  `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/186-26-rebuild-run.json`
+  (key `stage1_1d`) and `186-26-stage1-1d-launch.sh`. Freeze: no module the rebuild imports
+  (`services/backfill_feature_factory.py`, `services/_batch_utils.py`, `src/intelligence/features/`,
+  their imports) may be edited while the run is live or resumable, and later stages are still to
+  come, so the import closure stays frozen at `92e588385` until the owner closes the rebuild.
+  Todo 420 is not part of stage 1 (the factory does not read `market_regimes`).
+
 - **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
   (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
   on the 187-08 battery run. Cross-AI review of 187 (Codex and AGY, 187-REVIEWS.md): code fixes
