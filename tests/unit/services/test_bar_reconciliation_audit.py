@@ -868,6 +868,15 @@ class _IntradayConn:
             return data["rows"]
         if sql == audit._RAW_5M_SLOTS_SQL:
             return [{"timestamp": r["timestamp"]} for r in data.get("slots", data["rows"])]
+        if sql == audit._LOADED_RANGES_SQL:
+            _symbol, _timeframe, sources, outcomes, destinations = args
+            return [  # the SQL's own filter, driven by the arguments the loader passes
+                {"requested_start": load["start"], "requested_end": load["end"]}
+                for load in data.get("loads", ())
+                if load["source"] in sources
+                and load["outcome"] in outcomes
+                and load["destination"] in destinations
+            ]
         if sql == audit._ARCHIVE_ROWS_SQL:
             return [
                 {
@@ -979,6 +988,68 @@ def test_zero_volume_provider_bars_count_as_answered_slots():
     name["rows"] = [r for i, r in enumerate(rows) if i % 10]  # tradeable view hides them
     run = _intraday(_IntradayConn({"AAA": name}))
     assert _verdict(run, "AAA|5m", "slot_coverage")[5] is True
+
+
+def _load(start, end, *, source="alpaca", outcome="applied", destination="market_data_ohlcv"):
+    return {
+        "start": start,
+        "end": end,
+        "source": source,
+        "outcome": outcome,
+        "destination": destination,
+    }
+
+
+def _thin_name(loads):
+    """A name whose stored bars miss one slot in ten (no-trade slots) and which carries `loads`."""
+    _, rows = _intraday_series()
+    name = _agreeing_name(rows)
+    name["slots"] = [r for i, r in enumerate(rows) if i % 10]
+    name["rows"] = name["slots"]
+    name["loads"] = loads
+    return name
+
+
+def _coverage(name):
+    run = _intraday(_IntradayConn({"AAA": name}))
+    return _verdict(run, "AAA|5m", "slot_coverage")
+
+
+def test_a_no_trade_slot_inside_an_applied_load_range_is_answered():
+    first, last = _I_DAYS[0], _I_DAYS[-1]
+    verdict = _coverage(_thin_name([_load(first - timedelta(days=3), last)]))
+    assert verdict[5] is True and verdict[3] == 1.0
+
+
+def test_a_refused_or_failed_load_answers_nothing():
+    first, last = _I_DAYS[0], _I_DAYS[-1]
+    for outcome in ("refused", "failed", "no_data", "gated"):
+        verdict = _coverage(_thin_name([_load(first, last, outcome=outcome)]))
+        assert verdict[5] is False and verdict[3] < 0.95, outcome
+
+
+def test_a_slot_outside_every_load_range_and_answered_window_stays_missing():
+    first, last = _I_DAYS[0], _I_DAYS[-1]
+    verdict = _coverage(_thin_name([_load(first, first)]))
+    assert verdict[5] is False and verdict[3] < 0.995
+
+
+def test_the_ibkr_loads_and_the_extended_hours_archive_do_not_answer_slots():
+    first, last = _I_DAYS[0], _I_DAYS[-1]
+    for load in (_load(first, last, source="ibkr"), _load(first, last, destination="archive")):
+        assert _coverage(_thin_name([load]))[5] is False
+
+
+def test_requested_end_is_inclusive_and_the_day_after_is_not():
+    last = _I_DAYS[-1]
+    name = _thin_name([_load(_I_DAYS[0] - timedelta(days=3), last - timedelta(days=1))])
+    last_day_slots = {r["timestamp"] for r in name["rows"] if r["timestamp"].date() == last}
+    inclusive = _coverage(name)
+    name["loads"] = [_load(_I_DAYS[0] - timedelta(days=3), last)]
+    full = _coverage(name)
+    assert full[3] == 1.0 and inclusive[3] < 1.0 and last_day_slots
+    name["loads"] = [_load(_I_DAYS[0] - timedelta(days=3), last - timedelta(days=1))]
+    assert _coverage(name)[5] is False
 
 
 def test_a_mismatched_archive_bucket_fails_grid_parity_and_is_named():

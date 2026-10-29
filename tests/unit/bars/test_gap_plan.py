@@ -301,3 +301,18 @@ def test_a_partial_slot_is_never_covered_and_stays_a_gap():
     assert windows.covers(t0, timedelta(minutes=5)) and not windows.covers(t1, timedelta(minutes=5))
     plan = plan_gaps([t0, t1], [], windows, timedelta(minutes=5), run_end=t1 + timedelta(hours=1))
     assert plan == [(t1, t1 + timedelta(minutes=5))]
+
+
+def test_load_range_windows_run_from_the_first_midnight_to_the_midnight_after_the_end_day():
+    from datetime import date
+
+    from src.intelligence.bars.gap_plan import load_range_windows
+
+    windows = load_range_windows(
+        [(date(2026, 10, 5), date(2026, 10, 7)), (date(2026, 10, 9), date(2026, 10, 8))]
+    )
+    assert windows == [(datetime(2026, 10, 5, tzinfo=UTC), datetime(2026, 10, 8, tzinfo=UTC))]
+    answered = AnsweredWindows.from_rows(windows)
+    last_slot = datetime(2026, 10, 7, 19, 55, tzinfo=UTC)
+    assert answered.covers(last_slot, timedelta(minutes=5))
+    assert not answered.covers(datetime(2026, 10, 8, 13, 30, tzinfo=UTC), timedelta(minutes=5))

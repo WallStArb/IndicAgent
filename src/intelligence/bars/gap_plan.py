@@ -33,7 +33,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from src.core.bar_normalizer import generate_session_slots
 from src.intelligence.bars.sessions import nyse_sessions
@@ -46,6 +46,16 @@ ANSWERED_OUTCOMES: tuple[str, ...] = ("bars", "no_data")
 # routes widen this set where venue fallback applies; 1d-only today).
 COVERAGE_ROUTE = "SMART"
 COVERAGE_WHAT_TO_SHOW = "TRADES"
+# An applied vendor load answers every slot of the range it requested (ohlcv_load, requested_end
+# inclusive). The canonical 5m vendor is Alpaca SIP, which serves a bar only for a slot in which a
+# trade printed: a slot inside a successfully loaded range with no bar is the vendor's answer
+# (no trade), not a gap. Only the Alpaca load whose destination is the RTH grid counts: the
+# `archive` destination holds the extended-hours rows of the same ranges and says nothing about
+# RTH slots. IBKR years keep the request-window rule (a stored row corroborates it); a refused or
+# failed load is not an answer.
+LOAD_COVERAGE_SOURCES: tuple[str, ...] = ("alpaca",)
+LOAD_COVERAGE_OUTCOMES: tuple[str, ...] = ("applied",)
+LOAD_COVERAGE_DESTINATIONS: tuple[str, ...] = ("market_data_ohlcv", "raw")
 # Raw kinds that answer a different question than the daily TRADES bar and so never cover a 1d
 # session, never move a 1d series' currency and never count in its coverage bounds: the
 # dividend-adjusted series (it also holds forming bars). One definition for the planner, the
@@ -95,6 +105,25 @@ class AnsweredWindows:
             return False
         i = bisect_right(self.starts, slot) - 1
         return i >= 0 and slot + interval <= self.ends[i]
+
+
+def load_range_windows(
+    ranges: Iterable[tuple[date, date]],
+) -> list[tuple[datetime, datetime]]:
+    """Applied-load date ranges as (window_start, window_end) UTC datetimes for AnsweredWindows.
+
+    `requested_end` is inclusive, so a window runs from midnight UTC of the first day to midnight
+    UTC after the last. A NYSE session never crosses UTC midnight, so no slot straddles an edge.
+    A day without a session holds no expected slot and so is never counted by a window.
+    """
+    return [
+        (
+            datetime.combine(first_day, time.min, tzinfo=UTC),
+            datetime.combine(last_day + timedelta(days=1), time.min, tzinfo=UTC),
+        )
+        for first_day, last_day in ranges
+        if last_day >= first_day
+    ]
 
 
 def fresh_empty_span(

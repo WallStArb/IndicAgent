@@ -96,8 +96,12 @@ from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
+    LOAD_COVERAGE_DESTINATIONS,
+    LOAD_COVERAGE_OUTCOMES,
+    LOAD_COVERAGE_SOURCES,
     AnsweredWindows,
     confirmed_empty_spans,
+    load_range_windows,
 )
 from src.intelligence.bars.integrity_checks import (
     CHECK_FRESHNESS_1D,
@@ -981,6 +985,17 @@ WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $
     )
   )
 """
+# Applied vendor loads of the series: the requested day range of a successful Alpaca load answers
+# every slot in it, a no-trade slot included (SIP serves a bar only for a slot with a trade).
+# Two nightly test loads (SPY and AAPL, 2026-10-21..26) wrote iex_rth rows; each has a sip_rth twin
+# for the identical range, and filtering them out of the SQL costs a scan of the 340-partition raw
+# table per name (planning alone is 1.7 s), so they are not filtered.
+_LOADED_RANGES_SQL = """
+SELECT l.requested_start, l.requested_end
+FROM ohlcv_load l
+WHERE l.symbol = $1 AND l.timeframe = $2 AND l.source = ANY($3::text[])
+  AND l.outcome = ANY($4::text[]) AND l.destination = ANY($5::text[])
+"""
 _ALREADY_RECORDED_SQL = """
 SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end = $2 LIMIT 1
 """
@@ -1377,6 +1392,32 @@ class _IntradayVerdict(NamedTuple):
     metric: float | None
     threshold: float
     compared: int = 0  # grid_parity only: the buckets compared (metric is the mismatched count)
+
+
+async def _answered_windows_5m(conn: Any, symbol: str) -> AnsweredWindows:
+    """The 5m windows a vendor answered: IBKR request windows (a stored row corroborates a `bars`
+    answer) plus the requested range of every applied Alpaca load (a no-trade slot is an answer)."""
+    windows = [
+        (r["window_start"], r["window_end"])
+        for r in await conn.fetch(
+            _ANSWERED_5M_SQL,
+            symbol,
+            GRID_SOURCE_TF,
+            COVERAGE_ROUTE,
+            COVERAGE_WHAT_TO_SHOW,
+            list(ANSWERED_OUTCOMES),
+        )
+    ]
+    loaded = await conn.fetch(
+        _LOADED_RANGES_SQL,
+        symbol,
+        GRID_SOURCE_TF,
+        list(LOAD_COVERAGE_SOURCES),
+        list(LOAD_COVERAGE_OUTCOMES),
+        list(LOAD_COVERAGE_DESTINATIONS),
+    )
+    windows += load_range_windows((r["requested_start"], r["requested_end"]) for r in loaded)
+    return AnsweredWindows.from_rows(windows)
 
 
 class _SessionCalendar:
@@ -2038,17 +2079,7 @@ class BarReconciliationAudit(BaseBatch):
             stored_rows = {
                 tf: await conn.fetch(_GRID_ROWS_SQL, symbol, tf, start, end) for tf in _GRID_MINUTES
             }
-            answered = AnsweredWindows.from_rows(
-                (r["window_start"], r["window_end"])
-                for r in await conn.fetch(
-                    _ANSWERED_5M_SQL,
-                    symbol,
-                    GRID_SOURCE_TF,
-                    COVERAGE_ROUTE,
-                    COVERAGE_WHAT_TO_SHOW,
-                    list(ANSWERED_OUTCOMES),
-                )
-            )
+            answered = await _answered_windows_5m(conn, symbol)
             for tf, minutes in _GRID_MINUTES.items():
                 real = [r["timestamp"] for r in stored_rows[tf]]
                 has_before = await conn.fetchval(_HAS_REAL_BEFORE_SQL, symbol, tf, start)
@@ -2530,17 +2561,7 @@ class BarReconciliationAudit(BaseBatch):
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
-        answered = AnsweredWindows.from_rows(
-            (r["window_start"], r["window_end"])
-            for r in await conn.fetch(
-                _ANSWERED_5M_SQL,
-                symbol,
-                GRID_SOURCE_TF,
-                COVERAGE_ROUTE,
-                COVERAGE_WHAT_TO_SHOW,
-                list(ANSWERED_OUTCOMES),
-            )
-        )
+        answered = await _answered_windows_5m(conn, symbol)
         archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
         for r in await conn.fetch(_ARCHIVE_ROWS_SQL, symbol, sorted(GRID_TIMEFRAMES)):
             archive[r["timeframe"]][r["timestamp"]] = (
