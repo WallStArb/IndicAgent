@@ -64,10 +64,13 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   62 of 63 unproven are venue-moved (todo 433), plus ETHA. Owner decision summary:
   `191-20-OWNER-DECISION.md`, relayed to indicagent-5b for the owner. Plan 19 SUMMARY and
   completed_plans follow with the plan 20 approval.
-- **Plan 20 (Tradier deletion): owner approved 2026-10-28, paused before the apply.** Todo 545
-  (D-191-Q) is built and passed four review rounds; the resume runbook is in todo 545 ("Paused
-  2026-10-28"). Nothing destructive has run. Order: final arbitration with the fetcher stopped,
-  --plan apply, backup, trial, batched delete, 1d re-derive, D7, notice to the research lane.
+- **Plan 20 (Tradier deletion): window run 2026-10-28/29, D7 acceptance open.** Done: final
+  arbitration (395035646), D-191-Q policy applied (96 symbol rows, 285 vendor_disagreement flags),
+  backup verified, Tradier bar rows deleted (zero remain), 1d re-derived under d2-v4 with digests
+  rewritten, VACUUM, all timers running. Migration 537 (25b930e1c) makes canonical_bar_lineage
+  resolve Alpaca bars through ohlcv_load. Open: D7 canonical_recompute (1,309 names at the last
+  read, undiagnosed) and the notice to the research lane, which waits on D7 acceptance. Resume
+  point: todo 545 "Progress 2026-10-28".
 - **Plan 20 approved by the owner 2026-10-28:** delete all Tradier bar rows, no names held back (recorded in
   `191-20-OWNER-DECISION.md`). It runs after todo 545 lands. Review findings for 3a: keep the final
   arbitration plan JSON in a tracked place, refuse a row whose span touches `window_end`, stop the fetcher

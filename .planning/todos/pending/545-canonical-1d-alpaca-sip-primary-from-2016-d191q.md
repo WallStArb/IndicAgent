@@ -214,17 +214,16 @@ policy_conformance fails 1 (the held name), freshness_1d 6, unexplained_seam 22,
 288, canonical_recompute 1,309, lineage_missing 1,501. D7 acceptance and the research notice that
 1d is Alpaca-primary wait on the last two.
 
-Cause of lineage_missing (verified): `canonical_bar_lineage` joins a canonical bar to
-`ohlcv_raw` JOIN `ohlcv_request`, and no Alpaca raw row has an `ohlcv_request` row (AAPL: 2,720 of
-2,720 sip_rth 1d, 610,861 5m for CLBK and AAPL, nightly rows too; the request ids resolve in
-neither ohlcv_request, ohlcv_load nor ohlcv_revision). Extending the view to alpaca sip_rth
-cannot fix it, and Alpaca stamps 1d raw at the New York session open (04:00 or 05:00 UTC) while
-canonical sits at 00:00 UTC, so the view also needs a session_ts mapping (daily_rule.py
-RAW_DAILY_SESSION_ZONE). I tried migration 537 for the view, saw no effect, rolled the live view
-back to its 491 definition and did not commit it. The fix is where Alpaca raw gets its provenance:
-either the Alpaca loader writes an ohlcv_request row per fetch (then the view needs the alpaca
-branch and the session_ts mapping), or lineage for Alpaca resolves through another table.
-canonical_recompute (1,309) was not diagnosed; check whether it shares this cause first.
+lineage_missing, resolved in the view: Alpaca 1d raw rows carry a request_id with no
+ohlcv_request row (the 2026-10-27 load alpaca-nightly-1d-raw never kept request rows); their
+provenance is the ohlcv_load row named by raw.load_id, and Alpaca stamps 1d at the New York
+session open. Migration 537 (25b930e1c, applied live) joins an alpaca sip_rth canonical bar to its
+raw row on the New York session date and counts it traced when the raw row's ohlcv_load row exists
+with a non-test caller. Full-corpus read after it: 613 alpaca NULLs over 613 names (a volume
+restated after the re-derive; a daily derive clears them) and 1,852 ibkr NULLs over 3 names (CTVA
+1,848, the held rescale name; LXU and PATK 2 old bars each). The changed-only derive afterwards
+derived 1,493 names, 0 failed (41,982 rows new, 801 changed). canonical_recompute (1,309 at the
+first read) was not diagnosed; read the D7 re-run's verdicts before looking.
 
 Window closed 2026-10-29 ~02:55Z: VACUUM done; all six timers running; peers 47 and 1f told. Left:
 the lineage and canonical_recompute fix above (D7 acceptance), then the notice to the research lane
