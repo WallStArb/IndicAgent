@@ -48,3 +48,21 @@ find a pass; this todo names the cell instead.
 ## Done when
 
 `select_books.py` accepts a complete step B record, or the owner records why the cell is diagnostic.
+
+## Diagnostic 1 (2026-10-29, exploratory seeds from 30,000,000, not a counted look)
+
+`stepm_null_battery.py --cells s1_hostile,hostile --sims 600 --seed-base 30000000`, 4,000 sessions:
+
+| Cell | Family-wise rejections | Size | 99% interval |
+|---|---|---|---|
+| hostile (no S1) | 29 of 600 | 4.83% | [2.6, 7.1] |
+| s1_hostile | 31 of 600 | 5.17% | [2.8, 7.5] |
+
+On these seeds S1 does not inflate StepM's size. That sits uneasily with 89 of 1,000 (8.9%) in step B and 60
+of 1,000 (6.0%) on the 2026-10-27 seeds: all three runs together are 180 of 2,600 (6.9%, 99% interval about
+[5.5, 8.4]), the 91 of 1,600 that exclude the failing run are 5.7% ([4.4, 7.0]). 600 simulations cannot
+separate a true size of 5% from 6 to 7%, so a 3,000-simulation exploratory run on `s1_hostile` alone
+(seed base 40,000,000) is under way (unit `stepm-diag-561b`, output
+`logs/research/diag_561b_s1_hostile_3000.json`). If its interval contains 5%, the step B failure is a tail
+draw of a cell whose bound (0.9995 quantile) leaves little room; the response is a new pre-registered run
+with more simulations on that cell (the binomial bound tightens with n), not a rerun of step B's seeds.
