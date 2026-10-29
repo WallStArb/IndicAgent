@@ -55,7 +55,7 @@ _BUDGET_KEYS = (
 )
 
 
-# Contribution accounting (migration 537, plan 187-14): handed to run_book, never read inside it.
+# Contribution accounting (migration 538, plan 187-14): handed to run_book, never read inside it.
 _CONTRIBUTION_KEYS = (
     "alpha.research.contribution.shapley_exact_max_families",
     "alpha.research.contribution.shapley_samples",
@@ -79,7 +79,7 @@ async def _apr(dsn: str) -> dict:
         await cfg.close()
     missing = [k for k in (*_BUDGET_KEYS, *_CONTRIBUTION_KEYS) if values[k] is None]
     if missing:
-        raise SystemExit(f"APR keys missing (migrations 366, 537): {missing}")
+        raise SystemExit(f"APR keys missing (migrations 366, 538): {missing}")
     return values
 
 

@@ -1,4 +1,4 @@
--- Migration 537: contribution accounting schema (phase 187 plan 14 Task 2, design 13, 10.2.3).
+-- Migration 538: contribution accounting schema (phase 187 plan 14 Task 2, design 13, 10.2.3).
 --
 -- research_run gains the kind `subset_refit` (a leave-one-family-out or Shapley subset refit is a
 -- counted attempt, design 7.1: same run_group and mode as its book, its own recipe and series) and
@@ -118,7 +118,7 @@ INSERT INTO config_state (config_key, config_value, version) VALUES
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
-SELECT now(), s.config_key, 1, s.config_value, 'migration_537',
+SELECT now(), s.config_key, 1, s.config_value, 'migration_538',
        'seed: contribution accounting (plan 187-14)'
 FROM config_state s
 WHERE s.config_key LIKE 'alpha.research.contribution.%'

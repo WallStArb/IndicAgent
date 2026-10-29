@@ -1,4 +1,4 @@
-"""Migration 537 (phase 187 plan 14 Task 2), source level: the subset_refit kind, five typed headline
+"""Migration 538 (phase 187 plan 14 Task 2), source level: the subset_refit kind, five typed headline
 columns NULL at insert, the guard refusing them at insert, the APR keys seeded. No database."""
 
 import re
@@ -8,7 +8,7 @@ from tests.unit._source_grep_helpers import read_source
 _SQL = re.sub(
     r"--[^\n]*",
     "",
-    read_source("production", "migrations", "537_contribution_headline_columns.sql"),
+    read_source("production", "migrations", "538_contribution_headline_columns.sql"),
 )
 _COLUMNS = (
     "n_families",
