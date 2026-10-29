@@ -173,6 +173,15 @@ unexplained_seam, alpaca_basis_run, freshness_1d) and the intraday checks (slot_
 digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
 
+`coverage_cache` rebuilds the coverage ledger under the IBKR history fetcher lock. The fetcher
+runs in windows of several hours with a 15 minute gap, so the audit polls the non-blocking
+try-lock every `infra.bar_integrity.coverage_cache_lock_poll_s` (30 s) for up to
+`infra.bar_integrity.coverage_cache_lock_wait_s` (21600 s) and runs the check as the last step of the
+run, after every other verdict is written and with no pool connection held. If the lock is still
+held at the bound, the check is skipped, logged (`bar_integrity.coverage_cache_skipped`) and
+counted in `coverage_cache_skipped`; a skipped check writes no row, so the verdict ages out of the
+30 h freshness the rebuild gate requires.
+
 `grid_parity` re-buckets canonical 5m bars into the IBKR archive's 15m/1h buckets and requires
 exact equality, but only on buckets whose 5m constituents are all `vendor = 'ibkr'`. Since D-191-P
 the 5m from 2016-01-04 is Alpaca SIP, which legitimately differs from the IBKR reference, so those

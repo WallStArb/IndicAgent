@@ -1293,6 +1293,106 @@ def test_coverage_cache_with_the_lock_held_does_nothing_and_never_connects():
     assert result is None and lock.events == ["acquire"]
 
 
+class _Clock:
+    """Injected monotonic clock and sleep: sleeping advances the clock, nothing really waits."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class _LockHeldFor:
+    """A lock refused for the first `polls` tries, then granted."""
+
+    def __init__(self, polls):
+        self.polls, self.tries, self.events = polls, 0, []
+
+    def acquire(self):
+        self.tries += 1
+        self.events.append("acquire")
+        return self.tries > self.polls
+
+    def release(self):
+        self.events.append("release")
+
+
+def _waiting_drift(lock, clock, *, lock_wait_seconds, poll_interval_seconds=30.0, conn=None):
+    calls = []
+
+    def no_connect(dsn):
+        raise AssertionError("connected without the fetcher lock")
+
+    result = audit.coverage_cache_drift(
+        "dsn",
+        ["AAA"],
+        lock_factory=lambda dsn, holder: lock,
+        connect=(lambda dsn: conn) if conn else no_connect,
+        rebuild=lambda cur, symbols: calls.append(symbols) or 0,
+        lock_wait_seconds=lock_wait_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleep_function=clock.sleep,
+        clock=clock,
+    )
+    return result, calls
+
+
+def test_coverage_cache_waits_for_the_lock_polling_then_runs_the_rebuild():
+    lock, clock = _LockHeldFor(3), _Clock()
+    conn = _FakeConnection([_LEDGER], [_LEDGER])
+    result, calls = _waiting_drift(lock, clock, lock_wait_seconds=600, conn=conn)
+    assert result == {}
+    assert lock.tries == 4 and clock.sleeps == [30.0, 30.0, 30.0]
+    assert calls == [["AAA"]]
+    assert lock.events == ["acquire"] * 4 + ["release"]
+
+
+def test_coverage_cache_held_past_the_bound_returns_none_and_never_connects():
+    lock, clock = _LockHeldFor(10**9), _Clock()
+    result, calls = _waiting_drift(lock, clock, lock_wait_seconds=100, poll_interval_seconds=30)
+    assert result is None and calls == []
+    assert sum(clock.sleeps) == 100 and clock.sleeps[-1] == 10  # the last sleep is clipped
+    assert lock.events == ["acquire"] * len(lock.events)  # never released: never held
+
+
+def test_coverage_cache_with_a_free_lock_does_not_wait():
+    lock, clock = _LockHeldFor(0), _Clock()
+    conn = _FakeConnection([_LEDGER], [_LEDGER])
+    result, _ = _waiting_drift(lock, clock, lock_wait_seconds=600, conn=conn)
+    assert result == {} and clock.sleeps == [] and lock.tries == 1
+
+
+def test_coverage_cache_default_is_a_single_try():
+    lock, clock = _LockHeldFor(1), _Clock()
+    result, _ = _waiting_drift(lock, clock, lock_wait_seconds=0)
+    assert result is None and clock.sleeps == [] and lock.tries == 1
+
+
+def test_the_lock_wait_bounds_are_apr_keys_with_documented_defaults():
+    params = audit._IntegrityParams.from_apr(
+        {
+            "infra.bar_integrity.coverage_cache_lock_wait_s": "7200",
+            "infra.bar_integrity.coverage_cache_lock_poll_s": "10",
+        }
+    )
+    assert (params.coverage_cache_lock_wait_seconds, params.coverage_cache_lock_poll_seconds) == (
+        7200,
+        10,
+    )
+    default = audit._IntegrityParams.from_apr({})
+    assert (default.coverage_cache_lock_wait_seconds, default.coverage_cache_lock_poll_seconds) == (
+        21600,
+        30,
+    )
+    assert "infra.bar_integrity.%" in audit._APR_PATTERNS
+
+
 def test_coverage_cache_releases_the_lock_and_rolls_back_when_the_rebuild_raises():
     lock, conn = _FakeLock(), _FakeConnection([_LEDGER], [_LEDGER])
 
@@ -1615,3 +1715,70 @@ def test_pairs_start_at_pair_from_and_stop_before_the_answer_date():
         (_DAY2, 10.0, 9.0),
         (_DAY3, 10.0, 9.0),
     ]
+
+
+class _FakePool:
+    def acquire(self):
+        class _Ctx:
+            async def __aenter__(self):
+                return "conn"
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
+
+
+def _coverage_step(monkeypatch, drift):
+    """Run the deferred coverage step over a run of two names; returns (run, write calls, seen)."""
+    import asyncio
+
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name(), "BBB": _agreeing_name()}), drift=None)
+    seen, writes = {}, []
+
+    def fake_drift(dsn, names, **kwargs):
+        seen.update(names=names, **kwargs)
+        return drift
+
+    async def fake_write(conn, part, run_start, *, already=0):
+        writes.append((list(part.facts), already))
+
+    monkeypatch.setattr(audit, "coverage_cache_drift", fake_drift)
+    monkeypatch.setattr(audit.BarReconciliationAudit, "_write_verdicts", staticmethod(fake_write))
+    step = object.__new__(audit.BarReconciliationAudit)
+    step._db_dsn = "dsn"
+    integ = audit._IntegrityParams(
+        **{
+            **_I_PARAMS.__dict__,
+            "coverage_cache_lock_wait_seconds": 900,
+            "coverage_cache_lock_poll_seconds": 5,
+        }
+    )
+    out = asyncio.run(step._coverage_step(_FakePool(), integ, _IWindow(), _I_NOW, run, already=7))
+    return run, out, writes, seen
+
+
+def test_the_deferred_report_has_no_coverage_cache_rows_and_no_skip():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}), drift=None)
+    assert not [f for f in run.facts if f[2] == "coverage_cache"]
+    assert run.coverage_skipped == 0 and run.names == ("AAA",)
+
+
+def test_the_coverage_step_waits_with_the_apr_bounds_and_writes_a_second_group(monkeypatch):
+    run, out, writes, seen = _coverage_step(monkeypatch, {"BBB": 2})
+    assert (seen["names"], seen["lock_wait_seconds"], seen["poll_interval_seconds"]) == (
+        ["AAA", "BBB"],
+        900,
+        5,
+    )
+    assert len(writes) == 1 and writes[0][1] == 7 + len(run.facts)
+    assert {f[1]: f[5] for f in writes[0][0]} == {"AAA|5m": True, "BBB|5m": False}
+    assert out.failing_by_check["coverage_cache"] == 1
+    assert out.passing_by_check["coverage_cache"] == 1
+    assert out.coverage_skipped == 0 and len(out.facts) == len(run.facts) + 2
+
+
+def test_the_coverage_step_counts_the_skip_when_the_lock_stays_held(monkeypatch):
+    _, out, writes, _ = _coverage_step(monkeypatch, None)
+    assert writes == [] and out.coverage_skipped == 2
+    assert not [f for f in out.facts if f[2] == "coverage_cache"]

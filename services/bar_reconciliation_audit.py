@@ -53,8 +53,9 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
 from pathlib import Path
-from time import perf_counter
+from time import monotonic, perf_counter, sleep
 from typing import Any, NamedTuple
 
 import asyncpg
@@ -1209,10 +1210,18 @@ class _IntegrityParams:
     slot_coverage_min_intraday: float = 0.995
     intraday_full_sweep_days: int = 7
     freshness_max_lag_sessions_1d: int = 2
+    coverage_cache_lock_wait_seconds: int = 21600
+    coverage_cache_lock_poll_seconds: int = 30
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
         return cls(
+            coverage_cache_lock_wait_seconds=int(
+                _cfg(apr, "infra.bar_integrity.coverage_cache_lock_wait_s", 21600)
+            ),
+            coverage_cache_lock_poll_seconds=int(
+                _cfg(apr, "infra.bar_integrity.coverage_cache_lock_poll_s", 30)
+            ),
             freshness_max_lag_sessions_1d=int(
                 _cfg(apr, "threshold.bar_integrity.freshness_max_lag_sessions_1d", 2)
             ),
@@ -1546,20 +1555,31 @@ def coverage_cache_drift(
     lock_factory: Any = FetcherLock,
     connect: Any = psycopg.connect,
     rebuild: Any = rebuild_from_stored_state,
+    lock_wait_seconds: float = 0.0,
+    poll_interval_seconds: float = 30.0,
+    sleep_function: Any = sleep,
+    clock: Any = monotonic,
 ) -> dict[str, int] | None:
     """Ledger series per symbol whose stored row differs from the rebuild, or None when the
-    fetcher lock is held elsewhere (the check is skipped, never run unlocked).
+    fetcher lock is still held elsewhere after `lock_wait_seconds` seconds (the check is skipped, never
+    run unlocked).
 
     The rebuild's docstring requires the fetcher lock, so this takes it with the non-blocking
-    try-lock, runs the rebuild inside a transaction that is always rolled back (the rebuilt
-    rows are read before the rollback and nothing reaches the ledger), and releases the lock in
-    a finally. last_fetched_at and consecutive_failures are the fetcher's own and are not
-    compared. A ledger row for a series with no bars and no requests is untouched by the
-    rebuild and so cannot show here.
+    try-lock, polled every `poll_interval_seconds` seconds for at most `lock_wait_seconds` (the fetcher runs in windows of
+    hours with a short gap, so a single try almost never succeeds). The poll holds no connection
+    between tries: each try opens and closes its own. The rebuild runs inside a transaction that
+    is always rolled back (the rebuilt rows are read before the rollback and nothing reaches the
+    ledger), and the lock is released in a finally. last_fetched_at and consecutive_failures are
+    the fetcher's own and are not compared. A ledger row for a series with no bars and no
+    requests is untouched by the rebuild and so cannot show here.
     """
     lock = lock_factory(dsn, holder=_JOB)
-    if not lock.acquire():
-        return None
+    deadline = clock() + lock_wait_seconds
+    while not lock.acquire():
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return None
+        sleep_function(min(poll_interval_seconds, remaining))
     try:
         conn = connect(dsn)
         try:
@@ -1596,6 +1616,25 @@ class _IntradayRun(NamedTuple):
     parity_failing: list[str]
     parity_compared: dict[str, int]  # buckets compared over all names, per timeframe
     parity_mismatched: dict[str, int]
+    names: tuple[str, ...] = ()
+
+
+def coverage_cache_facts(
+    names: Sequence[str], drift: Mapping[str, int], twe: datetime
+) -> list[tuple[str, str | None, str, float | None, float | None, bool, Any]]:
+    """The coverage_cache verdict rows of all names from the drift counts. Pure."""
+    return [
+        (
+            _MONITOR_TYPE_VERDICT,
+            f"{symbol}|{GRID_SOURCE_TF}",
+            "coverage_cache",
+            float(drift.get(symbol, 0)),
+            0.0,
+            not drift.get(symbol),
+            twe,
+        )
+        for symbol in names
+    ]
 
 
 @dataclass(frozen=True)
@@ -2288,18 +2327,62 @@ class BarReconciliationAudit(BaseBatch):
     ) -> _IntradayRun:
         async with pool.acquire() as conn:
             run = await self._verdict_report_intraday(
-                conn,
-                integ,
-                window,
-                run_start,
-                coverage_drift=lambda names: asyncio.to_thread(
-                    coverage_cache_drift, self._db_dsn, names
-                ),
+                conn, integ, window, run_start, coverage_drift=None
             )
         async with pool.acquire() as conn:
             await self._write_verdicts(conn, run, run_start, already=already)
+        # The fetcher lock wait comes last: the other verdicts are already written and no pool
+        # connection is held while this waits (up to the bound, hours).
+        run = await self._coverage_step(pool, integ, window, run_start, run, already=already)
         self._log_intraday(run)
         return run
+
+    async def _coverage_step(
+        self,
+        pool: asyncpg.Pool,
+        integ: _IntegrityParams,
+        window: _Window,
+        run_start: datetime,
+        run: _IntradayRun,
+        *,
+        already: int,
+    ) -> _IntradayRun:
+        """The coverage_cache verdicts of all names, written as a second group of rows; the
+        returned run counts them (or the skip when the lock stays held past the bound)."""
+        names = list(run.names)
+        started = perf_counter()
+        drift = (
+            await asyncio.to_thread(
+                partial(
+                    coverage_cache_drift,
+                    self._db_dsn,
+                    names,
+                    lock_wait_seconds=integ.coverage_cache_lock_wait_seconds,
+                    poll_interval_seconds=integ.coverage_cache_lock_poll_seconds,
+                )
+            )
+            if names
+            else {}
+        )
+        timings = {**run.timings, "coverage_cache": perf_counter() - started}
+        if drift is None:
+            logger.warning(
+                "bar_integrity.coverage_cache_skipped",
+                reason="fetcher lock still held after the wait bound",
+                lock_wait_seconds=integ.coverage_cache_lock_wait_seconds,
+            )
+            return run._replace(timings=timings, coverage_skipped=len(names))
+        facts = coverage_cache_facts(names, drift, window.training_window_end)
+        part = run._replace(facts=facts)
+        async with pool.acquire() as conn:
+            await self._write_verdicts(conn, part, run_start, already=already + len(run.facts))
+        failing = sum(1 for f in facts if not f[5])
+        return run._replace(
+            facts=[*run.facts, *facts],
+            timings=timings,
+            failing_by_check={**run.failing_by_check, "coverage_cache": failing},
+            passing_by_check={**run.passing_by_check, "coverage_cache": len(facts) - failing},
+        )
 
     @staticmethod
     async def _verdict_report_intraday(
@@ -2308,10 +2391,12 @@ class BarReconciliationAudit(BaseBatch):
         window: _Window,
         run_start: datetime,
         *,
-        coverage_drift: Any,
+        coverage_drift: Any | None,
     ) -> _IntradayRun:
         """Judge every name holding 5m bars on the intraday checks (design section 6), then the
-        coverage ledger of all of them under the fetcher lock. A finding never raises."""
+        coverage ledger of all of them under the fetcher lock (`coverage_drift` None defers that
+        step to the caller, which runs it after these verdicts are written). A finding never
+        raises."""
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
         previous = {
             r["subject"]: (r["passed"], r["evaluated_at"])
@@ -2391,23 +2476,16 @@ class BarReconciliationAudit(BaseBatch):
                             )
 
         skipped = 0
-        started = perf_counter()
-        drift = await coverage_drift(names) if names else {}
-        timings["coverage_cache"] = perf_counter() - started
-        if drift is None:
-            skipped = len(names)
-        else:
-            for symbol in names:
-                record(
-                    symbol,
-                    _IntradayVerdict(
-                        GRID_SOURCE_TF,
-                        "coverage_cache",
-                        not drift.get(symbol),
-                        float(drift.get(symbol, 0)),
-                        0.0,
-                    ),
-                )
+        if coverage_drift is not None:
+            started = perf_counter()
+            drift = await coverage_drift(names) if names else {}
+            timings["coverage_cache"] = perf_counter() - started
+            if drift is None:
+                skipped = len(names)
+            else:
+                for fact in coverage_cache_facts(names, drift, twe):
+                    facts.append(fact)
+                    (passing if fact[5] else failing)["coverage_cache"] += 1
         if full_sweep:
             facts.append(
                 (
@@ -2432,6 +2510,7 @@ class BarReconciliationAudit(BaseBatch):
             parity_failing,
             dict(parity_compared),
             dict(parity_mismatched),
+            tuple(names),
         )
 
     @staticmethod
