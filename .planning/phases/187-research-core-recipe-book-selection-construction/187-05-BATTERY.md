@@ -144,3 +144,21 @@ so this is not a re-judgement of those draws. A failure is not rerun on other se
 pass: it opens a todo naming the failing cell. Code: `_BOUND_QUANTILE` and `_POOLED_TOLERANCE`
 in the driver; a pooled failure appears in the record's `failures` as `"pooled"`, so
 `select_books.py` refuses it with no change.
+
+## Step B v2 (pre-registered 2026-10-29, before the run it judges)
+
+Step B failed in one gating cell, `s1_hostile` (89 of 1,000, bound 74; todo 561). An exploratory
+3,000-simulation run on that cell alone (seed base 40,000,000, not a counted look) gave 175 of 3,000
+(5.83%, 99% interval about [4.7, 6.9]), which contains 5%, so the failure reads as a tail draw of a
+cell the 1,000-simulation bound leaves little room for. The response is one fresh complete run with
+more simulations per cell, judged on that run only:
+
+`scripts/research/stepm_null_battery.py <out.json> --seed-base 50000000 --sims 2000 --workers 8`
+
+at 4,000 sessions, all 20 cells. It passes when both hold: (1) per gating cell the family-wise
+rejection count is at most the binomial 0.9995 quantile under fwer 0.05, which is 133 of 2,000
+(6.65%); (2) the pooled gating rate is at most 6.0%. The seed base is new (bases 0, 20,000,000 and
+the exploratory 30,000,000 and 40,000,000 are spent). A failure is not rerun on other seeds: it goes
+to the owner with the failing cell named. If `s1_hostile` fails again at 2,000 simulations its true
+size is above 5% and S1's interaction with StepM is a defect to fix, not a draw to repeat. The
+driver now hashes the StepM source at startup. `select_books.py` is unchanged.

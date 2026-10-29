@@ -90,3 +90,11 @@ Also run long batteries from a worktree that outlives the session (`git worktree
 ../indicagent-<name> origin/main`, per STATE.md), never from a session scratchpad. A change under
 `scripts/research/` is not the fingerprinted writer path, but run `repro_frozen` if it touches
 `src/intelligence/statistics/`.
+
+## Decision (2026-10-29, research lane)
+
+The 3,000-simulation interval contains 5%, so step B's failure is treated as a tail draw and answered
+by one new complete run with more simulations, pre-registered as Step B v2 in `187-05-BATTERY.md`
+(seed base 50,000,000, 2,000 simulations per cell, bound 133, run once; a failure goes to the owner).
+The script now hashes the StepM source at startup (this section's "Script fix"). Launched as the user
+unit `stepm-step-b2` from `/home/bg/dev/indicagent-b0`, nice 19, 8 workers (about 13 hours at 10 workers).

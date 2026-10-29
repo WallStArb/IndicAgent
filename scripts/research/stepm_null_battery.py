@@ -119,6 +119,9 @@ def main() -> int:
     if args.cells:
         wanted = set(args.cells.split(","))
         cells = tuple(sc for sc in cells if sc.name in wanted)
+    # Read the StepM source now: a missing or unreadable file fails in seconds, not after the last
+    # cell (todo 561: a deleted scratch worktree lost a finished 3,000-simulation cell's record).
+    stepm_sha256 = stepm_source_sha256()
     start = time.time()
     jobs = [
         (
@@ -165,7 +168,7 @@ def main() -> int:
         # was run on the StepM code it is about to use.
         "complete": args.cells is None,
         "sessions": args.sessions,
-        "stepm_sha256": stepm_source_sha256(),
+        "stepm_sha256": stepm_sha256,
         "sims_per_cell": args.sims,
         "reps": args.reps,
         "block_mean": args.block_mean,
