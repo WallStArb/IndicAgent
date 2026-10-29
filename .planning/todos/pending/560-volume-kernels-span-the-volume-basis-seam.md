@@ -1,5 +1,5 @@
 ---
-status: in review
+status: pending
 priority: P1
 filed: 2026-10-28
 source: scope guard of the todo 555 change (amihud volume_basis); sequencing call belongs to indicagent-3a
@@ -75,3 +75,11 @@ refinement, not a blocker.
 Research: `kernel_source` still needs the caller to supply `volume_basis`, so the promoted
 `rk_vwap_dev` kernels refuse without it until the panel carries vendor provenance (a 184
 follow-up).
+
+## Still open (2026-10-29)
+
+- Full-pipeline check through `compute_batch` on a real name with injected NULL volume, for the
+  path-dependent guarded kernels the property test skips (`vwap_dev_sigma`, `session_vp`,
+  `session_levels`, `calendar_above_wk_vwap`, `ctf_source`, `bar_statistics_refresh`).
+- Independent review of the guard commits (`d6a8da8de`, `96458db71`); 555 had one, 560 did not.
+- Research panel provenance (phase 184) so `rk_vwap_dev` accepts a real basis.

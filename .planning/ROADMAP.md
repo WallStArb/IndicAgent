@@ -391,7 +391,8 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
 - [ ] 186-26 feature_vectors rebuild run (D-32/D-32a): precondition checker, pilot chunk, R-09 disk
   guard, then the full resumable background run with kill-and-resume proven once; gated on todo 449
   coverage, 185 D2b (185-12) and 185-18's historical 1d D2 apply (todo 489 adds the checker gate), with
-  todos 478 and 467 decided first; owns the todo 420 orphan-cleanup rerun
+  todos 478 and 467 decided first; owns the todo 420 orphan-cleanup rerun; todos 553, 555
+  (`volume_basis`, migration 534) and 560 (volume-basis guard) are on origin/main and close before the launch
 
 - [ ] 186-27 rebuild close-out and name swap (D-34): unit-by-unit provenance verification, sampled
   drift report, atomic swap to `feature_vectors`, compression policy re-enabled, old 89 GB table

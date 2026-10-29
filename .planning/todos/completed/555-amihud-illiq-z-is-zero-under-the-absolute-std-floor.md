@@ -1,5 +1,5 @@
 ---
-status: in review
+status: completed
 priority: P1
 filed: 2026-10-27
 source: found while closing todo 390 in the todo 553 change (Amihud zero-close guard)
@@ -47,7 +47,7 @@ volume, about 0.41-0.91x of consolidated. A within-name z-score across the seam 
 shift unless it is computed within each era or the feature is defined on a ratio that cancels the
 basis. The spec says which, and why it holds across the seam.
 
-## Resolution (indicagent-24, 2026-10-28; in review, not yet on origin)
+## Resolution (indicagent-24, 2026-10-28; landed on origin/main, reviewed with /simplify and /code-review)
 
 Definition: `amihud_illiq_z` is the z-score of ln(illiq) over the last `feature.amihud.zscore_window`
 bars of one volume basis. The window restarts where `volume_basis` changes and the row is NaN
