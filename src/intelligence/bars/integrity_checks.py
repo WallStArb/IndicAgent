@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
@@ -20,7 +20,6 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     PolicyRow,
     alpaca_era_start,
-    basis_closes,
     derive_daily_v2,
     primary_pair,
     resolve_policy,
@@ -31,14 +30,7 @@ from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
 from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH
-from src.intelligence.bars.vendor_basis import (
-    BasisRun,
-    blocking,
-    canonical_vendor,
-    classify_run,
-    find_basis_runs,
-    ratio_pairs,
-)
+from src.intelligence.bars.vendor_basis import BasisRun, find_basis_runs
 from src.intelligence.bars.write_contract import BarValues, classify
 
 
@@ -76,11 +68,11 @@ def alpaca_basis_runs(
 ) -> list[BasisRun]:
     """Runs of at least min_sessions sessions after `since` where IBKR's and Alpaca's 1d closes
     (current scale, session dates, zero-volume Alpaca bars dropped) differ by more than
-    tolerance_bp, and nothing recorded explains them (todo 545 step 5a; the successor of
-    vendor_basis_run, which needs Tradier). Such a run is a spin-off, split or ticker event since
-    the D-191-Q arbitration. Explained, and not reported: a corporate action whose effective date
+    tolerance_bp, and nothing recorded explains them (todo 545 step 5a; the successor of the
+    retired Tradier-against-IBKR vendor_basis_run check). Such a run is a spin-off, split or
+    ticker event since the D-191-Q arbitration. Explained, and not reported: a corporate action whose effective date
     falls inside the run or on the first common session after it (the event that ends it; a
-    recorded spin-off factor is the judge once Tradier is gone), or an IBKR symbol row covering
+    recorded spin-off factor is the judge), or an IBKR symbol row covering
     the whole run."""
     closes = vendor_basis_closes(observations, splits)
     alpaca, ibkr = closes["alpaca"], closes["ibkr"]
@@ -154,7 +146,6 @@ CHECKS_1D = (
     "canonical_recompute",
     "digest_fresh",
     "unexplained_seam",
-    "vendor_basis_run",
     "alpaca_basis_run",
     "report_age",
     CHECK_FRESHNESS_1D,
@@ -220,8 +211,6 @@ class NameInputs1d:
 class NameReport1d:
     verdicts: list[Verdict]
     refused_head: int
-    basis_runs: list[BasisRun]
-    blocking_runs: list[BasisRun]
     # unexplained Alpaca/IBKR runs after the arbitration (alpaca_basis_run)
     alpaca_runs: list[BasisRun] = field(default_factory=list)
 
@@ -408,43 +397,6 @@ def judge_name_1d(
     )
 
     started = time.perf_counter()
-    # Restated closes (d2-v3): a run inside a span Tradier answered only on a stale scale stays
-    # measurable, so an IBKR-side step the rule admitted there is still caught here.
-    tradier_closes, ibkr_closes = basis_closes(inputs.observations, inputs.splits)
-    runs = [
-        replace(
-            run,
-            continuous_vendor=classify_run(
-                run,
-                ibkr_closes,
-                tradier_closes,
-                inputs.splits,
-                tolerance_bp=thresholds.basis_tolerance_bp,
-            ),
-        )
-        for run in find_basis_runs(
-            ratio_pairs(ibkr_closes, tradier_closes),
-            tolerance_bp=thresholds.basis_tolerance_bp,
-            min_sessions=thresholds.vendor_run_min_sessions,
-        )
-    ]
-    blocking_runs = [
-        run
-        for run in runs
-        if blocking(
-            run,
-            {
-                v
-                for d, values in stored.items()
-                if run.start <= d <= run.end
-                and (v := canonical_vendor(values.vendor, values.kind)) is not None
-            },
-        )
-    ]
-    verdicts.append(verdict("vendor_basis_run", not blocking_runs, len(blocking_runs), 0.0))
-    timed("vendor_basis_run", started)
-
-    started = time.perf_counter()
     alpaca_runs = alpaca_basis_runs(
         inputs.observations,
         inputs.splits,
@@ -481,7 +433,7 @@ def judge_name_1d(
             listing_end=inputs.listing_end,
         )
     )
-    return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs, alpaca_runs)
+    return NameReport1d(verdicts, len(derived.refused_head), alpaca_runs)
 
 
 # ---------------------------------------------------------------------------

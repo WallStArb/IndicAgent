@@ -45,7 +45,6 @@ def test_required_checks_match_the_design():
         "canonical_recompute",
         "digest_fresh",
         "unexplained_seam",
-        "vendor_basis_run",
         "alpaca_basis_run",
     }
     assert REQUIRED_CHECKS["5m"] == {"slot_coverage", "digest_fresh", "coverage_cache"}

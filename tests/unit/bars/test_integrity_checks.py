@@ -212,7 +212,7 @@ def _by_check(report) -> dict:
     return {v.check: v for v in report.verdicts}
 
 
-def test_clean_name_passes_all_eight_checks_in_report_order():
+def test_clean_name_passes_all_checks_in_report_order():
     report = _judge(_clean())
     assert tuple(v.check for v in report.verdicts) == CHECKS_1D
     assert all(v.passed for v in report.verdicts)
@@ -224,7 +224,7 @@ def test_clean_name_passes_all_eight_checks_in_report_order():
 def test_timings_record_the_checks_that_do_work():
     timings: dict[str, float] = {}
     _judge(_clean(), timings)
-    assert {"canonical_recompute", "digest_fresh", "vendor_basis_run"} <= set(timings)
+    assert {"canonical_recompute", "digest_fresh", "alpaca_basis_run"} <= set(timings)
 
 
 def test_a_missing_session_fails_coverage_unless_answered_empty():
@@ -299,36 +299,6 @@ def test_report_age_fails_only_when_a_load_postdates_the_run():
     assert _by_check(_judge(replace(_clean(), latest_load_at=None)))["report_age"].passed
 
 
-def _basis_inputs(stored_pair: tuple[str, str], tradier_steps: bool) -> NameInputs1d:
-    """IBKR runs 2x Tradier for 4 sessions mid-series; one vendor steps at the boundaries."""
-    days = _SESSIONS
-    observations = []
-    for i, day in enumerate(days):
-        base = 100.0 + 0.1 * i
-        in_run = 3 <= i <= 6
-        tradier_close = base * (0.5 if in_run and tradier_steps else 1.0)
-        ibkr_close = base * (1.0 if tradier_steps else (2.0 if in_run else 1.0))
-        if tradier_steps:
-            ibkr_close = base
-        observations.append(_obs(day, tradier_close, "TRADIER"))
-        observations.append(_obs(day, ibkr_close, "SMART"))
-    inputs = replace(_clean(), observations=observations)
-    stored = [replace(b, vendor=stored_pair[0], kind=stored_pair[1]) for b in inputs.stored]
-    return replace(inputs, stored=stored)
-
-
-def test_vendor_run_blocks_only_when_the_canonical_side_is_the_one_that_steps():
-    # Tradier steps down by half inside the run while IBKR is smooth: Tradier is the
-    # discontinuous vendor, and the stored bars (tradier) are built from it.
-    stepping = _judge(_basis_inputs(TRADIER, tradier_steps=True))
-    assert not _by_check(stepping)["vendor_basis_run"].passed
-    assert stepping.basis_runs and stepping.blocking_runs
-    # IBKR steps up inside the run while Tradier is smooth: the canonical Tradier side is fine.
-    smooth = _judge(_basis_inputs(TRADIER, tradier_steps=False))
-    assert smooth.basis_runs and not smooth.blocking_runs
-    assert _by_check(smooth)["vendor_basis_run"].passed
-
-
 # --- a split after Tradier's last fetch (d2-v3, plan 185-52, todo 517) ---------------------
 
 _SPLIT_RECORDED = _FETCHED + timedelta(days=1)
@@ -378,26 +348,8 @@ def test_a_restated_fallback_name_conforms_and_recomputes():
     inputs = _restated_inputs()
     assert {(b.vendor, b.kind) for b in inputs.stored} == {IBKR_FALLBACK}
     checks = _by_check(_judge(inputs))
-    for check in ("policy_conformance", "canonical_recompute", "digest_fresh", "vendor_basis_run"):
+    for check in ("policy_conformance", "canonical_recompute", "digest_fresh", "alpaca_basis_run"):
         assert checks[check].passed, check
-
-
-def test_vendor_basis_run_measures_the_restated_tradier_closes():
-    # IBKR steps inside the run while the stale Tradier series, brought to the new scale, is
-    # smooth. The run is visible only through the restated closes (no current Tradier close
-    # exists), and the canonical side would be IBKR: it must block.
-    inputs = _restated_inputs()
-    stepped = [
-        (
-            replace(o, close=o.close * 1.5, open=o.open * 1.5)
-            if o.route == "SMART" and _SESSIONS[3] <= o.bar_date <= _SESSIONS[6]
-            else o
-        )
-        for o in inputs.observations
-    ]
-    report = _judge(replace(inputs, observations=stepped))
-    assert report.basis_runs and report.blocking_runs
-    assert not _by_check(report)["vendor_basis_run"].passed
 
 
 # ---------------------------------------------------------------------------
@@ -764,7 +716,7 @@ def test_an_ibkr_fallback_where_alpaca_could_serve_fails_conformance():
     assert not _by_check(_judge(replace(inputs, stored=bad)))["policy_conformance"].passed
 
 
-# --- alpaca_basis_run: the Alpaca-against-IBKR successor of vendor_basis_run (todo 545 step 5a) ---
+# --- alpaca_basis_run: Alpaca against IBKR, successor of the retired Tradier check (todo 545 step 5a) ---
 
 from src.intelligence.bars.integrity_checks import alpaca_basis_runs  # noqa: E402
 from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH  # noqa: E402

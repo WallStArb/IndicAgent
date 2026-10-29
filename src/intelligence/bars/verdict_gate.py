@@ -35,7 +35,6 @@ REQUIRED_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
                 "canonical_recompute",
                 "digest_fresh",
                 "unexplained_seam",
-                "vendor_basis_run",
                 # todo 545 step 5a: Alpaca/IBKR disagreement after the D-191-Q arbitration
                 "alpaca_basis_run",
             }

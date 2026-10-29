@@ -33,7 +33,7 @@ with the venue study):
 - the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
   row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
   compute_1d name: session_coverage, policy_conformance, lineage_missing, canonical_recompute
-  (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam, vendor_basis_run,
+  (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam,
   alpaca_basis_run (Alpaca/IBKR runs after the D-191-Q arbitration, todo 545 step 5a) and
   report_age, plus refused_head_1d as an informational row. The pure judgement is
   src/intelligence/bars/integrity_checks.judge_name_1d; the gates (185-41) read the rows.
@@ -1231,7 +1231,6 @@ class _VerdictRun(NamedTuple):
     timings: dict[str, float]
     untraced_hidden: _Judged
     n_names: int
-    n_basis_runs: int
     blocking_samples: list[str]
     # Held names failing freshness_1d, with the hold's cause (plan 185-51).
     held_stale: tuple[str, ...] = ()
@@ -2181,7 +2180,6 @@ class BarReconciliationAudit(BaseBatch):
         failing: dict[str, int] = defaultdict(int)
         passing: dict[str, int] = defaultdict(int)
         timings: dict[str, float] = {}
-        n_runs = 0
         blocking_samples: list[str] = []
         held_stale: list[str] = []
         holds = holds or {}
@@ -2246,11 +2244,6 @@ class BarReconciliationAudit(BaseBatch):
                     f"{symbol}: freshness_1d {stale.metric_value:.0f} sessions behind; held: "
                     + "; ".join(h.cause() for h in name_holds)
                 )
-            n_runs += len(report.basis_runs)
-            blocking_samples.extend(
-                f"{symbol}|{run.start}..{run.end}|{run.continuous_vendor}"
-                for run in report.blocking_runs
-            )
             # alpaca_basis_run (todo 545 step 5a): an Alpaca/IBKR level run after the D-191-Q
             # arbitration that no corporate action or policy row explains.
             blocking_samples.extend(
@@ -2269,7 +2262,6 @@ class BarReconciliationAudit(BaseBatch):
             timings,
             untraced,
             len(compute_1d),
-            n_runs,
             blocking_samples,
             tuple(held_stale),
         )
@@ -2744,7 +2736,6 @@ class BarReconciliationAudit(BaseBatch):
             failing_by_check=run.failing_by_check,
             passing_by_check=run.passing_by_check,
             seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
-            n_basis_runs=run.n_basis_runs,
         )
         if run.blocking_samples:
             logger.error("bar_integrity.blocking_basis_runs", runs=run.blocking_samples)
