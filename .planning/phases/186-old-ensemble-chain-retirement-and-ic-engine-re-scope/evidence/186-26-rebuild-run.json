@@ -54821,6 +54821,47 @@
    "1. kill <MainPID from systemctl --user show feature-rebuild-1d -p MainPID> (or systemctl --user stop feature-rebuild-1d, which also reaps the cgroup)",
    "2. ps -eo pid,cmd | awk '/[b]ackfill_feature_factory/ && !/awk/ {print $1}' | xargs kill ; confirm zero remain; terminate any pg_stat_activity backend on feature_vectors_v2 in ClientWrite",
    "3. .planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/186-26-stage1-1d-launch.sh (from /home/bg/dev/indicagent-186-26; systemctl --user reset-failed feature-rebuild-1d first if the unit is failed)"
-  ]
+  ],
+  "completion": {
+   "finished_utc": "2026-10-29T22:44:57Z",
+   "unit_exit": "Result=success ExecMainStatus=0",
+   "units_total": 51,
+   "units_skipped": 4,
+   "units_loaded": 47,
+   "units_failed": 0,
+   "rows_loaded_after_resume": 4738108,
+   "rows_total": 5127577,
+   "symbols_with_rows": 1257,
+   "duplicates_symbol_bar_ts": 0,
+   "horizon_max_bar_ts": "2026-09-30",
+   "provenance_completed_units": 51,
+   "hypertable_size_bytes_uncompressed": 7018119168,
+   "bytes_per_row_final": 1307,
+   "compression": "deferred: partial scope (--symbols or --tf); chunks_compressed 0",
+   "symbols_without_rows": [
+    "AKTS",
+    "APMD",
+    "FDXF",
+    "GENB",
+    "HONA",
+    "MBGL",
+    "MDLN",
+    "MFP",
+    "PURR",
+    "Q",
+    "REA",
+    "SOLS",
+    "SPCX",
+    "VSNT",
+    "WSHP",
+    "XZO"
+   ],
+   "symbols_without_rows_reason": "fewer 1d bars (63..258) than momentum_zscore_window + 2, so the worker logs insufficient_bars and spools an empty unit (existing behavior)",
+   "wall_clock_actual_min_total": 36,
+   "wall_clock_note": "started 22:08:49, killed 22:12:16, resumed 22:12:33, done 22:44:57; steady state grew from 33 s to about 45 s per unit in the later chunks while pre-commit test runs shared the cores",
+   "skip_proof_final": "closing stage2_complete line: units_skipped=4 units_loaded=47 units_failed=0",
+   "warnings": "RuntimeWarning invalid value in divide from cross_tf.py:88 and volume.py:369 (vwap with zero cum volume), and a 5-semaphore resource_tracker leak notice at the kill; neither affected a unit"
+  },
+  "state_after_completion": "stage 1 complete; the unit exited; later stages (229 D7 holds on 1d, intraday tfs) still to come from the same tree and sha, so the import freeze stands"
  }
 }

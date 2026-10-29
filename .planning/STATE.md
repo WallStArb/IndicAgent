@@ -94,9 +94,9 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
 
-- **186-26 rebuild stage 1 (1d, 1,273 non-hold names), launched 2026-10-29 22:08Z, live and resumable
-  until `feature-rebuild-1d` exits:** systemd user unit `feature-rebuild-1d`, 12 workers, 51 units of
-  25 names, expected about 28 minutes, horizon `--data-horizon 2026-10-01`. Run tree
+- **186-26 rebuild stage 1 (1d, 1,273 non-hold names), launched 2026-10-29 22:08Z, completed 22:44Z
+  (51 of 51 units, 5,127,577 rows, one kill-and-resume); later stages are resumable and pending:** systemd
+  user unit `feature-rebuild-1d`, 12 workers, 25 names per unit, horizon `--data-horizon 2026-10-01`. Run tree
   `/home/bg/dev/indicagent-186-26` pinned at code sha `92e588385` (unit code key `8c3ab364de21`); every
   later stage (the 229 D7 holds on 1d with `--symbols <holds>`, then the intraday tfs) runs from that
   tree, not from main. Logs: `/home/bg/dev/indicagent/logs/feature_rebuild_1d.log` and
