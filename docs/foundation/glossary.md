@@ -2417,6 +2417,51 @@ revision, and a revision ratio is measured against the same vendor's own stored 
 
 ---
 
+## Volume guard terms (todo 560)
+
+How the feature kernels treat a bar whose volume is missing and a change of volume basis. Code:
+`src/intelligence/features/contract/registry.py` (`_guard_volume`, `_guard_downstream`,
+`_masked_until_reset`) and `contract/dropped_volume.py`; history and measurements:
+`.planning/todos/pending/560-volume-kernels-span-the-volume-basis-seam.md`.
+
+### `dropped bar`
+
+A bar whose volume is NULL, so non-finite in the kernels (the canonical view NULLs volume for the
+ibkr `venue` and `fallback` kinds; 125,174 such 1d rows on 145 names on 2026-10-29). Industry term:
+a missing volume observation. The volume guard enters its volume as 0.0 so a cumulative statistic
+stays finite, then masks the rows that bar corrupts. **Not:** a bar removed from the table (raw bars
+are permanent), and not a zero-volume bar, which is a real observation.
+
+### `volume basis`
+
+Which venue population a bar's volume counts: consolidated (Alpaca SIP) or IBKR SMART, about 0.75 of
+consolidated. A window that holds both carries a level shift, so the guard runs each basis segment
+alone for kernels that read the volume level. Field `volume_basis`; table in `bars/vendor_kind.py`.
+
+### `volume reset anchor`
+
+The calendar boundary at which a path-dependent volume kernel's accumulator restarts: `week` (ISO
+week of the bar timestamp) or `session` (the ET session day). Kernel field `Kernel.volume_reset`. A
+dropped bar masks that kernel's rows from the bar to the next anchor. A kernel with no anchor
+(`vwap_dev_sigma`, `ctf_source`, the higher-timeframe `ctf_vwap_align`) is masked past a share of
+dropped bars instead.
+
+### `dropped share`
+
+The share of dropped bars among the bars accumulated since the first bar with volume. A
+cumulative-VWAP row is NaN while it exceeds the APR value `feature.volume.dropped_max_fraction`
+(default 0.05, `FeatureFactoryConfig.dropped_volume_max_fraction`). Leading dropped bars carry no
+weight and do not count, though their own rows are NaN. Function `dropped_share_mask`.
+
+### `input gap` (regime status)
+
+`segment_status` 5 (`STATUS_INPUT_GAP`): a regime family that reads volume saw a non-finite volume
+followed by finite rows, so its whole series is unlabeled (code NaN, label None) while the other
+kernels of the series still compute. Distinct from 0 (no model yet). **Not:** a failure; the
+marginalizing walk-forward that would label across the gap is a later item (todo 563).
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names

@@ -30,9 +30,9 @@ def _run(volume: np.ndarray, basis: np.ndarray):
         "symbol": np.array(["SPY"] * n, dtype=object),
         "tf": np.array(["5m"] * n, dtype=object),
         **{
-            e.name: rng.normal(size=n)
-            for e in _REGISTRY.external_inputs
-            if e.name.startswith("ext_")
+            external.name: rng.normal(size=n)
+            for external in _REGISTRY.external_inputs
+            if external.name.startswith("ext_")
         },
         "volume": volume,
         "volume_basis": basis,

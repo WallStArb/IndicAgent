@@ -43,6 +43,15 @@ declared memory then covers 252 x 30 rows, or the output is NaN-masked by the gu
 which changes the golden parity of the v2 cache replay for the first 7,560 rows. It moves the code
 pin, so apply it to every stage in one rebuild, not between stages.
 
+## Naming alignment for the same batch (research lane, 2026-10-29)
+
+The config field `FeatureFactoryConfig.dropped_volume_max_fraction` should be `volume_dropped_max_fraction`
+to follow the repo's key-to-field rule (`feature.amihud.min_valid_fraction` is `amihud_min_valid_fraction`,
+`feature.volume.dropped_max_fraction` is `volume_dropped_max_fraction`). A pure rename of
+`feature_factory.py`, `services/backfill_feature_factory.py`, `services/feature_vector_pipeline.py`,
+`contract/registry.py`, `kernels/cross_tf.py` and their tests; outputs do not change, but it moves the
+code pin, so it rides in this batch rather than between 186-26 stages.
+
 ## Done when
 
 1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
