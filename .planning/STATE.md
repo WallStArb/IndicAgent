@@ -239,6 +239,25 @@ the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations:
   capture (D8) was descoped by the owner 2026-09-26: few names in this universe delist, and the
   past cannot be fixed from IBKR.
 
+## Delete-after list (disk housekeeping)
+
+Disk is not tight (28% used, 2026-10-29), so none of this is urgent; it is here so safety copies
+are removed on schedule and nothing protected is removed by accident. Everything under `data/` and
+`logs/` is git-ignored.
+
+| Path | Size | Delete when | Why it is kept until then |
+|---|---|---|---|
+| `data/backups/185-45` | 5.6 GB | after 2026-11-06 | dumps of the removed v2.x AI stack; `CLAUDE.md` keeps them until about that date (the git tag `archive/v2x-ai-stack-2026-10` stays) |
+| `data/backups/191` | 3.2 GB | when the owner closes the Tradier work (plan 191-20 done 2026-10-29; D7 holds, todo 545, still open) | backup taken before the irreversible Tradier bar delete |
+| `data/backups/185-38` | 142 MB | unknown: find its phase's retention rule first | an earlier phase's drop backup |
+| `indicagent-5b-t3` (worktree) | 86 MB | after its 10 uncommitted files are reviewed | a finished research session's unsaved work |
+
+Never delete: `logs/phase181` and `logs/phase179` (`repro_frozen` replays the frozen verdicts from
+them), `logs/research/snapshots` and the step A and B evidence under `logs/research/` (`compare-all`
+and the E17 records), `.venv`. Worktrees (`git worktree list`) are extra working folders of this one
+repository: sessions create a detached one off `origin/main` to commit without touching other
+sessions' uncommitted files, then remove it; `git worktree prune` clears entries whose folder is gone.
+
 ## Process pointers
 
 - `.planning/todos/PRIORITIES.md` is the sole todo priority source.
