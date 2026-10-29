@@ -12,7 +12,7 @@ panel:
   universe: compute_eligible_1d  # prereg 2
   tf: "1d"
   bars_per_session: 1
-  start: "2000-01-03"
+  start: "2005-01-03"  # amended 2026-10-29 from 2000-01-03: the NYSE calendar starts 2005-01-01 (prereg 10)
   end_exclusive: "2025-12-24"  # alpha.validation.oos_start; the forward span is never read
   members_universe: daily_unseen  # prereg 2 and 9 B1: names created on or after 2026-09-13, minus the TSMOM sleeve
   total_return: {suspect_yield: 0.10}  # prereg 2: total-return prices (todo 428)
@@ -51,11 +51,11 @@ construction:  # prereg 4, R1
 scoring:
   timing_statistic: e17  # methodology-change-ledger E17 incl. the 2026-10-27 amendment (L = memory + h)
   session_scoring: true  # one P&L per session
-  trading_start: "2003-01-02"  # prereg 2: alpha rows from 2003-01-02
-  sub_periods:  # prereg 2: reported, not voted on
-    - ["2003-01-02", "2008-12-31"]
-    - ["2009-01-01", "2016-12-31"]
-    - ["2017-01-01", "2025-12-23"]
+  trading_start: "2007-03-01"  # amended (prereg 10): the first M1 and M2 rows with their 525-session memory
+  sub_periods:  # prereg 2, amended in 10: reported, not voted on
+    - ["2007-03-01", "2011-12-31"]
+    - ["2012-01-01", "2018-12-31"]
+    - ["2019-01-01", "2025-12-23"]
   min_shift: 63
   bootstrap_mean_block: 21
   bootstrap_reps: 2000

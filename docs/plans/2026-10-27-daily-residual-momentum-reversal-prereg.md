@@ -266,3 +266,17 @@ Found while building B2, outside the review: E17's L did not cover a multi-sessi
   attached to the run record.
 - **B5** the spec `research/specs/daily_residual_h5.yaml` reproduces every value above and is
   added to the pinned spec-hash test before its first run.
+
+## 10. Amendments before the first real-data number
+
+**2026-10-29, panel start.** Section 2 pins the panel at 2000-01-03 and the scored span from
+2003-01-02. The snapshot builder cannot build a daily panel before 2005: `get_market_calendar`
+covers 2005-01-01 onward (`_PMC_RANGE_START` in `src/core/market_calendar.py`, in the 186-26
+fingerprinted closure, so not edited between stages), and `build_grid` rejects bars on days the
+calendar does not know (the first attempt failed on 1,256 dates from 2000-01-03). No real-data
+number for any member exists, so this is a registration correction, not a response to a result:
+the panel starts 2005-01-03, the scored span 2007-03-01 (the first row with M1 and M2's 525-session
+memory for a name listed at the panel start) through 2025-12-23, and the sub-periods are 2007-03-01
+to 2011-12-31, 2012 to 2018 and 2019 to 2025-12-23 (the first holds the 2008 crisis). Everything
+else in sections 1 to 9 stands. Extending the calendar to 2000 is todo 564's rebuild batch; a later
+spec on the longer panel would be a new spec with its own counted attempts.

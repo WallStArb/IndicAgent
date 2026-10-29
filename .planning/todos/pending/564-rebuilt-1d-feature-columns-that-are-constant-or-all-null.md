@@ -52,6 +52,14 @@ to follow the repo's key-to-field rule (`feature.amihud.min_valid_fraction` is `
 `contract/registry.py`, `kernels/cross_tf.py` and their tests; outputs do not change, but it moves the
 code pin, so it rides in this batch rather than between 186-26 stages.
 
+## Calendar coverage for the same batch (research lane, 2026-10-29)
+
+`_PMC_RANGE_START = "2005-01-01"` in `src/core/market_calendar.py` (comment: "1d goes back to 2006")
+is stale: canonical 1d now starts in 2000 for many names, and `snapshot.build_grid` rejects any bar on
+a day the calendar does not know, so no daily panel can start before 2005 (the daily residual family
+amended its start for this, prereg section 10). Move the start to 2000-01-01 in the rebuild batch; the
+module is imported by `backfill_feature_factory.py`, so it moves the code pin.
+
 ## Done when
 
 1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
