@@ -47,8 +47,7 @@ bullets with current facts.
 **Critical path (reordered 2026-10-27):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
 the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23 (decided
 2026-10-27: 23 depends on 22, whose integrity_checks changes bar_reconciliation_audit consumes;
-21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild (todo 553 spread kernels, the todo 390/555 illiq fix and the todo 560 volume-basis guard land first,
-before 191-23's summary, decided 2026-10-27; 553, 555 and 560 are on origin/main as of 2026-10-28, 560's path-dependent check and review still open; the 186-26 launch has no owner), with 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
+21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild (todos 553, 390/555 and 560 land first, before 191-23's summary: 553 and 555 are on origin/main, 560 is on origin/main with its checks open; the 186-26 launch has no owner), with 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
 Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only, runs on indicagent-5b's go; wiring 06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15.
 
 - **Phase 191 (unified raw bar table, todo 533): 18 of 25 plans done.** Plans 01 to 18 landed and
