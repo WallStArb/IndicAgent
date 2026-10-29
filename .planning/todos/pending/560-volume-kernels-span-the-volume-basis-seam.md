@@ -34,11 +34,19 @@ trailing `memory + 1` bars and a dirty-window row is masked. Without NULL volume
 the guard is a no-op, so the parity goldens are unchanged. A missing session blanks `memory + 1`
 rows of each affected kernel, where amihud's valid-fraction rule blanks fewer.
 
+## Checked
+
+Path-dependent guarded kernels, 37 outputs, synthetic series with 8 random NULL-volume bars
+(2026-10-29): every row before the first NULL is bit-identical to the clean run, every NULL bar's
+own row is masked, and the largest deviation after it is `vwap_dev_sigma` at a median 0.2%.
+
 ## Open
 
-- Full-pipeline check through `compute_batch` on a real name with injected NULL volume for the
-  path-dependent guarded kernels the property test skips: `vwap_dev_sigma`, `session_vp`,
-  `session_levels`, `calendar_above_wk_vwap`, `ctf_source`, `bar_statistics_refresh`.
+- Cost to measure on real names: `rolling_poc` has a 479-bar memory, so each NULL-volume bar blanks
+  about 480 rows of `poc_rolling_dist_atr` and `poc_session_rolling_divergence_atr`. Canonical 1d
+  holds 125,001 `ibkr/fallback` rows (NULL volume) scattered over the names that have them. Measure
+  the masked share per guarded output on those names before 186-26; if a column is mostly masked,
+  rewrite that kernel nan-aware instead of using the guard.
 - Independent review of the guard commits (`d6a8da8de`, `96458db71`).
 - Research panel provenance (phase 184): until then the promoted `rk_vwap_dev` kernels refuse
   without a caller-supplied `volume_basis`.
