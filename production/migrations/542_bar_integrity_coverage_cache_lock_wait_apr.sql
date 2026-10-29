@@ -13,7 +13,7 @@ INSERT INTO config_schema (config_key, value_type, default_value, min_value, max
 VALUES
     (
         'infra.bar_integrity.coverage_cache_lock_wait_s',
-        'int', '21600', 0, 86400,
+        'int', '21600', 0, 28800,
         '[initial_estimate] Longest the bar reconciliation audit waits for the fetcher lock before the coverage_cache verdict is skipped. 21600 s (6 h) covers one fetcher window of up to about 5 h plus the 15 min gap between windows, so the audit gets the lock at the next gap. 0 restores the single try. Not an ML learning target.'
     ),
     (

@@ -1548,6 +1548,16 @@ def judge_name_intraday(
     return verdicts
 
 
+def _try_fetcher_lock(lock: Any) -> bool:
+    """One non-blocking try. A database error while polling for hours is a missed try, not a
+    failed audit: the bound still ends the wait, and the verdicts already written stand."""
+    try:
+        return bool(lock.acquire())
+    except psycopg.OperationalError as error:
+        logger.warning("bar_integrity.coverage_cache_lock_try_failed", error=str(error))
+        return False
+
+
 def coverage_cache_drift(
     dsn: str,
     symbols: Sequence[str],
@@ -1555,8 +1565,8 @@ def coverage_cache_drift(
     lock_factory: Any = FetcherLock,
     connect: Any = psycopg.connect,
     rebuild: Any = rebuild_from_stored_state,
-    lock_wait_seconds: float = 0.0,
-    poll_interval_seconds: float = 30.0,
+    lock_wait_seconds: float,
+    poll_interval_seconds: float,
     sleep_function: Any = sleep,
     clock: Any = monotonic,
 ) -> dict[str, int] | None:
@@ -1575,7 +1585,7 @@ def coverage_cache_drift(
     """
     lock = lock_factory(dsn, holder=_JOB)
     deadline = clock() + lock_wait_seconds
-    while not lock.acquire():
+    while not _try_fetcher_lock(lock):
         remaining = deadline - clock()
         if remaining <= 0:
             return None

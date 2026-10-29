@@ -1247,6 +1247,8 @@ def _drift(lock, conn, rebuild=None):
         lock_factory=lambda dsn, holder: lock,
         connect=lambda dsn: conn,
         rebuild=rebuild or default_rebuild,
+        lock_wait_seconds=0.0,
+        poll_interval_seconds=1.0,
     )
     return result, calls
 
@@ -1288,7 +1290,12 @@ def test_coverage_cache_with_the_lock_held_does_nothing_and_never_connects():
         raise AssertionError("connected without the fetcher lock")
 
     result = audit.coverage_cache_drift(
-        "dsn", ["AAA"], lock_factory=lambda dsn, holder: lock, connect=no_connect
+        "dsn",
+        ["AAA"],
+        lock_factory=lambda dsn, holder: lock,
+        connect=no_connect,
+        lock_wait_seconds=0.0,
+        poll_interval_seconds=1.0,
     )
     assert result is None and lock.events == ["acquire"]
 
@@ -1412,7 +1419,9 @@ def test_the_lock_holder_names_the_audit_job():
         seen["holder"] = holder
         return _FakeLock(granted=False)
 
-    audit.coverage_cache_drift("dsn", ["AAA"], lock_factory=factory)
+    audit.coverage_cache_drift(
+        "dsn", ["AAA"], lock_factory=factory, lock_wait_seconds=0.0, poll_interval_seconds=1.0
+    )
     assert seen["holder"] == "bar-reconciliation-audit"
 
 
@@ -1782,3 +1791,32 @@ def test_the_coverage_step_counts_the_skip_when_the_lock_stays_held(monkeypatch)
     _, out, writes, _ = _coverage_step(monkeypatch, None)
     assert writes == [] and out.coverage_skipped == 2
     assert not [f for f in out.facts if f[2] == "coverage_cache"]
+
+
+def test_a_database_error_while_polling_is_a_missed_try_not_a_failed_audit():
+    class _FlakyLock:
+        def __init__(self):
+            self.tries = 0
+
+        def acquire(self):
+            self.tries += 1
+            if self.tries == 1:
+                raise audit.psycopg.OperationalError("server closed the connection")
+            return False
+
+        def release(self):
+            raise AssertionError("released a lock never held")
+
+    lock = _FlakyLock()
+    clock = _Clock()
+    result = audit.coverage_cache_drift(
+        "dsn",
+        ["AAA"],
+        lock_factory=lambda dsn, holder: lock,
+        connect=lambda dsn: (_ for _ in ()).throw(AssertionError("connected without the lock")),
+        lock_wait_seconds=60.0,
+        poll_interval_seconds=30.0,
+        sleep_function=clock.sleep,
+        clock=clock,
+    )
+    assert result is None and lock.tries >= 2
