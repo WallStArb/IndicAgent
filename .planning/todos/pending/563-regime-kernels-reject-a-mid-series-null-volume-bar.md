@@ -25,3 +25,24 @@ those 145 names then get no regime and no features from the 186-26 rebuild.
   carries over and that row's outputs are unlabeled, which needs the HMM's own review (todo 248).
 
 Decide before 186-26 launches, since the regime kernels are in its fingerprinted closure.
+
+## Recount after the 1d re-derive and decision (2026-10-29, data lane)
+
+The Alpaca SIP re-derive does not remove the NULLs. Canonical 1d still holds 125,198 `ibkr/fallback`
+bars on 145 names (the tradeable view NULLs volume for the basis-`none` kinds `fallback` and
+`venue`; `venue` is no longer canonical). In the view: 125,174 NULL-volume rows on the same 145
+names, each followed by finite-volume bars. Per name: median 1 NULL run (143 of 145 have one
+contiguous gap, max 4), median 18.4% of the series NULL, 13 names more than half NULL.
+
+Decision for 186-26 (the regime kernels are in its fingerprinted closure, so this lands before launch
+or the rebuild's completed cells are discarded): do not build NaN-tolerant observation windows and
+HMM marginalization first. Contain it. A series with a mid-series non-finite volume gets the
+`needs_volume` regime family's outputs NaN with a distinct status code (a new `STATUS_INPUT_GAP`
+beside `STATUS_NO_MODEL`, never a silent NaN), and every other kernel of that series computes and
+writes as usual. The 145 names keep all non-regime features; their trend regime is explicitly
+unlabeled. The marginalizing walk-forward (predict through the gap, skip the emission update, NaN-safe
+windows) is a separate follow-up needing the todo 248 HMM review, filed below as P2; it can rebuild
+only the regime columns of these names later.
+
+Follow-up todo to file after the fix lands: marginalize a mid-series volume gap in the trend HMM
+(145 names, 125,174 rows).
