@@ -74,14 +74,13 @@ WITH canon AS (
       AND "timestamp" < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
 ), latest AS (
     -- The current raw value per date (last-wins by serve time, D-191-N; plan 191-10). SMART is
-    -- IBKR smart_trades a SMART request served (a legacy import row is no route evidence),
-    -- TRADIER the Tradier consolidated series.
+    -- IBKR smart_trades a SMART request served (a legacy import row is no route evidence).
     SELECT q.route, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, r.close
     FROM ohlcv_raw r
     JOIN ohlcv_request q ON q.request_id = r.request_id
     WHERE r.symbol = $1 AND r.timeframe = '1d'
-      AND (r.vendor, r.kind) IN (('ibkr', 'smart_trades'), ('tradier', 'consolidated'))
-      AND q.route IN ('SMART', 'TRADIER') AND q.what_to_show = 'TRADES'
+      AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
+      AND q.route = 'SMART' AND q.what_to_show = 'TRADES'
       AND q.caller NOT LIKE 'test-%'
       AND ($2::date IS NULL OR r."timestamp" >= ($2::date)::timestamp AT TIME ZONE 'UTC')
       AND r."timestamp" < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
@@ -231,9 +230,9 @@ async def release_hold(conn: Any, *, hold_id: str, why: str, recorded_by: str) -
 async def vendor_rescale_ratios(
     conn: Any, symbol: str, first: date | None, last: date, *, rel_tol: float
 ) -> dict[str, dict[str, Any]]:
-    """Per route (SMART, TRADIER): median canonical/latest close over the affected dates, the
-    number of dates, and the first and last date the ratio differs from 1 by more than
-    `rel_tol`. CTVA 2026-10-08: SMART 5.571 (IBKR's restatement), TRADIER 6.665."""
+    """Per route (SMART): median canonical/latest close over the affected dates, the number of
+    dates, and the first and last date the ratio differs from 1 by more than `rel_tol`.
+    CTVA 2026-10-08: SMART 5.571 (IBKR's restatement)."""
     out: dict[str, dict[str, Any]] = {}
     for row in await conn.fetch(_VENDOR_RATIOS_SQL, symbol, first, last, rel_tol):
         out[row["route"]] = {

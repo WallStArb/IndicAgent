@@ -37,7 +37,7 @@ answered 5m window arrived since. Default is a dry run: the same reads and class
 writes, no batch row; --apply is the explicit opt-in.
 
 Daily stage (plans 17 and 36; reads ohlcv_raw since phase 191 plan 08). Per symbol: load the
-current raw 1d rows of Tradier consolidated, IBKR smart_trades and Alpaca sip_rth
+current raw 1d rows of IBKR smart_trades and Alpaca sip_rth
 (daily_rule.RAW_DAILY_SERIES, each dated by its session zone: Alpaca stamps 1d at midnight New
 York; the corpus import is told by its request's route), the 1d bar_source_policy rows (read once
 per run) and the corporate_action_current splits with their evidence, and run the pure d2-v4 rule
@@ -76,7 +76,6 @@ import argparse
 import asyncio
 import calendar
 import csv
-import gzip
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -123,7 +122,7 @@ from src.intelligence.bars.sources import (
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
 )
-from src.intelligence.bars.vendor_kind import DERIVED_PAIR, label_to_vendor_kind, pair_token
+from src.intelligence.bars.vendor_kind import DERIVED_PAIR, pair_token
 from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
@@ -366,8 +365,6 @@ _DEFAULT_BASIS_WINDOW_SESSIONS = 20
 _DEFAULT_BASIS_TOLERANCE_BP = 10.0
 # The daily stage's ohlcv_load rows (source derived, the grid's segment; caller tells the stage).
 _DAILY_LOAD_CALLER = "bar_derivation-daily"
-# A restore from the pre-cutover 1d snapshot (plan 185-38): same contract, its own caller.
-_RESTORE_LOAD_CALLER = "bar_derivation-restore"
 _DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
 _RAW_DAILY_VENDORS = [vendor for vendor, _kind in RAW_DAILY_SERIES]
 _RAW_DAILY_KINDS = [kind for _vendor, kind in RAW_DAILY_SERIES]
@@ -535,8 +532,8 @@ EXISTS (
 
 # The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy
 # row (the symbol's or the default) recorded or closed after the symbol's baseline
-# (_LAST_DAILY_LOAD_CTE), or a snapshot restore (plan 185-38) after it: the restore is a
-# recorded operator rollback, and the re-derivation that follows re-applies the reviewed state.
+# (_LAST_DAILY_LOAD_CTE), or a snapshot restore (plan 185-38, since removed; its recorded loads still
+# count) after it: the restore is a recorded operator rollback, and the re-derivation that follows re-applies the reviewed state.
 # Narrow on purpose: a vendor revision on a name with no such record stays refused.
 _SELECT_REVISION_WAIVER_SQL = f"""
 /* revision_waiver */
@@ -650,7 +647,7 @@ def _stored_group(vendors: set[str]) -> str:
         return "none"
     if vendors == {"ibkr"}:
         return "ibkr_only"
-    return "tradier_only" if vendors == {"tradier"} else "mixed"
+    return "alpaca_only" if vendors == {"alpaca"} else "mixed"
 
 
 def _batch_status(failed: list[str], n_written: int) -> str:
@@ -732,7 +729,7 @@ async def write_1d_digests(
     """Insert a bar_content_digest row for each 1d month whose digest changed (D-07).
 
     Content is read back from the stored rows of every canonical 1d (vendor, kind) pair
-    (CANONICAL_1D_SOURCES, so a Tradier-owned name digests its Tradier bars), with
+    (CANONICAL_1D_SOURCES), with
     each row's non-quarantine flag rules beside it (the grid convention). Callers
     run it after their scrub so the flags it adds or clears are in the digest.
     The daily stage's writer (daily_rule.RULE_VERSION). force_rule_version also writes a month
@@ -916,7 +913,6 @@ class BarDerivation(BaseBatch):
         apply: bool,
         report_path: str | None = None,
         rewrite_digests: bool = False,
-        restore_snapshot: str | None = None,
     ) -> None:
         super().__init__(db_dsn)
         if stage not in ("grid", "daily"):
@@ -927,12 +923,9 @@ class BarDerivation(BaseBatch):
         self._apply = apply
         self._report_path = report_path
         self._rewrite_digests = rewrite_digests
-        self._restore_snapshot = restore_snapshot
         self._match_s = 0.0  # read from APR at the grid run's start
-        if rewrite_digests and restore_snapshot:
-            raise ValueError("--rewrite-digests and --restore-snapshot are separate runs")
-        if (rewrite_digests or restore_snapshot) and stage != "daily":
-            raise ValueError("--rewrite-digests and --restore-snapshot belong to --stage daily")
+        if rewrite_digests and stage != "daily":
+            raise ValueError("--rewrite-digests belongs to --stage daily")
 
     async def execute(self, pool: asyncpg.Pool) -> dict[str, int]:
         """A writing run holds a stage-wide advisory lock for its whole length, so two runs of
@@ -949,8 +942,6 @@ class BarDerivation(BaseBatch):
             await lock_conn.close()  # closing the session releases the lock
 
     async def _dispatch(self, pool: asyncpg.Pool) -> dict[str, int]:
-        if self._restore_snapshot:
-            return await self._execute_restore(pool)
         if self._rewrite_digests:
             return await self._execute_rewrite_digests(pool)
         if self._stage == "daily":
@@ -1865,144 +1856,6 @@ class BarDerivation(BaseBatch):
             raise RuntimeError(f"bar_derivation: {len(failed)} digest failure(s): {failed}")
         return {"digests_written": written, "symbols": len(symbols)}
 
-    async def _execute_restore(self, pool: asyncpg.Pool) -> dict[str, Any]:
-        """Rewrite the named symbols' 1d rows from the pre-cutover snapshot (185-38 rollback).
-
-        Snapshot rows are the incoming side and every stored 1d key of the symbol is in the
-        removal scope, so the result equals the snapshot. Same contract as a derivation: one
-        ohlcv_load row (caller bar_derivation-restore, waiver restore), old values to
-        ohlcv_revision, deletes by key, inserts, the changed-set upsert; then the scrub and the
-        digests. Flags are left as they are; a following re-derivation rewrites the stage's own.
-        """
-        if not self._symbols:
-            raise ValueError(
-                "--restore-snapshot needs --symbols (never the whole corpus by default)"
-            )
-        snapshot = _read_1d_snapshot(str(self._restore_snapshot), set(self._symbols))
-        async with pool.acquire() as conn:
-            apr = await load_apr_dict_async(
-                conn,
-                ["infra.bar_derivation.%", "threshold.bar_integrity.%", "threshold.bar_scrub.%"],
-            )
-            batch_id = (
-                await self._open_daily_batch(conn, apr, len(self._symbols)) if self._apply else None
-            )
-            rows = dict.fromkeys(_DAILY_ROW_COUNTS, 0)
-            failed: list[str] = []
-            applied: list[str] = []
-            try:
-                for symbol in self._symbols:
-                    try:
-                        delta, n_stored = await self._restore_symbol(
-                            conn,
-                            symbol=symbol,
-                            incoming=snapshot.get(symbol, {}),
-                            batch_id=batch_id,
-                        )
-                    except Exception as error:
-                        failed.append(f"{symbol}: {error}")
-                        continue
-                    rows["new"] += len(delta.new)
-                    rows["changed"] += len(delta.changed)
-                    rows["unchanged"] += delta.unchanged
-                    rows["removed"] += len(delta.removed)
-                    if self._apply:
-                        applied.append(symbol)
-                if applied:
-                    try:
-                        await scrub_symbols(
-                            pool,
-                            tf="1d",
-                            symbols=applied,
-                            rules=None,
-                            start=None,
-                            end=None,
-                            batch_id=batch_id,
-                            write=True,
-                        )
-                    except Exception as error:
-                        failed.append(f"scrub: {error}")
-                    for symbol in applied:
-                        try:
-                            await write_1d_digests(
-                                conn, symbol=symbol, batch_id=batch_id, rule_version=RULE_VERSION
-                            )
-                        except Exception as error:
-                            failed.append(f"digest {symbol}: {error}")
-            finally:
-                if batch_id is not None:
-                    await close_batch(
-                        conn,
-                        batch_id,
-                        status="failed" if failed else "completed",
-                        detail={"restore_snapshot": self._restore_snapshot, "rows": rows},
-                    )
-        self.logger.info(
-            "bar_derivation.restore_done",
-            symbols=len(self._symbols),
-            apply=self._apply,
-            **{f"rows_{k}": n for k, n in rows.items()},
-        )
-        if failed:
-            raise RuntimeError(f"bar_derivation: {len(failed)} restore failure(s): {failed}")
-        return {"rows": rows, "symbols": len(self._symbols)}
-
-    async def _restore_symbol(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        symbol: str,
-        incoming: dict[date, BarValues],
-        batch_id: str | None,
-    ) -> tuple[WriteDelta[date], int]:
-        stored_rows = await conn.fetch(
-            _SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
-        )
-        stored: dict[date, BarValues] = {
-            r["timestamp"].date(): BarValues(
-                r["open"], r["high"], r["low"], r["close"], r["volume"], r["vendor"], r["kind"]
-            )
-            for r in stored_rows
-        }
-        base = next((r["base"] for r in stored_rows if r["base"] is not None), None)
-        delta = classify(incoming, stored, removal_scope=list(stored))
-        if not self._apply:
-            return delta, len(stored)
-        assert batch_id is not None
-        days = sorted(set(incoming) | set(stored))
-        load_id = str(uuid4())
-        async with conn.transaction():
-            await conn.execute(_WRITER_ROLE_SQL)
-            await conn.execute(
-                _INSERT_LOAD_SQL,
-                load_id,
-                symbol,
-                "1d",
-                _GRID_LOAD_SOURCE,
-                days[0] if days else None,
-                days[-1] if days else None,
-                "applied",
-                len(incoming),
-                len(delta.new),
-                len(delta.changed),
-                delta.unchanged,
-                len(delta.removed),
-                min(incoming) if incoming else None,
-                max(incoming) if incoming else None,
-                json.dumps(
-                    {
-                        "snapshot": self._restore_snapshot,
-                        "n_stored": len(stored),
-                        "waiver": "restore",
-                    }
-                ),
-                _RESTORE_LOAD_CALLER,
-                batch_id,
-                _GRID_LOAD_DESTINATION,
-            )
-            await _apply_1d_delta(conn, symbol=symbol, load_id=load_id, base=base, delta=delta)
-        return delta, len(stored)
-
 
 async def _apply_1d_delta(
     conn: Any, *, symbol: str, load_id: str, base: str | None, delta: WriteDelta[date]
@@ -2037,28 +1890,6 @@ async def _apply_1d_delta(
                 for day, (new, _old) in sorted(delta.changed.items())
             ],
         )
-
-
-def _read_1d_snapshot(path: str, symbols: set[str]) -> dict[str, dict[date, BarValues]]:
-    """The named symbols' 1d rows from the gzip CSV snapshot (header row, market_data_ohlcv's
-    columns in table order, written by psql \\copy ... CSV HEADER). An empty field is NULL."""
-    out: dict[str, dict[date, BarValues]] = {}
-    with gzip.open(path, "rt", newline="") as handle:
-        for row in csv.DictReader(handle):
-            if row["symbol"] not in symbols or row["timeframe"] != "1d":
-                continue
-            day = datetime.fromisoformat(row["timestamp"]).astimezone(UTC).date()
-            # The snapshot predates the (vendor, kind) columns and carries the label; the map
-            # restores it, so a pre-cutover snapshot stays restorable (plan 191-13).
-            out.setdefault(row["symbol"], {})[day] = BarValues(
-                float(row["open"]),
-                float(row["high"]),
-                float(row["low"]),
-                float(row["close"]),
-                int(row["volume"]) if row["volume"] != "" else None,
-                *label_to_vendor_kind(row["source"]),
-            )
-    return out
 
 
 class _DailyParams(NamedTuple):
@@ -2217,11 +2048,6 @@ def main() -> None:
         action="store_true",
         help="daily stage: write every 1d month digest at RULE_VERSION (content or rule differs)",
     )
-    parser.add_argument(
-        "--restore-snapshot",
-        default=None,
-        help="daily stage: rewrite --symbols' 1d rows from this gzip CSV snapshot (185-38 rollback)",
-    )
     args = parser.parse_args()
     # Accept both `--symbols SPY,AAPL` (the pipeline/plan convention) and
     # `--symbols SPY AAPL`; nargs="*" alone would take the comma form as one
@@ -2244,7 +2070,6 @@ def main() -> None:
         apply=args.apply,
         report_path=args.report,
         rewrite_digests=args.rewrite_digests,
-        restore_snapshot=args.restore_snapshot,
     )
     asyncio.run(writer.run())
 

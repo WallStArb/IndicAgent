@@ -6,7 +6,8 @@ ohlcv_venue_head view, plans 13/14/19). This writer turns that inventory into
 listing_venue (migration 408): for each 1d-eligible symbol,
 
 - before the SMART head, the former venue of each date range is the venue whose close is
-  most often the nearest to the official (Tradier) close: the listing venue runs the closing
+  most often the nearest to the official close (when a series is supplied; the retired vendor's
+  was the only one, so today no series is wired and the volume rule below decides): the listing venue runs the closing
   auction, which is the official close, and the D3 venue study found only the listing
   venue's close matches SMART's. Each venue's closes are compared after dividing out its
   median ratio to the official close over the range, so a series stored on another split
@@ -55,8 +56,6 @@ from src.core.agent.base_batch import BaseBatch
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
 
-# Removed from vendor_kind.py in 191-21; the official-close read is deleted in plan 191-23.
-VENDOR_TRADIER = "tradier"
 _JOB = "listing-venue-writer"
 _STAGE = "listing_venue"
 RULE_VERSION = "1"
@@ -243,12 +242,12 @@ def reconcile_spans(existing: Sequence[Span], desired: Sequence[Span]) -> SpanPl
 _UNIVERSE_SQL = "SELECT i.symbol FROM instruments i WHERE {clause} ORDER BY i.symbol"
 # Daily evidence is read from ohlcv_raw 1d (plan 191-10): one current value per key, last-wins
 # by serve time (D-191-N). Rows a test request wrote (caller 'test-...') are
-# provenance-excluded, as in bar_derivation; a legacy row has no request and counts. The IBKR
-# and Tradier series are the ones the observation store held (Alpaca 1d is not D1 evidence).
+# provenance-excluded, as in bar_derivation; a legacy row has no request and counts. Only the
+# IBKR series is D1 evidence (Alpaca 1d is not).
 _FIRST_BAR_SQL = """
 SELECT r.symbol, (min(r."timestamp") AT TIME ZONE 'UTC')::date AS first_bar
 FROM ohlcv_raw r LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
-WHERE r.symbol = ANY($1::text[]) AND r.timeframe = '1d' AND r.vendor IN ('ibkr', 'tradier')
+WHERE r.symbol = ANY($1::text[]) AND r.timeframe = '1d' AND r.vendor = 'ibkr'
   AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
 GROUP BY r.symbol
 """
@@ -282,12 +281,6 @@ WHERE symbol = $1 AND timeframe = '1d' AND vendor = 'ibkr'
   AND kind = ANY(SELECT 'venue_' || lower(v) FROM unnest($2::text[]) AS v)
   AND "timestamp" < $3::date::timestamptz
 ORDER BY kind, "timestamp"
-"""
-_OFFICIAL_CLOSE_SQL = """
-SELECT ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, close FROM ohlcv_raw
-WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = 'consolidated'
-  AND "timestamp" < $3::date::timestamptz
-ORDER BY "timestamp"
 """
 _VENUE_REQUESTS_SQL = """
 SELECT route, array_agg(request_id::text ORDER BY answered_at) AS ids FROM ohlcv_request
@@ -442,16 +435,11 @@ class ListingVenueWriter(BaseBatch):
             if symbol not in first:
                 continue
             bars: dict[str, dict[date, tuple[float, float]]] = defaultdict(dict)
-            official: dict[date, float] = {}
             requests: dict[str, list[str]] = {}
             head = heads.get(symbol)
             if spans.get(symbol) and head:
                 for r in await conn.fetch(_VENUE_BARS_SQL, symbol, venues, head):
                     bars[r["route"]][r["bar_date"]] = (r["close"], float(r["volume"] or 0))
-                official = {
-                    r["bar_date"]: r["close"]
-                    for r in await conn.fetch(_OFFICIAL_CLOSE_SQL, symbol, VENDOR_TRADIER, head)
-                }
                 requests = {
                     r["route"]: list(r["ids"])
                     for r in await conn.fetch(_VENUE_REQUESTS_SQL, symbol, venues)
@@ -464,7 +452,7 @@ class ListingVenueWriter(BaseBatch):
                     primary.get(symbol),
                     spans.get(symbol, []),
                     dict(bars),
-                    official,
+                    {},  # no official-close source is wired since the retired vendor's series left
                     requests,
                 )
             )

@@ -20,7 +20,6 @@ from src.intelligence.bars.vendor_kind import (
 # 1d daily rule and the IBKR smart_trades re-derive will write.
 CANONICAL_PAIRS = {
     ("alpaca", "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
-    ("tradier", "consolidated"): VOLUME_BASIS_CONSOLIDATED,
     ("ibkr", "named"): VOLUME_BASIS_SMART,
     ("ibkr", "smart_trades"): VOLUME_BASIS_SMART,
     ("ibkr", "fallback"): VOLUME_BASIS_NONE,

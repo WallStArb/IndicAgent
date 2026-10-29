@@ -187,7 +187,7 @@ async def test_a_legacy_close_with_no_stamp_is_not_newer(conn):
 
 async def test_a_default_row_closed_after_the_load_still_waives(conn):
     await conn.execute(
-        "INSERT INTO bar_source_policy VALUES ('1d', NULL, DATE '1990-01-02', 'tradier', $1, $2)",
+        "INSERT INTO bar_source_policy VALUES ('1d', NULL, DATE '1990-01-02', 'alpaca', $1, $2)",
         _T0 - timedelta(days=60),
         _LOAD + timedelta(minutes=5),
     )

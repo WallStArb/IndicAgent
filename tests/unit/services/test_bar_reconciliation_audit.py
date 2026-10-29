@@ -13,7 +13,6 @@ import pytest
 
 from services import bar_reconciliation_audit as audit
 from services.bar_reconciliation_audit import (
-    VendorAgreementAccumulator,
     aggregate_sessions,
     bucket_fine_volume,
     check_adjusted_vs_trades,
@@ -343,7 +342,6 @@ class TestStraySources:
         counts = {
             ("1d", ("ibkr", "named")): 10,
             ("1d", ("ibkr", "venue")): 1,
-            ("1d", ("tradier", "consolidated")): 50,
             ("1d", ("ibkr", "fallback")): 4,
             ("1d", ("yahoo", "consolidated")): 2,
             ("15m", ("derived", "5m_grid")): 100,
@@ -354,8 +352,8 @@ class TestStraySources:
         assert result.n_findings == 2 + 7
         assert set(result.samples) == {"1d:yahoo/consolidated=2", "15m:ibkr/named=7"}
 
-    def test_tradier_is_an_admitted_daily_pair(self):
-        assert check_stray_sources({("1d", ("tradier", "consolidated")): 5}).n_findings == 0
+    def test_the_retired_vendor_is_a_stray_daily_pair(self):
+        assert check_stray_sources({("1d", ("tradier", "consolidated")): 5}).n_findings == 5
 
 
 class TestSwitches:
@@ -516,33 +514,6 @@ class TestMaskedSlots:
 
 
 # ---------------------------------------------------------------------------
-# Vendor agreement (Tradier vs IBKR SMART TRADES, migration 438)
-# ---------------------------------------------------------------------------
-
-
-class TestVendorAgreement:
-    def test_share_differing_and_median_volume_ratio_per_year(self):
-        acc = VendorAgreementAccumulator(15.0)
-        acc.add(
-            [
-                (2006, 100.0, 100.0, 90, 100),
-                (2006, 100.0, 100.5, 100, 100),  # 50 bp: differs
-                (2006, 100.0, 100.1, 80, 100),  # 10 bp: agrees
-                (2026, 10.0, 10.0, 55, 100),
-            ]
-        )
-        acc.add([(2026, 10.0, 10.0, 60, 0)])  # zero Tradier volume: no ratio, close still counts
-        years = acc.result()
-        assert set(years) == {2006, 2026}
-        assert years[2006].n_both == 3
-        assert years[2006].n_differ == 1
-        assert years[2006].share_differ == pytest.approx(1 / 3)
-        assert years[2006].median_volume_ratio == pytest.approx(0.9)
-        assert years[2026].n_both == 2
-        assert years[2026].median_volume_ratio == pytest.approx(0.55)
-
-
-# ---------------------------------------------------------------------------
 # Metric labels (T-185-23-04)
 # ---------------------------------------------------------------------------
 
@@ -584,7 +555,7 @@ class _FakeConn:
                     "valid_from": date(2000, 1, 1),
                     "valid_to": None,
                     "ingress_mode": "observed",
-                    "primary_source": "tradier",
+                    "primary_source": "alpaca",
                     "fallback_source": "ibkr",
                 }
             ]
@@ -626,8 +597,8 @@ class _FakeConn:
 def _obs_row(day, close):
     return {
         "request_id": f"r-{day}",
-        "vendor": "tradier",
-        "kind": "consolidated",
+        "vendor": "alpaca",
+        "kind": "sip_rth",
         "bar_date": day,
         "open": close,
         "high": close + 1,
@@ -639,7 +610,7 @@ def _obs_row(day, close):
     }
 
 
-def _stored_row(day, close, vendor="tradier", kind="consolidated"):
+def _stored_row(day, close, vendor="alpaca", kind="sip_rth"):
     return {
         "timestamp": datetime(day.year, day.month, day.day, tzinfo=UTC),
         "open": close,

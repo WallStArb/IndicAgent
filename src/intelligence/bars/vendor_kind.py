@@ -113,7 +113,7 @@ def pair_token(vendor: str, kind: str) -> str:
 
 
 # The CVR bar_vendor codes as migration 472 seeded them. The retired vendor's code stays as
-# history (the closed pre-D bar_source_policy row names it), so it is a literal, not a constant.
+# history (retired 2026-10-28; the retired policy rows name it), so it is a literal, not a constant.
 BAR_VENDORS: tuple[str, ...] = (VENDOR_IBKR, VENDOR_ALPACA, "tradier", VENDOR_DERIVED)
 
 # kind -> one-line description, in within-vendor selection precedence order (the migration seeds
@@ -252,7 +252,6 @@ _N_VOLUME_BASES = 4
 
 VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], int] = {
     (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
-    ("tradier", "consolidated"): VOLUME_BASIS_CONSOLIDATED,  # retired vendor; goes with 191-23
     (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
     (VENDOR_IBKR, "smart_trades"): VOLUME_BASIS_SMART,
     # The tradeable view NULLs volume for these two kinds (market_data_ohlcv_tradeable).

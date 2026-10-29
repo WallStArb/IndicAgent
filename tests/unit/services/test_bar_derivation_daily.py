@@ -1,11 +1,11 @@
 """Tests for services/bar_derivation.py --stage daily on d2-v2 (phase 185 plans 17, 27 and 36).
 
 Fakes only, no DB (todo 494): a fake pool answering the daily stage's reads (APR rows,
-1d-eligible instruments, bar_source_policy, D1 TRADIER/SMART/LEGACY_IMPORT TRADES
+1d-eligible instruments, bar_source_policy, D1 ALPACA/SMART/LEGACY_IMPORT TRADES
 observations, splits with their evidence, stored 1d rows of every canonical source, the
 revision waiver, bar_content_digest_current, flag rules) and a fake
 connection that applies bar writes to an in-memory store. The contract under test: every name
-runs d2-v2 (Tradier-owned names are no longer skipped); stored rows are classified by the write
+runs d2-v2 (no name is skipped); stored rows are classified by the write
 contract with removal inside the name's derived span; a dry run writes nothing and reports per
 name; the apply path writes one ohlcv_load row, old values to ohlcv_revision before any bar
 change, new rows by insert and changed rows by the upsert, never canonical_bar_lineage; the
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import gzip
 import json
 import re
 from datetime import UTC, date, datetime
@@ -31,12 +30,12 @@ from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest
 
 _BATCH_ID = "22222222-2222-2222-2222-222222222222"
 _FETCHED = datetime(2026, 10, 3, tzinfo=UTC)
-_D1 = date(2024, 5, 1)  # stored tradier, equal
-_D2 = date(2024, 5, 2)  # stored tradier, close differs
+_D1 = date(2024, 5, 1)  # stored alpaca, equal
+_D2 = date(2024, 5, 2)  # stored alpaca, close differs
 _D3 = date(2024, 6, 3)  # not stored: new
 _D4 = date(2024, 6, 4)  # stored ibkr_named with equal values: changes source only
 _D5 = date(2024, 6, 5)  # stored, inside the span, no observation: removed
-_D6 = date(2024, 6, 6)  # Tradier observation (span end)
+_D6 = date(2024, 6, 6)  # Alpaca observation (span end)
 _D0 = date(2024, 4, 1)  # stored before the span: untouched
 
 _DEFAULT_POLICY = {
@@ -45,7 +44,7 @@ _DEFAULT_POLICY = {
     "valid_from": date(1990, 1, 1),
     "valid_to": None,
     "ingress_mode": "observed",
-    "primary_source": "tradier",
+    "primary_source": "alpaca",
     "fallback_source": "ibkr",
 }
 
@@ -70,7 +69,7 @@ def _ts(day: date) -> datetime:
 
 
 _ROUTE_SERIES = {
-    "TRADIER": ("tradier", "consolidated"),
+    "TRADIER": ("tradier", "consolidated"),  # daily_rule still decodes it; no fixture feeds it
     "SMART": ("ibkr", "smart_trades"),
     "LEGACY_IMPORT": ("ibkr", "smart_trades"),
     "ARCA": ("ibkr", "venue_arca"),
@@ -79,7 +78,7 @@ _ROUTE_SERIES = {
 }
 
 
-def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None = 100) -> dict:
+def _obs(day: date, close: float, *, route: str = "ALPACA", volume: int | None = 100) -> dict:
     """A current ohlcv_raw 1d row as the daily read returns it (phase 191 plan 08)."""
     vendor, kind = _ROUTE_SERIES[route]
     return {
@@ -97,12 +96,12 @@ def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None 
     }
 
 
-_1D_VENDORS = ("alpaca", "ibkr", "tradier")
-_1D_KINDS = ("consolidated", "fallback", "named", "sip_rth", "venue")
+_1D_VENDORS = ("alpaca", "ibkr")
+_1D_KINDS = ("fallback", "named", "sip_rth", "venue")
 
 
 def _row(
-    close: float, vendor: str = "tradier", kind: str = "consolidated", volume: int | None = 100
+    close: float, vendor: str = "alpaca", kind: str = "sip_rth", volume: int | None = 100
 ) -> dict:
     return {
         "open": close,
@@ -353,7 +352,6 @@ def _run(conn: FakeConn, **overrides: object):
         apply=overrides.pop("apply", True),
         report_path=overrides.pop("report_path", None),
         rewrite_digests=overrides.pop("rewrite_digests", False),
-        restore_snapshot=overrides.pop("restore_snapshot", None),
     )
     original = bar_derivation_module.scrub_symbols
     bar_derivation_module.scrub_symbols = fake_scrub
@@ -413,8 +411,8 @@ def test_dry_run_reports_refused_interior_dates_and_groups(tmp_path):
     rows = {r["symbol"]: r for r in csv.DictReader(report.open(), delimiter="\t")}
     assert rows["TEST"]["refused_interior"] == "1"
     assert rows["TEST"]["refused_dates"] == hole.isoformat()
-    assert rows["TEST"]["group"] == "tradier_only"
-    # No stored rows and no Tradier answer: every IBKR bar is a head.
+    assert rows["TEST"]["group"] == "alpaca_only"
+    # No stored rows and no Alpaca answer: every IBKR bar is a head.
     assert rows["ONLY"]["group"] == "none" and rows["ONLY"]["head"] == str(len(days))
     assert result["refused_interior"] == 1
 
@@ -437,7 +435,7 @@ def test_dry_run_reports_refused_heads(tmp_path):
 
 
 def _restated_fixture() -> FakeConn:
-    """Tradier old scale fetched before a recorded 2:1 split, IBKR re-fetched on the new scale."""
+    """Alpaca old scale fetched before a recorded 2:1 split, IBKR re-fetched on the new scale."""
     days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)]
     refetch = datetime(2026, 10, 9, tzinfo=UTC)
     obs = [_obs(d, 20.0) for d in days]
@@ -456,7 +454,7 @@ def _restated_fixture() -> FakeConn:
 
 
 def test_dry_run_reports_restated_dates(tmp_path):
-    # d2-v3 (plan 185-52): the stale-only Tradier dates take the restated IBKR answer.
+    # d2-v3 (plan 185-52): the stale-only Alpaca dates take the restated IBKR answer.
     conn = _restated_fixture()
     report = tmp_path / "dryrun.tsv"
     result, _ = _run(conn, apply=False, report_path=str(report))
@@ -526,9 +524,9 @@ def test_apply_writes_the_contract_and_no_lineage():
     # convention); historical rows keep their labels.
     revisions = conn.many("INSERT INTO ohlcv_revision")
     assert {(r[3].date(), r[7], r[9], r[10], r[11], r[12]) for r in revisions} == {
-        (_D2, 11.5, "tradier/consolidated", "load", "tradier", "consolidated"),
+        (_D2, 11.5, "alpaca/sip_rth", "load", "alpaca", "sip_rth"),
         (_D4, 13.0, "ibkr/named", "load", "ibkr", "named"),
-        (_D5, 13.5, "tradier/consolidated", "load", "tradier", "consolidated"),
+        (_D5, 13.5, "alpaca/sip_rth", "load", "alpaca", "sip_rth"),
     }
     assert {r[0] for r in revisions} == {load["load_id"]}
     # Removed by key, new by insert, changed by the upsert on the changed set only.
@@ -543,7 +541,7 @@ def test_apply_writes_the_contract_and_no_lineage():
     assert [r[0].date() for r in inserts] == [_D3]
     upserts = conn.many("ON CONFLICT")
     assert sorted(r[0].date() for r in upserts) == [_D2, _D4]
-    assert {r[0].date(): r[8] for r in upserts}[_D4] == "tradier"
+    assert {r[0].date(): r[8] for r in upserts}[_D4] == "alpaca"
     # Revisions land before any bar change, all inside the role switch.
     role, load_i, revision, delete, upsert = conn.order(
         "SET LOCAL ROLE bar_derivation_writer",
@@ -691,7 +689,6 @@ def test_derivation_flags_go_through_write_flags_with_rule_d2v2():
         "TEST": [_obs(days[0], 10.0, route="SMART")]
         + [_obs(d, 10.0) for d in days[1:]]
         + [_obs(d, 10.0, route="SMART") for d in days[1:]]
-        + [_obs(date(2024, 1, 9), 10.0, volume=None)]
     }
     conn = FakeConn(observations=observations, stored={})
     _run(conn)
@@ -700,9 +697,28 @@ def test_derivation_flags_go_through_write_flags_with_rule_d2v2():
     assert seam[4] == RULE_VERSION and seam[6] is False
     detail = json.loads(seam[7])
     assert detail["n_head_bars"] == 1 and detail["median_ratio"] == 1.0
-    assert by_rule[("no_provider_volume", date(2024, 1, 9))][6] is False
     head_bar = conn.stored["TEST"][days[0]]
     assert (head_bar["vendor"], head_bar["kind"]) == ("ibkr", "fallback")
+
+
+def test_a_null_volume_ibkr_primary_bar_is_flagged_no_provider_volume():
+    # Under an Alpaca primary a bar without volume is never served; an IBKR primary serves it
+    # flagged (d2-v3).
+    policy = [{**_DEFAULT_POLICY, "primary_source": "ibkr", "fallback_source": None}]
+    day = date(2024, 1, 9)
+    conn = FakeConn(
+        observations={
+            "TEST": [
+                _obs(date(2024, 1, 8), 10.0, route="SMART"),
+                _obs(day, 10.0, route="SMART", volume=None),
+            ]
+        },
+        stored={},
+        policy=policy,
+    )
+    _run(conn)
+    by_rule = {(r[3], r[2].date()): r for r in conn.flag_inserts}
+    assert by_rule[("no_provider_volume", day)][6] is False
 
 
 def test_scrub_then_digests_at_d2v2_after_the_writes():
@@ -889,11 +905,11 @@ def test_rewrite_digests_rewrites_every_month_at_d2v2_even_when_content_is_equal
         observations={"TEST": [_obs(_D1, 10.0)]},
         stored={"TEST": stored},
         current_digests={
-            "TEST": [(_ts(date(2024, 5, 1)), may, "tradier-v1"), (_ts(date(2024, 6, 1)), june)]
+            "TEST": [(_ts(date(2024, 5, 1)), may, "alpaca-v1"), (_ts(date(2024, 6, 1)), june)]
         },
     )
     result, scrub_calls = _run(conn, rewrite_digests=True, symbols=["TEST"])
-    # May's content is equal but its rule is tradier-v1; June is already d2-v2 and equal.
+    # May's content is equal but its rule is alpaca-v1; June is already d2-v2 and equal.
     assert [(r[2].month, r[4], r[6]) for r in conn.digest_rows] == [(5, may, RULE_VERSION)]
     assert result["digests_written"] == 1
     assert not conn.many("INSERT INTO market_data_ohlcv") and scrub_calls == []
@@ -911,75 +927,14 @@ def test_rewrite_digests_dry_run_counts_without_writing():
     assert result["digests_written"] == 1 and conn.digest_rows == []
 
 
-_SNAPSHOT_COLUMNS = (
-    "timestamp,symbol,timeframe,open,high,low,close,volume,source,base,price_sanity_status"
-)
+def test_the_snapshot_restore_arm_is_gone():
+    # Plan 191-23: the only 1d snapshot is mostly the retired vendor's rows; a restore would
+    # reinstate bars the rule can no longer produce. Re-derive instead.
+    import inspect
 
-
-def _snapshot(tmp_path, rows):
-    path = tmp_path / "market_data_ohlcv_1d_pre_d2v2.csv.gz"
-    with gzip.open(path, "wt") as handle:
-        handle.write(_SNAPSHOT_COLUMNS + "\n")
-        for symbol, day, close, source in rows:
-            handle.write(
-                f"{day.isoformat()} 00:00:00+00,{symbol},1d,{close},{close},{close},{close},"
-                f"100,{source},,\n"
-            )
-    return str(path)
-
-
-def test_restore_rewrites_the_symbol_from_the_snapshot_through_the_contract(tmp_path):
-    snapshot = _snapshot(
-        tmp_path,
-        [
-            ("TEST", _D1, 10.0, "ibkr_named"),
-            ("TEST", _D2, 11.5, "ibkr_named"),
-            ("TEST", _D5, 13.5, "ibkr_named"),
-            ("OTHER", _D1, 99.0, "ibkr_named"),
-        ],
-    )
-    stored = {
-        _D1: _row(10.0, vendor="ibkr", kind="named"),
-        _D2: _row(11.0, vendor="ibkr", kind="named"),
-        _D3: _row(12.0, vendor="ibkr", kind="named"),
-    }
-    conn = FakeConn(observations={"TEST": [_obs(_D1, 10.0)]}, stored={"TEST": stored})
-    result, scrub_calls = _run(conn, restore_snapshot=snapshot, symbols=["TEST"])
-    assert {d: (r["close"], (r["vendor"], r["kind"])) for d, r in conn.stored["TEST"].items()} == {
-        _D1: (10.0, ("ibkr", "named")),
-        _D2: (11.5, ("ibkr", "named")),
-        _D5: (13.5, ("ibkr", "named")),
-    }
-    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
-    assert load_args[15] == "bar_derivation-restore" and load_args[6] == "applied"
-    assert load_args[8:12] == (1, 1, 1, 1)  # new D5, changed D2, unchanged D1, removed D3
-    detail = json.loads(load_args[14])
-    assert detail["waiver"] == "restore" and detail["snapshot"] == snapshot
-    revisions = conn.many("INSERT INTO ohlcv_revision")
-    assert {(r[3].date(), r[7]) for r in revisions} == {(_D2, 11.0), (_D3, 12.0)}
-    assert "OTHER" not in conn.stored
-    assert scrub_calls and scrub_calls[0]["symbols"] == ["TEST"]
-    assert conn.digest_rows
-    assert result["rows"] == {"new": 1, "changed": 1, "unchanged": 1, "removed": 1}
-
-
-def test_restore_without_apply_reports_counts_only(tmp_path):
-    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "ibkr_named")])
-    stored = {
-        _D1: _row(10.0, vendor="ibkr", kind="named"),
-        _D2: _row(11.0, vendor="ibkr", kind="named"),
-    }
-    conn = FakeConn(observations={}, stored={"TEST": stored})
-    result, _ = _run(conn, restore_snapshot=snapshot, symbols=["TEST"], apply=False)
-    assert result["rows"]["removed"] == 1
-    assert conn.statements == [] and conn.executemany_calls == []
-
-
-def test_restore_needs_symbols(tmp_path):
-    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "ibkr_named")])
-    conn = FakeConn(observations={}, stored={})
-    with pytest.raises(ValueError, match="--symbols"):
-        _run(conn, restore_snapshot=snapshot)
+    assert "restore_snapshot" not in inspect.signature(BarDerivation.__init__).parameters
+    assert not hasattr(bar_derivation_module, "_read_1d_snapshot")
+    assert not hasattr(BarDerivation, "_execute_restore")
 
 
 # --- held names (plan 185-51, todo 515) ----------------------------------------------------

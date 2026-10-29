@@ -47,8 +47,8 @@ WRITER_MODULE_NAME = "services.backfill_feature_factory"
 
 # The phase 185 and 189 cleanup and data plans that must have landed before the single rebuild:
 # 185-42/185-45 (cleanup, so the writer's code_content_key is taken on final code), 185-43
-# (census exit proof), 185-47/185-48 (the 1d primary swap to IBKR applied and the Tradier loader
-# retired) and 189-11 (5m backfill complete, vendor rows out). Presence of the SUMMARY file is
+# (census exit proof), 185-47/185-48 (the 1d primary swap to IBKR applied and the retired 1d
+# loader removed) and 189-11 (5m backfill complete, vendor rows out). Presence of the SUMMARY file is
 # the landing marker, as for the other dependency markers.
 REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
     {

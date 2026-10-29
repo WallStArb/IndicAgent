@@ -165,22 +165,16 @@ def test_vendor_ratios_compare_each_routes_latest_answer_with_the_canonical_bar(
                 "first_date": date(2019, 5, 24),
                 "last_date": date(2026, 9, 30),
             },
-            {
-                "route": "TRADIER",
-                "n_dates": 1848,
-                "median_ratio": 6.665,
-                "first_date": date(2019, 5, 24),
-                "last_date": date(2026, 9, 30),
-            },
         ]
     )
     ratios = asyncio.run(
         bh.vendor_rescale_ratios(conn, "CTVA", None, date(2026, 9, 30), rel_tol=0.002)
     )
-    assert ratios["SMART"]["median_ratio"] == 5.5711 and ratios["TRADIER"]["n_dates"] == 1848
-    assert ratios["TRADIER"]["first_date"] == "2019-05-24"
+    assert ratios["SMART"]["median_ratio"] == 5.5711 and set(ratios) == {"SMART"}
+    assert ratios["SMART"]["first_date"] == "2019-05-24"
     sql, args = conn.fetched[0]
     assert "market_data_ohlcv_tradeable" in sql and "q.caller NOT LIKE 'test-%'" in sql
     # Plan 191-10: the vendors' values come from ohlcv_raw, never the observation store.
     assert "FROM ohlcv_raw r" in sql and "ohlcv_observation" not in sql
+    assert "tradier" not in sql.lower()
     assert args == ("CTVA", None, date(2026, 9, 30), 0.002)

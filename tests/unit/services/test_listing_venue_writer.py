@@ -176,7 +176,7 @@ class TestInferListingSpans:
         assert spans == [("NYSE", first, head), ("NASDAQ", head, None)]
 
     def test_history_earlier_than_venue_evidence_extends_the_first_former_span(self):
-        # Tradier holds bars before IBKR's venue window: the first former venue covers them.
+        # The first bar precedes IBKR's venue window: the first former venue covers them.
         first = date(2000, 1, 3)
         head = date(2015, 1, 2)
         spans = infer_listing_spans(
@@ -277,18 +277,17 @@ class TestReconcileSpans:
 
 def test_the_daily_evidence_reads_raw_kinds_never_the_observation_store():
     """Plan 191-10: venue bars are raw kinds venue_<route>; the SMART head counts only rows a
-    SMART request served (a legacy import row is no route evidence); the official close is
-    Tradier's consolidated raw series."""
+    SMART request served (a legacy import row is no route evidence); no official-close
+    series is read (the retired vendor's raw rows are gone)."""
     import services.listing_venue_writer as lvw
 
     reads = (
         lvw._FIRST_BAR_SQL,
         lvw._SMART_HEAD_SQL,
         lvw._VENUE_BARS_SQL,
-        lvw._OFFICIAL_CLOSE_SQL,
     )
     for sql in reads:
         assert "ohlcv_raw" in sql and "ohlcv_observation" not in sql and "timeframe = '1d'" in sql
     assert "'venue_' || lower(v)" in lvw._VENUE_BARS_SQL
     assert "q.route = 'SMART'" in lvw._SMART_HEAD_SQL
-    assert "kind = 'consolidated'" in lvw._OFFICIAL_CLOSE_SQL
+    assert not hasattr(lvw, "_OFFICIAL_CLOSE_SQL")

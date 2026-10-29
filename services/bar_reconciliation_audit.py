@@ -25,10 +25,6 @@ with the venue study):
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
   expected session slots that hold a real bar or lie inside an answered request window,
   and the 15m/1h slots that hide real 5m volume behind a placeholder or a hole.
-- vendor_agreement: Tradier vs IBKR SMART TRADES closes and volumes in D1, per year. Tradier
-  was the 1d primary before D = 2026-10-07 and its observations end at 2026-10-06 (the loader
-  is deleted, plan 185-48), so the table is constant; it stays because the operations
-  dashboard plots its gauges.
 
 - the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
   row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
@@ -53,7 +49,6 @@ import asyncio
 import json
 import math
 import statistics
-from array import array
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -138,9 +133,6 @@ from src.providers.base import VENUE_ROUTE_ALIASES
 
 logger = structlog.get_logger(__name__)
 
-# Removed from sources.py in 191-21; the Tradier agreement report is deleted in plan 191-23.
-SOURCE_TRADIER = "tradier"
-
 _JOB = "bar-reconciliation-audit"
 
 # Labeled {check} only: never by symbol (cardinality, T-185-23-04); the per-symbol detail
@@ -150,8 +142,7 @@ FINDINGS_TOTAL = counter(
     "D7 reconciliation audit findings per run, labeled by check only (never by symbol).",
 )
 
-# The (vendor, kind) pairs the derivation (and the Tradier loader, migration 438) may leave
-# in each derivation-owned timeframe (plan 191-13: canonical rows carry the pair). The retired
+# The (vendor, kind) pairs the derivation may leave in each derivation-owned timeframe (plan 191-13: canonical rows carry the pair). The retired
 # synthetic_fill class is structurally gone: the pair is NOT NULL and no writer produces it.
 ALLOWED_PAIRS: dict[str, frozenset[tuple[str, str]]] = {
     "1d": frozenset(CANONICAL_1D_SOURCES),
@@ -655,58 +646,6 @@ def check_masked_slots(
 
 
 # ---------------------------------------------------------------------------
-# Vendor agreement (Tradier vs IBKR SMART TRADES)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class VendorYear:
-    n_both: int
-    n_differ: int
-    median_volume_ratio: float | None
-
-    @property
-    def share_differ(self) -> float:
-        return self.n_differ / self.n_both if self.n_both else 0.0
-
-
-class VendorAgreementAccumulator:
-    """Per-year agreement between IBKR SMART TRADES and Tradier daily observations.
-
-    Fed one symbol's overlapping days at a time so the whole D1 overlap never sits in
-    memory as Python tuples; only the per-year volume ratios (needed for the exact median)
-    are kept, as packed doubles.
-    """
-
-    def __init__(self, close_tol_bp: float) -> None:
-        self._tol = close_tol_bp
-        self._n_both: dict[int, int] = defaultdict(int)
-        self._n_differ: dict[int, int] = defaultdict(int)
-        self._ratios: dict[int, array] = defaultdict(lambda: array("d"))
-
-    def add(self, rows: Iterable[tuple[int, float, float, int | None, int | None]]) -> None:
-        """rows: (year, ibkr_close, tradier_close, ibkr_volume, tradier_volume)."""
-        for year, ibkr_close, tradier_close, ibkr_volume, tradier_volume in rows:
-            if tradier_close <= 0:
-                continue
-            self._n_both[year] += 1
-            if _bp(ibkr_close, tradier_close) > self._tol:
-                self._n_differ[year] += 1
-            if ibkr_volume is not None and tradier_volume:
-                self._ratios[year].append(ibkr_volume / tradier_volume)
-
-    def result(self) -> dict[int, VendorYear]:
-        return {
-            year: VendorYear(
-                n,
-                self._n_differ[year],
-                statistics.median(self._ratios[year]) if self._ratios[year] else None,
-            )
-            for year, n in sorted(self._n_both.items())
-        }
-
-
-# ---------------------------------------------------------------------------
 # Pure input shaping used by the IO layer
 # ---------------------------------------------------------------------------
 
@@ -813,15 +752,6 @@ COMPLETENESS_SHARE = point_gauge(
     "D7 pooled share of expected session slots holding a real bar or inside an answered "
     "request window, labeled by check and timeframe only (todo 462).",
 )
-VENDOR_CLOSE_DIFFER_SHARE = point_gauge(
-    "bar_reconciliation_vendor_close_differ_share",
-    "Share of daily closes where Tradier and IBKR SMART TRADES differ beyond the close "
-    "tolerance, labeled by check and year only.",
-)
-VENDOR_VOLUME_RATIO = point_gauge(
-    "bar_reconciliation_vendor_volume_ratio_median",
-    "Median IBKR / Tradier daily volume ratio, labeled by check and year only.",
-)
 
 # Alert inputs (plan 185-41, design section 8). Labels are check or source only: the collector
 # drops a metric that carries a `job` label (todo 498). A oneshot's gauges leave the Prometheus
@@ -855,7 +785,7 @@ SELECT count(*) FROM ohlcv_restatement_flag
 WHERE reviewed_at IS NULL AND signatures && $1::text[]
 """
 # The ohlcv_load.source values a live writer loads under; each gets a gauge point every run. The
-# CHECK constraint still admits tradier for the deleted loader's history (plan 185-48).
+# CHECK constraint still admits a retired source for the deleted loader's history.
 LOAD_SOURCES = ("ibkr", "derived")
 _REFUSED_LOADS_24H_SQL = """
 SELECT source, count(*) AS n FROM ohlcv_load
@@ -880,8 +810,8 @@ _APR_PATTERNS = [
 
 # The stores are ohlcv_raw and ohlcv_revision (plan 191-09): one current row per (bar, vendor,
 # kind), last-wins (D-191-N); a former route is a vendor and kind (SMART TRADES = ibkr
-# smart_trades, SMART ADJUSTED_LAST = ibkr smart_adjusted, a listing venue = ibkr venue_<route>,
-# TRADIER = tradier consolidated). The stored corpus's LEGACY_IMPORT rows were loaded into
+# smart_trades, SMART ADJUSTED_LAST = ibkr smart_adjusted, a listing venue = ibkr venue_<route>).
+# The stored corpus's LEGACY_IMPORT rows were loaded into
 # smart_trades by their source; reads that judged route SMART alone keep them out through the
 # serving request's route. served_at is the serve of the current value (fetched_at before).
 _SMART_OBS_SQL = """
@@ -1051,25 +981,6 @@ WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $
     )
   )
 """
-_VENDOR_SYMBOLS_SQL = """
-SELECT DISTINCT symbol FROM ohlcv_request
-WHERE timeframe = '1d' AND source = $1 AND outcome = 'bars'
-ORDER BY symbol
-"""
-_VENDOR_PAIRS_SQL = """
-WITH i AS (
-    SELECT r."timestamp", r.close, r.volume
-    FROM ohlcv_raw r JOIN ohlcv_request q ON q.request_id = r.request_id
-    WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
-      AND q.route = 'SMART'
-), t AS (
-    SELECT "timestamp", close, volume FROM ohlcv_raw
-    WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = 'consolidated'
-)
-SELECT extract(year FROM i."timestamp" AT TIME ZONE 'UTC')::int AS year, i.close, t.close,
-       i.volume, t.volume
-FROM i JOIN t USING ("timestamp")
-"""
 _ALREADY_RECORDED_SQL = """
 SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end = $2 LIMIT 1
 """
@@ -1097,9 +1008,10 @@ LEFT JOIN market_data_ohlcv_tradeable t
   ON t.symbol = l.symbol AND t.timeframe = '1d' AND t."timestamp" = l."timestamp"
 WHERE l.request_ids IS NULL
 """
-# Sessions an answer says are empty: IBKR's confirmed empty history, and Tradier no_data
-# windows. A lone IBKR SMART no_data is not evidence (IBKR history starts at the last venue
-# move), so ohlcv_request rows of IBKR do not count here.
+# Sessions an answer says are empty: IBKR's confirmed empty history. A lone IBKR SMART no_data
+# is not evidence (IBKR history starts at the last venue move), so ohlcv_request rows of IBKR
+# do not count here. (The retired vendor's no_data windows were a second branch; the store holds
+# none, checked 2026-10-29.)
 # A name's recorded last session (migration 518, todo 519): freshness_1d judges it up to there.
 _LISTING_END_SQL = "SELECT symbol, last_session FROM listing_end_current"
 
@@ -1107,10 +1019,6 @@ _EMPTY_SESSIONS_SQL = """
 SELECT symbol, (verified_from AT TIME ZONE 'UTC')::date AS span_start,
        (empty_through AT TIME ZONE 'UTC')::date AS span_end
 FROM ohlcv_empty_history WHERE timeframe = '1d' AND provider = 'ibkr'
-UNION ALL
-SELECT symbol, (window_start AT TIME ZONE 'UTC')::date, (window_end AT TIME ZONE 'UTC')::date
-FROM ohlcv_request
-WHERE source = 'tradier' AND timeframe = '1d' AND outcome = 'no_data' AND window_start IS NOT NULL
 """
 _LATEST_1D_LOAD_SQL = """
 SELECT symbol, max(loaded_at) AS loaded_at FROM ohlcv_load WHERE timeframe = '1d' GROUP BY symbol
@@ -1751,7 +1659,6 @@ class BarReconciliationAudit(BaseBatch):
             grid = await self._grid_checks(conn, params, window, compute)
             checks["completeness"] = grid.completeness
             checks["masked_slots"] = grid.masked
-            vendor = await self._vendor_agreement(conn, params)
             holds = await read_held(conn, "1d")
             checks["held_names"] = _Judged(check_held_names(holds), len(active))
             integ = _IntegrityParams.from_apr(apr)
@@ -1766,7 +1673,7 @@ class BarReconciliationAudit(BaseBatch):
             )
             checks["untraced_quarantined_1d"] = verdicts.untraced_hidden
 
-        await self._report(pool, window, params, checks, grid, vendor)
+        await self._report(pool, window, params, checks, grid)
         async with pool.acquire() as conn:
             await self._write_verdicts(conn, verdicts, now)
         self._log_verdicts(verdicts)
@@ -1879,7 +1786,7 @@ class BarReconciliationAudit(BaseBatch):
     ) -> _Judged:
         """IBKR's own two views of a session: the D1 SMART TRADES daily observation vs the
         regular-session 5m bars. The canonical 1d row is not used: most names' canonical
-        daily source is Tradier now (migration 438), whose volume is a different count.
+        daily source is Alpaca SIP now (D-191-Q), whose volume is a different count.
         A daily observation fetched before its session closed is partial_daily's finding
         and is not judged again here."""
         lookback = set(window.lookback)
@@ -2123,18 +2030,6 @@ class BarReconciliationAudit(BaseBatch):
             masked_derived_by_tf=dict(masked_derived),
             partial_by_tf=dict(partial_by_tf),
         )
-
-    @staticmethod
-    async def _vendor_agreement(conn: Any, params: _Params) -> dict[int, VendorYear]:
-        """Tradier vs IBKR SMART TRADES over every name with both, one symbol per query
-        (index-driven; the whole overlap is about 4M days)."""
-        acc = VendorAgreementAccumulator(params.close_tol_bp)
-        for r in await conn.fetch(_VENDOR_SYMBOLS_SQL, SOURCE_TRADIER):
-            acc.add(
-                tuple(row)
-                for row in await conn.fetch(_VENDOR_PAIRS_SQL, r["symbol"], SOURCE_TRADIER)
-            )
-        return acc.result()
 
     # -- the 1d verdict report ----------------------------------------------------
 
@@ -2583,7 +2478,6 @@ class BarReconciliationAudit(BaseBatch):
         params: _Params,
         checks: Mapping[str, _Judged],
         grid: _GridOutcome,
-        vendor: Mapping[int, VendorYear],
     ) -> None:
         for name, judged in checks.items():
             n = judged.result.n_findings
@@ -2605,28 +2499,12 @@ class BarReconciliationAudit(BaseBatch):
                 )
         for tf, share in grid.pooled_share.items():
             COMPLETENESS_SHARE.set(share, {"check": "completeness", "timeframe": tf})
-        for year, v in vendor.items():
-            attrs = {"check": "vendor_agreement", "year": str(year)}
-            VENDOR_CLOSE_DIFFER_SHARE.set(v.share_differ, attrs)
-            if v.median_volume_ratio is not None:
-                VENDOR_VOLUME_RATIO.set(v.median_volume_ratio, attrs)
         logger.info(
             "bar_reconciliation.grid",
             pooled_completeness=grid.pooled_share,
             masked_by_tf=grid.masked_by_tf,
             masked_derived_by_tf=grid.masked_derived_by_tf,
             partial_with_volume_by_tf=grid.partial_by_tf,
-        )
-        logger.info(
-            "bar_reconciliation.vendor_agreement",
-            by_year={
-                y: {
-                    "n_both": v.n_both,
-                    "share_differ": round(v.share_differ, 4),
-                    "median_volume_ratio": v.median_volume_ratio,
-                }
-                for y, v in vendor.items()
-            },
         )
 
         twe = window.training_window_end
@@ -2637,9 +2515,9 @@ class BarReconciliationAudit(BaseBatch):
                 # All or nothing: a run killed mid-emission leaves no facts, so the retry's
                 # already-recorded guard cannot skip the facts it never wrote.
                 async with conn.transaction():
-                    await self._emit_facts(conn, twe, params, checks, grid, vendor)
+                    await self._emit_facts(conn, twe, params, checks, grid)
 
-        self._print_report(window, checks, grid, vendor)
+        self._print_report(window, checks, grid)
 
     @staticmethod
     async def _emit_facts(
@@ -2648,7 +2526,6 @@ class BarReconciliationAudit(BaseBatch):
         params: _Params,
         checks: Mapping[str, _Judged],
         grid: _GridOutcome,
-        vendor: Mapping[int, VendorYear],
     ) -> None:
         """One summary fact per check (its own metric name, so the session-date idempotency
         guard keeps each), plus the per-cell detail the metrics deliberately omit."""
@@ -2699,29 +2576,6 @@ class BarReconciliationAudit(BaseBatch):
                 n == 0,
                 twe,
             )
-        for year, v in vendor.items():
-            subject = f"check=vendor_agreement|year={year}"
-            await emit_integrity_fact_async(
-                conn,
-                _MONITOR_TYPE,
-                subject,
-                "vendor_close_differ_share",
-                v.share_differ,
-                None,
-                True,
-                twe,
-            )
-            if v.median_volume_ratio is not None:
-                await emit_integrity_fact_async(
-                    conn,
-                    _MONITOR_TYPE,
-                    subject,
-                    "vendor_volume_ratio_median",
-                    v.median_volume_ratio,
-                    None,
-                    True,
-                    twe,
-                )
 
     @staticmethod
     def _log_verdicts(run: _VerdictRun) -> None:
@@ -2756,7 +2610,6 @@ class BarReconciliationAudit(BaseBatch):
         window: _Window,
         checks: Mapping[str, _Judged],
         grid: _GridOutcome,
-        vendor: Mapping[int, VendorYear],
     ) -> None:
         print("# Bar reconciliation audit (D7)\n")
         print(
@@ -2770,11 +2623,6 @@ class BarReconciliationAudit(BaseBatch):
         print(f"Masked slots by timeframe: {grid.masked_by_tf}")
         print(f"Masked slots on derived symbols: {grid.masked_derived_by_tf}")
         print(f"Partial-constituent slots with 5m volume (not masked): {grid.partial_by_tf}")
-        print("\nVendor agreement (Tradier vs IBKR SMART TRADES):")
-        print(f"{'year':<6} {'n_both':>8} {'differ':>8} {'median_vol_ratio':>17}")
-        for year, v in vendor.items():
-            ratio = f"{v.median_volume_ratio:.3f}" if v.median_volume_ratio is not None else "-"
-            print(f"{year:<6} {v.n_both:>8} {v.share_differ:>8.4f} {ratio:>17}")
         total = sum(j.result.n_findings for j in checks.values())
         print(f"\n{'FINDINGS' if total else 'CLEAN'} -- observability only, never a hard gate.")
 

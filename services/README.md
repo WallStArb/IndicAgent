@@ -31,9 +31,9 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`)
 run by `indicagent-ibkr-history-fetcher.timer`; the Alpaca capture is
 `scripts/ops/bars/ops_bar_nightly.py`, run by `indicagent-alpaca-nightly.timer` (04:40 UTC), and
-`indicagent-bar-derivation-grid.timer` (05:45 UTC) derives the grid after it. The Tradier daily
-loader and its units were deleted in plan 185-48 (the account is not funded); its bar rows go in
-plan 191-20.
+`indicagent-bar-derivation-grid.timer` (05:45 UTC) derives the grid after it. The retired
+daily vendor's loader and units were deleted in plan 185-48 (the account is not funded) and its
+bar rows in plan 191-20.
 
 ## Removed
 
