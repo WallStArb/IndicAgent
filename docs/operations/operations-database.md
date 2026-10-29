@@ -173,6 +173,14 @@ unexplained_seam, alpaca_basis_run, freshness_1d) and the intraday checks (slot_
 digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
 
+`grid_parity` re-buckets canonical 5m bars into the IBKR archive's 15m/1h buckets and requires
+exact equality, but only on buckets whose 5m constituents are all `vendor = 'ibkr'`. Since D-191-P
+the 5m from 2016-01-04 is Alpaca SIP, which legitimately differs from the IBKR reference, so those
+buckets are excluded like a bucket one side lacks. The verdict metric is the mismatched count;
+`NULL` means no bucket was comparable (a pass that measured nothing), and the run log carries
+`grid_parity_compared_nothing`, `grid_parity_buckets_compared` and `grid_parity_buckets_mismatched`
+per timeframe.
+
 Grafana rules on these gauges: `bar_integrity_failing`, `bar_integrity_report_stale`,
 `bar_freshness_1d` (a name more than `threshold.bar_integrity.freshness_max_lag_sessions_1d`
 sessions behind, judged only up to a recorded `listing_end`), `ibkr_fetcher_sla_breached` and

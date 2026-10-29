@@ -71,7 +71,6 @@ from services.bar_derivation import (
     _RAW_DAILY_ZONES,
     _SELECT_1D_FLAG_RULES_SQL,
     _SELECT_5M_FLAGS_SQL,
-    _SELECT_5M_SQL,
     _SELECT_CURRENT_1D_DIGESTS_SQL,
     _SELECT_CURRENT_GRID_DIGESTS_SQL,
     _SELECT_DAILY_RAW_SQL,
@@ -1291,6 +1290,18 @@ FROM ohlcv_coverage WHERE symbol = ANY(%s)
 """
 _SESSION_MARGIN_DAYS = 3
 _FIVE_MINUTES = timedelta(minutes=5)
+# bar_derivation's tradeable 5m read plus the vendor, which the grid parity judge needs: only
+# an ibkr-sourced 5m bar is comparable with the IBKR archive (D-191-P made post-2016 5m Alpaca SIP).
+_SELECT_5M_SQL = """
+SELECT "timestamp", open, high, low, close, volume, base, vendor
+FROM market_data_ohlcv_tradeable
+WHERE symbol = $1 AND timeframe = '5m'
+ORDER BY "timestamp"
+"""
+# The one vendor whose 5m bars are like-for-like with the archive reference (ohlcv_raw ibkr named).
+# Any kind counts: the canonical 5m holds only (ibkr, named) and (alpaca, sip_rth) today, and an
+# ibkr fallback 5m would still be IBKR's own trades aggregate, so the vendor decides, not the kind.
+_PARITY_VENDOR = VENDOR_IBKR
 _INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
 _WRITER_ROLE = "bar_derivation_writer"
 
@@ -1298,7 +1309,7 @@ _WRITER_ROLE = "bar_derivation_writer"
 @dataclass(frozen=True)
 class _FiveMinute:
     """A name's tradeable 5m bars with the rules of their non-quarantine flags, as
-    bar_derivation reads them (quarantined bars are left out)."""
+    bar_derivation reads them (quarantined bars are left out), and whether each is ibkr-sourced."""
 
     ts: np.ndarray
     open: np.ndarray
@@ -1307,6 +1318,7 @@ class _FiveMinute:
     close: np.ndarray
     volume: np.ndarray
     rules: list[tuple[str, ...]]
+    ibkr: np.ndarray  # bool per bar: the bar was served by the archive's own vendor
 
     @classmethod
     def from_rows(
@@ -1331,6 +1343,7 @@ class _FiveMinute:
             column("close"),
             column("volume"),
             [tuple(sorted(rules_by_ts.get(int(t), ()))) for t in ts],
+            np.array([r["vendor"] == _PARITY_VENDOR for r in kept], dtype=bool),
         )
 
 
@@ -1354,6 +1367,7 @@ class _IntradayVerdict(NamedTuple):
     passed: bool
     metric: float | None
     threshold: float
+    compared: int = 0  # grid_parity only: the buckets compared (metric is the mismatched count)
 
 
 class _SessionCalendar:
@@ -1437,7 +1451,11 @@ def judge_name_intraday(
     timings: dict[str, float] | None = None,
 ) -> list[_IntradayVerdict]:
     """The slot_coverage, digest_fresh, grid_parity and stray_vendor_rows verdicts of one name
-    (coverage_cache needs the fetcher lock and is judged for all names at once). Pure."""
+    (coverage_cache needs the fetcher lock and is judged for all names at once). Pure.
+
+    grid_parity is a vendor cross-check (digest_fresh already proves the derivation): it compares
+    only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count, None
+    when no bucket was comparable."""
 
     def timed(check: str, started: float) -> None:
         if timings is not None:
@@ -1483,27 +1501,36 @@ def judge_name_intraday(
     timed("digest_fresh", started)
 
     started = perf_counter()
+    # Only ibkr-sourced 5m bars enter the re-bucketing. rebucket_5m returns a bucket only when
+    # every 5m constituent is present, so one SIP constituent (left out here) drops its whole
+    # bucket: it is neither compared nor counted, like a bucket one side lacks.
+    keep = five.ibkr
     for tf in sorted(GRID_TIMEFRAMES):
         archived = inputs.archive.get(tf, {})
-        if not archived or not five.ts.size:
-            # No archived vendor bucket to compare against: a pass that says nothing was measured.
-            verdicts.append(_IntradayVerdict(tf, "grid_parity", True, None, 0.0))
-            continue
-        rebucketed = rebucket_5m(
-            five.ts,
-            five.open,
-            five.high,
-            five.low,
-            five.close,
-            five.volume,
-            [int(stamp.timestamp()) for stamp in archived],
-            timeframe=tf,
-        )
-        ours = {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
-        _compared, mismatched = grid_parity(ours, archived, timeframe=tf)
-        verdicts.append(
-            _IntradayVerdict(tf, "grid_parity", mismatched == 0, float(mismatched), 0.0)
-        )
+        compared = mismatched = 0
+        if archived and keep.any():
+            rebucketed = rebucket_5m(
+                five.ts[keep],
+                five.open[keep],
+                five.high[keep],
+                five.low[keep],
+                five.close[keep],
+                five.volume[keep],
+                [int(stamp.timestamp()) for stamp in archived],
+                timeframe=tf,
+            )
+            ours = {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
+            compared, mismatched = grid_parity(ours, archived, timeframe=tf)
+        if not compared:
+            # Nothing was comparable (no archive, or no bucket made only of ibkr 5m bars): a pass
+            # that says nothing was measured, visible as a null metric and counted in the log.
+            verdicts.append(_IntradayVerdict(tf, "grid_parity", True, None, 0.0, 0))
+        else:
+            verdicts.append(
+                _IntradayVerdict(
+                    tf, "grid_parity", mismatched == 0, float(mismatched), 0.0, compared
+                )
+            )
     timed("grid_parity", started)
 
     for tf in sorted(GRID_TIMEFRAMES):
@@ -1565,8 +1592,10 @@ class _IntradayRun(NamedTuple):
     n_names: int
     coverage_skipped: int
     full_sweep: bool
-    n_without_archive: dict[str, int]
+    n_without_archive: dict[str, int]  # names whose grid_parity compared no bucket, per timeframe
     parity_failing: list[str]
+    parity_compared: dict[str, int]  # buckets compared over all names, per timeframe
+    parity_mismatched: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -2315,6 +2344,8 @@ class BarReconciliationAudit(BaseBatch):
         timings: dict[str, float] = {}
         without_archive: dict[str, int] = defaultdict(int)
         parity_failing: list[str] = []
+        parity_compared: dict[str, int] = defaultdict(int)
+        parity_mismatched: dict[str, int] = defaultdict(int)
 
         def record(symbol: str, v: _IntradayVerdict) -> None:
             facts.append(
@@ -2350,8 +2381,14 @@ class BarReconciliationAudit(BaseBatch):
                 if v.check == "grid_parity":
                     if v.metric is None:
                         without_archive[v.timeframe] += 1
-                    elif not v.passed:
-                        parity_failing.append(f"{symbol}|{v.timeframe}|mismatched={int(v.metric)}")
+                    else:
+                        parity_compared[v.timeframe] += v.compared
+                        parity_mismatched[v.timeframe] += int(v.metric)
+                        if not v.passed:
+                            parity_failing.append(
+                                f"{symbol}|{v.timeframe}|mismatched={int(v.metric)}"
+                                f"|compared={v.compared}"
+                            )
 
         skipped = 0
         started = perf_counter()
@@ -2393,6 +2430,8 @@ class BarReconciliationAudit(BaseBatch):
             full_sweep,
             dict(without_archive),
             parity_failing,
+            dict(parity_compared),
+            dict(parity_mismatched),
         )
 
     @staticmethod
@@ -2452,7 +2491,9 @@ class BarReconciliationAudit(BaseBatch):
             failing_by_check=run.failing_by_check,
             passing_by_check=run.passing_by_check,
             coverage_cache_skipped=run.coverage_skipped,
-            grid_parity_without_archive=run.n_without_archive,
+            grid_parity_compared_nothing=run.n_without_archive,
+            grid_parity_buckets_compared=run.parity_compared,
+            grid_parity_buckets_mismatched=run.parity_mismatched,
             seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
         )
         if run.parity_failing:

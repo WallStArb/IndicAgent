@@ -506,6 +506,10 @@ def grid_parity(
     15m must match exactly on every shared bucket. 1h is compared on shared buckets only (the
     vendor's 1h grid lacks the 09:30 half hour on 39 of 231 measured names); a bucket one side
     lacks is never counted either way. Values are (open, high, low, close, volume), exact.
+
+    The caller decides which derived buckets are like-for-like: the audit passes only buckets made
+    entirely of ibkr-sourced 5m bars, because the reference is IBKR's own trades aggregate and SIP
+    5m bars (canonical from 2016-01-04) legitimately differ from it. Exactness is never loosened.
     """
     if timeframe not in _BUCKET_SECONDS:
         raise ValueError(f"grid_parity is defined for {sorted(_BUCKET_SECONDS)}, not {timeframe!r}")

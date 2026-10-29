@@ -817,6 +817,7 @@ def _intraday_series(days=_I_DAYS):
             "close": 101.0 + i,
             "volume": 10.0,
             "base": None,
+            "vendor": "ibkr",
         }
         for i, slot in enumerate(slots)
     ]
@@ -989,7 +990,7 @@ def test_a_mismatched_archive_bucket_fails_grid_parity_and_is_named():
     run = _intraday(_IntradayConn({"AAA": name}))
     verdict = _verdict(run, "AAA|15m", "grid_parity")
     assert verdict[5] is False and verdict[3] == 1.0
-    assert run.parity_failing == ["AAA|15m|mismatched=1"]
+    assert run.parity_failing == ["AAA|15m|mismatched=1|compared=52"]
     assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
 
 
@@ -1000,6 +1001,67 @@ def test_a_name_without_archive_rows_passes_parity_with_a_null_metric_and_is_cou
     verdict = _verdict(run, "AAA|15m", "grid_parity")
     assert verdict[5] is True and verdict[3] is None
     assert run.n_without_archive == {"15m": 1, "1h": 1}
+
+
+def _sip(rows, keep):
+    """The rows with those picked by `keep(index)` served by Alpaca SIP at slightly other prices."""
+    return [
+        (
+            {**r, "vendor": "alpaca", "open": r["open"] + 0.01, "close": r["close"] - 0.02}
+            if keep(i)
+            else r
+        )
+        for i, r in enumerate(rows)
+    ]
+
+
+def test_ibkr_sourced_five_minute_bars_rebucket_equal_to_the_archive_and_are_counted():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
+    for tf in ("15m", "1h"):
+        verdict = _verdict(run, f"AAA|{tf}", "grid_parity")
+        assert verdict[5] is True and verdict[3] == 0.0
+    assert run.parity_compared["15m"] > 0 and run.parity_compared["1h"] > 0
+    assert run.parity_mismatched == {"15m": 0, "1h": 0} and run.n_without_archive == {}
+
+
+def test_sip_sourced_five_minute_bars_that_differ_from_the_archive_are_not_compared():
+    _, rows = _intraday_series()
+    name = _agreeing_name(rows)  # the archive is IBKR's: it agrees with the original ibkr bars
+    name["rows"] = _sip(rows, lambda i: True)  # canonical 5m is all SIP now, prices differ
+    run = _intraday(_IntradayConn({"AAA": name}))
+    for tf in ("15m", "1h"):
+        verdict = _verdict(run, f"AAA|{tf}", "grid_parity")
+        assert verdict[5] is True and verdict[3] is None  # passed, nothing was measured
+    assert run.n_without_archive == {"15m": 1, "1h": 1}
+    assert run.parity_compared == {} and run.parity_failing == []
+
+
+def test_an_ibkr_sourced_bucket_that_mismatches_still_fails_beside_sip_buckets():
+    _, rows = _intraday_series()
+    name = _agreeing_name(rows)
+    half = len(rows) // 2
+    name["rows"] = _sip(rows, lambda i: i >= half)  # first session ibkr, second session SIP
+    key = next(iter(name["archive"]["15m"]))  # a bucket in the ibkr-sourced first session
+    values = list(name["archive"]["15m"][key])
+    values[4] += 1.0
+    name["archive"]["15m"][key] = tuple(values)
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is False and verdict[3] == 1.0
+    assert run.parity_failing[0].startswith("AAA|15m|mismatched=1|compared=")
+    assert 1 < run.parity_compared["15m"] < len(name["archive"]["15m"])  # SIP buckets excluded
+    assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
+
+
+def test_a_bucket_with_one_sip_constituent_is_excluded_not_compared_or_failed():
+    _, rows = _intraday_series()
+    name = _agreeing_name(rows)
+    name["rows"] = _sip(rows, lambda i: i == 1)  # one SIP bar inside the first 15m bucket
+    run = _intraday(_IntradayConn({"AAA": name}))
+    full = len(name["archive"]["15m"])
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is True and verdict[3] == 0.0
+    assert run.parity_compared["15m"] == full - 1  # exactly the mixed bucket left out
 
 
 def test_stray_vendor_rows_fail_per_timeframe():
