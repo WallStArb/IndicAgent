@@ -88,6 +88,7 @@ from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
+from src.core.market_calendar import get_market_calendar
 from src.core.models import AssetClass
 from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
 from src.intelligence.bars.derivation import Observation, SplitRecord
@@ -2164,6 +2165,7 @@ class BarReconciliationAudit(BaseBatch):
         first_bar = await conn.fetchval(
             _FIRST_1D_BAR_SQL, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
         )
+        era_start = get_market_calendar().first_session("NYSE")
         sessions = sorted(nyse_sessions(first_bar.date(), window.last_session)) if first_bar else []
 
         missing: dict[str, list[date]] = defaultdict(list)
@@ -2200,7 +2202,13 @@ class BarReconciliationAudit(BaseBatch):
                 listing_end=listing_end.get(symbol),
             )
             report = judge_name_1d(
-                inputs, sessions, window.last_session, run_start, integ, timings=timings
+                inputs,
+                sessions,
+                window.last_session,
+                run_start,
+                integ,
+                era_start=era_start,
+                timings=timings,
             )
             subject = f"{symbol}|1d"
             for v in report.verdicts:

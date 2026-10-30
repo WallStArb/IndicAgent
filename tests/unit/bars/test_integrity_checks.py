@@ -124,6 +124,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
 _SESSIONS = [date(2024, 1, 2) + timedelta(days=i) for i in range(0, 10) if (i % 7) not in (5, 6)]
 _RUN_START = datetime(2024, 2, 1, 6, tzinfo=UTC)
 _FETCHED = datetime(2024, 1, 20, tzinfo=UTC)
+_ERA = date(2005, 1, 3)
 
 
 @dataclass(frozen=True)
@@ -204,7 +205,7 @@ def _clean() -> NameInputs1d:
 
 def _judge(inputs: NameInputs1d, timings=None):
     return judge_name_1d(
-        inputs, _SESSIONS, _SESSIONS[-1], _RUN_START, _Thresholds(), timings=timings
+        inputs, _SESSIONS, _SESSIONS[-1], _RUN_START, _Thresholds(), era_start=_ERA, timings=timings
     )
 
 
@@ -237,6 +238,55 @@ def test_a_missing_session_fails_coverage_unless_answered_empty():
     assert not verdict.passed and verdict.metric_value < 1.0
     covered = replace(interior, empty_spans=[(_SESSIONS[2], _SESSIONS[2])])
     assert _by_check(_judge(covered))["session_coverage"].passed
+
+
+def _era_coverage(bar_days: list[date], sessions: list[date], **kw):
+    stored = [_stored(d, 100.0) for d in bar_days]
+    inputs = replace(_clean(), stored=stored, **kw)
+    report = judge_name_1d(
+        inputs, sessions, sessions[-1], _RUN_START, _Thresholds(), era_start=_ERA
+    )
+    return _by_check(report)["session_coverage"]
+
+
+def test_a_missing_session_before_the_era_is_ignored_and_on_the_era_start_counts():
+    # 2004-12-31 is the last session before the era; 2005-01-03 is its first
+    pre, start, nxt = date(2004, 12, 31), date(2005, 1, 3), date(2005, 1, 4)
+    head = date(2004, 12, 30)
+    sessions = [head, pre, start, nxt]
+    on_start = _era_coverage([head, pre, nxt], sessions)  # 2005-01-03 missing: counts
+    assert not on_start.passed and on_start.metric_value == 0.5
+    pre_hole = _era_coverage([head, start, nxt], sessions)  # 2004-12-31 missing: ignored
+    assert pre_hole.passed and pre_hole.metric_value == 1.0
+
+
+def test_the_era_scope_sets_the_denominator_so_early_coverage_no_longer_inflates_it():
+    early = [date(2004, 12, 20) + timedelta(days=i) for i in range(0, 11) if i % 7 not in (1, 2)]
+    sessions = early + [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5), date(2005, 1, 6)]
+    bars = early + [date(2005, 1, 3), date(2005, 1, 5)]
+    v = _era_coverage(bars, sessions)
+    assert v.metric_value == 0.5 and not v.passed
+
+
+def test_a_name_whose_first_bar_is_after_the_era_start_counts_from_its_first_bar():
+    sessions = [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5), date(2005, 1, 6)]
+    v = _era_coverage([sessions[2], sessions[3]], sessions)
+    assert v.passed and v.metric_value == 1.0
+
+
+def test_empty_history_still_answers_a_session_inside_the_era():
+    sessions = [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5)]
+    bars = [sessions[0], sessions[2]]
+    assert not _era_coverage(bars, sessions).passed
+    covered = _era_coverage(bars, sessions, empty_spans=[(sessions[1], sessions[1])])
+    assert covered.passed
+
+
+def test_a_name_with_early_holes_only_passes():
+    pre = [date(2004, 11, 1) + timedelta(days=i) for i in range(5)]
+    era = [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5)]
+    v = _era_coverage([pre[0], *era], [*pre, *era])  # four early sessions missing
+    assert v.passed and v.metric_value == 1.0
 
 
 def test_a_name_with_no_stored_bar_fails_coverage():
@@ -655,7 +705,9 @@ def test_judge_name_1d_reports_freshness_after_the_eight_checks():
     by = _by_check(report)
     assert by[CHECK_FRESHNESS_1D].passed and by[CHECK_FRESHNESS_1D].metric_value == 0.0
     extra = [_SESSIONS[-1] + timedelta(days=k) for k in (1, 2, 3)]
-    stale = judge_name_1d(_clean(), _SESSIONS + extra, extra[-1], _RUN_START, _Thresholds())
+    stale = judge_name_1d(
+        _clean(), _SESSIONS + extra, extra[-1], _RUN_START, _Thresholds(), era_start=_ERA
+    )
     verdict = _by_check(stale)[CHECK_FRESHNESS_1D]
     assert (verdict.passed, verdict.metric_value, verdict.threshold_value) == (False, 3.0, 2.0)
 
@@ -807,6 +859,7 @@ def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
         _SESSIONS[-1],
         _RUN_START,
         _Thresholds(),
+        era_start=_ERA,
     )
     verdict = _by_check(report)["alpaca_basis_run"]
     assert not verdict.passed and verdict.metric_value == 1

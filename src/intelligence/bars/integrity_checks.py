@@ -310,10 +310,18 @@ def judge_name_1d(
     run_start: datetime,
     thresholds: IntegrityThresholds,
     *,
+    era_start: date,
     timings: dict[str, float] | None = None,
 ) -> NameReport1d:
     """The nine 1d verdicts of one name (design section 6; freshness_1d from 185-46). Pure; timings, when given, collects
-    seconds per check. Thresholds that are definitions (zero tolerance) live here as 0.0."""
+    seconds per check. Thresholds that are definitions (zero tolerance) live here as 0.0.
+
+    session_coverage is era-scoped: it judges the sessions from max(the name's first stored bar,
+    `era_start`) to `last_session`, and `era_start` is the session calendar's first session. A
+    session before it cannot reach a feature row, so a hole there neither fails the check nor
+    (through the ratio's denominator) is hidden by earlier coverage. Inside the era a session is
+    answered only by a stored bar or an ohlcv_empty_history span; a missing bar is never read as
+    a no-trade day (191-SESSION-COVERAGE-FIX.md)."""
     symbol = inputs.symbol
 
     def timed(check: str, started: float) -> None:
@@ -332,7 +340,7 @@ def judge_name_1d(
 
     started = time.perf_counter()
     if stored:
-        first = min(stored)
+        first = max(min(stored), era_start)
         judged_sessions = [s for s in sessions if first <= s <= last_session]
         coverage = session_coverage(
             stored.keys(),

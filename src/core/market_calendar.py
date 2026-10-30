@@ -109,6 +109,14 @@ class MarketCalendar:
             return False
         return date_obj.isoformat() in sessions
 
+    def first_session(self, exchange: str) -> date:
+        """First trading date the calendar covers for the exchange (2005-01-03 for NYSE).
+
+        No session exists before it, so no feature row and no judged session can either. Raises
+        KeyError for an exchange the calendar was never taught.
+        """
+        return date.fromisoformat(min(self._daily_sessions[exchange]))
+
     def supports_exchange(self, exchange: str) -> bool:
         """Return True if this exchange has a registered calendar.
 

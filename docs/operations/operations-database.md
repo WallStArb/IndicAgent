@@ -173,6 +173,14 @@ unexplained_seam, alpaca_basis_run, freshness_1d) and the intraday checks (slot_
 digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
 
+`session_coverage` (1d) is the share of NYSE sessions that hold a canonical bar or an
+`ohlcv_empty_history` span, judged from max(the name's first canonical bar, the session
+calendar's first session, 2005-01-03) to the last completed session. The era start is
+`MarketCalendar.first_session("NYSE")` (`src/core/market_calendar.py`), the date before which no
+feature row can exist, so a hole earlier than it is not judged. A missing bar is never read as a
+no-trade day: the vendors serve explicit zero-volume bars and have multi-week history holes, so
+absence cannot be told from a hole. Analysis: `191-SESSION-COVERAGE-FIX.md`.
+
 `coverage_cache` rebuilds the coverage ledger under the IBKR history fetcher lock. The fetcher
 runs in windows of several hours with a 15 minute gap, so the audit polls the non-blocking
 try-lock every `infra.bar_integrity.coverage_cache_lock_poll_s` (30 s) for up to
