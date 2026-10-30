@@ -39,3 +39,24 @@ the coverage rule. Order against 186-26: the 71 names stay held until this lands
 
 The 39 names with genuine holes (no raw bar and no answered window) and the freshness and seam holds:
 191-SESSION-COVERAGE-FIX.md classifies them.
+
+## Resolved cause and stage 1 drift (data lane, 2026-10-30)
+
+The derivation gap is not a defect. After the Tradier delete the IBKR history fetcher backfills 1d
+`smart_trades` for the pre-2016 era on the names Tradier used to cover (1,165 names now have it).
+CUBE: its 3,664 new IBKR bars (2011-11-03 on) landed 2026-10-29 22:52Z, after the last daily
+derive (11:54Z), so canonical holds IBKR 2011-09-19..2012-02-01 and Alpaca from 2016-01-04 until the
+fetcher's daily stage derives the touched series at the end of its run. Expect the 71 names to clear
+without code. Recount after the next daily derive and the next audit; a name that still has raw bars
+canonical lacks after that is a real derivation defect.
+
+Drift in the 186-26 stage 1 output (feature_vectors_v2, 1d): 27 of its 1,257 names have IBKR 1d raw
+earlier than their canonical head, so the pending derive extends their history. Days gained:
+NCMI 3252, DE 2555, ELS 2555, HUBB 2555, DOC 2555, FE 2555, EOG 2555, EZU 2170, PRI 2104, MDLZ 1937,
+ZBH 1895, EPAM 1426, NRG 1035, NEXN 936, ASC 886, ESI 711, HUBS 452, XENE 425, EU 339, LNTH 193,
+FTV 22, RKLB 7, DELL 7, PWP 4, ROIV 4, AUR 3, BOC 1. Rolling-window features keep their values past
+the new warmup; expanding-state features (the HMM walk-forward, the never-reset VWAP series) differ for
+these names. Handle at the 186-27 drift read: delete those names' stage 1 rows (derived cache) and
+rebuild them as their own units with the same pin; the primary key is append-only, so a rerun cannot
+overwrite. Names whose gain is under 30 days (FTV, RKLB, DELL, PWP, ROIV, AUR, BOC) change by warmup
+only and can wait for the next full rebuild.
