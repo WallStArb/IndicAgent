@@ -212,6 +212,12 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 
 ## Decisions waiting on the owner
 
+- Research lane (2026-10-30): the E17 daily statistic landed (`d2f3ff0b1`, flat-top kernel plus influence
+  series; todo 547) and cut the daily battery from 40+ size failures to 3 marginal ones (gaussian
+  `reversal_5_skip1` 71 of 1,000 against 67; the two momentum members in s1_hostile, S1 drift). Decide: certify
+  the reversal members and book now and hold the rest, or hold the family until S1's drift is decided. The
+  StepM attestation is complete (Step B v2 passed), so `select_books.py` is unblocked. Todo 562 (multi-family
+  power plant) also waits on the owner.
 - Research lane: (1) approve the E17 amendment for todo 547 (a horizon-tied lag, L + c (h - 1) for
   daily targets with h > 5, c = 3 to certify); (2) decide the multi-family power plant (todo 562)
   before the `generated_family` grammar; (3) enable the research-ledger render timer (`sudo systemctl

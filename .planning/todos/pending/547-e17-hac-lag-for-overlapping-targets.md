@@ -159,3 +159,28 @@ pass for the reversal arms and the book. The momentum arms (M1, M2) do not certi
 both fixes) until cause 3 is decided, so options: (a) run the reversal members and the book first and hold M1
 and M2; (b) first decide the S1 drift question. I recommend (a): it tests the cheap, high-turnover hypotheses
 now and does not loosen anything.
+
+## Landed 2026-10-30: the E17 daily statistic (`d2f3ff0b1`) and its battery
+
+`timing_test(..., overlap_sessions=horizon - 1)` for one-bar-per-session series: flat-top kernel (weight 1 on the
+overlapped lags, then the Bartlett taper) on the HAC of the influence series (`timing_influence`,
+`hac_total_test`). The runner and the daily battery pass it; books and every intraday caller keep the original
+statistic, so `repro_frozen` is bit-identical and the unit suite is green. Books over a daily series still use
+the original statistic (no daily book exists yet; close this before one does).
+
+Full daily battery, 1,000 simulations per cell, 4,736 sessions, h = 5
+(`logs/research/e17_battery_daily_residual_flat_20261030.json`; before: 40+ size failures, sd of t 1.05 to 1.30):
+sd of t is now 0.88 to 1.03 in every cell, and three tests exceed their bound:
+
+- `daily_gaussian/reversal_5_skip1`: 71 of 1,000 at 0.05 (bound 67) and 20 at 0.01 (bound 18). Its sibling
+  `reversal_5` and every other gaussian arm hold. Across about 144 (cell, arm, level) tests at the 0.9995
+  quantile one chance exceedance is plausible (about 7%) but not proven; do not rerun on other seeds to find a
+  pass (the pre-registered rule).
+- `daily_s1_hostile/residual_momentum_12_1`: 69 at 0.05 (bound 67); `_z` 66 (holds by 1), mean t +0.17: the
+  S1 drift (cause 3), unchanged.
+
+Strictly, the pre-registered B2 requirement ("size holds in every gating cell") is not met, so no real-data
+daily run has been made. Owner decision, with this evidence: (a) accept the statistic as certified for the
+reversal members and the book, holding `reversal_5_skip1` and both momentum members until a rerun on a fresh
+pre-registered seed base or an S1 decision; or (b) hold the whole family until S1's drift is decided. Also
+open: B3 power, and the book path (above).
