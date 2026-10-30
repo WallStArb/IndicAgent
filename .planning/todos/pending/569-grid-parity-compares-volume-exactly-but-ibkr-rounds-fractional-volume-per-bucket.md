@@ -29,3 +29,11 @@ Landed 2026-10-30: `grid_parity` keeps prices exact and bounds volume at n - 1 s
 bars (15m: 2, 1h: 11); a NaN volume counts as a mismatch. Review notes, not acted on: the 1h bound is not measured
 (the 15m maximum of 2 is), and the 09:30 half-hour bucket could carry a tighter bound of 5. Remaining: the next
 intraday sweep recounts which of the 144 names still fail (AAP expected); close this todo after that read.
+
+Recount 2026-10-30 (SQL approximation, 15m, IBKR era before 2016-01-04, the 79 names the last full sweep logged
+as failing): with prices exact and volume within 2 shares, 68 of 79 names clear. 11 still fail: VIXY (6,110
+buckets differ in price both ways by up to about 1% on thin trading: a vendor aggregation difference, not
+derivation bias), DBC, DBA, DBB, CWB, EDV (20 to 48 price buckets each), HD, HON, ISRG (4 each), AAP (3 price,
+15 volume up to 40,700 shares) and MARA (1). The 1h grid is not recounted; the 02:00 ET audit does the exact
+read. The 11 are real small vendor disagreements; decide per name whether they hold or are classified, after
+the audit confirms the list.
