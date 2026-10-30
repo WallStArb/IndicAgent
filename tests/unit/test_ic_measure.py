@@ -231,18 +231,27 @@ class TestHorizons:
 
 
 class TestFeatureNames:
-    def test_schema_types_decide_and_order_follows_featurevector(self) -> None:
+    def test_schema_types_decide_featurevector_order_first_then_other_numeric_columns(self) -> None:
         import dataclasses as dc
 
         from src.intelligence.schemas import FeatureVector
 
         fv_names = [f.name for f in dc.fields(FeatureVector)]
         present = [fv_names[2], fv_names[0]]  # schema order must not matter
-        rows = [(n, "real") for n in present] + [(fv_names[1], "text"), ("not_a_feature", "real")]
+        rows = [(n, "real") for n in present] + [
+            (fv_names[1], "text"),
+            ("zeta_new_feature", "real"),
+            ("alpha_new_feature", "double precision"),
+            ("a_label", "text"),
+        ]
         conn = FakeConn(rows_responder(rows))
-        names = ic_measure.feature_names(conn, "feature_vectors")
-        assert names == [fv_names[0], fv_names[2]]
-        assert "not_a_feature" not in names
+        names = ic_measure.feature_names(conn, "feature_vectors_v2")
+        # a column the rebuild adds is measured (sorted, after the FeatureVector order); a text column
+        # and a FeatureVector field held as text are not
+        assert names == [fv_names[0], fv_names[2], "alpha_new_feature", "zeta_new_feature"]
+
+    def test_the_default_feature_table_is_the_rebuilt_one(self) -> None:
+        assert ic_measure._parse_args([]).feature_table == "feature_vectors_v2"
 
     def test_a_missing_table_raises(self) -> None:
         with pytest.raises(ValueError, match="feature_nope does not exist"):

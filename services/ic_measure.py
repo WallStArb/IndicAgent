@@ -300,9 +300,11 @@ _NUMERIC_TYPES = frozenset({"real", "double precision", "integer", "bigint", "sm
 
 
 def feature_names(read_conn: Any, feature_table: str) -> list[str]:
-    """FeatureVector field names that are numeric columns of the table (types from
-    information_schema, never inferred from data; a missing table raises), in FeatureVector
-    order. The names the table lacks or holds as a non-numeric type are logged as a count."""
+    """The numeric columns of the table (types from information_schema, never inferred from data;
+    a missing table raises): the FeatureVector fields the table holds, in FeatureVector order, then
+    every other numeric column sorted. The family is the table's, so a column the rebuild adds is
+    measured, not skipped; FeatureVector fields the table lacks or holds as a non-numeric type are
+    logged as a count."""
     types = table_column_types(read_conn, feature_table)
     wanted = [f.name for f in dataclasses.fields(FeatureVector)]
     names = [n for n in wanted if types.get(n) in _NUMERIC_TYPES]
@@ -312,7 +314,11 @@ def feature_names(read_conn: Any, feature_table: str) -> list[str]:
             table=feature_table,
             missing=len(wanted) - len(names),
         )
-    return names
+    known = set(wanted)
+    extra = sorted(n for n, t in types.items() if t in _NUMERIC_TYPES and n not in known)
+    if extra:
+        _logger.info("ic_measure.feature_names_beyond_feature_vector", count=len(extra))
+    return [*names, *extra]
 
 
 def feature_block_sql(table: str, names: Sequence[str]) -> sql.Composed:
@@ -1444,7 +1450,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--start",
         help="ISO 8601 start of the window with a Z or offset (default: earliest tradeable bar)",
     )
-    parser.add_argument("--feature-table", default="feature_vectors")
+    parser.add_argument("--feature-table", default="feature_vectors_v2")
     parser.add_argument("--dry-run", action="store_true", help="compute and report, write nothing")
     parser.add_argument(
         "--allow-absent-digests",
