@@ -52,3 +52,32 @@ def test_size_under_iid_null_is_nominal():
     rng = np.random.default_rng(7)
     p = np.array([hac_mean_test(rng.standard_normal(500)).p for _ in range(2000)])
     assert abs((p < 0.05).mean() - 0.05) < 0.015
+
+
+def test_total_test_without_overlap_is_the_bartlett_test():
+    from src.intelligence.statistics.hac import hac_total_test
+
+    rng = np.random.default_rng(7)
+    x = np.convolve(rng.standard_normal(900), np.ones(4) / 4, mode="same") + 0.02
+    want = hac_mean_test(x)
+    got = hac_total_test(float(x.sum()), x, len(x), 0)
+    assert got.t == pytest.approx(want.t, rel=1e-12)
+    assert got.p == pytest.approx(want.p, rel=1e-12)
+    assert got.mean == pytest.approx(want.mean, rel=1e-12)
+
+
+def test_total_test_overlap_weights_the_overlapped_lags_fully():
+    from src.intelligence.statistics.hac import hac_total_test
+
+    rng = np.random.default_rng(8)
+    x = np.convolve(rng.standard_normal(2000), np.ones(5), mode="same")  # MA(4)
+    plain = hac_total_test(float(x.sum()), x, len(x), 0)
+    flat = hac_total_test(float(x.sum()), x, len(x), 4)
+    assert abs(flat.t) < abs(plain.t)  # fuller weight on the positive lags: a larger variance
+    d = x - x.mean()
+    n, lag = len(x), newey_west_lag(len(x))
+    v = d @ d / n + sum(
+        2 * (1.0 if k <= 4 else 1 - (k - 4) / (lag + 1)) * (d[k:] @ d[:-k]) / n
+        for k in range(1, 4 + lag + 1)
+    )
+    assert flat.se * len(x) == pytest.approx(np.sqrt(n * v), rel=1e-12)

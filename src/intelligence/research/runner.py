@@ -686,6 +686,7 @@ async def run_family(
                 bars_per_session=bps,
                 warmup_sessions=cfg.warmup_sessions,
                 memory_sessions=e17_memory(m.slot_history_sessions, spec.horizon, bps),
+                overlap_sessions=spec.horizon - 1 if bps == 1 else None,
             )
             series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
             computed[m.name] = series

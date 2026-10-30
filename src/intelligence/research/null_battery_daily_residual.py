@@ -176,6 +176,7 @@ def _score(alpha, vol, target, trade, memory: int, horizon: int):
         bars_per_session=1,
         warmup_sessions=_WARMUP_SESSIONS,
         memory_sessions=e17_memory(memory, horizon, 1),
+        overlap_sessions=horizon - 1,
     )
 
 

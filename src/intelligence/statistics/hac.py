@@ -48,3 +48,41 @@ def hac_mean_test(values: np.ndarray) -> HacTestResult:
     se = math.sqrt(variance / n)
     t = mean / se
     return HacTestResult(mean, se, t, float(student_t.sf(t, n - 1)), lag, n)
+
+
+def hac_total_test(
+    total: float, influence: np.ndarray, tested: int, overlap_lags: int
+) -> HacTestResult:
+    """One-sided HAC t of a mean whose standard error comes from an influence series
+    (methodology-change-ledger E17 daily amendment, todo 547).
+
+    `total` is the sum of the tested series over `tested` sessions; `influence` is its
+    per-session influence series (finite values only count), whose sum is `total`. The variance
+    is a flat-top kernel: weight 1 for lags 1..overlap_lags (the overlap of consecutive
+    multi-session targets, an MA(overlap_lags) structure the Bartlett taper would down-weight),
+    then the Bartlett taper of `newey_west_lag(n)` further lags. overlap_lags = 0 is the Bartlett
+    kernel of `hac_mean_test`. p is Student t with tested - 1 degrees of freedom, as there.
+    """
+    x = np.asarray(influence, dtype=np.float64)
+    x = x[np.isfinite(x)]
+    n = len(x)
+    if n < 2 or tested < 2:
+        raise ValueError(f"HAC test needs at least 2 finite values, got {n} and {tested}")
+    d = x - x.mean()
+    lag = newey_west_lag(n)
+    variance = float(d @ d) / n
+    for k in range(1, overlap_lags + lag + 1):
+        weight = 1.0 if k <= overlap_lags else 1.0 - (k - overlap_lags) / (lag + 1)
+        variance += 2.0 * weight * float(d[k:] @ d[:-k]) / n
+    if not variance > 0:
+        raise ValueError("HAC test undefined: non-positive long-run variance")
+    se_total = math.sqrt(n * variance)
+    t = total / se_total
+    return HacTestResult(
+        total / tested,
+        se_total / tested,
+        t,
+        float(student_t.sf(t, tested - 1)),
+        overlap_lags + lag,
+        tested,
+    )

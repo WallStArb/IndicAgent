@@ -188,3 +188,60 @@ def test_fbar_never_reads_a_target_that_overlaps_the_signals_inputs():
             first_input_close_session = s - m  # e[s-m+1] = close[s-m] -> close[s-m+1]
             # open[k] precedes close[k]; sharing needs the exit open after close[s-m]'s session.
             assert exit_open_session <= first_input_close_session
+
+
+def _daily_case(seed=3, s_n=700, m=12):
+    rng = np.random.default_rng(seed)
+    weights = rng.normal(size=(s_n, m)) + 0.5  # persistent weights, as a long-memory signal gives
+    fwd = rng.normal(0.0005, 0.01, (s_n, m))
+    fwd[rng.random((s_n, m)) < 0.05] = np.nan
+    fwd[:200, 0] = np.nan
+    has = rng.random(s_n) > 0.1
+    trade = np.ones(s_n, dtype=bool)
+    trade[:30] = False
+    trade[min(400, s_n - 1)] = False
+    return weights, fwd, has, trade
+
+
+def test_influence_series_sums_to_the_tested_series():
+    from src.intelligence.research.timing import timing_influence
+
+    weights, fwd, has, trade = _daily_case()
+    kw = dict(warmup_sessions=60, memory_sessions=21, min_history_sessions=30)
+    series = timing_series(weights, fwd, has, trade, bars_per_session=1, **kw)
+    psi, total, tested = timing_influence(weights, fwd, has, trade, **kw)
+    assert tested == int(np.isfinite(series).sum())
+    assert total == pytest.approx(float(np.nansum(series)), rel=1e-10)
+    assert float(psi.sum()) == pytest.approx(total, rel=1e-9, abs=1e-12)
+
+
+def test_daily_statistic_keeps_mean_and_sharpe_and_default_is_unchanged():
+    weights, fwd, has, trade = _daily_case()
+    kw = dict(bars_per_session=1, warmup_sessions=60, memory_sessions=21, min_history_sessions=30)
+    legacy = timing_test(weights, fwd, has, trade, **kw)
+    daily = timing_test(weights, fwd, has, trade, overlap_sessions=4, **kw)
+    assert daily.hac.mean == pytest.approx(legacy.hac.mean, rel=1e-10)
+    assert daily.annualized_sharpe == legacy.annualized_sharpe
+    np.testing.assert_array_equal(daily.series, legacy.series)
+    assert daily.hac.t != legacy.hac.t  # only the standard error moved
+    assert legacy.hac.lag == timing_test(weights, fwd, has, trade, **kw).hac.lag
+
+
+def test_daily_statistic_needs_one_bar_per_session():
+    weights, fwd, has, trade = _daily_case(s_n=400)
+
+    def rep(a):
+        return np.repeat(a, 2, axis=0)
+
+    with pytest.raises(ValueError, match="bars_per_session must be 1"):
+        timing_test(
+            rep(weights),
+            rep(fwd),
+            np.repeat(has, 2),
+            np.repeat(trade, 2),
+            bars_per_session=2,
+            warmup_sessions=60,
+            memory_sessions=21,
+            min_history_sessions=30,
+            overlap_sessions=4,
+        )
