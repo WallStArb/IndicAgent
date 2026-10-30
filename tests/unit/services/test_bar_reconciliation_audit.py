@@ -1072,7 +1072,7 @@ def test_a_mismatched_archive_bucket_fails_grid_parity_and_is_named():
     name = _agreeing_name()
     key = next(iter(name["archive"]["15m"]))
     values = list(name["archive"]["15m"][key])
-    values[4] += 1.0
+    values[4] += 3.0
     name["archive"]["15m"][key] = tuple(values)
     run = _intraday(_IntradayConn({"AAA": name}))
     verdict = _verdict(run, "AAA|15m", "grid_parity")
@@ -1130,7 +1130,7 @@ def test_an_ibkr_sourced_bucket_that_mismatches_still_fails_beside_sip_buckets()
     name["rows"] = _sip(rows, lambda i: i >= half)  # first session ibkr, second session SIP
     key = next(iter(name["archive"]["15m"]))  # a bucket in the ibkr-sourced first session
     values = list(name["archive"]["15m"][key])
-    values[4] += 1.0
+    values[4] += 3.0
     name["archive"]["15m"][key] = tuple(values)
     run = _intraday(_IntradayConn({"AAA": name}))
     verdict = _verdict(run, "AAA|15m", "grid_parity")

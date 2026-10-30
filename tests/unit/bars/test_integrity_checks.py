@@ -507,10 +507,31 @@ def test_grid_parity_identical_buckets_have_no_mismatch():
     assert grid_parity(derived, dict(derived), timeframe="15m") == (2, 0)
 
 
-def test_grid_parity_one_differing_volume_is_one_mismatch():
+def test_grid_parity_volume_beyond_the_rounding_slack_is_one_mismatch():
     derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
-    archived = {_T0: _BAR, _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 101.0)}
+    archived = {_T0: _BAR, _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 103.0)}
     assert grid_parity(derived, archived, timeframe="15m") == (2, 1)
+
+
+def test_grid_parity_volume_rounding_within_constituents_minus_one_passes_either_way():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
+    archived = {
+        _T0: (1.0, 2.0, 0.5, 1.5, 102.0),
+        _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 98.0),
+    }
+    assert grid_parity(derived, archived, timeframe="15m") == (2, 0)
+
+
+def test_grid_parity_1h_slack_is_eleven_shares():
+    archived_ok = {_T0: (1.0, 2.0, 0.5, 1.5, 111.0)}
+    archived_bad = {_T0: (1.0, 2.0, 0.5, 1.5, 112.0)}
+    assert grid_parity({_T0: _BAR}, archived_ok, timeframe="1h") == (1, 0)
+    assert grid_parity({_T0: _BAR}, archived_bad, timeframe="1h") == (1, 1)
+
+
+def test_grid_parity_prices_stay_exact_whatever_the_volume():
+    archived = {_T0: (1.0, 2.0, 0.5, 1.5000001, 100.0)}
+    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1)
 
 
 def test_grid_parity_1h_compares_only_the_shared_keys():
@@ -864,3 +885,8 @@ def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
     verdict = _by_check(report)["alpaca_basis_run"]
     assert not verdict.passed and verdict.metric_value == 1
     assert [(r.start, r.end) for r in report.alpaca_runs] == [(_AFTER[0], _AFTER[19])]
+
+
+def test_grid_parity_a_missing_volume_is_a_mismatch_not_a_pass():
+    archived = {_T0: (1.0, 2.0, 0.5, 1.5, float("nan"))}
+    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1)

@@ -24,3 +24,8 @@ volume passes when the archive minus derived lies in [0, constituents - 1]. Anyt
 fails. Measure the 1h grid the same way before fixing the bound, and count how many of the 144
 names clear under the rule and how many still fail for real. Substantive diff: simplify, review,
 full unit suite.
+
+Landed 2026-10-30: `grid_parity` keeps prices exact and bounds volume at n - 1 shares for a bucket of n 5m
+bars (15m: 2, 1h: 11); a NaN volume counts as a mismatch. Review notes, not acted on: the 1h bound is not measured
+(the 15m maximum of 2 is), and the 09:30 half-hour bucket could carry a tighter bound of 5. Remaining: the next
+intraday sweep recounts which of the 144 names still fail (AAP expected); close this todo after that read.

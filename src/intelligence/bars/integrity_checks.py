@@ -511,19 +511,26 @@ def grid_parity(
 ) -> tuple[int, int]:
     """(n_compared, n_mismatched) over the buckets both sides hold, on the archive's keys.
 
-    15m must match exactly on every shared bucket. 1h is compared on shared buckets only (the
-    vendor's 1h grid lacks the 09:30 half hour on 39 of 231 measured names); a bucket one side
-    lacks is never counted either way. Values are (open, high, low, close, volume), exact.
+    Open, high, low and close must match exactly on every shared bucket. Volume may differ by up
+    to n - 1 shares for a bucket of n 5m bars (todo 569): the vendor rounds fractional-share
+    volume once per bucket while the derived value sums rounded 5m bars. 1h is compared on
+    shared buckets only (the vendor's 1h grid lacks the 09:30 half hour on 39 of 231 measured
+    names); a bucket one side lacks is never counted either way. Values are (open, high, low,
+    close, volume).
 
     The caller decides which derived buckets are like-for-like: the audit passes only buckets made
     entirely of ibkr-sourced 5m bars, because the reference is IBKR's own trades aggregate and SIP
-    5m bars (canonical from 2016-01-04) legitimately differ from it. Exactness is never loosened.
+    5m bars (canonical from 2016-01-04) legitimately differ from it. Price exactness is never loosened.
     """
     if timeframe not in _BUCKET_SECONDS:
         raise ValueError(f"grid_parity is defined for {sorted(_BUCKET_SECONDS)}, not {timeframe!r}")
+    volume_slack = _BUCKET_SECONDS[timeframe] // _FIVE_MINUTES - 1
     shared = derived.keys() & archived.keys()
     mismatched = sum(
-        1 for key in shared if tuple(map(float, derived[key])) != tuple(map(float, archived[key]))
+        1
+        for key in shared
+        if tuple(map(float, derived[key][:4])) != tuple(map(float, archived[key][:4]))
+        or not abs(float(derived[key][4]) - float(archived[key][4])) <= volume_slack
     )
     return len(shared), mismatched
 
