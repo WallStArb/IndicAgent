@@ -217,6 +217,16 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 
 ## Decisions waiting on the owner
 
+- OWNER DECISION 2026-10-30 (supersedes the research-lane items below): no hypothesis tests on real data until
+  the data and features are clean and complete; earlier family results (family 2's run of 2026-10-29,
+  family 1) were made on incomplete data and an unsettled universe and are not evidence; start the testing
+  program from scratch later. Statistics infrastructure (E17 daily statistic, StepM attestation) stays,
+  since it is certified on synthetic data. Restart conditions: (1) 186-26 complete on all timeframes,
+  including the 229 D7-hold names and the 16 recent listings, with todo 564's kernel batch (hma_slope_z,
+  dead columns, calendar start 2000, config field rename, delete list for the NULL-volume code) applied
+  once before the intraday stage; (2) phase 191 plans 22 and 23 and the 71 held-name 1d gaps (todo 566);
+  (3) a fixed, written universe; (4) the vintage question: whether a fresh vintage starts so earlier looks
+  do not count against the new StepM universe (owner call, E18).
 - Research lane (2026-10-30): the E17 daily statistic landed (`d2f3ff0b1`, flat-top kernel plus influence
   series; todo 547) and cut the daily battery from 40+ size failures to 3 marginal ones (gaussian
   `reversal_5_skip1` 71 of 1,000 against 67; the two momentum members in s1_hostile, S1 drift). Decide: certify
