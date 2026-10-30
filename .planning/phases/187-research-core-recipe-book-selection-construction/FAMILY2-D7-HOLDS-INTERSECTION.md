@@ -10,5 +10,8 @@ among the 229 plan 191-20 D7 holds (list and failing checks in `FAMILY2-D7-HOLDS
 
 The spec is pre-registered, so the run keeps all 187 names; dropping the 17 would be a new spec
 hash. The held names are disclosed here and the verdict gate already keeps them out of promotion.
-After the run, report the headline with and without the 17 as a descriptive sensitivity (not a
-second look: it is a subset of the same recorded D_s series).
+No with/without-17 sensitivity is planned (decision 2026-10-30). A first plan to derive it from the recorded
+series was wrong: the recorded D_s is the book's cross-sectional total, so names cannot be subtracted from
+it, and a real answer needs a new exploration-mode run on 170 names. It could not change a decision: no
+member is significant in the preregistered direction, nothing is promoted from this run, and the verdict
+gate already keeps held names out of promotion.
