@@ -34,6 +34,8 @@ Recount 2026-10-30 (SQL approximation, 15m, IBKR era before 2016-01-04, the 79 n
 as failing): with prices exact and volume within 2 shares, 68 of 79 names clear. 11 still fail: VIXY (6,110
 buckets differ in price both ways by up to about 1% on thin trading: a vendor aggregation difference, not
 derivation bias), DBC, DBA, DBB, CWB, EDV (20 to 48 price buckets each), HD, HON, ISRG (4 each), AAP (3 price,
-15 volume up to 40,700 shares) and MARA (1). The 1h grid is not recounted; the 02:00 ET audit does the exact
-read. The 11 are real small vendor disagreements; decide per name whether they hold or are classified, after
+15 volume up to 40,700 shares) and MARA (1). The 1h grid is not recounted by SQL: a first attempt counted volume-0
+placeholder bars (92,083 of ITA's 185,724 raw 5m rows) as constituents and showed false price mismatches on 65 of
+79 names; with traded bars only and full buckets ITA has 0 of 1,089. Do not recount 1h outside the audit; the
+02:00 ET audit does the exact read. The 11 are real small vendor disagreements; decide per name whether they hold or are classified, after
 the audit confirms the list.
