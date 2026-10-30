@@ -99,3 +99,20 @@ the owner decision listed in STATE.md. Next step for whoever resumes: certify a 
 above on this battery at 4,736 sessions (cells `daily_gaussian`, `daily_hostile`, `daily_s1_hostile` first),
 with `repro_frozen` bit-identical for intraday statistics, then take the amendment to the owner. No real-data
 number for any daily member exists.
+
+## Paired lag scan at the real length (2026-10-30, exploratory, not a counted look)
+
+`scripts/research/e17_lag_scan.py`: 200 simulations per cell at 4,736 sessions, h = 5, seeds from 70,000,000,
+one set of D_s series scored under extra Bartlett lags (paired). Mean one-sided rejection at 0.05 over the six
+arms, with sd of t:
+
+| Cell | L (current) | L + 4 | L + 8 | L + 12 | L + 20 |
+|---|---|---|---|---|---|
+| daily_gaussian | 5.7% (1.11) | 5.1% (1.08) | 4.9% (1.07) | 4.8% (1.06) | 4.6% (1.06) |
+| daily_hostile | 6.7% (1.11) | 6.1% (1.08) | 5.7% (1.07) | 5.3% (1.06) | 5.3% (1.05) |
+| daily_s1_hostile | 7.4% (1.15) | 6.9% (1.13) | 6.8% (1.12) | 6.6% (1.11) | 6.3% (1.09) |
+
+(The per-cell interval is about +-1.5 points at 200 simulations.) A longer lag brings gaussian and hostile to
+about 5% but not the S1 cell, and sd of t stays above 1 even at L + 20. So the excess is not only the Bartlett
+lag: there is a variance source in the statistic or in S1's residuals that serial correlation does not explain.
+Do not take a lag-only amendment to the owner until that is found.
