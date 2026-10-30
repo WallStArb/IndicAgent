@@ -217,7 +217,13 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
 
 ## Decisions waiting on the owner
 
-- OWNER DECISION 2026-10-30 (supersedes the research-lane items below): no hypothesis tests on real data until
+- RESET DONE 2026-10-30 (migration 544): the research ledger is empty (54 `research_run` and 22 `research_run_series`
+  rows deleted, backup in `data/backups/reset-2026-10-30/`; real-data result files moved to `files/` there; panel
+  snapshot caches deleted). Not reset, owner call with the data lane: the concept layer (306 `active` concept
+  statuses and 590 `concept_evaluation` rows from the old feature corpus; `feature_factory` reads the statuses, so
+  change them with the 186-26 rebuild through `ConceptRegistryService`), and the frozen sections of
+  `docs/research/construction-verdict-ledger.md` (todo 568). `.planning/gate_look_log.jsonl` stays: it records looks
+  at the forward span, and deleting rows does not un-see data.  the research-lane items below): no hypothesis tests on real data until
   the data and features are clean and complete; earlier family results (family 2's run of 2026-10-29,
   family 1) were made on incomplete data and an unsettled universe and are not evidence; start the testing
   program from scratch later. Statistics infrastructure (E17 daily statistic, StepM attestation) stays,

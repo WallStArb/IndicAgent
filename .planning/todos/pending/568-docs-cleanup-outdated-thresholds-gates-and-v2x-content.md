@@ -36,3 +36,11 @@ sleeve-walk-forward-prereg.md` (FROZEN), `docs/plans/SHADOW-REVIEW.md` (FROZEN),
 
 Also sweep todo files in `.planning/todos/pending/` whose diagnostics are older than their decision
 (547, 560 and 564 carry multi-round logs; reduce to status, decision and numbers a disclosure needs).
+
+## Reset follow-ups (2026-10-30)
+
+After migration 544 emptied the ledger, these still describe voided results: `docs/research/construction-verdict-ledger.md`
+(frozen sections 2 and 4; owner lifts the freeze or marks them void in one header line), `docs/research/summary-cards/`,
+`FAMILY2-*` files in phase 187, the `research_run` row counts in `tests/unit/research/test_spec_hashes_pinned.py`'s
+docstring. Reduce each to a status line plus a pointer to `data/backups/reset-2026-10-30/`. The concept layer reset
+(306 active statuses, 590 evaluations) is a separate item for the data lane with the 186-26 rebuild.
