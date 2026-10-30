@@ -2082,7 +2082,7 @@ def _day(i: int) -> datetime:
 def test_fetch_bar_arrays_turns_null_volume_into_nan_and_maps_the_basis():
     rows = [
         (_day(0), 10.0, 11.0, 9.0, 10.5, 1000, "alpaca", "sip_rth"),
-        (_day(1), 10.5, 11.5, 10.0, 11.0, None, "ibkr", "fallback"),
+        (_day(1), 10.5, 11.5, 10.0, 11.0, None, "ibkr", "venue"),
         (_day(2), 11.0, 12.0, 10.5, 11.5, 800, "ibkr", "named"),
     ]
     arrays, times = module._fetch_bar_arrays(
