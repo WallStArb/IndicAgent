@@ -134,7 +134,7 @@ Production procedures: deployment, monitoring, troubleshooting. Files carry an `
 | `operations-disaster-recovery.md` | DR procedures (table-specific backup examples carry a staleness note) |
 | `operations-memory-performance.md` | Memory subsystem performance |
 | `operations-i7-emission-gates.md` | I7 emission gates (stale, v2.x) |
-| `operations-promotion-protocol.md` | Alpha promotion protocol, swarm (Path B) to kernel (Path A) (stale, v2.x) |
+| `operations-promotion-protocol.md` | Promotion protocol: StepM selection, positive net expectation, one forward confirmation |
 
 ### `development/` — stable — Developer HOW
 
