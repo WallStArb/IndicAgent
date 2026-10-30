@@ -6,10 +6,15 @@ tests/integration/test_ohlcv_coverage_atomic_write.py.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from services.ohlcv_coverage_writer import (
+    FETCH_STATUSES,
     REBUILD_PROVIDERS,
+    count_new_slots,
+    fetch_status_for_outcome,
     rebuild_from_stored_state,
     refresh_1d_bounds,
 )
@@ -108,3 +113,57 @@ def test_refresh_1d_zeroes_a_symbol_the_provider_holds_no_1d_raw_for():
     _refresh, (sql, params) = cur.calls
     assert "c.timeframe = '1d'" in sql and "NOT EXISTS" in sql
     assert params == {"provider": "ibkr", "symbols": ["QRVO"], "not_coverage": ["smart_adjusted"]}
+
+
+class _HeldCursor(_Cursor):
+    def __init__(self, held: list[tuple[datetime, int]]) -> None:
+        super().__init__()
+        self._held = held
+
+    def fetchall(self) -> list[tuple[datetime, int]]:
+        return self._held
+
+
+_S0 = datetime(2025, 6, 2, 13, 30, tzinfo=UTC)
+_S1 = datetime(2025, 6, 2, 13, 35, tzinfo=UTC)
+
+
+def test_a_stamp_the_provider_held_under_another_kind_adds_no_slot():
+    # _S0 was held before (one row now beside the new one); _S1 is new in both rows and stamp
+    cur = _HeldCursor([(_S0, 2), (_S1, 1)])
+    assert count_new_slots(cur, "AAA", "5m", "alpaca", [_S0, _S1]) == 1
+    ((sql, params),) = cur.calls
+    assert "vendor = %s" in sql and params[:3] == ("AAA", "5m", "alpaca")
+
+
+def test_two_kinds_new_at_one_stamp_make_one_slot():
+    cur = _HeldCursor([(_S0, 2)])
+    assert count_new_slots(cur, "AAA", "5m", "alpaca", [_S0, _S0]) == 1
+
+
+def test_no_new_rows_issue_no_sql():
+    cur = _HeldCursor([])
+    assert count_new_slots(cur, "AAA", "5m", "alpaca", []) == 0
+    assert cur.calls == []
+
+
+def test_outcome_status_is_the_one_mapping_the_rebuild_is_generated_from():
+    cur = _Cursor()
+    rebuild_from_stored_state(cur, ["AAA"], provider="alpaca")
+    sql = cur.calls[0][0]
+    assert (
+        "CASE outcome WHEN 'bars' THEN 'ok' WHEN 'no_data' THEN 'no_data' "
+        "WHEN 'timeout' THEN 'error' WHEN 'failed' THEN 'error' END" in sql
+    )
+    assert "outcome IN ('bars', 'no_data', 'timeout', 'failed')" in sql
+    assert fetch_status_for_outcome("bars") == "ok"
+    assert fetch_status_for_outcome("no_data") == "no_data"
+    assert fetch_status_for_outcome("timeout") == fetch_status_for_outcome("failed") == "error"
+    assert fetch_status_for_outcome("skipped") is None  # the rebuild ignores it too
+    assert {"ok", "no_data", "error"} == set(FETCH_STATUSES)
+
+
+def test_a_stored_stamp_that_is_not_a_chunk_key_raises_instead_of_counting_zero():
+    naive = _S0.replace(tzinfo=None)
+    with pytest.raises(KeyError):
+        count_new_slots(_HeldCursor([(naive, 1)]), "AAA", "5m", "alpaca", [_S0])

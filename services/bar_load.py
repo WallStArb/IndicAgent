@@ -7,7 +7,7 @@ import pandas as pd
 
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_coverage_writer import DESTINATION_RAW as COVERAGE_DESTINATION_RAW
-from services.ohlcv_coverage_writer import CoverageDelta
+from services.ohlcv_coverage_writer import CoverageDelta, refresh_1d_bounds
 from services.ohlcv_ingress_contract import IngressResult, RawContractParams
 from services.ohlcv_raw_writer import RawRow
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
@@ -159,7 +159,9 @@ def load_frame(
     campaign artifact's recorded fetch time), required for a write: raw is last-wins by serve
     time, so replaying an old artifact after a newer serve logs the older values as superseded
     and leaves raw unchanged. `coverage` adds the same-transaction ohlcv_coverage upsert for the
-    series (labeled with the vendor); a raw-only capture such as the nightly 1d passes False.
+    series (labeled with the vendor); a raw-only capture passes False. A 1d series is not widened
+    chunk by chunk: its bounds are recomputed after the load (refresh_1d_bounds), because only the
+    kinds that cover a session count and a vendor may restate a history.
     Rerunning is idempotent: an unchanged row writes nothing.
     """
     if not write:
@@ -185,13 +187,18 @@ def load_frame(
                     fetched_at=datetime.now(UTC),
                     provider=vendor,
                 )
-                if coverage
+                if coverage and timeframe != "1d"
                 else None
             ),
         )
         result = result.plus(persisted.ingress)
         if on_chunk:
             on_chunk(start + len(chunk), len(rows))
+    if coverage and timeframe == "1d" and rows:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL ROLE bar_derivation_writer")
+                refresh_1d_bounds(cur, [symbol], provider=vendor)
     return result
 
 

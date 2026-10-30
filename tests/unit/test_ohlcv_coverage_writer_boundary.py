@@ -133,7 +133,7 @@ def test_coverage_is_per_source_over_ohlcv_raw_only():
     ):
         assert gone not in source, gone
     scans = re.findall(r"FROM ohlcv_raw\s+WHERE ([^\n]*)", source)
-    assert len(scans) == 2, scans  # the 1d refresh and the rebuild
+    assert len(scans) == 3, scans  # the slot count of a chunk, the 1d refresh and the rebuild
     assert all("vendor = " in scan for scan in scans), scans
 
 
@@ -146,4 +146,6 @@ def test_the_writer_functions_are_the_listed_set():
         "refresh_1d_bounds",
         "rebuild_from_stored_state",
         "reset_failures",
+        "count_new_slots",  # the incremental row_count in distinct slots, as the rebuild counts
+        "fetch_status_for_outcome",  # the rebuild's outcome CASE, for incremental status writes
     }

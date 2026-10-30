@@ -50,7 +50,7 @@ from typing import Any
 import numpy as np
 import psycopg
 
-from services.ohlcv_coverage_writer import CoverageDelta, upsert_coverage
+from services.ohlcv_coverage_writer import CoverageDelta, count_new_slots, upsert_coverage
 from services.ohlcv_ingress_contract import (
     DEFAULT_CALLER,
     IngressResult,
@@ -220,7 +220,8 @@ def _upsert_coverage(
     """Widen the series' stored bounds by the rows the raw write found new (under the bar-writer
     role already set). Coverage counts every row the vendor served, tradeable or not: it
     describes what that vendor holds in ohlcv_raw. Bounds follow the new rows; when none are new
-    they still reflect the offered rows, which are stored."""
+    they still reflect the offered rows, which are stored. row_count counts distinct slots, so a
+    stamp the vendor already held under another kind adds none."""
     new_timestamps = set(ingress.new_timestamps)
     bounds = new_timestamps or {row.timestamp for row in rows}
     upsert_coverage(
@@ -228,5 +229,7 @@ def _upsert_coverage(
         coverage,
         earliest=min(bounds),
         latest=max(bounds),
-        n_new_rows=len(new_timestamps),
+        n_new_rows=count_new_slots(
+            cur, coverage.symbol, coverage.timeframe, coverage.provider, ingress.new_timestamps
+        ),
     )

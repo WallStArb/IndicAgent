@@ -4,8 +4,10 @@ For every active instrument, pulls the recent tail straight from the vendor's
 HistoryProvider leaf and writes it through the load engine -- no scratch, no
 campaign: request rows land via the D1 sink, 5m is offered to ohlcv_raw
 (``load_series``; selection decides canonical), and 1d is raw capture only
-(``load_frame`` without coverage; the engine's writer fence refuses a 1d
-policy, so a vendor daily can never author -- IBKR owns 1d).
+(``load_frame``, which recomputes the vendor's 1d ledger bounds from raw; the
+engine's writer fence refuses a 1d policy, so the nightly never authors a
+daily). The ledger fetch status follows the request rows
+(``_NightlySink.flush``).
 
 The vendor is a CLI choice dispatched through the ``history_leaf`` factory and
 the HistoryProvider protocol; a new capture vendor is one leaf plus one registry
@@ -47,6 +49,7 @@ import psycopg
 
 from services.bar_load import LoadPolicy, load_frame, load_series, load_status
 from services.complete_bar_gate import keep_complete, read_settle
+from services.ohlcv_coverage_writer import fetch_status_for_outcome, record_fetch_outcome
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
@@ -148,7 +151,9 @@ def main() -> int:
             instrument.symbol for instrument in get_active_contracts(settings, dimension="backfill")
         ]
         sink = _NightlySink(
-            RequestSink(conn, caller=CALLER_SINK.format(vendor=args.vendor), source=args.vendor)
+            RequestSink(conn, caller=CALLER_SINK.format(vendor=args.vendor), source=args.vendor),
+            conn,
+            provider=args.vendor,
         )
         policy_5m = LoadPolicy(
             vendor=args.vendor,
@@ -195,17 +200,28 @@ def main() -> int:
 
 class _NightlySink:
     """The request sink plus the id of the last request the leaf reported, so a window's held
-    back partial bars land on the request that answered its newest page."""
+    back partial bars land on the request that answered its newest page. The ledger fetch status
+    follows the request rows: each flush records the newest outcome of every series it wrote, the
+    value a coverage rebuild reads from ohlcv_request."""
 
-    def __init__(self, sink: RequestSink) -> None:
+    def __init__(self, sink: RequestSink, conn, *, provider: str) -> None:
         self._sink = sink
+        self._conn = conn
+        self._provider = provider
         self.last_request_id: str | None = None
         self.last_answered_at: datetime | None = None
+        self._newest: dict[tuple[str, str], tuple[datetime, str]] = {}  # newest status per series
 
     def on_request(self, record) -> None:
         self._sink.on_request(record)
         self.last_request_id = record.request_id
         self.last_answered_at = record.answered_at
+        status = fetch_status_for_outcome(record.outcome)
+        key = (record.symbol, record.timeframe)
+        if status is not None and (
+            key not in self._newest or record.answered_at >= self._newest[key][0]
+        ):
+            self._newest[key] = (record.answered_at, status)
 
     def note_partial(self, partial_text: str) -> None:
         if self.last_request_id is None:
@@ -213,7 +229,17 @@ class _NightlySink:
         self._sink.note_partial(self.last_request_id, partial_text)
 
     def flush(self) -> int:
-        return self._sink.flush()
+        n_requests = self._sink.flush()
+        if self._sink.pending() == 0 and self._newest:
+            with self._conn.transaction():
+                with self._conn.cursor() as cur:
+                    cur.execute("SET LOCAL ROLE bar_derivation_writer")
+                    for (symbol, timeframe), (answered_at, status) in self._newest.items():
+                        record_fetch_outcome(
+                            cur, symbol, timeframe, status, answered_at, provider=self._provider
+                        )
+            self._newest.clear()
+        return n_requests
 
 
 def summary_line(summary: dict, *, apply: bool) -> str:
@@ -329,7 +355,6 @@ async def _run(
                             caller=CALLER_1D.format(vendor=policy_5m.vendor),
                             write=True,
                             answered_at=answered_at,
-                            coverage=False,
                             params=params,
                             kind=policy_5m.kind,  # the 1d capture carries the feed's basis too
                         )

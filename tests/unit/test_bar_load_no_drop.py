@@ -179,3 +179,63 @@ def test_alpaca_rows_need_an_explicit_kind() -> None:
     frame = _frame(["2026-10-09 13:30:00"])
     with pytest.raises(ValueError, match="explicit kind"):
         frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m")
+
+
+class _Conn:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def transaction(self):
+        return self
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+
+
+def test_a_1d_load_refreshes_the_vendors_bounds_instead_of_widening_them(persisted, monkeypatch):
+    refreshed: list[tuple] = []
+    monkeypatch.setattr(
+        bar_load,
+        "refresh_1d_bounds",
+        lambda cur, symbols, *, provider: refreshed.append((list(symbols), provider)),
+    )
+    conn = _Conn()
+    load_frame(
+        conn,
+        "SPY",
+        _frame(["2026-10-09 00:00:00"]),
+        vendor="alpaca",
+        timeframe="1d",
+        caller="x-1d",
+        write=True,
+        answered_at=ANSWERED,
+        kind="sip_rth",
+    )
+    assert persisted.calls[0]["coverage"] is None  # no per-chunk delta for a 1d series
+    assert refreshed == [(["SPY"], "alpaca")]
+    assert conn.statements == ["SET LOCAL ROLE bar_derivation_writer"]
+
+
+def test_a_raw_only_1d_load_leaves_the_ledger_alone(persisted, monkeypatch):
+    monkeypatch.setattr(bar_load, "refresh_1d_bounds", lambda *a, **k: pytest.fail("refreshed"))
+    load_frame(
+        _Conn(),
+        "SPY",
+        _frame(["2026-10-09 00:00:00"]),
+        vendor="alpaca",
+        timeframe="1d",
+        caller="x-1d",
+        write=True,
+        answered_at=ANSWERED,
+        coverage=False,
+        kind="sip_rth",
+    )

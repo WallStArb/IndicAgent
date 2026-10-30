@@ -36,6 +36,7 @@ TARGET STAYS THE OLD SHAPE (symbol, timeframe) in this plan: see the comment on 
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,6 +48,30 @@ from src.intelligence.bars.gap_plan import DAILY_NOT_COVERAGE_KINDS
 # failure (CD-05); only 'error' counts toward infra.backfill.max_consecutive_failures.
 FETCH_STATUSES = ("ok", "no_data", "error")
 _ERROR_STATUS = "error"
+
+# The ledger fetch status of each recorded request outcome (src/providers/base.py's outcome
+# contract). The one definition: the rebuild's CASE and outcome filter are generated from it, so an
+# incremental status write and a rebuild cannot disagree.
+_OUTCOME_STATUS = {
+    "bars": "ok",
+    "no_data": "no_data",
+    "timeout": _ERROR_STATUS,
+    "failed": _ERROR_STATUS,
+}
+_OUTCOME_LIST = ", ".join(f"'{outcome}'" for outcome in _OUTCOME_STATUS)
+_OUTCOME_CASE = (
+    "CASE outcome "
+    + " ".join(f"WHEN '{outcome}' THEN '{status}'" for outcome, status in _OUTCOME_STATUS.items())
+    + " END"
+)
+
+
+def fetch_status_for_outcome(outcome: str) -> str | None:
+    """The ledger fetch status of a recorded request outcome, or None for an outcome the rebuild
+    ignores (it reads only the contract's four), so an incremental write never records what a
+    rebuild would not."""
+    return _OUTCOME_STATUS.get(outcome)
+
 
 # Every fetched bar lands in ohlcv_raw, keyed by the vendor that served it (schema identifier,
 # APR-exempt). The one destination is kept as the delta's declared target so a caller that
@@ -161,6 +186,31 @@ def record_fetch_outcome(
     cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures, provider))
 
 
+_HELD_ROWS_SQL = """
+SELECT "timestamp", count(*) FROM ohlcv_raw
+WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" = ANY(%s)
+GROUP BY "timestamp"
+"""
+
+
+def count_new_slots(
+    cur: Any, symbol: str, timeframe: str, provider: str, new_timestamps: Iterable[datetime]
+) -> int:
+    """Distinct slots a chunk added to the provider's series, which is what row_count counts.
+
+    `new_timestamps` lists one entry per newly inserted raw row, so a stamp the provider already
+    held under another kind (alpaca sip_rth and iex_rth share stamps) appears new while adding no
+    slot. A stamp is a new slot only when every row the provider holds there is one of this
+    chunk's new rows; call after the raw write, in its transaction.
+    """
+    inserted = dict(Counter(new_timestamps))
+    if not inserted:
+        return 0
+    cur.execute(_HELD_ROWS_SQL, (symbol, timeframe, provider, list(inserted)))
+    # a stored stamp that is not one of the chunk's keys (a naive or shifted datetime) raises
+    return sum(1 for stamp, held in cur.fetchall() if held == inserted[stamp])
+
+
 _NOT_COVERAGE = list(DAILY_NOT_COVERAGE_KINDS)
 
 _REFRESH_1D_SQL = """
@@ -239,11 +289,7 @@ WITH bars AS (
 requests AS (
     SELECT DISTINCT ON (symbol, timeframe)
            symbol, timeframe, answered_at,
-           CASE outcome
-               WHEN 'bars' THEN 'ok'
-               WHEN 'no_data' THEN 'no_data'
-               ELSE 'error'
-           END AS status
+           __OUTCOME_CASE__ AS status
     FROM ohlcv_request
     {request_where}
     ORDER BY symbol, timeframe, answered_at DESC
@@ -272,15 +318,16 @@ ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
         ELSE ohlcv_coverage.last_fetch_status
     END
 """
+_REBUILD_SQL = _REBUILD_SQL.replace("__OUTCOME_CASE__", _OUTCOME_CASE)
 # Per-provider rebuild inputs: the provider's own request shape decides which ohlcv_request rows
 # advance the fetch status. A provider whose requests are not recorded in ohlcv_request (the
 # Alpaca loader writes none) advances nothing and keeps its stored status.
 _REBUILD_FILTERS: dict[str, str] = {
     "ibkr": (
         "WHERE source = 'ibkr' AND route = 'SMART' AND what_to_show = 'TRADES' "
-        "AND outcome IN ('bars', 'no_data', 'timeout', 'failed')"
+        f"AND outcome IN ({_OUTCOME_LIST})"
     ),
-    "alpaca": "WHERE source = 'alpaca' AND outcome IN ('bars', 'no_data', 'timeout', 'failed')",
+    "alpaca": f"WHERE source = 'alpaca' AND outcome IN ({_OUTCOME_LIST})",
 }
 REBUILD_PROVIDERS: tuple[str, ...] = tuple(_REBUILD_FILTERS)
 

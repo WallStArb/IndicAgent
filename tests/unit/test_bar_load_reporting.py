@@ -37,6 +37,33 @@ def test_load_status_is_applied_whatever_was_flagged():
     assert load_status(apply=True) == "APPLIED"
 
 
+class _Cursor:
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self._conn.statements.append(sql)
+
+
+class _Conn:
+    """The slice of a psycopg connection the ledger writes use: a transaction and a cursor."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def transaction(self):
+        return _Cursor(self)
+
+    def cursor(self):
+        return _Cursor(self)
+
+
 def test_nightly_summary_counts_flagged_series_and_stays_applied(monkeypatch):
     def fake_series(conn, policy, symbol, frame, *, params, write, answered_at=None):
         return LoadResult().plus(_flagged(len(frame)))
@@ -147,7 +174,13 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
 
         async def fetch_ohlcv(self, request, budget):
             self.sink.on_request(
-                SimpleNamespace(request_id=f"req-{request.timeframe}", answered_at=now)
+                SimpleNamespace(
+                    request_id=f"req-{request.timeframe}",
+                    answered_at=now,
+                    symbol=request.symbol,
+                    timeframe=request.timeframe,
+                    outcome="bars",
+                )
             )
             return pages[request.timeframe]
 
@@ -156,8 +189,17 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
         on_request=lambda record: None,
         note_partial=lambda rid, text: noted.append((rid, text)),
         flush=lambda: 0,
+        pending=lambda: 0,
     )
-    sink = ops_bar_nightly._NightlySink(inner)
+    statuses: list[tuple] = []
+    monkeypatch.setattr(
+        ops_bar_nightly,
+        "record_fetch_outcome",
+        lambda cur, symbol, timeframe, status, at, *, provider: statuses.append(
+            (symbol, timeframe, status, provider)
+        ),
+    )
+    sink = ops_bar_nightly._NightlySink(inner, _Conn(), provider="alpaca")
     policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
     summary = asyncio.run(
         ops_bar_nightly._run(
@@ -213,3 +255,61 @@ def test_a_basis_change_flag_makes_the_load_partial_and_fails_the_night():
 def test_superseded_offers_are_counted_across_chunks():
     ingress = IngressResult(4, 0, 0, 0, 0, n_superseded=4)
     assert LoadResult().plus(ingress).plus(ingress).n_superseded == 8
+
+
+def _record(symbol, timeframe, outcome, at):
+    return SimpleNamespace(
+        request_id=f"{symbol}-{timeframe}-{at.minute}",
+        answered_at=at,
+        symbol=symbol,
+        timeframe=timeframe,
+        outcome=outcome,
+    )
+
+
+def _sink(monkeypatch, *, pending=0):
+    written: list[tuple] = []
+    monkeypatch.setattr(
+        ops_bar_nightly,
+        "record_fetch_outcome",
+        lambda cur, symbol, timeframe, status, at, *, provider: written.append(
+            (symbol, timeframe, status, at.minute, provider)
+        ),
+    )
+    inner = SimpleNamespace(
+        on_request=lambda record: None, flush=lambda: 3, pending=lambda: pending
+    )
+    conn = _Conn()
+    return ops_bar_nightly._NightlySink(inner, conn, provider="alpaca"), written, conn
+
+
+def test_a_flush_records_the_newest_outcome_of_each_series_as_the_ledger_status(monkeypatch):
+    sink, written, conn = _sink(monkeypatch)
+    t = datetime(2026, 10, 30, 4, 40, tzinfo=UTC)
+    sink.on_request(_record("CCO", "5m", "bars", t))
+    sink.on_request(_record("CCO", "5m", "no_data", t + timedelta(minutes=2)))
+    sink.on_request(_record("CCO", "1d", "timeout", t + timedelta(minutes=1)))
+    assert sink.flush() == 3
+    assert sorted(written) == [
+        ("CCO", "1d", "error", 41, "alpaca"),
+        ("CCO", "5m", "no_data", 42, "alpaca"),
+    ]
+    assert conn.statements == ["SET LOCAL ROLE bar_derivation_writer"]
+    sink.flush()
+    assert len(written) == 2  # nothing left to record
+
+
+def test_a_late_arriving_older_record_does_not_move_the_status_back(monkeypatch):
+    sink, written, _ = _sink(monkeypatch)
+    t = datetime(2026, 10, 30, 4, 40, tzinfo=UTC)
+    sink.on_request(_record("CCO", "5m", "no_data", t + timedelta(minutes=5)))
+    sink.on_request(_record("CCO", "5m", "bars", t))
+    sink.flush()
+    assert written == [("CCO", "5m", "no_data", 45, "alpaca")]
+
+
+def test_no_status_is_written_while_request_rows_are_still_buffered(monkeypatch):
+    sink, written, conn = _sink(monkeypatch, pending=2)
+    sink.on_request(_record("CCO", "5m", "bars", datetime(2026, 10, 30, 4, 40, tzinfo=UTC)))
+    sink.flush()
+    assert written == [] and conn.statements == []

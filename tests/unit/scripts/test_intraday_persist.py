@@ -397,6 +397,12 @@ def recorded_upserts(monkeypatch):
         )
 
     monkeypatch.setattr(_intraday_persist, "upsert_coverage", _record)
+    # one stamp is one slot here; the real count (a stamp held under another kind) is tested below
+    monkeypatch.setattr(
+        _intraday_persist,
+        "count_new_slots",
+        lambda cur, symbol, timeframe, provider, stamps: len(set(stamps)),
+    )
     return calls
 
 
@@ -418,8 +424,8 @@ def test_coverage_write_is_the_third_write_inside_the_same_transaction(contract)
         "<copy done>",
     ]
     assert inside[6] == "SET LOCAL ROLE bar_derivation_writer"
-    assert inside[7].lstrip().startswith("INSERT INTO ohlcv_coverage")
-    assert len(inside) == 8
+    held, upsert = inside[7:]
+    assert "FROM ohlcv_raw" in held and upsert.lstrip().startswith("INSERT INTO ohlcv_coverage")
 
 
 def test_no_coverage_means_no_coverage_sql(contract):

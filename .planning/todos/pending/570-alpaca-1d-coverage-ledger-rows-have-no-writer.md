@@ -19,3 +19,12 @@ Alpaca 1d load and the daily derivation timer must write the ledger row through
 `upsert_coverage`, or the next night's audit fails every name again. Find the Alpaca 1d writer,
 route it through the ledger writer, and test that a 1d load leaves a row the audit's rebuild
 reproduces.
+
+Landed 2026-10-30: the writers now match the rebuild. `load_frame` refreshes a 1d series' bounds with
+`refresh_1d_bounds` (the nightly no longer passes `coverage=False`); `count_new_slots` makes the incremental
+row_count count distinct slots (AAPL: 258 iex_rth rows at stamps sip_rth already held); the nightly sink
+records each series' newest request outcome as the ledger status, from one outcome mapping the rebuild's SQL is
+generated from. Review findings not acted on, by design: status follows request rows even on a dry run (the
+rebuild derives it from them); the 1d refresh is a separate idempotent transaction after the raw write.
+Remaining: the one-off rebuild (queued behind the fetcher lock) repairs the existing drift; close this todo
+after the next full audit reads coverage_cache clean.
