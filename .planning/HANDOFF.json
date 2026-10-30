@@ -1,30 +1,37 @@
 {
-  "version": "1.0",
-  "timestamp": "2026-10-28T17:20:00Z",
-  "phase": "191",
-  "phase_name": "unified-raw-bar-table",
-  "plan": "191-20 done 2026-10-29: D7 passes for 1,273 of 1,502 names, 229 named holds (191-20-D7-HOLDS.tsv); next 191-21",
-  "status": "paused",
-  "remaining_tasks": [
-    "Plan 191-21 next (then 22, 23; 186-26 waits on 21 and 23)",
-    "Spin-off gap after the Tradier delete (fourth review M2, todo 545 follow-up)",
-    "Holds name by name: todo 557 for the 30 interim daily holds"
-  ],
-  "blockers": [],
-  "human_actions_pending": [],
-  "uncommitted_files": [],
-  "next_action": "Resume with two sessions only; see STATE.md 'Restart order'. Session A (data): reset shared checkout after stepm-diag-561b exits, then 191-21 -> 22 -> 23, then 186-26. Session B (research): D7 notice, 555/560 check, todos 561/562, family 2. Delete data/backups Tradier dump and worktree-salvage-20261029 about 2026-11-12.",
-  "context_notes": "Plan 19 readiness green 2026-10-28 (1,522/0/7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by listing_end). Residue after D-191-Q: 314,522 Tradier-only sessions on 799 names, 90% pre-2016, much of it predecessor splices. Shared checkout local main carries other sessions' unpushed commits: commit and push from a scratch worktree off origin/main. Kill processes by PID, never pgrep -f/pkill -f patterns that match your own shell.",
-  "next_steps": [],
-  "history_2026_10_16": [
-    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
-  ],
-  "completed_tasks": [
-    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
-    "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
-    "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
-    "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
-    "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
-    "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
-  ]
+ "version": "1.0",
+ "timestamp": "2026-10-30T11:30:00Z",
+ "phase": "191",
+ "phase_name": "unified-raw-bar-table",
+ "plan": "191-20 to 191-23 done; 186-26 stages 1 and 1b built (1d, 1,314 names, pinned tree /home/bg/dev/indicagent-186-26 at 92e588385); both lanes paused 2026-10-30 at the owner's usage limit",
+ "status": "paused",
+ "remaining_tasks": [
+  "Read the bar audit's intraday report (logs/bar_reconciliation_audit.log, event bar_integrity.report_intraday) and the 02:00 ET run after the new 05:20 UTC daily derivation timer; names that pass every intraday verdict get the next 186-26 stage from the pinned tree (intraday tfs, same horizon 2026-10-01 unless the owner moves it).",
+  "Hold list: recount against the era-scoped session_coverage (191-SESSION-COVERAGE-ERA-FAILS.tsv); 156 names still fail, 71 todo 566 names clear after the derive; build newly clean names as their own stage with only the new names in --symbols (never re-chunk a merged list).",
+  "Drift: 27 stage 1 names grew history (todo 566 list); delete their feature rows and rebuild at the 186-27 drift read.",
+  "Todo 564 kernel-edit batch (hma_slope_z NaN warmup, dead-column applicability, config field rename, _PMC_RANGE_START 2005 to 2000): recount the 1d session_coverage era first, then one batch, then a new pin.",
+  "Plans 191-24 and 191-25 (dead Tradier code in fetcher scripts and ops scripts) last; 24 needs a fetcher stop window."
+ ],
+ "blockers": [],
+ "human_actions_pending": [
+  "E17 horizon-tied HAC lag amendment (todo 547): the daily residual spec's B2 size battery fails at h=5 without it",
+  "Todo 562: multi-family power plant decision",
+  "Plan 191-25: approve deleting the Tradier arm of daily_rule (plans 21 to 25 forbid editing it)",
+  "listing_venue official-close source (the writer now leaves a moved name unresolved without one)"
+ ],
+ "uncommitted_files": [],
+ "next_action": "Resume with two sessions (data, research) per STATE.md 'Restart order'. Data lane: read the intraday audit report, then the next 186-26 stage; never edit anything the pinned rebuild tree imports. Research lane: waits on the owner's E17 and 562 decisions.",
+ "context_notes": "2026-10-30: gates are evidence-based. Two inference rules for counting a missing 1d bar as no-trade failed independent review and were deleted; session_coverage is scoped to the calendar's first session (2005-01-03), see 191-SESSION-COVERAGE-FIX.md. Test a migration only with its own BEGIN/COMMIT stripped inside your own rolled-back transaction. Check pytest's exit code before any commit. Wait for a systemd oneshot by InvocationID change and ActiveState inactive or failed ('is-active' is false while activating). Daily 1d derive timer indicagent-bar-derivation-daily runs 05:20 UTC. Sudo helper: memory user_sudo_password.md.",
+ "next_steps": [],
+ "history_2026_10_16": [
+  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
+ ],
+ "completed_tasks": [
+  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
+  "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
+  "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
+  "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
+  "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
+  "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
+ ]
 }

@@ -184,6 +184,12 @@ Read in order: this file -> `ROADMAP.md` (active milestone table) ->
 for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run in parallel and
 coordinate through cross-session messages before touching shared files.
 
+## Paused 2026-10-30 (owner's usage limit; both lanes clean, all work on main)
+
+Resume from `.planning/HANDOFF.json` (remaining_tasks, human_actions_pending). Data lane: the 1d feature
+table is built for 1,314 names (186-26 stages 1 and 1b); next is the intraday audit report, then the next
+stage from the pinned tree. Research lane: waits on the owner (todos 547 and 562).
+
 ## Restart order (2026-10-29; two sessions only)
 
 The server stays up through a reboot of the owner's PC: timers, the 5m backfill and the
