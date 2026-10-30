@@ -184,3 +184,18 @@ daily run has been made. Owner decision, with this evidence: (a) accept the stat
 reversal members and the book, holding `reversal_5_skip1` and both momentum members until a rerun on a fresh
 pre-registered seed base or an S1 decision; or (b) hold the whole family until S1's drift is decided. Also
 open: B3 power, and the book path (above).
+
+## Pre-registration: daily B2 v2 (2026-10-30, before the run it judges)
+
+The 1,000-simulation battery with the E17 daily statistic left three marginal exceedances (above). As with
+the StepM battery (todo 561, Step B v2), the answer is one fresh complete run with more simulations, judged on
+that run only, not a rerun of earlier seeds:
+
+`scripts/research/e17_null_battery.py <out.json> --battery src.intelligence.research.null_battery_daily_residual
+--sims 2000 --sessions 4736 --seed-base 90000000 --workers 8`
+
+All cells, all arms, levels 0.05, 0.01, 0.00167. It passes when no gating (cell, arm, level) exceeds the
+binomial 0.9995 quantile for 2,000 simulations (the driver computes the bounds). Seed bases 0 (all earlier
+runs), 70,000,000 and 81,000,000 (scan and research probes) are spent; this base is new. A failure is not
+rerun on other seeds: it goes to the owner with the failing arms named. If a momentum member fails in
+`daily_s1_hostile` and nothing else does, that is cause 3 (S1 drift) and the owner decides per option A or B above.

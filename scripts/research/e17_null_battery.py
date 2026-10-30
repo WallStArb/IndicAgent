@@ -59,6 +59,12 @@ def main() -> int:
         help="module with scenarios(), simulate(scenario, seed) and DIAGNOSTIC_CELLS",
     )
     parser.add_argument(
+        "--seed-base",
+        type=int,
+        default=0,
+        help="added to every simulation seed (default 0: the seeds of every earlier run)",
+    )
+    parser.add_argument(
         "--sessions",
         type=int,
         default=None,
@@ -78,7 +84,9 @@ def main() -> int:
     start = time.time()
     draws: dict[tuple[str, str], list[tuple[float, float]]] = {}
     jobs = [
-        (args.battery, sc, 10_000 * k + i) for k, sc in enumerate(cells) for i in range(args.sims)
+        (args.battery, sc, args.seed_base + 10_000 * k + i)
+        for k, sc in enumerate(cells)
+        for i in range(args.sims)
     ]
     with make_worker_pool(args.workers, blas_threads_per_worker=1) as pool:
         for name, out in pool.map(_run, jobs, chunksize=4):
