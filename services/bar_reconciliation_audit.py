@@ -1384,6 +1384,9 @@ class _IntradayInputs:
     current_digests: Mapping[str, Mapping[datetime, str]]
     scope: frozenset[datetime] | None
     stray: Mapping[str, int]
+    listing_end: date | None = (
+        None  # the recorded last session (listing_end_current); None while listed
+    )
 
 
 class _IntradayVerdict(NamedTuple):
@@ -1518,7 +1521,14 @@ def judge_name_intraday(
     if inputs.stored_slots:
         first = min(inputs.stored_slots)
         sessions = calendar.between(first.date(), end.date())
-        expected = session_slots(sessions, 5, first, end)
+        # A name that left the exchange expects no slot after its recorded last session, the same
+        # evidence the 1d checks judge to (todo 519).
+        judged_end = (
+            end
+            if inputs.listing_end is None
+            else min(end, _day_start(inputs.listing_end + timedelta(days=1)))
+        )
+        expected = session_slots(sessions, 5, first, judged_end)
         answered = answered_slots(
             expected,
             set(inputs.stored_slots),
@@ -2472,6 +2482,7 @@ class BarReconciliationAudit(BaseBatch):
 
         calendar = _SessionCalendar(window.last_session)
         twe = window.training_window_end
+        listing_end = {r["symbol"]: r["last_session"] for r in await conn.fetch(_LISTING_END_SQL)}
         facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]] = []
         failing: dict[str, int] = defaultdict(int)
         passing: dict[str, int] = defaultdict(int)
@@ -2507,6 +2518,7 @@ class BarReconciliationAudit(BaseBatch):
                     loads=loads.get(symbol, ()),
                 ),
                 stray=stray.get(symbol, {}),
+                listing_end=listing_end.get(symbol),
             )
             for v in judge_name_intraday(
                 inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
@@ -2564,7 +2576,12 @@ class BarReconciliationAudit(BaseBatch):
 
     @staticmethod
     async def _intraday_inputs(
-        conn: Any, symbol: str, *, scope: frozenset[datetime] | None, stray: Mapping[str, int]
+        conn: Any,
+        symbol: str,
+        *,
+        scope: frozenset[datetime] | None,
+        stray: Mapping[str, int],
+        listing_end: date | None = None,
     ) -> _IntradayInputs:
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
@@ -2593,6 +2610,7 @@ class BarReconciliationAudit(BaseBatch):
             current_digests=digests,
             scope=scope,
             stray=stray,
+            listing_end=listing_end,
         )
 
     @staticmethod

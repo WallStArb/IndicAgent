@@ -842,7 +842,10 @@ def _archive_rows(rows, tf):
 class _IntradayConn:
     """Answers the intraday report's reads by SQL constant and records nothing it must not."""
 
-    def __init__(self, names, *, previous=None, last_sweep=None, loads=(), stray=None):
+    def __init__(
+        self, names, *, previous=None, last_sweep=None, loads=(), stray=None, listing_end=None
+    ):
+        self.listing_end = listing_end or {}  # symbol -> last session date
         self.names = names  # symbol -> {"rows", "archive": {tf: {ts: values}}, "digests": {tf: {}}}
         self.previous = previous or {}
         self.last_sweep = last_sweep
@@ -853,6 +856,8 @@ class _IntradayConn:
     async def fetch(self, sql, *args):
         if sql == audit._INTRADAY_NAMES_SQL:
             return [{"symbol": s} for s in sorted(self.names)]
+        if sql == audit._LISTING_END_SQL:
+            return [{"symbol": s, "last_session": d} for s, d in self.listing_end.items()]
         if sql == audit._PREVIOUS_DIGEST_VERDICT_SQL:
             return [
                 {"subject": s, "passed": p, "evaluated_at": at}
@@ -979,6 +984,17 @@ def test_missing_unanswered_slots_fail_slot_coverage_with_the_worst_year_as_metr
     assert verdict[5] is False
     assert 0.85 < verdict[3] < 0.95
     assert verdict[4] == 0.995
+
+
+def test_a_name_past_its_recorded_last_session_expects_no_later_slot():
+    sessions, rows = _intraday_series()
+    first_day = _I_DAYS[0]
+    name = _agreeing_name(rows)
+    name["slots"] = [r for r in rows if r["timestamp"].date() == first_day]  # later day is absent
+    failing = _intraday(_IntradayConn({"AAA": name}))
+    assert _verdict(failing, "AAA|5m", "slot_coverage")[5] is False
+    listed = _intraday(_IntradayConn({"AAA": name}, listing_end={"AAA": first_day}))
+    assert _verdict(listed, "AAA|5m", "slot_coverage")[5] is True
 
 
 def test_zero_volume_provider_bars_count_as_answered_slots():
