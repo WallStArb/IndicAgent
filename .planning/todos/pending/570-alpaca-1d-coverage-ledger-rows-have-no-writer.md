@@ -28,3 +28,8 @@ generated from. Review findings not acted on, by design: status follows request 
 rebuild derives it from them); the 1d refresh is a separate idempotent transaction after the raw write.
 Remaining: the one-off rebuild (queued behind the fetcher lock) repairs the existing drift; close this todo
 after the next full audit reads coverage_cache clean.
+
+Applied 2026-10-30 15:04 to 15:08 EDT (fetcher lock, role bar_derivation_writer): the full rebuild wrote 6,975
+rows; the ledger now holds alpaca|1d for all 1,529 names. A rolled-back rebuild probe (REPEATABLE READ, 60 names,
+309 series) shows 0 drifting names, against all 60 missing a 1d row and 5 names with other drift before. Close
+this todo when the 02:00 ET full audit reads coverage_cache clean for all names.
