@@ -108,6 +108,16 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   come, so the import closure stays frozen at `92e588385` until the owner closes the rebuild.
   Todo 420 is not part of stage 1 (the factory does not read `market_regimes`).
 
+- **186-26 rebuild stage 1b (1d, 73 names freed after the 2026-10-30 verdicts), completed 2026-10-30
+  (3 units, 296,486 rows; the table now holds 5,424,063 rows over 1,314 names, 54 completed units):**
+  unit `feature-rebuild-1d-b`, the same pinned tree, code key and horizon as stage 1; the names are every
+  compute_1d name that passes every 1d verdict and was not built (16 recent listings produced zero rows
+  for lack of bars). Still to build: the 156 names that fail `session_coverage` in the era (list in
+  `191-SESSION-COVERAGE-ERA-FAILS.tsv`) and the other holds as they clear, the 27 names whose 1d history
+  grew after the stage 1 input (drift list in todo 566; delete their rows and rebuild at the 186-27 drift
+  read), then the intraday tfs once the intraday verdicts pass. The feature table ends 2026-09-30 by the
+  horizon; moving it forward is a new run, not a resume.
+
 - **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
   (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
   on the 187-08 battery run. Cross-AI review of 187 (Codex and AGY, 187-REVIEWS.md): code fixes
