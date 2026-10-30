@@ -7,8 +7,8 @@ source: data lane, 1d session_coverage recount (191-SESSION-COVERAGE-FIX.md)
 
 # The canonical 1d series lacks bars the raw table holds, for 71 held names
 
-After the answered-session fix (191-SESSION-COVERAGE-FIX.md), 110 of the 207 scored names still fail
-`session_coverage`. For 71 of them the only remaining cause is the same one: sessions where
+After the answered-session fix and its review correction (191-SESSION-COVERAGE-FIX.md), 162 of the 207 scored
+names still fail `session_coverage` (the first version showed 110; its no-trade rule was too loose). For 71 of them the only remaining cause is the same one: sessions where
 `ohlcv_raw` holds a canonical vendor's bar and `market_data_ohlcv` holds none. Such a session is not a
 vendor answer of "no trade", so no answer evidence may cover it. It is a hole in the derived series.
 
@@ -32,8 +32,10 @@ these are names whose derivation stopped at the first discontinuity.
 ## Fix
 
 Find why the daily stage admits no bar on these sessions, correct the rule or the policy rows, and
-re-derive the 71 names. Then re-run the D7 verdicts: the names clear `session_coverage` with no change to
-the coverage rule. Order against 186-26: the 71 names stay held until this lands.
+re-derive the 71 names. Then re-run the D7 verdicts: 55 of the 71 clear `session_coverage` with no change to
+the coverage rule. The other 16 (APLD AUGO BCML BELFA BMNR CBAN COFS CPER FUBO IDR KCE MPB RCAT SAFE WULF
+XTL) also carry runs of 5 to 23 no-bar sessions in thin names that the corrected no-trade rule refuses to
+answer; they need a source outside IBKR or an owner decision on the run cap. Order against 186-26: the 71 names stay held until this lands.
 
 ## Not in scope
 

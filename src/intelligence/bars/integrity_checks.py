@@ -5,6 +5,7 @@ verdicts; nothing here touches a database or the APR.
 
 from __future__ import annotations
 
+import statistics
 import time
 from bisect import bisect_left
 from collections import defaultdict
@@ -112,6 +113,89 @@ def answered_window_spans(
         if high > low:
             spans.append((dates[low], dates[high - 1]))
     return spans
+
+
+def no_trade_sessions(
+    sessions: Sequence[date],
+    stored_volumes: Mapping[date, float | None],
+    window_spans: Sequence[tuple[date, date]],
+    served: Collection[date],
+    partial: Collection[date],
+    *,
+    run_max_sessions: int,
+    neighbor_window_sessions: int,
+    neighbor_median_volume_max_shares: float,
+) -> set[date]:
+    """Sessions a corroborated vendor window honestly answers as "no trade that day".
+
+    A candidate is a judged session with no stored bar that lies in `window_spans`
+    (answered_window_spans), that the vendor served no raw bar on (`served`; a served session with
+    no stored bar is a derivation gap) and that no incomplete bar covers (`partial`: an Alpaca
+    request that returned the day as a partial bar did not answer it). A candidate counts as
+    answered only when both hold, because a vendor history hole looks identical to a no-trade day
+    inside a window and only a thin name can have had no trades:
+
+    - the run of consecutive judged sessions with no stored bar that contains it is at most
+      `run_max_sessions` long (a multi-week hole is a hole, not a quiet spell);
+    - the median volume of the `neighbor_window_sessions` nearest stored bars on each side of the
+      run is at most `neighbor_median_volume_max_shares` (a liquid name trades every session).
+
+    A run with no neighbouring volume at all is not answered. Thresholds are APR values passed in
+    (threshold.bar_integrity.no_trade_*); the rule holds no literal.
+    """
+    candidates = {
+        s
+        for s in sessions
+        if s not in stored_volumes
+        and s not in served
+        and s not in partial
+        and _in_any(s, window_spans)
+    }
+    if not candidates:
+        return set()
+    answered: set[date] = set()
+    count = len(sessions)
+    start = 0
+    while start < count:
+        if sessions[start] in stored_volumes:
+            start += 1
+            continue
+        end = start
+        while end < count and sessions[end] not in stored_volumes:
+            end += 1
+        run = sessions[start:end]
+        if len(run) <= run_max_sessions and any(s in candidates for s in run):
+            neighbours = _neighbour_volumes(
+                sessions, stored_volumes, start, end, neighbor_window_sessions
+            )
+            if neighbours and statistics.median(neighbours) <= neighbor_median_volume_max_shares:
+                answered.update(s for s in run if s in candidates)
+        start = end
+    return answered
+
+
+def _neighbour_volumes(
+    sessions: Sequence[date],
+    stored_volumes: Mapping[date, float | None],
+    start: int,
+    end: int,
+    per_side: int,
+) -> list[float]:
+    """Volumes of the `per_side` nearest stored bars before `sessions[start]` and from
+    `sessions[end]` on (a missing volume is skipped)."""
+    volumes: list[float] = []
+    for indexes in (range(start - 1, -1, -1), range(end, len(sessions))):
+        taken = 0
+        for i in indexes:
+            if taken >= per_side:
+                break
+            if sessions[i] not in stored_volumes:
+                continue
+            volume = stored_volumes[sessions[i]]
+            taken += 1
+            if volume is not None:
+                volumes.append(float(volume))
+    return volumes
 
 
 def alpaca_basis_runs(
@@ -225,6 +309,9 @@ class IntegrityThresholds(Protocol):
     basis_window_sessions: int
     basis_tolerance_bp: float
     freshness_max_lag_sessions_1d: int
+    no_trade_run_max_sessions: int
+    no_trade_neighbor_window_sessions: int
+    no_trade_neighbor_median_volume_max_shares: float
 
 
 @dataclass(frozen=True)
@@ -261,6 +348,9 @@ class NameInputs1d:
     # (vendor, window_start, window_end) of the name's successful canonical-vendor 1d answers:
     # request windows and applied raw load ranges
     answered_windows: Sequence[tuple[str, datetime, datetime]]
+    # dates an answered request served as an incomplete bar (ohlcv_request.partial_bars): never
+    # an answer to "no trade that day"
+    partial_dates: Collection[date]
     # unexplained_seam findings D7's existing rule found for this name
     seam_findings: int
     latest_load_at: datetime | None
@@ -398,14 +488,19 @@ def judge_name_1d(
         # A vendor answer says "no trade" only for a session it served no bar on: a session with a
         # raw observation but no stored bar is a derivation gap, never an answer.
         served = {o.bar_date for o in inputs.observations}
-        window_spans = answered_window_spans(inputs.answered_windows, inputs.observations)
+        no_trade = no_trade_sessions(
+            judged_sessions,
+            {d: values.volume for d, values in stored.items()},
+            answered_window_spans(inputs.answered_windows, inputs.observations),
+            served,
+            inputs.partial_dates,
+            run_max_sessions=thresholds.no_trade_run_max_sessions,
+            neighbor_window_sessions=thresholds.no_trade_neighbor_window_sessions,
+            neighbor_median_volume_max_shares=thresholds.no_trade_neighbor_median_volume_max_shares,
+        )
         coverage = session_coverage(
             stored.keys(),
-            [
-                s
-                for s in judged_sessions
-                if _in_any(s, inputs.empty_spans) or (s not in served and _in_any(s, window_spans))
-            ],
+            [s for s in judged_sessions if s in no_trade or _in_any(s, inputs.empty_spans)],
             judged_sessions,
         )
     else:

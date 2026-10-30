@@ -89,6 +89,7 @@ from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.models import AssetClass
+from src.core.service_utils import parse_iso_ts
 from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
@@ -1043,7 +1044,7 @@ FROM ohlcv_empty_history WHERE timeframe = '1d' AND provider = 'ibkr'
 # window of one answers a session without a bar once the vendor's own stored bars corroborate it
 # (integrity_checks.answered_window_spans). Test callers are out, as in the raw 1d read.
 _ANSWERED_1D_REQUESTS_SQL = """
-SELECT r.symbol, r.source AS vendor, r.window_start, r.window_end
+SELECT r.symbol, r.source AS vendor, r.window_start, r.window_end, r.partial_bars
 FROM ohlcv_request r
 JOIN unnest($1::text[], $2::text[], $3::text[]) AS s(source, route, what_to_show)
   ON s.source = r.source AND s.route = r.route AND s.what_to_show = r.what_to_show
@@ -1058,6 +1059,23 @@ FROM ohlcv_load l
 WHERE l.timeframe = '1d' AND l.source = ANY($1::text[]) AND l.outcome = ANY($2::text[])
   AND l.destination = ANY($3::text[])
 """
+
+
+def _partial_bar_dates(raw: Any) -> list[date]:
+    """UTC dates of the incomplete bars an answered request served (`ohlcv_request.partial_bars`,
+    a JSON list of bars with a `t` stamp; a plain connection returns it as text)."""
+    if raw is None:
+        return []
+    bars = json.loads(raw) if isinstance(raw, str) else raw
+    dates: list[date] = []
+    for bar in bars:
+        stamp = parse_iso_ts(bar["t"])
+        if stamp is None:
+            raise ValueError(f"unparseable partial_bars stamp: {bar['t']!r}")
+        dates.append(stamp.astimezone(UTC).date())
+    return dates
+
+
 _LATEST_1D_LOAD_SQL = """
 SELECT symbol, max(loaded_at) AS loaded_at FROM ohlcv_load WHERE timeframe = '1d' GROUP BY symbol
 """
@@ -1250,10 +1268,26 @@ class _IntegrityParams:
     freshness_max_lag_sessions_1d: int = 2
     coverage_cache_lock_wait_seconds: int = 21600
     coverage_cache_lock_poll_seconds: int = 30
+    no_trade_run_max_sessions: int = 3
+    no_trade_neighbor_window_sessions: int = 5
+    no_trade_neighbor_median_volume_max_shares: float = 50000.0
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
         return cls(
+            no_trade_run_max_sessions=int(
+                _cfg(apr, "threshold.bar_integrity.no_trade_run_max_sessions", 3)
+            ),
+            no_trade_neighbor_window_sessions=int(
+                _cfg(apr, "threshold.bar_integrity.no_trade_neighbor_window_sessions", 5)
+            ),
+            no_trade_neighbor_median_volume_max_shares=float(
+                _cfg(
+                    apr,
+                    "threshold.bar_integrity.no_trade_neighbor_median_volume_max_shares",
+                    50000.0,
+                )
+            ),
             coverage_cache_lock_wait_seconds=int(
                 _cfg(apr, "infra.bar_integrity.coverage_cache_lock_wait_s", 21600)
             ),
@@ -2200,6 +2234,7 @@ class BarReconciliationAudit(BaseBatch):
         for r in await conn.fetch(_EMPTY_SESSIONS_SQL):
             spans[r["symbol"]].append((r["span_start"], r["span_end"]))
         answered_windows: dict[str, list[tuple[str, datetime, datetime]]] = defaultdict(list)
+        partial_dates: dict[str, set[date]] = defaultdict(set)
         for r in await conn.fetch(
             _ANSWERED_1D_REQUESTS_SQL,
             [source for source, _route, _what in DAILY_ANSWER_REQUESTS],
@@ -2208,6 +2243,7 @@ class BarReconciliationAudit(BaseBatch):
             DAILY_ANSWER_OUTCOME,
         ):
             answered_windows[r["symbol"]].append((r["vendor"], r["window_start"], r["window_end"]))
+            partial_dates[r["symbol"]].update(_partial_bar_dates(r["partial_bars"]))
         for r in await conn.fetch(
             _ANSWERED_1D_LOADS_SQL,
             list(DAILY_ANSWER_LOAD_SOURCES),
@@ -2240,6 +2276,7 @@ class BarReconciliationAudit(BaseBatch):
                 lineage_missing=missing.get(symbol, ()),
                 empty_spans=spans.get(symbol, ()),
                 answered_windows=answered_windows.get(symbol, ()),
+                partial_dates=partial_dates.get(symbol, ()),
                 seam_findings=seams.get(symbol, 0),
                 latest_load_at=latest_load.get(symbol),
                 listing_end=listing_end.get(symbol),
@@ -2324,6 +2361,7 @@ class BarReconciliationAudit(BaseBatch):
         lineage_missing: Iterable[date],
         empty_spans: Iterable[tuple[date, date]],
         answered_windows: Iterable[tuple[str, datetime, datetime]],
+        partial_dates: Iterable[date],
         seam_findings: int,
         latest_load_at: datetime | None,
         listing_end: date | None = None,
@@ -2371,6 +2409,7 @@ class BarReconciliationAudit(BaseBatch):
             lineage_missing_dates=list(lineage_missing),
             empty_spans=list(empty_spans),
             answered_windows=list(answered_windows),
+            partial_dates=set(partial_dates),
             seam_findings=seam_findings,
             latest_load_at=latest_load_at,
             listing_end=listing_end,

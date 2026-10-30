@@ -123,6 +123,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
     StoredBar,
     judge_name_1d,
     month_digests,
+    no_trade_sessions,
     stale_digest_months,
 )
 
@@ -139,6 +140,9 @@ class _Thresholds:
     basis_window_sessions: int = 3
     basis_tolerance_bp: float = 10.0
     freshness_max_lag_sessions_1d: int = 2
+    no_trade_run_max_sessions: int = 3
+    no_trade_neighbor_window_sessions: int = 5
+    no_trade_neighbor_median_volume_max_shares: float = 50000.0
 
 
 def _obs(day: date, close: float, route: str = "TRADIER") -> Observation:
@@ -203,6 +207,7 @@ def _clean() -> NameInputs1d:
         lineage_missing_dates=[],
         empty_spans=[],
         answered_windows=[],
+        partial_dates=set(),
         seam_findings=0,
         latest_load_at=_RUN_START - timedelta(hours=8),
     )
@@ -894,3 +899,119 @@ def test_a_session_with_a_raw_bar_but_no_stored_bar_is_a_derivation_gap_not_an_a
         answered_windows=[window],
     )
     assert not _by_check(_judge(unstored))["session_coverage"].passed
+
+
+# ---------------------------------------------------------------------------
+# The no-trade rule: a corroborated window answers a short run in a thin name only
+# ---------------------------------------------------------------------------
+
+_LONG = [date(2024, 1, 1) + timedelta(days=i) for i in range(40)]
+
+
+def _no_trade(stored_days, volume=1000.0, *, partial=(), served=(), window=None, **overrides):
+    rule = dict(
+        run_max_sessions=3,
+        neighbor_window_sessions=5,
+        neighbor_median_volume_max_shares=100000.0,
+    )
+    rule.update(overrides)
+    return no_trade_sessions(
+        _LONG,
+        {day: volume for day in stored_days},
+        [window or (_LONG[0], _LONG[-1])],
+        set(served),
+        set(partial),
+        **rule,
+    )
+
+
+def test_a_thin_short_run_inside_a_corroborated_window_is_answered():
+    stored = [d for d in _LONG if d not in _LONG[10:13]]
+    assert _no_trade(stored) == set(_LONG[10:13])
+
+
+def test_a_long_run_inside_a_corroborated_window_is_not_answered():
+    stored = [d for d in _LONG if d not in _LONG[10:14]]  # 4 sessions, the maximum is 3
+    assert _no_trade(stored) == set()
+    assert _no_trade(stored, run_max_sessions=4) == set(_LONG[10:14])
+
+
+def test_a_liquid_single_missing_session_is_not_answered():
+    stored = [d for d in _LONG if d != _LONG[10]]
+    assert _no_trade(stored, volume=5_000_000.0) == set()
+    assert _no_trade(stored, volume=100000.0) == {_LONG[10]}  # the maximum is inclusive
+
+
+def test_the_neighbour_volume_is_the_median_of_the_nearest_bars_each_side():
+    stored = [d for d in _LONG if d != _LONG[10]]
+    volumes = {day: 1000.0 for day in stored}
+    volumes[_LONG[9]] = 9_000_000.0  # one spike among ten neighbours leaves the median thin
+    args = (_LONG, volumes, [(_LONG[0], _LONG[-1])], set(), set())
+    kwargs = dict(
+        run_max_sessions=3,
+        neighbor_window_sessions=5,
+        neighbor_median_volume_max_shares=100000.0,
+    )
+    assert no_trade_sessions(*args, **kwargs) == {_LONG[10]}
+    # a window of one session each side sees the spike and the thin bar: median above the maximum
+    kwargs["neighbor_window_sessions"] = 1
+    kwargs["neighbor_median_volume_max_shares"] = 1000.0
+    assert no_trade_sessions(*args, **kwargs) == set()
+
+
+def test_a_run_with_no_neighbour_volume_is_not_answered():
+    stored = [d for d in _LONG if d != _LONG[10]]
+    volumes = {day: None for day in stored}
+    assert (
+        no_trade_sessions(
+            _LONG,
+            volumes,
+            [(_LONG[0], _LONG[-1])],
+            set(),
+            set(),
+            run_max_sessions=3,
+            neighbor_window_sessions=5,
+            neighbor_median_volume_max_shares=100000.0,
+        )
+        == set()
+    )
+
+
+def test_partial_bar_served_and_out_of_window_sessions_are_not_answered():
+    stored = [d for d in _LONG if d not in _LONG[10:13]]
+    assert _no_trade(stored, partial=[_LONG[11]]) == {_LONG[10], _LONG[12]}
+    assert _no_trade(stored, served=[_LONG[10]]) == {_LONG[11], _LONG[12]}
+    assert _no_trade(stored, window=(_LONG[12], _LONG[-1])) == {_LONG[12]}
+
+
+def test_the_judge_leaves_a_liquid_or_partial_or_long_hole_in_coverage():
+    inputs = _clean()
+    gap = _SESSIONS[2]
+    smart = [replace(o, route="SMART") for o in inputs.observations if o.bar_date != gap]
+    window = ("ibkr", _midnight(_SESSIONS[0]), _midnight(_SESSIONS[-1]) + timedelta(days=1))
+    base = replace(
+        inputs,
+        stored=[b for b in inputs.stored if b.timestamp.date() != gap],
+        observations=smart,
+        answered_windows=[window],
+    )
+    assert _by_check(_judge(base))["session_coverage"].passed
+    liquid = replace(base, stored=[replace(b, volume=5_000_000.0) for b in base.stored])
+    assert not _by_check(_judge(liquid))["session_coverage"].passed
+    partial = replace(base, partial_dates={gap})
+    assert not _by_check(_judge(partial))["session_coverage"].passed
+    three_missing = {_SESSIONS[2], _SESSIONS[3], _SESSIONS[4]}
+    long_hole = replace(
+        base,
+        stored=[b for b in base.stored if b.timestamp.date() not in three_missing],
+        observations=[o for o in smart if o.bar_date not in three_missing],
+    )
+    assert _by_check(_judge(long_hole))["session_coverage"].passed
+    tight = judge_name_1d(
+        long_hole,
+        _SESSIONS,
+        _SESSIONS[-1],
+        _RUN_START,
+        replace(_Thresholds(), no_trade_run_max_sessions=2),
+    )
+    assert not _by_check(tight)["session_coverage"].passed

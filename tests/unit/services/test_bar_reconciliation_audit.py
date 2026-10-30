@@ -6,6 +6,7 @@ services/bar_reconciliation_audit.py only loads these inputs and reports the res
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import UTC, date, datetime, timedelta
 
@@ -580,6 +581,7 @@ class _FakeConn:
                     "vendor": q["source"],
                     "window_start": q["start"],
                     "window_end": q["end"],
+                    "partial_bars": q.get("partial_bars"),
                 }
                 for s, n in self.names.items()
                 for q in n.get("requests", ())
@@ -753,6 +755,25 @@ def test_a_session_inside_a_successful_canonical_request_window_is_answered():
     assert _coverage_1d([])[5] is False
 
 
+def test_a_request_that_served_the_session_as_a_partial_bar_does_not_answer_it():
+    gap = _REPORT_DAYS[1]
+    partial = (
+        f'[{{"t": "{gap.isoformat()}T04:00:00+00:00", "o": 1, "h": 1, "l": 1, "c": 1, "v": 5}}]'
+    )
+    for raw in (partial, json.loads(partial)):  # text on a plain connection, a list on a pool
+        request = {**_request("ibkr", "SMART", "TRADES", "bars", *_WINDOW), "partial_bars": raw}
+        assert _coverage_1d([request])[5] is False
+    other_day = '[{"t": "2023-01-02T05:00:00+00:00"}]'
+    request = {**_request("ibkr", "SMART", "TRADES", "bars", *_WINDOW), "partial_bars": other_day}
+    assert _coverage_1d([request])[5] is True
+
+
+def test_partial_bar_dates_parse_text_lists_and_null():
+    assert audit._partial_bar_dates(None) == []
+    assert audit._partial_bar_dates('[{"t": "2026-10-26T04:00:00+00:00"}]') == [date(2026, 10, 26)]
+    assert audit._partial_bar_dates([{"t": "2026-10-26T04:00:00Z"}]) == [date(2026, 10, 26)]
+
+
 def test_a_tradier_request_or_a_non_canonical_route_answers_nothing():
     for source, route, what in (
         ("tradier", "TRADIER", "TRADES"),
@@ -884,6 +905,16 @@ def test_integrity_keys_are_loaded_by_the_audit():
         {"threshold.bar_integrity.freshness_max_lag_sessions_1d": "5"}
     )
     assert params.freshness_max_lag_sessions_1d == 5
+    custom = audit._IntegrityParams.from_apr(
+        {
+            "threshold.bar_integrity.no_trade_run_max_sessions": "7",
+            "threshold.bar_integrity.no_trade_neighbor_window_sessions": "9",
+            "threshold.bar_integrity.no_trade_neighbor_median_volume_max_shares": "250000",
+        }
+    )
+    assert custom.no_trade_run_max_sessions == 7
+    assert custom.no_trade_neighbor_window_sessions == 9
+    assert custom.no_trade_neighbor_median_volume_max_shares == 250000.0
 
 
 def test_a_stale_name_fails_freshness_1d_and_is_counted():
