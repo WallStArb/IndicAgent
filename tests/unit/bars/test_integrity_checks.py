@@ -5,12 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from src.intelligence.bars.daily_rule import PolicyRow
-from src.intelligence.bars.integrity_checks import (
-    Verdict,
-    answered_window_spans,
-    policy_conformance,
-    session_coverage,
-)
+from src.intelligence.bars.integrity_checks import Verdict, policy_conformance, session_coverage
 
 _D = date(2024, 1, 1)
 _POLICY = [PolicyRow("1d", None, date(2000, 1, 1), None, "observed", "tradier", "ibkr")]
@@ -202,7 +197,6 @@ def _clean() -> NameInputs1d:
         current_digests={s: (d, RULE_VERSION) for s, d in month_digests(stored, []).items()},
         lineage_missing_dates=[],
         empty_spans=[],
-        answered_windows=[],
         seam_findings=0,
         latest_load_at=_RUN_START - timedelta(hours=8),
     )
@@ -817,80 +811,3 @@ def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
     verdict = _by_check(report)["alpaca_basis_run"]
     assert not verdict.passed and verdict.metric_value == 1
     assert [(r.start, r.end) for r in report.alpaca_runs] == [(_AFTER[0], _AFTER[19])]
-
-
-# ---------------------------------------------------------------------------
-# Sessions a successful canonical-vendor 1d request answers (the 1d analogue of todo 565)
-# ---------------------------------------------------------------------------
-
-_JAN = [date(2024, 1, day) for day in range(1, 32)]
-
-
-def _bars(days, route="SMART"):
-    return [_obs(day, 100.0, route) for day in days]
-
-
-def _midnight(day):
-    return datetime(day.year, day.month, day.day, tzinfo=UTC)
-
-
-def test_a_missing_day_inside_a_window_with_bars_either_side_is_answered():
-    bars = _bars([_JAN[1], _JAN[2], _JAN[4], _JAN[5]])  # the 4th has no bar
-    window = ("ibkr", _midnight(_JAN[0]), _midnight(_JAN[9]))
-    assert answered_window_spans([window], bars) == [(_JAN[1], _JAN[5])]
-
-
-def test_a_window_with_none_of_the_vendors_bars_answers_nothing():
-    window = ("ibkr", _midnight(_JAN[0]), _midnight(_JAN[9]))
-    assert answered_window_spans([window], []) == []
-    # another vendor's bars, and the same vendor's bars outside the window, do not corroborate
-    assert answered_window_spans([window], _bars(_JAN[1:5], "ALPACA")) == []
-    assert answered_window_spans([window], _bars(_JAN[12:15])) == []
-
-
-def test_days_before_the_first_and_after_the_last_bar_stay_unanswered():
-    window = ("ibkr", _midnight(_JAN[0]), _midnight(_JAN[19]))
-    spans = answered_window_spans([window], _bars([_JAN[4], _JAN[8]]))
-    assert spans == [(_JAN[4], _JAN[8])]
-
-
-def test_a_midnight_window_end_is_exclusive_and_a_midday_end_takes_its_day():
-    bars = _bars([_JAN[2], _JAN[6]])
-    exclusive = ("ibkr", _midnight(_JAN[0]), _midnight(_JAN[6]))
-    assert answered_window_spans([exclusive], bars) == [(_JAN[2], _JAN[2])]
-    midday = ("ibkr", _midnight(_JAN[0]), _midnight(_JAN[6]) + timedelta(hours=17, minutes=30))
-    assert answered_window_spans([midday], bars) == [(_JAN[2], _JAN[6])]
-    # the window start day is in the window
-    first_day = ("ibkr", _midnight(_JAN[2]), _midnight(_JAN[9]))
-    assert answered_window_spans([first_day], bars) == [(_JAN[2], _JAN[6])]
-
-
-def test_a_session_inside_an_answered_span_passes_coverage_in_the_judge():
-    inputs = _clean()
-    gap = _SESSIONS[2]
-    interior = replace(
-        inputs,
-        stored=[b for b in inputs.stored if b.timestamp.date() != gap],
-        observations=[replace(o, route="SMART") for o in inputs.observations if o.bar_date != gap],
-    )
-    assert not _by_check(_judge(interior))["session_coverage"].passed
-    window = ("ibkr", _midnight(_SESSIONS[0]), _midnight(_SESSIONS[-1]) + timedelta(days=1))
-    covered = replace(interior, answered_windows=[window])
-    assert _by_check(_judge(covered))["session_coverage"].passed
-    # the same window of a vendor with no bars of its own answers nothing
-    other = replace(interior, answered_windows=[("alpaca", window[1], window[2])])
-    assert not _by_check(_judge(other))["session_coverage"].passed
-
-
-def test_a_session_with_a_raw_bar_but_no_stored_bar_is_a_derivation_gap_not_an_answer():
-    inputs = _clean()
-    gap = _SESSIONS[2]
-    smart = [replace(o, route="SMART") for o in inputs.observations]
-    window = ("ibkr", _midnight(_SESSIONS[0]), _midnight(_SESSIONS[-1]) + timedelta(days=1))
-    unstored = replace(
-        inputs,
-        stored=[b for b in inputs.stored if b.timestamp.date() != gap],
-        observations=smart,  # the raw bar of `gap` is still there
-        answered_windows=[window],
-    )
-    assert not _by_check(_judge(unstored))["session_coverage"].passed

@@ -6,7 +6,6 @@ verdicts; nothing here touches a database or the APR.
 from __future__ import annotations
 
 import time
-from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -18,11 +17,7 @@ import numpy as np
 from src.intelligence.bars.daily_rule import (
     FALLBACK_PAIR,
     PRIMARY_PAIR,
-    ROUTE_LEGACY,
-    ROUTE_SMART,
     RULE_VERSION,
-    VENDOR_ALPACA,
-    VENDOR_IBKR,
     PolicyRow,
     alpaca_era_start,
     derive_daily_v2,
@@ -34,7 +29,6 @@ from src.intelligence.bars.daily_rule import (
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
-from src.intelligence.bars.sources import ROUTE_ALPACA
 from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH
 from src.intelligence.bars.vendor_basis import BasisRun, find_basis_runs
 from src.intelligence.bars.write_contract import BarValues, classify
@@ -60,58 +54,6 @@ def session_coverage(
         return 1.0
     answered = set(bar_dates) | set(empty_dates)
     return len(answered.intersection(sessions)) / len(sessions)
-
-
-# The vendor whose raw rows an observation's route stands for (the vendor of a request is its
-# `source`).
-_ROUTE_VENDOR: Mapping[str, str] = {
-    ROUTE_SMART: VENDOR_IBKR,
-    ROUTE_LEGACY: VENDOR_IBKR,
-    ROUTE_ALPACA: VENDOR_ALPACA,
-}
-
-
-def answered_window_spans(
-    windows: Iterable[tuple[str, datetime, datetime]], observations: Iterable[Observation]
-) -> list[tuple[date, date]]:
-    """Date spans a successful canonical-vendor 1d answer covers (the vendor's "no trade that
-    day"), from `windows` of (vendor, window_start, window_end): the windows of requests with
-    outcome `bars` and the ranges of applied raw loads (gap_plan.DAILY_ANSWER_*).
-
-    A session inside such a window with no bar is an answer, but only where the window is
-    corroborated by the vendor's own raw bars on both sides of it: the span runs from the
-    vendor's first raw bar to its last inside the window. A window holding none of the
-    vendor's bars is a failed or lost insert and answers nothing, and the days before the first
-    or after the last bar (a pre-listing head, a stale tail) stay unanswered.
-
-    A day lies in the window when any part of it does; the window end is exclusive (measured
-    2026-10-29: of 147 IBKR 1d requests whose raw rows are linked, none holds a bar on or after
-    its window_end date), so a midnight end excludes its own date and a mid-day end (an Alpaca
-    nightly) includes it. IBKR's window_start can sit after its first bar (22 of the 147); the
-    load range of the same answer starts at that bar and covers the head.
-    """
-    bar_dates: dict[str, list[date]] = defaultdict(list)
-    for observation in observations:
-        vendor = _ROUTE_VENDOR.get(observation.route)
-        if vendor is not None:
-            bar_dates[vendor].append(observation.bar_date)
-    for dates in bar_dates.values():
-        dates.sort()
-    spans: list[tuple[date, date]] = []
-    for vendor, window_start, window_end in windows:
-        dates = bar_dates.get(vendor)
-        if not dates:
-            continue
-        first_day = window_start.astimezone(UTC).date()
-        # exclusive end day: a midnight end is its own date, any later time takes that day in
-        end_day = (window_end.astimezone(UTC) - timedelta(microseconds=1)).date() + timedelta(
-            days=1
-        )
-        low = bisect_left(dates, first_day)
-        high = bisect_left(dates, end_day)
-        if high > low:
-            spans.append((dates[low], dates[high - 1]))
-    return spans
 
 
 def alpaca_basis_runs(
@@ -258,9 +200,6 @@ class NameInputs1d:
     lineage_missing_dates: Collection[date]
     # [start, end] date spans the name's answered-empty records cover
     empty_spans: Sequence[tuple[date, date]]
-    # (vendor, window_start, window_end) of the name's successful canonical-vendor 1d answers:
-    # request windows and applied raw load ranges
-    answered_windows: Sequence[tuple[str, datetime, datetime]]
     # unexplained_seam findings D7's existing rule found for this name
     seam_findings: int
     latest_load_at: datetime | None
@@ -395,17 +334,9 @@ def judge_name_1d(
     if stored:
         first = min(stored)
         judged_sessions = [s for s in sessions if first <= s <= last_session]
-        # A vendor answer says "no trade" only for a session it served no bar on: a session with a
-        # raw observation but no stored bar is a derivation gap, never an answer.
-        served = {o.bar_date for o in inputs.observations}
-        window_spans = answered_window_spans(inputs.answered_windows, inputs.observations)
         coverage = session_coverage(
             stored.keys(),
-            [
-                s
-                for s in judged_sessions
-                if _in_any(s, inputs.empty_spans) or (s not in served and _in_any(s, window_spans))
-            ],
+            [s for s in judged_sessions if _in_any(s, inputs.empty_spans)],
             judged_sessions,
         )
     else:

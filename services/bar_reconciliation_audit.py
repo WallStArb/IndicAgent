@@ -96,10 +96,6 @@ from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
-    DAILY_ANSWER_LOAD_DESTINATIONS,
-    DAILY_ANSWER_LOAD_SOURCES,
-    DAILY_ANSWER_OUTCOME,
-    DAILY_ANSWER_REQUESTS,
     LOAD_COVERAGE_DESTINATIONS,
     LOAD_COVERAGE_OUTCOMES,
     LOAD_COVERAGE_SOURCES,
@@ -1038,25 +1034,6 @@ _EMPTY_SESSIONS_SQL = """
 SELECT symbol, (verified_from AT TIME ZONE 'UTC')::date AS span_start,
        (empty_through AT TIME ZONE 'UTC')::date AS span_end
 FROM ohlcv_empty_history WHERE timeframe = '1d' AND provider = 'ibkr'
-"""
-# Successful canonical-vendor 1d requests (gap_plan.DAILY_ANSWER_REQUESTS, outcome `bars`): the
-# window of one answers a session without a bar once the vendor's own stored bars corroborate it
-# (integrity_checks.answered_window_spans). Test callers are out, as in the raw 1d read.
-_ANSWERED_1D_REQUESTS_SQL = """
-SELECT r.symbol, r.source AS vendor, r.window_start, r.window_end
-FROM ohlcv_request r
-JOIN unnest($1::text[], $2::text[], $3::text[]) AS s(source, route, what_to_show)
-  ON s.source = r.source AND s.route = r.route AND s.what_to_show = r.what_to_show
-WHERE r.timeframe = '1d' AND r.outcome = $4 AND r.window_start IS NOT NULL
-  AND r.caller NOT LIKE 'test-%'
-"""
-# The applied raw loads of the canonical vendors (gap_plan.DAILY_ANSWER_LOAD_*): the same evidence
-# as a request window, with a bar at both ends by construction.
-_ANSWERED_1D_LOADS_SQL = """
-SELECT l.symbol, l.source AS vendor, l.requested_start, l.requested_end
-FROM ohlcv_load l
-WHERE l.timeframe = '1d' AND l.source = ANY($1::text[]) AND l.outcome = ANY($2::text[])
-  AND l.destination = ANY($3::text[])
 """
 _LATEST_1D_LOAD_SQL = """
 SELECT symbol, max(loaded_at) AS loaded_at FROM ohlcv_load WHERE timeframe = '1d' GROUP BY symbol
@@ -2199,27 +2176,6 @@ class BarReconciliationAudit(BaseBatch):
         spans: dict[str, list[tuple[date, date]]] = defaultdict(list)
         for r in await conn.fetch(_EMPTY_SESSIONS_SQL):
             spans[r["symbol"]].append((r["span_start"], r["span_end"]))
-        answered_windows: dict[str, list[tuple[str, datetime, datetime]]] = defaultdict(list)
-        for r in await conn.fetch(
-            _ANSWERED_1D_REQUESTS_SQL,
-            [source for source, _route, _what in DAILY_ANSWER_REQUESTS],
-            [route for _source, route, _what in DAILY_ANSWER_REQUESTS],
-            [what for _source, _route, what in DAILY_ANSWER_REQUESTS],
-            DAILY_ANSWER_OUTCOME,
-        ):
-            answered_windows[r["symbol"]].append((r["vendor"], r["window_start"], r["window_end"]))
-        for r in await conn.fetch(
-            _ANSWERED_1D_LOADS_SQL,
-            list(DAILY_ANSWER_LOAD_SOURCES),
-            list(LOAD_COVERAGE_OUTCOMES),
-            list(DAILY_ANSWER_LOAD_DESTINATIONS),
-        ):
-            answered_windows[r["symbol"]] += [
-                (r["vendor"], window_start, window_end)
-                for window_start, window_end in load_range_windows(
-                    [(r["requested_start"], r["requested_end"])]
-                )
-            ]
         latest_load = {r["symbol"]: r["loaded_at"] for r in await conn.fetch(_LATEST_1D_LOAD_SQL)}
         listing_end = {r["symbol"]: r["last_session"] for r in await conn.fetch(_LISTING_END_SQL)}
         seams = findings_by_symbol(seam_samples)
@@ -2239,7 +2195,6 @@ class BarReconciliationAudit(BaseBatch):
                 policy_rows=policy_rows,
                 lineage_missing=missing.get(symbol, ()),
                 empty_spans=spans.get(symbol, ()),
-                answered_windows=answered_windows.get(symbol, ()),
                 seam_findings=seams.get(symbol, 0),
                 latest_load_at=latest_load.get(symbol),
                 listing_end=listing_end.get(symbol),
@@ -2323,7 +2278,6 @@ class BarReconciliationAudit(BaseBatch):
         policy_rows: list[PolicyRow],
         lineage_missing: Iterable[date],
         empty_spans: Iterable[tuple[date, date]],
-        answered_windows: Iterable[tuple[str, datetime, datetime]],
         seam_findings: int,
         latest_load_at: datetime | None,
         listing_end: date | None = None,
@@ -2370,7 +2324,6 @@ class BarReconciliationAudit(BaseBatch):
             current_digests=digests,
             lineage_missing_dates=list(lineage_missing),
             empty_spans=list(empty_spans),
-            answered_windows=list(answered_windows),
             seam_findings=seam_findings,
             latest_load_at=latest_load_at,
             listing_end=listing_end,
