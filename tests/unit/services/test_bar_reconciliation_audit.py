@@ -566,7 +566,40 @@ class _FakeConn:
                 for d, v in n.get("lineage", [])
             ]
         if sql in (audit._EMPTY_SESSIONS_SQL,):
-            return []
+            return [
+                {"symbol": s, "span_start": start, "span_end": end}
+                for s, n in self.names.items()
+                for start, end in n.get("empty", ())
+            ]
+        if sql == audit._ANSWERED_1D_REQUESTS_SQL:
+            sources, routes, shows, outcome = args
+            wanted = set(zip(sources, routes, shows, strict=True))
+            return [  # the SQL's own filter, driven by the arguments the loader passes
+                {
+                    "symbol": s,
+                    "vendor": q["source"],
+                    "window_start": q["start"],
+                    "window_end": q["end"],
+                }
+                for s, n in self.names.items()
+                for q in n.get("requests", ())
+                if (q["source"], q["route"], q["what"]) in wanted and q["outcome"] == outcome
+            ]
+        if sql == audit._ANSWERED_1D_LOADS_SQL:
+            sources, outcomes, destinations = args
+            return [
+                {
+                    "symbol": s,
+                    "vendor": load["source"],
+                    "requested_start": load["start"],
+                    "requested_end": load["end"],
+                }
+                for s, n in self.names.items()
+                for load in n.get("loads", ())
+                if load["source"] in sources
+                and load["outcome"] in outcomes
+                and load["destination"] in destinations
+            ]
         if sql == audit._LATEST_1D_LOAD_SQL:
             return []
         if sql == audit._LISTING_END_SQL:
@@ -676,6 +709,111 @@ def _run(names, seam_samples=()):
         )
     )
     return conn, run
+
+
+def _request(source, route, what, outcome, start, end):
+    return {
+        "source": source,
+        "route": route,
+        "what": what,
+        "outcome": outcome,
+        "start": datetime(start.year, start.month, start.day, tzinfo=UTC),
+        "end": datetime(end.year, end.month, end.day, tzinfo=UTC),
+    }
+
+
+def _ibkr_gap_name(requests):
+    """A name on IBKR SMART bars (routes the observations carry) with the middle session of three
+    absent, plus the given ohlcv_request rows."""
+    name = _good_name()
+    gap = _REPORT_DAYS[1]
+    name["stored"] = [
+        _stored_row(d, 100.0 + i, "ibkr", "named") for i, d in enumerate(_REPORT_DAYS) if d != gap
+    ]
+    name["observations"] = [
+        {**_obs_row(d, 100.0 + i), "vendor": "ibkr", "kind": "smart_trades"}
+        for i, d in enumerate(_REPORT_DAYS)
+        if d != gap
+    ]
+    name["digests"] = []
+    name["requests"] = requests
+    return name
+
+
+def _coverage_1d(requests):
+    _, run = _run({"AAA": _ibkr_gap_name(requests)})
+    return next(f for f in run.facts if f[2] == "session_coverage")
+
+
+_WINDOW = (_REPORT_DAYS[0], _REPORT_DAYS[-1] + timedelta(days=1))
+
+
+def test_a_session_inside_a_successful_canonical_request_window_is_answered():
+    assert _coverage_1d([_request("ibkr", "SMART", "TRADES", "bars", *_WINDOW)])[5] is True
+    assert _coverage_1d([])[5] is False
+
+
+def test_a_tradier_request_or_a_non_canonical_route_answers_nothing():
+    for source, route, what in (
+        ("tradier", "TRADIER", "TRADES"),
+        ("ibkr", "NYSE", "TRADES"),
+        ("ibkr", "SMART", "ADJUSTED_LAST"),
+        ("alpaca", "IEX", "1Day"),
+    ):
+        assert _coverage_1d([_request(source, route, what, "bars", *_WINDOW)])[5] is False
+
+
+def test_a_refused_failed_or_partial_request_answers_nothing():
+    for outcome in ("failed", "timeout", "legacy_import", "no_data"):
+        assert _coverage_1d([_request("ibkr", "SMART", "TRADES", outcome, *_WINDOW)])[5] is False
+
+
+def _load_1d(source="ibkr", outcome="applied", destination="raw", days=_REPORT_DAYS):
+    return {
+        "source": source,
+        "outcome": outcome,
+        "destination": destination,
+        "start": days[0],
+        "end": days[-1],
+    }
+
+
+def test_an_applied_raw_load_of_a_canonical_vendor_answers_its_range_end_inclusive():
+    name = _ibkr_gap_name([])
+    name["loads"] = [_load_1d()]
+    assert next(f for f in _run({"AAA": name})[1].facts if f[2] == "session_coverage")[5] is True
+    # the range's last day holds the bar that corroborates the gap; end one day short and the
+    # window holds a single bar, so nothing is corroborated on its far side
+    name["loads"] = [_load_1d(days=_REPORT_DAYS[:2])]
+    assert next(f for f in _run({"AAA": name})[1].facts if f[2] == "session_coverage")[5] is False
+
+
+def test_a_refused_derived_or_archive_load_answers_nothing():
+    for load in (
+        _load_1d(outcome="refused"),
+        _load_1d(outcome="failed"),
+        _load_1d(source="tradier"),
+        _load_1d(source="derived", destination="market_data_ohlcv"),
+        _load_1d(destination="archive"),
+    ):
+        name = _ibkr_gap_name([])
+        name["loads"] = [load]
+        assert (
+            next(f for f in _run({"AAA": name})[1].facts if f[2] == "session_coverage")[5] is False
+        )
+
+
+def test_a_window_with_no_stored_bar_inside_it_answers_nothing():
+    later = (_REPORT_DAYS[-1] + timedelta(days=5), _REPORT_DAYS[-1] + timedelta(days=9))
+    assert _coverage_1d([_request("ibkr", "SMART", "TRADES", "bars", *later)])[5] is False
+
+
+def test_the_existing_empty_history_rule_is_unchanged():
+    name = _ibkr_gap_name([])
+    name["empty"] = [(_REPORT_DAYS[1], _REPORT_DAYS[1])]
+    _, run = _run({"AAA": name})
+    assert next(f for f in run.facts if f[2] == "session_coverage")[5] is True
+    assert "ohlcv_request" not in audit._EMPTY_SESSIONS_SQL
 
 
 def test_each_name_gets_nine_verdict_rows_and_two_informational_rows():

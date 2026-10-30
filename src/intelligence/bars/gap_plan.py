@@ -56,6 +56,24 @@ COVERAGE_WHAT_TO_SHOW = "TRADES"
 LOAD_COVERAGE_SOURCES: tuple[str, ...] = ("alpaca",)
 LOAD_COVERAGE_OUTCOMES: tuple[str, ...] = ("applied",)
 LOAD_COVERAGE_DESTINATIONS: tuple[str, ...] = ("market_data_ohlcv", "raw")
+# The successful 1d answers that make a session without a bar the vendor's answer ("no trade that
+# day"), as (source, route, what_to_show) of an `ohlcv_request` with outcome `bars`: the two
+# canonical 1d vendors only (daily rule d2-v4: Alpaca SIP from 2016-01-04, IBKR SMART TRADES
+# before it and as fallback). The retired Tradier requests stay in the table as lineage and are
+# no longer a canonical vendor; the IBKR venue routes, the ADJUSTED_LAST series, the IEX route and
+# the `legacy_import`, `timeout`, `failed` and `no_data` outcomes never answer a session here.
+DAILY_ANSWER_REQUESTS: tuple[tuple[str, str, str], ...] = (
+    ("ibkr", COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW),
+    ("alpaca", "SIP", "1Day"),
+)
+DAILY_ANSWER_OUTCOME = "bars"
+# The applied raw loads of the same two vendors answer the same sessions: a load's requested range
+# is the span of the bars the vendor returned (requested_start = first_bar and requested_end =
+# last_bar on every one of the 19,661 applied ibkr and alpaca 1d raw loads, 2026-10-29), so it is
+# a window with a bar at both ends, and it reaches back past an IBKR request's window_start. The
+# derived and retired-vendor loads (destination market_data_ohlcv, d1) are not vendor answers.
+DAILY_ANSWER_LOAD_SOURCES: tuple[str, ...] = ("ibkr", "alpaca")
+DAILY_ANSWER_LOAD_DESTINATIONS: tuple[str, ...] = ("raw",)
 # Raw kinds that answer a different question than the daily TRADES bar and so never cover a 1d
 # session, never move a 1d series' currency and never count in its coverage bounds: the
 # dividend-adjusted series (it also holds forming bars). One definition for the planner, the
