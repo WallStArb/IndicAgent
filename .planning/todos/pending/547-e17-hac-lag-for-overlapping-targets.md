@@ -116,3 +116,46 @@ arms, with sd of t:
 about 5% but not the S1 cell, and sd of t stays above 1 even at L + 20. So the excess is not only the Bartlett
 lag: there is a variance source in the statistic or in S1's residuals that serial correlation does not explain.
 Do not take a lag-only amendment to the owner until that is found.
+
+## Opus research: why E17's t has sd above 1 (2026-10-30, exploratory, not a counted look)
+
+400 simulations per cell, 4,736 sessions, h = 5, seeds from 81,000,000, every variant paired on the same D_s.
+Probes and raw results in the session scratchpad `opus547/` (`probe.py`, `analyze.py`); copy the probe into
+`scripts/research/` if kept. Rejection at 0.05 (sd of t):
+
+| Cell, arms | Current E17 | Flat-top kernel | Influence series + flat-top |
+|---|---|---|---|
+| gaussian, all six | 6.4% (1.09) | 5.5% (1.01) | 4.9% (0.98) |
+| hostile, momentum | 9.1% (1.24) | 7.6% (1.13) | 4.4% (0.96) |
+| hostile, reversal | 6.9% (1.13) | 6.2% (1.05) | 5.5% (1.03) |
+| s1_hostile, momentum | 14.1% (1.30) | 12.1% (1.18) | 7.5% (1.00), mean t +0.14 |
+| s1_hostile, reversal / book | 5.3% / 5.0% | n/a | 4.4% / 2.8% |
+
+Three causes, ranked:
+
+1. Bartlett taper inside the overlap (verified). D_s is MA(4) at h = 5; Bartlett at L = 9 weights lags 1 to 4
+   at 0.9 to 0.6, which understates the long-run variance by about 15% (sd of t about 1.08), a kernel bias,
+   not a short-sample effect. Fixed-b and Student-t df are negligible here (cutoff moves about 0.004).
+   Fix: a flat-top kernel, weight 1 for lags 1 to q (q = fwd_span(h) - 1 for daily targets, 0 intraday),
+   then the Bartlett taper to L. At q = 0 it is the current statistic, so intraday is bit-identical by construction.
+2. The expanding mean fbar_L subtracted in D_s carries a slowly changing estimation error that multiplies the
+   near-constant 252-session momentum weights, a long-memory term a lag-9 HAC cannot see (verified for
+   momentum). Fix: HAC on the influence series psi_t (sums exactly to the sum of D_s, so the mean and Sharpe are
+   unchanged and only the standard error moves), applied only when bars_per_session = 1.
+3. S1 leaks a slowly varying per-name drift (verified that it exists; mechanism partly inferred): a mean shift
+   of +0.18 for momentum arms and -0.21 for reversal arms in s1_hostile, +2.26 in a gaussian-plus-S1 cell with
+   poorly identified market beta. Demeaning the factors by their causal expanding mean made it worse. No
+   minimal fix found; it needs an S1 methodology decision. Likely smaller at the real equity drift (inferred).
+
+Cross-sectional dependence is ruled out (HAC runs on the cross-sectional sum). The six arms behave like about
+2.3 independent ones (momentum t correlation 1.00), so intervals must be clustered by simulation.
+
+## Proposed E17 amendment (for the owner)
+
+For daily targets only (bars_per_session = 1): fixes 1 and 2 together (flat-top kernel with q = h, HAC on the
+influence series). Leaves every intraday statistic and recorded run unchanged; `repro_frozen` must report
+bit-identical before it lands, and the full daily battery (1,000 simulations per cell, 4,736 sessions) must
+pass for the reversal arms and the book. The momentum arms (M1, M2) do not certify in s1_hostile (7.5% after
+both fixes) until cause 3 is decided, so options: (a) run the reversal members and the book first and hold M1
+and M2; (b) first decide the S1 drift question. I recommend (a): it tests the cheap, high-turnover hypotheses
+now and does not loosen anything.
