@@ -81,3 +81,21 @@ is added solely for daily targets with h > 5 (otherwise h = 5 moves by 12 lags; 
 changes size by less than 1 point). Certify c = 3 on a full daily battery (1,000 simulations, the same
 cells plus the S1 cell, h = 5 and 21) before the amendment; measure the power cost on a planted-signal
 cell at the same time. Until then h = 21 momentum stays blocked and h = 5 runs may proceed.
+
+## B2 battery result (2026-10-30, exploratory H0 on synthetic panels, not a counted look)
+
+`scripts/research/e17_null_battery.py --battery src.intelligence.research.null_battery_daily_residual`,
+1,000 simulations per cell, h = 5, current E17 lag. Size fails at both panel lengths:
+
+- 2,000 sessions (cell default; `logs/research/e17_battery_daily_residual_20261029.json`): gaussian cell
+  momentum members 7.8% at 0.05 (bound 67 of 1,000), hostile cells up to 12.1%.
+- 4,736 sessions (the real panel's length; `logs/research/e17_battery_daily_residual_s4736_20261030.json`):
+  still fails; gaussian reversal members 7.5% at 0.05 and 2.5% at 0.01, `s1_hostile` momentum members 12.1%
+  at 0.05, 5.3% at 0.01 and 2.0% at 0.00167 (bounds 67, 18, 5).
+
+So the 2026-10-28 reading that h = 5 is acceptable at real length does not survive the full battery. By
+prereg section 4 the daily residual run waits for the second E17 amendment (a horizon-tied HAC lag), which is
+the owner decision listed in STATE.md. Next step for whoever resumes: certify a candidate rule from the plan
+above on this battery at 4,736 sessions (cells `daily_gaussian`, `daily_hostile`, `daily_s1_hostile` first),
+with `repro_frozen` bit-identical for intraday statistics, then take the amendment to the owner. No real-data
+number for any daily member exists.
