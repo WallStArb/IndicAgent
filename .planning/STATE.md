@@ -190,6 +190,11 @@ Resume from `.planning/HANDOFF.json` (remaining_tasks, human_actions_pending). D
 table is built for 1,314 names (186-26 stages 1 and 1b); next is the intraday audit report, then the next
 stage from the pinned tree. Research lane: waits on the owner (todos 547 and 562).
 
+Data lane update 2026-10-30 (evening): the full intraday sweep fails coverage_cache for all 1,529 names (todo 570: no writer
+creates alpaca 1d ledger rows; a rebuild is queued behind the fetcher lock) and grid_parity for 144 (todo 569: volume
+rounding of 1 to 2 shares, prices exact; owner decides the bound). The 229-name 14:30 grid re-derive is complete. No name
+builds as the next 186-26 stage until both clear.
+
 ## Restart order (2026-10-29; two sessions only)
 
 The server stays up through a reboot of the owner's PC: timers, the 5m backfill and the

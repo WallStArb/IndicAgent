@@ -1,11 +1,13 @@
 {
  "version": "1.0",
- "timestamp": "2026-10-30T11:30:00Z",
+ "timestamp": "2026-10-30T19:00:00Z",
  "phase": "191",
  "phase_name": "unified-raw-bar-table",
  "plan": "191-20 to 191-23 done; 186-26 stages 1 and 1b built (1d, 1,314 names, pinned tree /home/bg/dev/indicagent-186-26 at 92e588385); both lanes paused 2026-10-30 at the owner's usage limit",
  "status": "paused",
  "remaining_tasks": [
+  "Coverage ledger: scratchpad cc_apply.py (a full ohlcv_coverage rebuild from ohlcv_raw) waits on the fetcher lock and dies with its session; if it is gone, rerun `.venv/bin/python -m scripts.infrastructure.backfill.ohlcv_history_fetcher --rebuild-coverage` in a fetcher gap, then confirm the audit's coverage_cache clears. Durable fix is todo 570.",
+  "Todo 569: grid_parity fails 144 names on volume rounding alone (prices exact, archive 1 to 2 shares higher). Owner decision on the volume bound; then recount which names pass every intraday verdict and build them as the next 186-26 stage.",
   "Read the bar audit's intraday report (logs/bar_reconciliation_audit.log, event bar_integrity.report_intraday) and the 02:00 ET run after the new 05:20 UTC daily derivation timer; names that pass every intraday verdict get the next 186-26 stage from the pinned tree (intraday tfs, same horizon 2026-10-01 unless the owner moves it).",
   "Hold list: recount against the era-scoped session_coverage (191-SESSION-COVERAGE-ERA-FAILS.tsv); 156 names still fail, 71 todo 566 names clear after the derive; build newly clean names as their own stage with only the new names in --symbols (never re-chunk a merged list).",
   "Drift: 27 stage 1 names grew history (todo 566 list); delete their feature rows and rebuild at the 186-27 drift read.",
