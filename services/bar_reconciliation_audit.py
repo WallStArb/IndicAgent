@@ -1384,9 +1384,8 @@ class _IntradayInputs:
     current_digests: Mapping[str, Mapping[datetime, str]]
     scope: frozenset[datetime] | None
     stray: Mapping[str, int]
-    listing_end: date | None = (
-        None  # the recorded last session (listing_end_current); None while listed
-    )
+    # The recorded last session (listing_end_current); None while listed.
+    listing_end: date | None = None
 
 
 class _IntradayVerdict(NamedTuple):
