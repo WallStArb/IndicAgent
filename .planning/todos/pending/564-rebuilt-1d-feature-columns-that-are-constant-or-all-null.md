@@ -60,6 +60,27 @@ a day the calendar does not know, so no daily panel can start before 2005 (the d
 amended its start for this, prereg section 10). Move the start to 2000-01-01 in the rebuild batch; the
 module is imported by `backfill_feature_factory.py`, so it moves the code pin.
 
+## Delete list after migration 543 (research lane, 2026-10-30)
+
+Migration 543 serves `fallback` volume (SMART), so `market_data_ohlcv_tradeable` has 0 NULL-volume rows on
+every timeframe (checked 2026-10-30). The NULL-volume handling added under todos 560 and 563 has no input on
+current data. In the next kernel-edit batch, delete rather than carry (5-step mandate; the guard code is
+the cost, the data was the cause):
+
+- `dropped_volume.py`, `Kernel.volume_reset`, `_masked_until_reset`, the dropped-share branch, APR key
+  `feature.volume.dropped_max_fraction` (migration 541, retire via a migration) and the config field, and
+  the NaN handling in `_build_ctf_series`; keep one loud check that raises on a non-finite volume reaching
+  a volume kernel (a `venue` bar can still be NULL), instead of masking.
+- `STATUS_INPUT_GAP` and `_has_interior_gap` in the regime kernels: same loud check instead.
+- Keep: the volume-basis segment handling (fallback is now SMART, about 0.75 of SIP, so the Alpaca seam is
+  real), `_guard_downstream` only if a basis seam can still produce masked rows, the none-mask fix, the
+  end-to-end dropped-bar test (repoint it at a basis seam), and the non-vacuous invariant test.
+- The 1d features built before 543 for the 147 fallback names are stale; rebuild them in the same batch.
+- Open measurement: the per-name SMART/SIP median ratio from 2024 is 0.37 (38 names, p5 0.00, p95 0.82),
+  much lower than the 0.75 the basis table assumes; fallback names are thin and the dates differ, so it is
+  not a clean ratio. Measure it on overlapping dates before trusting the basis segmentation to remove the
+  level shift.
+
 ## Done when
 
 1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
