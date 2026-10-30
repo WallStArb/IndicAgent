@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-10-29
 source: step B run of 2026-10-28 (logs/research/stepm_null_battery_s4000_stepb_20261028.json), pre-registered rule in 187-05-BATTERY.md
@@ -98,3 +98,12 @@ by one new complete run with more simulations, pre-registered as Step B v2 in `1
 (seed base 50,000,000, 2,000 simulations per cell, bound 133, run once; a failure goes to the owner).
 The script now hashes the StepM source at startup (this section's "Script fix"). Launched as the user
 unit `stepm-step-b2` from `/home/bg/dev/indicagent-b0`, nice 19, 8 workers (about 13 hours at 10 workers).
+
+## Result (2026-10-30): Step B v2 passes
+
+`logs/research/stepm_null_battery_s4000_stepb2_20261029.json`: complete, 20 cells at 2,000 simulations, seed
+base 50,000,000, 11.1 hours. Pooled gating rate 5.35% (tolerance 6%); every gating cell holds (bound 133;
+rejections 94 to 128; `s1_hostile` 105 of 2,000, 5.25%). Diagnostic cells report as designed
+(`static_vol_stress` 140, `hostile_stress` 140, `s1_slot_stress` 1,908). `failures` is empty, so
+`select_books.py` accepts it as the StepM attestation. Step B's single failure is closed as a tail draw of
+the 1,000-simulation bound.
