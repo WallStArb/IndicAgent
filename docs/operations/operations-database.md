@@ -2,55 +2,37 @@
 
 **Version:** 2.11
 **Last Updated:** 2026-10-27 (bar data layer and backfill sections only)
-**Status:** stale (v2.x, see banner)
+**Status:** current
 
 ---
 
-> **Staleness note (2026-08-01):** This runbook's table list and commands target
-> `intelligence_features`, `signal_ledger`, and `signal_outcomes` — ARCHIVED v2.x tables with
-> no live consumer as of 2026-07-02 per CLAUDE.md. **The commands below target ARCHIVED
-> tables — do not run against production without first verifying the target table still exists
-> and is the live one** (`feature_vectors` is the current
-> equivalent). Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
+> Cleaned 2026-10-30: the v2.x table lists, key columns, materialized views and freshness checks were
+> removed (those tables no longer exist). The pre-clean text is in git history before this commit.
 
 ## Purpose
 
 TimescaleDB operations: tables, migrations, backfill, compression, backup, and advanced gotchas for IndicAgent's cold storage layer.
 
-**Architecture:** Real-time pipeline never touches the database directly. Writers consume Kafka topics and persist to TimescaleDB: `indicagent-feature-writer`, `indicagent-signal-writer`, `indicagent-lifecycle-writer`, `indicagent-lineage-writer`, `indicagent-llm-writer`, `indicagent-swarm-ledger-writer`, `indicagent-signal-metrics-writer`.
+**Architecture:** the streaming path is dormant; data arrives by nightly batch (IBKR and Alpaca into `ohlcv_raw`, then the canonical selection `market_data_ohlcv`). Compute reads the views, never the raw table. Writers persist in batch; the real-time path never touches the database directly.
 
 ---
 
 ## Tables
 
-| Table | Purpose | Retention |
-|-------|---------|-----------|
-| `market_data_ohlcv` | Raw OHLCV — ground truth, never wipe | Forever |
-| `intelligence_features` | Full feature vectors per bar (ML training dataset) | Forever |
-| `signal_ledger` | I7 signals — fire-time fields | Forever |
-| `signal_outcomes` | Mutable lifecycle fields (activation, exit, pnl_r) — JOIN via `signal_id` | Forever |
-| `macro_features` | Macro/cross-asset feature vectors per bar | Forever |
-| `llm_calls` | Full LLM audit log per call | Forever |
-| `llm_model_scores` | Per-model win rate / avg pnl_r (refreshed 15min) | Forever |
-| `setup_performance` | Per-setup rolling 30d stats (sample_size ≥ 30 gate) | Forever |
-| `signal_lineage` | Swarm lineage events per signal | Forever |
-| `signal_ai_enrichment` | Swarm aggregate adjustments | Forever |
-| `shadow_registry` | Shadow governance enrollment + eval stats per plugin/agent | Forever |
-| `cis_weights` | CIS calibration weights | Rebuilt nightly |
-| `swarm_agent_weights` | Swarm agent performance weights | Rebuilt weekly |
+High level; the schema is in `production/migrations/` and the owners are in `docs/foundation/canonical-truth-registry.md`.
 
-**Never delete `market_data_ohlcv`.** Every bar is a labeled training sample. All downstream tables can be rebuilt from bar data via replay.
+| Group | Tables | Retention |
+|---|---|---|
+| Bars | `ohlcv_raw` (every vendor answer, last-wins), `market_data_ohlcv` (canonical selection), views `market_data_ohlcv_tradeable` and `bar_source_policy_current`, `ohlcv_revision`, `bar_quality_flag`, `bar_session_choice`, `dividend_events` | Forever; `ohlcv_raw` is never wiped |
+| Features | `feature_vectors_v2` (rebuild in progress), `market_regimes`, `feature_ic_scores_v2`, `macro_features` | Rebuildable cache |
+| Research | `research_run`, `concept_registry`, `concept_evaluation`, `concept_gate` | Conclusions are records, kept |
+| Registries | `instruments`, `instrument_tags`, `instrument_classification`, `controlled_vocabulary`, `config_schema`, `config_state`, `config_history` | Forever |
 
-**Checkpoint files** (not DB): `cache/pipeline_checkpoint.json` (plugin states + Kalman), `cache/bar_replay_checkpoint.json` (live replay cursor). These are in-process state only — delete to force cold restart.
+**Never delete `market_data_ohlcv` or `ohlcv_raw`.** All derived tables rebuild from them.
 
-### Key Columns
+Time columns: `market_data_ohlcv` and `ohlcv_raw` use `timestamp` (not `ts`); `feature_vectors_v2` uses `bar_ts` and `tf`.
 
-| Table | Primary Time Column | Notes |
-|-------|-------------------|-------|
-| `market_data_ohlcv` | `timestamp` | Not `ts` |
-| `intelligence_features` | `ts` | Not `feature_ts` |
-| `signal_ledger` | `timestamp` | JOIN via `(symbol, feature_ts, feature_tf)` |
-| `llm_calls` | `called_at` | Composite PK with `call_id` |
+**Checkpoint files** (not DB) are in-process state only; delete to force a cold start.
 
 ---
 
@@ -402,7 +384,7 @@ FROM timescaledb_information.hypertable_compression_stats;
 ```sql
 -- After large backfill
 SELECT compress_chunk(c)
-FROM show_chunks('intelligence_features', older_than => INTERVAL '7 days') c;
+FROM show_chunks('market_data_ohlcv', older_than => INTERVAL '7 days') c;
 ```
 
 ### Bulk UPDATE on compressed data
@@ -440,7 +422,7 @@ CALL recompress_chunk('_timescaledb_internal._hyper_1_42_chunk');
 Cannot run inside a transaction block. Use standalone command:
 
 ```bash
-docker exec timescaledb psql -U postgres -d indicagent -c "VACUUM ANALYZE intelligence_features;"
+docker exec timescaledb psql -U postgres -d indicagent -c "VACUUM ANALYZE market_data_ohlcv;"
 ```
 
 ### Autovacuum on hypertables
@@ -452,7 +434,7 @@ DO $$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks
-           WHERE hypertable_name = 'intelligence_features' AND hypertable_schema = 'public'
+           WHERE hypertable_name = 'market_data_ohlcv' AND hypertable_schema = 'public'
   LOOP
     EXECUTE format('ALTER TABLE %I.%I SET (autovacuum_vacuum_scale_factor = 0.01)', r.chunk_schema, r.chunk_name);
   END LOOP;
@@ -557,13 +539,7 @@ WHERE application_name LIKE 'Columnstore%';
 
 ## Materialized Views
 
-`signal_stats_daily` is a materialized view — appears in `pg_stat_user_tables` but cannot be TRUNCATEd. Use:
-
-```sql
-REFRESH MATERIALIZED VIEW signal_stats_daily;
-```
-
-`signal_ledger_full` is a view (joins `signal_ledger` + `signal_outcomes`) — cannot be TRUNCATEd. Query it for full lifecycle state; write to the underlying tables directly.
+A materialized view appears in `pg_stat_user_tables` but cannot be TRUNCATEd; refresh it with `REFRESH MATERIALIZED VIEW <name>`. The only one now is `remediation_success_rates`.
 
 ---
 
@@ -580,20 +556,13 @@ docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -
 ## Freshness Checks
 
 ```bash
-# Latest OHLCV bars
+# Latest canonical bars per timeframe
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT symbol, tf, MAX(timestamp) as last_bar FROM market_data_ohlcv \
-   GROUP BY symbol, tf ORDER BY last_bar DESC LIMIT 5"
+  "SELECT timeframe, MAX(timestamp) AS last_bar FROM market_data_ohlcv GROUP BY timeframe"
 
-# Latest features
+# Latest feature rows per timeframe
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT symbol, tf, MAX(ts) as last_feature FROM intelligence_features \
-   GROUP BY symbol, tf ORDER BY last_feature DESC LIMIT 5"
-
-# Latest signals
-PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT symbol, timeframe, MAX(timestamp) as last_signal FROM signal_ledger \
-   GROUP BY symbol, timeframe ORDER BY last_signal DESC LIMIT 5"
+  "SELECT tf, MAX(bar_ts) AS last_feature FROM feature_vectors_v2 GROUP BY tf"
 ```
 
 ---
