@@ -155,9 +155,15 @@ Four timers. Sources are chosen per date by `bar_source_policy_current`:
    before now because the free plan refuses recent SIP, bounded by
    `infra.alpaca.nightly_max_requests` and `infra.alpaca.nightly_deadline_minutes`. 5m is
    selected into canonical in the same transaction; 1d is raw capture only.
-3. `indicagent-bar-derivation-grid.timer` (05:45 UTC) runs `bar_derivation --stage grid
+3. `indicagent-bar-derivation-daily.timer` (05:20 UTC) runs `bar_derivation --stage daily
+   --changed-only --apply`, deriving the night's 1d into canonical. Without it the newest session
+   waits for the next IBKR fetcher run-end daily stage, up to about 5 hours, and the audit at
+   06:00 UTC reads every name one session short (a night's `lineage_missing`,
+   `policy_conformance`, `canonical_recompute` and `coverage_cache` findings, one per name). The
+   stage lock serializes it with the fetcher's own daily stage.
+4. `indicagent-bar-derivation-grid.timer` (05:45 UTC) runs `bar_derivation --stage grid
    --changed-only --apply`, deriving 15m/1h from the night's 5m.
-4. `indicagent-bar-reconciliation-audit.timer` (06:00 UTC) runs the D7 audit
+5. `indicagent-bar-reconciliation-audit.timer` (06:00 UTC) runs the D7 audit
    (`services/bar_reconciliation_audit.py`).
 
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):

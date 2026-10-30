@@ -81,6 +81,7 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 | Memory Batch | `indicagent-memory-batch` | `scripts/ops/memory/ops_batch_agent_memory.py` | Nightly 21:00 |
 | IBKR History Fetcher | `indicagent-ibkr-history-fetcher` | `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` | `.timer` `enabled`, 15 min after each run ends (the queue decides what runs) |
 | Alpaca Nightly | `indicagent-alpaca-nightly` | `scripts/ops/bars/ops_bar_nightly.py --vendor alpaca --apply` | `.timer` `enabled`, daily 04:40 UTC |
+| Bar Derivation Daily | `indicagent-bar-derivation-daily` | `services/bar_derivation.py --stage daily --changed-only --apply` | `.timer` `enabled`, daily 05:20 UTC (after the Alpaca nightly; before the grid and the audit) |
 | Bar Derivation Grid | `indicagent-bar-derivation-grid` | `services/bar_derivation.py --stage grid --changed-only --apply` | `.timer` `enabled`, daily 05:45 UTC (after the Alpaca nightly) |
 | Bar Reconciliation Audit (D7) | `indicagent-bar-reconciliation-audit` | `services/bar_reconciliation_audit.py` | `.timer` `enabled`, daily 06:00 UTC |
 | Roll Batch | `indicagent-roll-batch` | `scripts/ops/roll/ops_roll_batch.py` | `.timer` **`disabled`** — see Roll detection note above |

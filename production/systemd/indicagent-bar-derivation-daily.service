@@ -1,0 +1,12 @@
+[Unit]
+Description=IndicAgent 1d derivation after the Alpaca nightly (services/bar_derivation.py --stage daily --changed-only)
+After=network-online.target indicagent-alpaca-nightly.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.bar_derivation --stage daily --changed-only --apply
+TimeoutStartSec=6h
