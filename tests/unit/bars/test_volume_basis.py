@@ -22,7 +22,7 @@ CANONICAL_PAIRS = {
     ("alpaca", "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
     ("ibkr", "named"): VOLUME_BASIS_SMART,
     ("ibkr", "smart_trades"): VOLUME_BASIS_SMART,
-    ("ibkr", "fallback"): VOLUME_BASIS_NONE,
+    ("ibkr", "fallback"): VOLUME_BASIS_SMART,
     ("ibkr", "venue"): VOLUME_BASIS_NONE,
 }
 

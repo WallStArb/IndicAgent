@@ -254,8 +254,9 @@ VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], int] = {
     (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
     (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
     (VENDOR_IBKR, "smart_trades"): VOLUME_BASIS_SMART,
-    # The tradeable view NULLs volume for these two kinds (market_data_ohlcv_tradeable).
-    (VENDOR_IBKR, "fallback"): VOLUME_BASIS_NONE,
+    # A fallback 1d bar equals its raw smart_trades row (migration 543); only venue is NULLed by
+    # the tradeable view (market_data_ohlcv_tradeable).
+    (VENDOR_IBKR, "fallback"): VOLUME_BASIS_SMART,
     (VENDOR_IBKR, "venue"): VOLUME_BASIS_NONE,
 }
 
