@@ -71,3 +71,14 @@ module is imported by `backfill_feature_factory.py`, so it moves the code pin.
 
 Edits under `src/intelligence/features/` after the 186-26 pin are a code-key change: they apply to
 later stages only if the pin moves, so batch them with the next kernel edit window.
+
+## Calendar start change moves the 1d coverage era (data lane, 2026-10-30)
+
+The research lane plans to move the session calendar start (`_PMC_RANGE_START` in
+`src/core/market_calendar.py`) from 2005 to 2000 in this todo's kernel-edit batch. The 1d
+`session_coverage` verdict reads its era from `MarketCalendar.first_session` (commit 0be5cbc91), so
+that change moves the era to 2000 with no other edit, and the pre-2005 holes it was scoped to ignore
+come back into the check: expect the held list to grow (ABCB's 37 missing 1999-2002 sessions are
+before 2000 and still outside; names with 2000-2004 holes re-enter). Before landing the change, rerun the
+era recount (`191-SESSION-COVERAGE-ERA-FAILS.tsv` method) for the new start and list the names that
+newly fail, among them any of the 1,314 built names, since the rebuild would then consume those years.
