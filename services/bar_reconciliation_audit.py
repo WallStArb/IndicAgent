@@ -1374,6 +1374,18 @@ _WRITER_ROLE = "bar_derivation_writer"
 # The D7 dated exceptions (todo 524, D-191-H; recorded 2026-10-31 from the todo 573
 # classification). Waves 1 and 2 release a stamp; wave 3 (wrong-basis archive rows) stays held
 # until its archive rows are re-fetched, and the loader skips it.
+class DatedExceptionsDrift(Exception):
+    """The record's stamps and its wave names lists disagree. Carries every drifted symbol, so
+    one fix cycle repairs the whole record."""
+
+    def __init__(self, symbols: list[str]) -> None:
+        super().__init__(
+            f"dated-exceptions record drift: {sorted(symbols)} hold released "
+            f"stamps but are missing from their stamp wave's names list"
+        )
+        self.symbols = symbols
+
+
 def load_dated_exceptions(
     record: Mapping[str, Any],
 ) -> dict[str, dict[str, dict[datetime, tuple[bool, bool]]]]:
@@ -1381,27 +1393,29 @@ def load_dated_exceptions(
     dimensions its record excuses, (price, volume), from the parsed APR record (migration 547's
     infra.grid_parity.dated_exceptions, the todo 573 classification). Only released waves load:
     a stamp whose wave is not released never excepts. A symbol holding released stamps while
-    absent from every released wave's names list is record drift and raises: the excused set
-    must never quietly diverge from what the record documents.
+    absent from its own stamp wave's names list is record drift: the scan collects every
+    drifted symbol and raises once, and the caller fails closed for the whole record, because
+    an excused set that quietly diverges from what the record documents is worthless.
     """
     released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
-    names = {name for w in released for name in record["waves"][w]["names"]}
+    wave_names = {wave: set(spec.get("names", ())) for wave, spec in record["waves"].items()}
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
+    missing_from_names: set[str] = set()
     for symbol, per_tf in record["exceptions"].items():
         for tf, stamps in per_tf.items():
-            kept = {
-                datetime.fromisoformat(s["stamp"]): (bool(s["price"]), bool(s["volume"]))
-                for s in stamps
-                if str(s["wave"]) in released
-            }
-            if not kept:
-                continue
-            if symbol not in names:
-                raise ValueError(
-                    f"dated-exceptions record drift: {symbol} holds released stamps but is in "
-                    f"no released wave's names list"
-                )
-            out[symbol][tf] = kept
+            kept = {}
+            for s in stamps:
+                wave = str(s["wave"])
+                if wave not in released:
+                    continue
+                if symbol not in wave_names[wave]:
+                    missing_from_names |= {symbol}
+                    continue
+                kept[datetime.fromisoformat(s["stamp"])] = (bool(s["price"]), bool(s["volume"]))
+            if kept:
+                out[symbol][tf] = kept
+    if missing_from_names:
+        raise DatedExceptionsDrift(sorted(missing_from_names))
     return out
 
 
@@ -2579,12 +2593,19 @@ class BarReconciliationAudit(BaseBatch):
         step to the caller, which runs it after these verdicts are written). A finding never
         raises. `recorded` overrides the D7 dated-exception APR record (tests); None reads
         infra.grid_parity.dated_exceptions from the params."""
-        if recorded is None:  # fail closed: without the record nothing is dated, so the audit
-            if not integ.dated_exceptions_json:  # can only hold more names to exact parity,
-                recorded = {}  # never fewer; an absent record is normal, a malformed one logs
+        # Fail closed: without the record nothing is dated, so the audit can only hold more
+        # names to exact parity, never fewer. An absent record is the normal pre-migration
+        # state; a malformed record warns; record drift errors with the drifted symbols, a
+        # different event so triage can tell the three apart.
+        if recorded is None:
+            if not integ.dated_exceptions_json:
+                recorded = {}
             else:
                 try:
                     recorded = load_dated_exceptions(json.loads(integ.dated_exceptions_json))
+                except DatedExceptionsDrift as error:
+                    logger.error("bar_integrity.dated_exceptions_drift", symbols=error.symbols)
+                    recorded = {}
                 except (ValueError, KeyError, TypeError) as error:
                     logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
                     recorded = {}

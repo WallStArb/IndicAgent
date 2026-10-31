@@ -30,10 +30,12 @@ SELECT NOW(), s.config_key, s.version, s.config_value, 'migration:547',
   FROM config_state s
  WHERE s.config_key = 'infra.grid_parity.dated_exceptions'
    AND s.version = 1
+   -- attribute only a row this migration actually seeded: if ANY history row already exists
+   -- for this key and version (a prior run of this migration, or a foreign version-1 write),
+   -- the seed must not claim that value as its own.
    AND NOT EXISTS (
        SELECT 1 FROM config_history h
         WHERE h.config_key = s.config_key AND h.version = s.version
-          AND h.changed_by = 'migration:547'
    );
 
 COMMIT;

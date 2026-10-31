@@ -1246,6 +1246,95 @@ def test_a_recorded_dated_exception_releases_its_stamp():
     assert _verdict(plain, "AAA|15m", "grid_parity")[5] is False  # unrecorded it still fails
 
 
+def test_a_released_stamp_outside_its_stamps_names_list_is_record_drift():
+    with pytest.raises(audit.DatedExceptionsDrift):
+        audit.load_dated_exceptions(
+            {
+                "waves": {"1": {"released": True, "names": ["BBB"]}},
+                "exceptions": {
+                    "AAA": {
+                        "15m": [
+                            {
+                                "stamp": "2026-10-01T13:30:00+00:00",
+                                "wave": 1,
+                                "price": True,
+                                "volume": False,
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+
+
+def test_drift_collects_every_drifted_symbol_and_checks_the_stamps_own_wave():
+    """Membership is checked against the stamp's own wave, not the union, and one raise names
+    every drifted symbol so one fix cycle repairs the whole record."""
+    stamp = {"stamp": "2026-10-01T13:30:00+00:00", "price": True, "volume": False}
+    with pytest.raises(audit.DatedExceptionsDrift) as caught:
+        audit.load_dated_exceptions(
+            {
+                "waves": {
+                    "1": {"released": True, "names": ["BBB"]},
+                    "2": {"released": True, "names": ["AAA"]},  # AAA holds wave-1 stamps only
+                },
+                "exceptions": {
+                    "AAA": {"15m": [{**stamp, "wave": 1}]},
+                    "CCC": {"15m": [{**stamp, "wave": 2}]},
+                },
+            }
+        )
+    assert caught.value.symbols == ["AAA", "CCC"]
+
+
+def test_a_released_wave_without_a_names_key_does_not_break_unrelated_waves():
+    loaded = audit.load_dated_exceptions(
+        {
+            "waves": {
+                "1": {"released": True, "names": ["AAA"]},
+                "4": {"released": True},  # released, unused, no names list
+            },
+            "exceptions": {
+                "AAA": {
+                    "15m": [
+                        {
+                            "stamp": "2026-10-01T13:30:00+00:00",
+                            "wave": 1,
+                            "price": True,
+                            "volume": False,
+                        }
+                    ]
+                }
+            },
+        }
+    )
+    assert loaded["AAA"]["15m"]  # wave 1's stamps still load
+
+
+def test_a_drifted_record_fails_closed_with_its_own_error_event():
+    """Drift must not vanish into the malformed-record warning: one drifted symbol voids the
+    whole record (fail closed), but under its own event so triage can tell them apart."""
+    name = _agreeing_name()
+    key = next(iter(name["archive"]["15m"]))
+    values = list(name["archive"]["15m"][key])
+    values[4] += 3.0
+    name["archive"]["15m"][key] = tuple(values)
+    record = json.dumps(
+        {
+            "waves": {"1": {"released": True, "names": []}},  # AAA missing: drift
+            "exceptions": {
+                "AAA": {
+                    "15m": [{"stamp": key.isoformat(), "wave": 1, "price": False, "volume": True}]
+                }
+            },
+        }
+    )
+    integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": record})
+    run = _intraday(_IntradayConn({"AAA": name}), integ=integ)
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is False and run.parity_excepted.get("15m", 0) == 0
+
+
 def test_load_dated_exceptions_releases_only_released_waves():
     loaded = audit.load_dated_exceptions(
         {
