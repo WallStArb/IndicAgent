@@ -48,3 +48,16 @@ The five failures decomposed into one stale-world assumption plus one real findi
 
 A held name's recompute mismatch being excluded is not loosening to pass: the hold is the record,
 and the audit reports it continuously.
+
+## Second round (research lane, 2026-10-31, commit 2ce67c347)
+
+The live rerun (commit f2cf5c094) confirmed identities, lineage version uniformity, the recompute
+sample, digest and scale-break green; two checks still failed on recorded findings, not stale
+expectations: CTVA (held, todo 516) and EIS (`compute_eligible_1d=false`, todo 566 class A:
+canonical from the 10-28 bulk apply, never derived since, promotion decision pending) sat as
+(ibkr, named) on alpaca-primary dates, and VIXY's flagged sessions are partial-IBKR-5m sessions
+(0.82 median deficit is coverage, not basis). Both checks now scope like the audit's scored
+universe (compute_eligible_1d, no held name) and the grid's per-name median assert is gone in
+favor of the 185-31 docstring's own recorded contract (aggregate floors gate; VIXY is that
+bullet's literal example). Confirmation rerun of the last two pending: reaped twice under the
+stage-2 rebuild's memory pressure; run the two files against the live DB in the next quiet window.
