@@ -1378,11 +1378,12 @@ class DatedExceptionsDrift(Exception):
     """The record's stamps and its wave names lists disagree. Carries every drifted symbol, so
     one fix cycle repairs the whole record."""
 
-    def __init__(self, symbols: list[str]) -> None:
+    def __init__(self, symbols: list[str], note: str = "") -> None:
         self.symbols = sorted(symbols)
+        self.note = note
         super().__init__(
             f"dated-exceptions record drift: {self.symbols} hold released stamps but are "
-            f"missing from their stamp wave's names list"
+            f"missing from their stamp wave's names list" + note
         )
 
 
@@ -1397,22 +1398,38 @@ def load_dated_exceptions(
     drifted symbol and raises once, and the caller fails closed for the whole record, because
     an excused set that quietly diverges from what the record documents is worthless.
     """
-    if not isinstance(record, dict):
+    if not isinstance(record, Mapping):
         raise ValueError("dated-exceptions record is not a mapping")
     waves = record.get("waves")
-    if not isinstance(waves, dict) or not isinstance(record.get("exceptions"), dict):
+    exceptions = record.get("exceptions")
+    if not isinstance(waves, Mapping) or not isinstance(exceptions, Mapping):
         raise ValueError("dated-exceptions record lacks a waves or exceptions mapping")
-    released = {wave for wave, spec in waves.items() if spec.get("released")}
-    # set membership per wave; None marks a released wave whose names list is missing, a
-    # record defect (not symbol drift) when a stamp actually references it
-    wave_names = {
-        wave: None if spec.get("names") is None else set(spec["names"])
-        for wave, spec in waves.items()
-    }
+    # one validation pass over the whole shape, so the scan below can trust types: anything
+    # structurally wrong is a malformed record (the caller warns), never an AttributeError
+    for wave, spec in waves.items():
+        if not isinstance(spec, Mapping):
+            raise ValueError(f"dated-exceptions wave {wave!r} spec is not a mapping")
+        names = spec.get("names")
+        if names is not None and (
+            not isinstance(names, (list, set, tuple)) or any(not isinstance(n, str) for n in names)
+        ):
+            raise ValueError(f"dated-exceptions wave {wave!r} names list is malformed")
+    for name, per_tf in exceptions.items():
+        if not isinstance(per_tf, Mapping):
+            raise ValueError(f"dated-exceptions for {name!r} are not a mapping")
+        for tf, stamps in per_tf.items():
+            if not isinstance(stamps, list) or any(not isinstance(s, Mapping) for s in stamps):
+                raise ValueError(f"dated-exceptions stamps for {name!r} {tf!r} are malformed")
+    released = set()
+    wave_names: dict[str, set[str] | None] = {}
+    for wave, spec in waves.items():  # one pass builds both, so they cannot desynchronize
+        if spec.get("released"):
+            released.add(wave)
+            wave_names[wave] = None if spec.get("names") is None else set(spec["names"])
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     missing_from_names: set[str] = set()
     nameless_waves: set[str] = set()
-    for name, per_tf in record["exceptions"].items():
+    for name, per_tf in exceptions.items():
         for tf, stamps in per_tf.items():
             kept = {}
             for s in stamps:
@@ -1428,15 +1445,20 @@ def load_dated_exceptions(
                 kept[datetime.fromisoformat(s["stamp"])] = (bool(s["price"]), bool(s["volume"]))
             if kept:
                 out[name][tf] = kept
+    if missing_from_names:
+        # the scan finished before raising, so one report carries every defect; drift keeps
+        # its dedicated event even when a nameless wave shares the record
+        suffix = (
+            f" (released waves {sorted(nameless_waves)} also have no names list)"
+            if nameless_waves
+            else ""
+        )
+        raise DatedExceptionsDrift(missing_from_names, suffix)
     if nameless_waves:
-        # raise after the full scan so one report carries every defect in the record
         raise ValueError(
             f"released waves {sorted(nameless_waves)} of the dated-exceptions record have no "
             f"names list"
-            + (f"; drift also found for {sorted(missing_from_names)}" if missing_from_names else "")
         )
-    if missing_from_names:
-        raise DatedExceptionsDrift(missing_from_names)
     return out
 
 

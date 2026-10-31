@@ -1312,7 +1312,7 @@ def test_a_mixed_defect_record_reports_both_after_one_scan():
     """The scan completes before raising, so a record with both a nameless wave and drift
     names all of its defects in one report."""
     stamp = {"stamp": "2026-10-01T13:30:00+00:00", "price": True, "volume": False}
-    with pytest.raises(ValueError, match="no names list") as caught:
+    with pytest.raises(audit.DatedExceptionsDrift) as caught:
         audit.load_dated_exceptions(
             {
                 "waves": {
@@ -1325,11 +1325,19 @@ def test_a_mixed_defect_record_reports_both_after_one_scan():
                 },
             }
         )
-    assert "CCC" in str(caught.value)
+    # drift keeps its dedicated event; the nameless wave rides the message as a note
+    assert caught.value.symbols == ["CCC"] and "no names list" in str(caught.value)
 
 
 def test_a_structurally_wrong_record_is_malformed_not_a_crash():
-    for raw in ('{"waves": ["1"], "exceptions": {}}', '{"exceptions": "nope"}'):
+    raws = [
+        '{"waves": ["1"], "exceptions": {}}',
+        '{"exceptions": "nope"}',
+        '{"waves": {"1": "released"}, "exceptions": {}}',
+        '{"waves": {"1": {"released": true, "names": "AAA"}}, "exceptions": {}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, "exceptions": {"AAA": []}}',
+    ]
+    for raw in raws:
         integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": raw})
         run = _intraday(_IntradayConn({"AAA": _agreeing_name()}), integ=integ)
         assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # warned, judged
