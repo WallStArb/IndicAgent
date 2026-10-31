@@ -75,3 +75,23 @@ pacing errors; revert to 2 if pacing errors or gateway drops appear. Idle time b
 about 45 min (post-fetch stages, then the 15 min timer). Remaining decisions for 3a: ETA, name
 order (feature-family names first), shortening the post-fetch gap. Todo 556 covers ten other
 config rows whose value types the validator rejects.
+
+## Status 2026-10-31 22:05Z (PM, indicagent-9f): ETA and name-order decision
+
+Measured tonight under 186-26 stage-2 load: 56.95M pre-2016 5m raw rows over 354 names touched,
+adding about 336k rows in 31 minutes, so about 0.65M bars/hour (down from the 0.9-1.0M of
+2026-10-13; concurrency 4 is set, the rebuild's host load is the difference, and the three
+fetcher wedges today each cost a run plus about 15 minutes). Coverage: 1,175 active names still
+have no pre-2016 IBKR 5m at all; 354 have some.
+
+ETA at tonight's rate: about 9,200 remaining name-years at about 19.7k bars/name-year is about
+181M bars, or roughly 11.6 days of continuous fetching at 0.65M/h; with budget gaps and wedge
+recoveries, plan on about two weeks. The 538 fix (watchdog and request timeout) recovers most of
+the wedge cost; approving its APR bounds is the throughput lever available now.
+
+Name-order decision (PM; owner can override): none-names before deepening partials, so the
+cross-sectional panel reaches every symbol's vendor floor before any name gets extra depth
+(history depth beats freshness does not mean some names get 2006 while others still have nothing);
+among none-names, feature-family and regime-kernel names go first so the 184/186 consumers
+unblock earliest. The 2006 target for the deepest names is second-priority behind every name
+having pre-2016 coverage at all.
