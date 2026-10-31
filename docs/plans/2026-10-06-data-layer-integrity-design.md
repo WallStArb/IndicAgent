@@ -15,9 +15,9 @@ Landed by phase 191 (2026-10-18): `ohlcv_raw` is the one raw table, both old sto
 pre-swap canonical copy are dropped, and the one-shot tooling is deleted
 (`.planning/phases/191-unified-raw-bar-table/191-17-SUMMARY.md`).
 Informed by: `docs/plans/2026-09-26-unified-research-to-production-design.md` (section 12),
-`docs/plans/2026-09-26-daily-data-foundation.md` (D0-D7),
-`docs/plans/2026-09-29-intraday-bar-store-redesign.md`,
-`docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md` (phase 189),
+`docs/plans/archive/2026-09-26-daily-data-foundation.md` (D0-D7),
+`docs/plans/archive/2026-09-29-intraday-bar-store-redesign.md`,
+`docs/plans/archive/2026-10-02-ibkr-history-fetch-consolidation-design.md` (phase 189),
 `.planning/phases/185-daily-data-foundation/185-VERIFICATION.md` and plans 185-27 to 185-35,
 `docs/foundation/instrument-onboarding-sop.md`, live read-only queries on 2026-10-06.
 

@@ -16,10 +16,10 @@ the todos filed at adoption (section 19). **Amended 2026-09-26 (owner-approved):
 bar grid and one target kernel (section 14.7), from a measured parity check of `forward_returns`
 against the research kernel.
 **Parents:** `docs/plans/2026-09-24-evidence-framework.md` (E15),
-`docs/plans/2026-09-25-alpha-research-architecture.md` (adopted),
+`docs/plans/archive/2026-09-25-alpha-research-architecture.md` (adopted),
 `docs/plans/methodology-change-ledger.md` E16 and E17.
 **Absorbs:** `docs/plans/2026-09-26-research-methods-portfolio.md` (working input, section 6
-here). **Supersedes on adoption:** `docs/plans/2026-09-24-edge-proof-program.md` (condensed to a
+here). **Supersedes on adoption:** `docs/plans/archive/2026-09-24-edge-proof-program.md` (condensed to a
 stub and archived 2026-10-31, todo 568, at
 `docs/plans/archive/2026-09-24-edge-proof-program.md`; its verdicts stand).
 
@@ -733,7 +733,7 @@ Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once 
 | Phases 158-159 | Interface only, then fill-calibrated costs, after a book passes confirmation |
 | Phases 149-150, todo 275, glossary `PrecedentEngine` | Precedent predictors enter as family members, not "weighted by AlphaEngine's ensemble" |
 | Phase 184 | Revised per 435 (reads `feature_vectors`) and UD-25 (multi-timeframe design revision 3): B1 loses the 5m aggregation (moved to phase 185), B2 builds on 186's kernel registry, B4 discloses the term structure the shrunk ic_engine computes and feeds nothing, kappa included (4.4) |
-| `docs/plans/2026-09-24-edge-proof-program.md` | Done: superseded by this design; archived as a stub 2026-10-31 (todo 568) |
+| `docs/plans/archive/2026-09-24-edge-proof-program.md` | Done: superseded by this design; archived as a stub 2026-10-31 (todo 568) |
 | Todo 423 | Retitled as a family 4 member |
 
 ### 14.4 Todo dispositions
@@ -968,7 +968,7 @@ All done 2026-09-26:
 6. Todos: 214, 385, 399, 337, 419, 166 closed as moot, 393 folded into 437, 436 closed; notes on
    009, 038, 039, 099, 115, 191, 228, 352, 355, 423 (retitled), 435; new 437-442 with
    PRIORITIES.md rows.
-7. STATE.md strategic plan updated; `docs/plans/2026-09-24-edge-proof-program.md` marked
+7. STATE.md strategic plan updated; `docs/plans/archive/2026-09-24-edge-proof-program.md` marked
    superseded (archived as a stub 2026-10-31, todo 568).
 
 ## 20. Review resolutions
