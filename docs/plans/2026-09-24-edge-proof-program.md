@@ -5,7 +5,8 @@ harness instead of DB services, excess-over-null power, two-level decision, 179 
 at Brandon's request ("come up with concrete steps and make our priorities/roadmap reflect what
 levers need to be pulled").
 **Status:** SUPERSEDED 2026-09-26 by `docs/plans/2026-09-26-unified-research-to-production-design.md`
-(adopted, E18), which owns the sequence from here. Milestone v3.4 closed 2026-09-26: 178 and 182
+(adopted, E18), which owns the sequence from here; superseded again 2026-10-31 at the program
+level by `docs/plans/2026-10-31-data-fill-and-corpus-rerun-plan.md` (operative). Milestone v3.4 closed 2026-09-26: 178 and 182
 complete, 179 and 181 verdicts FAIL, 177 and 180 superseded. Condensed 2026-10-31 (todo 568) to
 this status page; the full text stands at commit `8b4f2c9c4` and the phase detail in
 `.planning/milestones/v3.4-ROADMAP.md`. The levers and their rationale now live in
