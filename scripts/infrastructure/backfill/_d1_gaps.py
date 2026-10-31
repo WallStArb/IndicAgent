@@ -19,7 +19,6 @@ for 1m/4h; 1d moved to D1 in task 1b.
 
 from __future__ import annotations
 
-import json
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -30,15 +29,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from scripts.infrastructure.backfill._empty_history import EmptyRange
 from src.intelligence.bars.gap_plan import (
+    ALPACA_COVERAGE_ROUTE,
+    ALPACA_COVERAGE_SOURCE,
+    ALPACA_COVERAGE_WHAT_TO_SHOW,
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
     DAILY_NOT_COVERAGE_KINDS,
+    LOAD_COVERAGE_DESTINATIONS,
+    LOAD_COVERAGE_OUTCOMES,
+    LOAD_COVERAGE_SOURCES,
     AnsweredWindows,
     fresh_empty_span,
+    live_partials,
+    load_range_windows,
     plan_gaps,
+    request_ts,
 )
 from src.intelligence.bars.sessions import session_complete_at
+from src.intelligence.bars.sources import GRID_SOURCE_TF
 from src.intelligence.bars.vendor_kind import VENUE_ROUTES
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
@@ -58,12 +67,13 @@ WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" >= %s AND "
 # vendor's slots a permanent silent hole. A load persists the latest request of its series
 # answered at or before it, at most infra.selection_gate.request_load_match_s seconds earlier
 # (the retired path wrote no request id on the load; ops_selection_gate.match_requests).
-_ANSWERED_WINDOWS_SQL = """
-SELECT r.window_start, r.window_end, r.partial_bars, r.answered_at
-FROM ohlcv_request r
-WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(vendor)s
-  AND r.what_to_show = %(what)s AND r.route = ANY(%(routes)s) AND r.outcome = ANY(%(outcomes)s)
-  AND r.window_start IS NOT NULL
+MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
+_MATCH_S_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
+# One predicate for every intraday answered-window read in this driver (the vendor's own SMART
+# TRADES read and the Alpaca nightly's SIP 5Min read): a `bars` answer covers its window only
+# when this source holds a raw row in it (a lost insert never looks covered), and a request
+# whose own load the contract refused is no answer (third review of plan 191-07, finding 3).
+_ANSWERED_TAIL_SQL = """
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
@@ -83,10 +93,39 @@ WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(ven
           AND q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at
       )
   )
+"""
+_ANSWERED_WINDOWS_SQL = (
+    """
+SELECT r.window_start, r.window_end, r.partial_bars, r.answered_at
+FROM ohlcv_request r
+WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(vendor)s
+  AND r.what_to_show = %(what)s AND r.route = ANY(%(routes)s) AND r.outcome = ANY(%(outcomes)s)
+  AND r.window_start IS NOT NULL"""
+    + _ANSWERED_TAIL_SQL
+    + """
 ORDER BY r.window_start
 """
-MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
-_MATCH_S_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
+)
+# The Alpaca nightly's 5Min answers are evidence for the 5m series (todo 567): a `bars` answer
+# corroborated by a stored raw row, or a definitive `no_data`, answers its window -- the same
+# predicate as the vendor's own read, and the audit's slot_coverage reads the same evidence.
+# Optional start/end bounds (the item's ask range) keep the per-window raw probes bounded.
+_ALPACA_WINDOWS_SQL = """
+SELECT r.window_start, r.window_end, r.partial_bars, r.answered_at
+FROM ohlcv_request r
+WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(source)s
+  AND r.route = %(route)s AND r.what_to_show = %(what)s
+  AND r.outcome = ANY(%(outcomes)s)
+  AND r.window_start IS NOT NULL%(bounds)s""" + _ANSWERED_TAIL_SQL
+# An applied Alpaca load answers every 5m slot of its requested range, a no-trade slot
+# included (a SIP aggregate bar exists only where a trade printed); see gap_plan's
+# LOAD_COVERAGE_* for the one definition the audit shares.
+_APPLIED_LOADS_SQL = """
+SELECT l.requested_start, l.requested_end
+FROM ohlcv_load l
+WHERE l.symbol = %(symbol)s AND l.timeframe = %(timeframe)s AND l.source = ANY(%(sources)s)
+  AND l.outcome = ANY(%(outcomes)s) AND l.destination = ANY(%(destinations)s)%(load_bounds)s
+"""
 # Intraday answers are SMART TRADES requests. The daily no_data question is asked on SMART and
 # every former-venue route (D-20); a definitive no_data window on any of them covers a session,
 # except where some route's latest answer over it was a transport failure (todo 535 item 6).
@@ -102,15 +141,49 @@ WHERE symbol = %(symbol)s AND timeframe = '1d' AND source = %(vendor)s
 """
 
 
-def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -> AnsweredWindows:
+def _bounds_clause(start: datetime | None, end: datetime | None) -> str:
+    """Window-overlap filter for the ask range, so an item's reads stay bounded; each bound
+    applies on its own."""
+    out = ""
+    if start:
+        out += " AND r.window_end >= %(start)s"
+    if end:
+        out += " AND r.window_start < %(end)s"
+    return out
+
+
+def _load_bounds_clause(start: datetime | None, end: datetime | None) -> str:
+    """Range-overlap filter for applied loads, same purpose."""
+    out = ""
+    if start:
+        out += " AND l.requested_end >= %(start)s"
+    if end:
+        out += " AND l.requested_start < %(end)s"
+    return out
+
+
+def load_answered_windows(
+    conn: Any,
+    symbol: str,
+    timeframe: str,
+    vendor: str,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> AnsweredWindows:
     """The answered TRADES windows `vendor` holds for (symbol, timeframe) (todo 462, 527).
 
     Intraday: a `bars` or `no_data` SMART answer (the bars corroborated by a raw row of the
-    same vendor in the window, and not refused by the contract). 1d: the definitive no_data
+    same vendor in the window, and not refused by the contract). The 5m series also reads the
+    Alpaca evidence (todo 565/567: the canonical 5m source is Alpaca SIP from 2016-01-04, so
+    a slot its nightly answered or one of its applied loads covered needs no ask from this
+    vendor; one definition with the audit's slot_coverage). `start`/`end`, when given, bound
+    the Alpaca reads to the ask's range. 1d: the definitive no_data
     windows of SMART and the former venues (daily_no_data_coverage), less every span where a
     route's latest answer was a transport failure, so a venue walk a dropped connection cut
     under a SMART no_data window is asked again (todo 535 item 6).
-    Another source's requests never appear: the filter is the request's own source.
+    Another source's requests never appear in the vendor's own read: the filter is the
+    request's own source.
     """
     if timeframe == "1d":
         with conn.cursor() as cur:
@@ -142,13 +215,45 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
             },
         )
         rows = cur.fetchall()
-    # A bar the answer served incomplete (migration 479, finding 5) is not an answer for its
-    # slot: the window covers every other slot, never that one, until a later answer whose window
-    # holds the slot serves it without listing it as partial (third review of 191-07, low item:
-    # a slot once partial was otherwise re-asked forever).
-    return AnsweredWindows.from_rows(
-        [(_aware(r[0]), _aware(r[1])) for r in rows], partial=live_partials(rows)
-    )
+        # A bar the answer served incomplete (migration 479, finding 5) is not an answer for its
+        # slot: the window covers every other slot, never that one, until a later answer whose
+        # window holds the slot serves it without listing it as partial (third review of 191-07,
+        # low item: a slot once partial was otherwise re-asked forever). The partial set is
+        # computed over the vendor's rows and the Alpaca rows together, as the audit does, so a
+        # slot one grid marked partial and the other served whole clears on both sides.
+        windows = [(_aware(r[0]), _aware(r[1])) for r in rows]
+        evidence_rows = list(rows)
+        if timeframe == GRID_SOURCE_TF:
+            cur.execute(
+                _ALPACA_WINDOWS_SQL.replace("%(bounds)s", _bounds_clause(start, end)),
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "source": ALPACA_COVERAGE_SOURCE,
+                    "route": ALPACA_COVERAGE_ROUTE,
+                    "what": ALPACA_COVERAGE_WHAT_TO_SHOW,
+                    "outcomes": list(ANSWERED_OUTCOMES),
+                    "match_s": float(found[0][0]),
+                    "start": start,
+                    "end": end,
+                },
+            )
+            evidence_rows += cur.fetchall()
+            windows += [(_aware(r[0]), _aware(r[1])) for r in evidence_rows[len(rows) :]]
+            cur.execute(
+                _APPLIED_LOADS_SQL.replace("%(load_bounds)s", _load_bounds_clause(start, end)),
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "sources": list(LOAD_COVERAGE_SOURCES),
+                    "outcomes": list(LOAD_COVERAGE_OUTCOMES),
+                    "destinations": list(LOAD_COVERAGE_DESTINATIONS),
+                    "start": start,
+                    "end": end,
+                },
+            )
+            windows += load_range_windows(cur.fetchall())
+    return AnsweredWindows.from_rows(windows, partial=live_partials(evidence_rows))
 
 
 def daily_no_data_coverage(rows: Sequence[tuple]) -> list[tuple[datetime, datetime]]:
@@ -209,39 +314,6 @@ def subtract_windows(
     return out
 
 
-def live_partials(rows: Sequence[tuple]) -> set[datetime]:
-    """Slots some answer served partial and no later answer covering them served whole.
-    `rows` are (window_start, window_end, partial_bars, answered_at)."""
-    marked: dict[datetime, datetime | None] = {}
-    for r in rows:
-        answered = _aware(r[3]) if len(r) > 3 and r[3] is not None else None
-        for bar in _partial_list(r[2]):
-            ts = _aware(datetime.fromisoformat(bar["t"]))
-            prior = marked.get(ts)
-            if ts not in marked or (answered is not None and (prior is None or answered > prior)):
-                marked[ts] = answered
-    live: set[datetime] = set()
-    for ts, at in marked.items():
-        cleared = at is not None and any(
-            len(r) > 3
-            and r[3] is not None
-            and _aware(r[3]) > at
-            and _aware(r[0]) <= ts < _aware(r[1])
-            and ts not in {_aware(datetime.fromisoformat(b["t"])) for b in _partial_list(r[2])}
-            for r in rows
-        )
-        if not cleared:
-            live.add(ts)
-    return live
-
-
-def _partial_list(value: Any) -> list[dict[str, Any]]:
-    """ohlcv_request.partial_bars as a list (psycopg returns jsonb decoded; a str is parsed)."""
-    if value is None:
-        return []
-    return json.loads(value) if isinstance(value, str) else list(value)
-
-
 def detect_gaps_from_record(
     conn: Any,
     symbol: str,
@@ -283,7 +355,7 @@ def detect_gaps_from_record(
         cur.execute(_RAW_SLOTS_SQL, (symbol, timeframe, vendor, start_dt, end_dt))
         rows = cur.fetchall()
     stored = [_aware(r[0]) for r in rows]
-    answered = load_answered_windows(conn, symbol, timeframe, vendor)
+    answered = load_answered_windows(conn, symbol, timeframe, vendor, start=start_dt, end=end_dt)
 
     return _plan_with_empty_gate(
         expected_slots,
@@ -320,8 +392,9 @@ def midnight_utc(day: date) -> datetime:
 
 
 def _aware(ts: datetime) -> datetime:
-    """psycopg naive timestamps are UTC by contract; stamp them."""
-    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+    """psycopg naive timestamps are UTC by contract; stamp them (same rule as gap_plan's
+    request_ts, which also parses ISO strings for the partial-bar stamps)."""
+    return request_ts(ts)
 
 
 def _gated_spans(

@@ -2049,13 +2049,18 @@ is not an observation, and it makes a missing bar look handled. **Not:** a deriv
 
 ### `fetch coverage`
 
-For one (symbol, timeframe), the union of provider request windows that were answered with bars
-(and those bars stored) or with no data, read from `ohlcv_request`. A slot inside a covered window
-with no stored bar is a no-trade, not a gap. A timeout or failed request never covers.
+For one (symbol, timeframe), the union of provider answers that cover a slot: request windows
+answered with bars (and those bars stored) or with no data, read from `ohlcv_request`, and --
+5m, todo 565/567 -- the requested range of an applied Alpaca load (`ohlcv_load`, where a
+no-trade slot is the SIP answer) and the Alpaca nightly's SIP 5Min windows. Route pairs with
+its own what_to_show (`gap_plan.COVERAGE_EVIDENCE`); the IEX route never covers. A slot inside
+a covered window with no stored bar is a no-trade, not a gap. A timeout or failed request, and
+a request whose own load the contract refused, never cover. One definition for the fetcher's
+planner (`_d1_gaps.py`) and the bar reconciliation audit (`bar_reconciliation_audit.py`).
 **Not:** stored row count, which a synthetic fill inflates.
 **Banned:** (none)
-**Status:** design (todo 462; `gap_plan.py` in plan 185-18)
-**Code surface:** `ohlcv_request`
+**Status:** design (todo 462; `gap_plan.py` in plan 185-18; loads and Alpaca windows 2026-10-31)
+**Code surface:** `ohlcv_request`; `ohlcv_load`; `src/intelligence/bars/gap_plan.py`
 
 ---
 

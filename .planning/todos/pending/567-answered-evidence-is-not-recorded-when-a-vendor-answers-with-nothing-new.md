@@ -30,3 +30,18 @@ credits. Count Alpaca `ohlcv_request` windows (outcome `bars` corroborated by a 
 evidence, one writer, not by editing instruments. Item 2 needs no code.
 
 Not a per-name task: no name is repaired by hand, the mechanism is.
+
+## Status 2026-10-31: fix 1 landed (planner + audit), one consumer remains
+
+Fix 1 is in: `gap_plan.COVERAGE_EVIDENCE` (source, route, what_to_show triples) is the one
+definition; the fetcher planner (`_d1_gaps.py`, 5m only, range-bounded reads) and the audit
+(`bar_reconciliation_audit._ANSWERED_5M_SQL`, pairs zipped in unnest) both count Alpaca SIP
+5Min windows and applied loads, both honor `live_partials` over the same union, and both apply
+the refused-load guard (the audit's was missing). The recount runs with the nightly 06:00 UTC
+audit. The 2026-10-31 code review found the third consumer this todo's text missed:
+`services/bar_derivation.py`'s D7 flag rule still reads SMART-only windows with no partial set
+and no Alpaca evidence, so it can flag a derived bar the unified definition calls clean.
+Fixing it rides with the next bar-derivation touch (its read joins `ohlcv_raw` per bucket; the
+same gap_plan evidence read replaces it). Fix 3 (the listing_end rows for BZH and ACVA) has
+verified evidence in the session scratch (`/tmp/listing_end_bzh_acva.md`); writer is a
+migration on the `listing_end` table.

@@ -25,6 +25,26 @@ source: Postgres best-practices audit of the live database, 2026-09-26 (read-onl
 Re-measure with `pg_stat_statements` after both changes (reset first) and record the before and
 after in this todo's closure note.
 
+## Incident 2026-10-31 (the timeout change is now evidenced, with a caveat)
+
+The 186-26 stage-2 rebuild's compute workers hold an idle-in-transaction read on
+market_data_ohlcv_tradeable for their whole compute (the `rebuild_bars` server-side cursor
+pattern: the txn opens at the cell's first read and stays open until the cell ends). At
+12:29-12:31 EDT a wave of five-plus workers opened such txns; the 12:31 UTC-offset
+`policy_compression` run on market_data_ohlcv queued behind them (relation lock), and behind
+compression queued the rebuild's own DECLARE CURSOR readers, the audit's per-name reads and the
+fetcher: the whole database stalled for about 20 minutes until the three oldest txns were
+terminated by hand (12:38 EDT). Evidence in the session log; the compression jobs 1078
+(market_data_ohlcv) and 1076 (ohlcv_raw) are PAUSED (`alter_job ... scheduled => false`) for the
+rebuild's duration and MUST be re-enabled when 186-26 completes (`SELECT alter_job(1078,
+scheduled => true); alter_job(1076, scheduled => true);`). Caveat for the timeout value: the
+workers' idle txns legitimately last the whole compute (tens of minutes), so the 5-10 minute
+timeout WOULD kill rebuild worker reads all day. The right fix is in the rebuild's read pattern
+(close the read txn or fetch fully and close the cursor before compute), which cannot be edited
+while the rebuild run is live (fingerprinted writer). Sequence: rebuild finishes -> re-enable
+compression -> change the read pattern in the rebuild's modules -> then set the timeout. Add the
+rebuild's worker-read pattern to the check list above.
+
 ## Done when
 
 The exporter query is out of the top of `pg_stat_statements` by total time, the timeout is set in

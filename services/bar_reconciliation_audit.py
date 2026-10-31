@@ -95,13 +95,14 @@ from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
+    COVERAGE_EVIDENCE,
     COVERAGE_ROUTE,
-    COVERAGE_WHAT_TO_SHOW,
     LOAD_COVERAGE_DESTINATIONS,
     LOAD_COVERAGE_OUTCOMES,
     LOAD_COVERAGE_SOURCES,
     AnsweredWindows,
     confirmed_empty_spans,
+    live_partials,
     load_range_windows,
 )
 from src.intelligence.bars.integrity_checks import (
@@ -971,12 +972,22 @@ WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND rule = $3
   AND timestamp >= $4 AND timestamp < $5
 """
 # Same shape as services/bar_auditor.py's answered-window reader: a `bars` answer covers
-# its window only when a stored row corroborates it (a lost insert never looks covered).
+# its window only when a stored row corroborates it (a lost insert never looks covered). The
+# (source, route, what_to_show) triples are IBKR's SMART TRADES and the Alpaca nightly's SIP
+# 5Min (todo 567: one definition of answered with the fetcher's planner; the triples zip in
+# unnest, never the cross product, and a foreign vendor's rows never count). partial_bars
+# rides along so a slot an answer served incomplete stays missing (gap_plan.live_partials,
+# migration 479 finding 5), and a request whose own load the contract refused is no answer,
+# the planner's rule (third review of plan 191-07, finding 3). The corroboration table is
+# market_data_ohlcv, not the planner's ohlcv_raw, on purpose: the audit judges the canonical
+# grid a slot landed in, the planner plans the vendor's own raw fetch.
 _ANSWERED_5M_SQL = """
-SELECT r.window_start, r.window_end
+SELECT r.window_start, r.window_end, r.partial_bars, r.answered_at
 FROM ohlcv_request r
-WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $4
-  AND r.outcome = ANY($5::text[]) AND r.window_start IS NOT NULL
+WHERE r.symbol = $1 AND r.timeframe = $2
+  AND (r.source, r.route, r.what_to_show)
+    IN (SELECT * FROM unnest($3::text[], $4::text[], $5::text[]))
+  AND r.outcome = ANY($6::text[]) AND r.window_start IS NOT NULL
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
@@ -984,6 +995,17 @@ WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $
       WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
         AND m.timestamp >= r.window_start AND m.timestamp < r.window_end
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM ohlcv_load l
+    WHERE l.symbol = r.symbol AND l.timeframe = r.timeframe AND l.source = r.source
+      AND l.outcome = 'refused' AND l.loaded_at >= r.answered_at
+      AND l.loaded_at <= r.answered_at + make_interval(secs => $7)
+      AND NOT EXISTS (
+        SELECT 1 FROM ohlcv_request q
+        WHERE q.symbol = r.symbol AND q.timeframe = r.timeframe AND q.source = r.source
+          AND q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at
+      )
   )
 """
 # Applied vendor loads of the series: the requested day range of a successful Alpaca load answers
@@ -1228,6 +1250,10 @@ class _IntegrityParams:
     freshness_max_lag_sessions_1d: int = 2
     coverage_cache_lock_wait_seconds: int = 21600
     coverage_cache_lock_poll_seconds: int = 30
+    # A request's answer is persisted by a load at most this many seconds later (migration 479's
+    # infra.selection_gate.request_load_match_s): the refused-load guard of the answered-window
+    # read (the same rule the fetcher's planner applies, todo 567).
+    load_match_s: float = 5.0
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
@@ -1260,6 +1286,7 @@ class _IntegrityParams:
             basis_tolerance_bp=float(
                 _cfg(apr, "threshold.bar_integrity.fallback_basis_tolerance_bp", 10.0)
             ),
+            load_match_s=float(_cfg(apr, "infra.selection_gate.request_load_match_s", 5.0)),
         )
 
 
@@ -1397,20 +1424,25 @@ class _IntradayVerdict(NamedTuple):
     compared: int = 0  # grid_parity only: the buckets compared (metric is the mismatched count)
 
 
-async def _answered_windows_5m(conn: Any, symbol: str) -> AnsweredWindows:
-    """The 5m windows a vendor answered: IBKR request windows (a stored row corroborates a `bars`
-    answer) plus the requested range of every applied Alpaca load (a no-trade slot is an answer)."""
-    windows = [
-        (r["window_start"], r["window_end"])
-        for r in await conn.fetch(
+async def _answered_windows_5m(conn: Any, symbol: str, match_s: float) -> AnsweredWindows:
+    """The 5m windows a vendor answered: IBKR SMART TRADES and Alpaca SIP 5Min request windows
+    (a stored row corroborates a `bars` answer; a refused load is no answer) plus the requested
+    range of every applied Alpaca load (a no-trade slot is an answer); one definition with the
+    fetcher's planner (todo 567)."""
+    sources, routes, whats = zip(*COVERAGE_EVIDENCE, strict=True)
+    rows = list(
+        await conn.fetch(
             _ANSWERED_5M_SQL,
             symbol,
             GRID_SOURCE_TF,
-            COVERAGE_ROUTE,
-            COVERAGE_WHAT_TO_SHOW,
+            list(sources),
+            list(routes),
+            list(whats),
             list(ANSWERED_OUTCOMES),
+            match_s,
         )
-    ]
+    )
+    windows = [(r[0], r[1]) for r in rows]
     loaded = await conn.fetch(
         _LOADED_RANGES_SQL,
         symbol,
@@ -1420,7 +1452,7 @@ async def _answered_windows_5m(conn: Any, symbol: str) -> AnsweredWindows:
         list(LOAD_COVERAGE_DESTINATIONS),
     )
     windows += load_range_windows((r["requested_start"], r["requested_end"]) for r in loaded)
-    return AnsweredWindows.from_rows(windows)
+    return AnsweredWindows.from_rows(windows, partial=live_partials(rows))
 
 
 class _SessionCalendar:
@@ -2089,7 +2121,7 @@ class BarReconciliationAudit(BaseBatch):
             stored_rows = {
                 tf: await conn.fetch(_GRID_ROWS_SQL, symbol, tf, start, end) for tf in _GRID_MINUTES
             }
-            answered = await _answered_windows_5m(conn, symbol)
+            answered = await _answered_windows_5m(conn, symbol, params.load_match_s)
             for tf, minutes in _GRID_MINUTES.items():
                 real = [r["timestamp"] for r in stored_rows[tf]]
                 has_before = await conn.fetchval(_HAS_REAL_BEFORE_SQL, symbol, tf, start)
@@ -2518,6 +2550,7 @@ class BarReconciliationAudit(BaseBatch):
                 ),
                 stray=stray.get(symbol, {}),
                 listing_end=listing_end.get(symbol),
+                match_s=integ.load_match_s,
             )
             for v in judge_name_intraday(
                 inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
@@ -2581,11 +2614,12 @@ class BarReconciliationAudit(BaseBatch):
         scope: frozenset[datetime] | None,
         stray: Mapping[str, int],
         listing_end: date | None = None,
+        match_s: float,
     ) -> _IntradayInputs:
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
-        answered = await _answered_windows_5m(conn, symbol)
+        answered = await _answered_windows_5m(conn, symbol, match_s)
         archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
         for r in await conn.fetch(_ARCHIVE_ROWS_SQL, symbol, sorted(GRID_TIMEFRAMES)):
             archive[r["timeframe"]][r["timestamp"]] = (

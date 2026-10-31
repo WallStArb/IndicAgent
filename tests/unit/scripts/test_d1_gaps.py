@@ -25,7 +25,7 @@ from scripts.infrastructure.backfill._d1_gaps import (
     subtract_windows,
 )
 from scripts.infrastructure.backfill._empty_history import EmptyRange
-from src.intelligence.bars.gap_plan import AnsweredWindows
+from src.intelligence.bars.gap_plan import AnsweredWindows, live_partials
 
 _Q = timedelta(minutes=15)
 
@@ -110,7 +110,7 @@ class TestDetectGapsFromRecord:
 
     def test_every_intraday_timeframe_reads_the_vendors_own_raw_rows(self):
         for tf in ("5m", "15m", "1h"):
-            conn = _FakeConn([], [])
+            conn = _FakeConn([], [], [], [])  # 5m adds the Alpaca windows and applied loads
             detect_gaps_from_record(
                 conn, "SPY", tf, _t(14, 30), _t(15, 30), [], vendor="ibkr", now=_NOW
             )
@@ -131,7 +131,7 @@ class TestDetectGapsFromRecord:
         assert params == ("SPY", "15m", "alpaca", _t(14, 30), _t(15, 30))
 
     def test_the_answered_window_read_is_scoped_to_the_same_vendor(self):
-        conn = _FakeConn([], [])
+        conn = _FakeConn([], [], [], [])  # 5m adds the Alpaca windows and applied loads
         detect_gaps_from_record(
             conn, "SPY", "5m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="alpaca", now=_NOW
         )
@@ -479,7 +479,7 @@ class TestLoadAnsweredWindows:
     def test_one_sql_serves_every_timeframe_and_corroborates_in_raw_by_vendor(self):
         seen = set()
         for tf in ("5m", "15m", "1h"):  # 1d reads the confirmed empty spans (item 6)
-            conn = _FakeConn([])
+            conn = _FakeConn([], [], [])  # 5m adds the Alpaca windows and applied loads
             load_answered_windows(conn, "SPY", tf, "alpaca")
             sql = conn.queries[1][0]
             seen.add(sql)
@@ -490,7 +490,7 @@ class TestLoadAnsweredWindows:
         assert len(seen) == 1
 
     def test_tradier_requests_are_not_an_ibkr_answer(self):
-        conn = _FakeConn([])
+        conn = _FakeConn([], [], [])  # 5m adds the Alpaca windows and applied loads
         load_answered_windows(conn, "SPY", "5m", "ibkr")
         sql, params = conn.queries[1]
         assert "r.source = %(vendor)s" in sql
@@ -501,7 +501,7 @@ class TestLoadAnsweredWindows:
         IBKR rows on 09-28 to 09-30, so its lost 10-01..10-09 sessions read as answered. A bars
         request whose own load (the latest request at or before it, within the APR tolerance)
         was refused is excluded."""
-        conn = _FakeConn([])
+        conn = _FakeConn([], [], [])  # 5m adds the Alpaca windows and applied loads
         load_answered_windows(conn, "BAC", "5m", "ibkr")
         sql, params = conn.queries[1]
         assert "l.outcome = 'refused'" in sql and "make_interval(secs => %(match_s)s)" in sql
@@ -519,10 +519,69 @@ class TestLoadAnsweredWindows:
             load_answered_windows(_Empty(), "SPY", "5m", "ibkr")
 
 
+class TestAlpacaEvidenceOnThe5mSeries:
+    """The 5m series reads the Alpaca nightly's answers and applied loads too (todo 565/567);
+    15m/1h stay IBKR-only."""
+
+    def test_an_alpaca_window_answers_5m_slots(self):
+        conn = _FakeConn(
+            [(_t(14, 30), _t(15, 0), None, _t(20, 0))],  # the vendor's own SMART window
+            [(_t(15, 0), _t(15, 30), None, _t(21, 0))],  # an Alpaca SIP 5Min window
+            [],
+        )
+        windows = load_answered_windows(conn, "SPY", "5m", "ibkr")
+        assert windows.covers(_t(14, 30), _Q)
+        assert windows.covers(_t(15, 0), _Q)
+        assert not windows.covers(_t(15, 30), _Q)
+
+    def test_an_applied_load_answers_every_slot_of_its_requested_range(self):
+        conn = _FakeConn([], [], [(date(2026, 1, 2), date(2026, 1, 2))])
+        windows = load_answered_windows(conn, "SPY", "5m", "ibkr")
+        assert windows.covers(_t(15, 30), _Q)  # a no-trade slot: the load range is inclusive
+        assert windows.covers(_t(20, 0), _Q)
+        assert not windows.covers(datetime(2026, 1, 5, 15, 0, tzinfo=UTC), _Q)
+
+    def test_the_alpaca_query_is_scoped_to_sip_5min_and_the_loads_to_applied(self):
+        conn = _FakeConn([], [], [])
+        load_answered_windows(conn, "SPY", "5m", "ibkr")
+        alpaca_sql, alpaca_params = conn.queries[2]
+        assert "FROM ohlcv_request" in alpaca_sql and "m.vendor = r.source" in alpaca_sql
+        # the same refused-load guard as the vendor's own read (one predicate, one rule)
+        assert "l.outcome = 'refused'" in alpaca_sql
+        assert alpaca_params["source"] == "alpaca"
+        assert alpaca_params["route"] == "SIP" and alpaca_params["what"] == "5Min"
+        loads_sql, loads_params = conn.queries[3]
+        assert "FROM ohlcv_load" in loads_sql
+        assert loads_params["outcomes"] == ["applied"]
+        assert sorted(loads_params["destinations"]) == ["market_data_ohlcv", "raw"]
+
+    def test_start_and_end_bound_the_alpaca_reads(self):
+        conn = _FakeConn([], [], [])
+        start, end = _t(14, 30), _t(15, 30)
+        load_answered_windows(conn, "SPY", "5m", "ibkr", start=start, end=end)
+        alpaca_sql, alpaca_params = conn.queries[2]
+        assert "r.window_end >= %(start)s AND r.window_start < %(end)s" in alpaca_sql
+        assert alpaca_params["start"] == start and alpaca_params["end"] == end
+        loads_sql, loads_params = conn.queries[3]
+        assert "l.requested_end >= %(start)s AND l.requested_start < %(end)s" in loads_sql
+        assert loads_params["start"] == start and loads_params["end"] == end
+
+    def test_15m_and_1h_ask_no_alpaca_question(self):
+        for tf in ("15m", "1h"):
+            conn = _FakeConn([])
+            load_answered_windows(conn, "SPY", tf, "ibkr")
+            assert len(conn.queries) == 2  # match tolerance + the vendor's own windows
+
+    def test_an_alpaca_partial_slot_stays_missing(self):
+        partial = [{"t": "2026-01-02T15:00:00+00:00"}]
+        conn = _FakeConn([], [(_t(15, 0), _t(15, 30), partial, _t(21, 0))], [])
+        windows = load_answered_windows(conn, "SPY", "5m", "ibkr")
+        assert not windows.covers(_t(15, 0), _Q)
+        assert windows.covers(_t(15, 15), _Q)
+
+
 def test_a_partial_slot_is_cleared_by_a_later_answer_that_served_it_whole():
     """Third review of plan 191-07, low item: a slot once recorded partial was re-asked forever."""
-    from scripts.infrastructure.backfill._d1_gaps import live_partials
-
     partial = [{"t": "2026-01-02T14:45:00+00:00"}]
     first = (_t(14, 30), _t(15, 30), partial, _t(20, 0))
     later_whole = (_t(14, 30), _t(15, 30), None, _t(21, 0))

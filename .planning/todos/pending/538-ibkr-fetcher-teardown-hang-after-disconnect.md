@@ -26,6 +26,18 @@ The IBKR 1d deepening (todo 537) is driven by its crontab gate script while the 
 (about a week from 2026-10-16). A hang stalls that cadence silently until a human kills the
 process, and nobody is there to do it.
 
+## Update 2026-10-31: same wedge, mid-run, under rebuild load
+
+The wedge is not teardown-only. On 2026-10-31, with the 186-26 stage-2 rebuild running (8
+workers, from 09:38 EDT), two fetcher runs wedged mid-run: the 08:14 EDT run after 2h12m (last
+item logged 10:26 EDT, killed by the unit watchdog at 11:01), the 11:17 EDT run 45 s after
+"IBKR connected" (killed 12:02). Both with near-zero CPU (3-45 s CPU over hours), the
+unfinished-future signature. The watchdog + timer self-healed both times (run lost, about 15
+min gap), so the pre-2016 5m backfill (534) continues but each wedge costs a run plus the
+gap, and the correlation with the rebuild's host load is unexplained. Under the same load,
+pacing waits log nothing (todo 485), which blinds diagnosis. Next occurrence: py-spy dump
+(needs sudo) BEFORE killing, and note whether the rebuild is running.
+
 ## Fix direction
 
 Diagnose the teardown path of `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`: the

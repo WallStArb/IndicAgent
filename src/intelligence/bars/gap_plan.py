@@ -12,7 +12,11 @@ is covered when:
 - the whole bar lies inside an answered SMART TRADES request window whose
   outcome is `bars` (corroborated by a stored row in the window, enforced in
   the loaders' SQL, so a lost insert never looks covered) or a definitive
-  `no_data` (timeout and failed never cover), or
+  `no_data` (timeout and failed never cover), or -- 5m only, todo 565/567 --
+  the whole bar lies inside the requested range of an applied Alpaca load (a
+  SIP aggregate bar exists only where a trade printed, so a no-trade slot in
+  a loaded range is the vendor's answer) or inside an answered Alpaca SIP
+  5Min request window (same bars-corroborated / no_data rule), or
 - its start lies inside a provider-verified ohlcv_empty_history span that is
   fresh and sufficiently confirmed (decided by fresh_empty_span below, which
   every reader calls; the SQL that loads the span stays per-driver).
@@ -30,10 +34,12 @@ here too so services/ reaches it without a pipeline import.
 
 from __future__ import annotations
 
+import json
 from bisect import bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
 
 from src.core.bar_normalizer import generate_session_slots
 from src.intelligence.bars.sessions import nyse_sessions
@@ -61,6 +67,20 @@ LOAD_COVERAGE_DESTINATIONS: tuple[str, ...] = ("market_data_ohlcv", "raw")
 # dividend-adjusted series (it also holds forming bars). One definition for the planner, the
 # fetch queue's currency read and the coverage ledger.
 DAILY_NOT_COVERAGE_KINDS: tuple[str, ...] = ("smart_adjusted",)
+# The Alpaca nightly's request rows are coverage evidence too (todo 567): source alpaca,
+# route SIP, what_to_show 5Min, same bars-corroborated-or-no_data rule as the IBKR windows.
+# The IEX route never counts: its rows are raw-only and never selected (todo 521). One
+# (source, route, what_to_show) constant for the planner
+# (scripts/infrastructure/backfill/_d1_gaps.py) and the audit
+# (services/bar_reconciliation_audit.py), so both read one definition of answered, a route
+# pairs with its own source and what_to_show, and no reader counts a foreign vendor's rows.
+ALPACA_COVERAGE_SOURCE = "alpaca"
+ALPACA_COVERAGE_ROUTE = "SIP"
+ALPACA_COVERAGE_WHAT_TO_SHOW = "5Min"
+COVERAGE_EVIDENCE: tuple[tuple[str, str, str], ...] = (
+    ("ibkr", COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW),
+    (ALPACA_COVERAGE_SOURCE, ALPACA_COVERAGE_ROUTE, ALPACA_COVERAGE_WHAT_TO_SHOW),
+)
 
 # IBKR serves NYSE 15m/1h on its own RTH grid (a 09:30 partial 1h bar then clock hours --
 # 13:30, 14:00, 15:00 UTC in summer, 14:30, 15:00, 16:00 in winter; :00/:15/:30/:45 at 15m), so
@@ -124,6 +144,54 @@ def load_range_windows(
         for first_day, last_day in ranges
         if last_day >= first_day
     ]
+
+
+def request_ts(value: datetime | str) -> datetime:
+    """A request timestamp as aware UTC: naive is UTC by contract (psycopg), str is ISO."""
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+def _partial_list(value: Any) -> list[dict[str, Any]]:
+    """ohlcv_request.partial_bars as a list (asyncpg returns jsonb decoded; a str is parsed)."""
+    if value is None:
+        return []
+    return json.loads(value) if isinstance(value, str) else list(value)
+
+
+def live_partials(rows: Sequence[tuple]) -> set[datetime]:
+    """Slots some answer served partial and no later answer covering them served whole.
+
+    `rows` are (window_start, window_end, partial_bars, answered_at). One rule for the planner
+    (psycopg) and the audit (asyncpg), so a slot once recorded partial is re-asked until an
+    answer covering it served it whole, then never again (migration 479 finding 5; third review
+    of plan 191-07, low item). Moved here from _d1_gaps so the audit shares it without a
+    scripts import.
+    """
+    marked: dict[datetime, datetime | None] = {}
+    rows = list(rows)  # two passes below; a generator would exhaust on the first
+    for row in rows:
+        answered = request_ts(row[3]) if len(row) > 3 and row[3] is not None else None
+        for bar in _partial_list(row[2]):
+            ts = request_ts(bar["t"])
+            prior = marked.get(ts)
+            if ts not in marked or (answered is not None and (prior is None or answered > prior)):
+                marked[ts] = answered
+    live: set[datetime] = set()
+    for ts, at in marked.items():
+        cleared = at is not None and any(
+            len(row) > 3
+            and row[3] is not None
+            and request_ts(row[3]) > at
+            and request_ts(row[0]) <= ts < request_ts(row[1])
+            and ts not in {request_ts(b["t"]) for b in _partial_list(row[2])}
+            for row in rows
+        )
+        if not cleared:
+            live.add(ts)
+    return live
 
 
 def fresh_empty_span(

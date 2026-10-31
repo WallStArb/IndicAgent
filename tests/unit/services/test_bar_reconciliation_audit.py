@@ -882,6 +882,8 @@ class _IntradayConn:
                 and load["outcome"] in outcomes
                 and load["destination"] in destinations
             ]
+        if sql == audit._ANSWERED_5M_SQL:
+            return data.get("answered_windows", ())
         if sql == audit._ARCHIVE_ROWS_SQL:
             return [
                 {
@@ -898,7 +900,7 @@ class _IntradayConn:
                 for tf, by_month in data["digests"].items()
                 for start, digest in by_month.items()
             ]
-        return []  # flags, answered windows
+        return []  # flags
 
     async def fetchval(self, sql, *args):
         if sql == audit._LATEST_SWEEP_SQL:
@@ -1054,6 +1056,33 @@ def test_the_ibkr_loads_and_the_extended_hours_archive_do_not_answer_slots():
     first, last = _I_DAYS[0], _I_DAYS[-1]
     for load in (_load(first, last, source="ibkr"), _load(first, last, destination="archive")):
         assert _coverage(_thin_name([load]))[5] is False
+
+
+def test_an_alpaca_sip_request_window_answers_its_slots():
+    """Todo 567: the nightly's 5Min answer (a stored row corroborates it, which the audit's SQL
+    checks) covers its window; a halted name's answered-empty tail is no longer missing."""
+    _, rows = _intraday_series()
+    name = _thin_name([])
+    name["answered_windows"] = [
+        (rows[0]["timestamp"], rows[-1]["timestamp"] + FIVE, None, rows[-1]["timestamp"] + FIVE)
+    ]
+    assert _coverage(name)[5] is True and _coverage(name)[3] == 1.0
+
+
+def test_an_alpaca_partial_slot_in_a_window_stays_missing():
+    _, rows = _intraday_series()
+    name = _thin_name([])
+    name["answered_windows"] = [
+        (
+            rows[0]["timestamp"],
+            rows[-1]["timestamp"] + FIVE,
+            # rows[10] is one of the slots _thin_name drops from storage: partial keeps it missing
+            [{"t": rows[10]["timestamp"].isoformat()}],
+            rows[-1]["timestamp"] + FIVE,
+        )
+    ]
+    verdict = _coverage(name)
+    assert verdict[5] is False and 0.0 < verdict[3] < 1.0
 
 
 def test_requested_end_is_inclusive_and_the_day_after_is_not():

@@ -123,6 +123,15 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   intraday verdict in the 2026-10-31 audit (coverage_cache 0 failing, grid_parity 34 names held, todo 573) and
   already hold 1d rows. Launch and resume: `evidence/186-26-stage2-intraday-launch.sh`. The audit read also
   closed todos 569 and 570 (the 1d ledger bounds refresh in the raw-write transaction since 9fbf66651).
+  Ops note 2026-10-31: the workers hold idle-in-transaction reads for their whole compute, which blocked the
+  `policy_compression` run and stalled the database (todo 443 incident note). The compression jobs 1078
+  (market_data_ohlcv) and 1076 (ohlcv_raw) are paused for the rebuild's duration; re-enable with
+  Ops note 2026-10-31: the workers hold idle-in-transaction reads for their whole compute, which blocked the
+  `policy_compression` run and stalled the database (todo 443 incident note). The compression jobs 1078
+  (market_data_ohlcv), 1076 (ohlcv_raw) and 1065 (feature_vectors) are paused for the rebuild's duration;
+  re-enable with `SELECT alter_job(1078, scheduled => true); SELECT alter_job(1076, scheduled => true);
+  SELECT alter_job(1065, scheduled => true);` when the rebuild completes. Also 2026-10-31: the fetcher planner and the audit now read one answered-evidence definition
+  (Alpaca SIP 5Min windows + applied loads, todo 565/567 fix); the recount runs with the nightly audit.
 
 - **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
   (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
