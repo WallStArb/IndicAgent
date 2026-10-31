@@ -9,7 +9,7 @@ source: owner question 2026-10-28 (new features, factors and signals; missing at
 
 ## Status (2026-10-31)
 
-The Opus review pass is done and the candidate list is decided: the doc
+Correction 2026-10-31 (owner): the reviewing session's backend is Z.ai's model, not a true Opus, so the routing rule's Opus/Fable pass is still owed; the list below is PM-level only. That session's review is done and the candidate list is provisionally decided: the doc
 (`docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md`, review section) carries the
 add-list for the next rebuild pass (idiosyncratic_volatility, the market-residual trio,
 residual_beta_stability, max_daily_return, max_drawdown, downside_deviation, size_proxy,

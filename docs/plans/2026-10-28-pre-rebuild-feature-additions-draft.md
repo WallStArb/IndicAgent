@@ -2,7 +2,7 @@
 
 **Status:** Decided at PM level 2026-10-31 (review pass below); owner retains veto. Supersedes the draft-only framing: the owner reopened the window 2026-10-31 ("the window never closes; solid ideas land prior to a corpus rerun"), so candidate columns target the next rebuild pass after 186-26 stage 2, not a closed window.
 **Mapped by:** Claude (Sonnet 5.5), interactive session, 2026-10-28, from the owner's question "do we need new features, factors or signals". Read-only: no kernel was read or run; names come from the stored column list and the planning docs.
-**Reviewed by:** Claude (Opus 5.5), session indicagent-9f, 2026-10-31. Verdicts and the add-list are in the review section; the draft tables below are kept verbatim as the mapping record.
+**Reviewed by:** session indicagent-9f, 2026-10-31. Correction 2026-10-31 (owner): this session's backend is Z.ai's model, not a true Opus, so this pass does NOT satisfy the Sonnet-draft routing rule; a genuine Opus or Fable pass is still owed before the add-list is treated as rigor-passed. The verdicts and add-list in the review section stand as a PM-level proposal only.
 **Why now:** `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added after the rebuild starts rides the next rebuild pass. Per the owner (2026-10-31) that is acceptable and expected for solid candidates; stage 2 running since 2026-10-31 means implementation lands in the next pass window, while the review and registry preparation happen now.
 
 ## Method
