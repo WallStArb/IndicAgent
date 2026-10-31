@@ -7,108 +7,82 @@ source: data lane check of the 186-26 stage 1 output (feature_vectors_v2, tf 1d)
 
 # Rebuilt 1d feature columns that are constant or all NULL must not reach the research read
 
-After the 1d rebuild (5,127,577 rows, 1,257 names, 2005-01-03 to 2026-09-30), a pooled screen over
-eight names (SPY, AAPL, MSFT, JPM, XOM, SCCO, HON, KO) finds, of 309 real columns, 18 all NULL and 22
-constant. Most are intraday-session concepts that are degenerate on a daily bar by construction
-(`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`, `in_overlap`, `power_hour`,
-`session_time_pos`, `opening_range`, the Asian and overnight session distances, the intraday return
-divergences). Those are not defects of the kernels, but a column with no information on a timeframe
-looks real to a reader.
+## Status (2026-10-31)
 
-Two groups need a closer look because a daily bar should give them values:
+Screened and root-caused; the fixes are batched for the next kernel-edit window (edits under
+`src/intelligence/features/` after the 186-26 pin are a code-key change: they apply to later
+stages only if the pin moves, so nothing lands between stages). The hma_slope_z fix and its
+parity-golden change wait for that window.
 
-- `hma_slope_z` is exactly 0 on every row for every name checked (SPY: 5,465 of 5,465). It sits in the
-  `bar_statistics_refresh` group beside `hurst`, `shannon`, `garch_ratio` and `adx`, which vary. A zero
-  column is a silent wrong answer.
-- Volume-profile and structure outputs on 1d: `poc_dist_atr`, `price_in_value_area`, `va_position`,
-  `hmm_vol_prob_elevated`, `amd_phase`, `amd_distribution_direction`, `amd_manipulation_detected`,
-  `manip_strength`, `sweep_detected` are constant; `distance_to_vah_atr`, `distance_to_val_atr`,
-  `va_width_atr`, `nearest_hvn_*`, `nearest_lvn_*`, `poc_rolling_dist_atr` are all NULL. Decide for each
-  whether 1d is out of scope for the concept (then it is NaN by declaration) or the kernel is wrong.
+## The screen (186-26 stage 1, 5,127,577 rows, 1,257 names, 2005-01-03 to 2026-09-30)
+
+Pooled screen over eight names (SPY, AAPL, MSFT, JPM, XOM, SCCO, HON, KO): of 309 real columns,
+18 all NULL and 22 constant. Most are intraday-session concepts degenerate on a daily bar by
+construction (`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`,
+`in_overlap`, `power_hour`, `session_time_pos`, `opening_range`, the Asian and overnight session
+distances, the intraday return divergences) - not kernel defects, but a column with no
+information on a timeframe looks real to a reader. Two groups need a decision: `hma_slope_z`
+(below) and the volume-profile/structure outputs on 1d (`poc_dist_atr`, `price_in_value_area`,
+`va_position`, `hmm_vol_prob_elevated`, `amd_phase`, `amd_distribution_direction`,
+`amd_manipulation_detected`, `manip_strength`, `sweep_detected` constant;
+`distance_to_vah_atr`, `distance_to_val_atr`, `va_width_atr`, `nearest_hvn_*`, `nearest_lvn_*`,
+`poc_rolling_dist_atr` all NULL): decide per column whether 1d is out of scope (NaN by
+declaration in the registry) or the kernel is wrong.
 
 Related property, not a defect: `adx`, `hurst`, `shannon`, `garch_ratio` change only every
-`regime_cache_refresh_bars` rows (the replay of the v2 cache cadence), so on 1d they are piecewise
-constant for about 30 sessions. A research spec reading them should know the effective lag.
+`regime_cache_refresh_bars` rows, so on 1d they are piecewise constant for about 30 sessions; a
+spec reading them should know the effective lag.
 
-## Root cause of `hma_slope_z` (research lane, 2026-10-29)
+## Root cause of hma_slope_z (fixed in the next batch, not a kernel bug)
 
-Not a kernel bug: a placeholder. `FeatureCache.refresh_regime` appends one HMA slope per refresh
-(every `feature.regime.cache_refresh_bars` = 30 rows) and `_zscore_from_deque` returns 0.0 until the
-history holds `feature.momentum.zscore_window` = 252 slopes, so the first non-zero value needs about
-252 x 30 = 7,560 rows. SPY 1d has 5,465 rows, so the column is 0.0 on every row of every 1d name; it
-becomes non-zero on 5m and 15m after about 7,560 rows (a warmup of 0.0 on the first two to three
-months, then real values). The 0.0 is a fill that breaks `no_fill` (warmup masked by declared memory,
-NaN not 0.0). The fix is a kernel edit: return NaN while the history is short (`bar_statistics_refresh`
-declared memory then covers 252 x 30 rows, or the output is NaN-masked by the guard's memory rule),
-which changes the golden parity of the v2 cache replay for the first 7,560 rows. It moves the code
-pin, so apply it to every stage in one rebuild, not between stages.
+`FeatureCache.refresh_regime` appends one HMA slope per refresh (every
+`feature.regime.cache_refresh_bars` = 30 rows) and `_zscore_from_deque` returns 0.0 until the
+history holds `feature.momentum.zscore_window` = 252 slopes, so the first non-zero value needs
+about 252 x 30 = 7,560 rows; SPY 1d has 5,465 rows, so the column is exactly 0.0 on every 1d row
+(SPY: 5,465 of 5,465). The 0.0 is a fill that breaks `no_fill`. Fix: return NaN while the
+history is short, which changes the v2 cache replay golden parity for the first 7,560 rows and
+moves the code pin - apply in the batch, not between stages.
 
-## Naming alignment for the same batch (research lane, 2026-10-29)
+## Same-batch items
 
-The config field `FeatureFactoryConfig.dropped_volume_max_fraction` should be `volume_dropped_max_fraction`
-to follow the repo's key-to-field rule (`feature.amihud.min_valid_fraction` is `amihud_min_valid_fraction`,
-`feature.volume.dropped_max_fraction` is `volume_dropped_max_fraction`). A pure rename of
-`feature_factory.py`, `services/backfill_feature_factory.py`, `services/feature_vector_pipeline.py`,
-`contract/registry.py`, `kernels/cross_tf.py` and their tests; outputs do not change, but it moves the
-code pin, so it rides in this batch rather than between 186-26 stages.
-
-## Calendar coverage for the same batch (research lane, 2026-10-29)
-
-`_PMC_RANGE_START = "2005-01-01"` in `src/core/market_calendar.py` (comment: "1d goes back to 2006")
-is stale: canonical 1d now starts in 2000 for many names, and `snapshot.build_grid` rejects any bar on
-a day the calendar does not know, so no daily panel can start before 2005 (the daily residual family
-amended its start for this, prereg section 10). Move the start to 2000-01-01 in the rebuild batch; the
-module is imported by `backfill_feature_factory.py`, so it moves the code pin.
-
-## Delete list after migration 543 (research lane, 2026-10-30)
-
-Migration 543 serves `fallback` volume (SMART), so `market_data_ohlcv_tradeable` has 0 NULL-volume rows on
-every timeframe (checked 2026-10-30). The NULL-volume handling added under todos 560 and 563 has no input on
-current data. In the next kernel-edit batch, delete rather than carry (5-step mandate; the guard code is
-the cost, the data was the cause):
-
-- `dropped_volume.py`, `Kernel.volume_reset`, `_masked_until_reset`, the dropped-share branch, APR key
-  `feature.volume.dropped_max_fraction` (migration 541, retire via a migration) and the config field, and
-  the NaN handling in `_build_ctf_series`; keep one loud check that raises on a non-finite volume reaching
-  a volume kernel (a `venue` bar can still be NULL), instead of masking.
-- `STATUS_INPUT_GAP` and `_has_interior_gap` in the regime kernels: same loud check instead.
-- Keep: the volume-basis segment handling (fallback is now SMART, about 0.75 of SIP, so the Alpaca seam is
-  real), `_guard_downstream` only if a basis seam can still produce masked rows, the none-mask fix, the
-  end-to-end dropped-bar test (repoint it at a basis seam), and the non-vacuous invariant test.
-- The 1d features built before 543 for the 147 fallback names are stale; rebuild them in the same batch.
-- Open measurement: the per-name SMART/SIP median ratio from 2024 is 0.37 (38 names, p5 0.00, p95 0.82),
-  much lower than the 0.75 the basis table assumes; fallback names are thin and the dates differ, so it is
-  not a clean ratio. Measure it on overlapping dates before trusting the basis segmentation to remove the
-  level shift.
+- Naming: `FeatureFactoryConfig.dropped_volume_max_fraction` should be
+  `volume_dropped_max_fraction` per the key-to-field rule (pure rename across
+  `feature_factory.py`, `services/backfill_feature_factory.py`, `services/feature_vector_pipeline.py`,
+  `contract/registry.py`, `kernels/cross_tf.py` and tests; outputs unchanged, pin moves).
+- Calendar start: `_PMC_RANGE_START = "2005-01-01"` in `src/core/market_calendar.py` is stale
+  (canonical 1d starts in 2000 for many names; `snapshot.build_grid` rejects any bar on a day
+  the calendar does not know, so no daily panel can start before 2005). Era recount done
+  2026-10-30 (era start 2000-01-03 vs 2005-01-03): 41 names newly fall below 0.999 session
+  coverage, all 41 among the 1,314 built names (list:
+  `191-SESSION-COVERAGE-ERA-2000-NEWLY-FAILING.tsv`; worst STRL 0.9108 with 602 missing
+  sessions, CRGY 0.9752, WEYS 0.9468, EFSC 0.9619; most 5-80 sessions). The change moves the
+  `session_coverage` era to 2000 on its own (via `MarketCalendar.first_session`, commit
+  `0be5cbc91`). Not free: either the data lane backfills the 2000-2004 holes for these names
+  first, or the start stays 2005. Decision belongs with the data lane's hold list; the research
+  lane does not move `_PMC_RANGE_START` until those names clear.
+- Delete list after migration 543: migration 543 serves `fallback` volume (SMART), so
+  `market_data_ohlcv_tradeable` has 0 NULL-volume rows on every timeframe (checked 2026-10-30);
+  the NULL-volume handling from todos 560/563 has no input on current data. Delete rather than
+  carry: `dropped_volume.py`, `Kernel.volume_reset`, `_masked_until_reset`, the dropped-share
+  branch, APR key `feature.volume.dropped_max_fraction` (migration 541, retire via a migration)
+  and the config field, the NaN handling in `_build_ctf_series`, and `STATUS_INPUT_GAP` /
+  `_has_interior_gap` in the regime kernels - each replaced by one loud check that raises on
+  non-finite volume reaching a volume kernel (a `venue` bar can still be NULL). Keep: the
+  volume-basis segment handling (fallback is now SMART, about 0.75 of SIP, so the Alpaca seam is
+  real), `_guard_downstream` if a basis seam can still produce masked rows, the none-mask fix,
+  the end-to-end dropped-bar test (repointed at a basis seam) and the non-vacuous invariant
+  test. The 1d features built before 543 for the 147 fallback names are stale; rebuild them in
+  the same batch. Open measurement: the per-name SMART/SIP median ratio from 2024 is 0.37
+  (38 names, p5 0.00, p95 0.82), far below the 0.75 the basis table assumes - thin names and
+  differing dates, not a clean ratio; measure on overlapping dates before trusting the basis
+  segmentation to remove the level shift.
 
 ## Done when
 
-1. `hma_slope_z` is explained or fixed (kernel or replay), and the fix is recorded with its test.
-2. Every other column above has a declared timeframe applicability in the registry (UCR), so the S0
-   read excludes a column on a timeframe where it carries no information, instead of reading zeros.
-3. A check in the rebuild's completion record screens each stage's output for constant and all-NULL
-   columns per timeframe, so a dead column is named when it appears. Run it for the later intraday
-   stage as well.
-
-Edits under `src/intelligence/features/` after the 186-26 pin are a code-key change: they apply to
-later stages only if the pin moves, so batch them with the next kernel edit window.
-
-## Calendar start change moves the 1d coverage era (data lane, 2026-10-30)
-
-The research lane plans to move the session calendar start (`_PMC_RANGE_START` in
-`src/core/market_calendar.py`) from 2005 to 2000 in this todo's kernel-edit batch. The 1d
-`session_coverage` verdict reads its era from `MarketCalendar.first_session` (commit 0be5cbc91), so
-that change moves the era to 2000 with no other edit, and the pre-2005 holes it was scoped to ignore
-come back into the check: expect the held list to grow (ABCB's 37 missing 1999-2002 sessions are
-before 2000 and still outside; names with 2000-2004 holes re-enter). Before landing the change, rerun the
-era recount (`191-SESSION-COVERAGE-ERA-FAILS.tsv` method) for the new start and list the names that
-newly fail, among them any of the 1,314 built names, since the rebuild would then consume those years.
-
-## Era recount for the 2000 calendar start (research lane, 2026-10-30)
-
-Read-only recount of 1d session_coverage on live canonical bars plus ohlcv_empty_history spans, the judge's
-rule, era start 2000-01-03 against 2005-01-03: 41 names newly fall below 0.999, all 41 among the 1,314 built
-names (list: `191-SESSION-COVERAGE-ERA-2000-NEWLY-FAILING.tsv`). Worst: STRL 0.9108 (602 missing sessions),
-CRGY 0.9752, WEYS 0.9468, EFSC 0.9619; most are 5 to 80 sessions. So the calendar change is not free: either
-the data lane backfills the 2000-2004 holes for these names first, or the start stays 2005. Decision belongs
-with the data lane's hold list; the research lane does not move `_PMC_RANGE_START` until those names clear.
+1. `hma_slope_z` is fixed (NaN during warmup) with its test and golden regeneration.
+2. Every screened column has a declared timeframe applicability in the registry (UCR), so the S0
+   read excludes a column on a timeframe where it carries no information, instead of reading
+   zeros.
+3. A check in the rebuild's completion record screens each stage's output for constant and
+   all-NULL columns per timeframe, so a dead column is named when it appears; run it for the
+   later intraday stage as well.
