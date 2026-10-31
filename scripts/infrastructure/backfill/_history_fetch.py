@@ -550,7 +550,9 @@ def _load_ibkr_venue_fallback_config(settings: Settings) -> None:
 def _load_ibkr_rate_limit_config(settings: Settings) -> None:
     """Overlay the APR-configured historical-data rate-limit parameters
     (infra.ibkr.rate_limit_max_requests / infra.ibkr.rate_limit_window_sec,
-    migration 276) onto ibkr._IBKR_HIST_RATE_LIMIT / ibkr._IBKR_HIST_WINDOW_S in
+    migration 276; infra.ibkr.hist_pacing_wait_release_s, migration 545) onto
+    ibkr._IBKR_HIST_RATE_LIMIT / ibkr._IBKR_HIST_WINDOW_S /
+    ibkr._HIST_PACING_WAIT_RELEASE_S in
     place, same pattern as the loaders above -- _hist_rate_limiter.acquire() reads
     these module constants fresh on every call. Same fallback contract as the
     loaders above -- falls back to the hardcoded defaults (55 requests / 600s
@@ -565,7 +567,8 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
                     "WHERE config_key IN ("
                     "'infra.ibkr.rate_limit_max_requests', "
                     "'infra.ibkr.rate_limit_window_sec', "
-                    "'infra.ibkr.rate_limit_max_requests_by_tf')"
+                    "'infra.ibkr.rate_limit_max_requests_by_tf', "
+                    "'infra.ibkr.hist_pacing_wait_release_s')"
                 )
                 rows = dict(cur.fetchall())
         finally:

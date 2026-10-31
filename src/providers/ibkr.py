@@ -265,10 +265,16 @@ class _SlidingWindowRateLimiter:
         self._ts: deque[float] = deque()
         self._timeframe = timeframe
 
-    async def acquire(self) -> None:
-        """Block until a request slot is available, then record the request timestamp."""
+    async def acquire(self) -> float:
+        """Block until a request slot is available, then record the request timestamp.
+
+        Returns the seconds slept waiting for budget (0.0 when a slot was free) so the
+        paced-acquire wrapper can attribute the wait to a symbol/timeframe -- the limiter
+        itself knows neither.
+        """
         limit = _IBKR_HIST_RATE_LIMIT_BY_TF.get(self._timeframe or "", _IBKR_HIST_RATE_LIMIT)
         now = time.monotonic()
+        slept = 0.0
         while self._ts and now - self._ts[0] > _IBKR_HIST_WINDOW_S:
             self._ts.popleft()
         if len(self._ts) >= limit:
@@ -279,17 +285,27 @@ class _SlidingWindowRateLimiter:
                     extra={"req_in_window": len(self._ts), "sleep_s": round(wait, 1)},
                 )
                 await asyncio.sleep(wait)
+                slept = wait
         self._ts.append(time.monotonic())
+        return slept
 
 
 _hist_rate_limiter = _SlidingWindowRateLimiter()
 _tf_rate_limiters: dict[str, _SlidingWindowRateLimiter] = {}
 
 
+# Total wait above which _hist_acquire_paced also logs ibkr.hist_pacing_wait_released, so a
+# nightly log scan can sum real throttling time (todo 485). APR-overridable
+# (infra.ibkr.hist_pacing_wait_release_s, migration 545), same overlay pattern as the
+# constants above; this is the fallback default.
+_HIST_PACING_WAIT_RELEASE_S = 60.0
+
+
 HIST_RATE_LIMIT_KEYS = (
     "infra.ibkr.rate_limit_max_requests",
     "infra.ibkr.rate_limit_window_sec",
     "infra.ibkr.rate_limit_max_requests_by_tf",
+    "infra.ibkr.hist_pacing_wait_release_s",
 )
 
 
@@ -298,6 +314,7 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
     config_value) onto the module constants every limiter reads fresh on acquire(). Absent
     keys keep their defaults. DB-ignorant: each caller loads the rows its own way."""
     global _IBKR_HIST_RATE_LIMIT, _IBKR_HIST_WINDOW_S, _IBKR_HIST_RATE_LIMIT_BY_TF  # noqa: PLW0603
+    global _HIST_PACING_WAIT_RELEASE_S  # noqa: PLW0603
     if "infra.ibkr.rate_limit_max_requests" in values:
         _IBKR_HIST_RATE_LIMIT = int(values["infra.ibkr.rate_limit_max_requests"])
     if "infra.ibkr.rate_limit_window_sec" in values:
@@ -307,6 +324,8 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
             tf: int(n)
             for tf, n in json.loads(values["infra.ibkr.rate_limit_max_requests_by_tf"]).items()
         }
+    if "infra.ibkr.hist_pacing_wait_release_s" in values:
+        _HIST_PACING_WAIT_RELEASE_S = float(values["infra.ibkr.hist_pacing_wait_release_s"])
 
 
 def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
@@ -314,6 +333,25 @@ def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
     if timeframe not in _IBKR_HIST_RATE_LIMIT_BY_TF:
         return _hist_rate_limiter
     return _tf_rate_limiters.setdefault(timeframe, _SlidingWindowRateLimiter(timeframe))
+
+
+async def _hist_acquire_paced(symbol: str, timeframe: str) -> None:
+    """Wait for pacing budget and log the wait once per blocked request (todo 485).
+
+    The limiter alone logs only sleep_s with no symbol or timeframe, which made a
+    saturated-budget pause indistinguishable from a hung request in the lane log
+    (AGL/APH 2026-10-01). One ibkr.hist_pacing_wait line per blocked acquire -- the
+    limiter sleeps the full computed wait in a single asyncio.sleep, so there is no
+    poll loop to spam -- plus a hist_pacing_wait_released line when the total wait
+    crossed _HIST_PACING_WAIT_RELEASE_S so throttling time is summable from logs.
+    """
+    waited = await _hist_limiter_for(timeframe).acquire()
+    if waited <= 0.0:
+        return
+    fields = {"symbol": symbol, "timeframe": timeframe, "wait_s": round(waited, 1)}
+    logger.warning("ibkr.hist_pacing_wait", extra=fields)
+    if waited >= _HIST_PACING_WAIT_RELEASE_S:
+        logger.warning("ibkr.hist_pacing_wait_released", extra=fields)
 
 
 # reqIds where Error 162 carried "no data".
@@ -1191,7 +1229,7 @@ class IBKRProvider:
             # a minimum 10s/chunk even when the rolling window had full headroom
             # (removed 2026-07-02; the limiter alone has cleanly handled every fetch
             # since it was added, no Error 162 regressions observed).
-            await _hist_limiter_for(timeframe).acquire()
+            await _hist_acquire_paced(symbol, timeframe)
 
             chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
             chunk_delta = chunk_end - chunk_start
@@ -1293,7 +1331,7 @@ class IBKRProvider:
                         },
                     )
                     await asyncio.sleep(backoff)
-                    await _hist_limiter_for(timeframe).acquire()
+                    await _hist_acquire_paced(symbol, timeframe)
             else:
                 if source_tag != SOURCE_IBKR_VENUE:
                     self.last_fetch_failed_chunks += 1
@@ -1501,7 +1539,7 @@ class IBKRProvider:
         what_to_show = _hist_what_to_show(getattr(contract, "secType", ""))
         # Head requests count against IBKR's historical pacing budget: an unthrottled lookup
         # right after other requests came back "pacing violation" in the live rehearsal.
-        await _hist_rate_limiter.acquire()
+        await _hist_acquire_paced(symbol, "head")
         try:
             head = await asyncio.wait_for(
                 self._ib.reqHeadTimeStampAsync(
@@ -1603,7 +1641,7 @@ class IBKRProvider:
             return {}, "not qualified or not connected"
         if fetch_run_id is None and (on_request is not None or on_observation is not None):
             fetch_run_id = str(uuid.uuid4())
-        await _hist_limiter_for("1d").acquire()
+        await _hist_acquire_paced(symbol, "1d")
         bars, record = await self._request_back_from_now(
             contract,
             symbol,

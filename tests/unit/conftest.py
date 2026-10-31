@@ -23,8 +23,8 @@ def _reset_ibkr_hist_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     except ImportError:
         return
 
-    async def _noop_acquire() -> None:
-        return None
+    async def _noop_acquire() -> float:
+        return 0.0  # matches acquire()'s slept-seconds return (todo 485)
 
     monkeypatch.setattr(ibkr._hist_rate_limiter, "acquire", _noop_acquire)
 

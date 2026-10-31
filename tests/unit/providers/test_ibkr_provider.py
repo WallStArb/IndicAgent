@@ -502,6 +502,68 @@ async def test_timeframe_rate_override_gets_its_own_window():
         sleep.assert_called_once()
 
 
+class _FakePacingLimiter:
+    """Test double for _SlidingWindowRateLimiter: records acquires, reports a fixed wait."""
+
+    def __init__(self, waited: float):
+        self.waited = waited
+        self.n_acquires = 0
+
+    async def acquire(self) -> float:
+        self.n_acquires += 1
+        return self.waited
+
+
+class TestHistAcquirePaced:
+    """todo 485: one structured warning per blocked acquire (symbol + timeframe + wait_s),
+    plus a release line once the total wait crosses the release threshold; silence when
+    the limiter did not block."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("waited", "expected_events"),
+        [
+            (0.0, []),  # budget was free: no line at all
+            (5.0, ["ibkr.hist_pacing_wait"]),  # blocked below the threshold: wait line only
+            (75.0, ["ibkr.hist_pacing_wait", "ibkr.hist_pacing_wait_released"]),  # both lines
+        ],
+    )
+    async def test_wait_lines(self, waited, expected_events):
+        fake = _FakePacingLimiter(waited)
+        with (
+            patch.object(ibkr_module, "_hist_limiter_for", return_value=fake),
+            patch.object(ibkr_module.logger, "warning") as warn,
+        ):
+            await ibkr_module._hist_acquire_paced("HOOD", "5m")
+        assert fake.n_acquires == 1  # one acquire per request, not a poll loop
+        assert [c.args[0] for c in warn.call_args_list] == expected_events
+        if expected_events:
+            extra = warn.call_args_list[0].kwargs["extra"]
+            assert extra == {"symbol": "HOOD", "timeframe": "5m", "wait_s": waited}
+
+    @pytest.mark.asyncio
+    async def test_limiter_acquire_returns_slept_seconds(self):
+        """acquire() reports the seconds it slept so the wrapper can attribute the wait;
+        it sleeps the computed wait in one asyncio.sleep (never a poll loop)."""
+        limiter = ibkr_module._SlidingWindowRateLimiter()
+        monotonic_values = iter([100.0, 100.0, 100.0])
+
+        def fake_monotonic():
+            return next(monotonic_values, 100.0)
+
+        async def fake_sleep(_seconds):
+            pass
+
+        with (
+            patch.object(ibkr_module.time, "monotonic", fake_monotonic),
+            patch.object(ibkr_module.asyncio, "sleep", fake_sleep),
+            patch.object(ibkr_module, "_IBKR_HIST_RATE_LIMIT", 1),
+            patch.object(ibkr_module, "_IBKR_HIST_WINDOW_S", 600.0),
+        ):
+            assert await limiter.acquire() == 0.0  # first slot is inside the limit
+            assert await limiter.acquire() == 601.0  # window full: sleeps the computed wait
+
+
 class TestGetHeadTimestamp:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

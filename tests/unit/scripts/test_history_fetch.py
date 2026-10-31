@@ -335,6 +335,7 @@ class TestLoadIbkrRateLimitConfig:
 
         ibkr._IBKR_HIST_RATE_LIMIT = 55
         ibkr._IBKR_HIST_WINDOW_S = 600.0
+        ibkr._HIST_PACING_WAIT_RELEASE_S = 60.0
 
     def test_overlays_both_keys_when_present(self):
         from scripts.infrastructure.backfill._history_fetch import (
@@ -349,6 +350,7 @@ class TestLoadIbkrRateLimitConfig:
             mock_cursor.fetchall.return_value = [
                 ("infra.ibkr.rate_limit_max_requests", "40"),
                 ("infra.ibkr.rate_limit_window_sec", "300.0"),
+                ("infra.ibkr.hist_pacing_wait_release_s", "120.0"),
             ]
             with patch(
                 "scripts.infrastructure.backfill._history_fetch.connect_db",
@@ -358,6 +360,7 @@ class TestLoadIbkrRateLimitConfig:
 
             assert ibkr._IBKR_HIST_RATE_LIMIT == 40
             assert ibkr._IBKR_HIST_WINDOW_S == 300.0
+            assert ibkr._HIST_PACING_WAIT_RELEASE_S == 120.0
         finally:
             self._restore_ibkr_defaults()
 
