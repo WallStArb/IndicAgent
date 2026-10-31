@@ -80,3 +80,16 @@ After migration 544 emptied the ledger, these still describe voided results: `do
 `FAMILY2-*` files in phase 187, the `research_run` row counts in `tests/unit/research/test_spec_hashes_pinned.py`'s
 docstring. Reduce each to a status line plus a pointer to `data/backups/reset-2026-10-30/`. The concept layer reset
 (306 active statuses, 590 evaluations) is a separate item for the data lane with the 186-26 rebuild.
+
+## Status 2026-10-31: candidates and todo sweep done; reset follow-ups remain
+
+All six candidates are done per the disposition hierarchy codified in CLAUDE.md: edge-proof
+program, personal-scale plan and regime-label design reduced to archive stubs (full text at
+commits 8b4f2c9c4, 1280dc0a4, ae391ad77; the ROADMAP rationale block and the cost_hurdle
+citations survive); feature-lifecycle design kept in full in archive (the detail is the value);
+v3-north-star 621 to 81 lines restated against v3.5; glossary 2,479 to 2,339 with every Banned
+line untouched and tools/check_glossary.py passing (the 136 above-baseline findings on a full
+--all run pre-date this work, verified on a stashed tree). Todos 547/560/564 reduced to status,
+decision and disclosure numbers. Link-integrity guard green. The reset follow-ups below still
+await the owner's one-line freeze lift and stay the open item. A separate declutter lane
+(2026-10-31) applies the same hierarchy to the rest of docs/plans and the old archive.
