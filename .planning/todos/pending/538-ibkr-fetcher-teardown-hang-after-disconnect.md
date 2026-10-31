@@ -75,3 +75,18 @@ unresolved future at disconnect).
 - A fetcher run that loses the gateway mid-teardown exits nonzero with a logged cause within
   seconds, never parks in `select`.
 - A unit test pins the teardown timeout against an unresolved future.
+
+## Diagnosis written (data lane, 2026-10-31 evening)
+
+`docs/plans/2026-10-31-fetcher-future-hang-diagnosis.md` is the full read. Headlines: the
+fetcher wedge is protocol-level (loop alive, TCP ESTABLISHED on loopback, no reply, no error;
+an await with no timeout), not transport and not CPU; the fix direction is the post-acquire
+watchdog that names the pending tasks, a teardown timeout, and per-request timeouts (APR
+bounds, owner sign-off before the edit window). The same evening's factory "wedge" was
+reclassified: the 13:45Z stage 2 run was healthy (252 units, rows summing exactly to the
+database, group gaps of 52-91 minutes), the 21:20Z stop was a mistake driven by main-pid
+worker checks and a missing cadence baseline, and the diagnosis doc carries the corrected
+health protocol (write-anchored, forkserver-children liveness, cgroup reads, 2.5h wedge
+criterion). Next occurrence of the fetcher wedge: py-spy the main (done 21:35Z for the
+21:25:32Z run) plus the gateway discriminator probe (fresh clientId request; docker stats on
+ib-gateway) before any restart.
