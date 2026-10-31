@@ -103,3 +103,12 @@ come back into the check: expect the held list to grow (ABCB's 37 missing 1999-2
 before 2000 and still outside; names with 2000-2004 holes re-enter). Before landing the change, rerun the
 era recount (`191-SESSION-COVERAGE-ERA-FAILS.tsv` method) for the new start and list the names that
 newly fail, among them any of the 1,314 built names, since the rebuild would then consume those years.
+
+## Era recount for the 2000 calendar start (research lane, 2026-10-30)
+
+Read-only recount of 1d session_coverage on live canonical bars plus ohlcv_empty_history spans, the judge's
+rule, era start 2000-01-03 against 2005-01-03: 41 names newly fall below 0.999, all 41 among the 1,314 built
+names (list: `191-SESSION-COVERAGE-ERA-2000-NEWLY-FAILING.tsv`). Worst: STRL 0.9108 (602 missing sessions),
+CRGY 0.9752, WEYS 0.9468, EFSC 0.9619; most are 5 to 80 sessions. So the calendar change is not free: either
+the data lane backfills the 2000-2004 holes for these names first, or the start stays 2005. Decision belongs
+with the data lane's hold list; the research lane does not move `_PMC_RANGE_START` until those names clear.
