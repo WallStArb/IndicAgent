@@ -1249,7 +1249,7 @@ def test_a_recorded_dated_exception_releases_its_stamp():
 def test_load_dated_exceptions_releases_only_released_waves():
     loaded = audit.load_dated_exceptions(
         {
-            "waves": {"1": {"released": True}, "3": {"released": False}},
+            "waves": {"1": {"released": True, "names": ["AAA"]}, "3": {"released": False}},
             "exceptions": {
                 "AAA": {
                     "15m": [
@@ -1291,7 +1291,7 @@ def test_an_apr_record_releases_its_stamps_without_a_file():
     name["archive"]["15m"][key] = tuple(values)
     record = json.dumps(
         {
-            "waves": {"1": {"released": True}},
+            "waves": {"1": {"released": True, "names": ["AAA"]}},
             "exceptions": {
                 "AAA": {
                     "15m": [{"stamp": key.isoformat(), "wave": 1, "price": False, "volume": True}]

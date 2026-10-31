@@ -544,7 +544,7 @@ def grid_parity(
 
     `exceptions` carries the D7 dated tolerance (todo 524, deferral D-191-H, recorded 2026-10-31):
     a bucket start mapped to the dimensions its record excuses, (price, volume). A stamp recorded
-    in config/bars/grid_parity_dated_exceptions.json excuses only the dimensions its record
+    in the APR record infra.grid_parity.dated_exceptions (migration 547) excuses only the dimensions its record
     mismatched, so a new disagreement in the other dimension there stays a live failure; a bucket
     whose archive row predates its 5m constituents (superseded evidence, the whole bucket stale)
     excuses both. A mismatch on an excused dimension is counted in `excepted`, never in

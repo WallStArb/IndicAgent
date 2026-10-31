@@ -29,6 +29,7 @@ SELECT NOW(), s.config_key, s.version, s.config_value, 'migration:547',
        'seed (todo 573 classification, recorded 2026-10-31; D7 dated tolerance)'
   FROM config_state s
  WHERE s.config_key = 'infra.grid_parity.dated_exceptions'
+   AND s.version = 1
    AND NOT EXISTS (
        SELECT 1 FROM config_history h
         WHERE h.config_key = s.config_key AND h.version = s.version

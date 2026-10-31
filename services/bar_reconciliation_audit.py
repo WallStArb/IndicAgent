@@ -1379,9 +1379,13 @@ def load_dated_exceptions(
 ) -> dict[str, dict[str, dict[datetime, tuple[bool, bool]]]]:
     """The recorded grid_parity dated exceptions, per symbol per timeframe: bucket start -> the
     dimensions its record excuses, (price, volume), from the parsed APR record (migration 547's
-    infra.grid_parity.dated_exceptions, the todo 573 classification). Only released waves load: a stamp whose wave is not released never excepts.
+    infra.grid_parity.dated_exceptions, the todo 573 classification). Only released waves load:
+    a stamp whose wave is not released never excepts. A symbol holding released stamps while
+    absent from every released wave's names list is record drift and raises: the excused set
+    must never quietly diverge from what the record documents.
     """
     released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
+    names = {name for w in released for name in record["waves"][w]["names"]}
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     for symbol, per_tf in record["exceptions"].items():
         for tf, stamps in per_tf.items():
@@ -1390,8 +1394,14 @@ def load_dated_exceptions(
                 for s in stamps
                 if str(s["wave"]) in released
             }
-            if kept:
-                out[symbol][tf] = kept
+            if not kept:
+                continue
+            if symbol not in names:
+                raise ValueError(
+                    f"dated-exceptions record drift: {symbol} holds released stamps but is in "
+                    f"no released wave's names list"
+                )
+            out[symbol][tf] = kept
     return out
 
 
@@ -1455,7 +1465,7 @@ class _IntradayInputs:
     # the raw row predates the column).
     archive_served: Mapping[str, Mapping[datetime, datetime | None]]
     # Recorded D7 exceptions for this symbol per timeframe: bucket start -> the dimensions its
-    # record excuses, (price, volume) (config/bars/grid_parity_dated_exceptions.json).
+    # record excuses, (price, volume) (APR infra.grid_parity.dated_exceptions, migration 547).
     recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]]
     current_digests: Mapping[str, Mapping[datetime, str]]
     scope: frozenset[datetime] | None
@@ -2567,13 +2577,17 @@ class BarReconciliationAudit(BaseBatch):
         """Judge every name holding 5m bars on the intraday checks (design section 6), then the
         coverage ledger of all of them under the fetcher lock (`coverage_drift` None defers that
         step to the caller, which runs it after these verdicts are written). A finding never
-        raises. `recorded` overrides the D7 dated-exception file (tests); None loads it."""
+        raises. `recorded` overrides the D7 dated-exception APR record (tests); None reads
+        infra.grid_parity.dated_exceptions from the params."""
         if recorded is None:  # fail closed: without the record nothing is dated, so the audit
-            try:  # can only hold more names to exact parity, never fewer
-                recorded = load_dated_exceptions(json.loads(integ.dated_exceptions_json or "{}"))
-            except (ValueError, KeyError, TypeError) as error:
-                logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
-                recorded = {}
+            if not integ.dated_exceptions_json:  # can only hold more names to exact parity,
+                recorded = {}  # never fewer; an absent record is normal, a malformed one logs
+            else:
+                try:
+                    recorded = load_dated_exceptions(json.loads(integ.dated_exceptions_json))
+                except (ValueError, KeyError, TypeError) as error:
+                    logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
+                    recorded = {}
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
         previous = {
             r["subject"]: (r["passed"], r["evaluated_at"])
