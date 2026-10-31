@@ -39,3 +39,12 @@ placeholder bars (92,083 of ITA's 185,724 raw 5m rows) as constituents and showe
 79 names; with traded bars only and full buckets ITA has 0 of 1,089. Do not recount 1h outside the audit; the
 02:00 ET audit does the exact read. The 11 are real small vendor disagreements; decide per name whether they hold or are classified, after
 the audit confirms the list.
+
+Audit read 2026-10-31 02:00 ET (volume slack in place): grid_parity fails 54 verdict rows on 34 names, down
+from 144; mismatched buckets 486 of 15,430,155 at 15m and 158 of 3,770,896 at 1h. The remainder is price
+disagreement, at most 0.1% of a name's buckets (DBC 73 of 75,634; GE 52 of 61,414; DBA 68 of 94,365; CWB, ETHA,
+DBB, EDV, ITA, ALGN, ASYS, BIIB, AMD, EZU, INDA, EQIX, HD, HON, IYT, BKE, ISRG, KWEB, MTUM, QUAL, ATRO, FXE, LIN,
+ASTE, CAL, BELFA, BH, ACTG, SHY, XLC; CTVA is already held for its rescale). Decision: the 34 stay out of the
+next intraday build (the check's contract is exact prices; a disagreeing bucket has no arbiter); every other
+name that passes slot_coverage, digest_fresh and coverage_cache builds. The fix is closed; the 34 names are a
+vendor-data classification, not a code defect.
