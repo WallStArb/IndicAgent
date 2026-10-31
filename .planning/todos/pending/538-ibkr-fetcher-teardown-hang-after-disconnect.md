@@ -59,7 +59,10 @@ is protocol-level or a dropped callback resolution, not transport. The 144 s tim
 rescheduling, which fits 93's memory-pressure-alternative only weakly; the primary mechanism is
 an unresolved ib_async request future or a lost resolver callback. The doc's diagnosis should add
 instrumentation that names the awaited task (periodic asyncio task dump, or logging the awaited
-coroutine at lock acquire).
+coroutine at lock acquire). Comparison dump (+5 min): sched_count stays 14 and the epoll timeout
+went 144.25 s -> 146.76 s, so the same handles re-arm on a recurring ~145 s cycle: an unlogged
+retry loop, not a one-shot wait. Diagnosis doc:
+docs/plans/2026-10-31-fetcher-future-hang-diagnosis.md (c8c0b12b9).
 
 ## Fix direction
 
