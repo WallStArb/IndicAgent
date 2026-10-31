@@ -421,3 +421,11 @@ sessions' uncommitted files, then remove it; `git worktree prune` clears entries
 - Phase 190 added: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
 - Phase 189 edited: edited fields: depends_on
 - Phase 189 added: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts
+
+- Research lane (2026-10-31): the systemd battery units (`e17-battery-daily-flat`, `e17-battery-daily-residual-4736`,
+  `e17-battery-daily-residual`, `e17-battery-daily-v2`) show `failed` because the drivers exit non-zero on a
+  pre-registered verdict fail; the runs completed and their verdicts are the record. Canonical: `e17-battery-daily-v2`
+  (todo 547's pre-registered run; only `daily_s1_hostile/residual_momentum_12_1_z` exceeds, the cause-3 S1-drift
+  pattern, owner decision A/B). The other three are superseded iterations. Do not rerun: pre-registration forbids
+  rerunning seeds for a pass. Todo 549 closed 2026-10-29 (E17 v1 stands, no fixed-b); the 4,000-session StepM
+  attestation is Step B v2 (todo 561), passed, `select_books.py` accepts it.
