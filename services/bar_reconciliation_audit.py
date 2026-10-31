@@ -814,6 +814,7 @@ _APR_PATTERNS = [
     "threshold.bar_integrity.%",
     "infra.bar_integrity.%",
     "infra.selection_gate.request_load_match_s",
+    "infra.grid_parity.%",
 ]
 
 # The stores are ohlcv_raw and ohlcv_revision (plan 191-09): one current row per (bar, vendor,
@@ -1256,6 +1257,9 @@ class _IntegrityParams:
     # infra.selection_gate.request_load_match_s): the refused-load guard of the answered-window
     # read (the same rule the fetcher's planner applies, todo 567).
     load_match_s: float = 5.0
+    # The D7 dated-exception record (migration 547's infra.grid_parity.dated_exceptions), the
+    # raw JSON document; None or empty dates nothing (fail closed).
+    dated_exceptions_json: str | None = None
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
@@ -1289,6 +1293,7 @@ class _IntegrityParams:
                 _cfg(apr, "threshold.bar_integrity.fallback_basis_tolerance_bp", 10.0)
             ),
             load_match_s=float(_cfg(apr, "infra.selection_gate.request_load_match_s", 5.0)),
+            dated_exceptions_json=(_cfg(apr, "infra.grid_parity.dated_exceptions", "") or None),
         )
 
 
@@ -1364,19 +1369,18 @@ ORDER BY m."timestamp"
 _PARITY_VENDOR = VENDOR_IBKR
 _INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
 _WRITER_ROLE = "bar_derivation_writer"
+
+
 # The D7 dated exceptions (todo 524, D-191-H; recorded 2026-10-31 from the todo 573
 # classification). Waves 1 and 2 release a stamp; wave 3 (wrong-basis archive rows) stays held
 # until its archive rows are re-fetched, and the loader skips it.
-_DATED_EXCEPTIONS_FILE = _REPO_ROOT / "config" / "bars" / "grid_parity_dated_exceptions.json"
-
-
 def load_dated_exceptions(
-    path: Path = _DATED_EXCEPTIONS_FILE,
+    record: Mapping[str, Any],
 ) -> dict[str, dict[str, dict[datetime, tuple[bool, bool]]]]:
     """The recorded grid_parity dated exceptions, per symbol per timeframe: bucket start -> the
-    dimensions its record excuses, (price, volume), from the dated record file (the todo 573
-    classification). Only released waves load: a stamp whose wave is not released never excepts."""
-    record = json.loads(path.read_text())
+    dimensions its record excuses, (price, volume), from the parsed APR record (migration 547's
+    infra.grid_parity.dated_exceptions, the todo 573 classification). Only released waves load: a stamp whose wave is not released never excepts.
+    """
     released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     for symbol, per_tf in record["exceptions"].items():
@@ -2566,8 +2570,8 @@ class BarReconciliationAudit(BaseBatch):
         raises. `recorded` overrides the D7 dated-exception file (tests); None loads it."""
         if recorded is None:  # fail closed: without the record nothing is dated, so the audit
             try:  # can only hold more names to exact parity, never fewer
-                recorded = load_dated_exceptions()
-            except (OSError, ValueError, KeyError, TypeError) as error:
+                recorded = load_dated_exceptions(json.loads(integ.dated_exceptions_json or "{}"))
+            except (ValueError, KeyError, TypeError) as error:
                 logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
                 recorded = {}
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]

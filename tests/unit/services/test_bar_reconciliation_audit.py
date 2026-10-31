@@ -945,18 +945,17 @@ def _no_drift(names):
     return drift(names)
 
 
-def _intraday(conn, drift=_no_drift, recorded=None):
+def _intraday(conn, drift=_no_drift, recorded=None, integ=None):
     import asyncio
 
     return asyncio.run(
         audit.BarReconciliationAudit._verdict_report_intraday(
             conn,
-            _I_PARAMS,
+            integ or _I_PARAMS,  # from_apr({}): no dated record, so nothing is excepted
             _IWindow(),
             _I_NOW,
             coverage_drift=drift,
-            # {} keeps the unit tests off the production dated-exceptions file
-            recorded=recorded if recorded is not None else {},
+            recorded=recorded,
         )
     )
 
@@ -1247,42 +1246,63 @@ def test_a_recorded_dated_exception_releases_its_stamp():
     assert _verdict(plain, "AAA|15m", "grid_parity")[5] is False  # unrecorded it still fails
 
 
-def test_load_dated_exceptions_releases_only_released_waves(tmp_path):
-    path = tmp_path / "dated.json"
-    path.write_text(
-        json.dumps(
-            {
-                "waves": {"1": {"released": True}, "3": {"released": False}},
-                "exceptions": {
-                    "AAA": {
-                        "15m": [
-                            {
-                                "stamp": "2026-10-01T13:30:00+00:00",
-                                "wave": 1,
-                                "price": True,
-                                "volume": False,
-                            },
-                            {
-                                "stamp": "2026-10-02T13:30:00+00:00",
-                                "wave": 3,
-                                "price": True,
-                                "volume": True,
-                            },
-                        ]
-                    }
-                },
-            }
-        )
+def test_load_dated_exceptions_releases_only_released_waves():
+    loaded = audit.load_dated_exceptions(
+        {
+            "waves": {"1": {"released": True}, "3": {"released": False}},
+            "exceptions": {
+                "AAA": {
+                    "15m": [
+                        {
+                            "stamp": "2026-10-01T13:30:00+00:00",
+                            "wave": 1,
+                            "price": True,
+                            "volume": False,
+                        },
+                        {
+                            "stamp": "2026-10-02T13:30:00+00:00",
+                            "wave": 3,
+                            "price": True,
+                            "volume": True,
+                        },
+                    ]
+                }
+            },
+        }
     )
-    loaded = audit.load_dated_exceptions(path)
     assert loaded["AAA"]["15m"] == {datetime(2026, 10, 1, 13, 30, tzinfo=UTC): (True, False)}
 
 
-def test_a_missing_dated_exceptions_file_fails_closed_to_no_exceptions(tmp_path, caplog):
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(audit, "_DATED_EXCEPTIONS_FILE", tmp_path / "absent.json")
-        run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
-    assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # judged, not raised
+def test_a_missing_or_malformed_dated_exceptions_record_fails_closed():
+    for raw in (None, "{not json", '["waves"]', '{"no": "keys"}'):
+        apr = {} if raw is None else {"infra.grid_parity.dated_exceptions": raw}
+        run = _intraday(
+            _IntradayConn({"AAA": _agreeing_name()}), integ=audit._IntegrityParams.from_apr(apr)
+        )
+        assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # judged, not raised
+
+
+def test_an_apr_record_releases_its_stamps_without_a_file():
+    """The production path: the record arrives in the APR params (migration 547), not a file."""
+    name = _agreeing_name()
+    key = next(iter(name["archive"]["15m"]))
+    values = list(name["archive"]["15m"][key])
+    values[4] += 3.0
+    name["archive"]["15m"][key] = tuple(values)
+    record = json.dumps(
+        {
+            "waves": {"1": {"released": True}},
+            "exceptions": {
+                "AAA": {
+                    "15m": [{"stamp": key.isoformat(), "wave": 1, "price": False, "volume": True}]
+                }
+            },
+        }
+    )
+    integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": record})
+    run = _intraday(_IntradayConn({"AAA": name}), integ=integ)
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is True and run.parity_excepted["15m"] == 1
 
 
 def test_a_bucket_with_one_sip_constituent_is_excluded_not_compared_or_failed():
