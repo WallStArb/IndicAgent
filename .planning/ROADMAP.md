@@ -34,6 +34,24 @@ Phase numbers are stable IDs.
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ⏸️ **Parked** — 145 (v3.15), 149-151 waves 6-7 (v3.2), 152-153 (v4.1), 155, 168, 169; v4.0 156-159 re-scoped into phase 188 (see below)
 
+## v3.4 rationale
+
+Why v3.4 (phases 174-182) was sequenced as it was, moved here 2026-10-31 (todo 568) from the
+superseded `docs/plans/2026-09-24-edge-proof-program.md`. When the milestone was set (2026-09-24),
+14 constructions had run to a definitive verdict with zero PASS and the feature corpus was
+saturated at about 8 independent bets out of about 290 columns, so new primitives mostly got
+subsumed. The one positive result on record, todo 378's cross-asset diagnostic (signed
+`vol_normalized` ann. Sharpe about 1.19 vs `equal_weight` 0.18), was discounted: mostly in-sample
+(about 90% of the window scored ensemble weights fitted through 2025-12-24), compared against a
+long-only signal-free arm instead of a null, and underpowered out of sample (9-month holdout,
+t about 1.0). The levers were ranked off that: weight-level walk-forward on the cross-asset sleeve
+first (turns 9 months of true OOS into about 7 years of pseudo-OOS, the only lever that could
+produce a PASS/FAIL within weeks), then breadth (n_eff about 6 to 12+), the data floor, recompute
+throughput (about 3.3 days to about 1.1) and a parallel construction track. Outcomes: 179 FAIL
+(best arm excess +0.22, adjusted p 0.36), 181 FAIL (H-A, H-B, TSMOM p 0.22), 178 and 182 complete,
+177 and 180 superseded. One-line phase entries: `.planning/MILESTONES.md` and
+`.planning/milestones/v3.4-ROADMAP.md`.
+
 ## Active milestone: v3.5 Unified Research Pipeline
 
 Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16, reordered by
