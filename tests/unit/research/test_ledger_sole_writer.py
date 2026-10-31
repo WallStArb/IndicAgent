@@ -48,6 +48,11 @@ _LEGACY_REASON = (
 
 _RUN_WRITE_ALLOW_LIST: dict[str, str] = {
     _LEDGER: "PERMANENT: the S6 sole writer of research_run (phase 183, D-05).",
+    "production/migrations/544_reset_research_run_old_data.sql": (
+        "ONE-TIME: the owner-directed research-ledger reset of 2026-10-30 (no real-data "
+        "hypothesis tests until data and features are clean); applied live via psql with a "
+        "backup in data/backups/reset-2026-10-30/, never a code path."
+    ),
 }
 
 _CONSTRUCTION_IDENTITY_ALLOW_LIST: dict[str, str] = {
