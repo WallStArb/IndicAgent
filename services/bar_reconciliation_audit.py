@@ -1411,20 +1411,40 @@ def load_dated_exceptions(
             raise ValueError(f"dated-exceptions wave {wave!r} spec is not a mapping")
         names = spec.get("names")
         if names is not None and (
-            not isinstance(names, (list, set, tuple)) or any(not isinstance(n, str) for n in names)
+            not isinstance(names, list) or any(not isinstance(n, str) for n in names)
         ):
             raise ValueError(f"dated-exceptions wave {wave!r} names list is malformed")
     for name, per_tf in exceptions.items():
         if not isinstance(per_tf, Mapping):
             raise ValueError(f"dated-exceptions for {name!r} are not a mapping")
         for tf, stamps in per_tf.items():
-            if not isinstance(stamps, list) or any(not isinstance(s, Mapping) for s in stamps):
-                raise ValueError(f"dated-exceptions stamps for {name!r} {tf!r} are malformed")
-    released = set()
+            if not isinstance(stamps, list):
+                raise ValueError(f"dated-exceptions stamps for {name!r} {tf!r} are not a list")
+            for s in stamps:
+                if not isinstance(s, Mapping) or not {"stamp", "wave", "price", "volume"} <= set(
+                    s.keys()
+                ):
+                    raise ValueError(
+                        f"dated-exceptions stamp for {name!r} {tf!r} lacks required fields"
+                    )
+                if not isinstance(s["price"], bool) or not isinstance(s["volume"], bool):
+                    raise ValueError(
+                        f"dated-exceptions stamp for {name!r} {tf!r} price/volume must be booleans"
+                    )
+                try:
+                    datetime.fromisoformat(s["stamp"])
+                except (ValueError, TypeError) as error:
+                    raise ValueError(
+                        f"dated-exceptions stamp for {name!r} {tf!r} has an unparsable stamp"
+                    ) from error
+                if "T" not in s["stamp"]:
+                    # a date-only stamp parses to midnight and can never match a bucket
+                    raise ValueError(
+                        f"dated-exceptions stamp for {name!r} {tf!r} carries no time of day"
+                    )
     wave_names: dict[str, set[str] | None] = {}
-    for wave, spec in waves.items():  # one pass builds both, so they cannot desynchronize
+    for wave, spec in waves.items():  # wave_names' keys are exactly the released waves
         if spec.get("released"):
-            released.add(wave)
             wave_names[wave] = None if spec.get("names") is None else set(spec["names"])
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     missing_from_names: set[str] = set()
@@ -1434,7 +1454,7 @@ def load_dated_exceptions(
             kept = {}
             for s in stamps:
                 wave = str(s["wave"])
-                if wave not in released:
+                if wave not in wave_names:
                     continue
                 if wave_names[wave] is None:
                     nameless_waves.add(wave)

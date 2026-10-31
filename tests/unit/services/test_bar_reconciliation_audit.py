@@ -1336,6 +1336,20 @@ def test_a_structurally_wrong_record_is_malformed_not_a_crash():
         '{"waves": {"1": "released"}, "exceptions": {}}',
         '{"waves": {"1": {"released": true, "names": "AAA"}}, "exceptions": {}}',
         '{"waves": {"1": {"released": true, "names": ["AAA"]}}, "exceptions": {"AAA": []}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
+        '"exceptions": {"AAA": {"15m": ["nope"]}}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
+        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01T13:30:00+00:00", "wave": 1, '
+        '"price": "false", "volume": true}]}}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
+        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01", "wave": 1, "price": true, '
+        '"volume": true}]}}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
+        '"exceptions": {"AAA": {"15m": [{"stamp": "nonsense", "wave": 1, "price": true, '
+        '"volume": true}]}}}',
+        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
+        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01T13:30:00+00:00", "wave": 1, '
+        '"price": true}]}}}',
     ]
     for raw in raws:
         integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": raw})
