@@ -74,6 +74,18 @@ Facts from the 2026-10-31 occurrence (dump at 21:35Z, pid 1710629, run started 2
 - No `Disconnected` event, no error, lock held.
 - Other threads are idle by design (OTel readers, one asyncio executor worker).
 
+Comparison dumps 5 minutes apart (21:35Z and 21:45Z): sched_count stays 14 and the epoll
+timeout ADVANCES (144.25s to 146.76s), so the same timer set re-arms on a recurring cycle
+while the outer task never resolves. The loop is not frozen; it idles on its own period. The
+pacing-wait logging from a23af3551 does not fire, so whatever sleeps there bypasses that
+path. Correction to the run-shape reading: `batch_computer.pool_open` fired 0.1s BEFORE the
+lock acquire (they co-occur at 21:25:32Z), so the wedge sits after pool_open, in planning,
+connect or the first request; the fetcher's own sleeps (inter_item_pause_s 2.0,
+hist_pacing_wait_release_s 60.0) are not the ~145s sleeper, and its timeout drifts upward, so
+it is not a fixed retry period either. Naming it needs the timer's callback: the next dump
+should capture the `_run_once` frame's TimerHandle `_callback` and `_when` (py-spy locals
+one frame deeper), which identifies the sleeper directly.
+
 So the awaited future resolves only when an IBKR API message arrives, and none arrives. On
 loopback that means the gateway process is alive enough to hold TCP but its API session never
 answers and never errors: a wedged or never-quiesced gateway session (candidates: a session
@@ -94,6 +106,12 @@ memory/CPU from docker. A prompt answer on the probe while the fetcher stays stu
 the fetcher-side await (dropped callback); silence on both convicts the gateway session.
 
 ### Instrumentation to land (the fix direction, todo 538)
+
+Proposed APR values for the owner surface (initial estimates, not ML targets):
+`infra.ibkr.stall_tick_s` 60 (watchdog tick), `infra.ibkr.stall_abort_s` 1800 (abort; a legal
+pacing stall is minutes and is logged by a23af3551's pacing line, which the watchdog counts
+as progress), `infra.ibkr.request_timeout_s` 300 (per-request bound; typical answers are
+seconds, the teardown hang is forever).
 
 1. **Post-acquire watchdog:** a task started at `fetcher_lock.acquired` that every 60s, while
    no item completed since its last tick, logs all pending asyncio tasks with their coroutines
