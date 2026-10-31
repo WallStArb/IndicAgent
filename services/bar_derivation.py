@@ -398,6 +398,7 @@ _DAILY_REPORT_COLUMNS = (
     "restated",
     "zero_volume",
     "zero_volume_fallback",
+    "unserved_primary",
 )
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
@@ -626,6 +627,7 @@ class _DailyResult:
     restated: int = 0
     zero_volume: int = 0
     zero_volume_fallback: int = 0
+    unserved_primary: int = 0
 
     def report_row(self) -> dict[str, str]:
         values: dict[str, Any] = {
@@ -1679,6 +1681,7 @@ class BarDerivation(BaseBatch):
             restated=len(derived.restated),
             zero_volume=len(derived.zero_volume),
             zero_volume_fallback=len(derived.zero_volume_fallback),
+            unserved_primary=len(derived.unserved_primary),
             revision_ratio=ratio,
             revision_flag=flagged,
             would_refuse=would_refuse,
@@ -1750,6 +1753,7 @@ class BarDerivation(BaseBatch):
                         "zero_volume_fallback": [
                             d.isoformat() for d in derived.zero_volume_fallback
                         ],
+                        "unserved_primary": [d.isoformat() for d in derived.unserved_primary],
                     }
                 ),
                 _DAILY_LOAD_CALLER,
@@ -2000,6 +2004,7 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
         "restated": sum(r.restated for r in results),
         "zero_volume": sum(r.zero_volume for r in results),
         "zero_volume_fallback": sum(r.zero_volume_fallback for r in results),
+        "unserved_primary": sum(r.unserved_primary for r in results),
         "revision_flag": sum(r.revision_flag for r in results),
         "would_refuse": sum(r.would_refuse for r in results),
         "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),

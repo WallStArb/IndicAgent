@@ -40,6 +40,11 @@ raises) names the primary and fallback source:
     ties to the earlier session) is within basis_tolerance_bp of 1. Otherwise the date has no
     canonical bar and is listed in refused_interior. Tradier observations end at 2026-10-06 (the
     loader is deleted, plan 185-48), so no Tradier re-ask exists; IBKR's latest answer is.
+  - a session whose primary has no raw answer and which no fallback bar reaches (an IBKR
+    symbol row names none) has no canonical bar and is listed in unserved_primary: by-design
+    silence, recorded rather than skipped (todo 566, class B). The session axis is the dates
+    some vendor answered, so the list inventories exactly the unserved sessions the raw
+    answers prove.
 
 Alpaca (d2-v4, D-191-Q). Which vendor serves a date is the policy's decision, never the rule's:
 under an Alpaca-primary row Alpaca serves every session it answered with a trade, and IBKR falls
@@ -224,6 +229,11 @@ class DailyV2Result:
     # under an Alpaca primary was a zero-volume IBKR bar.
     zero_volume: list[date] = field(default_factory=list)
     zero_volume_fallback: list[date] = field(default_factory=list)
+    # Sessions whose primary has no raw answer and which no fallback bar reaches (an IBKR
+    # symbol row names none): by-design silence, recorded rather than skipped. The axis holds
+    # only dates some vendor answered, so this inventories the unserved sessions the raw
+    # answers prove, never more.
+    unserved_primary: list[date] = field(default_factory=list)
 
 
 def observation_from_raw(
@@ -637,6 +647,7 @@ def derive_daily_v2(
     stale_only: list[date] = []
     restated: list[date] = []
     zero_volume_fallback: list[date] = []
+    unserved_primary: list[date] = []
 
     for day in axis:
         policy = resolve_policy(policy_rows, symbol, day)
@@ -664,6 +675,11 @@ def derive_daily_v2(
                 )
             continue
         if fallback is None or frame is None:
+            # The primary has no raw answer and no fallback bar reaches the session: either the
+            # policy names no fallback (an IBKR symbol row names none, todo 566 class B) or the
+            # named fallback did not answer either. No canonical bar, recorded rather than
+            # silent.
+            unserved_primary.append(day)
             continue
         if fallback.current is None:
             stale_only.append(day)
@@ -714,6 +730,7 @@ def derive_daily_v2(
         stale_only=stale_only,
         refused_head=refused_head,
         restated=restated,
+        unserved_primary=unserved_primary,
         zero_volume=screened.zero_volume,
         zero_volume_fallback=zero_volume_fallback,
     )

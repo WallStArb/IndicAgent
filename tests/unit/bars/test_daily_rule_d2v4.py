@@ -301,6 +301,22 @@ def test_a_zero_volume_ibkr_bar_under_an_ibkr_primary_is_d2v3_unchanged():
     assert result.zero_volume_fallback == []
 
 
+def test_an_ibkr_primary_with_no_raw_answer_is_recorded_unserved():
+    # todo 566 class B: under an IBKR symbol row the primary names no fallback, so a session
+    # IBKR did not answer has no canonical bar even where Alpaca did, and is listed, not
+    # silently skipped.
+    days = _sessions(date(2024, 3, 4), 20)
+    hole = days[10]
+    row = PolicyRow("1d", "TEST", date(1990, 1, 1), None, "observed", "ibkr", None)
+    observations = [_obs("SMART", d, 10.0) for d in days if d != hole] + [
+        _obs("ALPACA", d, 10.0) for d in days
+    ]
+    result = _derive(observations, policy=[row])
+    assert hole not in _pairs(result)
+    assert result.unserved_primary == [hole]
+    assert result.bars[0].bar_date < hole < result.bars[-1].bar_date
+
+
 # --- the policy decides; the rule never second-guesses a tradeable Alpaca bar ------------------
 
 

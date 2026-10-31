@@ -474,6 +474,28 @@ def test_apply_records_restated_dates_in_the_load_detail():
     }
 
 
+def _unserved_fixture():
+    # todo 566 class B: an IBKR symbol row names no fallback; the session Alpaca answered and
+    # IBKR did not is unserved_primary in the load detail.
+    days = [_D1, _D2, _D3, _D4, _D5, _D6]
+    policy = [{**_DEFAULT_POLICY, "primary_source": "ibkr", "fallback_source": None}]
+    observations = {
+        "TEST": [_obs(d, 10.0, route="SMART") for d in days if d != _D5]
+        + [_obs(d, 10.0) for d in days]
+    }
+    stored = {"TEST": {d: _row(10.0, vendor="ibkr", kind="named") for d in days}}
+    return observations, stored, policy
+
+
+def test_apply_records_unserved_primary_dates_in_the_load_detail():
+    observations, stored, policy = _unserved_fixture()
+    conn = FakeConn(observations=observations, stored=stored, policy=policy)
+    _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    detail = json.loads(load_args[14])
+    assert detail["unserved_primary"] == [_D5.isoformat()]
+
+
 def test_splits_are_read_from_the_current_view_so_void_rows_never_reach_the_rule():
     sql = " ".join(bar_derivation_module._SELECT_DAILY_SPLITS_SQL.split())
     assert "FROM corporate_action_current" in sql
