@@ -1,0 +1,7 @@
+# Regime label transition quality (measurement-first design) - archive stub
+
+Design doc, 2026-08-02 (Opus-reviewed, 5 critical findings, rewritten same day; every load-bearing number re-verified against the live DB). Superseded: the question was answered another way - the hysteresis fix landed at the label source 2026-08-27 (todo 005 closed, migration 326: causal min-hold-bars smoother, churn fx 63.7% to 7.4%, commodity 84.0% to 6.0%, table in the todo file), and the label machinery is now the walk-forward registry kernels (todo 248 deployed 2026-08-12, plan 186-13 merged 2026-09-30). Any purge or smoothing question today is a spec field measured through the research runner (E15).
+
+Idea worth keeping (the doc's lasting methodological point): `market_regimes` is a continuous 24/7 calendar grid, not the population IC measurement consumes - only rows whose `ts` joins to a `feature_vectors.bar_ts` can contribute an observation (18.6% for equity/5m, measured 2026-08-02). Any transition, flicker or occupancy statistic computed on the full grid is wrong: the calendar grid suppresses apparent flicker and inflates apparent transition counts (an earlier draft's "24% short" became 52.1% on equity/5m, 95.7% on rates/5m, on the joinable population). Census numbers also recorded in `docs/research/intelligence-lifecycle-backlog-matrix.md`.
+
+Full text in git history: `docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md` as of commit `ae391ad77` (pre-condense) and `20988041a` (condensed status page).
