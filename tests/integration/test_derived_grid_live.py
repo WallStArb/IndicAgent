@@ -21,14 +21,19 @@ D-15 identity checks after the rewrite:
   TRADES 1d answer (the current ohlcv_raw smart_trades row) on sessions whose canonical
   5m is IBKR's own (since phase 191 selection a session may be Alpaca's, a different volume
   basis, D-191-N item 6), never with
-  canonical 1d: canonical 1d is Tradier for most names and its consolidated
-  volume is a different basis (data layer integrity design section 7, volume
-  definitions). Agreement is a rate, not an identity: closing-auction prints,
+  canonical 1d, whose serving vendor's volume is a different basis (data layer
+  integrity design section 7, volume definitions). Agreement is a rate, not an
+  identity: closing-auction prints,
   odd lots, half days and vendor adjustment runs move single sessions. Measured
   2026-10-07 over 1,041,534 sessions on 239 names (plan 185-31): volume within
   1% on 99.30%, 1h volume above 1d by more than 1% on 0.007% (the 5m sum cannot
   structurally exceed the day), close within 1% on 99.78%, first open exact on
-  99.86%, largest per-name median volume deficit 0.17%. The thresholds below sit
+  99.86%, largest per-name median volume deficit 0.17%. Re-measured 2026-10-30
+  over 879,633 sessions (todo 572): volume within 1% on 98.90%; the drop against
+  185-31 is IBKR's fractional-share rounding (todo 569: each aggregate rounds
+  once, so the 5m sum runs systematically under the day's single rounding), not
+  a basis change, and the volume floor moved under the measured share. The
+  thresholds below sit
   under those rates; the worst names (VIXY volume 66%, GE open 88% through its
   2021-2024 corporate actions) are vendor-basis findings for 185-37 and D7, and
   pass only as part of the aggregate;
@@ -174,8 +179,11 @@ def test_derived_bars_equal_direct_5m_aggregation(conn):
     assert checked > 0
 
 
-# Thresholds committed with plan 185-31 from the 2026-10-07 measurement in the module docstring.
-_MIN_VOLUME_WITHIN_1PCT = 0.99
+# Thresholds from the measurements in the module docstring: the 2026-10-07 measurement set the
+# original floors; the 2026-10-30 measurement (todo 572, 98.90% of 879,633 sessions within 1%)
+# moved the volume floor under the IBKR fractional-share rounding of todo 569 (each aggregate
+# rounds once, so the 5m sum loses up to a share per bucket against the day's single rounding).
+_MIN_VOLUME_WITHIN_1PCT = 0.985
 _MAX_VOLUME_EXCESS_OVER_1PCT = 0.001
 _MIN_CLOSE_WITHIN_1PCT = 0.995
 _MIN_OPEN_EXACT = 0.995
