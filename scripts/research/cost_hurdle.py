@@ -1,7 +1,8 @@
 """Personal-scale cost band: the pre-registered minimum-viable-IC hurdle math (plan 186-04).
 
-Promoted from scripts/analysis/personal_cost_hurdle.py (workstream 0b of
-docs/plans/2026-09-02-personal-scale-edge-determination-plan.md) and
+Promoted from scripts/analysis/personal_cost_hurdle.py (workstream 0b of the
+archived docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
+stub) and
 scripts/analysis/personal_cost_hurdle_by_tf.py, deduplicated into one module of pure
 functions plus the pre-registered constants so it survives 186-16's deletion of
 scripts/analysis/. The originals' git history keeps the IBKR live-quote validation pull,
@@ -16,8 +17,9 @@ Hurdle math (standard fundamental-law accounting, stated so it can be checked):
     net_IR       = IC * sqrt(breadth_total) - drag_annual / sigma
     IC_min       = drag_annual / (sigma * sqrt(breadth_total))
 
-The constants are pre-registered in
-docs/plans/2026-09-02-personal-scale-edge-determination-plan.md: they were committed
+The constants are pre-registered in the archived stub
+docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md (full text
+in git history at commit 1280dc0a4): they were committed
 BEFORE any candidate placement, so changing one after a placement invalidates every
 placement made with it. That is why they stay module constants rather than APR keys
 (scripts/ is outside the APR mandate's src/ and services/ scope): an APR key is meant to
