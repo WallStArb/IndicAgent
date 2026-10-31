@@ -55,10 +55,14 @@ like about 2.3 independent ones, so battery intervals must be clustered by simul
   (a momentum member fails in `daily_s1_hostile` and nothing else does). Not rerun on other
   seeds.
 
-## Owner decision (blocks the first daily run)
+## PM decision 2026-10-31 (owner-delegated; owner retains veto): option (b), hold the whole family
 
-(a) accept the statistic as certified for the reversal members and the book, holding
-`reversal_5_skip1` and both momentum members until a fresh pre-registered seed base or an S1
-decision; or (b) hold the whole family until S1's drift is decided. Also open: B3 power, and the
-daily-book statistic path above. The amendment lands as a methodology-change-ledger entry under
-E17, owner-approved.
+The owner directed 2026-10-31 that data completeness from all sources precedes canonical logic,
+and the S1 vintage predates the 186-26 rebuild now in flight. Testing reversal members on a
+drifted S1 risks counting a false verdict into the ledger, and the wait is short: the unblock
+condition is the rebuild swap (186-27) plus an S1 regenerated from the rebuilt table, followed by
+a fresh pre-registration (new seed base, declared before the run) for the battery cells on the
+fresh vintage. Holding the whole family, not just the momentum members, because the drift is a
+property of the target series every member consumes. B3 power and the daily-book statistic path
+wait on the same vintage. The amendment still lands as a methodology-change-ledger entry under
+E17, owner-approved, before the first counted daily run.

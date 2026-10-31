@@ -7,6 +7,18 @@ source: owner question 2026-10-28 (new features, factors and signals; missing at
 
 # Decide the pre-rebuild stored-column additions and clean the feature registry
 
+## Status (2026-10-31)
+
+The Opus review pass is done and the candidate list is decided: the doc
+(`docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md`, review section) carries the
+add-list for the next rebuild pass (idiosyncratic_volatility, the market-residual trio,
+residual_beta_stability, max_daily_return, max_drawdown, downside_deviation, size_proxy,
+dividend_yield, days_to_ex_dividend; composites stay research-layer-first). Window policy
+changed by the owner 2026-10-31: the window never closes; new columns ride the next pass.
+Remaining work here is implementation (blocked until stage 2 finishes, kernels are in the
+rebuild fingerprint), the rank_z registry retirement, and the measured redundancy_group fill
+after the rebuild.
+
 ## What
 
 Unreviewed Sonnet 5.5 draft; the cleanup items and candidate list are the assistant's proposals, not owner or lane decisions. Needs an Opus or Fable rigor pass before anyone relies on it. The rank_z finding rests on todo 421 and a kernel grep; the `ret_acf1_z` duplicate is an unmeasured inference.
