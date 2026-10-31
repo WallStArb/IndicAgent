@@ -38,21 +38,28 @@ gap, and the correlation with the rebuild's host load is unexplained. Under the 
 pacing waits log nothing (todo 485), which blinds diagnosis. Next occurrence: py-spy dump
 (needs sudo) BEFORE killing, and note whether the rebuild is running.
 
-## Update 2026-10-31 (evening): second wedge site, the 186-26 stage-2 factory
+## Update 2026-10-31 (evening): the factory "wedge" was a misdiagnosis; the fetcher wedge is real and now has a with-locals specimen
 
-Same unfinished-future family, different process. The stage-2 relaunch (13:38Z) loaded nothing
-for 7.5h: main thread parked in `result()` at `backfill_feature_factory.py:1473`
-(`_write_group`) waiting on a process-pool future that never resolved; only the resource
-tracker and forkserver children existed, no compute workers ever started. No cgroup OOM
-(`oom_kill 0`, though memory.peak sat exactly at the MemoryMax 14G cap 645 times). py-spy
-dump taken 21:20Z before killing (sudo, per the note above). Recovered by
-`systemctl --user stop` + the same pinned launch script at 21:25Z; stop was clean (no orphans,
-no stuck `pg_stat_activity` backends). Suspicion for the diagnosis: a forkserver/pool startup
-failure parked the main on a future no worker would ever complete, so the hang is not limited
-to the fetcher's asyncio teardown, it is "main waits on an executor future with no live
-worker". Session indicagent-93 owns the written diagnosis (both sites) once its APR commit
-lands; the fix direction above extends to a startup/worker-death watchdog for the factory's
-pool.
+The 186-26 stage-2 factory instance is WITHDRAWN. Session 9f stopped a healthy run on 2026-10-31
+about 21:22Z after reading "no worker children, zero DB writes, main parked in result()" as a
+wedge. Cadence analysis (93): the run loaded 252 units 15:43Z-21:02Z in bursts separated by
+52-91 minute compute gaps; main zero-CPU parked in `result()` at
+`backfill_feature_factory.py:1473` is what a healthy run looks like mid-gap, and pool workers
+parent to the forkserver, so children-of-main shows none even when 8 are computing. The kill
+discarded one in-flight group's compute. Lesson recorded in STATE.md: stage-2 health is
+burst-cadence of unit_loaded events plus full worker CPU, never DB-write continuity.
+
+The fetcher wedge is confirmed and reproduced live: the 21:25:32Z run (pid 1710629) acquired the
+lock and logged nothing for 25+ minutes (healthy runs log batch_computer.pool_open within 0-6 s;
+today's comparable silences 1971 s and 3617 s, the latter self-recovered). Specimen captured with
+locals 21:35Z before restart: `logs/todo538_fetched_dump_20261031_2135z.txt` (+5 min comparison
+dump at ..._2145z.txt). Findings: the event loop is ALIVE (epoll wait, timeout 144.25 s,
+sched_count 14) under an unresolved Task, and the gateway TCP socket is ESTABLISHED, so the hang
+is protocol-level or a dropped callback resolution, not transport. The 144 s timer keeps
+rescheduling, which fits 93's memory-pressure-alternative only weakly; the primary mechanism is
+an unresolved ib_async request future or a lost resolver callback. The doc's diagnosis should add
+instrumentation that names the awaited task (periodic asyncio task dump, or logging the awaited
+coroutine at lock acquire).
 
 ## Fix direction
 

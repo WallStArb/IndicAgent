@@ -133,11 +133,15 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   Ops note 2026-10-31: the first launch lost its write connection at 13:27 UTC to the database's 60 min
   idle_session_timeout (the main process idles while workers compute); relaunched with
   `PGOPTIONS="-c idle_session_timeout=0"` in the launch script (e74f016ef), which the run's own
-  connection only. Ops note 2026-10-31 (evening): that relaunch wedged at pool startup (no worker
-  processes ever started, main parked on a process-pool future in `_write_group`; no cgroup OOM;
-  py-spy 21:20Z, evidence in todo 538). Stopped cleanly and relaunched with the same script at
-  21:25Z; the resume is checkpointed and safe. Before the wedge the run had loaded only about 100 of
-  the 1,252 names into `feature_vectors_v2`.
+  connection only. Ops note 2026-10-31 (evening), corrected 21:50Z: the 13:38Z relaunch was NOT
+  wedged; session 9f misread a healthy run and stopped it (252 units loaded 15:43Z-21:02Z in bursts
+  with 52-91 min compute gaps between them; zero DB rows during a gap is normal, and pool workers
+  parent to the forkserver, so a children-of-main check shows no workers on a healthy run). Cost of
+  the mistake: one in-flight group's compute discarded, redone by the 21:25Z relaunch. Standing
+  stage-2 health picture: unit_loaded/bulk_load events arrive in bursts separated by up to about 90
+  minutes of full-CPU worker compute (HMM walk-forward dominates); memory.peak pinned at the 14G
+  MemoryMax cap with oom_kill 0 is the open watch item. The only confirmed wedge today is the
+  fetcher's (todo 538; with-locals specimen captured 21:35Z).
 
 - **D7 dated tolerance landed 2026-10-31 (todos 524 and 573, data lane):** a grid_parity mismatch on a
   recorded stamp, or on a bucket whose archive row's `served_at` predates the day's 5m bars
