@@ -42,6 +42,6 @@ audit. The 2026-10-31 code review found the third consumer this todo's text miss
 `services/bar_derivation.py`'s D7 flag rule still reads SMART-only windows with no partial set
 and no Alpaca evidence, so it can flag a derived bar the unified definition calls clean.
 Fixing it rides with the next bar-derivation touch (its read joins `ohlcv_raw` per bucket; the
-same gap_plan evidence read replaces it). Fix 3 (the listing_end rows for BZH and ACVA) has
-verified evidence in the session scratch (`/tmp/listing_end_bzh_acva.md`); writer is a
-migration on the `listing_end` table.
+same gap_plan evidence read replaces it). Fix 3 landed 2026-10-31 (migration 546, applied live: BZH 2026-10-19 and ACVA 2026-10-15,
+Form 25-NSE accessions in the evidence jsonb); their empty tails now read answered and
+freshness_1d judges them up to the recorded session.
