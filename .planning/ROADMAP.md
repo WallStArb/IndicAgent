@@ -614,7 +614,7 @@ Plans:
 - [x] 187-12-PLAN.md - ConceptRegistryService on the clean schema; todo 459 (landed 2026-10-28, migrations 533 and 535)
 - [x] 187-13-PLAN.md - summary cards and the generated ledger (landed 2026-10-28, migration 536; render timer installed, not enabled)
 - [x] 187-14-PLAN.md - contribution accounting (S8 extension) (landed 2026-10-29, migrations 538 and 539; sampled Shapley and cluster groups wait on 187-15; multi-family books wait on todo 562)
-- [ ] 187-15-PLAN.md - generated_family grammar support in the spec (Task 2, `PanelSpec.fields`, landed 2026-10-28)
+- [x] 187-15-PLAN.md - generated_family grammar support in the spec (Task 2, `PanelSpec.fields`, landed 2026-10-28)
 - [ ] 187-16-PLAN.md - YAML DAG manifest read by service_auditor and the orchestrator
 - [ ] 187-17-PLAN.md - single_writer enforced by per-writer database roles
 - [ ] 187-18-PLAN.md - research package split and renames, todo 430 step 4 (after family 2)
@@ -653,8 +653,8 @@ Plans:
 - [x] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
 - [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
 - [x] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
-- [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
-- [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth 5m backfill as a completeness campaign; paused 2026-10-10 for the Alpaca all-names load, timer restarts after and the fetcher timer was re-enabled, todo 523 record)
+- [x] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10) ; CLOSED 2026-10-31: the cited todos verified in completed/ (488, 387, 455, 484; 452 superseded by the 189-06 cutover)
+- [x] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered c ; CLOSED 2026-10-31: 189-10-TASK1/TASK2-SUMMARY.md on diskriterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth 5m backfill as a completeness campaign; paused 2026-10-10 for the Alpaca all-names load, timer restarts after and the fetcher timer was re-enabled, todo 523 record)
 - [ ] 189-11-PLAN.md - (2026-10-28: the pre-2016 5m backfill runs near continuously at concurrency 4, todo 534 P0; about 9,200 name-years left of 1,279 names) 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed (amended 2026-10-09: absorbs todo 526 - per-TF provider floors and expected-domain planning, the planner root fix; head verification across all names incl. the 163 head-gap names; the all-names 5m scope per the owner ruling, registry promotion wave sequenced after data exists; Alpaca 521 coordination: phase 2 canonical all-names load RUNNING 2026-10-10 (chunk fixes landed) while the 5m backfill is paused; todo 526 still open)
 
 ### Phase 190: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
@@ -688,7 +688,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note
+- [x] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note ; CLOSED 2026-10-31: 190-07-SUMMARY.md on disk, todo 526 in completed/
 
 ### Phase 191: Unified raw bar table (todo 533; design: docs/plans/2026-10-12-unified-raw-bar-table-design.md)
 
@@ -726,10 +726,10 @@ Plans:
 - [x] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
 - [x] 191-17-PLAN.md - close (time-gated: 24 hours and one 06:00 UTC D7 run after the swap): R6 and D7 green, repro_frozen, drop old canonical, delete one-shots, retire keys, docs (R-191-09)
 - [x] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
-- [ ] 191-19-PLAN.md - Tradier residue measurement and fallback-path proof, no rule or policy change (Tasks 1 and 2 done 2026-10-28: readiness green, 191-TRADIER-RESIDUE.md; SUMMARY with plan 20) (R-191-10)
+- [x] 191-19-PLAN.md - Tradier residue measurement and fallback-path proof, no rule or policy change (Tasks 1 and 2 done 2026-10-28: readiness green, 191-TRADIER-RESIDUE.md; SUMMARY with plan 20) (R-191-10)
 - [x] 191-20-PLAN.md - Tradier deletion behind an owner checkpoint: COPY backup, one-symbol trial, guarded deletes, dated CLAUDE.md exception, re-derive, repro_frozen (Task 1 owner approved 2026-10-28; Task 2 tooling built and reviewed; paused before the D-191-Q policy apply, runbook in todo 545) (R-191-10) Run 2026-10-28/29: policy applied, Tradier deleted and verified, 1d re-derived; D7 passes for 1,273 of 1,502 names, 229 named holds (todo 545).
-- [ ] 191-21-PLAN.md - Tradier code deletion, library part 1 (sources, vendor_kind, derivation, corporate_actions) and digest baseline (R-191-10)
-- [ ] 191-22-PLAN.md - Tradier code deletion, library part 2 (integrity_checks, source_admission, vendor_basis, fixtures; daily_rule untouched) (R-191-10)
-- [ ] 191-23-PLAN.md - Tradier code deletion, services (R-191-10)
+- [x] 191-21-PLAN.md - Tradier code deletion, library part 1 (sources, vendor_kind, derivation, corporate_ ; CLOSED 2026-10-31: 191-21-SUMMARY.md on diskactions) and digest baseline (R-191-10)
+- [x] 191-22-PLAN.md - Tradier code deletion, library part 2 (integrity_checks, source_admission, vendor_b ; CLOSED 2026-10-31: 191-22-SUMMARY.md on diskasis, fixtures; daily_rule untouched) (R-191-10)
+- [x] 191-23-PLAN.md - Tradier code deletion, services (R-191-10) ; CLOSED 2026-10-31: 191-23-SUMMARY.md on disk
 - [ ] 191-24-PLAN.md - Tradier code deletion, fetcher-imported scripts and integration tests (R-191-10)
 - [ ] 191-25-PLAN.md - Tradier ops and research scripts, guards and key retirement, sweep, todo 533 closes (R-191-10)
