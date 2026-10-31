@@ -1,8 +1,9 @@
-# Pre-rebuild feature additions: a draft pass
+# Pre-rebuild feature additions
 
-**Status:** Draft for the build (186) and research (184, 187) lane owners, 2026-10-28. Nothing here is decided or built. Unreviewed Sonnet 5.5 draft; the cleanup items and candidate list are the assistant's proposals, not owner or lane decisions. Needs an Opus or Fable rigor pass before anyone relies on it.
-**Mapped by:** Claude (Sonnet 5.5), interactive session, from the owner's question "do we need new features, factors or signals". Read-only: no kernel was read or run; names come from the stored column list and the planning docs.
-**Why now:** `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added or changed after the rebuild starts forces a follow-up rebuild. The window closes when 191-21, 22 and 23 land and 186-26 starts.
+**Status:** Decided at PM level 2026-10-31 (review pass below); owner retains veto. Supersedes the draft-only framing: the owner reopened the window 2026-10-31 ("the window never closes; solid ideas land prior to a corpus rerun"), so candidate columns target the next rebuild pass after 186-26 stage 2, not a closed window.
+**Mapped by:** Claude (Sonnet 5.5), interactive session, 2026-10-28, from the owner's question "do we need new features, factors or signals". Read-only: no kernel was read or run; names come from the stored column list and the planning docs.
+**Reviewed by:** Claude (Opus 5.5), session indicagent-9f, 2026-10-31. Verdicts and the add-list are in the review section; the draft tables below are kept verbatim as the mapping record.
+**Why now:** `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added after the rebuild starts rides the next rebuild pass. Per the owner (2026-10-31) that is acceptable and expected for solid candidates; stage 2 running since 2026-10-31 means implementation lands in the next pass window, while the review and registry preparation happen now.
 
 ## Method
 
@@ -68,8 +69,59 @@ is inconclusive, so adding more of them buys nothing until that is settled.
 - **Correct as they are:** the five `canary_*` columns are controls, and `new_high_flag` and
   `new_low_flag` are deprecated tombstones.
 
-## Open decisions for the lane owners
+## Review pass (Opus, 2026-10-31)
 
-1. Does the first feature family name any of the candidate columns above? If yes, they ride the rebuild.
-2. Is a fundamentals source worth sourcing before the first feature family, or after it?
-3. Fill `redundancy_group` after the rebuild, from measured correlations?
+Kept: the stored-column rule (single-name, own bars plus fixed macro inputs, named consumer or
+queued family) and the composite-through-combiner stance. Both are correct discipline and the
+owner's reopened window does not weaken them; it changes only the cost line, since a follow-up
+rebuild pass is now an accepted vehicle rather than a forbidden one.
+
+Corrections to the draft's state column: the spread kernels (todo 553) and the Amihud fix
+(todos 555/560/563) landed before 186-26 started (final at 107f9a395), so the two "land before
+186-26" rows are done. The 186-26 stage 1 rebuild ran 2026-10-29 and stage 2 (5m/15m/1h) is
+running now; `hma_slope_z` and the constant columns are todo 564's batch, not this doc's.
+
+### Add-list for the next rebuild pass (decided, registry rows enter as `candidate`)
+
+Each is a single-name function of own bars (or own bars plus a fixed macro series already
+stored by the `equity_beta_z` pattern), with a cross-sectional prior strong enough to name a
+consumer in the first feature-family batch (phase 184). Implementation order follows the
+kernel-sibling rule: where a stored kernel already computes the ingredients, the new column is
+its sibling, not a new recipe class.
+
+| Column | Consumer rationale | Notes |
+|---|---|---|
+| `idiosyncratic_volatility` (residual std of daily returns vs the fixed market series, rolling) | Ang et al. idio-vol premium; first feature family names it | Sibling of `equity_beta_z`: same regression, residual std instead of slope |
+| `market_residual_return` + `market_residual_z` + `market_residual_lag1_acf` | Stat arb spread family (ledger section 2, todo 559 prereg) | Market-only residual stored by design; sector residual stays in S1 (point-in-time classification) |
+| `residual_beta_stability` (rolling change in market beta) | Factor-drift risk measured, not assumed; guards the residual families | Cheap sibling of the beta kernel |
+| `max_daily_return` (MAX effect, declared window) | Lottery-demand discount, Bali et al.; strong cross-sectional prior | One window only; more windows is overfitting before evidence |
+| `max_drawdown` (rolling window) | Drawdown is a distinct risk state from volatility; regime segmentation input | Declared memory like every other rolling column |
+| `downside_deviation` (rolling, target = 0) | Downside semivol asymmetry; complements `vol_asymmetry_z` | NaN below warmup, never zero |
+| `size_proxy` (rolling mean log dollar volume) | Size factor for the residual model without shares outstanding | Distinct from `dollar_vol_z` (a z-score); store the level's log, not a rank |
+| `dividend_yield` + `days_to_ex_dividend` | Corporate-action event family; data exists in `dividend_events_reconciled` | Outside `dividend_event_coverage` the value is unknown: NaN, never zero (the dividends rule) |
+
+### Research-layer first, no stored column (confirmed)
+
+OU half-life and equilibrium sigma of the residual, residual reversal interactions (volume
+shock, illiquidity, regime): composites tested through the research kernels and the S7
+combiner, promoted to storage only after a family verdict earns it (the 550-552 pattern).
+Rolling PCA/cointegration: layer rules already exclude them (and the pairs verdict is DEAD).
+Fundamentals, short interest, borrow: blocked on a data source (todo 438 covers borrow
+forward-only); sourcing fundamentals is a separate admission decision (the Databento basis
+study pattern applies), not a rebuild matter.
+
+### Cleanup confirmed
+
+Retire the three never-computed `rank_z` registry rows with the next pass. Fill
+`redundancy_group` from measured correlations on the rebuilt table (after stage 2 completes),
+not from construction intuition. Measure `ret_acf1_z` vs `ret_autocorr_1` correlation before
+any dedup judgment; the rule is never to drop data that could carry signal.
+
+### Open items (owner, non-blocking)
+
+1. Fundamentals source admission: defer until the first feature family runs; a source decision
+   needs the same measured-basis treatment as the Databento study.
+2. The first feature family's prereg names which add-list members it consumes; that naming is
+   the consumer test, and any add-list column no family names stays `candidate` (still built in
+   the pass, per the owner's standing directive, but never `active` until consumed).
+
