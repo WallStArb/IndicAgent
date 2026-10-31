@@ -124,6 +124,16 @@ clientId (<= 50 per the gotchas) and issue a cheap request; (2) read the ib-gate
 memory/CPU from docker. A prompt answer on the probe while the fetcher stays stuck convicts
 the fetcher-side await (dropped callback); silence on both convicts the gateway session.
 
+Ran for the 21:25:32Z occurrence (todo note ebd14b6b0): at 22:07Z the probe (clientId 44, no
+FetcherLock) authenticated and answered normally while the fetcher's session sat silent, so
+the gateway serves new clients and the fetcher-side mechanism is convicted, fitting the
+~145s re-arming timer being our own. Caveat that keeps the probe in the next-occurrence
+procedure: a new-client auth proves the gateway accepts connections, not that it still holds
+the fetcher's clientId-40 session state, so a per-session gateway-side stall narrows but does
+not fully close; the probe's cheap request on a fresh session closes it. (Operational note:
+the probe script needs PYTHONPATH=/home/bg/dev/indicagent when run by hand; a bare invocation
+fails the src import with a misleading exit 0.)
+
 ### Instrumentation to land (the fix direction, todo 538)
 
 Proposed APR values for the owner surface (initial estimates, not ML targets):

@@ -1398,24 +1398,29 @@ def load_dated_exceptions(
     an excused set that quietly diverges from what the record documents is worthless.
     """
     released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
-    wave_names = {wave: set(spec.get("names", ())) for wave, spec in record["waves"].items()}
+    wave_names = {wave: spec.get("names") for wave, spec in record["waves"].items()}
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     missing_from_names: set[str] = set()
-    for symbol, per_tf in record["exceptions"].items():
+    for name, per_tf in record["exceptions"].items():
         for tf, stamps in per_tf.items():
             kept = {}
             for s in stamps:
                 wave = str(s["wave"])
                 if wave not in released:
                     continue
-                if symbol not in wave_names[wave]:
-                    missing_from_names |= {symbol}
+                if wave_names[wave] is None:
+                    # a released wave with no names list is a record defect, not symbol drift
+                    raise ValueError(
+                        f"released wave {wave} of the dated-exceptions record has no names list"
+                    )
+                if name not in wave_names[wave]:
+                    missing_from_names.add(name)
                     continue
                 kept[datetime.fromisoformat(s["stamp"])] = (bool(s["price"]), bool(s["volume"]))
             if kept:
-                out[symbol][tf] = kept
+                out[name][tf] = kept
     if missing_from_names:
-        raise DatedExceptionsDrift(sorted(missing_from_names))
+        raise DatedExceptionsDrift(missing_from_names)
     return out
 
 
@@ -2606,7 +2611,7 @@ class BarReconciliationAudit(BaseBatch):
                 except DatedExceptionsDrift as error:
                     logger.error("bar_integrity.dated_exceptions_drift", symbols=error.symbols)
                     recorded = {}
-                except (ValueError, KeyError, TypeError) as error:
+                except (ValueError, KeyError, TypeError, AttributeError) as error:
                     logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
                     recorded = {}
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]

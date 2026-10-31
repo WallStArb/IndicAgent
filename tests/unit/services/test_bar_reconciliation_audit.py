@@ -1284,7 +1284,7 @@ def test_drift_collects_every_drifted_symbol_and_checks_the_stamps_own_wave():
                 },
             }
         )
-    assert caught.value.symbols == ["AAA", "CCC"]
+    assert set(caught.value.symbols) == {"AAA", "CCC"}
 
 
 def test_a_released_wave_without_a_names_key_does_not_break_unrelated_waves():
@@ -1333,6 +1333,11 @@ def test_a_drifted_record_fails_closed_with_its_own_error_event():
     run = _intraday(_IntradayConn({"AAA": name}), integ=integ)
     verdict = _verdict(run, "AAA|15m", "grid_parity")
     assert verdict[5] is False and run.parity_excepted.get("15m", 0) == 0
+    # the drift path logs its own error event, not the malformed-record warning: pin the
+    # distinction by asserting the loader raises the dedicated type for this record
+    with pytest.raises(audit.DatedExceptionsDrift) as caught:
+        audit.load_dated_exceptions(json.loads(record))
+    assert set(caught.value.symbols) == {"AAA"}
 
 
 def test_load_dated_exceptions_releases_only_released_waves():
