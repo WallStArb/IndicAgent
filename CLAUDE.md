@@ -12,6 +12,7 @@ Version: 5.63.8
 **Naming:** Concept name (`snake_case`) derives all layer names: `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/`, `src/observability/` = Ring 0 portable infrastructure (no domain vocab, no imports from `services/`); `src/intelligence/` = Ring 1 domain; `services/` = Ring 2 daemons. Suffix taxonomy, `Base*` prefix, `Agent` retired, the eight surfaces: `docs/foundation/naming-system.md`.
 **Glossary:** Every domain term has exactly one definition; check before naming anything new; glossary wins over code on collision (`docs/foundation/glossary.md`). Retired terms (`AlphaEngine`, `ensemble alpha`, `alpha score`, `sleeve`, ...; unified design section 15) are banned in new code and docs; the pre-commit glossary check fails on new hits.
 **Docs:** `docs/foundation/` is canonical; `docs/` root is index only. Rare pitfalls and operational procedures (backfill, gateway, worker kill, git/shared-checkout, planning quirks): `docs/reference/gotchas.md`. Planning flow (IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/): `.planning/PLANNING-SYSTEM.md`; progress: `.planning/STATE.md`; todo priorities: `.planning/todos/PRIORITIES.md` (every pending todo needs a row, every link must resolve, CI-enforced).
+**Doc disposition (owner 2026-10-31):** root `docs/plans/` holds only operative and canonical documents. An old plan keeps only the good info, ideas and context that might add value in future: write a short archive stub in `docs/plans/archive/` (title, date, the ideas/hypotheses worth keeping, outcome pointer, git-history pointer) and delete the full text; full text survives in archive only where the detail itself is the value. A stale-but-live doc is condensed to status + decision + the numbers a disclosure requires (confirm the linked doc holds the detail before cutting; frozen sections stay verbatim). Pure garbage (deleted-system era, no live reference, no rationale value) deletes outright with no stub. Protected: `methodology-change-ledger.md` (append-only), `OOS-EVAL-PROTOCOL.md`, `SHADOW-REVIEW.md`, frozen preregs, canonical designs. Repair or remove every reference to a deleted path (CI-enforced).
 **Compressed-hypertable column type changes:** a migration doing decompress→`ALTER COLUMN TYPE`→recompress MUST end with a bare `VACUUM <table>;` (migration 312's omission became a 768 GB disk-full incident). CI-enforced. Template: `docs/foundation/timescaledb-compressed-column-migration.md`.
 
 ## Done-Coding SOP
@@ -20,10 +21,12 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 Before committing, `git fetch` and read `git status -sb`; if main is ahead and behind, `git cherry -v origin/main HEAD` marks commits already upstream (`-`). Work in a detached scratch worktree off `origin/main`, `git push origin HEAD:main`; it has no `.venv`, so run `/home/bg/dev/indicagent/.venv/bin/pytest -n 0 -p no:cacheprovider <test>`.
 
 ```
-1. Gate by diff class (decide up front):
+1. Gate by diff class (decide up front). /simplify and /review run on EVERY code
+   change, small or substantive (owner 2026-10-31: all code gets both gates; aim
+   for elegant solutions — right altitude, minimal mechanism):
    - docs/planning only: the test that consumes the files, then commit
    - small code change (single area, no schema or src/intelligence/research|statistics):
-     targeted tests for the touched area, then commit
+     /simplify -> /review -> targeted tests for the touched area, then commit
    - substantive code: /simplify -> /review -> pytest tests/unit/ -n auto, then commit
      (+ scripts/research/determinism/repro_frozen.py bit-identical for
      src/intelligence/research/ or statistics/ edits)
