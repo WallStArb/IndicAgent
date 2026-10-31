@@ -44,7 +44,8 @@ bullets with current facts.
 
 ## Current position (2026-10-26)
 
-**Critical path (reordered 2026-10-27):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
+**Critical path (reordered 2026-10-27; data-fill and rerun gates operative in
+`docs/plans/2026-10-31-data-fill-and-corpus-rerun-plan.md`):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
 the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23 (decided
 2026-10-27: 23 depends on 22, whose integrity_checks changes bar_reconciliation_audit consumes;
 21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild (todos 553, 390/555 and 560 land first, before 191-23's summary: 553 and 555 are on origin/main, 560 is on origin/main with its checks open; the 186-26 launch has no owner), with 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
@@ -125,13 +126,22 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   closed todos 569 and 570 (the 1d ledger bounds refresh in the raw-write transaction since 9fbf66651).
   Ops note 2026-10-31: the workers hold idle-in-transaction reads for their whole compute, which blocked the
   `policy_compression` run and stalled the database (todo 443 incident note). The compression jobs 1078
-  (market_data_ohlcv) and 1076 (ohlcv_raw) are paused for the rebuild's duration; re-enable with
-  Ops note 2026-10-31: the workers hold idle-in-transaction reads for their whole compute, which blocked the
-  `policy_compression` run and stalled the database (todo 443 incident note). The compression jobs 1078
   (market_data_ohlcv), 1076 (ohlcv_raw) and 1065 (feature_vectors) are paused for the rebuild's duration;
   re-enable with `SELECT alter_job(1078, scheduled => true); SELECT alter_job(1076, scheduled => true);
   SELECT alter_job(1065, scheduled => true);` when the rebuild completes. Also 2026-10-31: the fetcher planner and the audit now read one answered-evidence definition
   (Alpaca SIP 5Min windows + applied loads, todo 565/567 fix); the recount runs with the nightly audit.
+  Ops note 2026-10-31: the first launch lost its write connection at 13:27 UTC to the database's 60 min
+  idle_session_timeout (the main process idles while workers compute); relaunched with
+  `PGOPTIONS="-c idle_session_timeout=0"` in the launch script (e74f016ef), which the run's own
+  connection only.
+
+- **D7 dated tolerance landed 2026-10-31 (todos 524 and 573, data lane):** a grid_parity mismatch on a
+  recorded stamp, or on a bucket whose archive row's `served_at` predates the day's 5m bars
+  (`superseded_archive_buckets`), is a dated exception, never gating; prices stay exact elsewhere. The
+  record `config/bars/grid_parity_dated_exceptions.json` carries all 644 classified stamps with their
+  price/volume split; waves 1 and 2 (32 names) released, wave 3 (ETHA, CTVA) held until their
+  wrong-basis archive rows are re-fetched. The audit reports the excepted count per timeframe; the
+  released names build as the stage 2b unit after stage 2 drains.
 
 - **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
   (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
