@@ -97,3 +97,22 @@ Audit 2026-10-31 07:15Z: session_coverage fails 157 of 1,502. Recommended order:
 decision on the 27 ineligibles, then promote and re-derive (kills 61% of sessions, pure data
 lane); (2) owner arbitration on the 22 IBKR-row names and the APTV-style refusals; (3) the
 `unserved_primary` honesty fix outside a live rebuild.
+
+## unserved_primary landed (research lane, 2026-10-31, commit a852f7008)
+
+Class B honesty fix: `derive_daily_v2` lists the branch's dates in `DailyV2Result.unserved_primary`
+and the daily stage persists them in `ohlcv_load.detail` (`unserved_primary`, ISO dates, beside
+refused_head/stale_only), with the CSV report column and batch summary count. First write lands with
+the next 05:20/05:45 UTC bar_derivation run. Two scope notes:
+
+- The audit-side informational row (`unserved_primary_1d` beside `refused_head_1d` in the 1d
+  verdict report) is not landed: the audit lane has in-flight WIP in `integrity_checks.py` and
+  `bar_reconciliation_audit.py` (grid-parity D7 exceptions), so the read-side hunks were reverted
+  out of the shared tree to keep the lanes separable. The hunk is small: an
+  `INFO_UNSERVED_PRIMARY` constant, a `NameReport1d.unserved_primary` count from
+  `derived.unserved_primary`, and one facts row in `_verdict_report_1d`.
+- The list covers exactly the unserved sessions the raw answers prove (the rule's axis is dates
+  some vendor answered); a session no vendor answered is outside the rule and stays outside the
+  inventory. The docstring says so.
+
+The class-B remediation itself is unchanged: owner arbitration on the 22 names' IBKR symbol rows.
