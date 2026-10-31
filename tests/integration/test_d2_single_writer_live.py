@@ -54,11 +54,18 @@ _TOLERANCE_KEY = "threshold.bar_integrity.fallback_basis_tolerance_bp"
 # Stored (ibkr, named) bars on dates whose resolved 1d policy row (the symbol's row beats the
 # default, daily_rule.resolve_policy) does not name IBKR primary. Under D-191-Q an IBKR primary
 # is a dated symbol row or the pre-2016 default; named never serves where the policy names
-# Alpaca (or named Tradier, before its deletion).
+# Alpaca (or named Tradier, before its deletion). The scan is scoped like the audit's scored
+# universe: compute_eligible_1d names only (todo 566 class A records the ineligible ones and
+# their pending promotion decision) and no held name (the write contract skips them).
 _IBKR_NAMED_OUTSIDE_EXCEPTION_SQL = """
 SELECT m.symbol, (m."timestamp" AT TIME ZONE 'UTC')::date AS bar_date
 FROM market_data_ohlcv m
 WHERE m.timeframe = '1d' AND m.vendor = 'ibkr' AND m.kind = 'named'
+  AND EXISTS (
+      SELECT 1 FROM instruments i
+      WHERE i.symbol = m.symbol AND i.is_active AND i.compute_eligible_1d)
+  AND NOT EXISTS (
+      SELECT 1 FROM bar_hold_current b WHERE b.symbol = m.symbol AND b.timeframe = '1d')
   AND COALESCE(
       (SELECT p.primary_source FROM bar_source_policy_current p
        WHERE p.timeframe = '1d' AND p.symbol = m.symbol
