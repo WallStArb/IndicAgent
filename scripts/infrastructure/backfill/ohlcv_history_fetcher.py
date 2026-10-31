@@ -1211,8 +1211,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 raise RuntimeError(f"{entry.connect_failure_label} unreachable at startup")
             leaves[name] = leaf
         self._leaves = leaves
-        self._notify()
-        self._progress += 1  # connection established: another phase done
+        self._mark_progress()  # connection established: another phase done
         run_started_at = datetime.now(UTC)
         primary = leaves.get(default_provider()) or next(iter(leaves.values()), None)
         ctx: Any = None
@@ -1278,6 +1277,12 @@ class OHLCVHistoryFetcher(BaseBatch):
             "failed" if nothing_succeeded else "partial" if failed else "success"
         )
 
+    def _mark_progress(self) -> None:
+        """One step of forward motion for the todo 538 stall watchdog: the item's outcome is
+        recorded (or a run phase completed), so its countdown restarts."""
+        self._notify()
+        self._progress += 1
+
     async def _disconnect_leaves(self) -> None:
         """Disconnect every provider leaf; a dead socket may refuse a clean disconnect."""
         for leaf in self._leaves.values():
@@ -1334,8 +1339,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 outcome = await self._fetch_one(
                     plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
                 )
-                self._notify()
-                self._progress += 1
+                self._mark_progress()
                 if outcome.gateway_lost:
                     # The gateway, not the item, failed: nothing is charged to the series (CD-05).
                     state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
@@ -1512,8 +1516,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             outcome = await self._fetch_one(
                 plan, ctx, row, full_scan=True, refetch=True, waived=waived
             )
-            self._notify()
-            self._progress += 1
+            self._mark_progress()
             if outcome.gateway_lost:
                 loop.gateway_lost = f"{provider}/{symbol}/{timeframe} (escalation)"
                 return 1
