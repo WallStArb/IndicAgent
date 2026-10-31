@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-10-02
 **Status:** Ready for planning
-**Source:** PRD Express Path (docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md), itself produced via superpowers:brainstorming (architectural path) with the user over the same session, approved section by section.
+**Source:** PRD Express Path (docs/plans/archive/2026-10-02-ibkr-history-fetch-consolidation-design.md), itself produced via superpowers:brainstorming (architectural path) with the user over the same session, approved section by section.
 
 <domain>
 ## Phase Boundary
@@ -187,7 +187,7 @@ pg_advisory_unlock
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design
-- `docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md` - the full approved
+- `docs/plans/archive/2026-10-02-ibkr-history-fetch-consolidation-design.md` - the full approved
   design spec this context is derived from. Read in full before planning.
 
 ### Existing patterns to reuse, not reinvent

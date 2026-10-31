@@ -1,7 +1,7 @@
 # Measurement: residual breadth of the compute_eligible universe
 
 **Author:** Claude (Opus 5.5), 2026-09-25. Step 0 of
-`docs/plans/2026-09-25-alpha-research-architecture.md` (section 5).
+`docs/plans/archive/2026-09-25-alpha-research-architecture.md` (section 5).
 **Script:** `scripts/analysis/residual_breadth_diagnostic.py` (read-only; window capped at
 `alpha.validation.oos_start`). Raw output: `logs/residual_breadth/*.json` (not in git).
 

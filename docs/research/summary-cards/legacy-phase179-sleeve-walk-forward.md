@@ -6,43 +6,43 @@ idea: "The production ensemble signal, refitted yearly on point-in-time data, ca
 verdict: FAIL
 verdict_date: 2026-09-25
 recipe:
-  spec: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md
+  spec: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md
   script: scripts/analysis/sleeve_walk_forward/run.py
   recipe_commit: 5fa10430a9a411189e04db57085edf5faf4be2b1
 results:
   - name: arm_ic_proportional
     value: "observed Sharpe 0.198, null median -0.018, excess +0.216 (ledger +0.22), CI [-0.326, +0.677], adjusted p 0.360, sub-periods 2 of 3 positive (-2.5, +1.6, +5.2 bp per day)"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
   - name: arm_vol_normalized
     value: "observed Sharpe -0.177, null median -0.031, excess -0.146 (ledger -0.15), CI [-0.750, +0.370], adjusted p 0.881, 1 of 3 sub-periods positive"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
   - name: arm_mean_variance
     value: "observed Sharpe -0.126, null median -0.021, excess -0.106 (ledger -0.11), CI [-0.645, +0.386], adjusted p 0.855, 1 of 3 sub-periods positive"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
   - name: null_design
     value: "2,885 admissible shifts, shift memory 758, Westfall-Young across 3 arms, N_tested 18"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
   - name: power_v3_planted_fast_edge
     value: "69% (CI 63-75%) at realized excess 0.71; 83% (CI 78-88%) at realized excess 0.85"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
   - name: power_v3b_slow_return_built_edge
     value: "0% (0/200) at both planted sizes; calibrated arms' mean excess Sharpe -0.38 and -0.52"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
   - name: v2_false_positive_rate
     value: "6.0% (12/200; CI 2.7-9.3%), inside 5% +/- 3.1%"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
   - name: fidelity
     value: "OK (V1, V4, V5); V4 31,800 keys equal; V5 placebo detected in 362 of 362 containing-lookahead cells, noise 16 of 4,197"
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#125-rerun-record-2026-09-25-sleeve_verdict--fail-fidelity--ok
   - name: in_sample_diagnostic_contrast
     value: "the 2026-09-22 in-sample Sharpe about 1.19 portfolio diagnostic does not survive point-in-time weights"
     source: docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
   - name: freeze_commit
     value: da0548a96a4d2594b813a94d7d2b64342fcda5f9
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md
   - name: frozen_run_code_commit
     value: a64af3d1a96b3f7ed16a0be95f507fcc30e592be
-    source: docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
+    source: docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md#122-freeze-record
 known_defects:
   - "The frozen run (2026-09-25) ended FIDELITY BROKEN with no token: the section 6 rule (alpha NaN on days whose equity stratum has no weights) interacted with section 7's 95% calibration-coverage rule, so only 2 of 13 calibration segments admitted any symbol and the observed book held a position on 447 of 3,265 days; a shifted panel moved the NaN pattern so that no segment calibrated, giving a zero-variance series. No observed or null Sharpe was printed or read in between."
   - "The rerun under methodology-change-ledger E14 (owner decision, todo 425) changed the section 7 calibration rule (IC computed when at least coverage_fraction of the trailing window's finite-alpha days also have a finite forward return), was pinned before the rerun, and superseded the frozen run's 12.2 results. The numbers above are the E14 rerun's; the recipe_commit is the main commit the rerun executed at."
@@ -58,7 +58,7 @@ status_now: reopened
 reopened_as: "construction-verdict-ledger.md section 2: corpus features through the ensemble, admitted as feature families on prior with walk-forward ridge weights and no per-feature IC gate"
 reproducible: false
 sources:
-  - docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md
+  - docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md
   - docs/plans/methodology-change-ledger.md
   - scripts/analysis/sleeve_walk_forward/refit.py
   - scripts/analysis/sleeve_walk_forward/evaluate.py
@@ -70,7 +70,7 @@ related_cards: [legacy-ensemble-champion, legacy-tsmom-sleeve]
 # Phase 179 cross-asset sleeve walk-forward with production ensemble weights (three calibrated arms)
 
 Author: Claude Sonnet 5.5, 2026-09-29
-Informed by: `docs/research/construction-verdict-ledger.md` section 4 row Phase 179 sleeve walk-forward; `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`; `docs/plans/methodology-change-ledger.md` E14
+Informed by: `docs/research/construction-verdict-ledger.md` section 4 row Phase 179 sleeve walk-forward; `docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md`; `docs/plans/methodology-change-ledger.md` E14
 
 ## What was tried
 

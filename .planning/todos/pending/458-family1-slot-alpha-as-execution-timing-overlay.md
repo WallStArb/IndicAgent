@@ -10,7 +10,7 @@ source: family 1 iteration 3 (2026-09-29): standalone book does not clear measur
 ## What
 
 Family 1's same-slot alpha (opening and closing half hours strongest) does not clear measured
-cost as a standalone book (`docs/plans/2026-09-29-family1-iteration-3-open-close-slots.md`,
+cost as a standalone book (`docs/plans/archive/2026-09-29-family1-iteration-3-open-close-slots.md`,
 questions 3 and 4). Hypothesis, untested: use the alpha to choose when to enter or exit trades
 a slower strategy already makes (family 9, daily, multi-day), which pays no incremental spread
 because the trades happen anyway. The gain would be edge per unit traded that the slower book

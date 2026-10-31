@@ -1,7 +1,7 @@
 # Venue validation study (D3)
 
 Author: Claude Sonnet 5.5, executing phase 185 plan 13, 2026-09-29
-Informed by: config/bars/venue_study_preregistration.json (committed before any fetch), docs/plans/2026-09-26-daily-data-foundation.md (D3, D-17, D-18), src/intelligence/bars/venue_study.py
+Informed by: config/bars/venue_study_preregistration.json (committed before any fetch), docs/plans/archive/2026-09-26-daily-data-foundation.md (D3, D-17, D-18), src/intelligence/bars/venue_study.py
 
 ## Method
 

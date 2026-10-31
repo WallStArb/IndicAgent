@@ -14,12 +14,12 @@ zero references in the package. Both registered families (`intraday_periodicity.
 `overnight_intraday.py`) build their signals from raw 15m bar returns. So the feature corpus
 that v3.0 was built around has no path into a book test.
 
-This contradicts the adopted architecture (`docs/plans/2026-09-25-alpha-research-architecture.md`,
+This contradicts the adopted architecture (`docs/plans/archive/2026-09-25-alpha-research-architecture.md`,
 E15): section 3.2 says the Panel carries "selected `feature_vectors` columns", and section 4 says
 families from the feature corpus are admitted the same way as any other family. The phase 183
 build shipped prices only because its first two families are return anomalies.
 
-The phase 184 draft (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`, status proposed,
+The phase 184 draft (`docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md`, status proposed,
 never adopted) then went further: D5 and section 6 say the research layer does not read
 `feature_vectors` and recomputes features from kernels instead. The owner did not approve that.
 

@@ -83,7 +83,7 @@ record.
   there blocks the empty record and is logged, and no venue bar is stored until the
   listing-venue validation study passes (`infra.ibkr.venue_fallback.store_bars` = false).
 - The full fix is part of the daily data foundation phase
-  (`docs/plans/2026-09-26-daily-data-foundation.md`, D3 and D4).
+  (`docs/plans/archive/2026-09-26-daily-data-foundation.md`, D3 and D4).
 
 ## Status
 

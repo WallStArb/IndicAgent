@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-10-09
-source: Alpaca integration pilot, Workstream B (docs/plans/2026-10-09-alpaca-integration-pilot.md)
+source: Alpaca integration pilot, Workstream B (docs/plans/archive/2026-10-09-alpaca-integration-pilot.md)
 ---
 
 # Alpaca execution mechanics shadow on paper (Workstream B)

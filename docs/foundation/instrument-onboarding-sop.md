@@ -1,7 +1,7 @@
 # Instrument onboarding SOP
 
 Author: Claude Opus 5.5, 2026-09-26, at Brandon's request. Informed by the 2026-09-26 expansion
-(273 -> 932 names), `docs/plans/2026-09-26-daily-data-foundation.md` (phase 185) and
+(273 -> 932 names), `docs/plans/archive/2026-09-26-daily-data-foundation.md` (phase 185) and
 `docs/plans/2026-09-26-unified-research-to-production-design.md` (E18).
 
 How a security enters the universe, from a source file to a name research can read. Scope is the

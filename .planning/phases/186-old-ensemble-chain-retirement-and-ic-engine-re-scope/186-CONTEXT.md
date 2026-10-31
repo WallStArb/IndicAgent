@@ -120,8 +120,8 @@ lane's code.
 
 ### Spec
 - `docs/plans/2026-09-26-unified-research-to-production-design.md` - sections 3.2-3.3 (manifest, idempotency), 10.2 (summary cards), 11 (ic_engine), 12.1 (invariants, `temporal_integrity` audit details), 14.1-14.7 (deletions, drops, re-scope, todo dispositions, hygiene, refactor map with its four refactor rules, UD-25), 16 (build order)
-- `docs/plans/2026-09-25-multi-timeframe-horizon-design.md` - D1 horizon rule (intraday horizons inside one session)
-- `docs/plans/2026-09-26-daily-data-foundation.md` and `.planning/phases/185-daily-data-foundation/185-CONTEXT.md` - D2b derived grid (rebuild precondition), D-14 bar flags moving off `forward_return_writer`
+- `docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` - D1 horizon rule (intraday horizons inside one session)
+- `docs/plans/archive/2026-09-26-daily-data-foundation.md` and `.planning/phases/185-daily-data-foundation/185-CONTEXT.md` - D2b derived grid (rebuild precondition), D-14 bar flags moving off `forward_return_writer`
 
 ### Todos
 - `.planning/todos/pending/448-research-lane-dependencies-for-phases-186-187.md` - items 1-3 owned here

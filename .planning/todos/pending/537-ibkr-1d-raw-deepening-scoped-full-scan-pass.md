@@ -8,7 +8,7 @@ owner: data
 
 # IBKR 1d raw deepening: one scoped full-scan pass of the fetcher
 
-Runbook: `docs/plans/2026-10-16-ibkr-1d-raw-deepening.md` (measured gap, gates, invocation,
+Runbook: `docs/plans/archive/2026-10-16-ibkr-1d-raw-deepening.md` (measured gap, gates, invocation,
 completion). Summary: 1,135 of 1,529 names have unadjusted ibkr 1d raw starting later than their
 own ibkr head floor (median floor 2000-01-03); about 3.66M missing sessions. The planner already
 handles this via `--full-scan`; the weekly gap-fill cadence alone would take months. One scoped

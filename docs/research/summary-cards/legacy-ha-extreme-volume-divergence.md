@@ -6,7 +6,7 @@ idea: "A fresh price extreme on unusually light volume reverses over the next 15
 verdict: FAIL
 verdict_date: 2026-09-24
 recipe:
-  spec: docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md
+  spec: docs/plans/archive/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md
   script: scripts/analysis/extreme_volume_divergence_track1.py
   recipe_commit: f461bdc549c0cdc901046aa46ae68648ec461d51
 results:
@@ -47,7 +47,7 @@ status_now: closed
 reopened_as: null
 reproducible: false
 sources:
-  - docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md
+  - docs/plans/archive/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md
   - .planning/todos/completed/372-panel-sync-shift-null-not-actually-panel-synchronous-plus-volume-z-diurnal-bias.md
   - docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
 related_cards: [legacy-hb-confirmed-reversal]
@@ -56,7 +56,7 @@ related_cards: [legacy-hb-confirmed-reversal]
 # H-A extreme-volume divergence (15m, within-symbol Track 1)
 
 Author: Claude Sonnet 5.5, 2026-09-29
-Informed by: `docs/research/construction-verdict-ledger.md` section 4 row H-A `extreme_volume_divergence`; `docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`
+Informed by: `docs/research/construction-verdict-ledger.md` section 4 row H-A `extreme_volume_divergence`; `docs/plans/archive/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`
 
 ## What was tried
 

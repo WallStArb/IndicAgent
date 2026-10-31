@@ -6,37 +6,37 @@ idea: "Sign-and-volatility 12-month time-series momentum on the 13-symbol cross-
 verdict: FAIL
 verdict_date: 2026-09-24
 recipe:
-  spec: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md
+  spec: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md
   script: scripts/analysis/sleeve_walk_forward/run.py
   recipe_commit: 0c33a2596e2906dab905f4d6ddc68f1e32827091
 results:
   - name: observed_sharpe_gross
     value: "0.47 (2013-01-01 to 2025-12-23)"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: null_median_sharpe
     value: "0.27 (K = 3,389 shifts; 5th to 95th percentile -0.08 to 0.67)"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: excess_sharpe
     value: "+0.19 (0.194), stationary-bootstrap CI [-0.32, +0.73]"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: permutation_p
     value: "0.221 (ledger: 0.22)"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: subperiod_mean_daily_excess_bp
     value: "+0.54, +0.76, +0.45 (3 of 3 positive: 2013-2016, 2017-2020, 2021-2025)"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: diagnostics
     value: "Sortino 0.65, max drawdown 16.4% of log wealth, hit rate 53.5%"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
   - name: n_tested
     value: 18
     source: docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
   - name: power_gates
     value: "V2 false-positive rate 2.0%; V3 power 54% (CI 47-61%) at planted excess 0.50 and 74.5% (CI 68-81%) at 0.72"
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#9-gates-before-the-real-run
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#9-gates-before-the-real-run
   - name: run_commit
     value: 0c33a2596e2906dab905f4d6ddc68f1e32827091
-    source: docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
+    source: docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md#10-result-2026-09-24
 known_defects:
   - "Underpowered on 13 names: a FAIL is recorded as no detectable trend timing at this sample size, not no premium. Power was 54% at excess 0.50."
   - "TLT has no signal until 2017-02 because its history starts 2016-02-03 in this corpus (listed since 2002; ohlcv_empty_history, todo 424)."
@@ -51,7 +51,7 @@ status_now: reopened
 reopened_as: "construction-verdict-ledger.md section 2: new construction, residual momentum (12-1 month on S1 residual returns, Blitz, Huij and Martens 2011)"
 reproducible: false
 sources:
-  - docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md
+  - docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md
   - scripts/analysis/sleeve_walk_forward/signals.py
   - docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
 related_cards: [legacy-phase179-sleeve-walk-forward]
@@ -60,7 +60,7 @@ related_cards: [legacy-phase179-sleeve-walk-forward]
 # Classic time-series momentum on the 13-symbol cross-asset sleeve (phase 181)
 
 Author: Claude Sonnet 5.5, 2026-09-29
-Informed by: `docs/research/construction-verdict-ledger.md` section 4 row `tsmom_sleeve`; `docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md`
+Informed by: `docs/research/construction-verdict-ledger.md` section 4 row `tsmom_sleeve`; `docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md`
 
 ## What was tried
 

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-10-09
 **Status:** Ready for planning
-**Source:** PRD Express Path (docs/plans/2026-10-09-provider-history-plane-unification-design.md, rev 2, owner-approved; AGY-reviewed)
+**Source:** PRD Express Path (docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md, rev 2, owner-approved; AGY-reviewed)
 
 <domain>
 ## Phase Boundary
@@ -106,13 +106,13 @@ itself plus its policy docs (todo 521's lane, indicagent-87, lands first as step
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design and prior art
-- `docs/plans/2026-10-09-provider-history-plane-unification-design.md` — this phase's
+- `docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md` — this phase's
   design (rev 2; owner-approved, AGY-reviewed; the AGY findings are folded in)
-- `docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md` — phase 189 design;
+- `docs/plans/archive/2026-10-02-ibkr-history-fetch-consolidation-design.md` — phase 189 design;
   the fetcher, queue, ledger, and lock this phase generalizes
-- `docs/plans/2026-10-09-alpaca-5m-admission-build.md` — todo 521; the leaf, policy docs,
+- `docs/plans/archive/2026-10-09-alpaca-5m-admission-build.md` — todo 521; the leaf, policy docs,
   admission machinery, and the two pre-write dependencies this phase consumes
-- `docs/plans/2026-10-09-alpaca-integration-pilot.md` — measured Alpaca facts
+- `docs/plans/archive/2026-10-09-alpaca-integration-pilot.md` — measured Alpaca facts
   (adjustment=split, RTH aggregates, pagination, rate limits, T1-T9 findings)
 
 ### Foundation

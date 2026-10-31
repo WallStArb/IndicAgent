@@ -9,7 +9,7 @@ source: family 1 iteration 4 (2026-09-29): the edge sits at the two auction prin
 
 ## What
 
-Iteration 4 (`docs/plans/2026-09-29-family1-iteration-4-5m-timing.md`) found the opening slot's
+Iteration 4 (`docs/plans/archive/2026-09-29-family1-iteration-4-5m-timing.md`) found the opening slot's
 P&L is all earned by 09:35 (a move away from the 09:30 print) and 59% to 69% of the closing
 slot's after 15:50 (a move into the closing print). Two open questions follow, in order.
 

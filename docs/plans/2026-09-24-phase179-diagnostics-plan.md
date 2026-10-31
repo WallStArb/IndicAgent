@@ -1,6 +1,6 @@
 # Phase 179 section 11 diagnostics: plan
 
-**Author:** Claude (Opus 5.5), 2026-09-24; parent `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`
+**Author:** Claude (Opus 5.5), 2026-09-24; parent `docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md`
 section 11.
 **Status:** plan, lands before the freeze (harness plan Task 10). Implementation follows the
 verdict run.

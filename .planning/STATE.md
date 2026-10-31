@@ -304,8 +304,9 @@ the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations:
 ## Open items that are not verdicts
 
 - Dashboard v3.5 cockpit closed 2026-10-27 (owner: a dashboard does not find edge). Six pages
-  are served on :3000; Books stays an empty state until phase 188. Unscheduled refinements are
-  listed in `docs/plans/2026-10-26-dashboard-v35-cockpit-design.md`.
+  are served on :3000; Books stays an empty state until phase 188. Unscheduled refinements were
+  listed in the closed cockpit design, deleted 2026-10-31 with no stub (git history:
+  docs/plans/2026-10-26-dashboard-v35-cockpit-design.md as of 708f3fe09).
 
 - The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward window
   (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`; todo 483 records
@@ -413,6 +414,6 @@ sessions' uncommitted files, then remove it; `git worktree prune` clears entries
 
 ### Roadmap Evolution
 
-- Phase 190 added: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
+- Phase 190 added: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
 - Phase 189 edited: edited fields: depends_on
 - Phase 189 added: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts

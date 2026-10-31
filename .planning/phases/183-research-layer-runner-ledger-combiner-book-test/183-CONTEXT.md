@@ -3,9 +3,9 @@
 **Gathered:** 2026-09-25, from the adopted design docs and the owner-approved phase split
 (peer session owns phase 182 and family pre-registrations; this session owns 183).
 **Author:** Claude (Opus 5.5).
-**Design sources:** `docs/plans/2026-09-25-alpha-research-architecture.md` (build, sections
+**Design sources:** `docs/plans/archive/2026-09-25-alpha-research-architecture.md` (build, sections
 3.4, 3.6, 5 steps 4-6), `docs/plans/2026-09-24-evidence-framework.md` version 4 (rules,
-sections 5-6), `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` (section 9, R1
+sections 5-6), `docs/plans/archive/2026-09-25-family1-intraday-periodicity-prereg.md` (section 9, R1
 and R2).
 
 ## Why now
@@ -167,10 +167,10 @@ evidence records and book version 1's screen test.
 
 ## Canonical references
 
-- `docs/plans/2026-09-25-alpha-research-architecture.md` - build design, sections 3.4-3.6, 5.
+- `docs/plans/archive/2026-09-25-alpha-research-architecture.md` - build design, sections 3.4-3.6, 5.
 - `docs/plans/2026-09-24-evidence-framework.md` - rules: evidence record (5), budget and
   refusals (6).
-- `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` - members, target,
+- `docs/plans/archive/2026-09-25-family1-intraday-periodicity-prereg.md` - members, target,
   construction, scoring, refusals (sections 3-5, 9).
 - `docs/foundation/unified-concept-registry.md` - concept_registry semantics.
 - `docs/foundation/adaptive-parameter-registry.md` - APR key rules.

@@ -492,7 +492,7 @@ Resolved 2026-10-27 at planning; each resolution is the recommendation below, ad
 - Live DB: `\d provenance_batch`, `feature_vectors_v2` columns and size, `market_data_ohlcv` vendor/kind by tf, `economic_series_observation` schema and counts, SPY 1d/1h `bar_ts` samples
 - `.planning/phases/187-*/187-{08,09,10,11,13,14,15,18}-PLAN.md` files_modified and amendments; `187-REVIEWS.md` (15: sector point in time)
 - `.planning/phases/186-*/186-PLAN-OUTLINE.md`, `186-07-SUMMARY.md`, `186-09-SUMMARY.md`, `186-26-PLAN.md`, `186-27-PLAN.md`
-- `docs/plans/2026-09-25-multi-timeframe-horizon-design.md` rev 3; unified design 4.4, 4.5, 12, 14.7; `docs/foundation/glossary.md` (predictor, clock, IC term structure)
+- `docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` rev 3; unified design 4.4, 4.5, 12, 14.7; `docs/foundation/glossary.md` (predictor, clock, IC term structure)
 - Todos 435 (pending), 482 (deferred); `docs/ideas/signal-macro-context-layer.md`
 
 ### Secondary / tertiary

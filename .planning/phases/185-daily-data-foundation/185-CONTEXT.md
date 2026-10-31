@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-26
 **Status:** Ready for planning
-**Source:** PRD express path (`docs/plans/2026-09-26-daily-data-foundation.md`, accepted 2026-09-26, revision 2, owner decisions 1-9)
+**Source:** PRD express path (`docs/plans/archive/2026-09-26-daily-data-foundation.md`, accepted 2026-09-26, revision 2, owner decisions 1-9)
 
 <domain>
 ## Phase boundary
@@ -90,7 +90,7 @@ daily attempts 3, 3b and 4 come first because research waits on them.
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Phase spec
-- `docs/plans/2026-09-26-daily-data-foundation.md` - the accepted phase spec, revision 2, with owner decisions 1-9
+- `docs/plans/archive/2026-09-26-daily-data-foundation.md` - the accepted phase spec, revision 2, with owner decisions 1-9
 - `docs/plans/2026-09-26-unified-research-to-production-design.md` - sections 3.3 (provenance batches, content digests), 10.2 (summary cards), 12.2 (delisting sensitivity), 14.5 (per-writer roles), 14.7 (UD-25, targets from bars, `forward_return_writer` deletion), 16 (sequence)
 
 ### Todos owned or folded

@@ -9,7 +9,7 @@
 
 Predictors computed on any timeframe enter a book on one clock without a lookahead, a filled
 value or a second implementation of a feature. Scope is section 7 of
-`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 3), items B1-B8, plus the
+`docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` (revision 3), items B1-B8, plus the
 `feature_vectors` S0 read of todo 435 (B1). This phase is the gate for every feature, factor and
 regime family.
 
@@ -66,9 +66,9 @@ regime family.
 
 Downstream agents MUST read these before planning or implementing.
 
-- `docs/plans/2026-09-25-multi-timeframe-horizon-design.md` - the phase spec (revision 3); sections 3 (D1-D7), 4 (DAG), 7 (build items)
+- `docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` - the phase spec (revision 3); sections 3 (D1-D7), 4 (DAG), 7 (build items)
 - `docs/plans/2026-09-26-unified-research-to-production-design.md` - adopted design; UD-25, sections 12 and 14.7
-- `docs/plans/2026-09-25-alpha-research-architecture.md` - S0 to S8
+- `docs/plans/archive/2026-09-25-alpha-research-architecture.md` - S0 to S8
 - `docs/plans/2026-09-24-evidence-framework.md` - E15-E18 rules
 - `.planning/todos/pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md` - B1 requirements
 - `.planning/todos/deferred/482-economic-series-point-in-time-by-alfred-release-records.md` - B8 prerequisite

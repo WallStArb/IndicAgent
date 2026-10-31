@@ -995,7 +995,7 @@ Local research tooling; no network surface, no user input beyond committed specs
 - Git plumbing behavior verified in a scratch repository
 
 ### Secondary
-- `docs/plans/2026-09-25-alpha-research-architecture.md`, `2026-09-24-evidence-framework.md`,
+- `docs/plans/archive/2026-09-25-alpha-research-architecture.md`, `2026-09-24-evidence-framework.md`,
   `2026-09-25-family1-intraday-periodicity-prereg.md`, `docs/research/measurement-residual-breadth.md`,
   `docs/foundation/unified-concept-registry.md`
 - Besag, J. and Clifford, P. (1991), "Sequential Monte Carlo p-values", Biometrika 78(2) [ASSUMED from training knowledge; the stopping argument in pattern 9 is elementary and does not depend on the citation]

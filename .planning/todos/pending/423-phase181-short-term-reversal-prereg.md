@@ -28,7 +28,7 @@ Runs after todo 422's verdict (TSMOM, FAIL 2026-09-24); reuses the same signal-s
 
 ## Update 2026-09-25 (evidence framework adopted, methodology-change-ledger E15)
 
-Reversal is now fourth in the family queue (`docs/plans/2026-09-25-alpha-research-architecture.md`
+Reversal is now fourth in the family queue (`docs/plans/archive/2026-09-25-alpha-research-architecture.md`
 section 4), behind intraday momentum, overnight/intraday decomposition and lead-lag. The
 2026-09-13 screen already looked at it on 231 of these names in-sample. The holdout option above
 is withdrawn: the forward span is reserved for one confirmation test of a frozen book, so a

@@ -105,12 +105,12 @@ human_verification:
 
 # Phase 185: Daily data foundation verification report
 
-**Phase goal:** Every daily bar research reads traces to raw observations and a versioned derivation rule, and no data defect reaches a verdict unmeasured (stages D0-D7 of `docs/plans/2026-09-26-daily-data-foundation.md`, revised by the 2026-10-03 owner decisions: Tradier primary for 1d, D1 mutable).
+**Phase goal:** Every daily bar research reads traces to raw observations and a versioned derivation rule, and no data defect reaches a verdict unmeasured (stages D0-D7 of `docs/plans/archive/2026-09-26-daily-data-foundation.md`, revised by the 2026-10-03 owner decisions: Tradier primary for 1d, D1 mutable).
 **Verified:** 2026-10-06T08:53:03Z
 **Status:** gaps_found
 **Re-verification:** No, initial verification
 
-ROADMAP phase 185 has no success-criteria array, so the contract is the spec's eight success criteria (`docs/plans/2026-09-26-daily-data-foundation.md` lines 323-336) plus the goal's stage clauses D0-D7, D2a and D2b, and the D-28 gate the phase built. Plan frontmatter truths were checked where they bear on these. Everything below was read from the codebase and the live DB with read-only queries; no writes, no service changes.
+ROADMAP phase 185 has no success-criteria array, so the contract is the spec's eight success criteria (`docs/plans/archive/2026-09-26-daily-data-foundation.md` lines 323-336) plus the goal's stage clauses D0-D7, D2a and D2b, and the D-28 gate the phase built. Plan frontmatter truths were checked where they bear on these. Everything below was read from the codebase and the live DB with read-only queries; no writes, no service changes.
 
 ## Goal achievement
 

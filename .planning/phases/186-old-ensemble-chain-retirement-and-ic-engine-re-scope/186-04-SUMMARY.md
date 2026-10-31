@@ -109,7 +109,7 @@ which dies in 186-16):
 Grep 2, textual mentions outside scripts/analysis/ (all classified, none are imports):
 
 - `CLAUDE.md:157` - repointed in Task 3
-- `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`, `docs/plans/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`, `docs/plans/2026-09-26-unified-research-to-production-design.md`, `docs/research/{data-edge-source-thesis,ic-engine-short-horizon-cell-deletion-prereg,measurement-nonlinear-interaction-combiner}.md` - historical research/provenance citations; pre-registration text must keep citing the path it was pre-registered at
+- `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`, `docs/plans/archive/2026-09-06-extreme-volume-divergence-confirmed-reversal-prereg.md`, `docs/plans/2026-09-26-unified-research-to-production-design.md`, `docs/research/{data-edge-source-thesis,ic-engine-short-horizon-cell-deletion-prereg,measurement-nonlinear-interaction-combiner}.md` - historical research/provenance citations; pre-registration text must keep citing the path it was pre-registered at
 - `production/migrations/{337,341,358}*.sql` and `tests/integration/fixtures/schema_baseline_2026-09-27.sql` - applied, immutable DDL comments citing the old path; historical citations by decision
 - `scripts/infrastructure/universe_expansion_stratified_sourcing.py:69` - a comment noting IBKR client 48 was the personal_cost_hurdle one-off; not an import, no edit needed
 - `tools/vulture_whitelist.py:999` - 186-16's job per the plan

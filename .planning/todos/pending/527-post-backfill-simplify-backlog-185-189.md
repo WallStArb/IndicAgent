@@ -2,7 +2,7 @@
 status: pending
 priority: P2
 filed: 2026-10-10
-source: owner directive 2026-10-10 ("run simplify on 185, 187-190"); four-agent simplify over the load-bearing 185/189 code; findings in docs/plans/2026-10-10-simplify-findings-185-189.md
+source: owner directive 2026-10-10 ("run simplify on 185, 187-190"); four-agent simplify over the load-bearing 185/189 code; findings in docs/plans/archive/2026-10-10-simplify-findings-185-189.md
 ---
 
 # Post-backfill simplify backlog: the 185/189 findings no one applied
@@ -11,7 +11,7 @@ source: owner directive 2026-10-10 ("run simplify on 185, 187-190"); four-agent 
 
 The four-agent simplify pass over the load-bearing 185/189 code found ~40 items, none urgent
 during the live backfill. The full findings live in
-`docs/plans/2026-10-10-simplify-findings-185-189.md` (committed); apply them after the backfill
+`docs/plans/archive/2026-10-10-simplify-findings-185-189.md` (committed); apply them after the backfill
 completes, highest cost first:
 
 1. Answered-window SQL exists in five copies (bar_derivation, bar_reconciliation_audit,

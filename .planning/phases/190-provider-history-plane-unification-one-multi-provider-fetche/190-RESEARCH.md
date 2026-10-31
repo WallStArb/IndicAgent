@@ -48,7 +48,7 @@ Task decomposition, wave structure, exact migration numbering, conformance-test 
 
 ## Phase Requirements
 
-No requirement IDs were mapped for this phase (planning/REQUIREMENTS.md does not exist). The phase scope is defined by the approved design `docs/plans/2026-10-09-provider-history-plane-unification-design.md` (rev 2) and 190-CONTEXT.md; the planner should derive plan-level requirement IDs from the design's Enforcement and Sequencing sections.
+No requirement IDs were mapped for this phase (planning/REQUIREMENTS.md does not exist). The phase scope is defined by the approved design `docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md` (rev 2) and 190-CONTEXT.md; the planner should derive plan-level requirement IDs from the design's Enforcement and Sequencing sections.
 
 ## Summary
 
@@ -299,7 +299,7 @@ New tests this phase owes (design Enforcement): the protocol-conformance test (f
 ### 8. Alpaca leaf landing state (todo 521 / indicagent-87)
 
 Verified: `src/providers/` contains base.py, economic_source.py, fred.py, ibkr.py, ibkr_adapter.py, nyfed.py, yahoo.py — no alpaca.py on main and no branch carrying it (git branch -a). Todo 521 is pending/deferred behind a gate: the depth-build plan doc written first, then owner green-light. The lane's delivered artifacts so far are measured facts and scratch tooling, not the leaf:
-- Measured REST mechanics: `scripts/research/alpaca_depth_scratch_pull.py` (pagination via `next_page_token`, `limit=10000`, `feed=sip`, `adjustment=split`, Basic rate 190 req/min vs documented 200, 429 with `retry-after`), full detail in `docs/plans/2026-10-09-alpaca-integration-pilot.md` (T1-T9 findings).
+- Measured REST mechanics: `scripts/research/alpaca_depth_scratch_pull.py` (pagination via `next_page_token`, `limit=10000`, `feed=sip`, `adjustment=split`, Basic rate 190 req/min vs documented 200, 429 with `retry-after`), full detail in `docs/plans/archive/2026-10-09-alpaca-integration-pilot.md` (T1-T9 findings).
 - Locked rulings the leaf implements: adjustment=split, RTH-window aggregates only, never Alpaca 1d bars, spinoff-class admission (MMM/PFE/TMUS/HON/LEN/IBM/O), 1m out of scope.
 - APR: `threshold`-side `alpaca_basis` tolerance row landed (migration 463, commit e7ec5a7b4) as the T2 gate.
 
@@ -499,11 +499,11 @@ security_enforcement is not set in .planning/config.json, so it is enabled by de
 ## Sources
 
 ### Primary (HIGH confidence)
-- Direct reads this session: scripts/infrastructure/backfill/ibkr_history_fetcher.py, _fetch_queue.py, _fetcher_lock.py, _history_fetch.py/_history_fetch_item.py (structure), services/ohlcv_coverage_writer.py, services/service_auditor.py, services/bar_reconciliation_audit.py (status-file read), src/providers/base.py, src/providers/__init__.py, src/providers/CLAUDE.md, src/intelligence/bars/sources.py, scripts/research/alpaca_depth_scratch_pull.py, scripts/ops/bars/ops_head_rerun.py (parse points), production/migrations/432, 354, 355, 463, tests/unit/ surfaces, tests/unit/test_single_writer_registry.py, tests/unit/test_market_data_ohlcv_boundary.py, .planning/todos/pending/526 and 521, 190-CONTEXT.md, docs/plans/2026-10-09-provider-history-plane-unification-design.md
+- Direct reads this session: scripts/infrastructure/backfill/ibkr_history_fetcher.py, _fetch_queue.py, _fetcher_lock.py, _history_fetch.py/_history_fetch_item.py (structure), services/ohlcv_coverage_writer.py, services/service_auditor.py, services/bar_reconciliation_audit.py (status-file read), src/providers/base.py, src/providers/__init__.py, src/providers/CLAUDE.md, src/intelligence/bars/sources.py, scripts/research/alpaca_depth_scratch_pull.py, scripts/ops/bars/ops_head_rerun.py (parse points), production/migrations/432, 354, 355, 463, tests/unit/ surfaces, tests/unit/test_single_writer_registry.py, tests/unit/test_market_data_ohlcv_boundary.py, .planning/todos/pending/526 and 521, 190-CONTEXT.md, docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md
 - Live system: `systemctl list-units/list-unit-files/cat`, `logs/ibkr_history_fetcher_status.json`, live psql counts (ohlcv_coverage/provider_head/empty_history), `git branch -a`, venv imports (httpx 0.28.1, pytest 9.0.3)
 
 ### Secondary (MEDIUM confidence)
-- docs/plans/2026-10-09-alpaca-integration-pilot.md and 521 doc for Alpaca vendor facts (adjustment=split, 200 req/min Basic, RTH convention) — cited, not re-measured this session
+- docs/plans/archive/2026-10-09-alpaca-integration-pilot.md and 521 doc for Alpaca vendor facts (adjustment=split, 200 req/min Basic, RTH convention) — cited, not re-measured this session
 
 ### Tertiary (LOW confidence)
 - None material; A1-A4 in the assumptions log are the only non-re-verified claims.

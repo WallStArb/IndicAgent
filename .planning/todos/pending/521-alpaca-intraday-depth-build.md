@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-10-09
-source: Alpaca integration pilot (docs/plans/2026-10-09-alpaca-integration-pilot.md, executed 2026-10-09)
+source: Alpaca integration pilot (docs/plans/archive/2026-10-09-alpaca-integration-pilot.md, executed 2026-10-09)
 ---
 
 # Alpaca intraday depth build: leaf, admission, and the 2016-forward 5m/1m backfill
