@@ -60,3 +60,40 @@ these names. Handle at the 186-27 drift read: delete those names' stage 1 rows (
 rebuild them as their own units with the same pin; the primary key is append-only, so a rerun cannot
 overwrite. Names whose gain is under 30 days (FTV, RKLB, DELL, PWP, ROIV, AUR, BOC) change by warmup
 only and can wait for the next full rebuild.
+
+## Full classification (data lane, 2026-10-31)
+
+The premise resolved as the 2026-10-30 note predicted: post-derive, eligible names have **0
+pre-2016 gap sessions** (was 12,198); CUBE and JBTM are fully derived. Live recount 2026-10-31:
+108,230 raw-holds-canonical-lacks sessions over 147 names, five classes:
+
+- **A. 27 names with `compute_eligible_1d=false`: 66,110 sessions, never derived at all.** The
+  daily stage's discovery and the audit's scored universe both filter on the flag, so there is
+  no load row, no hold, no refusal: the largest silent class (61% of sessions). WMS: 2,723
+  alpaca/sip_rth bars all volume>0 and zero canonical rows. Fix lane: eligibility promotion
+  (migration 341's measured predicate, `universe_expansion_promote_compute_eligible.py`), no
+  code. OWNER DECISION before promoting: why these 27 were never eligible (illiquidity class,
+  todo 454's ultra-thin question) and todo 491's point that promoting wave 2 changes the panel
+  silently until the S0 universe snapshot exists. Promote after 491, not before the first
+  counted run.
+- **B. 22 names, D-191-Q IBKR symbol rows where IBKR has no raw answer: 28,359 by-design
+  sessions** ("IBKR serves, with no bar where IBKR is missing", 191-D191Q-ARBITRATION.md), but
+  recorded nowhere: under an IBKR primary `derive_daily_v2` hits `if fallback is None or frame
+  is None: continue` (`daily_rule.py`) with no refusal category. Sample: AKTS, 1,956 sessions,
+  canonical only from 2026-01-09. Fix: owner arbitration (extend IBKR symbol rows), plus a
+  small honesty-only code fix persisting an `unserved_primary` refusal in `ohlcv_load.detail`
+  for the IBKR-primary-missing branch, sequenced outside a live rebuild.
+- **C. 47 names, default-Alpaca refusals: 9,930 sessions, recorded** in `ohlcv_load.detail`
+  (refused_head/interior/stale_only). APTV's 474 pre-spin-off sessions sit in refused_head
+  (seam basis 0.847) and still fail coverage because the check counts only bars and
+  empty_history spans as answered. Fix lane: owner arbitration (extend IBKR symbol rows), not
+  code.
+- **D. 60 names, zero-volume Alpaca placeholders with no IBKR fallback: 3,809 sessions,
+  recorded** in the zero_volume list. No action beyond the arbitration lane.
+- **E. CTVA, 22 sessions: its own hold** (`unclassified_rescale`, factor 5.5714), todo 516, not
+  this todo.
+
+Audit 2026-10-31 07:15Z: session_coverage fails 157 of 1,502. Recommended order: (1) owner
+decision on the 27 ineligibles, then promote and re-derive (kills 61% of sessions, pure data
+lane); (2) owner arbitration on the 22 IBKR-row names and the APTV-style refusals; (3) the
+`unserved_primary` honesty fix outside a live rebuild.
