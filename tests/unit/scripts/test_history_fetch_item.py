@@ -525,6 +525,7 @@ def env(monkeypatch, make_ingress_result):
         request_id=None,
         answered_at=None,
         params=None,
+        refresh_1d_provider=None,
     ):
         flagged = rec.flag_next
         rec.flag_next = False
@@ -533,6 +534,7 @@ def env(monkeypatch, make_ingress_result):
                 requests=list(request_rows),
                 rows=list(raw_rows),
                 coverage=coverage,
+                refresh_1d_provider=refresh_1d_provider,
                 request_id=request_id,
                 answered_at=answered_at,
                 flagged=flagged,
@@ -840,7 +842,8 @@ def test_1d_answers_persist_to_raw_one_chunk_per_request_with_no_coverage(env):
     assert ctx.provider.calls[0]["on_chunk"] is None
     assert callable(ctx.provider.calls[0]["on_observation"])
     for call in env.persist:
-        assert call.coverage is None  # the daily derivation stage refreshes the 1d bounds
+        assert call.coverage is None  # a daily answer moves no CoverageDelta
+        assert call.refresh_1d_provider == "ibkr"  # its bounds refresh in the same transaction
         assert len(call.requests) == 1
         assert str(call.request_id) == str(call.requests[0].request_id)
     # D2 owns the canonical 1d grid: the caller derives from this start.

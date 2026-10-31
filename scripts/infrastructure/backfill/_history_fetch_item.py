@@ -452,6 +452,7 @@ class _ChunkPersister:
             ),
             request_id=uuid.UUID(str(record.request_id)) if record is not None else None,
             answered_at=answered_at,
+            refresh_1d_provider=self.ctx.vendor if self.daily else None,
         )
         ingress = result.ingress
         if ingress is not None and ingress.flagged:

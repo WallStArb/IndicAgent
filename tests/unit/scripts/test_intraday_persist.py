@@ -436,6 +436,39 @@ def test_no_coverage_means_no_coverage_sql(contract):
     assert selects == ["SELECT <read raw params>"]
 
 
+def test_a_daily_refresh_runs_inside_the_same_transaction_for_the_chunks_symbols(
+    contract, monkeypatch
+):
+    refreshed: list[tuple[list[str], str]] = []
+
+    def _refresh(cur, symbols, *, provider):
+        cur.execute("INSERT INTO ohlcv_coverage <1d refresh>", None)
+        refreshed.append((sorted(symbols), provider))
+
+    monkeypatch.setattr(_intraday_persist, "refresh_1d_bounds", _refresh)
+    conn = FakeConn()
+    persist_chunk_atomically(
+        conn,
+        request_rows=[_REQUEST_ROW],
+        raw_rows=[_RAW_ROW],
+        refresh_1d_provider="ibkr",
+    )
+    assert refreshed == [(["SPY"], "ibkr")]
+    inside = [sql for sql, inside_flag in conn.statements if inside_flag]
+    assert inside[-2:] == [
+        "SET LOCAL ROLE bar_derivation_writer",
+        "INSERT INTO ohlcv_coverage <1d refresh>",
+    ]
+    assert [sql for sql, _ in conn.statements][-1] == "<commit>"
+
+
+def test_no_daily_refresh_unless_asked(contract, monkeypatch):
+    monkeypatch.setattr(
+        _intraday_persist, "refresh_1d_bounds", lambda *a, **k: pytest.fail("refreshed")
+    )
+    persist_chunk_atomically(FakeConn(), request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
+
+
 def test_failure_in_the_coverage_upsert_rolls_back_everything(contract):
     conn = FakeConn(fail_on="ohlcv_coverage")
     with pytest.raises(RuntimeError, match="forced failure"):

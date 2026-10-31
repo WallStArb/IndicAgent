@@ -50,7 +50,12 @@ from typing import Any
 import numpy as np
 import psycopg
 
-from services.ohlcv_coverage_writer import CoverageDelta, count_new_slots, upsert_coverage
+from services.ohlcv_coverage_writer import (
+    CoverageDelta,
+    count_new_slots,
+    refresh_1d_bounds,
+    upsert_coverage,
+)
 from services.ohlcv_ingress_contract import (
     DEFAULT_CALLER,
     IngressResult,
@@ -92,6 +97,7 @@ def persist_chunk_atomically(
     request_id: uuid.UUID | None = None,
     answered_at: datetime | None = None,
     params: RawContractParams | None = None,
+    refresh_1d_provider: str | None = None,
 ) -> PersistResult:
     """Commit one fetched chunk's raw rows, its request rows and (when `coverage` is given) its
     ohlcv_coverage update together.
@@ -100,6 +106,9 @@ def persist_chunk_atomically(
     chunk's answering request (the last request row that answered with bars, else the last row),
     and a chunk with no request rows (a loader) gets a fresh id. `params` is the contract's
     pre-read settings (a loader reads them once, the fetcher lets each chunk read them).
+    `refresh_1d_provider` names the vendor whose 1d bounds are recomputed for the chunk's symbols
+    in the same transaction (a daily answer moves no CoverageDelta; a run killed at the service
+    time limit never reaches an end-of-run refresh).
     `answered_at` is when the vendor answered the chunk, the served_at of its raw rows and the
     serve time last-wins orders by (fourth review of plan 191-07, finding 1); by default the
     answering request row's answered_at. A chunk with raw rows and neither raises before any
@@ -147,6 +156,11 @@ def persist_chunk_atomically(
             if coverage is not None and ingress is not None:
                 cur.execute(f"SET LOCAL ROLE {_BAR_ROLE}")
                 _upsert_coverage(cur, raw_rows, ingress, coverage)
+            if refresh_1d_provider is not None and ingress is not None:
+                cur.execute(f"SET LOCAL ROLE {_BAR_ROLE}")
+                refresh_1d_bounds(
+                    cur, {row.symbol for row in raw_rows}, provider=refresh_1d_provider
+                )
     return PersistResult(len(request_rows), len(raw_rows), ingress)
 
 
