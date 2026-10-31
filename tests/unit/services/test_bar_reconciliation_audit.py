@@ -1284,7 +1284,55 @@ def test_drift_collects_every_drifted_symbol_and_checks_the_stamps_own_wave():
                 },
             }
         )
-    assert set(caught.value.symbols) == {"AAA", "CCC"}
+    assert caught.value.symbols == ["AAA", "CCC"]
+
+
+def test_a_stamp_in_a_nameless_released_wave_is_a_record_defect_with_its_own_error():
+    with pytest.raises(ValueError, match="no names list"):
+        audit.load_dated_exceptions(
+            {
+                "waves": {"1": {"released": True}},
+                "exceptions": {
+                    "AAA": {
+                        "15m": [
+                            {
+                                "stamp": "2026-10-01T13:30:00+00:00",
+                                "wave": 1,
+                                "price": True,
+                                "volume": False,
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+
+
+def test_a_mixed_defect_record_reports_both_after_one_scan():
+    """The scan completes before raising, so a record with both a nameless wave and drift
+    names all of its defects in one report."""
+    stamp = {"stamp": "2026-10-01T13:30:00+00:00", "price": True, "volume": False}
+    with pytest.raises(ValueError, match="no names list") as caught:
+        audit.load_dated_exceptions(
+            {
+                "waves": {
+                    "1": {"released": True},  # nameless, referenced below
+                    "2": {"released": True, "names": ["BBB"]},
+                },
+                "exceptions": {
+                    "AAA": {"15m": [{**stamp, "wave": 1}]},
+                    "CCC": {"15m": [{**stamp, "wave": 2}]},  # CCC drifts against wave 2
+                },
+            }
+        )
+    assert "CCC" in str(caught.value)
+
+
+def test_a_structurally_wrong_record_is_malformed_not_a_crash():
+    for raw in ('{"waves": ["1"], "exceptions": {}}', '{"exceptions": "nope"}'):
+        integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": raw})
+        run = _intraday(_IntradayConn({"AAA": _agreeing_name()}), integ=integ)
+        assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # warned, judged
 
 
 def test_a_released_wave_without_a_names_key_does_not_break_unrelated_waves():
@@ -1337,7 +1385,7 @@ def test_a_drifted_record_fails_closed_with_its_own_error_event():
     # distinction by asserting the loader raises the dedicated type for this record
     with pytest.raises(audit.DatedExceptionsDrift) as caught:
         audit.load_dated_exceptions(json.loads(record))
-    assert set(caught.value.symbols) == {"AAA"}
+    assert caught.value.symbols == ["AAA"]
 
 
 def test_load_dated_exceptions_releases_only_released_waves():

@@ -1379,11 +1379,11 @@ class DatedExceptionsDrift(Exception):
     one fix cycle repairs the whole record."""
 
     def __init__(self, symbols: list[str]) -> None:
+        self.symbols = sorted(symbols)
         super().__init__(
-            f"dated-exceptions record drift: {sorted(symbols)} hold released "
-            f"stamps but are missing from their stamp wave's names list"
+            f"dated-exceptions record drift: {self.symbols} hold released stamps but are "
+            f"missing from their stamp wave's names list"
         )
-        self.symbols = symbols
 
 
 def load_dated_exceptions(
@@ -1397,10 +1397,21 @@ def load_dated_exceptions(
     drifted symbol and raises once, and the caller fails closed for the whole record, because
     an excused set that quietly diverges from what the record documents is worthless.
     """
-    released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
-    wave_names = {wave: spec.get("names") for wave, spec in record["waves"].items()}
+    if not isinstance(record, dict):
+        raise ValueError("dated-exceptions record is not a mapping")
+    waves = record.get("waves")
+    if not isinstance(waves, dict) or not isinstance(record.get("exceptions"), dict):
+        raise ValueError("dated-exceptions record lacks a waves or exceptions mapping")
+    released = {wave for wave, spec in waves.items() if spec.get("released")}
+    # set membership per wave; None marks a released wave whose names list is missing, a
+    # record defect (not symbol drift) when a stamp actually references it
+    wave_names = {
+        wave: None if spec.get("names") is None else set(spec["names"])
+        for wave, spec in waves.items()
+    }
     out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
     missing_from_names: set[str] = set()
+    nameless_waves: set[str] = set()
     for name, per_tf in record["exceptions"].items():
         for tf, stamps in per_tf.items():
             kept = {}
@@ -1409,16 +1420,21 @@ def load_dated_exceptions(
                 if wave not in released:
                     continue
                 if wave_names[wave] is None:
-                    # a released wave with no names list is a record defect, not symbol drift
-                    raise ValueError(
-                        f"released wave {wave} of the dated-exceptions record has no names list"
-                    )
+                    nameless_waves.add(wave)
+                    continue
                 if name not in wave_names[wave]:
                     missing_from_names.add(name)
                     continue
                 kept[datetime.fromisoformat(s["stamp"])] = (bool(s["price"]), bool(s["volume"]))
             if kept:
                 out[name][tf] = kept
+    if nameless_waves:
+        # raise after the full scan so one report carries every defect in the record
+        raise ValueError(
+            f"released waves {sorted(nameless_waves)} of the dated-exceptions record have no "
+            f"names list"
+            + (f"; drift also found for {sorted(missing_from_names)}" if missing_from_names else "")
+        )
     if missing_from_names:
         raise DatedExceptionsDrift(missing_from_names)
     return out
@@ -2611,7 +2627,7 @@ class BarReconciliationAudit(BaseBatch):
                 except DatedExceptionsDrift as error:
                     logger.error("bar_integrity.dated_exceptions_drift", symbols=error.symbols)
                     recorded = {}
-                except (ValueError, KeyError, TypeError, AttributeError) as error:
+                except (ValueError, KeyError, TypeError) as error:
                     logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
                     recorded = {}
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
