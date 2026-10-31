@@ -420,6 +420,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
     grid_parity,
     rebucket_5m,
     slot_coverage_by_year,
+    superseded_archive_buckets,
 )
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 
@@ -504,13 +505,13 @@ _BAR = (1.0, 2.0, 0.5, 1.5, 100.0)
 
 def test_grid_parity_identical_buckets_have_no_mismatch():
     derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
-    assert grid_parity(derived, dict(derived), timeframe="15m") == (2, 0)
+    assert grid_parity(derived, dict(derived), timeframe="15m") == (2, 0, 0)
 
 
 def test_grid_parity_volume_beyond_the_rounding_slack_is_one_mismatch():
     derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
     archived = {_T0: _BAR, _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 103.0)}
-    assert grid_parity(derived, archived, timeframe="15m") == (2, 1)
+    assert grid_parity(derived, archived, timeframe="15m") == (2, 1, 0)
 
 
 def test_grid_parity_volume_rounding_within_constituents_minus_one_passes_either_way():
@@ -519,30 +520,133 @@ def test_grid_parity_volume_rounding_within_constituents_minus_one_passes_either
         _T0: (1.0, 2.0, 0.5, 1.5, 102.0),
         _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 98.0),
     }
-    assert grid_parity(derived, archived, timeframe="15m") == (2, 0)
+    assert grid_parity(derived, archived, timeframe="15m") == (2, 0, 0)
 
 
 def test_grid_parity_1h_slack_is_eleven_shares():
     archived_ok = {_T0: (1.0, 2.0, 0.5, 1.5, 111.0)}
     archived_bad = {_T0: (1.0, 2.0, 0.5, 1.5, 112.0)}
-    assert grid_parity({_T0: _BAR}, archived_ok, timeframe="1h") == (1, 0)
-    assert grid_parity({_T0: _BAR}, archived_bad, timeframe="1h") == (1, 1)
+    assert grid_parity({_T0: _BAR}, archived_ok, timeframe="1h") == (1, 0, 0)
+    assert grid_parity({_T0: _BAR}, archived_bad, timeframe="1h") == (1, 1, 0)
 
 
 def test_grid_parity_prices_stay_exact_whatever_the_volume():
     archived = {_T0: (1.0, 2.0, 0.5, 1.5000001, 100.0)}
-    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1)
+    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1, 0)
 
 
 def test_grid_parity_1h_compares_only_the_shared_keys():
     derived = {_T0: _BAR, _T0 + timedelta(minutes=30): _BAR}
     archived = {_T0 + timedelta(minutes=30): _BAR}  # vendor grid lacks the 09:30 half hour
-    assert grid_parity(derived, archived, timeframe="1h") == (1, 0)
+    assert grid_parity(derived, archived, timeframe="1h") == (1, 0, 0)
 
 
 def test_grid_parity_rejects_a_timeframe_it_does_not_define():
     with pytest.raises(ValueError):
         grid_parity({}, {}, timeframe="5m")
+
+
+def test_a_dated_exception_counts_in_excepted_and_never_in_mismatched():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
+    archived = {_T0: _BAR, _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 103.0)}
+    dated = {_T0 + timedelta(minutes=15): (True, True)}
+    assert grid_parity(derived, archived, timeframe="15m", exceptions=dated) == (2, 0, 1)
+
+
+def test_an_exception_that_agrees_is_counted_nowhere():
+    derived = {_T0: _BAR}
+    assert grid_parity(derived, dict(derived), timeframe="15m", exceptions={_T0: (True, True)}) == (
+        1,
+        0,
+        0,
+    )
+
+
+def test_a_volume_only_recorded_stamp_does_not_excuse_a_price_mismatch():
+    """A recorded stamp excuses only the dimensions its record mismatched: a new price
+    disagreement at a volume-only stamp is a live failure, not history."""
+    derived = {_T0: (1.0, 2.0, 0.5, 1.5000001, 100.0)}
+    archived = {_T0: (1.0, 2.0, 0.5, 1.5, 103.0)}  # both dimensions mismatch
+    # the bucket fails once: the unexcused price dimension makes it a live failure
+    assert grid_parity(derived, archived, timeframe="15m", exceptions={_T0: (False, True)}) == (
+        1,
+        1,
+        0,
+    )
+    volume_only = {_T0: _BAR}
+    assert grid_parity(
+        volume_only,
+        {_T0: (1.0, 2.0, 0.5, 1.5, 103.0)},
+        timeframe="15m",
+        exceptions={_T0: (False, True)},
+    ) == (1, 0, 1)
+
+
+def test_a_mismatch_outside_the_dated_exceptions_still_fails():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
+    archived = {_T0: (1.0, 2.0, 0.5, 1.5000001, 100.0), _T0 + timedelta(minutes=15): _BAR}
+    dated = {_T0 + timedelta(minutes=15): (True, True)}
+    assert grid_parity(derived, archived, timeframe="15m", exceptions=dated) == (2, 1, 0)
+
+
+def _served(ts, served):
+    return (
+        np.array([int(t.timestamp()) for t in ts], dtype=np.int64),
+        np.array(served, dtype=np.float64),
+    )
+
+
+def test_an_archive_row_served_before_its_newest_constituent_is_superseded():
+    ts, served = _served([_T0, _T0 + timedelta(minutes=5)], [1_000.0, 2_000.0])
+    # the 15m row was served before the day's second 5m bar was re-served: stale evidence
+    served_at = datetime.fromtimestamp(1_500, tz=UTC)
+    assert superseded_archive_buckets(ts, served, {_T0: served_at}, timeframe="15m") == {_T0}
+
+
+def test_an_archive_row_served_after_every_constituent_is_never_superseded():
+    ts, served = _served([_T0, _T0 + timedelta(minutes=5)], [1_000.0, 2_000.0])
+    served_at = datetime.fromtimestamp(2_000, tz=UTC)
+    assert superseded_archive_buckets(ts, served, {_T0: served_at}, timeframe="15m") == frozenset()
+
+
+def test_unknown_serve_times_never_supersede():
+    ts, served = _served([_T0], [np.nan])
+    older = datetime.fromtimestamp(1, tz=UTC)
+    assert superseded_archive_buckets(ts, served, {_T0: None}, timeframe="15m") == frozenset()
+    assert superseded_archive_buckets(ts, served, {_T0: older}, timeframe="15m") == frozenset()
+
+
+def test_a_bucket_whose_neighbors_have_later_serves_is_not_poisoned_by_them():
+    """Regression (review): a reduceat segment must stop at its own bucket's end, so a later
+    serve time belonging to the next bucket never makes a fresh archive row look stale."""
+    first = _T0
+    second = _T0 + timedelta(hours=1, minutes=30)  # no archive row over the 15:30 hour: a gap
+    ts, served = _served(
+        [first + timedelta(minutes=5 * i) for i in range(6)]
+        + [second + timedelta(minutes=5 * i) for i in range(6)],
+        [1_000.0 + 10.0 * i for i in range(6)] + [2_000.0 + 10.0 * i for i in range(6)],
+    )
+    fresh = datetime.fromtimestamp(1_500, tz=UTC)  # after every first-bucket constituent
+    assert superseded_archive_buckets(ts, served, {first: fresh}, timeframe="1h") == frozenset()
+
+
+def test_one_unknown_constituent_serve_time_blocks_the_freshness_exception():
+    """Regression (review): one unknown serve time makes the bucket's newest serve time unknown,
+    so the bucket can never be dated stale; only all-unknown never superseded it before."""
+    ts, served = _served([_T0, _T0 + timedelta(minutes=5)], [np.nan, 2_000.0])
+    stale = datetime.fromtimestamp(1_500, tz=UTC)
+    assert superseded_archive_buckets(ts, served, {_T0: stale}, timeframe="15m") == frozenset()
+
+
+def test_a_bucket_without_constituents_is_never_superseded():
+    ts, served = _served([_T0], [1_000.0])
+    other = _T0 + timedelta(hours=1)
+    assert (
+        superseded_archive_buckets(
+            ts, served, {other: datetime.fromtimestamp(1, tz=UTC)}, timeframe="15m"
+        )
+        == frozenset()
+    )
 
 
 def _five_minute_bars(first: datetime, n: int) -> tuple[np.ndarray, ...]:
@@ -889,4 +993,4 @@ def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
 
 def test_grid_parity_a_missing_volume_is_a_mismatch_not_a_pass():
     archived = {_T0: (1.0, 2.0, 0.5, 1.5, float("nan"))}
-    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1)
+    assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1, 0)

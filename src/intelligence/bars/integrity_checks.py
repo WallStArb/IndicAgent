@@ -10,7 +10,7 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 import numpy as np
 
@@ -503,13 +503,25 @@ def slot_coverage_by_year(
     return {year: done[year] / n for year, n in sorted(expected.items())}
 
 
+class ParityResult(NamedTuple):
+    """grid_parity's outcome: the buckets compared, how many mismatched outside the dated
+    exceptions (what the verdict gates on) and how many mismatched inside them (reported, never
+    gating, so a change in the excepted stamps' behavior stays visible)."""
+
+    compared: int
+    mismatched: int
+    excepted: int
+
+
 def grid_parity(
     derived: Mapping[datetime, Values],
     archived: Mapping[datetime, Values],
     *,
     timeframe: str,
-) -> tuple[int, int]:
-    """(n_compared, n_mismatched) over the buckets both sides hold, on the archive's keys.
+    exceptions: Mapping[datetime, tuple[bool, bool]] | None = None,
+) -> ParityResult:
+    """ParityResult(compared, mismatched, excepted) over the buckets both sides hold, on the
+    archive's keys.
 
     Open, high, low and close must match exactly on every shared bucket. Volume may differ by up
     to n - 1 shares for a bucket of n 5m bars (todo 569): the vendor rounds fractional-share
@@ -520,19 +532,78 @@ def grid_parity(
 
     The caller decides which derived buckets are like-for-like: the audit passes only buckets made
     entirely of ibkr-sourced 5m bars, because the reference is IBKR's own trades aggregate and SIP
-    5m bars (canonical from 2016-01-04) legitimately differ from it. Price exactness is never loosened.
-    """
+    5m bars (canonical from 2016-01-04) legitimately differ from it.
+
+    `exceptions` carries the D7 dated tolerance (todo 524, deferral D-191-H, recorded 2026-10-31):
+    a bucket start mapped to the dimensions its record excuses, (price, volume). A stamp recorded
+    in config/bars/grid_parity_dated_exceptions.json excuses only the dimensions its record
+    mismatched, so a new disagreement in the other dimension there stays a live failure; a bucket
+    whose archive row predates its 5m constituents (superseded evidence, the whole bucket stale)
+    excuses both. A mismatch on an excused dimension is counted in `excepted`, never in
+    `mismatched`; an exception that agrees is counted nowhere. Prices stay exact on every bucket
+    the caller has not dated."""
     if timeframe not in _BUCKET_SECONDS:
         raise ValueError(f"grid_parity is defined for {sorted(_BUCKET_SECONDS)}, not {timeframe!r}")
     volume_slack = _BUCKET_SECONDS[timeframe] // _FIVE_MINUTES - 1
     shared = derived.keys() & archived.keys()
-    mismatched = sum(
-        1
-        for key in shared
-        if tuple(map(float, derived[key][:4])) != tuple(map(float, archived[key][:4]))
-        or not abs(float(derived[key][4]) - float(archived[key][4])) <= volume_slack
+    mismatched = excepted = 0
+    for key in shared:
+        ours, theirs = derived[key], archived[key]
+        price_bad = tuple(map(float, ours[:4])) != tuple(map(float, theirs[:4]))
+        volume_bad = not abs(float(ours[4]) - float(theirs[4])) <= volume_slack
+        if not (price_bad or volume_bad):
+            continue
+        excused = exceptions.get(key, (False, False)) if exceptions else (False, False)
+        if (price_bad and not excused[0]) or (volume_bad and not excused[1]):
+            mismatched += 1
+        else:
+            excepted += 1
+    return ParityResult(len(shared), mismatched, excepted)
+
+
+def superseded_archive_buckets(
+    constituent_ts: np.ndarray,
+    constituent_served: np.ndarray,
+    archive_served: Mapping[datetime, datetime | None],
+    *,
+    timeframe: str,
+) -> frozenset[datetime]:
+    """The archive buckets whose row predates the newest 5m constituent it aggregates, by serve
+    time (the D7 freshness rule, todo 524): the row is superseded evidence, so a disagreement on
+    that bucket is dated vendor-side history, not a live disagreement. An archive row with no
+    serve time is never superseded, and neither is a bucket with any constituent of unknown serve
+    time (the newest serve time is then unknown, so the bucket can never be dated stale).
+    `constituent_ts` holds the kept 5m stamps sorted ascending and `constituent_served` their
+    serve times as epoch seconds with NaN for unknown; `archive_served` is the bucket start ->
+    the row's served_at, and the bucket starts come back as datetimes, the keys `grid_parity`'s
+    `exceptions` takes."""
+    width = _BUCKET_SECONDS[timeframe]
+    if not archive_served or not constituent_ts.size:
+        return frozenset()
+    keys = sorted(archive_served)
+    starts = np.array([int(key.timestamp()) for key in keys], dtype=np.int64)
+    ends = (starts // width + 1) * width
+    n = constituent_ts.size
+    lo = np.searchsorted(constituent_ts, starts, side="left")
+    hi = np.searchsorted(constituent_ts, ends, side="left")
+    # The newest serve time per bucket over exactly [lo, hi): reduceat over the interleaved
+    # bucket boundaries, reading only the even results (the odd ones span outside any bucket).
+    # Unknown (NaN) serve times drop out of the max and poison the bucket: one unknown
+    # constituent means the bucket's newest serve time is unknown.
+    unknown = np.isnan(constituent_served)
+    mesh = np.append(np.column_stack((lo, hi)).ravel(), n)
+    padded = np.append(np.where(unknown, -np.inf, constituent_served), -np.inf)
+    seg_max = np.maximum.reduceat(padded, mesh)[::2][: len(keys)]
+    seg_unknown = np.add.reduceat(np.append(unknown, False), mesh)[::2][: len(keys)] > 0
+    newest = np.where(hi > lo, seg_max, np.nan)
+    newest[seg_unknown] = np.nan
+    return frozenset(
+        keys[i]
+        for i in range(len(keys))
+        if archive_served[keys[i]] is not None
+        and not np.isnan(newest[i])
+        and archive_served[keys[i]].timestamp() < newest[i]
     )
-    return len(shared), mismatched
 
 
 def rebucket_5m(

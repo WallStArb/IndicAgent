@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-31
 source: post-fix audit 2026-10-31 (grid_parity fails 34 names after the volume slack)
@@ -42,3 +42,13 @@ rows are re-fetched into the revision log. The wave-1/2 mechanism is todo 524's 
 a dated tolerance keyed on the archive row's `served_at` being older than the day's 5m `served_at`
 (or a one-time archive re-fetch of the listed stamps), which rides with the rebuild lane. The
 released names enter the feature build as their own stage-2b unit after stage 2 drains, same pin.
+
+## Released 2026-10-31 (D7 landed the same day)
+
+The recommended release mechanism is todo 524's D7 rule, landed 2026-10-31: waves 1 (18
+restatement-skew names) and 2 (14 truncation names) release by the freshness rule plus the
+recorded stamp list (`config/bars/grid_parity_dated_exceptions.json`), not a hand-edited symbol
+list, so the next audit passes them and every future 5m restatement self-dates instead of
+re-failing. ETHA and CTVA stay held (wave 3 in the file, loader skips it) until their
+wrong-basis archive rows are re-fetched into the revision log. The released names enter the
+feature build as the stage 2b unit after stage 2 drains (rebuild lane).

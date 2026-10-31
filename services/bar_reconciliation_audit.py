@@ -122,6 +122,7 @@ from src.intelligence.bars.integrity_checks import (
     judge_name_1d,
     rebucket_5m,
     slot_coverage_by_year,
+    superseded_archive_buckets,
 )
 from src.intelligence.bars.restatement import BASIS_SIGNATURES
 from src.intelligence.bars.sessions import nyse_sessions
@@ -1308,7 +1309,7 @@ WHERE symbol = $1 AND timeframe = '5m'
 """
 # IBKR's own 15m/1h bars, the grid parity reference (the archive table until plan 191-09).
 _ARCHIVE_ROWS_SQL = """
-SELECT timeframe, "timestamp", open, high, low, close, volume
+SELECT timeframe, "timestamp", open, high, low, close, volume, served_at
 FROM ohlcv_raw
 WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND vendor = 'ibkr' AND kind = 'named'
 """
@@ -1342,13 +1343,19 @@ FROM ohlcv_coverage WHERE symbol = ANY(%s)
 """
 _SESSION_MARGIN_DAYS = 3
 _FIVE_MINUTES = timedelta(minutes=5)
-# bar_derivation's tradeable 5m read plus the vendor, which the grid parity judge needs: only
-# an ibkr-sourced 5m bar is comparable with the IBKR archive (D-191-P made post-2016 5m Alpaca SIP).
+# bar_derivation's tradeable 5m read plus the vendor and serve time, which the grid parity judge
+# needs: only an ibkr-sourced 5m bar is comparable with the IBKR archive (D-191-P made post-2016
+# 5m Alpaca SIP), and a raw row's served_at dates the evidence against the archive's own (D7,
+# todo 524). The join key is the selection's own (vendor, kind, timestamp) raw row.
 _SELECT_5M_SQL = """
-SELECT "timestamp", open, high, low, close, volume, base, vendor
-FROM market_data_ohlcv_tradeable
-WHERE symbol = $1 AND timeframe = '5m'
-ORDER BY "timestamp"
+SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor,
+       r.served_at
+FROM market_data_ohlcv_tradeable m
+LEFT JOIN ohlcv_raw r
+  ON r.symbol = m.symbol AND r.timeframe = m.timeframe
+ AND r.vendor = m.vendor AND r.kind = m.kind AND r."timestamp" = m."timestamp"
+WHERE m.symbol = $1 AND m.timeframe = '5m'
+ORDER BY m."timestamp"
 """
 # The one vendor whose 5m bars are like-for-like with the archive reference (ohlcv_raw ibkr named).
 # Any kind counts: the canonical 5m holds only (ibkr, named) and (alpaca, sip_rth) today, and an
@@ -1356,12 +1363,38 @@ ORDER BY "timestamp"
 _PARITY_VENDOR = VENDOR_IBKR
 _INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
 _WRITER_ROLE = "bar_derivation_writer"
+# The D7 dated exceptions (todo 524, D-191-H; recorded 2026-10-31 from the todo 573
+# classification). Waves 1 and 2 release a stamp; wave 3 (wrong-basis archive rows) stays held
+# until its archive rows are re-fetched, and the loader skips it.
+_DATED_EXCEPTIONS_FILE = _REPO_ROOT / "config" / "bars" / "grid_parity_dated_exceptions.json"
+
+
+def load_dated_exceptions(
+    path: Path = _DATED_EXCEPTIONS_FILE,
+) -> dict[str, dict[str, dict[datetime, tuple[bool, bool]]]]:
+    """The recorded grid_parity dated exceptions, per symbol per timeframe: bucket start -> the
+    dimensions its record excuses, (price, volume), from the dated record file (the todo 573
+    classification). Only released waves load: a stamp whose wave is not released never excepts."""
+    record = json.loads(path.read_text())
+    released = {wave for wave, spec in record["waves"].items() if spec.get("released")}
+    out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
+    for symbol, per_tf in record["exceptions"].items():
+        for tf, stamps in per_tf.items():
+            kept = {
+                datetime.fromisoformat(s["stamp"]): (bool(s["price"]), bool(s["volume"]))
+                for s in stamps
+                if str(s["wave"]) in released
+            }
+            if kept:
+                out[symbol][tf] = kept
+    return out
 
 
 @dataclass(frozen=True)
 class _FiveMinute:
     """A name's tradeable 5m bars with the rules of their non-quarantine flags, as
-    bar_derivation reads them (quarantined bars are left out), and whether each is ibkr-sourced."""
+    bar_derivation reads them (quarantined bars are left out), whether each is ibkr-sourced and
+    when its raw row was served (epoch seconds, NaN when unknown: the D7 freshness evidence)."""
 
     ts: np.ndarray
     open: np.ndarray
@@ -1371,6 +1404,7 @@ class _FiveMinute:
     volume: np.ndarray
     rules: list[tuple[str, ...]]
     ibkr: np.ndarray  # bool per bar: the bar was served by the archive's own vendor
+    served: np.ndarray  # float64 epoch seconds per bar, NaN when the raw row has no served_at
 
     @classmethod
     def from_rows(
@@ -1387,6 +1421,9 @@ class _FiveMinute:
         def column(name: str) -> np.ndarray:
             return np.array([r[name] for r in kept], dtype=np.float64)
 
+        served = [
+            r["served_at"].timestamp() if r.get("served_at") is not None else np.nan for r in kept
+        ]
         return cls(
             ts,
             column("open"),
@@ -1396,6 +1433,7 @@ class _FiveMinute:
             column("volume"),
             [tuple(sorted(rules_by_ts.get(int(t), ()))) for t in ts],
             np.array([r["vendor"] == _PARITY_VENDOR for r in kept], dtype=bool),
+            np.array(served, dtype=np.float64),
         )
 
 
@@ -1408,6 +1446,12 @@ class _IntradayInputs:
     stored_slots: Sequence[datetime]
     answered: AnsweredWindows
     archive: Mapping[str, Mapping[datetime, Values]]
+    # The archive rows' served_at, the same keys as `archive` (D7 freshness evidence; None when
+    # the raw row predates the column).
+    archive_served: Mapping[str, Mapping[datetime, datetime | None]]
+    # Recorded D7 exceptions for this symbol per timeframe: bucket start -> the dimensions its
+    # record excuses, (price, volume) (config/bars/grid_parity_dated_exceptions.json).
+    recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]]
     current_digests: Mapping[str, Mapping[datetime, str]]
     scope: frozenset[datetime] | None
     stray: Mapping[str, int]
@@ -1422,6 +1466,7 @@ class _IntradayVerdict(NamedTuple):
     metric: float | None
     threshold: float
     compared: int = 0  # grid_parity only: the buckets compared (metric is the mismatched count)
+    excepted: int = 0  # grid_parity only: mismatches inside the D7 dated exceptions
 
 
 async def _answered_windows_5m(conn: Any, symbol: str, match_s: float) -> AnsweredWindows:
@@ -1539,8 +1584,8 @@ def judge_name_intraday(
     (coverage_cache needs the fetcher lock and is judged for all names at once). Pure.
 
     grid_parity is a vendor cross-check (digest_fresh already proves the derivation): it compares
-    only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count, None
-    when no bucket was comparable."""
+    only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count
+    outside the D7 dated exceptions, None when no bucket was comparable."""
 
     def timed(check: str, started: float) -> None:
         if timings is not None:
@@ -1599,8 +1644,9 @@ def judge_name_intraday(
     keep = five.ibkr
     for tf in sorted(GRID_TIMEFRAMES):
         archived = inputs.archive.get(tf, {})
-        compared = mismatched = 0
+        compared = mismatched = excepted = 0
         if archived and keep.any():
+            starts = [int(stamp.timestamp()) for stamp in archived]
             rebucketed = rebucket_5m(
                 five.ts[keep],
                 five.open[keep],
@@ -1608,11 +1654,22 @@ def judge_name_intraday(
                 five.low[keep],
                 five.close[keep],
                 five.volume[keep],
-                [int(stamp.timestamp()) for stamp in archived],
+                starts,
                 timeframe=tf,
             )
             ours = {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
-            compared, mismatched = grid_parity(ours, archived, timeframe=tf)
+            # D7 dated tolerance (todo 524): a mismatch on a recorded stamp, or on a bucket whose
+            # archive row was served before the day's 5m bars (superseded evidence), is dated
+            # vendor-side history, not a live disagreement. Unrecorded, unsuperseded buckets stay
+            # held to exact parity.
+            superseded = superseded_archive_buckets(
+                five.ts[keep], five.served[keep], inputs.archive_served.get(tf, {}), timeframe=tf
+            )
+            dated: dict[datetime, tuple[bool, bool]] = {stamp: (True, True) for stamp in superseded}
+            dated.update(inputs.recorded.get(tf, {}))
+            compared, mismatched, excepted = grid_parity(
+                ours, archived, timeframe=tf, exceptions=dated
+            )
         if not compared:
             # Nothing was comparable (no archive, or no bucket made only of ibkr 5m bars): a pass
             # that says nothing was measured, visible as a null metric and counted in the log.
@@ -1620,7 +1677,13 @@ def judge_name_intraday(
         else:
             verdicts.append(
                 _IntradayVerdict(
-                    tf, "grid_parity", mismatched == 0, float(mismatched), 0.0, compared
+                    tf,
+                    "grid_parity",
+                    mismatched == 0,
+                    float(mismatched),
+                    0.0,
+                    compared,
+                    excepted,
                 )
             )
     timed("grid_parity", started)
@@ -1709,6 +1772,7 @@ class _IntradayRun(NamedTuple):
     parity_failing: list[str]
     parity_compared: dict[str, int]  # buckets compared over all names, per timeframe
     parity_mismatched: dict[str, int]
+    parity_excepted: dict[str, int]  # mismatches inside the D7 dated exceptions, per timeframe
     names: tuple[str, ...] = ()
 
 
@@ -2482,11 +2546,18 @@ class BarReconciliationAudit(BaseBatch):
         run_start: datetime,
         *,
         coverage_drift: Any | None,
+        recorded: Mapping[str, Mapping[str, Mapping[datetime, tuple[bool, bool]]]] | None = None,
     ) -> _IntradayRun:
         """Judge every name holding 5m bars on the intraday checks (design section 6), then the
         coverage ledger of all of them under the fetcher lock (`coverage_drift` None defers that
         step to the caller, which runs it after these verdicts are written). A finding never
-        raises."""
+        raises. `recorded` overrides the D7 dated-exception file (tests); None loads it."""
+        if recorded is None:  # fail closed: without the record nothing is dated, so the audit
+            try:  # can only hold more names to exact parity, never fewer
+                recorded = load_dated_exceptions()
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
+                recorded = {}
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
         previous = {
             r["subject"]: (r["passed"], r["evaluated_at"])
@@ -2522,6 +2593,7 @@ class BarReconciliationAudit(BaseBatch):
         parity_failing: list[str] = []
         parity_compared: dict[str, int] = defaultdict(int)
         parity_mismatched: dict[str, int] = defaultdict(int)
+        parity_excepted: dict[str, int] = defaultdict(int)
 
         def record(symbol: str, v: _IntradayVerdict) -> None:
             facts.append(
@@ -2551,6 +2623,7 @@ class BarReconciliationAudit(BaseBatch):
                 stray=stray.get(symbol, {}),
                 listing_end=listing_end.get(symbol),
                 match_s=integ.load_match_s,
+                recorded=recorded.get(symbol, {}),
             )
             for v in judge_name_intraday(
                 inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
@@ -2562,6 +2635,7 @@ class BarReconciliationAudit(BaseBatch):
                     else:
                         parity_compared[v.timeframe] += v.compared
                         parity_mismatched[v.timeframe] += int(v.metric)
+                        parity_excepted[v.timeframe] += v.excepted
                         if not v.passed:
                             parity_failing.append(
                                 f"{symbol}|{v.timeframe}|mismatched={int(v.metric)}"
@@ -2603,6 +2677,7 @@ class BarReconciliationAudit(BaseBatch):
             parity_failing,
             dict(parity_compared),
             dict(parity_mismatched),
+            dict(parity_excepted),
             tuple(names),
         )
 
@@ -2615,12 +2690,14 @@ class BarReconciliationAudit(BaseBatch):
         stray: Mapping[str, int],
         listing_end: date | None = None,
         match_s: float,
+        recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]] | None = None,
     ) -> _IntradayInputs:
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
         answered = await _answered_windows_5m(conn, symbol, match_s)
         archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
+        archive_served: dict[str, dict[datetime, datetime | None]] = defaultdict(dict)
         for r in await conn.fetch(_ARCHIVE_ROWS_SQL, symbol, sorted(GRID_TIMEFRAMES)):
             archive[r["timeframe"]][r["timestamp"]] = (
                 r["open"],
@@ -2629,6 +2706,7 @@ class BarReconciliationAudit(BaseBatch):
                 r["close"],
                 r["volume"],
             )
+            archive_served[r["timeframe"]][r["timestamp"]] = r["served_at"]
         digests: dict[str, dict[datetime, str]] = defaultdict(dict)
         for r in await conn.fetch(
             _SELECT_CURRENT_GRID_DIGESTS_SQL, symbol, list(_INTRADAY_DIGEST_TFS)
@@ -2640,6 +2718,8 @@ class BarReconciliationAudit(BaseBatch):
             stored_slots=[r["timestamp"] for r in await conn.fetch(_RAW_5M_SLOTS_SQL, symbol)],
             answered=answered,
             archive=archive,
+            archive_served=archive_served,
+            recorded=recorded or {},
             current_digests=digests,
             scope=scope,
             stray=stray,
@@ -2663,6 +2743,7 @@ class BarReconciliationAudit(BaseBatch):
             grid_parity_compared_nothing=run.n_without_archive,
             grid_parity_buckets_compared=run.parity_compared,
             grid_parity_buckets_mismatched=run.parity_mismatched,
+            grid_parity_buckets_excepted=run.parity_excepted,
             seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
         )
         if run.parity_failing:

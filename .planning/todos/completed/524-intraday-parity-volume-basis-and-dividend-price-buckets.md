@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-09
 source: 189-10 Task 2 pilot C7 results (b3e46fa4f)
@@ -34,3 +34,17 @@ by plan 16's explicit URA run; the old archive table is dropped), so the parity 
 rows under (vendor, kind). Still open, explicitly deferred as D-191-H (planner decision, owner
 acknowledgement pending): D7's dated tolerance rule for the per-name volume basis and the
 price/volume split in its output. The todo stays open for that remainder.
+
+## Done 2026-10-31 (D7 dated tolerance landed)
+
+The dated tolerance rule landed the same day the todo 573 classification dated it, before it was
+applied. `grid_parity` takes dated exceptions and counts them separately
+(`src/intelligence/bars/integrity_checks.py`): a mismatch on a stamp the record file dates, or on
+a bucket whose archive row's `served_at` predates the day's 5m bars (superseded evidence,
+`superseded_archive_buckets`), is excepted, never gating; prices stay exact everywhere else. The
+recorded half lives in `config/bars/grid_parity_dated_exceptions.json` (recorded 2026-10-31, all
+644 classified stamps with their price/volume split; waves 1 and 2 released, wave 3 ETHA/CTVA
+held until their archive rows are re-fetched). The audit loads the file, reports the excepted
+count per timeframe in `bar_integrity.report_intraday`, and the verdict metric stays the
+unexcepted mismatch count. The 2026-10-22 volume-basis question closed earlier: the volume slack
+(n-1 shares) landed with todo 569 and the residual disagreement is the dated artifact above.

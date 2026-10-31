@@ -6,6 +6,7 @@ services/bar_reconciliation_audit.py only loads these inputs and reports the res
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import UTC, date, datetime, timedelta
 
@@ -885,10 +886,12 @@ class _IntradayConn:
         if sql == audit._ANSWERED_5M_SQL:
             return data.get("answered_windows", ())
         if sql == audit._ARCHIVE_ROWS_SQL:
+            served = data.get("archive_served", {})
             return [
                 {
                     "timeframe": tf,
                     "timestamp": ts,
+                    "served_at": served.get((tf, ts)),
                     **dict(zip(("open", "high", "low", "close", "volume"), v)),
                 }
                 for tf, by_ts in data["archive"].items()
@@ -942,12 +945,18 @@ def _no_drift(names):
     return drift(names)
 
 
-def _intraday(conn, drift=_no_drift):
+def _intraday(conn, drift=_no_drift, recorded=None):
     import asyncio
 
     return asyncio.run(
         audit.BarReconciliationAudit._verdict_report_intraday(
-            conn, _I_PARAMS, _IWindow(), _I_NOW, coverage_drift=drift
+            conn,
+            _I_PARAMS,
+            _IWindow(),
+            _I_NOW,
+            coverage_drift=drift,
+            # {} keeps the unit tests off the production dated-exceptions file
+            recorded=recorded if recorded is not None else {},
         )
     )
 
@@ -1167,6 +1176,113 @@ def test_an_ibkr_sourced_bucket_that_mismatches_still_fails_beside_sip_buckets()
     assert run.parity_failing[0].startswith("AAA|15m|mismatched=1|compared=")
     assert 1 < run.parity_compared["15m"] < len(name["archive"]["15m"])  # SIP buckets excluded
     assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
+
+
+def _first_bucket_key(name, tf="15m"):
+    return next(iter(name["archive"][tf]))
+
+
+def test_an_archive_row_served_before_the_days_5m_bars_is_a_dated_exception():
+    """D7 freshness rule (todo 524): the archive bar was served once and the day's 5m re-served
+    later, so the archive row is superseded evidence and its mismatch is excepted, not a failure."""
+    name = _agreeing_name()
+    key = _first_bucket_key(name)
+    day = key.date()
+    name["archive_served"] = {
+        ("15m", key): datetime(2026, 10, 1, tzinfo=UTC),
+        **{
+            ("1h", k): datetime(2026, 10, 1, tzinfo=UTC)
+            for k in name["archive"]["1h"]
+            if k.date() == day
+        },
+    }
+    for r in name["rows"]:
+        if r["timestamp"].date() == day:  # the day's 5m was re-served after the archive
+            r["served_at"] = datetime(2026, 10, 20, tzinfo=UTC)
+    values = list(name["archive"]["15m"][key])
+    values[4] += 3.0
+    name["archive"]["15m"][key] = tuple(values)
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is True and verdict[3] == 0.0
+    assert run.parity_excepted["15m"] == 1 and run.parity_mismatched["15m"] == 0
+
+
+def test_an_archive_row_served_after_the_days_5m_bars_still_fails():
+    name = _agreeing_name()
+    key = _first_bucket_key(name)
+    day = key.date()
+    name["archive_served"] = {
+        ("15m", key): datetime(2026, 10, 25, tzinfo=UTC),
+        **{
+            ("1h", k): datetime(2026, 10, 25, tzinfo=UTC)
+            for k in name["archive"]["1h"]
+            if k.date() == day
+        },
+    }
+    for r in name["rows"]:
+        if r["timestamp"].date() == day:  # the 5m is the older view here
+            r["served_at"] = datetime(2026, 10, 2, tzinfo=UTC)
+    values = list(name["archive"]["15m"][key])
+    values[4] += 3.0
+    name["archive"]["15m"][key] = tuple(values)
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is False and verdict[3] == 1.0
+    assert run.parity_excepted.get("15m", 0) == 0
+
+
+def test_a_recorded_dated_exception_releases_its_stamp():
+    name = _agreeing_name()
+    key = _first_bucket_key(name)
+    values = list(name["archive"]["15m"][key])
+    values[4] += 3.0
+    name["archive"]["15m"][key] = tuple(values)
+    recorded = {"AAA": {"15m": {key: (True, True)}}}
+    run = _intraday(_IntradayConn({"AAA": name}), recorded=recorded)
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is True and verdict[3] == 0.0
+    assert run.parity_excepted["15m"] == 1 and run.parity_mismatched["15m"] == 0
+    plain = _intraday(_IntradayConn({"AAA": name}))
+    assert _verdict(plain, "AAA|15m", "grid_parity")[5] is False  # unrecorded it still fails
+
+
+def test_load_dated_exceptions_releases_only_released_waves(tmp_path):
+    path = tmp_path / "dated.json"
+    path.write_text(
+        json.dumps(
+            {
+                "waves": {"1": {"released": True}, "3": {"released": False}},
+                "exceptions": {
+                    "AAA": {
+                        "15m": [
+                            {
+                                "stamp": "2026-10-01T13:30:00+00:00",
+                                "wave": 1,
+                                "price": True,
+                                "volume": False,
+                            },
+                            {
+                                "stamp": "2026-10-02T13:30:00+00:00",
+                                "wave": 3,
+                                "price": True,
+                                "volume": True,
+                            },
+                        ]
+                    }
+                },
+            }
+        )
+    )
+    loaded = audit.load_dated_exceptions(path)
+    assert loaded["AAA"]["15m"] == {datetime(2026, 10, 1, 13, 30, tzinfo=UTC): (True, False)}
+
+
+def test_a_missing_dated_exceptions_file_fails_closed_to_no_exceptions(tmp_path, caplog):
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(audit, "_DATED_EXCEPTIONS_FILE", tmp_path / "absent.json")
+        run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
+    assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # judged, not raised
 
 
 def test_a_bucket_with_one_sip_constituent_is_excluded_not_compared_or_failed():
