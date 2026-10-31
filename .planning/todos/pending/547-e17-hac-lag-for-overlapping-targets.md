@@ -199,3 +199,16 @@ binomial 0.9995 quantile for 2,000 simulations (the driver computes the bounds).
 runs), 70,000,000 and 81,000,000 (scan and research probes) are spent; this base is new. A failure is not
 rerun on other seeds: it goes to the owner with the failing arms named. If a momentum member fails in
 `daily_s1_hostile` and nothing else does, that is cause 3 (S1 drift) and the owner decides per option A or B above.
+
+## Result: daily B2 v2 (2026-10-30, run once, seed base 90,000,000)
+
+2,000 simulations, 4,736 sessions, 8 workers, 1h25m. 10 cells x 6 arms x 3 levels judged against the binomial
+0.9995 bounds. Every cell passes except one arm in one cell: `daily_s1_hostile/residual_momentum_12_1_z`
+exceeds at 0.05 (124 > 123) and at 0.00167 (9 > 8). Its twin `residual_momentum_12_1` sits at the bound (123/123, 7/8) in the same cell and
+mean t is +0.15 for both momentum members; the reversal members and `book_equal` are at or below nominal there. All `daily_static_*`, `daily_gaussian`,
+`daily_hostile*` and `daily_late_listings` cells pass.
+
+This is the pre-registered cause 3 pattern (a momentum member fails in `daily_s1_hostile` and nothing else does):
+the S1 factor model drifts on momentum members, which is a property of the S1 vintage, not of the E17 statistic.
+Not rerun on other seeds. The statistic is cleared for the daily path; S1 drift goes to the owner as option A or B above.
+The driver exited non-zero on the size fail, so no JSON was written; the journal holds the table.
