@@ -1564,3 +1564,120 @@ async def test_the_reserve_lane_asks_exactly_the_key_dates_and_skips_the_queue(t
     assert [s for s, _ in asked] == ["HD", "TMUS"]  # the queue's QQQ is never asked
     assert all(a is not None and len(a) == 1 for _, a in asked)
     assert "judged" not in seen  # no escalation in the re-serve lane
+
+
+# -- todo 538: the stall watchdog and the bounded teardown -------------------------
+
+
+def _stall_fetcher(tmp_path: Path, *, tick: float, abort: float) -> tuple[Any, dict, list]:
+    """A fetcher whose watchdog bounds are seconds-small and whose abort is recorded."""
+    aborted: list[float] = []
+    bounds = (tick, abort, 30.0)
+    fetcher, seen = _fetcher(tmp_path, stall_bounds=lambda: bounds)
+    fetcher._stall_tick_s, fetcher._stall_abort_s, fetcher._teardown_timeout_s = bounds
+    fetcher._abort_fn = lambda: aborted.append(time.monotonic())
+    return fetcher, seen, aborted
+
+
+async def _settle(seconds: float) -> None:
+    for _ in range(200):
+        await asyncio.sleep(seconds / 200)
+
+
+async def test_the_stall_watchdog_aborts_and_dumps_when_nothing_moves(tmp_path):
+    import logging
+
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    logging.getLogger().addHandler(handler)
+    try:
+        fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.08)
+        task = asyncio.create_task(fetcher._stall_watchdog())
+        await _settle(0.4)
+        task.cancel()
+        assert len(aborted) >= 1  # the process would have exited 1; the recorded abort seam
+        # returns instead of os._exit, so the task keeps ticking for the rest of the window
+        assert any("stall_abort" in f"{getattr(r, 'event', '')}{r.getMessage()}" for r in records)
+    finally:
+        logging.getLogger().removeHandler(handler)
+
+
+async def test_the_stall_watchdog_resets_on_progress_and_never_aborts(tmp_path):
+    fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.3)
+    task = asyncio.create_task(fetcher._stall_watchdog())
+    try:
+        for _ in range(6):  # steady forward motion: each bump restarts the countdown
+            await _settle(0.05)
+            fetcher._progress += 1
+        assert aborted == []
+    finally:
+        task.cancel()
+
+
+async def test_a_stage_subprocess_pauses_the_stall_countdown(tmp_path):
+    fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.12)
+    fetcher._watchdog_paused = 1  # a stage subprocess is running
+    task = asyncio.create_task(fetcher._stall_watchdog())
+    await _settle(0.4)  # far past the abort bound, but suppressed
+    task.cancel()
+    assert aborted == []
+
+
+async def test_a_hanging_disconnect_hits_the_teardown_bound(tmp_path):
+    fetcher, _seen = _fetcher(tmp_path)
+
+    async def hang() -> None:
+        await asyncio.sleep(30)
+
+    fetcher._leaves = {"ibkr": SimpleNamespace(disconnect=hang)}
+    fetcher._teardown_timeout_s = 0.05
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(fetcher._disconnect_leaves(), timeout=fetcher._teardown_timeout_s)
+
+
+async def test_a_dead_leaf_does_not_block_the_other_disconnections(tmp_path):
+    fetcher, _seen = _fetcher(tmp_path)
+    done: list[str] = []
+
+    async def dead() -> None:
+        raise RuntimeError("socket already gone")
+
+    async def healthy() -> None:
+        done.append("ok")
+
+    fetcher._leaves = {
+        "ibkr": SimpleNamespace(disconnect=dead),
+        "alpaca": SimpleNamespace(disconnect=healthy),
+    }
+    await fetcher._disconnect_leaves()
+    assert done == ["ok"]  # the dead socket's refusal is warned, not fatal
+
+
+def test_stall_bounds_read_apr_with_seed_defaults(tmp_path):
+    """The reader overlays the migration 548 keys and falls back to the seeds."""
+    seen: dict[str, Any] = {"queries": []}
+
+    class _Cur:
+        def __enter__(self) -> _Cur:
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        def execute(self, sql: str, params: Any) -> None:
+            seen["queries"].append(params)
+
+        def fetchall(self) -> list[Any]:
+            return [("infra.ibkr.stall_abort_s", "900")]
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+        def close(self) -> None:
+            pass
+
+    fetcher, _seen = _fetcher(tmp_path, connect=lambda: _Conn())
+    tick, abort, teardown = fetcher._stall_bounds_fn()
+    assert (tick, abort, teardown) == (60.0, 900.0, 30.0)

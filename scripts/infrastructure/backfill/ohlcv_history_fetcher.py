@@ -703,6 +703,13 @@ def _sd_notify_watchdog() -> None:
     sdnotify.SystemdNotifier().notify("WATCHDOG=1")
 
 
+def _abort_run() -> None:
+    """Exit 1 immediately (todo 538): the stall dump is already logged, and a clean unwind
+    cannot be trusted from the very await that wedged. The pg advisory lock is a session lock
+    and dies with the process; the timer restarts the lane."""
+    os._exit(1)
+
+
 class OHLCVHistoryFetcher(BaseBatch):
     """The multi-provider OHLCV history fetcher oneshot (CD-01/CD-02/CD-07), provider-parameterized
     since phase 190 plan 04: a registry (`_PROVIDER_REGISTRY`, one entry per vendor) maps a
@@ -738,6 +745,8 @@ class OHLCVHistoryFetcher(BaseBatch):
         connect: Callable[[], Any] | None = None,
         contracts_for: Callable[[str], list[Any]] | None = None,
         notify: Callable[[], None] = _sd_notify_watchdog,
+        stall_bounds: Callable[[], tuple[float, float, float]] | None = None,
+        abort: Callable[[], None] | None = None,
         # FROZEN (phase 190 decision): the run status-file path (logs/ibkr_history_fetcher_
         # status.json, services/bar_reconciliation_audit.py NIGHTLY_STATUS_FILE) is read by the
         # D7 audit's nightly_skipped check, so writer and reader would have to move in one
@@ -755,6 +764,17 @@ class OHLCVHistoryFetcher(BaseBatch):
         self._registry = self._bind_registry(registry)
         self._leaves: dict[str, Any] = {}
         self._lock_name = lock_name
+        # Todo 538 stall watchdog: tick and abort bounds from APR (migration 548), the abort
+        # seam for tests. _progress counts forward motion (phase completions and fetched
+        # items); _watchdog_paused suspends the countdown while a stage subprocess runs, the
+        # same suppression principle as pacing.
+        self._stall_bounds_fn = stall_bounds or self._read_stall_bounds
+        self._abort_fn = abort or _abort_run
+        self._stall_tick_s = 60.0
+        self._stall_abort_s = 1800.0
+        self._teardown_timeout_s = 30.0
+        self._progress = 0
+        self._watchdog_paused = 0
         self._lock_factory = lock_factory or (
             lambda: FetcherLock(
                 self.settings.database_url,
@@ -858,17 +878,23 @@ class OHLCVHistoryFetcher(BaseBatch):
         )
 
     async def _run_subprocess(self, argv: list[str]) -> int:
-        """A stage subprocess, awaited without blocking the loop so watchdog pings continue."""
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=str(project_root),
-            env={**os.environ, "PYTHONPATH": str(project_root)},
-        )
-        while True:
-            try:
-                return await asyncio.wait_for(proc.wait(), timeout=self._tick_s)
-            except TimeoutError:
-                self._notify()
+        """A stage subprocess, awaited without blocking the loop so watchdog pings continue.
+        The subprocess, not this loop, is doing the work: the stall watchdog's countdown is
+        suspended for its duration (the todo 538 suppression principle, same as pacing)."""
+        self._watchdog_paused += 1
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(project_root),
+                env={**os.environ, "PYTHONPATH": str(project_root)},
+            )
+            while True:
+                try:
+                    return await asyncio.wait_for(proc.wait(), timeout=self._tick_s)
+                except TimeoutError:
+                    self._notify()
+        finally:
+            self._watchdog_paused -= 1
 
     # -- reads ----------------------------------------------------------------
 
@@ -980,6 +1006,79 @@ class OHLCVHistoryFetcher(BaseBatch):
 
     # -- entry ----------------------------------------------------------------
 
+    def _read_stall_bounds(self) -> tuple[float, float, float]:
+        """The todo 538 watchdog bounds from APR (migration 548); the code defaults are the
+        migration's seeds, so a database without them behaves identically."""
+        keys = (
+            "infra.ibkr.stall_tick_s",
+            "infra.ibkr.stall_abort_s",
+            "infra.ibkr.teardown_timeout_s",
+        )
+        values = dict(zip(keys, (60.0, 1800.0, 30.0)))
+        try:
+            conn = self._connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT config_key, config_value FROM config_state "
+                        "WHERE config_key = ANY(%s)",
+                        (list(keys),),
+                    )
+                for key, value in cur.fetchall():
+                    values[str(key)] = float(value)
+            finally:
+                conn.close()
+        except Exception as error:  # noqa: BLE001 - the defaults are the seeds; run anyway
+            logger.warning("ibkr_history_fetcher.stall_bounds_defaults", error=str(error))
+        return values[keys[0]], values[keys[1]], values[keys[2]]
+
+    async def _stall_watchdog(self) -> None:
+        """Abort the run loudly when nothing moves for stall_abort_s (todo 538).
+
+        The 2026-10-31 wedge family: the event loop stays alive (the systemd watchdog pings
+        continue, so WatchdogSec never fires) while the awaited future never resolves and no
+        item completes. Only an in-process progress watchdog can see that. Thirty minutes of
+        zero completions cannot be legal pacing: the rate limiter's window is 600s, so healthy
+        fetching completes an item far sooner, and stage subprocesses pause the countdown
+        instead. On abort: every pending task is dumped at error level (the diagnostic the
+        2026-10-31 dumps had to be taken by hand), then the process exits 1; the advisory lock
+        is a session lock and dies with the process, and the timer restarts the lane.
+        """
+        last = self._progress
+        waited = 0.0
+        while True:
+            await asyncio.sleep(self._stall_tick_s)
+            if self._watchdog_paused or self._progress != last:
+                last = self._progress
+                waited = 0.0
+                continue
+            waited += self._stall_tick_s
+            if waited < self._stall_abort_s:
+                logger.warning(
+                    "ibkr_history_fetcher.stall_warning",
+                    silent_s=waited,
+                    progress=self._progress,
+                )
+                continue
+            logger.error(
+                "ibkr_history_fetcher.stall_abort",
+                silent_s=waited,
+                progress=self._progress,
+                pending_tasks=[
+                    {
+                        "name": task.get_name(),
+                        "coro": repr(task.get_coro()),
+                        "stack": [
+                            f"{frame.f_code.co_filename}:{frame.f_lineno} {frame.f_code.co_name}"
+                            for frame in (task.get_stack(limit=8) or [])[-4:]
+                        ],
+                    }
+                    for task in asyncio.all_tasks()
+                    if task is not asyncio.current_task()
+                ],
+            )
+            self._abort_fn()
+
     async def execute(self, pool: Any) -> None:
         if self.args.reset_failures:
             self._reset_failures(self.args.reset_failures)
@@ -998,7 +1097,16 @@ class OHLCVHistoryFetcher(BaseBatch):
             if self.args.rebuild_coverage:
                 self._rebuild_coverage()
             else:
-                await self._locked_run(pool)
+                (
+                    self._stall_tick_s,
+                    self._stall_abort_s,
+                    self._teardown_timeout_s,
+                ) = self._stall_bounds_fn()
+                watchdog = asyncio.create_task(self._stall_watchdog())
+                try:
+                    await self._locked_run(pool)
+                finally:
+                    watchdog.cancel()
         finally:
             lock.close()
 
@@ -1085,6 +1193,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             await self._seed_roll_chain()
             return
         plan = await self._prepare(pool)
+        self._progress += 1  # the stall watchdog counts planning as forward motion
         self._tick_s = plan.config.history_request_timeout_s / _TICKS_PER_TIMEOUT
         self._load_overlays(plan.providers)
         fetch_run_id = new_fetch_run_id()
@@ -1103,6 +1212,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             leaves[name] = leaf
         self._leaves = leaves
         self._notify()
+        self._progress += 1  # connection established: another phase done
         run_started_at = datetime.now(UTC)
         primary = leaves.get(default_provider()) or next(iter(leaves.values()), None)
         ctx: Any = None
@@ -1123,11 +1233,19 @@ class OHLCVHistoryFetcher(BaseBatch):
                     pool, plan, ctx, loop, fetch_run_id, run_started_at
                 )
         finally:
-            for leaf in self._leaves.values():
-                try:
-                    await leaf.disconnect()
-                except Exception as error:  # a dead socket may refuse a clean disconnect
-                    logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
+            # Todo 538: the disconnect sequence is where the teardown hangs of 2026-10-17
+            # parked forever. A bounded teardown that fails loudly beats an unbounded one:
+            # wait_for cancels the pending disconnects, the run exits failure, the timer
+            # restarts the lane, and the advisory lock dies with the process either way.
+            try:
+                await asyncio.wait_for(self._disconnect_leaves(), timeout=self._teardown_timeout_s)
+            except TimeoutError:
+                logger.error(
+                    "ibkr_history_fetcher.teardown_timeout",
+                    timeout_s=self._teardown_timeout_s,
+                    leaves=sorted(self._leaves),
+                )
+                raise
             for flush_ctx in (ctx, *extra_ctxs):
                 if flush_ctx is not None:
                     self._final_flush(flush_ctx)
@@ -1159,6 +1277,14 @@ class OHLCVHistoryFetcher(BaseBatch):
         self.completion_status = (
             "failed" if nothing_succeeded else "partial" if failed else "success"
         )
+
+    async def _disconnect_leaves(self) -> None:
+        """Disconnect every provider leaf; a dead socket may refuse a clean disconnect."""
+        for leaf in self._leaves.values():
+            try:
+                await leaf.disconnect()
+            except Exception as error:
+                logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
 
     async def _loop(self, pool: Any, plan: RunPlan, contexts: Sequence[Any]) -> _LoopState:
         """Run the queue with one worker per context (infra.backfill.fetch_concurrency).
@@ -1209,6 +1335,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                     plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
                 )
                 self._notify()
+                self._progress += 1
                 if outcome.gateway_lost:
                     # The gateway, not the item, failed: nothing is charged to the series (CD-05).
                     state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
@@ -1386,6 +1513,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 plan, ctx, row, full_scan=True, refetch=True, waived=waived
             )
             self._notify()
+            self._progress += 1
             if outcome.gateway_lost:
                 loop.gateway_lost = f"{provider}/{symbol}/{timeframe} (escalation)"
                 return 1
