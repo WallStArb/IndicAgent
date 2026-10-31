@@ -38,6 +38,22 @@ gap, and the correlation with the rebuild's host load is unexplained. Under the 
 pacing waits log nothing (todo 485), which blinds diagnosis. Next occurrence: py-spy dump
 (needs sudo) BEFORE killing, and note whether the rebuild is running.
 
+## Update 2026-10-31 (evening): second wedge site, the 186-26 stage-2 factory
+
+Same unfinished-future family, different process. The stage-2 relaunch (13:38Z) loaded nothing
+for 7.5h: main thread parked in `result()` at `backfill_feature_factory.py:1473`
+(`_write_group`) waiting on a process-pool future that never resolved; only the resource
+tracker and forkserver children existed, no compute workers ever started. No cgroup OOM
+(`oom_kill 0`, though memory.peak sat exactly at the MemoryMax 14G cap 645 times). py-spy
+dump taken 21:20Z before killing (sudo, per the note above). Recovered by
+`systemctl --user stop` + the same pinned launch script at 21:25Z; stop was clean (no orphans,
+no stuck `pg_stat_activity` backends). Suspicion for the diagnosis: a forkserver/pool startup
+failure parked the main on a future no worker would ever complete, so the hang is not limited
+to the fetcher's asyncio teardown, it is "main waits on an executor future with no live
+worker". Session indicagent-93 owns the written diagnosis (both sites) once its APR commit
+lands; the fix direction above extends to a startup/worker-death watchdog for the factory's
+pool.
+
 ## Fix direction
 
 Diagnose the teardown path of `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`: the

@@ -133,7 +133,11 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   Ops note 2026-10-31: the first launch lost its write connection at 13:27 UTC to the database's 60 min
   idle_session_timeout (the main process idles while workers compute); relaunched with
   `PGOPTIONS="-c idle_session_timeout=0"` in the launch script (e74f016ef), which the run's own
-  connection only.
+  connection only. Ops note 2026-10-31 (evening): that relaunch wedged at pool startup (no worker
+  processes ever started, main parked on a process-pool future in `_write_group`; no cgroup OOM;
+  py-spy 21:20Z, evidence in todo 538). Stopped cleanly and relaunched with the same script at
+  21:25Z; the resume is checkpointed and safe. Before the wedge the run had loaded only about 100 of
+  the 1,252 names into `feature_vectors_v2`.
 
 - **D7 dated tolerance landed 2026-10-31 (todos 524 and 573, data lane):** a grid_parity mismatch on a
   recorded stamp, or on a bucket whose archive row's `served_at` predates the day's 5m bars
