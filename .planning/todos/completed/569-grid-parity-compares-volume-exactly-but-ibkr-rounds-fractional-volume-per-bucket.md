@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-30
 source: data lane, intraday audit recount (grid_parity fails 144 names in the 2026-10-30 full sweep)
@@ -48,3 +48,5 @@ ASTE, CAL, BELFA, BH, ACTG, SHY, XLC; CTVA is already held for its rescale). Dec
 next intraday build (the check's contract is exact prices; a disagreeing bucket has no arbiter); every other
 name that passes slot_coverage, digest_fresh and coverage_cache builds. The fix is closed; the 34 names are a
 vendor-data classification, not a code defect.
+
+Closed 2026-10-31 on the post-fix audit (InvocationID 940126444c26): coverage_cache 0 of 1,529 failing; grid_parity down to 34 names with real price disagreement (todo 573).

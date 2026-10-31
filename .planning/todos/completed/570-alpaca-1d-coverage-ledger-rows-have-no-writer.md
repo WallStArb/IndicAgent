@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-30
 source: data lane, coverage_cache diagnosis (fails all 1,529 names in the 2026-10-30 full sweep)
@@ -43,3 +43,5 @@ transaction for daily answers. One-off `refresh_1d_bounds` over all names ran un
 rows); the REPEATABLE READ probe shows 0 drifting names on 60. `_finish_1d` is now redundant but harmless
 (idempotent recompute); delete it with the next fetcher edit window. Close on the next audit read
 (started 03:06 EDT after the fix).
+
+Closed 2026-10-31 on the post-fix audit (InvocationID 940126444c26): coverage_cache 0 of 1,529 failing; grid_parity down to 34 names with real price disagreement (todo 573).

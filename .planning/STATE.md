@@ -118,6 +118,12 @@ Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-
   read), then the intraday tfs once the intraday verdicts pass. The feature table ends 2026-09-30 by the
   horizon; moving it forward is a new run, not a resume.
 
+- **186-26 rebuild stage 2 (intraday 5m, 15m, 1h, 1,252 names), launched 2026-10-31:** systemd user unit
+  `feature-rebuild-intraday`, same pinned tree, code key and horizon as stage 1, 8 workers. Names: pass every
+  intraday verdict in the 2026-10-31 audit (coverage_cache 0 failing, grid_parity 34 names held, todo 573) and
+  already hold 1d rows. Launch and resume: `evidence/186-26-stage2-intraday-launch.sh`. The audit read also
+  closed todos 569 and 570 (the 1d ledger bounds refresh in the raw-write transaction since 9fbf66651).
+
 - **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
   (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
   on the 187-08 battery run. Cross-AI review of 187 (Codex and AGY, 187-REVIEWS.md): code fixes

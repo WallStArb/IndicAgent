@@ -1,38 +1,38 @@
 {
- "version": "1.0",
- "timestamp": "2026-10-30T19:30:00Z",
- "phase": "191",
- "phase_name": "unified-raw-bar-table",
- "plan": "191-20 to 191-23 done; 186-26 stages 1 and 1b built (1d, 1,314 names, pinned tree /home/bg/dev/indicagent-186-26 at 92e588385); both lanes paused 2026-10-30 at the owner's usage limit",
- "status": "paused",
- "remaining_tasks": [
-  "Read the 02:00 ET full audit: coverage_cache should clear for all 1,529 names (todo 570: ledger rebuilt 2026-10-30, writers fixed in 1260a0ac4) and grid_parity should drop to the real vendor disagreements (todo 569: volume slack landed in 615fc9892; 15m SQL recount left 11 of 79 names). Close 569/570 on that read, decide the remaining names per name, then build the passing names as the next 186-26 stage.",
-  "Read the bar audit's intraday report (logs/bar_reconciliation_audit.log, event bar_integrity.report_intraday) and the 02:00 ET run after the new 05:20 UTC daily derivation timer; names that pass every intraday verdict get the next 186-26 stage from the pinned tree (intraday tfs, same horizon 2026-10-01 unless the owner moves it).",
-  "Hold list: recount against the era-scoped session_coverage (191-SESSION-COVERAGE-ERA-FAILS.tsv); 156 names still fail, 71 todo 566 names clear after the derive; build newly clean names as their own stage with only the new names in --symbols (never re-chunk a merged list).",
-  "Drift: 27 stage 1 names grew history (todo 566 list); delete their feature rows and rebuild at the 186-27 drift read.",
-  "Todo 564 kernel-edit batch (hma_slope_z NaN warmup, dead-column applicability, config field rename, _PMC_RANGE_START 2005 to 2000): recount the 1d session_coverage era first, then one batch, then a new pin.",
-  "Plans 191-24 and 191-25 (dead Tradier code in fetcher scripts and ops scripts) last; 24 needs a fetcher stop window."
- ],
- "blockers": [],
- "human_actions_pending": [
-  "E17 horizon-tied HAC lag amendment (todo 547): the daily residual spec's B2 size battery fails at h=5 without it",
-  "Todo 562: multi-family power plant decision",
-  "Plan 191-25: approve deleting the Tradier arm of daily_rule (plans 21 to 25 forbid editing it)",
-  "listing_venue official-close source (the writer now leaves a moved name unresolved without one)"
- ],
- "uncommitted_files": [],
- "next_action": "Resume with two sessions (data, research) per STATE.md 'Restart order'. Data lane: read the intraday audit report, then the next 186-26 stage; never edit anything the pinned rebuild tree imports. Research lane: waits on the owner's E17 and 562 decisions.",
- "context_notes": "2026-10-30: gates are evidence-based. Two inference rules for counting a missing 1d bar as no-trade failed independent review and were deleted; session_coverage is scoped to the calendar's first session (2005-01-03), see 191-SESSION-COVERAGE-FIX.md. Test a migration only with its own BEGIN/COMMIT stripped inside your own rolled-back transaction. Check pytest's exit code before any commit. Wait for a systemd oneshot by InvocationID change and ActiveState inactive or failed ('is-active' is false while activating). Daily 1d derive timer indicagent-bar-derivation-daily runs 05:20 UTC. Sudo helper: memory user_sudo_password.md.",
- "next_steps": [],
- "history_2026_10_16": [
-  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
- ],
- "completed_tasks": [
-  "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
-  "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
-  "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
-  "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
-  "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
-  "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
- ]
+  "version": "1.0",
+  "timestamp": "2026-10-31T12:30:00Z",
+  "phase": "191",
+  "phase_name": "unified-raw-bar-table",
+  "plan": "191-20 to 191-23 done; 191-24 code criterion met (integration tests stale, todo 572); 186-26 stages 1, 1b (1d, 1,314 names) built and stage 2 (intraday 5m/15m/1h, 1,252 names) launched 2026-10-31 on the pinned tree /home/bg/dev/indicagent-186-26 (92e588385)",
+  "status": "active",
+  "remaining_tasks": [
+    "Watch the 186-26 stage 2 unit (systemd user unit feature-rebuild-intraday; log logs/feature_rebuild_intraday.log; launch and resume script evidence/186-26-stage2-intraday-launch.sh; stop the unit before a resume). On completion record units and rows in 186-26-rebuild-run.json (key stage2_intraday) and STATE.md. Todos 569 and 570 closed on the 2026-10-31 audit; the 34 grid_parity names are todo 573.",
+    "Intraday names outside stage 2: 192 pass every intraday verdict but lack 1d rows (build after their 1d clears); 34 grid_parity names (todo 573); 51 slot_coverage and 33 digest_fresh failures clear as the fetcher backfill advances (digest_fresh moves with each fetched bar, re-read at the next audit).",
+    "Hold list: recount against the era-scoped session_coverage (191-SESSION-COVERAGE-ERA-FAILS.tsv); 156 names still fail, 71 todo 566 names clear after the derive; build newly clean names as their own stage with only the new names in --symbols (never re-chunk a merged list).",
+    "Drift: 27 stage 1 names grew history (todo 566 list); delete their feature rows and rebuild at the 186-27 drift read.",
+    "Todo 564 kernel-edit batch (hma_slope_z NaN warmup, dead-column applicability, config field rename, _PMC_RANGE_START 2005 to 2000): recount the 1d session_coverage era first, then one batch, then a new pin.",
+    "Plans 191-24 and 191-25 (dead Tradier code in fetcher scripts and ops scripts) last; 24 needs a fetcher stop window."
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    "E17 horizon-tied HAC lag amendment (todo 547): the daily residual spec's B2 size battery fails at h=5 without it",
+    "Todo 562: multi-family power plant decision",
+    "Plan 191-25: approve deleting the Tradier arm of daily_rule (plans 21 to 25 forbid editing it)",
+    "listing_venue official-close source (the writer now leaves a moved name unresolved without one)"
+  ],
+  "uncommitted_files": [],
+  "next_action": "Resume with two sessions (data, research) per STATE.md 'Restart order'. Data lane: read the intraday audit report, then the next 186-26 stage; never edit anything the pinned rebuild tree imports. Research lane: waits on the owner's E17 and 562 decisions.",
+  "context_notes": "2026-10-30: gates are evidence-based. Two inference rules for counting a missing 1d bar as no-trade failed independent review and were deleted; session_coverage is scoped to the calendar's first session (2005-01-03), see 191-SESSION-COVERAGE-FIX.md. Test a migration only with its own BEGIN/COMMIT stripped inside your own rolled-back transaction. Check pytest's exit code before any commit. Wait for a systemd oneshot by InvocationID change and ActiveState inactive or failed ('is-active' is false while activating). Daily 1d derive timer indicagent-bar-derivation-daily runs 05:20 UTC. Sudo helper: memory user_sudo_password.md. 2026-10-31: the 1d ledger bounds now refresh in the same transaction as each daily raw write (9fbf66651); runs end at the 5 h service limit so any end-of-run stage never runs. Start a oneshot audit with sudo systemctl start --no-block.",
+  "next_steps": [],
+  "history_2026_10_16": [
+    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically"
+  ],
+  "completed_tasks": [
+    "2026-10-26 13:00Z: gateway re-authenticated (owner approved the 2FA push after 8 days); fetcher timer active and running; backlog 1d+5m since 2026-10-16/17 clearing automatically",
+    "191-19: harness landed and reviewed (fix review PASS); readiness amended 2026-10-23 to the evidence basis (ask / raw bar / definitive no_data window / verified head; empty-history spans excluded; --frozen-names for todo 519): 1,088 settled, 437 unsettled (weekly cycle asks them), 4 frozen. Commits b0280dbbc..5401d4a0d",
+    "191-18 done: todo 530 closed, indexes reconciled, completed_plans 120 (0ceb8089a); review PASS with three P3 wording fixes (efcab4920)",
+    "191-17 done: market_data_ohlcv_old dropped (461M rows), five infra.canonical_swap.* APR keys retired (501/502); review P2+2P3 fixed",
+    "Todo 537 item 2 scan RUN (todo 535 item 51): LEN eligible now, RTX modulo 2 late corrections, SSP excluded (IBKR basis rescaled), big-cap cohort at ~75% coverage = old 7300d horizon, re-measures after the cycle; restore deferred to plan 20 checkpoint",
+    "Earlier: 191-01..16 done and reviewed; plan 14 table swap; plans 15-16 ops conversion + backup + drops; see 191-*-SUMMARY.md"
+  ]
 }
