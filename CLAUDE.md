@@ -23,7 +23,10 @@ Before committing, `git fetch` and read `git status -sb`; if main is ahead and b
 ```
 1. Gate by diff class (decide up front). /simplify and /review run on EVERY code
    change, small or substantive (owner 2026-10-31: all code gets both gates; aim
-   for elegant solutions — right altitude, minimal mechanism):
+   for elegant solutions — right altitude, minimal mechanism). Agent work iterates
+   to convergence (owner 2026-10-31): loop fix -> review -> fix until the review
+   finds nothing material and the solution's logic and methodology are ~97% certain
+   to achieve the goal, elegant and refined — one pass is not done:
    - docs/planning only: the test that consumes the files, then commit
    - small code change (single area, no schema or src/intelligence/research|statistics):
      /simplify -> /review -> targeted tests for the touched area, then commit
