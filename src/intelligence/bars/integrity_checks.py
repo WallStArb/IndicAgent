@@ -153,6 +153,10 @@ CHECKS_1D = (
 # Reported per name, never a verdict that can fail (the name's history starts at its first
 # primary bar; the count is what the report shows).
 INFO_REFUSED_HEAD = "refused_head_1d"
+# Reported per name, never a verdict that can fail (todo 566 class B): sessions the primary
+# vendor's symbol row names but did not answer and no fallback covers, by design; the count is
+# what the report shows.
+INFO_UNSERVED_PRIMARY = "unserved_primary_1d"
 # Reported per name, never a gate check (plan 185-51): fails while the name is held
 # (bar_hold_current); the metric is the number of open holds.
 INFO_HELD = "held_1d"
@@ -211,6 +215,8 @@ class NameInputs1d:
 class NameReport1d:
     verdicts: list[Verdict]
     refused_head: int
+    # sessions the primary did not answer and no fallback covers (by design, todo 566 class B)
+    unserved_primary: int = 0
     # unexplained Alpaca/IBKR runs after the arbitration (alpaca_basis_run)
     alpaca_runs: list[BasisRun] = field(default_factory=list)
 
@@ -441,7 +447,9 @@ def judge_name_1d(
             listing_end=inputs.listing_end,
         )
     )
-    return NameReport1d(verdicts, len(derived.refused_head), alpaca_runs)
+    return NameReport1d(
+        verdicts, len(derived.refused_head), len(derived.unserved_primary), alpaca_runs
+    )
 
 
 # ---------------------------------------------------------------------------

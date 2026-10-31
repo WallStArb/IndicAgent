@@ -112,6 +112,7 @@ from src.intelligence.bars.integrity_checks import (
     INFO_DIGEST_FULL_SWEEP,
     INFO_HELD,
     INFO_REFUSED_HEAD,
+    INFO_UNSERVED_PRIMARY,
     SWEEP_SUBJECT,
     NameInputs1d,
     StoredBar,
@@ -2335,6 +2336,17 @@ class BarReconciliationAudit(BaseBatch):
                     subject,
                     INFO_REFUSED_HEAD,
                     float(report.refused_head),
+                    None,
+                    True,
+                    twe,
+                )
+            )
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    subject,
+                    INFO_UNSERVED_PRIMARY,
+                    float(report.unserved_primary),
                     None,
                     True,
                     twe,
