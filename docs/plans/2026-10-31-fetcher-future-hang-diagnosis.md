@@ -1,11 +1,15 @@
 # The unresolved-future hang family: fetcher wedge and the stage 2 factory reclassification
 
 Status: diagnosis, 2026-10-31. Author: data lane session (indicagent-93). Informed by: py-spy
-dumps and cgroup reads taken by indicagent-9f (the dumps live in
-`logs/todo538_fetched_dump_20261031_2135z.txt` and a +5min comparison), the factory and fetcher
-logs, and `feature_vectors_v2` counts. Read-only: no code landed against either site; both are
-in live import closures (the fetcher is the owner's P0 unit, the factory runs the pinned
-rebuild). Fixes land in a stop window after this is reviewed (todo 538).
+dumps and cgroup reads taken by indicagent-9f (fetcher dumps preserved at
+`logs/todo538_fetched_dump_20261031_2135z.txt` and `..._2145z.txt`; the 21:20Z factory dump was
+NOT saved to disk and reaches this doc only as the verbatim stack quoted in the factory
+section below), the factory and fetcher logs (the factory log is
+`/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log`, the pinned tree's own copy;
+the main checkout has an unrelated same-named 1d log), and `feature_vectors_v2` counts.
+Read-only: no code landed against either site; both are in live import closures (the fetcher
+is the owner's P0 unit, the factory runs the pinned rebuild). Fixes land in a stop window
+after this is reviewed (todo 538).
 
 ## The family, one sentence each
 
@@ -13,7 +17,7 @@ rebuild). Fixes land in a stop window after this is reviewed (todo 538).
   never resolves while the gateway TCP connection stays ESTABLISHED; the loop is alive, the
   await is protocol-level, and the run idles at zero CPU until killed.
 - **Factory (186-26 stage 2, reclassified, not a wedge):** the main process parks in
-  `result()` between group writes for 50-91 minutes at a time by design. The 2026-10-31 21:20Z
+  `result()` between group writes, gaps from 17 minutes up to about 91, by design. The 2026-10-31 21:20Z
   "wedge" was a healthy run killed 18 minutes into a normal gap, on health signals that do not
   apply to a group-batched rebuild.
 
@@ -29,10 +33,15 @@ The 13:45Z stage 2 launch (1,252 names, 8 workers, MemoryMax 14G) was healthy al
   main waits in `result()` while 8 workers compute the next group; `_write_group` writes only
   when a whole group's units finish. Main-in-`result()` with zero main CPU is the designed
   idle, not a hang.
-- The 21:20Z dump shows a healthy pool shape: main in `result()`, the executor management
-  thread alive in `wait_result_broken_or_wakeup` (a dead pool would EOF its worker sentinels
-  and fail the futures with BrokenProcessPool instead of hanging), direct children
-  resource-tracker + forkserver. Worker liveness under the forkserver was not enumerated
+- The 21:20Z dump (relayed verbatim by indicagent-9f; the raw dump was not saved) shows a
+  healthy pool shape:
+  `MainThread: wait (threading.py:369) <- result (concurrent/futures/_base.py:445) <-
+  _write_group (backfill_feature_factory.py:1473) <- run_rebuild_stage (:1695) <- main (:1856)`,
+  and `Thread-1 (executor management thread): select (selectors.py:398) <- wait
+  (multiprocessing/connection.py:1187) <- wait_result_broken_or_wakeup
+  (concurrent/futures/process.py:416)`. A dead pool would EOF its worker sentinels and fail
+  the futures with BrokenProcessPool instead of hanging; direct children were only the
+  resource tracker and the forkserver. Worker liveness under the forkserver was not enumerated
   before the kill; that is the one missing measurement, and it changes nothing above because
   the cadence was normal.
 - The run was stopped at 21:20Z, 18 minutes after its last write. That kill was a mistake
@@ -40,11 +49,14 @@ The 13:45Z stage 2 launch (1,252 names, 8 workers, MemoryMax 14G) was healthy al
   children (Python 3.14 pools parent workers to the forkserver), "silent since relaunch" read
   from the wrong log and without the group-cadence baseline, and "zero rows written" from a
   snapshot taken after the writes had already landed.
-- One real anomaly remains open: the unit's `memory.peak` sat exactly at the MemoryMax 14G cap
-  with 645 `memory.events` max hits and `oom_kill 0`. Groups completed under it all day, so it
-  is not proven harmful, but it is the standing risk: a 5m group whose workers plus main
-  overflow the cap thrashes in direct reclaim, and that would look like ever-lengthening gaps
-  ending in a genuine stuck-workers hang.
+- One real anomaly remains open: the killed unit's `memory.peak` sat exactly at the MemoryMax
+  14G cap with 645 `memory.events` max hits and `oom_kill 0`. One-shot caveat: these were read
+  from the transient unit `feature-rebuild-intraday.service`'s cgroup shortly before the stop,
+  and `memory.peak` resets at cgroup teardown, so the numbers are not re-checkable; the
+  protocol below re-reads them per run. Groups completed under the cap all day, so it is not
+  proven harmful, but it is the standing risk: a 5m group whose workers plus main overflow the
+  cap thrashes in direct reclaim, and that would look like ever-lengthening gaps ending in a
+  genuine stuck-workers hang.
 
 ### Factory health protocol (supersedes process-presence checks)
 
@@ -65,7 +77,10 @@ The 13:45Z stage 2 launch (1,252 names, 8 workers, MemoryMax 14G) was healthy al
 Facts from the 2026-10-31 occurrence (dump at 21:35Z, pid 1710629, run started 21:25:32Z):
 
 - Healthy runs log `batch_computer.pool_open` within 0-6s of `fetcher_lock.acquired`. This run
-  logged nothing after the acquire, for 25+ minutes and counting at dump time.
+  logged nothing after the acquire: about 10 minutes of silence at the first dump (21:35Z), 17
+  or so by the second (21:45Z). Honest corollary: the diagnosis's own earlier 10-minute
+  watchdog bound would have fired before the first dump was taken, which is why the proposed
+  abort bound is 30 minutes with pacing counted as progress.
 - The event loop is ALIVE: epoll wait with a 144.25s timeout, 14 timer handles scheduled, the
   outer task (`run_until_complete`'s Task) unresolved. This is not CPU starvation and not a
   dead loop.
@@ -88,9 +103,13 @@ one frame deeper), which identifies the sleeper directly.
 
 So the awaited future resolves only when an IBKR API message arrives, and none arrives. On
 loopback that means the gateway process is alive enough to hold TCP but its API session never
-answers and never errors: a wedged or never-quiesced gateway session (candidates: a session
-left mid-handshake after the nightly restart, a 2FA-pending session, an internal gateway
-deadlock), or a dropped callback resolution inside ib_async. The earlier teardown variants
+answers and never errors. The log rules out one candidate for THIS occurrence: between the
+21:25:32Z acquire and the silence the gateway completed full logon and sync (server version
+178, all data farms OK, API connection ready, position and portfolio sync, Synchronization
+complete, IBKR connected), so the session was fully quiesced, not mid-handshake. Remaining
+candidates: a gateway session that wedges after a clean quiesce (internal gateway deadlock),
+or a dropped callback resolution inside ib_async. The next occurrence should record whether
+the gateway log also went quiet at the same instant. The earlier teardown variants
 (plan 16, twice; the 08:14 EDT and 11:17 EDT runs) and today's mid-run variants (16:50Z run:
 pool_open events to 17:07Z then silence, 7s CPU over 4.5h; the 15:17Z run that recovered after
 3617s) are the same shape with different durations: an await with no timeout, sometimes
@@ -113,12 +132,16 @@ pacing stall is minutes and is logged by a23af3551's pacing line, which the watc
 as progress), `infra.ibkr.request_timeout_s` 300 (per-request bound; typical answers are
 seconds, the teardown hang is forever).
 
-1. **Post-acquire watchdog:** a task started at `fetcher_lock.acquired` that every 60s, while
-   no item completed since its last tick, logs all pending asyncio tasks with their coroutines
-   (`asyncio.all_tasks()`, `task.get_stack()`); after an APR bound (start estimate 10 min,
-   `infra.ibkr.stall_warn_s`) it aborts the run loudly (nonzero exit; systemd restarts, the
-   lock frees, the 534 lane resumes). This names the unresolved await directly on the very
-   next occurrence, and turns every future wedge into a 10-minute loss instead of hours.
+1. **Post-acquire watchdog:** a task started at `fetcher_lock.acquired` that every
+   `stall_tick_s` logs, while no item completed since its last tick, all pending asyncio tasks
+   with their coroutines (`asyncio.all_tasks()`, `task.get_stack()`); after `stall_abort_s` of
+   no progress it aborts the run loudly (nonzero exit; systemd restarts, the lock frees, the
+   534 lane resumes). The progress signal is item completions OR an open pacing wait: a
+   documented-healthy pacing cluster (the limiter is 58 requests per 10 minutes, and a run
+   once sat 3617s and recovered) must never trip the abort, so any open
+   `hist_pacing_wait_release` window suppresses it. This names the unresolved await directly
+   on the very next occurrence, and turns every future wedge into a bounded loss instead of
+   hours.
 2. **Teardown timeout:** the whole disconnect sequence wrapped in `asyncio.wait_for` (30s) so
    a lost-gateway teardown exits nonzero with a logged cause instead of parking in `select`
    (the todo's original acceptance criterion).
