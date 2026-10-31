@@ -14,17 +14,12 @@ A term is a mathematical claim. Using two terms for the same concept introduces 
 
 This document feeds the naming system: `docs/foundation/naming-system.md` defines how to surface a concept across code layers; this document defines what the concept IS.
 
-**Stage vs. mechanism:** `docs/intelligence/intelligence-layer-architecture.md` names
-AlphaEngine's internal stages (Stage 0 Primitive Measurement, Stage 1 Stratification, Stage 2
-Edge Measurement, Stage 3 Combination, Stage 4 Emission) generically, separate from the specific
-statistical mechanism each stage currently uses (`FeatureFactory`, `HMM`, `IC`,
-`Ensemble`/Ledoit-Wolf, threshold crossing). These are deliberately called "stages," not
-"layers" — `Layer 1/2/3` already names the outer Prediction/Portfolio/Execution architecture
-(see `AlphaEngine` below); the two numbering schemes are unrelated and must not be conflated.
-Several entries below (`regime`, `Information Coefficient`, `AlphaEngine`) name a stage's
-current mechanism; that doc is the canonical place the stage/mechanism distinction is made
-explicit and should be consulted before assuming a mechanism name (e.g. "HMM") is the stage's
-permanent identity.
+**Stage vs. mechanism (historical):** `docs/intelligence/intelligence-layer-architecture.md`
+named AlphaEngine's internal stages (Stage 0 Primitive Measurement through Stage 4 Emission)
+generically, separate from the mechanism filling each stage (`FeatureFactory`, `HMM`, `IC`,
+`Ensemble`/Ledoit-Wolf, threshold crossing); see the `AlphaEngine` and `Stage 0`-`Stage 4`
+entries, all retired 2026-09-26. The distinction still matters: a mechanism name (e.g. "HMM")
+is never a concept's permanent identity.
 
 ---
 
@@ -71,12 +66,12 @@ When both exist, the industry-standard term is the concept; the project-specific
 
 ### `signal`
 
-A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. **v2.x definition — the mechanism that produced it has no live consumer as of 2026-07-02** (see CLAUDE.md Architecture). Was produced by I7 plugins, persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer), with a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`. `signal_events` is confirmed empty in production (verified 2026-09-04). The live v3.0 analog is an `alpha_events` row, produced by the `alpha emitter` functional slot — see that entry and the `Signal Ledger Architecture (SLA)` entry below.
+A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. **v2.x definition — the mechanism that produced it has no live consumer as of 2026-07-02** (see CLAUDE.md Architecture). Was produced by I7 plugins, persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer), with a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`. `signal_events` is confirmed empty in production (verified 2026-09-04). The retired v3.0 analog was an `alpha_events` row (also deleted, phase 186); today the closest live concepts are the research layer's `attempt` and `book forecast` (E15), and `signal` itself is retired vocabulary in new code.
 
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
 **Banned:** (none)
-**Status:** archived (v2.x) — see `alpha_events` for the live v3.0 equivalent
+**Status:** retired (v2.x mechanism deleted; the v3.0 `alpha_events` chain was deleted in phase 186) — see `attempt` and `book` for the current research-layer equivalents
 
 **Code surface:** `signal_events` table (Phase 128+, archived, 0 rows in production), `SignalTracker`, `SignalWriter` — `indicagent-signal-tracker-compute.service` and `indicagent-signal-writer.service` both `inactive (dead)` (verified 2026-09-04). Legacy: `signal_ledger` monolith (read-only during v2.10 migration, dropped in Phase 130).
 
@@ -84,7 +79,7 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 ### `regime`
 
-A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, precedent retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers, see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
+A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, precedent retrieval). Formerly produced by Stage 1 (Stratification) of the retired AlphaEngine internal layers (see that entry). Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
 
 - **Idiosyncratic regime** (aka **symbol regime**), per-symbol `GaussianHMM` state fit per (symbol, timeframe) from a 2-dimensional observation vector: realized volatility and volatility-of-volatility only. K (2 or 3 states) is configured by `alpha.hmm_volatility.n_components`; the live default is K=3 with labels `calm`, `elevated`, `turbulent`, ordered by realized volatility ascending. Fit walk-forward on an expanding window, so no parameter used to label a bar is ever estimated from data later than that bar. Stored in `feature_vectors.regime_volatility`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component, parallel to how `sensitivity`/`factor_regime` also operate at security scope.
 
@@ -167,36 +162,27 @@ Industry-standard term for the layer that detects and classifies market conditio
 
 ### `signal generation`
 
-Industry-standard term for the process that converts predictive scores into actionable trade signals. A signal is a time-stamped, scored trade hypothesis with defined entry/exit logic. In this codebase, realized through `alpha emitter` functional slot.
+Industry-standard term for the process that converts predictive scores into actionable trade signals. A signal is a time-stamped, scored trade hypothesis with defined entry/exit logic.
 
 **Industry standard:** Every quant system has a signal generation boundary — prediction produces a continuous score; signal generation applies thresholds, confidence gates, and risk filters to emit discrete actionable events. This is where "predictive model" becomes "trade decision."
 
-**Our implementation:** `alpha emitter` (`alpha_publisher.py`) applies a four-gate stack —
-`effective_n >= alpha.ensemble.effective_n_gate`, `|alpha_score| > alpha.quant.threshold.{tf}`
-(per-timeframe only, not per-symbol/regime — see todo 065's EM-CAL calibration proposal for
-whether per-regime granularity is ever earned), direction-aware CI + cost hurdle
-(`(alpha_score>0 AND ci_lower>cost_hurdle) OR (alpha_score<0 AND ci_upper<-cost_hurdle)`), and
-non-empty `top_features` — → `alpha_events` table.
+**Our implementation:** was the `alpha emitter` slot (`alpha_publisher.py`'s four-gate stack writing `alpha_events`), deleted in phase 186. The live successor concept is the `forward runner` (phase 188); the emission gating idea survives as E15's counted, pre-registered tests.
 
-**See also:** `alpha emitter`, `signal` (core trading term), `alpha_events`
-
-**Status:** design (v3.0 Phase C)
+**Status:** design (v3.0 Phase C, never shipped); the v3.0 implementation was retired with the old chain
 **Banned:** trade signaler
-**Avoid:** "emitter" as a standalone name (use `signal generation` or `alpha emitter`)
+**Avoid:** "emitter" as a standalone name (use `signal generation`)
 
 ---
 
 ### `portfolio construction`
 
-Industry-standard term for the layer that converts signals into positions. Takes emitted signals as input, applies position sizing, risk limits, and portfolio constraints, outputs trade frames. In this codebase, Layer 2 of the four-layer architecture.
+Industry-standard term for the layer that converts signals into positions. Takes emitted signals as input, applies position sizing, risk limits, and portfolio constraints, outputs positions.
 
-**Industry standard:** Signal generation (Layer 1) and portfolio construction (Layer 2) are distinct concerns. A signal says "buy X"; portfolio construction says "buy N contracts of X given current portfolio, risk limits, and capital."
+**Industry standard:** Signal generation and portfolio construction are distinct concerns. A signal says "buy X"; portfolio construction says "buy N contracts of X given current portfolio, risk limits, and capital."
 
-**Our implementation:** Planned as Layer 2 — reads `alpha_events`, applies Kelly-inspired sizing, regime-aware risk limits, correlation constraints, writes `trade_frames` (hypothesis layer) and eventually `trade_executions` (execution layer).
+**Our implementation:** was planned as Layer 2 over `alpha_events`; never built, and the tables it would have read were deleted in phase 186. The live successor concept is the capital tier (`portfolio_state`, sizing, phase 188 of the unified design).
 
-**See also:** `Signal Ledger Architecture`, `trade_frames`, `trade_executions`, `docs/signals/signal-trade-separation-ADR.md`
-
-**Status:** design (v3.0, post-Phase C)
+**Status:** design (v3.0, post-Phase C, never built); successor is the unified design's capital tier
 **Banned:** position builder, sizing layer
 
 ---
@@ -207,11 +193,9 @@ Industry-standard term for the layer that handles order routing, execution, and 
 
 **Industry standard:** Order Management System (OMS) is the industry term for the component that manages the lifecycle of an order from submission to fill. Key functions: order routing, split orders, partial fill handling, fill reconciliation, slippage measurement.
 
-**Our implementation:** Layer 3 (Execution) — submits orders to IBKR, tracks fills via `trade_executions` table, records `actual_pnl_r` vs `counterfactual_pnl_r` for execution quality measurement.
+**Our implementation:** never built; the Layer 3 sketch (IBKR order submission, `trade_executions`, execution-quality measurement) predates the unified design. The live successor concept is the unified design's execution tier (phase 188).
 
-**See also:** `trade_executions`, `counterfactual_pnl_r`, `execution layer` (SLA)
-
-**Status:** design (v3.0, post-portfolio construction)
+**Status:** design (v3.0, post-portfolio construction, never built); successor is the unified design's execution tier
 **Banned:** execution engine
 **Avoid:** "trader" as a system component name (use `order management` or `execution layer`)
 
@@ -221,7 +205,7 @@ Industry-standard term for the layer that handles order routing, execution, and 
 
 The layer that transforms raw market data (OHLCV) into measurable features — deterministic, stateless transformations with no market theory embedded. These are primitives: different researchers with the same data compute identical numbers. Industry-standard term; see naming convention above.
 
-**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
+**Current implementation:** `FeatureFactory` (I1-I4 cadence tiers; the "54 features" count is historical)
 **Output:** `FeatureVector` → `feature_vectors` table
 **Rebuilt table:** `feature_vectors_v2` (312 columns, PK `symbol, tf, bar_ts`, 1-year chunks) is written only by the rebuild writer through `bulk_load`, and takes the `feature_vectors` name at the swap in phase 186-27.
 **Not:** synonymous with "Feature Factory" — FeatureFactory is the mechanism; signal processing layer is the generic concept. Other implementations could exist (different feature sets, different computation strategies) without changing what this layer IS.
@@ -230,8 +214,8 @@ The layer that transforms raw market data (OHLCV) into measurable features — d
 
 **Synonyms:** `feature engineering layer` (ML community), `feature extraction layer` (signal processing). All refer to the same concept: raw data in, measurable features out.
 
-**Status:** active (mechanism live)
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` Stage 0
+**Status:** active (mechanism live; the "54 features" count and the Stage 0 framing above are historical - the current rebuild table is `feature_vectors_v2` becoming `feature_vectors` in phase 186-27)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical; Stage 0 is retired)
 
 ---
 
@@ -675,19 +659,13 @@ ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone frict
 
 ### `Shadow Governance (SG)`
 
-The statistical lifecycle that governs promotion and demotion of all I7 plugins and AI agents. Auto-enrollment at startup → shadow observation (live data, zero production impact) → statistical evaluation → gate → promotion → continuous monitoring → automatic demotion.
+**Legacy (retired 2026-09-26, unified design section 15.2):** the statistical lifecycle that was to govern promotion and demotion of I7 plugins and AI agents (auto-enrollment, shadow observation, gate at `n >= 100` resolved signals with `bootstrap_ci_lower(pnl_r) > 0.0`, demotion at `EV[R] < -0.05` for 3 consecutive cycles). Never shipped; the `shadow_registry` code surface does not exist.
 
-**Gate:** `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0` at 95% CI. Both conditions required. Sample size alone is not sufficient.
-
-**Demotion:** `EV[R] < -0.05` for 3 consecutive evaluation cycles. Automatic and inviolable — cannot be overridden by configuration or manual DB edit.
-
-**Not:** a logging mechanism or monitoring dashboard. SG is the statistical control loop that determines whether a component earns production influence.
+**Not:** a logging mechanism or monitoring dashboard.
 
 **Banned:** (none)
-**Avoid:** "shadow mode" as the name of this whole system (shadow mode is one phase of SG; as a practice, "shadow mode first", it is fine)
-**Status:** active
-
-**Code surface:** `shadow_registry` table; `shadow_registry_ensure()` at service startup; `ShadowTransitionEvent` on Kafka; `bootstrap_ci_lower()` in `src/core/stats_utils.py`.
+**Avoid:** "shadow mode" as the name of a whole system (shadow mode is one phase; as a practice, "shadow mode first", it is fine)
+**Replacement:** the sealed shadow around frozen books (`BookTracker`, phase 188, unified design 7.3.6); the statistical gate idea survives in E15-E18.
 
 ---
 
@@ -739,29 +717,11 @@ code; do not conflate the two when reading history.
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: the unified research-to-production pipeline (no single system name); IC measurement is `ic_measure`, combination is the research layer's combiner.
 
-The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 (Prediction) of the four-layer architecture — Layer 0 (Data) → Layer 1 (Prediction) → Layer 2 (Portfolio) → Layer 3 (Execution); see `docs/intelligence/intelligence-alphaengine.md` "Three-Layer Architecture" (name kept for continuity, now describes four layers with Layer 0 made explicit). Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
+The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission, the full Layer 1 (Prediction) of the retired four-layer architecture (Data → Prediction → Portfolio → Execution). Parametric — measured Spearman IC between each `FeatureVector` column and subsequent forward returns, derived Ledoit-Wolf ensemble weights, scored every bar, emitted `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`. Ran as cold batch jobs (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter).
 
-Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
+**Status:** retired — the whole chain (ensemble_trainer, ensemble_ic_engine, alpha_publisher, alpha_scorer, the `ensemble_alpha`/`ensemble_weights`/`alpha_events`/`alpha_frames` tables) was deleted in phase 186; `feature_vectors` and FeatureFactory remain live.
 
-**Distinction from PrecedentEngine:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). PrecedentEngine is non-parametric (k-NN retrieval of similar historical bar states). PrecedentEngine is not a second AlphaEngine — its precedent-derived predictors register into and are weighted by this same engine, per the `PrecedentEngine` entry below. Gated: PrecedentEngine does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
-
-**Not:** an enrichment annotator on `signal_events`. AlphaEngine replaces the I5-I7 plugin stack as the primary alpha source. It does not annotate the old signal architecture — it supersedes it.
-
-**Plain role noun.** Services prefixed `alpha-`. APR namespace: `alpha.*`.
-
-**Status:** active — live (v3.0 Phases A-C shipped). `feature_vectors` (106M+ rows),
-`feature_ic_scores` (1.9M+ rows), `ensemble_alpha` (88M+ rows),
-and `alpha_events` (70M+ rows) all confirmed populated 2026-09-04 (`forward_returns`, 103M+ rows then, was dropped in phase 186 plan 23); `indicagent-feature-vector-pipeline`
-and `indicagent-feature-vector-writer` confirmed `active running` same date. IC measurement, Ensemble
-Builder, and Alpha Emitter run as batch jobs (no persistent systemd unit — see CLAUDE.md ML batch
-services note), not daemons.
-
-**Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md`
-
-**Internal stages:** `docs/intelligence/intelligence-layer-architecture.md` breaks this Layer 1
-down further into Stage 0-4 (Primitive Measurement → Stratification → Edge Measurement →
-Combination → Emission), naming each stage's contract separately from its current mechanism.
-"Stage" is used there specifically to avoid colliding with this entry's `Layer 1`.
+**Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md`; replacement: `docs/plans/2026-09-26-unified-research-to-production-design.md`.
 
 **Formerly called:** "Intelligence Vectors" (internal working name — avoid)
 
@@ -771,22 +731,17 @@ Combination → Emission), naming each stage's contract separately from its curr
 
 **Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
-AlphaEngine's first internal stage. Contract: raw OHLCV bar in, a fixed-width vector of scalar
-measurements out. No theory, no conditioning on state. Current mechanism: `FeatureFactory`
-producing `FeatureVector`.
+AlphaEngine's first internal stage: raw OHLCV bar in, a fixed-width vector of scalar measurements out, mechanism `FeatureFactory` producing `FeatureVector`.
 
-**Not:** a synonym for `FeatureFactory` — `FeatureFactory` is the mechanism; Stage 0 is the
-contract it fills. Not `Layer 1`/`Layer 2`/`Layer 3` (the outer Prediction/Portfolio/Execution
-architecture) — unrelated numbering scheme, see `AlphaEngine`.
 **Banned:** (none)
 **Avoid:** "measurement layer" or "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
 sub-structure *within* Stage 0's mechanism, not the stage itself)
-**Status:** active (mechanism live). The feature tier taxonomy (`0_atomic`, `1_interaction`,
-`2_theory`) is retired (migration 533, 2026-10-28): the `2_theory` split was not a real
+**Status:** retired (2026-09-26). The feature tier taxonomy (`0_atomic`, `1_interaction`,
+`2_theory`) is retired separately (migration 533, 2026-10-28): the `2_theory` split was not a real
 distinction. A feature row carries `concept_registry.metadata->>'composition'`, `base` (computed
 from a name's own bars or the timestamp) or `interaction` (built from other features); the two
 codes are CVR namespace `composition` and `vocabulary_drift.py` audits it.
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical)
 
 ---
 
@@ -794,21 +749,14 @@ codes are CVR namespace `composition` and `vocabulary_drift.py` audits it.
 
 **Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
-AlphaEngine's second internal stage. Contract: the `FeatureVector` corpus in, a discrete
-conditioning-state label per bar out. Current mechanism: `regime`, produced by two coexisting
-implementations — per-symbol `GaussianHMM` (**idiosyncratic**/**symbol** regime) and a
-cross-sectional VIX×breadth model (**systematic**/**market** regime) — see `MEMORY.md` "Dual
-Regime System" and the `regime` glossary entry for the sanctioned vocabulary distinguishing them.
+AlphaEngine's second internal stage: the `FeatureVector` corpus in, a discrete conditioning-state label per bar out, mechanism `regime` (dual regime system, see the `regime` entry).
 
-**Not:** a synonym for `HMM` or `GaussianHMM` — those are the mechanism; `regime`/Stage 1 is the
-contract. A different classifier (IOHMM, factor-augmented HMM, threshold rules) could fill this
-slot without changing what downstream stages expect from it.
 **Banned:** (none)
 **Avoid:** "HMM layer" or "regime layer" as if regime IS the layer rather than its current output
-**Status:** active (mechanism live); alternative stratification dimensions (Volume Regime,
+**Status:** retired (2026-09-26); the regime mechanisms themselves are live. Alternative stratification dimensions (Volume Regime,
 Skew/Tail Regime) proposed and archived pending an orthogonality proof mechanism that does not
 yet exist (see intelligence-layer-architecture.md's "gaps" section)
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical)
 
 ---
 
@@ -816,17 +764,12 @@ yet exist (see intelligence-layer-architecture.md's "gaps" section)
 
 **Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
-AlphaEngine's third internal stage. Contract: a `FeatureVector` column (optionally stratified by
-a Stage 1 label) plus forward returns in, a predictive statistic with a confidence interval out.
-Current mechanism: `IC Engine`, using Spearman `Information Coefficient`.
+AlphaEngine's third internal stage: a `FeatureVector` column (optionally stratified by a Stage 1 label) plus forward returns in, a predictive statistic with a confidence interval out, mechanism IC measurement (Spearman `Information Coefficient`).
 
-**Not:** a synonym for `IC` or `Information Coefficient` — IC is the mechanism; Stage 2 is the
-contract. Mutual information or other nonlinear-dependence measures are real, not-yet-built
-candidates for an additional or alternative mechanism at this stage.
 **Banned:** (none)
 **Avoid:** "IC layer" as if IC IS the layer rather than its current statistic
-**Status:** active (mechanism live)
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+**Status:** retired (2026-09-26); IC measurement itself is live (`ic_measure`, see that entry)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical)
 
 ---
 
@@ -834,20 +777,13 @@ candidates for an additional or alternative mechanism at this stage.
 
 **Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
-AlphaEngine's fourth internal stage. Contract: many Stage-2-scored features in, one scalar
-composite score per bar out. Current mechanism: `Ensemble`, IC-Sharpe-weighted with Ledoit-Wolf
-covariance shrinkage, `alpha_score` output.
+AlphaEngine's fourth internal stage: many Stage-2-scored features in, one scalar composite score per bar out, mechanism `Ensemble` (IC-Sharpe-weighted with Ledoit-Wolf covariance shrinkage, `alpha_score` output).
 
-**Not:** a synonym for `Ledoit-Wolf` or any single `weight_method` — those are mechanisms; Stage 3
-is the contract. This is the one stage where multiple mechanisms already coexist by design:
-`weight_method ∈ {ic_proportional, v1_shrunk, mean_variance}` (142A/142B.1), A/B-judged per
-(timeframe, regime) stratum.
 **Banned:** (none)
 **Avoid:** "ensemble layer" as a mechanism-specific name (fine as a stage description, not as if
 Ledoit-Wolf were the only possible weighting method)
-**Status:** active, multi-mechanism (142A/142B.1 shipped `v1_shrunk`/`mean_variance` as code
-paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — see todo 058)
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+**Status:** retired (2026-09-26); combination is now the research layer's `combiner`
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical)
 
 ---
 
@@ -855,16 +791,10 @@ paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — se
 
 **Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
-AlphaEngine's fifth and final internal stage. Contract: a per-bar composite score in, a discrete
-timestamped tradeable event out, gated on magnitude and confidence. Current mechanism: a
-four-gate stack in `alpha_publisher.py` — `effective_n` floor, per-timeframe `|alpha_score| >
-alpha.quant.threshold.{tf}` (not per-symbol/regime), direction-aware CI + cost hurdle, and
-non-empty `top_features` — writing `alpha_events`.
+AlphaEngine's fifth and final internal stage: a per-bar composite score in, a discrete timestamped tradeable event out, mechanism `alpha_publisher.py`'s four-gate stack writing `alpha_events`.
 
-**Not:** a synonym for "alpha emitter" as a service name — Stage 4 is the contract; the Alpha
-Emitter component is one mechanism fulfilling it.
-**Status:** active (mechanism live)
-**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+**Status:** retired (2026-09-26); the closest live concept is the `forward runner` (phase 188)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical)
 
 ---
 
@@ -991,18 +921,13 @@ The gap between `counterfactual_pnl_r` (hypothesis layer) and `actual_pnl_r` (ex
 Both share the same underlying idea (measure the outcome of every hypothesis, not just
 executed ones, to avoid survivorship bias) but are separate code paths on separate tables.
 
-This is the ML training target for SignalRanker and all downstream ML models. Training on `actual_pnl_r` introduces survivorship bias (only executed signals have outcomes). Training on `counterfactual_pnl_r` eliminates it — every signal hypothesis has a measured outcome.
-
-**Not:** a backtested result (which implies fitting to historical data). Counterfactual pnl_r is a forward measurement on live price action after signal emission.
+**Not:** a backtested result (which implies fitting to historical data). Counterfactual pnl_r is a forward measurement on price action after the hypothesis.
 
 **Banned:** paper pnl, simulated pnl
-**Status:** v2.x (`trade_frames`) archived; v3.0 (`alpha_frames`) active (Phase 142B+143, live)
+**Status:** retired — both implementations are gone (v2.x `trade_frames` archived 2026-07; v3.0 `alpha_frames` and the tracker deleted in phase 186 plan 19). The survivorship-bias principle it carried is now E15's counted-evidence rule; the forward runner (phase 188) measures book outcomes.
 
 **See also:** `cross-sectional spread construction` (`construction_spreads`) — a parallel
-measurement path, not a layer of this pipeline. Both measure a hypothesis's outcome before any
-live capital is committed, but `counterfactual_pnl_r` scores a single-symbol directional
-`alpha_frames` bet while a spread has no symbol, no direction, and is measured at portfolio
-level.
+measurement path, also retired with the old chain (phase 186).
 
 ---
 
@@ -1020,50 +945,23 @@ level.
   bar-by-bar exit state machine (stop/target/max-hold/IC-decay) to close frames and compute
   realized R. Full mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`.
 
-**Status:** v2.x archived; v3.0 active (Phase 142B+143, live)
+**Status:** retired — both implementations are gone (v2.x daemon never shipped; the v3.0 `BaseBatch` was deleted in phase 186 plan 19, see the git-show pointer above)
 
 **See also:** `cross-sectional spread construction` (`CrossSectionalSpreadTracker`) — a parallel
-measurement path, not a consumer of this class or its output.
+measurement path, also retired with the old chain.
 
 ---
 
 ### `cross-sectional spread construction`
 
-A dollar-neutral portfolio formed at each bar by ranking the active equity cross-section on a
-single qualifying feature and taking the top decile long against the bottom decile short,
-measured at portfolio level — one spread return per bar, never per symbol. Phase 167's
-productionization of the cross_sectional_relative_value Edge Source Thesis falsification result (the first thesis in
-`docs/research/data-edge-source-thesis.md`'s tree to clear its own shuffled-ranking-null bar).
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain. A dollar-neutral portfolio formed at each bar by ranking the active equity cross-section on a single qualifying feature (`ctf_momentum` in v1) and taking the top decile long against the bottom decile short, measured at portfolio level - one spread return per bar, never per symbol. Phase 167's productionization of the cross_sectional_relative_value falsification result, deliberately bypassing the linear IC-weighted combiner whose Gate 2 already failed in Phase 148.
 
 **Naming-system derivation chain** (`docs/foundation/naming-system.md`): concept
 `cross_sectional_spread` → class `CrossSectionalSpreadTracker` → module
-`services/cross_sectional_spread_tracker.py` (deleted in phase 186 plan 19; read with `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/cross_sectional_spread_tracker.py`) → table `construction_spreads` → (if ever
-systemd-registered) unit `indicagent-cross-sectional-spread-tracker.service`.
-
-**Not:**
-- An `alpha_frames` frame. `alpha_frames` rows are a per-symbol directional stop/target/hold bet
-  with a `direction ∈ {long, short}` column, a single `symbol`, `stop_price`, and `target_price`.
-  A spread has none of those — no direction, no stop, no single symbol. Forcing this
-  construction into `alpha_frames`' schema would corrupt that table's own invariants.
-- A consumer of `ensemble_alpha` (D-01, Phase 167 CONTEXT.md). This construction ranks a raw
-  qualifying feature (`ctf_momentum` in v1) directly, deliberately bypassing the linear
-  IC-weighted combiner whose Gate 2 (execution proof) already failed in Phase 148. Building on
-  top of `ensemble_alpha` would test an already-suspect input; the entire point of the cross_sectional_relative_value result
-  this phase productionizes is that ranking a raw feature directly is what cleared the bar.
+`services/cross_sectional_spread_tracker.py` (deleted in phase 186 plan 19; read with `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/cross_sectional_spread_tracker.py`) → table `construction_spreads` (dropped later in phase 186, rows summarized first).
 
 **Banned:** decile portfolio, long-short frame, spread signal
-**Avoid:** retired synonyms of this concept; use `cross-sectional spread construction` or the table
-name `construction_spreads`
-
-**See also:** `counterfactual_pnl_r`, `CounterfactualTracker` — parallel measurement paths, not
-layers of one pipeline. Both are shadow-mode-first (measured before any live-capital
-consideration), but score fundamentally different objects: a per-symbol directional bet vs. a
-portfolio-level dollar-neutral spread.
-
-**Status:** v3.0 (Phase 167, complete 2026-07-27 - `construction_spreads` hypertable, APR seeds,
-`CrossSectionalSpreadTracker` compute/persist, and the `--evaluate-gate`/`--evaluate-attribution`
-CLI modes all live; both Validation Gates PASSED against the real OOS population, see
-`docs/research/trade-construction-layer.md`)
+**Avoid:** retired synonyms of this concept
 
 **Source:** `docs/research/trade-construction-layer.md` (full v1 construction design);
 `.planning/ROADMAP.md` Phase 167 entry
@@ -1116,7 +1014,7 @@ v3.0 vectors (V1 built first; V2+ gated on V1 demonstrating IC > 0):
 **Exempt:** SignalSource
 **Avoid:** naming new code after the exempt identifier: `SignalSource` (research layer) predates this
 rule and is exempt only until its rename to `Predictor` (see `predictor`, todo 430)
-**Status:** V1 active — live (FeatureFactory, Phase A shipped, `feature_vectors` 106M+ rows verified 2026-09-04); V3+ gated on V1 demonstrating IC > 0
+**Status:** V1 active — live (`feature_vectors` and FeatureFactory); V3+ gated on measured IC
 
 ---
 
@@ -1124,18 +1022,11 @@ rule and is exempt only until its rename to `Predictor` (see `predictor`, todo 4
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `book forecast`.
 
-The z-scored ensemble prediction for a given bar — the IC-weighted linear combination of rank-normalized `FeatureVector` columns, normalized to standard deviation units within a rolling 20-day window. Stored in `ensemble_alpha.alpha_score`.
+The z-scored ensemble prediction for a given bar — the IC-weighted linear combination of rank-normalized `FeatureVector` columns, normalized to standard deviation units within a rolling 20-day window. Was stored in `ensemble_alpha.alpha_score` (table dropped in phase 186); emission ran through `alpha_publisher.py`'s four-gate stack.
 
-```
-alpha_raw   = Σ sign(ic[f]) × centered_rank(feature[f]) × weight[f]
-alpha_score = (alpha_raw - rolling_mean) / rolling_std   # z-scored, ~N(0,1)
-```
-
-Positive = composite features predict upward price movement. Negative = downward. Magnitude = strength relative to recent history. An `alpha_event` is emitted when `alpha_score` clears `alpha_publisher.py`'s four-gate stack: `effective_n` floor, `|alpha_score| > alpha.quant.threshold.{tf}` (per-timeframe, not per-symbol/regime), direction-aware CI + cost hurdle, and non-empty `top_features`.
-
-**Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` is the ensemble output, not any individual feature's contribution.
+**Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` was the ensemble output, not any individual feature's contribution.
 **Banned:** plugin score, direction score, conviction score
-**Status:** active — live (v3.0 Phase C shipped); `ensemble_alpha` table holds 88M+ rows (verified 2026-09-04)
+**Status:** retired (2026-09-26); the `ensemble_alpha` and `alpha_events` tables were dropped in phase 186
 
 ---
 
@@ -1157,15 +1048,11 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `book forecast`.
 
-The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, tf, bar_ts) once ensemble weights exist. The unconditional output of the AlphaEngine — every bar is scored regardless of whether it will trigger an emission. Populated by the nightly Ensemble Builder.
+The per-bar table that stored `alpha_raw` and `alpha_score` for every (symbol, tf, bar_ts) once ensemble weights exist: the unconditional output of the AlphaEngine, populated by the nightly Ensemble Builder, and the input to the Alpha Emitter.
 
-`ensemble_alpha` is the input to the Alpha Emitter, which filters for `|alpha_score| > threshold` and writes `alpha_events`. It is also the rolling window used by the Alpha Decay Monitor to recompute IC on recent data.
-
-**Table:** `ensemble_alpha`
-
-**Not:** a hand-crafted composite (weights come from IC Sharpe via Ledoit-Wolf, not human judgment). Not `raw_confidence` (v2.x plugin ICC). Not `alpha_events` — `ensemble_alpha` scores every bar; `alpha_events` only records threshold-crossing bars.
+**Not:** a hand-crafted composite (weights come from IC Sharpe via Ledoit-Wolf, not human judgment). Not `raw_confidence` (v2.x plugin ICC). Not `alpha_events` — `ensemble_alpha` scored every bar; `alpha_events` recorded only threshold-crossing bars.
 **Banned:** combined score, aggregate signal, signal composite
-**Status:** active — live (v3.0 Phase C shipped); 88M+ rows (verified 2026-09-04)
+**Status:** retired — the table was dropped in phase 186 (summarized into legacy summary cards first)
 
 ---
 
@@ -1173,16 +1060,12 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `ic_proposal` (disclosure and proposal, never admission).
 
-The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
+The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed. It ran on `feature_vectors` against the `forward_returns` table; output went to `feature_ic_scores`. The feature universe is fully pre-specified before any IC is measured - adding features after observing results is p-hacking, a rule that survives in E15.
 
-IC discovery runs on `feature_vectors` against forward returns (historically the deleted `forward_returns` table; today the `panel.forward_returns` kernel via `services/ic_measure.py`). Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
-
-The feature universe is fully pre-specified before any IC is measured. Adding features after observing results is p-hacking.
-
-**Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
+**Not:** shadow mode (shadow measures P&L after emission; IC discovery measures raw feature predictiveness before any threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
 
 **Banned:** signal discovery, edge discovery, alpha discovery
-**Status:** active — live (v3.0 Phase B shipped); input: `feature_vectors` (106M+ rows, verified 2026-09-04) + kernel forward returns (the `forward_returns` table deleted in phase 186 plan 23); output: `feature_ic_scores` (1.9M+ rows, verified 2026-09-04)
+**Status:** retired (2026-09-26); the live successor is `ic_measure` (disclosure and proposal, never admission)
 
 ---
 
@@ -1202,7 +1085,7 @@ Measurements of what price did: return magnitude, direction, position within bar
 
 **Why pure functions:** The same OHLCV bar always produces the same momentum_z_5. There is no state, no model, no judgment. If momentum_z_5 for SPY at 09:35 on 2026-06-20 is -0.8, it is always -0.8 regardless of when the function runs.
 
-**Code surface:** `FeatureFactory._compute_price_dynamics()`. Output columns: `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z`.
+**Code surface:** `src/intelligence/features/kernels/price.py`. Output columns include `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z`.
 
 ---
 
@@ -1214,7 +1097,7 @@ Measurements of who participated and with what conviction. Volume tells you how 
 
 **Why this is measurement, not theory:** `ofi_z` measures the imbalance between buyer-initiated and seller-initiated volume, z-scored. This is a fact about what happened in the order book. Whether that imbalance predicts future price is a theory — tested by IC measurement, not assumed.
 
-**Code surface:** `FeatureFactory._compute_volume_flow()`. Output columns: `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume`.
+**Code surface:** `src/intelligence/features/kernels/volume.py`. Output columns include `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume`.
 
 ---
 
@@ -1226,7 +1109,7 @@ Measurements of where price is relative to the market's structural reference poi
 
 **Why geometry, not pattern:** I3 describes where price is, not what it will do. `poc_dist_atr = 2.3` means price is 2.3 ATR units above the Point of Control. This is a measurement. Whether that distance predicts mean-reversion is an IC question.
 
-**Code surface:** `FeatureFactory._compute_structure()`. Output columns: `vwap_dev_sigma`, `atr_z`, `vol_ratio`, `poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist`, `hurst`, `shannon`, `garch_ratio`.
+**Code surface:** `src/intelligence/features/kernels/vp_sr.py` and `smc.py`. Output columns include `vwap_dev_sigma`, `atr_z`, `vol_ratio`, `poc_dist_atr`, `va_position`, `hurst`, `shannon`.
 
 ---
 
@@ -1240,7 +1123,7 @@ Measurements of what market regime the HMM classifier believes we are in, and wi
 
 **Oscillators (APR-backed periods):** RSI and CCI measurements live in I4 at three scales (`rsi_fast/mid/slow`, `cci_fast/mid/slow`). Periods stored in APR (`feature.period.rsi.*`) — not baked into column names. Aroon freshness (`aroon_fast`, `aroon_slow`) similarly. See `docs/foundation/adaptive-parameter-registry.md §Feature Indicator Periods`.
 
-**Code surface:** `FeatureFactory._compute_regime()`. Output columns: all HMM, macro, session, calendar, CTF, oscillator columns.
+**Code surface:** `src/intelligence/features/kernels/regime.py`, `macro.py`, `calendar.py`, `cross_tf.py` (oscillator primitives in `_primitives.py`). Output columns: the HMM, macro, session, calendar, CTF and oscillator columns.
 
 ---
 
@@ -1248,27 +1131,27 @@ Measurements of what market regime the HMM classifier believes we are in, and wi
 
 ### `FeatureVector`
 
-The typed struct of 50 measurements produced by FeatureFactory for a single (symbol, tf, bar). One row in `feature_vectors`. Contains exactly one value per I1-I4 measurement column — no JSONB, no nesting, no null-means-unknown ambiguity (null means the measurement was not computable for that bar, e.g. insufficient history).
+The typed struct of measurements produced by FeatureFactory for a single (symbol, tf, bar). One row in `feature_vectors` (the "50 columns" of the original design grew to hundreds; the exact set is the schema's). Contains exactly one value per I1-I4 measurement column — no JSONB, no nesting, no null-means-unknown ambiguity (null means the measurement was not computable for that bar, e.g. insufficient history).
 
 The FeatureVector is the atomic unit of v3.0. Everything downstream — IC measurement, ensemble weighting, alpha scoring — operates on FeatureVectors. The feature universe is pre-specified in the `feature_vectors` schema; adding a new measurement requires a schema migration, which is the intentional gate that prevents feature proliferation.
 
 **Not:** a plugin output (plugins receive FeatureVectors as input in I5-I7). Not a signal (signals are emitted when ensemble alpha crosses a threshold). Not a row in `intelligence_features` (v2.x JSONB table, superseded).
 
 **Canonical doc:** `docs/plans/archive/2026-06-20-alphaengine-architecture.md §FeatureVector Contract`
-**Status:** active — live; `feature_vectors` holds 106M+ rows (verified 2026-09-04)
+**Status:** active — live
 
 ---
 
 ### `FeatureFactory`
 
-The in-process computation unit that produces `FeatureVector` from raw OHLCV bars. Replaces the I1-I4 plugin registry. Runs on every bar inside `IntelligencePipeline` — same DAG position as the old plugin stack, same latency budget. Writes to `feature_vectors` table via `FeatureWriter` (cold sink; never blocks the hot path).
+The in-process computation unit that produces `FeatureVector` from raw OHLCV bars. Replaced the I1-I4 plugin registry and runs in the same DAG position. Writes to the `feature_vectors` table via a dedicated writer (cold sink; never blocks the hot path).
 
-FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most of I3), session-level (intraday accumulators), regime-level (HMM, computed every 30 bars and cached), cross-asset (reads HTF cached state), calendar (pre-computed daily). The cadence matching eliminates recomputing slow signals at bar frequency.
+FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most of I3), session-level (intraday accumulators), regime-level (HMM, computed on a slower cadence and cached), cross-asset (reads HTF cached state), calendar (pre-computed daily). The cadence matching eliminates recomputing slow signals at bar frequency.
 
-**Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by `IntelligencePipeline`.
+**Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by the feature pipeline.
 
 **Code location:** `src/intelligence/feature_factory.py`
-**Status:** active — live; runs inside `indicagent-feature-vector-pipeline.service` (confirmed `active running` 2026-09-04)
+**Status:** active — live; runs inside `indicagent-feature-vector-pipeline.service`
 
 ---
 
@@ -1295,34 +1178,25 @@ Ledoit-Wolf ensemble optimization uses the IC Sharpe time series (not raw IC) to
 **Annualized for cross-TF comparison:** `IC_Sharpe_annualized = IC_Sharpe_bar × sqrt(bars_per_year)`. The annualized form is for comparison only — ensemble weights use bar-unit IC Sharpe.
 
 **Not:** a backtest Sharpe ratio (which measures P&L consistency). IC Sharpe measures predictive consistency, one step upstream.
-**Status:** active — live; stored in `feature_ic_scores.ic_sharpe` (also `wf_ic_sharpe`, `ic_sharpe_hac`, `ic_sharpe_n_windows` on the same table, and carried through to `ensemble_weights.ic_sharpe` — schema verified 2026-09-04)
+**Status:** active — computed by `ic_measure.py` (with HAC and stride-bias corrections) into `feature_ic_scores_v2`; the frozen `feature_ic_scores` rows and `ensemble_weights.ic_sharpe` were retired with the old chain in phase 186
 
 ---
 
 ### `alpha decay`
 
-The condition in which a feature's rolling IC bootstrap CI lower bound crosses zero, indicating its predictive power may no longer be distinguishable from noise in the current market regime. Triggers automatic weight zeroing in APR.
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain. The concept: a feature whose rolling IC bootstrap CI lower bound crosses zero has predictive power no longer distinguishable from noise in the current regime, and triggers automatic weight zeroing in APR with a two-window recovery hysteresis. The `alpha-decay-monitor` batch service this entry named never shipped; no live implementation existed.
 
-Alpha decay is a first-class system event, not a failure state. Features decay as market regimes shift and return when regimes become favorable again. The two-window recovery hysteresis (`ci_lower > 0` for 2 consecutive rolling windows before partial restoration) prevents toggling.
+**Not:** feature removal. A decayed feature remained in `feature_vectors` and kept accumulating IC observations.
 
-**Automated response:** `ensemble_weights.is_active = false` → APR `alpha.weights.<feature>.*  = 0.0` → logged to `config_history` with `changed_by = 'alpha_decay_monitor'`.
-
-**Not:** feature removal. A decayed feature remains in `feature_vectors` and continues accumulating IC observations. It is re-evaluated on each weekly IC Engine run.
-
-**Status:** design (v3.0 Phase E); monitored by `alpha-decay-monitor` batch service
+**Replacement:** the `decay alarm` (phase 188) and the feature lifecycle's consecutive-window demotion rules.
 
 ---
 
 ### `alpha_events`
 
-The table of emitted alpha signals in v3.0 — one row per (symbol, tf, bar_ts) where `|alpha_score| > threshold`. The v3.0 equivalent of v2.x `signal_events`. Carries direction (`long`/`short`), alpha_score, threshold used, weight_version, regime, top contributing features, and lifecycle status (`pending` → `labeled` → `expired`).
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain. The table held the v3.0 emitted alpha signals - one row per (symbol, tf, bar_ts) where `|alpha_score| > threshold`, written by `alpha_publisher.py` - and was the v3.0 equivalent of v2.x `signal_events`. Dropped in phase 186 after its rows were summarized into legacy summary cards.
 
-`alpha_events` is the boundary between prediction (Layer 1) and portfolio construction (Layer 2). The Portfolio layer reads `alpha_events` to construct trade frames; it does not read `ensemble_alpha` directly.
-
-**Table:** `alpha_events`
-**Not:** `ensemble_alpha` (which scores every bar). `alpha_events` is the filtered subset where the score crossed the emission threshold.
-**Replaces:** `signal_events` in v3.0 (v2.x `signal_events` is archived, not migrated)
-**Status:** active — live; sole writer `alpha_publisher.py` per CLAUDE.md; 70M+ rows (verified 2026-09-04)
+**Not:** `ensemble_alpha` (which scored every bar). `alpha_events` recorded only the bars where the score crossed the emission threshold.
 
 ---
 
@@ -1330,12 +1204,10 @@ The table of emitted alpha signals in v3.0 — one row per (symbol, tf, bar_ts) 
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `recipe version` of a book.
 
-A monotonically increasing integer that identifies a specific set of ensemble weights in `ensemble_weights`. Incremented on every run of the Ensemble Builder that produces any weight change. All rows in `ensemble_weights` with the same `weight_version` form a complete, consistent weight set.
+A monotonically increasing integer that identified a specific set of ensemble weights in `ensemble_weights`; `ensemble_alpha` recorded the `weight_version` used to score each bar, so any historical `alpha_score` could be reproduced from the corresponding weight set.
 
-`ensemble_alpha` records the `weight_version` used to score each bar, creating a full audit trail: any historical `alpha_score` can be reproduced by finding the corresponding weight set.
-
-**Not:** a schema version or pipeline version. `weight_version` tracks ensemble calibration; `pipeline_version` tracks feature computation.
-**Status:** active — live; `ensemble_weights` holds 213 rows across weight versions (verified 2026-09-04)
+**Not:** a schema version or pipeline version. `weight_version` tracked ensemble calibration; `pipeline_version` tracks feature computation.
+**Status:** retired (2026-09-26); `ensemble_weights` was dropped in phase 186
 
 ---
 
@@ -1415,22 +1287,18 @@ separate event table.
 
 ---
 
-## AlphaEngine Functional Layer Vocabulary
+## Functional Layer Vocabulary (formerly the AlphaEngine Layer 1 slots)
 
-Generic names for the functional slots within Layer 1 (Prediction), ordered by pipeline
-position. Each slot has a current implementation; the generic name survives if the
-implementation changes. Use these terms in design docs, todos, and discussion rather than
-naming specific formulas -- "the regime classifier now has two implementations" is a
-statement about one slot, not two different things.
+Generic names for the functional slots of a feature-to-decision pipeline, in pipeline order.
+The generic name survives if the implementation changes; use these terms in design docs,
+todos, and discussion rather than naming specific formulas -- "the regime classifier now has
+two implementations" is a statement about one slot, not two different things.
 
-```
-feature measurement  →  feature synthesis  →  regime classifier  →  predictive measurement
-       →  ensemble optimizer  →  alpha scorer  →  predictive measurement (ensemble grain)  →  alpha emitter
-```
-
-`predictive measurement` recurs a second time after `alpha scorer` -- same slot, same
-operation (does this predictor predict returns), different input (the ensemble's combined
-`alpha_score` instead of a single feature column) and different grain. Not a second slot.
+The three AlphaEngine-only slots (`ensemble optimizer`, `alpha scorer`, `alpha emitter`) are
+retired with the old chain (phase 186); their entries below carry the Legacy line and the
+replacements. The pipeline shape today: `feature measurement`, `feature synthesis`, `regime
+classifier`, then `predictive measurement` at feature grain (`ic_measure`); the research
+layer's combiner and books take the place of the retired scoring chain.
 
 ---
 
@@ -1441,7 +1309,7 @@ quantities for a single (symbol, tf, bar). These are measurements -- factual des
 of what price, volume, and structure did -- not inferences or predictions. Runs on the
 hot path on every bar.
 
-**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
+**Current implementation:** `FeatureFactory` (I1-I4 cadence tiers; the "54 features" count is historical)
 **Output:** `FeatureVector` → `feature_vectors` table
 **Not:** a storage or transport concern. Feature measurement is pure transformation --
 input is a bar, output is a vector. No DB reads, no Kafka. Not `feature computation`
@@ -1541,13 +1409,10 @@ of which method or grain is used.
 
 The functional slot that derives a weight vector from the history of predictive
 measurement scores, producing a covariance-adjusted weight per feature that maximizes
-expected portfolio IR subject to constraints. Runs on a batch schedule (weekly or
-nightly) whenever new IC scores are available.
+expected portfolio IR subject to constraints. Ran on a batch schedule (the `ensemble_builder` batch service, Ledoit-Wolf shrinkage on IC Sharpe time series into `ensemble_weights`, all deleted in phase 186).
 
-**Current implementation:** Ledoit-Wolf shrinkage on IC Sharpe time series
-(`ensemble_builder` batch service) → `ensemble_weights`
-**Not:** the alpha scorer (which applies weights). The ensemble optimizer derives weights;
-the alpha scorer applies them.
+**Not:** the alpha scorer (which applied weights). The ensemble optimizer derived weights;
+the alpha scorer applied them.
 
 ---
 
@@ -1555,14 +1420,11 @@ the alpha scorer applies them.
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: a `combiner` (research layer).
 
-The functional slot that applies the current ensemble weight vector to each bar's
-FeatureVector, producing a scalar score per (symbol, tf, bar_ts). Runs nightly on the
-full `feature_vectors` history and in near-real-time on the hot path for live bars.
+The functional slot that applied the current ensemble weight vector to each bar's
+FeatureVector, producing a scalar score per (symbol, tf, bar_ts): an IC-weighted rank-normalized linear combination, z-scored to standard deviation units into `ensemble_alpha.alpha_score` (deleted in phase 186).
 
-**Current implementation:** IC-weighted rank-normalized linear combination, z-scored
-to standard deviation units → `ensemble_alpha.alpha_score`
-**Not:** the alpha emitter (which filters scores above a threshold). The alpha scorer
-scores every bar; the alpha emitter selects which bars to act on.
+**Not:** the alpha emitter (which filtered scores above a threshold). The alpha scorer
+scored every bar; the alpha emitter selected which bars to act on.
 
 ---
 
@@ -1570,16 +1432,14 @@ scores every bar; the alpha emitter selects which bars to act on.
 
 **Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `forward runner`.
 
-The functional slot that filters alpha scorer output and emits actionable events when
-the score crosses a threshold with sufficient statistical confidence. The boundary
-between Layer 1 (Prediction) and Layer 2 (Portfolio). Every emitted event is a
-hypothesis that a position should be opened.
+The functional slot that filtered alpha scorer output and emitted actionable events when
+the score crossed a threshold with sufficient statistical confidence. Ran as
+`alpha_publisher.py`'s four-gate stack (`effective_n` floor, per-timeframe
+`|alpha_score| > alpha.quant.threshold.{tf}`, direction-aware CI + cost hurdle, non-empty
+`top_features`) writing `alpha_events` - all deleted in phase 186.
 
-**Current implementation:** `alpha_publisher.py`'s four-gate stack (`effective_n` floor,
-per-timeframe `|alpha_score| > alpha.quant.threshold.{tf}`, direction-aware CI + cost hurdle,
-non-empty `top_features`) → `alpha_events` table
-**Not:** a trading decision. The alpha emitter says "a score crossed threshold"; the
-Portfolio layer (Layer 2) decides whether and how much to trade.
+**Not:** a trading decision. The alpha emitter said "a score crossed threshold"; the
+Portfolio layer (Layer 2) decided whether and how much to trade.
 
 ---
 
