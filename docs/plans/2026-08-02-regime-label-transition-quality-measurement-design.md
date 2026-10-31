@@ -1,14 +1,14 @@
 # Regime Label Transition Quality - Measurement-First Design
 
-**Author:** Claude (Opus 5.5), 2026-08-02; Opus-reviewed (5 critical findings) and rewritten the
-same day; every load-bearing number re-verified against the live DB.
 **Status:** SUPERSEDED, and its question answered another way. The hysteresis fix it argued for
 landed at the label source on 2026-08-27 (todo 005 closed, migration 326) without the full
 measurement spec ever running; the measurement machinery it targets (`ic_engine`,
 `feature_ic_scores`) was deleted in phase 186, and the label generators are now walk-forward
 registry kernels (todo 248 deployed 2026-08-12, plan 186-13 merged 2026-09-30). Any purge or
 smoothing question today is a spec field measured through the research runner (E15), not a
-bespoke diagnostic. Condensed 2026-10-31 (todo 568); the full spec stands at commit `ae391ad77`.
+bespoke diagnostic. Written 2026-08-02, Opus-reviewed (5 critical findings) and rewritten the
+same day, every load-bearing number re-verified against the live DB. Condensed 2026-10-31
+(todo 568); the full spec stands at commit `ae391ad77`.
 
 ## The measurement population (the doc's lasting methodological point)
 
