@@ -102,10 +102,10 @@ Phase):** the roadmap doc that originally motivated todo 005's IC-purge-window p
 (`docs/plans/archive/2026-06-26-renaissance-optimization-roadmap.md`, item IC-003) asserted a
 10-20% `ic_sharpe` improvement that was never checked against real data — rejected as a design
 input. A measurement-first design doc
-(`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`, deleted
-2026-10-31, todo 568; its supersession record lives in git history - the hysteresis fix landed
-at the source 2026-08-27 per todo 005, and the label machinery is now the walk-forward kernels
-of todo 248 / plan 186-13) specs a
+(`docs/plans/archive/2026-08-02-regime-label-transition-quality-measurement-design.md`,
+condensed to a stub 2026-10-31, todo 568; the hysteresis fix landed at the source 2026-08-27
+per todo 005, and the label machinery is now the walk-forward kernels of todo 248 / plan
+186-13) specs a
 read-only diagnostic to test, out-of-sample, whether combined-label hysteresis smoothing and/or
 a purge window actually move IC before either touches production. Went through an Opus review
 (5 Critical findings) and a full rewrite; every load-bearing number independently re-verified

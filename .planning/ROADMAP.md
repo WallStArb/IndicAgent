@@ -37,7 +37,8 @@ Phase numbers are stable IDs.
 ## v3.4 rationale
 
 Why v3.4 (phases 174-182) was sequenced as it was, moved here 2026-10-31 (todo 568) from the
-superseded edge-proof program doc (deleted the same day; git history holds the full text). When the milestone was set (2026-09-24),
+superseded edge-proof program doc (archived as a stub the same day at
+`docs/plans/archive/2026-09-24-edge-proof-program.md`). When the milestone was set (2026-09-24),
 14 constructions had run to a definitive verdict with zero PASS and the feature corpus was
 saturated at about 8 independent bets out of about 290 columns, so new primitives mostly got
 subsumed. The one positive result on record, todo 378's cross-asset diagnostic (signed

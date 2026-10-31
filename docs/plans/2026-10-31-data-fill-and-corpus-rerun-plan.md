@@ -2,8 +2,8 @@
 
 **Status:** operative 2026-10-31. Supersedes the program-level sequencing in
 `2026-09-02-personal-scale-edge-determination-plan.md`, `2026-09-24-edge-proof-program.md` and
-`2026-09-24-feature-lifecycle-evidence-ledger-design.md` (each reduced to a status page and then
-deleted 2026-10-31, todo 568; git history holds the full text and the status pages). The adopted research sequence itself stays
+`2026-09-24-feature-lifecycle-evidence-ledger-design.md` (each condensed and archived as a stub
+2026-10-31, todo 568, under `docs/plans/archive/`). The adopted research sequence itself stays
 `2026-09-26-unified-research-to-production-design.md` section 16 and the critical path in
 `.planning/STATE.md`; this doc adds the data-fill plan and the rerun gates on top of them.
 
