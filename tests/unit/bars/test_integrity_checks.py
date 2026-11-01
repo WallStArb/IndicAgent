@@ -118,6 +118,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
     StoredBar,
     judge_name_1d,
     month_digests,
+    proven_start,
     stale_digest_months,
 )
 
@@ -228,44 +229,53 @@ def test_timings_record_the_checks_that_do_work():
     assert {"canonical_recompute", "digest_fresh", "alpaca_basis_run"} <= set(timings)
 
 
-def test_a_missing_session_fails_coverage_unless_answered_empty():
+def test_an_unanswered_last_session_fails_and_an_interior_hole_moves_the_proven_start():
     inputs = _clean()
     # a dropped head is outside the judged range: coverage counts from the first bar
     head = replace(inputs, stored=inputs.stored[1:])
     assert _by_check(_judge(head))["session_coverage"].passed
+    # an interior hole is missing depth: the name passes from the first session after it
     interior = replace(inputs, stored=inputs.stored[:2] + inputs.stored[3:])
-    verdict = _by_check(_judge(interior))["session_coverage"]
-    assert not verdict.passed and verdict.metric_value < 1.0
+    report = _judge(interior)
+    assert _by_check(report)["session_coverage"].passed
+    assert report.proven_start == _SESSIONS[3]
     covered = replace(interior, empty_spans=[(_SESSIONS[2], _SESSIONS[2])])
-    assert _by_check(_judge(covered))["session_coverage"].passed
+    assert _judge(covered).proven_start == _SESSIONS[0]
+    # a missing latest session leaves no span that passes
+    tail = replace(inputs, stored=inputs.stored[:-1])
+    verdict = _by_check(_judge(tail))["session_coverage"]
+    assert not verdict.passed and verdict.metric_value < 1.0 and _judge(tail).proven_start is None
+
+
+def _era_report(bar_days: list[date], sessions: list[date], **kw):
+    stored = [_stored(d, 100.0) for d in bar_days]
+    inputs = replace(_clean(), stored=stored, **kw)
+    return judge_name_1d(inputs, sessions, sessions[-1], _RUN_START, _Thresholds(), era_start=_ERA)
 
 
 def _era_coverage(bar_days: list[date], sessions: list[date], **kw):
-    stored = [_stored(d, 100.0) for d in bar_days]
-    inputs = replace(_clean(), stored=stored, **kw)
-    report = judge_name_1d(
-        inputs, sessions, sessions[-1], _RUN_START, _Thresholds(), era_start=_ERA
-    )
-    return _by_check(report)["session_coverage"]
+    return _by_check(_era_report(bar_days, sessions, **kw))["session_coverage"]
 
 
-def test_a_missing_session_before_the_era_is_ignored_and_on_the_era_start_counts():
+def test_a_missing_session_before_the_era_is_ignored_and_on_the_era_start_moves_the_start():
     # 2004-12-31 is the last session before the era; 2005-01-03 is its first
     pre, start, nxt = date(2004, 12, 31), date(2005, 1, 3), date(2005, 1, 4)
     head = date(2004, 12, 30)
     sessions = [head, pre, start, nxt]
-    on_start = _era_coverage([head, pre, nxt], sessions)  # 2005-01-03 missing: counts
-    assert not on_start.passed and on_start.metric_value == 0.5
-    pre_hole = _era_coverage([head, start, nxt], sessions)  # 2004-12-31 missing: ignored
-    assert pre_hole.passed and pre_hole.metric_value == 1.0
+    on_start = _era_report([head, pre, nxt], sessions)  # 2005-01-03 missing: depth, not failure
+    assert on_start.proven_start == nxt
+    pre_hole = _era_report([head, start, nxt], sessions)  # 2004-12-31 missing: ignored
+    assert pre_hole.proven_start == start
+    assert _by_check(pre_hole)["session_coverage"].metric_value == 1.0
 
 
-def test_the_era_scope_sets_the_denominator_so_early_coverage_no_longer_inflates_it():
+def test_the_proven_start_is_anchored_inside_the_era_span():
     early = [date(2004, 12, 20) + timedelta(days=i) for i in range(0, 11) if i % 7 not in (1, 2)]
     sessions = early + [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5), date(2005, 1, 6)]
-    bars = early + [date(2005, 1, 3), date(2005, 1, 5)]
-    v = _era_coverage(bars, sessions)
-    assert v.metric_value == 0.5 and not v.passed
+    bars = early + [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 6)]  # 05 missing
+    report = _era_report(bars, sessions)
+    assert report.proven_start == date(2005, 1, 6)  # early sessions are outside the era
+    assert _by_check(report)["session_coverage"].passed
 
 
 def test_a_name_whose_first_bar_is_after_the_era_start_counts_from_its_first_bar():
@@ -277,9 +287,25 @@ def test_a_name_whose_first_bar_is_after_the_era_start_counts_from_its_first_bar
 def test_empty_history_still_answers_a_session_inside_the_era():
     sessions = [date(2005, 1, 3), date(2005, 1, 4), date(2005, 1, 5)]
     bars = [sessions[0], sessions[2]]
-    assert not _era_coverage(bars, sessions).passed
-    covered = _era_coverage(bars, sessions, empty_spans=[(sessions[1], sessions[1])])
-    assert covered.passed
+    assert _era_report(bars, sessions).proven_start == sessions[2]  # the hole is depth
+    covered = _era_report(bars, sessions, empty_spans=[(sessions[1], sessions[1])])
+    assert covered.proven_start == sessions[0]
+
+
+def test_proven_start_scans_for_the_earliest_passing_start():
+    days = [date(2005, 1, 3) + timedelta(days=i) for i in range(2000)]
+    answered = set(days) - {days[10], days[1500]}
+    # two holes in 2000 sessions: 1998/2000 = 0.999 passes from the first session
+    assert proven_start(days, answered, 0.999) == days[0]
+    # at 0.9995 no suffix holding a hole passes, so the start is the session after the last hole
+    assert proven_start(days, answered, 0.9995) == days[1501]
+    assert proven_start(days, answered - {days[-1]}, 0.999) is None  # latest session unanswered
+    assert proven_start([], set(), 0.999) is None
+
+
+def test_a_proven_start_rests_on_bar_presence_only():
+    sessions = [date(2005, 1, 3) + timedelta(days=i) for i in range(5)]
+    assert proven_start(sessions, set(sessions[2:]), 1.0) == sessions[2]
 
 
 def test_a_name_with_early_holes_only_passes():

@@ -600,7 +600,7 @@ def test_a_name_without_history_is_judged_failing_not_missing():
     coverage 0, failed), never an absent verdict the gate would hold as missing."""
     conn, run = _run({"EEE": {"observations": [], "stored": []}})
     rows = [f for f in run.facts if f[1] == "EEE|1d"]
-    assert len(rows) == 12
+    assert len(rows) == 13  # nine verdicts plus four informational facts
     coverage = next(f for f in rows if f[2] == "session_coverage")
     assert coverage[5] is False and coverage[3] == 0.0  # judged, with a named failing check
 
@@ -779,14 +779,21 @@ def _run(names, seam_samples=()):
     return conn, run
 
 
-def test_each_name_gets_nine_verdict_rows_and_three_informational_rows():
+def test_each_name_gets_nine_verdict_rows_and_four_informational_rows():
     conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
     rows = [f for f in run.facts if f[1] == "AAA|1d"]
-    assert len(rows) == 12
+    assert len(rows) == 13
     assert {f[0] for f in run.facts} == {"bar_integrity"}
     assert [f[2] for f in rows][:9] == list(audit.CHECKS_1D)
     assert "freshness_1d" in audit.CHECKS_1D
-    assert [f[2] for f in rows][9:] == ["refused_head_1d", "unserved_primary_1d", "held_1d"]
+    assert [f[2] for f in rows][9:] == [
+        "refused_head_1d",
+        "unserved_primary_1d",
+        "proven_start_1d",  # design D4: where the name's rebuild and panel begin
+        "held_1d",
+    ]
+    proven = next(f for f in rows if f[2] == "proven_start_1d")
+    assert date.fromordinal(int(proven[3])) == _REPORT_DAYS[0]
     assert all(f[5] for f in run.facts)
     assert run.failing_by_check == {}
 
@@ -2336,3 +2343,11 @@ def test_a_database_error_while_polling_is_a_missed_try_not_a_failed_audit():
         clock=clock,
     )
     assert result is None and lock.tries >= 2
+
+
+def test_a_name_with_no_proven_start_writes_a_failing_fact_not_a_stale_one():
+    bad = _good_name()
+    bad["stored"] = bad["stored"][:-1]  # the latest session is unanswered
+    _, run = _run({"AAA": bad, "BBB": _good_name()})
+    fact = next(f for f in run.facts if f[1] == "AAA|1d" and f[2] == "proven_start_1d")
+    assert fact[5] is False

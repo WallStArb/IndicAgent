@@ -63,7 +63,8 @@ import sys
 import tempfile
 import time
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -94,8 +95,10 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.real_column_range import clamp_to_real_range_array
 from src.core.service_utils import setup_service_logging
+from src.intelligence.bars.integrity_checks import INFO_PROVEN_START
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES, GRID_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import DERIVED_PAIR, grid_volume_basis, volume_basis
+from src.intelligence.bars.verdict_gate import MONITOR_TYPE
 from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     _batch_kernel_inputs,
@@ -289,6 +292,10 @@ ORDER BY timestamp ASC
 
 _FETCH_BARS_SINCE_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp >= %s\nORDER BY")
 _FETCH_BARS_UNTIL_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp < %s\nORDER BY")
+# Until the horizon and from the name's proven start (design D4): the rebuild's series.
+_FETCH_BARS_UNTIL_FLOOR_SQL = _FETCH_BARS_UNTIL_SQL.replace(
+    "ORDER BY", "  AND timestamp >= %s\nORDER BY"
+)
 
 
 # The 5m rows a derived grid bar was built from, by (vendor, kind): the evidence for the grid
@@ -655,13 +662,19 @@ def _fetch_bars_from_db(
     tf: str,
     since: datetime | None = None,
     until: datetime | None = None,
+    floor: datetime | None = None,
 ) -> list[dict]:
     """Fetch OHLCV bars from market_data_ohlcv_tradeable ordered oldest-first, optionally from
-    `since` and strictly before `until` (the rebuild's data horizon; never both)."""
+    `since` and strictly before `until` (the rebuild's data horizon; never both). `floor` is the
+    name's proven start (design D4) and combines with `until` only: nothing before it is read."""
     if since is not None and until is not None:
         raise ValueError("_fetch_bars_from_db takes since or until, not both")
+    if floor is not None and until is None:
+        raise ValueError("_fetch_bars_from_db takes floor only with until")
     with conn.cursor() as cur:
-        if until is not None:
+        if until is not None and floor is not None:
+            cur.execute(_FETCH_BARS_UNTIL_FLOOR_SQL, (symbol, tf, until, floor))
+        elif until is not None:
             cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, until))
         elif since is not None:
             cur.execute(_FETCH_BARS_SINCE_SQL, (symbol, tf, since))
@@ -969,6 +982,35 @@ _V2_TIME_COLUMN = "bar_ts"
 # like.
 _TRADING_EXCHANGE = "NYSE"
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+# A name with no proven start reads from the beginning of its series.
+_NO_FLOOR = _EPOCH
+
+
+_PROVEN_STARTS_SQL = """
+SELECT DISTINCT ON (subject) split_part(subject, '|', 1), metric_value, passed
+FROM integrity_monitor
+WHERE monitor_type = %s AND metric_name = %s AND subject = ANY(%s)
+ORDER BY subject, evaluated_at DESC
+"""
+
+
+def proven_starts(conn: Any, symbols: Sequence[str]) -> dict[str, datetime]:
+    """Each name's proven start (design D4, todo 532): the latest `proven_start_1d` fact the 1d
+    verdict run wrote for it, as midnight UTC of the session date. A name whose latest fact is a
+    failure (no start: its latest session is unanswered) or that has no fact is absent from the
+    result; the caller counts and reports those. Depends on bar presence only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            _PROVEN_STARTS_SQL,
+            (MONITOR_TYPE, INFO_PROVEN_START, [f"{symbol}|1d" for symbol in symbols]),
+        )
+        return {
+            symbol: datetime.combine(date.fromordinal(int(ordinal)), dt_time.min, tzinfo=UTC)
+            for symbol, ordinal, passed in cur.fetchall()
+            if passed
+        }
+
+
 _ONE_MICROSECOND = timedelta(microseconds=1)
 _SPOOL_ROOT_DEFAULT = project_root / "logs" / "rebuild_spool"
 _SPOOL_GROUP_PREFIX = "group-"
@@ -1200,9 +1242,15 @@ def _write_unit_spool(
 
 
 def _fetch_bar_arrays(
-    conn: Any, symbol: str, tf: str, horizon: datetime, block_rows: int
+    conn: Any,
+    symbol: str,
+    tf: str,
+    horizon: datetime,
+    block_rows: int,
+    floor: datetime = _NO_FLOOR,
 ) -> tuple[dict[str, np.ndarray], list[datetime]]:
-    """One series' bars strictly before `horizon` from market_data_ohlcv_tradeable, streamed
+    """One series' bars from `floor` (the name's proven start; design D4) strictly before
+    `horizon` from market_data_ohlcv_tradeable, streamed
     through a server-side cursor in blocks (never a full-history fetchall), as numpy arrays plus
     the aware bar times. `ts` is UTC int64 nanoseconds, the registry's timestamp input."""
     times: list[datetime] = []
@@ -1211,7 +1259,7 @@ def _fetch_bar_arrays(
     kinds: list[str] = []
     with conn.cursor(name="rebuild_bars") as cur:
         cur.itersize = block_rows
-        cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, horizon))
+        cur.execute(_FETCH_BARS_UNTIL_FLOOR_SQL, (symbol, tf, horizon, floor))
         while True:
             block = cur.fetchmany(block_rows)
             if not block:
@@ -1266,6 +1314,7 @@ def _rebuild_worker(args: tuple) -> dict:
         unit_ranges,
         spool_dir,
         block_rows,
+        floor,
     ) = args
     setup_service_logging("logs/backfill_feature_factory.log")
     worker_log = structlog.get_logger(__name__)
@@ -1278,7 +1327,7 @@ def _rebuild_worker(args: tuple) -> dict:
     cross_asset_by_date, spy_1d_bars, tlt_1d_bars = _WORKER_EXTERNALS
     try:
         with _short_lived_conn(dsn) as conn:  # read only; a server cursor needs its transaction
-            bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows)
+            bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows, floor)
             first_row = config.momentum_zscore_window
             if len(bars["ts"]) < first_row + 2:
                 worker_log.warning(
@@ -1293,7 +1342,7 @@ def _rebuild_worker(args: tuple) -> dict:
                     path.write_text("")
                     result["units"][index] = {"path": str(path), "rows": 0}
                 return result
-            symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d", until=horizon)
+            symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d", until=horizon, floor=floor)
             beta_by_date = build_symbol_beta_series(
                 symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
             )
@@ -1301,7 +1350,7 @@ def _rebuild_worker(args: tuple) -> dict:
             htf_bars = (
                 symbol_1d_bars
                 if htf_tf == "1d"
-                else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon)
+                else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon, floor=floor)
             )
             ltf_ret_by_ts: dict | None = None
             if tf == "5m":
@@ -1335,12 +1384,13 @@ def _rebuild_worker(args: tuple) -> dict:
 
 
 _UNIT_STATS_SQL = """
-SELECT symbol,
-       (extract(year FROM timestamp AT TIME ZONE 'UTC'))::int AS yr,
-       count(*), min(timestamp), max(timestamp)
-FROM market_data_ohlcv_tradeable
-WHERE timeframe = %s AND symbol = ANY(%s) AND timestamp < %s
-GROUP BY symbol, yr
+SELECT m.symbol,
+       (extract(year FROM m.timestamp AT TIME ZONE 'UTC'))::int AS yr,
+       count(*), min(m.timestamp), max(m.timestamp)
+FROM market_data_ohlcv_tradeable m
+JOIN unnest(%s::text[], %s::timestamptz[]) AS s(symbol, floor_ts) ON s.symbol = m.symbol
+WHERE m.timeframe = %s AND m.timestamp >= s.floor_ts AND m.timestamp < %s
+GROUP BY m.symbol, yr
 """
 
 
@@ -1373,13 +1423,18 @@ class _GroupPlan:
     blind_symbols: set[str]
 
 
-def _unit_input_digest(digests: Mapping[str, str], stats: Mapping[str, CoverageRow]) -> str:
+def _unit_input_digest(
+    digests: Mapping[str, str],
+    stats: Mapping[str, CoverageRow],
+    starts: Mapping[str, datetime],
+) -> str:
     """sha256 hex over, per symbol with bars in the unit, the month-composed content digest
     (phase 185's `bar_content_digest_current`, the one definition) and the bar count and first
     and last bar time. The counts are supplementary identity: while a symbol's digest is absent
     (revision detection blind) a changed bar count still renames the unit."""
     lines = [
         f"{symbol}|{digests[symbol]}|{stat.count}|{stat.first.isoformat()}|{stat.last.isoformat()}"
+        + f"|start={starts.get(symbol, _NO_FLOOR).isoformat()}"
         for symbol, stat in sorted(stats.items())
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
@@ -1393,12 +1448,16 @@ def _plan_group(
     horizon: datetime,
     code_key: str,
     apr_snapshot: Mapping[str, Any],
+    starts: Mapping[str, datetime],
 ) -> _GroupPlan | None:
     """The units of one (symbol chunk, tf) group with their provenance identities, or None when
     the chunk has no bars before the horizon. Reads bar statistics and month digests only; no bar
     is fetched and no kernel runs, so a fully completed group costs two cheap queries."""
     with conn.cursor() as cur:
-        cur.execute(_UNIT_STATS_SQL, (tf, list(chunk), horizon))
+        cur.execute(
+            _UNIT_STATS_SQL,
+            (list(chunk), [starts.get(name, _NO_FLOOR) for name in chunk], tf, horizon),
+        )
         rows = cur.fetchall()
     if not rows:
         return None
@@ -1436,7 +1495,7 @@ def _plan_group(
             symbols=chunk,
             code_key=code_key,
             apr_snapshot=apr_snapshot,
-            input_digest=_unit_input_digest(digests, merged),
+            input_digest=_unit_input_digest(digests, merged, starts),
         )
         units.append(RebuildUnit(len(units), spec))
     return _GroupPlan(chunk_index, chunk, tf, units, blind)
@@ -1595,10 +1654,22 @@ def run_rebuild_stage(
     contracts = get_active_contracts(settings, dimension="compute_1d")
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
     chunks = split_symbol_chunks(universe, symbols_per_chunk)
+    starts = proven_starts(db_conn, universe)
+    without_start = sorted(set(universe) - set(starts))
+    if without_start:
+        _logger.warning(
+            "backfill_feature_factory.names_without_proven_start",
+            names=len(without_start),
+            sample=without_start[:10],
+            reason="no passing proven_start_1d fact: these names read from the start of their "
+            "series; run the 1d verdict audit first if that is not intended",
+        )
 
     _logger.info(
         "backfill_feature_factory.rebuild_start",
         symbols=len(universe),
+        proven_starts=len(starts),
+        names_without_proven_start=len(without_start),
         chunks=len(chunks),
         tfs=target_timeframes,
         horizon=horizon.isoformat(),
@@ -1634,7 +1705,9 @@ def run_rebuild_stage(
         waiting: _PreparedGroup | None = None
         for chunk_index, chunk in enumerate(chunks):
             for tf in target_timeframes:
-                plan = _plan_group(db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot)
+                plan = _plan_group(
+                    db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
+                )
                 if plan is None:
                     summary["empty_groups"] += 1
                     continue
@@ -1691,6 +1764,7 @@ def run_rebuild_stage(
                             unit_ranges,
                             str(spool_dir),
                             block_rows,
+                            starts.get(symbol, _NO_FLOOR),
                         ),
                     )
                     for symbol in chunk

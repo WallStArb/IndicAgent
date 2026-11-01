@@ -26,3 +26,10 @@ edit. Triage first against the 06:00 UTC 2026-10-11 bar_reconciliation_audit: if
 holed cohort is still red on fresh verdicts, write the ledger entry and change the
 verdict in the same session. Cross-links: todo 526 (per-TF provider floors),
 todo 433 (listing-venue truncation), 186-26's d2_landed gate (the consumer).
+
+## Closed 2026-11-01
+
+Landed with todo 584 item 11 (design D4): `proven_start` in `integrity_checks.py`, the
+`proven_start_1d` audit fact, the rebuild reading it, and ledger entry E19 in
+`docs/plans/methodology-change-ledger.md`. 189 of 205 failing names pass at the 2000 era; the 16
+still failing have an unanswered latest session.

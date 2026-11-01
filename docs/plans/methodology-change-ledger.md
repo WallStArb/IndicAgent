@@ -1121,3 +1121,50 @@ when this was found.
   after the 1,500-session failure was seen, as E17's measured-size gate was, so it is the
   owner's call and recorded as such. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
   under E18 is settled in plan 07.
+
+### E19: 2026-11-01: the 1d session_coverage verdict anchors at each name's proven start
+
+**Observed before the change.** The verdict judged each name from max(its first stored bar, the
+calendar's first session) to the last completed session, so one hole after the first bar capped
+the name's ratio for good. At the 2005 era 156 held names failed (191-SESSION-COVERAGE-FIX.md);
+moving the calendar start to 2000 (todo 584 item 10) put 41 more below 0.999 (STRL 602 missing
+sessions, WEYS 359, EFSC 239, CRGY 166; most 5 to 80). Measured on live canonical 1d bars at the
+2000 era: 205 of the 1,509 names with a bar fail, and the failing holes are name-specific (0 of 986
+distinct missing 2000-2004 dates for the 41 are vendor-wide). Excluding such a name drops its clean
+later years and tilts the universe toward names with complete early history. Todo 532 raised it.
+
+**What changed.** `proven_start` (`src/intelligence/bars/integrity_checks.py`) returns the
+earliest answered session s whose session coverage over [s, last session] reaches the threshold
+(APR `threshold.bar_integrity.session_coverage_min_1d`, 0.999, unchanged). `session_coverage` is
+judged over [proven start, last session] and fails only when no such s exists, that is when the
+latest session itself is unanswered. The audit writes the start as an informational fact
+`proven_start_1d` (metric_value `date.toordinal()`, `integrity_monitor`, subject `SYM|1d`). The
+rebuild (`services/backfill_feature_factory.py`) reads it and computes every timeframe of the name
+from that session: bars before it are not fetched, the unit statistics and input digest are clipped
+to it (a changed start renames the unit), and the name's own 1d and higher-timeframe inputs start
+there. The start depends on bar presence only, never on returns, so it is not a return-informed
+selection. An answered session is still a stored bar or an `ohlcv_empty_history` span; a missing
+bar is never read as a no-trade day. Unchanged: the threshold, the other eight 1d checks, the
+rebuild-only freshness check, the gate.
+
+**Result on live data (2026-11-01).** 189 of the 205 failing names pass; the 16 still failing
+(ACA, ACVA, BZH, CCO, CTVA, EIS, H, IOT, KNSL, MSGS, PNFP, PSKY, REMX, RPRX, SHEN, WBD) have an
+unanswered latest session. All 41 of the item 10 names pass. Names whose start is later than their
+first bar: 189 (trim in days, quartiles 346, 1,149, 2,738; 140 trim more than a year, 75 more than
+five, 19 more than ten). A recent single hole costs the history before it: a hole fewer than 1,000
+sessions before the end leaves no longer suffix that tolerates it, so the start moves to the next
+session. That follows the rule as designed (D4); a later change that keeps more of such a name
+would be a further entry.
+
+**Limits, stated.** The threshold is a budget over the whole suffix, not a locality bound: with
+3,000 judged sessions a 2-session hole 1,500 sessions before the end is tolerated, so a start can
+precede a hole the suffix still absorbs (at most 0.1 percent of the suffix, the same tolerance the
+verdict always had). The sector and regime composition of the research universe before and after
+the trims has not been compared; that check is open and belongs before the rerun's first
+hypothesis test.
+
+**Pre-registered?** No. The rule was decided after seeing the 2000-era failures, by the lead
+(design D4, todo 584), on bar presence alone; it does not read any return, signal or feature value,
+so it adds no selection pressure to a hypothesis test. Frozen verdicts are not re-scored.
+
+**Built by:** todo 584 item 11; closes todo 532.

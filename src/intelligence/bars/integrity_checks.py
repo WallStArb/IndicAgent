@@ -56,6 +56,25 @@ def session_coverage(
     return len(answered.intersection(sessions)) / len(sessions)
 
 
+def proven_start(
+    sessions: Sequence[date], answered: Collection[date], min_coverage: float
+) -> date | None:
+    """The earliest answered session s whose session coverage over [s, the last session] reaches
+    `min_coverage` (design D4, todo 532); None when no session does (the last session itself is
+    unanswered). `sessions` is the judged calendar span in order. Depends on bar presence only,
+    never on returns. A hole in early history is missing depth, not a defect in the name: the
+    name is judged, and later rebuilt, from here, instead of failing for the holes before it."""
+    answered_set = set(answered)
+    start: date | None = None
+    missing = 0
+    for i in range(len(sessions) - 1, -1, -1):
+        if sessions[i] not in answered_set:
+            missing += 1
+        elif (len(sessions) - i - missing) / (len(sessions) - i) >= min_coverage:
+            start = sessions[i]  # scanning backwards, the last hit is the earliest start
+    return start
+
+
 def alpaca_basis_runs(
     observations: Sequence[Observation],
     splits: Sequence[SplitRecord],
@@ -153,6 +172,9 @@ CHECKS_1D = (
 # Reported per name, never a verdict that can fail (the name's history starts at its first
 # primary bar; the count is what the report shows).
 INFO_REFUSED_HEAD = "refused_head_1d"
+# The name's proven start (design D4): metric_value is date.toordinal(); the rebuild and the
+# panel begin the name there. Informational: no gate reads it as a check.
+INFO_PROVEN_START = "proven_start_1d"
 # Reported per name, never a verdict that can fail (todo 566 class B): sessions the primary
 # vendor's symbol row names but did not answer and no fallback covers, by design; the count is
 # what the report shows.
@@ -219,6 +241,8 @@ class NameReport1d:
     unserved_primary: int = 0
     # unexplained Alpaca/IBKR runs after the arbitration (alpaca_basis_run)
     alpaca_runs: list[BasisRun] = field(default_factory=list)
+    # earliest session whose coverage to the last session passes session_coverage (design D4)
+    proven_start: date | None = None
 
 
 def month_digests(
@@ -322,12 +346,14 @@ def judge_name_1d(
     """The nine 1d verdicts of one name (design section 6; freshness_1d from 185-46). Pure; timings, when given, collects
     seconds per check. Thresholds that are definitions (zero tolerance) live here as 0.0.
 
-    session_coverage is era-scoped: it judges the sessions from max(the name's first stored bar,
-    `era_start`) to `last_session`, and `era_start` is the session calendar's first session. A
-    session before it cannot reach a feature row, so a hole there neither fails the check nor
-    (through the ratio's denominator) is hidden by earlier coverage. Inside the era a session is
-    answered only by a stored bar or an ohlcv_empty_history span; a missing bar is never read as
-    a no-trade day (191-SESSION-COVERAGE-FIX.md)."""
+    session_coverage is era-scoped and anchored at the name's proven start (design D4, todo 532):
+    the span runs from max(the name's first stored bar, `era_start`) to `last_session`, and
+    `era_start` is the session calendar's first session. The check judges the sessions from the
+    earliest answered session s at which coverage over [s, last_session] reaches the threshold
+    (proven_start), so a hole in early history is missing depth, not a defect in the name; it
+    fails only when no such s exists. Inside the span a session is answered only by a stored bar
+    or an ohlcv_empty_history span; a missing bar is never read as a no-trade day
+    (191-SESSION-COVERAGE-FIX.md)."""
     symbol = inputs.symbol
 
     def timed(check: str, started: float) -> None:
@@ -345,13 +371,16 @@ def judge_name_1d(
     verdicts: list[Verdict] = []
 
     started = time.perf_counter()
+    proven: date | None = None
     if stored:
         first = max(min(stored), era_start)
-        judged_sessions = [s for s in sessions if first <= s <= last_session]
+        span = [s for s in sessions if first <= s <= last_session]
+        empty_dates = [s for s in span if _in_any(s, inputs.empty_spans)]
+        proven = proven_start(span, set(stored) | set(empty_dates), thresholds.session_coverage_min)
+        judged_sessions = [s for s in span if proven is not None and s >= proven]
+        # With no start (the latest session is unanswered) the metric is the whole span's ratio.
         coverage = session_coverage(
-            stored.keys(),
-            [s for s in judged_sessions if _in_any(s, inputs.empty_spans)],
-            judged_sessions,
+            stored.keys(), empty_dates, judged_sessions if proven is not None else span
         )
     else:
         coverage = 0.0  # a compute_1d name with no stored bar has no history at all
@@ -448,7 +477,11 @@ def judge_name_1d(
         )
     )
     return NameReport1d(
-        verdicts, len(derived.refused_head), len(derived.unserved_primary), alpaca_runs
+        verdicts,
+        len(derived.refused_head),
+        len(derived.unserved_primary),
+        alpaca_runs,
+        proven_start=proven,
     )
 
 

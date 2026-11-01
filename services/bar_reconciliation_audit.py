@@ -112,6 +112,7 @@ from src.intelligence.bars.integrity_checks import (
     CHECKS_INTRADAY,
     INFO_DIGEST_FULL_SWEEP,
     INFO_HELD,
+    INFO_PROVEN_START,
     INFO_REFUSED_HEAD,
     INFO_UNSERVED_PRIMARY,
     SWEEP_SUBJECT,
@@ -2445,6 +2446,20 @@ class BarReconciliationAudit(BaseBatch):
                     float(report.unserved_primary),
                     None,
                     True,
+                    twe,
+                )
+            )
+            # design D4 (todo 532): where the name's rebuild and panel begin. Written on every
+            # run: a name with no start (its latest session unanswered) gets a failing fact, so
+            # the reader never keeps an earlier run's start for a name that no longer passes.
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    subject,
+                    INFO_PROVEN_START,
+                    float(report.proven_start.toordinal()) if report.proven_start else 0.0,
+                    None,
+                    report.proven_start is not None,
                     twe,
                 )
             )

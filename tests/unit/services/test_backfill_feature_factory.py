@@ -12,7 +12,7 @@ import dataclasses
 import inspect
 import math
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -1486,10 +1486,13 @@ def _run_rebuild_stage(
     monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
     monkeypatch.setattr(module, "build_cross_asset_series", lambda *a, **k: {})
+    monkeypatch.setattr(module, "proven_starts", lambda conn, symbols: {})
     monkeypatch.setattr(
         module,
         "_plan_group",
-        lambda conn, chunk_index, chunk, tf, horizon, code_key, apr: plans.get((chunk_index, tf)),
+        lambda conn, chunk_index, chunk, tf, horizon, code_key, apr, starts: plans.get(
+            (chunk_index, tf)
+        ),
     )
     monkeypatch.setattr(
         module,
@@ -1846,6 +1849,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
             unit_ranges,
             str(tmp_path),
             100,
+            module._NO_FLOOR,
         )
     )
     assert payload["error"] is None, payload["error"]
@@ -1969,6 +1973,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
             [(0, (times[0], horizon))],
             str(spool_dir),
             100,
+            module._NO_FLOOR,
         )
     )
     assert payload["error"] is None
@@ -2053,7 +2058,7 @@ def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
     digest_rows = [("AAA", datetime(2020, 1, 1, tzinfo=UTC), "d1")]
     conn = ScriptedConn([{"fetchall": stats}, {"fetchall": digest_rows}])
     horizon = datetime(2021, 1, 1, tzinfo=UTC)
-    plan = module._plan_group(conn, 0, ("AAA", "BBB"), "1d", horizon, "c" * 64, {"k": 1})
+    plan = module._plan_group(conn, 0, ("AAA", "BBB"), "1d", horizon, "c" * 64, {"k": 1}, {})
     assert plan is not None
     assert [(u.spec.range_start, u.spec.range_end) for u in plan.units] == [
         (datetime(2020, 1, 1, tzinfo=UTC), horizon)
@@ -2066,8 +2071,41 @@ def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
 
     # A chunk with no bars before the horizon plans nothing.
     empty = ScriptedConn([{"fetchall": []}])
-    assert module._plan_group(empty, 0, ("AAA",), "1d", horizon, "c" * 64, {"k": 1}) is None
+    assert module._plan_group(empty, 0, ("AAA",), "1d", horizon, "c" * 64, {"k": 1}, {}) is None
     assert BAR_DIGEST_ABSENT_SYMBOL == "absent"
+
+
+# ---------------------------------------------------------------------------
+# Design D4 (todo 532): a name's rebuild begins at its proven start
+# ---------------------------------------------------------------------------
+
+
+def test_a_proven_start_renames_the_unit():
+    stats = {
+        "AAA": module.CoverageRow(
+            5, datetime(2020, 1, 2, tzinfo=UTC), datetime(2020, 6, 1, tzinfo=UTC)
+        )
+    }
+    digests = {"AAA": "d"}
+    start = datetime(2020, 1, 2, tzinfo=UTC)
+    plain = module._unit_input_digest(digests, stats, {})
+    assert module._unit_input_digest(digests, stats, {"AAA": start}) != plain
+    assert module._unit_input_digest(digests, stats, {"BBB": start}) == plain
+
+
+def test_proven_starts_reads_the_latest_fact_as_midnight_utc():
+    from tests.unit._compressed_hypertable_write_session_fakes import ScriptedConn
+
+    ordinal = float(date(2008, 3, 4).toordinal())
+    conn = ScriptedConn([{"fetchall": [("AAA", ordinal, True), ("CCC", 0.0, False)]}])
+    got = module.proven_starts(conn, ["AAA", "BBB", "CCC"])
+    # BBB has no fact and CCC's latest fact is a failure: neither has a start
+    assert got == {"AAA": datetime(2008, 3, 4, tzinfo=UTC)}
+
+
+def test_the_floor_combines_with_until_only():
+    with pytest.raises(ValueError, match="floor only with until"):
+        module._fetch_bars_from_db(object(), "AAA", "1d", floor=datetime(2008, 3, 4, tzinfo=UTC))
 
 
 # ---------------------------------------------------------------------------
