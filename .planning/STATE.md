@@ -53,9 +53,19 @@ selection gate `--compare` exited 0, 0 real differences across 349,496,830 canon
 filing committed 492280b25); pre-2016 IBKR 5m backfill running (owner P0; one run failed
 12:15Z gateway-lost mid-run, relaunched 13:42Z); 522 staged for Monday 2026-11-02 09:30 ET
 open (20 measured orders intact in the ledger; last mile owned by indicagent-b0, coordinator
-backup). Coordination 2026-11-01: indicagent-97 leads (owner directive), indicagent-93 owns
-the data lane (stage 2 monitoring, then 564 recount and 571 reset), indicagent-b0 owns E17
-(todo 546 shared null generator) plus 522's measured run. E17 battery verdict 547 recorded:
+backup). Coordination 2026-11-01: indicagent-97 leads (owner directive, standing trust granted
+19:40Z; owner re-affirmed DATA FIRST: enough depth and universe to find edge), indicagent-93
+owns the data lane (stage 2 monitoring, then the 564 recount, 571 reset, and 464's macro.py fix
+in the post-rebuild code window, and the per-name 5m scoreboard with the completion evidence),
+indicagent-b0 owns E17 (546 landed c00bbcdfd) and now 534's throughput half (pacing-wait
+telemetry, fetch_concurrency verdict, the 538 wedge diagnosis) after landing 578
+(ea98c95dd, generic backup tool `ops_table_backup.py`). Pre-2016 measure 2026-11-01 ~19:15Z:
+399/1,160 pre-2016-daily names have any IBKR 5m before 2016 (ohlcv_raw, vendor ibkr); 93's
+scoreboard reconciles the earlier 453 figure. Universe breadth: 1,529 active names judged
+sufficient for current families; expansion is evaluated only after the pre-2016 campaign
+drains. Todo-index hygiene 2026-11-01: a full sweep found and closed 11 shipped-but-unclosed
+todos (577, 546, 491, 494, 563, 572, 545, 275, 395, 009, 373); closing a todo now rides the
+landing commit. E17 battery verdict 547 recorded:
 every cell passes except the pre-registered cause-3 S1-drift pattern on
 `residual_momentum_12_1_z`; StepM selection unblocked (Step B v2 passed, todo 561); owner
 holds the S1-drift option A/B decision. Research lane: 184 planned 2026-10-27 (14 plans,
