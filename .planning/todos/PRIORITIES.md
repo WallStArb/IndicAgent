@@ -102,7 +102,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Todo | Why now |
 |---|---|
-| [431](pending/431-stratified-sourcing-onboarding-holds-one-transaction-across-ibkr-calls.md) | Delete the second instrument writer (`--commit` in the stratified-sourcing and pilot-draw scripts) so draw scripts only draw; the manifest onboarder is the documented path. |
 | [444](pending/444-onboarding-tooling-classification-mapper-pair-column-orchestrator.md) | Onboarding SOP gaps 3, 5, 6: classification mapper, a manifest pair column for `spread_leg`, then one resumable onboarding command. After 431. |
 | [505](pending/505-nightly-update-lane-exceeds-r4-measure-5m-pacing-ceiling.md) | New 2026-10-07, from 185-46 R4. The nightly update lane (1d plus 5m, one short request per name) measures 130 minutes today and 349 once every compute_1d name holds 5m, against R4's 120; 5m is paced by the unmeasured default 58 per 10 minutes. Measure the 5m ceiling with the rate probe, then set or justify the APR value. Gate: before 189-10 Task 2's pilot criterion is judged. |
 | [537](pending/537-ibkr-1d-raw-deepening-scoped-full-scan-pass.md) | Campaign done 2026-10-18 (three full-scan runs, 1,030 no_data-confirmed floors); item 2 basis scan ran 2026-10-23 (todo 535 item 51), restore decided at plan 20. Item 3 rides with the plan 19 Task 2 `--measure` report. Runs over an hour lost the fetcher lock until 543 (fixed 2026-10-26). |

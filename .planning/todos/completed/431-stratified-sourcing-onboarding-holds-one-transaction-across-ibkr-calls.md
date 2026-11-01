@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-25
+closed: 2026-11-01
 source: phase 182 code review (finding 5)
 ---
 
@@ -30,7 +31,7 @@ names on 2026-09-26. The remaining defect is the second writer: delete `_run_com
 `universe_expansion_pilot_draw.py`, which imports it, so draw scripts only draw and write a
 manifest. Keep the sampling helpers `universe_expansion_holdings_draw.py` imports.
 
-## Landed (research lane, 2026-11-01)
+## Landed (research lane, 2026-11-01, commit d7799ca19)
 
 The second writer is deleted. `universe_expansion_stratified_sourcing.py` is draw-only: `_run_commit`,
 `_gateway_preflight`, `load_classifications`, the `--commit`/`--classification-csv` arguments, the
@@ -40,3 +41,9 @@ the todo names does not exist (the draw successor, `universe_expansion_holdings_
 the sampling helpers, which stay). The provider-leaf boundary allow-list drops the script's entry (its
 only leaf use was the deleted commit path). Tests: the commit-mode and classification-CSV tests went with
 the subject; the 14 draw tests pass, `--commit` now exits 2 as an unrecognized argument.
+
+Closed 2026-11-01: the second writer is deleted (commit d7799ca19). The todo's named
+pilot-draw script no longer exists; the draw successor universe_expansion_holdings_draw.py
+imports only the sampling helpers, which stay. The deleted commit path was the script's only
+IBKR-leaf use, so its provider-leaf boundary allow-list entry dropped with it. The onboarding
+SOP records the resolution.
