@@ -46,3 +46,15 @@ tests/unit/services test_validator_rejects_non_numeric_confidence
 tests/unit/services test_result_accepts_valid_payload
 tests/unit/services test_result_clamps_out_of_range
 tests/unit/services test_result_rejects_non_numeric_confidence
+
+# todo 578: the generic backup tool (ops_table_backup) and the old-store tool it succeeds
+# (ops_old_store_backup, deleted 2026-11-12 in todo 574) carry the same pure-function suite;
+# the old file goes away with the retention date.
+tests/unit/scripts test_year_slices_are_half_open_and_consecutive
+tests/unit/scripts test_slice_select_reads_one_table_within_bounds
+tests/unit/scripts test_count_rows_in_gzip_counts_csv_rows
+tests/unit/scripts test_count_rows_in_gzip_empty_file_is_zero_rows
+tests/unit/scripts test_count_rows_in_gzip_refuses_a_file_without_final_newline
+tests/unit/scripts test_sha256_of_file_matches_hashlib
+tests/unit/scripts test_manifest_totals_sum_the_file_rows
+tests/unit/scripts test_verify_slices_names_every_mismatching_slice

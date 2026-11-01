@@ -171,11 +171,14 @@ un-adjusted from the database yet.
 time and logs the old values to `ohlcv_revision`. Nothing a vendor serves is dropped; canonical
 `market_data_ohlcv` is a rebuildable selection from raw plus policy (and the derived 15m/1h
 grid), proven a pure function of raw by `scripts/ops/bars/ops_selection_gate.py --compare`.
-Backup before an irreversible drop: `scripts/ops/bars/ops_old_store_backup.py` (COPY to
-per-year gzip CSV under `data/backups/`, one REPEATABLE READ transaction, `--verify` compares
-manifest, live recount and file rows; todo 578 is its successor plan when it retires with the
-Tradier backups on 2026-11-12); plain `pg_dump` of a compressed hypertable is not the
-pattern here. The phase 191 cutover tooling (`ops_raw_cutover_window.py` window
+Backup before an irreversible drop: plain tables take `pg_dump -Fc` (todo 571's pattern);
+compressed hypertables and row-slice archives take `scripts/ops/db/ops_table_backup.py`
+(COPY to per-year gzip CSV under `data/backups/`, one REPEATABLE READ transaction, `--verify`
+compares manifest, live recount and file rows, `--where` for a row-slice archive such as todo
+512's per-name dump; APR `infra.table_backup.disk_margin`). It succeeds
+`scripts/ops/bars/ops_old_store_backup.py`, which retires with the Tradier backups on
+2026-11-12 (todo 574); the 191-17 precedent still holds that a small table's drop migration and
+the phase summaries are themselves a sufficient record. The phase 191 cutover tooling (`ops_raw_cutover_window.py` window
 open/resume/record procedure, precedents 191-12, 191-14, 191-16, plus the one-shot swap tools
 `ops_canonical_vendor_kind_swap.py`, `ops_d2_raw_equivalence.py` and the legacy re-stamp
 `ops_legacy_restamp.py`, applied 2026-10-15, `logs/legacy_restamp_20261015T174031Z.json`) was
