@@ -14,6 +14,16 @@ Screened and root-caused; the fixes are batched for the next kernel-edit window 
 stages only if the pin moves, so nothing lands between stages). The hma_slope_z fix and its
 parity-golden change wait for that window.
 
+## Done-when 3 tool (2026-11-01)
+
+`scripts/ops/ops_feature_column_screen.py` judges each registry numeric column per (tf, name):
+dead on every judged name is named (exit 1), dead on some names is listed as partial. Run it
+per stage with `--tf`; the unfiltered run reads the whole hypertable, so run it after the
+rebuild stops writing. On the eight-name 1d pool it reproduces the screen below exactly (39 dead
+plus the control `canary_constant`, which holds its declared value); the per-name view also
+found todo 583. The intraday stage run waits for 186-26 stage 2 to finish writing. Until
+done-when 2 declares applicability, every 1d run names the 39 by-construction columns.
+
 ## The screen (186-26 stage 1, 5,127,577 rows, 1,257 names, 2005-01-03 to 2026-09-30)
 
 Pooled screen over eight names (SPY, AAPL, MSFT, JPM, XOM, SCCO, HON, KO): of 309 real columns,
