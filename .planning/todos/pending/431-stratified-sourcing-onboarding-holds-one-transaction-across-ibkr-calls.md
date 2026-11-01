@@ -29,3 +29,14 @@ names on 2026-09-26. The remaining defect is the second writer: delete `_run_com
 `--commit` path from `universe_expansion_stratified_sourcing.py` and from
 `universe_expansion_pilot_draw.py`, which imports it, so draw scripts only draw and write a
 manifest. Keep the sampling helpers `universe_expansion_holdings_draw.py` imports.
+
+## Landed (research lane, 2026-11-01)
+
+The second writer is deleted. `universe_expansion_stratified_sourcing.py` is draw-only: `_run_commit`,
+`_gateway_preflight`, `load_classifications`, the `--commit`/`--classification-csv` arguments, the
+gateway-probe client id and the sample tags are gone, and the async entry is a sync draw (`_draw_main`).
+The onboarding SOP's "second writer" warning is replaced by the resolution note. The pilot-draw script
+the todo names does not exist (the draw successor, `universe_expansion_holdings_draw.py`, imports only
+the sampling helpers, which stay). The provider-leaf boundary allow-list drops the script's entry (its
+only leaf use was the deleted commit path). Tests: the commit-mode and classification-CSV tests went with
+the subject; the 14 draw tests pass, `--commit` now exits 2 as an unrecognized argument.

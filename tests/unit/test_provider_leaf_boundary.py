@@ -102,11 +102,6 @@ _ALLOW_LIST: dict[str, str] = {
         "instrument-onboarding-sop.md tooling); same rationale as classification "
         "sourcing."
     ),
-    "scripts/infrastructure/universe_expansion_stratified_sourcing.py": (
-        "PERMANENT (out of phase 190 scope): stratified universe sourcing resolves "
-        "candidate contracts on the concrete IBKR leaf; same rationale as "
-        "classification sourcing."
-    ),
     "scripts/ops/bars/ops_intraday_venue_recovery.py": (
         "PERMANENT: manual IBKR ops tool (intraday venue recovery) run under "
         "FetcherLock against the concrete leaf; the manual ops tools keep concrete "

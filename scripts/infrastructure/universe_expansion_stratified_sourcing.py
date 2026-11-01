@@ -14,14 +14,10 @@ already measured DEAD against.
 
 D-01: `alpha.universe.target_sample_size` stays 0 (= UNSET) until Plan 11 measures
 the ic_engine OOM fix's actually-supported scale -- this script fails loud naming
-that key rather than picking a number. Do NOT run this script in --commit mode in
-this plan; Plan 12 owns the real run, once Plan 11 has set the target size.
+that key rather than picking a number.
 
-Phase 182 (D-09, todo 384): `--commit` now requires `--classification-csv PATH`
-(columns symbol, code, source_ref) naming every sampled symbol's indicagent_v1
-classification -- onboard_instrument() hard-fails without one and there is no skip
-escape hatch. A symbol sampled but missing from the CSV aborts the whole run before
-any IBKR connection or database write, not partway through.
+Draw-only since todo 431: the --commit path is deleted; the manifest onboarder
+(universe_expansion_onboard_manifest.py) is the sole documented write path.
 """
 
 from __future__ import annotations
@@ -47,38 +43,13 @@ import structlog
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from scripts.infrastructure.universe_expansion_fetch_iwv_holdings import (  # noqa: E402
     parse_holdings,
 )
-from src.config.classification_service import ClassificationAssignment  # noqa: E402
-from src.config.instrument_onboarding import (  # noqa: E402
-    OnboardingRejected,
-    onboard_instrument,
-)
 from src.config.settings import Settings  # noqa: E402
-from src.core.database_manager import DatabaseManager  # noqa: E402
-from src.core.models import AssetClass, Instrument  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
-from src.providers.ibkr import IBKRProvider  # noqa: E402
 
 _logger = structlog.get_logger(__name__)
-
-# Dedicated client ID, distinct from other in-repo IBKR client IDs (40=default
-# backfill, 44=chunk/rate-limit probe, 48=personal_cost_hurdle) -- see
-# src/providers/ibkr.py's _MAX_CLIENT_ID=50 ceiling. Used only for the --commit
-# gateway pre-flight probe; never used for the actual backfill (that's Plan 12).
-_GATEWAY_PROBE_CLIENT_ID = 45
-
-# Every sampled single-name equity gets this exposure tag. The IWV holdings file's
-# narrow three-column contract (symbol/name/index_position_value, per Plan 04's
-# parse_holdings()) carries no sector/value/growth data through to this script, so
-# a finer eq_* split is not derivable here without a second data source -- eq_broad
-# is the correct, honest default; a follow-on sector/factor re-tagging pass is a
-# separate task, not this plan's scope.
-_SAMPLE_TAGS: tuple[tuple[str, float, dict], ...] = (
-    ("eq_broad", 1.0, {"reason": "Phase 174 D-02 market-cap-stratified Russell 3000 sample"}),
-)
 
 
 def _bucket_population(
@@ -271,30 +242,6 @@ def _sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_classifications(path: Path) -> dict[str, ClassificationAssignment]:
-    """Parse a classification CSV (columns symbol, code, source_ref) into a dict keyed by
-    symbol -- the operator-supplied D-09 input naming every sampled symbol's indicagent_v1
-    classification. ClassificationAssignment's own __post_init__ validates code/source_ref
-    eagerly, so a malformed source_ref fails at parse time, not at INSERT time. A duplicate
-    symbol raises ValueError (todo 384: ambiguity here is a mistake in the file, not a
-    runtime choice to resolve silently).
-    """
-    result: dict[str, ClassificationAssignment] = {}
-    with path.open(newline="") as fh:
-        reader = csv.DictReader(fh)
-        for row in reader:
-            symbol = row["symbol"].strip()
-            if symbol in result:
-                raise ValueError(
-                    f"load_classifications: duplicate symbol {symbol!r} in {path} -- "
-                    "each symbol may appear at most once."
-                )
-            result[symbol] = ClassificationAssignment(
-                code=row["code"].strip(), source_ref=row["source_ref"].strip()
-            )
-    return result
-
-
 def _print_bucket_summary(sample: pd.DataFrame, bucketed_pop: pd.DataFrame) -> None:
     """Print bucket idx / cap min / cap max / population count / drawn count,
     ascending by bucket index. `bucketed_pop` must be the SAME post-exclusion,
@@ -316,147 +263,7 @@ def _print_bucket_summary(sample: pd.DataFrame, bucketed_pop: pd.DataFrame) -> N
         print(f"{bucket_idx:>6} {cap_min:>16.2f} {cap_max:>16.2f} {n_pop:>10} {len(rows):>6}")
 
 
-async def _gateway_preflight(settings: Settings) -> tuple[bool, str]:
-    """Probe ib-gateway before the onboarding loop starts.
-
-    onboard_instrument() awaits qualify_instrument(), which returns False (not
-    raises) when there is no live Gateway connection -- so a stopped or
-    logged-out gateway would not error out, it would silently reject every
-    symbol one at a time and report a 100% rejection rate that looks like a
-    data problem (T-174-50). Connects, issues one qualify_instrument() against a
-    known-good existing corpus symbol read from `instruments`, and returns
-    (ok, probe_symbol).
-    """
-    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT symbol, base, contract_details FROM instruments "
-            "WHERE is_active = true AND contract_details->>'asset_class' = 'equity' "
-            "LIMIT 1"
-        )
-        row = cur.fetchone()
-    if row is None:
-        raise RuntimeError(
-            "universe_expansion_stratified_sourcing: no existing active equity "
-            "instrument found to use as the gateway pre-flight probe symbol."
-        )
-    probe_symbol, base, contract_details = row
-    probe_instrument = Instrument(
-        symbol=probe_symbol,
-        base=base or probe_symbol,
-        asset_class=AssetClass.EQUITY,
-        exchange=contract_details.get("exchange", "SMART"),
-        sector=contract_details.get("sector", ""),
-        tick_size=contract_details.get("tick_size", 0.01),
-        session_id=contract_details.get("session_id", "nyse"),
-        point_value=contract_details.get("point_value", 1.0),
-        provider_meta=contract_details.get("provider_meta") or {},
-    )
-
-    provider = IBKRProvider(
-        host=settings.ib_host, port=settings.ib_port, client_id=_GATEWAY_PROBE_CLIENT_ID
-    )
-    connected = await provider.connect()
-    if not connected:
-        return False, probe_symbol
-    try:
-        ok = await provider.qualify_instrument(probe_instrument)
-    finally:
-        await provider.disconnect()
-    return ok, probe_symbol
-
-
-async def _run_commit(
-    sample: pd.DataFrame,
-    settings: Settings,
-    classifications: dict[str, ClassificationAssignment],
-) -> dict[str, int]:
-    """--commit mode: qualify + write every drawn symbol through
-    onboard_instrument() (the sole sanctioned write path, D-08/T-174-02/T-174-03).
-    Checks that every sampled symbol has a classification BEFORE the gateway
-    pre-flight probe or any provider is constructed (D-09, todo 384: an
-    unclassifiable instrument is not onboarded, and a partial run must not
-    start), then runs the gateway pre-flight probe and aborts before the loop
-    if it fails (T-174-50).
-    """
-    missing = sorted(set(sample["symbol"]) - set(classifications))
-    if missing:
-        raise RuntimeError(
-            "universe_expansion_stratified_sourcing: missing --classification-csv row(s) "
-            f"for {len(missing)} sampled symbol(s): {missing} -- D-09 (todo 384): an "
-            "unclassifiable instrument is not onboarded, and a partial run must not start. "
-            "Add a row for every symbol above before re-running."
-        )
-
-    ok, probe_symbol = await _gateway_preflight(settings)
-    if not ok:
-        raise RuntimeError(
-            "universe_expansion_stratified_sourcing: ib-gateway pre-flight probe "
-            f"failed (qualify_instrument returned False for known-good symbol "
-            f"{probe_symbol!r} via 127.0.0.1:7497). Aborting before the onboarding "
-            "loop -- a stopped/logged-out gateway would otherwise silently reject "
-            "every symbol and report a 100% rejection rate that looks like a data "
-            "problem, not an infrastructure one. Check `docker ps --filter "
-            "name=ib-gateway`."
-        )
-
-    provider = IBKRProvider(
-        host=settings.ib_host, port=settings.ib_port, client_id=_GATEWAY_PROBE_CLIENT_ID
-    )
-    connected = await provider.connect()
-    if not connected:
-        raise RuntimeError(
-            "universe_expansion_stratified_sourcing: ib-gateway connection lost "
-            "between the pre-flight probe and the onboarding loop start."
-        )
-
-    n_onboarded = 0
-    n_rejected = 0
-    db = DatabaseManager(settings.database_url)
-    await db.initialize()
-    try:
-        async with db.pool.acquire() as conn, conn.transaction():
-            for row in sample.itertuples(index=False):
-                instrument = Instrument(
-                    symbol=row.symbol,
-                    base=row.symbol,
-                    name=row.name,
-                    asset_class=AssetClass.EQUITY,
-                    exchange="SMART",
-                    sector="",
-                    tick_size=0.01,
-                    session_id="nyse",
-                    point_value=1.0,
-                    provider_meta={},
-                )
-                try:
-                    await onboard_instrument(
-                        conn,
-                        instrument,
-                        qualifier=provider,
-                        tags=_SAMPLE_TAGS,
-                        metadata_skip_reason=(
-                            "Phase 174 D-02 stratified sample -- issuer-level "
-                            "metadata (listing_date/underlying_index/issuer) not "
-                            "available from the IWV holdings export's narrow "
-                            "symbol/name/index_position_value contract; a follow-on pass can "
-                            "backfill this from a per-symbol data source if needed."
-                        ),
-                        classification=classifications[row.symbol],
-                        compute_eligible=False,
-                        live_tradeable=False,
-                    )
-                    n_onboarded += 1
-                except OnboardingRejected:
-                    n_rejected += 1
-    finally:
-        await provider.disconnect()
-        await db.close()
-
-    return {"n_onboarded": n_onboarded, "n_rejected": n_rejected}
-
-
-async def _async_main(args: argparse.Namespace) -> int:
+def _draw_main(args: argparse.Namespace) -> int:
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
@@ -497,26 +304,15 @@ async def _async_main(args: argparse.Namespace) -> int:
         },
     )
 
-    if not args.commit:
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        dest = Path(f"/var/tmp/universe_expansion_stratified_sample_{timestamp}.csv")
-        sample.to_csv(dest, index=False, quoting=csv.QUOTE_MINIMAL)
-        print(f"Dry run -- wrote drawn list to {dest} (no database writes).")
-        bucketed_pop = _bucket_population(population, bucket_count=bucket_count, exclude=exclude)
-        _print_bucket_summary(sample, bucketed_pop)
-        return 0
-
-    classifications = load_classifications(args.classification_csv)
-    result = await _run_commit(sample, settings, classifications)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    dest = Path(f"/var/tmp/universe_expansion_stratified_sample_{timestamp}.csv")
+    sample.to_csv(dest, index=False, quoting=csv.QUOTE_MINIMAL)
     print(
-        "Commit run complete:",
-        {
-            "n_population": len(population),
-            "n_excluded": len(exclude),
-            "n_drawn": len(sample),
-            **result,
-        },
+        f"Drew the sample -- wrote the drawn list to {dest} (no database writes; the manifest "
+        "onboarder is the write path, todo 431)."
     )
+    bucketed_pop = _bucket_population(population, bucket_count=bucket_count, exclude=exclude)
+    _print_bucket_summary(sample, bucketed_pop)
     return 0
 
 
@@ -524,41 +320,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Market-cap-stratified random sample from the Russell 3000 population "
-            "(Phase 174 D-02). Dry-run by default -- writing is opt-in via --commit."
+            "(Phase 174 D-02). Draws only: it writes a CSV and makes no database writes "
+            "(todo 431); the manifest onboarder is the write path."
         )
     )
     parser.add_argument(
         "--holdings", type=Path, required=True, help="Path to a downloaded IWV holdings CSV."
     )
-    add_write_mode_args(
-        parser,
-        dry_run="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
-        commit=(
-            "Actually write to instruments/instrument_classification/instrument_tags/"
-            "instrument_metadata via onboard_instrument(). Off by default -- writing "
-            "is opt-in, not opt-out. Plan 08 does NOT run this mode; Plan 12 owns "
-            "the real run."
-        ),
-    )
-    parser.add_argument(
-        "--classification-csv",
-        type=Path,
-        default=None,
-        help=(
-            "Path to a CSV with columns symbol, code, source_ref -- one row per sampled "
-            "symbol, naming its indicagent_v1 classification (D-09, todo 384). Required "
-            "when --commit is given; there is no skip escape hatch."
-        ),
-    )
     args = parser.parse_args(argv)
-    if args.commit and args.classification_csv is None:
-        parser.error("--classification-csv is required when --commit is given (D-09, todo 384)")
 
     status = "success"
     try:
-        import asyncio
-
-        return_code = asyncio.run(_async_main(args))
+        return_code = _draw_main(args)
     except Exception as error:
         status = "failure"
         _logger.error("universe_expansion_stratified_sourcing.failed", error=str(error))

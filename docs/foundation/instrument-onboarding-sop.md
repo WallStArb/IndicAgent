@@ -349,9 +349,8 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 2. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
    would make stage 3 a command.
-3. **Second writer.** `universe_expansion_stratified_sourcing.py` still carries a `--commit`
-   path that onboards outside the manifest flow and holds one transaction across IBKR calls
-   (todo 431). Do not use it.
+3. **Second writer, resolved** (todo 431): the stratified-sourcing script's `--commit` path
+   is deleted; draw scripts only draw. The manifest onboarder is the sole write path.
 4. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
    remove the hand-written migration.
 5. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
