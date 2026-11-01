@@ -122,7 +122,9 @@ class LedgerPort(Protocol):
 
     async def start_runs(self, request, identities, run_concepts) -> dict[str, str]: ...
 
-    async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None) -> None: ...
+    async def finish_run(
+        self, run_id, *, status, snapshot_hash, evidence, series=None, universe_hash=None
+    ) -> None: ...
 
     async def pinned_run(self, run_id: str) -> PinnedRun | None: ...
 
@@ -367,6 +369,12 @@ def _check_spec_tree(loaded: LoadedSpec) -> None:
             )
 
 
+def _symbol_digest(symbols: tuple[str, ...] | list[str]) -> str:
+    """sha256 over a symbol list, newline joined: one digest form for every recorded universe
+    identity (members_universe_hash, research_run.universe_hash)."""
+    return hashlib.sha256("\n".join(symbols).encode()).hexdigest()
+
+
 def _prepare_panel(
     spec: FamilySpec,
     source: Panel,
@@ -381,7 +389,7 @@ def _prepare_panel(
     sub-panel the transform's causality probe runs on (None without a transform)."""
     if symbols is not None:
         source = panel_mod.select_symbols(source, symbols)
-        digest = hashlib.sha256("\n".join(source.symbols).encode()).hexdigest()
+        digest = _symbol_digest(source.symbols)
         source = dataclasses.replace(
             source,
             manifest={
@@ -408,10 +416,10 @@ def _prepare_panel(
 
 async def _analysis_panel(
     spec: FamilySpec, ctx: RunContext, *, real: bool, panel: Panel | None, replay: bool = False
-) -> tuple[Panel, str | None, Panel | None]:
-    """(analysis panel, snapshot hash, transform probe source): the S0 snapshot in real mode,
-    the given panel in synthetic mode (which applies the transform but no universe filter:
-    there is no database)."""
+) -> tuple[Panel, str | None, str | None, Panel | None]:
+    """(analysis panel, snapshot hash, universe hash, transform probe source): the S0 snapshot
+    in real mode, the given panel in synthetic mode (which applies the transform but no
+    universe filter: there is no database)."""
     if real:
         return await _load_panel(spec, ctx)
     # Generated synthetic panels carry no dividends: the identity grid keeps total_return a no-op.
@@ -427,16 +435,20 @@ async def _analysis_panel(
             raise ValueError("a total_return spec on a real snapshot runs in real mode")
         grid = dividends.no_dividends(panel)
     prepared, source_probe = _prepare_panel(spec, panel, source_hash=None, symbols=None, grid=grid)
-    return prepared, None, source_probe
+    return prepared, None, None, source_probe
 
 
-async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Panel | None]:
+async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, str, Panel | None]:
+    """(analysis panel, snapshot content hash, universe hash, transform probe source). The
+    universe hash (todo 491) is the sha256 over the S0 snapshot's symbol list, before any
+    members_universe narrowing, so the promoted set the attempt ran on is on the run record."""
     path = ctx.snapshot
     if path is None:
         build = ctx.build_snapshot or _default_build
         path = await build(ctx.dsn, ctx.snapshot_dir, spec)
     digest = store.verify(path)
     panel = panel_mod.load(path)
+    universe_hash = _symbol_digest(panel.symbols)
     grid = dividends.load_grid(path)
     manifest = panel.manifest
     expected = {
@@ -458,7 +470,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
     panel, source_probe = _prepare_panel(
         spec, panel, source_hash=digest, symbols=symbols, grid=grid
     )
-    return panel, digest, source_probe
+    return panel, digest, universe_hash, source_probe
 
 
 def _vol(spec: FamilySpec | BookSpec, resid_bar: np.ndarray, bps: int) -> np.ndarray:
@@ -608,6 +620,7 @@ async def run_family(
     # was seen, so it counts and joins the selection universe (design 7.1).
     computed: dict[str, AttemptSeries | None] = {}
     snapshot_hash: str | None = None
+    universe_hash: str | None = None
 
     async def finish(
         name: str, status: str, evidence: dict, series: AttemptSeries | None = None
@@ -625,6 +638,7 @@ async def run_family(
                 snapshot_hash=snapshot_hash,
                 evidence=evidence,
                 series=series,
+                universe_hash=universe_hash,
             )
 
     async def finish_all(status: str, evidence: dict) -> None:
@@ -633,7 +647,7 @@ async def run_family(
                 await finish(m.name, status, evidence, computed.get(m.name))
 
     try:
-        panel, snapshot_hash, source_probe = await _analysis_panel(
+        panel, snapshot_hash, universe_hash, source_probe = await _analysis_panel(
             spec, ctx, real=real, panel=panel, replay=replay
         )
         static_block = static_precondition(spec, panel, gate)
@@ -668,6 +682,8 @@ async def run_family(
             "spec_blob": loaded.blob_sha,
             "snapshot_hash": snapshot_hash,
             "code_commit": code_commit,
+            # Todo 491: the promoted universe the attempt ran on (None in synthetic mode).
+            "universe_hash": universe_hash,
             **{
                 k: panel.manifest[k]
                 for k in ("transform", "members_universe", "members_universe_hash")
@@ -1002,6 +1018,7 @@ async def run_book(
     result: dict = {}
     series: AttemptSeries | None = None  # set once S8's statistic exists; kept on failure
     snapshot_hash: str | None = None
+    universe_hash: str | None = None
 
     async def finish(status: str, evidence: dict, series: AttemptSeries | None = None) -> dict:
         result.update(status=status, run_id=run_id, evidence=evidence)
@@ -1012,12 +1029,13 @@ async def run_book(
                 snapshot_hash=snapshot_hash,
                 evidence=evidence,
                 series=series,
+                universe_hash=universe_hash,
             )
         return result
 
     try:
         _log("S0 snapshot")
-        panel, snapshot_hash, source_probe = await _analysis_panel(
+        panel, snapshot_hash, universe_hash, source_probe = await _analysis_panel(
             fam0, ctx, real=real, panel=panel
         )
         _log("E17 static-size precondition")
@@ -1157,6 +1175,7 @@ async def run_book(
                 subject=subject,
                 code_root=root if real else None,
                 snapshot_hash=snapshot_hash,
+                universe_hash=universe_hash,
                 session_dates=snapshot.session_dates(panel),
                 stack=stack,
                 member_keys=member_keys,
@@ -1205,6 +1224,7 @@ async def run_book(
                 "spec_blob": loaded.blob_sha,
                 "snapshot_hash": snapshot_hash,
                 "code_commit": code_commit,
+                "universe_hash": universe_hash,
                 "family_specs": {f.path: f.spec_hash for f in loaded.families},
             },
             guards={"families": [f.family for f in families]},
@@ -1302,6 +1322,7 @@ async def _contribution(
     subject: str,
     code_root,
     snapshot_hash,
+    universe_hash,
     session_dates,
     stack,
     member_keys,
@@ -1385,6 +1406,7 @@ async def _contribution(
                 ctx,
                 started[keyed[subset]],
                 snapshot_hash,
+                universe_hash,
                 session_dates,
                 keyed[subset],
                 result,
@@ -1435,14 +1457,17 @@ async def _start_subset_refits(
 
 
 async def _finish_subset_refit(
-    ctx: RunContext, sub_run, snapshot_hash, session_dates, names, result, error
+    ctx: RunContext, sub_run, snapshot_hash, universe_hash, session_dates, names, result, error
 ) -> None:
-    """One subset refit's terminal row: completed with its evidence and series, or failed."""
+    """One subset refit's terminal row: completed with its evidence and series, or failed.
+    It carries its parent book's snapshot and universe hashes: both ran on the same S0
+    snapshot (todo 491)."""
     if result is None:
         await ctx.ledger.finish_run(
             sub_run,
             status="failed",
             snapshot_hash=snapshot_hash,
+            universe_hash=universe_hash,
             evidence={
                 "stage": "subset_refit",
                 "error": error or "combiner undefined on the subset",
@@ -1454,6 +1479,7 @@ async def _finish_subset_refit(
         sub_run,
         status="completed",
         snapshot_hash=snapshot_hash,
+        universe_hash=universe_hash,
         evidence={
             "stage": "subset_refit",
             "subset": list(names),

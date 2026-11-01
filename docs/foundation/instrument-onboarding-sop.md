@@ -66,8 +66,9 @@ State them in the README entry for the batch; research discloses them through ph
   2026-09-26: few names in this universe delist, and rule 6 keeps any that do in the panels.
 - **Current-cap selection.** Batch 1 and wave 2 chose names by today's market-cap rank from
   current index holdings. Today's rank reflects past returns, so it is an outcome-conditioned
-  selector. A size or momentum claim needs point-in-time cap, never the holdings rank (todo 491 adds
-  the entry date and cohort research needs to see it).
+  selector. A size or momentum claim needs point-in-time cap, never the holdings rank. The entry
+  date and cohort research needs to see this live on the row (todo 491:
+  `instruments.universe_entry_date` and `universe_cohort`, written by stage 5-6's onboarding).
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
   The former venues' answers are kept in `ohlcv_raw` but stay out of canonical bars (the 185 D3
   venue study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6)

@@ -643,11 +643,16 @@ class PostgresLedger:
         snapshot_hash: str | None,
         evidence: dict,
         series: AttemptSeries | None = None,
+        universe_hash: str | None = None,
     ) -> None:
         """Move a started run to its terminal status, once. Evidence is converted and
         serialized strictly before the write; if that fails, the row is written as 'failed'
         with the error and the error re-raised, so no row stays started because the final
         write crashed (pitfall 8).
+
+        `universe_hash` (todo 491) is the sha256 over the S0 snapshot's symbol list, the
+        promoted universe the attempt ran on; it lands with snapshot_hash, NULL-to-value
+        once, so a changed universe changes the run's identity.
 
         The headline numbers come from the evidence's decision block. A completed or failed
         run that carries its D_s series writes it to research_run_series in the same
@@ -675,12 +680,13 @@ class PostgresLedger:
                     "mean_session_pnl = $8, turnover_per_session = $9, n_sessions = $10, "
                     "span_start = $11, span_end = $12, n_families = $13, "
                     "effective_breadth = $14, top_group_share = $15, lofo_max_t_drop = $16, "
-                    "sign_stability_min = $17 WHERE run_id = $1",
+                    "sign_stability_min = $17, universe_hash = $18 WHERE run_id = $1",
                     uuid.UUID(run_id),
                     status,
                     snapshot_hash,
                     payload,
                     *headline,
+                    universe_hash,
                 )
                 if result == "UPDATE 1" and series is not None and status in SERIES_STATUSES:
                     await conn.execute(

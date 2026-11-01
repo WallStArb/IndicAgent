@@ -61,8 +61,11 @@ _CONTRACT_DETAILS_KEYS = (
 )
 
 _INSERT_INSTRUMENT_SQL = """
-INSERT INTO instruments (symbol, base, contract_details, is_active, compute_eligible, live_tradeable)
-VALUES ($1, $2, $3::jsonb, true, $4, $5)
+INSERT INTO instruments (
+    symbol, base, contract_details, is_active, compute_eligible, live_tradeable,
+    universe_entry_date, universe_cohort
+)
+VALUES ($1, $2, $3::jsonb, true, $4, $5, (now() AT TIME ZONE 'UTC')::date, $6)
 ON CONFLICT (symbol) DO NOTHING
 """
 
@@ -202,6 +205,7 @@ async def onboard_instrument(
     classification: ClassificationAssignment | None = None,
     compute_eligible: bool = False,
     live_tradeable: bool = False,
+    universe_cohort: str | None = None,
 ) -> OnboardResult:
     """Onboard one instrument: qualify, then write instruments +
     instrument_classification + instrument_tags + instrument_metadata (or an
@@ -256,6 +260,11 @@ async def onboard_instrument(
             compute-eligible until a later promotion step (Plan 12).
         live_tradeable: defaults to False; this function provides no path to
             set it True.
+        universe_cohort: the manifest cohort label naming the selection rule
+            the row came from (todo 491, config/universe/ manifests), written
+            to instruments.universe_cohort with universe_entry_date = the
+            onboarding day (UTC). This module is the single writer of both
+            columns; None only for a call outside a manifest batch.
 
     Raises:
         OnboardingRejected: qualification failed, one or more tags are not
@@ -335,6 +344,7 @@ async def onboard_instrument(
             contract_details,
             compute_eligible,
             live_tradeable,
+            universe_cohort,
         )
         if not _inserted(status):
             # Raising inside the transaction block unwinds it (or this call's savepoint),

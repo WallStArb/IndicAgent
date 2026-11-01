@@ -132,13 +132,16 @@ class FakeLedger:
         self.status.update({v: "started" for v in ids.values()})
         return ids
 
-    async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None):
+    async def finish_run(
+        self, run_id, *, status, snapshot_hash, evidence, series=None, universe_hash=None
+    ):
         self.calls.append(("finish_run", status))
         self.series[run_id] = series
         if self.fail_finish:
             raise ConnectionError("database went away")
         self.status[run_id] = status
         self.snapshot_hash = snapshot_hash
+        self.universe_hash = universe_hash
         self.evidence = evidence
 
 
@@ -191,6 +194,8 @@ def test_real_mode_order(repo, saved_panel):
     assert {v["status"] for v in out.values()} == {"completed"}
     assert ledger.snapshot_hash == store.verify(saved_panel)
     assert len(ledger.snapshot_hash) == 64
+    # Todo 491: the S0 symbol set the attempt ran on, hashed onto the run record.
+    assert ledger.universe_hash == runner_mod._symbol_digest(panel_mod.load(saved_panel).symbols)
     assert ledger.evidence["power"] is None
     assert "data_quality" not in ledger.evidence  # a snapshot captured before todo 501
     for series in ledger.series.values():  # E18: each completed attempt's D_s

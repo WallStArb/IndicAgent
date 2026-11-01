@@ -43,9 +43,15 @@ async def _main(args: argparse.Namespace) -> int:
         snapshot_dir=Path(args.snapshot_dir),
         snapshot=Path(args.snapshot) if args.snapshot else None,
     )
-    panel, digest, _ = await _load_panel(spec, ctx)
+    panel, digest, universe_hash, _ = await _load_panel(spec, ctx)
     block = static_precondition(spec, panel, gate)
-    out = {"family": spec.family, "spec": args.spec, "snapshot_hash": digest, **block}
+    out = {
+        "family": spec.family,
+        "spec": args.spec,
+        "snapshot_hash": digest,
+        "universe_hash": universe_hash,
+        **block,
+    }
     print(json.dumps(out, indent=2))
     return 0 if block["passes"] else 3
 

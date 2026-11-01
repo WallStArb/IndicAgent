@@ -211,6 +211,7 @@ async def write_all(conn: Any, rows: list[ManifestRow], qualified: set[str]) -> 
                     "" if row.metadata else "single-name equity: no issuer/index metadata applies"
                 ),
                 classification=row.classification,
+                universe_cohort=row.cohort,
             )
             onboarded.append(row.symbol)
     return onboarded

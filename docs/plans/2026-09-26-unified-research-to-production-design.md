@@ -96,6 +96,14 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 S0-S9 remain the research layer's internal step codes (already in code). The retired AlphaEngine
 "Stage 0-4" numbering is not used.
 
+**S0 universe membership (todo 491).** Every name carries its membership on the row:
+`instruments.universe_entry_date` (the UTC onboarding day) and `universe_cohort` (the manifest
+batch's selection-rule label), written by the onboarding SOP's single writer. The runner hashes
+the S0 snapshot's symbol set (sha256 over the symbol list) onto the run record
+(`research_run.universe_hash`), so a promotion or a changed universe changes the run's identity
+and a size or momentum test can tell which names were selectable at t. Not a `vintage`: vintage
+is the dated data span an attempt is counted on; this is membership.
+
 ### 3.2 DAG manifest
 
 One checked-in YAML manifest declares every node, its input tables and its output table. The

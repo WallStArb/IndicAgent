@@ -2327,6 +2327,28 @@ marginalizing walk-forward that would label across the gap is a later item (todo
 
 ---
 
+## Universe membership terms (todo 491)
+
+### `universe membership`
+
+The record of when and how a name entered the research universe, kept on the row:
+`instruments.universe_entry_date` (the UTC onboarding day; the manifest batch date where a
+manifest covers the name, else the row's `created_at` date) and `instruments.universe_cohort`
+(the manifest `cohort` label naming the selection rule, e.g. `spx`, `r3k_501_1000`; NULL when no
+manifest names the instrument). Writer: `onboard_instrument()`, called by the manifest onboarder
+(the legacy v2 upsert paths leave both columns NULL and are never sanctioned for universe
+expansion). Research sees membership three ways: the S0 snapshot's symbol list inside its content
+hash, the run record's `research_run.universe_hash` (sha256 over that symbol list, recorded once
+at finish beside `snapshot_hash`), and these columns for point-in-time filters. **Not:** a
+`vintage` (a dated data span counted for a `selection test`; membership is about names, not data
+spans), and not the `screen` (the statistical test over a vintage). **Banned:** (none)
+**Status:** active (migration 551, todo 491)
+**Code surface:** `src/config/instrument_onboarding.py` (writer),
+`scripts/infrastructure/universe_expansion_onboard_manifest.py`,
+`src/intelligence/research/runner.py` (`_load_panel`), `config/universe/` (manifests)
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names

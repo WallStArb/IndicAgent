@@ -464,9 +464,35 @@ async def test_defaults_bind_compute_eligible_and_live_tradeable_false() -> None
     )
 
     [(_sql, args)] = _statements_starting_with(conn, "INSERT INTO instruments")
-    # Positional args: symbol, base, contract_details_json, compute_eligible, live_tradeable
+    # Positional args: symbol, base, contract_details_json, compute_eligible, live_tradeable,
+    # universe_cohort (todo 491; universe_entry_date is computed in the SQL, not bound)
     assert args[3] is False
     assert args[4] is False
+    assert args[5] is None
+
+
+# ---------------------------------------------------------------------------
+# Case 7b: universe membership -- the manifest cohort is written beside the
+# entry date the SQL computes (todo 491).
+# ---------------------------------------------------------------------------
+
+
+async def test_universe_cohort_binds_into_the_instruments_insert() -> None:
+    conn = FakeConnection()
+    qualifier = FakeQualifier(qualifies=True)
+
+    await onboard_instrument(
+        conn,
+        _make_instrument("COHORT1"),
+        qualifier=qualifier,
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
+        universe_cohort="spx",
+    )
+
+    [(_sql, args)] = _statements_starting_with(conn, "INSERT INTO instruments")
+    assert "universe_entry_date" in _sql and "universe_cohort" in _sql
+    assert args[5] == "spx"
 
 
 # ---------------------------------------------------------------------------

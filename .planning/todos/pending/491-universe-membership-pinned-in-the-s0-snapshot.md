@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: P1
 filed: 2026-10-03
 source: interactive session (universe wave 2 review)
@@ -36,3 +36,25 @@ Two selection biases need to be visible to research, not only to the README:
 
 Before the first counted research run after 185/186. Edits under `src/intelligence/research/` need
 `repro_frozen` bit-identical; new optional spec fields go in `_OPTIONAL_*_FIELDS`.
+
+## Status
+
+Landed 2026-10-31 (migration 551, applied live and committed in the same breath).
+
+- **Shape.** Plain columns on `instruments` (`universe_entry_date date`, `universe_cohort text`),
+  not ITR tags: membership is universe governance, a sibling of migration 337's eligibility
+  columns, not a claim about what the instrument is (ITR's own rule); one writer,
+  `onboard_instrument()`, called by the manifest onboarder with the row's cohort. Hash: a separate
+  nullable `research_run.universe_hash` column (sha256 over the S0 snapshot's symbol list,
+  computed in `runner._load_panel` and written by `finish_run` beside `snapshot_hash`,
+  NULL-to-value once per the migration 551 guard), not a snapshot-hash composition change: the
+  symbol set is already inside the snapshot's content hash via meta.json, so the column adds the
+  explicit, queryable identity with no mechanism and no recorded run moves.
+- **Backfill counts.** 1,551 instruments, all 1,551 got `universe_entry_date`
+  (`created_at::date`; verified equal to the manifest batch date for every one of the 1,256
+  manifest-named names, zero mismatches, so nothing is invented), 1,256 got a cohort from the
+  five committed manifests (25 cohorts), 295 pre-SOP names (2026-05-15 to 2026-09-16) have cohort
+  NULL. XWEB, manifest-named but IBKR-rejected, has no row and got nothing.
+- SOP "Known biases" cap-rank entry: verified present at filing; reworded to the landed columns.
+  Membership rule added to the unified design section 3.1 and a `universe membership` glossary
+  entry.

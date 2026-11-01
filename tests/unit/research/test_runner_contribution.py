@@ -121,7 +121,9 @@ class SubsetLedger(BookLedger):
             self.subsets[f"sub-{i}"] = refit
         return ids
 
-    async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None):
+    async def finish_run(
+        self, run_id, *, status, snapshot_hash, evidence, series=None, universe_hash=None
+    ):
         if run_id.startswith("sub-"):
             self.finished.append((run_id, status, evidence, series))
             return
