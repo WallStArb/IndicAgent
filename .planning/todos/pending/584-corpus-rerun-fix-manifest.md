@@ -30,13 +30,19 @@ anything found after the pin moves waits for the following rerun.
 | 4 | Undefined is NaN in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | open |
 | 6 | Intraday screen findings on the 650 stage-2 names | this todo | screen running |
-| 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | open |
+| 7 | Calendar start 2000 (`_PMC_RANGE_START`) plus the delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | open |
 | 8 | Never-computed `rank_z` registry rows retired; candidate stored-column additions decided (a column added after the pin needs another rerun) | 558, 421 | open |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
-Open data-lane decision before the pin: `_PMC_RANGE_START` 2005 vs 2000 (564 same-batch; 41 names
-fall below coverage at the 2000 era).
+Calendar start: the owner's restart conditions (STATE.md, "Decisions waiting on the owner") name
+calendar start 2000 as part of this batch, so `_PMC_RANGE_START` moves to 2000; the 41 names that
+fall below coverage at the 2000 era become named holds or get their 2000-2004 holes backfilled
+first (data lane).
+
+Owner restart conditions this rerun must also meet: all timeframes, including the 229 D7-hold
+names and the 16 recent listings; phase 191 plans 22 and 23 (done); the 1d gaps of todo 566; a
+fixed, written universe.
 
 ## Done when
 

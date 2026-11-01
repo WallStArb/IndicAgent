@@ -42,239 +42,44 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Current position (2026-11-01)
+## Current position (2026-11-01 23:20Z)
 
-**Critical path now (2026-11-01): phase 191 is COMPLETE.** The gates ahead are the 186-26
-rebuild stages (stage 1/1b 1d done; stage 2 intraday running, monitored by indicagent-93;
-import closure stays frozen at pin `92e588385` until the owner closes the rebuild) -> 186-27
-swap -> 184 feature families. Parallel lanes, no owner action pending: owner KEEP decision on
-Tradier executed and verified 2026-11-01 (574: 7.14M raw rows restored under vendor `tradier`;
-selection gate `--compare` exited 0, 0 real differences across 349,496,830 canonical rows;
-filing committed 492280b25); pre-2016 IBKR 5m backfill running (owner P0; one run failed
-12:15Z gateway-lost mid-run, relaunched 13:42Z); 522 staged for Monday 2026-11-02 09:30 ET
-open (20 measured orders intact in the ledger; last mile owned by indicagent-b0, coordinator
-backup). Coordination 2026-11-01: indicagent-97 leads (owner directive, standing trust granted
-19:40Z; owner re-affirmed DATA FIRST: enough depth and universe to find edge), indicagent-93
-owns the data lane (stage 2 monitoring, then the 564 recount, 571 reset, and 464's macro.py fix
-in the post-rebuild code window, and the per-name 5m scoreboard with the completion evidence),
-indicagent-b0 owns E17 (546 landed c00bbcdfd) and now 534's throughput half (pacing-wait
-telemetry, fetch_concurrency verdict, the 538 wedge diagnosis) after landing 578
-(ea98c95dd, generic backup tool `ops_table_backup.py`). Pre-2016 measure 2026-11-01 ~19:15Z:
-399/1,160 pre-2016-daily names have any IBKR 5m before 2016 (ohlcv_raw, vendor ibkr); 93's
-scoreboard reconciles the earlier 453 figure. Universe breadth: 1,529 active names judged
-sufficient for current families; expansion is evaluated only after the pre-2016 campaign
-drains. Todo-index hygiene 2026-11-01: a full sweep found and closed 11 shipped-but-unclosed
-todos (577, 546, 491, 494, 563, 572, 545, 275, 395, 009, 373); closing a todo now rides the
-landing commit. E17 battery verdict 547 recorded:
-every cell passes except the pre-registered cause-3 S1-drift pattern on
-`residual_momentum_12_1_z`; StepM selection unblocked (Step B v2 passed, todo 561); owner
-holds the S1-drift option A/B decision. Research lane: 184 planned 2026-10-27 (14 plans,
-8 waves; wave 1 01-04 new files only; wiring 06-11 after 187-08/09/10 and 187-15 Task 2,
-before 187-18), 187 plans 08-15; E17 daily real-data run stays moot until the clean-data
-rule lifts.
+Owner sequence (2026-11-01): (1) data squared away, (2) every fix that changes a stored value
+landed, then one full feature recompute of the corpus, (3) ensemble research on the result. Lead
+orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are out until
+2026-11-05 23:16Z).
 
-- **Phase 191 (unified raw bar table, todo 533): COMPLETE 2026-10-31, all 25 plans done.** Canonical
-  is `market_data_ohlcv` keyed by (vendor, kind), a pure function of `ohlcv_raw` plus
-  `bar_source_policy`; the selection gate (`ops_selection_gate.py --compare`) is the standing proof.
-  Raw is last-wins with a revision log (D-191-N). Tradier is retired: rows deleted (191-20), readers
-  cut over, the ops branches and admission sweep removed and the four APR keys retired by migration
-  550 (191-25). Residual: the restore toolchain and backup removal are todo 574 (2026-11-12);
-  integration tests still assuming Tradier primary are todo 572.
-
-- **Plan 19 (Tradier residue readiness): Task 2 done 2026-10-28.** Readiness green 01:30Z
-  (1,522 settled, 0 unsettled, 7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by
-  listing_end). `191-TRADIER-RESIDUE.md` (measure, prove, report; the gate's report step now passes
-  its inputs). Residue after D-191-Q coverage: 314,522 Tradier-only sessions on 799 names, 90%
-  before 2016, much of it predecessor splices under reused tickers. Proof: 1,466 of 1,529 proven;
-  62 of 63 unproven are venue-moved (todo 433), plus ETHA. Owner decision summary:
-  `191-20-OWNER-DECISION.md`, relayed to indicagent-5b for the owner. Plan 19 SUMMARY and
-  completed_plans follow with the plan 20 approval.
-- **Plan 20 (Tradier deletion): done 2026-10-29, D7 accepted with 229 named holds.** Policy
-  applied, Tradier bar rows deleted (zero remain), 1d re-derived under d2-v4, VACUUM, timers running.
-  Migration 537 (25b930e1c) makes canonical_bar_lineage resolve Alpaca bars through ohlcv_load. D7
-  on 1,502 names: 1,273 pass every required 1d check; the 229 holds are in
-  `191-20-D7-HOLDS.tsv` (CTVA is the held rescale name). Research lane notified. Record: todo 545.
-- **Plan 20 approved by the owner 2026-10-28:** delete all Tradier bar rows, no names held back (recorded in
-  `191-20-OWNER-DECISION.md`). It runs after todo 545 lands. Review findings for 3a: keep the final
-  arbitration plan JSON in a tracked place, refuse a row whose span touches `window_end`, stop the fetcher
-  timer for the final re-run and apply. The 30 interim daily holds stay as gaps (todo 557).
-- **Research docs, 2026-10-28:** the ledger is condensed (sections 2 and 4 verbatim); the cointegration concept is
-  reopened as a spread family (ledger section 2, todo 559, pre-registration before any look); the stat arb
-  method map and the pre-rebuild feature pass (todo 558, window closes when 186-26 starts) are unreviewed
-  Sonnet drafts that need an Opus or Fable pass.
-
-- **IBKR:** the gateway was wedged 2026-10-18 23:59Z to 2026-10-26 09:00Z (2FA never approved), so
-  no IBKR bars landed 2026-10-17 to 2026-10-25; the backlog is catching up. Fixed today: explicit-UTC
-  request end (540), an out-of-range client id no longer restarts the gateway (542), and the
-  fetcher lock survives `idle_session_timeout` (543; before it, any run over an hour lost its lock).
-
-- **Alpaca nightly (todo 521):** `indicagent-alpaca-nightly.timer` installed 2026-10-26 (04:40
-  UTC). It asks SIP with its window end held 20 minutes back (migration 513; the free plan 403s
-  only a window ending within about 15 minutes of now). IEX answers are kind `iex_rth`, raw only,
-  never selected. A one-time 20-day SIP catch-up is running
-  (`logs/alpaca_nightly_catchup_20261026.log`) and fills canonical 5m where IBKR has no session.
-
-- **186-26 rebuild preconditions:** the selection gate exits 0, canonical 1d is current, plans
-  191-21 to 191-23 have landed (21 and 23 edit the rebuild's import closure, 23 depends on 22), and canonical 5m is caught up past the 2026-10-17..25 gap (the
-  Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
-  `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
-
-- **186-26 rebuild stage 1 (1d, 1,273 non-hold names), launched 2026-10-29 22:08Z, completed 22:44Z
-  (51 of 51 units, 5,127,577 rows, one kill-and-resume); later stages are resumable and pending:** systemd
-  user unit `feature-rebuild-1d`, 12 workers, 25 names per unit, horizon `--data-horizon 2026-10-01`. Run tree
-  `/home/bg/dev/indicagent-186-26` pinned at code sha `92e588385` (unit code key `8c3ab364de21`); every
-  later stage (the 229 D7 holds on 1d with `--symbols <holds>`, then the intraday tfs) runs from that
-  tree, not from main. Logs: `/home/bg/dev/indicagent/logs/feature_rebuild_1d.log` and
-  `/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log`. Evidence and the resume procedure:
-  `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/186-26-rebuild-run.json`
-  (key `stage1_1d`) and `186-26-stage1-1d-launch.sh`. Freeze: no module the rebuild imports
-  (`services/backfill_feature_factory.py`, `services/_batch_utils.py`, `src/intelligence/features/`,
-  their imports) may be edited while the run is live or resumable, and later stages are still to
-  come, so the import closure stays frozen at `92e588385` until the owner closes the rebuild.
-  Todo 420 is not part of stage 1 (the factory does not read `market_regimes`).
-
-- **186-26 rebuild stage 1b (1d, 73 names freed after the 2026-10-30 verdicts), completed 2026-10-30
-  (3 units, 296,486 rows; the table now holds 5,424,063 rows over 1,314 names, 54 completed units):**
-  unit `feature-rebuild-1d-b`, the same pinned tree, code key and horizon as stage 1; the names are every
-  compute_1d name that passes every 1d verdict and was not built (16 recent listings produced zero rows
-  for lack of bars). Still to build: the 156 names that fail `session_coverage` in the era (list in
-  `191-SESSION-COVERAGE-ERA-FAILS.tsv`) and the other holds as they clear, the 27 names whose 1d history
-  grew after the stage 1 input (drift list in todo 566; delete their rows and rebuild at the 186-27 drift
-  read), then the intraday tfs once the intraday verdicts pass. The feature table ends 2026-09-30 by the
-  horizon; moving it forward is a new run, not a resume.
-
-- **186-26 rebuild stage 2 (intraday 5m, 15m, 1h, 1,252 names), launched 2026-10-31:** systemd user unit
-  `feature-rebuild-intraday`, same pinned tree, code key and horizon as stage 1, 8 workers. Names: pass every
-  intraday verdict in the 2026-10-31 audit (coverage_cache 0 failing, grid_parity 34 names held, todo 573) and
-  already hold 1d rows. Launch and resume: `evidence/186-26-stage2-intraday-launch.sh`. The audit read also
-  closed todos 569 and 570 (the 1d ledger bounds refresh in the raw-write transaction since 9fbf66651).
-  Ops note 2026-10-31: the workers hold idle-in-transaction reads for their whole compute, which blocked the
-  `policy_compression` run and stalled the database (todo 443 incident note). The compression jobs 1078
-  (market_data_ohlcv), 1076 (ohlcv_raw) and 1065 (feature_vectors) are paused for the rebuild's duration;
-  re-enable with `SELECT alter_job(1078, scheduled => true); SELECT alter_job(1076, scheduled => true);
-  SELECT alter_job(1065, scheduled => true);` when the rebuild completes. Also 2026-10-31: the fetcher planner and the audit now read one answered-evidence definition
-  (Alpaca SIP 5Min windows + applied loads, todo 565/567 fix); the recount runs with the nightly audit.
-  Ops note 2026-10-31: the first launch lost its write connection at 13:27 UTC to the database's 60 min
-  idle_session_timeout (the main process idles while workers compute); relaunched with
-  `PGOPTIONS="-c idle_session_timeout=0"` in the launch script (e74f016ef), which the run's own
-  connection only. Ops note 2026-10-31 (evening), corrected 21:50Z: the 13:38Z relaunch was NOT
-  wedged; session 9f misread a healthy run and stopped it (252 units loaded 15:43Z-21:02Z in bursts
-  with 52-91 min compute gaps between them; zero DB rows during a gap is normal, and pool workers
-  parent to the forkserver, so a children-of-main check shows no workers on a healthy run). Cost of
-  the mistake: one in-flight group's compute discarded, redone by the 21:25Z relaunch. Standing
-  stage-2 health picture: unit_loaded/bulk_load events arrive in bursts separated by up to about 90
-  minutes of full-CPU worker compute (HMM walk-forward dominates); memory.peak pinned at the 14G
-  MemoryMax cap with oom_kill 0 is the open watch item. The only confirmed wedge today is the
-  fetcher's (todo 538; with-locals specimen captured 21:35Z). Progress 2026-11-01 19:09Z
-  (indicagent-93): the run is ONE pass covering all three intraday timeframes, units land in
-  per-tf triplets; 1,119 units completed since the 21:20Z relaunch, `feature_vectors_v2` holds
-  5m 133.3M rows / 550 symbols, 15m 45.3M / 550, 1h 12.2M / 550 (1d 5.4M / 1,314 from stage 1);
-  no stalls, memory 8.0G of the 14G cap with the oom watch unchanged.
-
-- **D7 dated tolerance landed 2026-10-31 (todos 524 and 573, data lane):** a grid_parity mismatch on a
-  recorded stamp, or on a bucket whose archive row's `served_at` predates the day's 5m bars
-  (`superseded_archive_buckets`), is a dated exception, never gating; prices stay exact elsewhere. The
-  record `config/bars/grid_parity_dated_exceptions.json` carries all 644 classified stamps with their
-  price/volume split; waves 1 and 2 (32 names) released, wave 3 (ETHA, CTVA) held until their
-  wrong-basis archive rows are re-fetched. The audit reports the excepted count per timeframe; the
-  released names build as the stage 2b unit after stage 2 drains.
-
-- **Research, 2026-10-27 (indicagent-5b):** 187 plans 01-07 landed; 08 Tasks 1-2 landed
-  (horizon rule, book_memory, ridge and kappa battery cells, 59c6c44fb and 44409aafb), Task 3 waits
-  on the 187-08 battery run. Cross-AI review of 187 (Codex and AGY, 187-REVIEWS.md): code fixes
-  1e2d26419 and 7d8a14de2, amendments in plans 08-18. StepM: the 1,500-session battery failed two
-  cells; at 4,000 sessions both hold; owner decision 2026-10-27: the attestation is a complete
-  13-cell run at 4,000 sessions (next run). Plan 09 in-fold signs: trailing (owner 2026-10-27).
-  E17 amended: L adds a daily target's reach (`timing.e17_memory`; intraday unchanged). Daily
-  residual family (441 + 423) built to its battery (ee8c264df); prereg draft; h = 21 waits on
-  todo 547. The 187-03 backfill (8 of 20 replays, then `--apply`) is approved (owner 2026-10-27).
-  E17 v2 (owner 2026-10-27, todo 549): fixed-b critical values; the 4,000-session StepM run on v1
-  is a pre-v2 baseline only. 2026-10-28: 187-09, 187-10 and 187-11 landed (migration 530 live: typed concept domains, recipes, `concept_research_stage`), and 187-15 Task 2
-  (`PanelSpec.fields`, 184-06's dependency). 187-03's `--apply` runs from 11:32Z under
-  `indicagent-187-03-apply` (about 4 h; hold other compare-all runs). Todo 549 carries a finding
-  that fixed-b may not be needed (step A pooled correlated arms; fresh 4,000-session H0 runs show
-  size 4.3 to 4.9%); owner 2026-10-28: rerun step A cluster-robust first (unit `e17-step-a-rerun`, starts when the 187-03 apply ends). `tools/gate.py` runs the mechanical gate and holds the cross-session parity lock.
-- **Research lane, 2026-10-29 (indicagent-1f; 187-12 to 187-14 landed, origin f39458854):**
-  187-12 (typed-domain registry, `register_idea`, migrations 533 composition and 535 genesis rows,
-  todo 459 closed), 187-13 (27 legacy cards are research_run attempts, 47 hand-ledger ideas are
-  family candidates, `docs/research/research-ledger.md` generated by
-  `scripts/research/render_research_ledger.py`, hand ledger frozen, migration 536; the nightly
-  timer is INSTALLED BUT NOT ENABLED because the job commits to the diverged local main), 187-14
-  (contribution kernels, migration 538 and 539, `subset_refit` attempts, `run_book` records the
-  block). Next: 187-15 Task 1 and 3 (grammar), then 187-16 to 18 after the first feature family.
-  E17: step A rerun pooled size 5.02% [4.66, 5.37], so v1 stands and fixed-b is not built (todo 549
-  closed). Step B (pre-registered, one fresh 4,000-session StepM run) failed one gating cell,
-  `s1_hostile` 89 of 1,000 against 74; pooled 5.34% passes; no selection is attested; todo 561
-  (diagnostic 1 on fresh seeds: 5.17%; a 3,000-simulation run, unit `stepm-diag-561b`, is under
-  way). `compare-all` on 11e0384a3: 16 equal, 4 pre_e17, exit 0. Todo 547: at the real panel length
-  the current lag is fine at h = 5 (5.3% to 5.9%) and fails at h = 21 (11% to 12%); L + 3 (h - 1)
-  is the best candidate; an owner-approved E17 amendment and a 1,000-simulation certification are
-  next. A book over two or more families cannot run: `check_family_plant` refuses it (todo 562).
-  Todos 558 and 559 are specified only in indicagent-47's inbox. Data lane: plan 191-20 done
-  2026-10-29 (canonical 1d is Alpaca SIP primary from 2016, Tradier rows deleted, 1d re-derived,
-  migration 537 live); D7: 1,273 of 1,502 names pass every required 1d check, the 229 holds are in
-  `191-20-D7-HOLDS.tsv`. The family 2 and daily-family notice went to indicagent-47 to relay: those
-  runs may start (holds excluded) once a research session picks them up.
-- **Research (phase 183 done; 187 next):** todo 501 closed 2026-10-26 (317d61b69): S0 snapshots
-  pin d2_rule_version, policy and verdict as-of, bar_integrity verdicts, per-symbol content
-  digests and the D0 label inputs; evidence carries data_quality from the snapshot. The 501
-  blocker for daily attempts 3/3b/4 is cleared; the build-first pause (owner 2026-09-27) still
-  holds. Family 2's evidence run (187's gate) is approved for one run once plan 191-20's 1d re-derive lands (moved up from 191-25 by the owner 2026-10-27; the runner's import closure touches no file in plans 21-25). `build_panel` refuses any end past `alpha.validation.oos_start` (2025-12-24, write-once).
-
-- **Pre-2016 IBKR 5m backfill (todo 534, P0 again, owner 2026-10-28):** 289 of 1,529 names hold any IBKR 5m; of 1,279 listed before 2016, 43 are complete, 217 partial, 1,019 none (about 9,200 name-years). Alpaca SIP covers all names only from 2016-01-01. The fetcher runs near continuously at 76 to 88 requests an hour (73 s median answer); `infra.backfill.fetch_concurrency` is 4 from 2026-10-28 (applies from the run starting about 15:47Z; expect about 175/h). Canonical 1d lags raw (1,317 names to 10-23) until plan 191-20's re-derive; raw 1d is complete through 10-27.
-- **Ops, 2026-10-28:** `tools/gate.py` runs the mechanical gate with a cross-session parity lock; rolling service logs cleared (kept evidence under logs/); unit `e17-step-a-rerun` waits on the 187-03 apply; migration 530 (typed concept domains) and 531 (fetch_concurrency type) live; migration 526 breaks the integration baseline replay (3a).
-
-- **Frozen and ended names (todo 519):** WBD, QRVO, CCO ended (merger or buyout); PSKY trades as
-  SKYD on NYSE and IBKR re-served its history on a 0.979 scale. Parked as non-critical; the
-  rebuild gate already skips stale names.
-
-- **Other phases:** 185 done (53 plans); 186 at 25/29 (17 Task 2, 26, 27, 28 left; 186-14 open);
-  189 and 190 are functionally done with stale ROADMAP boxes (189-09, 189-10, 189-11 verification
-  items; 190-06/07 landed per their summaries).
-
-- **Universe:** 1,529 active, all intraday scope (owner 2026-10-09); 1,502 `compute_eligible_1d`.
-  Never deactivate a name (onboarding SOP rule 6).
-
-- **Data freshness:** features and regimes stale since 2026-08-10 until the 186-26 rebuild; check
-  `max(timestamp)` before citing freshness.
+- **Critical path: todo 584 (corpus rerun fix manifest).** The 186-26 output on pin `92e588385`
+  carries known stored-value defects (564, 583, 474), so it is not swapped in. Stage 1/1b (1d) is
+  complete; stage 2 (intraday) was paused 2026-11-01 23:05Z at 650/1,252 names (resume command
+  and env in `data/scratch/186-26/`; resuming is moot once the pin moves). Next: the fix batch
+  lands on main, a pilot chunk at the new pin passes the column screen, then the rerun (1d then
+  intraday), then 186-27 swap, 186-28, 184.
+- **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
+  gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) runs as pid 2741193;
+  the IBKR history farm stopped answering about 18:00Z to 22:50Z while the session stayed alive,
+  which todo 538's rework (indicagent-82) detects with a history-request probe. Coverage target
+  and counts: memory `project_raw_coverage_target`, todo 534.
+- **Lanes now:** 82 = todo 538 rework; dc = todo 583 refusal-reason measurement; one background
+  implementer at a time on 584 items (items 1 and 7 started 23:10Z).
+- **Monday 2026-11-02 09:30 ET:** todo 522's measured Alpaca paper run (20 orders in
+  `data/scratch/alpaca-paper/orders.jsonl`); run `check`, then
+  `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` after the open. The
+  instrumentation spec is pre-registered.
+- **Research:** no real-data hypothesis tests until the restart conditions below are met. E17
+  battery verdict recorded (todo 547; S1-drift A/B is the owner's); StepM unblocked (561).
+- **Universe:** 1,529 active, all intraday scope; 1,502 `compute_eligible_1d`. Features and
+  regimes in the canonical `feature_vectors` are stale since 2026-08-10 until 186-27.
+- **Services:** Alpaca nightly timer 04:40 UTC; streaming is dormant (feed down); todo 582 must
+  land before the feed returns.
 
 ## Starting a new session
 
-Read in order: this file -> `ROADMAP.md` (active milestone table) ->
-`docs/plans/2026-09-26-unified-research-to-production-design.md` (sections 2, 16 and the section
-for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run in parallel and
-coordinate through cross-session messages before touching shared files.
-
-## Paused 2026-10-30 (owner's usage limit; both lanes clean, all work on main)
-
-Resume from `.planning/HANDOFF.json` (remaining_tasks, human_actions_pending). Data lane: the 1d feature
-table is built for 1,314 names (186-26 stages 1 and 1b); next is the intraday audit report, then the next
-stage from the pinned tree. Research lane: waits on the owner (todos 547 and 562).
-
-Data lane update 2026-10-30 (evening): the full intraday sweep fails coverage_cache for all 1,529 names (todo 570: no writer
-creates alpaca 1d ledger rows; a rebuild is queued behind the fetcher lock) and grid_parity for 144 (todo 569: volume
-rounding of 1 to 2 shares, prices exact; owner decides the bound). The 229-name 14:30 grid re-derive is complete. No name
-builds as the next 186-26 stage until both clear.
-
-## Restart order (2026-10-29; two sessions only)
-
-The server stays up through a reboot of the owner's PC: timers, the 5m backfill and the
-`stepm-diag-561b` user unit keep running. Open exactly two sessions. Each works in its own
-worktree off origin/main (`git worktree add --detach ../indicagent-<name> origin/main`, symlink
-`.venv`, `.env`, `data`); neither commits from the shared checkout.
-
-| Session | Lane | Order |
-|---|---|---|
-| A: data | phase 191, Alpaca nightly, IBKR fetch; `src/providers/`, `src/intelligence/bars/`, `services/bar_*`, phase 191 files | 1. Check `stepm-diag-561b` has exited, then `git reset --hard origin/main` in the shared checkout (its dirty files and 2 unpushed commits are backed up in `data/backups/worktree-salvage-20261029/` and already on origin). 2. Plan 191-21, then 22, then 23 (21 and 23 edit the rebuild import closure; 23 needs 22). 3. 186-26 launch only after 21 and 23 land and session B reports the 555/560 path-dependent check and review done. 4. Then the spin-off gap (todo 545 follow-up, M2) and the 229 D7 holds name by name (todo 557). |
-| B: research | phase 187, 184, E17, family 2; `src/intelligence/research/`, `tests/unit/research/`, `.planning/phases/187-*`, `.planning/phases/184-*`, `research/specs/` | 1. Read the D7 notice and `191-20-D7-HOLDS.tsv`. 2. 555/560 path-dependent check and review (gates 186-26). 3. Todo 561 (step B failed s1_hostile) and 562 (multi-family plant gap). 4. Family 2 one owner-approved run, with the 187-name universe intersected with the D7 holds first. |
-
-Rules for both: never run two backfills at once; the 5m backfill is a systemd timer, do not
-start another; kill processes by PID only; do not edit modules a live fingerprinted run imports;
-message the other session before touching a shared file. Lanes before 2026-10-29 (3a, 5b, 24,
-47) are gone; their work is on origin/main.
-
-Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
-`.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
+Read in order: this file -> `.planning/todos/PRIORITIES.md` (584 first) -> `ROADMAP.md` -> the
+unified design (sections 2, 16 and the one for your work). Message the lead (ListAgents) before
+starting a lane. Work in a detached worktree off origin/main when the shared checkout is dirty;
+never two backfills at once; kill by PID only; never edit a module a live fingerprinted run
+imports.
 
 ## Decisions waiting on the owner
 
