@@ -36,3 +36,26 @@ keys are already wired in `.env` and smoke-tested.
 B2 criteria of the pilot doc pass (terminal states, no orphans, idempotent
 reconnect); the instrumentation spec is a doc, not code, until a client build
 phase consumes it.
+
+## Built 2026-11-01 (harness + spec; staging passed off-hours; measured run resumes at the next open)
+
+- Harness: `scripts/ops/alpaca_paper_lifecycle.py` (paper endpoint asserted in code; JSONL
+  ledger `data/scratch/alpaca-paper/orders.jsonl`; bounds asserted: 20 measured orders, 1
+  share, 5+ names, EOD flat). Commands: `stage` (off-hours surface validation),
+  `run` (measured, open market only), `check` (orphan sweep), `status`.
+- Spec: `docs/plans/2026-11-01-own-flow-slippage-instrumentation.md` fixes the record and the
+  definition (decision-time IEX mid; realized slippage bps signed by side) before any
+  measurement. The pilot draft's SIP mid is corrected to IEX, dated, because the paper
+  account's licensed feed is IEX (SIP latest quotes 403).
+- Staging passed off-hours: 5 orders placed across 5 names, idempotent reconnect exercised
+  (fresh session resolves the order by client_order_id; duplicate re-place refused by the
+  server), all cancelled, 0 open at end. Mechanics recorded in the spec: off-hours orders sit
+  in `accepted` and refuse replace (422); the open-orders list lags the per-order cancel by
+  seconds to minutes (settle before asserting); client-order-id lookup is the dedicated
+  `orders:by_client_order_id` endpoint (a filter on the list endpoint is silently ignored).
+- Paper endpoint accepts and queues orders off-hours: confirmed (orders placed 23:56 ET
+  Saturday sit in `accepted`).
+- Not done tonight, deliberately: the 20 measured orders need fills, so the measured run waits
+  for the next open (Monday 2026-11-02 09:30 ET). Resume: `check` then
+  `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` any time after the open; the
+  ledger counts the remaining budget; 0 of the 20 measured orders are consumed.
