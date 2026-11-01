@@ -42,14 +42,19 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Current position (2026-10-26)
+## Current position (2026-11-01)
 
-**Critical path (reordered 2026-10-27; data-fill and rerun gates operative in
-`docs/plans/2026-10-31-data-fill-and-corpus-rerun-plan.md`):** phase 191 plan 19 Task 2 -> plan 20 (owner confirms
-the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23 (decided
-2026-10-27: 23 depends on 22, whose integrity_checks changes bar_reconciliation_audit consumes;
-21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild (todos 553, 390/555 and 560 land first, before 191-23's summary: 553 and 555 are on origin/main, 560 is on origin/main with its checks open; the 186-26 launch has no owner), with 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
-Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only, runs on indicagent-5b's go; wiring 06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15.
+**Critical path now (2026-11-01): phase 191 is COMPLETE.** The gates ahead are the 186-26
+rebuild stages (stage 1/1b 1d done; stage 2 intraday running, monitored by indicagent-93;
+import closure stays frozen at pin `92e588385` until the owner closes the rebuild) -> 186-27
+swap -> 184 feature families. Parallel lanes, no owner action pending: owner KEEP decision on
+Tradier executed 2026-11-01 (574: 7.14M raw rows restored under vendor `tradier`, selection
+gate --compare proof running, filing and commit by indicagent-93); pre-2016 IBKR 5m backfill
+running (453/1,160 names at 18:40Z, owner P0); 522 staged for Monday's open. Staged deletions
+for todos 579/580 sit uncommitted on main pending their owning session (ownership query out).
+Research lane: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only; wiring
+06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15; E17 daily
+real-data run stays moot until the clean-data rule lifts.
 
 - **Phase 191 (unified raw bar table, todo 533): COMPLETE 2026-10-31, all 25 plans done.** Canonical
   is `market_data_ohlcv` keyed by (vendor, kind), a pure function of `ohlcv_raw` plus
