@@ -35,8 +35,10 @@ _EXCHANGE_TO_PMC: dict[str, str] = {
     "NYMEX": "CME_Equity",
 }
 
-# Covers all historical corpus data (1d goes back to 2006) and projected future bars
-_PMC_RANGE_START = "2005-01-01"
+# Covers all historical corpus data (canonical 1d reaches back to 1999 for many names; the
+# calendar starts 2000-01-03, todo 584 item 10) and projected future bars. It also bounds the 1d
+# session_coverage era (first_session): a name is judged from max(its first bar, this start).
+_PMC_RANGE_START = "2000-01-01"
 _PMC_RANGE_END = "2035-12-31"
 
 
@@ -110,7 +112,7 @@ class MarketCalendar:
         return date_obj.isoformat() in sessions
 
     def first_session(self, exchange: str) -> date:
-        """First trading date the calendar covers for the exchange (2005-01-03 for NYSE).
+        """First trading date the calendar covers for the exchange (2000-01-03 for NYSE).
 
         No session exists before it, so no feature row and no judged session can either. Raises
         KeyError for an exchange the calendar was never taught.

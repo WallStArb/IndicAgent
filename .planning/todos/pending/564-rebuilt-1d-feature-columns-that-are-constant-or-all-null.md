@@ -68,8 +68,9 @@ moves the code pin - apply in the batch, not between stages.
   sessions, CRGY 0.9752, WEYS 0.9468, EFSC 0.9619; most 5-80 sessions). The change moves the
   `session_coverage` era to 2000 on its own (via `MarketCalendar.first_session`, commit
   `0be5cbc91`). Not free: either the data lane backfills the 2000-2004 holes for these names
-  first, or the start stays 2005. Decision belongs with the data lane's hold list; the research
-  lane does not move `_PMC_RANGE_START` until those names clear.
+  first, or the start stays 2005. Resolved 2026-11-01 (todo 584 item 10): the start moved to 2000 and
+  the 41 are named verdict-gate holds for the next rerun; their 2000-2004 pass is queued behind the
+  pre-2016 campaign.
 - Delete list after migration 543: migration 543 serves `fallback` volume (SMART), so
   `market_data_ohlcv_tradeable` has 0 NULL-volume rows on every timeframe (checked 2026-10-30);
   the NULL-volume handling from todos 560/563 has no input on current data. Delete rather than

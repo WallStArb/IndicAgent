@@ -33,7 +33,7 @@ anything found after the pin moves waits for the following rerun.
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | implementing (subagent) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
 | 9 | Pilot gate tool (design D3) | this todo | open |
-| 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | open (data lane) |
+| 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
@@ -41,6 +41,25 @@ Calendar start: the owner's restart conditions (STATE.md, "Decisions waiting on 
 calendar start 2000 as part of this batch, so `_PMC_RANGE_START` moves to 2000; the 41 names that
 fall below coverage at the 2000 era become named holds or get their 2000-2004 holes backfilled
 first (data lane).
+
+Item 10 disposition (data lane, 2026-11-01, indicagent-82). `_PMC_RANGE_START` is 2000-01-01, so
+`first_session("NYSE")` and the 1d session_coverage era start at 2000-01-03. No per-name proven-span
+start exists: the rebuild's `series_start` is the first loaded bar, and `session_coverage` anchors at
+max(first bar, era start), so a hole after the first bar fails the name (todo 532 is the verdict-
+definition change, a methodology-ledger entry). A `bar_hold` row is the wrong tool for the 41: the
+daily stage skips a held name whatever the scope, which would also stop the backfill's results
+reaching it. The disposition is the existing gate: at the next audit the 41 fail session_coverage
+at the 2000 era, the verdict gate excludes them from this rerun and names them, and the list is
+`191-SESSION-COVERAGE-ERA-2000-NEWLY-FAILING.tsv`. Measured on live data: every missing 2000-2004
+session is name-specific (0 of 986 distinct dates are vendor-wide); for 39 of the 41 no vendor holds
+a raw row for the missing dates; AIZ (21) and PAR (31) have Tradier rows that canonical does not
+select, which is the D-191-Q policy (1d before 2016 is IBKR alone; Tradier is not a source, and its
+consolidated volume is a different basis), not a selection defect. Follow-ups: (a) a 1d
+2000-01-01..2004-12-31 IBKR pass for the 41, queued behind the pre-2016 campaign once the history
+farm is live (fetch depth today is about 2006, so these dates were never requested); picked up by
+the next rerun; (b) the per-name proven-span start (denominator and panel start declared per name,
+the first session after the last pre-2005 hole), which closes todo 532 and goes through the
+methodology ledger.
 
 Owner restart conditions this rerun must also meet: all timeframes, including the 229 D7-hold
 names and the 16 recent listings; phase 191 plans 22 and 23 (done); the 1d gaps of todo 566; a
