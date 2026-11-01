@@ -156,15 +156,17 @@ batch; `classification_ibkr_sourcing.py` only reads names already onboarded. See
 One CSV per batch under `config/universe/`, columns:
 
 `symbol, name, code, source_ref, tags, cohort, issuer, underlying_index, description, ibkr_symbol`
+plus an optional `spread_leg_pair`
 
 - `tags` is `;`-separated. `cohort` names the selection rule the row came from and matches the
   README table.
 - `issuer`, `underlying_index` and `description` fill `instrument_metadata`; leave them empty
   only when unknown.
 - `ibkr_symbol` only for share classes IBKR spells with a space (`BRK.B` -> `BRK B`).
-- A `spread_leg` tag needs its reciprocal pair, which a manifest row cannot express: write the
-  pairs in a migration applied and committed together with the onboarding (371 and 373 are the
-  pattern).
+- A `spread_leg` tag requires its reciprocal pair in the row's `spread_leg_pair` column; the
+  onboarder names the partner in the tag's evidence and writes a partner that is not on the
+  manifest its reciprocal tag in the same transaction (todo 444). 371 and 373 were the hand
+  pattern; the 2026-09-26 manifest carries the column as 371 and 373 wrote it.
 
 Commit the manifest before running stage 5, so the database never holds a name whose manifest is
 not in git.
@@ -351,8 +353,8 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
    would make stage 3 a command.
 3. **Second writer, resolved** (todo 431): the stratified-sourcing script's `--commit` path
    is deleted; draw scripts only draw. The manifest onboarder is the sole write path.
-4. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
-   remove the hand-written migration.
+4. **`spread_leg` pairs**, resolved (todo 444): the manifest's `spread_leg_pair` column and the
+   onboarder's in-transaction reciprocal write remove the hand migration.
 5. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
    through this SOP, one resumable command (`universe_onboard.py --manifest ...`) that runs
    stages 5-9 in order, stops at every hold, and writes the verify report is the automation

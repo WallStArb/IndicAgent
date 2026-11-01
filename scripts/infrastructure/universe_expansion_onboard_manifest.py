@@ -2,7 +2,8 @@
 """
 universe_expansion_onboard_manifest.py -- onboard a reviewed manifest of equity instruments
 
-Reads a manifest CSV (columns symbol, name, code, source_ref, tags, cohort, issuer,
+Reads a manifest CSV (columns symbol, name, code, source_ref, tags, cohort, issuer, optional
+spread_leg_pair naming the reciprocal spread_leg partner (todo 444),
 underlying_index, description, ibkr_symbol; tags ';'-separated; ibkr_symbol set only for a
 share class IBKR spells with a space, e.g. BRK.B -> "BRK B") and onboards every row through
 onboard_instrument(), the single sanctioned write path.
@@ -34,6 +35,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +91,7 @@ class ManifestRow:
     cohort: str
     metadata: dict[str, Any] | None
     ibkr_symbol: str = ""
+    spread_leg_pair: str = ""
 
 
 def load_manifest(path: Path) -> list[ManifestRow]:
@@ -130,9 +133,40 @@ def load_manifest(path: Path) -> list[ManifestRow]:
                         else None
                     ),
                     ibkr_symbol=raw["ibkr_symbol"].strip(),
+                    spread_leg_pair=raw.get("spread_leg_pair", "").strip(),
                 )
             )
+    _validate_pairs(path, rows)
     return rows
+
+
+def _validate_pairs(path: Path, rows: list[ManifestRow]) -> None:
+    """A `spread_leg` tag and its pair column go together, and an in-manifest pair names
+    itself back (todo 444: the pair column replaces the hand-written pair migration). A
+    partner outside the manifest is allowed; write_all verifies its reciprocal tag in the
+    onboarding transaction."""
+    by_symbol = {row.symbol: row for row in rows}
+    for row in rows:
+        tagged = "spread_leg" in row.tags
+        if tagged and not row.spread_leg_pair:
+            raise ValueError(
+                f"{path}: {row.symbol} carries the spread_leg tag without a spread_leg_pair"
+            )
+        if row.spread_leg_pair and not tagged:
+            raise ValueError(
+                f"{path}: {row.symbol} names spread_leg_pair {row.spread_leg_pair!r} without "
+                "carrying the spread_leg tag"
+            )
+        if not row.spread_leg_pair:
+            continue
+        partner = by_symbol.get(row.spread_leg_pair)
+        if partner is None:
+            continue
+        if "spread_leg" not in partner.tags or partner.spread_leg_pair != row.symbol:
+            raise ValueError(
+                f"{path}: {row.symbol} pairs with {row.spread_leg_pair!r}, but the partner "
+                "does not carry the spread_leg tag naming this row back"
+            )
 
 
 def build_instrument(row: ManifestRow) -> Instrument:
@@ -202,10 +236,7 @@ async def write_all(conn: Any, rows: list[ManifestRow], qualified: set[str]) -> 
                 conn,
                 build_instrument(row),
                 qualifier=qualifier,
-                tags=[
-                    (tag, 1.0, {"reason": f"universe expansion 2026-09-26, {row.cohort}"})
-                    for tag in row.tags
-                ],
+                tags=[(tag, 1.0, _tag_evidence(row)) for tag in row.tags],
                 metadata=row.metadata,
                 metadata_skip_reason=(
                     "" if row.metadata else "single-name equity: no issuer/index metadata applies"
@@ -214,7 +245,44 @@ async def write_all(conn: Any, rows: list[ManifestRow], qualified: set[str]) -> 
                 universe_cohort=row.cohort,
             )
             onboarded.append(row.symbol)
+        # A pair partner outside this manifest keeps its own evidence: write the reciprocal
+        # spread_leg tag here, in the onboarding transaction, so no hand migration follows
+        # (todo 444). A partner that already carries a spread_leg row naming a different
+        # symbol is a manifest mistake, raised loud.
+        in_manifest = {row.symbol for row in rows}
+        for row in rows:
+            if row.symbol not in qualified or not row.spread_leg_pair:
+                continue
+            if row.spread_leg_pair in in_manifest:
+                continue
+            held = await conn.fetchval(
+                "SELECT evidence->>'pair' FROM instrument_tags "
+                "WHERE symbol = $1 AND tag = 'spread_leg'",
+                row.spread_leg_pair,
+            )
+            if held == row.symbol:
+                continue
+            if held is not None:
+                raise ValueError(
+                    f"{row.symbol} pairs with {row.spread_leg_pair!r}, but the partner's "
+                    f"spread_leg tag names {held!r}"
+                )
+            await conn.execute(
+                "INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) "
+                "VALUES ($1, 'spread_leg', 1.0, 'human', $2::jsonb)",
+                row.spread_leg_pair,
+                json.dumps({"reason": _tag_evidence(row)["reason"], "pair": row.symbol}),
+            )
     return onboarded
+
+
+def _tag_evidence(row: ManifestRow) -> dict[str, Any]:
+    evidence: dict[str, Any] = {"reason": f"universe expansion 2026-09-26, {row.cohort}"}
+    if row.spread_leg_pair:
+        # Migration 237 D-09: every spread_leg row names its partner under evidence->>'pair',
+        # and the partner names it back (tests/unit/test_spread_leg_pair_validity.py).
+        evidence["pair"] = row.spread_leg_pair
+    return evidence
 
 
 async def _async_main(args: argparse.Namespace) -> int:
