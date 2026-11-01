@@ -43,3 +43,33 @@ fit on them only. Built (ee8c264df): `families/daily_residual.py`, the B1 univer
 (`timing.e17_memory`). Left: the full B2 battery (1,000 per cell), B3 power, the spec
 `research/specs/daily_residual_h5.yaml`, registration, then the run after 191-20's 1d
 re-derive. h = 21 waits on todo 547. Industry momentum and sector lead-lag (441) are not in it.
+
+## Status 2026-10-31 (Testing lane)
+
+B2, the spec and the static-size precondition are done; B3 and registration are held with the
+family (todo 547 PM decision 2026-10-31, option b: hold the whole family until the 186-26
+rebuild swap plus an S1 regenerated from the rebuilt table). What actually ran, on the stale
+S1 vintage:
+
+- Static-size precondition passed on the real panel 2026-10-29: pooled static sd 0.0 against
+  the 0.06 gate, time-of-day rms 0.0096 against 0.04 (log survives at
+  `data/backups/reset-2026-10-30/files/b0/daily_residual_static_sizes_20261029.log`).
+- B2 at 1,000 per cell with the landed daily statistic (`e17_battery_daily_residual_flat_
+  20261030.json`, wiped in the 2026-10-30 reset; verdict numbers in todo 547): sd of t 0.88 to
+  1.03 in every cell, three marginal exceedances, all in the pre-registered S1-drift pattern.
+- B2 v2, the pre-registered 2,000-sim confirmation (seed base 90,000,000, journal only; numbers
+  in todo 547): every cell passes except `daily_s1_hostile/residual_momentum_12_1_z` (124 > 123
+  at 0.05, 9 > 8 at 0.00167), its twin at the bound. Exactly todo 547's cause 3.
+- Spec written and hash-pinned: `research/specs/daily_residual_h5.yaml` (in
+  `tests/unit/research/test_spec_hashes_pinned.py`); loads clean as a FamilySpec with the five
+  members.
+
+Deliberately not rerun here: battery or power numbers on the stale vintage would be unusable
+under the hold. Pre-reset member evidence runs (spec hash `affc57c74b5bac58`) were wiped by the
+reset; scratch copies sit in `data/backups/reset-2026-10-30/files/b0/runs/` and are not
+evidence. Per todo 547, no real-data number for any daily member exists.
+
+Left, in order, after the 186-27 swap and the fresh S1 vintage: a fresh pre-registration (new
+seed base, declared before the run) -> battery cells rerun on the fresh vintage -> B3 power ->
+registration (ledger families 4 and 11 move from design-only once numbers exist) -> the five
+counted member evidence runs. h = 21 still waits on todo 547's horizon-lag amendment.
