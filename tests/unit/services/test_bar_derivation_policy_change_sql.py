@@ -44,7 +44,13 @@ def _db_reachable() -> bool:
     return True
 
 
-pytestmark = pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable")
+pytestmark = [
+    pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable"),
+    # todo 494: the shadow DDL and its fixture rows live in pg_temp inside a transaction the
+    # fixture always aborts; the live_db marker opts the module out of the conftest's
+    # read-only force, which would refuse the TEMP DDL.
+    pytest.mark.live_db,
+]
 
 _T0 = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
 _LOAD = _T0 + timedelta(hours=4)  # the symbol's last applied daily load

@@ -127,6 +127,7 @@ async def temp_policy():
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_apply_plan_retires_closes_and_inserts_in_one_transaction(temp_policy):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -150,6 +151,7 @@ async def test_apply_plan_retires_closes_and_inserts_in_one_transaction(temp_pol
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_dry_run_plan_leaves_the_policy_untouched(temp_policy):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -160,6 +162,7 @@ async def test_a_dry_run_plan_leaves_the_policy_untouched(temp_policy):
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_retired_row_in_the_span_moves_the_snapshot_policy_as_of(temp_policy):
     """point_in_time: two snapshots that straddle a retirement must not pin the same as-of."""
@@ -375,6 +378,7 @@ def _plan_fingerprint(monkeypatch):
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_the_1d_plan_retires_both_defaults_and_writes_the_arbitrated_rows(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -404,6 +408,7 @@ async def test_the_1d_plan_retires_both_defaults_and_writes_the_arbitrated_rows(
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_live_symbol_row_the_plan_does_not_name_refuses_the_whole_plan(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -417,6 +422,7 @@ async def test_a_live_symbol_row_the_plan_does_not_name_refuses_the_whole_plan(t
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_1d_dry_run_leaves_the_policy_untouched(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -429,6 +435,7 @@ async def test_a_1d_dry_run_leaves_the_policy_untouched(temp_policy_1d):
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_the_1d_apply_holds_a_share_row_exclusive_lock(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -446,6 +453,7 @@ async def test_the_1d_apply_holds_a_share_row_exclusive_lock(temp_policy_1d):
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_changed_raw_fingerprint_refuses_the_plan(temp_policy_1d, monkeypatch):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -462,6 +470,7 @@ async def test_a_changed_raw_fingerprint_refuses_the_plan(temp_policy_1d, monkey
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_unpinned_live_defaults_refuse_the_plan(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
@@ -478,6 +487,7 @@ _QUARANTINE = [
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_quarantine_sessions_go_through_the_flag_writer(temp_policy_1d, monkeypatch):
     import scripts.ops.bars.ops_source_policy as osp
@@ -521,6 +531,7 @@ async def test_quarantine_sessions_go_through_the_flag_writer(temp_policy_1d, mo
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_a_quarantine_rule_outside_the_apr_list_refuses_the_plan(temp_policy_1d, monkeypatch):
     import scripts.ops.bars.ops_source_policy as osp
@@ -536,6 +547,7 @@ async def test_a_quarantine_rule_outside_the_apr_list_refuses_the_plan(temp_poli
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
 @pytest.mark.asyncio
 async def test_the_quarantine_write_clears_the_rule_on_names_the_plan_dropped(
     temp_policy_1d, monkeypatch
