@@ -53,14 +53,15 @@ def test_family_plant_comes_from_the_family_module():
     p2 = family_plant(
         [_family("src.intelligence.research.families.overnight_intraday")], POWER, res, 3
     )
-    assert isinstance(p2, f2.LegsPlant) and p2.leg_sd.shape == (3, 25)
+    # todo 562: family_plant returns one plant per family, in the book's family order
+    assert isinstance(p2[0], f2.LegsPlant) and p2[0].leg_sd.shape == (3, 25)
     p1 = family_plant(
         [_family("src.intelligence.research.families.intraday_periodicity")], POWER, res, 26
     )
-    assert isinstance(p1, SameSlotPlant) and p1.plant_lags_sessions == 20
+    assert isinstance(p1[0], SameSlotPlant) and p1[0].plant_lags_sessions == 20
 
 
-def test_family_plant_refuses_mixed_modules_and_multi_family_books():
+def test_family_plant_refuses_mixed_modules_and_plants_every_family_in_turn():
     res = _residuals()
     mixed = _family("src.intelligence.research.families.overnight_intraday")
     mixed.members.append(
@@ -68,9 +69,10 @@ def test_family_plant_refuses_mixed_modules_and_multi_family_books():
     )
     with pytest.raises(RunRefused, match="span modules"):
         family_plant([mixed], POWER, res, 3)
+    # todo 562: a multi-family book gets one plant per family, in the book's family order
     fam = _family("src.intelligence.research.families.overnight_intraday")
-    with pytest.raises(RunRefused, match="2 families"):
-        family_plant([fam, fam], POWER, res, 3)
+    plants = family_plant([fam, fam], POWER, res, 3)
+    assert len(plants) == 2 and all(isinstance(p, f2.LegsPlant) for p in plants)
 
 
 def test_make_plant_pins_the_window_and_fills_missing_scales():
@@ -161,7 +163,8 @@ def test_check_family_plant_runs_the_static_checks():
 
     fam = _family("src.intelligence.research.families.overnight_intraday")
     fam.panel = types.SimpleNamespace(analysis_bars_per_session=3)
-    assert check_family_plant([fam], POWER) is f2
+    # todo 562: the check validates every family and returns the modules in order
+    assert check_family_plant([fam], POWER) == [f2]
     wrong = types.SimpleNamespace(**{**vars(POWER), "plant_lags_sessions": 40})
     with pytest.raises(RunRefused, match="20 sessions"):
         check_family_plant([fam], wrong)

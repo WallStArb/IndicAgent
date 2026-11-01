@@ -59,10 +59,8 @@ def repo1(tmp_path):
 
 @pytest.fixture
 def repo2(tmp_path, monkeypatch):
-    # No power plant spans several families yet (run_book refuses them); the accounting path is
-    # exercised with the plant of the first family standing in for the book's.
-    real = runner_mod.check_family_plant
-    monkeypatch.setattr(runner_mod, "check_family_plant", lambda fams, power: real(fams[:1], power))
+    # The two-family book runs unstubbed since todo 562: per-family plants in turn, the
+    # book's power the minimum over its families.
     return _repo(tmp_path, True)
 
 

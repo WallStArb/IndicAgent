@@ -789,29 +789,37 @@ def family_module(spec: FamilySpec):
     return importlib.import_module(modules.pop())
 
 
-def check_family_plant(families: list[FamilySpec], power_spec):
-    """Every refusal the book's plant can raise without real data, run before the ledger so a
-    misconfigured book is never charged: one family (a book over several would need one plant
-    planting all of them, which no family module defines yet), members in one module that
-    defines `validate_plant` and `make_plant`, and the module's own static checks against the
-    book's power settings. Returns the module."""
-    if len(families) != 1:
-        raise RunRefused(f"no power plant spans {len(families)} families")
-    fam = families[0]
-    module = family_module(fam)
-    for name in ("validate_plant", "make_plant"):
-        if not callable(getattr(module, name, None)):
-            raise RunRefused(f"{module.__name__} defines no {name}")
-    try:
-        module.validate_plant(power_spec, fam.panel.analysis_bars_per_session)
-    except ValueError as error:
-        raise RunRefused(f"{module.__name__}: {error}") from error
-    return module
+def check_family_plant(families: list[FamilySpec], power_spec) -> list:
+    """Every refusal the book's plants can raise without real data, run before the ledger so a
+    misconfigured book is never charged: each family's members in one module that defines
+    `validate_plant` and `make_plant`, and the module's own static checks against the book's
+    power settings. Returns the modules aligned with `families`. The book's power is the
+    minimum over its families (todo 562): the combiner passes a family's signal through or
+    dilutes it, never creates it, so the book must detect every family's planted signal on its
+    own, and a family whose plant is unpowered refuses the book no matter what the others do.
+    """
+    modules = []
+    for fam in families:
+        module = family_module(fam)
+        for name in ("validate_plant", "make_plant"):
+            if not callable(getattr(module, name, None)):
+                raise RunRefused(f"{module.__name__} defines no {name}")
+        try:
+            module.validate_plant(power_spec, fam.panel.analysis_bars_per_session)
+        except ValueError as error:
+            raise RunRefused(f"{module.__name__}: {error}") from error
+        modules.append(module)
+    return modules
 
 
-def family_plant(families: list[FamilySpec], power_spec, residuals: Residuals, bps: int):
-    """The book's synthetic plant, from its family's `make_plant` and the real residuals."""
-    return check_family_plant(families, power_spec).make_plant(power_spec, residuals, bps)
+def family_plant(families: list[FamilySpec], power_spec, residuals: Residuals, bps: int) -> list:
+    """One plant per family, in the book's family order (todo 562): each family's own
+    `make_plant` on the shared panel, from the real residuals. The power check plants them in
+    turn and the book's power is the minimum."""
+    return [
+        module.make_plant(power_spec, residuals, bps)
+        for module in check_family_plant(families, power_spec)
+    ]
 
 
 def _power_problem(
@@ -833,42 +841,48 @@ def _power_problem(
     exists to prevent. The masks carry availability only, no return values."""
     p = book.power
     bps = panel.bars_per_session
-    plant_gen = family_plant(families, p, residuals, bps)
+    plant_gens = family_plant(families, p, residuals, bps)
     finite_mask = np.isfinite(residuals.bar)
     target_mask = np.isfinite(residuals.fwd)
-    plant = synthetic.calibrate_plant(
-        plant_gen,
-        finite_mask,
-        members=members,
-        coverage_floor=book.construction.coverage_floor,
-        target_ic=p.planted_rank_ic,
-        tolerance=p.calibration_tolerance,
-        n_panels=p.calibration_panels,
-        seed=p.calibration_seed,
-        target_mask=target_mask,
-    )
     c = book.construction
     window = c.vol_window_sessions * bps
-    problem = power.PowerProblem(
-        plant=plant_gen,
-        plant_coef=plant.plant_coef,
-        finite_mask=finite_mask,
-        target_mask=target_mask,
-        dates=np.asarray(panel.timestamps),
-        valid=np.asarray(panel.valid),
-        members=tuple(members),
-        coverage_floor=c.coverage_floor,
-        rule=resolve_rule(book, bps),
-        combiner=combiner,
-        vol_window_rows=window,
-        vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
-        cfg=book.scoring.evaluation_config(),
-        memory_sessions=memory_sessions,
-        bar=bar,
-        horizon_rule=horizon_rule,
-        row_session_dates=row_session_dates,
-    )
-    return problem, plant
+    problems: list[power.PowerProblem] = []
+    calibrated = []
+    for plant_gen in plant_gens:  # one problem per family: the plants run in turn (todo 562)
+        plant = synthetic.calibrate_plant(
+            plant_gen,
+            finite_mask,
+            members=members,
+            coverage_floor=book.construction.coverage_floor,
+            target_ic=p.planted_rank_ic,
+            tolerance=p.calibration_tolerance,
+            n_panels=p.calibration_panels,
+            seed=p.calibration_seed,
+            target_mask=target_mask,
+        )
+        problems.append(
+            power.PowerProblem(
+                plant=plant_gen,
+                plant_coef=plant.plant_coef,
+                finite_mask=finite_mask,
+                target_mask=target_mask,
+                dates=np.asarray(panel.timestamps),
+                valid=np.asarray(panel.valid),
+                members=tuple(members),
+                coverage_floor=c.coverage_floor,
+                rule=resolve_rule(book, bps),
+                combiner=combiner,
+                vol_window_rows=window,
+                vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
+                cfg=book.scoring.evaluation_config(),
+                memory_sessions=memory_sessions,
+                bar=bar,
+                horizon_rule=horizon_rule,
+                row_session_dates=row_session_dates,
+            )
+        )
+        calibrated.append(plant)
+    return problems, calibrated
 
 
 _COMBINER_KINDS = {None: "ridge", "ridge": "ridge", "equal_weight": "equal_weight"}
@@ -1090,7 +1104,7 @@ async def run_book(
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
-        problem, plant = _power_problem(
+        problems, calibrated = _power_problem(
             book,
             families,
             panel,
@@ -1102,45 +1116,72 @@ async def run_book(
             horizon_rule,
             row_session_dates,
         )
-        _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
-        run = power.estimate_power(
-            problem,
-            replicates=power_replicates or book.power.replicates,
-            min_power=guards.MIN_POWER,
-            seed=book.power.seed,
-            workers=ctx.workers,
-            pool_factory=ctx.pool_factory,
-        )
-        del problem
-        d = run.decision
-        power_record = {
-            "powered": d.powered,
-            "passes": d.passes,
-            "failures": d.failures,
-            "replicates": d.replicates,
-            "decided_after": d.decided_after,
-            "min_power": d.min_power,
-            "bar": bar,
-            "planted_rank_ic": book.power.planted_rank_ic,
-            "plant_coef": plant.plant_coef,
-            "achieved_ic": plant.achieved_ic,
-            "ic_se": plant.ic_se,
-            "calibration_iterations": plant.iterations,
-            "participation_ratio": book.power.participation_ratio,
-            "seconds": run.seconds,
-        }
-        _log(f"power: {'powered' if d.powered else 'underpowered'} ({d.passes}/{d.decided_after})")
-        try:
-            guards.require_testable(power=float(d.powered))
-        except guards.GuardFailure:
-            return await finish(
-                "refused",
-                {
-                    "stage": "refusal",
-                    "refusal": f"underpowered at IC {book.power.planted_rank_ic}",
-                    "power": power_record,
-                },
+        decisions = []
+        family_records: dict[str, dict] = {}
+        for family, problem, plant in zip(families, problems, calibrated, strict=True):
+            _log(
+                f"power[{family.family}]: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates"
             )
+            run = power.estimate_power(
+                problem,
+                replicates=power_replicates or book.power.replicates,
+                min_power=guards.MIN_POWER,
+                seed=book.power.seed,
+                workers=ctx.workers,
+                pool_factory=ctx.pool_factory,
+            )
+            del problem
+            d = run.decision
+            decisions.append((family.family, d))
+            family_records[family.family] = {
+                "powered": d.powered,
+                "passes": d.passes,
+                "failures": d.failures,
+                "replicates": d.replicates,
+                "decided_after": d.decided_after,
+                "min_power": d.min_power,
+                "bar": bar,
+                "planted_rank_ic": book.power.planted_rank_ic,
+                "plant_coef": plant.plant_coef,
+                "achieved_ic": plant.achieved_ic,
+                "ic_se": plant.ic_se,
+                "calibration_iterations": plant.iterations,
+                "participation_ratio": book.power.participation_ratio,
+                "seconds": run.seconds,
+            }
+        if len(families) == 1:  # the single-family record keeps its frozen shape
+            family, d = decisions[0]
+            power_record = family_records[family]
+            _log(
+                f"power: {'powered' if d.powered else 'underpowered'} ({d.passes}/{d.decided_after})"
+            )
+            try:
+                guards.require_testable(power=float(d.powered))
+            except guards.GuardFailure:
+                return await finish(
+                    "refused",
+                    {
+                        "stage": "refusal",
+                        "refusal": f"underpowered at IC {book.power.planted_rank_ic}",
+                        "power": power_record,
+                    },
+                )
+        else:  # the book's power is the minimum over its families (todo 562)
+            power_record = family_records
+            underpowered = sorted(f for f, d in decisions if not d.powered)
+            _log(
+                f"power: {'powered' if not underpowered else 'underpowered'} "
+                f"({len(families) - len(underpowered)}/{len(families)} families)"
+            )
+            if underpowered:
+                return await finish(
+                    "refused",
+                    {
+                        "stage": "refusal",
+                        "refusal": f"underpowered at IC {book.power.planted_rank_ic}: {underpowered}",
+                        "power": power_record,
+                    },
+                )
 
         _log("S8 book test")
         vol = _vol(book, residuals.bar, bps)
