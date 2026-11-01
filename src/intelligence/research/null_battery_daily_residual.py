@@ -28,11 +28,10 @@ Each simulation scores the five members at their declared memories and their equ
 from __future__ import annotations
 
 import dataclasses
-import math
 
 import numpy as np
 
-from src.intelligence.research import static_sizes
+from src.intelligence.research import null_panels, static_sizes
 from src.intelligence.research.combiner import EqualWeight
 from src.intelligence.research.families import daily_residual as fam
 from src.intelligence.research.null_battery import listing_mask
@@ -76,23 +75,17 @@ class DailyScenario:
 
 
 def _returns(sc: DailyScenario, rng: np.random.Generator) -> np.ndarray:
-    """[S, m] daily returns under H0 (noise sd about 1)."""
+    """[S, m] daily returns under H0 (noise sd about 1). Stresses come from null_panels,
+    the shared generator (todo 546)."""
     s_n, m = sc.sessions, sc.names
-    if sc.t4_noise:
-        u = rng.standard_t(4, (s_n, m)) / math.sqrt(2.0)
-    else:
-        u = rng.standard_normal((s_n, m))
+    u = null_panels.noise(rng, (s_n, m), sc.t4_noise)
     if sc.vol_clustering:
-        log_vol = np.zeros(s_n)
-        shocks = 0.15 * rng.standard_normal(s_n)
-        for s in range(1, s_n):
-            log_vol[s] = 0.97 * log_vol[s - 1] + shocks[s]
-        u *= np.exp(log_vol)[:, None]
+        u = null_panels.vol_clustering(u, rng)
     u = u + sc.market_mean
     if sc.static_sd:
-        u = u + sc.static_sd * rng.standard_normal(m)
+        u = u + null_panels.cell_means(rng, (m,), sc.static_sd)
     if sc.factor_sd:
-        u = u + sc.factor_sd * rng.standard_normal((s_n, 1)) * rng.uniform(0.5, 1.5, m)
+        u = u + null_panels.factor_term(rng, (s_n, 1), m, sc.factor_sd, loadings_first=False)
     return u
 
 

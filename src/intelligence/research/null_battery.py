@@ -16,13 +16,12 @@ I/O, no database; the driver (scripts/research/e17_null_battery.py) aggregates.
 from __future__ import annotations
 
 import dataclasses
-import math
 import warnings
 from typing import Literal
 
 import numpy as np
 
-from src.intelligence.research import static_sizes
+from src.intelligence.research import null_panels, static_sizes
 from src.intelligence.research.book import book_memory
 from src.intelligence.research.combiner import EqualWeight, RidgeSpec
 from src.intelligence.research.families.intraday_periodicity import SLOT_BARS, same_slot_mean
@@ -64,38 +63,25 @@ class NullScenario:
 
 
 def _slot_returns(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
-    """[S, J, m] slot returns under H0 (slot noise sd about 1)."""
+    """[S, J, m] slot returns under H0 (slot noise sd about 1). Stresses come from
+    null_panels, the shared generator (todo 546)."""
     s_n, j_n, m = sc.sessions, sc.bars_per_session // SLOT_BARS, sc.names
-    if sc.t4_noise:
-        noise = rng.standard_t(4, (s_n, j_n, m)) / math.sqrt(2.0)  # unit variance
-    else:
-        noise = rng.standard_normal((s_n, j_n, m))
+    u = null_panels.noise(rng, (s_n, j_n, m), sc.t4_noise)
     if sc.vol_clustering:
-        log_vol = np.zeros(s_n)
-        shocks = 0.15 * rng.standard_normal(s_n)
-        for s in range(1, s_n):
-            log_vol[s] = 0.97 * log_vol[s - 1] + shocks[s]
-        noise *= np.exp(log_vol)[:, None, None]
-    u = noise
+        u = null_panels.vol_clustering(u, rng)
     if sc.static_cell_sd:
-        u = u + sc.static_cell_sd * rng.standard_normal((j_n, m))
+        u = u + null_panels.cell_means(rng, (j_n, m), sc.static_cell_sd)
     if sc.slot_effect_sd:
-        u = u + sc.slot_effect_sd * rng.standard_normal((j_n, 1))
+        u = u + null_panels.cell_means(rng, (j_n, 1), sc.slot_effect_sd)
     if sc.factor_sd:
-        loading = rng.uniform(0.5, 1.5, m)
-        u = u + sc.factor_sd * rng.standard_normal((s_n, j_n, 1)) * loading
+        u = u + null_panels.factor_term(rng, (s_n, j_n, 1), m, sc.factor_sd, loadings_first=True)
     return u
 
 
 def listing_mask(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
     """bool [n, m]: False before each name lists."""
-    n, m = sc.sessions * sc.bars_per_session, sc.names
-    start = np.zeros(m, dtype=int)
-    late = rng.random(m) < sc.late_fraction
-    start[late] = rng.integers(1, int(0.6 * sc.sessions), late.sum())
-    if sc.late_name:
-        start[0] = int(0.6 * sc.sessions)
-    return np.arange(n)[:, None] >= (start * sc.bars_per_session)[None, :]
+    starts = null_panels.listing_starts(rng, sc.sessions, sc.names, sc.late_fraction, sc.late_name)
+    return null_panels.listing_mask(starts, sc.sessions, sc.names, sc.bars_per_session)
 
 
 def _bars(u: np.ndarray, rng: np.random.Generator) -> np.ndarray:

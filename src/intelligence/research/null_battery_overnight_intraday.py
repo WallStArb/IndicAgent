@@ -33,7 +33,7 @@ import warnings
 
 import numpy as np
 
-from src.intelligence.research import static_sizes
+from src.intelligence.research import null_panels, static_sizes
 from src.intelligence.research.families import overnight_intraday as f2
 from src.intelligence.research.legs import LEGS, SIGNAL_LEG
 from src.intelligence.research.null_battery import listing_mask
@@ -82,24 +82,17 @@ class LegsScenario:
 
 
 def _legs(sc: LegsScenario, rng: np.random.Generator) -> np.ndarray:
-    """[S, 3, m] leg returns under H0 (leg noise sd about 1)."""
+    """[S, 3, m] leg returns under H0 (leg noise sd about 1). Stresses come from
+    null_panels, the shared generator (todo 546)."""
     s_n, m = sc.sessions, sc.names
-    if sc.t4_noise:
-        u = rng.standard_t(4, (s_n, LEGS, m)) / math.sqrt(2.0)
-    else:
-        u = rng.standard_normal((s_n, LEGS, m))
+    u = null_panels.noise(rng, (s_n, LEGS, m), sc.t4_noise)
     if sc.vol_clustering:
-        log_vol = np.zeros(s_n)
-        shocks = 0.15 * rng.standard_normal(s_n)
-        for s in range(1, s_n):
-            log_vol[s] = 0.97 * log_vol[s - 1] + shocks[s]
-        u *= np.exp(log_vol)[:, None, None]
+        u = null_panels.vol_clustering(u, rng)
     u = u + np.asarray(sc.leg_means)[None, :, None]
     if any(sc.static_cell_sd):
-        u = u + np.asarray(sc.static_cell_sd)[:, None] * rng.standard_normal((LEGS, m))
+        u = u + np.asarray(sc.static_cell_sd)[:, None] * null_panels.cell_means(rng, (LEGS, m), 1.0)
     if sc.factor_sd:
-        loading = rng.uniform(0.5, 1.5, m)
-        u = u + sc.factor_sd * rng.standard_normal((s_n, LEGS, 1)) * loading
+        u = u + null_panels.factor_term(rng, (s_n, LEGS, 1), m, sc.factor_sd, loadings_first=True)
     return u
 
 
