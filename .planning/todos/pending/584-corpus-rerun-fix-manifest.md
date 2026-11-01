@@ -34,6 +34,7 @@ anything found after the pin moves waits for the following rerun.
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
 | 9 | Pilot gate tool (design D3) | this todo | open |
 | 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
+| 11 | Proven-span start per name (design D4), closes 532: names held only for early-history holes (the 41 from item 10, AAOI, AGL, ACMR, ADPT and the like) enter the rerun from their proven start | 532, item 10 | open (data lane) |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
@@ -127,6 +128,18 @@ ETFs, AAPL, MSFT, HON, SCCO (583), KO, JPM, XOM, five of the 16 recent listings,
 names, five thin names, a volume-basis-seam name, a spin-off, and one name with a pre-2016 IBKR
 5m segment. The pass fails loudly; nothing launches on a red gate.
 
+### D4. Proven-span start (item 11)
+
+A hole in early history is missing depth, not a defect in the name; it becomes a correctness
+problem only where a rolling window spans it. Excluding the whole name throws away its clean
+later decades and tilts the universe toward names with complete early data. Rule: a name's
+proven start is the earliest session `s` at which the existing session-coverage verdict over
+`[s, last session]` passes its threshold. The verdict anchors there instead of at
+`max(first bar, era start)`; the rebuild computes from that start and the panel declares it.
+The start depends on bar presence only, never on returns. It is recorded per name with the
+verdict, and the change is a methodology-ledger entry. The 2000-2004 backfill for the 41 moves
+a proven start earlier in a later pass; it never blocks this one.
+
 ### Sequencing
 
 Implementers work one at a time per shared file: items 1 and 7 (running) touch `registry.py`,
@@ -136,7 +149,7 @@ The D3 gate tool is independent and is built now.
 
 ## Done when
 
-1. Items 1-10 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
+1. Items 1-11 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
    bit-identical where research or statistics moved.
 2. The pilot chunk at the new pin passes gates G1 to G5 (design D3) on every timeframe.
 3. The rerun is launched at the new pin (1d then intraday), and 186-27 proceeds on its output.
