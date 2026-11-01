@@ -48,13 +48,20 @@ bullets with current facts.
 rebuild stages (stage 1/1b 1d done; stage 2 intraday running, monitored by indicagent-93;
 import closure stays frozen at pin `92e588385` until the owner closes the rebuild) -> 186-27
 swap -> 184 feature families. Parallel lanes, no owner action pending: owner KEEP decision on
-Tradier executed 2026-11-01 (574: 7.14M raw rows restored under vendor `tradier`, selection
-gate --compare proof running, filing and commit by indicagent-93); pre-2016 IBKR 5m backfill
-running (453/1,160 names at 18:40Z, owner P0); 522 staged for Monday's open. Staged deletions
-for todos 579/580 sit uncommitted on main pending their owning session (ownership query out).
-Research lane: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only; wiring
-06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15; E17 daily
-real-data run stays moot until the clean-data rule lifts.
+Tradier executed and verified 2026-11-01 (574: 7.14M raw rows restored under vendor `tradier`;
+selection gate `--compare` exited 0, 0 real differences across 349,496,830 canonical rows;
+filing committed 492280b25); pre-2016 IBKR 5m backfill running (owner P0; one run failed
+12:15Z gateway-lost mid-run, relaunched 13:42Z); 522 staged for Monday 2026-11-02 09:30 ET
+open (20 measured orders intact in the ledger; last mile owned by indicagent-b0, coordinator
+backup). Coordination 2026-11-01: indicagent-97 leads (owner directive), indicagent-93 owns
+the data lane (stage 2 monitoring, then 564 recount and 571 reset), indicagent-b0 owns E17
+(todo 546 shared null generator) plus 522's measured run. E17 battery verdict 547 recorded:
+every cell passes except the pre-registered cause-3 S1-drift pattern on
+`residual_momentum_12_1_z`; StepM selection unblocked (Step B v2 passed, todo 561); owner
+holds the S1-drift option A/B decision. Research lane: 184 planned 2026-10-27 (14 plans,
+8 waves; wave 1 01-04 new files only; wiring 06-11 after 187-08/09/10 and 187-15 Task 2,
+before 187-18), 187 plans 08-15; E17 daily real-data run stays moot until the clean-data
+rule lifts.
 
 - **Phase 191 (unified raw bar table, todo 533): COMPLETE 2026-10-31, all 25 plans done.** Canonical
   is `market_data_ohlcv` keyed by (vendor, kind), a pure function of `ohlcv_raw` plus
@@ -148,7 +155,11 @@ real-data run stays moot until the clean-data rule lifts.
   stage-2 health picture: unit_loaded/bulk_load events arrive in bursts separated by up to about 90
   minutes of full-CPU worker compute (HMM walk-forward dominates); memory.peak pinned at the 14G
   MemoryMax cap with oom_kill 0 is the open watch item. The only confirmed wedge today is the
-  fetcher's (todo 538; with-locals specimen captured 21:35Z).
+  fetcher's (todo 538; with-locals specimen captured 21:35Z). Progress 2026-11-01 19:09Z
+  (indicagent-93): the run is ONE pass covering all three intraday timeframes, units land in
+  per-tf triplets; 1,119 units completed since the 21:20Z relaunch, `feature_vectors_v2` holds
+  5m 133.3M rows / 550 symbols, 15m 45.3M / 550, 1h 12.2M / 550 (1d 5.4M / 1,314 from stage 1);
+  no stalls, memory 8.0G of the 14G cap with the oom watch unchanged.
 
 - **D7 dated tolerance landed 2026-10-31 (todos 524 and 573, data lane):** a grid_parity mismatch on a
   recorded stamp, or on a bucket whose archive row's `served_at` predates the day's 5m bars
