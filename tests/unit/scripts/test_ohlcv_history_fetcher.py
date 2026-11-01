@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
 import pytest
+import structlog
 
 from scripts.infrastructure.backfill import _fetch_queue as fq
 from scripts.infrastructure.backfill import ohlcv_history_fetcher as hf
@@ -1580,6 +1581,8 @@ def _stall_fetcher(
     """A fetcher whose watchdog bounds are seconds-small and whose abort is recorded."""
     aborted: list[float] = []
     bounds = (tick, abort, 30.0)
+    kwargs.pop("stall_bounds", None)  # the helper owns these two seams
+    kwargs.pop("abort", None)
     fetcher, seen = _fetcher(
         tmp_path,
         plan,
@@ -1587,7 +1590,10 @@ def _stall_fetcher(
         abort=lambda: aborted.append(time.monotonic()),
         **kwargs,
     )
-    fetcher._stall_tick_s, fetcher._stall_abort_s, fetcher._teardown_timeout_s = bounds
+    # One source of bounds: execute() reads the seam, direct-watchdog tests read attributes.
+    fetcher._stall_tick_s, fetcher._stall_abort_s, fetcher._teardown_timeout_s = (
+        fetcher._stall_bounds_fn()
+    )
     return fetcher, seen, aborted
 
 
@@ -1597,22 +1603,19 @@ async def _settle(seconds: float) -> None:
 
 
 async def test_the_stall_watchdog_aborts_and_dumps_when_nothing_moves(tmp_path):
-    import logging
-
-    records: list[logging.LogRecord] = []
-    handler = logging.Handler()
-    handler.emit = records.append  # type: ignore[method-assign]
-    logging.getLogger().addHandler(handler)
-    try:
-        fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.08)
+    # The constructor configures structlog (BaseBatch -> setup_service_logging), and a
+    # configure() inside the capture window swaps the processor list out from under it,
+    # so the fetcher is built first.
+    fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.08)
+    with structlog.testing.capture_logs() as logs:
         task = asyncio.create_task(fetcher._stall_watchdog())
         await _settle(0.4)
         task.cancel()
         assert len(aborted) >= 1  # the process would have exited 1; the recorded abort seam
         # returns instead of os._exit, so the task keeps ticking for the rest of the window
-        assert any("stall_abort" in f"{getattr(r, 'event', '')}{r.getMessage()}" for r in records)
-    finally:
-        logging.getLogger().removeHandler(handler)
+    dumps = [entry for entry in logs if entry.get("event") == "ibkr_history_fetcher.stall_abort"]
+    assert dumps
+    assert all("pending_tasks" in entry for entry in dumps)  # every pending task is named
 
 
 async def test_the_stall_watchdog_resets_on_progress_and_never_aborts(tmp_path):
@@ -1640,13 +1643,13 @@ async def test_a_slow_in_flight_item_never_trips_the_abort(tmp_path):
     """Pacing suppression (todo 538): an in-flight item's stall checks hold the abort off."""
 
     async def pacing_item(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
-        for _ in range(10):  # pacing waits and checks across a window far past the bound
-            await asyncio.sleep(0.05)
+        for _ in range(8):  # pacing waits and checks across a window past the bound
+            await asyncio.sleep(0.1)
             kw["on_tick"]()
         return _outcome(row)
 
     fetcher, _seen, aborted = _stall_fetcher(
-        tmp_path, _plan([_ranked("AAA")]), tick=0.02, abort=0.12, fetch_fn=pacing_item
+        tmp_path, _plan([_ranked("AAA")]), tick=0.02, abort=0.5, fetch_fn=pacing_item
     )
     status, error = await _run(fetcher)
     assert error is None and status == "success"

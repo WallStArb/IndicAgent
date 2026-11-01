@@ -1,9 +1,9 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-17
 source: plan 191-16 execution, SUMMARY deviation 7 (2026-10-17)
-owner: 2026-10-17
+closed: 2026-10-31
 ---
 
 # IBKR fetcher teardown hangs after Disconnected: run_until_complete never returns
@@ -19,12 +19,6 @@ killed. The explicit `--timeframes` run and the full 05:47Z run of the same nigh
 so the trigger is the gateway-loss teardown path of a default-scoped run, not the fetch loop.
 py-spy dumps were taken during the plan 16 session; if that scratch is gone, retake on the next
 occurrence.
-
-## Why now
-
-The IBKR 1d deepening (todo 537) is driven by its crontab gate script while the owner is away
-(about a week from 2026-10-16). A hang stalls that cadence silently until a human kills the
-process, and nobody is there to do it.
 
 ## Update 2026-10-31: same wedge, mid-run, under rebuild load
 
@@ -67,32 +61,34 @@ outside the fetcher family, no FetcherLock) authenticated and answered during th
 so the gateway session was serving new clients while the fetcher's own session sat silent:
 convicts the fetcher-side await/dropped-callback mechanism over a stuck gateway session.
 
-## Fix direction
+## Outcome (2026-10-31, closed)
 
-Diagnose the teardown path of `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`: the
-candidate cause is a gateway-disconnect callback whose future is never resolved, leaving
-`run_until_complete` with nothing to wait on but nothing to return either. The likely shape of
-the fix is a timeout around the event-loop shutdown so the process exits loudly (stack trace in
-the log) instead of hanging, plus a regression test that reproduces the hang's shape (an
-unresolved future at disconnect).
+What landed, in order: 8cb51571c (watchdog + bounded teardown + migration 548 APR seeds
+`infra.ibkr.stall_tick_s` 60 / `stall_abort_s` 1800 / `teardown_timeout_s` 30, applied live),
+c7d8b1ac0 (reserve lane and planning count as forward motion; the item-dispatch tick routed to
+`_mark_progress` so an in-flight item's stall checks hold the abort off, which is the pacing
+suppression: a healthy 40+ minute deep item, or the 3617 s run that recovered, can never
+false-trip the 1800 s abort, while a wedged item is still cancelled by its own stall bound),
+7959f2672 (stall bounds read inside the cursor's with block; before that every run fell back to
+the seed defaults with a warning). The per-request timeout the diagnosis proposed as a third APR
+key was deliberately NOT duplicated: the bound already exists twice (`run_with_stall_bound` on
+the provider plan's `request_timeout_s` per item attempt, and the per-request wait_for wrappers
+in `src/providers/ibkr.py`); adding an unread `infra.ibkr.request_timeout_s` key would be
+redundant mechanism (recorded in migration 548's header).
 
-## Acceptance
+What the next wedge shows in the log: within 30 minutes of the loop wedging,
+`ibkr_history_fetcher.stall_warning` lines start (one per 60 s tick with no progress), then one
+`ibkr_history_fetcher.stall_abort` error naming every pending asyncio task with its coroutine
+and stack (the dump the 2026-10-31 py-spy dumps had to be taken by hand), and the process exits
+1; the timer restarts the lane and the run's loss is bounded at 30 minutes. A wedge during the
+leaf-disconnect sequence instead logs `ibkr_history_fetcher.teardown_timeout` (30 s) and fails
+the run. A wedge inside an item never reaches the watchdog: the item's own stall bound cancels
+it (`ibkr_history_fetcher.item_stalled` warnings, then an error outcome, which is progress
+again). The only silent-wedge class left is a wedged timer set, which the systemd WatchdogSec
+covers.
 
-- A fetcher run that loses the gateway mid-teardown exits nonzero with a logged cause within
-  seconds, never parks in `select`.
-- A unit test pins the teardown timeout against an unresolved future.
-
-## Diagnosis written (data lane, 2026-10-31 evening)
-
-`docs/plans/2026-10-31-fetcher-future-hang-diagnosis.md` is the full read. Headlines: the
-fetcher wedge is protocol-level (loop alive, TCP ESTABLISHED on loopback, no reply, no error;
-an await with no timeout), not transport and not CPU; the fix direction is the post-acquire
-watchdog that names the pending tasks, a teardown timeout, and per-request timeouts (APR
-bounds, owner sign-off before the edit window). The same evening's factory "wedge" was
-reclassified: the 13:45Z stage 2 run was healthy (252 units, rows summing exactly to the
-database, group gaps of 52-91 minutes), the 21:20Z stop was a mistake driven by main-pid
-worker checks and a missing cadence baseline, and the diagnosis doc carries the corrected
-health protocol (write-anchored, forkserver-children liveness, cgroup reads, 2.5h wedge
-criterion). Next occurrence of the fetcher wedge: py-spy the main (done 21:35Z for the
-21:25:32Z run) plus the gateway discriminator probe (fresh clientId request; docker stats on
-ib-gateway) before any restart.
+Regression tests in `tests/unit/scripts/test_ohlcv_history_fetcher.py` (todo 538 section):
+abort + pending-task dump with a structlog capture (built before the capture window, since the
+constructor's `setup_service_logging` configure would swap the processor list out), reset on
+progress, stage-subprocess pause, slow in-flight item never trips the abort, teardown bound on a
+hanging disconnect, dead leaf never blocks the others, APR bounds read with seed defaults.
