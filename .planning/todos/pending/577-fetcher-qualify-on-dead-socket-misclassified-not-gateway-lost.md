@@ -48,3 +48,7 @@ answers the probe keeps the False cached as a genuine unknown contract (todo 051
 preserved). Run-budget and diagnosis-trail goals both met; the two new fetcher tests cover both
 branches. The todo's second consideration (a run failing 100% of items one way should surface
 the error class) is superseded: with this fix that shape raises instead of reaching the summary.
+
+Landed 2026-11-01, commit 7f3343608 (session b0; an earlier local draft of this commit briefly
+carried an attribution line and was amended away in the worktree before pushing — no such commit
+reached main).
