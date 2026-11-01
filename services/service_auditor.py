@@ -96,6 +96,10 @@ _DAG_ORDER: dict[str, int] = {
     # A oneshot with no Kafka consumer, so no alert.lag.* key (the ibkr-history-fetcher
     # precedent); plan 16 replaces _DAG_ORDER with the manifest.
     "indicagent-research-ledger-render": 8,  # oneshot; DB -> research-ledger.md, commits on change
+    # Todo 438: daily IBKR shortability snapshot (borrow_availability_snapshots); live-only
+    # data, so a missed day is lost. Oneshot with no Kafka consumer, so no alert.lag.* key
+    # (the ibkr-history-fetcher precedent); health is job_completed_total on the timer.
+    "indicagent-borrow-capture": 8,  # oneshot; inactive between fires is correct
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
@@ -152,6 +156,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-roll-batch",
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
+        "indicagent-borrow-capture",  # Type=oneshot, timer-triggered (todo 438); inactive between fires is correct
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct

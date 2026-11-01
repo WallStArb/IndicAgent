@@ -1033,3 +1033,89 @@ class TestRequestRecord:
         assert len(bars) == 5 and persisted == bars
         assert reports == []
         assert asked == ["SMART"]  # history covers the request start; no venue walk
+
+
+class TestFetchBorrowSnapshots:
+    """Unit tests for the borrow snapshot ask (todo 438). The real mechanics are
+    ib_async's; these pin the batch loop's contract: one BorrowSnapshot per asked
+    symbol, nan to NULL, a qualification timeout retries once then stores NULL,
+    duplicates refuse loud."""
+
+    async def test_one_row_per_symbol_and_nan_maps_to_null(self, provider, mock_ib):
+        ticker = MagicMock()
+        ticker.shortableShares = float("nan")
+        ticker.contract = MagicMock()
+        ticker_ok = MagicMock()
+        ticker_ok.shortableShares = 226_800_000.0
+        ticker_ok.contract = MagicMock()
+
+        def req_mkt_data(contract, **kwargs):
+            return ticker if contract.symbol == "AAA" else ticker_ok
+
+        mock_ib.qualifyContractsAsync = AsyncMock(side_effect=lambda *contracts: contracts)
+        mock_ib.reqMktData = MagicMock(side_effect=req_mkt_data)
+        provider._ib = mock_ib
+
+        snapshots = await provider.fetch_borrow_snapshots(
+            ["AAA", "BBB"], batch_size=50, batch_pause_s=0.0, batch_wait_s=0.0
+        )
+        assert [s.symbol for s in snapshots] == ["AAA", "BBB"]
+        assert snapshots[0].shortable_shares is None  # nan answer -> NULL, not dropped
+        assert snapshots[1].shortable_shares == 226_800_000.0
+        assert mock_ib.cancelMktData.call_count == 2  # every subscription is cancelled
+
+    async def test_batch_slicing_pauses_between_not_after_last(self, provider, mock_ib):
+        mock_ib.qualifyContractsAsync = AsyncMock(side_effect=lambda *c: c)
+        mock_ib.reqMktData = MagicMock(
+            side_effect=lambda contract, **k: MagicMock(shortableShares=1.0, contract=contract)
+        )
+        pauses: list[float] = []
+        real_sleep = asyncio.sleep
+
+        async def timed_sleep(seconds):
+            pauses.append(seconds)
+            await real_sleep(0)
+
+        provider._ib = mock_ib
+        with patch.object(ibkr_module.asyncio, "sleep", side_effect=timed_sleep):
+            snapshots = await provider.fetch_borrow_snapshots(
+                ["A", "B", "C"], batch_size=2, batch_pause_s=2.5, batch_wait_s=0.0
+            )
+        assert len(snapshots) == 3
+        # the 0.0 batch_wait sleeps sit alongside; only the inter-batch pause is nonzero
+        assert [p for p in pauses if p] == [2.5]
+
+    async def test_qualification_timeout_retries_once_then_stores_null(self, provider, mock_ib):
+        calls = {"n": 0}
+
+        async def always_timeout(*contracts):
+            calls["n"] += 1
+            raise TimeoutError
+
+        mock_ib.qualifyContractsAsync = AsyncMock(side_effect=always_timeout)
+        mock_ib.reqMktData = MagicMock()
+        provider._ib = mock_ib
+
+        snapshots = await provider.fetch_borrow_snapshots(
+            ["AAA", "BBB"], batch_size=50, batch_pause_s=0.0, batch_wait_s=0.0
+        )
+        assert calls["n"] == 2  # one retry, not a silent give-up
+        assert mock_ib.reqMktData.call_count == 0  # nothing qualified, nothing subscribed
+        assert [(s.symbol, s.shortable_shares) for s in snapshots] == [
+            ("AAA", None),
+            ("BBB", None),
+        ]
+
+    async def test_duplicate_symbols_refuse_loud(self, provider, mock_ib):
+        mock_ib.qualifyContractsAsync = AsyncMock(side_effect=lambda *c: c)
+        provider._ib = mock_ib
+        with pytest.raises(ValueError, match="duplicate"):
+            await provider.fetch_borrow_snapshots(
+                ["AAA", "AAA"], batch_size=50, batch_pause_s=0.0, batch_wait_s=0.0
+            )
+
+    async def test_requires_connect_first(self, provider):
+        with pytest.raises(RuntimeError, match="not connected"):
+            await provider.fetch_borrow_snapshots(
+                ["AAA"], batch_size=50, batch_pause_s=0.0, batch_wait_s=0.0
+            )

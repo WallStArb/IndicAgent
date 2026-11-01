@@ -1,0 +1,14 @@
+[Unit]
+Description=IndicAgent daily IBKR borrow availability capture (todo 438; services/borrow_availability_capture.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.borrow_availability_capture --apply
+# Every active name at batch 50 with the APR pauses is well under 15 minutes; 2h
+# absorbs a slow gateway answer the way the alpaca-nightly unit does.
+TimeoutStartSec=2h

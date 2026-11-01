@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily borrow availability capture, 16:30 ET (after the US close and before the nightly IBKR gateway restart; ET-local so the DST shift never moves the ask into RTH)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

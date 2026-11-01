@@ -64,6 +64,12 @@ _ALLOW_LIST: dict[str, str] = {
         "_default_provider); the loop itself is vendor-blind and dispatches only "
         "through entry.fetch, so a foreign provider can never reach this import."
     ),
+    "services/borrow_availability_capture.py": (
+        "STAYS: the borrow capture (todo 438) is market-data (reqMktData generic "
+        "tick 236), not history; the HistoryProvider protocol has no snapshot "
+        "surface and history_leaf dispatches FetchBudget/HistoryRequest only, so "
+        "the capture constructs IBKRProvider directly for connect + snapshot."
+    ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "STAYS POST-190-04: the fetcher's helper library (APR overlays, campaign "
         "helpers, module-level ibkr constants like _ARCHIVE_TFS) holds the ibkr "

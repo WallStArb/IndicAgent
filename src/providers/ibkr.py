@@ -38,7 +38,7 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-from ib_async import IB, ContFuture, Contract, Forex, Future, Stock
+from ib_async import IB, ContFuture, Contract, Forex, Future, Stock, Ticker
 
 from src.config.settings import Settings  # noqa: E402
 from src.core.bar_normalizer import (  # noqa: E402
@@ -209,6 +209,22 @@ class ContractClassification:
     category: str
     subcategory: str
     long_name: str
+
+
+@dataclass(frozen=True)
+class BorrowSnapshot:
+    """IBKR shortability answer for one symbol, one ask (todo 438).
+
+    Borrow availability is live-only at IBKR: a day not asked is lost. The
+    capture stores one row per asked symbol per run; a nan answer (no data
+    entitlement, or IBKR serves nothing for the name) is stored as NULL
+    shares, never dropped: asked-but-unknown is data, unasked is absence.
+    The shortable flag derives from `shortable_shares > 0` (a generated
+    column in the table), so no second copy of the rule exists.
+    """
+
+    symbol: str
+    shortable_shares: float | None
 
 
 # Error 162 "no data" fires for ANY empty query window -- a genuine pre-listing date,
@@ -1723,6 +1739,95 @@ class IBKRProvider:
             subcategory=subcategory,
             long_name=getattr(details_list[0], "longName", "") or "",
         )
+
+    async def fetch_borrow_snapshots(
+        self,
+        symbols: list[str],
+        *,
+        batch_size: int,
+        batch_pause_s: float,
+        batch_wait_s: float,
+    ) -> list[BorrowSnapshot]:
+        """Snapshot shortability via generic tick 236 (shortableShares) in batches with
+        subscriptions cancelled after each batch, so the 80-subscription cap (a
+        LIVE-streaming cap) never binds.
+
+        Tick 46 is not legal for STK on the current gateway (error 321, verified
+        2026-10-31), so the consumer derives shortability from the share count;
+        this method carries no flag of its own.
+
+        One BorrowSnapshot per asked symbol: a nan answer becomes NULL shares,
+        which keeps asked-but-unknown distinguishable from unasked (absent). A
+        per-symbol vendor failure (unqualifiable name, mid-run request error)
+        records the same NULL-shares row instead of aborting the run; only a
+        connection-level failure raises to the caller. Batch parameters are
+        required: the caller owns the APR-backed values and this module holds no
+        capture policy (leaves own vendor mechanics, never policy).
+
+        Raises RuntimeError if called before connect().
+        """
+        if self._ib is None:
+            raise RuntimeError(
+                "fetch_borrow_snapshots: IBKRProvider is not connected. Call connect() first."
+            )
+        if len(set(symbols)) != len(symbols):
+            # One row per ask is the contract; a duplicate would silently collapse two
+            # asks into one snapshot (and one DB row) instead of failing loud.
+            raise ValueError(
+                "fetch_borrow_snapshots: duplicate symbols in the ask; refusing to collapse"
+            )
+        out: list[BorrowSnapshot] = []
+        for start in range(0, len(symbols), batch_size):
+            batch = symbols[start : start + batch_size]
+            # reqMktData needs a qualified contract (ib_async hashes by conId).
+            # qualifyContractsAsync takes *contracts and gathers the detail requests
+            # (its own designed usage; reqContractDetails is not market data and
+            # touches no pacing limiter), returning position-aligned results with
+            # None at unresolvable positions.
+            contracts = [Stock(symbol=s, exchange="SMART", currency="USD") for s in batch]
+            try:
+                qualified = await asyncio.wait_for(
+                    self._ib.qualifyContractsAsync(*contracts),
+                    timeout=_CONTRACT_DETAILS_TIMEOUT_SEC,
+                )
+            except TimeoutError:
+                # One retry: a slow detail answer must not cost a live-only day for the
+                # whole batch. The ask is idempotent, so the retry re-qualifies from
+                # scratch; a name that fails both attempts is stored NULL shares
+                # (asked-but-unknown is data).
+                logger.warning("ibkr.borrow_qualify_retry", extra={"batch_size": len(batch)})
+                try:
+                    qualified = await asyncio.wait_for(
+                        self._ib.qualifyContractsAsync(*contracts),
+                        timeout=_CONTRACT_DETAILS_TIMEOUT_SEC,
+                    )
+                except TimeoutError:
+                    qualified = [None] * len(batch)
+            tickers: dict[str, Ticker] = {}
+            for symbol, contract in zip(batch, qualified, strict=True):
+                if contract is None:
+                    out.append(BorrowSnapshot(symbol=symbol, shortable_shares=None))
+                    continue
+                tickers[symbol] = self._ib.reqMktData(
+                    contract,
+                    genericTickList="236",
+                    snapshot=False,
+                    regulatorySnapshot=False,
+                )
+            if tickers:
+                await asyncio.sleep(batch_wait_s)
+            for symbol, ticker in tickers.items():
+                shares = float(ticker.shortableShares)
+                out.append(
+                    BorrowSnapshot(
+                        symbol=symbol,
+                        shortable_shares=None if math.isnan(shares) else shares,
+                    )
+                )
+                self._ib.cancelMktData(ticker.contract)
+            if start + batch_size < len(symbols):
+                await asyncio.sleep(batch_pause_s)
+        return out
 
     async def _contract_details(self, contract) -> list:
         """reqContractDetailsAsync bounded by _CONTRACT_DETAILS_TIMEOUT_SEC. ib_async gives
