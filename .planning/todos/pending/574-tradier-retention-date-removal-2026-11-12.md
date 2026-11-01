@@ -12,7 +12,9 @@ toolchain stays whole until then; this todo removes it in one pass. Everything h
 2026-11-12 and must not land earlier:
 
 - delete `scripts/ops/bars/ops_tradier_delete.py`, `scripts/ops/bars/ops_tradier_residue.py`,
-  `scripts/ops/bars/ops_tradier_residue_gate.sh` and `src/intelligence/bars/source_admission.py`
+  `scripts/ops/bars/ops_tradier_residue_gate.sh`, `scripts/ops/bars/ops_tradier_restore.py`
+  (the 2026-11-01 restore driver; a restore script that outlives its purpose is an orphan) and
+  `src/intelligence/bars/source_admission.py`
   (dormant since the sweep arm left `ops_source_policy.py` in plan 191-25; it keeps the
   restore-path evidence judge whole until this date);
 - remove `data/backups/191/` and `scripts/ops/bars/ops_old_store_backup.py`;
