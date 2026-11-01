@@ -24,14 +24,16 @@ anything found after the pin moves waits for the following rerun.
 
 | # | Item | Source | State |
 |---|---|---|---|
-| 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | root-caused |
-| 2 | 1d applicability: intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | open |
+| 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | implementing (subagent) |
+| 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | open |
 | 3 | HMM whole-name NULL: refusal reasons measured, then gate or input fix | 583 | measuring (indicagent-dc) |
-| 4 | Undefined is NaN in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
+| 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | open |
 | 6 | Intraday screen findings on the 650 stage-2 names | this todo | screen running |
-| 7 | Calendar start 2000 (`_PMC_RANGE_START`) plus the delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | open |
-| 8 | Never-computed `rank_z` registry rows retired; candidate stored-column additions decided (a column added after the pin needs another rerun) | 558, 421 | open |
+| 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | implementing (subagent) |
+| 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
+| 9 | Pilot gate tool (design D3) | this todo | open |
+| 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | open (data lane) |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
@@ -44,10 +46,78 @@ Owner restart conditions this rerun must also meet: all timeframes, including th
 names and the 16 recent listings; phase 191 plans 22 and 23 (done); the 1d gaps of todo 566; a
 fixed, written universe.
 
+## Design (lead, 2026-11-01)
+
+### D1. One null rule for every stored column (items 2 and 4)
+
+Today each kernel module picks its own convention for "undefined": VP returns 0.0 and 0.5, SR,
+sweep and pool return 0.0, swing and session levels return None. A reader cannot tell a measured
+zero from a missing value. The rule that replaces them:
+
+1. A stored value is a measurement or NaN. NaN has exactly two meanings, and the registry tells
+   them apart: not applicable on this timeframe (declared, rule 3) or undefined at this row
+   (warmup, no object exists, a refused fit).
+2. 0.0 is stored only where zero is the measured state: event flags and counts over a fully
+   observed window (`sweep_detected`, `in_lvn`, `price_in_value_area` where the value area is
+   defined, `sr_level_count`, `pool_count`, touch counts). The distance, strength, age, velocity
+   or position of an object that does not exist is NaN. "Bars since event" with no event in the
+   observed history is NaN (right-censored), never 0.
+3. Timeframe applicability is declared once, on the kernel: `Kernel.intraday_only:
+   frozenset[str]` (outputs undefined on a whole-session bar). `compute_kernels` writes those
+   outputs as NaN on 1d in one place, and every in-kernel `tf == "1d"` suppression branch
+   (`_NEUTRAL_VP_EXTRA`'s 1d path, `_SESSION_LEVELS_DAILY_SUPPRESSED`, the calendar session
+   flags) is deleted. The registry exposes `applicable_outputs(tf)`; the S0 read (184) and the
+   column screen consume it, so a declared column is excluded, not "dead".
+4. `Kernel.zero_is_state: frozenset[str]` names the outputs where rule 2 allows 0.0. A
+   registry-wide unit test feeds each kernel a series where no object exists (flat price,
+   too-short history) and asserts every output outside `zero_is_state` is NaN.
+
+Scope of 1d `intraday_only`: the session-anchored VP fields, the session-time and killzone
+columns (`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`, `in_overlap`,
+`power_hour`, `session_time_pos`, `opening_range`), the overnight and Asian session distances,
+the intraday return divergences, and the AMD phase family. A column that is constant on 1d
+without being a session concept (`sweep_detected`, `manip_strength`, `hmm_vol_prob_elevated`)
+is investigated, not declared away: if it cannot fire on a daily bar by construction it is
+declared; otherwise it is a defect.
+
+### D2. The add-list rides this pass (item 8)
+
+558's eight-row add-list (decided 2026-11-01 with its spec pin-downs) enters as registry
+`candidate` rows in this batch: the owner's rule is that new columns ride the next pass, and this
+is it. The three never-computed `rank_z` rows retire. `redundancy_group` is filled after the
+rerun from measured correlations.
+
+### D3. The pilot gate: catch the next defect in a pilot chunk, not after a corpus pass
+
+The 564 and 583 defects share one shape: a column whose first finite row comes far later than
+its declared memory, or never. The gate measures that directly. It extends
+`ops_feature_column_screen.py` (same single grouped pass, two more aggregates per column) and
+runs on a pilot chunk at the new pin, before the full rerun:
+
+- G1 dead columns per (tf, name): any dead column outside `applicable_outputs(tf)` fails.
+- G2 warmup gap per (tf, name, column): first finite row index minus declared
+  `feature_memory_bars`; a gap beyond tolerance fails (this is what would have caught
+  `hma_slope_z` at 7,560 rows and HMM on AAPL at 5,470).
+- G3 fill audit: the exact-0.0 share of post-warmup rows per column, outside `zero_is_state`;
+  a share above tolerance fails for review.
+- G4 causality: the existing `causality_probe` on pilot real data at three truncation points.
+- G5 determinism: two pilot units computed twice, bit-identical.
+
+Pilot set, about 40 names over all four timeframes, chosen to break things: SPY and two other
+ETFs, AAPL, MSFT, HON, SCCO (583), KO, JPM, XOM, five of the 16 recent listings, five D7-hold
+names, five thin names, a volume-basis-seam name, a spin-off, and one name with a pre-2016 IBKR
+5m segment. The pass fails loudly; nothing launches on a red gate.
+
+### Sequencing
+
+Implementers work one at a time per shared file: items 1 and 7 (running) touch `registry.py`,
+so D1 (items 2 and 4) starts after they land. Item 5 (`macro.py`) and the add-list's new kernel
+module (item 8) do not collide and run beside them. Item 3's fix waits for the 583 measurement.
+The D3 gate tool is independent and is built now.
+
 ## Done when
 
-1. Items 1-8 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
+1. Items 1-10 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
    bit-identical where research or statistics moved.
-2. A pilot chunk at the new pin passes the column screen with zero unexplained dead columns on
-   every timeframe.
+2. The pilot chunk at the new pin passes gates G1 to G5 (design D3) on every timeframe.
 3. The rerun is launched at the new pin (1d then intraday), and 186-27 proceeds on its output.
