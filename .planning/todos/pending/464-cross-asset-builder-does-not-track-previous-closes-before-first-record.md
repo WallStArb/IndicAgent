@@ -35,3 +35,18 @@ commit, so the change was reverted.
 2. Regenerate the golden fixture in its own commit with the per-case changed-column list
    (expected: `tip_tlt_ret_z`, `hyg_lqd_ret_z` and their downstream products on every case).
 3. Land it before the phase 186 rebuild (186-26) so stored rows carry the corrected series once.
+
+## Sweep findings (coordinator agent, 2026-11-01)
+
+The builder now lives as the macro kernel `src/intelligence/features/kernels/macro.py`
+(rewritten by `2699d043c`, 186-15, 2026-09-30) and the defect is still present: the skip
+branch (lines 251-256) advances `prev_close` for spy/tlt/shy only; the tip/hyg/lqd trackers
+advance only after a non-skipped date is processed (lines 354-365). On the first record date
+`prev_close["tip"]` is 0.0, the coverage guard at line 312 fails, and `tip_tlt_ret_z` /
+`hyg_lqd_ret_z` are missing on exactly the described date. The required regression test (a TIP
+history predating SPY/TLT/SHY) does not exist in any test file. No phase plan carried this todo.
+
+**Constraint:** `macro.py` is inside the 186-26 rebuild's frozen import closure (pin
+`92e588385`); the fix MUST wait for the post-rebuild code window (the same window as todo
+564's kernel batch, owned by indicagent-93). The missing first-date values are then covered
+by a follow-up derive of the affected series (derived data is cache).
