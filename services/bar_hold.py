@@ -1,11 +1,16 @@
 """BarHold: the one definition of a held name (phase 185 plan 51, todo 515; migration 461).
 
 A name is held for a timeframe while ``bar_hold_current`` has a row for it: its canonical bars
-stay as they are until a decision releases it. Today the one reason is ``unclassified_rescale``,
-a vendor rescale of the name's history whose factor is no recognised split ratio
-(src/intelligence/bars/corporate_actions.recognised_split_ratio), for example CTVA's 39/7 after
-the Vylor spin-off. Such a rescale is never written to corporate_action; applying the vendor's
-rewrite would record a spin-off as a split.
+stay as they are until a decision releases it. Two reasons:
+
+- ``unclassified_rescale``: a vendor rescale of the name's history whose factor is no recognised
+  split ratio (src/intelligence/bars/corporate_actions.recognised_split_ratio), for example CTVA's
+  39/7 after the Vylor spin-off. Such a rescale is never written to corporate_action; applying the
+  vendor's rewrite would record a spin-off as a split.
+- ``slot_coverage_gap`` (migration 552, todo 565 part a): a 5m name whose worst-year slot_coverage
+  share sits below the threshold because Alpaca SIP has no bar for a slot in which no trade
+  printed, so the verdict measures the name's thin trading, not a data gap. The failing share,
+  its threshold and the verdict's evaluated_at are the detail; no factor.
 
 One writer: ``record_hold`` and ``release_hold`` here, under bar_derivation_writer. Callers are
 the fetcher's in-process overlap judge and scripts/ops/bars/ops_split_detect.py (both through
@@ -27,8 +32,9 @@ from typing import Any
 from uuid import uuid4
 
 REASON_UNCLASSIFIED_RESCALE = "unclassified_rescale"
+REASON_SLOT_COVERAGE_GAP = "slot_coverage_gap"
 _REASON_RELEASE = "release"
-_HOLD_REASONS = frozenset({REASON_UNCLASSIFIED_RESCALE})
+_HOLD_REASONS = frozenset({REASON_UNCLASSIFIED_RESCALE, REASON_SLOT_COVERAGE_GAP})
 _WRITER_ROLE_SQL = "SET LOCAL ROLE bar_derivation_writer"
 
 _COLUMNS = (
@@ -158,26 +164,41 @@ async def record_hold(
     symbol: str,
     timeframe: str,
     reason: str,
-    factor: float,
-    first_affected_date: date,
-    last_affected_date: date,
     detail: dict[str, Any],
     recorded_by: str,
-    rel_tol: float,
+    factor: float | None = None,
+    first_affected_date: date | None = None,
+    last_affected_date: date | None = None,
+    rel_tol: float = 0.0,
     action_id: str | None = None,
 ) -> str | None:
     """Hold `symbol` for `reason`; the new hold_id, or None when an open hold of the same
-    symbol, timeframe and reason already carries this factor within `rel_tol` (the same rescale
-    seen again is not a new event). One transaction under bar_derivation_writer (a savepoint
-    when the caller already holds one)."""
+    symbol, timeframe and reason already exists (an exact match for a reason without a factor,
+    a rescale within `rel_tol` otherwise: the same rescale seen again is not a new event).
+    One transaction under bar_derivation_writer (a savepoint when the caller already holds
+    one). `unclassified_rescale` needs a positive factor and its affected span (migration
+    461's ck_bar_hold_rescale); `slot_coverage_gap` carries its evidence in `detail`."""
     if reason not in _HOLD_REASONS:
         raise ValueError(f"unknown hold reason {reason!r}")
-    if not factor > 0:
+    if factor is not None and not factor > 0:
         raise ValueError(f"{symbol}: a hold factor must be positive, got {factor!r}")
+    if reason == REASON_UNCLASSIFIED_RESCALE and (
+        factor is None
+        or first_affected_date is None
+        or last_affected_date is None
+        or first_affected_date > last_affected_date
+    ):
+        raise ValueError(
+            f"{symbol}: an {REASON_UNCLASSIFIED_RESCALE} hold needs a positive factor and a "
+            "first/last affected span"
+        )
     async with conn.transaction():
         await conn.execute(_WRITER_ROLE_SQL)
         existing = await conn.fetch(_SELECT_OPEN_FACTORS_SQL, symbol, timeframe, reason)
-        if any(
+        if factor is None:
+            if existing:
+                return None
+        elif any(
             r["factor"] is not None and abs(float(r["factor"]) / factor - 1.0) <= rel_tol
             for r in existing
         ):
@@ -189,7 +210,7 @@ async def record_hold(
             symbol,
             timeframe,
             reason,
-            float(factor),
+            None if factor is None else float(factor),
             first_affected_date,
             last_affected_date,
             action_id,

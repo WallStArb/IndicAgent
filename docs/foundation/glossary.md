@@ -2067,12 +2067,16 @@ corrections by 461: a void row supersedes and retracts a row, the current view h
 A name whose canonical bars of a timeframe stay as they are until a decision releases it: it has
 a row in `bar_hold_current`. The daily stage skips it whatever the scope (no rewrite is applied),
 the overlap judge does not hold the same rescale twice, and D7 reports it (`held_names`,
-`held_1d`). The one reason today is `unclassified_rescale`: a constant vendor rescale whose
+`held_1d`). Two reasons: `unclassified_rescale`, a constant vendor rescale whose
 factor is no recognised split ratio (APR `infra.backfill.split_ratio_*`), such as CTVA's 39/7
-after a spin-off; it is never written to `corporate_action`. Append-only; a release is a new
+after a spin-off; it is never written to `corporate_action`. And `slot_coverage_gap` (todo 565),
+a 5m name whose worst-year slot_coverage share sits below the threshold because Alpaca SIP has
+no bar for a slot in which no trade printed (the verdict measures the name's thin trading, not a
+data gap); the failing share, threshold and verdict time are its detail, written by
+`scripts/ops/bars/ops_hold_slot_coverage_gaps.py`. Append-only; a release is a new
 row. **Not:** a bar_source_policy hold row (a source decision for a name, 185-47 class C), a
 quarantine (a flag on one bar), or a name outside compute_1d. **Banned:** (none)
-**Status:** active (migration 461, plan 185-51)
+**Status:** active (migration 461, plan 185-51; `slot_coverage_gap` by 552, todo 565)
 **Code surface:** `services/bar_hold.py` (the one writer and reader), `bar_hold`, `bar_hold_current`
 
 ### `listing venue`

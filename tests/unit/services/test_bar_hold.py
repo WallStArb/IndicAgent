@@ -122,6 +122,67 @@ def test_a_hold_needs_a_known_reason_and_a_positive_factor():
         _record(FakeConn(), factor=0.0)
 
 
+def test_a_slot_coverage_gap_hold_carries_evidence_and_no_factor():
+    """Migration 552, todo 565 part a: the failing share, threshold and verdict time are the
+    detail; no factor, no affected span."""
+    conn = FakeConn()
+    hold_id = asyncio.run(
+        bh.record_hold(
+            conn,
+            symbol="MSM",
+            timeframe="5m",
+            reason=bh.REASON_SLOT_COVERAGE_GAP,
+            detail={
+                "metric_value": 0.975,
+                "threshold_value": 0.995,
+                "evaluated_at": "2026-11-01T07:08:08+00:00",
+            },
+            recorded_by="ops_hold_slot_coverage_gaps",
+        )
+    )
+    assert hold_id
+    sql, args = conn.executed[1]
+    assert args[1:5] == ("MSM", "5m", "slot_coverage_gap", None)
+    assert args[5:7] == (None, None)
+    assert json.loads(args[8])["metric_value"] == 0.975
+
+
+def test_a_slot_coverage_gap_hold_is_never_recorded_twice():
+    conn = FakeConn(
+        existing=[_hold_row(symbol="MSM", reason=bh.REASON_SLOT_COVERAGE_GAP, factor=None)]
+    )
+    assert (
+        asyncio.run(
+            bh.record_hold(
+                conn,
+                symbol="MSM",
+                timeframe="5m",
+                reason=bh.REASON_SLOT_COVERAGE_GAP,
+                detail={"metric_value": 0.975},
+                recorded_by="ops_hold_slot_coverage_gaps",
+            )
+        )
+        is None
+    )
+    assert not [s for s, _ in conn.executed if s.startswith("INSERT")]
+
+
+def test_an_unclassified_rescale_still_needs_its_factor_and_span():
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="factor and a"):
+        asyncio.run(
+            bh.record_hold(
+                conn,
+                symbol="CTVA",
+                timeframe="1d",
+                reason=bh.REASON_UNCLASSIFIED_RESCALE,
+                detail={},
+                recorded_by="ops_split_detect",
+            )
+        )
+    assert not [s for s, _ in conn.executed if s.startswith("INSERT")]
+
+
 def test_held_reads_the_current_view_per_timeframe_and_states_the_cause():
     conn = FakeConn(existing=[_hold_row(), _hold_row(symbol="XYZ", factor=2.37)])
     held = asyncio.run(bh.held(conn, "1d"))
