@@ -1032,6 +1032,14 @@ class OHLCVHistoryFetcher(BaseBatch):
             logger.warning("ibkr_history_fetcher.stall_bounds_defaults", error=str(error))
         return values[keys[0]], values[keys[1]], values[keys[2]]
 
+    def _mark_progress(self) -> None:
+        """One step of forward motion for the todo 538 stall watchdog: an item's outcome is
+        recorded (main loop, reserve lane, escalation) or a run phase completed, so its
+        countdown restarts. Every completion site must call this, never a bare _notify().
+        """
+        self._notify()
+        self._progress += 1
+
     async def _stall_watchdog(self) -> None:
         """Abort the run loudly when nothing moves for stall_abort_s (todo 538).
 
@@ -1193,7 +1201,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             await self._seed_roll_chain()
             return
         plan = await self._prepare(pool)
-        self._progress += 1  # the stall watchdog counts planning as forward motion
+        self._mark_progress()  # planning done: forward motion for the stall watchdog
         self._tick_s = plan.config.history_request_timeout_s / _TICKS_PER_TIMEOUT
         self._load_overlays(plan.providers)
         fetch_run_id = new_fetch_run_id()
@@ -1276,12 +1284,6 @@ class OHLCVHistoryFetcher(BaseBatch):
         self.completion_status = (
             "failed" if nothing_succeeded else "partial" if failed else "success"
         )
-
-    def _mark_progress(self) -> None:
-        """One step of forward motion for the todo 538 stall watchdog: the item's outcome is
-        recorded (or a run phase completed), so its countdown restarts."""
-        self._notify()
-        self._progress += 1
 
     async def _disconnect_leaves(self) -> None:
         """Disconnect every provider leaf; a dead socket may refuse a clean disconnect."""
@@ -1439,7 +1441,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 continue
             row = CoverageRow(symbol, timeframe, None, None, None, 0, None, None, provider)
             outcome = await self._fetch_one(plan, ctx, row, full_scan=False, asks=asks)
-            self._notify()
+            self._mark_progress()
             if outcome.gateway_lost:
                 state.gateway_lost = f"{provider}/{symbol}/{timeframe} (reserve)"
                 return state
