@@ -1569,13 +1569,25 @@ async def test_the_reserve_lane_asks_exactly_the_key_dates_and_skips_the_queue(t
 # -- todo 538: the stall watchdog and the bounded teardown -------------------------
 
 
-def _stall_fetcher(tmp_path: Path, *, tick: float, abort: float) -> tuple[Any, dict, list]:
+def _stall_fetcher(
+    tmp_path: Path,
+    plan: hf.RunPlan | None = None,
+    *,
+    tick: float,
+    abort: float,
+    **kwargs: Any,
+) -> tuple[Any, dict, list]:
     """A fetcher whose watchdog bounds are seconds-small and whose abort is recorded."""
     aborted: list[float] = []
     bounds = (tick, abort, 30.0)
-    fetcher, seen = _fetcher(tmp_path, stall_bounds=lambda: bounds)
+    fetcher, seen = _fetcher(
+        tmp_path,
+        plan,
+        stall_bounds=lambda: bounds,
+        abort=lambda: aborted.append(time.monotonic()),
+        **kwargs,
+    )
     fetcher._stall_tick_s, fetcher._stall_abort_s, fetcher._teardown_timeout_s = bounds
-    fetcher._abort_fn = lambda: aborted.append(time.monotonic())
     return fetcher, seen, aborted
 
 
@@ -1622,6 +1634,23 @@ async def test_a_stage_subprocess_pauses_the_stall_countdown(tmp_path):
     await _settle(0.4)  # far past the abort bound, but suppressed
     task.cancel()
     assert aborted == []
+
+
+async def test_a_slow_in_flight_item_never_trips_the_abort(tmp_path):
+    """Pacing suppression (todo 538): an in-flight item's stall checks hold the abort off."""
+
+    async def pacing_item(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        for _ in range(10):  # pacing waits and checks across a window far past the bound
+            await asyncio.sleep(0.05)
+            kw["on_tick"]()
+        return _outcome(row)
+
+    fetcher, _seen, aborted = _stall_fetcher(
+        tmp_path, _plan([_ranked("AAA")]), tick=0.02, abort=0.12, fetch_fn=pacing_item
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert aborted == []  # a bare _notify tick would never move _progress: abort
 
 
 async def test_a_hanging_disconnect_hits_the_teardown_bound(tmp_path):

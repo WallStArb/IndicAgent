@@ -1024,8 +1024,8 @@ class OHLCVHistoryFetcher(BaseBatch):
                         "WHERE config_key = ANY(%s)",
                         (list(keys),),
                     )
-                for key, value in cur.fetchall():
-                    values[str(key)] = float(value)
+                    for key, value in cur.fetchall():
+                        values[str(key)] = float(value)
             finally:
                 conn.close()
         except Exception as error:  # noqa: BLE001 - the defaults are the seeds; run anyway
@@ -1403,10 +1403,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 waived=waived,
                 config=plan.config,
                 reconnect=leaf.connect,
-                # The item's stall checks are watchdog progress (todo 538): a healthy deep
-                # item runs 40+ minutes across pacing waits with zero completions, and its
-                # checks fire on every check interval; the item's own bound cancels it when
-                # the checks stop meaning anything.
+                # Todo 538: the stall checks are watchdog progress; see _stall_watchdog.
                 on_tick=self._mark_progress,
                 **({"asks": asks} if asks is not None else {}),
             )
