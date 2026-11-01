@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import inspect
+import math
 import re
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -255,6 +256,21 @@ def test_feature_columns_are_persisted_columns():
 # kernel is NaN (todo 555: amihud_illiq_z is NaN until its window is warm and after a basis
 # change). The rebuild reads the kernel arrays directly and keeps the NaN (no_fill).
 _LEGACY_NAN_TO_ZERO = frozenset({"amihud_illiq_z", "illiquidity_momentum_product"})
+# The cache z-scores are NaN until their history holds a full window (todo 564), and so are the
+# products that read them; compute_batch guards that warmup to 0.0. Exempt only the leading NaN
+# run: a NaN after the first finite value is a regression the legacy guard would hide.
+_LEGACY_WARMUP_NAN_TO_ZERO = frozenset(
+    {
+        "hma_slope_z",
+        "vix_z",
+        "yield_slope_z",
+        "tip_tlt_ret_z",
+        "hyg_lqd_ret_z",
+        "sb_corr_z",
+        "vix_reversion_product",
+        "yield_slope_momentum_product",
+    }
+)
 
 
 def test_kernel_outputs_equal_compute_batch_rows_1_onward():
@@ -271,9 +287,30 @@ def test_kernel_outputs_equal_compute_batch_rows_1_onward():
         bad = ~((got == want) | (np.isnan(got) & np.isnan(want)))
         if name in _LEGACY_NAN_TO_ZERO:
             bad &= ~(np.isnan(got) & (want == 0.0))
+        if name in _LEGACY_WARMUP_NAN_TO_ZERO:
+            warmup = np.cumprod(np.isnan(got)).astype(bool)  # the leading NaN run
+            bad &= ~(warmup & (want == 0.0))
         assert (
             not bad.any()
         ), f"{name}: row {int(np.argmax(bad)) + 1} got {got[bad][0]!r} want {want[bad][0]!r}"
+
+
+def test_hma_slope_z_is_nan_until_the_slope_history_fills():
+    """Todo 564: one HMA slope is appended per regime refresh, and the z-score needs
+    momentum_zscore_window of them. Before that the column is undefined (NaN), never a 0.0
+    fill; on 1d the 0.0 covered every stored row (252 x 30 rows exceeds most daily series)."""
+    import dataclasses
+
+    config = dataclasses.replace(
+        ref.build_config(MANIFEST["synthetic_config"]), momentum_zscore_window=5
+    )
+    inputs = synthetic_bars(500)
+    out = default_registry().by_name("bar_statistics_refresh").compute(inputs, config)
+    column = np.asarray(out["hma_slope_z"], dtype=float)
+    step = config.regime_cache_refresh_bars
+    assert np.isnan(column[: 5 * step]).all()  # fewer than 5 refreshes, fewer than 5 slopes
+    assert np.isfinite(column[-step:]).all()
+    assert not (column == 0.0).any()
 
 
 def test_stateless_structure_kernels_equal_direct_helper_calls():
@@ -442,6 +479,14 @@ def test_daily_grid_kernels_reproduce_the_builders_on_real_daily_bars(symbol):
     assert got_cross.keys() == want_cross.keys()
     for d, record in want_cross.items():
         np.testing.assert_array_equal(np.array(got_cross[d]), np.array(record), err_msg=str(d))
+    # the grid carries a NaN beta z-score (undefined until its history fills, todo 564) as None,
+    # and a date with neither beta as no record
+    normalized = {}
+    for d, record in want_beta.items():
+        pair = tuple(None if v is None or math.isnan(v) else v for v in record)
+        if pair != (None, None):
+            normalized[d] = pair
+    want_beta = normalized
     assert got_beta == want_beta
 
 
@@ -522,12 +567,15 @@ def test_daily_grid_kernels_are_causal_when_symbols_start_late_and_have_holes(co
         "factor_beta_daily": "ok",
     }
     out = default_registry().by_name("cross_asset_daily").compute(available, config)
-    # the guard branches were taken: the record exists from row 1 while each late spread is NaN
-    assert np.isfinite(out["_xa_vix_z"][1:]).all()
+    # the guard branches were taken: the record exists from row 1 while each late spread is NaN;
+    # a z-score is NaN until its history holds a full window (todo 564), then finite
+    window = config.vix_zscore_window
+    assert np.isnan(out["_xa_vix_z"][:window]).all()
+    assert np.isfinite(out["_xa_vix_z"][window:]).all()
     assert np.isnan(out["_xa_tip_tlt_ret_z"][1:201]).all()
-    assert np.isfinite(out["_xa_tip_tlt_ret_z"][260])
+    assert np.isfinite(out["_xa_tip_tlt_ret_z"][1800])
     assert np.isnan(out["_xa_hyg_lqd_ret_z"][1:451]).all()
-    assert np.isfinite(out["_xa_hyg_lqd_ret_z"][700])
+    assert np.isfinite(out["_xa_hyg_lqd_ret_z"][1800])
 
 
 ASOF_TFS = ("1m", "5m", "15m", "1h", "1d")

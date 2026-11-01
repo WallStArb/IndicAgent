@@ -151,8 +151,9 @@ class CrossAssetRecord(NamedTuple):
     new fields, equity_beta_z/rate_beta_z, are per-SYMBOL and therefore carried
     separately -- see `build_symbol_beta_series` below, not this tuple).
 
-    All fields default to 0.0 so `cross_asset_by_date.get(date, CrossAssetRecord())`
-    degrades to today's cold-start behaviour with no special-casing at the call site.
+    All fields default to 0.0: the live path's no-record fallback
+    (`cross_asset_by_date.get(date, CrossAssetRecord())`), a fabricated zero that todo 463
+    replaces. The builders never emit it: their z-scores are NaN until the history fills.
     """
 
     vix_z: float = 0.0
@@ -230,14 +231,15 @@ def _cross_asset_records(
     spy_first_close: float = 0.0  # flight_quality period-start anchor
     tlt_first_close: float = 0.0
 
-    vix_z: float = 0.0
+    # A z-score is undefined (NaN) until its history fills (todo 564), never a 0.0 fill.
+    vix_z: float = math.nan
     flight_quality: float = 0.0
-    yield_slope_z: float = 0.0
-    tip_tlt_ret_z: float = 0.0
-    hyg_lqd_ret_z: float = 0.0
+    yield_slope_z: float = math.nan
+    tip_tlt_ret_z: float = math.nan
+    hyg_lqd_ret_z: float = math.nan
     sb_corr_fast: float = 0.0
     sb_corr_slow: float = 0.0
-    sb_corr_z: float = 0.0
+    sb_corr_z: float = math.nan
     result: dict = {}
     n_partial_coverage_dates = 0
 
@@ -435,8 +437,8 @@ def build_symbol_beta_series(
     equity_beta_hist: deque = deque(maxlen=config.factor_beta_zscore_window)
     rate_beta_hist: deque = deque(maxlen=config.factor_beta_zscore_window)
 
-    equity_beta_z: float = 0.0
-    rate_beta_z: float = 0.0
+    equity_beta_z: float = math.nan  # undefined until the beta history fills (todo 564)
+    rate_beta_z: float = math.nan
     result: dict = {}
 
     for d in all_dates:
@@ -574,7 +576,8 @@ def cross_asset_records(
     """The builder's date to CrossAssetRecord dict rebuilt from the `cross_asset_daily` outputs.
 
     A date the builder emitted no record for is NaN in every column and is dropped; a record
-    always has a finite vix_z, so a present record is never all NaN.
+    always has a finite flight_quality (the z-scores are NaN until their history fills), so a
+    present record is never all NaN.
     """
     records: dict[date, CrossAssetRecord] = {}
     for i, d in enumerate(dates):

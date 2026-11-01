@@ -669,15 +669,16 @@ class TestBuildCrossAssetSeries:
             assert isinstance(
                 res, CrossAssetRecord
             ), f"{d}: result is {type(res)}, not CrossAssetRecord"
-            assert abs(res.vix_z - ref_vix) < 1e-10, f"{d}: vix_z {res.vix_z} != {ref_vix}"
-            assert (
-                abs(res.flight_quality - ref_fq) < 1e-10
-            ), f"{d}: flight_quality {res.flight_quality} != {ref_fq}"
-            assert (
-                abs(res.yield_slope_z - ref_ys) < 1e-10
-            ), f"{d}: yield_slope_z {res.yield_slope_z} != {ref_ys}"
+            # a z-score is NaN on both sides until its history fills (todo 564)
+            for name, got, want in (
+                ("vix_z", res.vix_z, ref_vix),
+                ("flight_quality", res.flight_quality, ref_fq),
+                ("yield_slope_z", res.yield_slope_z, ref_ys),
+            ):
+                assert got == pytest.approx(want, rel=0, abs=1e-10, nan_ok=True), (d, name)
+        assert sum(math.isfinite(r.vix_z) for r in result.values()) > len(result) // 2
 
-    def test_all_values_finite(self) -> None:
+    def test_z_scores_missing_until_their_window_fills_then_every_value_finite(self) -> None:
         from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
@@ -688,16 +689,16 @@ class TestBuildCrossAssetSeries:
         hyg = _make_daily_bars(50, seed=14)
         lqd = _make_daily_bars(50, seed=15)
         result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
-        first = min(result)
-        for d, values in result.items():
-            for field_name in CrossAssetRecord._fields:
-                v = getattr(values, field_name)
-                if d == first and field_name in ("tip_tlt_ret_z", "hyg_lqd_ret_z"):
-                    # no previous TIP/HYG/LQD close is tracked yet on the first record date
-                    # (todo 464): missing, not a fabricated 0.0
-                    assert math.isnan(v), f"{d}: {field_name} should be missing"
-                    continue
-                assert math.isfinite(v), f"{d}: {field_name} not finite"
+        z_fields = {"vix_z", "yield_slope_z", "tip_tlt_ret_z", "hyg_lqd_ret_z", "sb_corr_z"}
+        first, last = result[min(result)], result[max(result)]
+        for field_name in CrossAssetRecord._fields:
+            if field_name in z_fields:
+                # one observation is not a z-score (todo 564; and no previous TIP/HYG/LQD close
+                # is tracked yet on the first record date, todo 464): missing, never 0.0
+                assert math.isnan(getattr(first, field_name)), field_name
+            else:
+                assert all(math.isfinite(getattr(r, field_name)) for r in result.values())
+            assert math.isfinite(getattr(last, field_name)), field_name
 
     def test_tip_hyg_lqd_partial_coverage_emits_nan_not_zero_and_not_skip(self) -> None:
         """Dates with SPY/TLT/SHY coverage but no TIP/HYG/LQD coverage (pre-listing
@@ -716,7 +717,10 @@ class TestBuildCrossAssetSeries:
         lqd = _make_daily_bars(60, seed=25)[-20:]
 
         result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
-        early_dates = sorted(result.keys())[:10]
+        assert len(result) == 59, "a TIP/HYG/LQD gap must not skip a date"
+        # dates past the vix/yield z-score windows (todo 564) and before TIP/HYG/LQD list
+        window = max(config.vix_zscore_window, config.yield_curve_zscore_window)
+        early_dates = sorted(result.keys())[window:39]
         assert early_dates, "expected early dates with SPY/TLT/SHY-only coverage"
         for d in early_dates:
             values = result[d]
@@ -2009,7 +2013,8 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
         for j in macro_at.values():
             assert row[5 + j] is None
             assert row[5 + j] != 0.0
-    # A late row keeps its value: vix_z equals the kernel output at that bar.
+    # A late row keeps its value: flight_quality equals the kernel output at that bar (the
+    # fixture's daily history is shorter than the z-score windows, so vix_z is still NaN there).
     inputs = module._series_kernel_inputs(
         tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
     )
@@ -2022,10 +2027,10 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
     last_ts = times[-1]
     last = by_ts[last_ts]
     bar_index = int(np.searchsorted(arrays["ts"], bar_ts_ns(last_ts)))
-    vix_j = 5 + macro_at["vix_z"]
-    expected = np.float32(out["vix_z"][bar_index])
-    assert last[vix_j] is not None
-    assert last[vix_j] == pytest.approx(float(expected), rel=1e-6)
+    fq_j = 5 + macro_at["flight_quality"]
+    expected = np.float32(out["flight_quality"][bar_index])
+    assert last[fq_j] is not None
+    assert last[fq_j] == pytest.approx(float(expected), rel=1e-6)
 
 
 def test_full_column_set_fetch_start_is_the_series_start():

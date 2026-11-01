@@ -51,7 +51,7 @@ class FeatureCache:
     hurst: float = 0.5
     shannon: float = 1.0
     garch_ratio: float = 1.0
-    hma_slope_z: float = 0.0
+    hma_slope_z: float = math.nan  # undefined until the slope history fills (todo 564)
     adx: float = 0.0
     bars_since_regime_refresh: int = 0
 
@@ -59,9 +59,10 @@ class FeatureCache:
     # Same 5 fields, same _compute_cross_asset() implementation, as CrossAssetState
     # below (see that class's docstring for why the fields are declared twice instead
     # of shared via inheritance).
-    vix_z: float = 0.0  # SPY realized-vol proxy (VXX/VIXY absent from universe)
+    # The z-scores are undefined (NaN) until their history fills, never a 0.0 fill (todo 564).
+    vix_z: float = math.nan  # SPY realized-vol proxy (VXX/VIXY absent from universe)
     flight_quality: float = 0.0  # TLT/SPY divergence
-    yield_slope_z: float = 0.0  # TLT/SHY ratio z-score
+    yield_slope_z: float = math.nan  # TLT/SHY ratio z-score
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04, todos 123/180).
@@ -78,11 +79,11 @@ class FeatureCache:
     # which fabricated a fake "zero beta" indistinguishable from a genuine
     # measurement on every live-serving row (code review WR-03, Phase 151
     # post-execution review).
-    tip_tlt_ret_z: float = 0.0
-    hyg_lqd_ret_z: float = 0.0
+    tip_tlt_ret_z: float = math.nan
+    hyg_lqd_ret_z: float = math.nan
     sb_corr_fast: float = 0.0
     sb_corr_slow: float = 0.0
-    sb_corr_z: float = 0.0
+    sb_corr_z: float = math.nan
     equity_beta_z: float | None = None
     rate_beta_z: float | None = None
     # maxlen=2520 matches the true APR ceiling for each backing zscore_window
@@ -127,9 +128,8 @@ class FeatureCache:
     amd_distribution_direction: float = 0.0
     manip_strength: float = 0.0
 
-    # Internal rolling history for regime features (HMA, ADX z-score)
+    # Internal rolling history for the HMA slope z-score
     _hma_slope_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
-    _adx_raw_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
 
     # Internal accumulators for weekly VWAP
     _wk_tp_vol_sum: float = field(default=0.0, repr=False)
@@ -774,9 +774,9 @@ class CrossAssetState:
     needs -- see module comment above for why this exists alongside FeatureCache.
     """
 
-    vix_z: float = 0.0
+    vix_z: float = math.nan
     flight_quality: float = 0.0
-    yield_slope_z: float = 0.0
+    yield_slope_z: float = math.nan
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
 
@@ -1205,8 +1205,9 @@ def _adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> f
 def _zscore_from_deque(history: deque, window: int) -> float:
     """Compute z-score of most-recent value in deque against rolling window.
 
-    Returns 0.0 if insufficient data or near-zero std.
+    NaN while the history holds fewer than `window` values (undefined, never a 0.0 fill: todo
+    564); 0.0 on near-zero std (`_zscore_last`).
     """
     if len(history) < window:
-        return 0.0
+        return math.nan
     return _zscore_last(np.array(list(history)[-window:]), window)

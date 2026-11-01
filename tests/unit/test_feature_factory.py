@@ -615,18 +615,23 @@ class TestAcausalCanaryExclusionCheck:
         regime_writer.py's fitted K=5 HMM is the sole writer of those 3
         columns), then deleted outright from FeatureCache 2026-08-13.
         """
-        bars = _make_bars(100)
+        bars = _make_bars(200)
         config = _make_config()
         cache = FeatureCache()
-        # Initially default values
+        # Initially default values; hma_slope_z is undefined until its slope history fills
         assert cache.hurst == 0.5
-        cache.refresh_regime(bars, config)
-        # hurst/shannon/garch_ratio/hma_slope_z/adx should be set (finite)
+        assert math.isnan(cache.hma_slope_z)
+        cache.refresh_regime(bars[:100], config)
+        # hurst/shannon/garch_ratio/adx should be set (finite)
         assert math.isfinite(cache.hurst)
         assert math.isfinite(cache.shannon)
         assert math.isfinite(cache.garch_ratio)
-        assert math.isfinite(cache.hma_slope_z)
         assert math.isfinite(cache.adx)
+        # one slope is not a z-score: NaN, never a 0.0 fill (todo 564)
+        assert math.isnan(cache.hma_slope_z)
+        for end in range(101, 101 + config.momentum_zscore_window - 1):
+            cache.refresh_regime(bars[:end], config)
+        assert math.isfinite(cache.hma_slope_z)
         # bars_since_regime_refresh should be reset to 0
         assert cache.bars_since_regime_refresh == 0
 
@@ -858,18 +863,31 @@ class TestComputePurity:
         assert not lines, "Inline magic numbers found:\n" + "\n".join(lines)
 
 
+def _feed_cross_asset(cache, n: int = 60, tlt_bars=None) -> dict[str, list[dict]]:
+    """update_cross_asset on growing slices, the live cadence: each call appends one value to
+    every z-score history, so after n - 1 calls the histories hold n - 1 values. Returns the
+    bar lists it fed."""
+    bars = {
+        k: _make_bars(n, seed=s)
+        for k, s in zip(("spy", "tlt", "shy", "tip", "hyg", "lqd"), range(1, 7), strict=True)
+    }
+    if tlt_bars is not None:
+        bars["tlt"] = tlt_bars
+    config = _make_config()
+    for i in range(2, n + 1):
+        cache.update_cross_asset(*(series[:i] for series in bars.values()), config)
+    return bars
+
+
 class TestCrossAssetProxies:
     def test_update_cross_asset_populates_vix_z(self) -> None:
-        """FeatureCache.update_cross_asset must compute vix_z from SPY bars."""
-        spy_bars = _make_bars(60, seed=1)
-        tlt_bars = _make_bars(60, seed=2)
-        shy_bars = _make_bars(60, seed=3)
-        tip_bars = _make_bars(60, seed=4)
-        hyg_bars = _make_bars(60, seed=5)
-        lqd_bars = _make_bars(60, seed=6)
-        config = _make_config()
+        """FeatureCache.update_cross_asset must compute vix_z from SPY bars: NaN until the
+        realized-vol history holds vix_zscore_window values (todo 564), finite after."""
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
+        assert math.isnan(cache.vix_z)  # never fed
+        _feed_cross_asset(cache, n=_make_config().vix_zscore_window)  # window - 1 values
+        assert math.isnan(cache.vix_z)
+        _feed_cross_asset(cache, n=2)  # one more value fills the window
         assert math.isfinite(cache.vix_z)
 
     def test_update_cross_asset_populates_flight_quality(self) -> None:
@@ -886,42 +904,24 @@ class TestCrossAssetProxies:
         assert math.isfinite(cache.flight_quality)
 
     def test_update_cross_asset_populates_yield_slope_z(self) -> None:
-        """yield_slope_z = z-score of TLT/SHY return ratio."""
-        spy_bars = _make_bars(60, seed=1)
-        tlt_bars = _make_bars(60, seed=2)
-        shy_bars = _make_bars(60, seed=3)
-        tip_bars = _make_bars(60, seed=4)
-        hyg_bars = _make_bars(60, seed=5)
-        lqd_bars = _make_bars(60, seed=6)
-        config = _make_config()
+        """yield_slope_z = z-score of TLT/SHY return ratio, NaN until its window fills."""
+        window = _make_config().yield_curve_zscore_window
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
+        _feed_cross_asset(cache, n=window)
+        assert math.isnan(cache.yield_slope_z)
+        _feed_cross_asset(cache, n=2)
         assert math.isfinite(cache.yield_slope_z)
 
     def test_update_cross_asset_populates_tip_tlt_and_hyg_lqd(self) -> None:
-        """Phase 151 Plan 04: tip_tlt_ret_z/hyg_lqd_ret_z must be finite once enough
-        bars have accumulated, and 0.0 with fewer than 2 bars (cold start)."""
-        spy_bars = _make_bars(60, seed=1)
-        tlt_bars = _make_bars(60, seed=2)
-        shy_bars = _make_bars(60, seed=3)
-        tip_bars = _make_bars(60, seed=4)
-        hyg_bars = _make_bars(60, seed=5)
-        lqd_bars = _make_bars(60, seed=6)
+        """Phase 151 Plan 04: tip_tlt_ret_z/hyg_lqd_ret_z are finite once their histories
+        hold a full window, and NaN (undefined, todo 564) on a cold or short history."""
         config = _make_config()
         cache = FeatureCache()
-        cache.update_cross_asset(
-            spy_bars[:1],
-            tlt_bars[:1],
-            shy_bars[:1],
-            tip_bars[:1],
-            hyg_bars[:1],
-            lqd_bars[:1],
-            config,
-        )
-        assert cache.tip_tlt_ret_z == 0.0
-        assert cache.hyg_lqd_ret_z == 0.0
+        _feed_cross_asset(cache, n=config.tip_tlt_zscore_window)
+        assert math.isnan(cache.tip_tlt_ret_z)
+        assert math.isnan(cache.hyg_lqd_ret_z)
 
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
+        _feed_cross_asset(cache, n=2)
         assert math.isfinite(cache.tip_tlt_ret_z)
         assert math.isfinite(cache.hyg_lqd_ret_z)
 
@@ -949,16 +949,7 @@ class TestCrossAssetProxies:
         lqd_bars = _make_bars(60, seed=6)
 
         cache = FeatureCache()
-        for i in range(2, len(spy_bars) + 1):
-            cache.update_cross_asset(
-                spy_bars[:i],
-                co_moving_tlt_bars[:i],
-                shy_bars[:i],
-                tip_bars[:i],
-                hyg_bars[:i],
-                lqd_bars[:i],
-                config,
-            )
+        _feed_cross_asset(cache, tlt_bars=co_moving_tlt_bars)
         assert -1.0 <= cache.sb_corr_fast <= 1.0
         assert cache.sb_corr_fast == pytest.approx(1.0, abs=1e-6)
 
@@ -967,16 +958,7 @@ class TestCrossAssetProxies:
         # correlation is exactly -1.0.
         opposed_tlt_bars = [{**b, "close": 10000.0 / b["close"]} for b in spy_bars]
         cache2 = FeatureCache()
-        for i in range(2, len(spy_bars) + 1):
-            cache2.update_cross_asset(
-                spy_bars[:i],
-                opposed_tlt_bars[:i],
-                shy_bars[:i],
-                tip_bars[:i],
-                hyg_bars[:i],
-                lqd_bars[:i],
-                config,
-            )
+        _feed_cross_asset(cache2, tlt_bars=opposed_tlt_bars)
         assert cache2.sb_corr_fast == pytest.approx(-1.0, abs=1e-6)
 
     def test_cross_asset_state_matches_feature_cache(self) -> None:
@@ -989,20 +971,14 @@ class TestCrossAssetProxies:
         that class's docstring) -- its own update_cross_asset() keeps the original
         3-bar-list signature, only FeatureCache's signature grew to 6 bar lists.
         """
-        spy_bars = _make_bars(60, seed=1)
-        tlt_bars = _make_bars(60, seed=2)
-        shy_bars = _make_bars(60, seed=3)
-        tip_bars = _make_bars(60, seed=4)
-        hyg_bars = _make_bars(60, seed=5)
-        lqd_bars = _make_bars(60, seed=6)
         config = _make_config()
-
         cache = FeatureCache()
-        cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config)
-
+        bars = _feed_cross_asset(cache, n=60)
         state = CrossAssetState()
-        state.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
+        for i in range(2, 61):
+            state.update_cross_asset(bars["spy"][:i], bars["tlt"][:i], bars["shy"][:i], config)
 
+        assert math.isfinite(cache.vix_z) and math.isfinite(cache.yield_slope_z)
         assert state.vix_z == cache.vix_z
         assert state.flight_quality == cache.flight_quality
         assert state.yield_slope_z == cache.yield_slope_z

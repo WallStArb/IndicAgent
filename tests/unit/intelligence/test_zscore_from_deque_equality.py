@@ -1,4 +1,5 @@
-"""_zscore_from_deque delegates to _zscore_last and equals its former inline body, bit for bit."""
+"""_zscore_from_deque delegates to _zscore_last and equals its former inline body, bit for bit,
+except that a short history is NaN (undefined) instead of a 0.0 fill (todo 564)."""
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from src.intelligence.features.kernels._cache_state import _zscore_from_deque
 
 def _former_body(history: deque, window: int) -> float:
     if len(history) < window:
-        return 0.0
+        return float("nan")  # todo 564: undefined, not a 0.0 fill
     arr = np.array(list(history)[-window:])
     std = float(arr.std())
     if std < 1e-8:
