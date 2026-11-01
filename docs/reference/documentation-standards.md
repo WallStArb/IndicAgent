@@ -19,7 +19,7 @@ file wherever the two overlap.
 
 | Context | Convention | Example |
 |---------|-----------|---------|
-| Docs | kebab-case | `layered-architecture.md`, `data-streaming.md` |
+| Docs | kebab-case | `canonical-truth-registry.md`, `gotchas.md` |
 | Standard root files | UPPERCASE | `README.md`, `CHANGELOG.md`, `CLAUDE.md` |
 | Directories | lowercase, hyphens | `docs/architecture/`, `docs/getting-started/` |
 | Plan docs | date-prefixed kebab | `2026-03-15-signal-lifecycle-redesign.md` |
@@ -84,8 +84,8 @@ The order below applies to outer-ring/legacy technical docs not governed by the 
 Use relative paths — never absolute:
 
 ```markdown
-[Architecture](../architecture/layered-architecture.md)   ✓
-[Architecture](/docs/architecture/layered-architecture.md) ✗
+[Glossary](../foundation/glossary.md)   ✓
+[Glossary](/docs/foundation/glossary.md) ✗
 ```
 
 ---

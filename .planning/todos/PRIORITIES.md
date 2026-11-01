@@ -239,7 +239,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 | [321](pending/321-feature-factory-config-test-fixture-consolidation.md) | No shared `FeatureFactoryConfig` test builder: 15+ files hand-type the ~95-kwarg literal. Fails loud when forgotten; worth doing before the next field-adding plan. |
 | [324](pending/324-gradient-vocabulary-naming-check-unenforced.md) | naming-system.md section 7's gradient-scale vocabulary has no enforcement. Settled on a CVR `gradient_scale` namespace (D-07); needs `VocabularyDriftAuditor`'s `has_live_source` distinction designed first. Unblocked (`vocabulary_access.py` exists). |
 | [331](pending/331-vocabulary-drift-auditor-windowed-query-blind-spot.md) | `VocabularyDriftAuditor`'s source queries are window-bounded (30 days), so a rare code outside the window is invisible (why migration 233's missing `4h` sat undetected). Needs design. |
-| [373](pending/373-docs-tree-152-broken-internal-links-not-file-count-clutter.md) | 152 broken internal markdown links in three clusters (old `intel-NN` numbering, pre-v3.0 docs of archived subsystems, untriaged). Its own pass. |
 
 **Registries and universe**
 
