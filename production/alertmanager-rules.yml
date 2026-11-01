@@ -44,10 +44,12 @@ groups:
   - name: postgres_health
     rules:
       - alert: DeadTupleRatioHigh
+        # series come from the 5-minute postgres-tables job (todo 443): one scrape
+        # interval of `for` keeps the alert meaningful at that cadence
         expr: >
           pg_stat_user_tables_n_dead_tup
           / (pg_stat_user_tables_n_live_tup + pg_stat_user_tables_n_dead_tup + 1) > 0.05
-        for: 10m
+        for: 5m
         labels:
           severity: warning
         annotations:

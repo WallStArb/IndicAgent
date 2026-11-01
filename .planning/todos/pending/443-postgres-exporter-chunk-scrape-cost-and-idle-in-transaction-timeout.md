@@ -59,3 +59,31 @@ the compose-managed Postgres config (not only via `ALTER SYSTEM` by hand), and b
 - Note: the first `docker compose up -d postgres-exporter` also restarted `timescaledb` (compose drift); nothing was running against it.
 - After-measurement at 23 min since the reset (2026-10-07): the `pg_stat_user_tables` query is still first, 14.2 s over 92 calls (about 0.15 s per call, about 1 h per day); `pg_database_size` is 558 calls in the same window (6 per scrape, worth a look). Re-check after a full day.
 - Resolved: the 6 `pg_database_size` calls per scrape are one per database (indicagent, indicagent_test, langfuse, postgres, template0, template1) at about 3 ms each. Not a cost problem; the langfuse and test databases drop out when 185-45 removes langfuse.
+
+## Applied 2026-11-01 (the exporter half; the timeout stays deferred)
+
+Before (pg_stat_statements, reset 2026-10-10): the `pg_stat_all_tables` scrape query was
+first at 263.7 minutes over 18,608 calls (850 ms mean) of 1,513.5 total; `pg_database_size`
+50.4 minutes over 611,599 calls.
+
+Change (config only, no restart of anything the rebuild touches): the 15 s
+`indicagent-postgres-exporter` now runs `--no-collector.stat_user_tables` (statio was already
+off), and a second container `indicagent-postgres-exporter-tables` carries the per-table
+collector at a 5-minute scrape (prometheus job `postgres-tables`). The DeadTupleRatioHigh
+alert reads the same metric names from the slow job; `for` loosened 10m to 5m so one scrape
+interval keeps it meaningful. Applied with `docker compose up -d --no-deps` on the two
+exporters only (timescaledb untouched, still up 3 weeks), prometheus and alertmanager
+restarted, statement stats reset 2026-10-31 22:47 UTC just before the switch.
+
+After (75 minutes of window): the scrape query ran 8 times (the 5-minute cadence), 0.06
+minutes total, 469 ms mean; `pg_database_size` 0.01 minutes; total statement time in the
+window 0.2 minutes. Extrapolated the table walk drops from about 287 to about 8 minutes per
+day, and DeadTupleRatioHigh still evaluates (health ok, 1,269 dead-tup series in prometheus,
+all five targets up).
+
+Still deferred, unchanged from the incident note: the `idle_in_transaction_session_timeout`
+cut. The rebuild's workers legitimately idle in transaction for their whole compute, so the
+5-10 minute value would kill them; the sequence is rebuild finishes, compression re-enabled,
+the rebuild's read pattern fixed, then the timeout. Note the timeout is reloadable
+(PGC_USERSET), so no restart is needed when that sequence completes; the done-when's
+compose-managed requirement still applies at that point.

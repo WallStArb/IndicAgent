@@ -122,16 +122,40 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    # statio walks every TimescaleDB chunk and nothing reads it (todo 443). stat_user_tables stays on:
-    # alertmanager-rules.yml DeadTupleRatioHigh reads it; its chunk-walk cost needs a custom query.
+    # statio and stat_user_tables walk every TimescaleDB chunk and were the top database
+    # consumer (263.7 min over 22 days, todo 443). The dead-tuple metrics the
+    # alertmanager-rules.yml DeadTupleRatioHigh alert reads moved to the 5-minute
+    # postgres-exporter-tables service below.
     command:
       - "--no-collector.statio_user_tables"
+      - "--no-collector.stat_user_tables"
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:postgres@timescaledb:5432/indicagent?sslmode=disable"
       PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
     ports:
       - "9187:9187"
+    depends_on:
+      - timescaledb
+
+  # postgres-exporter-tables: the per-table stats at a 5-minute scrape (todo 443). The chunk
+  # walk costs about 850 ms per call, which at 15 s made monitoring the top database consumer;
+  # at 5 m it is a twentieth of that, and DeadTupleRatioHigh keeps its series.
+  postgres-exporter-tables:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: indicagent-postgres-exporter-tables
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    command:
+      - "--no-collector.statio_user_tables"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@timescaledb:5432/indicagent?sslmode=disable"
+      PG_EXPORTER_DISABLE_DEFAULT_METRICS: "true"
+      PG_EXPORTER_DISABLE_SETTINGS_METRICS: "true"
     depends_on:
       - timescaledb
 
