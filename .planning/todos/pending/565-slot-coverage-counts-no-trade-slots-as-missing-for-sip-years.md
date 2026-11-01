@@ -37,3 +37,21 @@ Then re-run the audit and recount: names still below the threshold are real gaps
 
 Related and already fixed: `grid_parity` compared SIP-derived buckets to IBKR bars (commit 51e2cc323);
 `coverage_cache` was starved by the fetcher lock (fix in progress, migration 542).
+
+## Status
+
+Part (a) done 2026-11-01 (commit 2b73a904dc7fc2edfac8e8a81daf76cb52ff53ef, migration 552): the
+44 names the nightly audit's slot_coverage verdict fails are named holds. bar_hold admits
+timeframe 5m and reason `slot_coverage_gap`; `scripts/ops/bars/ops_hold_slot_coverage_gaps.py`
+converts the latest failing verdict inside the audit freshness window
+(`threshold.bar_integrity.report_max_age_hours`) into holds with the share, threshold and
+verdict time as evidence; run against the live DB, 44 holds in `bar_hold_current`, rerunnable.
+`services/bar_hold.record_hold` takes an optional factor now. The CTVA 1d
+unclassified_rescale hold is untouched.
+
+Part (b) remains and is blocked: `src/intelligence/bars/verdict_gate.py` must learn to treat
+a held name as passing (both `gate_symbols` and `ready_predicate_sql`), but that file is inside
+the running 186-26 rebuild's kernel_code_key import closure (verified:
+services/backfill_feature_factory.py imports scripts.infrastructure.backfill._history_fetch
+which imports src.providers), so any edit discards every completed rebuild cell. Do not touch
+it until the rebuild finishes.
