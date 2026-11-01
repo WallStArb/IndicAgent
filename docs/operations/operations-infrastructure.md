@@ -22,6 +22,16 @@ IndicAgent runs on a single server (`192.168.68.60`, DHCP-assigned — was `.53`
 - **Supervision:** systemd with watchdog integration (Phase 108)
 - **Telemetry:** OTel push-based to Collector, Prometheus scrape, Grafana dashboards
 
+**Dormant streaming block is KEEP (owner decision 2026-11-01, todo 579):** `bar_auditor`,
+`bar_replay_provider`, `bar_writer` and `bar_aggregator` stay installed with their units
+disabled. The real-time feed is down and today's data arrives by nightly batch, but the feed
+returns: Alpaca is the streaming candidate and the endgame is real-time trading, so this block
+is the eventual real-time path, not dead weight. Do not retire it in cleanup passes; audits
+that flag it as dormant should close on this note. Reactivation on feed return: enable the four
+units in wave order (`systemctl start indicagent-bar-replay indicagent-bar-writer
+indicagent-bar-aggregator indicagent-bar-auditor`), verify bars flow to `market.bars` topics and
+the aggregator's HTF output, and re-check `_DAG_ORDER` lag thresholds.
+
 **Why systemd (not Docker for services):**
 - Direct host integration (no container overhead for compute services)
 - Native watchdog support for automatic restart
