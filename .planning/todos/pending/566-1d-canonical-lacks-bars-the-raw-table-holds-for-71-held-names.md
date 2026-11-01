@@ -116,3 +116,17 @@ the next 05:20/05:45 UTC bar_derivation run. Two scope notes:
   inventory. The docstring says so.
 
 The class-B remediation itself is unchanged: owner arbitration on the 22 names' IBKR symbol rows.
+
+## 2026-11-01: class-A evidence sharpened by the H load-ledger trace
+
+The audit-classification pass (2026-11-01) confirmed the 27 class-A names are the only new 1d
+failures and are all `compute_eligible_1d=false`. The H trace added hard evidence for 8 of them
+(batch `cc0120c7`, 2026-10-28 01:10): each holds only the 15-18 ibkr/named rows of a 2,702-6,565
+row derivation because the 191-20 Tradier delete removed the tradier/consolidated share after
+the write, and the nightly discovery (`is_active AND compute_eligible_1d`,
+services/bar_derivation.py:404-407) can never re-reach them; only an explicit `--symbols` run
+can. Their raw survives (H: alpaca sip_rth 2,723 rows from 2016-01-04 plus ibkr 4,269 from
+2009-11-05), so promoting eligibility and re-deriving restores 2009-11-05 onward for them. This
+strengthens the existing promotion decision (owner, after todo 491): the 27 names are not just
+never-derived, they are stranded in a ledger-inconsistent state (load row says applied 2,702+,
+canonical holds 15), which is the silent-wrong-answer surface this todo exists to close.

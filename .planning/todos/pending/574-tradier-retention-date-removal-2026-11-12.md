@@ -25,3 +25,28 @@ toolchain stays whole until then; this todo removes it in one pass. Everything h
 
 Done when: the four files, the backup directory and the backup script are gone; the five boundary
 files and the key readers hold no entry naming this todo; the full unit suite is green.
+
+## 2026-11-01: the backup holds the only copy of Tradier-era daily history; owner decision required before deletion
+
+Traced 2026-11-01 while running down the symbol H load-ledger anomaly (benign: the 4,435 missing
+H 1d rows are exactly the 191-20 Tradier delete; they survive only in
+`data/backups/191/tradier_market_data_ohlcv_2026-10-28.csv.gz`):
+
+- For some names the Tradier 1d history is materially deeper than IBKR's (H: Tradier from
+  2006-07-19, IBKR smart_trades from 2009-11-05). That era survives nowhere else; the vendor no
+  longer serves it (account unfunded by owner decision 2026-10-07).
+- The owner's raw-coverage target (2026-10-31: deepest daily per name; history depth beats
+  freshness) values exactly this data. Deleting the backups on 2026-11-12 as this todo plans makes
+  it unrecoverable forever.
+- Option A (recommended by the coordinator): before 2026-11-12, restore the raw CSVs into
+  `ohlcv_raw` under `vendor='tradier'` (last-wins ingress, revision log; raw capture law 528,
+  nothing a vendor served is dropped). Canonical stays D-191-Q untouched: `bar_source_policy`
+  does not select tradier, so `market_data_ohlcv` and every consumer are unchanged, and the
+  selection gate still proves canonical is a pure function of raw plus policy. Then this todo
+  proceeds as written (backups and toolchain still removable on the date; the raw rows are the
+  permanent record).
+- Option B: confirm the deletion; the pre-IBKR Tradier era is discarded. 574 then runs as written.
+
+Either way this todo cannot run before the owner answers. The restore toolchain
+(`ops_tradier_delete.py` restore path, `ops_old_store_backup.py`) stays whole until then, which
+this todo already requires.
