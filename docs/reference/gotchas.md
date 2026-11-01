@@ -173,16 +173,15 @@ time and logs the old values to `ohlcv_revision`. Nothing a vendor serves is dro
 grid), proven a pure function of raw by `scripts/ops/bars/ops_selection_gate.py --compare`.
 Backup before an irreversible drop: `scripts/ops/bars/ops_old_store_backup.py` (COPY to
 per-year gzip CSV under `data/backups/`, one REPEATABLE READ transaction, `--verify` compares
-manifest, live recount and file rows); plain `pg_dump` of a compressed hypertable is not the
-pattern here. Cutover procedure for a swap that renames the canonical table: open the window
-with `scripts/ops/bars/ops_raw_cutover_window.py open --plan <id>` (stops the bar timers,
-requires `SUDO_PASS` exported), do the work, clear each held unit with `--plan`, then
-`resume --all`; the script has no close verb, so after resume archive the record
-(`mv logs/raw_cutover_window.json logs/raw_cutover_window.closed_<plan>.json`), precedents
-191-12, 191-14, 191-16. The one-shot swap tooling (`ops_canonical_vendor_kind_swap.py`,
-`ops_d2_raw_equivalence.py`) and the legacy re-stamp (`ops_legacy_restamp.py`, applied
-2026-10-15, `logs/legacy_restamp_20261015T174031Z.json`) were deleted at phase close (plan
-191-17); the drop migration and the phase summaries are the record.
+manifest, live recount and file rows; todo 578 is its successor plan when it retires with the
+Tradier backups on 2026-11-12); plain `pg_dump` of a compressed hypertable is not the
+pattern here. The phase 191 cutover tooling (`ops_raw_cutover_window.py` window
+open/resume/record procedure, precedents 191-12, 191-14, 191-16, plus the one-shot swap tools
+`ops_canonical_vendor_kind_swap.py`, `ops_d2_raw_equivalence.py` and the legacy re-stamp
+`ops_legacy_restamp.py`, applied 2026-10-15, `logs/legacy_restamp_20261015T174031Z.json`) was
+deleted at and after phase close (plans 191-17, 2026-11-01 cleanup); the drop migration, the
+phase summaries and the archived `logs/raw_cutover_window.closed_*.json` records are the
+pattern if a future swap ever needs a window again.
 
 ## Tests must never write raw bars or spawn derivation against the live database
 

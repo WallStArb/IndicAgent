@@ -33,18 +33,10 @@ state_get() { sed -n "s/^$1=//p" "$STATE" 2>/dev/null; }
 state_set() { printf '%s=%s\n' "$1" "$2" >>"$STATE"; }
 state_clear_key() { sed -i "/^$1=/d" "$STATE" 2>/dev/null; }
 
-# --- 1. interlock: a cutover window open under an in-flight run -> kill it before edits land
-WINDOW_OUT=$($PY scripts/ops/bars/ops_raw_cutover_window.py status 2>/dev/null || true)
-WINDOW_OPEN=0
-grep -q "^window opened" <<<"$WINDOW_OUT" && WINDOW_OPEN=1
-
+# --- 1. run-in-flight guard (the 191 cutover-window interlock is gone with the
+# cutover scaffolding: phase 191 closed the only window this ever protected against)
 if pgrep -f "$RUN_PATTERN" >/dev/null 2>&1; then
-  if [ "$WINDOW_OPEN" = 1 ]; then
-    pkill -f "$RUN_PATTERN"
-    log "interlock: cutover window open, killed the in-flight deepening run"
-  else
-    log "run in flight, nothing to do this cycle"
-  fi
+  log "run in flight, nothing to do this cycle"
   exit 0
 fi
 
