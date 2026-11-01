@@ -1034,8 +1034,9 @@ class OHLCVHistoryFetcher(BaseBatch):
 
     def _mark_progress(self) -> None:
         """One step of forward motion for the todo 538 stall watchdog: an item's outcome is
-        recorded (main loop, reserve lane, escalation) or a run phase completed, so its
-        countdown restarts. Every completion site must call this, never a bare _notify().
+        recorded (main loop, reserve lane, escalation), a run phase completed, or an
+        in-flight item's stall check fired, so its countdown restarts. Every completion
+        site must call this, never a bare _notify().
         """
         self._notify()
         self._progress += 1
@@ -1046,11 +1047,15 @@ class OHLCVHistoryFetcher(BaseBatch):
         The 2026-10-31 wedge family: the event loop stays alive (the systemd watchdog pings
         continue, so WatchdogSec never fires) while the awaited future never resolves and no
         item completes. Only an in-process progress watchdog can see that. Thirty minutes of
-        zero completions cannot be legal pacing: the rate limiter's window is 600s, so healthy
-        fetching completes an item far sooner, and stage subprocesses pause the countdown
-        instead. On abort: every pending task is dumped at error level (the diagnostic the
-        2026-10-31 dumps had to be taken by hand), then the process exits 1; the advisory lock
-        is a session lock and dies with the process, and the timer restarts the lane.
+        zero progress cannot be legal idleness: in-flight items feed their stall checks in as
+        progress (a healthy deep item runs 40+ minutes across rate-limited requests, and its
+        checks fire every check interval, including mid-pacing-wait), and stage subprocesses
+        pause the countdown instead. An item that stops answering is cancelled by its own
+        stall bound, whose outcome is progress again, so a live check stream always sits on
+        top of a bound that fires. On abort: every pending task is dumped at error level (the
+        diagnostic the 2026-10-31 dumps had to be taken by hand), then the process exits 1;
+        the advisory lock is a session lock and dies with the process, and the timer restarts
+        the lane.
         """
         last = self._progress
         waited = 0.0
@@ -1398,7 +1403,11 @@ class OHLCVHistoryFetcher(BaseBatch):
                 waived=waived,
                 config=plan.config,
                 reconnect=leaf.connect,
-                on_tick=self._notify,
+                # The item's stall checks are watchdog progress (todo 538): a healthy deep
+                # item runs 40+ minutes across pacing waits with zero completions, and its
+                # checks fire on every check interval; the item's own bound cancels it when
+                # the checks stop meaning anything.
+                on_tick=self._mark_progress,
                 **({"asks": asks} if asks is not None else {}),
             )
         except Exception as error:
