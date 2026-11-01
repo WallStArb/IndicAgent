@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-07
 source: 185-41 finding 1 (SUMMARY), rechecked against the 1d primary swap plans 185-46 to 185-48

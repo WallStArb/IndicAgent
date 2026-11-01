@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-29
 source: found while testing 187-14 (tests/unit/research/test_runner_contribution.py stubs it)
@@ -28,3 +28,12 @@ The 187-14 tests stub the check with the first family's plant.
 
 A two-family synthetic book runs through `run_book` without a stub, powered or refused on its merits, and
 a real two-family book can be started.
+
+## Landed 2026-11-01 (f6bbbe2e5)
+
+Per-family plants in turn, the book's power the minimum over its families; the
+one-family refusal is gone, the refusal names the underpowered families, the
+187-14 stub is removed and the two-family synthetic book runs run_book
+unstubbed. Single-family books take the exact old path (repro_frozen
+bit-identical). Design note:
+docs/plans/2026-11-01-multi-family-book-power-plant.md.
