@@ -1,6 +1,6 @@
 # 577: Fetcher qualify-on-dead-socket is misclassified as a plain error, never GatewayLost
 
-**Filed:** 2026-11-01 · **Priority:** P1 (runs only after the 186-26 rebuild finishes; the rebuild's `kernel_code_key` hashes `services/backfill_feature_factory.py:79` -> `scripts.infrastructure.backfill._history_fetch` -> `src.providers`, so the fetch import closure is frozen while the rebuild is live) · **Status:** pending
+**Filed:** 2026-11-01 · **Priority:** P1 (runs only after the 186-26 rebuild finishes; the rebuild's `kernel_code_key` hashes `services/backfill_feature_factory.py:79` -> `scripts.infrastructure.backfill._history_fetch` -> `src.providers`, so the fetch import closure is frozen while the rebuild is live) · **Status:** done (core fix landed 7f3343608; the summary-surface item is superseded per the landed note)
 
 ## What happened (2026-11-01, measured)
 
