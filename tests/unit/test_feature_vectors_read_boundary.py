@@ -68,6 +68,9 @@ _ALLOW_LIST: dict[str, str] = {
         "WRITER: 186-26 launch preconditions check that feature_vectors_v2 exists."
     ),
     # Measurement.
+    "scripts/ops/ops_feature_column_screen.py": (
+        "MEASUREMENT: todo 564/584 dead-column and pilot gate screen over feature_vectors_v2."
+    ),
     "services/ic_measure.py": (
         "MEASUREMENT: the IC measure job's feature table argument (sql.Identifier)."
     ),
