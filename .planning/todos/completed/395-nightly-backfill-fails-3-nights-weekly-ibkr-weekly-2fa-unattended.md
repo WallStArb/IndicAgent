@@ -1,5 +1,5 @@
 ---
-status: pending
+status: closed 2026-11-01 (substance landed 2026-10-10: gateway auth probe + failure alert; residual 2FA tap is an IBKR weekly constraint, alert delivery deliberately deferred per owner UAT decision)
 priority: P0
 filed: 2026-09-23
 source: post-power-outage recovery check, 2026-09-23 (nightly_backfill.failed seen in log tail)
