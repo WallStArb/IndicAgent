@@ -276,6 +276,48 @@ def _fetcher(
 
 
 @pytest.fixture(autouse=True)
+def _quiet_logs(monkeypatch):
+    """Tests here log through the fetcher module's structlog logger, which writes the real
+    logs/ibkr_history_fetcher.log (todo 575). Swapping the module logger object survives the
+    constructor's structlog.configure (setup_service_logging would swap a capture_logs
+    processor chain back out); a test asserting on events reads log_capture.entries."""
+    entries: list[dict] = []
+
+    class _CaptureLogger:
+        """Every structlog level records into entries; LogCapture itself only implements
+        .msg, and the fetcher logs through .warning/.error too."""
+
+        def __init__(self) -> None:
+            self.entries = entries
+
+        def __getattr__(self, level: str):
+            def log(event: str | None = None, *args: Any, **kw: Any) -> None:
+                entries.append({"level": level, "event": event, **kw})
+
+            return log
+
+    capture = _CaptureLogger()
+    monkeypatch.setattr(hf, "logger", capture)
+    # BaseBatch.__init__ sets its own self.logger (the batch_computer events), so the
+    # class init is wrapped to route those into the same capture
+    original_init = hf.OHLCVHistoryFetcher.__init__
+
+    def _init(self, *args: Any, **kw: Any) -> None:
+        original_init(self, *args, **kw)
+        self.logger = capture
+
+    monkeypatch.setattr(hf.OHLCVHistoryFetcher, "__init__", _init)
+    # Every other module the fetcher touches (e.g. _fetch_queue) shares the global structlog
+    # config, whose first setup_service_logging call wins the file: silence the config for
+    # the test and keep the constructor's setup call a no-op so it cannot re-point the file.
+    import src.core.agent.base_batch as base_batch
+
+    monkeypatch.setattr(base_batch, "setup_service_logging", lambda *a, **kw: None)
+    with structlog.testing.capture_logs():
+        yield capture
+
+
+@pytest.fixture(autouse=True)
 def _no_side_effects(monkeypatch):
     """No APR overlay reads, no ledger writes, no gap-fill session and no overlap reads (the
     1d judge and the 5m waiver come through their seams) in these tests. The overlays are
@@ -1602,18 +1644,18 @@ async def _settle(seconds: float) -> None:
         await asyncio.sleep(seconds / 200)
 
 
-async def test_the_stall_watchdog_aborts_and_dumps_when_nothing_moves(tmp_path):
-    # The constructor configures structlog (BaseBatch -> setup_service_logging), and a
-    # configure() inside the capture window swaps the processor list out from under it,
-    # so the fetcher is built first.
+async def test_the_stall_watchdog_aborts_and_dumps_when_nothing_moves(tmp_path, _quiet_logs):
     fetcher, _seen, aborted = _stall_fetcher(tmp_path, tick=0.02, abort=0.08)
-    with structlog.testing.capture_logs() as logs:
-        task = asyncio.create_task(fetcher._stall_watchdog())
-        await _settle(0.4)
-        task.cancel()
-        assert len(aborted) >= 1  # the process would have exited 1; the recorded abort seam
-        # returns instead of os._exit, so the task keeps ticking for the rest of the window
-    dumps = [entry for entry in logs if entry.get("event") == "ibkr_history_fetcher.stall_abort"]
+    task = asyncio.create_task(fetcher._stall_watchdog())
+    await _settle(0.4)
+    task.cancel()
+    assert len(aborted) >= 1  # the process would have exited 1; the recorded abort seam
+    # returns instead of os._exit, so the task keeps ticking for the rest of the window
+    dumps = [
+        entry
+        for entry in _quiet_logs.entries
+        if entry.get("event") == "ibkr_history_fetcher.stall_abort"
+    ]
     assert dumps
     assert all("pending_tasks" in entry for entry in dumps)  # every pending task is named
 
