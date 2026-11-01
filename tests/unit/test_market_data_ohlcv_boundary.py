@@ -103,10 +103,6 @@ _ALLOW_LIST: dict[str, str] = {
         "tradeable view's filtered subset). Its LATERAL prev/next neighbor joins DO read "
         "market_data_ohlcv_tradeable, not the raw table."
     ),
-    "scripts/ops/bars/ops_export_known_answer_fixtures.py": (
-        "PERMANENT: exports price_sanity_status rows, including confirmed_corrupt ones the "
-        "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"
-    ),
     "services/bar_derivation.py": (
         "PERMANENT: the single writer of the 15m/1h grid and canonical 1d (D-06, D-15); its "
         "write contract classifies against every stored row of those timeframes, so it must "
