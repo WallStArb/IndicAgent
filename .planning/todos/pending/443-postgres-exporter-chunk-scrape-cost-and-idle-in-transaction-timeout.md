@@ -87,3 +87,23 @@ cut. The rebuild's workers legitimately idle in transaction for their whole comp
 the rebuild's read pattern fixed, then the timeout. Note the timeout is reloadable
 (PGC_USERSET), so no restart is needed when that sequence completes; the done-when's
 compose-managed requirement still applies at that point.
+
+## After-window confirmed 2026-11-01 13:35 UTC (~15 h since the 22:47 UTC reset; research lane, read-only)
+
+Verified live, not re-derived from the apply note: both exporters up 12 h with the intended flags
+(fast job `--no-collector.statio_user_tables --no-collector.stat_user_tables`, tables job carries
+the per-table collector); prometheus has all five targets up, `postgres-tables` last scrape
+2.3 ms, and 1,269 `pg_stat_user_tables_n_live_tup` series on the slow job, so DeadTupleRatioHigh
+still evaluates. pg_stat_statements over the ~15 h window: total 57.5 minutes, dominated by the
+rebuild's own reads (top statement 8.4 min is the tradeable-view read) and coverage writes; the
+exporter's per-table query is 0.98 minutes over 150 calls (the 5-minute cadence, ~390 ms mean),
+out of the top 5 entirely. Extrapolated exporter cost holds at roughly 1.6 minutes per day
+against 305 minutes in the three days before the switch. The exporter half of the done-when is
+met; leave pg_stat_statements un-reset so the rebuild window keeps its record.
+
+The timeout half stays deferred, unchanged: `idle_in_transaction_session_timeout` is 1h and
+there are 8 sessions idle in transaction RIGHT NOW, all the rebuild's compute-spanning reads; a
+5-10 minute value would terminate them mid-compute. The incident note's sequence stands (rebuild
+finishes, compression re-enabled, the rebuild's read pattern fixed, then the timeout; it is
+PGC_USERSET, reloadable, no restart needed at that point). The compose-managed requirement
+applies when that lands.
