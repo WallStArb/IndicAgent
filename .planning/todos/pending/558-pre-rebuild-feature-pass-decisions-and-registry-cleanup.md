@@ -7,9 +7,13 @@ source: owner question 2026-10-28 (new features, factors and signals; missing at
 
 # Decide the pre-rebuild stored-column additions and clean the feature registry
 
-## Status (2026-10-31)
+## Status (2026-11-01)
 
-Correction 2026-10-31 (owner): the reviewing session's backend is Z.ai's model, not a true Opus, so the routing rule's Opus/Fable pass is still owed; the list below is PM-level only. That session's review is done and the candidate list is provisionally decided: the doc
+The owed Opus/Fable-class rigor pass landed 2026-11-01 (session indicagent-2c, review section in
+the doc): the eight-row add-list stands, with five spec pin-downs (trailing-window z for
+`market_residual_z`; SPY as the market series; the `days_to_ex_dividend` availability-time proof;
+one pinned `residual_beta_stability` estimator; one declared window per column). The candidate
+list is decided. The doc
 (`docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md`, review section) carries the
 add-list for the next rebuild pass (idiosyncratic_volatility, the market-residual trio,
 residual_beta_stability, max_daily_return, max_drawdown, downside_deviation, size_proxy,

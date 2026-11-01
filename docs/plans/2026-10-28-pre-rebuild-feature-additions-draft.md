@@ -2,7 +2,7 @@
 
 **Status:** Decided at PM level 2026-10-31 (review pass below); owner retains veto. Supersedes the draft-only framing: the owner reopened the window 2026-10-31 ("the window never closes; solid ideas land prior to a corpus rerun"), so candidate columns target the next rebuild pass after 186-26 stage 2, not a closed window.
 **Mapped by:** Claude (Sonnet 5.5), interactive session, 2026-10-28, from the owner's question "do we need new features, factors or signals". Read-only: no kernel was read or run; names come from the stored column list and the planning docs.
-**Reviewed by:** session indicagent-9f, 2026-10-31. Correction 2026-10-31 (owner): this session's backend is Z.ai's model, not a true Opus, so this pass does NOT satisfy the Sonnet-draft routing rule; a genuine Opus or Fable pass is still owed before the add-list is treated as rigor-passed. The verdicts and add-list in the review section stand as a PM-level proposal only.
+**Reviewed by:** session indicagent-9f, 2026-10-31 (backend Z.ai's model, PM-level only). The owed rigor pass landed 2026-11-01 (session indicagent-2c, review section above): the add-list stands, with five pin-downs for the specs, one of them the `days_to_ex_dividend` availability-time proof before it can be stored.
 **Why now:** `kernels/` is in the 186-26 rebuild's fingerprint (todo 555), so a stored column added after the rebuild starts rides the next rebuild pass. Per the owner (2026-10-31) that is acceptable and expected for solid candidates; stage 2 running since 2026-10-31 means implementation lands in the next pass window, while the review and registry preparation happen now.
 
 ## Method
@@ -69,7 +69,57 @@ is inconclusive, so adding more of them buys nothing until that is settled.
 - **Correct as they are:** the five `canary_*` columns are controls, and `new_high_flag` and
   `new_low_flag` are deprecated tombstones.
 
-## Review pass (Opus, 2026-10-31)
+## Review pass (session indicagent-2c, 2026-11-01; the owed Opus/Fable-class pass)
+
+Verdict: the add-list stands. Eight rows, eleven columns, each single-name with a named
+cross-sectional prior; none is killed by this pass. Five pin-downs are required before
+implementation writes a spec, and one of them (`days_to_ex_dividend`) is a real
+temporal_integrity question, not a style note.
+
+1. **`market_residual_z` is only storable as a trailing time-series z.** A z-score needs a mean
+   and a spread; if either is cross-sectional, the column violates this doc's own stored-column
+   rule (cross-sectional standardization is exactly why the `rank_z` trio retires with the
+   rebuild, todo 421). Pin it in the spec: z of the name's own residual series over a declared
+   trailing window. If the stat arb family wants cross-sectional standardization, that happens
+   in S0 at read time, never in storage.
+2. **The market series is SPY's daily log returns; write that down.** Verified live:
+   `kernels/macro.py` gates the cross-asset row on SPY/TLT/SHY and `build_symbol_beta_series`
+   runs the rolling OLS of the symbol on SPY; `idiosyncratic_volatility`,
+   `market_residual_return` and `residual_beta_stability` are siblings of that kernel and reuse
+   the same series. Never a universe-derived average index: a market series averaged over the
+   current 1,529-name membership is conditioned by today's onboarding choices (an
+   outcome-conditioned selector, the same failure class as the wave-2 universe entry problem,
+   todo 491) and silently redefines every residual every onboarding wave. SPY is permanent,
+   tradeable, point-in-time.
+3. **`days_to_ex_dividend` must prove availability, or wait.** Days from t to a future ex-date
+   is knowable at t only if the dividend layer records when the schedule became known. If
+   `dividend_events_reconciled` carries only ex-dates, computing the column at t reads the
+   future and the column is a lookahead. The spec must name the availability-time column that
+   gates it; if none exists, the column stays research-layer-only until the dividend layer
+   records declaration times. Outside `dividend_event_coverage`: unknown, NaN, never zero
+   (already stated; unchanged).
+4. **`residual_beta_stability` is two estimators under one name.** Beta minus its lag-k, or the
+   rolling standard deviation of the rolling beta: different columns, different memories. Pin
+   exactly one in the spec before the pass; either is defensible, ambiguity is not.
+5. **One declared window per column, no menus.** MAX already carries the one-window discipline;
+   it binds every add-list column, and the window is part of the registry row and the spec hash.
+   `max_drawdown` declares close-based price-only drawdown (bars are price-only; the
+   total-return adjustment stays a research-layer concern via `panel.total_return`). Its overlap
+   with the stored `dist_from_high_*` columns is a `redundancy_group` matter to measure after
+   stage 2, not a reason to skip the column.
+
+Confirmed as written: the research-layer-first list (OU half-life and equilibrium sigma, residual
+reversal interactions, rolling PCA), the skip list (jumps DEAD, pairs DEAD, fundamentals blocked
+on a measured source admission), and the cleanup section. Eleven columns is the right size: the
+`redundancy_group` fill stays one measured pass, and the real gate is consumer naming, so the
+owner's standing directive (build all as `candidate`, promote to `active` only when a family's
+prereg names them) is the correct lifecycle for the whole list.
+
+Housekeeping: the 2026-10-31 section below was written by session indicagent-9f, whose backend
+was Z.ai's model, not a true Opus; its heading is relabeled accordingly and its content is
+superseded only where the pin-downs above touch it.
+
+## Review pass (session indicagent-9f, 2026-10-31; PM-level only, see the header correction)
 
 Kept: the stored-column rule (single-name, own bars plus fixed macro inputs, named consumer or
 queued family) and the composite-through-combiner stance. Both are correct discipline and the
