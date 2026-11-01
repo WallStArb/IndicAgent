@@ -51,11 +51,13 @@ the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23
 21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild (todos 553, 390/555 and 560 land first, before 191-23's summary: 553 and 555 are on origin/main, 560 is on origin/main with its checks open; the 186-26 launch has no owner), with 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
 Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only, runs on indicagent-5b's go; wiring 06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15.
 
-- **Phase 191 (unified raw bar table, todo 533): 18 of 25 plans done.** Plans 01 to 18 landed and
-  were reviewed (summaries and reviews in the phase dir; the swap landed 2026-10-17, the old stores
-  were dropped, todo 530 closed). Canonical is `market_data_ohlcv` keyed by (vendor, kind), a pure
-  function of `ohlcv_raw` plus `bar_source_policy`; the selection gate (`ops_selection_gate.py
-  --compare`) is the standing proof. Raw is last-wins with a revision log (D-191-N).
+- **Phase 191 (unified raw bar table, todo 533): COMPLETE 2026-10-31, all 25 plans done.** Canonical
+  is `market_data_ohlcv` keyed by (vendor, kind), a pure function of `ohlcv_raw` plus
+  `bar_source_policy`; the selection gate (`ops_selection_gate.py --compare`) is the standing proof.
+  Raw is last-wins with a revision log (D-191-N). Tradier is retired: rows deleted (191-20), readers
+  cut over, the ops branches and admission sweep removed and the four APR keys retired by migration
+  550 (191-25). Residual: the restore toolchain and backup removal are todo 574 (2026-11-12);
+  integration tests still assuming Tradier primary are todo 572.
 
 - **Plan 19 (Tradier residue readiness): Task 2 done 2026-10-28.** Readiness green 01:30Z
   (1,522 settled, 0 unsettled, 7 frozen: MOD, PSKY, CLBK, BZH by flag; CCO, QRVO, WBD by

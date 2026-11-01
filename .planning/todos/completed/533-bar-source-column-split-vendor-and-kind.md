@@ -1,21 +1,22 @@
 # 533: one raw bar table for every vendor and timeframe; canonical is a selection from it
 
 Filed: 2026-10-12 (widened the same day from the vendor/kind column split, owner direction)
-Owner: pending
+Owner: closed
 Priority: P0 (owner, 2026-10-12: immediate priority; get the data layer to its final state).
 Phase-sized: steps 1-2 open it, then promote it to a phase (`/gsd-phase`) for steps 3-9.
 
-## Status 2026-10-22 (plan 191-18)
+## Status 2026-10-31 (plan 191-25): CLOSED
 
-Executing as phase 191. Steps 3 to 9 are done: plans 01 to 18 landed the one raw table
-(`ohlcv_raw`, vendor plus kind, last-wins with the revision log), cut every reader and writer
-over, dropped `ohlcv_observation`, `ohlcv_intraday_raw_archive` and `market_data_ohlcv_old`,
-and closed green (R6 gate exit 0, D7 same known failures or better, selection gate exit 0, repro_frozen bit-identical;
-191-17-SUMMARY.md). What remains is the Tradier retirement (step 10, owner direction above):
-plans 191-19 to 191-25. Removal note: `scripts/ops/bars/ops_old_store_backup.py` and
-`data/backups/191/` (2.9 GB gz old-store backup, manifest retained) are deleted on or after
-2026-11-12, tracked here; the `infra.old_store_backup.disk_margin` APR key retires with them
-(`retire: 191-25` in test_table_and_apr_key_readers.py).
+Steps 3 to 9 done (plans 01 to 18); the Tradier retirement (step 10) done in plans 191-19 to
+191-25: Tradier rows deleted (191-20), readers cut over, the ops-script branches and the
+admission sweep removed and the four APR keys retired by migration 550 (191-25). The restore
+toolchain (`ops_tradier_delete.py`, `ops_tradier_residue.py`, its gate script,
+`source_admission.py`), `data/backups/191/` and `ops_old_store_backup.py` stay until the
+2026-11-12 backup retention date, tracked in todo 574, then go in one pass. The final state
+matches the owner direction below: one raw table (`ohlcv_raw`, vendor plus kind, last-wins
+with the revision log), canonical `market_data_ohlcv` a pure selection from it plus
+`bar_source_policy`.
+
 
 ## Owner direction (2026-10-12)
 

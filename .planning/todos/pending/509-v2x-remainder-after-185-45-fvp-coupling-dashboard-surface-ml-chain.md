@@ -66,13 +66,13 @@ narrative, AI swarm and landing surfaces; `drift_state`, `setup_performance` and
 `ui.signals.*` keys dropped. The dashboard-side follow-ups closed with cockpit slice 1
 (2026-10-26): the SSE bridge, `topic_signals_aggregated` and the signal scorecard frames,
 `use-market-stream.ts`, `use-observability-stream.ts`, `use-demo-data.ts` and ProfileChip are
-gone; `dashboard/src/hooks/` holds only `use-api.ts`. Still open (checked 2026-10-27): the I7
-regime_type step in `.github/workflows/ci.yml`, the matching `tools/pre-commit.hook` check,
-`tools/check_plugin_invariants.sh`, `tools/scan_binary_patterns.py` and two
-`tools/duplicate_test_allowlist.txt` lines still target the deleted `src/intelligence/trading/`
+gone; `dashboard/src/hooks/` holds only `use-api.ts`. Still open (re-verified 2026-10-31): the
+I7 regime_type step in `.github/workflows/ci.yml` (lines 114-116), the matching
+`tools/pre-commit.hook` check 3, `tools/check_plugin_invariants.sh`,
+`tools/scan_binary_patterns.py` and the `tests/unit/intelligence/trading` lines in
+`tools/duplicate_test_allowlist.txt` still target the deleted `src/intelligence/trading/`
 and pass vacuously; procedure `weekly_db_maintenance` still runs `ANALYZE setup_performance`
-(unscheduled; drop it); `shadow_registry` (36 rows of plugin settings, dumped) awaits an owner
-drop-or-keep call.
+(unscheduled; drop it); `shadow_registry` (36 rows live) awaits an owner drop-or-keep call.
 
 This remainder rode with the dashboard lane until the owner closed that lane on 2026-10-27; it has
 no lane now and sits below the build lanes as cleanup.
@@ -103,12 +103,9 @@ no lane now and sits below the build lanes as cleanup.
   For item 2: `dashboard/src/hooks/use-observability-stream.ts` (the v2.x pipeline-flow view:
   I1/I7 latency, swarm age) still links its plugin and signal nodes to the deleted Grafana
   dashboards; the hub and panel navigation links were removed.
-- APR keys `alert.lag.<unit>` for the removed units (alpha-swarm, narrative-compute, llm-writer,
-  swarm-ledger-writer, lineage-writer, intelligence-pipeline, feature-writer,
-  signal-tracker-compute, signal-writer, lifecycle-writer, signal-metrics-writer,
-  graduation-compute, graduation-writer): the reader guard counts the service auditor's
-  `"alert.lag." + unit` prefix as a reader, so they are not in `_PENDING_RETIREMENT`; 185-43 can
-  retire them with the other keys.
+- DONE 2026-10-08: APR keys `alert.lag.<unit>` for the removed units retired with the other
+  185-43 keys (78d4e90d7, migration 459: 13 orphaned alert.lag keys dropped); live
+  `config_state` holds only the nine live-unit keys (checked 2026-10-31).
 - Live/batch cache asymmetry in `feature_vector_pipeline._get_cache` (found 2026-10-26, todo 529
   review): its warm-up replays the buffered history from that buffer's bar 0 and calls
   `update_wk_vwap`, not `advance_bar`, while `compute_batch` starts at bar 1 and advances per

@@ -2,7 +2,7 @@
 
 Author: Claude (Sonnet 5.5), 2026-10-12, at Brandon's direction (todo 533, P0: "one raw table for every vendor and timeframe", "ohlcv_observation is unnecessary", "reach the final state")
 Status: implemented (phase 191, plans 01-17; the close evidence, R6/D7/gate/repro_frozen over the first full nightly cycle and the `market_data_ohlcv_old` drop, is in `.planning/phases/191-unified-raw-bar-table/191-17-SUMMARY.md`; the review-fix trail lives in the plan summaries and todo 535)
-Informed by: `.planning/todos/pending/533-bar-source-column-split-vendor-and-kind.md`, `docs/plans/2026-10-06-data-layer-integrity-design.md`, `docs/plans/2026-10-10-raw-capture-enforcement.md` (528), `docs/plans/2026-10-09-provider-history-plane-unification-design.md` (190), `docs/reference/databento-api.md`, live read-only queries on 2026-10-12.
+Informed by: `.planning/todos/completed/533-bar-source-column-split-vendor-and-kind.md`, `docs/plans/2026-10-06-data-layer-integrity-design.md`, `docs/plans/2026-10-10-raw-capture-enforcement.md` (528), `docs/plans/2026-10-09-provider-history-plane-unification-design.md` (190), `docs/reference/databento-api.md`, live read-only queries on 2026-10-12.
 
 ## Problem
 

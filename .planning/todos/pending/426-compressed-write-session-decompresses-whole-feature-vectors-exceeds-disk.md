@@ -54,3 +54,12 @@ Status: step 1 (headroom guard, migration 362) landed; native-DML write mode (5c
 ## Rebuild instead of refresh (2026-09-26)
 
 The adopted unified design's amendment (section 14.2) replaces the in-place refresh of `feature_vectors` with a rebuild: a new append-only table written in time order, each chunk compressed when complete, provenance from the first row, then a drift report, a name swap and a drop of the old table (phase 186). This todo's in-place write-session guard is still needed for any remaining in-place writer, but step 2 (per-chunk in-place writes for the refresh) is likely unnecessary; re-check scope when phase 186 is planned.
+
+## Status 2026-10-31 (closure sweep)
+
+Not closable yet: the "closed by 186-27" framing in PRIORITIES is ahead of reality,
+186-27 has not run (186-26 stage 2 launched 2026-10-31, no name swap). The old
+`feature_vectors` is still canonical, so the in-place UPDATE writers (`regime_writer`,
+the ops scripts) still need decompress-all and are still refused by the headroom guard
+(migration 362) rather than served. Step 2's scope question resolves when 186-27
+retires the old table.

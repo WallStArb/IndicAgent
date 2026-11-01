@@ -63,15 +63,15 @@ runs. STATE.md holds current position; PRIORITIES.md holds the lane order and th
 
 | Order | Phase | Lever | Status |
 |---|---|---|---|
-| 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | 18/25. Plan 19 Task 2 (residue report) running; plan 20 waits on owner approval of the deletion; then 21 -> 22 -> 23 before the rebuild (23 depends on 22), 24 and 25 alongside it |
+| 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | Complete (plans 01-25, 2026-10-31). Residual: the restore toolchain and backup removal are todo 574, on or after 2026-11-12; the integration tests that still assume Tradier primary are todo 572 |
 | 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2, 186-26 (starts once 191-23 is in), 186-27, 186-28 |
 | 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Planned 2026-10-27: 14 plans in 8 waves; wave 1 runs on 5b's go; wiring after 187-15 Task 2; real data after 186-27 |
 | 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-11 landed, and 15 Task 2 (`PanelSpec.fields`, which with 09 and 10 unblocks 184's wiring); 12 next, then 13-15. E17 v2 (todo 549) waits on a cluster-robust rerun of step A (owner 2026-10-28); StepM selection waits on that. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
 | 5 | Testing | Family 2's one evidence run and the daily price-only families at 191-20's re-derive; feature and regime families after 184 | Unpauses at 191-20's 1d re-derive |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing | Not planned; waits on a candidate book |
 
-Done: 183 (research layer, 11 plans), 185 (daily data foundation, 53 plans); 189 and 190 are
-functionally done (stale boxes noted in STATE.md).
+Done: 183 (research layer, 11 plans), 185 (daily data foundation, 53 plans), 191 (unified raw
+bar table, 25 plans); 189 and 190 are functionally done (stale boxes noted in STATE.md).
 
 ## Parked
 

@@ -38,3 +38,12 @@ lane log then distinguishes "waiting on budget" (benign, expected during rescan)
   observable in production logs, which that probe work can reuse).
 - Todo 449 memory entry (2026-10-01): the pauses are bursts-then-silence at the
   58/10-min ceiling; ~6 min/name real-fetch pace is exactly chunk budget.
+
+## Closed 2026-10-31
+
+Landed in a23af3551: `_hist_acquire_paced` emits `ibkr.hist_pacing_wait` per blocked
+request with the waited seconds, plus `..._released` past the new APR key
+`infra.ibkr.hist_pacing_wait_release_s` (migration 545, applied live, seed 60.0;
+verified in config_state). All four acquire call sites (chunk walk x2, head probe,
+1d fetch) go through the wrapper; no direct `_hist_limiter_for().acquire()` remains.
+Unit tests in `tests/unit/providers/test_ibkr_provider.py`.

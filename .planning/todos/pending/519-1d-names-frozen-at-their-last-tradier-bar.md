@@ -130,3 +130,12 @@ Form 15) before writing a `listing_end` row through a migration, as with CCO, QR
 - MSGS (Madison Square Garden Sports): IBKR qualify fails and Alpaca's asset endpoint returns
   "not found", yet Alpaca served 1d bars through 2026-10-26. Likely a ticker change; check
   before treating it as ended.
+
+## Status 2026-10-31 (plan 191-25)
+
+The Tradier side of this todo is settled by plan 191-20: no source points at Tradier anymore
+and the frozen-at-last-Tradier-bar mechanism is gone. What stays open is the IBKR side only:
+the SKYD first-fetch confirmation, the listing_end rows for BZH and ACA (and MSGS's ticker
+check), and MOD's class C hold. Todo 574 holds the restore toolchain (including
+`source_admission.py`, this todo's evidence judge if a re-ask ever needs it) until
+2026-11-12.

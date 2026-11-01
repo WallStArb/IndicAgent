@@ -46,3 +46,12 @@ Status 2026-09-26: 1d velocity populated for 232/233 symbols; intraday still 9-1
 ## Unified design note (2026-09-26)
 
 The phase 186 `feature_vectors` rebuild recomputes every feature for every symbol, which removes the partial-coverage and never-computed classes at the source; the per-feature coverage floor in S0 (todo 435) and the rebuild's drift report keep them from returning. Close when the rebuild is validated.
+
+## Status 2026-10-31 (closure sweep)
+
+Not closable yet: the rebuild is mid-flight (186-26 stage 2 launched 2026-10-31, no
+drift report or name swap), so "close when the rebuild is validated" is unmet. Column
+side is done: migration 425 (`feature_vectors_v2`) dropped the three rank_z columns.
+Registry side is not: `momentum_rank_z`, `volume_rank_z` and `volatility_rank_z` are
+still `active` in concept_registry (checked live 2026-10-31), which is also todo 558's
+step 2.
