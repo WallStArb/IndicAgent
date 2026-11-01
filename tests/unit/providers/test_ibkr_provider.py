@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,7 +7,7 @@ import pytest
 
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.providers import ibkr as ibkr_module
-from src.providers.base import DataProvider
+from src.providers.base import DataProvider, ProviderSessionLost
 from src.providers.ibkr import IBKRProvider
 
 
@@ -21,7 +22,11 @@ def mock_ib():
 
 @pytest.fixture
 def provider():
-    return IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+    p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+    # todo 538: the history probe is its own request; walk tests script reqHistoricalDataAsync
+    # answers, so the probe reads healthy here and the tests below that need it dead override it.
+    p.history_alive = AsyncMock(return_value=True)
+    return p
 
 
 class TestIBKRProviderProtocol:
@@ -461,6 +466,217 @@ class TestEmptyHistoryReport:
         start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
         reports, _ = await self._walk(provider, mock_ib, ["no_data", "timeout"], start, end)
         assert reports == []
+
+    @pytest.mark.asyncio
+    async def test_a_timeout_on_a_dead_session_raises_instead_of_walking_on(
+        self, provider, mock_ib
+    ):
+        """Todo 538: a timed-out request whose session fails the liveness probe raises
+        IBKRSessionDead on that request; no further chunk is asked of the dead session."""
+        provider.history_alive = AsyncMock(return_value=False)
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        records = []
+
+        async def walk():
+            ibkr_module._no_data_req_ids.clear()
+            mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=TimeoutError)
+            provider._ib = mock_ib
+            provider._qualified_contracts["XYZ"] = MagicMock(secType="STK")
+            with (
+                patch.object(ibkr_module, "_RETRY_COUNT", 3),
+                patch.object(ibkr_module, "_RETRY_BACKOFF_BASE_S", 0),
+            ):
+                await provider.fetch_historical_bars(
+                    "XYZ", "1m", start, end, on_request=records.append
+                )
+
+        with pytest.raises(ProviderSessionLost):
+            await walk()
+        # one request, then the probe after its backoff; no second attempt, no later chunk
+        assert mock_ib.reqHistoricalDataAsync.await_count == 1
+        assert [r.outcome for r in records] == ["timeout"]  # the D-05 row is not lost
+
+    @pytest.mark.asyncio
+    async def test_an_empty_unattributed_answer_is_probed_too(self, provider, mock_ib):
+        """ib_async's own timeout returns [] instead of raising; the probe still fires."""
+        provider.history_alive = AsyncMock(return_value=False)
+        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
+        provider._ib = mock_ib
+        provider._qualified_contracts["XYZ"] = MagicMock(secType="STK")
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        with (
+            patch.object(ibkr_module, "_RETRY_COUNT", 3),
+            patch.object(ibkr_module, "_RETRY_BACKOFF_BASE_S", 0),
+            pytest.raises(ProviderSessionLost),
+        ):
+            await provider.fetch_historical_bars("XYZ", "1m", start, end)
+        provider.history_alive.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_dead_farm_is_caught_when_every_attempt_failed(self, provider, mock_ib):
+        """No retry left to gate: the probe still runs once all attempts failed."""
+        provider.history_alive = AsyncMock(return_value=False)
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=TimeoutError)
+        provider._ib = mock_ib
+        provider._qualified_contracts["XYZ"] = MagicMock(secType="STK")
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 25, tzinfo=UTC)
+        with (
+            patch.object(ibkr_module, "_RETRY_COUNT", 1),
+            pytest.raises(ProviderSessionLost),
+        ):
+            await provider.fetch_historical_bars("XYZ", "1m", start, end)
+
+    @pytest.mark.asyncio
+    async def test_a_live_probe_after_all_failures_is_a_failed_chunk_not_a_lost_session(
+        self, provider, mock_ib
+    ):
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=TimeoutError)
+        provider._ib = mock_ib
+        provider._qualified_contracts["XYZ"] = MagicMock(secType="STK")
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        with patch.object(ibkr_module, "_RETRY_COUNT", 1):
+            await provider.fetch_historical_bars("XYZ", "1m", start, end)
+        assert provider.last_fetch_failed_chunks >= 1
+
+    @pytest.mark.asyncio
+    async def test_a_definitive_no_data_answer_is_never_probed(self, provider, mock_ib):
+        provider.history_alive = AsyncMock(return_value=False)
+        reports, _ = await self._walk(
+            provider,
+            mock_ib,
+            ["no_data", "no_data"],
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 25, tzinfo=UTC),
+        )
+        provider.history_alive.assert_not_awaited()
+        assert len(reports) == 1
+
+
+class TestHistoryAlive:
+    """history_alive (todo 538): one 1d bar of the APR probe name, never reqCurrentTime."""
+
+    @pytest.fixture(autouse=True)
+    def _no_spacing_or_pacing(self):
+        with (
+            patch.object(ibkr_module, "_HIST_PROBE_MIN_SPACING_S", 0.0),
+            patch.object(ibkr_module, "_hist_acquire_paced", AsyncMock()),
+        ):
+            yield
+
+    @staticmethod
+    def _ib(bars, qualified=True):
+        ib = MagicMock()
+        contract = MagicMock(conId=756733 if qualified else 0)
+        ib.qualifyContractsAsync = AsyncMock(return_value=[contract])
+        ib.reqHistoricalDataAsync = AsyncMock(return_value=bars)
+        return ib
+
+    @pytest.mark.asyncio
+    async def test_alive_when_the_probe_bar_returns_and_qualifies_once(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib([MagicMock()])
+        with (
+            patch.object(ibkr_module, "_HIST_PROBE_MIN_SPACING_S", 0.0),
+            patch.object(ibkr_module, "_hist_acquire_paced", AsyncMock()),
+        ):
+            assert await p.history_alive() is True
+            assert await p.history_alive() is True
+        assert p._ib.qualifyContractsAsync.await_count == 1
+        kwargs = p._ib.reqHistoricalDataAsync.await_args.kwargs
+        assert kwargs["durationStr"] == "1 D" and kwargs["barSizeSetting"] == "1 day"
+        assert kwargs["timeout"] == ibkr_module._HIST_PROBE_TIMEOUT_S
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bars", [[], None])
+    async def test_dead_on_an_empty_answer_after_one_retry(self, bars):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib(bars)
+        assert await p.history_alive() is False
+        assert p._ib.reqHistoricalDataAsync.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_one_missed_probe_does_not_read_as_dead(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib([MagicMock()])
+        p._ib.reqHistoricalDataAsync = AsyncMock(side_effect=[TimeoutError, [MagicMock()]])
+        assert await p.history_alive() is True
+
+    @pytest.mark.asyncio
+    async def test_dead_on_a_timeout_or_error_or_failed_qualify(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib([MagicMock()])
+        p._ib.reqHistoricalDataAsync = AsyncMock(side_effect=TimeoutError)
+        assert await p.history_alive() is False
+        q = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        q._ib = self._ib([MagicMock()], qualified=False)
+        assert await q.history_alive() is False
+        assert await IBKRProvider(host="127.0.0.1", port=7497, client_id=1).history_alive() is False
+
+    @pytest.mark.asyncio
+    async def test_a_probe_is_shared_only_with_failures_it_post_dates(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib([MagicMock()])
+        with (
+            patch.object(ibkr_module, "_HIST_PROBE_MIN_SPACING_S", 0.0),
+            patch.object(ibkr_module, "_hist_acquire_paced", AsyncMock()),
+        ):
+            t0 = time.monotonic()
+            await p.history_alive(since=t0)  # probe 1
+            # failures that happened before probe 1 started share its answer
+            assert await p.history_alive(since=t0 - 1) is True
+            assert await p.history_alive(since=t0) is True
+            assert p._ib.reqHistoricalDataAsync.await_count == 1
+            # a failure after probe 1 started needs its own probe
+            await p.history_alive(since=time.monotonic() + 1)
+            assert p._ib.reqHistoricalDataAsync.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_probes_are_spaced_by_the_identical_request_window(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        p._ib = self._ib([MagicMock()])
+        sleeps = []
+
+        async def fake_sleep(s):
+            sleeps.append(s)
+
+        with (
+            patch.object(ibkr_module.asyncio, "sleep", fake_sleep),
+            patch.object(ibkr_module, "_HIST_PROBE_MIN_SPACING_S", 15.0),
+        ):
+            await p.history_alive()
+            await p.history_alive(since=time.monotonic() + 1)
+        assert len(sleeps) == 1 and 0 < sleeps[0] <= 15.0
+
+    @pytest.mark.asyncio
+    async def test_the_probes_own_no_data_req_id_is_discarded_and_disconnect_resets(self):
+        p = IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
+        answer = MagicMock()
+        answer.__bool__ = lambda self: False
+        answer.reqId = 4242
+        p._ib = self._ib(answer)
+        ibkr_module._no_data_req_ids.add(4242)
+        with patch.object(ibkr_module, "_hist_acquire_paced", AsyncMock()):
+            assert await p.history_alive() is False
+        assert 4242 not in ibkr_module._no_data_req_ids
+        assert p._probe_contract is not None
+        await p.disconnect()
+        assert p._probe_contract is None and p._probe_result is None
+
+    def test_the_probe_name_and_timeout_overlay_from_apr(self):
+        old = (ibkr_module._HIST_PROBE_TIMEOUT_S, ibkr_module._HIST_PROBE_SYMBOL)
+        try:
+            ibkr_module.apply_hist_rate_limit_config(
+                {
+                    "infra.ibkr.history_probe_timeout_s": "45",
+                    "infra.ibkr.history_probe_symbol": "QQQ",
+                }
+            )
+            assert (ibkr_module._HIST_PROBE_TIMEOUT_S, ibkr_module._HIST_PROBE_SYMBOL) == (
+                45.0,
+                "QQQ",
+            )
+        finally:
+            ibkr_module._HIST_PROBE_TIMEOUT_S, ibkr_module._HIST_PROBE_SYMBOL = old
 
 
 def test_error_162_log_label_separates_no_data_from_throttling():

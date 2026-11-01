@@ -135,6 +135,7 @@ from src.intelligence.features.kernels.macro import (
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider
+from src.providers.base import ProviderSessionLost
 
 setup_service_logging("logs/backfill_feature_factory.log")
 
@@ -932,6 +933,8 @@ async def run_fetch_stage(
                         total_bars_fetched += stored
                         _logger.info("fetch_stored", symbol=instrument.symbol, tf=tf, bars=stored)
 
+                    except ProviderSessionLost:
+                        raise  # todo 538: a dead history session ends the stage, loudly
                     except Exception as error:
                         _logger.error(
                             "fetch_error",
@@ -942,6 +945,8 @@ async def run_fetch_stage(
 
                     await asyncio.sleep(1)  # IBKR pacing between TFs
 
+            except ProviderSessionLost:
+                raise
             except Exception as error:
                 _logger.error("instrument_error", symbol=instrument.symbol, error=str(error))
 

@@ -75,6 +75,7 @@ from src.providers.base import (  # noqa: E402
     HistoryRequest,
     NoDataVerdict,
     OHLCVBar,
+    ProviderSessionLost,
     RequestRecord,
     Tick,
 )
@@ -316,12 +317,22 @@ _tf_rate_limiters: dict[str, _SlidingWindowRateLimiter] = {}
 # constants above; this is the fallback default.
 _HIST_PACING_WAIT_RELEASE_S = 60.0
 
+# History-farm liveness probe (todo 538, history_alive): one 1d bar of a liquid name. APR-
+# overridable (infra.ibkr.history_probe_timeout_s / history_probe_symbol); fallback defaults.
+_HIST_PROBE_TIMEOUT_S = 60.0
+_HIST_PROBE_SYMBOL = "SPY"
+# IBKR rejects an identical history request repeated inside 15 s (pacing rule): probes are spaced
+# at least this far apart. A vendor rule, not a tunable.
+_HIST_PROBE_MIN_SPACING_S = 15.0
+
 
 HIST_RATE_LIMIT_KEYS = (
     "infra.ibkr.rate_limit_max_requests",
     "infra.ibkr.rate_limit_window_sec",
     "infra.ibkr.rate_limit_max_requests_by_tf",
     "infra.ibkr.hist_pacing_wait_release_s",
+    "infra.ibkr.history_probe_timeout_s",
+    "infra.ibkr.history_probe_symbol",
 )
 
 
@@ -330,7 +341,7 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
     config_value) onto the module constants every limiter reads fresh on acquire(). Absent
     keys keep their defaults. DB-ignorant: each caller loads the rows its own way."""
     global _IBKR_HIST_RATE_LIMIT, _IBKR_HIST_WINDOW_S, _IBKR_HIST_RATE_LIMIT_BY_TF  # noqa: PLW0603
-    global _HIST_PACING_WAIT_RELEASE_S  # noqa: PLW0603
+    global _HIST_PACING_WAIT_RELEASE_S, _HIST_PROBE_TIMEOUT_S, _HIST_PROBE_SYMBOL  # noqa: PLW0603
     if "infra.ibkr.rate_limit_max_requests" in values:
         _IBKR_HIST_RATE_LIMIT = int(values["infra.ibkr.rate_limit_max_requests"])
     if "infra.ibkr.rate_limit_window_sec" in values:
@@ -342,6 +353,10 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
         }
     if "infra.ibkr.hist_pacing_wait_release_s" in values:
         _HIST_PACING_WAIT_RELEASE_S = float(values["infra.ibkr.hist_pacing_wait_release_s"])
+    if "infra.ibkr.history_probe_timeout_s" in values:
+        _HIST_PROBE_TIMEOUT_S = float(values["infra.ibkr.history_probe_timeout_s"])
+    if "infra.ibkr.history_probe_symbol" in values:
+        _HIST_PROBE_SYMBOL = str(values["infra.ibkr.history_probe_symbol"])
 
 
 def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
@@ -823,6 +838,9 @@ class IBKRProvider:
         self._tick_queue: asyncio.Queue[Tick] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._qualified_contracts: dict[str, object] = {}
+        self._probe_contract: Contract | None = None  # history_alive's qualified probe name
+        self._probe_lock = asyncio.Lock()  # one probe in flight; concurrent lanes share it
+        self._probe_result: tuple[float, bool] | None = None  # (started monotonic, alive)
         self._local_to_canonical: dict[str, str] = {}  # IBKR localSymbol -> instrument.symbol
         # SMART chunks of the last fetch_historical_bars call that failed every retry: the
         # call still returns what it got, so a caller deciding "complete" must check this.
@@ -877,6 +895,8 @@ class IBKRProvider:
 
     async def disconnect(self) -> None:
         """Disconnect from TWS."""
+        self._probe_contract = None  # re-qualified on the next session (conIds can change)
+        self._probe_result = None
         if self._ib:
             self._ib.disconnect()
             logger.info("IBKRProvider disconnected")
@@ -1273,6 +1293,7 @@ class IBKRProvider:
             outcome_req_id: int | None = None
             outcome_error_text: str | None = None
             last_error: Exception | None = None
+            session_lost = False
             requested_at = datetime.now(UTC)
             for attempt in range(_RETRY_COUNT):
                 outer_timed_out = False
@@ -1333,6 +1354,7 @@ class IBKRProvider:
                     outcome_req_id = req_id
                     break  # Definitive "no data" — don't retry
 
+                failed_at = time.monotonic()
                 if attempt < _RETRY_COUNT - 1:
                     backoff = _RETRY_BACKOFF_BASE_S * (2**attempt)  # 65s then 130s (defaults)
                     logger.warning(
@@ -1348,6 +1370,12 @@ class IBKRProvider:
                     )
                     await asyncio.sleep(backoff)
                     await _hist_acquire_paced(symbol, timeframe)
+                    # todo 538: after the backoff (a pacing penalty has run its course), probe
+                    # before retrying: a dead history farm never recovers by retrying into it.
+                    if not await self.history_alive(since=failed_at):
+                        session_lost = True
+                        outcome = "timeout" if outer_timed_out else "failed"
+                        break
             else:
                 if source_tag != SOURCE_IBKR_VENUE:
                     self.last_fetch_failed_chunks += 1
@@ -1363,11 +1391,17 @@ class IBKRProvider:
                 outcome = "timeout" if outer_timed_out else "failed"
                 if last_error is not None:
                     outcome_error_text = f"{type(last_error).__name__}: {last_error}"
+                # Every attempt failed: the same probe tells a dead farm from a bad chunk.
+                session_lost = not await self.history_alive(since=failed_at)
 
             # One record per request, emitted once at its outcome point (D-05). Built
             # whenever either callback is present; on_observation reuses this record
             # for the parsed bars below. fetch_run_id comes from the public entry
             # (shared across every request the fetch makes).
+            if session_lost:
+                outcome_error_text = "history probe failed after the request failed" + (
+                    f" ({outcome_error_text})" if outcome_error_text else ""
+                )
             record: RequestRecord | None = None
             if outcome is not None and (on_request is not None or on_observation is not None):
                 if not fetch_run_id:
@@ -1390,6 +1424,12 @@ class IBKRProvider:
                     answered_at=datetime.now(UTC),
                 )
                 _safe_request_callback(on_request, record)
+
+            if session_lost:
+                raise ProviderSessionLost(
+                    f"{symbol}/{timeframe}: history request failed and the history probe "
+                    f"({_HIST_PROBE_SYMBOL} 1d) did not answer"
+                )
 
             chunk_bars: list[OHLCVBar] = []
             for bar in ib_bars or []:
@@ -1835,6 +1875,69 @@ class IBKRProvider:
         return await asyncio.wait_for(
             self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
         )
+
+    async def history_alive(self, since: float | None = None) -> bool:
+        """History-farm liveness (todo 538): one 1d bar of the APR probe name inside the APR
+        timeout. reqCurrentTime (session_alive) is answered by the gateway session itself and
+        passes while the history farm is dead, so it cannot gate a history walk. Any error,
+        timeout or empty answer counts as dead (errors are logged).
+
+        `since` is the monotonic time the caller's request failed. One probe runs at a time and
+        its answer is shared only with callers whose failure it post-dates (a probe that started
+        before a lane's failure is not evidence about that failure). A new probe waits out
+        _HIST_PROBE_MIN_SPACING_S after the last, so lanes never send IBKR the identical request
+        twice inside its 15 s window. A failed probe is retried once after that spacing."""
+        if not self._ib:
+            return False
+        async with self._probe_lock:
+            last = self._probe_result
+            if last and since is not None and last[0] >= since:
+                return last[1]
+            if last:
+                wait = _HIST_PROBE_MIN_SPACING_S - (time.monotonic() - last[0])
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            started = time.monotonic()
+            alive = await self._probe_history()
+            if not alive:
+                # One more try after the spacing: a probe queued behind large payloads on the
+                # shared socket must not end a healthy run on a single miss.
+                await asyncio.sleep(_HIST_PROBE_MIN_SPACING_S)
+                alive = await self._probe_history()
+            self._probe_result = (started, alive)
+            return alive
+
+    async def _probe_history(self) -> bool:
+        try:
+            if self._probe_contract is None:
+                found = await asyncio.wait_for(
+                    self._ib.qualifyContractsAsync(Stock(_HIST_PROBE_SYMBOL, "SMART", "USD")),
+                    timeout=_CONTRACT_DETAILS_TIMEOUT_SEC,
+                )
+                if not found or not getattr(found[0], "conId", 0):
+                    logger.warning("ibkr.history_probe_unqualified")
+                    return False
+                self._probe_contract = found[0]
+            await _hist_acquire_paced(_HIST_PROBE_SYMBOL, "1d")  # the probe spends budget too
+            bars = await asyncio.wait_for(
+                self._ib.reqHistoricalDataAsync(
+                    self._probe_contract,
+                    endDateTime="",
+                    durationStr="1 D",
+                    barSizeSetting="1 day",
+                    whatToShow="TRADES",
+                    useRTH=True,
+                    formatDate=1,
+                    timeout=_HIST_PROBE_TIMEOUT_S,
+                ),
+                timeout=_HIST_PROBE_TIMEOUT_S + 5.0,
+            )
+        except Exception as error:
+            logger.warning("ibkr.history_probe_failed", extra={"error": repr(error)})
+            return False
+        # The probe's own Error 162 must not linger as a false no-data verdict for a later chunk.
+        _no_data_req_ids.discard(getattr(bars, "reqId", None))
+        return bool(bars)
 
     async def session_alive(self, timeout_sec: float = 10.0) -> bool:
         """Liveness probe for the qualify-on-dead-socket case (todo 577): the TCP socket to

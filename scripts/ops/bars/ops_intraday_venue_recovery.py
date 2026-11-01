@@ -39,6 +39,8 @@ import psycopg
 import structlog
 from psycopg import sql
 
+from src.providers.base import ProviderSessionLost
+
 _logger = structlog.get_logger(__name__)
 
 _JOB = "intraday-venue-recovery"
@@ -157,10 +159,17 @@ async def recover(
 ) -> dict[str, Any]:
     """Fetch and store each target's venue bars, then re-derive the grid for the stored names."""
     stored: dict[str, int] = {}
-    for target in targets:
-        bars = await fetch(target)
-        if bars:
-            stored[target.symbol] = store(target.symbol, bars)
+    try:
+        for target in targets:
+            bars = await fetch(target)
+            if bars:
+                stored[target.symbol] = store(target.symbol, bars)
+    except ProviderSessionLost:
+        # todo 538: a dead history farm ends the run, but the names already stored still get
+        # their grid re-derived so raw and derived bars do not diverge.
+        if stored:
+            run_grid_stage(sorted(stored))
+        raise
     names = sorted(stored)
     grid_rc = run_grid_stage(names) if names else 0
     return {"stored": stored, "grid_returncode": grid_rc}

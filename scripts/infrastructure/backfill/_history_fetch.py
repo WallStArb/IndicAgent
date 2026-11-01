@@ -44,6 +44,7 @@ from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.intelligence.bars.gap_plan import AnsweredWindows, expected_grid_slots
 from src.intelligence.bars.vendor_kind import label_to_vendor_kind
 from src.providers import IBKRProvider, ibkr
+from src.providers.base import ProviderSessionLost
 
 _log = structlog.get_logger(__name__)
 
@@ -322,6 +323,8 @@ async def fetch_per_contract(
 
             await asyncio.sleep(1)  # IBKR pacing between contracts
 
+        except ProviderSessionLost:
+            raise  # todo 538: a dead history session ends the item, not one contract
         except Exception as e:
             print(f"    {contract_sym}: error — {e}")
 
@@ -564,11 +567,8 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT config_key, config_value FROM config_state "
-                    "WHERE config_key IN ("
-                    "'infra.ibkr.rate_limit_max_requests', "
-                    "'infra.ibkr.rate_limit_window_sec', "
-                    "'infra.ibkr.rate_limit_max_requests_by_tf', "
-                    "'infra.ibkr.hist_pacing_wait_release_s')"
+                    "WHERE config_key = ANY(%s)",
+                    (list(ibkr.HIST_RATE_LIMIT_KEYS),),
                 )
                 rows = dict(cur.fetchall())
         finally:

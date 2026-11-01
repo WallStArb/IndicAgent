@@ -85,7 +85,7 @@ from src.intelligence.bars.vendor_kind import (
     observation_kind,
 )
 from src.providers import ibkr
-from src.providers.base import EmptyHistory, HistoryProvider
+from src.providers.base import EmptyHistory, HistoryProvider, ProviderSessionLost
 
 logger = structlog.get_logger(__name__)
 
@@ -166,8 +166,9 @@ class ItemStalled(Exception):
         self.elapsed_s = elapsed_s
 
 
-class GatewayLost(Exception):
-    """The IBKR client is down and could not be reconnected: not the item's failure."""
+class GatewayLost(ProviderSessionLost):
+    """The IBKR client is down and could not be reconnected: not the item's failure. A
+    ProviderSessionLost, so one clause covers it and the provider's own session-lost raise."""
 
 
 async def run_with_stall_bound(
@@ -930,6 +931,9 @@ async def fetch_item(
                         # chunk boundaries sit a day apart
                         timedelta(days=1) + interval,
                     )
+        except ProviderSessionLost:
+            # todo 538: a dead session fails every later window too; never a window failure.
+            raise
         except Exception as error:
             if _before_head(gap_end, head_floor):
                 logger.info(
@@ -1073,14 +1077,22 @@ async def fetch_item_with_retries(
                     "error", attempt, error=f"sink flush after stall failed: {flush_error}"
                 )
             continue
-        except GatewayLost as error:
+        except ProviderSessionLost as error:
+            # GatewayLost, or (todo 538) the provider's history probe failed after a failed
+            # request: the run summary records gateway_lost, the lock frees, and the resume
+            # starts a fresh session. Answers captured before the loss are flushed first (a
+            # raw answer is never dropped silently, D-05).
             logger.warning(
                 "ibkr_history_fetcher.gateway_lost",
                 symbol=symbol,
                 timeframe=timeframe,
                 error=str(error),
             )
-            return ended("error", attempt, gateway_lost=True, error=str(error))
+            flush_error = _flush_after_cancel(ctx)
+            text = (
+                str(error) if flush_error is None else f"{error}; sink flush failed: {flush_error}"
+            )
+            return ended("error", attempt, gateway_lost=True, error=text)
         except Exception as error:
             logger.error(
                 "ibkr_history_fetcher.item_failed",

@@ -36,7 +36,7 @@ from scripts.infrastructure.backfill._history_fetch_item import (
 from scripts.infrastructure.backfill._intraday_persist import PersistResult
 from services.ohlcv_raw_writer import RawRow
 from src.core.models import AssetClass
-from src.providers.base import OHLCVBar
+from src.providers.base import OHLCVBar, ProviderSessionLost
 
 # ---------------------------------------------------------------------------
 # Part 1: stall bound, retries, reconnect
@@ -303,9 +303,17 @@ def test_other_exceptions_become_an_error_outcome_not_a_crash(monkeypatch):
     assert "boom from the provider" in (outcome.error or "")
 
 
-def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
+@pytest.mark.parametrize(
+    "lost",
+    [
+        item_mod.GatewayLost("reconnect before qualify failed"),
+        # todo 538: a request timed out and the session failed the liveness probe
+        ProviderSessionLost("AAA: timed out, probe failed"),
+    ],
+)
+def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch, lost):
     async def fake_fetch_item(ctx, instrument, row, *, full_scan, clock, **lane):
-        raise item_mod.GatewayLost("reconnect before qualify failed")
+        raise lost
 
     monkeypatch.setattr(item_mod, "fetch_item", fake_fetch_item)
     outcome = asyncio.run(
@@ -320,6 +328,36 @@ def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
     )
     assert outcome.status == "error"
     assert outcome.gateway_lost is True
+
+
+def test_a_lost_session_flushes_what_the_item_captured(monkeypatch):
+    """Answers captured before the loss reach the raw writer (D-05), and a flush failure is
+    reported on the outcome instead of dropped."""
+    flushed = []
+    monkeypatch.setattr(item_mod, "_flush_capture", lambda sink, settings: flushed.append(sink))
+
+    async def lost_fetch_item(ctx, instrument, row, *, full_scan, clock, **lane):
+        raise ProviderSessionLost("AAA: history probe failed")
+
+    monkeypatch.setattr(item_mod, "fetch_item", lost_fetch_item)
+    run = lambda: asyncio.run(  # noqa: E731
+        fetch_item_with_retries(
+            _retry_ctx(),
+            _INSTRUMENT,
+            _ROW,
+            full_scan=False,
+            config=_config(),
+            reconnect=_reconnects(),
+        )
+    )
+    assert run().gateway_lost is True and len(flushed) == 1
+
+    def boom(sink, settings):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(item_mod, "_flush_capture", boom)
+    outcome = run()
+    assert outcome.gateway_lost is True and "disk full" in (outcome.error or "")
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +471,10 @@ class FakeProvider:
 
     def is_connected(self) -> bool:
         return self.connected
+
+    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+        # todo 577's probe: a live session, so a qualify False is a genuine unknown contract.
+        return True
 
     async def qualify_instrument(self, instrument) -> bool:
         self.qualify_calls.append(instrument.symbol)
@@ -1035,6 +1077,22 @@ def test_window_exception_is_an_error(env):
     outcome = _fetch(_ctx(provider), _row("15m"))
     assert outcome.status == "error"
     assert "socket closed" in (outcome.error or "")
+
+
+def test_a_dead_session_propagates_past_the_window_loop(env):
+    """Todo 538: IBKRSessionDead is never a window failure, not even before the head; it
+    leaves fetch_item on the first window so fetch_item_with_retries can fast-fail the run."""
+    provider = FakeProvider()
+    provider.raise_on_fetch = ProviderSessionLost("AAA: timed out, probe failed")
+    head = datetime(2021, 1, 4, tzinfo=UTC)
+    ctx = _ctx(provider, fresh_heads={("ibkr", "AAA", "15m"): head})
+    env.record_gaps = [
+        (datetime(2018, 1, 2, tzinfo=UTC), datetime(2018, 1, 3, tzinfo=UTC)),
+        (datetime(2021, 2, 1, tzinfo=UTC), datetime(2021, 2, 2, tzinfo=UTC)),
+    ]
+    with pytest.raises(ProviderSessionLost):
+        _fetch(ctx, _row("15m"))
+    assert len(provider.calls) == 1
 
 
 # --- per-run caches -----------------------------------------------------------

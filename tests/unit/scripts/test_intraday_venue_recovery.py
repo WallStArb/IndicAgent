@@ -12,11 +12,14 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+
 from scripts.infrastructure.backfill import _fetcher_lock
 from scripts.ops.bars import _campaign
 from scripts.ops.bars import ops_intraday_venue_recovery as rec
 from src import providers
 from src.config import settings as settings_module
+from src.providers.base import ProviderSessionLost
 
 _STATE = json.dumps(
     {"table": "provenance_batch", "target_tables": ["feature_vectors_v2", "feature_vectors"]}
@@ -168,6 +171,31 @@ def test_recover_runs_no_grid_stage_when_nothing_was_fetched():
         )
     )
     assert calls == [] and report["stored"] == {}
+
+
+def test_recover_derives_the_grid_for_stored_names_when_the_session_is_lost():
+    """Todo 538: a dead history farm ends the run, but names already stored are re-derived."""
+    targets = [
+        rec.RecoveryTarget("AAA", "NYSE", _dt(2010, 1, 1), _dt(2010, 6, 1)),
+        rec.RecoveryTarget("BBB", "NYSE", _dt(2010, 1, 1), _dt(2010, 6, 1)),
+    ]
+
+    async def fetch(target):
+        if target.symbol == "BBB":
+            raise ProviderSessionLost("BBB: history probe failed")
+        return [{"timestamp": _dt(2010, 2, 1)}]
+
+    grid_calls: list = []
+    with pytest.raises(ProviderSessionLost):
+        asyncio.run(
+            rec.recover(
+                targets,
+                fetch=fetch,
+                store=lambda s, b: len(b),
+                run_grid_stage=lambda names: grid_calls.append(names) or 0,
+            )
+        )
+    assert grid_calls == [["AAA"]]
 
 
 # --- the shared fetcher lock (phase 189 plan 05, CD-09) --------------------------
