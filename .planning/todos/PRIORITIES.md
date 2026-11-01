@@ -123,7 +123,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Todo | Why now |
 |---|---|
-| [494](pending/494-unit-tests-can-spawn-live-writers-ci-guard.md) | New 2026-10-06, from 185-18. Unit tests leaked into the live database three times (a real grid derivation, permanent D1 fixture rows, a self-cleaning live write). Add a conftest guard on subprocess spawns of derivation and pipeline scripts and a boundary test on live-DSN writes; move the atomic-write test to indicagent_test. |
 | [520](pending/520-future-timestamp-guard-on-ingested-bars.md) | New 2026-10-09. The writer guard landed in 191-02 (`services/ohlcv_raw_writer.py`, APR `threshold.bar_integrity.future_bar_tolerance_s`, tested). Open remainder: the D7 1d condition, explicit deferral D-191-H (owner acknowledgement pending). |
 | [522](pending/522-alpaca-execution-mechanics-shadow.md) | New 2026-10-09, pilot Workstream B. Paper-only order lifecycle validation (20 single-share orders, EOD flat, idempotent reconnect) plus the fixed slippage instrumentation spec. Single session, zero risk, independent of the 189-10 lanes; fastest path to measured own-flow slippage. |
 | [527](pending/527-post-backfill-simplify-backlog-185-189.md) | New 2026-10-10; findings in docs/plans/archive/2026-10-10-simplify-findings-185-189.md. Phase 191 plan 06 consolidated the `_d1_gaps` answered-window copy; the service-side copies and the 5m shaper dedup are the explicit deferral D-191-H (owner acknowledgement pending); items 3 to 9 unchanged and open. |
