@@ -65,3 +65,12 @@ future health check wants production-only fallback counts, filter events by the 
 preceding `fetcher_lock.acquired` lock name (the `test_` prefix); optionally, ungated, the unit
 tests could point structlog at a tmp file so the class log is production-only. The todo 443
 capacity question is unrelated to this signal (its stalls were diagnosed separately).
+
+## Closed (coordinator verification, 2026-11-01)
+
+Premise collapsed by the diagnosis above: the 253 events were unit-test traffic on the shared
+class log, zero production fallbacks, and the production keys were live throughout (534 ran on
+its APR values). No get_sync target exists, no fix exists to land, and the only real finding
+(tests polluting `logs/ibkr_history_fetcher.log`) was already fixed by todo 575 (commit
+`81ff26fad`) before the diagnosis ran against the pre-fix rotation. Verified by indicagent-af
+against origin/main (`9d0aa3f02`) before closing.
