@@ -5,8 +5,9 @@ the six infra.tradier.* keys left after migration 459 retired max_changed_bar_ra
 account is unfunded and will not be funded (owner, 2026-10-07), so no fetch path reads them again.
 The migration deletes the six keys from config_history, then config_state, then config_schema,
 inside one transaction, by literal key (idempotent: a rerun deletes nothing). The cutover
-admission keys threshold.bar_integrity.tradier_admission_* stay: ops_source_policy.py reads them
-to judge the stored Tradier history. CI-clean: reads the file only.
+admission keys threshold.bar_integrity.tradier_admission_* stay (then: ops_source_policy.py
+read them to judge the stored Tradier history; migration 550 retired the pair once plan 191-25
+deleted those readers). CI-clean: reads the file only.
 """
 
 from __future__ import annotations

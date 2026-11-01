@@ -24,12 +24,8 @@ Conditions (plan 185-16; 1, 3 and 4 made source-aware by 185-34):
   3 late_name_dispositions   every IBKR-sourced late 1d name resolves (moved /
                              verified_empty / reached_window_start); none left
                              unresolved (plan 14's classify_head, recomputed
-                             from stored D1 answers). Late names with Tradier
-                             history (any canonical tradier 1d bar, plan 185-48)
-                             are excluded: their history before D comes from
-                             Tradier, not the truncated IBKR route; the evidence
-                             line counts them and names the excluded unresolved
-                             ones
+                             from stored D1 answers); every unresolved
+                             IBKR-sourced name is named
   4 no_pre_move_bars_visible no tradeable IBKR-source 1d bar of a moved name
                              predates its SMART head (moved names from the
                              IBKR-only ohlcv_venue_head, 185-28), unless
@@ -56,7 +52,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -167,17 +163,6 @@ SELECT k.symbol, k.ts,
 FROM unnest(%s::text[], %s::timestamptz[]) AS k(symbol, ts)
 LEFT JOIN market_data_ohlcv m
   ON m.symbol = k.symbol AND m.timeframe = '1d' AND m."timestamp" = k.ts
-"""
-
-# Late names with Tradier history (plan 185-48): any canonical 1d bar sourced from Tradier.
-# Stored bars, not the open policy row: since 185-47 the open 1d default names IBKR, so a
-# policy predicate would exclude nobody and widen condition 3 to every name the swap made late.
-_TRADIER_HISTORY_LATE_SQL = """
-/* tradier_history */
-SELECT s.symbol FROM unnest(%s::text[]) AS s(symbol)
-WHERE EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable m
-              WHERE m.symbol = s.symbol AND m.timeframe = '1d'
-                AND m.vendor = %s AND m.kind = %s)
 """
 
 _SEAM_ACTION_SQL = """
@@ -341,30 +326,20 @@ def seam_condition(
 
 
 def dispositions_condition(
-    dispositions: Mapping[str, str], tradier_history: Collection[str] = ()
+    dispositions: Mapping[str, str],
 ) -> CheckResult:
     """Condition 3: no IBKR-sourced late name is left unresolved.
 
-    Late names with Tradier history are out of scope (185-34: orchestrator call 2026-10-06, pending
-    owner review); they are counted and their unresolved names listed, never judged. Every
-    unresolved IBKR-sourced name is named: the residue, not a sample."""
-    owned = set(tradier_history)
-    judged = {s: d for s, d in dispositions.items() if s not in owned}
-    excluded = sorted(s for s in dispositions if s in owned)
-    unresolved = sorted(s for s, d in judged.items() if d == "unresolved")
-    excluded_unresolved = [s for s in excluded if dispositions[s] == "unresolved"]
+    Every unresolved IBKR-sourced name is named: the residue, not a sample. (The retired
+    vendor's names were excluded here until its rows were deleted in plan 191-20; the exclusion
+    went with them, plan 191-25.)"""
+    unresolved = sorted(s for s, d in dispositions.items() if d == "unresolved")
     return CheckResult(
         condition="late_name_dispositions",
         ok=not unresolved,
         evidence=(
-            f"IBKR-sourced late names {len(judged)}; unresolved {len(unresolved)}"
+            f"IBKR-sourced late names {len(dispositions)}; unresolved {len(unresolved)}"
             + (f" ({', '.join(unresolved)})" if unresolved else "")
-            + f"; Tradier-history excluded {len(excluded)}"
-            + (
-                f" (unresolved under IBKR answers: {', '.join(excluded_unresolved)})"
-                if excluded_unresolved
-                else ""
-            )
         ),
     )
 
@@ -466,10 +441,7 @@ def _rows(conn: Any, sql: str, params: tuple = ()) -> list[tuple]:
 
 
 def _stored_label(vendor: str, kind: str) -> str:
-    """The source label of a stored pair. The retired vendor's label left vendor_kind in
-    191-21; the judged status still keys on it until plan 191-25 removes this script's arm."""
-    if (vendor, kind) == ("tradier", "consolidated"):
-        return "tradier"
+    """The source label of a stored pair."""
     return vendor_kind_to_label(vendor, kind)
 
 
@@ -530,14 +502,6 @@ def run_checks(conn: Any) -> list[CheckResult]:
         )
         for symbol in late
     }
-    tradier_history = {
-        row[0]
-        for row in _rows(
-            conn,
-            _TRADIER_HISTORY_LATE_SQL,
-            (sorted(late), "tradier", "consolidated"),
-        )
-    }
 
     pre_move = int(_scalar(conn, _PREMOVE_SQL)[0])
     covered, eligible, deactivated = _scalar(conn, _INVENTORY_SQL, (sorted(late),))
@@ -561,7 +525,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
             split_seam_bars=dict(split_seam_bars),
             daily_batches=daily_batches,
         ),
-        dispositions_condition(dispositions, tradier_history),
+        dispositions_condition(dispositions),
         premove_condition(n_pre_move_bars=pre_move, venue_bars_1d=venue_bars_1d),
         dividend_condition(
             covered=int(covered),

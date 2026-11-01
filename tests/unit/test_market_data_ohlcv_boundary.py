@@ -58,11 +58,16 @@ _ALLOW_LIST: dict[str, str] = {
         "selection of ohlcv_raw; the tradeable view's volume > 0 filter would hide the very rows "
         "the proof must equal."
     ),
-    "scripts/ops/bars/ops_source_policy.py": (
-        "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
-        "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "
-        "tradeable view would hide a name whose only Tradier rows are zero-volume or quarantined "
-        "and misclassify an incumbent as never-Tradier."
+    "scripts/ops/bars/ops_tradier_residue.py": (
+        "TEMPORARY retire: todo 574 (Tradier retirement record script). Removal gated on the "
+        "2026-11-12 backup retention date."
+    ),
+    "scripts/ops/bars/ops_tradier_delete.py": (
+        "TEMPORARY retire: todo 574 (Tradier source-scoped deletion, owner exception "
+        "2026-10-12): counts, backs up and deletes the stored vendor tradier rows, "
+        "zero-volume bars included; the tradeable view would hide some of the rows the "
+        "backup and the delete must cover exactly. Removal gated on the 2026-11-12 backup "
+        "retention date."
     ),
     "scripts/ops/bars/ops_data_bar_check.py": (
         "PERMANENT (plan 185-34): the D-28 gate judges each known-answer key by its stored row "
@@ -107,15 +112,6 @@ _ALLOW_LIST: dict[str, str] = {
         "write contract classifies against every stored row of those timeframes, so it must "
         "address the table, not the tradeable view, whose volume > 0 filter would hide "
         "stored rows the contract must see (a vendor grid row fails the stage loud)."
-    ),
-    "scripts/ops/bars/ops_tradier_residue.py": (
-        "TEMPORARY retire: 191-25 (Tradier retirement record script)"
-    ),
-    "scripts/ops/bars/ops_tradier_delete.py": (
-        "TEMPORARY retire: 191-25 (Tradier source-scoped deletion, owner exception 2026-10-12): "
-        "counts, backs up and deletes the stored vendor tradier rows, zero-volume bars "
-        "included; the tradeable view would hide some of the rows the backup and the delete "
-        "must cover exactly."
     ),
 }
 

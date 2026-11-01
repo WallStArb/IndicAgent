@@ -33,9 +33,10 @@ _ALLOW_LIST: dict[str, str] = {
         "changed rows last-wins and logs the old values to ohlcv_revision."
     ),
     "scripts/ops/bars/ops_tradier_delete.py": (
-        "TEMPORARY retire: 191-25 (Tradier source-scoped deletion, owner exception 2026-10-12). "
-        "DELETE FROM ohlcv_raw where vendor tradier and timeframe 1d only, in symbol batches "
-        "after the COPY backup (plan 191-20); it never inserts or updates a row."
+        "TEMPORARY retire: todo 574 (Tradier source-scoped deletion, owner exception "
+        "2026-10-12). DELETE FROM ohlcv_raw where vendor tradier and timeframe 1d only, in "
+        "symbol batches after the COPY backup (plan 191-20); it never inserts or updates a "
+        "row. Removal gated on the 2026-11-12 backup retention date."
     ),
 }
 

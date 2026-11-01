@@ -58,7 +58,8 @@ marked **unverified** gets measured in a probe before it enters a plan.
 First candidate third data vendor; lands in the bars vendor lists (unlike
 Clear Street). Candidate roles: intraday depth beyond Alpaca's 2016 floor,
 and a second tape for vendor-agreement audits (the d2/D7 basis machinery
-generalizes). Admission follows the Alpaca path: `source_admission.py`
-gates plus a measured basis study, then one `VendorIngress` seam row
+generalizes). Admission follows the measured-basis path (the Alpaca
+admission's evidence standard, whose Tradier-era script retired with plan
+191-25): a measured basis study, then one `VendorIngress` seam row
 (`src/intelligence/bars/vendor_ingress.py`). No admission without the
 measured basis study.

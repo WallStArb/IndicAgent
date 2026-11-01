@@ -70,8 +70,8 @@ _APR_ISLAND_FAILED = "infra.ibkr.venue_fallback.island_failed_unlisted"
 _ISLAND = "ISLAND"
 _TRUTHY = ("true", "1", "t", "yes")
 _SMART = "SMART"
-# Only IBKR answers judge an IBKR head (185-28): a Tradier answer (route TRADIER, source
-# tradier) is a different vendor's consolidated history, not a former IBKR listing venue.
+# Only IBKR answers judge an IBKR head (185-28); the source filter is the whole condition since
+# the retired vendor's rows were deleted (plan 191-20).
 _IBKR_SOURCE = "ibkr"
 _CLEAN_OUTCOMES = {"bars", "no_data"}
 _RUN_ID_RE = re.compile(r"fetch_run_id:\s*([0-9a-f-]{36})")
@@ -267,7 +267,7 @@ def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequ
         first_bars = _first_bars(cur, symbols, [row[0] for row in rows if row[3] == "bars"])
         for rid, sym, route, outcome, ws, we, answered, source, primary in rows:
             first_bar = first_bars.get(rid)
-            if source != _IBKR_SOURCE or route == "TRADIER":
+            if source != _IBKR_SOURCE:
                 continue
             out[sym].append(
                 HeadRequest(

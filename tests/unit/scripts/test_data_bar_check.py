@@ -124,7 +124,7 @@ _LOADED = datetime(2026, 10, 3, 20, 55, tzinfo=UTC)
 def _status(**overrides: object) -> str:
     kwargs: dict[str, object] = {
         "quarantined": False,
-        "stored_source": "tradier",
+        "stored_source": "alpaca_sip_rth",
         "has_ibkr_revision": True,
         "last_revision_at": _LOADED,
         "scrub_at": _SCRUB_AT,
@@ -202,27 +202,10 @@ def test_dispositions_condition_fails_on_any_unresolved_late_name() -> None:
     assert "HOOD" in bad.evidence
 
 
-def test_dispositions_condition_excludes_tradier_history_late_names_and_reports_them() -> None:
-    """185-34: a late name with Tradier history has its history from Tradier, not the truncated
-    IBKR route, so it is out of scope (orchestrator call 2026-10-06, pending owner review). The
-    excluded count and the excluded unresolved names are on the evidence line."""
-    dispositions = {
-        "AA": "reached_window_start",
-        "DAL": "unresolved",
-        "ODFL": "unresolved",
-        "XOM": "reached_window_start",
-    }
-    result = mod.dispositions_condition(dispositions, tradier_history={"DAL", "ODFL", "XOM"})
-    assert result.ok
-    assert "Tradier-history excluded 3" in result.evidence
-    assert "DAL" in result.evidence and "ODFL" in result.evidence
-    assert "IBKR-sourced late names 1" in result.evidence
-
-
 def test_dispositions_condition_unresolved_ibkr_name_still_fails_and_is_named_in_full() -> None:
     names = [f"N{i:02d}" for i in range(12)]
-    dispositions = {name: "unresolved" for name in names} | {"DAL": "unresolved"}
-    result = mod.dispositions_condition(dispositions, tradier_history={"DAL"})
+    dispositions = {name: "unresolved" for name in names}
+    result = mod.dispositions_condition(dispositions)
     assert not result.ok
     assert "unresolved 12" in result.evidence
     for name in names:  # every residue name, not a sample
@@ -254,7 +237,6 @@ def test_premove_sql_counts_ibkr_sources_only() -> None:
 def test_docstring_describes_the_source_aware_conditions() -> None:
     doc = " ".join((mod.__doc__ or "").split())
     assert "ohlcv_revision" in doc
-    assert "Late names with Tradier history" in doc
     assert "IBKR-source" in doc
 
 
@@ -313,9 +295,6 @@ class FakeCursor:
 
 
 def _marker(sql: str) -> str:
-    # The late names with Tradier history (plan 185-48: stored canonical bars, not the policy).
-    if "/* tradier_history */" in sql:
-        return "tradier_history"
     for key in (
         "ohlcv_revision",  # known-answer status (fixture keys, then legacy keys)
         "ohlcv_venue_head",  # pre-move count
@@ -344,7 +323,7 @@ def _known_rows(keys, quarantined: bool = False, hidden: bool = False) -> list[t
     arrives as its (vendor, kind) pair since the 191-14 swap."""
     if quarantined:
         return [(s, t, True, None, None, False, None, False) for s, t in keys]
-    return [(s, t, False, "tradier", "consolidated", True, _LOADED, hidden) for s, t in keys]
+    return [(s, t, False, "alpaca", "sip_rth", True, _LOADED, hidden) for s, t in keys]
 
 
 def _replies() -> dict[str, list[object]]:
@@ -352,7 +331,6 @@ def _replies() -> dict[str, list[object]]:
         "integrity_monitor": [(True, _SCRUB_AT), (True, _SCRUB_AT)],  # scrub, then seam fact
         # all fixture keys quarantined, then every legacy key replaced
         "ohlcv_revision": [_known_rows(_FIXTURE_KEYS, True), _known_rows(mod.LEGACY_1D_KEYS)],
-        "tradier_history": [[]],  # no late name with Tradier history
         "corporate_action": [[]],  # no seam-audit splits
         "split_seam": [[]],
         "bar_derivation_batch": [[]],  # no daily batches
@@ -456,39 +434,6 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     revision_params = params["ohlcv_revision"]
     assert revision_params[0] == [symbol for symbol, _ in mod.LEGACY_1D_KEYS]
     assert "tradier" not in mod._KNOWN_ANSWER_SQL
-
-
-def test_run_checks_excludes_tradier_history_late_names(monkeypatch) -> None:
-    """DAL is late and has Tradier history: out of condition 3. AMD (IBKR-sourced, no stored
-    requests) stays unresolved and fails the condition."""
-    replies = _replies()
-    replies["tradier_history"] = [[("DAL",)]]
-    conn = FakeConn(replies)
-    _patch(monkeypatch, conn, {"AMD": date(2015, 10, 1), "DAL": date(2008, 1, 2)})
-
-    results = {r.condition: r for r in mod.run_checks(conn)}
-    late = results["late_name_dispositions"]
-    assert not late.ok
-    assert "unresolved 1 (AMD)" in late.evidence
-    assert "Tradier-history excluded 1" in late.evidence and "DAL" in late.evidence
-    params = dict(conn.executed)["tradier_history"]
-    assert sorted(params[0]) == ["AMD", "DAL"]
-    assert tuple(params[1:]) == ("tradier", "consolidated")
-
-
-def test_tradier_history_predicate_reads_stored_canonical_bars_not_the_open_policy() -> None:
-    """Plan 185-48: since 185-47 the open 1d default names IBKR, so a policy predicate would
-    exclude nobody and silently widen condition 3 to every name the swap made late. A name
-    with any canonical Tradier 1d bar has Tradier history before D; that is the exclusion."""
-    sql = " ".join(mod._TRADIER_HISTORY_LATE_SQL.split())
-    assert "market_data_ohlcv_tradeable" in sql
-    assert "m.timeframe = '1d'" in sql
-    assert "m.vendor = %s" in sql and "m.kind = %s" in sql
-    assert "m.source" not in sql
-    assert "bar_source_policy" not in sql and "valid_to" not in sql
-    source = Path(mod.__file__).read_text()
-    assert "from scripts.infrastructure.backfill" not in source  # the deleted loader
-    assert "TRADIER_OWNED_SQL" not in source
 
 
 def test_known_answer_sql_judges_the_stored_row_not_the_tradeable_view() -> None:

@@ -2100,7 +2100,7 @@ name keeps trading elsewhere), a symbol change (a spelling in `provider_meta`), 
 **Banned:** (none)
 **Status:** active (migration 518, todo 519)
 **Code surface:** `production/migrations/518_listing_end.sql` (the one writer),
-`services/bar_reconciliation_audit.py`, `scripts/ops/bars/ops_tradier_residue.py`
+`services/bar_reconciliation_audit.py`
 
 ### `bar content digest`
 
