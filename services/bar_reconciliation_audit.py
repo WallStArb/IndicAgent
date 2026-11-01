@@ -28,7 +28,8 @@ with the venue study):
 
 - the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
   row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
-  compute_1d name: session_coverage, policy_conformance, lineage_missing, canonical_recompute
+  active name (the backfill dimension; todo 502 — a promotion candidate is judged, never
+  absent): session_coverage, policy_conformance, lineage_missing, canonical_recompute
   (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam,
   alpaca_basis_run (Alpaca/IBKR runs after the D-191-Q arbitration, todo 545 step 5a) and
   report_age, plus refused_head_1d as an informational row. The pure judgement is
@@ -1983,7 +1984,7 @@ class BarReconciliationAudit(BaseBatch):
                 conn,
                 integ,
                 window,
-                compute_1d,
+                active,  # every active name: a promotion candidate is judged, never absent (todo 502)
                 checks["unexplained_seams"].result.samples,
                 now,
                 holds=holds,
@@ -2345,14 +2346,18 @@ class BarReconciliationAudit(BaseBatch):
         conn: Any,
         integ: _IntegrityParams,
         window: _Window,
-        compute_1d: list[str],
+        names: list[str],
         seam_samples: Iterable[str],
         run_start: datetime,
         *,
         holds: Mapping[str, Sequence[Hold]] | None = None,
     ) -> _VerdictRun:
-        """Judge every compute_1d name on the nine 1d checks (design section 6; freshness_1d
-        against the last completed session, fixed once per run in `window`).
+        """Judge every name given on the nine 1d checks (design section 6; freshness_1d against
+        the last completed session, fixed once per run in `window`). The caller passes the
+        backfill dimension (every active name, todo 502): a promotion candidate without a
+        verdict is held as missing by the gate, so the judged universe is the candidates, not
+        the promoted set. A name with no 1d history judges failing (session_coverage 0), never
+        absent.
 
         Whole-corpus reads happen once (policy, lineage, answered-empty spans, latest loads);
         each name's observations, splits, stored rows, flags and digests are read, judged and
@@ -2387,7 +2392,7 @@ class BarReconciliationAudit(BaseBatch):
         held_stale: list[str] = []
         holds = holds or {}
         twe = window.training_window_end
-        for symbol in compute_1d:
+        for symbol in names:
             inputs = await BarReconciliationAudit._name_inputs_1d(
                 conn,
                 symbol,
@@ -2481,7 +2486,7 @@ class BarReconciliationAudit(BaseBatch):
             dict(passing),
             timings,
             untraced,
-            len(compute_1d),
+            len(names),
             blocking_samples,
             tuple(held_stale),
         )

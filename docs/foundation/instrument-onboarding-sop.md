@@ -274,8 +274,8 @@ Five checks, all read-only. Record the results in the README entry.
    ```
    Each held name gets the failing verdict as its reason in the README (CLBK: IBKR serves no
    daily history for its conId). A held name stays onboarded and unpromoted; it is never
-   removed. D7 judges only the `compute_1d` names today, so a new name holds as "missing" until
-   todo 502 lands.
+   removed. D7 judges every active name (todo 502), so a new name is judged as soon as it has
+   history: the dry run reports pass or a named failing check, never "missing".
 2. **History heads.** Names whose first bar is after the request window's start are either real
    late listings or venue truncations:
    ```sql

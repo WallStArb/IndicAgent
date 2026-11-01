@@ -34,3 +34,18 @@ Before the next onboarding wave's promote step (onboarding SOP stage 8) and befo
 ## Related
 
 185-41 finding 1, 185-33, 185-40, 185-46 (freshness_1d), 185-47. Todo 498 keeps the fetcher's own SLA alert dead; this todo does not depend on it.
+
+## Applied 2026-11-01 (audit-side; the fetch-side half needs nothing)
+
+The intraday half was already live: `_INTRADAY_NAMES_SQL` selects every name holding 5m rows
+(pinned by test). The 1d half landed tonight: `execute` passes the `backfill` dimension (every
+active name, 1,529) to `_verdict_report_1d`, whose parameter is now `names`; a name with no 1d
+history judges failing (session_coverage 0.0) instead of absent, so the promote dry run
+reports pass or a named failing check. The seam, listing-coverage and dividend-coverage reads
+stay on `compute_1d` (not verdicts). The gate (`gate_symbols`, `REQUIRED_CHECKS`) is untouched;
+promotion remains the promote script's decision. Timing: the todo's before is 4 min 37 s at
+1,502 names; the 27 unpromoted names add about 2 percent (their reads are near-empty), and the
+next nightly audit records the real after numbers for both reports. Tests: an empty-history
+name is judged failing (not missing), and a spy on `execute` pins the 1d names to the backfill
+universe with a fake conn. Done-when items still open: the promote dry run against the live 27
+and the real after timings, both at the next audit window (the host is mid-rebuild tonight).

@@ -595,6 +595,106 @@ class _FakeConn:
         self.facts.extend(facts)
 
 
+def test_a_name_without_history_is_judged_failing_not_missing():
+    """Todo 502: a promotion candidate with no 1d history gets verdict rows (session
+    coverage 0, failed), never an absent verdict the gate would hold as missing."""
+    conn, run = _run({"EEE": {"observations": [], "stored": []}})
+    rows = [f for f in run.facts if f[1] == "EEE|1d"]
+    assert len(rows) == 12
+    coverage = next(f for f in rows if f[2] == "session_coverage")
+    assert coverage[5] is False and coverage[3] == 0.0  # judged, with a named failing check
+
+
+def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
+    """Todo 502: execute passes the backfill universe (every active name) to the 1d verdict
+    report, not the promoted compute_1d set."""
+    captured: dict[str, list[str]] = {}
+
+    async def spy(self, conn, integ, window, names, seam_samples, run_start, **kw):
+        captured["names"] = names
+        run = audit._VerdictRun([], {}, {}, {}, 0, [], [], ())
+        return run
+
+    monkeypatch.setattr(audit.BarReconciliationAudit, "_verdict_report_1d", spy)
+    from types import SimpleNamespace
+
+    _Judged = audit._Judged
+
+    async def stub(*a, **kw):
+        # checks read .result and .n_judged off each _Judged outcome
+        return _Judged(result=SimpleNamespace(samples=[], masked=[], completeness=None), n_judged=0)
+
+    for name in (
+        "_route_disagreement",
+        "_adjusted_vs_trades",
+        "_daily_vs_intraday",
+        "_seams",
+        "_late_heads",
+        "_listing_venue_coverage",
+        "_unconfirmed_empty",
+        "_partial_daily",
+        "_dividend_freshness",
+        "_stray_sources",
+        "_report",
+        "_log_verdicts",
+        "_write_verdicts",
+    ):
+        monkeypatch.setattr(audit.BarReconciliationAudit, name, stub)
+
+    async def stub_grid(*a, **kw):
+        # execute reads .completeness and .masked off the grid outcome
+        return SimpleNamespace(completeness=None, masked=None)
+
+    async def stub_intraday(*a, **kw):
+        return SimpleNamespace(passing_by_check={}, failing_by_check={})
+
+    monkeypatch.setattr(audit.BarReconciliationAudit, "_grid_checks", stub_grid)
+    monkeypatch.setattr(audit.BarReconciliationAudit, "_intraday_report", stub_intraday)
+
+    class _W:
+        last_session = _I_DAYS[-1] if "_I_DAYS" in dir() else date(2024, 1, 4)
+        training_window_end = datetime(2024, 1, 4, tzinfo=UTC)
+
+        @staticmethod
+        def build(now, params):
+            return _W()
+
+    monkeypatch.setattr(audit, "_Window", _W)
+
+    import asyncio
+
+    class _Conn:
+        async def fetch(self, sql, *args):
+            # _UNIVERSE_SQL embeds the dimension clause: compute_1d adds the eligibility
+            # column, backfill is every active name
+            if "compute_eligible_1d" in sql:
+                return [{"symbol": "PROMOTED"}]
+            if "is_active = true" in sql:
+                return [{"symbol": "PROMOTED"}, {"symbol": "CANDIDATE"}]
+            return []
+
+        async def fetchval(self, sql, *args):
+            return None
+
+    class _ConnCtx:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _ConnCtx()
+
+    asyncio.run(
+        audit.BarReconciliationAudit.execute(object.__new__(audit.BarReconciliationAudit), _Pool())
+    )
+    assert sorted(captured["names"]) == ["CANDIDATE", "PROMOTED"]  # the unpromoted name is judged
+    # the intraday half of todo 502 is already the live SQL: every name holding 5m rows
+    assert "market_data_ohlcv" in audit._INTRADAY_NAMES_SQL and "'5m'" in audit._INTRADAY_NAMES_SQL
+
+
 def _obs_row(day, close):
     return {
         "request_id": f"r-{day}",
