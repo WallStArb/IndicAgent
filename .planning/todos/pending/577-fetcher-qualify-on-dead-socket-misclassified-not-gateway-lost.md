@@ -25,3 +25,26 @@ Also consider: when qualify fails for every item in a run, the run summary shoul
 
 - Wait for the rebuild to finish (import closure frozen; see above). Same window logic as todo 576's code fix.
 - The APR lever `infra.backfill.fetch_concurrency` 4->8 (2026-11-01, `config_history` version 4) already restores the 175/h throughput expectation; this todo is about not burning run budget and preserving the diagnosis trail, not throughput.
+
+## Fix landed (research lane, session b0, 2026-11-01)
+
+Two premise updates from tonight's live evidence before the fix. First, the gate: the closure
+check with the authoritative helper (`kernel_code_modules`, the exact function `kernel_code_key`
+hashes) returns 23 modules and includes NO `scripts.*` and NO `src.providers` module —
+`import_closure` does not traverse into `scripts`, so the todo header's frozen-closure premise
+was wrong and the fetcher files are editable without moving the rebuild pin (verified before
+editing; the running fetcher PID is unaffected by disk edits, and the fetcher-window rule is
+satisfied by the campaign running as one long-lived process rather than timer reruns). Second,
+tonight's incident (18:34Z stall, kill-and-resume 18:42Z, coordinated by indicagent-43) is the
+same wedge: `hist_request_outer_timeout`/`hist_chunk_retry` loops for 55 minutes while a fresh
+probe session got instant history from the same gateway.
+
+The fix: `IBKRProvider.session_alive(timeout_sec=10)` — a `reqCurrentTimeAsync` probe, the
+cheapest request only a live session answers, not rate-limited (not a history request); and
+`_ensure_qualified` probes before caching a qualify False: dead session raises GatewayLost so
+the run fast-fails through the existing gateway-lost path and the summary records
+`gateway_lost`, instead of re-failing every queued item as plain errors. A live session that
+answers the probe keeps the False cached as a genuine unknown contract (todo 051's semantics
+preserved). Run-budget and diagnosis-trail goals both met; the two new fetcher tests cover both
+branches. The todo's second consideration (a run failing 100% of items one way should surface
+the error class) is superseded: with this fix that shape raises instead of reaching the summary.

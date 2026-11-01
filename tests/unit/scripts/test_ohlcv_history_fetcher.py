@@ -26,9 +26,10 @@ import pytest
 import structlog
 
 from scripts.infrastructure.backfill import _fetch_queue as fq
+from scripts.infrastructure.backfill import _history_fetch_item as hfi
 from scripts.infrastructure.backfill import ohlcv_history_fetcher as hf
 from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE, FetcherLock
-from scripts.infrastructure.backfill._history_fetch_item import ItemOutcome
+from scripts.infrastructure.backfill._history_fetch_item import GatewayLost, ItemOutcome
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _TODAY = date(2026, 10, 6)
@@ -1755,3 +1756,49 @@ def test_stall_bounds_read_apr_with_seed_defaults(tmp_path):
     fetcher, _seen = _fetcher(tmp_path, connect=lambda: _Conn())
     tick, abort, teardown = fetcher._stall_bounds_fn()
     assert (tick, abort, teardown) == (60.0, 900.0, 30.0)
+
+
+# --- _ensure_qualified: the qualify-on-dead-socket probe (todo 577) --------------------------
+
+
+class _QualifiedProvider:
+    """is_connected() stays True (the TCP socket is up) while the session is dead: qualify
+    answers False and the liveness probe answers per `alive`."""
+
+    def __init__(self, alive: bool) -> None:
+        self.alive = alive
+        self.probed = 0
+
+    def is_connected(self) -> bool:
+        return True
+
+    async def qualify_instrument(self, instrument, **_kwargs) -> bool:
+        return False
+
+    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+        self.probed += 1
+        return self.alive
+
+
+class _Ctx:
+    qualified: dict[str, bool] = {}
+
+    def __init__(self, provider) -> None:
+        self.provider = provider
+        self.qualified = {}
+
+
+@pytest.mark.asyncio
+async def test_qualify_false_on_a_dead_session_is_gateway_lost() -> None:
+    provider = _QualifiedProvider(alive=False)
+    with pytest.raises(GatewayLost, match="liveness probe"):
+        await hfi._ensure_qualified(_Ctx(provider), SimpleNamespace(symbol="MKC"))
+    assert provider.probed == 1
+
+
+@pytest.mark.asyncio
+async def test_qualify_false_with_a_live_session_is_a_cached_unknown_contract() -> None:
+    provider = _QualifiedProvider(alive=True)
+    ctx = _Ctx(provider)
+    assert await hfi._ensure_qualified(ctx, SimpleNamespace(symbol="MKC")) is False
+    assert ctx.qualified["MKC"] is False

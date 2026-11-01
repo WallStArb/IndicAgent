@@ -523,7 +523,13 @@ def _midnight(ts: datetime) -> datetime:
 async def _ensure_qualified(ctx: FetchContext, instrument: Any) -> bool:
     """Qualify once per symbol per run. A disconnected client is reconnected first; if that
     fails the item is GatewayLost (not charged) and no verdict is cached (todo 051: a
-    qualify on a dead socket returns False exactly like a genuine unknown contract)."""
+    qualify on a dead socket returns False exactly like a genuine unknown contract).
+
+    todo 577: the socket can stay up while the IBKR session is dead, so is_connected()
+    stays True and the qualify False is the dead session, not an unknown contract.
+    Before caching the False, probe the session (reqCurrentTime): a dead session raises
+    GatewayLost so the run fast-fails and the summary records gateway_lost, instead of
+    re-failing every queued item as plain errors."""
     symbol = instrument.symbol
     if symbol in ctx.qualified:
         return ctx.qualified[symbol]
@@ -531,8 +537,13 @@ async def _ensure_qualified(ctx: FetchContext, instrument: Any) -> bool:
         logger.warning("ibkr_history_fetcher.reconnecting", symbol=symbol)
         if not await ctx.provider.connect():
             raise GatewayLost(f"IBKR reconnect before qualifying {symbol} failed")
-    ctx.qualified[symbol] = bool(await ctx.provider.qualify_instrument(instrument))
-    return ctx.qualified[symbol]
+    qualified = bool(await ctx.provider.qualify_instrument(instrument))
+    if not qualified and not await ctx.provider.session_alive():
+        raise GatewayLost(
+            f"IBKR session did not answer the liveness probe before qualifying {symbol}"
+        )
+    ctx.qualified[symbol] = qualified
+    return qualified
 
 
 def _vendor_first_bar(

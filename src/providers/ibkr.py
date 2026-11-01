@@ -1836,6 +1836,20 @@ class IBKRProvider:
             self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
         )
 
+    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+        """Liveness probe for the qualify-on-dead-socket case (todo 577): the TCP socket to
+        the gateway container can stay up while the IBKR session is dead, so is_connected()
+        stays True and qualify_instrument returns False exactly like a genuine unknown
+        contract. Only a live session answers reqCurrentTime; any error or timeout counts
+        as dead. Not a history request: the rate limiter does not apply."""
+        if not self._ib:
+            return False
+        try:
+            await asyncio.wait_for(self._ib.reqCurrentTimeAsync(), timeout=timeout_sec)
+            return True
+        except Exception:
+            return False
+
     async def qualify_instrument(
         self,
         instrument: Instrument,
