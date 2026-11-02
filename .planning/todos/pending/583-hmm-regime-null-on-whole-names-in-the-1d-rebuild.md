@@ -180,6 +180,28 @@ Executor: extend `scripts/ops/ops_hmm_refusal_screen.py` (record BIC per fit, `-
 vol-family K override; verify what `compute_regime_columns` exposes) through /simplify, /review
 and the unit suite before any run; shards in `data/scratch/583-k-sweep-2/`.
 
+Run state (Track C, indicagent-d6, 2026-11-02). Tool landed as commit 95fec2251 (`--bic` arm,
+`--restarts`, BIC winner distribution + divergence disclosure in `--summarize`; the vol-family
+K override already worked through `--family volatility` and `--n-components`, now pinned by
+test). Pools written to `data/scratch/583-k-sweep-2/`: `pool_deep5m.txt` (381 names, first 5m
+bar <= 2011-11-02 in `market_data_ohlcv_tradeable`), `set437_1d.txt` (dc's 337 genuine + the
+100 control names read back from the 583 sweep shards; union 437, no overlap), `deep60.txt`
+(the seeded draw, seed 20261103, reproduced with the tool's own sorted-sample algorithm, so it
+equals `--sample 60 --seed 20261103` on the pool). One cohort: the same 60 names serve 5m, 15m
+and 1h (the spec's one seed on one pool). Arms to run, cut 2026-09-30, 3-4 shards at a time
+(the box shares the 534 backfill campaign):
+
+- 1d, BIC arm only (refusal already decided, K=3 stands): `--tf 1d --bic` on `set437_1d.txt`,
+  trend and volatility, default K grid 2-6, 3 restarts.
+- 5m/15m/1h on `deep60.txt`: refusal arm trend K 3 4 5 and volatility K 2 3, then `--bic`
+  (K 2-6, 3 restarts) for both families.
+- Summarize with `--summarize data/scratch/583-k-sweep-2/*.jsonl`; message the lead the
+  per-timeframe rule output and any |dK| > 1 divergence BEFORE appending the tables here.
+
+Timing probe (IWM refusal K=3; GLD BIC K=5 x 3 restarts) launched 2026-11-02 ~22:10 UTC; read
+`secs` from `probe_ref_IWM.jsonl` / `probe_bic_GLD.jsonl`. Projection rule: shard 3-4 ways
+first, halve BIC restarts second, shrink N=60 last (lead 2026-11-02); record any change.
+
 ## Done when
 
 1. The refusal reason per (name, segment) is measured across the full 1d universe (how many
