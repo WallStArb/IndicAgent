@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-29T12:00:00.000Z"
+last_updated: "2026-11-02T17:10:20.460Z"
 progress:
   total_phases: 9
-  completed_phases: 2
-  total_plans: 148
-  completed_plans: 128
-  percent: 22
+  completed_phases: 3
+  total_plans: 162
+  completed_plans: 145
+  percent: 33
 ---
 
 # Project State
@@ -55,30 +55,41 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   and env in `data/scratch/186-26/`; resuming is moot once the pin moves). Next: the fix batch
   lands on main, a pilot chunk at the new pin passes the column screen, then the rerun (1d then
   intraday), then 186-27 swap, 186-28, 184.
+
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
   gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the
   fetcher timer (never hand-launch). A run now ends on a failed history probe (`1ebcfc9e4`) or on
   no data taken in for 1800 s, status `stalled` (`857b163e0`); failure modes and procedure in
-  `docs/reference/gotchas.md`. Todo 534 test since 12:06:24Z 2026-11-02: `fetch_concurrency`
-  8 to 3, timeout unchanged at 240 s; interim 638,680 rows in the 12Z hour against a best
-  baseline of 131,958; verdict due 15:06:24Z (rule and numbers in 534). Coverage target and
-  counts: memory `project_raw_coverage_target`, todo 534.
+  `docs/reference/gotchas.md`. Todo 534 concurrency test concluded 2026-11-02: the owner kept
+  `fetch_concurrency` 4 (about 715,000 rows/h; 3 and 4 lanes equal, 8 stalled) and stopped
+  testing concurrency - numbers and failure modes in the 534 Status section. Coverage target
+  and counts: memory `project_raw_coverage_target`, todo 534.
+
 - **Landed 2026-11-02 (82):** 584 item 10 calendar start 2000 (`ff368fcd4`), item 11 proven start
   per name closing 532 (`d601a6fd5`, ledger E19; the 1d verdict audit must run once to write
   `proven_start_1d` before the rebuild reads it), item 5 macro.py half (`aee2404d9`), item 12
   (`d003eb028`). Open for the 584 implementer: the `_cache_state.py` and `feature_factory.py`/
-  `schemas.py` half of 463 (references in the 82 handoff to 4f). Todo 522 measured paper run at
-  the 14:30Z open pending.
-- **Lanes now:** 82 = 534 test then 522 run; dc = todo 583; one background implementer on 584
-  items 2, 4 and 6.
-- **Monday 2026-11-02 09:30 ET:** todo 522's measured Alpaca paper run (20 orders in
-  `data/scratch/alpaca-paper/orders.jsonl`); run `check`, then
-  `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` after the open. The
-  instrumentation spec is pre-registered.
+  `schemas.py` half of 463 (references in the 82 handoff to 4f).
+
+- **Lanes now (2026-11-02 evening):** lead = indicagent-91 (e1 ended). ea = 584 items 2, 4
+  and 6: item 2 fully landed (kernel_source Panel.tf follow-up `5015cc8e2`), 4a landed, 4b/4c
+  in progress. d6 = 583 deep-data K study (the `--bic` tool change sits in its working tree;
+  gates before any run), then 584 item 9 G4/G5. Tracks B (584 item 8 add-list) and D (todo 522
+  run implementation) briefed, not opened.
+
+- **Todo 522:** the Monday 2026-11-02 open passed without the measured run. `run` is a stub
+  (raises SystemExit at dispatch); the measured protocol must be implemented from the file
+  docstring and the pre-registered instrumentation spec
+  (`docs/plans/2026-11-01-own-flow-slippage-instrumentation.md`), then `check` +
+  `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` after an open (next window
+  Tuesday 2026-11-03 14:30Z). Track D when opened.
+
 - **Research:** no real-data hypothesis tests until the restart conditions below are met. E17
   battery verdict recorded (todo 547; S1-drift A/B is the owner's); StepM unblocked (561).
+
 - **Universe:** 1,529 active, all intraday scope; 1,502 `compute_eligible_1d`. Features and
   regimes in the canonical `feature_vectors` are stale since 2026-08-10 until 186-27.
+
 - **Services:** Alpaca nightly timer 04:40 UTC; streaming is dormant (feed down); todo 582 must
   land before the feed returns.
 
@@ -108,18 +119,21 @@ imports.
   once before the intraday stage; (2) phase 191 plans 22 and 23 and the 71 held-name 1d gaps (todo 566);
   (3) a fixed, written universe; (4) the vintage question: whether a fresh vintage starts so earlier looks
   do not count against the new StepM universe (owner call, E18).
+
 - Research lane (2026-10-30): the E17 daily statistic landed (`d2f3ff0b1`, flat-top kernel plus influence
   series; todo 547) and cut the daily battery from 40+ size failures to 3 marginal ones (gaussian
   `reversal_5_skip1` 71 of 1,000 against 67; the two momentum members in s1_hostile, S1 drift). Decide: certify
   the reversal members and book now and hold the rest, or hold the family until S1's drift is decided. The
   StepM attestation is complete (Step B v2 passed), so `select_books.py` is unblocked. Todo 562 (multi-family
   power plant) also waits on the owner.
+
 - Research lane: (1) approve the E17 amendment for todo 547 (a horizon-tied lag, L + c (h - 1) for
   daily targets with h > 5, c = 3 to certify); (2) decide the multi-family power plant (todo 562)
   before the `generated_family` grammar; (3) enable the research-ledger render timer (`sudo systemctl
   enable --now indicagent-research-ledger-render.timer`) once local main is reconciled, or let the
   job commit from a scratch worktree off origin/main and push that one file; (4) todo 561: after the
   3,000-simulation diagnostic, a new pre-registered step B or a written call on the `s1_hostile` cell.
+
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
   537 item 2 basis restore). This is the only open owner call (the research restart was decided 2026-10-27; for E17 v2 the owner chose on 2026-10-28 to rerun step A cluster-robust before building fixed-b). The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
