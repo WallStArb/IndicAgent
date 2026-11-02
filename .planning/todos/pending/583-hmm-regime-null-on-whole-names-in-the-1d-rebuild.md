@@ -85,7 +85,7 @@ The fixed rule picks K=2 mechanically, but a 2-state trend model has no mid stat
 only `low` and `high`, so no `ranging` or transition label); a low refused share there is a design
 question, not a free win. Changing the APR component count or the 0.05 floor is the owner's call.
 
-Runs and where to read them (for a session that did not run them). Raw one-line-per-fit JSONL is
+Runs and where to read them (for a session that did not run them; all finished). Raw one-line-per-fit JSONL is
 copied to `data/scratch/583-k-sweep/` (on disk only, not in git); the scripts are
 `scripts/ops/ops_hmm_refusal_screen.py`. Read any finished run with
 `.venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --summarize <files>`; stored and computed
@@ -100,9 +100,21 @@ records of one cell are checked against each other and the computed one is used 
 - 5m: `5m_{0..3}.jsonl`, 8 names `--symbols-file stage2_5m.txt --sample 8 --seed 20261102`, computed
   `--within-panel --n-components 3`, then `--stored`; K=4 only if K=3 does not beat the stored K=5
   by more than the 2-point band.
-Decision still owed: the per-timeframe table for 15m and 5m once those runs finish (a run is done
-when `ps aux | grep ops_hmm_refusal_screen` is empty), then the rule's output, written here. Stored
-arm validated against computed K=5 on 14 of 14 1d and 15 of 15 intraday names.
+Intraday arms (2026-11-02, run after the 1d and 1h results; refused-segment share / names with zero
+output / median written share; stored K=5 is the stage-2 output read with `--stored`, validated
+identical to computed K=5 on 15 of 15 intraday names):
+
+| tf, names | K=3 | K=4 | K=5 (stored) |
+|---|---|---|---|
+| 15m, 20 names, 239 segments | 0.8 / 0.0 / 100 | 5.9 / 0.0 / 100 | 26.8 / 0.0 / 88.3 |
+| 5m, 8 names, 91 segments | 0.0 / 0.0 / 100 | not run | 15.4 / 0.0 / 94.8 |
+
+Names: seeded draws (20261102) from the 650 stage-2 names. K=4 at 5m was skipped because K=3 beat the
+stored K=5 by more than the 2-point band. 0 errors. Rule output per timeframe: 1d and 1h and 15m and 5m
+all pick the smallest K tested, which is K=3 on 1h, 15m and 5m and K=2 on 1d (K=2 added after seeing
+K=3/4/5; a 2-state trend model has no mid state, so K=2 is the owner's design call). The 5m arm is 8
+names, so its figure is indicative only. Nothing else is owed from the measurement; changing the APR
+component count or the 0.05 floor is the owner's call.
 
 Caveats. K=3 is the smallest K tested and the refused share falls monotonically with K, so the
 minimum is not located; a K=2 arm on 1d was added after seeing these results (recorded below when
