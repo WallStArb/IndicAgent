@@ -173,12 +173,13 @@ pre-2016 5m; at 4-5 names/h that is about 6 days.
 
 Set to 4 at 14:53:51Z (config_history version 6, reason holds the rule). The unit was stopped at
 14:53:24Z (the 3-lane run, 2 h 47 min in, mean about 713,000 rows/h, 0 outer timeouts) and the timer
-restarts it at 15:08:24Z, so t0 is 15:08:24Z and the window runs to 18:08:24Z. A hand `systemctl
-start` is denied without interactive authorization; the timer owns the start. Rule fixed beforehand:
+timer would restart it at 15:08:24Z; it was started with `sudo systemctl start` at 15:04:14Z
+(pid 3746486), so t0 is 15:04:14Z and the window runs to 18:04:14Z (a plain `systemctl start` is
+denied without interactive authorization). Rule fixed beforehand:
 keep 4 only if the mean over the 3 h beats 780,000 rows/h (10% over the 3-lane steady rate of about
 708,000) with 0 outer timeouts and no stalled or gateway_lost exit; otherwise set it back to 3 via
 ConfigService.set (changed_by = your id) and kill the unit MainPID. If 4 holds, try 5 by the same
 rule. Also read the hourly rows for decay: the 8-lane run started strong (04Z-05Z) and decayed over
 hours. Hourly query: project_fetcher_runs_end_on_no_intake_2026_11_02.md "Handoff", with
-`served_at > '2026-11-02 15:08:24+00'`. 3-lane hour rows for comparison: 13Z 707,993; 14Z about
+`served_at > '2026-11-02 15:04:14+00'`. 3-lane hour rows for comparison: 13Z 707,993; 14Z about
 740,000 at the US open.
