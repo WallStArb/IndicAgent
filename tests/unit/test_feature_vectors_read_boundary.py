@@ -68,6 +68,9 @@ _ALLOW_LIST: dict[str, str] = {
         "WRITER: 186-26 launch preconditions check that feature_vectors_v2 exists."
     ),
     # Measurement.
+    "scripts/ops/ops_hmm_refusal_screen.py": (
+        "MEASUREMENT: todo 583 stored arm; reads the regime column to lay stored segments."
+    ),
     "scripts/ops/ops_feature_column_screen.py": (
         "MEASUREMENT: todo 564/584 dead-column and pilot gate screen over feature_vectors_v2."
     ),

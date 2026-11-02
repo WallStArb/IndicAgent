@@ -35,6 +35,61 @@ than a persistence one. Related: todo 226 (n_iter convergence headroom).
 populated on about 2,700 of about 5,470 rows on the other names; confirm the window start is
 declared, not a gap.
 
+## Measurement (2026-11-02, indicagent-dc)
+
+Instrument: `scripts/ops/ops_hmm_refusal_screen.py` (commit f0328d67e; `--stored` and `--within-panel`
+follow). It calls the rebuild's `compute_regime_columns` on `market_data_ohlcv_tradeable` bars
+cut at 2026-09-30, fits on the full history and writes nothing. Reproduction check: on MSFT, KO,
+JPM, SPY, XOM and AAPL every stored 1d row is a reproduced written row (the 21-22 extra reproduced
+rows per name are bars the panel grid lacks).
+
+Two causes, kept apart:
+
+- Stale volume: 104 of the 194 names with no 1d trend output are `fallback`-kind names (HON, SCCO
+  and others). Before migration 543 their volume was NULL, the trend family hit the input gap and
+  wrote nothing. In process on current bars HON writes 5,491 bars and SCCO 3,408. The rebuild at
+  the new pin fixes these; nothing else is needed.
+- Genuine refusal: 337 non-fallback names (90 with no output, 247 partial) of 1,210. On these, 4,036
+  of 5,260 K=5 segments were refused (4,035 `degenerate_occupation`, 1 `fit_failed`, 0
+  `not_converged`); every fit converged and none reached the 200-iteration cap, so todo 226
+  headroom does not explain it. Of the 1,371 lowest per-name state fractions among refused
+  segments, 813 are below 0.001 (a state is never occupied), 418 are 0.001-0.03, 140 are 0.03-0.05.
+  The 0.05 occupation floor is not the cause and stays.
+
+K sweep (trend family, `hmm_n_components` overridden; rule fixed before the run: per timeframe the
+lowest refused-segment share, and among K within 2 percentage points of it the smallest K).
+Cells are refused-segment share / names with zero output / median written share of modeled rows.
+
+| tf, set | K=3 | K=4 | K=5 |
+|---|---|---|---|
+| 1d, refusal set (337 names, 5,240 segments) | 29.9 / 2.2 / 76.1 | 56.4 / 6.2 / 53.3 | 76.7 / 18.3 / 27.8 |
+| 1d, control (100 names, 2,374 segments) | 2.9 / 0.0 / 100 | 3.4 / 0.0 / 96.0 | 6.8 / 0.0 / 95.1 |
+| 1d, combined (437 names) | 21.5 / 1.7 / 86.8 | 39.8 / 4.7 / 63.7 | 54.9 / 13.9 / 38.7 |
+| 1h (40 names, 519 segments) | 0.2 / 0.0 / 100 | 3.7 / 0.0 / 100 | 10.2 / 0.0 / 90.9 |
+
+The rule picks K=3 on 1d and on 1h. Name sets: the 1d refusal set is the 337 genuine names above;
+the control is a draw of 100 (seed 20261102) from the 332 non-fallback names with at least 90% of
+1d rows written in stored data (a 99% pool has only 127 names, so a draw of 100 would be nearly the
+whole pool); the 1h set is a draw of 40 (seed 20261102) from the 1,055 non-fallback names with at
+least 15,000 1h bars. 0 errors in 1,431 fits; one 1h K=5 fit hit the iteration cap, the only one.
+
+Caveats. K=3 is the smallest K tested and the refused share falls monotonically with K, so the
+minimum is not located; a K=2 arm on 1d was added after seeing these results (recorded below when
+run). Computed 1d counts include segments before 2005, the stored panel start, so they are
+comparable across K but not equal to stored counts. A change to the APR component count or to the
+floor is the owner's call; this record stops at the decision-rule output.
+
+Stored arm: `--stored` lays the segments over the bars and counts a segment written when its first
+row has stored regime output; with `--within-panel` (segments starting at or after the first stored
+row) it equals the computed K=5 arm on 14 of 14 1d names (segments, refused, modeled, written). The
+walk-forward needs 39,600 bars at 5m, 13,200 at 15m and 3,300 at 1h before its first fit, so the
+stored arm duplicates the kernel's segment layout (`_walk_forward_hmm_full`: first boundary
+`max(warmup, K * min_obs_factor)`, then one segment per refit step) and counts a segment refused when
+its first row has no stored output, so a null for another reason also reads as refused; if the
+kernel's schedule changes, rerun the stored-vs-computed check (`--summarize` prints the pairs) before
+trusting it. The intraday check uses stage-2 names just above that (a first check on recent listings was vacuous:
+no segments in either arm).
+
 ## Done when
 
 1. The refusal reason per (name, segment) is measured across the full 1d universe (how many

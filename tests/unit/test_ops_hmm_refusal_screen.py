@@ -10,7 +10,9 @@ from scripts.ops.ops_hmm_refusal_screen import (
     _summarize,
     aggregate,
     decide,
+    segment_layout,
     summarize_run,
+    summarize_stored,
 )
 from src.intelligence.features.kernels._hmm import (
     EVENT_CONVERGENCE,
@@ -33,11 +35,13 @@ def _record(tf, k, segments, refused, modeled=100, written=50, hit_cap=0):
 
 def test_summarize_run_counts_segments_and_reasons():
     status = np.array([0.0, 0.0, 1.0, 1.0, 2.0, 5.0])
-    fit = {"iters_used": 200, "n_iter_cap": 200, "converged": True}
+    fit = {"iters_used": 200, "n_iter_cap": 200, "converged": True, "seg_start": 0}
     events = [
         RegimeEventRecord(EVENT_CONVERGENCE, fit),
-        RegimeEventRecord(EVENT_SEGMENT_SKIPPED, {"reason": "degenerate_occupation"}),
-        RegimeEventRecord(EVENT_SEGMENT_SKIPPED, {"reason": "fit_failed"}),
+        RegimeEventRecord(
+            EVENT_SEGMENT_SKIPPED, {"reason": "degenerate_occupation", "seg_start": 0}
+        ),
+        RegimeEventRecord(EVENT_SEGMENT_SKIPPED, {"reason": "fit_failed", "seg_start": 2}),
     ]
     out = summarize_run(status, events)
     assert (out["modeled"], out["written"]) == (4, 2)
@@ -157,3 +161,38 @@ def test_summarize_reports_errors_and_noncomparable_name_sets(tmp_path, capsys):
     assert "1 name fits errored" in out
     assert "K cells cover different names" in out
     assert "chosen K per timeframe: {'1d': 3}" in out
+
+
+def test_segment_layout_runs_from_the_boundary_in_refit_steps():
+    assert segment_layout(10, 4, 3) == [(4, 7), (7, 10)]
+    assert segment_layout(4, 4, 3) == []
+
+
+def test_from_row_drops_segments_and_rows_outside_the_panel():
+    # two segments of 2 rows each over bar rows 2-3 (written) and 4-5 (degenerate); offset 2
+    status = np.array([0.0, 0.0, 1.0, 1.0, 2.0, 2.0])
+    events = [
+        RegimeEventRecord(EVENT_CONVERGENCE, {"iters_used": 1, "n_iter_cap": 9, "seg_start": 0}),
+        RegimeEventRecord(EVENT_CONVERGENCE, {"iters_used": 1, "n_iter_cap": 9, "seg_start": 2}),
+        RegimeEventRecord(
+            EVENT_SEGMENT_SKIPPED, {"reason": "degenerate_occupation", "seg_start": 2}
+        ),
+    ]
+    whole = summarize_run(status, events)
+    inside = summarize_run(status, events, from_row=4)
+    assert (whole["segments"], whole["refused"], whole["written"]) == (2, 1, 2)
+    assert (inside["segments"], inside["refused"], inside["modeled"], inside["written"]) == (
+        1,
+        1,
+        2,
+        0,
+    )
+
+
+def test_summarize_stored_matches_summarize_run_on_the_same_layout():
+    timestamps = list(range(8))  # bar rows 0-7; observation j is row 2 + j; boundary 1, refit 2
+    stored = {3, 4}  # the first segment (rows 3-4) is written, the second (rows 5-6) is not
+    out = summarize_stored(timestamps, stored, n_obs=6, offset=2, boundary=1, refit=2)
+    assert (out["segments"], out["refused"], out["modeled"], out["written"]) == (3, 2, 5, 2)
+    inside = summarize_stored(timestamps, stored, 6, 2, 1, 2, from_row=5)
+    assert (inside["segments"], inside["refused"]) == (2, 2)
