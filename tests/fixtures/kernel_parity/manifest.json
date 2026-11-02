@@ -1221,102 +1221,66 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 4433259,
- "regenerated_from": "1662291b55b77c052b40b8e9d8c661d34120868a",
- "regeneration_reason": "584-2: D1 not_applicable (intraday-only outputs); 1d session, clock, VP, AMD and divergence columns NaN by declaration",
+ "fixture_bytes": 4435275,
+ "regenerated_from": "d00d509ab9385d6c442cef9c8e895f143df46977",
+ "regeneration_reason": "584 item 4a (D1 rule 5): hurst/shannon/garch_ratio/hma_slope_z/adx are NaN on windows that do not define them (was 0.5/1.0/1.0/0.0/0.0), so early rows and degenerate windows change on every timeframe",
  "changed_columns": {
-  "synthetic|SPY|5m": [],
-  "real|SPY|5m": [],
-  "real|SPY|15m": [],
-  "real|SPY|1h": [],
+  "synthetic|SPY|5m": [
+   "adx",
+   "garch_ratio",
+   "hma_slope_z",
+   "hurst",
+   "momentum_trend_product",
+   "reversion_hurst_product",
+   "shannon"
+  ],
+  "real|SPY|5m": [
+   "hma_slope_z"
+  ],
+  "real|SPY|15m": [
+   "hma_slope_z"
+  ],
+  "real|SPY|1h": [
+   "hma_slope_z"
+  ],
   "real|SPY|1d": [
-   "amd_distribution_direction",
-   "amd_manipulation_detected",
-   "amd_phase",
-   "hour_of_day_cos",
-   "hour_of_day_sin",
-   "in_london_kz",
-   "in_lvn",
-   "in_ny_session",
-   "in_overlap",
-   "manip_strength",
-   "minute_of_hour_cos",
-   "minute_of_hour_sin",
-   "opening_range",
-   "poc_dist_atr",
-   "power_hour",
-   "price_in_value_area",
-   "session_time_pos",
-   "va_position"
+   "hma_slope_z"
   ],
-  "real|QQQ|5m": [],
-  "real|QQQ|15m": [],
-  "real|QQQ|1h": [],
+  "real|QQQ|5m": [
+   "hma_slope_z"
+  ],
+  "real|QQQ|15m": [
+   "hma_slope_z"
+  ],
+  "real|QQQ|1h": [
+   "hma_slope_z"
+  ],
   "real|QQQ|1d": [
-   "amd_distribution_direction",
-   "amd_manipulation_detected",
-   "amd_phase",
-   "hour_of_day_cos",
-   "hour_of_day_sin",
-   "in_london_kz",
-   "in_lvn",
-   "in_ny_session",
-   "in_overlap",
-   "manip_strength",
-   "minute_of_hour_cos",
-   "minute_of_hour_sin",
-   "opening_range",
-   "poc_dist_atr",
-   "power_hour",
-   "price_in_value_area",
-   "session_time_pos",
-   "va_position"
+   "hma_slope_z"
   ],
-  "real|TLT|5m": [],
-  "real|TLT|15m": [],
-  "real|TLT|1h": [],
+  "real|TLT|5m": [
+   "hma_slope_z"
+  ],
+  "real|TLT|15m": [
+   "hma_slope_z"
+  ],
+  "real|TLT|1h": [
+   "hma_slope_z"
+  ],
   "real|TLT|1d": [
-   "amd_distribution_direction",
-   "amd_manipulation_detected",
-   "amd_phase",
-   "hour_of_day_cos",
-   "hour_of_day_sin",
-   "in_london_kz",
-   "in_lvn",
-   "in_ny_session",
-   "in_overlap",
-   "manip_strength",
-   "minute_of_hour_cos",
-   "minute_of_hour_sin",
-   "opening_range",
-   "poc_dist_atr",
-   "power_hour",
-   "price_in_value_area",
-   "session_time_pos",
-   "va_position"
+   "hma_slope_z"
   ],
-  "real|XLE|5m": [],
-  "real|XLE|15m": [],
-  "real|XLE|1h": [],
+  "real|XLE|5m": [
+   "hma_slope_z"
+  ],
+  "real|XLE|15m": [
+   "hma_slope_z"
+  ],
+  "real|XLE|1h": [
+   "hma_slope_z"
+  ],
   "real|XLE|1d": [
-   "amd_distribution_direction",
-   "amd_manipulation_detected",
-   "amd_phase",
-   "hour_of_day_cos",
-   "hour_of_day_sin",
-   "in_london_kz",
-   "in_lvn",
-   "in_ny_session",
-   "in_overlap",
-   "manip_strength",
-   "minute_of_hour_cos",
-   "minute_of_hour_sin",
-   "opening_range",
-   "poc_dist_atr",
-   "power_hour",
-   "price_in_value_area",
-   "session_time_pos",
-   "va_position"
+   "hma_slope_z"
   ]
  },
  "regeneration_history": [
@@ -1548,6 +1512,106 @@
     ],
     "synthetic|SPY|5m": [
      "gap_z"
+    ]
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "1662291b55b77c052b40b8e9d8c661d34120868a",
+   "regeneration_reason": "584-2: D1 not_applicable (intraday-only outputs); 1d session, clock, VP, AMD and divergence columns NaN by declaration",
+   "changed_columns": {
+    "synthetic|SPY|5m": [],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [],
+    "real|SPY|1h": [],
+    "real|SPY|1d": [
+     "amd_distribution_direction",
+     "amd_manipulation_detected",
+     "amd_phase",
+     "hour_of_day_cos",
+     "hour_of_day_sin",
+     "in_london_kz",
+     "in_lvn",
+     "in_ny_session",
+     "in_overlap",
+     "manip_strength",
+     "minute_of_hour_cos",
+     "minute_of_hour_sin",
+     "opening_range",
+     "poc_dist_atr",
+     "power_hour",
+     "price_in_value_area",
+     "session_time_pos",
+     "va_position"
+    ],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [],
+    "real|QQQ|1d": [
+     "amd_distribution_direction",
+     "amd_manipulation_detected",
+     "amd_phase",
+     "hour_of_day_cos",
+     "hour_of_day_sin",
+     "in_london_kz",
+     "in_lvn",
+     "in_ny_session",
+     "in_overlap",
+     "manip_strength",
+     "minute_of_hour_cos",
+     "minute_of_hour_sin",
+     "opening_range",
+     "poc_dist_atr",
+     "power_hour",
+     "price_in_value_area",
+     "session_time_pos",
+     "va_position"
+    ],
+    "real|TLT|5m": [],
+    "real|TLT|15m": [],
+    "real|TLT|1h": [],
+    "real|TLT|1d": [
+     "amd_distribution_direction",
+     "amd_manipulation_detected",
+     "amd_phase",
+     "hour_of_day_cos",
+     "hour_of_day_sin",
+     "in_london_kz",
+     "in_lvn",
+     "in_ny_session",
+     "in_overlap",
+     "manip_strength",
+     "minute_of_hour_cos",
+     "minute_of_hour_sin",
+     "opening_range",
+     "poc_dist_atr",
+     "power_hour",
+     "price_in_value_area",
+     "session_time_pos",
+     "va_position"
+    ],
+    "real|XLE|5m": [],
+    "real|XLE|15m": [],
+    "real|XLE|1h": [],
+    "real|XLE|1d": [
+     "amd_distribution_direction",
+     "amd_manipulation_detected",
+     "amd_phase",
+     "hour_of_day_cos",
+     "hour_of_day_sin",
+     "in_london_kz",
+     "in_lvn",
+     "in_ny_session",
+     "in_overlap",
+     "manip_strength",
+     "minute_of_hour_cos",
+     "minute_of_hour_sin",
+     "opening_range",
+     "poc_dist_atr",
+     "power_hour",
+     "price_in_value_area",
+     "session_time_pos",
+     "va_position"
     ]
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
