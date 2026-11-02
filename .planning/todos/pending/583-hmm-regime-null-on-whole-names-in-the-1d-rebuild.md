@@ -202,6 +202,21 @@ Timing probe (IWM refusal K=3; GLD BIC K=5 x 3 restarts) launched 2026-11-02 ~22
 `secs` from `probe_ref_IWM.jsonl` / `probe_bic_GLD.jsonl`. Projection rule: shard 3-4 ways
 first, halve BIC restarts second, shrink N=60 last (lead 2026-11-02); record any change.
 
+Probe results: IWM 5m refusal K=3 187.2 s (19 segments); GLD 5m BIC K=5 x 3 restarts 188.8 s
+(n_obs 398,692, converged). Projection at 4 shards: 5m arms ~9 h at 3 restarts, ~7 h at 2; the
+halve-restarts lever was taken on the 5m BIC arms only (3 -> 2, restart 0 still the APR seed);
+N=60 kept; 1d/15m/1h BIC arms keep the spec's 3 restarts (cheap at their row counts). Direction
+of the change: less best-of-N robustness on the 5m BIC reference only; the refusal arm, which
+decides, is untouched.
+
+Shards launched 2026-11-02 22:19 UTC, four lanes at most (box shares the 534 backfill):
+`bash data/scratch/583-k-sweep-2/lane.sh <0..3>` runs every stage of one shard serially (1d BIC
+trend+vol on `set437_1d.txt`; then `deep60.txt` refusal trend 3/4/5, refusal vol 2/3, BIC both
+families at the restart counts above, for 5m, 15m, 1h). Stages append per-cell JSONL and reruns
+skip recorded cells, so a killed lane resumes with the same command. When all four lanes finish:
+`--summarize data/scratch/583-k-sweep-2/*.jsonl`, message the lead the per-timeframe rule output
+and any |dK| > 1 divergence BEFORE appending the tables here.
+
 ## Done when
 
 1. The refusal reason per (name, segment) is measured across the full 1d universe (how many

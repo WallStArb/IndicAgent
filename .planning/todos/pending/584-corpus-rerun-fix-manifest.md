@@ -32,7 +32,7 @@ anything found after the pin moves waits for the following rerun.
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
-| 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. Open: G4 (causality_probe on pilot real data at three truncation points) and G5 (run twice, bit-identical) in a sibling script, then a pilot run at the new pin and recalibration of the two tolerances from its gap and share distributions |
+| 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
 | 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
 | 11 | Proven-span start per name (design D4), closes 532: names held only for early-history holes (the 41 from item 10, AAOI, AGL, ACMR, ADPT and the like) enter the rerun from their proven start | 532, item 10 | landed 2026-11-01 (data lane), ledger E19; 189 of 205 failing names return, all 41 |
 | 12 | Research guard contradiction: `research/guards.py` allows a leading NaN-volume run that `kernel_source` now refuses; one rule (refuse), `repro_frozen` bit-identical | item 1 finding 5 | open |
@@ -246,7 +246,25 @@ so G1 and G3 need a fresh read. Pilot names with no stored rows (APLD, CTVA, LQD
 missing, as designed. Recalibrate the two tolerances on the first pilot run at the new pin; G4 and
 G5 (sibling script) follow.
 
-Item 4 resume state (Track A, 2026-11-02; 4a landed, 4b/4c open). The full-graph no-object probe
+Item 4 resume state (Track A, 2026-11-02; 4a landed, 4b/4c open). **4b-1 (helper layer) is
+IN FLIGHT in the working tree, uncommitted** (session indicagent-ea, context ran out): edited
+`_primitives.py` (`_zscore_last`/`_z_or_nan` (now one implementation)/`_rolling_zscore_series`/
+`_fixed_window_zscore_series` NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
+0/0 with NO epsilon branch - an epsilon on the decaying Wilder averages makes the NaN boundary
+seed-dependent, a real causality violation the probe caught; `_cumsum_window_moments` is now
+NaN-aware: a window holding NaN/inf is NaN and later windows RECOVER, a plain cumsum poisoned
+every later row), `price.py` (`_gap_z_series_full`/`_overnight_gap_z(_series_full)` rows 0-1
+NaN), `_cache_state.py` RSI wrapper docstring, and tests (gap reference, batch RSI/velocity,
+parity cold bars now assert batch NaN and point at 582 for the streaming lane's `_guard`,
+rolling-equality `_ref_zscore` NaN). Verified green: causality probe, gap reference, RSI,
+velocity, rolling equality. REMAINING before the 4b-1 commit: three failing tests are the
+next unit, not helper defects - `test_kernel_outputs_equal_compute_batch_rows_1_onward`
+(atr_z row 1: kernel NaN vs FeatureVector 0.0), `TestGuardCountedReport` (substitutions on
+synthetic data) and `TestTheoryMotivatedInteractionProducts` (momentum_trend_product None vs
+0.0): all come from the build-site `_guard(...)` neutral-fills on z-columns in
+`_build_feature_vector` (momentum_z_*, atr_z, gap_z and friends) - remove them per the 4a
+`_missing_if_nan` pattern, widen the schemas to `float | None`, update those three tests, then
+`/simplify`, `/review`, full suite, golden regen (`--from-stored`), commit. The full-graph no-object probe
 (flat 400-bar 5m series, all float externals NaN, `compute_kernels` over every output) adjudicates
 the columns into four classes:
 
