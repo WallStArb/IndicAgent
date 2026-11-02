@@ -178,6 +178,61 @@ Defects (fix in this batch):
 
 Declare (D1 rule 3): `minute_of_hour_*` on 1h.
 
+D5 design check against the live kernel registry (Track A read-only pass, indicagent-ea,
+2026-11-02; the implementer's edit list, no code changed). 11 columns retire (the 10 listed plus
+`amd_phase`, whose check resolves to retire):
+
+- `calendar_session` (6 outputs): `in_london_kz` dies; `in_ny_session`, `in_overlap`, `power_hour`,
+  `opening_range`, `session_time_pos` survive (all vary inside RTH bars; the screen retired only
+  the killzone flag). Same edit: `_SESSION_OUTPUTS`, the compute row, the `_in_london_kz` helper
+  and its factory import, the london-KZ APR hour seeds, and the declaration shrinks to five
+  outputs (item 2's "six" note above becomes five).
+- `session_levels` (16 outputs): the five in `_SESSION_LEVELS_UNDEFINED_ON_1D` die
+  (`overnight_high/low_dist_atr`, `overnight_range_pct`, `asian_session_high/low_dist_atr`); 11
+  survive (prior_session_* 3, `opening_gap_pct`, weekly pivot/R/S 5, `nearest_level_dist_atr`,
+  `gap_filled`; none of those is on the retire list). The whole 1d declaration dies with the
+  tuple, and with it the helper's tf=='1d' suppression block, the kernel's `tf` input and the
+  compute's `constant_tf` read (no declared output remains, so the tf external is no longer
+  required). `_sl_overnight_*`/`_sl_asia_*` state in `update_session_levels` goes unused with the
+  five; the weekly/prior-session state it shares with the survivors stays.
+- `amd_cycle` (4 outputs): all four die, so the kernel retires whole. `amd_phase` verified: a pure
+  function of the bar's UTC hour plus the three APR hour bounds (`_amd_phase_ordinal`, smc.py),
+  the same information basis as `session_time_pos` - it retires under D5's own check. The
+  manipulation window (00:00 UTC through manip_end) does not intersect US regular-hours bars
+  (13:30-21:00 UTC), which is the screen's constant-on-643 mechanism; the few non-constant names
+  are the vendor-accident extended-hours set. Same edit: `_derive_amd_cycle`, the AMD KeyGroup,
+  `_AMD_PHASE_*`, FeatureCache `amd_*`/`manip_strength` fields and the whole
+  `update_overnight_range` mutator (its only readers; session_levels reads the separate `_sl_*`
+  state), both replays in `services/feature_vector_pipeline.py`, and the `feature.smc.amd.*` APR
+  seeds. Ordering: the 4b/4c zero_is_state list in item 4 must drop `amd_manipulation_detected`
+  (retire lands first or 4c skips the AMD entries).
+- `cross_tf_divergence` (3 outputs): `ret_div_1m_5m` dies (no 1m bars anywhere in the universe);
+  `ret_div_5m_1h`/`ret_div_1h_1d` survive (their NULL-on-lower-tf findings are defect fixes
+  above, not retires). Same edit: the `ext_ltf_last_log_ret` external build (~feature_factory.py
+  1395-1411) and the 1m aggregation feeding it; the kernel's tf input stays for the two survivors.
+
+Knock-on sweep for all 11:
+
+- schemas.py `FeatureVector`: drop the 11 fields; the persistence `.index()` slices
+  (feature_vector_persistence.py) self-adjust at import, the `in_london_kz` references there die
+  with the field. The pydantic copies in `I3Structure`/`SMCContext` are v2.x-remainder surfaces
+  (reachable via state_serializer/bar_history_seeder); verify that path's liveness before touching
+  it, else leave the remainder alone.
+- feature_factory.py: FEATURE_GROUP rows, build-site params and routing, the two docstrings
+  naming the columns.
+- tests: `_UNGUARDED_PASSTHROUGH` in test_feature_factory_batch_parity.py drops `in_london_kz` or
+  the schema-tie test fails; the golden fixtures lose 11 columns (regen, own commit).
+- DB `feature_vectors` columns: derived cache; stop writing, drop only after the rebuild's summary
+  card per the data policy, no same-day DROP.
+- Registry: `deprecated` through ConceptRegistryService per the row; deleting outputs from the
+  KERNELS tuples rides the same edit (`not_applicable` is validated as a subset of outputs).
+
+Declarations: `calendar_cycles` gains 1h for `minute_of_hour_sin`/`minute_of_hour_cos` only. The
+mapping is output-keyed (`undefined_on` returns {output: {tf}}), so those two become {"1d", "1h"}
+while `hour_of_day_*` stay {"1d"}; on 1h bars the minute is constant :00, so the encodings carry
+no information. The tf external is already supplied (calendar_cycles is declared on 1d today);
+the 1h golden cases change in the same regen as the retire.
+
 ### D6. HMM coverage (item 3; measurement by indicagent-dc, 2026-11-02)
 
 1d, 1,314 names: 873 at least half written, 247 under half, 194 none. Two causes. (a) 104 of the
