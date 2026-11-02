@@ -26,7 +26,7 @@ anything found after the pin moves waits for the following rerun.
 |---|---|---|---|
 | 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | landed 20c1dcddc (shared helper: the cache and macro/beta z-scores are NaN in warmup too) |
 | 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | landed 2026-11-02 (Track A, indicagent-dc WIP resumed): `Kernel.not_applicable` mapping (amended rule 3; `minute_of_hour_*` on 1h is a data entry away for item 6), the batch path routes the cache-backed VP/session-levels/AMD kernels through `compute_kernels`, golden regenerated in its own commit |
-| 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe from the preregistered K experiment; `hmm_vol_prob_elevated` retires | 583 | measured (dc); K experiment running |
+| 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
@@ -227,6 +227,17 @@ Item 9's G1/G3 can drop their absent-declaration tolerance. Simplify follow-up (
 `constant_value`/`constant_tf` moved to the contract layer (`compute_kernels` had re-implemented
 both), the declared set drives the batch row reads instead of NaN-sniffing, and the wholly-skipped
 kernel writes one shared placeholder array.
+
+Item 4 landing 4a (D1 rule 5, same day): `_hurst_rs`/`_garch_ratio`/`_adx` return NaN on too-short
+and degenerate windows, `_shannon_entropy` NaN on insufficient data but keeps a measured 0.0 for a
+one-bin (point-mass) return window; the five `FeatureCache` regime defaults are NaN; the legacy
+FeatureVector carries the five as `float | None` through `_missing_if_nan` (the item-5 macro
+pattern; the v2 rebuild already writes NaN as NULL), and `momentum_trend_product`/
+`reversion_hurst_product` become `_missing_product` `float | None` (a missing adx/hurst parent
+propagates). The `_guard(hurst, 0.5)`-style fallbacks are gone; they had been fabricating all
+five, `hma_slope_z` included, on every pre-refresh row. Remaining for item 4: 4b (zero-spread
+z-scores/correlations and ratio denominators NaN; smc/vp_sr no-object fallbacks) and 4c
+(`zero_is_state` declarations + the registry-wide no-object test).
 
 Item 9 follow-up: the all-timeframe pilot run on the stored stage output (report
 `logs/feature_column_screen_20261102T142626Z.json`, disk only) shows gate failures G1 1,935, G2 562,

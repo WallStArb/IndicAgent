@@ -133,9 +133,58 @@ kernel's schedule changes, rerun the stored-vs-computed check (`--summarize` pri
 trusting it. The intraday check uses stage-2 names just above that (a first check on recent listings was vacuous:
 no segments in either arm).
 
+## Deep-data K study (preregistered 2026-11-02; owner direction: keep both families)
+
+Provenance that motivates it: `docs/analysis/bic_k_selection.md` (2026-06-26) chose K=5 from four
+ETFs on 5m only, one EM fit per (symbol, K), applied to every timeframe by migration 176; 1d was
+never measured at all, and its BIC curves are jagged (EWT K=4 scores below K=2: EM local optima,
+not information). The 583 sweep above is the production-validity measurement (walk-forward
+refusals) and stands.
+
+Arms (both run per timeframe; cut at 2026-09-30, same as the 583 sweep; bars from
+`market_data_ohlcv_tradeable`):
+- Refusal arm (production-exact: fixed `alpha.hmm.random_state`, walk-forward, the kernel's
+  segment schedule): decides. Trend K in {3,4,5}; vol K in {2,3} (reference only, no production
+  change this pass).
+- BIC reference arm (one full-history fit per (name, K), best-of-3 restarts, converged fits
+  only, K in {2,3,4,5,6}): records the full-information state count; never overrides the refusal
+  arm.
+
+Samples (seed 20261103, distinct from the 583 draws' 20261102; symbol lists written to the
+scratch dir):
+- 1d: the 437-name 583 set (337 refusal + 100 control), refit with BIC recording; trend and vol.
+- 5m: names with at least 15 years of 5m history at study time; seeded draw, N=60 (probe 3 names
+  first; if projected wall-clock exceeds about 6 h, halve BIC restarts before shrinking N; record
+  any shortfall and its direction).
+- 15m, 1h: seeded draws of N=60 from the same deep-5m names (resampled).
+
+Decision rules, frozen before the first fit:
+- Trend production K per intraday timeframe: the K in {3,4,5} with the lowest refused-segment
+  share; ties within 2 percentage points to the smaller K (the 583 rule).
+- 1d trend production K=3 stands (decided 2026-11-02 on complete data; no more 1d data can
+  exist). The 1d BIC arm is the first-ever 1d reference: recorded, not decision-driving.
+- Vol: K=2 this pass regardless of outcome; a per-timeframe vol change is a future preregistered
+  decision that cites these tables.
+- Divergence disclosure: if a timeframe's BIC-reference minimum sits more than one K from its
+  refusal winner, the lead reports it to the owner before the pin moves; the refusal rule still
+  governs.
+- Zero-output name counts, error counts and per-fit convergence recorded; nothing is judged on
+  returns (D6).
+
+Deliverables: JSONL shards and summary tables appended to this todo in the 583 format (refused
+share / zero-output names / median written share per cell) plus the BIC winner distribution per
+timeframe; a methodology-change-ledger entry citing this section when the per-timeframe APR keys
+land; the keys `feature.hmm.n_components.<tf>` are item 3's landing shape in todo 584.
+
+Executor: extend `scripts/ops/ops_hmm_refusal_screen.py` (record BIC per fit, `--restarts`, a
+vol-family K override; verify what `compute_regime_columns` exposes) through /simplify, /review
+and the unit suite before any run; shards in `data/scratch/583-k-sweep-2/`.
+
 ## Done when
 
 1. The refusal reason per (name, segment) is measured across the full 1d universe (how many
    names have no regime at all, and why).
 2. The cause is fixed, or the refusal is shown correct and the names are declared regime-unknown,
    before any spec segments by regime on 1d (principle: segment by regime).
+3. The deep-data K study tables are recorded in this todo and the per-timeframe
+   `feature.hmm.n_components.<tf>` keys have landed (item 3 of todo 584).
