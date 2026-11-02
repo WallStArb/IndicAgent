@@ -68,7 +68,7 @@ def _bar(
 
 def _make_test_agent():
     """make_agent() with tiny cross-asset windows so a handful of daily bars, not
-    252, is enough for _zscore_from_deque's len(history) >= window gate to compute
+    252, is enough for _z_or_nan's len(history) >= window gate to compute
     a real value.
     """
     agent = make_agent()
