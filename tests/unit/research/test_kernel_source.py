@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 
 import numpy as np
@@ -269,6 +270,26 @@ def test_config_free_research_kernel_runs_with_none():
         None,
     )[kernel.name].astype(np.float32)
     assert np.array_equal(out.values["rk_vwap_dev_w20"][:, j], direct, equal_nan=True)
+
+
+def test_panel_tf_reaches_declaring_kernels():
+    """A closure containing a kernel that declares not_applicable outputs needs the per-row
+    `tf` external (todo 584 item 2); kernel_source forwards Panel.tf, so the request runs and
+    the declaration gates on the panel's own timeframe, not a refused or defaulted one."""
+    panel, _, _ = _panel()  # tf="1d"
+    out = kernel_source(
+        panel, ["dow_sin", "minute_of_hour_sin"], {}, SimpleNamespace(), max_gap_rows=0
+    )
+    assert np.isfinite(out.values["dow_sin"]).all()
+    assert np.isnan(out.values["minute_of_hour_sin"]).all()  # declared undefined on 1d
+
+    intraday = dataclasses.replace(
+        panel,
+        tf="5m",
+        timestamps=np.datetime64("2020-01-06T14:30") + np.arange(N).astype("timedelta64[5m]"),
+    )
+    out5 = kernel_source(intraday, ["minute_of_hour_sin"], {}, SimpleNamespace(), max_gap_rows=0)
+    assert np.isfinite(out5.values["minute_of_hour_sin"]).all()
 
 
 def test_config_module_never_builds_a_default_config():

@@ -204,6 +204,9 @@ def kernel_source(
         raise KernelSourceRefused(f"{outputs!r} need bar fields {missing}, which were not supplied")
 
     ts = np.asarray(panel.timestamps).astype("datetime64[ns]").astype(np.int64)
+    # the per-row tf external, same convention as the batch path: kernels that read tf
+    # directly (cross_tf, the HMM session kernels) and the not_applicable gate both need it
+    tf = np.full(n, panel.tf, dtype=object)
     values = {o: np.full((n, m), np.nan, dtype=np.float32) for o in outputs}
     gap_masked = dict.fromkeys(outputs, 0)
     warmup_masked = dict.fromkeys(outputs, 0)
@@ -213,7 +216,7 @@ def kernel_source(
         rows = np.flatnonzero(valid & np.isfinite(close[:, j]))
         if rows.size == 0:
             continue
-        inputs = {"ts": ts[rows]}
+        inputs = {"ts": ts[rows], "tf": tf[rows]}
         for name, array in fields.items():
             if array is not None:
                 inputs[name] = np.asarray(array, dtype=float)[rows, j]
