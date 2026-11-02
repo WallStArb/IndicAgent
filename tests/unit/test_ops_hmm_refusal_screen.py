@@ -1,14 +1,18 @@
 import json
+import math
 from argparse import Namespace
 
 import numpy as np
 import pytest
 
 from scripts.ops.ops_hmm_refusal_screen import (
+    _n_params,
     _names,
     _read_records,
     _summarize,
     aggregate,
+    bic_arm_summary,
+    bic_fit_record,
     decide,
     segment_layout,
     summarize_run,
@@ -17,6 +21,8 @@ from scripts.ops.ops_hmm_refusal_screen import (
 from src.intelligence.features.kernels._hmm import (
     EVENT_CONVERGENCE,
     EVENT_SEGMENT_SKIPPED,
+    FAMILY_SPECS,
+    HmmConfig,
     RegimeEventRecord,
 )
 
@@ -196,3 +202,155 @@ def test_summarize_stored_matches_summarize_run_on_the_same_layout():
     assert (out["segments"], out["refused"], out["modeled"], out["written"]) == (3, 2, 5, 2)
     inside = summarize_stored(timestamps, stored, 6, 2, 1, 2, from_row=5)
     assert (inside["segments"], inside["refused"]) == (2, 2)
+
+
+def test_n_params_by_covariance_type():
+    # K=3, d=2: means 6; covars full 9 / diag 6 / spherical 3 / tied 3; transmat 6; start 2
+    assert _n_params(3, 2, "full") == 6 + 9 + 6 + 2
+    assert _n_params(3, 2, "diag") == 6 + 6 + 6 + 2
+    assert _n_params(3, 2, "spherical") == 6 + 3 + 6 + 2
+    assert _n_params(3, 2, "tied") == 6 + 3 + 6 + 2
+
+
+def _params(**over) -> HmmConfig:
+    base = {
+        "feature.hmm.n_components": 3,
+        "feature.hmm.vol_window": 5,
+        "feature.hmm.obs_momentum_window": 5,
+        "feature.hmm.obs_vol_of_vol_window": 5,
+        "feature.hmm.n_iter": 200,
+        "alpha.hmm.random_state": 42,
+        "feature.hmm.covariance_type": "diag",
+        "feature.hmm.min_hold_bars": 2,
+        "feature.hmm.full_cov_min_obs": 10_000,  # a tiny series stays diag, as in production
+        "feature.hmm.min_state_occupation": 0.05,
+        "feature.hmm.churn_window": 5,
+        "feature.hmm.min_obs_factor": 10,
+        "alpha.hmm.covariance_ridge": 1e-6,
+        "alpha.hmm.momentum_vol_floor": 1e-8,
+        "alpha.hmm_volatility.n_components": 2,
+        "alpha.hmm_volatility.vol_window": 5,
+        "alpha.hmm_volatility.vol_of_vol_window": 5,
+        "alpha.hmm_volatility.covariance_type": "diag",
+        **{
+            f"alpha.hmm.walk_forward.{which}.{tf}": 500
+            for which in ("refit_every_bars", "initial_warmup_bars")
+            for tf in ("5m", "15m", "1h", "1d")
+        },
+    }
+    base.update(over)
+    return HmmConfig.from_values(base.get)
+
+
+def _series(n: int = 600) -> dict:
+    rng = np.random.default_rng(7)
+    steps = rng.normal(0, 0.01, n)
+    close = 100.0 * np.exp(np.cumsum(steps))
+    return {"close": close, "volume": rng.uniform(1e6, 2e6, n), "timestamps": list(range(n))}
+
+
+def test_bic_fit_record_winner_is_best_converged_restart_and_bic_formula():
+    record = bic_fit_record(
+        FAMILY_SPECS["trend"], _params(), _series(), k=3, restarts=2, block_rows=None
+    )
+    assert record["converged"] and len(record["attempts"]) == 2
+    assert [a["seed"] for a in record["attempts"]] == [42, 43]  # restart 0 is the APR seed
+    best = max((a for a in record["attempts"] if a["converged"]), key=lambda a: a["log_lik"])
+    assert record["log_lik"] == best["log_lik"] and record["winner_seed"] == best["seed"]
+    # the trend observation matrix has 5 columns; diag covars under 10k obs
+    assert record["covariance_type"] == "diag" and record["n_params"] == _n_params(3, 5, "diag")
+    assert record["bic"] == record["n_params"] * math.log(record["n_obs"]) - 2 * best["log_lik"]
+
+
+def test_bic_fit_record_fits_the_volatility_family_at_k_above_its_vocab():
+    # the volatility vocabulary supports only K=2/K=3 for labels; the BIC arm maps no labels
+    record = bic_fit_record(
+        FAMILY_SPECS["volatility"], _params(), _series(), k=6, restarts=1, block_rows=None
+    )
+    assert record["converged"] and record["n_params"] == _n_params(6, 2, "diag")
+
+
+def test_bic_fit_record_short_series_is_an_error_not_a_crash():
+    record = bic_fit_record(
+        FAMILY_SPECS["trend"],
+        _params(),
+        {"close": np.full(4, 100.0), "volume": np.full(4, 1e6), "timestamps": list(range(4))},
+        k=3,
+        restarts=1,
+        block_rows=None,
+    )
+    assert record["error"] == "insufficient_observations" and record["n_obs"] == 0
+
+
+def _bic_record(symbol, k, bic, converged=True, family="trend", tf="1d"):
+    return {
+        "symbol": symbol,
+        "tf": tf,
+        "family": family,
+        "k": k,
+        "source": "bic",
+        "restarts": 3,
+        "n_obs": 5000,
+        "converged": converged,
+        "bic": bic,
+        "log_lik": -bic,
+    }
+
+
+def test_bic_arm_summary_winners_mode_and_no_converged():
+    records = [
+        # lower BIC wins; A's winner is K=5, B's K=3, C's K=6 (its lower-BIC K=5 never
+        # converged and cannot win); D converges nowhere
+        _bic_record("A", 3, -30000.0),
+        _bic_record("A", 4, -29500.0),
+        _bic_record("A", 5, -31000.0),
+        _bic_record("B", 3, -30000.0),
+        _bic_record("B", 4, -29000.0),
+        _bic_record("B", 5, -29900.0),
+        _bic_record("C", 4, -50000.0),
+        _bic_record("C", 5, -55000.0, converged=False),
+        _bic_record("C", 6, -52000.0),
+        _bic_record("D", 3, -1.0, converged=False),
+        _bic_record("D", 4, -1.0, converged=False),
+    ]
+    arm = bic_arm_summary(records)[("trend", "1d")]
+    assert arm["names"] == 4 and arm["no_converged"] == ["D"]
+    assert arm["distribution"] == {3: 1, 5: 1, 6: 1}  # three-way tie: the mode is the smallest K
+    assert arm["reference_k"] == 3
+    assert [r["k"] for r in arm["rows"]] == [3, 4, 5, 6]
+    assert arm["rows"][0]["converged"] == 2  # D's unconverged cells count in names, not converged
+
+
+def test_summarize_reports_bic_arm_and_divergence(tmp_path, capsys):
+    refusal = [
+        {
+            "symbol": s,
+            "tf": "1d",
+            "family": "trend",
+            "k": k,
+            "segments": 10,
+            "refused": refused,
+            "modeled": 100,
+            "written": 80,
+            "hit_cap": 0,
+        }
+        for s in "AB"
+        for k, refused in ((3, 5), (4, 15))
+    ]
+    bic = [
+        _bic_record(s, k, bic)
+        for s in "AB"
+        for k, bic in ((3, -30000.0), (4, -31000.0), (5, -32000.0), (6, -31500.0))
+    ] + [
+        _bic_record("A", 3, -30000.0, family="volatility")
+    ]  # vol arm: no refusal pair
+    path = tmp_path / "run.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in refusal + bic) + "\n")
+    _summarize([str(path)])
+    out = capsys.readouterr().out
+    assert "chosen K per timeframe: {'1d': 3}" in out
+    assert "BIC arm trend 1d" in out and "BIC arm volatility 1d" in out
+    assert "winners {5: 2}, no_converged 0, reference K=5" in out
+    assert (
+        "BIC vs refusal, trend 1d: reference K=5, winner K=3 (DIVERGENCE (583 disclosure))" in out
+    )

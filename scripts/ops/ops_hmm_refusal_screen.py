@@ -13,6 +13,17 @@ non-null = segment written) and lays the same segments over the bars without fit
 stored K arm costs one query per name; `--summarize` checks stored against computed where both
 exist and prefers stored in the table, naming the source of each cell.
 
+`--bic` (the 583 deep-data K study's reference arm) fits the FULL history once per (symbol, K),
+best-of-`--restarts` EM restarts (default 3): the family's own observation builder and
+StandardScaler scaling, the kernel's `_fit_with_retry`, restart r seeded at
+`hmm_random_state + r` (restart 0 is the production seed), converged restarts only eligible to
+win, and BIC = n_params * ln(n_obs) - 2 * log_lik recorded with log_lik and n_params per fit.
+No labels are mapped, so any K fits either family (the volatility vocabulary supports only
+K=2/K=3 and this arm never maps labels); the arm records the full-information state count and
+never overrides the refusal rule. `--summarize` adds the per-timeframe BIC winner distribution
+(each name's argmin-BIC K over converged cells, mode with ties to the smaller K) and the
+divergence disclosure when the trend reference sits more than one K from the refusal winner.
+
 Per (symbol, tf, K) one JSON line is appended to --out; rerunning the same command resumes, skipping
 cells already recorded without an error. `--summarize FILE ...` aggregates lines
 into one row per (tf, K): the refused-segment share, the share of modeled names with zero output,
@@ -26,6 +37,10 @@ decision rule) and is the place to fold into that sweep once K is an APR schedul
 
 Run: .venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --tf 1d --n-components 3 4 5
          --symbols-file names.txt [--sample 100 --seed 20261102] [--shard 0/3] --out run.jsonl
+     .venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --tf 1d --family volatility
+         --n-components 2 3 --symbols-file names.txt --out run.jsonl
+     .venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --tf 5m --bic [--n-components 2 3 4 5 6]
+         [--restarts 3] --symbols-file names.txt --shard 0/3 --out bic.jsonl
      .venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --summarize run_*.jsonl
 """
 
@@ -35,6 +50,7 @@ import argparse
 import bisect
 import dataclasses
 import json
+import math
 import random
 import statistics
 import sys
@@ -46,6 +62,7 @@ from pathlib import Path
 import numpy as np
 import psycopg
 from psycopg import sql
+from sklearn.preprocessing import StandardScaler
 
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
@@ -60,7 +77,9 @@ from src.intelligence.features.kernels._hmm import (  # noqa: E402
     STATUS_WRITTEN,
     HmmConfig,
     RegimeFamilySpec,
+    _fit_with_retry,
     load_rolling_block_rows,
+    pinned_blas_threads,
 )
 from src.intelligence.features.kernels.regime import (  # noqa: E402
     _finite_prefix_rows,
@@ -69,6 +88,7 @@ from src.intelligence.features.kernels.regime import (  # noqa: E402
 
 DEFAULT_END = "2026-09-30"
 TIE_PP = 2.0
+BIC_K_GRID = (2, 3, 4, 5, 6)  # the 583 deep-data study's reference-arm K grid
 
 
 def summarize_run(status: np.ndarray, events: list, from_row: int = 0) -> dict:
@@ -186,6 +206,46 @@ def decide(rows: list[dict]) -> dict[str, int]:
     return chosen
 
 
+def bic_arm_summary(records: list[dict]) -> dict[tuple[str, str], dict]:
+    """BIC-arm summary per (family, tf): per-K rows (names, converged winners, median BIC) and
+    each name's argmin-BIC K over its converged cells. The reference K is the modal winner,
+    ties to the smaller K; a name with no converged cell anywhere counts in no_converged. The
+    reference never overrides the refusal rule (the 583 divergence disclosure compares them)."""
+    cells: dict[tuple[str, str], dict[int, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for r in records:
+        cells[(r["family"], r["tf"])][r["k"]].append(r)
+    summary: dict[tuple[str, str], dict] = {}
+    for (family, tf), by_k in sorted(cells.items()):
+        rows = []
+        best: dict[str, tuple[float, int]] = {}
+        for k, cell in sorted(by_k.items()):
+            fit = [r for r in cell if r.get("converged")]
+            rows.append(
+                {
+                    "k": k,
+                    "names": len(cell),
+                    "converged": len(fit),
+                    "median_bic": statistics.median(r["bic"] for r in fit) if fit else None,
+                }
+            )
+            for r in fit:
+                name = r["symbol"]
+                if name not in best or r["bic"] < best[name][0]:
+                    best[name] = (r["bic"], k)
+        distribution = Counter(k for _, k in best.values())
+        names = {r["symbol"] for cell in by_k.values() for r in cell}
+        summary[(family, tf)] = {
+            "rows": rows,
+            "names": len(names),
+            "no_converged": sorted(names - set(best)),
+            "distribution": dict(sorted(distribution.items())),
+            "reference_k": (
+                min(distribution, key=lambda k: (-distribution[k], k)) if distribution else None
+            ),
+        }
+    return summary
+
+
 def _names(args: argparse.Namespace) -> list[str]:
     names = list(args.symbols or [])
     if args.symbols_file:
@@ -249,6 +309,79 @@ def _stored_record(
     )
 
 
+def _n_params(n_components: int, n_features: int, covariance_type: str) -> int:
+    """Free parameters of a fitted GaussianHMM: K means, the covariances by type (tied shares
+    one across states), the K-1 free transition rows and the K-1 free start probabilities."""
+    covars = {
+        "full": n_components * n_features * (n_features + 1) // 2,
+        "diag": n_components * n_features,
+        "spherical": n_components,
+        "tied": n_features * (n_features + 1) // 2,
+    }[covariance_type]
+    free_rows = n_components - 1  # transition rows and start probabilities each sum to one
+    return n_components * n_features + covars + n_components * free_rows + free_rows
+
+
+def bic_fit_record(
+    spec: RegimeFamilySpec,
+    params: HmmConfig,
+    series: dict,
+    k: int,
+    restarts: int,
+    block_rows: int,
+) -> dict:
+    """One full-history BIC-reference fit of the family at K, best-of-`restarts` EM restarts.
+
+    The preprocessing is the production fit path's own (`_walk_forward_hmm_full`): the family's
+    observation builder, a StandardScaler fit on the training slice (here the whole series) and
+    `_fit_with_retry` with the family's covariance type (diag below `full_cov_min_obs`) and
+    n_iter. Restart r seeds EM at `hmm_random_state + r`, so restart 0 is the production seed.
+    Only converged restarts can win (highest log-lik); BIC = n_params * ln(n_obs) - 2 *
+    log_lik, lower better. No label map is built, so any K fits either family."""
+    close, volume = series["close"], series["volume"]
+    prefix = _finite_prefix_rows(close, volume) if spec.needs_volume else _finite_prefix_rows(close)
+    obs, _ = spec.build_observations(
+        close[:prefix], volume[:prefix] if spec.needs_volume else volume, params, block_rows
+    )
+    record: dict = {"restarts": restarts, "n_obs": len(obs)}
+    if len(obs) == 0:
+        record["error"] = "insufficient_observations"
+        return record
+    train_scaled = StandardScaler().fit_transform(obs)
+    covariance_type = spec.model_fields(params)[1]
+    if len(train_scaled) < params.hmm_full_cov_min_obs:
+        covariance_type = "diag"
+    record["covariance_type"] = covariance_type
+    attempts = []
+    with pinned_blas_threads():
+        for r in range(restarts):
+            model, converged = _fit_with_retry(
+                train_scaled, k, covariance_type, params.hmm_n_iter, params.hmm_random_state + r
+            )
+            attempts.append(
+                {
+                    "seed": params.hmm_random_state + r,
+                    "log_lik": float(model.score(train_scaled)),
+                    "iters": int(model.monitor_.iter),
+                    "converged": converged,
+                }
+            )
+    record["attempts"] = attempts
+    eligible = [a for a in attempts if a["converged"]]
+    record["converged"] = bool(eligible)
+    if not eligible:
+        return record
+    winner = max(eligible, key=lambda a: a["log_lik"])
+    n_params = _n_params(k, obs.shape[1], covariance_type)
+    record |= {
+        "log_lik": winner["log_lik"],
+        "winner_seed": winner["seed"],
+        "n_params": n_params,
+        "bic": n_params * math.log(len(train_scaled)) - 2 * winner["log_lik"],
+    }
+    return record
+
+
 def _cell_key(record: dict) -> tuple:
     return (
         record["symbol"],
@@ -308,10 +441,12 @@ def _summarize(paths: list[str]) -> None:
     records, unreadable = _read_records(paths)
     errors = [r for r in records if "error" in r]
     records = [r for r in records if "error" not in r]
-    records = _prefer_stored(records)
+    bic = [r for r in records if r.get("source") == "bic"]
+    records = _prefer_stored([r for r in records if r.get("source") != "bic"])
     print(f"decision rule: lowest refused share; smallest K within {TIE_PP} points of it")
     if unreadable or errors:
         print(f"WARNING: {unreadable} unreadable lines, {len(errors)} name fits errored (excluded)")
+    chosen_by_family: dict[str, dict[str, int]] = {}
     for family in sorted({r["family"] for r in records}):
         mine = [r for r in records if r["family"] == family]
         names_by_cell = defaultdict(set)
@@ -331,7 +466,31 @@ def _summarize(paths: list[str]) -> None:
                 f"{_pct(r['refused_share']):>8} {_pct(r['zero_output_share']):>9} "
                 f"{_pct(r['median_written_share']):>15} {r['hit_cap']:>7} {'+'.join(r['sources'])}"
             )
-        print("chosen K per timeframe:", decide(rows))
+        chosen_by_family[family] = decide(rows)
+        print("chosen K per timeframe:", chosen_by_family[family])
+    if bic:
+        summary = bic_arm_summary(bic)
+        chosen = chosen_by_family.get("trend", {})
+        restarts = sorted({r.get("restarts") for r in bic})
+        for (family, tf), arm in summary.items():
+            print(f"BIC arm {family} {tf} ({arm['names']} names, restarts {restarts})")
+            print("K  names converged median_bic")
+            for r in arm["rows"]:
+                median = "-" if r["median_bic"] is None else f"{r['median_bic']:.1f}"
+                print(f"{r['k']}  {r['names']:>5} {r['converged']:>9} {median:>10}")
+            print(
+                f"winners {arm['distribution']}, no_converged {len(arm['no_converged'])}, "
+                f"reference K={arm['reference_k']}"
+            )
+        for tf in sorted(tf for family, tf in summary if family == "trend" and tf in chosen):
+            reference = summary[("trend", tf)]["reference_k"]
+            if reference is not None:
+                gap = reference - chosen[tf]
+                note = "DIVERGENCE (583 disclosure)" if abs(gap) > 1 else "within one K"
+                print(
+                    f"BIC vs refusal, trend {tf}: reference K={reference}, winner K={chosen[tf]}"
+                    f" ({note})"
+                )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -348,6 +507,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", help="JSONL file appended per (symbol, K)")
     parser.add_argument("--stored", action="store_true", help="read stored output, no fit")
     parser.add_argument(
+        "--bic",
+        action="store_true",
+        help="full-history BIC-reference fit per (symbol, K), best-of-N restarts, no labels",
+    )
+    parser.add_argument(
+        "--restarts", type=int, help="EM restarts for --bic (default 3; restart 0 is the APR seed)"
+    )
+    parser.add_argument(
         "--within-panel",
         action="store_true",
         help="count only segments starting at or after the name's first stored feature row",
@@ -362,6 +529,16 @@ def main(argv: list[str] | None = None) -> int:
     args.within_panel = args.within_panel or args.stored  # stored rows exist only inside the panel
     if args.stored and args.n_components:
         parser.error("--stored reads the stored K; do not combine it with --n-components")
+    if args.stored and args.bic:
+        parser.error("--stored and --bic are different arms; give one")
+    if args.bic and args.within_panel:
+        parser.error("--bic fits the full history; it has no panel scope")
+    if args.restarts is not None and not args.bic:
+        parser.error("--restarts is the --bic arm's restart count; it needs --bic")
+    if args.bic:
+        args.restarts = args.restarts if args.restarts is not None else 3
+        if args.restarts < 1:
+            parser.error("--restarts needs at least 1")
     if args.summarize:
         _summarize(args.summarize)
         return 0
@@ -376,14 +553,19 @@ def main(argv: list[str] | None = None) -> int:
     k_field = f"{spec.config_prefix}_n_components"
     out_path = Path(args.out)
     previous = _read_records([str(out_path)])[0] if out_path.exists() else []
-    source = "stored" if args.stored else "computed"
+    source = "bic" if args.bic else "stored" if args.stored else "computed"
     done = {_cell_key(r) for r in previous if "error" not in r}
     with psycopg.connect(get_settings().database_url) as conn, open(out_path, "a") as out:
         cfg = load_config_service_sync(conn)
         params = HmmConfig.from_values(cfg.get_sync)
         block_rows = load_rolling_block_rows(cfg.get_sync)
         apr_k = spec.model_fields(params)[0]
-        ks = [apr_k] if args.stored else args.n_components or [apr_k]
+        if args.stored:
+            ks = [apr_k]
+        elif args.bic:
+            ks = list(args.n_components or BIC_K_GRID)
+        else:
+            ks = args.n_components or [apr_k]
         for symbol in names:
             todo = [k for k in ks if (symbol, args.tf, args.family, k, source) not in done]
             if not todo:
@@ -436,6 +618,8 @@ def main(argv: list[str] | None = None) -> int:
                             block_rows,
                             from_row,
                         )
+                    elif args.bic:
+                        record |= bic_fit_record(spec, params, series, k, args.restarts, block_rows)
                     else:
                         columns, events = compute_regime_columns(
                             close,
