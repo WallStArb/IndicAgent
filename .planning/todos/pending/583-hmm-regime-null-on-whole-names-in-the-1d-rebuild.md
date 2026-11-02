@@ -73,6 +73,37 @@ the control is a draw of 100 (seed 20261102) from the 332 non-fallback names wit
 whole pool); the 1h set is a draw of 40 (seed 20261102) from the 1,055 non-fallback names with at
 least 15,000 1h bars. 0 errors in 1,431 fits; one 1h K=5 fit hit the iteration cap, the only one.
 
+Added arm, chosen after seeing the K=3/4/5 results (2026-11-02): 1d K=2 on the same 437 names.
+
+| 1d, K=2 | refused / zero-output names / median written share |
+|---|---|
+| refusal set (337) | 7.0 / 0.0 / 100 |
+| control (100) | 0.0 / 0.0 / 100 |
+| combined (437) | 4.8 / 0.0 / 100 |
+
+The fixed rule picks K=2 mechanically, but a 2-state trend model has no mid state (the label map gives
+only `low` and `high`, so no `ranging` or transition label); a low refused share there is a design
+question, not a free win. Changing the APR component count or the 0.05 floor is the owner's call.
+
+Runs and where to read them (for a session that did not run them). Raw one-line-per-fit JSONL is
+copied to `data/scratch/583-k-sweep/` (on disk only, not in git); the scripts are
+`scripts/ops/ops_hmm_refusal_screen.py`. Read any finished run with
+`.venv/bin/python scripts/ops/ops_hmm_refusal_screen.py --summarize <files>`; stored and computed
+records of one cell are checked against each other and the computed one is used on a mismatch.
+- 1d: `1d_refusal_{0..3}.jsonl` (337 names from `genuine.txt`) and `1d_control_{0..3}.jsonl` (100 names,
+  `--sample 100 --seed 20261102` from `full_pool.txt`, the 332 non-fallback names at least 90% written),
+  `--tf 1d --n-components 2 3 4 5`, 4 shards each.
+- 1h: `1h_{0..2}.jsonl`, `--tf 1h --n-components 3 4 5 --symbols-file pool_1h.txt --sample 40 --seed 20261102`.
+- 15m: `15m_{0..2}.jsonl`, 20 names `--symbols-file stage2_15m.txt --sample 20 --seed 20261102`
+  (the 650 stage-2 names), computed `--within-panel --n-components 3 4`, then `--stored` for the
+  stored K=5 on the same names.
+- 5m: `5m_{0..3}.jsonl`, 8 names `--symbols-file stage2_5m.txt --sample 8 --seed 20261102`, computed
+  `--within-panel --n-components 3`, then `--stored`; K=4 only if K=3 does not beat the stored K=5
+  by more than the 2-point band.
+Decision still owed: the per-timeframe table for 15m and 5m once those runs finish (a run is done
+when `ps aux | grep ops_hmm_refusal_screen` is empty), then the rule's output, written here. Stored
+arm validated against computed K=5 on 14 of 14 1d and 15 of 15 intraday names.
+
 Caveats. K=3 is the smallest K tested and the refused share falls monotonically with K, so the
 minimum is not located; a K=2 arm on 1d was added after seeing these results (recorded below when
 run). Computed 1d counts include segments before 2005, the stored panel start, so they are
