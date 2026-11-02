@@ -29,7 +29,7 @@ anything found after the pin moves waits for the following rerun.
 | 3 | HMM whole-name NULL: refusal reasons measured, then gate or input fix | 583 | measuring (indicagent-dc) |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | open |
-| 6 | Intraday screen findings on the 650 stage-2 names | this todo | screen running |
+| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | implementing (subagent) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
 | 9 | Pilot gate tool (design D3) | this todo | open |
@@ -82,9 +82,11 @@ zero from a missing value. The rule that replaces them:
    defined, `sr_level_count`, `pool_count`, touch counts). The distance, strength, age, velocity
    or position of an object that does not exist is NaN. "Bars since event" with no event in the
    observed history is NaN (right-censored), never 0.
-3. Timeframe applicability is declared once, on the kernel: `Kernel.intraday_only:
-   frozenset[str]` (outputs undefined on a whole-session bar). `compute_kernels` writes those
-   outputs as NaN on 1d in one place, and every in-kernel `tf == "1d"` suppression branch
+3. Timeframe applicability is declared once, on the kernel: `Kernel.not_applicable:
+   Mapping[str, frozenset[str]]` (output name to the timeframes where it is undefined by
+   construction; amended 2026-11-02 because `minute_of_hour_*` is undefined on 1h, not only on
+   1d). `compute_kernels` writes those
+   outputs as NaN on those timeframes in one place, and every in-kernel `tf == "1d"` suppression branch
    (`_NEUTRAL_VP_EXTRA`'s 1d path, `_SESSION_LEVELS_DAILY_SUPPRESSED`, the calendar session
    flags) is deleted. The registry exposes `applicable_outputs(tf)`; the S0 read (184) and the
    column screen consume it, so a declared column is excluded, not "dead".
@@ -92,7 +94,7 @@ zero from a missing value. The rule that replaces them:
    registry-wide unit test feeds each kernel a series where no object exists (flat price,
    too-short history) and asserts every output outside `zero_is_state` is NaN.
 
-Scope of 1d `intraday_only`: the session-anchored VP fields, the session-time and killzone
+Scope of `not_applicable` on 1d: the session-anchored VP fields, the session-time and killzone
 columns (`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`, `in_overlap`,
 `power_hour`, `session_time_pos`, `opening_range`), the overnight and Asian session distances,
 the intraday return divergences, and the AMD phase family. A column that is constant on 1d
@@ -140,10 +142,37 @@ The start depends on bar presence only, never on returns. It is recorded per nam
 verdict, and the change is a methodology-ledger entry. The 2000-2004 backfill for the 41 moves
 a proven start earlier in a later pass; it never blocks this one.
 
+### D5. Intraday screen findings (item 6; 650 names, report `logs/feature_column_screen_20261102T002227Z.json`)
+
+Retire (registry `deprecated` through `ConceptRegistryService`, kernel outputs deleted): columns
+that cannot carry information on any name in the universe, because the bars are US equity
+regular-hours bars. `asian_session_high_dist_atr`, `asian_session_low_dist_atr`,
+`in_london_kz`, `amd_distribution_direction`, `amd_manipulation_detected`, `manip_strength`
+(FX and futures killzone concepts), `ret_div_1m_5m` (no 1m bars), and `overnight_high_dist_atr`,
+`overnight_low_dist_atr`, `overnight_range_pct` (populated on 81 of 650 names on 5m only where a
+vendor served extended-hours bars: a feature that exists by vendor accident is a hidden bias).
+Deleting beats declaring: a column re-enters when an asset class that has the session joins.
+`amd_phase` is checked: if it is a function of time of day only it duplicates
+`session_time_pos` and retires too.
+
+Defects (fix in this batch):
+- `hmm_vol_prob_elevated` constant on about 643 of 650 names on every timeframe: the elevated
+  state is never assigned (label mapping or gate); goes with item 3.
+- HMM state columns NULL on 34 (15m), 21 (1h) and 45 (5m) whole names: item 3's measurement
+  covers intraday too.
+- `ret_div_1h_1d` NULL on 5m and 15m, `ret_div_5m_1h` NULL on 15m and 1h, where the
+  higher-timeframe inputs exist.
+- `ctf_vwap_align` constant on 89 names at 1h (474's VWAP-filled-with-close path is the
+  suspect).
+- `sweep_detected` constant on 496 names at 1h and 63 at 15m: rare event or defect; measured
+  against the 5m rate before deciding.
+
+Declare (D1 rule 3): `minute_of_hour_*` on 1h.
+
 ### Sequencing
 
 Implementers work one at a time per shared file: items 1 and 7 (running) touch `registry.py`,
-so D1 (items 2 and 4) starts after they land. Item 5 (`macro.py`) and the add-list's new kernel
+so D1 plus D5 (items 2, 4 and 6, one implementer: the same kernels) starts after they land. Item 5 (`macro.py`) and the add-list's new kernel
 module (item 8) do not collide and run beside them. Item 3's fix waits for the 583 measurement.
 The D3 gate tool is independent and is built now.
 
