@@ -1357,13 +1357,9 @@ def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, sessio
     fallback (the old plain-float calendar reads)."""
     from src.intelligence.features.contract.registry import default_registry
 
-    declared = default_registry().applicable_outputs("1d")
-    missing = {
-        name
-        for kernel in default_registry().kernels
-        for name, tfs in kernel.not_applicable.items()
-        if "1d" in tfs
-    } & set(default_registry().feature_columns())
+    registry = default_registry()
+    declared = registry.applicable_outputs("1d")
+    missing = registry.not_applicable_outputs("1d") & set(registry.feature_columns())
     assert missing, "the declaration set must not be empty"
     assert not (missing & declared)
 

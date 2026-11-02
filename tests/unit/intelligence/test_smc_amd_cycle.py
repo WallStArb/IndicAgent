@@ -389,7 +389,7 @@ def test_update_overnight_range_wired_into_call_sites():
     """
     batch_src = inspect.getsource(feature_factory.FeatureFactory.compute_batch)
     assert "update_overnight_range" not in batch_src
-    assert "_kernel_row_none(k, AMD, i)" in batch_src
+    assert "_kernel_row(k, AMD, i, declared=na)" in batch_src
 
     pipeline_src = inspect.getsource(feature_vector_pipeline)
     assert pipeline_src.count("update_overnight_range") >= 2, (

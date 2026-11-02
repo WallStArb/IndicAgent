@@ -355,12 +355,38 @@ class KernelRegistry:
     def applicable_outputs(self, tf: str) -> frozenset[str]:
         """Feature columns meaningful on `tf`: those not declared not_applicable on it."""
         columns = frozenset(self.feature_columns())
-        return columns - {
+        return columns - self.not_applicable_outputs(tf)
+
+    def not_applicable_outputs(self, tf: str) -> frozenset[str]:
+        """Every output name declared not applicable on `tf`, across all kernels."""
+        return frozenset(
             output
             for kernel in self.kernels
             for output, tfs in kernel.not_applicable.items()
             if tf in tfs
-        }
+        )
+
+
+def constant_value(values: np.ndarray, what: str) -> str:
+    """The one value of a per-row external input that is constant over the series.
+
+    Raises ValueError for no rows or a value that changes across rows: a kernel that branches
+    on it must not silently mix two series.
+    """
+    column = np.asarray(values, dtype=object)
+    if len(column) == 0:
+        raise ValueError(f"a kernel that reads {what} needs at least one row")
+    first = column[0]
+    if not all(v == first for v in column):
+        raise ValueError(
+            f"the {what} input changes across rows; a kernel runs one series at a time"
+        )
+    return str(first)
+
+
+def constant_tf(tf_values: np.ndarray) -> str:
+    """The one timeframe of a series from the per-row `tf` external input."""
+    return constant_value(tf_values, "tf")
 
 
 def discover_kernels(package: str = _DEFAULT_PACKAGE) -> KernelRegistry:
@@ -591,19 +617,18 @@ def compute_kernels(
             "'volume_basis', which the caller did not supply"
         )
     declared = [k for k in order if k.not_applicable]
-    tf_column = inputs.get("tf")
     series_tf: str | None = None
     if declared:
+        tf_column = inputs.get("tf")
         if tf_column is None or len(tf_column) == 0:
             raise KernelRegistryError(
                 f"kernels {sorted(k.name for k in declared)} declare not_applicable outputs "
                 "and need the 'tf' external input, which the caller did not supply"
             )
-        series_tf = str(tf_column[0])
-        if any(value != series_tf for value in tf_column):
-            raise KernelRegistryError(
-                "the tf input changes across rows; a kernel runs one series at a time"
-            )
+        try:
+            series_tf = constant_tf(tf_column)
+        except ValueError as error:
+            raise KernelRegistryError(str(error)) from None
     n = next((len(inputs[f]) for f in BAR_FIELDS if f in inputs), None)
     if n is None:
         raise KernelRegistryError("compute_kernels needs at least one bar field in inputs")
@@ -618,14 +643,12 @@ def compute_kernels(
     result: dict[str, np.ndarray] = {}
     dirty: dict[str, np.ndarray] = {}  # output -> rows the volume guard masked
     for kernel in order:
-        undefined = (
-            {name for name, tfs in kernel.not_applicable.items() if series_tf in tfs}
-            if series_tf is not None
-            else frozenset()
-        )
+        # None only when no kernel declared anything; `None in tfs` is False, so `undefined`
+        # is then the empty set and every kernel runs.
+        undefined = {name for name, tfs in kernel.not_applicable.items() if series_tf in tfs}
         cut = {name: values[name] for name in kernel.inputs}
         if undefined and set(kernel.outputs) <= undefined:
-            out, masked = {name: np.full(n, np.nan) for name in kernel.outputs}, None
+            out, masked = dict.fromkeys(kernel.outputs, np.full(n, np.nan)), None
         elif "volume" in kernel.inputs and not kernel.volume_basis_safe:
             out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
         elif any(name in dirty for name in kernel.inputs):

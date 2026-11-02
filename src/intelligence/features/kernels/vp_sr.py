@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.contract.registry import Kernel, constant_tf
 from src.intelligence.features.kernels._cache_state import (
     FeatureCache,
     _compute_session_value_area,
@@ -28,7 +28,6 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,
     _is_valid_atr,
-    constant_tf,
     undefined_on,
     window_start,
 )

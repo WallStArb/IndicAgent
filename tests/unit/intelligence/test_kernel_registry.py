@@ -346,6 +346,13 @@ def test_applicable_outputs_drops_declared_outputs_per_timeframe():
     assert registry.applicable_outputs("5m") == {"hour", "minute", "gap", "overnight", "plain"}
 
 
+def test_not_applicable_outputs_lists_every_declared_output():
+    registry = _daily_registry()
+    assert registry.not_applicable_outputs("1d") == {"hour", "minute", "overnight"}
+    assert registry.not_applicable_outputs("1h") == {"minute"}
+    assert registry.not_applicable_outputs("5m") == frozenset()
+
+
 def test_a_declaration_outside_the_kernel_outputs_raises():
     with pytest.raises(KernelRegistryError, match="not_applicable"):
         KernelRegistry.from_kernels([_k("a", not_applicable={"nope": frozenset({"1d"})})])

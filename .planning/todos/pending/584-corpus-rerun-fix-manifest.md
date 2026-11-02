@@ -216,13 +216,17 @@ minute encodings, 1d; the 1h `minute_of_hour_*` entry is item 6's to add), `roll
 The dc-era failing test had the wrong hypothesis: the batch path passes `tf` correctly, it never
 ran the three cache-backed kernels at all (their outputs were not requested; the loop read
 `_derive_*` off its own per-bar-updated cache). Fix: `_STRUCTURE_KERNEL_OUTPUTS` now carries
-`SESSION_LEVEL`/`VP`/`AMD` outputs, the loop reads `_kernel_row_none` rows (grid NaN reads back
-None), the per-bar accumulator updates and the VP `tf=='1d'` neutral branch are deleted, and the
-ten calendar/clock fields read through `_none_if_nan` (a plain `float()` read handed grid NaN to
-`_guard`, which fabricated 0.0/1.0). The two call-site wiring tests now pin the kernel route; the
-legacy per-bar `compute()` path still gives 1d neutrals (dormant, item 582). Golden regenerated
-from stored inputs in its own commit: 18 changed columns on the four 1d cases only. Item 9's G1/G3
-can drop their absent-declaration tolerance.
+`SESSION_LEVEL`/`VP`/`AMD` outputs, the loop reads `_kernel_row(..., declared=na)` rows (the
+per-tf declared set from `KernelRegistry.not_applicable_outputs(tf)`; a declared output reads
+back None), the per-bar accumulator updates and the VP `tf=='1d'` neutral branch are deleted, and
+the ten calendar/clock fields read through `_none_if_nan` (a plain `float()` read handed grid NaN
+to `_guard`, which fabricated 0.0/1.0). The two call-site wiring tests now pin the kernel route;
+the legacy per-bar `compute()` path still gives 1d neutrals (dormant, item 582). Golden
+regenerated from stored inputs in its own commit: 18 changed columns on the four 1d cases only.
+Item 9's G1/G3 can drop their absent-declaration tolerance. Simplify follow-up (same day):
+`constant_value`/`constant_tf` moved to the contract layer (`compute_kernels` had re-implemented
+both), the declared set drives the batch row reads instead of NaN-sniffing, and the wholly-skipped
+kernel writes one shared placeholder array.
 
 Item 9 follow-up: the all-timeframe pilot run on the stored stage output (report
 `logs/feature_column_screen_20261102T142626Z.json`, disk only) shows gate failures G1 1,935, G2 562,

@@ -1254,22 +1254,23 @@ _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
 )
 
 
-def _kernel_row(k: dict[str, np.ndarray], group: KeyGroup, i: int) -> dict[str, Any]:
-    """Row i of a kernel-produced field group as the helper's dict (the group's public keys), None
-    where the mask says so."""
+def _kernel_row(
+    k: dict[str, np.ndarray],
+    group: KeyGroup,
+    i: int,
+    declared: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Row i of a kernel-produced field group as the helper's dict (the group's public keys),
+    None where the mask says so or the output is declared not applicable on this series'
+    timeframe (`Kernel.not_applicable`; the NaN compute_kernels writes for it is missing,
+    never a fabricated neutral). An undeclared NaN stays NaN and surfaces in validation."""
     return {
-        key: None if key in group.nullable and k[none_mask_name(key)][i] > 0.5 else float(k[key][i])
+        key: (
+            None
+            if key in declared or (key in group.nullable and k[none_mask_name(key)][i] > 0.5)
+            else float(k[key][i])
+        )
         for key in group.public_keys
-    }
-
-
-def _kernel_row_none(k: dict[str, np.ndarray], group: KeyGroup, i: int) -> dict[str, Any]:
-    """`_kernel_row` with a NaN on the kernel grid read as None: an output undefined by
-    declaration on this timeframe (`Kernel.not_applicable`) is NaN on the grid and None in the
-    FeatureVector, never a fabricated neutral."""
-    return {
-        key: (None if value is None or math.isnan(value) else value)
-        for key, value in _kernel_row(k, group, i).items()
     }
 
 
@@ -2819,8 +2820,10 @@ class FeatureFactory:
         # batch; the loop below reads row i. The registry is looked up here, never at import,
         # so kernel origins cannot create an import cycle with this module.
         row_ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
+        registry = default_registry()
+        na = registry.not_applicable_outputs(tf)
         k = compute_kernels(
-            default_registry(),
+            registry,
             {
                 **_batch_kernel_inputs(
                     row_ns,
@@ -2914,9 +2917,9 @@ class FeatureFactory:
 
             # Session-level VP (Phase 163 Plan 02): the 14 ATR-normalized/bounded VP fields are
             # a registry kernel that replays a fresh cache over the series (declared
-            # intraday-only on 1d, D1: the grid NaN reads back as None here, never the neutral
-            # 0.0/0.5 defaults the old call-site branch substituted).
-            vp_extra: dict[str, float | None] = _kernel_row_none(k, VP, i)
+            # intraday-only on 1d, D1: the declared outputs read back as None here, never the
+            # neutral 0.0/0.5 defaults the old call-site branch substituted).
+            vp_extra: dict[str, float | None] = _kernel_row(k, VP, i, declared=na)
 
             # S/R, swing, trend, swing momentum and fib: registry kernels over the same causal
             # windows the loop used to slice (valid for tf=='1d' too, D-19).
@@ -2930,7 +2933,7 @@ class FeatureFactory:
             # Session Levels (Phase 165 Plan 05): the 16 session-level fields, a registry
             # kernel replaying a fresh cache (the five overnight/Asian distances are declared
             # intraday-only on 1d and read back None).
-            _session_level_fields = _kernel_row_none(k, SESSION_LEVEL, i)
+            _session_level_fields = _kernel_row(k, SESSION_LEVEL, i, declared=na)
 
             # Smart money concepts: registry kernels over the same causal windows the loop
             # used to slice, each reading the loop's atr_val.
@@ -2944,7 +2947,7 @@ class FeatureFactory:
             # AMD reads the overnight range: a registry kernel replaying a fresh cache (all
             # four outputs declared intraday-only on 1d, so they read back None on a daily
             # series).
-            _amd_fields = _kernel_row_none(k, AMD, i)
+            _amd_fields = _kernel_row(k, AMD, i, declared=na)
 
             _structural_fields = _merge_structural_fields(
                 vp_extra,

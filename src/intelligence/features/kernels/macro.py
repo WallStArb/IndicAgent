@@ -28,11 +28,15 @@ import structlog
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
-from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
+from src.intelligence.features.contract.registry import (
+    Alignment,
+    ExternalInput,
+    Kernel,
+    constant_value,
+)
 from src.intelligence.features.kernels._primitives import (
     _corr_or_nan,
     _z_or_nan,
-    constant_value,
 )
 
 if TYPE_CHECKING:

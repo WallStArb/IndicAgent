@@ -25,11 +25,11 @@ from src.intelligence.features.contract.registry import (
     Alignment,
     ExternalInput,
     Kernel,
+    constant_tf,
     require_finite_volume,
 )
 from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
 from src.intelligence.features.kernels._primitives import (
-    constant_tf,
     undefined_on,
     wilder_rsi_series,
 )

@@ -379,7 +379,7 @@ def test_session_levels_wired_at_all_three_call_sites() -> None:
         "so no caller-held cache can change a row"
     )
     assert (
-        "_kernel_row_none(k, SESSION_LEVEL, i)" in ff
+        "_kernel_row(k, SESSION_LEVEL, i, declared=na)" in ff
     ), "compute_batch() reads the session_levels kernel's columns row by row"
     assert fp.count("update_session_levels(") == 2, (
         "T-164-07: update_session_levels() must be wired into exactly two sites "
