@@ -56,12 +56,21 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   lands on main, a pilot chunk at the new pin passes the column screen, then the rerun (1d then
   intraday), then 186-27 swap, 186-28, 184.
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
-  gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) runs as pid 2741193;
-  the IBKR history farm stopped answering about 18:00Z to 22:50Z while the session stayed alive,
-  which todo 538's rework (indicagent-82) detects with a history-request probe. Coverage target
-  and counts: memory `project_raw_coverage_target`, todo 534.
-- **Lanes now:** 82 = todo 538 rework; dc = todo 583 refusal-reason measurement; one background
-  implementer at a time on 584 items (items 1 and 7 started 23:10Z).
+  gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the
+  fetcher timer (never hand-launch). A run now ends on a failed history probe (`1ebcfc9e4`) or on
+  no data taken in for 1800 s, status `stalled` (`857b163e0`); failure modes and procedure in
+  `docs/reference/gotchas.md`. Todo 534 test since 12:06:24Z 2026-11-02: `fetch_concurrency`
+  8 to 3, timeout unchanged at 240 s; interim 638,680 rows in the 12Z hour against a best
+  baseline of 131,958; verdict due 15:06:24Z (rule and numbers in 534). Coverage target and
+  counts: memory `project_raw_coverage_target`, todo 534.
+- **Landed 2026-11-02 (82):** 584 item 10 calendar start 2000 (`ff368fcd4`), item 11 proven start
+  per name closing 532 (`d601a6fd5`, ledger E19; the 1d verdict audit must run once to write
+  `proven_start_1d` before the rebuild reads it), item 5 macro.py half (`aee2404d9`), item 12
+  (`d003eb028`). Open for the 584 implementer: the `_cache_state.py` and `feature_factory.py`/
+  `schemas.py` half of 463 (references in the 82 handoff to 4f). Todo 522 measured paper run at
+  the 14:30Z open pending.
+- **Lanes now:** 82 = 534 test then 522 run; dc = todo 583; one background implementer on 584
+  items 2, 4 and 6.
 - **Monday 2026-11-02 09:30 ET:** todo 522's measured Alpaca paper run (20 orders in
   `data/scratch/alpaca-paper/orders.jsonl`); run `check`, then
   `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` after the open. The
