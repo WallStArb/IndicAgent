@@ -129,28 +129,22 @@ lowered the timeout). Run started 12:06:24Z (t0), window to 15:06:24Z. Decision 
 before the result: keep if the mean beats 131,958 rows/h; under 20,000 rows/h try concurrency 2
 for 3 hours; between the two keep it and extend.
 
-Interim (checked 13:41Z): 12Z hour (from 12:06:24Z) 638,680 rows over 6 names; 13Z through 13:41Z
-488,099 rows over 5 names; zero outer timeouts since the run began. Final hourly numbers, the
-14:30Z split and the verdict are appended here at the end of the window.
+Result through 14:53Z 2026-11-02 (ohlcv_raw ibkr 5m, hour UTC; t0 12:06:24Z, window to 15:06:24Z):
 
+| Hour | Rows | Names |
+|---|---|---|
+| 12Z (from 12:06:24Z) | 638,680 | 6 |
+| 13Z | 707,993 | 6 |
+| 14Z | 637,578 | 6 |
+| of which 14:00-14:30Z | 352,764 | 5 |
+| of which 14:30-14:53Z (US session open) | 284,814 | 3 |
 
-## Verdict 2026-11-02 14:41Z (indicagent-02): fetch_concurrency 3 stays
-
-The rule fixed before the result (above): keep if the mean over 12:06:24Z-15:06:24Z beats 131,958
-rows/h. At 14:41Z the run had taken 1,831,308 rows over 12 names (hour rows: 12Z 638,680 partial
-from 12:06:24Z; 13Z 707,993; 14Z 484,635 so far); zero outer timeouts since the run's
-`fetcher_lock.acquired`; the service ran continuously. With zero further rows the 3 h mean is
-610,436 rows/h, 4.6x the baseline best hour, so the branch is decided before the window closes:
-keep 3, no APR change, no restart. The market-open split (load confound): 14:00-14:30Z 352,764
-rows; 14:30-14:40Z 131,871 rows (about 790,000 rows/h), no degradation at the US open.
-The final 15:06:24Z hour table is not needed for the decision; read it with the per-hour query in
-the memory file project_fetcher_runs_end_on_no_intake_2026_11_02.md if wanted. Concurrency 8 to 3
-raised throughput by about 5x on the same lanes; the earlier read (cancel-storm backlog at 8
-lanes) stands as the mechanism. Not tried: 4, 5, 6 (correction 2026-11-02, owner asked why not millions of rows/h). Throughput is
-lanes / answer latency: 3 lanes at about 150 s is about 72 requests/h, about 850,000 rows/h at
-about 12,000 rows/request, which matches the observed 700,000. Millions/h needs 8-12 effective
-lanes; concurrency 8 collapsed (132,000 rows/h), so the break lies between 3 and 8 and is not
-located (IBKR pacing and the cancel-storm theory are both unproven). Next test: step up one lane
-at a time (4, then 5, 6), 3 h each, same rule shape fixed beforehand (keep a step only if it beats
-the previous by a margin and shows no outer timeouts or stalls). About 700 names still lack
-pre-2016 5m; at 4-5 names/h that is about 6 days.
+Mean 2h47m: about 713,000 rows/h against the 131,958 threshold, the best concurrency-8 hour.
+Zero outer timeouts in the whole run (the concurrency-8 run logged 62 in 45 minutes), no
+`stalled` or gateway_lost exit. The US session open at 14:30Z did not slow it (284,814 rows in 23
+minutes is a pace near 740,000 rows/h). The last 13 minutes of the window cannot move the mean
+under the threshold, so the decision rule gives: keep `infra.backfill.fetch_concurrency` at 3.
+Not tested: concurrency 2 or 4, and a longer run (the earlier concurrency-8 hours also started
+strong, 04Z-05Z, then decayed over several hours; the backlog reading predicts 3 lanes do not
+decay, so the hours after 15:06Z are the real check). Read them with the hourly query in memory
+`project_fetcher_runs_end_on_no_intake_2026_11_02`.
