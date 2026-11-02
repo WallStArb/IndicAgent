@@ -26,7 +26,7 @@ anything found after the pin moves waits for the following rerun.
 |---|---|---|---|
 | 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | landed 20c1dcddc (shared helper: the cache and macro/beta z-scores are NaN in warmup too) |
 | 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | open |
-| 3 | HMM whole-name NULL: refusal reasons measured, then gate or input fix | 583 | measuring (indicagent-dc) |
+| 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe from the preregistered K experiment; `hmm_vol_prob_elevated` retires | 583 | measured (dc); K experiment running |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | macro.py half landed aee2404d9 (82); the CrossAssetState, feature_factory `_guard` and schema half rides items 2/4/6 (subagent) |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
@@ -177,6 +177,29 @@ Defects (fix in this batch):
   against the 5m rate before deciding.
 
 Declare (D1 rule 3): `minute_of_hour_*` on 1h.
+
+### D6. HMM coverage (item 3; measurement by indicagent-dc, 2026-11-02)
+
+1d, 1,314 names: 873 at least half written, 247 under half, 194 none. Two causes. (a) 104 of the
+194 are fallback-kind names whose volume the tradeable view nulled before migration 543; on
+current bars they write in full (HON 5,491 bars), so the rerun fixes them. (b) 337 non-fallback
+names are refused by the occupation gate: 4,036 of 5,260 segments refused as
+`degenerate_occupation`, every segment converged (0 at the n_iter cap, so todo 226 does not
+explain it), and 813 of the 1,371 lowest occupation fractions are below 0.001 (a state never
+used), not near misses at the 0.05 floor.
+
+Decision: the 0.05 floor stays (a never-used state is a degenerate fit; lowering the floor would
+write labels from it). The trend K = 5 came from a BIC study on 5m data of four ETFs and is
+applied to every timeframe; todo 478 found the same stranding for the volatility family at
+K = 3 on 1d. K becomes per timeframe (`feature.hmm.n_components.<tf>`), chosen by an experiment
+with its rule fixed before the run: K in {3, 4, 5}; 1d on the 337 refusal names plus 100 fully
+written names drawn with a fixed seed; 1h and 5m on 40 names with a fixed seed; per timeframe
+the K with the lowest refused-segment share, ties within 2 percentage points to the smaller K.
+The choice depends on fit validity only, never on returns; methodology-ledger entry with the
+table.
+
+`hmm_vol_prob_elevated` retires: with the volatility family at K = 2 (todo 478) the label map
+never assigns the middle label, so the column is 0 by construction.
 
 ### Sequencing
 
