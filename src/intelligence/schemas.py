@@ -1315,11 +1315,14 @@ class FeatureVector:
     hmm_regime_prob: float | None
     hmm_entropy: float | None
     hmm_duration: float | None
-    hurst: float
-    shannon: float
-    garch_ratio: float
-    hma_slope_z: float
-    adx: float
+    # The five bar statistics are missing (None) before the first regime refresh and on a window
+    # too short or too degenerate to define them, never a neutral 0.5/1.0/0.0 (D1 rule 5,
+    # todo 584).
+    hurst: float | None
+    shannon: float | None
+    garch_ratio: float | None
+    hma_slope_z: float | None
+    adx: float | None
     aroon_fast: float
     aroon_slow: float
     # Oscillators (6)
@@ -1497,19 +1500,26 @@ class FeatureVector:
     # Theory-Motivated Interactions (10, Phase 151 Plan 06). 10 curated
     # compound features, each a SINGLE operation (product) on two numeric
     # tier-0 columns, each carrying a one-sentence finance-theory hypothesis
-    # (concept_registry.description). Non-nullable floats: every parent is
-    # always computed (defaulting to 0.0 at cold start), so the product is
-    # always defined. hv_ratio/adx/hurst/variance_ratio_fast/vix_z/
-    # yield_slope_z are the numeric tier-0 proxies substituting for the
-    # "regime label" candidate sources named in ROADMAP (categorical
-    # regime strings cannot be a product operand) -- Open Question 2's
-    # resolution, see plan doc. Guarded via _guard_counted (not plain
-    # _guard) so a non-finite substitution is a COUNTED, observable
-    # tripwire rather than a silent nan_to_num collapse.
+    # (concept_registry.description). momentum_trend_product and
+    # reversion_hurst_product are missing (None) while their adx/hurst parent
+    # is undefined (D1 rule 5, todo 584); the other eight parents are always
+    # computed, so they stay non-nullable floats. hv_ratio/adx/hurst/
+    # variance_ratio_fast/vix_z/yield_slope_z are the numeric tier-0 proxies
+    # substituting for the "regime label" candidate sources named in ROADMAP
+    # (categorical regime strings cannot be a product operand) -- Open
+    # Question 2's resolution, see plan doc. Guarded via _guard_counted (not
+    # plain _guard) so a non-finite substitution is a COUNTED, observable
+    # tripwire rather than a silent nan_to_num collapse; the two nullable ones
+    # go through _missing_product (a missing parent propagates, only a
+    # non-finite product of finite parents trips the counter).
     momentum_vol_regime_product: float  # momentum_z_fast * hv_ratio; momentum carries more strongly when realized vol is contracting (low-vol anomaly, Frazzini & Pedersen 2014)
-    momentum_trend_product: float  # momentum_z_fast * adx; momentum persists when trend strength is high, decays into noise when choppy
+    momentum_trend_product: (
+        float | None
+    )  # momentum_z_fast * adx; momentum persists when trend strength is high, decays into noise when choppy
     breakout_volume_product: float  # dist_from_high_fast * volume_z; a breakout confirmed by abnormal volume continues more often than an unconfirmed one
-    reversion_hurst_product: float  # momentum_reversal_z * hurst; short-term reversal is stronger when the series is anti-persistent (Hurst < 0.5)
+    reversion_hurst_product: (
+        float | None
+    )  # momentum_reversal_z * hurst; short-term reversal is stronger when the series is anti-persistent (Hurst < 0.5)
     quarter_momentum_product: float  # quarter_position * momentum_z_fast; quarter-end window dressing/dealer gamma unwind amplify existing momentum into the quarter close
     variance_ratio_momentum_product: float  # variance_ratio_fast * momentum_z_fast; momentum is informative in trending microstructure, noise in mean-reverting
     illiquidity_momentum_product: float  # amihud_illiq_z * momentum_z_fast; illiquidity amplifies price impact, so identical order flow moves price further and momentum persists longer

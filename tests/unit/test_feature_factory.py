@@ -19,7 +19,14 @@ import pytest
 
 # These imports will fail RED until implementation exists.
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
-from src.intelligence.features.kernels._cache_state import CrossAssetState, FeatureCache
+from src.intelligence.features.kernels._cache_state import (
+    CrossAssetState,
+    FeatureCache,
+    _adx,
+    _garch_ratio,
+    _hurst_rs,
+    _shannon_entropy,
+)
 from src.intelligence.features.kernels._primitives import (
     _atr_series_full,
     _is_valid_atr,
@@ -618,8 +625,12 @@ class TestAcausalCanaryExclusionCheck:
         bars = _make_bars(200)
         config = _make_config()
         cache = FeatureCache()
-        # Initially default values; hma_slope_z is undefined until its slope history fills
-        assert cache.hurst == 0.5
+        # Initially all five are undefined (NaN), never neutral 0.5/1.0/0.0 (D1 rule 5,
+        # todo 584); hma_slope_z stays NaN until its slope history fills
+        assert math.isnan(cache.hurst)
+        assert math.isnan(cache.shannon)
+        assert math.isnan(cache.garch_ratio)
+        assert math.isnan(cache.adx)
         assert math.isnan(cache.hma_slope_z)
         cache.refresh_regime(bars[:100], config)
         # hurst/shannon/garch_ratio/adx should be set (finite)
@@ -634,6 +645,28 @@ class TestAcausalCanaryExclusionCheck:
         assert math.isfinite(cache.hma_slope_z)
         # bars_since_regime_refresh should be reset to 0
         assert cache.bars_since_regime_refresh == 0
+
+    def test_short_history_and_degenerate_windows_are_nan(self) -> None:
+        """D1 rule 5 (todo 584): the four history-dependent statistics are NaN on a too-short
+        or a degenerate (constant, zero-spread) window, never a neutral 0.5/1.0/0.0. Shannon
+        is the one measured zero: a window whose returns all fall in one bin (a constant
+        series included) genuinely has zero entropy."""
+        flat = np.full(64, 100.0)
+        short = np.full(8, 100.0)
+        for series in (flat, short):
+            assert math.isnan(_hurst_rs(series)), series
+            assert math.isnan(_garch_ratio(series, 30)), series
+            assert math.isnan(_adx(series, series, series, 14)), series
+            if len(series) > 10:
+                assert _shannon_entropy(series) == 0.0, series
+            else:
+                assert math.isnan(_shannon_entropy(series)), series
+        # a healthy varying series still measures finite values everywhere
+        varying = 100.0 * np.cumprod(1.0 + np.random.default_rng(3).normal(0.0, 0.002, 200))
+        assert math.isfinite(_hurst_rs(varying))
+        assert math.isfinite(_shannon_entropy(varying))
+        assert math.isfinite(_garch_ratio(varying, 30))
+        assert math.isfinite(_adx(varying, varying, varying, 14))
 
 
 class TestSessionPrimitives:

@@ -51,12 +51,14 @@ class FeatureCache:
     fields are reset at session open by the caller.
     """
 
-    # Regime-level (refreshed every N bars via refresh_regime())
-    hurst: float = 0.5
-    shannon: float = 1.0
-    garch_ratio: float = 1.0
-    hma_slope_z: float = math.nan  # undefined until the slope history fills (todo 564)
-    adx: float = 0.0
+    # Regime-level (refreshed every N bars via refresh_regime()). All five are undefined (NaN)
+    # until the first refresh computes them over a full window, never a neutral 0.5/1.0/0.0
+    # (D1 rule 5, todo 584; hma_slope_z led in todo 564).
+    hurst: float = math.nan
+    shannon: float = math.nan
+    garch_ratio: float = math.nan
+    hma_slope_z: float = math.nan
+    adx: float = math.nan
     bars_since_regime_refresh: int = 0
 
     # Cross-asset cached from cross-asset ETF bars (updated via update_cross_asset()).
@@ -999,23 +1001,22 @@ def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
     """Rescaled range (R/S) estimate of the Hurst exponent.
 
     Extracted from src/intelligence/context/hurst_exponent.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
-    Returns 0.5 (random walk neutral) on insufficient data or constant series.
+    NaN on insufficient data, a constant series or a degenerate R/S: the statistic of a window
+    that does not define one is undefined, never a random-walk-neutral 0.5 (D1 rule 5, todo 584).
     """
     n = len(close)
     if n < min_window:
-        return 0.5
+        return math.nan
     log_returns = np.diff(np.log(np.maximum(close, 1e-10)))
     if len(log_returns) < min_window:
-        return 0.5
+        return math.nan
     mean_r = np.mean(log_returns)
     deviations = np.cumsum(log_returns - mean_r)
     r = float(np.max(deviations) - np.min(deviations))
     s = float(np.std(log_returns, ddof=1))
     if s <= 0 or r <= 0:
-        return 0.5
+        return math.nan
     rs = r / s
-    if rs <= 0:
-        return 0.5
     return float(min(1.0, max(0.0, np.log(rs) / np.log(n))))
 
 
@@ -1023,22 +1024,21 @@ def _shannon_entropy(close: np.ndarray, n_bins: int = 10) -> float:
     """Normalised Shannon entropy of log-return distribution.
 
     Extracted from src/intelligence/context/shannon_entropy.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
-    Returns 1.0 on insufficient data.
+    NaN on insufficient data (D1 rule 5, todo 584). A window whose returns all fall in one bin
+    keeps its measured 0.0: a point mass genuinely has zero entropy, however small its spread.
     """
     log_returns = np.diff(np.log(np.maximum(close, 1e-10)))
     if len(log_returns) < 10:
-        return 1.0
+        return math.nan
     valid_returns = log_returns[np.isfinite(log_returns)]
     if len(valid_returns) < 10:
-        return 1.0
+        return math.nan
     counts, _ = np.histogram(valid_returns, bins=n_bins)
     probs = counts / counts.sum()
     probs = probs[probs > 0]
-    if len(probs) == 0:
-        return 1.0
     raw_entropy = float(-np.sum(probs * np.log2(probs)))
     max_entropy = float(np.log2(n_bins))
-    return raw_entropy / max_entropy if max_entropy > 0 else 1.0
+    return raw_entropy / max_entropy if max_entropy > 0 else math.nan
 
 
 def _garch_ratio(close: np.ndarray, window: int) -> float:
@@ -1046,11 +1046,12 @@ def _garch_ratio(close: np.ndarray, window: int) -> float:
 
     Simplified extraction from src/intelligence/context/garch_volatility.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     Uses default GARCH parameters (omega=0.00001, alpha=0.10, beta=0.85).
-    Returns 1.0 on cold start.
+    NaN on cold start and on a zero-spread window (a ratio with a degenerate denominator is
+    undefined, never a parity-neutral 1.0; D1 rule 5, todo 584).
     """
     n = min(window, len(close))
     if n < 10:
-        return 1.0
+        return math.nan
     close_w = close[-n:]
     log_returns = np.log(np.maximum(close_w[1:], 1e-10) / np.maximum(close_w[:-1], 1e-10))
     log_returns = np.where(np.isfinite(log_returns), log_returns, 0.0)
@@ -1066,7 +1067,7 @@ def _garch_ratio(close: np.ndarray, window: int) -> float:
         realized_buf.append(float(r))
     garch_sigma = math.sqrt(max(sigma2, 0.0))
     realized_vol = float(np.std(list(realized_buf))) if len(realized_buf) >= 2 else garch_sigma
-    return garch_sigma / realized_vol if realized_vol > 1e-10 else 1.0
+    return garch_sigma / realized_vol if realized_vol > 1e-10 else math.nan
 
 
 # HMM default parameters (forward-only, 2D). _hmm_forward_2d (the higher-level
@@ -1166,13 +1167,14 @@ def _hma(close: np.ndarray, period: int) -> float:
 
 
 def _adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> float:
-    """Compute ADX using Wilder's smoothing. Returns 0.0 on insufficient data.
+    """Compute ADX using Wilder's smoothing. NaN on insufficient data (no fabricated zero
+    trend strength; D1 rule 5, todo 584).
 
     Simplified extraction from src/intelligence/features/i1_indicators/adx.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     """
     n = len(close)
     if n < period * 2 + 1:
-        return 0.0
+        return math.nan
     # True Range
     prev_close = close[:-1]
     curr_high = high[1:]
@@ -1206,7 +1208,7 @@ def _adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> f
         else:
             dx_vals.append(100.0 * abs(plus_di - minus_di) / di_sum)
     if len(dx_vals) < period:
-        return 0.0
+        return math.nan
     adx_val = float(np.mean(dx_vals[-period:]))
     return min(100.0, max(0.0, adx_val))
 

@@ -1856,11 +1856,13 @@ def _build_feature_vector(
         hmm_regime_prob=_guard(hmm_regime_prob),
         hmm_entropy=_guard(hmm_entropy),
         hmm_duration=_guard(hmm_duration),
-        hurst=_guard(hurst, 0.5),
-        shannon=_guard(shannon, 1.0),
-        garch_ratio=_guard(garch_ratio, 1.0),
-        hma_slope_z=_guard(hma_slope_z),
-        adx=_guard(adx),
+        # The five bar statistics are missing (None) before the first regime refresh and on a
+        # window that does not define them, never a neutral 0.5/1.0/0.0 (D1 rule 5, todo 584).
+        hurst=_missing_if_nan(hurst),
+        shannon=_missing_if_nan(shannon),
+        garch_ratio=_missing_if_nan(garch_ratio),
+        hma_slope_z=_missing_if_nan(hma_slope_z),
+        adx=_missing_if_nan(adx),
         aroon_fast=_guard(aroon_fast),
         aroon_slow=_guard(aroon_slow),
         rsi_fast=_guard(rsi_fast, 50.0),
@@ -2026,9 +2028,17 @@ def _build_feature_vector(
         momentum_vol_regime_product=_guard_counted(
             momentum_vol_regime_product, "momentum_vol_regime_product"
         ),
-        momentum_trend_product=_guard_counted(momentum_trend_product, "momentum_trend_product"),
+        momentum_trend_product=_missing_product(
+            momentum_trend_product,
+            "momentum_trend_product",
+            (momentum_z_fast, adx),
+        ),
         breakout_volume_product=_guard_counted(breakout_volume_product, "breakout_volume_product"),
-        reversion_hurst_product=_guard_counted(reversion_hurst_product, "reversion_hurst_product"),
+        reversion_hurst_product=_missing_product(
+            reversion_hurst_product,
+            "reversion_hurst_product",
+            (momentum_reversal_z, hurst),
+        ),
         quarter_momentum_product=_guard_counted(
             quarter_momentum_product, "quarter_momentum_product"
         ),
@@ -3632,11 +3642,13 @@ def _cold_start_vector(
         hmm_regime_prob=None,
         hmm_entropy=None,
         hmm_duration=None,
-        hurst=cache.hurst,
-        shannon=cache.shannon,
-        garch_ratio=cache.garch_ratio,
-        hma_slope_z=cache.hma_slope_z,
-        adx=cache.adx,
+        # The five bar statistics at cold start: the cache defaults are NaN, which is missing
+        # (None) here, never a neutral (D1 rule 5, todo 584).
+        hurst=_missing_if_nan(cache.hurst),
+        shannon=_missing_if_nan(cache.shannon),
+        garch_ratio=_missing_if_nan(cache.garch_ratio),
+        hma_slope_z=_missing_if_nan(cache.hma_slope_z),
+        adx=_missing_if_nan(cache.adx),
         aroon_fast=0.0,
         aroon_slow=0.0,
         rsi_fast=50.0,
