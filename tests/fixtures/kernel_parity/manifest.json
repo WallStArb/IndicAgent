@@ -1221,60 +1221,102 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 4414277,
- "regenerated_from": "973ed70e3b9508672b86d0afc56639bcde19b63e",
- "regeneration_reason": "186-12 gap_z alignment fix; row i read bar i+1's open (one-bar lookahead) and the final row stayed 0.0",
+ "fixture_bytes": 4433259,
+ "regenerated_from": "1662291b55b77c052b40b8e9d8c661d34120868a",
+ "regeneration_reason": "584-2: D1 not_applicable (intraday-only outputs); 1d session, clock, VP, AMD and divergence columns NaN by declaration",
  "changed_columns": {
-  "real|QQQ|15m": [
-   "gap_z"
-  ],
-  "real|QQQ|1d": [
-   "gap_z"
-  ],
-  "real|QQQ|1h": [
-   "gap_z"
-  ],
-  "real|QQQ|5m": [
-   "gap_z"
-  ],
-  "real|SPY|15m": [
-   "gap_z"
-  ],
+  "synthetic|SPY|5m": [],
+  "real|SPY|5m": [],
+  "real|SPY|15m": [],
+  "real|SPY|1h": [],
   "real|SPY|1d": [
-   "gap_z"
+   "amd_distribution_direction",
+   "amd_manipulation_detected",
+   "amd_phase",
+   "hour_of_day_cos",
+   "hour_of_day_sin",
+   "in_london_kz",
+   "in_lvn",
+   "in_ny_session",
+   "in_overlap",
+   "manip_strength",
+   "minute_of_hour_cos",
+   "minute_of_hour_sin",
+   "opening_range",
+   "poc_dist_atr",
+   "power_hour",
+   "price_in_value_area",
+   "session_time_pos",
+   "va_position"
   ],
-  "real|SPY|1h": [
-   "gap_z"
+  "real|QQQ|5m": [],
+  "real|QQQ|15m": [],
+  "real|QQQ|1h": [],
+  "real|QQQ|1d": [
+   "amd_distribution_direction",
+   "amd_manipulation_detected",
+   "amd_phase",
+   "hour_of_day_cos",
+   "hour_of_day_sin",
+   "in_london_kz",
+   "in_lvn",
+   "in_ny_session",
+   "in_overlap",
+   "manip_strength",
+   "minute_of_hour_cos",
+   "minute_of_hour_sin",
+   "opening_range",
+   "poc_dist_atr",
+   "power_hour",
+   "price_in_value_area",
+   "session_time_pos",
+   "va_position"
   ],
-  "real|SPY|5m": [
-   "gap_z"
-  ],
-  "real|TLT|15m": [
-   "gap_z"
-  ],
+  "real|TLT|5m": [],
+  "real|TLT|15m": [],
+  "real|TLT|1h": [],
   "real|TLT|1d": [
-   "gap_z"
+   "amd_distribution_direction",
+   "amd_manipulation_detected",
+   "amd_phase",
+   "hour_of_day_cos",
+   "hour_of_day_sin",
+   "in_london_kz",
+   "in_lvn",
+   "in_ny_session",
+   "in_overlap",
+   "manip_strength",
+   "minute_of_hour_cos",
+   "minute_of_hour_sin",
+   "opening_range",
+   "poc_dist_atr",
+   "power_hour",
+   "price_in_value_area",
+   "session_time_pos",
+   "va_position"
   ],
-  "real|TLT|1h": [
-   "gap_z"
-  ],
-  "real|TLT|5m": [
-   "gap_z"
-  ],
-  "real|XLE|15m": [
-   "gap_z"
-  ],
+  "real|XLE|5m": [],
+  "real|XLE|15m": [],
+  "real|XLE|1h": [],
   "real|XLE|1d": [
-   "gap_z"
-  ],
-  "real|XLE|1h": [
-   "gap_z"
-  ],
-  "real|XLE|5m": [
-   "gap_z"
-  ],
-  "synthetic|SPY|5m": [
-   "gap_z"
+   "amd_distribution_direction",
+   "amd_manipulation_detected",
+   "amd_phase",
+   "hour_of_day_cos",
+   "hour_of_day_sin",
+   "in_london_kz",
+   "in_lvn",
+   "in_ny_session",
+   "in_overlap",
+   "manip_strength",
+   "minute_of_hour_cos",
+   "minute_of_hour_sin",
+   "opening_range",
+   "poc_dist_atr",
+   "power_hour",
+   "price_in_value_area",
+   "session_time_pos",
+   "va_position"
   ]
  },
  "regeneration_history": [
@@ -1451,6 +1493,64 @@
     "synthetic|SPY|5m": []
    },
    "capture_commit": "973ed70e3b9508672b86d0afc56639bcde19b63e"
+  },
+  {
+   "regenerated_from": "973ed70e3b9508672b86d0afc56639bcde19b63e",
+   "regeneration_reason": "186-12 gap_z alignment fix; row i read bar i+1's open (one-bar lookahead) and the final row stayed 0.0",
+   "changed_columns": {
+    "real|QQQ|15m": [
+     "gap_z"
+    ],
+    "real|QQQ|1d": [
+     "gap_z"
+    ],
+    "real|QQQ|1h": [
+     "gap_z"
+    ],
+    "real|QQQ|5m": [
+     "gap_z"
+    ],
+    "real|SPY|15m": [
+     "gap_z"
+    ],
+    "real|SPY|1d": [
+     "gap_z"
+    ],
+    "real|SPY|1h": [
+     "gap_z"
+    ],
+    "real|SPY|5m": [
+     "gap_z"
+    ],
+    "real|TLT|15m": [
+     "gap_z"
+    ],
+    "real|TLT|1d": [
+     "gap_z"
+    ],
+    "real|TLT|1h": [
+     "gap_z"
+    ],
+    "real|TLT|5m": [
+     "gap_z"
+    ],
+    "real|XLE|15m": [
+     "gap_z"
+    ],
+    "real|XLE|1d": [
+     "gap_z"
+    ],
+    "real|XLE|1h": [
+     "gap_z"
+    ],
+    "real|XLE|5m": [
+     "gap_z"
+    ],
+    "synthetic|SPY|5m": [
+     "gap_z"
+    ]
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
   }
  ]
 }
