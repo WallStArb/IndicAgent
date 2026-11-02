@@ -7,6 +7,16 @@ source: data lane check of the 186-26 stage 1 output (feature_vectors_v2, tf 1d)
 
 # Rebuilt 1d feature columns that are constant or all NULL must not reach the research read
 
+## Status (2026-11-02)
+
+Done-when 1 landed in 20c1dcddc (todo 584 item 1): `_zscore_from_deque` is NaN while the history
+is short, so `hma_slope_z` and the cache and macro/beta z-scores are NaN in warmup, never 0.0. On
+1d `hma_slope_z` is now NULL on every row (252 refreshes x 30 rows exceeds every daily series):
+the column changes from constant to all-NULL, which is the done-when 2 applicability question
+(window counted in refreshes, not bars). The same-batch delete list landed in 17cfe233b (item 7,
+migration 555): a NULL volume reaching compute raises. Open: done-when 2, the calendar and
+proven-start items are tracked in 584.
+
 ## Status (2026-10-31)
 
 Screened and root-caused; the fixes are batched for the next kernel-edit window (edits under
