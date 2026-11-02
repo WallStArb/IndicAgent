@@ -15,25 +15,29 @@ from src.intelligence.features.kernels._primitives import (
 )
 
 
-def _window_terms(cs, cs2, i, window):
+def _window_terms(cs, cs2, i, window, bad):
     eff_w = min(window, i + 1)
     start = i + 1 - eff_w
     s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
     s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
     mean = s / eff_w
+    if bad[start : i + 1].any():  # a window holding a non-finite value defines nothing (D1 rule 5)
+        return eff_w, np.nan, np.nan
     return eff_w, mean, max(s2 / eff_w - mean * mean, 0.0)
 
 
 def _ref_zscore(arr, window):
     n = len(arr)
-    out = np.zeros(n, dtype=float)
+    out = np.full(n, np.nan)
     if n < 2 or window < 2:
         return out
-    cs, cs2 = np.cumsum(arr), np.cumsum(arr * arr)
+    bad = ~np.isfinite(arr)
+    good = np.where(bad, 0.0, arr)
+    cs, cs2 = np.cumsum(good), np.cumsum(good * good)
     for i in range(1, n):
-        _, mean, var = _window_terms(cs, cs2, i, window)
+        _, mean, var = _window_terms(cs, cs2, i, window, bad)
         std = math.sqrt(var)
-        out[i] = (arr[i] - mean) / std if std > STD_FLOOR else 0.0
+        out[i] = (arr[i] - mean) / std if std > STD_FLOOR else np.nan  # D1 rule 5
     return out
 
 
@@ -41,9 +45,11 @@ def _ref_std(arr, window):
     out = np.zeros(len(arr), dtype=float)
     if len(arr) == 0:
         return out
-    cs, cs2 = np.cumsum(arr), np.cumsum(arr * arr)
+    bad = ~np.isfinite(arr)
+    good = np.where(bad, 0.0, arr)
+    cs, cs2 = np.cumsum(good), np.cumsum(good * good)
     for i in range(len(arr)):
-        out[i] = math.sqrt(_window_terms(cs, cs2, i, window)[2])
+        out[i] = math.sqrt(_window_terms(cs, cs2, i, window, bad)[2])
     return out
 
 
@@ -51,11 +57,16 @@ def _ref_mean(arr, window):
     out = np.zeros(len(arr), dtype=float)
     if len(arr) == 0:
         return out
-    cs = np.cumsum(arr)
+    bad = ~np.isfinite(arr)
+    good = np.where(bad, 0.0, arr)
+    cs = np.cumsum(good)
     for i in range(len(arr)):
         eff_w = min(window, i + 1)
         start = i + 1 - eff_w
-        out[i] = (cs[i] - (cs[start - 1] if start > 0 else 0.0)) / eff_w
+        if bad[start : i + 1].any():
+            out[i] = np.nan
+        else:
+            out[i] = (cs[i] - (cs[start - 1] if start > 0 else 0.0)) / eff_w
     return out
 
 

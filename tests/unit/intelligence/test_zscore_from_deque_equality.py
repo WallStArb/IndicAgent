@@ -1,24 +1,15 @@
-"""_zscore_from_deque delegates to _zscore_last and equals its former inline body, bit for bit,
-except that a short history is NaN (undefined) instead of a 0.0 fill (todo 564)."""
+"""_z_or_nan over a deque: the cache histories feed it directly, so its semantics are pinned
+here on deque inputs (short history and zero-spread windows are NaN, D1 rules 1 and 5)."""
 
 from __future__ import annotations
 
+import math
 from collections import deque
 
 import numpy as np
 import pytest
 
-from src.intelligence.features.kernels._cache_state import _zscore_from_deque
-
-
-def _former_body(history: deque, window: int) -> float:
-    if len(history) < window:
-        return float("nan")  # todo 564: undefined, not a 0.0 fill
-    arr = np.array(list(history)[-window:])
-    std = float(arr.std())
-    if std < 1e-8:
-        return 0.0
-    return float((float(history[-1]) - float(arr.mean())) / std)
+from src.intelligence.features.kernels._primitives import _z_or_nan
 
 
 def _histories():
@@ -37,12 +28,20 @@ def _histories():
 
 
 @pytest.mark.parametrize("window", [1, 2, 3, 10, 30, 252, 400])
-def test_matches_former_body(window):
+def test_short_history_and_zero_spread_are_nan(window):
+    assert math.isnan(_z_or_nan(deque([], maxlen=400), window))
+    assert math.isnan(_z_or_nan(deque([1.5] * max(window - 1, 1), maxlen=400), window))
+    assert math.isnan(_z_or_nan(deque([2.5] * window, maxlen=400), window))  # zero spread
+
+
+@pytest.mark.parametrize("window", [1, 2, 3, 10, 30, 252, 400])
+def test_equals_the_plain_array_zscore(window):
     for name, values in _histories():
         history = deque(values, maxlen=400)
-        if not values:
-            continue
-        with np.errstate(all="ignore"):
-            want = _former_body(history, window)
-            got = _zscore_from_deque(history, window)
-        assert np.float64(got).tobytes() == np.float64(want).tobytes(), (name, window)
+        arr = np.asarray(history, dtype=float)[-window:]
+        if len(arr) < window or float(arr.std()) < 1e-8:
+            expected = float("nan")
+        else:
+            expected = float((float(arr[-1]) - float(arr.mean())) / float(arr.std()))
+        got = _z_or_nan(history, window)
+        assert np.float64(got).tobytes() == np.float64(expected).tobytes(), (name, window)

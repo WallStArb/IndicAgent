@@ -528,9 +528,10 @@ def _short_gap_z(n):
 
 def test_gap_z_three_bars_scores_bar_two_gap():
     """gap at bar 2 = (103 - 101.5) / 2 = 0.75; z against [0, 0.75] (mean .375, sd .375)
-    is exactly +1. It was 0.0 before the guard admitted len == 2."""
+    is exactly +1. Rows 0-1 are NaN: no gap yet at row 0, and a single-gap window defines
+    no z-score (D1 rule 5, todo 584)."""
     out, _, _ = _short_gap_z(3)
-    assert out[:2].tolist() == [0.0, 0.0]
+    assert np.isnan(out[:2]).all()
     assert out[2] == pytest.approx(1.0)
 
 
@@ -539,9 +540,9 @@ def test_gap_z_four_bars_scores_each_gap_against_its_trailing_window():
     g = [(opens[2] - closes[1]) / 2.0, (opens[3] - closes[2]) / 2.0]  # 0.75, 0.0
     series = np.array([0.0, g[0], g[1]])
     expected_bar3 = (series[2] - series[:3].mean()) / series[:3].std()
+    assert np.isnan(out[:2]).all()  # the rule-5 warmup (see the three-bar test)
     assert out[2] == pytest.approx(1.0)
     assert out[3] == pytest.approx(expected_bar3)
-    assert np.isfinite(out).all()
 
 
 # ---------------------------------------------------------------------------

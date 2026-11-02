@@ -2,7 +2,7 @@
 
 Lives in the kernels package since phase 186 plan 25 (todo 476): the registry kernels replay a
 fresh FeatureCache and read these pure helpers (`_HMM_K`, `_hmm_forward_step`,
-`_zscore_from_deque`, the session value-area and profile helpers), so the kernels are the base
+`_z_or_nan`, the session value-area and profile helpers), so the kernels are the base
 and the legacy cache-driven loop imports from here, not the reverse. No kernel module imports
 anything from outside the kernels package for this state.
 
@@ -33,7 +33,6 @@ from src.core.bar_accumulator import _ET, _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.features.kernels._primitives import (
     _corr_or_nan,
     _z_or_nan,
-    _zscore_last,
     wilder_rsi_series,
 )
 
@@ -283,10 +282,7 @@ class FeatureCache:
         if math.isfinite(hma_val) and math.isfinite(hma_prev):
             slope = hma_val - hma_prev
             self._hma_slope_history.append(slope)
-        self.hma_slope_z = _zscore_from_deque(
-            self._hma_slope_history,
-            config.momentum_zscore_window,
-        )
+        self.hma_slope_z = _z_or_nan(self._hma_slope_history, config.momentum_zscore_window)
 
         # --- ADX (raw value, 0-100) ---
         adx_val = _adx(highs, lows, closes, config.adx_period)
@@ -986,9 +982,10 @@ def _compute_session_directional_nodes(
 
 
 def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
-    """Wilder RSI at every bar index (length == len(closes), cold start 50.0): the kernel
-    primitive, so the live cache, the batch CTF series builder and the rsi_* kernel columns
-    share one definition. _rsi_simple is a thin wrapper."""
+    """Wilder RSI at every bar index (length == len(closes); the cold start and a window that
+    has never moved are NaN, D1 rule 5, todo 584): the kernel primitive, so the live cache,
+    the batch CTF series builder and the rsi_* kernel columns share one definition.
+    _rsi_simple is a thin wrapper."""
     return wilder_rsi_series(closes, period)
 
 
@@ -1211,14 +1208,3 @@ def _adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> f
         return math.nan
     adx_val = float(np.mean(dx_vals[-period:]))
     return min(100.0, max(0.0, adx_val))
-
-
-def _zscore_from_deque(history: deque, window: int) -> float:
-    """Compute z-score of most-recent value in deque against rolling window.
-
-    NaN while the history holds fewer than `window` values (undefined, never a 0.0 fill: todo
-    564); 0.0 on near-zero std (`_zscore_last`).
-    """
-    if len(history) < window:
-        return math.nan
-    return _zscore_last(np.array(list(history)[-window:]), window)

@@ -7,6 +7,7 @@ tests stay fast (momentum_zscore_window=30, etc.).
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -263,12 +264,12 @@ def test_momentum_z_fast_transition_boundary(ohlcv, cfg):
     wf = cfg.momentum_window_fast
     zw = cfg.momentum_zscore_window
 
-    # Last bar where streaming returns 0.0 (insufficient history for z-score)
+    # Last cold bar: the batch z-score is undefined (NaN, D1 rule 5, todo 584); the streaming
+    # lane's cold z reaches the constructor as NaN and lands None (its remaining neutrals are
+    # todo 582's scope) -- pin it so 582 has to update this line when it equalizes the lanes.
     last_cold = wf + zw - 2
-    fv_cold = _streaming_at(last_cold, ohlcv, cfg)
-    assert (
-        abs(batch[last_cold] - fv_cold.momentum_z_fast) < 1e-8
-    ), f"bar {last_cold} (last cold): batch={batch[last_cold]:.10f} streaming={fv_cold.momentum_z_fast:.10f}"
+    assert math.isnan(batch[last_cold]), f"bar {last_cold} (last cold): batch={batch[last_cold]}"
+    assert _streaming_at(last_cold, ohlcv, cfg).momentum_z_fast is None
 
     # First bar where streaming returns non-zero
     first_warm = wf + zw - 1
@@ -300,11 +301,11 @@ def test_momentum_reversal_z_transition_boundary(ohlcv, cfg):
 
     zw = cfg.momentum_zscore_window
 
-    # Bar 1: single log-return; std=0 so streaming returns 0.0
-    fv_bar1 = _streaming_at(1, ohlcv, cfg)
-    assert (
-        abs(batch[1] - fv_bar1.momentum_reversal_z) < 1e-8
-    ), f"bar 1 (cold): batch={batch[1]:.10f} streaming={fv_bar1.momentum_reversal_z:.10f}"
+    # Bar 1: single log-return, std=0: the batch z is undefined (NaN, D1 rule 5, todo 584);
+    # streaming reaches the constructor as NaN and lands None (its neutrals are todo 582's
+    # scope) -- pin it so 582 updates this line.
+    assert math.isnan(batch[1]), f"bar 1 (cold): batch={batch[1]}"
+    assert _streaming_at(1, ohlcv, cfg).momentum_reversal_z is None
 
     # Bar 2: first non-zero; expanding window of 2
     fv_bar2 = _streaming_at(2, ohlcv, cfg)
@@ -669,8 +670,68 @@ def test_precompute_series_returns_all_fields(ohlcv, cfg):
 # ---------------------------------------------------------------------------
 
 
+# Columns the constructor passes through unguarded: pure calendar/session/flag functions of
+# the bar timestamp, finite by construction in every lane (never part of the rule-5 flips).
+_UNGUARDED_PASSTHROUGH = frozenset(
+    {
+        "in_ny_session",
+        "in_london_kz",
+        "in_overlap",
+        "power_hour",
+        "opening_range",
+        "above_wk_vwap",
+        "dow_sin",
+        "dow_cos",
+        "month_position",
+        "close_vs_open_direction",
+        "session_time_pos",
+        "hour_of_day_sin",
+        "hour_of_day_cos",
+        "week_of_month_sin",
+        "week_of_month_cos",
+        "day_of_month_sin",
+        "day_of_month_cos",
+        "week_of_year_sin",
+        "week_of_year_cos",
+        "month_sin",
+        "month_cos",
+    }
+)
+
+
+def test_missing_routing_ties_to_the_schema_annotation():
+    """The rule-5 tie, held mechanically: feed NaN for every float input and require that a
+    None only ever lands in a field the schema declares `float | None` (a fabricated None in
+    a plain-float field is a wrong answer / future TypeError), and that a plain-float field
+    never holds NaN outside the documented passthrough set. Each later rule-5 flip (todo 584
+    4b/4c) widens the annotation in the same commit and this test polices the pair."""
+    import dataclasses
+    import inspect
+    import math
+
+    from src.intelligence.schemas import FeatureVector
+
+    kwargs = {
+        pname: (
+            p.default
+            if p.default is not inspect.Signature.empty  # the nullable families keep None
+            else float("nan")
+        )
+        for pname, p in inspect.signature(_build_feature_vector).parameters.items()
+    }
+    fv = _build_feature_vector(**kwargs)
+    for field in dataclasses.fields(FeatureVector):
+        value = getattr(fv, field.name)
+        allows_none = "None" in str(field.type)
+        if value is None:
+            assert allows_none, f"{field.name}: None in a plain-float field"
+        elif isinstance(value, float) and math.isnan(value):
+            assert field.name in _UNGUARDED_PASSTHROUGH, f"{field.name}: NaN left unguarded"
+
+
 def test_build_feature_vector_guards_nan():
-    """_build_feature_vector replaces non-finite values with fallbacks."""
+    """A rule-5 column maps a non-finite input to missing (None); a guarded column keeps its
+    neutral fallback."""
     fv = _build_feature_vector(
         momentum_z_fast=float("nan"),
         momentum_z_mid=0.0,
@@ -871,7 +932,7 @@ def test_build_feature_vector_guards_nan():
         vix_reversion_product=0.0,
         efficiency_volume_product=0.0,
     )
-    assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
+    assert fv.momentum_z_fast is None  # nan -> missing, never a fabricated 0.0 (D1 rule 5)
     assert fv.range_position == 0.5  # inf -> fallback 0.5
     assert fv.momentum_z_mid == 0.0  # finite, unchanged
 

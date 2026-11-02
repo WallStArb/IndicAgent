@@ -246,25 +246,26 @@ so G1 and G3 need a fresh read. Pilot names with no stored rows (APLD, CTVA, LQD
 missing, as designed. Recalibrate the two tolerances on the first pilot run at the new pin; G4 and
 G5 (sibling script) follow.
 
-Item 4 resume state (Track A, 2026-11-02; 4a landed, 4b/4c open). **4b-1 (helper layer) is
-IN FLIGHT in the working tree, uncommitted** (session indicagent-ea, context ran out): edited
-`_primitives.py` (`_zscore_last`/`_z_or_nan` (now one implementation)/`_rolling_zscore_series`/
-`_fixed_window_zscore_series` NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
-0/0 with NO epsilon branch - an epsilon on the decaying Wilder averages makes the NaN boundary
-seed-dependent, a real causality violation the probe caught; `_cumsum_window_moments` is now
-NaN-aware: a window holding NaN/inf is NaN and later windows RECOVER, a plain cumsum poisoned
-every later row), `price.py` (`_gap_z_series_full`/`_overnight_gap_z(_series_full)` rows 0-1
-NaN), `_cache_state.py` RSI wrapper docstring, and tests (gap reference, batch RSI/velocity,
-parity cold bars now assert batch NaN and point at 582 for the streaming lane's `_guard`,
-rolling-equality `_ref_zscore` NaN). Verified green: causality probe, gap reference, RSI,
-velocity, rolling equality. REMAINING before the 4b-1 commit: three failing tests are the
-next unit, not helper defects - `test_kernel_outputs_equal_compute_batch_rows_1_onward`
-(atr_z row 1: kernel NaN vs FeatureVector 0.0), `TestGuardCountedReport` (substitutions on
-synthetic data) and `TestTheoryMotivatedInteractionProducts` (momentum_trend_product None vs
-0.0): all come from the build-site `_guard(...)` neutral-fills on z-columns in
-`_build_feature_vector` (momentum_z_*, atr_z, gap_z and friends) - remove them per the 4a
-`_missing_if_nan` pattern, widen the schemas to `float | None`, update those three tests, then
-`/simplify`, `/review`, full suite, golden regen (`--from-stored`), commit. The full-graph no-object probe
+Item 4 resume state (Track A, 2026-11-02; 4a landed, **4b-1 LANDED** same day, 4b-2+/4c open).
+4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
+(`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
+`_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
+0/0 with NO epsilon branch (an epsilon on the decaying Wilder averages made the NaN boundary
+seed-dependent, a causality violation the probe caught; the exact 0-divisor cases are stated
+instead); `_cumsum_window_moments` NaN-aware with window recovery (bit-identical on
+all-finite input); price.py gap family rows 0-1 NaN (`_overnight_gap_z` now reads
+`_overnight_gap_series_full`, the one gap definition); `_zscore_from_deque` deleted (stale
+twin of `_z_or_nan`). Build site: 55 rule-5 columns `_guard` -> `_missing_if_nan`, product
+compounds through `_missing_product` with parent tuples (None parents are missing, not a
+TypeError), schemas widened `float | None`, `_guard_counted` lost its dead `inputs=` param.
+New `test_missing_routing_ties_to_the_schema_annotation` polices the annotation/routing tie
+for every later flip. Known limitation (kept, both /simplify and /review flagged it): the
+`_missing_product` parent tuples are hand-enumerated at the call sites and must move with the
+producer definitions; the deeper producer-side tripwire is a future refinement. The
+streaming compute() lane keeps its own upstream neutrals (582); the still-guarded quantities
+(mfi, stoch_k, bb_pct_b, the ratios, bars_since caps) are 4b-2+. Gates: /simplify (4 agents)
+and /review (medium) applied, full suite green except the golden digests, golden regenerated
+in its own commit immediately before the landing commit. The full-graph no-object probe
 (flat 400-bar 5m series, all float externals NaN, `compute_kernels` over every output) adjudicates
 the columns into four classes:
 
@@ -283,7 +284,11 @@ the columns into four classes:
   "bars since event with no event is NaN"; `bars_since_high/low_*` are measured 0 on flat and are
   zero_is_state, not fixes). Genuine-constant ratios stay measured: rel_volume, vol_ratio,
   vol_trend_ratio read 1.0 on constant volume and that is a real measurement (zero_is_state
-  declarations in 4c, not fixes).
+  declarations in 4c, not fixes). Noted from the 4b-1 review: `_gap_z_series_full` still
+  fabricates `gap[:2] = 0.0` as z-window INPUT (rows 0-1 output are NaN, but rows 2..window
+  score over the made-up 0.0); with the now NaN-aware moments the honest form is `gap[1]=NaN`
+  extending warmup - deliberate for now because it moves the streaming warmup boundary with it
+  (582 lane decision), revisit when the streaming gap builder is unified.
 - smc/vp_sr no-object fallbacks to fix in 4b: sr_resist/support_dist 0.0, resistance/support
   strength+age 0.0, ob/fvg/zone/bos distance-strength-age 0.0 (all "the distance/strength/age of
   an object that does not exist"), sweep_strength/bars_since_last_sweep, va_position 0.5,

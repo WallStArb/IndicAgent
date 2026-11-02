@@ -1262,24 +1262,24 @@ class FeatureVector:
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
-    momentum_z_fast: float  # fast-scale return z-score (APR: feature.momentum.window_fast)
-    momentum_z_mid: float  # mid-scale return z-score (APR: feature.momentum.window_mid)
+    momentum_z_fast: float | None  # fast-scale return z-score (APR: feature.momentum.window_fast)
+    momentum_z_mid: float | None  # mid-scale return z-score (APR: feature.momentum.window_mid)
     range_position: float
     bar_close_pos: float
-    gap_z: float
-    momentum_z_slow: float  # slow-scale return z-score (APR: feature.momentum.window_slow)
-    momentum_reversal_z: float  # 1-bar return z-score (concept-named: short-term reversal)
+    gap_z: float | None
+    momentum_z_slow: float | None  # slow-scale return z-score (APR: feature.momentum.window_slow)
+    momentum_reversal_z: float | None  # 1-bar return z-score (concept-named: short-term reversal)
     # Volume and order flow (8)
     informed_flow: float
-    volume_z: float
-    ofi_z: float
-    ofi_div: float
-    cvd_slope_z: float
+    volume_z: float | None
+    ofi_z: float | None
+    ofi_div: float | None
+    cvd_slope_z: float | None
     cmf: float
     rel_volume: float
     vwap_dev_sigma: float
     # Volatility (2) - part of bar-level computation
-    atr_z: float
+    atr_z: float | None
     vol_ratio: float
     # Session-level (21: 4 original + 12 VP + 5 S/R, Phase 163) — session
     # volume-profile + support/resistance structural features, computed from
@@ -1326,9 +1326,9 @@ class FeatureVector:
     aroon_fast: float
     aroon_slow: float
     # Oscillators (6)
-    rsi_fast: float
-    rsi_mid: float
-    rsi_slow: float
+    rsi_fast: float | None
+    rsi_mid: float | None
+    rsi_slow: float | None
     cci_fast: float
     cci_mid: float
     cci_slow: float
@@ -1369,17 +1369,17 @@ class FeatureVector:
     # z-score series (identical shape to vol_velocity_z, reuses
     # _vol_velocity_z_series_full).
     momentum_z_velocity_fast: (
-        float  # zscore(diff(momentum_z_fast)) (APR: feature.momentum_velocity.window)
-    )
+        float | None
+    )  # zscore(diff(momentum_z_fast)) (APR: feature.momentum_velocity.window)
     momentum_z_velocity_mid: (
-        float  # zscore(diff(momentum_z_mid)) (APR: feature.momentum_velocity.window)
-    )
+        float | None
+    )  # zscore(diff(momentum_z_mid)) (APR: feature.momentum_velocity.window)
     momentum_z_velocity_slow: (
-        float  # zscore(diff(momentum_z_slow)) (APR: feature.momentum_velocity.window)
-    )
+        float | None
+    )  # zscore(diff(momentum_z_slow)) (APR: feature.momentum_velocity.window)
     vwap_dev_sigma_velocity: (
-        float  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
-    )
+        float | None
+    )  # zscore(diff(vwap_dev_sigma)) (APR: feature.vwap_velocity.window)
     # Velocity Primitives Extension (6, todo 320, 2026-08-15). Same
     # first-difference-then-re-z-scored construction as the 4 fields above
     # (reuses _vol_velocity_z_series_full byte-identically), applied to 3
@@ -1394,12 +1394,14 @@ class FeatureVector:
     # helper on it would require a new _adx_series_full() vectorized
     # implementation first, a separate task, not a clean application of the
     # existing pattern.
-    rsi_velocity_fast: float  # zscore(diff(rsi_fast)) (APR: feature.rsi_velocity.window)
-    rsi_velocity_mid: float  # zscore(diff(rsi_mid)) (APR: feature.rsi_velocity.window)
-    rsi_velocity_slow: float  # zscore(diff(rsi_slow)) (APR: feature.rsi_velocity.window)
-    ofi_z_velocity: float  # zscore(diff(ofi_z)) (APR: feature.ofi_velocity.window)
-    cvd_slope_z_velocity: float  # zscore(diff(cvd_slope_z)) (APR: feature.cvd_velocity.window)
-    volume_z_velocity: float  # zscore(diff(volume_z)) (APR: feature.volume_velocity.window)
+    rsi_velocity_fast: float | None  # zscore(diff(rsi_fast)) (APR: feature.rsi_velocity.window)
+    rsi_velocity_mid: float | None  # zscore(diff(rsi_mid)) (APR: feature.rsi_velocity.window)
+    rsi_velocity_slow: float | None  # zscore(diff(rsi_slow)) (APR: feature.rsi_velocity.window)
+    ofi_z_velocity: float | None  # zscore(diff(ofi_z)) (APR: feature.ofi_velocity.window)
+    cvd_slope_z_velocity: (
+        float | None
+    )  # zscore(diff(cvd_slope_z)) (APR: feature.cvd_velocity.window)
+    volume_z_velocity: float | None  # zscore(diff(volume_z)) (APR: feature.volume_velocity.window)
     # Earnings-Season Calendar Primitive (2, Phase 176 Plan 03, todo 353,
     # migration 350). Declared as ONE contiguous run immediately after the
     # Velocity Primitives Extension block so feature_vector_persistence.py's
@@ -1500,45 +1502,53 @@ class FeatureVector:
     # Theory-Motivated Interactions (10, Phase 151 Plan 06). 10 curated
     # compound features, each a SINGLE operation (product) on two numeric
     # tier-0 columns, each carrying a one-sentence finance-theory hypothesis
-    # (concept_registry.description). momentum_trend_product and
-    # reversion_hurst_product are missing (None) while their adx/hurst parent
-    # is undefined (D1 rule 5, todo 584); the other eight parents are always
-    # computed, so they stay non-nullable floats. hv_ratio/adx/hurst/
+    # (concept_registry.description). All ten are float | None and go through
+    # _missing_product: a missing (NaN) parent makes the product missing
+    # (D1 rule 5, todo 584); only a non-finite product of finite parents
+    # trips the counted tripwire (_guard_counted). hv_ratio/adx/hurst/
     # variance_ratio_fast/vix_z/yield_slope_z are the numeric tier-0 proxies
     # substituting for the "regime label" candidate sources named in ROADMAP
     # (categorical regime strings cannot be a product operand) -- Open
-    # Question 2's resolution, see plan doc. Guarded via _guard_counted (not
-    # plain _guard) so a non-finite substitution is a COUNTED, observable
-    # tripwire rather than a silent nan_to_num collapse; the two nullable ones
-    # go through _missing_product (a missing parent propagates, only a
-    # non-finite product of finite parents trips the counter).
-    momentum_vol_regime_product: float  # momentum_z_fast * hv_ratio; momentum carries more strongly when realized vol is contracting (low-vol anomaly, Frazzini & Pedersen 2014)
+    # Question 2's resolution, see plan doc.
+    momentum_vol_regime_product: (
+        float | None
+    )  # momentum_z_fast * hv_ratio; momentum carries more strongly when realized vol is contracting (low-vol anomaly, Frazzini & Pedersen 2014)
     momentum_trend_product: (
         float | None
     )  # momentum_z_fast * adx; momentum persists when trend strength is high, decays into noise when choppy
-    breakout_volume_product: float  # dist_from_high_fast * volume_z; a breakout confirmed by abnormal volume continues more often than an unconfirmed one
+    breakout_volume_product: (
+        float | None
+    )  # dist_from_high_fast * volume_z; a breakout confirmed by abnormal volume continues more often than an unconfirmed one
     reversion_hurst_product: (
         float | None
     )  # momentum_reversal_z * hurst; short-term reversal is stronger when the series is anti-persistent (Hurst < 0.5)
-    quarter_momentum_product: float  # quarter_position * momentum_z_fast; quarter-end window dressing/dealer gamma unwind amplify existing momentum into the quarter close
-    variance_ratio_momentum_product: float  # variance_ratio_fast * momentum_z_fast; momentum is informative in trending microstructure, noise in mean-reverting
-    illiquidity_momentum_product: float  # amihud_illiq_z * momentum_z_fast; illiquidity amplifies price impact, so identical order flow moves price further and momentum persists longer
+    quarter_momentum_product: (
+        float | None
+    )  # quarter_position * momentum_z_fast; quarter-end window dressing/dealer gamma unwind amplify existing momentum into the quarter close
+    variance_ratio_momentum_product: (
+        float | None
+    )  # variance_ratio_fast * momentum_z_fast; momentum is informative in trending microstructure, noise in mean-reverting
+    illiquidity_momentum_product: (
+        float | None
+    )  # amihud_illiq_z * momentum_z_fast; illiquidity amplifies price impact, so identical order flow moves price further and momentum persists longer
     yield_slope_momentum_product: (
         float | None
     )  # yield_slope_z * momentum_z_fast; term-structure regime conditions equity momentum (carry-times-term-structure candidate source)
     vix_reversion_product: (
         float | None
     )  # vix_z * momentum_reversal_z; the short-term reversal premium is larger in high-volatility regimes where liquidity provision is compensated more
-    efficiency_volume_product: float  # efficiency_ratio_fast * volume_z; directional efficiency confirmed by volume distinguishes a real trend from directionless drift
+    efficiency_volume_product: (
+        float | None
+    )  # efficiency_ratio_fast * volume_z; directional efficiency confirmed by volume distinguishes a real trend from directionless drift
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float
     ctf_regime_align: float
     # Statistical / liquidity (4)
-    amihud_illiq_z: float
+    amihud_illiq_z: float | None
     high_52w_dist: float
-    ret_skew_z: float
-    ret_acf1_z: float
+    ret_skew_z: float | None
+    ret_acf1_z: float | None
     # Renaissance Primitives — Bar Anatomy Ratios (8, Phase 142.5 Plan 01)
     body_ratio: float  # (C - O) / (H - L), bounded [-1, 1]
     upper_wick_ratio: float  # (H - max(O,C)) / (H - L), bounded [0, 1]
@@ -1546,7 +1556,7 @@ class FeatureVector:
     range_vs_atr: float  # (H - L) / ATR_N, unbounded positive
     close_vs_open_direction: float  # sign(C - O), categorical {-1, 0, 1}
     overnight_gap: float  # (O - prev_C) / prev_C, unbounded
-    overnight_gap_z: float  # z-score of overnight_gap (APR: feature.overnight_gap.window)
+    overnight_gap_z: float | None  # z-score of overnight_gap (APR: feature.overnight_gap.window)
     range_efficiency: float  # abs(C - prev_C) / (H - L), bounded [0, 1]
     # Renaissance Primitives — Lagged Return Series (6, Phase 142.5 Plan 01)
     ret_lag_1: float  # log(C_t / C_{t-1}), definitional
@@ -1577,7 +1587,7 @@ class FeatureVector:
     )
     # Renaissance Primitives — Volume Structure (12, Phase 142.5 Plan 02)
     vol_acceleration: float  # V_t / V_{t-1}, unbounded positive (APR: none, bar-relative)
-    dollar_vol_z: float  # z-score of (V*C) (APR: feature.dollar_vol.window)
+    dollar_vol_z: float | None  # z-score of (V*C) (APR: feature.dollar_vol.window)
     vol_range_ratio: float  # V_t/(H-L) normalized over N (APR: feature.vol_range_ratio.window)
     vol_trend_ratio: float  # vol_MA_fast/vol_MA_slow (APR: feature.vol_trend.fast/.slow)
     up_vol_ratio_fast: float  # sum(V|C>O)/sum(V), bounded [0,1] (APR: feature.up_vol_ratio.fast)
@@ -1588,10 +1598,10 @@ class FeatureVector:
     vol_persistence: (
         float  # lag-1 autocorrelation of V, bounded [-1,1] (APR: feature.vol_persistence.window)
     )
-    vol_std_z: float  # z-score of rolling std(V) (APR: feature.vol_std.window)
+    vol_std_z: float | None  # z-score of rolling std(V) (APR: feature.vol_std.window)
     mfi_fast: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.fast)
     mfi_slow: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.slow)
-    obv_z: float  # z-score of OBV (APR: feature.obv.window)
+    obv_z: float | None  # z-score of OBV (APR: feature.obv.window)
     # Renaissance Primitives — Breakout Distance (14, Phase 142.5 Plan 05)
     dist_from_high_fast: (
         float  # (rolling_high-C)/ATR, unbounded non-neg (APR: feature.breakout.dist_window_fast)
@@ -1619,11 +1629,11 @@ class FeatureVector:
     efficiency_ratio_slow: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_slow)
     # Renaissance Primitives — Return Distribution (7, Phase 142.5 Plan 03)
     ret_kurtosis_z_fast: (
-        float  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.fast)
-    )
+        float | None
+    )  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.fast)
     ret_kurtosis_z_slow: (
-        float  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.slow)
-    )
+        float | None
+    )  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.slow)
     ret_autocorr_1: (
         float  # lag-1 Pearson autocorrelation of log returns, bounded [-1,1] (definitional, no APR)
     )
@@ -1636,51 +1646,71 @@ class FeatureVector:
     updown_ratio_slow: (
         float  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.slow)
     )
-    streak_z: float  # z-score of signed directional streak length (APR: feature.streak.window)
+    streak_z: (
+        float | None
+    )  # z-score of signed directional streak length (APR: feature.streak.window)
     # Renaissance Primitives — Realized Variance / Volatility (14, Phase 142.5 Plan 03)
     realized_var_ratio_fast: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
     realized_var_ratio_slow: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
     range_to_close: float  # (H-L)/C, unbounded non-neg (no APR)
     true_range_pct: float  # TR/C, unbounded non-neg (no APR)
-    vol_of_vol: float  # z-score of rolling std(atr_z) (APR: feature.vol_of_vol.window)
+    vol_of_vol: float | None  # z-score of rolling std(atr_z) (APR: feature.vol_of_vol.window)
     high_low_corr: (
         float  # correlation of H and L, bounded [-1,1] (APR: feature.high_low_corr.window)
     )
     variance_ratio_fast: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.fast)
     variance_ratio_slow: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.slow)
     vol_asymmetry_z: (
-        float  # z-score of std(ret|up)/std(ret|down) (APR: feature.vol_asymmetry.window)
-    )
+        float | None
+    )  # z-score of std(ret|up)/std(ret|down) (APR: feature.vol_asymmetry.window)
     bb_pct_b_fast: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.fast)
     bb_pct_b_slow: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.slow)
-    hv_z_fast: float  # z-score of close-to-close historical volatility (APR: feature.hv.fast)
-    hv_z_slow: float  # z-score of close-to-close historical volatility (APR: feature.hv.slow)
+    hv_z_fast: (
+        float | None
+    )  # z-score of close-to-close historical volatility (APR: feature.hv.fast)
+    hv_z_slow: (
+        float | None
+    )  # z-score of close-to-close historical volatility (APR: feature.hv.slow)
     hv_ratio: (
         float  # hv_fast / rolling_mean(hv, N), unbounded non-neg (APR: feature.hv.ratio_window)
     )
     # Renaissance Primitives — Alternative Volatility Estimators (3, Phase 142.5 Plan 04)
-    parkinson_vol_z: float  # z-score of rolling-avg ln(H/L)^2/(4ln2) (APR: feature.parkinson_vol.window/.zscore_window)
-    garman_klass_vol_z: float  # z-score of rolling-avg GK term (APR: feature.garman_klass_vol.window/.zscore_window)
-    yang_zhang_vol_z: float  # z-score of rolling YZ variance estimator (APR: feature.yang_zhang_vol.window/.zscore_window)
+    parkinson_vol_z: (
+        float | None
+    )  # z-score of rolling-avg ln(H/L)^2/(4ln2) (APR: feature.parkinson_vol.window/.zscore_window)
+    garman_klass_vol_z: (
+        float | None
+    )  # z-score of rolling-avg GK term (APR: feature.garman_klass_vol.window/.zscore_window)
+    yang_zhang_vol_z: (
+        float | None
+    )  # z-score of rolling YZ variance estimator (APR: feature.yang_zhang_vol.window/.zscore_window)
     # Renaissance Primitives — Volatility Dynamics (5, Phase 142.5 Plan 04)
-    parkinson_vol_velocity: float  # parkinson_vol_z_t - parkinson_vol_z_{t-1}, unbounded (no APR)
+    parkinson_vol_velocity: (
+        float | None
+    )  # parkinson_vol_z_t - parkinson_vol_z_{t-1}, unbounded (no APR)
     garman_klass_vol_velocity: (
-        float  # garman_klass_vol_z_t - garman_klass_vol_z_{t-1}, unbounded (no APR)
-    )
+        float | None
+    )  # garman_klass_vol_z_t - garman_klass_vol_z_{t-1}, unbounded (no APR)
     yang_zhang_vol_velocity: (
-        float  # yang_zhang_vol_z_t - yang_zhang_vol_z_{t-1}, unbounded (no APR)
-    )
-    vol_velocity_z: float  # z-score of rolling atr_z velocity (APR: feature.vol_velocity.window)
+        float | None
+    )  # yang_zhang_vol_z_t - yang_zhang_vol_z_{t-1}, unbounded (no APR)
+    vol_velocity_z: (
+        float | None
+    )  # z-score of rolling atr_z velocity (APR: feature.vol_velocity.window)
     intraday_noise_ratio: float  # sum(|ret|)/|net_ret| over session, unbounded non-neg (APR: feature.intraday_noise.window)
     # Renaissance Primitives — Price-Volume Interactions (8, Phase 142.5 Plan 05.5)
-    vol_body_product: float  # body_ratio * volume_z, unbounded symmetric around 0 (no APR)
-    ret_vol_product_fast: float  # ret_lag_fast * volume_z, unbounded symmetric around 0 (no APR)
+    vol_body_product: float | None  # body_ratio * volume_z, unbounded symmetric around 0 (no APR)
+    ret_vol_product_fast: (
+        float | None
+    )  # ret_lag_fast * volume_z, unbounded symmetric around 0 (no APR)
     price_vol_corr_fast: float  # rolling Pearson(|log ret|, volume), bounded [-1,1] (APR: feature.price_vol_corr.fast)
     price_vol_corr_slow: float  # rolling Pearson(|log ret|, volume), bounded [-1,1] (APR: feature.price_vol_corr.slow)
-    range_vol_product: float  # range_vs_atr * volume_z, unbounded symmetric around 0 (no APR)
+    range_vol_product: (
+        float | None
+    )  # range_vs_atr * volume_z, unbounded symmetric around 0 (no APR)
     up_vol_body_diff: float  # up_vol_ratio_fast - body_ratio, approx bounded [-1,1] (no APR)
-    ret_vol_ratio_fast: float  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
-    vol_skew_product: float  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
+    ret_vol_ratio_fast: float | None  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
+    vol_skew_product: float | None  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
     # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01). D-01 nullable
     # fix: every field here is `float | None` with NO default, ported from the
     # archived i3_structure plugins with their silent-numeric-default bug

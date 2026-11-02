@@ -151,8 +151,9 @@ class TestWilderRsiSeries:
         for n in range(2, len(closes) + 1):
             scalar = _rsi_simple(closes[:n], period)
             batch = float(series[n - 1])
+            agree = abs(batch - scalar) < 1e-8 or (math.isnan(batch) and math.isnan(scalar))
             assert (
-                abs(batch - scalar) < 1e-8
+                agree
             ), f"n={n}: series={batch:.10f} scalar={scalar:.10f} delta={abs(batch-scalar):.2e}"
 
     def test_bar_period_is_the_sma_seed_value_by_hand(self) -> None:
@@ -160,15 +161,15 @@ class TestWilderRsiSeries:
 
         closes 10, 11, 10, 12, period 3: changes +1, -1, +2, so the average gain is 3/3 = 1.0,
         the average loss 1/3, RS = 3 and RSI = 100 - 100 / 4 = 75.0 at index 3. Bars 0-2 have
-        fewer than `period` changes and stay at the 50.0 cold start.
+        fewer than `period` changes and are NaN (D1 rule 5, todo 584).
         """
         from src.intelligence.features.kernels._cache_state import _rsi_simple, _wilder_rsi_series
         from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         closes = np.array([10.0, 11.0, 10.0, 12.0])
-        want = [50.0, 50.0, 50.0, 75.0]
-        assert _wilder_rsi_series(closes, 3).tolist() == want
-        assert wilder_rsi_series(closes, 3).tolist() == want
+        want = np.array([math.nan, math.nan, math.nan, 75.0])
+        np.testing.assert_allclose(_wilder_rsi_series(closes, 3), want, equal_nan=True)
+        np.testing.assert_allclose(wilder_rsi_series(closes, 3), want, equal_nan=True)
         assert _rsi_simple(closes, 3) == 75.0
 
     def test_cache_wrapper_is_the_kernel_primitive(self) -> None:
@@ -183,14 +184,14 @@ class TestWilderRsiSeries:
                     _wilder_rsi_series(closes, period), wilder_rsi_series(closes, period)
                 )
 
-    def test_cold_start_returns_50(self) -> None:
+    def test_cold_start_is_nan(self) -> None:
         from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
 
         closes = np.array([100.0, 101.0, 102.0], dtype=float)
         series = _wilder_rsi_series(closes, period=14)
-        assert series[0] == 50.0
-        assert series[1] == 50.0
-        assert series[2] == 50.0  # only 3 bars, period=14 → all cold
+        assert math.isnan(series[0])
+        assert math.isnan(series[1])
+        assert math.isnan(series[2])  # only 3 bars, period=14 → all cold (D1 rule 5)
 
     def test_values_in_range(self) -> None:
         from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
@@ -198,7 +199,8 @@ class TestWilderRsiSeries:
         rng = np.random.default_rng(7)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.02, 500))
         series = _wilder_rsi_series(closes, period=14)
-        assert np.all(series >= 0.0) and np.all(series <= 100.0)
+        defined = series[~np.isnan(series)]
+        assert np.all(defined >= 0.0) and np.all(defined <= 100.0)
 
 
 # ---------------------------------------------------------------------------
@@ -341,20 +343,22 @@ class TestVolVelocityZSeriesFullGeneric:
         result = _vol_velocity_z_series_full(series, window=10)
         assert np.all(result[15:] > 0), f"Expected positive velocity, got {result[15:]}"
 
-    def test_flat_series_yields_zero_velocity(self) -> None:
+    def test_flat_series_velocity_is_nan(self) -> None:
         from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
         series = np.full(50, 3.5)
         result = _vol_velocity_z_series_full(series, window=10)
-        assert np.all(result == 0.0), f"Expected all-zero velocity on a flat series, got {result}"
+        # velocity is 0 on every bar, so the z-score window has no spread: undefined (D1
+        # rule 5, todo 584), never a fabricated 0.0
+        assert np.all(np.isnan(result))
 
-    def test_index_0_is_zero_padded(self) -> None:
+    def test_index_0_is_nan(self) -> None:
         from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
         rng = np.random.default_rng(1)
         series = rng.normal(0, 1, 50)
         result = _vol_velocity_z_series_full(series, window=10)
-        assert result[0] == 0.0
+        assert math.isnan(result[0])
 
 
 # ---------------------------------------------------------------------------

@@ -37,11 +37,15 @@ def wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
 
     Wilder's definition: the first RSI sits at index `period` and averages the first `period`
     price changes (the SMA seed); later bars smooth with alpha = 1 / period. Bars before index
-    `period` have fewer than `period` changes and stay at the 50.0 cold start, as does a flat
-    window (no gains and no losses). A window with gains and no losses is 100.0.
+    `period` have fewer than `period` changes and are NaN, as is a seed window that has never
+    moved (0/0: the ratio RSI is a function of does not exist, D1 rule 5, todo 584). A window
+    with gains and no losses is a measured 100.0 (rs = inf makes the formula exactly 100.0).
+    No epsilon branch: a threshold on the decaying averages would make the finite/NaN boundary
+    depend on the recursion's seed age, which is unbounded memory; the plain formula is
+    continuous, so a defined value never passes through a neutral branch.
     """
     n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
+    result = np.full(n, np.nan, dtype=float)
     if n < period + 1:
         return result
     deltas = np.diff(closes.astype(float))
@@ -50,19 +54,22 @@ def wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
     alpha = 1.0 / period
     avg_gain = float(np.mean(gains[:period]))
     avg_loss = float(np.mean(losses[:period]))
-    if avg_loss < 1e-10:
-        result[period] = 100.0 if avg_gain > 0 else 50.0
-    else:
-        rs = avg_gain / avg_loss
-        result[period] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+
+    def _rsi(gain: float, loss: float) -> float:
+        # The formula's exact zero-divisor cases, not an epsilon: a 0-loss window with
+        # gains is the measured 100.0 (rs = inf), and 0/0 is the undefined seed (nan).
+        # Python float division raises where the formula would produce these, so the
+        # cases are stated rather than divided into.
+        if loss == 0.0:
+            return 100.0 if gain > 0.0 else math.nan
+        rs = gain / loss
+        return min(max(100.0 - 100.0 / (1.0 + rs), 0.0), 100.0)
+
+    result[period] = _rsi(avg_gain, avg_loss)
     for i in range(period, len(gains)):
         avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
         avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
-        if avg_loss < 1e-10:
-            result[i + 1] = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rs = avg_gain / avg_loss
-            result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+        result[i + 1] = _rsi(avg_gain, avg_loss)
     return result
 
 
@@ -131,22 +138,34 @@ def _cumsum_window_moments(
     IEEE operation the per-row loops this replaces performed, in the same order, so the
     results are bit-identical to them. With `squares` False only the mean is computed and the
     variance is None.
+
+    A window holding a NaN or inf defines nothing: its mean and variance are NaN (D1 rule 5,
+    todo 584), and windows entirely past the bad value recover. The cumsums run over the
+    NaN-zeroed array with a second cumsum of the bad-count, so one bad value never poisons
+    the rows after its window (a plain cumsum would carry the NaN to the end of the series).
     """
     n = len(arr)
     eff_w = np.minimum(window, np.arange(1, n + 1))
     prev = np.arange(n) + 1 - eff_w - 1  # index of cs just before the window; -1 means none
+    prev_idx = np.maximum(prev, 0)
+    prev_ok = prev >= 0
+    bad = ~np.isfinite(arr)
+    good = np.where(bad, 0.0, arr)
 
     def window_sums(values: np.ndarray) -> np.ndarray:
         cs = np.cumsum(values)
-        before = np.where(prev >= 0, cs[np.maximum(prev, 0)], 0.0)
-        return cs - before
+        return cs - np.where(prev_ok, cs[prev_idx], 0.0)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        mean = window_sums(arr) / eff_w
+        has_bad = window_sums(bad.astype(float)) > 0.0
+        mean = window_sums(good) / eff_w
+        mean[has_bad] = np.nan
         if not squares:
             return mean, None
-        var = window_sums(arr * arr) / eff_w - mean * mean
-    return mean, np.where(var < 0.0, 0.0, var)
+        # mean is already NaN in a bad window, so var is too; the clamp preserves NaN.
+        var = window_sums(good * good) / eff_w - mean * mean
+        var = np.where(var < 0.0, 0.0, var)
+    return mean, var
 
 
 def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
@@ -157,29 +176,29 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
 
     Uses cumulative sums — O(n) total.
-    Returns 0.0 where fewer than 2 samples or std < STD_FLOOR.
+    NaN where fewer than 2 samples or std <= STD_FLOOR: the z-score of a window
+    that does not spread is undefined (D1 rule 5, todo 584), never a 0.0 fill.
     """
     n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n < 2 or window < 2:
-        return out
+    if n == 0:
+        return np.zeros(0, dtype=float)
+    if window < 2:
+        return np.full(n, np.nan)
     mean, var = _cumsum_window_moments(arr, window)
     std = np.sqrt(var)
     with np.errstate(divide="ignore", invalid="ignore"):
-        z = np.where(std > STD_FLOOR, (arr - mean) / std, 0.0)
-    out[1:] = z[1:]
-    return out
+        return np.where(std > STD_FLOOR, (arr - mean) / std, np.nan)
 
 
 def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     """Rolling z-score series matching streaming `_zscore_last(arr, window)`.
 
     `_rolling_zscore_series` expands the window until it saturates; the streaming
-    `_zscore_last` instead returns 0.0 until `window` samples exist. This forces
-    that fixed-window cold-start by zeroing the first `window - 1` positions.
+    `_zscore_last` instead returns NaN until `window` samples exist. This forces
+    that fixed-window cold start as NaN (D1 rule 5, todo 584).
     """
     z = _rolling_zscore_series(arr, window)
-    z[: window - 1] = 0.0
+    z[: window - 1] = np.nan
     return z
 
 
@@ -277,28 +296,23 @@ def _zscore_last(series: np.ndarray, window: int) -> float:
     """Z-score of the last element relative to the trailing window.
 
     Stateless: takes full array, uses last `window` elements for mean/std,
-    scores the final element. Returns 0.0 on cold start or near-zero std.
+    scores the final element. NaN on a history shorter than the window and on a
+    window that does not spread (D1 rules 1 and 5, todo 584), never a 0.0 fill.
     """
     if len(series) < window:
-        return 0.0
+        return math.nan
     window_data = series[-window:]
     std = float(window_data.std())
     if std < STD_FLOOR:
-        return 0.0
+        return math.nan
     return float((float(series[-1]) - float(window_data.mean())) / std)
 
 
 def _z_or_nan(history: deque, window: int) -> float:
     """Z-score of the newest value against the last `window` values: NaN while the history is
     shorter than the window and NaN on a zero-spread window (D1 rules 1 and 5, todo 584), never a
-    0.0 fill. Same arithmetic as `_zscore_last` otherwise, so normal values are bit-identical."""
-    if len(history) < window:
-        return math.nan
-    series = np.array(list(history)[-window:])
-    std = float(series.std())
-    if std < STD_FLOOR:
-        return math.nan
-    return float((float(series[-1]) - float(series.mean())) / std)  # `_zscore_last`'s arithmetic
+    0.0 fill. `_zscore_last` is the one implementation of the arithmetic."""
+    return _zscore_last(np.asarray(history, dtype=float), window)
 
 
 def _corr_or_nan(x: np.ndarray, y: np.ndarray, window: int) -> float:

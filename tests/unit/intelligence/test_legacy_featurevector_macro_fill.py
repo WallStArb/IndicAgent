@@ -90,13 +90,11 @@ def test_missing_macro_input_does_not_fire_the_guard_counted_tripwire():
     assert fired == [], fired
 
 
-def test_guard_counted_still_fires_when_the_inputs_are_finite_and_the_product_is_not():
+def test_the_tripwire_still_fires_when_the_inputs_are_finite_and_the_product_is_not():
     ff._GUARD_COUNTED_SUBSTITUTIONS.clear()
-    assert ff._guard_counted(float("inf"), "vix_reversion_product", inputs=(1.0, 2.0)) == 0.0
+    assert ff._missing_product(float("inf"), "vix_reversion_product", (1.0, 2.0)) == 0.0
     assert ff._GUARD_COUNTED_SUBSTITUTIONS == {"vix_reversion_product": 1}
-    assert (
-        ff._guard_counted(float("nan"), "vix_reversion_product", inputs=(float("nan"), 2.0)) == 0.0
-    )
+    assert ff._missing_product(float("nan"), "vix_reversion_product", (float("nan"), 2.0)) is None
     assert ff._GUARD_COUNTED_SUBSTITUTIONS == {"vix_reversion_product": 1}
     ff._GUARD_COUNTED_SUBSTITUTIONS.clear()
 

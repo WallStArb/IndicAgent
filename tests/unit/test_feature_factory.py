@@ -235,20 +235,22 @@ def _make_cache(**overrides: float) -> FeatureCache:
 
 
 class TestRollingZscore:
-    def test_returns_zero_when_insufficient_history(self) -> None:
+    def test_insufficient_history_is_nan(self) -> None:
+        # a window that does not (yet) spread defines no z-score (D1 rule 5, todo 584)
         arr = np.array([5.0])
         z = _rolling_zscore_series(arr, window=30)[-1]
-        assert z == 0.0
+        assert math.isnan(z)
 
     def test_returns_nonzero_when_sufficient_history(self) -> None:
         arr = np.array([float(v) for v in range(30)] + [100.0])
         z = _rolling_zscore_series(arr, window=30)[-1]
         assert z != 0.0
 
-    def test_near_zero_std_returns_zero(self) -> None:
+    def test_near_zero_std_is_nan(self) -> None:
+        # a zero-spread window defines no z-score (D1 rule 5, todo 584)
         arr = np.full(30, 5.0)
         z = _rolling_zscore_series(arr, window=30)[-1]
-        assert z == 0.0
+        assert math.isnan(z)
 
 
 class TestBarLevelPrimitives:
@@ -1345,11 +1347,12 @@ def test_realized_variance() -> None:
     assert math.isfinite(fv.bb_pct_b_slow)
 
     # Edge case: insufficient history (fewer bars than longest window) must
-    # not raise — cold-start neutral fallback expected.
+    # not raise. variance_ratio_slow keeps its measured neutral; a z-score with
+    # no spread window is missing (None), never a fabricated 0.0 (D1 rule 5).
     bars_short = _make_bars(3)
     fv_short = FeatureFactory.compute(bars_short, "SPY", "1m", cache, config)
     assert math.isfinite(fv_short.variance_ratio_slow)
-    assert math.isfinite(fv_short.hv_z_slow)
+    assert fv_short.hv_z_slow is None
 
 
 def test_alt_volatility() -> None:

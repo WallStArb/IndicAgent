@@ -159,15 +159,12 @@ def _overnight_gap_series_full(
 def _overnight_gap_z(opens: np.ndarray, closes: np.ndarray, window: int, eps: float = EPS) -> float:
     """Z-score of overnight_gap over a trailing window of bars (streaming path).
 
-    Builds the full overnight_gap series then z-scores the last value against the
-    trailing `window`, matching _zscore_last semantics. Returns 0.0 on insufficient
-    history (fewer than `window` gap observations).
+    `_overnight_gap_series_full` is the one definition of the gap array; this z-scores its
+    last value against the trailing `window`, matching _zscore_last semantics. NaN on
+    insufficient history (fewer than `window` gap observations) and on a window that does
+    not spread (D1 rules 1 and 5, todo 584).
     """
-    if len(closes) < 2:
-        return 0.0
-    prev_closes = closes[:-1]
-    gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
-    return _zscore_last(gaps, window)
+    return _zscore_last(_overnight_gap_series_full(opens, closes, eps)[1:], window)
 
 
 def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
@@ -176,12 +173,13 @@ def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: 
 
     O(n) total — required because _overnight_gap_z rebuilds the full gap array per
     call; looping compute_batch() calling the streaming version would be O(n^2).
+    Bar 0 has no gap and is NaN, never a 0.0 fill (D1 rule 5, todo 584).
     """
-    result = np.zeros(len(closes), dtype=float)
-    if len(closes) < 2:
-        return result
-    # bar 0 has no gap: score bars 1.. and keep bar 0 at 0.0
-    result[1:] = _fixed_window_zscore_series(_overnight_gap_series_full(opens, closes)[1:], window)
+    result = np.full(len(closes), np.nan)
+    if len(closes) >= 2:
+        result[1:] = _fixed_window_zscore_series(
+            _overnight_gap_series_full(opens, closes)[1:], window
+        )
     return result
 
 
@@ -618,17 +616,18 @@ def _gap_z_series_full(
     `atr_padded` (length n, index 0 the pad) and `atr_valid` are the shared ATR series and
     validity mask computed once in `_precompute_series` (todo 269); a bar whose previous ATR is
     invalid divides by 1.0. Bar 0 has no previous close and bar 1's previous bar is the ATR
-    pad, so both are 0.0 and enter the z-score window as that leading 0.0.
+    pad, so both read as 0.0 inside the z-score window; rows 0 and 1 have no defined z-score
+    of their own and are NaN (D1 rule 5, todo 584), as is any window that does not spread.
     """
     n = len(closes)
-    result = np.zeros(n, dtype=float)
     if n < 2:
-        return result
+        return np.full(n, np.nan)
     prev_close = _previous_bar(closes.astype(float), np.nan)
     prev_atr = _previous_bar(atr_padded.astype(float), np.nan)
     prev_valid = _previous_bar(atr_valid, False)
     gap = (opens - prev_close) / np.where(prev_valid, prev_atr, 1.0)
     gap[:2] = 0.0
+    result = np.full(n, np.nan)
     result[1:] = _rolling_zscore_series(gap[1:], zscore_window)
     return result
 

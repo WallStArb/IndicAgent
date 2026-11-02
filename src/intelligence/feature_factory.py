@@ -1427,47 +1427,34 @@ def _missing_if_nan(v: float | None) -> float | None:
     return v if v is not None and math.isfinite(v) else None
 
 
-def _missing_product(v: float, name: str, inputs: Sequence[float]) -> float | None:
+def _missing_product(v: float | None, name: str, inputs: Sequence[float | None]) -> float | None:
     """A product with a missing input is missing; a non-finite product of finite inputs is the
-    numerical-anomaly tripwire (`_guard_counted`)."""
-    if not all(math.isfinite(x) for x in inputs):
+    numerical-anomaly tripwire (`_guard_counted`). Used by every product compound the build site
+    holds (the 10 Theory-Motivated Interactions and the Renaissance price-volume combinators),
+    so a cold parent makes the product None, never a fabricated 0.0. A None parent or value is
+    missing too: the parameters are `float | None`, so None is a legal input, not a crash."""
+    if v is None or any(x is None or not math.isfinite(x) for x in inputs):
         return None
     return _guard_counted(v, name)
 
 
-# Module-level substitution counter for the 10 Theory-Motivated Interaction
-# compounds (Phase 151 Plan 06) ONLY -- not used by any of the ~190
-# pre-existing fields, which stay on plain _guard(). Keyed by compound
-# feature_name; incremented by _guard_counted() whenever that compound's
-# product substitutes the 0.0 fallback for a non-finite value. Reset by
+# Substitution counts per product compound, incremented by _guard_counted(); reset by
 # _report_guard_counted_substitutions() after each report.
 _GUARD_COUNTED_SUBSTITUTIONS: dict[str, int] = {}
 
 
-def _guard_counted(v: float, name: str, inputs: Sequence[float] = ()) -> float:
-    """Like _guard(v, fallback=0.0) but increments a named, observable counter.
+def _guard_counted(v: float, name: str) -> float:
+    """Like _guard(v, fallback=0.0) but increments a named, observable counter. Reached only
+    through `_missing_product`, which has already classified a non-finite input as missing
+    data: this firing means every input was finite and the product still is not.
 
-    With `inputs` (the factors of the product), a non-finite product whose input is itself
-    non-finite is missing data propagating (an early row with no cross-asset record yet), not
-    a numerical anomaly: it is substituted the same 0.0 but not counted, so the tripwire
-    counts only a product that is non-finite while every input is finite.
-
-    Used exclusively by the 10 Theory-Motivated Interaction compounds (Phase
-    151 Plan 06, todo -- see plan doc). Explicit range clipping was rejected
-    at design time: a float64 product of two z-scores cannot reach ±inf short
-    of roughly 1e154 per factor -- structurally unreachable for a real
-    z-score -- so math.isfinite firing here is a tripwire against a genuine
-    numerical anomaly, never a value-shaping clamp on an "extreme but valid"
-    number. The counter exists so a firing tripwire is OBSERVABLE rather than
-    a silent collapse (Codex code-review MEDIUM finding on the plain
-    "substitute posinf/neginf with 0.0 via a bare numpy clamp call" idiom,
-    which would substitute the same 0.0 with no trace at all) -- see
-    _report_guard_counted_substitutions().
+    Explicit range clipping was rejected at design time: a float64 product of two z-scores
+    cannot reach ±inf short of roughly 1e154 per factor -- structurally unreachable for a
+    real z-score -- so math.isfinite firing here is a tripwire against a genuine numerical
+    anomaly, never a value-shaping clamp on an "extreme but valid" number.
     """
     if math.isfinite(v):
         return v
-    if not all(math.isfinite(x) for x in inputs):
-        return 0.0
     _GUARD_COUNTED_SUBSTITUTIONS[name] = _GUARD_COUNTED_SUBSTITUTIONS.get(name, 0) + 1
     return 0.0
 
@@ -1498,22 +1485,22 @@ def _series_last(arr: np.ndarray, fallback: float) -> float:
 
 def _build_feature_vector(
     *,
-    momentum_z_fast: float,
-    momentum_z_mid: float,
+    momentum_z_fast: float | None,
+    momentum_z_mid: float | None,
     range_position: float,
     bar_close_pos: float,
-    gap_z: float,
-    momentum_z_slow: float,
-    momentum_reversal_z: float,
+    gap_z: float | None,
+    momentum_z_slow: float | None,
+    momentum_reversal_z: float | None,
     informed_flow: float,
-    volume_z: float,
-    ofi_z: float,
-    ofi_div: float,
-    cvd_slope_z: float,
+    volume_z: float | None,
+    ofi_z: float | None,
+    ofi_div: float | None,
+    cvd_slope_z: float | None,
     cmf: float,
     rel_volume: float,
     vwap_dev_sigma: float,
-    atr_z: float,
+    atr_z: float | None,
     vol_ratio: float,
     poc_dist_atr: float | None,
     va_position: float | None,
@@ -1551,9 +1538,9 @@ def _build_feature_vector(
     adx: float,
     aroon_fast: float,
     aroon_slow: float,
-    rsi_fast: float,
-    rsi_mid: float,
-    rsi_slow: float,
+    rsi_fast: float | None,
+    rsi_mid: float | None,
+    rsi_slow: float | None,
     cci_fast: float,
     cci_mid: float,
     cci_slow: float,
@@ -1580,17 +1567,17 @@ def _build_feature_vector(
     ctf_momentum: float,
     ctf_vwap_align: float,
     ctf_regime_align: float,
-    amihud_illiq_z: float,
+    amihud_illiq_z: float | None,
     high_52w_dist: float,
-    ret_skew_z: float,
-    ret_acf1_z: float,
+    ret_skew_z: float | None,
+    ret_acf1_z: float | None,
     body_ratio: float,
     upper_wick_ratio: float,
     lower_wick_ratio: float,
     range_vs_atr: float,
     close_vs_open_direction: float,
     overnight_gap: float,
-    overnight_gap_z: float,
+    overnight_gap_z: float | None,
     range_efficiency: float,
     ret_lag_1: float,
     ret_lag_2: float,
@@ -1613,17 +1600,17 @@ def _build_feature_vector(
     month_sin: float,
     month_cos: float,
     vol_acceleration: float,
-    dollar_vol_z: float,
+    dollar_vol_z: float | None,
     vol_range_ratio: float,
     vol_trend_ratio: float,
     up_vol_ratio_fast: float,
     up_vol_ratio_slow: float,
     vol_percentile: float,
     vol_persistence: float,
-    vol_std_z: float,
+    vol_std_z: float | None,
     mfi_fast: float,
     mfi_slow: float,
-    obv_z: float,
+    obv_z: float | None,
     dist_from_high_fast: float,
     dist_from_high_slow: float,
     dist_from_low_fast: float,
@@ -1636,45 +1623,45 @@ def _build_feature_vector(
     price_percentile_slow: float,
     efficiency_ratio_fast: float,
     efficiency_ratio_slow: float,
-    ret_kurtosis_z_fast: float,
-    ret_kurtosis_z_slow: float,
+    ret_kurtosis_z_fast: float | None,
+    ret_kurtosis_z_slow: float | None,
     ret_autocorr_1: float,
     ret_autocorr_5: float,
     updown_ratio_fast: float,
     updown_ratio_slow: float,
-    streak_z: float,
+    streak_z: float | None,
     realized_var_ratio_fast: float,
     realized_var_ratio_slow: float,
     range_to_close: float,
     true_range_pct: float,
-    vol_of_vol: float,
+    vol_of_vol: float | None,
     high_low_corr: float,
     variance_ratio_fast: float,
     variance_ratio_slow: float,
-    vol_asymmetry_z: float,
+    vol_asymmetry_z: float | None,
     bb_pct_b_fast: float,
     bb_pct_b_slow: float,
-    hv_z_fast: float,
-    hv_z_slow: float,
+    hv_z_fast: float | None,
+    hv_z_slow: float | None,
     hv_ratio: float,
-    parkinson_vol_z: float,
-    garman_klass_vol_z: float,
-    yang_zhang_vol_z: float,
-    parkinson_vol_velocity: float,
-    garman_klass_vol_velocity: float,
-    yang_zhang_vol_velocity: float,
-    vol_velocity_z: float,
+    parkinson_vol_z: float | None,
+    garman_klass_vol_z: float | None,
+    yang_zhang_vol_z: float | None,
+    parkinson_vol_velocity: float | None,
+    garman_klass_vol_velocity: float | None,
+    yang_zhang_vol_velocity: float | None,
+    vol_velocity_z: float | None,
     intraday_noise_ratio: float,
-    momentum_z_velocity_fast: float,
-    momentum_z_velocity_mid: float,
-    momentum_z_velocity_slow: float,
-    vwap_dev_sigma_velocity: float,
-    rsi_velocity_fast: float,
-    rsi_velocity_mid: float,
-    rsi_velocity_slow: float,
-    ofi_z_velocity: float,
-    cvd_slope_z_velocity: float,
-    volume_z_velocity: float,
+    momentum_z_velocity_fast: float | None,
+    momentum_z_velocity_mid: float | None,
+    momentum_z_velocity_slow: float | None,
+    vwap_dev_sigma_velocity: float | None,
+    rsi_velocity_fast: float | None,
+    rsi_velocity_mid: float | None,
+    rsi_velocity_slow: float | None,
+    ofi_z_velocity: float | None,
+    cvd_slope_z_velocity: float | None,
+    volume_z_velocity: float | None,
     bars_since_high_fast: float,
     bars_since_high_slow: float,
     bars_since_low_fast: float,
@@ -1700,28 +1687,28 @@ def _build_feature_vector(
     quad_witching_flag: float,
     earnings_season_flag: float,
     days_since_quarter_end: float,
-    vol_body_product: float,
-    ret_vol_product_fast: float,
+    vol_body_product: float | None,
+    ret_vol_product_fast: float | None,
     price_vol_corr_fast: float,
     price_vol_corr_slow: float,
-    range_vol_product: float,
+    range_vol_product: float | None,
     up_vol_body_diff: float,
-    ret_vol_ratio_fast: float,
-    vol_skew_product: float,
+    ret_vol_ratio_fast: float | None,
+    vol_skew_product: float | None,
     # Theory-Motivated Interactions (10, Phase 151 Plan 06). Raw (unguarded)
-    # products -- _guard_counted() is applied once below, inside the
+    # products -- _missing_product() is applied once below, inside the
     # FeatureVector(...) construction, same single-application-point
-    # discipline as every other field's plain _guard().
-    momentum_vol_regime_product: float,
-    momentum_trend_product: float,
-    breakout_volume_product: float,
-    reversion_hurst_product: float,
-    quarter_momentum_product: float,
-    variance_ratio_momentum_product: float,
-    illiquidity_momentum_product: float,
+    # discipline as every other field's _missing_if_nan().
+    momentum_vol_regime_product: float | None,
+    momentum_trend_product: float | None,
+    breakout_volume_product: float | None,
+    reversion_hurst_product: float | None,
+    quarter_momentum_product: float | None,
+    variance_ratio_momentum_product: float | None,
+    illiquidity_momentum_product: float | None,
     yield_slope_momentum_product: float,
     vix_reversion_product: float,
-    efficiency_volume_product: float,
+    efficiency_volume_product: float | None,
     # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01). Defaulted to
     # None -- this is a keyword-only function (`*,` above) so defaults may
     # live anywhere in the signature. No caller supplies real values yet;
@@ -1815,22 +1802,25 @@ def _build_feature_vector(
     manip_strength: float | None = None,
 ) -> FeatureVector:
     return FeatureVector(
-        momentum_z_fast=_guard(momentum_z_fast),
-        momentum_z_mid=_guard(momentum_z_mid),
+        # The rule-5 columns (z-scores, RSI, the products reading them) are missing (None) on a
+        # window that does not define them, never a neutral fill; the remaining _guard columns
+        # are quantities whose neutral is a measured value and whose kernel unit is todo 584 4b.
+        momentum_z_fast=_missing_if_nan(momentum_z_fast),
+        momentum_z_mid=_missing_if_nan(momentum_z_mid),
         range_position=_guard(range_position, 0.5),
         bar_close_pos=_guard(bar_close_pos, 0.5),
-        gap_z=_guard(gap_z),
-        momentum_z_slow=_guard(momentum_z_slow),
-        momentum_reversal_z=_guard(momentum_reversal_z),
+        gap_z=_missing_if_nan(gap_z),
+        momentum_z_slow=_missing_if_nan(momentum_z_slow),
+        momentum_reversal_z=_missing_if_nan(momentum_reversal_z),
         informed_flow=_guard(informed_flow),
-        volume_z=_guard(volume_z),
-        ofi_z=_guard(ofi_z),
-        ofi_div=_guard(ofi_div),
-        cvd_slope_z=_guard(cvd_slope_z),
+        volume_z=_missing_if_nan(volume_z),
+        ofi_z=_missing_if_nan(ofi_z),
+        ofi_div=_missing_if_nan(ofi_div),
+        cvd_slope_z=_missing_if_nan(cvd_slope_z),
         cmf=_guard(cmf),
         rel_volume=_guard(rel_volume, 1.0),
         vwap_dev_sigma=_guard(vwap_dev_sigma),
-        atr_z=_guard(atr_z),
+        atr_z=_missing_if_nan(atr_z),
         vol_ratio=_guard(vol_ratio, 1.0),
         poc_dist_atr=_guard(poc_dist_atr),
         va_position=_guard(va_position, 0.5),
@@ -1865,9 +1855,9 @@ def _build_feature_vector(
         adx=_missing_if_nan(adx),
         aroon_fast=_guard(aroon_fast),
         aroon_slow=_guard(aroon_slow),
-        rsi_fast=_guard(rsi_fast, 50.0),
-        rsi_mid=_guard(rsi_mid, 50.0),
-        rsi_slow=_guard(rsi_slow, 50.0),
+        rsi_fast=_missing_if_nan(rsi_fast),
+        rsi_mid=_missing_if_nan(rsi_mid),
+        rsi_slow=_missing_if_nan(rsi_slow),
         cci_fast=_guard(cci_fast),
         cci_mid=_guard(cci_mid),
         cci_slow=_guard(cci_slow),
@@ -1896,17 +1886,17 @@ def _build_feature_vector(
         ctf_momentum=_guard(ctf_momentum),
         ctf_vwap_align=_guard(ctf_vwap_align),
         ctf_regime_align=_guard(ctf_regime_align),
-        amihud_illiq_z=_guard(amihud_illiq_z),
+        amihud_illiq_z=_missing_if_nan(amihud_illiq_z),
         high_52w_dist=_guard(high_52w_dist),
-        ret_skew_z=_guard(ret_skew_z),
-        ret_acf1_z=_guard(ret_acf1_z),
+        ret_skew_z=_missing_if_nan(ret_skew_z),
+        ret_acf1_z=_missing_if_nan(ret_acf1_z),
         body_ratio=_guard(body_ratio, 0.0),
         upper_wick_ratio=_guard(upper_wick_ratio, 0.5),
         lower_wick_ratio=_guard(lower_wick_ratio, 0.5),
         range_vs_atr=_guard(range_vs_atr, 0.0),
         close_vs_open_direction=close_vs_open_direction,
         overnight_gap=_guard(overnight_gap, 0.0),
-        overnight_gap_z=_guard(overnight_gap_z, 0.0),
+        overnight_gap_z=_missing_if_nan(overnight_gap_z),
         range_efficiency=_guard(range_efficiency, 0.0),
         ret_lag_1=_guard(ret_lag_1, 0.0),
         ret_lag_2=_guard(ret_lag_2, 0.0),
@@ -1929,17 +1919,17 @@ def _build_feature_vector(
         month_sin=month_sin,
         month_cos=month_cos,
         vol_acceleration=_guard(vol_acceleration, 1.0),
-        dollar_vol_z=_guard(dollar_vol_z, 0.0),
+        dollar_vol_z=_missing_if_nan(dollar_vol_z),
         vol_range_ratio=_guard(vol_range_ratio, 0.0),
         vol_trend_ratio=_guard(vol_trend_ratio, 1.0),
         up_vol_ratio_fast=_guard(up_vol_ratio_fast, 0.5),
         up_vol_ratio_slow=_guard(up_vol_ratio_slow, 0.5),
         vol_percentile=_guard(vol_percentile, 0.5),
         vol_persistence=_guard(vol_persistence, 0.0),
-        vol_std_z=_guard(vol_std_z, 0.0),
+        vol_std_z=_missing_if_nan(vol_std_z),
         mfi_fast=_guard(mfi_fast, 50.0),
         mfi_slow=_guard(mfi_slow, 50.0),
-        obv_z=_guard(obv_z, 0.0),
+        obv_z=_missing_if_nan(obv_z),
         dist_from_high_fast=_guard(dist_from_high_fast, 0.0),
         dist_from_high_slow=_guard(dist_from_high_slow, 0.0),
         dist_from_low_fast=_guard(dist_from_low_fast, 0.0),
@@ -1952,45 +1942,45 @@ def _build_feature_vector(
         price_percentile_slow=_guard(price_percentile_slow, 0.5),
         efficiency_ratio_fast=_guard(efficiency_ratio_fast, 0.0),
         efficiency_ratio_slow=_guard(efficiency_ratio_slow, 0.0),
-        ret_kurtosis_z_fast=_guard(ret_kurtosis_z_fast, 0.0),
-        ret_kurtosis_z_slow=_guard(ret_kurtosis_z_slow, 0.0),
+        ret_kurtosis_z_fast=_missing_if_nan(ret_kurtosis_z_fast),
+        ret_kurtosis_z_slow=_missing_if_nan(ret_kurtosis_z_slow),
         ret_autocorr_1=_guard(ret_autocorr_1, 0.0),
         ret_autocorr_5=_guard(ret_autocorr_5, 0.0),
         updown_ratio_fast=_guard(updown_ratio_fast, 1.0),
         updown_ratio_slow=_guard(updown_ratio_slow, 1.0),
-        streak_z=_guard(streak_z, 0.0),
+        streak_z=_missing_if_nan(streak_z),
         realized_var_ratio_fast=_guard(realized_var_ratio_fast, 1.0),
         realized_var_ratio_slow=_guard(realized_var_ratio_slow, 1.0),
         range_to_close=_guard(range_to_close, 0.0),
         true_range_pct=_guard(true_range_pct, 0.0),
-        vol_of_vol=_guard(vol_of_vol, 0.0),
+        vol_of_vol=_missing_if_nan(vol_of_vol),
         high_low_corr=_guard(high_low_corr, 0.0),
         variance_ratio_fast=_guard(variance_ratio_fast, 1.0),
         variance_ratio_slow=_guard(variance_ratio_slow, 1.0),
-        vol_asymmetry_z=_guard(vol_asymmetry_z, 0.0),
+        vol_asymmetry_z=_missing_if_nan(vol_asymmetry_z),
         bb_pct_b_fast=_guard(bb_pct_b_fast, 0.5),
         bb_pct_b_slow=_guard(bb_pct_b_slow, 0.5),
-        hv_z_fast=_guard(hv_z_fast, 0.0),
-        hv_z_slow=_guard(hv_z_slow, 0.0),
+        hv_z_fast=_missing_if_nan(hv_z_fast),
+        hv_z_slow=_missing_if_nan(hv_z_slow),
         hv_ratio=_guard(hv_ratio, 1.0),
-        parkinson_vol_z=_guard(parkinson_vol_z, 0.0),
-        garman_klass_vol_z=_guard(garman_klass_vol_z, 0.0),
-        yang_zhang_vol_z=_guard(yang_zhang_vol_z, 0.0),
-        parkinson_vol_velocity=_guard(parkinson_vol_velocity, 0.0),
-        garman_klass_vol_velocity=_guard(garman_klass_vol_velocity, 0.0),
-        yang_zhang_vol_velocity=_guard(yang_zhang_vol_velocity, 0.0),
-        vol_velocity_z=_guard(vol_velocity_z, 0.0),
+        parkinson_vol_z=_missing_if_nan(parkinson_vol_z),
+        garman_klass_vol_z=_missing_if_nan(garman_klass_vol_z),
+        yang_zhang_vol_z=_missing_if_nan(yang_zhang_vol_z),
+        parkinson_vol_velocity=_missing_if_nan(parkinson_vol_velocity),
+        garman_klass_vol_velocity=_missing_if_nan(garman_klass_vol_velocity),
+        yang_zhang_vol_velocity=_missing_if_nan(yang_zhang_vol_velocity),
+        vol_velocity_z=_missing_if_nan(vol_velocity_z),
         intraday_noise_ratio=_guard(intraday_noise_ratio, 1.0),
-        momentum_z_velocity_fast=_guard(momentum_z_velocity_fast, 0.0),
-        momentum_z_velocity_mid=_guard(momentum_z_velocity_mid, 0.0),
-        momentum_z_velocity_slow=_guard(momentum_z_velocity_slow, 0.0),
-        vwap_dev_sigma_velocity=_guard(vwap_dev_sigma_velocity, 0.0),
-        rsi_velocity_fast=_guard(rsi_velocity_fast, 0.0),
-        rsi_velocity_mid=_guard(rsi_velocity_mid, 0.0),
-        rsi_velocity_slow=_guard(rsi_velocity_slow, 0.0),
-        ofi_z_velocity=_guard(ofi_z_velocity, 0.0),
-        cvd_slope_z_velocity=_guard(cvd_slope_z_velocity, 0.0),
-        volume_z_velocity=_guard(volume_z_velocity, 0.0),
+        momentum_z_velocity_fast=_missing_if_nan(momentum_z_velocity_fast),
+        momentum_z_velocity_mid=_missing_if_nan(momentum_z_velocity_mid),
+        momentum_z_velocity_slow=_missing_if_nan(momentum_z_velocity_slow),
+        vwap_dev_sigma_velocity=_missing_if_nan(vwap_dev_sigma_velocity),
+        rsi_velocity_fast=_missing_if_nan(rsi_velocity_fast),
+        rsi_velocity_mid=_missing_if_nan(rsi_velocity_mid),
+        rsi_velocity_slow=_missing_if_nan(rsi_velocity_slow),
+        ofi_z_velocity=_missing_if_nan(ofi_z_velocity),
+        cvd_slope_z_velocity=_missing_if_nan(cvd_slope_z_velocity),
+        volume_z_velocity=_missing_if_nan(volume_z_velocity),
         bars_since_high_fast=_guard(bars_since_high_fast, 0.0),
         bars_since_high_slow=_guard(bars_since_high_slow, 0.0),
         bars_since_low_fast=_guard(bars_since_low_fast, 0.0),
@@ -2017,38 +2007,56 @@ def _build_feature_vector(
         quad_witching_flag=_guard(quad_witching_flag, 0.0),
         earnings_season_flag=_guard(earnings_season_flag, 0.0),
         days_since_quarter_end=_guard(days_since_quarter_end, 0.0),
-        vol_body_product=_guard(vol_body_product, 0.0),
-        ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
+        vol_body_product=_missing_product(
+            vol_body_product, "vol_body_product", (body_ratio, volume_z)
+        ),
+        ret_vol_product_fast=_missing_product(
+            ret_vol_product_fast, "ret_vol_product_fast", (ret_lag_fast, volume_z)
+        ),
         price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
         price_vol_corr_slow=_guard(price_vol_corr_slow, 0.0),
-        range_vol_product=_guard(range_vol_product, 0.0),
+        range_vol_product=_missing_product(
+            range_vol_product, "range_vol_product", (range_vs_atr, volume_z)
+        ),
         up_vol_body_diff=_guard(up_vol_body_diff, 0.0),
-        ret_vol_ratio_fast=_guard(ret_vol_ratio_fast, 0.0),
-        vol_skew_product=_guard(vol_skew_product, 0.0),
-        momentum_vol_regime_product=_guard_counted(
-            momentum_vol_regime_product, "momentum_vol_regime_product"
+        ret_vol_ratio_fast=_missing_product(
+            ret_vol_ratio_fast, "ret_vol_ratio_fast", (ret_lag_fast, atr_z)
+        ),
+        vol_skew_product=_missing_product(
+            vol_skew_product, "vol_skew_product", (ret_skew_z, volume_z)
+        ),
+        momentum_vol_regime_product=_missing_product(
+            momentum_vol_regime_product,
+            "momentum_vol_regime_product",
+            (momentum_z_fast, hv_ratio),
         ),
         momentum_trend_product=_missing_product(
             momentum_trend_product,
             "momentum_trend_product",
             (momentum_z_fast, adx),
         ),
-        breakout_volume_product=_guard_counted(breakout_volume_product, "breakout_volume_product"),
+        breakout_volume_product=_missing_product(
+            breakout_volume_product, "breakout_volume_product", (dist_from_high_fast, volume_z)
+        ),
         reversion_hurst_product=_missing_product(
             reversion_hurst_product,
             "reversion_hurst_product",
             (momentum_reversal_z, hurst),
         ),
-        quarter_momentum_product=_guard_counted(
-            quarter_momentum_product, "quarter_momentum_product"
+        quarter_momentum_product=_missing_product(
+            quarter_momentum_product,
+            "quarter_momentum_product",
+            (quarter_position, momentum_z_fast),
         ),
-        variance_ratio_momentum_product=_guard_counted(
-            variance_ratio_momentum_product, "variance_ratio_momentum_product"
+        variance_ratio_momentum_product=_missing_product(
+            variance_ratio_momentum_product,
+            "variance_ratio_momentum_product",
+            (variance_ratio_fast, momentum_z_fast),
         ),
-        illiquidity_momentum_product=_guard_counted(
+        illiquidity_momentum_product=_missing_product(
             illiquidity_momentum_product,
             "illiquidity_momentum_product",
-            inputs=(amihud_illiq_z, momentum_z_fast),
+            (amihud_illiq_z, momentum_z_fast),
         ),
         yield_slope_momentum_product=_missing_product(
             yield_slope_momentum_product,
@@ -2058,8 +2066,10 @@ def _build_feature_vector(
         vix_reversion_product=_missing_product(
             vix_reversion_product, "vix_reversion_product", (vix_z, momentum_reversal_z)
         ),
-        efficiency_volume_product=_guard_counted(
-            efficiency_volume_product, "efficiency_volume_product"
+        efficiency_volume_product=_missing_product(
+            efficiency_volume_product,
+            "efficiency_volume_product",
+            (efficiency_ratio_fast, volume_z),
         ),
         swing_high_dist_atr=_guard(swing_high_dist_atr),
         swing_low_dist_atr=_guard(swing_low_dist_atr),

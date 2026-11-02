@@ -1,7 +1,9 @@
 """gap_z and overnight_gap_z rebuilt from an aligned previous-close array (186 debt pass B3).
 
-The `_reference` functions below are the earlier index-shifting implementations, kept verbatim
-as slow references: the aligned kernels must match them bit for bit on every input.
+The `_reference` functions below are the earlier index-shifting implementations, kept as slow
+references: the aligned kernels must match them bit for bit on every input. The warmup
+convention is D1 rule 5 (todo 584): a row with no defined z-score of its own is NaN, never a
+0.0 fill, on both sides.
 """
 
 from __future__ import annotations
@@ -24,11 +26,11 @@ EPS = 1e-10
 
 def _gap_z_reference(opens, closes, atr_raw, atr_valid, zscore_window):
     n = len(closes)
-    result = np.zeros(n, dtype=float)
     if n < 2:
-        return result
+        return np.full(n, np.nan)
     atr_core = atr_raw
     atr_for_gap = atr_core[:-1] if len(atr_core) >= 2 else atr_core
+    result = np.full(n, np.nan)
     if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
         gap_high = min(len(opens) - 2, len(atr_for_gap))
         gap_atr_valid = atr_valid[1 : 1 + gap_high]
@@ -36,7 +38,6 @@ def _gap_z_reference(opens, closes, atr_raw, atr_valid, zscore_window):
             gap_atr_valid, atr_for_gap[:gap_high], 1.0
         )
         gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
-        result = np.zeros(n, dtype=float)
         if len(gap_z_core) >= 2:
             result[2:] = gap_z_core[1:]
     return result
@@ -54,10 +55,10 @@ def _overnight_gap_series_reference(opens, closes, eps=EPS):
 def _overnight_gap_z_reference(opens, closes, window):
     n = len(closes)
     if n < 2:
-        return np.zeros(n, dtype=float)
+        return np.full(n, np.nan)
     raw_gaps = _overnight_gap_series_reference(opens, closes)[1:]
     z = _fixed_window_zscore_series(raw_gaps, window)
-    return np.concatenate([[0.0], z])
+    return np.concatenate([[np.nan], z])
 
 
 def _case(n, seed):
