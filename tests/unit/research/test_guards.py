@@ -126,10 +126,13 @@ def test_integrity_rejects_zero_volume_bar_with_close():
         integrity(panel, np.zeros(panel.close.shape))
 
 
-def test_integrity_accepts_unknown_volume_on_former_venue_bars():
+def test_integrity_rejects_a_leading_run_of_unknown_volume():
+    """One rule (todo 584 item 12): the tradeable view serves no NULL volume since migration
+    543 and compute refuses a non-finite volume, so a leading NaN run no longer passes."""
     panel = _panel()
-    panel.volume[:30, 1] = np.nan  # tradeable view: NULL volume on ibkr_venue bars
-    assert integrity(panel, np.zeros(panel.close.shape)).volume_checked
+    panel.volume[:30, 1] = np.nan
+    with pytest.raises(GuardFailure, match="no positive volume"):
+        integrity(panel, np.zeros(panel.close.shape))
 
 
 def test_integrity_rejects_filled_alpha_on_missing_close():
@@ -237,8 +240,7 @@ def test_probe_rows_cover_month_ends_listing_edges_and_half_days():
 
 
 def test_integrity_rejects_unknown_volume_after_known_volume():
-    """Former-venue bars precede a symbol's consolidated ones; a NaN volume in the middle of a
-    series is not that, and still fails."""
+    """A NaN volume in the middle of a series fails, as does a leading run."""
     panel = _panel()
     panel.volume[60, 0] = np.nan
     with pytest.raises(GuardFailure, match="no positive volume"):

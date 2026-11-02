@@ -13,9 +13,11 @@ signals, which have no SignalSource.
 - memory_check: a one-row price shock moves the output no further ahead than the declared
   memory. Declared memory is the contract; this only checks it, because a threshold signal can
   hide memory from a small shock and a recursive filter never decays to exactly zero.
-- integrity: no inf, no alpha where the row's own close is missing, no bar with non-positive
-  volume (research reads market_data_ohlcv_tradeable, so a zero-volume bar means a panel built
-  off the raw table), and per-row coverage reported.
+- integrity: no inf, no alpha where the row's own close is missing, no bar with a close and a
+  non-positive or unknown (NaN) volume (research reads market_data_ohlcv_tradeable, which serves
+  no NULL volume since migration 543, so either means a panel built off the raw table; the same
+  rule as registry.require_finite_volume, which refuses a NaN volume in compute), and per-row
+  coverage reported.
 - causality_probe_array, memory_check_array: the same two probes over a plain array (D-25).
   On the real panel S1 takes minutes per call, so recomputing it inside every probe of every
   member would take hours; the runner probes S1 once on a bounded sub-panel and probes the
@@ -275,14 +277,12 @@ def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
         )
     volume_checked = bool(np.isfinite(panel.volume[close_ok]).any())
     if volume_checked:
-        # NaN volume is unknown, not zero: market_data_ohlcv_tradeable reports NULL volume
-        # on former-venue bars (migration 374, todo 433), whose prices are official but
-        # whose volume is one venue's. Those bars only ever precede a symbol's first
-        # consolidated bar, so unknown volume passes only as a leading run per symbol; a
-        # zero or negative volume, or a NaN after the first finite one, still fails.
-        vol_finite = np.isfinite(panel.volume)
-        seen_finite = np.maximum.accumulate(vol_finite, axis=0)
-        bad = close_ok & ((panel.volume <= 0) | (~vol_finite & seen_finite))
+        # One rule, refuse (todo 584 item 12): a bar with a close and a volume that is not
+        # positive and finite fails. The former-venue NULL volume this once let through as a
+        # leading run (migration 374, todo 433) is gone from the tradeable view since
+        # migration 543, and the compute path refuses a non-finite volume
+        # (registry.require_finite_volume), so a guard that passed it contradicted compute.
+        bad = close_ok & ~(panel.volume > 0)
         if bad.any():
             raise GuardFailure(
                 f"{int(bad.sum())} bars with a close but no positive volume: the panel did not "
