@@ -35,7 +35,7 @@ anything found after the pin moves waits for the following rerun.
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
 | 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
 | 11 | Proven-span start per name (design D4), closes 532: names held only for early-history holes (the 41 from item 10, AAOI, AGL, ACMR, ADPT and the like) enter the rerun from their proven start | 532, item 10 | landed 2026-11-01 (data lane), ledger E19; 189 of 205 failing names return, all 41 |
-| 12 | Research guard contradiction: `research/guards.py` allows a leading NaN-volume run that `kernel_source` now refuses; one rule (refuse), `repro_frozen` bit-identical | item 1 finding 5 | open |
+| 12 | Research guard contradiction: `research/guards.py` allows a leading NaN-volume run that `kernel_source` now refuses; one rule (refuse), `repro_frozen` bit-identical | item 1 finding 5 | landed d003eb028 (2026-11-02 03:41; repro panels carry no volume so bit-identical is structural, and the empty research_run ledger means no book exercised the permissive branch - see the item-12 note) |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
@@ -361,6 +361,43 @@ the columns into four classes:
   is all-NaN on both the flat series and a 2-bar series; zero_is_state outputs are asserted
   finite-or-NaN only. The probe lives at `/tmp/584_item4/probe_no_object.py` (rerun to
   regenerate the list; it needs `HmmConfig.from_values(SMALL_HMM_APR.get)` on the config).
+
+### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
+
+The code half landed before Track A's 4b-1 leg; this note records the design for the record and
+resolves the bit-identical question the batch row asks. Edit sites (all in `d003eb028`):
+
+- `research/guards.py::integrity`, the volume branch: the permissive form was
+  `bad = close_ok & ((volume <= 0) | (~isfinite(volume) & maximum.accumulate(isfinite(volume))))`
+  - a LEADING per-symbol run of NaN volume passed (the former-venue NULL volume of migration
+  374/todo 433), everything else failed. One rule now: `bad = close_ok & ~(panel.volume > 0)` -
+  any bar with a close and a volume that is not positive and finite fails, leading or not.
+  `volume_checked=False` (a panel carrying no volume at all, synthetic) still skips the check.
+- The module docstring states the same rule and its agreement with
+  `registry.require_finite_volume` (`features/contract/registry.py:475`, enforced at compute in
+  `compute_kernels` at registry.py:613 - the item-7/17cfe233b side). The contradiction it closes:
+  S3 could pass a panel that compute refused, so a guard verdict contradicted the kernel path.
+
+Why `repro_frozen` bit-identical was the structural outcome, not the tripwire:
+
+1. Both frozen artifact sets (phase 179 E14 S2/S3, phase 181 TSMOM) rebuild their panels through
+   `daily_panel(sleeve_closes, dates, opens=sleeve_opens)` - opens/closes only, no volume array -
+   so `volume_checked` reads False and the volume branch is unreachable in the repro; the edit
+   cannot move any compared value.
+2. No frozen book ever exercised the permissive branch: `research_run` is empty (migration 544
+   reset it; the owner's clean-data rule of 2026-10-30 blocks new real-data runs), so no
+   DB-built book panel exists on record at all, permissive or otherwise.
+3. Since migration 543 the tradeable view serves no NULL volume, so even pre-edit the permissive
+   branch had no reachable input from a research panel; the new GuardFailure can only fire on a
+   panel not built from `market_data_ohlcv_tradeable`, which is what its message says. The one
+   construction that could flip a historical pass into a refuse is a pre-543 pinned book
+   snapshot replayed through current code - none exists (point 2).
+
+Re-derivation for any future frozen artifact: to know whether it exercised the permissive branch,
+check whether its pinned panel carries volume (`volume_checked`) and, if it does,
+`close_ok & ~(volume > 0)` over the pinned arrays. Bit-identical is the expected outcome whenever
+both are clean; a GuardFailure on rerun is the tripwire, and it means the artifact's panel did
+not come from the tradeable view.
 
 ### Sequencing
 
