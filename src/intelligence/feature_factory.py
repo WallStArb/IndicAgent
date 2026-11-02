@@ -122,6 +122,7 @@ from src.intelligence.features.kernels.price import (
 from src.intelligence.features.kernels.smc import (
     _FVG_OUTPUT_KEYS,
     _POOL_OUTPUT_KEYS,
+    AMD,
     BOS,
     FVG,
     OB,
@@ -144,11 +145,13 @@ from src.intelligence.features.kernels.vp_sr import (
     _NEUTRAL_VP_EXTRA,
     _SWING_STRUCTURE_OUTPUT_KEYS,
     FIB,
+    SESSION_LEVEL,
     SR,
     SWING,
     SWING_MOMENTUM,
     SWING_STRUCTURE,
     TREND,
+    VP,
     _compute_fib_zones,
     _compute_sr_dist_atr,
     _compute_swing_momentum,
@@ -1229,10 +1232,11 @@ _CROSS_TF_KERNEL_OUTPUTS: tuple[str, ...] = (
     "ret_div_1h_1d",
     "ret_div_1m_5m",
 )
-# The stateless structure columns compute_batch reads from kernels: the rolling POC, S/R, swing,
-# trend and fib, and swing momentum columns, with the none-masks of the nullable ones. The
-# cache-backed session VP, session levels and AMD kernels replay their own cache and are not run
-# here (186-25 retires the cache-driven loop). Each group's outputs come from its one spec.
+# The structure columns compute_batch reads from kernels: the stateless rolling POC, S/R,
+# swing, trend, fib and swing momentum columns, and the cache-backed session VP, session levels
+# and AMD kernels, whose computes replay a fresh FeatureCache over the series (D-25: no caller
+# cache state can change a row), with the none-masks of the nullable ones. Each group's outputs
+# come from its one spec.
 _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
     "_poc_price_rolling",
     *SR.outputs,
@@ -1244,6 +1248,9 @@ _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
     *BOS.outputs,
     *SWING_STRUCTURE.outputs,
     *SWING_MOMENTUM.outputs,
+    *SESSION_LEVEL.outputs,
+    *VP.outputs,
+    *AMD.outputs,
 )
 
 
@@ -1253,6 +1260,16 @@ def _kernel_row(k: dict[str, np.ndarray], group: KeyGroup, i: int) -> dict[str, 
     return {
         key: None if key in group.nullable and k[none_mask_name(key)][i] > 0.5 else float(k[key][i])
         for key in group.public_keys
+    }
+
+
+def _kernel_row_none(k: dict[str, np.ndarray], group: KeyGroup, i: int) -> dict[str, Any]:
+    """`_kernel_row` with a NaN on the kernel grid read as None: an output undefined by
+    declaration on this timeframe (`Kernel.not_applicable`) is NaN on the grid and None in the
+    FeatureVector, never a fabricated neutral."""
+    return {
+        key: (None if value is None or math.isnan(value) else value)
+        for key, value in _kernel_row(k, group, i).items()
     }
 
 
@@ -2764,11 +2781,11 @@ class FeatureFactory:
             equity_beta_z, TLT for rate_beta_z) -- a self-regression is degenerate
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts (a CtfSeries
             keyed by HTF bar close; a plain dict raises TypeError) via CtfSeries.asof
-          - VP (poc_dist_atr, va_position, + 12 structural fields) computed from OHLCV via
-            FeatureCache.update_session_vp(), called once per bar including warm-up --
-            the identical mechanism the live path uses (D-05: no I3/tick-data dependency
-            exists; the prior claim that this group was uncomputable in batch was a stale,
-            never-verified assumption, now removed). S/R (sr_support_dist, sr_resist_dist,
+          - VP (poc_dist_atr, va_position, + 12 structural fields), the 16 session-level
+            fields and the 4 AMD fields are registry kernels that replay a fresh
+            FeatureCache over the whole series inside compute_kernels (D-25: no caller-held
+            cache state can change a row; their outputs are declared intraday-only on 1d,
+            design D1, so they are None there). S/R (sr_support_dist, sr_resist_dist,
             + 5 D-19 strength/age/count fields) computed stateless inline via
             the support_resistance kernel over a bounded per-tf lookback window built from
             OHLCV -- no cache/tick-data dependency, same mechanism in live and batch.
@@ -2855,29 +2872,9 @@ class FeatureFactory:
             close_ = float(bar["close"])
             vol_ = float(bar["volume"])
 
-            # Session-VP accumulator (Phase 163 Plan 02): update on EVERY bar,
-            # including warm-up, so FeatureCache._sess_bars (the session-
-            # boundary-reset accumulator) stays current through warmup --
-            # matches the live pipeline's per-bar update_session_vp() call site.
-            cache.update_session_vp(bar_ts, high_, low_, close_, vol_, config)
-
-            # AMD overnight-range accumulator (Phase 164 Plan 04): update on
-            # EVERY bar, including warm-up, matching update_session_vp's
-            # treatment immediately above -- otherwise the overnight
-            # high/low state would cold-start mid-cycle whenever a batch run
-            # starts inside the accumulation window. Same call-site
-            # convention as the live per-bar handler and warm-up replay
-            # block in services/feature_vector_pipeline.py.
-            cache.update_overnight_range(bar_ts, high_, low_, config)
-
-            # Session-levels accumulator (Phase 165 Plan 04): update on EVERY
-            # bar, including warm-up, matching update_session_vp's/
-            # update_overnight_range's treatment immediately above -- firing
-            # through warm-up is what keeps the session/overnight/Asian/weekly
-            # state from cold-starting mid-session. `open_` is read above
-            # (moved up from its former post-warm-up-gate position) so it is
-            # available here.
-            cache.update_session_levels(bar_ts, open_, high_, low_, close_, config)
+            # The session VP, session-levels and AMD accumulators are NOT updated here: those
+            # three groups are registry kernels whose computes replay a fresh FeatureCache over
+            # the whole series (D-25), so no caller-held cache state can change a row.
 
             # Skip warm-up
             if i < warm_up_bars:
@@ -2915,18 +2912,11 @@ class FeatureFactory:
             vol_ratio_val = float(k["vol_ratio"][i])
             cmf_val = float(k["cmf"][i])
 
-            # Session-level VP (Phase 163 Plan 02): tf=='1d' keeps neutral
-            # defaults (a single daily bar has no intraday distribution); else
-            # derive the 14 ATR-normalized/bounded VP fields from FeatureCache's
-            # raw session levels (kept current above via update_session_vp(),
-            # called for every bar including warm-up) + atr_val -- identical
-            # mechanism in live and batch (D-05).
-            if tf == "1d":
-                vp_extra: dict[str, float | None] = dict(_NEUTRAL_VP_EXTRA)
-            else:
-                _poc = float(k["_poc_price_rolling"][i])
-                poc_price_rolling = None if math.isnan(_poc) else _poc
-                vp_extra = _derive_session_vp(cache, close_, atr_val, poc_price_rolling, config)
+            # Session-level VP (Phase 163 Plan 02): the 14 ATR-normalized/bounded VP fields are
+            # a registry kernel that replays a fresh cache over the series (declared
+            # intraday-only on 1d, D1: the grid NaN reads back as None here, never the neutral
+            # 0.0/0.5 defaults the old call-site branch substituted).
+            vp_extra: dict[str, float | None] = _kernel_row_none(k, VP, i)
 
             # S/R, swing, trend, swing momentum and fib: registry kernels over the same causal
             # windows the loop used to slice (valid for tf=='1d' too, D-19).
@@ -2937,11 +2927,10 @@ class FeatureFactory:
             _swing_momentum_fields = _kernel_row(k, SWING_MOMENTUM, i)
             _fib_fields = _kernel_row(k, FIB, i)
 
-            # Session Levels (Phase 165 Plan 05): the last 16 Phase 165
-            # fields, derived from FeatureCache's raw state --
-            # cache.update_session_levels(...) was already called for this
-            # bar in this loop's per-bar preamble above.
-            _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf, config)
+            # Session Levels (Phase 165 Plan 05): the 16 session-level fields, a registry
+            # kernel replaying a fresh cache (the five overnight/Asian distances are declared
+            # intraday-only on 1d and read back None).
+            _session_level_fields = _kernel_row_none(k, SESSION_LEVEL, i)
 
             # Smart money concepts: registry kernels over the same causal windows the loop
             # used to slice, each reading the loop's atr_val.
@@ -2952,9 +2941,10 @@ class FeatureFactory:
             _zone_fields = _kernel_row(k, ZONE, i)
             _bos_fields = _kernel_row(k, BOS, i)
 
-            # AMD reads FeatureCache's overnight state, kept current by the
-            # update_overnight_range() call earlier in this loop (cache-backed, like session VP).
-            _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
+            # AMD reads the overnight range: a registry kernel replaying a fresh cache (all
+            # four outputs declared intraday-only on 1d, so they read back None on a daily
+            # series).
+            _amd_fields = _kernel_row_none(k, AMD, i)
 
             _structural_fields = _merge_structural_fields(
                 vp_extra,
@@ -3017,12 +3007,14 @@ class FeatureFactory:
             equity_beta_z_val = _none_if_nan(k["equity_beta_z"][i])
             rate_beta_z_val = _none_if_nan(k["rate_beta_z"][i])
 
-            # Calendar primitives
-            in_ny_session_val = float(k["in_ny_session"][i])
-            in_london_kz_val = float(k["in_london_kz"][i])
-            in_overlap_val = float(k["in_overlap"][i])
-            power_hour_val = float(k["power_hour"][i])
-            opening_range_val = float(k["opening_range"][i])
+            # Calendar primitives. The five session flags are declared intraday-only on 1d
+            # (D1): the kernel grid carries NaN there, which is None here (never the 0.0 a
+            # plain float() read would hand _guard downstream).
+            in_ny_session_val = _none_if_nan(k["in_ny_session"][i])
+            in_london_kz_val = _none_if_nan(k["in_london_kz"][i])
+            in_overlap_val = _none_if_nan(k["in_overlap"][i])
+            power_hour_val = _none_if_nan(k["power_hour"][i])
+            opening_range_val = _none_if_nan(k["opening_range"][i])
             # Cache-backed: the registered above_wk_vwap kernel replays the same math, but
             # reading it here would change results for a caller passing a pre-warmed cache;
             # 186-25 retires the cache-driven batch loop.
@@ -3034,8 +3026,9 @@ class FeatureFactory:
             quarter_cycle_sin_val = float(k["quarter_cycle_sin"][i])
             quarter_cycle_cos_val = float(k["quarter_cycle_cos"][i])
             tdom_sin_val, tdom_cos_val = float(k["tdom_sin"][i]), float(k["tdom_cos"][i])
-            minute_of_hour_sin_val = float(k["minute_of_hour_sin"][i])
-            minute_of_hour_cos_val = float(k["minute_of_hour_cos"][i])
+            # clock-time encodings: declared intraday-only on 1d (D1), NaN there, None here
+            minute_of_hour_sin_val = _none_if_nan(k["minute_of_hour_sin"][i])
+            minute_of_hour_cos_val = _none_if_nan(k["minute_of_hour_cos"][i])
 
             # CTF and the cross-timeframe divergences: registry kernels over the HTF and LTF
             # externals (batch: aligned by bar close, live: the cache's values).
@@ -3073,13 +3066,15 @@ class FeatureFactory:
             open_ret_val = float(k["open_ret"][i])
             intraday_ret_val = float(k["intraday_ret"][i])
             open_vs_intraday_val = float(k["open_vs_intraday"][i])
-            session_time_pos_val = float(k["session_time_pos"][i])
+            # session-time position is a session concept: intraday-only on 1d (D1), None there
+            session_time_pos_val = _none_if_nan(k["session_time_pos"][i])
 
             # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates come from the
-            # calendar kernels. Volume structure reads the precomputed series (O(n) total,
-            # not per-bar O(n x window)).
-            hour_of_day_sin_val = float(k["hour_of_day_sin"][i])
-            hour_of_day_cos_val = float(k["hour_of_day_cos"][i])
+            # calendar kernels; the two hour-of-day encodings are intraday-only on 1d (D1).
+            # Volume structure reads the precomputed series (O(n) total, not per-bar O(n x
+            # window)).
+            hour_of_day_sin_val = _none_if_nan(k["hour_of_day_sin"][i])
+            hour_of_day_cos_val = _none_if_nan(k["hour_of_day_cos"][i])
             week_of_month_sin_val = float(k["week_of_month_sin"][i])
             week_of_month_cos_val = float(k["week_of_month_cos"][i])
             day_of_month_sin_val = float(k["day_of_month_sin"][i])

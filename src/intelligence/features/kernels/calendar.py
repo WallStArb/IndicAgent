@@ -11,7 +11,7 @@ import numpy as np
 
 from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from src.intelligence.features.kernels._primitives import unique_datetimes
+from src.intelligence.features.kernels._primitives import undefined_on, unique_datetimes
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -414,6 +414,8 @@ KERNELS = (
         inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_session,
+        # a daily bar is the whole session: it has no inside/outside, killzone or range
+        not_applicable=undefined_on("1d", _SESSION_OUTPUTS),
     ),
     Kernel(
         name="calendar_cycles",
@@ -421,6 +423,16 @@ KERNELS = (
         inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_cycles,
+        # the clock-time encodings are the bar's time of day; a daily bar has none
+        not_applicable=undefined_on(
+            "1d",
+            (
+                "minute_of_hour_sin",
+                "minute_of_hour_cos",
+                "hour_of_day_sin",
+                "hour_of_day_cos",
+            ),
+        ),
     ),
     Kernel(
         name="calendar_events",

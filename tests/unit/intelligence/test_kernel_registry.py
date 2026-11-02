@@ -296,3 +296,117 @@ def test_feature_columns_plus_unowned_equal_schema():
     assert (owned & numeric) | set(UNOWNED_COLUMNS) == numeric
     assert not owned & set(UNOWNED_COLUMNS)
     assert all(isinstance(reason, str) and reason.strip() for reason in UNOWNED_COLUMNS.values())
+
+
+# ---------------------------------------------------------------------------
+# Declared applicability and zero state (design D1, todo 584 item 2)
+# ---------------------------------------------------------------------------
+
+
+def _daily_registry():
+    """A kernel whose outputs are all not applicable on 1d, one mixed kernel, and one plain
+    kernel; the clock kernel's minute output is also declared off 1h (the mapping shape)."""
+
+    def clock(x, c):
+        return {"hour": np.ones(len(x["close"])), "minute": np.ones(len(x["close"]))}
+
+    def mixed(x, c):
+        return {"gap": np.ones(len(x["close"])), "overnight": np.ones(len(x["close"]))}
+
+    return KernelRegistry.from_kernels(
+        [
+            Kernel(
+                "clock",
+                ("hour", "minute"),
+                ("close",),
+                lambda c: 0,
+                clock,
+                not_applicable={
+                    "hour": frozenset({"1d"}),
+                    "minute": frozenset({"1h", "1d"}),
+                },
+            ),
+            Kernel(
+                "mixed",
+                ("gap", "overnight"),
+                ("close",),
+                lambda c: 0,
+                mixed,
+                not_applicable={"overnight": frozenset({"1d"})},
+            ),
+            _k("plain", memory=0),
+        ]
+    )
+
+
+def test_applicable_outputs_drops_declared_outputs_per_timeframe():
+    registry = _daily_registry()
+    assert registry.applicable_outputs("1d") == {"gap", "plain"}
+    assert registry.applicable_outputs("1h") == {"hour", "gap", "overnight", "plain"}
+    assert registry.applicable_outputs("5m") == {"hour", "minute", "gap", "overnight", "plain"}
+
+
+def test_a_declaration_outside_the_kernel_outputs_raises():
+    with pytest.raises(KernelRegistryError, match="not_applicable"):
+        KernelRegistry.from_kernels([_k("a", not_applicable={"nope": frozenset({"1d"})})])
+    with pytest.raises(KernelRegistryError, match="zero_is_state"):
+        KernelRegistry.from_kernels([_k("a", zero_is_state=frozenset({"nope"}))])
+
+
+def _inputs(tf, n=4):
+    return {
+        "close": np.arange(1.0, n + 1),
+        "tf": np.array([tf] * n),
+    }
+
+
+def test_compute_kernels_writes_declared_outputs_nan_in_one_place():
+    registry = _daily_registry()
+    daily = compute_kernels(registry, _inputs("1d"), CFG)
+    assert np.isnan(daily["hour"]).all() and np.isnan(daily["overnight"]).all()
+    assert (daily["gap"] == 1.0).all()  # a mixed kernel's other output is untouched
+    hourly = compute_kernels(registry, _inputs("1h"), CFG)
+    assert np.isnan(hourly["minute"]).all() and (hourly["hour"] == 1.0).all()
+    intraday = compute_kernels(registry, _inputs("5m"), CFG)
+    assert (intraday["hour"] == 1.0).all() and (intraday["overnight"] == 1.0).all()
+
+
+def test_a_kernel_with_declarations_needs_the_tf_input():
+    registry = _daily_registry()
+    inputs = _inputs("1d")
+    del inputs["tf"]
+    with pytest.raises(KernelRegistryError, match="tf"):
+        compute_kernels(registry, inputs, CFG)
+
+
+def test_mixed_tf_inputs_refuse_rather_than_silently_unmask():
+    registry = _daily_registry()
+    inputs = _inputs("1d")
+    inputs["tf"] = np.array(["1d", "5m", "5m", "5m"], dtype=object)
+    with pytest.raises(KernelRegistryError, match="one series at a time"):
+        compute_kernels(registry, inputs, CFG)
+
+
+def test_a_wholly_not_applicable_kernel_is_not_run():
+    calls = []
+
+    def clock(x, c):
+        calls.append(1)
+        return {"hour": np.ones(len(x["close"]))}
+
+    registry = KernelRegistry.from_kernels(
+        [
+            Kernel(
+                "clock",
+                ("hour",),
+                ("close",),
+                lambda c: 0,
+                clock,
+                not_applicable={"hour": frozenset({"1d"})},
+            )
+        ]
+    )
+    compute_kernels(registry, _inputs("1d"), CFG)
+    assert calls == []
+    compute_kernels(registry, _inputs("5m"), CFG)
+    assert calls == [1]

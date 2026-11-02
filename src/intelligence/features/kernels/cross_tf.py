@@ -28,7 +28,11 @@ from src.intelligence.features.contract.registry import (
     require_finite_volume,
 )
 from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
-from src.intelligence.features.kernels._primitives import constant_tf, wilder_rsi_series
+from src.intelligence.features.kernels._primitives import (
+    constant_tf,
+    undefined_on,
+    wilder_rsi_series,
+)
 from src.intelligence.features.kernels.macro import bar_ts_ns
 
 if TYPE_CHECKING:
@@ -434,5 +438,7 @@ KERNELS = (
         inputs=("ret_lag_1", "tf", "ext_htf_last_log_ret", "ext_ltf_last_log_ret"),
         memory=lambda config: 0,
         compute=_compute_cross_tf_divergence,
+        # each divergence is pinned to its intraday timeframe; none is defined on a daily series
+        not_applicable=undefined_on("1d", ("ret_div_5m_1h", "ret_div_1h_1d", "ret_div_1m_5m")),
     ),
 )

@@ -1334,11 +1334,11 @@ class FeatureVector:
     flight_quality: float | None
     yield_slope_z: float | None
     # Calendar (11: 9 original + 2 new)
-    in_ny_session: float
-    in_london_kz: float
-    in_overlap: float
-    power_hour: float
-    opening_range: float
+    in_ny_session: float | None
+    in_london_kz: float | None
+    in_overlap: float | None
+    power_hour: float | None
+    opening_range: float | None
     above_wk_vwap: float
     dow_sin: float
     dow_cos: float
@@ -1355,8 +1355,12 @@ class FeatureVector:
     quarter_cycle_cos: float  # cos(2*pi*quarter_position); reuses _quarter_position()
     tdom_sin: float  # sin(2*pi*trading_day_of_month/weekdays_in_month)
     tdom_cos: float  # cos(2*pi*trading_day_of_month/weekdays_in_month)
-    minute_of_hour_sin: float  # sin(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
-    minute_of_hour_cos: float  # cos(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
+    minute_of_hour_sin: (
+        float | None
+    )  # sin(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
+    minute_of_hour_cos: (
+        float | None
+    )  # cos(2*pi*bar_ts.minute/60); constant at 1h/1d by construction
     # Velocity Primitives (4, Phase 151 Plan 01 Task 2, todo 123). First-
     # difference-then-re-z-scored construction of an already-computed
     # z-score series (identical shape to vol_velocity_z, reuses
@@ -1545,10 +1549,10 @@ class FeatureVector:
     open_ret: float  # log(O_t / prev_C), overnight component
     intraday_ret: float  # log(C_t / O_t), intraday component
     open_vs_intraday: float  # open_ret - intraday_ret
-    session_time_pos: float  # continuous [0, 1] position within the NY session
+    session_time_pos: float | None  # continuous [0, 1] position within the NY session
     # Renaissance Primitives — Temporal Coordinates (10, Phase 142.5 Plan 02)
-    hour_of_day_sin: float  # sin(2*pi*(hour+minute/60)/24), bounded [-1, 1]
-    hour_of_day_cos: float  # cos(2*pi*(hour+minute/60)/24), bounded [-1, 1]
+    hour_of_day_sin: float | None  # sin(2*pi*(hour+minute/60)/24), bounded [-1, 1]
+    hour_of_day_cos: float | None  # cos(2*pi*(hour+minute/60)/24), bounded [-1, 1]
     week_of_month_sin: float  # sin(2*pi*week/5), week=(day-1)//7+1, bounded [-1, 1]
     week_of_month_cos: float  # cos(2*pi*week/5), week=(day-1)//7+1, bounded [-1, 1]
     day_of_month_sin: float  # sin(2*pi*day/31), bounded [-1, 1]

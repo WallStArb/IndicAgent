@@ -103,6 +103,15 @@ class Kernel:
     # masked (`_guard_volume`, todo 560): a window across a basis change carries a level shift.
     # No kernel sees a non-finite volume: `compute_kernels` raises on one (todo 564).
     volume_basis_safe: bool = False
+    # Outputs undefined by construction on whole timeframes (a session flag on 1d, a
+    # minute-of-hour encoding on 1h): `compute_kernels` writes them NaN there, in one place,
+    # and `applicable_outputs` leaves them out (design D1 rule 3, todo 584). A kernel with a
+    # declaration is scheduled only when the caller supplies the `tf` external input, the same
+    # refusal a volume kernel gets without `volume_basis`.
+    not_applicable: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # Outputs where 0.0 is the measured state (an event flag or a count over a fully observed
+    # window): the pilot gate's fill audit skips them (design D1 rule 4, todo 584).
+    zero_is_state: frozenset[str] = frozenset()
 
 
 class Alignment(enum.Enum):
@@ -217,6 +226,13 @@ class KernelRegistry:
                 f"external input {name!r} equals the output of {_where(by_output[name])}"
             )
         for kernel in kernels:
+            for field_name in ("not_applicable", "zero_is_state"):
+                stray = set(getattr(kernel, field_name)) - set(kernel.outputs)
+                if stray:
+                    raise KernelRegistryError(
+                        f"kernel {_where(kernel)} declares {field_name} {sorted(stray)}, which "
+                        "are not among its outputs"
+                    )
             if kernel.path_dependent and not kernel.path_dependent_reason.strip():
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} is path_dependent without a path_dependent_reason"
@@ -335,6 +351,16 @@ class KernelRegistry:
     def feature_columns(self) -> tuple[str, ...]:
         """Outputs that are feature columns; a leading underscore marks an intermediate."""
         return tuple(o for o in self.outputs() if not o.startswith("_"))
+
+    def applicable_outputs(self, tf: str) -> frozenset[str]:
+        """Feature columns meaningful on `tf`: those not declared not_applicable on it."""
+        columns = frozenset(self.feature_columns())
+        return columns - {
+            output
+            for kernel in self.kernels
+            for output, tfs in kernel.not_applicable.items()
+            if tf in tfs
+        }
 
 
 def discover_kernels(package: str = _DEFAULT_PACKAGE) -> KernelRegistry:
@@ -564,6 +590,20 @@ def compute_kernels(
             f"kernels {sorted(k.name for k in guarded)} read volume and need the bar field "
             "'volume_basis', which the caller did not supply"
         )
+    declared = [k for k in order if k.not_applicable]
+    tf_column = inputs.get("tf")
+    series_tf: str | None = None
+    if declared:
+        if tf_column is None or len(tf_column) == 0:
+            raise KernelRegistryError(
+                f"kernels {sorted(k.name for k in declared)} declare not_applicable outputs "
+                "and need the 'tf' external input, which the caller did not supply"
+            )
+        series_tf = str(tf_column[0])
+        if any(value != series_tf for value in tf_column):
+            raise KernelRegistryError(
+                "the tf input changes across rows; a kernel runs one series at a time"
+            )
     n = next((len(inputs[f]) for f in BAR_FIELDS if f in inputs), None)
     if n is None:
         raise KernelRegistryError("compute_kernels needs at least one bar field in inputs")
@@ -578,8 +618,15 @@ def compute_kernels(
     result: dict[str, np.ndarray] = {}
     dirty: dict[str, np.ndarray] = {}  # output -> rows the volume guard masked
     for kernel in order:
+        undefined = (
+            {name for name, tfs in kernel.not_applicable.items() if series_tf in tfs}
+            if series_tf is not None
+            else frozenset()
+        )
         cut = {name: values[name] for name in kernel.inputs}
-        if "volume" in kernel.inputs and not kernel.volume_basis_safe:
+        if undefined and set(kernel.outputs) <= undefined:
+            out, masked = {name: np.full(n, np.nan) for name in kernel.outputs}, None
+        elif "volume" in kernel.inputs and not kernel.volume_basis_safe:
             out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
         elif any(name in dirty for name in kernel.inputs):
             out, masked = _guard_downstream(kernel, cut, dirty, config)
@@ -590,7 +637,8 @@ def compute_kernels(
         for name in kernel.outputs:
             if name not in out:
                 raise KernelRegistryError(f"kernel {_where(kernel)} did not return output {name!r}")
-            arr = np.asarray(out[name])
+            # the one place a declared-not-applicable output becomes NaN on this timeframe
+            arr = np.full(n, np.nan) if name in undefined else np.asarray(out[name])
             if arr.shape[0] != n:
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} output {name!r} has {arr.shape[0]} rows for {n} "

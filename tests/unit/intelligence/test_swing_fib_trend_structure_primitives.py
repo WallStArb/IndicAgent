@@ -1173,10 +1173,15 @@ def test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded(cfg):
 # ---------------------------------------------------------------------------
 
 
+def _present(value) -> bool:
+    """A stored value: not None and not NaN (an undefined value is missing either way)."""
+    return value is not None and not (isinstance(value, float) and math.isnan(value))
+
+
 def test_session_levels_daily_suppression(session_bars, session_batch_5m, cfg):
-    """The five intraday-only fields must be None at tf=='1d' and non-None at
-    tf=='5m' on the same bars; opening_gap_pct and the weekly five must be
-    non-None at both."""
+    """The five outputs the session_levels kernel declares not applicable on 1d are missing at
+    tf=='1d' (`compute_kernels` writes them NaN) and present at tf=='5m' on the same bars;
+    opening_gap_pct and the weekly five are present at both."""
     results_5m = session_batch_5m
     cache_1d = FeatureCache()
     results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", cache_1d, cfg)
@@ -1188,10 +1193,10 @@ def test_session_levels_daily_suppression(session_bars, session_batch_5m, cfg):
         "asian_session_high_dist_atr",
         "asian_session_low_dist_atr",
     ):
-        n_5m = sum(1 for _, fv in results_5m if getattr(fv, field) is not None)
-        n_1d = sum(1 for _, fv in results_1d if getattr(fv, field) is not None)
+        n_5m = sum(1 for _, fv in results_5m if _present(getattr(fv, field)))
+        n_1d = sum(1 for _, fv in results_1d if _present(getattr(fv, field)))
         assert n_5m > 0, f"{field} never populated at tf='5m' -- fixture too short"
-        assert n_1d == 0, f"{field} must be None at tf=='1d', found {n_1d} non-None value(s)"
+        assert n_1d == 0, f"{field} must be missing at tf=='1d', found {n_1d} value(s)"
 
     for field in (
         "opening_gap_pct",
@@ -1201,8 +1206,8 @@ def test_session_levels_daily_suppression(session_bars, session_batch_5m, cfg):
         "weekly_s1_dist_atr",
         "weekly_s2_dist_atr",
     ):
-        n_5m = sum(1 for _, fv in results_5m if getattr(fv, field) is not None)
-        n_1d = sum(1 for _, fv in results_1d if getattr(fv, field) is not None)
+        n_5m = sum(1 for _, fv in results_5m if _present(getattr(fv, field)))
+        n_1d = sum(1 for _, fv in results_1d if _present(getattr(fv, field)))
         assert n_5m > 0 and n_1d > 0, f"{field} must be meaningful on both 5m and 1d"
 
 
@@ -1343,3 +1348,48 @@ def test_phase165_field_set_matches_registry():
         f"Missing from registry: {set(_PHASE_165_FIELDS) - registry_names}; "
         f"extra in registry: {registry_names - set(_PHASE_165_FIELDS)}"
     )
+
+
+def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, session_batch_5m, cfg):
+    """Every feature column the registry declares not applicable on 1d (design D1) is missing
+    in compute_batch's 1d output on the same bars -- NaN on the kernel grid reaches the
+    FeatureVector as None, never a neutral 0.0/0.5 (the old VP call-site branch) or a _guard
+    fallback (the old plain-float calendar reads)."""
+    from src.intelligence.features.contract.registry import default_registry
+
+    declared = default_registry().applicable_outputs("1d")
+    missing = {
+        name
+        for kernel in default_registry().kernels
+        for name, tfs in kernel.not_applicable.items()
+        if "1d" in tfs
+    } & set(default_registry().feature_columns())
+    assert missing, "the declaration set must not be empty"
+    assert not (missing & declared)
+
+    results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", FeatureCache(), cfg)
+    leaked = [
+        f"{name}: {_present(getattr(fv, name))}"
+        for _, fv in results_1d
+        for name in sorted(missing)
+        if _present(getattr(fv, name))
+    ]
+    assert not leaked, f"declared-1d outputs with values in batch: {leaked[:5]}"
+
+    # The same columns carry values at 5m where the fixture supplies the inputs (session flags,
+    # clock encodings, VP and AMD; the ret_div divergences need CTF externals the fixture
+    # does not pass, so they stay missing at 5m too and are not asserted here).
+    populated_at_5m = (
+        "in_ny_session",
+        "in_london_kz",
+        "session_time_pos",
+        "hour_of_day_sin",
+        "minute_of_hour_sin",
+        "poc_dist_atr",
+        "va_position",
+        "amd_phase",
+    )
+    for name in populated_at_5m:
+        assert any(
+            _present(getattr(fv, name)) for _, fv in session_batch_5m
+        ), f"{name} never populated at tf='5m' -- fixture too short"

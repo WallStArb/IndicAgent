@@ -12,6 +12,12 @@ up to the window end; 1m bars for the 5m ret_div feature span the 5m window; 1d 
 four symbols and SHY, TIP, HYG, LQD feed the cross-asset and beta series.
 
 Usage: python scripts/infrastructure/features_capture_kernel_parity_golden.py [--dry-run]
+       python scripts/infrastructure/features_capture_kernel_parity_golden.py --from-stored \
+           --reason "why the golden changes"
+
+`--from-stored` recomputes every case from the stored `real_inputs.npz` and the stored synthetic
+inputs (no fetch, no database), rewrites the digests and samples, and records the reason and the
+changed columns per case in the manifest, pushing the previous record into its history.
 """
 
 from __future__ import annotations
@@ -161,12 +167,98 @@ def _clear_caches() -> None:
     ref._load_npz.cache_clear()
 
 
+def _freeze(
+    cases: list[dict], out_dir: Path
+) -> tuple[dict[str, dict], dict[str, ref.ReferenceOutput], list[str]]:
+    """Each case computed twice: its digests, its output and the cases whose two runs differ."""
+    digests: dict[str, dict] = {}
+    outputs: dict[str, ref.ReferenceOutput] = {}
+    unstable: list[str] = []
+    for case in cases:
+        cid = ref.case_id(case)
+        first = ref.compute_reference(case, out_dir)
+        second = ref.compute_reference(case, out_dir)
+        d1, d2 = ref.digest_output(first), ref.digest_output(second)
+        if d1 != d2:
+            unstable.append(cid)
+            cols = [c for c in d1["columns"] if d1["columns"][c] != d2["columns"].get(c)]
+            print(f"NON-DETERMINISTIC {cid}: {cols}", file=sys.stderr)
+        digests[cid] = d1
+        outputs[cid] = first
+        print(f"{cid}: rows={d1['rows']}")
+    return digests, outputs, unstable
+
+
+def _write_goldens(
+    out_dir: Path,
+    cases: list[dict],
+    numeric: list[str],
+    digests: dict[str, dict],
+    outputs: dict[str, ref.ReferenceOutput],
+    synthetic: dict[str, np.ndarray],
+) -> None:
+    """The synthetic golden, the real sample rows and the real digests."""
+    synth_cid = ref.case_id(cases[0])
+    payload = {f"in/{k}": v for k, v in synthetic.items()}
+    payload["out/matrix"] = _matrix(outputs[synth_cid], numeric)
+    payload["out/bar_ts"] = outputs[synth_cid].bar_ts
+    np.savez_compressed(out_dir / "synthetic_golden.npz", **payload)
+    sample: dict[str, np.ndarray] = {}
+    for cid, out in outputs.items():
+        if cid == synth_cid:
+            continue
+        rows = np.unique(np.linspace(0, len(out.bar_ts) - 1, SAMPLE_ROWS).astype(np.int64))
+        sample[f"{cid}/rows"] = rows
+        sample[f"{cid}/matrix"] = _matrix(out, numeric)[rows]
+    np.savez_compressed(out_dir / "real_golden_sample.npz", **sample)
+    (out_dir / "real_golden.json").write_text(json.dumps(digests, indent=1, sort_keys=True))
+
+
+def regenerate_from_stored(out_dir: Path, reason: str) -> int:
+    """Recompute every case from the stored inputs and record what changed in the manifest."""
+    manifest_path = out_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    cases = manifest["sample"]["cases"]
+    old = json.loads((out_dir / "real_golden.json").read_text())
+    with np.load(out_dir / "synthetic_golden.npz") as stored:
+        synthetic = {k[3:]: stored[k] for k in stored.files if k.startswith("in/")}
+    _clear_caches()
+    digests, outputs, unstable = _freeze(cases, out_dir)
+    if unstable:
+        print(f"refusing to freeze: {unstable}", file=sys.stderr)
+        return 1
+    changed = {
+        cid: sorted(c for c, d in digest["columns"].items() if d != old[cid]["columns"].get(c))
+        for cid, digest in digests.items()
+    }
+    print({cid: len(cols) for cid, cols in changed.items() if cols})
+    _write_goldens(out_dir, cases, manifest["numeric_columns"], digests, outputs, synthetic)
+    previous = {
+        k: manifest[k]
+        for k in ("regenerated_from", "regeneration_reason", "changed_columns", "capture_commit")
+        if k in manifest
+    }
+    manifest.setdefault("regeneration_history", []).append(previous)
+    manifest.update(
+        regenerated_from=git_head(), regeneration_reason=reason, changed_columns=changed
+    )
+    manifest["fixture_bytes"] = sum(p.stat().st_size for p in out_dir.iterdir() if p.is_file())
+    manifest_path.write_text(json.dumps(manifest, indent=1))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="tests/fixtures/kernel_parity")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--from-stored", action="store_true", help="regenerate, no fetch")
+    parser.add_argument("--reason", help="why the golden changes (required with --from-stored)")
     args = parser.parse_args()
     out_dir = (REPO_ROOT / args.out).resolve()
+    if args.from_stored:
+        if not args.reason:
+            parser.error("--from-stored needs --reason")
+        return regenerate_from_stored(out_dir, args.reason)
 
     with psycopg.connect(Settings().database_url) as conn:
         conn.autocommit = True
@@ -213,21 +305,7 @@ def main() -> int:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
     _clear_caches()
 
-    digests: dict[str, dict] = {}
-    outputs: dict[str, ref.ReferenceOutput] = {}
-    unstable: list[str] = []
-    for case in cases:
-        cid = ref.case_id(case)
-        first = ref.compute_reference(case, out_dir)
-        second = ref.compute_reference(case, out_dir)
-        d1, d2 = ref.digest_output(first), ref.digest_output(second)
-        if d1 != d2:
-            unstable.append(cid)
-            cols = [c for c in d1["columns"] if d1["columns"][c] != d2["columns"].get(c)]
-            print(f"NON-DETERMINISTIC {cid}: {cols}", file=sys.stderr)
-        digests[cid] = d1
-        outputs[cid] = first
-        print(f"{cid}: rows={d1['rows']}")
+    digests, outputs, unstable = _freeze(cases, out_dir)
     if unstable:
         print(f"refusing to freeze: {unstable}", file=sys.stderr)
         return 1
@@ -236,23 +314,7 @@ def main() -> int:
     manifest["numeric_columns"] = numeric
     manifest["text_columns"] = sorted(ref.TEXT_COLUMNS)
     manifest["row_counts"] = {cid: d["rows"] for cid, d in digests.items()}
-
-    synth_out = outputs[ref.case_id(cases[0])]
-    payload = {f"in/{k}": v for k, v in synthetic.items()}
-    payload["out/matrix"] = _matrix(synth_out, numeric)
-    payload["out/bar_ts"] = synth_out.bar_ts
-    np.savez_compressed(out_dir / "synthetic_golden.npz", **payload)
-
-    sample: dict[str, np.ndarray] = {}
-    for cid, out in outputs.items():
-        if cid == ref.case_id(cases[0]):
-            continue
-        n = len(out.bar_ts)
-        rows = np.unique(np.linspace(0, n - 1, SAMPLE_ROWS).astype(np.int64))
-        sample[f"{cid}/rows"] = rows
-        sample[f"{cid}/matrix"] = _matrix(out, numeric)[rows]
-    np.savez_compressed(out_dir / "real_golden_sample.npz", **sample)
-    (out_dir / "real_golden.json").write_text(json.dumps(digests, indent=1, sort_keys=True))
+    _write_goldens(out_dir, cases, numeric, digests, outputs, synthetic)
 
     manifest["fixture_bytes"] = sum(p.stat().st_size for p in out_dir.iterdir() if p.is_file())
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))

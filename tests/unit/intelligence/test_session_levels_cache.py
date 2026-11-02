@@ -373,10 +373,14 @@ def test_session_levels_wired_at_all_three_call_sites() -> None:
         for line in Path("services/feature_vector_pipeline.py").read_text().splitlines()
         if not line.lstrip().startswith("#")
     )
-    assert ff.count("update_session_levels(") == 1, (
-        "T-164-07: update_session_levels() must be wired into compute_batch()'s "
-        "per-bar loop exactly once (compute_batch())"
+    assert "update_session_levels(" not in ff, (
+        "compute_batch() must not hold session-levels accumulator state itself: the "
+        "session_levels kernel replays a fresh cache over the series (D-25, todo 584 D1), "
+        "so no caller-held cache can change a row"
     )
+    assert (
+        "_kernel_row_none(k, SESSION_LEVEL, i)" in ff
+    ), "compute_batch() reads the session_levels kernel's columns row by row"
     assert fp.count("update_session_levels(") == 2, (
         "T-164-07: update_session_levels() must be wired into exactly two sites "
         "in feature_vector_pipeline.py -- the live per-bar handler "

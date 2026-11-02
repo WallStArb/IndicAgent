@@ -22,6 +22,7 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,
     _is_valid_atr,
+    undefined_on,
     window_start,
 )
 from src.intelligence.utils import clamp, find_peaks, find_troughs
@@ -1295,6 +1296,9 @@ KERNELS = (
         inputs=("ts_dt", "high", "low"),
         memory=lambda config: 0,
         compute=_compute_amd_columns,
+        # the cycle is anchored on the overnight range, which a whole-session bar does not have
+        # (manip_strength reads the same manipulation state, so it cannot fire either)
+        not_applicable=undefined_on("1d", AMD.outputs),
         path_dependent=True,
         path_dependent_reason=(
             "the overnight-range accumulator state and its cycle resets depend on where the "

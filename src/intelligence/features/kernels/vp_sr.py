@@ -29,6 +29,7 @@ from src.intelligence.features.kernels._primitives import (
     KeyGroup,
     _is_valid_atr,
     constant_tf,
+    undefined_on,
     window_start,
 )
 from src.intelligence.utils import clamp, find_peaks, find_troughs
@@ -42,12 +43,10 @@ if TYPE_CHECKING:
 # Session Volume Profile — ATR-normalized output derivation (Phase 163 Plan 02)
 # ---------------------------------------------------------------------------
 
-# tf == '1d' neutral defaults for the 14 VP FeatureVector fields: a single
-# daily bar has no intraday distribution, so session-anchored VP is not
-# meaningful. poc_dist_atr/va_position keep the pre-existing 0.0/0.5 neutral
-# convention (matches the original 2-field tf=='1d' branch); the 12 new
-# fields have no legacy default to preserve, so they fall back to None except
-# the two already-0/1 flags (price_in_value_area, in_lvn).
+# The 14 VP FeatureVector fields and the value each takes where the profile cannot be derived
+# (poc_dist_atr and va_position keep their pre-existing 0.0/0.5 neutral convention, the two flags
+# are 0.0, the rest None). The kernel's key set comes from here. On a daily bar every one is
+# undefined by declaration (`not_applicable` on the session_vp kernel): `compute_kernels` writes NaN.
 _NEUTRAL_VP_EXTRA: dict[str, float | None] = {
     "poc_dist_atr": 0.0,
     "va_position": 0.5,
@@ -1022,23 +1021,6 @@ _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
     "gap_filled": None,
 }
 
-# The five intraday-only fields, suppressed to None on tf=='1d'. A daily bar
-# is a whole session -- it has no observable non-RTH sub-block and no Asian
-# sub-block. On tf=='1d', update_session_levels() would classify the single
-# daily bar itself as the overnight block, making overnight_high_dist_atr a
-# near-duplicate of prior_session_high_dist_atr rather than an independent
-# measurement -- same class of reasoning as _NEUTRAL_VP_EXTRA's tf=='1d'
-# branch. The other eleven fields (prior-session trio, opening gap, weekly
-# five, nearest level, gap_filled) ARE meaningful on daily bars and are not
-# suppressed here.
-_SESSION_LEVELS_DAILY_SUPPRESSED: tuple[str, ...] = (
-    "overnight_high_dist_atr",
-    "overnight_low_dist_atr",
-    "overnight_range_pct",
-    "asian_session_high_dist_atr",
-    "asian_session_low_dist_atr",
-)
-
 
 def _derive_session_levels(
     cache: FeatureCache,
@@ -1174,10 +1156,6 @@ def _derive_session_levels(
         "gap_filled": gap_filled,
     }
 
-    if tf == "1d":
-        for name in _SESSION_LEVELS_DAILY_SUPPRESSED:
-            result[name] = None
-
     return result
 
 
@@ -1221,8 +1199,6 @@ def _sr_max_lookback(config) -> int:
 def _compute_rolling_poc(x, config):
     n = len(x["close"])
     out = np.full(n, np.nan)
-    if constant_tf(x["tf"]) == "1d":
-        return {_POC: out}
     highs, lows, closes, volumes = x["high"], x["low"], x["close"], x["volume"]
     for i in range(1, n):
         start = window_start(i, config.session_vp_rolling_window)
@@ -1264,7 +1240,6 @@ def _replay_cache(x, config, update):
 
 def _compute_session_vp_columns(x, config):
     n = len(x["close"])
-    tf = constant_tf(x["tf"])
     closes, atr, poc = x["close"], x[ATR_RAW_PADDED], x[_POC]
     rows: dict[int, dict[str, float | None]] = {}
 
@@ -1272,11 +1247,8 @@ def _compute_session_vp_columns(x, config):
         cache.update_session_vp(bar_ts, high_, low_, close_, vol_, cfg)
 
     for i, cache, _bar_ts in _replay_cache(x, config, update):
-        if tf == "1d":
-            rows[i] = dict(_NEUTRAL_VP_EXTRA)
-        else:
-            rolling = None if math.isnan(poc[i]) else float(poc[i])
-            rows[i] = _derive_session_vp(cache, float(closes[i]), float(atr[i]), rolling, config)
+        rolling = None if math.isnan(poc[i]) else float(poc[i])
+        rows[i] = _derive_session_vp(cache, float(closes[i]), float(atr[i]), rolling, config)
     return VP.columns(n, rows.__getitem__)
 
 
@@ -1363,6 +1335,8 @@ KERNELS = (
         inputs=("high", "low", "close", "volume", "tf"),
         memory=lambda config: config.session_vp_rolling_window - 1,
         compute=_compute_rolling_poc,
+        # session-anchored: a daily bar has no session profile
+        not_applicable=undefined_on("1d", (_POC,)),
     ),
     Kernel(
         name="session_vp",
@@ -1370,6 +1344,8 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV[1:], _POC, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_vp_columns,
+        # a single daily bar has no intraday distribution
+        not_applicable=undefined_on("1d", VP.outputs),
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
     ),
@@ -1400,6 +1376,17 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
+        # a daily bar is the whole session: it has no non-RTH sub-block and no Asian sub-block
+        not_applicable=undefined_on(
+            "1d",
+            (
+                "overnight_high_dist_atr",
+                "overnight_low_dist_atr",
+                "overnight_range_pct",
+                "asian_session_high_dist_atr",
+                "asian_session_low_dist_atr",
+            ),
+        ),
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,

@@ -25,7 +25,7 @@ anything found after the pin moves waits for the following rerun.
 | # | Item | Source | State |
 |---|---|---|---|
 | 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | landed 20c1dcddc (shared helper: the cache and macro/beta z-scores are NaN in warmup too) |
-| 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | in progress (indicagent-dc), WIP saved not landed: see `### Item 2 resume` below |
+| 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | landed 2026-11-02 (Track A, indicagent-dc WIP resumed): `Kernel.not_applicable` mapping (amended rule 3; `minute_of_hour_*` on 1h is a data entry away for item 6), the batch path routes the cache-backed VP/session-levels/AMD kernels through `compute_kernels`, golden regenerated in its own commit |
 | 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe from the preregistered K experiment; `hmm_vol_prob_elevated` retires | 583 | measured (dc); K experiment running |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
@@ -201,46 +201,35 @@ table.
 `hmm_vol_prob_elevated` retires: with the volatility family at K = 2 (todo 478) the label map
 never assigns the middle label, so the column is 0 by construction.
 
-### Item 2 resume (indicagent-dc, 2026-11-02; saved at the weekly token limit)
+### Item 2 landed (2026-11-02, Track A; dc's WIP resumed)
 
-State: the diff is saved as `git stash@{0}` ("584-item2 WIP (indicagent-dc)", path-scoped) and as
-`data/scratch/584-item2/item2-wip.patch` (disk only); main is clean and green. Restore with
-`git stash pop` (or `git apply` the patch) in a clean tree.
+`Kernel.not_applicable: Mapping[str, frozenset[str]]` (the amended rule 3 shape; the WIP's
+`intraday_only` set was pre-amendment), validated as a subset of the kernel outputs;
+`applicable_outputs(tf)` subtracts per timeframe. `compute_kernels` writes a declared output NaN
+on its declared timeframes in one place, skips a kernel whose outputs are all declared there, and
+refuses to schedule a declared kernel without the `tf` external (the `volume_basis` precedent; a
+mixed-tf column refuses too). Declarations: `calendar_session` (six), `calendar_cycles` (hour and
+minute encodings, 1d; the 1h `minute_of_hour_*` entry is item 6's to add), `rolling_poc`,
+`session_vp`, `session_levels` (the five overnight/Asian fields), `amd_cycle` (four),
+`cross_tf_divergence` (three).
 
-What the WIP holds: `Kernel.intraday_only` and `Kernel.zero_is_state` (validated as subsets of the
-kernel outputs); `KernelRegistry.applicable_outputs(tf)`; `compute_kernels` writes declared
-intraday-only outputs NaN on a daily series in one place and does not run a kernel whose outputs
-are all intraday-only; declarations on `calendar_session` (all six), `calendar_cycles` (hour and
-minute encodings), `rolling_poc` and `session_vp` (all), `session_levels` (the five overnight and
-Asian fields), `amd_cycle` (all four, `manip_strength` included: same overnight-range state),
-`cross_tf_divergence` (all three); the in-kernel 1d branches in `vp_sr.py` deleted
-(`_compute_rolling_poc` early return, the `session_vp` 1d row, `_SESSION_LEVELS_DAILY_SUPPRESSED`);
-ten `FeatureVector` fields made `float | None` in `schemas.py` (the session flags, `session_time_pos`,
-hour and minute encodings: `validate_feature_vector` refuses a NaN in a non-optional field);
-`--from-stored --reason` in `scripts/infrastructure/features_capture_kernel_parity_golden.py`
-(recompute every case from `real_inputs.npz`, record changed columns per case and push the previous
-record into the manifest history; the 584-5 regeneration never recorded itself there); registry
-tests in `tests/unit/intelligence/test_kernel_registry.py`.
-
-Left to do, in order: (1) `test_session_levels_daily_suppression` still fails ("found 357
-value(s)"): `compute_batch` yields values for `overnight_high_dist_atr` at 1d, so the mask did not
-reach it; check what the batch path passes as `inputs["tf"]` (my `daily` test is
-`(inputs["tf"] == "1d").all()` in `compute_kernels`; the kernels read `constant_tf(x["tf"])`) and
-make the mask fire there. (2) Regenerate the golden in its own commit:
-`.venv/bin/python scripts/infrastructure/features_capture_kernel_parity_golden.py --from-stored
---reason "584-2: D1 intraday_only; 1d session, clock, VP, AMD and divergence columns NaN by declaration"`;
-expected changed columns, 1d cases only (SPY, QQQ, TLT, XLE). (3) Full suite, then /simplify and
-/review (not yet run on this WIP), path-scoped commit and push. (4) Populate `zero_is_state` with
-item 4 (event flags and counts). The legacy per-bar `compute()` streaming path was left alone (it
-still gives 1d neutral values; dormant, tied to item 582). Not declared and still to investigate per
-D1: `sweep_detected` (constant on 1d), `hmm_vol_prob_elevated` (retires with D6).
+The dc-era failing test had the wrong hypothesis: the batch path passes `tf` correctly, it never
+ran the three cache-backed kernels at all (their outputs were not requested; the loop read
+`_derive_*` off its own per-bar-updated cache). Fix: `_STRUCTURE_KERNEL_OUTPUTS` now carries
+`SESSION_LEVEL`/`VP`/`AMD` outputs, the loop reads `_kernel_row_none` rows (grid NaN reads back
+None), the per-bar accumulator updates and the VP `tf=='1d'` neutral branch are deleted, and the
+ten calendar/clock fields read through `_none_if_nan` (a plain `float()` read handed grid NaN to
+`_guard`, which fabricated 0.0/1.0). The two call-site wiring tests now pin the kernel route; the
+legacy per-bar `compute()` path still gives 1d neutrals (dormant, item 582). Golden regenerated
+from stored inputs in its own commit: 18 changed columns on the four 1d cases only. Item 9's G1/G3
+can drop their absent-declaration tolerance.
 
 Item 9 follow-up: the all-timeframe pilot run on the stored stage output (report
 `logs/feature_column_screen_20261102T142626Z.json`, disk only) shows gate failures G1 1,935, G2 562,
-G3 2,901 over 27/19/19/19 names judged on 1d/15m/1h/5m, with the registry declarations missing, so
-G1 and G3 are noise until item 2 lands. Pilot names with no stored rows (APLD, CTVA, LQD) are
-reported missing, as designed. Recalibrate the two tolerances only after item 2, on the first pilot
-run at the new pin; G4 and G5 (sibling script) follow.
+G3 2,901 over 27/19/19/19 names judged on 1d/15m/1h/5m; those numbers predate item 2's declarations,
+so G1 and G3 need a fresh read. Pilot names with no stored rows (APLD, CTVA, LQD) are reported
+missing, as designed. Recalibrate the two tolerances on the first pilot run at the new pin; G4 and
+G5 (sibling script) follow.
 
 ### Sequencing
 

@@ -383,12 +383,13 @@ def test_compute_batch_amd_fields_non_constant_and_grep_wired(cfg):
 
 
 def test_update_overnight_range_wired_into_call_sites():
-    """Structural check that the mutator's 3 required call sites exist:
-    compute_batch()'s per-bar loop, the live per-bar handler, and the
-    warm-up replay block (T-164-07) -- complements the plan's own grep gate.
+    """Structural check that the mutator's required call sites exist: the live per-bar
+    handler and the warm-up replay block (T-164-07). compute_batch() holds no overnight-range
+    state itself: the amd_cycle kernel replays a fresh cache (D-25, todo 584 D1).
     """
     batch_src = inspect.getsource(feature_factory.FeatureFactory.compute_batch)
-    assert "update_overnight_range" in batch_src
+    assert "update_overnight_range" not in batch_src
+    assert "_kernel_row_none(k, AMD, i)" in batch_src
 
     pipeline_src = inspect.getsource(feature_vector_pipeline)
     assert pipeline_src.count("update_overnight_range") >= 2, (
