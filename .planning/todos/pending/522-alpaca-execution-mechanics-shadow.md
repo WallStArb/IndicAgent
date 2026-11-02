@@ -59,3 +59,14 @@ phase consumes it.
   for the next open (Monday 2026-11-02 09:30 ET). Resume: `check` then
   `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` any time after the open; the
   ledger counts the remaining budget; 0 of the 20 measured orders are consumed.
+
+## Status 2026-11-02 (indicagent-02)
+
+`alpaca_paper_lifecycle.py run` is a stub: `main()` ends in `SystemExit("run: the measured protocol
+needs an open market; see the todo")`. Only `stage`, `check` and `status` are implemented, so the
+"run after the open" steps above do nothing. The 2026-11-02 pre-open `check` cancelled 0 orders
+(account flat); no measured order has been placed. Next: implement `run()` from the file docstring
+and `docs/plans/2026-11-01-own-flow-slippage-instrumentation.md` (RUN_NAMES, 1 share each, at most
+20 orders, IEX quote midpoint before decision_time recorded before transmit, every order polled to a
+terminal state, leftovers cancelled so the account ends flat, slippage_bps definition unchanged),
+then run it any session day before the 16:00 ET close, then `check`.
