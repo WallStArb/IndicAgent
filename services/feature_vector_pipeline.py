@@ -425,8 +425,8 @@ class FeatureVectorPipeline(BaseDaemon):
         UTC on d + 1 (the evening of ET date d) reads d. The previous lookup keyed on the bar's
         UTC date ("most recent <= d"), which returned d's record from inside the session it
         closes and d + 1's record to that evening bar; that stopped matching the batch path when
-        186-12 fixed the batch side (todo 450). Falls back to CrossAssetRecord()'s all-0.0
-        defaults when no record is available yet or the series never loaded (an empty series
+        186-12 fixed the batch side (todo 450). Falls back to CrossAssetRecord()'s all-NaN
+        defaults (no measurement, never 0.0: todo 463) when no record is available yet or the series never loaded (an empty series
         makes every index -1).
         """
         idx = daily_asof_index(bar_ts_ns(bar_ts), tf, self._cross_asset_available_ns())
@@ -486,7 +486,7 @@ class FeatureVectorPipeline(BaseDaemon):
         # windows, just prewarmed above). Set _cross_asset_built_on BEFORE the load
         # attempt so a failure here does not retry on every subsequent bar within the
         # same UTC day -- see _load_cross_asset_series()'s docstring for why a failure
-        # degrades to the prior (here: empty, all-0.0-via-CrossAssetRecord()) state
+        # degrades to the prior (here: empty, all-NaN-via-CrossAssetRecord()) state
         # rather than crashing.
         self._cross_asset_built_on = datetime.now(UTC).date()
         try:

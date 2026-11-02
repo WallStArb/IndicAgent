@@ -669,12 +669,18 @@ class TestBuildCrossAssetSeries:
             assert isinstance(
                 res, CrossAssetRecord
             ), f"{d}: result is {type(res)}, not CrossAssetRecord"
-            # a z-score is NaN on both sides until its history fills (todo 564)
-            for name, got, want in (
-                ("vix_z", res.vix_z, ref_vix),
+            # a z-score is NaN on both sides until its history fills (todo 564). vix_z differs
+            # during its own warmup only: the builder admits a realized vol into the history over
+            # a full cross_asset_rv_window of returns (D1 rule 5, todo 584 item 5), the
+            # FeatureCache reference from the first return; past both warmups they agree.
+            vix_warm = config.cross_asset_rv_window + config.vix_zscore_window
+            checks = [
                 ("flight_quality", res.flight_quality, ref_fq),
                 ("yield_slope_z", res.yield_slope_z, ref_ys),
-            ):
+            ]
+            if sorted(reference).index(d) >= vix_warm:
+                checks.append(("vix_z", res.vix_z, ref_vix))
+            for name, got, want in checks:
                 assert got == pytest.approx(want, rel=0, abs=1e-10, nan_ok=True), (d, name)
         assert sum(math.isfinite(r.vix_z) for r in result.values()) > len(result) // 2
 
@@ -682,22 +688,24 @@ class TestBuildCrossAssetSeries:
         from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
-        spy = _make_daily_bars(50, seed=10)
-        tlt = _make_daily_bars(50, seed=11)
-        shy = _make_daily_bars(50, seed=12)
-        tip = _make_daily_bars(50, seed=13)
-        hyg = _make_daily_bars(50, seed=14)
-        lqd = _make_daily_bars(50, seed=15)
+        n = 200  # past the vix warmup: rv_window returns, then vix_zscore_window vols
+        spy = _make_daily_bars(n, seed=10)
+        tlt = _make_daily_bars(n, seed=11)
+        shy = _make_daily_bars(n, seed=12)
+        tip = _make_daily_bars(n, seed=13)
+        hyg = _make_daily_bars(n, seed=14)
+        lqd = _make_daily_bars(n, seed=15)
         result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
         z_fields = {"vix_z", "yield_slope_z", "tip_tlt_ret_z", "hyg_lqd_ret_z", "sb_corr_z"}
         first, last = result[min(result)], result[max(result)]
         for field_name in CrossAssetRecord._fields:
             if field_name in z_fields:
-                # one observation is not a z-score (todo 564; and no previous TIP/HYG/LQD close
-                # is tracked yet on the first record date, todo 464): missing, never 0.0
+                # one observation is not a z-score (todo 564): missing, never 0.0
                 assert math.isnan(getattr(first, field_name)), field_name
             else:
-                assert all(math.isfinite(getattr(r, field_name)) for r in result.values())
+                # flight_quality is a measurement from the first record; the correlations are
+                # NaN until their windows hold that many returns (D1 rule 5)
+                assert math.isfinite(first.flight_quality)
             assert math.isfinite(getattr(last, field_name)), field_name
 
     def test_tip_hyg_lqd_partial_coverage_emits_nan_not_zero_and_not_skip(self) -> None:
@@ -708,19 +716,23 @@ class TestBuildCrossAssetSeries:
         from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
-        spy = _make_daily_bars(60, seed=20)
-        tlt = _make_daily_bars(60, seed=21)
-        shy = _make_daily_bars(60, seed=22)
+        n = 200
+        spy = _make_daily_bars(n, seed=20)
+        tlt = _make_daily_bars(n, seed=21)
+        shy = _make_daily_bars(n, seed=22)
         # TIP/HYG/LQD only have bars for the LAST 20 days (simulating late listing).
-        tip = _make_daily_bars(60, seed=23)[-20:]
-        hyg = _make_daily_bars(60, seed=24)[-20:]
-        lqd = _make_daily_bars(60, seed=25)[-20:]
+        tip = _make_daily_bars(n, seed=23)[-20:]
+        hyg = _make_daily_bars(n, seed=24)[-20:]
+        lqd = _make_daily_bars(n, seed=25)[-20:]
 
         result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
-        assert len(result) == 59, "a TIP/HYG/LQD gap must not skip a date"
-        # dates past the vix/yield z-score windows (todo 564) and before TIP/HYG/LQD list
-        window = max(config.vix_zscore_window, config.yield_curve_zscore_window)
-        early_dates = sorted(result.keys())[window:39]
+        assert len(result) == n - 1, "a TIP/HYG/LQD gap must not skip a date"
+        # dates past the vix/yield z-score warmups (todo 564, D1 rule 5) and before TIP/HYG/LQD
+        # list
+        window = config.cross_asset_rv_window + max(
+            config.vix_zscore_window, config.yield_curve_zscore_window
+        )
+        early_dates = sorted(result.keys())[window : n - 21]
         assert early_dates, "expected early dates with SPY/TLT/SHY-only coverage"
         for d in early_dates:
             values = result[d]

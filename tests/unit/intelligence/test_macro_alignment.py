@@ -7,6 +7,7 @@ at 10:00 ET on d reads the 16:00 ET close of d. The record is only available fro
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
@@ -205,7 +206,7 @@ def test_daily_asof_default_when_no_record_is_available():
     default = CrossAssetRecord()
     out = _align(np.array([_ns(d, 14, 0)]), "5m", [d], [CrossAssetRecord(vix_z=3.0)], default)
     assert out == [default]
-    assert default.vix_z == 0.0
+    assert all(math.isnan(v) for v in default)  # no record is no measurement, never 0.0
 
 
 def test_daily_asof_1d_row_reads_own_date():

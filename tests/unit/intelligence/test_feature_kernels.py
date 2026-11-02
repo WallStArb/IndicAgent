@@ -569,9 +569,11 @@ def test_daily_grid_kernels_are_causal_when_symbols_start_late_and_have_holes(co
     out = default_registry().by_name("cross_asset_daily").compute(available, config)
     # the guard branches were taken: the record exists from row 1 while each late spread is NaN;
     # a z-score is NaN until its history holds a full window (todo 564), then finite
-    window = config.vix_zscore_window
-    assert np.isnan(out["_xa_vix_z"][:window]).all()
-    assert np.isfinite(out["_xa_vix_z"][window:]).all()
+    # (realized vol enters its history over a full cross_asset_rv_window of returns, D1 rule 5, so
+    # the vix z-score fills rv_window + vix_zscore_window - 1 rows after the first return)
+    warm = config.cross_asset_rv_window + config.vix_zscore_window - 1
+    assert np.isnan(out["_xa_vix_z"][:warm]).all()
+    assert np.isfinite(out["_xa_vix_z"][warm:]).all()
     assert np.isnan(out["_xa_tip_tlt_ret_z"][1:201]).all()
     assert np.isfinite(out["_xa_tip_tlt_ret_z"][1800])
     assert np.isnan(out["_xa_hyg_lqd_ret_z"][1:451]).all()

@@ -29,14 +29,38 @@ import structlog
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
-from src.intelligence.features.kernels._cache_state import _zscore_from_deque
-from src.intelligence.features.kernels._primitives import constant_value
+from src.intelligence.features.kernels._primitives import STD_FLOOR, constant_value
 from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
 
 _logger = structlog.get_logger(__name__)
+
+
+def _z_or_nan(history: deque, window: int) -> float:
+    """Z-score of the newest value against the last `window` values: NaN while the history is
+    shorter than the window and NaN on a zero-spread window (D1 rules 1 and 5, todo 584), never a
+    0.0 fill. Same arithmetic as `_zscore_last` otherwise, so normal values are bit-identical."""
+    if len(history) < window:
+        return math.nan
+    series = np.array(list(history)[-window:])
+    std = float(series.std())
+    if std < STD_FLOOR:
+        return math.nan
+    return float((float(series[-1]) - float(series.mean())) / std)  # `_zscore_last`'s arithmetic
+
+
+def _corr_or_nan(x: np.ndarray, y: np.ndarray, window: int) -> float:
+    """Pearson correlation over the last `window` pairs: NaN until `window` pairs exist and NaN
+    when either side has no spread (D1 rule 5), never `safe_corr`'s 0.0 for a degenerate input."""
+    if len(x) < window or len(y) < window:
+        return math.nan
+    x, y = x[-window:], y[-window:]
+    if float(x.std()) < STD_FLOOR or float(y.std()) < STD_FLOOR:
+        return math.nan
+    return safe_corr(x, y)
+
 
 _NEW_YORK = ZoneInfo("America/New_York")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -151,19 +175,19 @@ class CrossAssetRecord(NamedTuple):
     new fields, equity_beta_z/rate_beta_z, are per-SYMBOL and therefore carried
     separately -- see `build_symbol_beta_series` below, not this tuple).
 
-    All fields default to 0.0: the live path's no-record fallback
-    (`cross_asset_by_date.get(date, CrossAssetRecord())`), a fabricated zero that todo 463
-    replaces. The builders never emit it: their z-scores are NaN until the history fills.
+    Every field defaults to NaN: the live path's no-record fallback
+    (`cross_asset_by_date.get(date, CrossAssetRecord())`) is "no measurement", never a fabricated
+    0.0 (todo 463, D1 rule 1).
     """
 
-    vix_z: float = 0.0
-    flight_quality: float = 0.0
-    yield_slope_z: float = 0.0
-    tip_tlt_ret_z: float = 0.0
-    hyg_lqd_ret_z: float = 0.0
-    sb_corr_fast: float = 0.0
-    sb_corr_slow: float = 0.0
-    sb_corr_z: float = 0.0
+    vix_z: float = math.nan
+    flight_quality: float = math.nan
+    yield_slope_z: float = math.nan
+    tip_tlt_ret_z: float = math.nan
+    hyg_lqd_ret_z: float = math.nan
+    sb_corr_fast: float = math.nan
+    sb_corr_slow: float = math.nan
+    sb_corr_z: float = math.nan
 
 
 def _cross_asset_records(
@@ -233,12 +257,12 @@ def _cross_asset_records(
 
     # A z-score is undefined (NaN) until its history fills (todo 564), never a 0.0 fill.
     vix_z: float = math.nan
-    flight_quality: float = 0.0
+    flight_quality: float = math.nan
     yield_slope_z: float = math.nan
     tip_tlt_ret_z: float = math.nan
     hyg_lqd_ret_z: float = math.nan
-    sb_corr_fast: float = 0.0
-    sb_corr_slow: float = 0.0
+    sb_corr_fast: float = math.nan
+    sb_corr_slow: float = math.nan
     sb_corr_z: float = math.nan
     result: dict = {}
     n_partial_coverage_dates = 0
@@ -251,10 +275,12 @@ def _cross_asset_records(
         tip_end, hyg_end, lqd_end = cursors["tip"], cursors["hyg"], cursors["lqd"]
 
         if spy_end < 2 or tlt_end < 2 or shy_end < 2:
-            # Advance prev_close trackers even during skip so first diff is correct
-            for k, end in (("spy", spy_end), ("tlt", tlt_end), ("shy", shy_end)):
-                if end >= 1:
-                    prev_close[k] = float(symbol_bars[k][end - 1]["close"])
+            # Advance every prev_close tracker during the skip so the first record date's diff
+            # is correct, TIP, HYG and LQD included: they may have years of history before SPY,
+            # TLT and SHY each have two bars (todo 464).
+            for k in symbol_bars:
+                if cursors[k] >= 1:
+                    prev_close[k] = float(symbol_bars[k][cursors[k] - 1]["close"])
             continue
 
         spy_close = float(spy_bars[spy_end - 1]["close"])
@@ -270,9 +296,11 @@ def _cross_asset_records(
         if prev_close["spy"] > 1e-10:
             spy_ret = math.log(spy_close / prev_close["spy"])
             spy_log_rets.append(spy_ret)
-            realized_vol = float(np.std(spy_log_rets))
-            spy_realized_vol_history.append(realized_vol)
-            vix_z = _zscore_from_deque(spy_realized_vol_history, config.vix_zscore_window)
+            if len(spy_log_rets) == config.cross_asset_rv_window:
+                # realized vol enters the history only over its full window (D1 rule 5): no
+                # volatility from one return
+                spy_realized_vol_history.append(float(np.std(spy_log_rets)))
+            vix_z = _z_or_nan(spy_realized_vol_history, config.vix_zscore_window)
 
         # flight_quality: cumulative TLT/SPY divergence from period start (O(1))
         if spy_first_close > 1e-10 and tlt_first_close > 1e-10:
@@ -285,9 +313,7 @@ def _cross_asset_records(
             tlt_log_ret = math.log(tlt_close / prev_close["tlt"])
             shy_log_ret = math.log(shy_close / prev_close["shy"])
             yield_ratio_history.append(tlt_log_ret - shy_log_ret)
-            yield_slope_z = _zscore_from_deque(
-                yield_ratio_history, config.yield_curve_zscore_window
-            )
+            yield_slope_z = _z_or_nan(yield_ratio_history, config.yield_curve_zscore_window)
 
         # sb_corr_fast/slow/z: rolling Pearson correlation of SPY/TLT log
         # returns. Independent of the TIP/HYG/LQD coverage guard below --
@@ -295,14 +321,15 @@ def _cross_asset_records(
         if prev_close["tlt"] > 1e-10:
             sb_spy_ret_hist.append(math.log(spy_close / prev_close["spy"]))
             sb_tlt_ret_hist.append(math.log(tlt_close / prev_close["tlt"]))
-            fast_n = min(config.sb_corr_window_fast, len(sb_spy_ret_hist))
-            slow_n = min(config.sb_corr_window_slow, len(sb_spy_ret_hist))
             spy_arr = np.array(sb_spy_ret_hist)
             tlt_arr = np.array(sb_tlt_ret_hist)
-            sb_corr_fast = safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
-            sb_corr_slow = safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
-            sb_corr_history.append(sb_corr_fast)
-            sb_corr_z = _zscore_from_deque(sb_corr_history, config.sb_corr_zscore_window)
+            sb_corr_fast = _corr_or_nan(spy_arr, tlt_arr, config.sb_corr_window_fast)
+            sb_corr_slow = _corr_or_nan(spy_arr, tlt_arr, config.sb_corr_window_slow)
+            if math.isnan(sb_corr_fast):  # no correlation this row, so no z-score of an old one
+                sb_corr_z = math.nan
+            else:  # only a full-window correlation enters the history
+                sb_corr_history.append(sb_corr_fast)
+                sb_corr_z = _z_or_nan(sb_corr_history, config.sb_corr_zscore_window)
 
         # tip_tlt_ret_z / hyg_lqd_ret_z: coverage-guarded -- NaN (missing, not a skip and not a
         # fabricated 0.0 z-score) when TIP/HYG/LQD lack coverage for this date (pre-listing dates,
@@ -318,7 +345,7 @@ def _cross_asset_records(
             tip_log_ret = math.log(tip_close / prev_close["tip"])
             tlt_log_ret = math.log(tlt_close / prev_close["tlt"])
             tip_tlt_ratio_history.append(tip_log_ret - tlt_log_ret)
-            tip_tlt_ret_z = _zscore_from_deque(tip_tlt_ratio_history, config.tip_tlt_zscore_window)
+            tip_tlt_ret_z = _z_or_nan(tip_tlt_ratio_history, config.tip_tlt_zscore_window)
         else:
             tip_tlt_ret_z = math.nan
             partial_coverage = True
@@ -334,7 +361,7 @@ def _cross_asset_records(
             hyg_log_ret = math.log(hyg_close / prev_close["hyg"])
             lqd_log_ret = math.log(lqd_close / prev_close["lqd"])
             hyg_lqd_ratio_history.append(hyg_log_ret - lqd_log_ret)
-            hyg_lqd_ret_z = _zscore_from_deque(hyg_lqd_ratio_history, config.hyg_lqd_zscore_window)
+            hyg_lqd_ret_z = _z_or_nan(hyg_lqd_ratio_history, config.hyg_lqd_zscore_window)
         else:
             hyg_lqd_ret_z = math.nan
             partial_coverage = True
@@ -461,7 +488,7 @@ def build_symbol_beta_series(
             spy_ret_hist.append(math.log(spy_close / prev_close["spy"]))
             tlt_ret_hist.append(math.log(tlt_close / prev_close["tlt"]))
 
-            if len(sym_ret_hist) >= 2:
+            if len(sym_ret_hist) >= window:  # a beta enters its history over a full window only
                 sym_arr = np.array(sym_ret_hist)
                 if not is_spy:
                     spy_arr = np.array(spy_ret_hist)
@@ -472,20 +499,22 @@ def build_symbol_beta_series(
                     # factor_beta_window of 10, ~1.7% at the seeded default of 60).
                     var_spy = float(np.var(spy_arr, ddof=1))
                     cov_spy = float(np.cov(sym_arr, spy_arr)[0, 1])
-                    raw_equity_beta = cov_spy / var_spy if var_spy > 1e-12 else 0.0
-                    equity_beta_hist.append(raw_equity_beta)
-                    equity_beta_z = _zscore_from_deque(
-                        equity_beta_hist, config.factor_beta_zscore_window
-                    )
+                    if var_spy > 1e-12:
+                        equity_beta_hist.append(cov_spy / var_spy)
+                        equity_beta_z = _z_or_nan(
+                            equity_beta_hist, config.factor_beta_zscore_window
+                        )
+                    else:  # no benchmark variance: the beta is undefined, not 0.0
+                        equity_beta_z = math.nan
                 if not is_tlt:
                     tlt_arr = np.array(tlt_ret_hist)
                     var_tlt = float(np.var(tlt_arr, ddof=1))  # see WR-01 note above
                     cov_tlt = float(np.cov(sym_arr, tlt_arr)[0, 1])
-                    raw_rate_beta = cov_tlt / var_tlt if var_tlt > 1e-12 else 0.0
-                    rate_beta_hist.append(raw_rate_beta)
-                    rate_beta_z = _zscore_from_deque(
-                        rate_beta_hist, config.factor_beta_zscore_window
-                    )
+                    if var_tlt > 1e-12:
+                        rate_beta_hist.append(cov_tlt / var_tlt)
+                        rate_beta_z = _z_or_nan(rate_beta_hist, config.factor_beta_zscore_window)
+                    else:
+                        rate_beta_z = math.nan
 
         result[d] = (
             None if is_spy else equity_beta_z,
