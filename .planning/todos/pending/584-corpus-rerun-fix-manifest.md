@@ -35,6 +35,7 @@ anything found after the pin moves waits for the following rerun.
 | 9 | Pilot gate tool (design D3) | this todo | open |
 | 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
 | 11 | Proven-span start per name (design D4), closes 532: names held only for early-history holes (the 41 from item 10, AAOI, AGL, ACMR, ADPT and the like) enter the rerun from their proven start | 532, item 10 | landed 2026-11-01 (data lane), ledger E19; 189 of 205 failing names return, all 41 |
+| 12 | Research guard contradiction: `research/guards.py` allows a leading NaN-volume run that `kernel_source` now refuses; one rule (refuse), `repro_frozen` bit-identical | item 1 finding 5 | open |
 
 Out of the batch (no stored-value change, or a different path): 475, 473, 582.
 
@@ -93,6 +94,14 @@ zero from a missing value. The rule that replaces them:
 4. `Kernel.zero_is_state: frozenset[str]` names the outputs where rule 2 allows 0.0. A
    registry-wide unit test feeds each kernel a series where no object exists (flat price,
    too-short history) and asserts every output outside `zero_is_state` is NaN.
+
+5. A history-dependent statistic appends to its history only values computed over their own full
+   declared window (no realized vol from one return, no correlation from two), and a z-score of
+   a zero-spread window is NaN, not 0.0. The short-history defaults (`_hurst_rs` 0.5,
+   `_shannon_entropy` 1.0, `_garch_ratio` 1.0, `_adx` 0.0 and the matching cache defaults
+   before the first refresh) are NaN. Source: item 1's implementer findings 1 to 3, 2026-11-02.
+6. `hma_slope_z` is `not_applicable` on 1d: its z-score window is 252 refreshes of 30 rows,
+   longer than any daily series. The intraday definition stands.
 
 Scope of `not_applicable` on 1d: the session-anchored VP fields, the session-time and killzone
 columns (`hour_of_day_*`, `minute_of_hour_*`, `in_ny_session`, `in_london_kz`, `in_overlap`,
@@ -178,7 +187,7 @@ The D3 gate tool is independent and is built now.
 
 ## Done when
 
-1. Items 1-11 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
+1. Items 1-12 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
    bit-identical where research or statistics moved.
 2. The pilot chunk at the new pin passes gates G1 to G5 (design D3) on every timeframe.
 3. The rerun is launched at the new pin (1d then intraday), and 186-27 proceeds on its output.
