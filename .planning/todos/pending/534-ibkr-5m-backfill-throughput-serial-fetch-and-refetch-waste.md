@@ -96,90 +96,15 @@ among none-names, feature-family and regime-kernel names go first so the 184/186
 unblock earliest. The 2006 target for the deepest names is second-priority behind every name
 having pre-2016 coverage at all.
 
-## Status 2026-11-02 (indicagent-82): fetch_concurrency 3 test
+## Status 2026-11-02: fetch_concurrency 4 (owner decision)
 
-Failure modes and the fixes that landed: see `docs/reference/gotchas.md` ("IBKR history fetcher:
-how a run stops taking in data"): history probe (`1ebcfc9e4`, migration 554), intake watchdog
-(`857b163e0`, migration 556).
+Setting: `infra.backfill.fetch_concurrency` = 4 (config_history version 6), outer timeout 240 s
+(`infra.ibkr.historical_request_timeout_sec`). Failure modes and their fixes: `docs/reference/gotchas.md`
+("IBKR history fetcher: how a run stops taking in data").
 
-Baseline, concurrency 8, outer timeout 240 s (`infra.ibkr.historical_request_timeout_sec`, set
-2026-10-13; the 90 s module constant is overlaid by APR), ohlcv_raw ibkr 5m by UTC hour on
-2026-11-02 (different hours from the test; the US session loads the farm from 14:30Z):
-
-| Hour | Rows | Names |
-|---|---|---|
-| 04Z | 78,805 | 3 |
-| 05Z | 131,958 | 4 |
-| 06Z | 19,818 | 1 |
-| 07Z | 27,779 | 2 |
-| 08Z | 7,962 | 1 |
-| 09Z | 0 | 0 |
-| 10Z | 31,446 | 2 |
-| 11Z | 11,628 | 1 |
-
-The 07:45Z run (8 lanes) logged 62 outer timeouts in 45 minutes and ended `stalled` at 08:31Z.
-Those timeouts happened at the 240 s timeout: 150-day chunks took over 240 s with 8 lanes against
-24 to 54 s for one request alone on a quiet farm (08:41Z grid: 2 D 0.1 s, 30 D 0.2 to 12 s, 150 D
-24 to 54 s), which supports a backlog reading (cancelled work still occupies the intraday queue).
-
-Test (lead-approved): `infra.backfill.fetch_concurrency` 8 to 3 through `ConfigService.set` at
-11:51:13Z (config_history version 5, changed_by `indicagent-82`), timeout left at 240 s so
-concurrency is the only variable (the approval said 180 against an assumed 90 s; 180 would have
-lowered the timeout). Run started 12:06:24Z (t0), window to 15:06:24Z. Decision rule, fixed
-before the result: keep if the mean beats 131,958 rows/h; under 20,000 rows/h try concurrency 2
-for 3 hours; between the two keep it and extend.
-
-Result through 14:53Z 2026-11-02 (ohlcv_raw ibkr 5m, hour UTC; t0 12:06:24Z, window to 15:06:24Z):
-
-| Hour | Rows | Names |
-|---|---|---|
-| 12Z (from 12:06:24Z) | 638,680 | 6 |
-| 13Z | 707,993 | 6 |
-| 14Z | 637,578 | 6 |
-| of which 14:00-14:30Z | 352,764 | 5 |
-| of which 14:30-14:53Z (US session open) | 284,814 | 3 |
-
-Mean 2h47m: about 713,000 rows/h against the 131,958 threshold, the best concurrency-8 hour.
-Zero outer timeouts in the whole run (the concurrency-8 run logged 62 in 45 minutes), no
-`stalled` or gateway_lost exit. The US session open at 14:30Z did not slow it (284,814 rows in 23
-minutes is a pace near 740,000 rows/h). The last 13 minutes of the window cannot move the mean
-under the threshold, so the decision rule gives: keep `infra.backfill.fetch_concurrency` at 3.
-Not tested: concurrency 2 or 4, and a longer run (the earlier concurrency-8 hours also started
-strong, 04Z-05Z, then decayed over several hours; the backlog reading predicts 3 lanes do not
-decay, so the hours after 15:06Z are the real check). Read them with the hourly query in memory
-`project_fetcher_runs_end_on_no_intake_2026_11_02`.
-## Verdict 2026-11-02 14:41Z (indicagent-02): fetch_concurrency 3 stays
-
-The rule fixed before the result (above): keep if the mean over 12:06:24Z-15:06:24Z beats 131,958
-rows/h. At 14:41Z the run had taken 1,831,308 rows over 12 names (hour rows: 12Z 638,680 partial
-from 12:06:24Z; 13Z 707,993; 14Z 484,635 so far); zero outer timeouts since the run's
-`fetcher_lock.acquired`; the service ran continuously. With zero further rows the 3 h mean is
-610,436 rows/h, 4.6x the baseline best hour, so the branch is decided before the window closes:
-keep 3, no APR change, no restart. The market-open split (load confound): 14:00-14:30Z 352,764
-rows; 14:30-14:40Z 131,871 rows (about 790,000 rows/h), no degradation at the US open.
-The final 15:06:24Z hour table is not needed for the decision; read it with the per-hour query in
-the memory file project_fetcher_runs_end_on_no_intake_2026_11_02.md if wanted. Concurrency 8 to 3
-raised throughput by about 5x on the same lanes; the earlier read (cancel-storm backlog at 8
-lanes) stands as the mechanism. Not tried: 4, 5, 6 (correction 2026-11-02, owner asked why not millions of rows/h). Throughput is
-lanes / answer latency: 3 lanes at about 150 s is about 72 requests/h, about 850,000 rows/h at
-about 12,000 rows/request, which matches the observed 700,000. Millions/h needs 8-12 effective
-lanes; concurrency 8 collapsed (132,000 rows/h), so the break lies between 3 and 8 and is not
-located (IBKR pacing and the cancel-storm theory are both unproven). Next test: step up one lane
-at a time (4, then 5, 6), 3 h each, same rule shape fixed beforehand (keep a step only if it beats
-the previous by a margin and shows no outer timeouts or stalls). About 700 names still lack
-pre-2016 5m; at 4-5 names/h that is about 6 days.
-
-## Step-up test: fetch_concurrency 4 (indicagent-02, owner-approved 2026-11-02)
-
-Set to 4 at 14:53:51Z (config_history version 6, reason holds the rule). The unit was stopped at
-14:53:24Z (the 3-lane run, 2 h 47 min in, mean about 713,000 rows/h, 0 outer timeouts) and the timer
-timer would restart it at 15:08:24Z; it was started with `sudo systemctl start` at 15:04:14Z
-(pid 3746486), so t0 is 15:04:14Z and the window runs to 18:04:14Z (a plain `systemctl start` is
-denied without interactive authorization). Rule fixed beforehand:
-keep 4 only if the mean over the 3 h beats 780,000 rows/h (10% over the 3-lane steady rate of about
-708,000) with 0 outer timeouts and no stalled or gateway_lost exit; otherwise set it back to 3 via
-ConfigService.set (changed_by = your id) and kill the unit MainPID. If 4 holds, try 5 by the same
-rule. Also read the hourly rows for decay: the 8-lane run started strong (04Z-05Z) and decayed over
-hours. Hourly query: project_fetcher_runs_end_on_no_intake_2026_11_02.md "Handoff", with
-`served_at > '2026-11-02 15:04:14+00'`. 3-lane hour rows for comparison: 13Z 707,993; 14Z about
-740,000 at the US open.
+Measured (ohlcv_raw ibkr 5m rows per hour): 8 lanes peaked at 131,958 rows/h and logged 62 outer
+timeouts in 45 minutes before ending `stalled`; 3 lanes ran 2 h 47 min at about 713,000 rows/h with
+0 outer timeouts and no slowdown at the US open; 4 lanes ran about 715,000 to 737,000 rows/h over
+the first 33 minutes, so no gain over 3 and no loss. The owner chose to keep 4 and stop testing
+concurrency. Throughput appears limited below 12 lanes by something other than lane count (IBKR
+pacing or per-request latency at the gateway); not investigated.
