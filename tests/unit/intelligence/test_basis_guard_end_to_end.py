@@ -1,10 +1,11 @@
-"""One dropped volume bar through the whole intraday registry (todo 560).
+"""One volume-basis seam through the whole intraday registry (todo 560).
 
-Every output row that differs from the clean run is masked (NaN, or 1 for a none-mask column),
-except the outputs of the path-dependent kernels that have no reset anchor (`vwap_dev_sigma`,
-`ctf_source`) and the kernels downstream of them: a dropped bar masks only its own row there and
-the residual error is the accepted tolerance recorded in todo 560. A kernel that reads a guarded
-kernel's output is guarded too: a masked row must not turn into 0.0 or "no event" downstream.
+The volume is unchanged; only the basis flips at one row. Every output row that differs from the
+single-basis run is masked (NaN, or 1 for a none-mask column), except the basis-safe kernels that
+restart at a seam by their own rule. Path-dependent kernels run through a seam, so they and their
+downstream are unchanged. A kernel that reads a guarded kernel's output is guarded too: a masked
+row must not turn into 0.0 or "no event" downstream. A NULL volume never reaches the registry or
+the higher-timeframe series: both raise (todo 564).
 """
 
 from __future__ import annotations
@@ -12,13 +13,18 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 
-from src.intelligence.features.contract.registry import compute_kernels, default_registry
+from src.intelligence.features.contract.registry import (
+    KernelRegistryError,
+    compute_kernels,
+    default_registry,
+)
 from tests.unit.intelligence.kernel_parity_reference import synthetic_inputs
 from tests.unit.intelligence.test_causality_probe import intraday_kernels, with_derived_inputs
 
 _REGISTRY = default_registry()
-_DROP = 200
+_SEAM = 200
 
 
 def _run(volume: np.ndarray, basis: np.ndarray):
@@ -40,10 +46,7 @@ def _run(volume: np.ndarray, basis: np.ndarray):
     outputs = [o for k in intraday_kernels(_REGISTRY.kernels) for o in k.outputs]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return (
-            compute_kernels(_REGISTRY, with_derived_inputs(base), config, outputs=outputs),
-            inputs,
-        )
+        return compute_kernels(_REGISTRY, with_derived_inputs(base), config, outputs=outputs)
 
 
 # a week (above_wk_vwap) and a 479-row rolling POC outlast the 500-row fixture
@@ -53,45 +56,44 @@ _LONGER_THAN_THE_FIXTURE = {
     "poc_rolling_dist_atr",
     "poc_session_rolling_divergence_atr",
 }
+# amihud_illiq_z restarts its window at a basis change by its own rule (todo 555), so it
+# legitimately differs from the single-basis run for a window; so does its product
+_RESTARTS_AT_A_SEAM = {"amihud_illiq_z", "illiquidity_momentum_product"}
 
 
-def _accepted_unmasked() -> set[str]:
-    """Outputs of the no-reset path-dependent kernels and of everything downstream of them."""
-    roots = {"vwap_dev_sigma", "ctf_source"}
-    names = set(roots)
-    for kernel in _REGISTRY.kernels:
-        if {up.name for up in _REGISTRY._upstream(kernel)} & roots:
-            names.add(kernel.name)
-    # amihud_illiq_z drops the missing bar from its z-score window by its own valid-fraction rule
-    # (todo 555), so it legitimately differs from the clean run for a window; so does its product
-    outputs = {o for k in _REGISTRY.kernels if k.name in names for o in k.outputs}
-    return outputs | {"amihud_illiq_z", "illiquidity_momentum_product"}
-
-
-def test_a_dropped_bar_leaves_no_unmasked_difference_anywhere_in_the_registry():
+def test_a_basis_seam_leaves_no_unmasked_difference_anywhere_in_the_registry():
     inputs, _ = synthetic_inputs()
-    clean, _ = _run(inputs["volume"].astype(float), inputs["volume_basis"])
-    volume = inputs["volume"].astype(float).copy()
-    volume[_DROP] = np.nan
+    volume = inputs["volume"].astype(float)
+    clean = _run(volume, inputs["volume_basis"])
     basis = inputs["volume_basis"].copy()
-    basis[_DROP] = 0
-    dirty, _ = _run(volume, basis)
-    accepted = _accepted_unmasked()
+    basis[_SEAM:] = 3 - basis[_SEAM:]  # consolidated <-> smart from the seam on
+    seamed = _run(volume, basis)
     leaks = {}
+    masked_somewhere = False
     for name, want in clean.items():
-        if name in accepted:
+        if name in _RESTARTS_AT_A_SEAM:
             continue
         want = np.asarray(want, dtype=float)
-        got = np.asarray(dirty[name], dtype=float)
+        got = np.asarray(seamed[name], dtype=float)
         masked = np.isnan(got) | (name.startswith("_") and name.endswith("_is_none") and got == 1.0)
+        masked_somewhere |= bool((masked & ~np.isnan(want)).any())
         leak = ~masked & ~np.isclose(got, want, rtol=1e-6, atol=1e-7, equal_nan=True)
         if leak.any():
             leaks[name] = int(leak.sum())
-        # masking is bounded: one dropped bar never blanks a quarter of an output
+        # masking is bounded: one seam never blanks a quarter of an output
         newly_nan = int((np.isnan(got) & ~np.isnan(want)).sum())
         if newly_nan > len(got) // 4 and name not in _LONGER_THAN_THE_FIXTURE:
             leaks[name] = -newly_nan
     assert not leaks, f"unmasked rows differ from the clean run (negative: over-masked): {leaks}"
+    assert masked_somewhere, "the seam masked nothing: the test would pass vacuously"
+
+
+def test_a_null_volume_bar_raises_in_the_registry():
+    inputs, _ = synthetic_inputs()
+    volume = inputs["volume"].astype(float).copy()
+    volume[_SEAM] = np.nan
+    with pytest.raises(KernelRegistryError, match="non-finite volume"):
+        _run(volume, inputs["volume_basis"])
 
 
 def _htf_bars(n: int = 400) -> list[dict]:
@@ -109,20 +111,12 @@ def _htf_bars(n: int = 400) -> list[dict]:
     ]
 
 
-def test_the_higher_timeframe_series_does_not_collapse_to_neutral_after_a_null_volume_bar():
+def test_the_higher_timeframe_series_raises_on_a_null_volume_bar():
     from src.intelligence.features.kernels.cross_tf import _build_ctf_series
 
     _, config = synthetic_inputs()
     bars = _htf_bars()
-    clean = _build_ctf_series(bars, config)
-    # a NULL volume at row 100 was a silent 0.0 on every later row (cumsum of NaN)
+    assert len(_build_ctf_series(bars, config)) == len(bars)
     nulled = [{**b, "volume": float("nan")} if i == 100 else b for i, b in enumerate(bars)]
-    got = _build_ctf_series(nulled, config)
-    align = np.array([r.ctf_vwap_align for r in got.values()])
-    want = np.array([r.ctf_vwap_align for r in clean.values()])
-    assert np.isnan(align[100]) and not np.isnan(np.delete(align, 100)).any()  # 1 of 101 bars
-    assert (align[101:] == want[101:]).mean() > 0.9  # not a run of 0.0
-    early = [{**b, "volume": float("nan")} if i == 2 else b for i, b in enumerate(bars)]
-    assert np.isnan(
-        [r.ctf_vwap_align for r in _build_ctf_series(early, config).values()][2:19]
-    ).all()
+    with pytest.raises(KernelRegistryError, match="_build_ctf_series.*row 100"):
+        _build_ctf_series(nulled, config)

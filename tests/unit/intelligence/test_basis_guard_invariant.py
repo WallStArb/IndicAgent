@@ -1,8 +1,9 @@
-"""The volume-basis guard's invariant (todo 560), as a property over random gaps and seams.
+"""The volume-basis guard's invariant (todo 560), as a property over random basis seams.
 
 For every guarded kernel with finite memory M, an output row the guard leaves unmasked equals the
-same kernel run on only its trailing M + 1 bars (volume NaN as 0.0): the guard changes which rows
-exist, never what an existing row means. A row it masks is NaN (a none-mask row is 1).
+same kernel run on only its trailing M + 1 bars: the guard changes which rows exist, never what
+an existing row means. A row it masks is NaN (a none-mask row is 1). A non-finite volume never
+reaches a kernel: compute raises on it (todo 564).
 """
 
 from __future__ import annotations
@@ -11,18 +12,18 @@ import numpy as np
 import pytest
 
 from src.intelligence.features.contract.registry import (
-    _compute_basis_guarded,
-    _masked_until_reset,
+    KernelRegistryError,
+    _guard_volume,
+    compute_kernels,
     default_registry,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 _REGISTRY = default_registry()
-_CONFIG = ref.synthetic_inputs()[1]
 _GUARDED = [
     k.name
     for k in _REGISTRY.kernels
-    if "volume" in k.inputs and not k.nan_volume_safe and not k.path_dependent
+    if "volume" in k.inputs and not k.volume_basis_safe and not k.path_dependent
 ]
 # memory 479 against a 500-row fixture: every row is dirty or warmup, nothing finite to compare
 _TOO_LONG_FOR_FIXTURE = {"rolling_poc"}
@@ -37,49 +38,37 @@ def _case(seed: int):
         "symbol": np.array(["SPY"] * n, dtype=object),
         "tf": np.array(["5m"] * n, dtype=object),
     }
-    volume = inputs["volume"].copy()
     basis = np.ones(n, dtype=np.int64)
-    gaps = rng.choice(np.arange(5, n), size=6, replace=False)
-    volume[gaps] = np.nan
-    basis[gaps] = 0
     for seam in rng.choice(np.arange(30, n - 30), size=2, replace=False):
         basis[seam:] = 3 - basis[seam]  # flips 1 <-> 2 at the seam
-        basis[gaps] = 0
-    return full, config, volume, basis
+    return full, config, basis
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 @pytest.mark.parametrize("name", _GUARDED)
 def test_unmasked_rows_equal_the_kernel_on_their_trailing_window(name, seed):
     kernel = _REGISTRY.by_name(name)
-    full, config, volume, basis = _case(seed)
-    n = len(volume)
+    full, config, basis = _case(seed)
+    n = len(basis)
     cut = {k: full[k] for k in kernel.inputs if k in full}
     if "_atr_raw_padded" in kernel.inputs:
         pytest.skip("needs an upstream kernel output; covered by the end-to-end checks")
-    cut["volume"] = volume
-    got = _compute_basis_guarded(kernel, cut, basis, config)
+    got = _guard_volume(kernel, cut, basis, config)[0]
     memory = int(kernel.memory(config))
-    clean_volume = np.where(np.isfinite(volume), volume, 0.0)
     compared = 0
     for out_name, column in got.items():
         column = np.asarray(column, dtype=float)
         is_mask = out_name.startswith("_") and out_name.endswith("_is_none")
         for t in range(memory, n):
             span = slice(t - memory, t + 1)
-            clean_window = bool(np.isfinite(volume[span]).all() and len(set(basis[span])) == 1)
-            if not clean_window:
-                # a dirty window is masked: NaN, or 1.0 for a none-mask row
+            if len(set(basis[span])) != 1:
+                # a window across a seam is masked: NaN, or 1.0 for a none-mask row
                 assert (column[t] == 1.0) if is_mask else np.isnan(column[t]), (out_name, t)
                 continue
             if t % 5:
                 continue  # the kernel re-run per row is the cost; every 5th clean row
             window = {
-                k: (
-                    (clean_volume if k == "volume" else v)[span]
-                    if getattr(v, "ndim", 0) >= 1 and len(v) == n
-                    else v
-                )
+                k: v[span] if getattr(v, "ndim", 0) >= 1 and len(v) == n else v
                 for k, v in cut.items()
             }
             want = np.asarray(kernel.compute(window, config)[out_name], dtype=float)[-1]
@@ -94,35 +83,29 @@ def test_unmasked_rows_equal_the_kernel_on_their_trailing_window(name, seed):
 
 def test_a_none_mask_column_is_never_nan_at_a_segment_start():
     kernel = _REGISTRY.by_name("swing_momentum")
-    full, config, volume, _ = _case(0)
-    n = len(volume)
+    full, config, _ = _case(0)
+    n = len(full["ts"])
     basis = np.ones(n, dtype=np.int64)
-    basis[251] = 2
+    basis[251:] = 2
     cut = {k: full[k] for k in kernel.inputs if k in full}
     if "_atr_raw_padded" in kernel.inputs:
         pytest.skip("needs an upstream kernel output; covered by the end-to-end checks")
-    cut["volume"] = volume
-    got = _compute_basis_guarded(kernel, cut, basis, config)
+    got = _guard_volume(kernel, cut, basis, config)[0]
     for out_name, column in got.items():
         if out_name.startswith("_") and out_name.endswith("_is_none"):
             assert not np.isnan(np.asarray(column, dtype=float)).any(), out_name
 
 
 @pytest.mark.parametrize("name", ["vwap_dev_sigma", "ctf_source"])
-def test_a_path_dependent_kernel_runs_through_a_seam_and_masks_only_dropped_bars(name):
+def test_a_path_dependent_kernel_runs_through_a_seam_unmasked(name):
     kernel = _REGISTRY.by_name(name)
-    full, config, volume, basis = _case(0)
+    full, config, basis = _case(0)
     cut = {k: full[k] for k in kernel.inputs if k in full}
-    cut["volume"] = volume
-    got = _compute_basis_guarded(kernel, cut, basis, config)
-    dropped = ~np.isfinite(volume)
-    whole = kernel.compute({**cut, "volume": np.where(dropped, 0.0, volume)}, config)
+    got = _guard_volume(kernel, cut, basis, config)[0]
+    whole = kernel.compute(cut, config)
     for out_name, column in got.items():
-        column = np.asarray(column, dtype=float)
-        is_mask = out_name.startswith("_") and out_name.endswith("_is_none")
-        assert (column[dropped] == 1.0).all() if is_mask else np.isnan(column[dropped]).all()
         np.testing.assert_array_equal(
-            column[~dropped], np.asarray(whole[out_name], dtype=float)[~dropped]
+            np.asarray(column, dtype=float), np.asarray(whole[out_name], dtype=float)
         )
 
 
@@ -138,77 +121,26 @@ def _bars_ts(n: int) -> np.ndarray:
     return np.array(out[:n], dtype=object)
 
 
-@pytest.mark.parametrize(
-    ("anchor", "bars_to_reset"), [("week", 5 * 26 - 30 + 1), ("session", 26 - 30 % 26)]
-)
-def test_masked_until_reset_covers_the_dropped_bar_to_the_next_anchor(anchor, bars_to_reset):
-    from dataclasses import replace
-
-    kernel = replace(_REGISTRY.by_name("vwap_dev_sigma"), volume_reset=anchor)
-    ts = _bars_ts(400)
-    dropped = np.zeros(400, dtype=bool)
-    dropped[30] = True
-    masked = _masked_until_reset(kernel, {"ts_dt": ts}, dropped, _CONFIG)
-    assert not masked[:30].any()
-    assert masked[30 : 30 + bars_to_reset].all()
-    assert not masked[30 + bars_to_reset :].any()
-
-
-def test_no_reset_anchor_masks_the_dropped_row_and_rows_past_the_dropped_share():
-    kernel = _REGISTRY.by_name("vwap_dev_sigma")
-    dropped = np.zeros(200, dtype=bool)
-    dropped[100] = True  # 1 of 101 bars so far: 1%, under max_dropped_fraction
-    assert (_masked_until_reset(kernel, {}, dropped, _CONFIG) == dropped).all()
-    early = np.zeros(200, dtype=bool)
-    early[2] = True  # 1 of 3 bars: past 5% until 20 bars have accumulated
-    masked = _masked_until_reset(kernel, {}, early, _CONFIG)
-    assert masked[2:19].all() and not masked[:2].any() and not masked[19:].any()
-    heavy = np.arange(200) % 2 == 0  # half the bars dropped: masked once any has accumulated
-    heavy[:2] = False
-    assert _masked_until_reset(kernel, {}, heavy, _CONFIG)[2:].all()
-
-
-def test_weekly_vwap_flag_recovers_exactly_after_the_week_with_a_dropped_bar():
-    kernel = _REGISTRY.by_name("calendar_above_wk_vwap")
-    full, config, volume, _ = _case(0)
-    n = len(volume)
-    ts = _bars_ts(n)
-    volume = full["volume"].astype(float).copy()
-    cut = {**{k: full[k] for k in kernel.inputs if k in full}, "ts_dt": ts, "volume": volume.copy()}
-    truth = kernel.compute(dict(cut), config)["above_wk_vwap"]
-    cut["volume"][40] = np.nan
-    got = _compute_basis_guarded(kernel, cut, np.ones(n, dtype=np.int64), config)["above_wk_vwap"]
-    week_end = 5 * 26  # bars 0..129 are week 1
-    # the flag at row i reads bars < i, so the first row of the next week is still corrupted
-    assert np.isnan(got[40 : week_end + 1]).all()
-    assert not np.isnan(got[:40]).any() and not np.isnan(got[week_end + 1 :]).any()
-    np.testing.assert_array_equal(got[week_end + 1 :], truth[week_end + 1 :])
-    np.testing.assert_array_equal(got[:40], truth[:40])
-
-
-def test_session_levels_ignores_nan_volume_so_it_is_declared_nan_volume_safe():
+def test_session_levels_ignores_volume_so_it_is_declared_volume_basis_safe():
     kernel = _REGISTRY.by_name("session_levels")
-    assert kernel.nan_volume_safe
-    full, config, volume, _ = _case(0)
-    n = len(volume)
+    assert kernel.volume_basis_safe
+    full, config, _ = _case(0)
+    n = len(full["ts"])
     x = {**full, "tf": np.array(["15m"] * n, dtype=object), "ts_dt": _bars_ts(n)}
     x["_atr_raw_padded"] = np.full(n, 1.5)
     cut = {k: x[k] for k in kernel.inputs}
     want = kernel.compute(dict(cut), config)
-    got = kernel.compute({**cut, "volume": volume}, config)  # `_case` volume holds NaN bars
-    assert np.isnan(volume).any()
+    rescaled = np.random.default_rng(3).uniform(0.1, 10.0, n) * full["volume"]
+    got = kernel.compute({**cut, "volume": rescaled}, config)
     for out_name, column in want.items():
         np.testing.assert_array_equal(
             np.asarray(got[out_name], dtype=float), np.asarray(column, dtype=float)
         )
 
 
-def test_leading_dropped_bars_do_not_count_toward_the_share_but_stay_masked():
-    from src.intelligence.features.contract.dropped_volume import dropped_share_mask
-
-    dropped = np.zeros(300, dtype=bool)
-    dropped[:60] = True  # 52 of the production names: every NULL precedes the first volume bar
-    masked = dropped_share_mask(dropped, 0.05)
-    assert masked[:60].all() and not masked[60:].any()
-    assert dropped_share_mask(np.ones(5, dtype=bool), 0.05).all()
-    assert not dropped_share_mask(np.zeros(5, dtype=bool), 0.05).any()
+def test_a_null_volume_reaching_compute_raises():
+    inputs, config = ref.synthetic_inputs()
+    volume = inputs["volume"].astype(float).copy()
+    volume[200] = np.nan
+    with pytest.raises(KernelRegistryError, match="non-finite volume.*row 200"):
+        compute_kernels(_REGISTRY, {**inputs, "volume": volume}, config, outputs=["rel_volume"])

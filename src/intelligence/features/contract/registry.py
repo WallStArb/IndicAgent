@@ -16,17 +16,14 @@ import enum
 import functools
 import importlib
 import pkgutil
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.core.bar_accumulator import _ET, _RTH_OPEN_ET
 from src.intelligence.bars.vendor_kind import VOLUME_BASIS_CONSOLIDATED
 from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
-from src.intelligence.features.contract.dropped_volume import dropped_share_mask
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -101,17 +98,11 @@ class Kernel:
     memory_atol: float = 0.0
     # A deliberate lookahead positive control: the causality probe must fail it.
     acausal_control: bool = False
-    # The kernel handles NaN `volume` (a NULL-volume bar) and a volume-basis change itself.
-    # Most volume kernels do not: one NaN poisons a cumulative sum or a rolling std and every
-    # later row reads 0.0 or garbage. `compute_kernels` runs those per basis segment with NaN
-    # volume as 0.0 and masks the affected rows (`_compute_basis_guarded`, todo 560).
-    nan_volume_safe: bool = False
-    # A path-dependent volume kernel whose accumulator resets on a calendar anchor: "week" (ISO
-    # week of the bar timestamp) or "session" (the ET session day). A dropped bar (NULL volume,
-    # entered as 0.0) corrupts the accumulator until that reset, so the guard masks those rows.
-    # None: no reset, a dropped bar's own row is masked and the residual error is the accepted
-    # tolerance recorded in todo 560 (one missing weight among the accumulated bars).
-    volume_reset: str | None = None
+    # The kernel handles a volume-basis change itself, or does not read the volume level. Any
+    # other volume kernel runs per basis segment with the rows whose window spans a segment start
+    # masked (`_guard_volume`, todo 560): a window across a basis change carries a level shift.
+    # No kernel sees a non-finite volume: `compute_kernels` raises on one (todo 564).
+    volume_basis_safe: bool = False
 
 
 class Alignment(enum.Enum):
@@ -428,100 +419,49 @@ def _is_none_mask(name: str) -> bool:
     return name.startswith("_") and name.endswith("_is_none")
 
 
-def _masked_until_reset(
-    kernel: Kernel, cut: Mapping[str, np.ndarray], dropped: np.ndarray, config: object
-) -> np.ndarray:
-    """Rows a dropped bar corrupts in a path-dependent kernel: from the bar to its next reset.
+def require_finite_volume(
+    volume: np.ndarray, where: str, ts: Sequence[object] | np.ndarray | None = None
+) -> None:
+    """Raise when a non-finite volume (a NULL-volume bar) reaches compute (todo 564).
 
-    A kernel without a `volume_reset` anchor masks the dropped bar's own row, and every row
-    while the dropped bars exceed `config.dropped_volume_max_fraction` of the bars accumulated
-    since the first bar with volume (`dropped_share_mask`).
+    Since migration 543 the tradeable view nulls volume only for kind `venue`, which canonical
+    does not hold, so no timeframe serves a NULL volume and the dropped-bar masking of todos
+    560/563 was deleted. A NULL volume reaching a kernel means an input changed: it is loud.
     """
-    if not dropped.any():
-        return dropped
-    if kernel.volume_reset is None:
-        return dropped_share_mask(dropped, config.dropped_volume_max_fraction)  # type: ignore[attr-defined]
-    ids = [_reset_id(ts, kernel.volume_reset) for ts in cut["ts_dt"]]
-    n = len(ids)
-    new_id = np.array([True, *(ids[i] != ids[i - 1] for i in range(1, n))])
-    starts = np.flatnonzero(new_id)
-    start_of_row = starts[np.searchsorted(starts, np.arange(n), side="right") - 1]
-    counts = np.cumsum(dropped)
-    before = np.where(start_of_row > 0, counts[np.maximum(start_of_row - 1, 0)], 0)
-    masked = counts - before > 0
-    if kernel.volume_reset == "week":
-        # The weekly flag reads its state before the same bar is added (row i holds bars < i), so
-        # the first row of the next week still carries the corrupted week.
-        masked[1:] |= masked[:-1].copy()
-    return masked
-
-
-def _reset_id(ts: object, anchor: str) -> tuple[int, ...] | object:
-    """The accumulator reset bucket of a bar: ISO (year, week), or the ET session day."""
-    if anchor == "week":
-        iso = ts.isocalendar()  # type: ignore[attr-defined]
-        return (iso.year, iso.week)
-    if anchor == "session":
-        et = ts.astimezone(_ET)  # type: ignore[attr-defined]
-        return et.date() if et.time() >= _RTH_OPEN_ET else et.date() - timedelta(days=1)
-    raise KernelRegistryError(f"unknown volume_reset anchor {anchor!r}")
-
-
-def _compute_basis_guarded(
-    kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
-) -> Mapping[str, np.ndarray]:
-    """The outputs of `_guard_volume` (the masked rows are `compute_kernels`' business)."""
-    return _guard_volume(kernel, cut, basis, config)[0]
+    bad = ~np.isfinite(np.asarray(volume, dtype=float))
+    if bad.any():
+        first = int(np.argmax(bad))
+        at = f" (ts {ts[first]})" if ts is not None and len(ts) == len(bad) else ""
+        raise KernelRegistryError(
+            f"{where}: {int(bad.sum())} non-finite volume value(s), first at row {first}{at}; "
+            "a NULL volume must not reach compute"
+        )
 
 
 def _guard_volume(
     kernel: Kernel, cut: Mapping[str, np.ndarray], basis: np.ndarray, config: object
 ) -> tuple[Mapping[str, np.ndarray], np.ndarray]:
-    """Run a volume-reading kernel that is not NaN-safe per volume-basis segment (todo 555/560).
+    """Run a volume-reading kernel that is not basis-safe per volume-basis segment (todo 555/560).
 
-    A NaN volume (a NULL-volume bar) would turn a cumulative sum or a rolling std into 0.0 or
-    garbage on every later row, and a window spanning a basis change carries a level shift. So
-    the kernel runs on each basis segment alone, NaN volume enters as 0.0 (no volume traded,
-    finite), and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
-    bars hold a dropped bar or span a segment boundary: the declared memory then still holds,
-    and the gap is loud (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways). A path-dependent kernel has no finite memory and weights by volume, so it
-    runs through the whole series; a dropped bar masks its rows until the kernel's next reset anchor.
+    A window spanning a basis change carries a level shift, so the kernel runs on each basis
+    segment alone and an output row is NaN (a none-mask row is 1) when its trailing `memory + 1`
+    bars span a segment start: the declared memory then still holds, and the seam is loud
+    (tests/unit/intelligence/test_basis_guard_invariant.py proves both ways).
+
+    A path-dependent kernel runs through the whole series unmasked: it weights by volume (VWAP,
+    volume profile) rather than reading its level, so a basis change shifts weights by the basis
+    ratio (at most about 5% of a sigma on the synthetic seam probe), while a restart at the seam
+    lost the accumulated state and erred by up to 3 sigma.
     """
-    volume = np.asarray(cut["volume"], dtype=float)
-    dropped = ~np.isfinite(volume)
     starts = volume_basis_segment_starts(basis)
-    n = len(volume)
-    if not dropped.any() and not starts.any():
+    n = len(starts)
+    if kernel.path_dependent or not starts.any():
         return kernel.compute(cut, config), np.zeros(n, dtype=bool)  # type: ignore[arg-type]
-    clean = np.where(dropped, 0.0, volume)
-    if kernel.path_dependent:
-        # These kernels weight by volume (VWAP, volume profile) rather than read its level, so a
-        # basis change shifts weights by the basis ratio (at most about 5% of a sigma on the
-        # synthetic seam probe), while a restart at the seam lost the accumulated state and erred
-        # by up to 3 sigma. Run through, mask only the dropped bar's own row.
-        out = {
-            name: np.array(column)
-            for name, column in kernel.compute({**cut, "volume": clean}, config).items()  # type: ignore[arg-type]
-        }
-        masked = _masked_until_reset(kernel, cut, dropped, config)
-        for name, column in out.items():
-            if column.dtype.kind != "f":
-                raise KernelRegistryError(
-                    f"kernel {_where(kernel)} output {name!r} has dtype {column.dtype}; the "
-                    "volume basis guard can only mask float outputs"
-                )
-            column[masked] = 1.0 if _is_none_mask(name) else np.nan
-        return out, masked
     bounds = np.unique(starts)
     out: dict[str, np.ndarray] = {}
     for lo, hi in zip(bounds, [*bounds[1:], n], strict=True):
         part = {
-            k: (
-                (clean if k == "volume" else v)[lo:hi]
-                if getattr(v, "ndim", 0) >= 1 and len(v) == n
-                else v
-            )
-            for k, v in cut.items()
+            k: v[lo:hi] if getattr(v, "ndim", 0) >= 1 and len(v) == n else v for k, v in cut.items()
         }
         for name, column in kernel.compute(part, config).items():  # type: ignore[arg-type]
             column = np.asarray(column)
@@ -532,11 +472,8 @@ def _guard_volume(
             out[name][lo:hi] = column
     memory = int(kernel.memory(config))  # type: ignore[arg-type]
     rows = np.arange(n)
-    hits = _trailing_hits
-
-    # A dropped bar d sits in the windows of rows d .. d + memory. A segment start s splits
-    # the windows that hold both s - 1 and s: rows s .. s + memory - 1.
-    masked = hits(dropped, memory) | hits((starts == rows) & (rows > 0), memory - 1)
+    # A segment start s splits the windows that hold both s - 1 and s: rows s .. s + memory - 1.
+    masked = _trailing_hits((starts == rows) & (rows > 0), memory - 1)
     for name, column in out.items():
         if column.dtype.kind != "f":
             raise KernelRegistryError(
@@ -574,8 +511,8 @@ def _guard_downstream(
     """
     if kernel.path_dependent:
         raise KernelRegistryError(
-            f"kernel {_where(kernel)} is path dependent and reads a volume-guarded output; the "
-            "guard has no reset anchor for it"
+            f"kernel {_where(kernel)} is path dependent and reads a volume-guarded output; a "
+            "path-dependent kernel has no trailing memory to mask by"
         )
     event = np.logical_or.reduce([dirty[name] for name in kernel.inputs if name in dirty])
     clean = {
@@ -619,7 +556,9 @@ def compute_kernels(
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} needs {kind} {name!r}, which the caller did not supply"
                 )
-    guarded = [k for k in order if "volume" in k.inputs and not k.nan_volume_safe]
+    if any("volume" in k.inputs for k in order):
+        require_finite_volume(inputs["volume"], "compute_kernels", inputs.get("ts"))
+    guarded = [k for k in order if "volume" in k.inputs and not k.volume_basis_safe]
     if guarded and "volume_basis" not in inputs:
         raise KernelRegistryError(
             f"kernels {sorted(k.name for k in guarded)} read volume and need the bar field "
@@ -640,7 +579,7 @@ def compute_kernels(
     dirty: dict[str, np.ndarray] = {}  # output -> rows the volume guard masked
     for kernel in order:
         cut = {name: values[name] for name in kernel.inputs}
-        if "volume" in kernel.inputs and not kernel.nan_volume_safe:
+        if "volume" in kernel.inputs and not kernel.volume_basis_safe:
             out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
         elif any(name in dirty for name in kernel.inputs):
             out, masked = _guard_downstream(kernel, cut, dirty, config)

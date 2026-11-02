@@ -1066,15 +1066,13 @@ FAMILY_VOLATILITY = "volatility"
 N_NUMERIC_COLUMNS = 7
 
 # segment_status codes: 0 no model yet, 1 written, 2 degenerate_occupation, 3 not_converged,
-# 4 any other gate reason (fit_failed among them: the segment's fit raised, todo 467), 5 input gap
-# (a family that reads volume saw a non-finite volume followed by finite rows: the whole series is
-# unlabeled rather than silently fit across the hole or raised, todo 563).
+# 4 any other gate reason (fit_failed among them: the segment's fit raised, todo 467). Code 5
+# (input gap, todo 563) was retired with the NULL-volume path (todo 564); do not reuse it.
 STATUS_NO_MODEL = 0.0
 STATUS_WRITTEN = 1.0
 STATUS_DEGENERATE_OCCUPATION = 2.0
 STATUS_NOT_CONVERGED = 3.0
 STATUS_OTHER_GATE = 4.0
-STATUS_INPUT_GAP = 5.0
 
 _GATE_REASON_STATUS = {
     "degenerate_occupation": STATUS_DEGENERATE_OCCUPATION,

@@ -307,10 +307,11 @@ def _amihud_illiq_z_series_full(
       so a window spanning a basis change carries a level shift of ln(0.41..0.91). The window
       restarts where `volume_basis` changes (`volume_basis_segment_starts`) and the output is
       NaN until it is warm again: a loud gap beats a silent level shift.
-    - Missing values. A bar with NaN volume (NULL), a zero return (no log) or a non-positive
-      close (todo 390) gives no observation. The z-score runs over the observations the window
-      holds and is NaN when the bar's own is missing or the window holds fewer than
-      ceil(min_valid_fraction * zscore_window): one missing session does not blank 252 rows.
+    - Missing values. A zero return (no log) or a non-positive close (todo 390) gives no
+      observation (a NULL volume never arrives: compute raises on it, todo 564). The z-score
+      runs over the observations the window holds and is NaN when the bar's own is missing or
+      the window holds fewer than ceil(min_valid_fraction * zscore_window): one missing session
+      does not blank 252 rows.
     - Warm means ceil(min_valid_fraction * zscore_window) valid observations in the segment, so a
       row can emit before the full window is filled. Earlier rows, and row 0, are NaN (no_fill).
 
@@ -853,7 +854,7 @@ KERNELS = (
         ("close", "volume", "volume_basis"),
         lambda c: c.amihud_zscore_window + 1,
         _compute_amihud,
-        nan_volume_safe=True,
+        volume_basis_safe=True,
     ),
     _k(
         "vwap_dev_sigma",
@@ -975,8 +976,8 @@ KERNELS = (
         lambda c: 0,
         _compute_flow_products,
     ),
-    # Its own kernel: amihud_illiq_z handles NaN volume itself, so the volume guard must not mask
-    # this product with the other flow products' volume inputs (todo 560).
+    # Its own kernel: amihud_illiq_z handles a basis change itself (volume_basis_safe), so the
+    # volume guard must not mask this product with the other flow products' volume inputs.
     _k(
         "illiquidity_momentum_product",
         ("illiquidity_momentum_product",),

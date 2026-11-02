@@ -91,14 +91,6 @@ def _finite_prefix_rows(*arrays: np.ndarray) -> int:
     return first
 
 
-def _has_interior_gap(values: np.ndarray) -> bool:
-    """True when a non-finite value is followed by a finite one (a non-finite tail is not a gap)."""
-    bad = ~np.isfinite(values)
-    if not bad.any():
-        return False
-    return not bad[int(np.argmax(bad)) :].all()
-
-
 def _compute_family(
     close: np.ndarray,
     volume: np.ndarray | None,
@@ -113,17 +105,7 @@ def _compute_family(
     n = len(close)
     if spec.needs_volume:
         volume = np.asarray(volume, dtype=float)
-        prefix = _finite_prefix_rows(close)  # a hole in close still raises
-        if _has_interior_gap(volume[:prefix]):
-            # A NULL-volume stretch inside the series (the 1d IBKR fallback rows, todo 563): the
-            # family has no walk-forward over a hole, so the series is explicitly unlabeled with
-            # its own status and every other kernel of the series still computes.
-            return _hmm.FamilyResult(
-                np.full(n, np.nan),
-                np.full(n, _hmm.STATUS_INPUT_GAP),
-                np.full((N_NUMERIC_COLUMNS, n), np.nan),
-            )
-        prefix = _finite_prefix_rows(close, volume)
+        prefix = _finite_prefix_rows(close, volume)  # a hole in close or volume raises
         volume = volume[:prefix]
     else:
         prefix = _finite_prefix_rows(close)
@@ -233,9 +215,10 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
         compute=_heavy_compute(spec),
         path_dependent=True,
         path_dependent_reason=_HEAVY_REASON,
-        # It owns its non-finite handling: a non-finite tail is unlabeled and a non-finite value
-        # followed by finite rows raises (test_regime_kernel.py), so a NaN volume is never silent.
-        nan_volume_safe=True,
+        # It reads volume returns, not the level. A non-finite close tail is unlabeled and a hole
+        # raises (test_regime_kernel.py); a non-finite volume never arrives through
+        # compute_kernels (todo 564), and a direct call raises on a volume hole the same way.
+        volume_basis_safe=True,
     )
     label = Kernel(
         name=f"hmm_{family}_label",

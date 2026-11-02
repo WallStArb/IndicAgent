@@ -332,8 +332,7 @@ def _volume_basis_codes(
 ) -> np.ndarray:
     """The `volume_basis` code of each bar (todo 555), derived from its canonical (vendor, kind)
     through the one mapping in bars/vendor_kind.py. A derived grid bar takes its basis from its
-    5m constituents. An unmapped pair raises: a basis never defaults. Bars come from the
-    tradeable view, which NULLs volume for the basis-`none` kinds."""
+    5m constituents. An unmapped pair raises: a basis never defaults."""
     codes = _pair_bases(zip(vendors, kinds))
     derived = np.flatnonzero(codes < 0)
     if derived.size:
@@ -354,11 +353,12 @@ def _volume_basis_codes(
 
 
 def _nan_if_null(value: Any) -> float:
-    """A NULL volume (the tradeable view's basis-`none` kinds) is NaN, never filled."""
+    """A NULL volume is NaN, never filled. The tradeable view serves none since migration 543;
+    one that appears reaches compute as NaN and raises there (todo 564)."""
     return float("nan") if value is None else float(value)
 
 
-# open, high, low, close, volume: only volume can be NULL (the tradeable view NULLs it).
+# open, high, low, close, volume: only volume is nullable in the view.
 _BAR_CONVERTERS = (float, float, float, float, _nan_if_null)
 
 
@@ -649,9 +649,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         high_low_spread_window=int(cfg.get_sync("feature.high_low_spread.window", 21)),
         roll_spread_window=int(cfg.get_sync("feature.roll_spread.window", 252)),
         amihud_min_valid_fraction=float(cfg.get_sync("feature.amihud.min_valid_fraction", 0.8)),
-        dropped_volume_max_fraction=float(
-            cfg.get_sync("feature.volume.dropped_max_fraction", 0.05)
-        ),
         hmm=HmmConfig.from_values(cfg.get_sync),
     )
 

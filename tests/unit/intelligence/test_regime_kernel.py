@@ -219,8 +219,7 @@ def test_label_kernel_maps_the_code_and_leaves_none_where_unlabeled(family):
 def test_non_finite_tail_is_unlabeled_from_its_first_row(family):
     bars = {k: v.copy() for k, v in _bars().items()}
     cut = 2400
-    bars["close"][cut:] = np.nan
-    bars["volume"][cut:] = np.nan
+    bars["close"][cut:] = np.nan  # volume stays finite: a NULL volume raises (todo 564)
     spec = FAMILY_SPECS[family]
     tail = _run(bars, family)
     head = _run({k: v[:cut] for k, v in bars.items()}, family)
@@ -240,7 +239,10 @@ def test_non_finite_value_followed_by_finite_rows_raises(family):
 
 
 @pytest.mark.parametrize("family", FAMILIES)
-def test_a_mid_series_volume_gap_unlabels_a_volume_family_with_the_input_gap_status(family):
+def test_a_mid_series_volume_gap_raises_for_a_volume_family(family):
+    """Todo 564: the input-gap status (563) was retired with the NULL-volume path; a hole in
+    volume is now loud: compute_kernels refuses it, and the kernel itself raises like a hole in
+    close."""
     spec = FAMILY_SPECS[family]
     bars = {k: v.copy() for k, v in _bars().items()}
     bars["volume"][900:1100] = np.nan  # a stretch of NULL volume, then volume again
@@ -254,10 +256,12 @@ def test_a_mid_series_volume_gap_unlabels_a_volume_family_with_the_input_gap_sta
                 same |= np.isnan(got[name]) & np.isnan(clean[name])
             assert same.all(), name
         return
-    out = _run(bars, family)
-    assert np.isnan(out[spec.code_output]).all()
-    assert (out[spec.status_output] == _hmm.STATUS_INPUT_GAP).all()
-    assert (out[spec.regime_column] == None).all()  # noqa: E711
+    with pytest.raises(KernelRegistryError, match="non-finite volume"):
+        _run(bars, family)
+    heavy = default_registry().by_name(f"hmm_{family}_walk_forward")
+    n = len(bars["close"])
+    with pytest.raises(ValueError, match="non-finite"):
+        heavy.compute({**bars, "tf": np.array(["1d"] * n, dtype=object)}, _config())
 
 
 @pytest.mark.parametrize("family", FAMILIES)

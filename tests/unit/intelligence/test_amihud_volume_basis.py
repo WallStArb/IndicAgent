@@ -1,4 +1,4 @@
-"""amihud_illiq_z after todo 555: ln(illiq) z-score, volume-basis segments, NaN volume."""
+"""amihud_illiq_z after todo 555: ln(illiq) z-score and volume-basis segments."""
 
 from __future__ import annotations
 
@@ -155,27 +155,6 @@ def test_null_volume_on_a_bar_leaves_every_price_feature_bit_unchanged():
 def test_short_series_is_all_nan(bad):
     closes = np.array(bad, dtype=float) + 100.0
     assert np.isnan(_z(closes, np.full(len(closes), 1e6))).all()
-
-
-def test_a_null_volume_bar_is_masked_within_memory_for_kernels_that_are_not_nan_safe():
-    inputs, config = ref.synthetic_inputs()
-    registry = default_registry()
-    n = len(inputs["ts"])
-    clean = compute_kernels(registry, dict(inputs), config, outputs=["volume_z", "obv_z"])
-    nulled = dict(inputs)
-    nulled["volume"] = inputs["volume"].copy()
-    nulled["volume"][100] = np.nan
-    nulled["volume_basis"] = inputs["volume_basis"].copy()
-    nulled["volume_basis"][100] = NONE
-    got = compute_kernels(registry, nulled, config, outputs=["volume_z", "obv_z"])
-    for name in ("volume_z", "obv_z"):
-        memory = registry.by_output(name).memory(config)
-        assert np.isnan(got[name][100 : 101 + memory]).all(), name
-        # past its memory the row equals the clean run (obv_z to cumulative-sum rounding)
-        np.testing.assert_allclose(
-            got[name][102 + memory :], clean[name][102 + memory :], rtol=1e-5, atol=1e-6
-        )
-        assert np.isfinite(got[name][102 + memory :]).all() and len(got[name]) == n
 
 
 def test_a_basis_change_restarts_a_rolling_volume_kernel_like_a_series_started_there():
