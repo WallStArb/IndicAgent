@@ -41,60 +41,20 @@ throughput is bound by latency (about 130 requests an hour), not by the pacing l
 5m symbols an hour measured from `ohlcv_request` before and after, refusals per symbol near zero for
 names with an Alpaca tail, `repro_frozen` untouched (no research code edited).
 
-## Progress
+## History (summary of the 2026-10-12 to 2026-10-31 notes)
 
-2026-10-12: concurrency landed (985911234, migration 471 applied live). `_loop` runs one worker per
-context, `infra.backfill.fetch_concurrency` (seeded 1, set to 2 for the next run). The live run
-that started 21:25 EDT keeps its old code and serial loop until its 240 minute budget ends; the
-next timer fire picks up the new code. Raise to 3-4 after one clean run. Open risk: a stall in one
-worker reconnects the shared provider (`_reconnect`) while the others have requests in flight;
-their retries absorb it, but watch `gateway_lost` and `hist_pacing_error` counts on the first runs.
-Alpaca depth floor re-probed 2026-10-12: requests from 2010 to 2015 return a first bar at
-2016-01-01, so IBKR is the only 5m source for 2006-2015.
-
-## Update 2026-10-13
-
-The timeout fix (fd1bfba4a) removed the 375 s stalls: 0 failed requests since 04:45 EDT, 0.9 to
-1.0M bars an hour against 0.5 to 0.7M. Cause 1 is settled by owner direction: raw is stored per
-source, agnostic to every other source, and a source's gap is its expected slots minus its own raw
-slots minus its own answered windows. Plan 191-04 deletes the cross-vendor refusal; the fetcher's
-gap planner (`_plan_gaps`, overlap and refetch lanes) moves to the per-source rule in the plan that
-cuts the fetcher over to `ohlcv_raw`. Do not restrict the queue to pre-2016: post-2016 IBKR chunks
-are IBKR raw we want. Cause 2 (serial fetch, bounded concurrency) is unchanged and still first.
-
-## Status 2026-10-28 (indicagent-5b, owner prompt)
-
-Owner expected the pre-2016 5m for names missing it done by now. Measured (read-only): 1,279
-active names listed before 2016; 43 have IBKR 5m to their start, 217 partial, 1,019 none; about
-9,200 name-years remain. The fetcher timer re-fires 15 min after each run, so the lane is near
-continuous, but 5m throughput is 76 to 88 requests an hour: median answer latency 73 s (the
-pilot saw 28 s) times 2 workers. Concurrency is the lever: `infra.backfill.fetch_concurrency`
-set 2 to 4 on 2026-10-28 13:54Z (config version 3; migration 531 corrected the key's value type,
-which had blocked ConfigService.set). Read the next run's request rate (expect about 175/h) and
-pacing errors; revert to 2 if pacing errors or gateway drops appear. Idle time between runs is
-about 45 min (post-fetch stages, then the 15 min timer). Remaining decisions for 3a: ETA, name
-order (feature-family names first), shortening the post-fetch gap. Todo 556 covers ten other
-config rows whose value types the validator rejects.
-
-## Status 2026-10-31 22:05Z (PM, indicagent-9f): ETA and name-order decision
-
-Measured tonight under 186-26 stage-2 load: 56.95M pre-2016 5m raw rows over 354 names touched,
-adding about 336k rows in 31 minutes, so about 0.65M bars/hour (down from the 0.9-1.0M of
-2026-10-13; concurrency 4 is set, the rebuild's host load is the difference, and the three
-fetcher wedges today each cost a run plus about 15 minutes). Coverage: 1,175 active names still
-have no pre-2016 IBKR 5m at all; 354 have some.
-
-ETA at tonight's rate: about 9,200 remaining name-years at about 19.7k bars/name-year is about
-181M bars, or roughly 11.6 days of continuous fetching at 0.65M/h; with budget gaps and wedge
-recoveries, plan on about two weeks. The 538 fix (watchdog and request timeout) recovers most of
-the wedge cost; approving its APR bounds is the throughput lever available now.
-
-Name-order decision (PM; owner can override): none-names before deepening partials, so the
-cross-sectional panel reaches every symbol's vendor floor before any name gets extra depth
-(history depth beats freshness does not mean some names get 2006 while others still have nothing);
-among none-names, feature-family and regime-kernel names go first so the 184/186 consumers
-unblock earliest. The 2006 target for the deepest names is second-priority behind every name
-having pre-2016 coverage at all.
+- Concurrency landed 2026-10-12 (`infra.backfill.fetch_concurrency`, migration 471); the timeout fix
+  (fd1bfba4a) removed the 375 s stalls. Throughput: 0.9 to 1.0M bars/h on 2026-10-13, about 0.65M/h
+  on 2026-10-31 under the stage-2 rebuild's host load, about 0.7M/h on 2026-11-02 (see below).
+- Alpaca's 5m depth floor is 2016-01-01, so IBKR is the only 5m source for 2006-2015.
+- Raw is stored per source, agnostic to every other source (owner direction); a source's gap is its
+  expected slots minus its own raw slots minus its own answered windows. Do not restrict the queue to
+  pre-2016: post-2016 IBKR chunks are IBKR raw we want.
+- Coverage 2026-10-31: 1,175 of the active names listed before 2016 had no pre-2016 IBKR 5m, 354 had
+  some; about 9,200 name-years remain at about 19.7k bars per name-year (about 181M bars).
+- Name order (PM decision 2026-10-31, owner can override): names with none before deepening
+  partials; among none-names, feature-family and regime-kernel names first. The 2006 target for the
+  deepest names comes after every name has any pre-2016 coverage.
 
 ## Status 2026-11-02: fetch_concurrency 4 (owner decision)
 
