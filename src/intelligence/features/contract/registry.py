@@ -15,6 +15,7 @@ import dataclasses
 import enum
 import functools
 import importlib
+import math
 import pkgutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -646,15 +647,18 @@ def compute_kernels(
         # None only when no kernel declared anything; `None in tfs` is False, so `undefined`
         # is then the empty set and every kernel runs.
         undefined = {name for name, tfs in kernel.not_applicable.items() if series_tf in tfs}
-        cut = {name: values[name] for name in kernel.inputs}
         if undefined and set(kernel.outputs) <= undefined:
-            out, masked = dict.fromkeys(kernel.outputs, np.full(n, np.nan)), None
-        elif "volume" in kernel.inputs and not kernel.volume_basis_safe:
-            out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
-        elif any(name in dirty for name in kernel.inputs):
-            out, masked = _guard_downstream(kernel, cut, dirty, config)
+            # wholly not applicable here: never run. The per-output write below makes a fresh
+            # NaN array per output, so the placeholder values are never read.
+            out, masked = dict.fromkeys(kernel.outputs, math.nan), None
         else:
-            out, masked = kernel.compute(cut, config), None
+            cut = {name: values[name] for name in kernel.inputs}
+            if "volume" in kernel.inputs and not kernel.volume_basis_safe:
+                out, masked = _guard_volume(kernel, cut, values["volume_basis"], config)
+            elif any(name in dirty for name in kernel.inputs):
+                out, masked = _guard_downstream(kernel, cut, dirty, config)
+            else:
+                out, masked = kernel.compute(cut, config), None
         if masked is not None and masked.any():
             dirty.update({name: masked for name in kernel.outputs})
         for name in kernel.outputs:

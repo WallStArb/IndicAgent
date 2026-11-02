@@ -382,7 +382,7 @@ def test_compute_batch_amd_fields_non_constant_and_grep_wired(cfg):
     assert 1.0 in manip_flags, "amd_manipulation_detected never fires across the manipulation wick"
 
 
-def test_update_overnight_range_wired_into_call_sites():
+def test_update_overnight_range_wired_into_pipeline_not_batch():
     """Structural check that the mutator's required call sites exist: the live per-bar
     handler and the warm-up replay block (T-164-07). compute_batch() holds no overnight-range
     state itself: the amd_cycle kernel replays a fresh cache (D-25, todo 584 D1).

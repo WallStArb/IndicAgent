@@ -362,7 +362,7 @@ def test_session_levels_no_collision_with_amd_or_vp_state() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_wired_at_all_three_call_sites() -> None:
+def test_session_levels_wired_into_pipeline_not_batch() -> None:
     ff = "\n".join(
         line
         for line in Path("src/intelligence/feature_factory.py").read_text().splitlines()

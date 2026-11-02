@@ -1155,6 +1155,15 @@ def _derive_session_levels(
         "gap_filled": gap_filled,
     }
 
+    # tf=='1d' suppression at the END, inside this helper (not at the call sites), so live and
+    # batch cannot diverge on the gating. It mirrors the session_levels kernel's
+    # not_applicable declaration (todo 584 D1): the five overnight/Asian fields are undefined on
+    # a daily bar; on the batch path compute_kernels writes them NaN from the declaration and
+    # this None agrees with it.
+    if tf == "1d":
+        for key in _SESSION_LEVELS_UNDEFINED_ON_1D:
+            result[key] = None
+
     return result
 
 
@@ -1167,6 +1176,17 @@ def _derive_session_levels(
 # from it. A key is nullable where its helper's fallback dict holds None.
 VP = KeyGroup.from_fallback(_NEUTRAL_VP_EXTRA)
 SR = KeyGroup.from_fallback(_SR_FALLBACK)
+
+# The session-levels outputs undefined on a daily bar (a daily bar IS the session: it has no
+# non-RTH sub-block and no Asian sub-block). One tuple feeds both the kernel's not_applicable
+# declaration and the helper's tf=='1d' suppression so the two can never drift.
+_SESSION_LEVELS_UNDEFINED_ON_1D: tuple[str, ...] = (
+    "overnight_high_dist_atr",
+    "overnight_low_dist_atr",
+    "overnight_range_pct",
+    "asian_session_high_dist_atr",
+    "asian_session_low_dist_atr",
+)
 SWING = KeyGroup.from_fallback(_SWING_FALLBACK)
 TREND = KeyGroup.from_fallback(_TREND_STRUCTURE_FALLBACK)
 SWING_MOMENTUM = KeyGroup.from_fallback(_SWING_MOMENTUM_FALLBACK)
@@ -1340,7 +1360,9 @@ KERNELS = (
     Kernel(
         name="session_vp",
         outputs=VP.outputs,
-        inputs=("ts_dt", *_OHLCV[1:], _POC, ATR_RAW_PADDED, "tf"),
+        # no "tf" input: the compute never branches on it (the declaration below, not the
+        # compute, carries the 1d applicability; its _POC upstream input is tf-gated itself)
+        inputs=("ts_dt", *_OHLCV[1:], _POC, ATR_RAW_PADDED),
         memory=lambda config: 0,
         compute=_compute_session_vp_columns,
         # a single daily bar has no intraday distribution
@@ -1376,16 +1398,7 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
         # a daily bar is the whole session: it has no non-RTH sub-block and no Asian sub-block
-        not_applicable=undefined_on(
-            "1d",
-            (
-                "overnight_high_dist_atr",
-                "overnight_low_dist_atr",
-                "overnight_range_pct",
-                "asian_session_high_dist_atr",
-                "asian_session_low_dist_atr",
-            ),
-        ),
+        not_applicable=undefined_on("1d", _SESSION_LEVELS_UNDEFINED_ON_1D),
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
