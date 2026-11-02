@@ -133,3 +133,17 @@ Interim (checked 13:41Z): 12Z hour (from 12:06:24Z) 638,680 rows over 6 names; 1
 488,099 rows over 5 names; zero outer timeouts since the run began. Final hourly numbers, the
 14:30Z split and the verdict are appended here at the end of the window.
 
+
+## Verdict 2026-11-02 14:41Z (indicagent-02): fetch_concurrency 3 stays
+
+The rule fixed before the result (above): keep if the mean over 12:06:24Z-15:06:24Z beats 131,958
+rows/h. At 14:41Z the run had taken 1,831,308 rows over 12 names (hour rows: 12Z 638,680 partial
+from 12:06:24Z; 13Z 707,993; 14Z 484,635 so far); zero outer timeouts since the run's
+`fetcher_lock.acquired`; the service ran continuously. With zero further rows the 3 h mean is
+610,436 rows/h, 4.6x the baseline best hour, so the branch is decided before the window closes:
+keep 3, no APR change, no restart. The market-open split (load confound): 14:00-14:30Z 352,764
+rows; 14:30-14:40Z 131,871 rows (about 790,000 rows/h), no degradation at the US open.
+The final 15:06:24Z hour table is not needed for the decision; read it with the per-hour query in
+the memory file project_fetcher_runs_end_on_no_intake_2026_11_02.md if wanted. Concurrency 8 to 3
+raised throughput by about 5x on the same lanes; the earlier read (cancel-storm backlog at 8
+lanes) stands as the mechanism. Not tried: concurrency 2 or 4; no reason to while 3 holds.
