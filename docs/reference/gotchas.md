@@ -65,6 +65,42 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history.** `generate_session_slots()` expects a full extended-hours session from day one, but real IBKR extended-hours coverage ramps up over a symbol's first year (or the first days of a timeframe's retention window). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)`; if so it is benign ramp-up, not a connection-drop artifact.
 
+## IBKR history fetcher: how a run stops taking in data (2026-11-02)
+
+Four distinct failure modes, each with its own signature; the run must end on all of them so the
+15-minute timer (`indicagent-ibkr-history-fetcher.timer`) gets its turn.
+
+- **Dead session** (socket up, session dead): `reqCurrentTime` and `is_connected()` read healthy
+  while history requests time out. A failed history request now ends the run only when
+  `IBKRProvider.history_alive` (one 1d bar of `infra.ibkr.history_probe_symbol`, timeout
+  `infra.ibkr.history_probe_timeout_s`, migration 554) also fails; that raises
+  `ProviderSessionLost` (`src/providers/base.py`, `GatewayLost` is a subclass) and the run ends
+  `gateway_lost`, flushed. A probe that answers does not prove the farm serves deep 5m chunks.
+- **Slow intraday farm, fast daily path:** the SPY 1d probe answers in 0.1 s while 5m requests
+  take 30 s to forever. Items time out and retry, each stall check ticks the old progress counter,
+  and the run looks alive for hours. The intake watchdog catches it: no data taken in (rows a
+  persisted chunk wrote, or an item ending ok/no_data) for `infra.backfill.intake_stall_exit_s`
+  (migration 556, seed 1800 s, floor 900 s) cancels the workers, flushes and exits
+  `stalled`. The status file and run summary carry `n_gateway_lost` and `n_stalled`; items ended
+  `gateway_lost` are not charged, so `n_items` is 0 for such a run.
+- **Sunday HMDS maintenance, 22:00 to 23:59 ET:** 2-day 5m windows took 7 to 54 s and 30-day
+  windows never answered. Outside the window the same grid answered in 0.1 s, 0.2 to 12 s and 24 to
+  54 s for 2, 30 and 150 days. Do not read that window as a fetcher fault.
+- **Cancel-storm backlog (hypothesis, measured evidence in todo 534):** with 8 lanes the outer
+  timeout (`infra.ibkr.historical_request_timeout_sec`, 240 s since 2026-10-13, not the 90 s module
+  constant: the APR value is overlaid at start) cancelled 150-day requests the farm was still
+  computing, 62 outer timeouts in 45 minutes, and the intraday queue stayed full: even a single
+  150-day request alone returned nothing for 16 idle minutes. Concurrency 3 with the timeout
+  unchanged is the test (`infra.backfill.fetch_concurrency`, todo 534, started 12:06:24Z).
+
+Procedures. The timer owns the campaign; never hand-launch the fetcher (a process outside systemd
+holds the advisory lock with no `RuntimeMaxSec` or watchdog, and every timer run bounces off it).
+To restart under the timer, `kill <MainPID>` of the unit (`systemctl show -p MainPID`); the next
+run starts at the timer's next firing and reads APR then, so a changed APR value needs the kill.
+Probe the farm with plain `ib_async`, `clientId` 47 (<= 50), `readonly=True`, never
+`IBKRProvider.connect` with an id above 50. Probes compete with a running fetcher: for a clean
+latency measurement stop the unit first and finish inside the timer gap.
+
 ## Fetcher external-identity freeze (phase 190)
 
 The code renamed to `ohlcv_history_fetcher.py` / `OHLCVHistoryFetcher`, but these external

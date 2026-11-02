@@ -95,3 +95,41 @@ cross-sectional panel reaches every symbol's vendor floor before any name gets e
 among none-names, feature-family and regime-kernel names go first so the 184/186 consumers
 unblock earliest. The 2006 target for the deepest names is second-priority behind every name
 having pre-2016 coverage at all.
+
+## Status 2026-11-02 (indicagent-82): fetch_concurrency 3 test
+
+Failure modes and the fixes that landed: see `docs/reference/gotchas.md` ("IBKR history fetcher:
+how a run stops taking in data"): history probe (`1ebcfc9e4`, migration 554), intake watchdog
+(`857b163e0`, migration 556).
+
+Baseline, concurrency 8, outer timeout 240 s (`infra.ibkr.historical_request_timeout_sec`, set
+2026-10-13; the 90 s module constant is overlaid by APR), ohlcv_raw ibkr 5m by UTC hour on
+2026-11-02 (different hours from the test; the US session loads the farm from 14:30Z):
+
+| Hour | Rows | Names |
+|---|---|---|
+| 04Z | 78,805 | 3 |
+| 05Z | 131,958 | 4 |
+| 06Z | 19,818 | 1 |
+| 07Z | 27,779 | 2 |
+| 08Z | 7,962 | 1 |
+| 09Z | 0 | 0 |
+| 10Z | 31,446 | 2 |
+| 11Z | 11,628 | 1 |
+
+The 07:45Z run (8 lanes) logged 62 outer timeouts in 45 minutes and ended `stalled` at 08:31Z.
+Those timeouts happened at the 240 s timeout: 150-day chunks took over 240 s with 8 lanes against
+24 to 54 s for one request alone on a quiet farm (08:41Z grid: 2 D 0.1 s, 30 D 0.2 to 12 s, 150 D
+24 to 54 s), which supports a backlog reading (cancelled work still occupies the intraday queue).
+
+Test (lead-approved): `infra.backfill.fetch_concurrency` 8 to 3 through `ConfigService.set` at
+11:51:13Z (config_history version 5, changed_by `indicagent-82`), timeout left at 240 s so
+concurrency is the only variable (the approval said 180 against an assumed 90 s; 180 would have
+lowered the timeout). Run started 12:06:24Z (t0), window to 15:06:24Z. Decision rule, fixed
+before the result: keep if the mean beats 131,958 rows/h; under 20,000 rows/h try concurrency 2
+for 3 hours; between the two keep it and extend.
+
+Interim (checked 13:41Z): 12Z hour (from 12:06:24Z) 638,680 rows over 6 names; 13Z through 13:41Z
+488,099 rows over 5 names; zero outer timeouts since the run began. Final hourly numbers, the
+14:30Z split and the verdict are appended here at the end of the window.
+
