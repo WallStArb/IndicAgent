@@ -254,6 +254,9 @@ class FetchContext:
     # after its session close is a complete answer only this long after the close. Loaded by
     # the fetcher at context build; None refuses to persist (a silent zero would keep partials).
     settle: timedelta | None = None
+    # Called with the rows a persisted chunk wrote: the fetcher's intake watchdog counts these
+    # (successful intake, unlike an attempt or a stall check). None outside a fetcher run.
+    on_intake: Callable[[int], None] | None = None
 
     @property
     def vendor(self) -> str:
@@ -464,6 +467,8 @@ class _ChunkPersister:
                 )
             self.n_basis_flagged += ingress.n_basis_flagged
         self.n_rows += result.n_rows
+        if result.n_rows and self.ctx.on_intake is not None:
+            self.ctx.on_intake(result.n_rows)
         if ingress is not None and ingress.n_unselected:
             self.n_unselected += ingress.n_unselected
             logger.error(

@@ -1624,15 +1624,18 @@ def _stall_fetcher(
     """A fetcher whose watchdog bounds are seconds-small and whose abort is recorded."""
     aborted: list[float] = []
     bounds = (tick, abort, 30.0)
-    kwargs.pop("stall_bounds", None)  # the helper owns these two seams
+    kwargs.pop("stall_bounds", None)  # the helper owns these seams
     kwargs.pop("abort", None)
+    intake_exit = kwargs.pop("intake_exit", 1800.0)
     fetcher, seen = _fetcher(
         tmp_path,
         plan,
         stall_bounds=lambda: bounds,
         abort=lambda: aborted.append(time.monotonic()),
+        intake_stall_exit=lambda: intake_exit,
         **kwargs,
     )
+    fetcher._intake_stall_exit_s = intake_exit
     # One source of bounds: execute() reads the seam, direct-watchdog tests read attributes.
     fetcher._stall_tick_s, fetcher._stall_abort_s, fetcher._teardown_timeout_s = (
         fetcher._stall_bounds_fn()
@@ -1697,6 +1700,92 @@ async def test_a_slow_in_flight_item_never_trips_the_abort(tmp_path):
     status, error = await _run(fetcher)
     assert error is None and status == "success"
     assert aborted == []  # a bare _notify tick would never move _progress: abort
+
+
+async def test_a_run_that_only_attempts_ends_stalled_with_its_counts(tmp_path):
+    """Intake, not attempts (todo 538 follow-up): stall checks keep the progress watchdog
+    quiet, but a run whose items never take in data ends `stalled`, flushed, with the counts in
+    the summary and the status file, so the timer gets its turn."""
+
+    async def attempting_item(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        while True:  # every request times out; each stall check is progress, never intake
+            await asyncio.sleep(0.02)
+            kw["on_tick"]()
+
+    fetcher, _seen, aborted = _stall_fetcher(
+        tmp_path,
+        _plan([_ranked("AAA"), _ranked("BBB")]),
+        tick=0.02,
+        abort=5.0,
+        fetch_fn=attempting_item,
+        intake_exit=0.15,
+    )
+    status, error = await _run(fetcher)
+    assert isinstance(error, hf.RunStalled) and aborted == []
+    payload = json.loads(fetcher._status_file.read_text())
+    assert payload["status"] == "stalled" and payload["returncode"] == 1
+    assert fetcher.summary["n_stalled"] >= 1 and fetcher.summary["n_gateway_lost"] == 0
+    assert '"n_stalled"' in payload["message"]
+
+
+async def test_intake_restarts_the_countdown_and_a_slow_healthy_run_is_not_stalled(tmp_path):
+    async def slow_but_landing(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        for _ in range(6):
+            await asyncio.sleep(0.05)
+            ctx.on_intake(100) if getattr(ctx, "on_intake", None) else fetcher._mark_intake(100)
+        return _outcome(row)
+
+    fetcher, _seen, aborted = _stall_fetcher(
+        tmp_path,
+        _plan([_ranked("AAA")]),
+        tick=0.02,
+        abort=5.0,
+        fetch_fn=slow_but_landing,
+        intake_exit=0.12,  # shorter than the item, longer than each landing gap
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "success" and fetcher._stalled is None
+
+
+async def test_a_stage_subprocess_pauses_the_intake_countdown(tmp_path):
+    fetcher, _seen, _aborted = _stall_fetcher(tmp_path, tick=0.02, abort=5.0)
+    fetcher._intake_stall_exit_s = 0.08
+    fetcher._watchdog_paused = 1
+    fetcher._worker_tasks = [asyncio.ensure_future(asyncio.sleep(1))]
+    task = asyncio.create_task(fetcher._stall_watchdog())
+    await _settle(0.4)
+    task.cancel()
+    fetcher._worker_tasks[0].cancel()
+    assert fetcher._stalled is None
+
+
+def test_the_intake_exit_reads_apr_with_the_seed_default(tmp_path):
+    seen: dict[str, Any] = {}
+
+    class _Cur:
+        def __enter__(self) -> _Cur:
+            return self
+
+        def __exit__(self, *exc: Any) -> bool:
+            return False
+
+        def execute(self, sql: str, params: Any) -> None:
+            seen["keys"] = params
+
+        def fetchall(self) -> list[Any]:
+            return [("infra.backfill.intake_stall_exit_s", "900")]
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+        def close(self) -> None:
+            pass
+
+    fetcher, _ = _fetcher(tmp_path, connect=lambda: _Conn())
+    assert fetcher._read_intake_stall_exit_s() == 900.0
+    broken, _ = _fetcher(tmp_path, connect=lambda: (_ for _ in ()).throw(OSError("down")))
+    assert broken._read_intake_stall_exit_s() == 1800.0
 
 
 async def test_a_hanging_disconnect_hits_the_teardown_bound(tmp_path):

@@ -710,6 +710,18 @@ def _abort_run() -> None:
     os._exit(1)
 
 
+# The run summary rides the failure status message, bounded so the file the D7 audit reads
+# stays small.
+_STATUS_SUMMARY_MAX_CHARS = 2000
+# The code default is the migration 556 seed (infra.backfill.intake_stall_exit_s).
+_INTAKE_STALL_EXIT_DEFAULT_S = 1800.0
+
+
+class RunStalled(RuntimeError):
+    """The run took in no data for the APR intake window (todo 538 follow-up): it ends, flushed
+    like gateway_lost, so the timer gets its turn whatever the cause."""
+
+
 class OHLCVHistoryFetcher(BaseBatch):
     """The multi-provider OHLCV history fetcher oneshot (CD-01/CD-02/CD-07), provider-parameterized
     since phase 190 plan 04: a registry (`_PROVIDER_REGISTRY`, one entry per vendor) maps a
@@ -746,6 +758,7 @@ class OHLCVHistoryFetcher(BaseBatch):
         contracts_for: Callable[[str], list[Any]] | None = None,
         notify: Callable[[], None] = _sd_notify_watchdog,
         stall_bounds: Callable[[], tuple[float, float, float]] | None = None,
+        intake_stall_exit: Callable[[], float] | None = None,
         abort: Callable[[], None] | None = None,
         # FROZEN (phase 190 decision): the run status-file path (logs/ibkr_history_fetcher_
         # status.json, services/bar_reconciliation_audit.py NIGHTLY_STATUS_FILE) is read by the
@@ -769,11 +782,19 @@ class OHLCVHistoryFetcher(BaseBatch):
         # items); _watchdog_paused suspends the countdown while a stage subprocess runs, the
         # same suppression principle as pacing.
         self._stall_bounds_fn = stall_bounds or self._read_stall_bounds
+        self._intake_stall_exit_fn = intake_stall_exit or self._read_intake_stall_exit_s
         self._abort_fn = abort or _abort_run
         self._stall_tick_s = 60.0
         self._stall_abort_s = 1800.0
         self._teardown_timeout_s = 30.0
         self._progress = 0
+        # Intake is successful forward motion only: rows a persisted chunk wrote to ohlcv_raw, or
+        # an item that ended ok / no_data. A failed item or a stall check is progress (the
+        # process is alive) but not intake, so a run that only times out is seen as stalled.
+        self._intake = 0
+        self._intake_stall_exit_s = _INTAKE_STALL_EXIT_DEFAULT_S
+        self._stalled: str | None = None
+        self._worker_tasks: list[asyncio.Task] = []
         self._watchdog_paused = 0
         self._lock_factory = lock_factory or (
             lambda: FetcherLock(
@@ -875,6 +896,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             per_contract=self.args.per_contract,
             overlap_sessions=plan.overlap_sessions,
             settle=settle,
+            on_intake=self._mark_intake,
         )
 
     async def _run_subprocess(self, argv: list[str]) -> int:
@@ -1041,6 +1063,32 @@ class OHLCVHistoryFetcher(BaseBatch):
         self._notify()
         self._progress += 1
 
+    def _mark_intake(self, n_rows: int = 1) -> None:
+        """Data came in: a persisted chunk's rows, or an item that ended ok or no_data."""
+        self._intake += max(1, n_rows)
+        self._mark_progress()
+
+    def _read_intake_stall_exit_s(self) -> float:
+        """APR infra.backfill.intake_stall_exit_s (migration 556); the code default is the seed."""
+        key = "infra.backfill.intake_stall_exit_s"
+        try:
+            conn = self._connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT config_key, config_value FROM config_state "
+                        "WHERE config_key = ANY(%s)",
+                        ([key],),
+                    )
+                    for stored_key, value in cur.fetchall():
+                        if stored_key == key:
+                            return float(value)
+            finally:
+                conn.close()
+        except Exception as error:  # noqa: BLE001 - the default is the seed; run anyway
+            logger.warning("ibkr_history_fetcher.intake_stall_default", error=str(error))
+        return _INTAKE_STALL_EXIT_DEFAULT_S
+
     async def _stall_watchdog(self) -> None:
         """Abort the run loudly when nothing moves for stall_abort_s (todo 538).
 
@@ -1059,8 +1107,29 @@ class OHLCVHistoryFetcher(BaseBatch):
         """
         last = self._progress
         waited = 0.0
+        last_intake = self._intake
+        intake_idle_s = 0.0
         while True:
             await asyncio.sleep(self._stall_tick_s)
+            # The intake window: while the item loop runs, a run whose workers take in no data
+            # for intake_stall_exit_s ends (progress ticks from failed items and stall checks do
+            # not count). Workers are cancelled, the loop returns, the run flushes and exits
+            # `stalled`, so the timer gets its turn whatever the cause.
+            if self._watchdog_paused or self._intake != last_intake or not self._worker_tasks:
+                last_intake = self._intake
+                intake_idle_s = 0.0
+            else:
+                intake_idle_s += self._stall_tick_s
+                if intake_idle_s >= self._intake_stall_exit_s:
+                    self._stalled = f"no data taken in for {intake_idle_s:.0f}s"
+                    logger.error(
+                        "ibkr_history_fetcher.intake_stall_exit",
+                        idle_s=intake_idle_s,
+                        workers=len(self._worker_tasks),
+                    )
+                    for task in self._worker_tasks:
+                        task.cancel()
+                    intake_idle_s = 0.0
             if self._watchdog_paused or self._progress != last:
                 last = self._progress
                 waited = 0.0
@@ -1115,6 +1184,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                     self._stall_abort_s,
                     self._teardown_timeout_s,
                 ) = self._stall_bounds_fn()
+                self._intake_stall_exit_s = self._intake_stall_exit_fn()
                 watchdog = asyncio.create_task(self._stall_watchdog())
                 try:
                     await self._locked_run(pool)
@@ -1196,7 +1266,17 @@ class OHLCVHistoryFetcher(BaseBatch):
         try:
             await self._fetch_and_promote(pool)
         except Exception as error:
-            self._write_status("failed", started_at, f"{type(error).__name__}: {error}")
+            # The summary rides the status message: n_gateway_lost and n_stalled stay visible.
+            detail = (
+                f" | summary={json.dumps(self.summary, default=str)[:_STATUS_SUMMARY_MAX_CHARS]}"
+                if self.summary
+                else ""
+            )
+            self._write_status(
+                "stalled" if isinstance(error, RunStalled) else "failed",
+                started_at,
+                f"{type(error).__name__}: {error}{detail}",
+            )
             raise
         status = self.completion_status or "success"
         self._write_status(status, started_at, json.dumps(self.summary, default=str))
@@ -1240,7 +1320,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 loop = await self._reserve(plan, ctx)
             else:
                 loop = await self._loop(pool, plan, [ctx, *extra_ctxs])
-            if not loop.gateway_lost and not self._reserve_asks:
+            if not loop.gateway_lost and not loop.stalled and not self._reserve_asks:
                 escalation_code = await self._escalate(
                     pool, plan, ctx, loop, fetch_run_id, run_started_at
                 )
@@ -1277,6 +1357,8 @@ class OHLCVHistoryFetcher(BaseBatch):
         print(f"run summary: {json.dumps(self.summary, default=str)}")
         if loop.gateway_lost:
             raise RuntimeError(f"IBKR gateway lost mid-run at {loop.gateway_lost}")
+        if loop.stalled:
+            raise RunStalled(f"IBKR fetch stalled: {loop.stalled}")
         # A basis-change restatement landed last-wins (D-191-N) but the run is partial until it
         # is reviewed (fourth review of 191-07, finding 2); a share-only flag is informational.
         failed = (
@@ -1347,9 +1429,12 @@ class OHLCVHistoryFetcher(BaseBatch):
                     plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
                 )
                 self._mark_progress()
+                if outcome.status in ("ok", "no_data"):
+                    self._mark_intake()
                 if outcome.gateway_lost:
                     # The gateway, not the item, failed: nothing is charged to the series (CD-05).
                     state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
+                    state.n_gateway_lost += 1
                     stop.set()
                     return
                 self._record_outcome(ctx, outcome)
@@ -1369,7 +1454,20 @@ class OHLCVHistoryFetcher(BaseBatch):
                     else plan.inter_item_pause_s
                 )
 
-        await asyncio.gather(*(worker(ctx) for ctx in contexts))
+        tasks = [asyncio.ensure_future(worker(ctx)) for ctx in contexts]
+        self._worker_tasks = tasks
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if self._stalled is None or (current is not None and current.cancelling()):
+                raise  # a real cancellation, not the intake watchdog's
+            # Every worker unwinds before the caller flushes the sinks and disconnects.
+            await asyncio.gather(*tasks, return_exceptions=True)
+            state.stalled = self._stalled
+            state.n_stalled = sum(1 for task in tasks if task.cancelled())
+        finally:
+            self._worker_tasks = []
         return state
 
     async def _fetch_one(
@@ -1769,6 +1867,11 @@ class _LoopState:
     n_grid_source_rows: int = 0
     budget_exhausted: bool = False
     gateway_lost: str | None = None
+    # Items ended by gateway loss (not charged, so absent from n_items) and workers cancelled by
+    # the intake watchdog; stalled names the cause when the run ended that way.
+    n_gateway_lost: int = 0
+    n_stalled: int = 0
+    stalled: str | None = None
     touched_1d: dict[str, datetime] = field(default_factory=dict)
     lanes: Counter[str] = field(default_factory=Counter)
     # Update-lane overlaps the 5m judge found rescaled, and every escalation with its reason.
@@ -1803,6 +1906,8 @@ class _LoopState:
             "n_bars": self.n_bars,
             "n_grid_source_rows": self.n_grid_source_rows,
             "n_1d_derived": len(self.touched_1d),
+            "n_gateway_lost": self.n_gateway_lost,
+            "n_stalled": self.n_stalled,
         }
 
 
