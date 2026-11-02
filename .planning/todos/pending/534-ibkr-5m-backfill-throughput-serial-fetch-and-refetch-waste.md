@@ -146,4 +146,11 @@ rows; 14:30-14:40Z 131,871 rows (about 790,000 rows/h), no degradation at the US
 The final 15:06:24Z hour table is not needed for the decision; read it with the per-hour query in
 the memory file project_fetcher_runs_end_on_no_intake_2026_11_02.md if wanted. Concurrency 8 to 3
 raised throughput by about 5x on the same lanes; the earlier read (cancel-storm backlog at 8
-lanes) stands as the mechanism. Not tried: concurrency 2 or 4; no reason to while 3 holds.
+lanes) stands as the mechanism. Not tried: 4, 5, 6 (correction 2026-11-02, owner asked why not millions of rows/h). Throughput is
+lanes / answer latency: 3 lanes at about 150 s is about 72 requests/h, about 850,000 rows/h at
+about 12,000 rows/request, which matches the observed 700,000. Millions/h needs 8-12 effective
+lanes; concurrency 8 collapsed (132,000 rows/h), so the break lies between 3 and 8 and is not
+located (IBKR pacing and the cancel-storm theory are both unproven). Next test: step up one lane
+at a time (4, then 5, 6), 3 h each, same rule shape fixed beforehand (keep a step only if it beats
+the previous by a margin and shows no outer timeouts or stalls). About 700 names still lack
+pre-2016 5m; at 4-5 names/h that is about 6 days.
