@@ -669,17 +669,13 @@ class TestBuildCrossAssetSeries:
             assert isinstance(
                 res, CrossAssetRecord
             ), f"{d}: result is {type(res)}, not CrossAssetRecord"
-            # a z-score is NaN on both sides until its history fills (todo 564). vix_z differs
-            # during its own warmup only: the builder admits a realized vol into the history over
-            # a full cross_asset_rv_window of returns (D1 rule 5, todo 584 item 5), the
-            # FeatureCache reference from the first return; past both warmups they agree.
-            vix_warm = config.cross_asset_rv_window + config.vix_zscore_window
+            # a z-score is NaN on both sides until its history fills (todo 564); the builder and
+            # the cache admit a realized vol over a full cross_asset_rv_window alike (todo 463)
             checks = [
+                ("vix_z", res.vix_z, ref_vix),
                 ("flight_quality", res.flight_quality, ref_fq),
                 ("yield_slope_z", res.yield_slope_z, ref_ys),
             ]
-            if sorted(reference).index(d) >= vix_warm:
-                checks.append(("vix_z", res.vix_z, ref_vix))
             for name, got, want in checks:
                 assert got == pytest.approx(want, rel=0, abs=1e-10, nan_ok=True), (d, name)
         assert sum(math.isfinite(r.vix_z) for r in result.values()) > len(result) // 2

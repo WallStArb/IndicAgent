@@ -29,37 +29,16 @@ import structlog
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
-from src.intelligence.features.kernels._primitives import STD_FLOOR, constant_value
-from src.intelligence.utils import safe_corr
+from src.intelligence.features.kernels._primitives import (
+    _corr_or_nan,
+    _z_or_nan,
+    constant_value,
+)
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
 
 _logger = structlog.get_logger(__name__)
-
-
-def _z_or_nan(history: deque, window: int) -> float:
-    """Z-score of the newest value against the last `window` values: NaN while the history is
-    shorter than the window and NaN on a zero-spread window (D1 rules 1 and 5, todo 584), never a
-    0.0 fill. Same arithmetic as `_zscore_last` otherwise, so normal values are bit-identical."""
-    if len(history) < window:
-        return math.nan
-    series = np.array(list(history)[-window:])
-    std = float(series.std())
-    if std < STD_FLOOR:
-        return math.nan
-    return float((float(series[-1]) - float(series.mean())) / std)  # `_zscore_last`'s arithmetic
-
-
-def _corr_or_nan(x: np.ndarray, y: np.ndarray, window: int) -> float:
-    """Pearson correlation over the last `window` pairs: NaN until `window` pairs exist and NaN
-    when either side has no spread (D1 rule 5), never `safe_corr`'s 0.0 for a degenerate input."""
-    if len(x) < window or len(y) < window:
-        return math.nan
-    x, y = x[-window:], y[-window:]
-    if float(x.std()) < STD_FLOOR or float(y.std()) < STD_FLOOR:
-        return math.nan
-    return safe_corr(x, y)
 
 
 _NEW_YORK = ZoneInfo("America/New_York")

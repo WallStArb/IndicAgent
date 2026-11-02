@@ -30,8 +30,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.core.bar_accumulator import _ET, _RTH_CLOSE_ET, _RTH_OPEN_ET
-from src.intelligence.features.kernels._primitives import _zscore_last, wilder_rsi_series
-from src.intelligence.utils import safe_corr
+from src.intelligence.features.kernels._primitives import (
+    _corr_or_nan,
+    _z_or_nan,
+    _zscore_last,
+    wilder_rsi_series,
+)
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -61,7 +65,7 @@ class FeatureCache:
     # of shared via inheritance).
     # The z-scores are undefined (NaN) until their history fills, never a 0.0 fill (todo 564).
     vix_z: float = math.nan  # SPY realized-vol proxy (VXX/VIXY absent from universe)
-    flight_quality: float = 0.0  # TLT/SPY divergence
+    flight_quality: float = math.nan  # TLT/SPY divergence
     yield_slope_z: float = math.nan  # TLT/SHY ratio z-score
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
@@ -81,8 +85,8 @@ class FeatureCache:
     # post-execution review).
     tip_tlt_ret_z: float = math.nan
     hyg_lqd_ret_z: float = math.nan
-    sb_corr_fast: float = 0.0
-    sb_corr_slow: float = 0.0
+    sb_corr_fast: float = math.nan
+    sb_corr_slow: float = math.nan
     sb_corr_z: float = math.nan
     equity_beta_z: float | None = None
     rate_beta_z: float | None = None
@@ -619,7 +623,7 @@ class FeatureCache:
             if min_len > 0:
                 ratio = float(tip_rets[-1]) - float(tlt_rets[-1])
                 self._tip_tlt_ratio_history.append(ratio)
-            self.tip_tlt_ret_z = _zscore_from_deque(
+            self.tip_tlt_ret_z = _z_or_nan(
                 self._tip_tlt_ratio_history, config.tip_tlt_zscore_window
             )
 
@@ -634,7 +638,7 @@ class FeatureCache:
             if min_len > 0:
                 ratio = float(hyg_rets[-1]) - float(lqd_rets[-1])
                 self._hyg_lqd_ratio_history.append(ratio)
-            self.hyg_lqd_ret_z = _zscore_from_deque(
+            self.hyg_lqd_ret_z = _z_or_nan(
                 self._hyg_lqd_ratio_history, config.hyg_lqd_zscore_window
             )
 
@@ -653,16 +657,17 @@ class FeatureCache:
             if min_len > 0:
                 self._sb_spy_log_ret_history.append(float(spy_rets[-1]))
                 self._sb_tlt_log_ret_history.append(float(tlt_rets[-1]))
-                fast_n = min(config.sb_corr_window_fast, len(self._sb_spy_log_ret_history))
-                slow_n = min(config.sb_corr_window_slow, len(self._sb_spy_log_ret_history))
                 spy_arr = np.array(self._sb_spy_log_ret_history)
                 tlt_arr = np.array(self._sb_tlt_log_ret_history)
-                self.sb_corr_fast = safe_corr(spy_arr[-fast_n:], tlt_arr[-fast_n:])
-                self.sb_corr_slow = safe_corr(spy_arr[-slow_n:], tlt_arr[-slow_n:])
-                self._sb_corr_history.append(self.sb_corr_fast)
-                self.sb_corr_z = _zscore_from_deque(
-                    self._sb_corr_history, config.sb_corr_zscore_window
-                )
+                self.sb_corr_fast = _corr_or_nan(spy_arr, tlt_arr, config.sb_corr_window_fast)
+                self.sb_corr_slow = _corr_or_nan(spy_arr, tlt_arr, config.sb_corr_window_slow)
+                if math.isnan(
+                    self.sb_corr_fast
+                ):  # no correlation this row, so no z-score of an old one
+                    self.sb_corr_z = math.nan
+                else:  # only a full-window correlation enters the history
+                    self._sb_corr_history.append(self.sb_corr_fast)
+                    self.sb_corr_z = _z_or_nan(self._sb_corr_history, config.sb_corr_zscore_window)
 
     def update_overnight_range(
         self,
@@ -775,7 +780,7 @@ class CrossAssetState:
     """
 
     vix_z: float = math.nan
-    flight_quality: float = 0.0
+    flight_quality: float = math.nan
     yield_slope_z: float = math.nan
     _spy_realized_vol_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _yield_ratio_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
@@ -811,18 +816,22 @@ def _compute_cross_asset(
     if len(spy_bars) >= 2:
         spy_closes = np.array([b["close"] for b in spy_bars], dtype=float)
         spy_returns = np.diff(np.log(np.maximum(spy_closes, 1e-10)))
-        rv_window = min(config.cross_asset_rv_window, len(spy_returns))
-        realized_vol = float(np.std(spy_returns[-rv_window:]))
-        state._spy_realized_vol_history.append(realized_vol)
-        state.vix_z = _zscore_from_deque(state._spy_realized_vol_history, window)
+        if len(spy_returns) >= config.cross_asset_rv_window:
+            # a realized vol enters the history over a full window only (D1 rule 5): no
+            # volatility from one return
+            realized_vol = float(np.std(spy_returns[-config.cross_asset_rv_window :]))
+            state._spy_realized_vol_history.append(realized_vol)
+        state.vix_z = _z_or_nan(state._spy_realized_vol_history, window)
 
     # flight_quality: TLT/SPY relative-return divergence (positive = risk-off)
     if len(tlt_bars) >= 2 and len(spy_bars) >= 2:
         n = min(len(tlt_bars), len(spy_bars))
         tlt_closes = np.array([b["close"] for b in tlt_bars[-n:]], dtype=float)
         spy_closes_n = np.array([b["close"] for b in spy_bars[-n:]], dtype=float)
-        tlt_ret = float(tlt_closes[-1] / tlt_closes[0] - 1.0) if tlt_closes[0] > 0 else 0.0
-        spy_ret = float(spy_closes_n[-1] / spy_closes_n[0] - 1.0) if spy_closes_n[0] > 0 else 0.0
+        tlt_ret = float(tlt_closes[-1] / tlt_closes[0] - 1.0) if tlt_closes[0] > 0 else math.nan
+        spy_ret = (
+            float(spy_closes_n[-1] / spy_closes_n[0] - 1.0) if spy_closes_n[0] > 0 else math.nan
+        )
         state.flight_quality = tlt_ret - spy_ret
 
     # yield_slope_z: TLT/SHY return ratio z-score (2Y-10Y proxy)
@@ -837,7 +846,7 @@ def _compute_cross_asset(
         if min_len > 0:
             ratio = float(tlt_rets[-1]) - float(shy_rets[-1])
             state._yield_ratio_history.append(ratio)
-        state.yield_slope_z = _zscore_from_deque(state._yield_ratio_history, yzw)
+        state.yield_slope_z = _z_or_nan(state._yield_ratio_history, yzw)
 
 
 # ---------------------------------------------------------------------------

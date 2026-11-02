@@ -1403,6 +1403,20 @@ def _guard(v: float | None, fallback: float = 0.0) -> float | None:
     return v if math.isfinite(v) else fallback
 
 
+def _missing_if_nan(v: float | None) -> float | None:
+    """A cross-asset input that is undefined (no record yet, short history, zero spread) is
+    missing (None, stored NULL), never a fabricated 0.0 (todo 463, D1 rules 1 and 5)."""
+    return v if v is not None and math.isfinite(v) else None
+
+
+def _missing_product(v: float, name: str, inputs: Sequence[float]) -> float | None:
+    """A product with a missing input is missing; a non-finite product of finite inputs is the
+    numerical-anomaly tripwire (`_guard_counted`)."""
+    if not all(math.isfinite(x) for x in inputs):
+        return None
+    return _guard_counted(v, name)
+
+
 # Module-level substitution counter for the 10 Theory-Motivated Interaction
 # compounds (Phase 151 Plan 06) ONLY -- not used by any of the ~190
 # pre-existing fields, which stay on plain _guard(). Keyed by compound
@@ -1837,12 +1851,11 @@ def _build_feature_vector(
         cci_fast=_guard(cci_fast),
         cci_mid=_guard(cci_mid),
         cci_slow=_guard(cci_slow),
-        # Legacy no-fill gap (todo 463, plan 186-25): the kernels emit NaN for a row with no daily
-        # record yet, and this guard turns it back into a fabricated 0.0 because FeatureVector
-        # fields are non-nullable floats. 186-25 removes these guards on the rebuild path.
-        vix_z=_guard(vix_z),
-        flight_quality=_guard(flight_quality),
-        yield_slope_z=_guard(yield_slope_z),
+        # The kernels emit NaN for a row with no daily record yet; it stays missing (None), never
+        # a fabricated 0.0 (todo 463).
+        vix_z=_missing_if_nan(vix_z),
+        flight_quality=_missing_if_nan(flight_quality),
+        yield_slope_z=_missing_if_nan(yield_slope_z),
         in_ny_session=in_ny_session,
         in_london_kz=in_london_kz,
         in_overlap=in_overlap,
@@ -1969,14 +1982,14 @@ def _build_feature_vector(
         bars_since_vol_spike_fast=_guard(bars_since_vol_spike_fast, 0.0),
         bars_since_vol_spike_slow=_guard(bars_since_vol_spike_slow, 0.0),
         abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
-        # Same legacy no-fill gap as vix_z above (todo 463, plan 186-25): NaN becomes 0.0 here.
-        tip_tlt_ret_z=_guard(tip_tlt_ret_z, 0.0),
-        hyg_lqd_ret_z=_guard(hyg_lqd_ret_z, 0.0),
-        sb_corr_fast=_guard(sb_corr_fast, 0.0),
-        sb_corr_slow=_guard(sb_corr_slow, 0.0),
-        sb_corr_z=_guard(sb_corr_z, 0.0),
-        equity_beta_z=_guard(equity_beta_z),
-        rate_beta_z=_guard(rate_beta_z),
+        # Missing stays missing (todo 463, D1 rules 1 and 5): NaN becomes None, never 0.0.
+        tip_tlt_ret_z=_missing_if_nan(tip_tlt_ret_z),
+        hyg_lqd_ret_z=_missing_if_nan(hyg_lqd_ret_z),
+        sb_corr_fast=_missing_if_nan(sb_corr_fast),
+        sb_corr_slow=_missing_if_nan(sb_corr_slow),
+        sb_corr_z=_missing_if_nan(sb_corr_z),
+        equity_beta_z=_missing_if_nan(equity_beta_z),
+        rate_beta_z=_missing_if_nan(rate_beta_z),
         ret_div_1m_5m=_guard(ret_div_1m_5m),
         ret_div_5m_1h=_guard(ret_div_5m_1h),
         ret_div_1h_1d=_guard(ret_div_1h_1d),
@@ -2009,15 +2022,13 @@ def _build_feature_vector(
             "illiquidity_momentum_product",
             inputs=(amihud_illiq_z, momentum_z_fast),
         ),
-        yield_slope_momentum_product=_guard_counted(
+        yield_slope_momentum_product=_missing_product(
             yield_slope_momentum_product,
             "yield_slope_momentum_product",
-            inputs=(yield_slope_z, momentum_z_fast),
+            (yield_slope_z, momentum_z_fast),
         ),
-        vix_reversion_product=_guard_counted(
-            vix_reversion_product,
-            "vix_reversion_product",
-            inputs=(vix_z, momentum_reversal_z),
+        vix_reversion_product=_missing_product(
+            vix_reversion_product, "vix_reversion_product", (vix_z, momentum_reversal_z)
         ),
         efficiency_volume_product=_guard_counted(
             efficiency_volume_product, "efficiency_volume_product"

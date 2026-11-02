@@ -882,12 +882,15 @@ def _feed_cross_asset(cache, n: int = 60, tlt_bars=None) -> dict[str, list[dict]
 class TestCrossAssetProxies:
     def test_update_cross_asset_populates_vix_z(self) -> None:
         """FeatureCache.update_cross_asset must compute vix_z from SPY bars: NaN until the
-        realized-vol history holds vix_zscore_window values (todo 564), finite after."""
+        realized-vol history holds vix_zscore_window values (todo 564), finite after. A realized
+        vol enters the history over a full cross_asset_rv_window of returns (todo 463, D1 rule 5),
+        so n bars give n - cross_asset_rv_window values."""
         cache = FeatureCache()
+        config = _make_config()
         assert math.isnan(cache.vix_z)  # never fed
-        _feed_cross_asset(cache, n=_make_config().vix_zscore_window)  # window - 1 values
-        assert math.isnan(cache.vix_z)
-        _feed_cross_asset(cache, n=2)  # one more value fills the window
+        _feed_cross_asset(cache, n=config.cross_asset_rv_window + config.vix_zscore_window - 1)
+        assert math.isnan(cache.vix_z)  # window - 1 values
+        _feed_cross_asset(cache, n=config.cross_asset_rv_window + config.vix_zscore_window)
         assert math.isfinite(cache.vix_z)
 
     def test_update_cross_asset_populates_flight_quality(self) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from types import MappingProxyType
@@ -12,6 +13,7 @@ import numpy as np
 from scipy import stats
 
 from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.utils import safe_corr
 
 # Default divide-by-zero guard of the kernels' eps arguments, and the std below which a z-score is 0.
 EPS = 1e-10
@@ -284,6 +286,30 @@ def _zscore_last(series: np.ndarray, window: int) -> float:
     if std < STD_FLOOR:
         return 0.0
     return float((float(series[-1]) - float(window_data.mean())) / std)
+
+
+def _z_or_nan(history: deque, window: int) -> float:
+    """Z-score of the newest value against the last `window` values: NaN while the history is
+    shorter than the window and NaN on a zero-spread window (D1 rules 1 and 5, todo 584), never a
+    0.0 fill. Same arithmetic as `_zscore_last` otherwise, so normal values are bit-identical."""
+    if len(history) < window:
+        return math.nan
+    series = np.array(list(history)[-window:])
+    std = float(series.std())
+    if std < STD_FLOOR:
+        return math.nan
+    return float((float(series[-1]) - float(series.mean())) / std)  # `_zscore_last`'s arithmetic
+
+
+def _corr_or_nan(x: np.ndarray, y: np.ndarray, window: int) -> float:
+    """Pearson correlation over the last `window` pairs: NaN until `window` pairs exist and NaN
+    when either side has no spread (D1 rule 5), never `safe_corr`'s 0.0 for a degenerate input."""
+    if len(x) < window or len(y) < window:
+        return math.nan
+    x, y = x[-window:], y[-window:]
+    if float(x.std()) < STD_FLOOR or float(y.std()) < STD_FLOOR:
+        return math.nan
+    return safe_corr(x, y)
 
 
 def _percentile_rank(hist: np.ndarray, current: float) -> float:

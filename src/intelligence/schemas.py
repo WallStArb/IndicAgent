@@ -1330,9 +1330,9 @@ class FeatureVector:
     cci_mid: float
     cci_slow: float
     # Cross-asset (3)
-    vix_z: float
-    flight_quality: float
-    yield_slope_z: float
+    vix_z: float | None
+    flight_quality: float | None
+    yield_slope_z: float | None
     # Calendar (11: 9 original + 2 new)
     in_ny_session: float
     in_london_kz: float
@@ -1442,11 +1442,19 @@ class FeatureVector:
     # self-regression (SPY vs SPY, TLT vs TLT) is degenerate (beta identically
     # 1), so None is emitted for the factor proxy's own beta against itself
     # rather than a silently-wrong constant 1.0.
-    tip_tlt_ret_z: float  # zscore(log_ret(TIP) - log_ret(TLT)) (APR: feature.tip_tlt.zscore_window)
-    hyg_lqd_ret_z: float  # zscore(log_ret(HYG) - log_ret(LQD)) (APR: feature.hyg_lqd.zscore_window)
-    sb_corr_fast: float  # rolling Pearson(log_ret(SPY), log_ret(TLT)), fast window (APR: feature.sb_corr.window_fast)
-    sb_corr_slow: float  # rolling Pearson(log_ret(SPY), log_ret(TLT)), slow window (APR: feature.sb_corr.window_slow)
-    sb_corr_z: float  # zscore(sb_corr_fast) (APR: feature.sb_corr.zscore_window)
+    tip_tlt_ret_z: (
+        float | None
+    )  # zscore(log_ret(TIP) - log_ret(TLT)) (APR: feature.tip_tlt.zscore_window)
+    hyg_lqd_ret_z: (
+        float | None
+    )  # zscore(log_ret(HYG) - log_ret(LQD)) (APR: feature.hyg_lqd.zscore_window)
+    sb_corr_fast: (
+        float | None
+    )  # rolling Pearson(log_ret(SPY), log_ret(TLT)), fast window (APR: feature.sb_corr.window_fast)
+    sb_corr_slow: (
+        float | None
+    )  # rolling Pearson(log_ret(SPY), log_ret(TLT)), slow window (APR: feature.sb_corr.window_slow)
+    sb_corr_z: float | None  # zscore(sb_corr_fast) (APR: feature.sb_corr.zscore_window)
     equity_beta_z: (
         float | None
     )  # zscore(rolling OLS slope of symbol daily log_ret on SPY daily log_ret); None for SPY itself (APR: feature.factor_beta.window / .zscore_window)
@@ -1501,8 +1509,12 @@ class FeatureVector:
     quarter_momentum_product: float  # quarter_position * momentum_z_fast; quarter-end window dressing/dealer gamma unwind amplify existing momentum into the quarter close
     variance_ratio_momentum_product: float  # variance_ratio_fast * momentum_z_fast; momentum is informative in trending microstructure, noise in mean-reverting
     illiquidity_momentum_product: float  # amihud_illiq_z * momentum_z_fast; illiquidity amplifies price impact, so identical order flow moves price further and momentum persists longer
-    yield_slope_momentum_product: float  # yield_slope_z * momentum_z_fast; term-structure regime conditions equity momentum (carry-times-term-structure candidate source)
-    vix_reversion_product: float  # vix_z * momentum_reversal_z; the short-term reversal premium is larger in high-volatility regimes where liquidity provision is compensated more
+    yield_slope_momentum_product: (
+        float | None
+    )  # yield_slope_z * momentum_z_fast; term-structure regime conditions equity momentum (carry-times-term-structure candidate source)
+    vix_reversion_product: (
+        float | None
+    )  # vix_z * momentum_reversal_z; the short-term reversal premium is larger in high-volatility regimes where liquidity provision is compensated more
     efficiency_volume_product: float  # efficiency_ratio_fast * volume_z; directional efficiency confirmed by volume distinguishes a real trend from directionless drift
     # Cross-timeframe (3)
     ctf_momentum: float

@@ -708,6 +708,11 @@ class TestTheoryMotivatedInteractionProducts:
         "efficiency_volume_product": ("efficiency_ratio_fast", "volume_z"),
     }
 
+    @staticmethod
+    def _product(left: float | None, right: float | None) -> float | None:
+        """A product with a missing parent is missing (todo 463, D1 rule 1)."""
+        return None if left is None or right is None else left * right
+
     def test_live_path_products_match_parents(self) -> None:
         from src.intelligence.feature_factory import FeatureFactory
         from src.intelligence.features.kernels._cache_state import FeatureCache
@@ -718,7 +723,7 @@ class TestTheoryMotivatedInteractionProducts:
         fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
 
         for compound, (p1, p2) in self._PAIRS.items():
-            expected = getattr(fv, p1) * getattr(fv, p2)
+            expected = self._product(getattr(fv, p1), getattr(fv, p2))
             actual = getattr(fv, compound)
             assert actual == pytest.approx(
                 expected, abs=1e-12
@@ -736,7 +741,7 @@ class TestTheoryMotivatedInteractionProducts:
 
         for _, fv in results:
             for compound, (p1, p2) in self._PAIRS.items():
-                expected = getattr(fv, p1) * getattr(fv, p2)
+                expected = self._product(getattr(fv, p1), getattr(fv, p2))
                 actual = getattr(fv, compound)
                 assert actual == pytest.approx(
                     expected, abs=1e-12
