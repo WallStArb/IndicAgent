@@ -246,6 +246,44 @@ so G1 and G3 need a fresh read. Pilot names with no stored rows (APLD, CTVA, LQD
 missing, as designed. Recalibrate the two tolerances on the first pilot run at the new pin; G4 and
 G5 (sibling script) follow.
 
+Item 4 resume state (Track A, 2026-11-02; 4a landed, 4b/4c open). The full-graph no-object probe
+(flat 400-bar 5m series, all float externals NaN, `compute_kernels` over every output) adjudicates
+the columns into four classes:
+
+- Already correct (all-NaN on flat): every z/corr column that goes through `_z_or_nan`/
+  `_corr_or_nan` (rules 5 landed there in items 1/5), the macro/CTF columns on NaN externals, the
+  HMM walk-forward columns (fit refuses on degenerate input).
+- Fabricated neutrals to fix in 4b (helper altitude first): the vectorized window helpers
+  `_rolling_zscore_series`/`_fixed_window_zscore_series`/`_sliding_rolling` and `_zscore_last`
+  (0.0 on zero-spread), `wilder_rsi_series` (50.0 cold start and flat window; 100.0 on all-gain
+  is measured and stays), mfi (50), stoch_k (0.5 = 0/0), bb_pct_b (0.5), updown_ratio (1.0 = 0/0),
+  variance_ratio/hv_ratio/realized_var_ratio (1.0 = 0/0), cci (0.0), aroon (0.0 on flat: the
+  rolling max is the current bar, verify before changing), intraday_noise_ratio (1.0), wick/
+  body/close-position ratios on a zero-range bar (0.5/0.0 = 0/0), price_percentile on an
+  all-equal window (0.5/1.0 boundary convention), vol_acceleration (1.0), and the right-censored
+  `bars_since_extreme_move_*`/`bars_since_vol_spike_*` (window-cap 19/49 must be NaN: rule 2's
+  "bars since event with no event is NaN"; `bars_since_high/low_*` are measured 0 on flat and are
+  zero_is_state, not fixes). Genuine-constant ratios stay measured: rel_volume, vol_ratio,
+  vol_trend_ratio read 1.0 on constant volume and that is a real measurement (zero_is_state
+  declarations in 4c, not fixes).
+- smc/vp_sr no-object fallbacks to fix in 4b: sr_resist/support_dist 0.0, resistance/support
+  strength+age 0.0, ob/fvg/zone/bos distance-strength-age 0.0 (all "the distance/strength/age of
+  an object that does not exist"), sweep_strength/bars_since_last_sweep, va_position 0.5,
+  poc_dist_atr 0.0, price_in_value_area 0.0, in_lvn 0.0 where no VA exists. Counts and event
+  flags keep 0.0 and get zero_is_state in 4c: sr_level_count, pool_count, fvg_open_count,
+  active_demand/supply_zones, bsl/ssl_touches, sweep_detected, amd_manipulation_detected,
+  ob_mitigated_flag, breaker_block_active, bos/choch flags (verify each is a flag not a strength).
+- Exempt from the no-object test (4c) because their object always exists: the four calendar
+  kernels, the three canaries, calendar_above_wk_vwap (0.0 on flat = measured "at/below"), and
+  the bar-level always-measured columns (ret_lag_*, open_ret, overnight_gap, true_range_pct,
+  abs-range/body columns, dist_from_high/low_*, high_52w_dist, shannon's point-mass 0.0).
+
+4c then lands `Kernel.zero_is_state` per kernel (the lists above plus ret_lag_*, dist_*,
+  bars_since_high/low_*) and the registry-wide test: every stored column outside zero_is_state
+  is all-NaN on both the flat series and a 2-bar series; zero_is_state outputs are asserted
+  finite-or-NaN only. The probe lives at `/tmp/584_item4/probe_no_object.py` (rerun to
+  regenerate the list; it needs `HmmConfig.from_values(SMALL_HMM_APR.get)` on the config).
+
 ### Sequencing
 
 Implementers work one at a time per shared file: items 1 and 7 (running) touch `registry.py`,
