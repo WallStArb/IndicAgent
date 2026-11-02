@@ -28,7 +28,7 @@ anything found after the pin moves waits for the following rerun.
 | 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | open |
 | 3 | HMM whole-name NULL: refusal reasons measured, then gate or input fix | 583 | measuring (indicagent-dc) |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
-| 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | open |
+| 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | macro.py half landed aee2404d9 (82); the CrossAssetState, feature_factory `_guard` and schema half rides items 2/4/6 (subagent) |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | open |
