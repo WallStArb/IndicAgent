@@ -384,6 +384,22 @@ _FEATURE_COLUMNS = [
 # regime-labeling coverage check is a different question and belongs in its
 # own gate with its own threshold, not folded into max_null_rate here.
 
+# D1 rule 2 (todo 584 4b-2 group 4): the four columns below are None wherever
+# their object does not exist -- the session-VP pair has no object on daily
+# bars (no intraday session), and an SR side with no qualifying cluster
+# in-window has no distance -- so the strict max_null_rate tier would fail
+# honest data. They are gated only against being ENTIRELY NULL on a TF where
+# the object can exist (a dead kernel or a dropped writer column); their
+# value-level correctness is carried by the kernel parity tests. The mapped
+# TFs are the structurally-absent ones, exempt from even the dead-column
+# check (poc_dist_atr/va_position are legitimately 100% NULL on 1d).
+_ABSENCE_EXEMPT_TFS: dict[str, frozenset[str]] = {
+    "poc_dist_atr": frozenset({"1d"}),
+    "va_position": frozenset({"1d"}),
+    "sr_support_dist": frozenset(),
+    "sr_resist_dist": frozenset(),
+}
+
 
 def _check_feature_null_rates(
     conn: Any,
@@ -396,7 +412,9 @@ def _check_feature_null_rates(
     Runs one query per TF, sampling up to sample_size rows each, so rare TFs
     always get their own sample rather than being crowded out by a global LIMIT.
     Raises RuntimeError if a TF has zero rows (cannot verify) or if any column
-    exceeds the threshold.
+    exceeds the threshold. Columns in _ABSENCE_EXEMPT_TFS (D1 rule 2) are
+    instead gated only against being entirely NULL on TFs where their object
+    can exist, and skipped entirely on their exempt TFs.
     """
     null_col_exprs = ", ".join(
         f"SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS null_{col}" for col in _FEATURE_COLUMNS
@@ -429,6 +447,16 @@ def _check_feature_null_rates(
         for col in _FEATURE_COLUMNS:
             null_count = row_dict.get(f"null_{col}", 0) or 0
             null_rate = null_count / total
+            if col in _ABSENCE_EXEMPT_TFS:
+                if tf in _ABSENCE_EXEMPT_TFS[col]:
+                    continue  # the object cannot exist on this TF (D1 rule 2)
+                if null_count == total:
+                    violations.append(
+                        f"tf={tf} col={col} entirely NULL ({null_count}/{total}) - "
+                        "object-existence column produced no values where the object "
+                        "can exist (D1 rule 2, todo 584 4b-2 group 4)"
+                    )
+                continue
             if null_rate > max_null_rate:
                 violations.append(
                     f"tf={tf} col={col} null_rate={null_rate:.1%} ({null_count}/{total})"
@@ -436,6 +464,7 @@ def _check_feature_null_rates(
 
     if violations:
         raise RuntimeError(
-            f"Feature NULL rate exceeds {max_null_rate:.0%} threshold:\n"
+            f"Feature NULL rate gate failed (max_null_rate={max_null_rate:.0%}; "
+            "absence-legit columns must not be entirely NULL):\n"
             + "\n".join(f"  {v}" for v in violations)
         )

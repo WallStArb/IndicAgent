@@ -372,9 +372,37 @@ item 8's wiring landing moves them back as its first step. Gates: /simplify (4 a
 /review medium (5 findings: the producer asymmetry - fixed as the approved extension;
 vacuous all-NaN bounds test; self-contradictory schemas block comment; stale DB column
 comments -> 558; staging location - declined, the lead's ruled path), full suite green.
-REMAINING in 4b-2 (successor starts here): group 4 smc/vp_sr no-object fallbacks ->
-none-masks (skip ALL amd_cycle entries per the D5 note below; probe at
-/tmp/584_item4/probe_no_object.py); then 4c.
+REMAINING in 4b-2 (successor starts here): 4c.
+GROUP 4 LANDED 2026-11-03 (a8): all smc/vp_sr no-object fallbacks moved to None per D1
+rule 2 through the fallback-dict nullable mechanism (fallback None entry -> KeyGroup
+nullable -> none-mask column -> `_kernel_row` None -> builder `_missing_if_nan`):
+sr_resist/support_dist + resistance/support strength/age (per-side: a side with no cluster
+in-window is missing, not 0.0), poc_dist_atr/va_position/price_in_value_area/in_lvn (None
+when no live session histogram, gate `va_exists`; va_position also None on zero-width VA),
+ob bull/bear dist, ob_strength, ob_mitigation_pct, breaker_dist_atr, fvg dist/size,
+sweep_strength/reclaim_velocity/bars_since_last_sweep (right-censored), bsl/ssl_dist_atr,
+demand/supply dist/freshness (per-side), zone_friction_score (None only when NEITHER side
+has a zone), bos/choch_strength (choch only when a CHoCH fired), bars_since_last_shift
+(right-censored). Kept 0.0 as measured state (zero_is_state lists land in 4c):
+sr_level_count, pool_count, fvg_open_count, active_demand/supply_zones, bsl/ssl_touches,
+sweep_detected, ob_mitigated_flag, breaker_block_active, bos/choch_direction,
+smc_trend_direction; fvg_midpoint/price_in_premium stay float sentinels (in-memory zone
+soft-dependency inputs, not stored columns). amd_cycle untouched (retires whole in item 6,
+D5). The 1d compute() branch and `_cold_start_vector` now match the batch path (the four
+legacy VP/SR columns None). Migration 560 states the NULL contract in column COMMENTs (21
+columns, applied live; 559 reserved for item 8). Golden delta: 28 columns union over the 17
+cases (price_in_value_area/in_lvn unchanged on goldens - every golden bar has a live session
+histogram), regenerated from HEAD-restored fixtures in its own commit. Gates: /simplify
+(4 agents: stale `_SESSION_LEVELS_FALLBACK` contrast comment; 12 conditional None-casts
+moved to measured-assignment `float()` with pass-through returns; cold-start locals
+inlined; per-branch annotation unified), /review medium (1 confirmed finding, FIXED:
+`corpus_manifest_verifier._check_feature_null_rates` strict max_null_rate tier would fail
+the rerun's own final verification on honest nulls - now two-tier, `_ABSENCE_EXEMPT_TFS`
+exempts the session pair on 1d and gates the four columns only against being entirely NULL
+where the object can exist, 4 new tier tests), full suite green. Successor: 4c
+(zero_is_state declarations + the registry-wide no-object test; drop
+amd_manipulation_detected from the zero_is_state list per the D5 ordering note; probe at
+/tmp/584_item4/probe_no_object.py needs `HmmConfig.from_values(SMALL_HMM_APR.get)`).
 4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
 (`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
 `_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and

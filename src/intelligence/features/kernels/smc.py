@@ -99,14 +99,16 @@ def _level_breached_since(
     return 1.0 if suffix_extreme[start] <= level else 0.0
 
 
-_OB_FALLBACK: dict[str, float] = {
-    "ob_bull_dist_atr": 0.0,
-    "ob_bear_dist_atr": 0.0,
-    "ob_strength": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): the distance/strength/mitigation of an order block that
+# does not exist is None; the two flags stay 0.0 (event flags over the observed window).
+_OB_FALLBACK: dict[str, float | None] = {
+    "ob_bull_dist_atr": None,
+    "ob_bear_dist_atr": None,
+    "ob_strength": None,
     "ob_mitigated_flag": 0.0,
-    "breaker_dist_atr": 0.0,
+    "breaker_dist_atr": None,
     "breaker_block_active": 0.0,
-    "ob_mitigation_pct": 0.0,
+    "ob_mitigation_pct": None,
 }
 
 
@@ -119,7 +121,7 @@ def _compute_order_blocks(
     close_: float,
     atr_val: float,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Order Blocks + stateless Breaker/Mitigation, one pure pass (Phase 164 Plan 02).
 
     Ports order_blocks.py / breaker_blocks.py / mitigation_blocks.py's detection
@@ -150,8 +152,10 @@ def _compute_order_blocks(
     every bar's [low, high] since its formation and its own [bottom, top]
     zone (mitigation_blocks.py's running-max logic, recomputed in-pass).
 
-    Falls back to _OB_FALLBACK (never raises, never NaN/Inf) when atr_val is
-    invalid or the window has too few bars to run the impulse scan.
+    Falls back to _OB_FALLBACK (never raises) when atr_val is invalid or the window has too
+    few bars to run the impulse scan; per-side distances are also None when that side has no
+    candidate (D1 rule 2, todo 584 4b-2 group 4: the distance/strength of an object that does
+    not exist is undefined, never a fabricated 0.0).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -254,8 +258,12 @@ def _compute_order_blocks(
     nearest_bear = min(bear_candidates, key=_dist) if bear_candidates else None
     nearest_overall = min(candidates, key=_dist)
 
-    ob_bull_dist_atr = _dist(nearest_bull) / atr_val if nearest_bull is not None else 0.0
-    ob_bear_dist_atr = _dist(nearest_bear) / atr_val if nearest_bear is not None else 0.0
+    ob_bull_dist_atr: float | None = (
+        float(_dist(nearest_bull) / atr_val) if nearest_bull is not None else None
+    )
+    ob_bear_dist_atr: float | None = (
+        float(_dist(nearest_bear) / atr_val) if nearest_bear is not None else None
+    )
     ob_strength = float(nearest_overall["strength"])
     ob_mitigated_flag = float(nearest_overall["mitigated"])
 
@@ -286,7 +294,7 @@ def _compute_order_blocks(
     # Breaker (RESEARCH.md: derive statelessly from the same in-pass
     # candidates list, never self._state). Candidate = the most-recently-
     # formed mitigated OB; its polarity flips (breaker_blocks.py's rule).
-    breaker_dist_atr = 0.0
+    breaker_dist_atr: float | None = None  # no mitigated OB -> no breaker object
     breaker_block_active = 0.0
     mitigated_obs = [cand for cand in candidates if cand["mitigated"] == 1.0]
     if mitigated_obs:
@@ -302,14 +310,14 @@ def _compute_order_blocks(
             breaker_block_active = 1.0
         elif breaker_direction < 0.0 and close_ > b_top:
             breaker_block_active = 1.0
-        breaker_dist_atr = abs(close_ - b_mid) / atr_val
+        breaker_dist_atr = float(abs(close_ - b_mid) / atr_val)
 
     return {
-        "ob_bull_dist_atr": float(ob_bull_dist_atr),
-        "ob_bear_dist_atr": float(ob_bear_dist_atr),
+        "ob_bull_dist_atr": ob_bull_dist_atr,
+        "ob_bear_dist_atr": ob_bear_dist_atr,
         "ob_strength": float(ob_strength),
         "ob_mitigated_flag": float(ob_mitigated_flag),
-        "breaker_dist_atr": float(breaker_dist_atr),
+        "breaker_dist_atr": breaker_dist_atr,
         "breaker_block_active": float(breaker_block_active),
         "ob_mitigation_pct": float(ob_mitigation_pct),
     }
@@ -319,9 +327,11 @@ def _compute_order_blocks(
 # Smart Money Concepts — Fair Value Gaps (Phase 164 Plan 03)
 # ---------------------------------------------------------------------------
 
-_FVG_FALLBACK: dict[str, float] = {
-    "fvg_dist_atr": 0.0,
-    "fvg_size_atr": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): distance/size of a gap that does not exist are None; the
+# count stays 0.0 and fvg_midpoint keeps its 0.0 in-memory sentinel (zones' soft dependency).
+_FVG_FALLBACK: dict[str, float | None] = {
+    "fvg_dist_atr": None,
+    "fvg_size_atr": None,
     "fvg_open_count": 0.0,
     "fvg_midpoint": 0.0,
 }
@@ -342,7 +352,7 @@ def _compute_fvg(
     close_: float,
     atr_val: float,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Fair Value Gaps -- stateless 3-candle imbalance scan (Phase 164 Plan 03).
 
     Ports fair_value_gap.py's geometry: a bullish FVG forms when bar3's low
@@ -361,8 +371,9 @@ def _compute_fvg(
     local for Plan 04's supply/demand-zones block (soft dependency per
     164-RESEARCH.md), never threaded into _build_feature_vector.
 
-    Falls back to _FVG_FALLBACK (never raises, never NaN/Inf) when atr_val is
-    invalid or the window has fewer than 3 bars.
+    Falls back to _FVG_FALLBACK (never raises) when atr_val is invalid or the window has
+    fewer than 3 bars; the fallback's None values mark the no-gap case (D1 rule 2, todo 584
+    4b-2 group 4).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -428,16 +439,20 @@ def _compute_fvg(
 # Smart Money Concepts — Liquidity Sweeps + Liquidity Pools (Phase 164 Plan 03)
 # ---------------------------------------------------------------------------
 
-_SWEEP_FALLBACK: dict[str, float] = {
+# D1 rule 2 (todo 584 4b-2 group 4): the strength/velocity of a sweep that never happened and
+# a right-censored bars-since count are None; sweep_detected stays the 0.0 event flag.
+_SWEEP_FALLBACK: dict[str, float | None] = {
     "sweep_detected": 0.0,
-    "sweep_strength": 0.0,
-    "reclaim_velocity": 0.0,
-    "bars_since_last_sweep": 0.0,
+    "sweep_strength": None,
+    "reclaim_velocity": None,
+    "bars_since_last_sweep": None,
 }
 
-_POOL_FALLBACK: dict[str, float] = {
-    "bsl_dist_atr": 0.0,
-    "ssl_dist_atr": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): a side's distance is None when that side has no pool
+# level; touches and the count stay 0.0, and price_in_premium keeps its in-memory sentinel.
+_POOL_FALLBACK: dict[str, float | None] = {
+    "bsl_dist_atr": None,
+    "ssl_dist_atr": None,
     "bsl_touches": 0.0,
     "ssl_touches": 0.0,
     "pool_count": 0.0,
@@ -458,7 +473,7 @@ def _compute_liquidity_sweeps(
     close_: float,
     atr_val: float,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Liquidity Sweeps -- stateless wick-beyond-swing + reclaim scan (Plan 03).
 
     Ports liquidity_sweeps.py's geometry directly: a bullish sweep wicks
@@ -474,10 +489,9 @@ def _compute_liquidity_sweeps(
     corrected an inverted selection -- liquidity_sweeps.py's logic was
     already right).
 
-    Falls back to _SWEEP_FALLBACK (never raises, never NaN/Inf, 0.0 bars-
-    since-last-sweep when no sweep is ever found in-window -- same "absence
-    has no defined age" convention as resistance_age_bars/support_age_bars)
-    when atr_val is invalid or the window is too short for swing detection.
+    Falls back to _SWEEP_FALLBACK (never raises; the strength/velocity/bars-since of a sweep
+    that never happened in-window are None -- "absence has no defined age", D1 rule 2, todo
+    584 4b-2 group 4) when atr_val is invalid or the window is too short for swing detection.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -581,7 +595,7 @@ def _compute_liquidity_pools(
     close_: float,
     atr_val: float,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Liquidity Pools -- single-timeframe-descoped port (Phase 164 Plan 03).
 
     Ports liquidity_pools.py's equal-highs/equal-lows + session-high/low
@@ -601,8 +615,9 @@ def _compute_liquidity_pools(
     significance_weights dict), then nearest by distance -- matches
     liquidity_pools.py's own _nearest() tie-break rule exactly.
 
-    Falls back to _POOL_FALLBACK (never raises, never NaN/Inf) when atr_val
-    is invalid or the window is too short for swing detection.
+    Falls back to _POOL_FALLBACK (never raises) when atr_val is invalid or the window is too
+    short for swing detection; a side with no candidate level reads None distance (D1 rule 2,
+    todo 584 4b-2 group 4).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -660,9 +675,9 @@ def _compute_liquidity_pools(
         else None
     )
 
-    bsl_dist_atr = abs(bsl[0] - close_) / atr_val if bsl is not None else 0.0
+    bsl_dist_atr: float | None = float(abs(bsl[0] - close_) / atr_val) if bsl is not None else None
     bsl_touches = _pool_touches_for(bsl[1]) if bsl is not None else 0.0
-    ssl_dist_atr = abs(close_ - ssl[0]) / atr_val if ssl is not None else 0.0
+    ssl_dist_atr: float | None = float(abs(close_ - ssl[0]) / atr_val) if ssl is not None else None
     ssl_touches = _pool_touches_for(ssl[1]) if ssl is not None else 0.0
 
     range_high = float(np.max(h))
@@ -671,8 +686,8 @@ def _compute_liquidity_pools(
     price_in_premium = 1.0 if close_ >= midpoint else 0.0
 
     return {
-        "bsl_dist_atr": float(bsl_dist_atr),
-        "ssl_dist_atr": float(ssl_dist_atr),
+        "bsl_dist_atr": bsl_dist_atr,
+        "ssl_dist_atr": ssl_dist_atr,
         "bsl_touches": float(bsl_touches),
         "ssl_touches": float(ssl_touches),
         "pool_count": pool_count,
@@ -716,23 +731,29 @@ def _pool_touches_for(lvl_type: str) -> float:
 # Smart Money Concepts — Supply/Demand Zones + BOS/CHoCH + AMD Cycle (Plan 04)
 # ---------------------------------------------------------------------------
 
-_ZONE_FALLBACK: dict[str, float] = {
-    "demand_dist_atr": 0.0,
-    "supply_dist_atr": 0.0,
-    "demand_freshness": 0.0,
-    "supply_freshness": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): a side's distance/freshness are None when that side has
+# no active zone; the counts stay 0.0 and the friction score is None only when neither side
+# has one (it is measured from whichever side exists).
+_ZONE_FALLBACK: dict[str, float | None] = {
+    "demand_dist_atr": None,
+    "supply_dist_atr": None,
+    "demand_freshness": None,
+    "supply_freshness": None,
     "active_demand_zones": 0.0,
     "active_supply_zones": 0.0,
-    "zone_friction_score": 0.0,
+    "zone_friction_score": None,
 }
 
-_BOS_FALLBACK: dict[str, float] = {
-    "bos_strength": 0.0,
-    "choch_strength": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): the strength of a break that never fired and a
+# right-censored bars-since count are None; the direction fields stay 0.0 (0 = no break /
+# neutral structure is a measured state).
+_BOS_FALLBACK: dict[str, float | None] = {
+    "bos_strength": None,
+    "choch_strength": None,
     "bos_direction": 0.0,
     "choch_direction": 0.0,
     "smc_trend_direction": 0.0,
-    "bars_since_last_shift": 0.0,
+    "bars_since_last_shift": None,
 }
 
 _AMD_PHASE_UNKNOWN = 0.0
@@ -751,7 +772,7 @@ def _compute_supply_demand_zones(
     config: FeatureFactoryConfig,
     fvg_midpoint: float,
     price_in_premium: float,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Supply/Demand Zones -- stateless Rally-Base-Drop/Drop-Base-Rally scan (Plan 04).
 
     Ports supply_demand_zones.py's geometry: an impulsive close-to-close move
@@ -778,8 +799,9 @@ def _compute_supply_demand_zones(
     in_demand_zone/in_supply_zone/nearest_*_high/low never leave this
     function (raw-price + redundant-strength-copy audit, 164-RESEARCH.md).
 
-    Falls back to _ZONE_FALLBACK (never raises, never NaN/Inf) when atr_val
-    is invalid or the window is too short to run the base+impulse scan.
+    Falls back to _ZONE_FALLBACK (never raises) when atr_val is invalid or the window is too
+    short to run the base+impulse scan; per-side fields are None when that side has no active
+    zone (D1 rule 2, todo 584 4b-2 group 4).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -891,41 +913,41 @@ def _compute_supply_demand_zones(
         age_penalty = max(age_floor, 1.0 - (age / age_window) * age_max_pct)
         return min(1.0, s * age_penalty)
 
-    demand_dist_atr = 0.0
-    demand_freshness = 0.0
+    demand_dist_atr: float | None = None
+    demand_freshness: float | None = None
     zf_demand: float | None = None
     if demand_zones:
         dz = demand_zones[0]
-        demand_dist_atr = _zone_dist(dz) / atr_val
-        demand_freshness = dz["freshness"]
+        demand_dist_atr = float(_zone_dist(dz) / atr_val)
+        demand_freshness = float(dz["freshness"])
         zf_demand = demand_freshness * _zone_strength(dz) * (1.0 / (1.0 + demand_dist_atr))
 
-    supply_dist_atr = 0.0
-    supply_freshness = 0.0
+    supply_dist_atr: float | None = None
+    supply_freshness: float | None = None
     zf_supply: float | None = None
     if supply_zones:
         sz = supply_zones[0]
-        supply_dist_atr = _zone_dist(sz) / atr_val
-        supply_freshness = sz["freshness"]
+        supply_dist_atr = float(_zone_dist(sz) / atr_val)
+        supply_freshness = float(sz["freshness"])
         zf_supply = supply_freshness * _zone_strength(sz) * (1.0 / (1.0 + supply_dist_atr))
 
     if zf_demand is not None and zf_supply is not None:
-        zone_friction_score = max(zf_demand, zf_supply)
+        zone_friction_score: float | None = float(max(zf_demand, zf_supply))
     elif zf_demand is not None:
-        zone_friction_score = zf_demand
+        zone_friction_score = float(zf_demand)
     elif zf_supply is not None:
-        zone_friction_score = zf_supply
+        zone_friction_score = float(zf_supply)
     else:
-        zone_friction_score = 0.0
+        zone_friction_score = None  # neither side has a zone: no object to score
 
     return {
-        "demand_dist_atr": float(demand_dist_atr),
-        "supply_dist_atr": float(supply_dist_atr),
-        "demand_freshness": float(demand_freshness),
-        "supply_freshness": float(supply_freshness),
+        "demand_dist_atr": demand_dist_atr,
+        "supply_dist_atr": supply_dist_atr,
+        "demand_freshness": demand_freshness,
+        "supply_freshness": supply_freshness,
         "active_demand_zones": float(len(demand_zones)),
         "active_supply_zones": float(len(supply_zones)),
-        "zone_friction_score": float(zone_friction_score),
+        "zone_friction_score": zone_friction_score,
     }
 
 
@@ -936,7 +958,7 @@ def _compute_bos_choch(
     close_: float,
     atr_val: float,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Break of Structure / Change of Character -- stateless swing-break scan (Plan 04).
 
     Ports bos_choch.py's geometry directly: the prevailing trend is read from
@@ -946,17 +968,17 @@ def _compute_bos_choch(
     last swing high (bullish, +1) or last swing low (bearish, -1). A CHoCH is
     a BOS whose direction opposes the prevailing trend. bos_strength/
     choch_strength keep the archived plugin's ATR-normalized break-distance
-    formula unchanged. bars_since_last_shift is new (not in the archived
-    output) -- causal bar count from the break bar to the current bar, 0.0
-    when no break is found in-window (same "absence has no defined age"
-    convention as resistance_age_bars/support_age_bars).
+    formula unchanged (None when that break never fired, D1 rule 2, todo 584
+    4b-2 group 4). bars_since_last_shift is new (not in the archived
+    output) -- causal bar count from the break bar to the current bar, None
+    when no break is found in-window ("absence has no defined age").
 
     The archived source's raw break-price field and its confidence field
     (byte-identical to bos_strength there) are both dropped per the
     field-by-field raw-price/redundancy audit -- neither is returned here.
 
-    Falls back to _BOS_FALLBACK (never raises, never NaN/Inf) when atr_val is
-    invalid or fewer than 2 swing highs/lows exist in-window.
+    Falls back to _BOS_FALLBACK (never raises) when atr_val is invalid or
+    fewer than 2 swing highs/lows exist in-window.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -988,31 +1010,31 @@ def _compute_bos_choch(
     check_from = max(swing_highs[-1], swing_lows[-1]) + 1
 
     bos_direction = 0.0
-    bos_strength = 0.0
+    bos_strength: float | None = None  # no break in-window -> no strength object
     shift_idx: int | None = None
     for i in range(check_from, n_bars):
         if c[i] > last_sh_price:
             bos_direction = 1.0
-            bos_strength = max(0.0, (float(c[i]) - last_sh_price) / atr_val)
+            bos_strength = float(max(0.0, (float(c[i]) - last_sh_price) / atr_val))
             shift_idx = i
             break
         if c[i] < last_sl_price:
             bos_direction = -1.0
-            bos_strength = max(0.0, (last_sl_price - float(c[i])) / atr_val)
+            bos_strength = float(max(0.0, (last_sl_price - float(c[i])) / atr_val))
             shift_idx = i
             break
 
     choch_direction = 0.0
-    choch_strength = 0.0
+    choch_strength: float | None = None  # only a fired CHoCH has a strength
     if bos_direction != 0.0 and trend != 0.0 and bos_direction != trend:
         choch_direction = bos_direction
         choch_strength = bos_strength
 
-    bars_since_last_shift = float(n_bars - 1 - shift_idx) if shift_idx is not None else 0.0
+    bars_since_last_shift = float(n_bars - 1 - shift_idx) if shift_idx is not None else None
 
     return {
-        "bos_strength": float(bos_strength),
-        "choch_strength": float(choch_strength),
+        "bos_strength": None if bos_strength is None else float(bos_strength),
+        "choch_strength": None if choch_strength is None else float(choch_strength),
         "bos_direction": float(bos_direction),
         "choch_direction": float(choch_direction),
         "smc_trend_direction": float(trend),

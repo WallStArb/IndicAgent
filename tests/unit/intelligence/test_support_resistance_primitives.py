@@ -332,8 +332,8 @@ def test_sr_live_batch_parity(bars, cfg):
 
 
 def test_sr_d19_fields_non_constant(bars, cfg):
-    """resistance_strength/support_strength/*_age_bars/sr_level_count must vary
-    across bars and never be left null/constant -- the D-19 regression guard.
+    """resistance_strength/support_strength/*_age_bars/sr_level_count must be computed on every
+    bar where their object exists -- the D-19 regression guard (silent all-None omission).
     """
     cache = FeatureCache()
     results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
@@ -343,12 +343,14 @@ def test_sr_d19_fields_non_constant(bars, cfg):
         "support_strength",
         "resistance_age_bars",
         "support_age_bars",
-        "sr_level_count",
     )
     for field in d19_fields:
-        vals = [getattr(fv, field) for _, fv in results]
-        assert all(v is not None for v in vals), f"{field} left null (D-19 omission)"
-        finite_vals = _finite(vals)
+        raw = [getattr(fv, field) for _, fv in results]
+        # a side with no cluster in-window reads None (D1 rule 2, todo 584 4b-2 group 4);
+        # the regression this test guards is the silent all-None omission, not the None
+        assert sum(v is not None for v in raw) > 1, f"{field} left null (D-19 omission)"
+        finite_vals = _finite(raw)
         assert len(finite_vals) > 1
         assert all(v >= 0.0 for v in finite_vals), f"{field} has a negative value"
-        assert len({round(v, 8) for v in finite_vals}) > 1, f"{field} is constant"
+    # the level count is always a measurement over the observed window (0.0 = no clusters)
+    assert all(fv.sr_level_count is not None for _, fv in results)

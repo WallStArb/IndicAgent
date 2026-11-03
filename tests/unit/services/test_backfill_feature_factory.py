@@ -808,9 +808,11 @@ class TestComputeBatchExternalInjection:
         assert any(v is not None for v in poc_dist_atr_vals), "VP still forced None in batch mode"
         va_position_vals = [fv.va_position for _, fv in results]
         assert all(v is not None and 0.0 <= v <= 1.0 for v in va_position_vals)
+        # SR rows hold either a measured distance or None (no cluster in window / warmup,
+        # D1 rule 2, todo 584 4b-2 group 4); this fixture's short series yields no cluster
         for _, fv in results:
-            assert math.isfinite(fv.sr_support_dist)
-            assert math.isfinite(fv.sr_resist_dist)
+            for dist in (fv.sr_support_dist, fv.sr_resist_dist):
+                assert dist is None or math.isfinite(dist)
 
     def test_live_path_unchanged_reads_from_cache(self) -> None:
         """When cross_asset_by_date=None (default), cache values flow into FeatureVector."""

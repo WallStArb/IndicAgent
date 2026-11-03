@@ -324,8 +324,13 @@ def test_bos_choch_fallback_on_invalid_atr(cfg):
     result = _compute_bos_choch(highs, lows, closes, 99.8, 0.0, cfg)
     assert result["bos_direction"] == 0.0
     assert result["smc_trend_direction"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    # no break fired: its strength and the right-censored bars-since are None
+    # (D1 rule 2, todo 584 4b-2 group 4); 0 direction is the measured no-break state
+    assert result["bos_strength"] is None
+    assert result["choch_strength"] is None
+    assert result["bars_since_last_shift"] is None
+    for key in ("bos_direction", "choch_direction", "smc_trend_direction"):
+        assert math.isfinite(result[key])
 
 
 def test_bos_choch_fallback_on_too_few_swings(cfg):
@@ -335,9 +340,8 @@ def test_bos_choch_fallback_on_too_few_swings(cfg):
 
     result = _compute_bos_choch(highs, lows, closes, 100.0, 1.0, cfg)
     assert result["bos_direction"] == 0.0
-    assert result["bars_since_last_shift"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    assert result["bars_since_last_shift"] is None
+    assert result["bos_strength"] is None
 
 
 # ---------------------------------------------------------------------------

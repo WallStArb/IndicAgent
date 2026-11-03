@@ -20,8 +20,11 @@ from typing import Any
 import pytest
 
 from src.observability.corpus_manifest_verifier import (
+    _ABSENCE_EXEMPT_TFS,
+    _FEATURE_COLUMNS,
     _LOOKAHEADS_BY_TF,
     CorpusManifestVerifier,
+    _check_feature_null_rates,
     _load_apr_values,
 )
 
@@ -268,3 +271,78 @@ class TestEarningsSeasonScopeExclusion:
         # Both checks share the same source blob; assert the exclusion appears at
         # least twice (once per check) rather than just once for either check alone.
         assert source.count("regime_scope <> 'earnings_season'") >= 2
+
+
+def _null_rate_conn(rows_by_tf: dict[str, dict[str, int]]):
+    """Feeds _check_feature_null_rates one precomputed null-count row per TF.
+
+    The gate's only per-TF input is the (tf, sample_size) params tuple on
+    execute; description is rebuilt from the row's keys exactly like a real
+    psycopg cursor so col_names zip matches.
+    """
+
+    class _Cur:
+        description: list[Any] = []
+        _values: tuple[int, ...] = ()
+
+        def __enter__(self) -> _Cur:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+        def execute(self, sql: str, params: Any = None) -> None:
+            row = rows_by_tf[params[0]]
+            self.description = [(name,) for name in row]
+            self._values = tuple(row.values())
+
+        def fetchone(self) -> tuple[int, ...]:
+            return self._values
+
+    class _Conn:
+        def cursor(self, **kwargs: Any) -> _Cur:
+            return _Cur()
+
+    return _Conn()
+
+
+def _null_row(total: int, **null_counts: int) -> dict[str, int]:
+    row: dict[str, int] = {"total_rows": total}
+    for col in _FEATURE_COLUMNS:
+        row[f"null_{col}"] = null_counts.get(col, 0)
+    return row
+
+
+class TestFeatureNullRateGateTiers:
+    """D1 rule 2 (todo 584 4b-2 group 4) made object-existence columns None
+    wherever their object does not exist, so the strict max_null_rate tier
+    would fail honest data (session-VP columns are 100% NULL on 1d by design).
+    The gate is two-tier: strict columns keep max_null_rate; absence-legit
+    columns are only checked against being ENTIRELY NULL on a TF where the
+    object can exist, and skipped on their _ABSENCE_EXEMPT_TFS TFs."""
+
+    def test_1d_session_columns_entirely_null_pass(self) -> None:
+        conn = _null_rate_conn(
+            {"1d": _null_row(100, poc_dist_atr=100, va_position=100, sr_support_dist=60)}
+        )
+        _check_feature_null_rates(conn, ["1d"], 0.05, 10000)  # must not raise
+
+    def test_absence_legit_column_entirely_null_on_live_tf_fails(self) -> None:
+        conn = _null_rate_conn({"5m": _null_row(100, poc_dist_atr=100, sr_support_dist=100)})
+        with pytest.raises(RuntimeError, match="poc_dist_atr.*entirely NULL"):
+            _check_feature_null_rates(conn, ["5m"], 0.05, 10000)
+
+    def test_strict_tier_unchanged_and_partial_absence_nulls_pass(self) -> None:
+        # momentum_z_fast at 6% breaches the strict tier; sr_resist_dist at 50%
+        # is honest absence (D1 rule 2) and must NOT fire.
+        conn = _null_rate_conn({"5m": _null_row(100, momentum_z_fast=6, sr_resist_dist=50)})
+        with pytest.raises(RuntimeError) as excinfo:
+            _check_feature_null_rates(conn, ["5m"], 0.05, 10000)
+        assert "momentum_z_fast" in str(excinfo.value)
+        assert "sr_resist_dist" not in str(excinfo.value)
+
+    def test_every_exempt_tf_is_a_tf_the_object_cannot_exist_on(self) -> None:
+        # the exemption map must stay consistent with the columns actually present
+        # in _FEATURE_COLUMNS -- a retired column left in the map silently drops
+        # its strict-tier check entirely.
+        assert set(_ABSENCE_EXEMPT_TFS) <= set(_FEATURE_COLUMNS)

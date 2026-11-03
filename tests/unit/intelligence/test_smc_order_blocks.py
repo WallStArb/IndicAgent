@@ -428,9 +428,16 @@ def test_compute_batch_produces_non_constant_ob_fields(cfg):
     assert len(results) == len(bars) - 1
 
     for field in ("ob_bull_dist_atr", "ob_strength"):
-        vals = _finite([getattr(fv, field) for _, fv in results])
+        raw = [getattr(fv, field) for _, fv in results]
+        vals = _finite(raw)
         assert len(vals) > 1
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"
+        # warmup rows hold no order block: None, never a fabricated 0.0 that would fake
+        # variance (D1 rule 2, todo 584 4b-2 group 4); a constant measured value (one OB,
+        # one strength) is the true reading, not a freeze
+        assert any(v is None for v in raw), f"{field} warmup rows must be None"
+    assert (
+        len({round(v, 8) for v in _finite([fv.ob_bull_dist_atr for _, fv in results])}) > 1
+    ), "ob_bull_dist_atr is constant across compute_batch()"
 
     # The final bar (the retest) must show an active breaker, matching compute().
     _, fv_last = results[-1]

@@ -76,6 +76,44 @@ def test_sr_memory_follows_the_default_lookback_the_compute_uses(monkeypatch):
 
 
 def test_none_free_groups_stay_non_nullable():
-    for group in (smc.OB, smc.FVG, smc.SWEEP, smc.POOL, smc.ZONE, smc.BOS, smc.AMD, vp_sr.SR):
-        assert group.nullable == frozenset()
+    # every group that graduated to nullable did so key-by-key under D1 rule 2 (todo 584
+    # 4b-2 group 4: object-absent outputs are None); the flags/counts/intermediates that
+    # remain none-free are pinned exactly here
+    assert smc.OB.nullable == frozenset(
+        {
+            "ob_bull_dist_atr",
+            "ob_bear_dist_atr",
+            "ob_strength",
+            "breaker_dist_atr",
+            "ob_mitigation_pct",
+        }
+    )
+    assert smc.FVG.nullable == frozenset({"fvg_dist_atr", "fvg_size_atr"})
+    assert smc.SWEEP.nullable == frozenset(
+        {"sweep_strength", "reclaim_velocity", "bars_since_last_sweep"}
+    )
+    assert smc.POOL.nullable == frozenset({"bsl_dist_atr", "ssl_dist_atr"})
+    assert smc.ZONE.nullable == frozenset(
+        {
+            "demand_dist_atr",
+            "supply_dist_atr",
+            "demand_freshness",
+            "supply_freshness",
+            "zone_friction_score",
+        }
+    )
+    assert smc.BOS.nullable == frozenset(
+        {"bos_strength", "choch_strength", "bars_since_last_shift"}
+    )
+    assert smc.AMD.nullable == frozenset()  # retires whole in todo 584 item 6 (D5)
+    assert vp_sr.SR.nullable == frozenset(
+        {
+            "sr_support_dist",
+            "sr_resist_dist",
+            "resistance_strength",
+            "support_strength",
+            "resistance_age_bars",
+            "support_age_bars",
+        }
+    )
     assert len(np.unique(vp_sr.SWING_STRUCTURE.keys)) == len(vp_sr.SWING_STRUCTURE.keys)

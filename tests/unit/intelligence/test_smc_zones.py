@@ -452,8 +452,15 @@ def test_zones_fallback_on_invalid_atr(cfg):
     result = _compute_supply_demand_zones(opens, highs, lows, closes, close_, 0.0, cfg, 0.0, 0.0)
     assert result["active_demand_zones"] == 0.0
     assert result["active_supply_zones"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    # no zone exists: its distance/freshness/friction are None (D1 rule 2, todo 584 4b-2 g4)
+    for key in (
+        "demand_dist_atr",
+        "supply_dist_atr",
+        "demand_freshness",
+        "supply_freshness",
+        "zone_friction_score",
+    ):
+        assert result[key] is None
 
 
 def test_zones_fallback_on_short_window(cfg):
@@ -463,8 +470,7 @@ def test_zones_fallback_on_short_window(cfg):
     closes = np.array([100.0, 100.5, 100.2])
     result = _compute_supply_demand_zones(opens, highs, lows, closes, 100.2, 1.0, cfg, 0.0, 0.0)
     assert result["active_demand_zones"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    assert result["zone_friction_score"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -496,9 +502,12 @@ def test_compute_batch_produces_non_constant_zone_fields(cfg):
     assert len(results) == len(bars) - 1
 
     for field in ("demand_dist_atr", "demand_freshness"):
-        vals = _finite([getattr(fv, field) for _, fv in results])
+        raw = [getattr(fv, field) for _, fv in results]
+        vals = _finite(raw)
         assert len(vals) > 1
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"
+        # no-zone rows are None (D1 rule 2, todo 584 4b-2 group 4); a constant measured
+        # freshness (never-retested zone = 1.0) is the true reading, not a freeze
+        assert any(v is None for v in raw), f"{field} no-zone rows must be None"
 
 
 def test_zones_compute_live_batch_parity(cfg):

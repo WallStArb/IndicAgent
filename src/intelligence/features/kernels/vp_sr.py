@@ -42,19 +42,21 @@ if TYPE_CHECKING:
 # Session Volume Profile — ATR-normalized output derivation (Phase 163 Plan 02)
 # ---------------------------------------------------------------------------
 
-# The 14 VP FeatureVector fields and the value each takes where the profile cannot be derived
-# (poc_dist_atr and va_position keep their pre-existing 0.0/0.5 neutral convention, the two flags
-# are 0.0, the rest None). The kernel's key set comes from here. On a daily bar every one is
-# undefined by declaration (`not_applicable` on the session_vp kernel): `compute_kernels` writes NaN.
+# The 14 VP FeatureVector fields and the value each takes where the profile cannot be derived:
+# every one is None (D1 rules 1-2, todo 584 4b-2 group 4 -- the distance/position of a value
+# area that does not exist is undefined, and the two flags read on the missing profile as None
+# too, never a fabricated 0.0/0.5). The kernel's key set comes from here. On a daily bar every
+# one is undefined by declaration (`not_applicable` on the session_vp kernel): `compute_kernels`
+# writes NaN.
 _NEUTRAL_VP_EXTRA: dict[str, float | None] = {
-    "poc_dist_atr": 0.0,
-    "va_position": 0.5,
+    "poc_dist_atr": None,
+    "va_position": None,
     "nearest_hvn_above_dist_atr": None,
     "nearest_hvn_below_dist_atr": None,
     "nearest_lvn_above_dist_atr": None,
     "nearest_lvn_below_dist_atr": None,
-    "price_in_value_area": 0.0,
-    "in_lvn": 0.0,
+    "price_in_value_area": None,
+    "in_lvn": None,
     "va_width_atr": None,
     "distance_to_vah_atr": None,
     "distance_to_val_atr": None,
@@ -115,25 +117,28 @@ def _derive_session_vp(
     Reads FeatureCache's raw session levels (set by update_session_vp(), called
     once per bar by the caller before compute()/inside compute_batch()'s loop)
     plus the compute-path atr_val -- no raw price level is ever returned or
-    persisted (D-16). poc_dist_atr/va_position fall back to the legacy neutral
-    defaults (0.0/0.5) when session state or atr_val is unavailable (cold
-    start / degenerate histogram / atr_val invalid per _is_valid_atr, i.e.
-    <= 0 or below config.atr_normalization_min_pct of close_ -- todo 237),
-    matching the pre-existing tf=='1d' convention. The 12 new fields fall
-    back to None in the same conditions -- they are brand-new columns with
-    no legacy default to preserve. price_in_value_area/in_lvn are already-bounded 0/1 flags on the
-    cache and need no ATR normalization.
+    persisted (D-16). Every field falls back to None when its object does not
+    exist or atr_val is unavailable (cold start / degenerate histogram / atr_val
+    invalid per _is_valid_atr, i.e. <= 0 or below
+    config.atr_normalization_min_pct of close_ -- todo 237; D1 rules 1-2, todo
+    584 4b-2 group 4): poc_dist_atr needs a POC, va_position a value area with
+    nonzero width, and price_in_value_area/in_lvn a live histogram (the cache's
+    0.0 reset defaults are internal state, read back as None here). Where the
+    objects exist, price_in_value_area/in_lvn are already-bounded 0/1 flags and
+    need no ATR normalization.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
 
     poc = cache._sess_poc
     vah = cache._sess_vah
     val = cache._sess_val
+    va_exists = vah is not None and val is not None
 
-    poc_dist_atr = 0.0 if poc is None or not atr_valid else (close_ - poc) / atr_val
+    poc_dist_atr: float | None = None if poc is None or not atr_valid else (close_ - poc) / atr_val
 
-    if val is None or vah is None or (vah - val) == 0:
-        va_position = 0.5
+    va_position: float | None
+    if not va_exists or (vah - val) == 0:
+        va_position = None  # no value area, or one of zero width: no position
     else:
         va_position = float(np.clip((close_ - val) / (vah - val), 0.0, 1.0))
 
@@ -161,8 +166,8 @@ def _derive_session_vp(
     distance_to_vah_atr = _above(vah)
     distance_to_val_atr = _below(val)
 
-    price_in_value_area = cache._sess_price_in_va
-    in_lvn = cache._sess_in_lvn
+    price_in_value_area: float | None = cache._sess_price_in_va if va_exists else None
+    in_lvn: float | None = cache._sess_in_lvn if va_exists else None
 
     if poc_price_rolling is None or not atr_valid:
         poc_rolling_dist_atr: float | None = None
@@ -197,13 +202,15 @@ def _derive_session_vp(
 # Support/Resistance — stateless pivot-clustering (Phase 163 Plan 03)
 # ---------------------------------------------------------------------------
 
-_SR_FALLBACK: dict[str, float] = {
-    "sr_support_dist": 0.0,
-    "sr_resist_dist": 0.0,
-    "resistance_strength": 0.0,
-    "support_strength": 0.0,
-    "resistance_age_bars": 0.0,
-    "support_age_bars": 0.0,
+# D1 rule 2 (todo 584 4b-2 group 4): a side's distance/strength/age are None when that side
+# has no qualifying cluster; the level count stays 0.0 (a count over the observed window).
+_SR_FALLBACK: dict[str, float | None] = {
+    "sr_support_dist": None,
+    "sr_resist_dist": None,
+    "resistance_strength": None,
+    "support_strength": None,
+    "resistance_age_bars": None,
+    "support_age_bars": None,
     "sr_level_count": 0.0,
 }
 
@@ -265,7 +272,7 @@ def _compute_sr_dist_atr(
     volume: np.ndarray,
     tf: str,
     config: FeatureFactoryConfig,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Stateless inline support/resistance (D-02/D-04), ATR-normalized (D-19).
 
     Ports i3_structure/support_resistance.py's pivot-clustering approach
@@ -277,11 +284,12 @@ def _compute_sr_dist_atr(
     resistance_age_bars/support_age_bars/sr_level_count come from the SAME
     cluster objects, at effectively zero extra cost (D-19).
 
-    Falls back to all-zero for any side/field when atr_val is invalid per
+    Falls back to None for any side/field when atr_val is invalid per
     _is_valid_atr (<= 0 or below config.atr_normalization_min_pct of close_
     -- todo 237), the window has insufficient bars for find_peaks/
-    find_troughs, or no qualifying pivot cluster exists on that side --
-    never raises.
+    find_troughs, or no qualifying pivot cluster exists on that side (D1
+    rule 2, todo 584 4b-2 group 4: the distance/strength/age of a level
+    that does not exist is undefined) -- never raises.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
@@ -320,18 +328,18 @@ def _compute_sr_dist_atr(
         resistance_strength = float(nearest_r["strength"])
         resistance_age_bars = float(n_bars - 1 - nearest_r["latest_idx"])
     else:
-        sr_resist_dist = 0.0
-        resistance_strength = 0.0
-        resistance_age_bars = 0.0
+        sr_resist_dist = None
+        resistance_strength = None
+        resistance_age_bars = None
 
     if nearest_s is not None:
         sr_support_dist = (close_ - nearest_s["level"]) / atr_val
         support_strength = float(nearest_s["strength"])
         support_age_bars = float(n_bars - 1 - nearest_s["latest_idx"])
     else:
-        sr_support_dist = 0.0
-        support_strength = 0.0
-        support_age_bars = 0.0
+        sr_support_dist = None
+        support_strength = None
+        support_age_bars = None
 
     return {
         "sr_support_dist": sr_support_dist,
@@ -348,10 +356,10 @@ def _compute_sr_dist_atr(
 # Swing / Trend Structure — stateless pivot geometry (Phase 165 Plan 02)
 # ---------------------------------------------------------------------------
 
-# Deliberately NOT modelled on _SR_FALLBACK's all-zero dict: 0.0 is a
-# legitimate "no level found" value for S/R distances, but a numeric
-# placeholder for a swing classification or trend position is a fake
-# measurement (D-01, the todo-153 failure shape). Every field here is None.
+# Same no-object convention as _SR_FALLBACK (todo 584 4b-2 group 4), stated for a different
+# failure shape (D-01, todo 153): a numeric placeholder for a swing classification or trend
+# position reads as a real measurement ("no trend" / "exactly mid-range") instead of "couldn't
+# measure". Every field here is None.
 _SWING_FALLBACK: dict[str, float | None] = {
     "swing_high_dist_atr": None,
     "swing_low_dist_atr": None,
@@ -996,11 +1004,11 @@ def _compute_fib_zones(
 # Session Levels — FeatureCache-derived price geometry (Phase 165 Plan 05)
 # ---------------------------------------------------------------------------
 
-# D-01: every one of these 16 columns is None on cold/degenerate state, unlike
-# _NEUTRAL_VP_EXTRA (which preserves two legacy 0.0/0.5 neutral defaults for
-# pre-existing consumers). None of these sixteen columns has a legacy default
-# to preserve -- they are brand-new Phase 165 columns -- so every one falls
-# back to None, matching migration 267's COMMENT ON COLUMN NULL conditions.
+# D-01: every one of these 16 columns is None on cold/degenerate state, same
+# convention as _NEUTRAL_VP_EXTRA since todo 584 4b-2 group 4 (D1 rule 2).
+# None of these sixteen columns has a legacy default to preserve -- they are
+# brand-new Phase 165 columns -- so every one falls back to None, matching
+# migration 267's COMMENT ON COLUMN NULL conditions.
 _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
     "prior_session_high_dist_atr": None,
     "prior_session_low_dist_atr": None,

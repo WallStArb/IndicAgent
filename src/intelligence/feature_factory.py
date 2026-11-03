@@ -1803,8 +1803,9 @@ def _build_feature_vector(
 ) -> FeatureVector:
     return FeatureVector(
         # The rule-5 columns (z-scores, RSI, the products reading them) are missing (None) on a
-        # window that does not define them, never a neutral fill; the remaining _guard columns
-        # are quantities whose neutral is a measured value and whose kernel unit is todo 584 4b.
+        # window that does not define them, never a neutral fill; so are the smc/vp_sr no-object
+        # columns (todo 584 4b-2 group 4). The remaining _guard columns are quantities whose 0.0
+        # is a measured value (event flags, counts, directions; zero_is_state in 4c).
         momentum_z_fast=_missing_if_nan(momentum_z_fast),
         momentum_z_mid=_missing_if_nan(momentum_z_mid),
         range_position=_missing_if_nan(range_position),
@@ -1822,26 +1823,26 @@ def _build_feature_vector(
         vwap_dev_sigma=_guard(vwap_dev_sigma),
         atr_z=_missing_if_nan(atr_z),
         vol_ratio=_guard(vol_ratio, 1.0),
-        poc_dist_atr=_guard(poc_dist_atr),
-        va_position=_guard(va_position, 0.5),
-        sr_support_dist=_guard(sr_support_dist),
-        sr_resist_dist=_guard(sr_resist_dist),
+        poc_dist_atr=_missing_if_nan(poc_dist_atr),
+        va_position=_missing_if_nan(va_position),
+        sr_support_dist=_missing_if_nan(sr_support_dist),
+        sr_resist_dist=_missing_if_nan(sr_resist_dist),
         nearest_hvn_above_dist_atr=_guard(nearest_hvn_above_dist_atr),
         nearest_hvn_below_dist_atr=_guard(nearest_hvn_below_dist_atr),
         nearest_lvn_above_dist_atr=_guard(nearest_lvn_above_dist_atr),
         nearest_lvn_below_dist_atr=_guard(nearest_lvn_below_dist_atr),
-        price_in_value_area=_guard(price_in_value_area),
-        in_lvn=_guard(in_lvn),
+        price_in_value_area=_missing_if_nan(price_in_value_area),
+        in_lvn=_missing_if_nan(in_lvn),
         va_width_atr=_guard(va_width_atr),
         distance_to_vah_atr=_guard(distance_to_vah_atr),
         distance_to_val_atr=_guard(distance_to_val_atr),
         nearest_hvn_dist_atr=_guard(nearest_hvn_dist_atr),
         poc_rolling_dist_atr=_guard(poc_rolling_dist_atr),
         poc_session_rolling_divergence_atr=_guard(poc_session_rolling_divergence_atr),
-        resistance_strength=_guard(resistance_strength),
-        support_strength=_guard(support_strength),
-        resistance_age_bars=_guard(resistance_age_bars),
-        support_age_bars=_guard(support_age_bars),
+        resistance_strength=_missing_if_nan(resistance_strength),
+        support_strength=_missing_if_nan(support_strength),
+        resistance_age_bars=_missing_if_nan(resistance_age_bars),
+        support_age_bars=_missing_if_nan(support_age_bars),
         sr_level_count=_guard(sr_level_count),
         hmm_regime_prob=_guard(hmm_regime_prob),
         hmm_entropy=_guard(hmm_entropy),
@@ -2117,38 +2118,41 @@ def _build_feature_vector(
         canary_constant=_guard(canary_constant, _CANARY_CONSTANT_VALUE),
         canary_near_constant=_guard(canary_near_constant, _CANARY_CONSTANT_VALUE),
         canary_acausal_placebo=_guard(canary_acausal_placebo, 0.0),
-        ob_bull_dist_atr=_guard(ob_bull_dist_atr),
-        ob_bear_dist_atr=_guard(ob_bear_dist_atr),
-        ob_strength=_guard(ob_strength),
+        # SMC no-object columns are missing (None) where the object does not exist, never a
+        # fabricated 0.0; flags, counts and direction fields keep _guard (0.0 is their measured
+        # state, zero_is_state in 4c) (D1 rule 2, todo 584 4b-2 group 4).
+        ob_bull_dist_atr=_missing_if_nan(ob_bull_dist_atr),
+        ob_bear_dist_atr=_missing_if_nan(ob_bear_dist_atr),
+        ob_strength=_missing_if_nan(ob_strength),
         ob_mitigated_flag=_guard(ob_mitigated_flag),
-        breaker_dist_atr=_guard(breaker_dist_atr),
+        breaker_dist_atr=_missing_if_nan(breaker_dist_atr),
         breaker_block_active=_guard(breaker_block_active),
-        ob_mitigation_pct=_guard(ob_mitigation_pct),
-        fvg_dist_atr=_guard(fvg_dist_atr),
-        fvg_size_atr=_guard(fvg_size_atr),
+        ob_mitigation_pct=_missing_if_nan(ob_mitigation_pct),
+        fvg_dist_atr=_missing_if_nan(fvg_dist_atr),
+        fvg_size_atr=_missing_if_nan(fvg_size_atr),
         fvg_open_count=_guard(fvg_open_count),
         sweep_detected=_guard(sweep_detected),
-        sweep_strength=_guard(sweep_strength),
-        reclaim_velocity=_guard(reclaim_velocity),
-        bars_since_last_sweep=_guard(bars_since_last_sweep),
-        bsl_dist_atr=_guard(bsl_dist_atr),
-        ssl_dist_atr=_guard(ssl_dist_atr),
+        sweep_strength=_missing_if_nan(sweep_strength),
+        reclaim_velocity=_missing_if_nan(reclaim_velocity),
+        bars_since_last_sweep=_missing_if_nan(bars_since_last_sweep),
+        bsl_dist_atr=_missing_if_nan(bsl_dist_atr),
+        ssl_dist_atr=_missing_if_nan(ssl_dist_atr),
         bsl_touches=_guard(bsl_touches),
         ssl_touches=_guard(ssl_touches),
         pool_count=_guard(pool_count),
-        demand_dist_atr=_guard(demand_dist_atr),
-        supply_dist_atr=_guard(supply_dist_atr),
-        demand_freshness=_guard(demand_freshness),
-        supply_freshness=_guard(supply_freshness),
+        demand_dist_atr=_missing_if_nan(demand_dist_atr),
+        supply_dist_atr=_missing_if_nan(supply_dist_atr),
+        demand_freshness=_missing_if_nan(demand_freshness),
+        supply_freshness=_missing_if_nan(supply_freshness),
         active_demand_zones=_guard(active_demand_zones),
         active_supply_zones=_guard(active_supply_zones),
-        zone_friction_score=_guard(zone_friction_score),
-        bos_strength=_guard(bos_strength),
-        choch_strength=_guard(choch_strength),
+        zone_friction_score=_missing_if_nan(zone_friction_score),
+        bos_strength=_missing_if_nan(bos_strength),
+        choch_strength=_missing_if_nan(choch_strength),
         bos_direction=_guard(bos_direction),
         choch_direction=_guard(choch_direction),
         smc_trend_direction=_guard(smc_trend_direction),
-        bars_since_last_shift=_guard(bars_since_last_shift),
+        bars_since_last_shift=_missing_if_nan(bars_since_last_shift),
         amd_phase=_guard(amd_phase),
         amd_manipulation_detected=_guard(amd_manipulation_detected),
         amd_distribution_direction=_guard(amd_distribution_direction),
@@ -2167,12 +2171,12 @@ def _merge_structural_fields(
     swing_momentum_fields: dict[str, float | None],
     fib_fields: dict[str, float | None],
     session_level_fields: dict[str, float | None],
-    ob_fields: dict[str, float],
-    fvg_fields: dict[str, float],
-    sweep_fields: dict[str, float],
-    pool_fields: dict[str, float],
-    zone_fields: dict[str, float],
-    bos_fields: dict[str, float],
+    ob_fields: dict[str, float | None],
+    fvg_fields: dict[str, float | None],
+    sweep_fields: dict[str, float | None],
+    pool_fields: dict[str, float | None],
+    zone_fields: dict[str, float | None],
+    bos_fields: dict[str, float | None],
     amd_fields: dict[str, float],
 ) -> dict[str, float | None]:
     """Merge the 14 Phase 163-165 structural/SMC field dicts into one.
@@ -3590,17 +3594,10 @@ def _cold_start_vector(
     has no config dependency and computes a real value whenever bar_ts is
     available, same as opex_flag/quad_witching_flag.
     """
-    if tf == "1d":
-        poc_dist_atr = 0.0
-        va_position = 0.5
-        sr_support_dist = 0.0
-        sr_resist_dist = 0.0
-    else:
-        poc_dist_atr = cache.poc_dist_atr
-        va_position = cache.va_position
-        sr_support_dist = cache.sr_support_dist
-        sr_resist_dist = cache.sr_resist_dist
-
+    # Cold start has no bar history: no session profile and no pivot clusters have ever
+    # formed, so the four legacy VP/SR columns are None like their 12+5 structural siblings
+    # (D1 rule 2, todo 584 4b-2 group 4) -- the cache's 0.0/0.5 defaults are internal state,
+    # not measurements.
     return FeatureVector(
         momentum_z_fast=0.0,
         momentum_z_mid=0.0,
@@ -3619,10 +3616,10 @@ def _cold_start_vector(
         vwap_dev_sigma=0.0,
         atr_z=0.0,
         vol_ratio=1.0,
-        poc_dist_atr=poc_dist_atr,
-        va_position=va_position,
-        sr_support_dist=sr_support_dist,
-        sr_resist_dist=sr_resist_dist,
+        poc_dist_atr=None,
+        va_position=None,
+        sr_support_dist=None,
+        sr_resist_dist=None,
         # Structural VP/SR (17, Phase 163 Plan 02): cold start (len(bars) < 2)
         # has no bar history, so no session has ever accumulated -- neutral
         # None for all 12 new fields is correct here, not a placeholder.

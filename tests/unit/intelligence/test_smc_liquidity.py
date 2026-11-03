@@ -290,8 +290,11 @@ def test_no_sweep_in_window_never_nan(cfg):
     fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
 
     assert fv.sweep_detected == 0.0
-    assert fv.bars_since_last_sweep is not None
-    assert math.isfinite(fv.bars_since_last_sweep)
+    # no sweep ever detected in-window: the count is right-censored to None, never 0.0
+    # ("absence has no defined age", D1 rule 2, todo 584 4b-2 group 4)
+    assert fv.bars_since_last_sweep is None
+    assert fv.sweep_strength is None
+    assert fv.reclaim_velocity is None
 
 
 # ---------------------------------------------------------------------------
@@ -354,9 +357,12 @@ def test_sweeps_fallback_on_invalid_atr():
 
     result = _compute_liquidity_sweeps(highs, lows, closes, 99.8, 0.0, _make_cfg())
     assert result["sweep_detected"] == 0.0
-    assert result["bars_since_last_sweep"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    # no object exists: the strength/velocity/age of a sweep that never happened are None
+    # (D1 rule 2, todo 584 4b-2 group 4), never a fabricated 0.0
+    assert result["bars_since_last_sweep"] is None
+    assert result["sweep_strength"] is None
+    assert result["reclaim_velocity"] is None
+    assert math.isfinite(result["sweep_detected"])
 
 
 def test_pools_fallback_on_invalid_atr():
@@ -368,10 +374,10 @@ def test_pools_fallback_on_invalid_atr():
 
     result = _compute_liquidity_pools(highs, lows, closes, 99.8, 0.0, _make_cfg())
     assert result["pool_count"] == 0.0
-    assert result["bsl_dist_atr"] == 0.0
-    assert result["ssl_dist_atr"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    assert result["bsl_dist_atr"] is None  # no pool level: no distance (todo 584 4b-2 g4)
+    assert result["ssl_dist_atr"] is None
+    for key in ("bsl_touches", "ssl_touches", "pool_count", "price_in_premium"):
+        assert math.isfinite(result[key])
 
 
 def test_sweeps_fallback_on_short_window():
@@ -383,8 +389,8 @@ def test_sweeps_fallback_on_short_window():
 
     result = _compute_liquidity_sweeps(highs, lows, closes, 100.5, 1.0, _make_cfg())
     assert result["sweep_detected"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    assert result["sweep_strength"] is None
+    assert result["bars_since_last_sweep"] is None
 
 
 def test_pools_fallback_on_short_window():
@@ -396,8 +402,8 @@ def test_pools_fallback_on_short_window():
 
     result = _compute_liquidity_pools(highs, lows, closes, 100.5, 1.0, _make_cfg())
     assert result["pool_count"] == 0.0
-    for v in result.values():
-        assert math.isfinite(v)
+    assert result["bsl_dist_atr"] is None
+    assert result["ssl_dist_atr"] is None
 
 
 # ---------------------------------------------------------------------------

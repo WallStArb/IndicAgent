@@ -723,10 +723,12 @@ class TestSessionPrimitives:
         cache_clean = _make_cache()
         fv_clean = FeatureFactory.compute(bars, "SPY", "1m", cache_clean, config)
 
+        # this fixture has a support cluster but no resistance above the final close, so
+        # sr_resist_dist is None in both runs (no object, D1 rule 2, todo 584 4b-2 group 4)
         assert math.isfinite(fv_with_stub.sr_support_dist)
-        assert math.isfinite(fv_with_stub.sr_resist_dist)
+        assert fv_with_stub.sr_resist_dist is None
         assert math.isclose(fv_with_stub.sr_support_dist, fv_clean.sr_support_dist, abs_tol=1e-9)
-        assert math.isclose(fv_with_stub.sr_resist_dist, fv_clean.sr_resist_dist, abs_tol=1e-9)
+        assert fv_with_stub.sr_resist_dist is fv_clean.sr_resist_dist
 
     def test_1d_tf_vp_features_are_defaults(self) -> None:
         """For tf='1d', VP session-level features must be zero/0.5 (a single
@@ -741,8 +743,8 @@ class TestSessionPrimitives:
         cache.poc_dist_atr = 2.0
         cache.va_position = 0.8
         fv = FeatureFactory.compute(bars, "SPY", "1d", cache, config)
-        assert fv.poc_dist_atr == 0.0
-        assert fv.va_position == 0.5
+        assert fv.poc_dist_atr is None
+        assert fv.va_position is None
 
     def test_vwap_dev_sigma_finite(self) -> None:
         bars = _make_bars(60)
@@ -1224,6 +1226,80 @@ def test_bars_since_event_columns_right_censored() -> None:
     assert fv.bars_since_vol_spike_slow is None
     assert fv.bars_since_high_fast == 0.0
     assert fv.bars_since_low_fast == 0.0
+
+
+_NO_OBJECT_COLUMNS = (
+    "sr_resist_dist",
+    "sr_support_dist",
+    "resistance_strength",
+    "support_strength",
+    "resistance_age_bars",
+    "support_age_bars",
+    "poc_dist_atr",
+    "va_position",
+    "price_in_value_area",
+    "in_lvn",
+    "ob_bull_dist_atr",
+    "ob_bear_dist_atr",
+    "ob_strength",
+    "ob_mitigation_pct",
+    "breaker_dist_atr",
+    "fvg_dist_atr",
+    "fvg_size_atr",
+    "sweep_strength",
+    "reclaim_velocity",
+    "bars_since_last_sweep",
+    "bsl_dist_atr",
+    "ssl_dist_atr",
+    "demand_dist_atr",
+    "supply_dist_atr",
+    "demand_freshness",
+    "supply_freshness",
+    "zone_friction_score",
+    "bos_strength",
+    "choch_strength",
+    "bars_since_last_shift",
+)
+
+# flags/counts/directions whose 0.0 is a measured state on the same flat series (the
+# zero_is_state class, declared in 4c)
+_ZERO_STATE_COLUMNS = (
+    "sr_level_count",
+    "ob_mitigated_flag",
+    "breaker_block_active",
+    "fvg_open_count",
+    "sweep_detected",
+    "bsl_touches",
+    "ssl_touches",
+    "pool_count",
+    "active_demand_zones",
+    "active_supply_zones",
+    "bos_direction",
+    "choch_direction",
+    "smc_trend_direction",
+)
+
+
+def test_no_object_columns_are_none_on_flat_series() -> None:
+    """todo 584 4b-2 group 4 (rule 2): the distance/strength/age/position of an SMC/VP/SR
+    object that does not exist is None on a flat series, never a fabricated 0.0/0.5; the
+    flags, counts and direction fields stay the measured 0.0."""
+    bars = [
+        {
+            "ts": datetime(2026, 1, 2, 9, 30, i, tzinfo=UTC),
+            "open": 100.0,
+            "high": 100.0,
+            "low": 100.0,
+            "close": 100.0,
+            "volume": 1000.0,
+        }
+        for i in range(60)
+    ]
+    fv = FeatureFactory.compute(bars, "SPY", "1m", _make_cache(), _make_config())
+    for name in _NO_OBJECT_COLUMNS:
+        assert getattr(fv, name) is None, f"{name} must be None with no object in window"
+    for name in _ZERO_STATE_COLUMNS:
+        assert getattr(fv, name) == 0.0, f"{name} keeps its measured 0.0 on a flat series"
     assert fv.bars_since_52w_high == 0.0
 
 

@@ -344,10 +344,15 @@ def test_compute_batch_produces_non_constant_fvg_fields(cfg):
     results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
     assert len(results) == len(bars) - 1
 
-    for field in ("fvg_size_atr", "fvg_open_count"):
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"
+    # the count is measured on every row (0.0 = no open gap); the size exists only while
+    # the gap is open -- exactly one row in this filled-gap fixture -- and is None (never a
+    # fabricated 0.0) everywhere else (D1 rule 2, todo 584 4b-2 group 4)
+    assert len(_finite([fv.fvg_open_count for _, fv in results])) > 1
+    assert len(_finite([fv.fvg_size_atr for _, fv in results])) >= 1
+    assert any(fv.fvg_size_atr is None for _, fv in results)
+    assert (
+        len({round(v, 8) for v in _finite([fv.fvg_open_count for _, fv in results])}) > 1
+    ), "fvg_open_count is constant across compute_batch()"
 
 
 def test_fvg_compute_live_batch_parity(cfg):
