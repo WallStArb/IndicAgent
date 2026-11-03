@@ -394,9 +394,11 @@ def nullable_keys(fallback: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(key for key, value in fallback.items() if value is None)
 
 
-def undefined_on(tf: str, outputs: Sequence[str]) -> dict[str, frozenset[str]]:
-    """A `Kernel.not_applicable` declaration: every output in `outputs` is undefined on `tf`."""
-    return {name: frozenset((tf,)) for name in outputs}
+def undefined_on(tf: str | Sequence[str], outputs: Sequence[str]) -> dict[str, frozenset[str]]:
+    """A `Kernel.not_applicable` declaration: every output in `outputs` is undefined on `tf` (one
+    timeframe, or several)."""
+    tfs = frozenset((tf,) if isinstance(tf, str) else tf)
+    return {name: tfs for name in outputs}
 
 
 class KeyGroup(NamedTuple):

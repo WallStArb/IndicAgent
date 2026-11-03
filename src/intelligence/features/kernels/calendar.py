@@ -416,10 +416,7 @@ KERNELS = (
         # bars the minute is constant :00, so the minute encodings carry no information there
         not_applicable={
             **undefined_on("1d", ("hour_of_day_sin", "hour_of_day_cos")),
-            **{
-                name: frozenset({"1d", "1h"})
-                for name in ("minute_of_hour_sin", "minute_of_hour_cos")
-            },
+            **undefined_on(("1d", "1h"), ("minute_of_hour_sin", "minute_of_hour_cos")),
         },
     ),
     Kernel(

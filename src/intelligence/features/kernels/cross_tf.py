@@ -24,7 +24,6 @@ from src.intelligence.features.contract.registry import (
     Alignment,
     ExternalInput,
     Kernel,
-    constant_tf,
     require_finite_volume,
 )
 from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
@@ -362,14 +361,14 @@ def _compute_ctf_passthrough(x, config):
 
 
 def _compute_cross_tf_divergence(x, config):
-    tf = constant_tf(x["tf"])
-    own = np.asarray(x["ret_lag_1"], dtype=np.float64)
-    htf = np.asarray(x["ext_htf_last_log_ret"], dtype=np.float64)
-    nan = np.full(len(own), np.nan)
-    return {
-        "ret_div_5m_1h": own - htf if tf == "5m" else nan.copy(),
-        "ret_div_1h_1d": own - htf if tf == "1h" else nan.copy(),
-    }
+    """The row's own log return minus the last closed higher-timeframe return. Both outputs hold
+    the same difference; the kernel's `not_applicable` declaration keeps each on the one timeframe
+    whose own return it names (the HTF external is the row timeframe's mapped HTF: 1h for 5m, 1d
+    for 1h)."""
+    divergence = np.asarray(x["ret_lag_1"], dtype=np.float64) - np.asarray(
+        x["ext_htf_last_log_ret"], dtype=np.float64
+    )
+    return {"ret_div_5m_1h": divergence, "ret_div_1h_1d": divergence.copy()}
 
 
 KERNELS = (
@@ -394,10 +393,15 @@ KERNELS = (
     Kernel(
         name="cross_tf_divergence",
         outputs=("ret_div_5m_1h", "ret_div_1h_1d"),
-        inputs=("ret_lag_1", "tf", "ext_htf_last_log_ret"),
+        inputs=("ret_lag_1", "ext_htf_last_log_ret"),
         memory=lambda config: 0,
         compute=_compute_cross_tf_divergence,
-        # each divergence is pinned to its intraday timeframe; none is defined on a daily series
-        not_applicable=undefined_on("1d", ("ret_div_5m_1h", "ret_div_1h_1d")),
+        # ret_div_X_Y is the X-timeframe return minus the Y-timeframe return, so it exists on X
+        # only: on a finer or coarser row the "own" return is another horizon and the name would
+        # mislabel it (todo 584 item 6a; the schema has always documented the pinning).
+        not_applicable={
+            **undefined_on(("1m", "15m", "1h", "1d"), ("ret_div_5m_1h",)),
+            **undefined_on(("1m", "5m", "15m", "1d"), ("ret_div_1h_1d",)),
+        },
     ),
 )

@@ -29,7 +29,7 @@ anything found after the pin moves waits for the following rerun.
 | 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
-| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); the defect fixes (ret_div NULL on lower tfs, `ctf_vwap_align`, `sweep_detected`) stay open |
+| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` and `sweep_detected` stay open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | in progress (indicagent-ef, 2026-11-03): implementation spec pinned in the additions doc's "Implementation spec" section - ten stored columns (residual.py, distribution.py, dividend.py, all new modules), `days_to_ex_dividend` deferred (dividend_events carries no declaration time, pin-down 3 unresolved by data), rank_z retirement rides the landing |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -498,6 +498,20 @@ columns, the no-op `declared=na`, the half-stripped `$N` annotations in
 `feature_vector_persistence`, and the dead `ltf` members stripped from `real_inputs.npz`). Left
 for the owner: `_FETCH_STAGE_TIMEFRAMES` still fetches 1m bars in `--fetch-only`, and the 1m consumer
 is gone; whether anything else reads 1m rows is not traced.
+
+### Item 6a landed (2026-11-03): ret_div NULL on other timeframes is by definition
+
+`ret_div_X_Y` is the X-timeframe return minus the Y-timeframe return, so it exists on X only. The
+HTF external is the row timeframe's mapped HTF (1h for 5m and 15m, 1d for 1h), and `ret_lag_1` is
+the row's own return. On 15m, `ret_div_5m_1h` would be a 15m-versus-1h gap under a 5m name, and
+`ret_div_1h_1d` on 5m or 15m would need a 1d return no timeframe's external carries (the mapped HTF
+is 1h there). The "NULL where the inputs exist" finding is therefore not a defect: both columns are
+now declared `not_applicable` off their own timeframe (`ret_div_5m_1h` undefined on 1m/15m/1h/1d,
+`ret_div_1h_1d` on 1m/5m/15m/1d), and the compute no longer carries a second copy of the pinning.
+`undefined_on` takes a tuple of timeframes. No stored value changes (the cells were NaN), so the
+golden does not move. Decision against the lead ruling "defined on tf <= X": a finer row's own
+return is a different horizon, so the column would mislabel it; building a 1d external for 5m and
+15m would be a new feature, not a fix.
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 
