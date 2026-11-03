@@ -74,3 +74,6 @@ fills, and `vwap_dev_sigma` has a 0.0 default vector. The parity test lists them
 touch the corpus rerun: `_compute_series_columns` reads the kernel arrays and keeps the NaN. It
 is one fix with the macro fields here: the legacy FeatureVector path stops fabricating values,
 or it is deleted when the feed returns (todo 582 sets that path's fate).
+
+Also on this path (584 item 6, 47f35b440): `minute_of_hour_sin/cos` are declared not_applicable
+on 1h and 1d at the kernel layer (NaN), but the live `compute()` still emits 0.0/1.0 there.
