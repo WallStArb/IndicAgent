@@ -1004,18 +1004,15 @@ def _compute_fib_zones(
 # Session Levels — FeatureCache-derived price geometry (Phase 165 Plan 05)
 # ---------------------------------------------------------------------------
 
-# D-01: every one of these 16 columns is None on cold/degenerate state, same
+# D-01: every one of these 11 columns is None on cold/degenerate state, same
 # convention as _NEUTRAL_VP_EXTRA since todo 584 4b-2 group 4 (D1 rule 2).
-# None of these sixteen columns has a legacy default to preserve -- they are
+# None of these eleven columns has a legacy default to preserve -- they are
 # brand-new Phase 165 columns -- so every one falls back to None, matching
 # migration 267's COMMENT ON COLUMN NULL conditions.
 _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
     "prior_session_high_dist_atr": None,
     "prior_session_low_dist_atr": None,
     "prior_session_close_dist_atr": None,
-    "overnight_high_dist_atr": None,
-    "overnight_low_dist_atr": None,
-    "overnight_range_pct": None,
     "opening_gap_pct": None,
     "weekly_pivot_dist_atr": None,
     "weekly_r1_dist_atr": None,
@@ -1023,8 +1020,6 @@ _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
     "weekly_s1_dist_atr": None,
     "weekly_s2_dist_atr": None,
     "nearest_level_dist_atr": None,
-    "asian_session_high_dist_atr": None,
-    "asian_session_low_dist_atr": None,
     "gap_filled": None,
 }
 
@@ -1033,12 +1028,11 @@ def _derive_session_levels(
     cache: FeatureCache,
     close_: float,
     atr_val: float | None,
-    tf: str,
     config: FeatureFactoryConfig,
 ) -> dict[str, float | None]:
-    """Derive the 16 ATR-normalized/bounded/flag session-levels FeatureVector fields.
+    """Derive the 11 ATR-normalized/bounded/flag session-levels FeatureVector fields.
 
-    Reads FeatureCache's raw session, overnight, Asian-block and prior-completed-
+    Reads FeatureCache's raw session and prior-completed-
     week levels (set by the session-levels mutator / update_wk_vwap(), both
     called once per bar by the caller BEFORE compute()) plus the compute-path
     atr_val -- never recomputes them, and never returns a raw price level
@@ -1048,9 +1042,9 @@ def _derive_session_levels(
     (a level ABOVE close yields a positive distance via (level - close_); a level
     BELOW close yields a positive distance via (close_ - level)), never raises.
 
-    The atr_valid guard also suppresses the three ATR-independent fields
-    (opening_gap_pct, overnight_range_pct, gap_filled): migration 267's COMMENT
-    binds all sixteen columns to NULL on ATR <= 0, and letting behaviour diverge
+    The atr_valid guard also suppresses the two ATR-independent fields
+    (opening_gap_pct, gap_filled): migration 267's COMMENT
+    binds all eleven columns to NULL on ATR <= 0, and letting behaviour diverge
     from the column documentation is exactly the drift this phase's discipline
     exists to prevent.
 
@@ -1062,12 +1056,6 @@ def _derive_session_levels(
     session_levels.py plugin's prior-session-substituted-for-prior-week
     fallback (a prior SESSION silently labelled a weekly level) is a fake
     measurement of a different thing and is deliberately NOT ported.
-
-    tf=='1d' suppression is applied at the END, inside this helper (not at the
-    call sites), so live and batch cannot diverge on the gating -- a deliberate
-    departure from _derive_session_vp's call-site branch, which exists because
-    VP additionally skips the expensive rolling-POC computation on daily bars,
-    an optimization with no analogue here.
 
     Never raises: a cold cache (no session/week has ever completed) reads back
     its dataclass defaults (all None), which this function propagates as the
@@ -1086,27 +1074,15 @@ def _derive_session_levels(
     psh = cache._sl_prior_session_high
     psl = cache._sl_prior_session_low
     psc = cache._sl_prior_session_close
-    on_high = cache._sl_overnight_high
-    on_low = cache._sl_overnight_low
-    asia_high = cache._sl_asia_high
-    asia_low = cache._sl_asia_low
     session_open = cache._sl_session_open
 
     prior_session_high_dist_atr = _above(psh)
     prior_session_low_dist_atr = _below(psl)
     prior_session_close_dist_atr = _below(psc)
-    overnight_high_dist_atr = _above(on_high)
-    overnight_low_dist_atr = _below(on_low)
 
-    overnight_range_pct = (
-        None if on_high is None or on_low is None or on_low <= 0 else (on_high - on_low) / on_low
-    )
     opening_gap_pct = (
         None if session_open is None or psc is None or psc <= 0 else (session_open - psc) / psc
     )
-
-    asian_session_high_dist_atr = _above(asia_high)
-    asian_session_low_dist_atr = _below(asia_low)
 
     gap_filled = float(cache._sl_gap_filled)
 
@@ -1148,9 +1124,6 @@ def _derive_session_levels(
         "prior_session_high_dist_atr": prior_session_high_dist_atr,
         "prior_session_low_dist_atr": prior_session_low_dist_atr,
         "prior_session_close_dist_atr": prior_session_close_dist_atr,
-        "overnight_high_dist_atr": overnight_high_dist_atr,
-        "overnight_low_dist_atr": overnight_low_dist_atr,
-        "overnight_range_pct": overnight_range_pct,
         "opening_gap_pct": opening_gap_pct,
         "weekly_pivot_dist_atr": weekly_pivot_dist_atr,
         "weekly_r1_dist_atr": weekly_r1_dist_atr,
@@ -1158,19 +1131,8 @@ def _derive_session_levels(
         "weekly_s1_dist_atr": weekly_s1_dist_atr,
         "weekly_s2_dist_atr": weekly_s2_dist_atr,
         "nearest_level_dist_atr": nearest_level_dist_atr,
-        "asian_session_high_dist_atr": asian_session_high_dist_atr,
-        "asian_session_low_dist_atr": asian_session_low_dist_atr,
         "gap_filled": gap_filled,
     }
-
-    # tf=='1d' suppression at the END, inside this helper (not at the call sites), so live and
-    # batch cannot diverge on the gating. It mirrors the session_levels kernel's
-    # not_applicable declaration (todo 584 D1): the five overnight/Asian fields are undefined on
-    # a daily bar; on the batch path compute_kernels writes them NaN from the declaration and
-    # this None agrees with it.
-    if tf == "1d":
-        for key in _SESSION_LEVELS_UNDEFINED_ON_1D:
-            result[key] = None
 
     return result
 
@@ -1185,16 +1147,6 @@ def _derive_session_levels(
 VP = KeyGroup.from_fallback(_NEUTRAL_VP_EXTRA)
 SR = KeyGroup.from_fallback(_SR_FALLBACK)
 
-# The session-levels outputs undefined on a daily bar (a daily bar IS the session: it has no
-# non-RTH sub-block and no Asian sub-block). One tuple feeds both the kernel's not_applicable
-# declaration and the helper's tf=='1d' suppression so the two can never drift.
-_SESSION_LEVELS_UNDEFINED_ON_1D: tuple[str, ...] = (
-    "overnight_high_dist_atr",
-    "overnight_low_dist_atr",
-    "overnight_range_pct",
-    "asian_session_high_dist_atr",
-    "asian_session_low_dist_atr",
-)
 SWING = KeyGroup.from_fallback(_SWING_FALLBACK)
 TREND = KeyGroup.from_fallback(_TREND_STRUCTURE_FALLBACK)
 SWING_MOMENTUM = KeyGroup.from_fallback(_SWING_MOMENTUM_FALLBACK)
@@ -1338,7 +1290,6 @@ def _compute_swing_momentum_columns(x, config):
 
 def _compute_session_levels_columns(x, config):
     n = len(x["close"])
-    tf = constant_tf(x["tf"])
     closes, atr = x["close"], x[ATR_RAW_PADDED]
     rows: dict[int, dict[str, float | None]] = {}
 
@@ -1346,7 +1297,7 @@ def _compute_session_levels_columns(x, config):
         cache.update_session_levels(bar_ts, open_, high_, low_, close_, cfg)
 
     for i, cache, _bar_ts in _replay_cache(x, config, update):
-        rows[i] = _derive_session_levels(cache, float(closes[i]), float(atr[i]), tf, config)
+        rows[i] = _derive_session_levels(cache, float(closes[i]), float(atr[i]), config)
     return SESSION_LEVEL.columns(n, rows.__getitem__)
 
 
@@ -1405,11 +1356,9 @@ KERNELS = (
     Kernel(
         name="session_levels",
         outputs=SESSION_LEVEL.outputs,
-        inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED, "tf"),
+        inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
-        # a daily bar is the whole session: it has no non-RTH sub-block and no Asian sub-block
-        not_applicable=undefined_on("1d", _SESSION_LEVELS_UNDEFINED_ON_1D),
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,

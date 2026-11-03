@@ -13,8 +13,7 @@ each stored feature column must be honest about what does not exist:
 
 Exempt kernels whose object always exists (the four calendar kernels and the three
 canaries) are skipped: their inputs are the clock, not the market, so a flat price
-series is not a no-object series for them. ``amd_cycle`` is skipped per the D5
-ordering note: the AMD retire lands in item 6, after this test.
+series is not a no-object series for them.
 
 The flat series is long enough (700 bars) that every kernel has post-warmup rows.
 The 2-bar series pins the short-history edge: no window exists yet, so nothing
@@ -39,8 +38,7 @@ from src.intelligence.features.kernels.regime import HmmConfig
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
 
-# Manifest 4c: exempt because their object always exists (clock inputs), plus the
-# AMD kernel pending the item-6 retire (D5 ordering note).
+# Manifest 4c: exempt because their object always exists (clock inputs).
 _EXEMPT_KERNELS = frozenset(
     {
         "calendar_session",
@@ -50,7 +48,6 @@ _EXEMPT_KERNELS = frozenset(
         "canary_noise",
         "canary_constant",
         "canary_acausal_placebo",
-        "amd_cycle",
     }
 )
 

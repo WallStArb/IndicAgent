@@ -81,8 +81,6 @@ def _make_config(**overrides) -> FeatureFactoryConfig:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
@@ -224,8 +222,8 @@ class TestFeatureVectorCanaryFields:
         # Velocity Primitives Extension fields (todo 320, added after this
         # test was written) = 298, +2 Earnings-Season Calendar Primitive
         # fields (Phase 176 Plan 03, todo 353, added after this test was
-        # written) = 300.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2
+        # written) = 300, minus the 11 universe-dead columns todo 584 item 6 (D5) retired = 289.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2 - 11
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +541,7 @@ class TestFeatureFactoryIntegration:
         # (Phase 151 Plan 06) = 292, +6 Velocity Primitives Extension fields
         # (todo 320) = 298, +2 Earnings-Season Calendar Primitive fields
         # (Phase 176 Plan 03, todo 353) = 300.
-        assert len(dataclasses.fields(fv)) == 300
+        assert len(dataclasses.fields(fv)) == 289
 
 
 # ---------------------------------------------------------------------------

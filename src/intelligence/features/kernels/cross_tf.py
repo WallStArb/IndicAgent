@@ -12,7 +12,6 @@ only one.) The 1d self-referential case reads the row's own bar, available at th
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from collections.abc import Mapping
 from datetime import datetime
@@ -151,43 +150,6 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
     return CtfSeries.from_close_keyed(
         {ts_sorted[i + 1]: ctf_by_ts[ts_sorted[i]] for i in range(len(ts_sorted) - 1)}
     )
-
-
-def _build_ltf_return_series(ltf_bars: list[dict], target_ts_list: list) -> dict:
-    """Build {target_bar_ts: last 1m log return at-or-before target_bar_ts} in
-    O(n+m), Phase 151 Plan 05 (todo 066) -- feeds ret_div_1m_5m.
-
-    Single merge walk over two already-sorted-ascending timestamp lists
-    (`ltf_bars` from `_fetch_bars_from_db`, `target_ts_list` the caller's 5m
-    bar timestamps -- both fetched oldest-first per that function's own
-    contract). Causal: a target timestamp only ever picks up a 1m bar whose
-    own `ts` is <= the target timestamp, never one strictly after it -- the
-    1m log return itself is `log(close[k] / close[k-1])` for that 1m bar, the
-    same causal definitional formula as `_ret_lag_1` elsewhere in this
-    codebase. No entry is emitted for a target timestamp with zero eligible
-    (at-or-before) 1m bars yet (typically the very start of 1m coverage).
-    """
-    if not ltf_bars or not target_ts_list:
-        return {}
-
-    result: dict = {}
-    closes = [float(b["close"]) for b in ltf_bars]
-    ts_list = [b["ts"] for b in ltf_bars]
-    n = len(ltf_bars)
-    j = 0
-    prev_close: float | None = None
-    last_log_ret: float | None = None
-
-    for target_ts in target_ts_list:
-        while j < n and ts_list[j] <= target_ts:
-            if prev_close is not None and prev_close > 0.0 and closes[j] > 0.0:
-                last_log_ret = math.log(closes[j] / prev_close)
-            prev_close = closes[j]
-            j += 1
-        if last_log_ret is not None:
-            result[target_ts] = last_log_ret
-
-    return result
 
 
 class CtfSeries:
@@ -359,7 +321,6 @@ EXTERNAL_INPUTS = (
             "ext_htf_last_log_ret",
         )
     ),
-    ExternalInput("ext_ltf_last_log_ret", np.dtype(np.float64), Alignment.LTF_ASOF_BAR_START),
 )
 
 _CTF_SOURCE_OUTPUTS = (
@@ -404,12 +365,10 @@ def _compute_cross_tf_divergence(x, config):
     tf = constant_tf(x["tf"])
     own = np.asarray(x["ret_lag_1"], dtype=np.float64)
     htf = np.asarray(x["ext_htf_last_log_ret"], dtype=np.float64)
-    ltf = np.asarray(x["ext_ltf_last_log_ret"], dtype=np.float64)
     nan = np.full(len(own), np.nan)
     return {
         "ret_div_5m_1h": own - htf if tf == "5m" else nan.copy(),
         "ret_div_1h_1d": own - htf if tf == "1h" else nan.copy(),
-        "ret_div_1m_5m": ltf - own if tf == "5m" else nan.copy(),
     }
 
 
@@ -434,11 +393,11 @@ KERNELS = (
     ),
     Kernel(
         name="cross_tf_divergence",
-        outputs=("ret_div_5m_1h", "ret_div_1h_1d", "ret_div_1m_5m"),
-        inputs=("ret_lag_1", "tf", "ext_htf_last_log_ret", "ext_ltf_last_log_ret"),
+        outputs=("ret_div_5m_1h", "ret_div_1h_1d"),
+        inputs=("ret_lag_1", "tf", "ext_htf_last_log_ret"),
         memory=lambda config: 0,
         compute=_compute_cross_tf_divergence,
         # each divergence is pinned to its intraday timeframe; none is defined on a daily series
-        not_applicable=undefined_on("1d", ("ret_div_5m_1h", "ret_div_1h_1d", "ret_div_1m_5m")),
+        not_applicable=undefined_on("1d", ("ret_div_5m_1h", "ret_div_1h_1d")),
     ),
 )

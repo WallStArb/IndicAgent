@@ -54,7 +54,6 @@ from src.intelligence.features.kernels.calendar import (
     _earnings_season_flag,
     _hour_of_day_cos,
     _hour_of_day_sin,
-    _in_london_kz,
     _in_ny_session,
     _in_overlap,
     _minute_of_hour_encoding,
@@ -122,7 +121,6 @@ from src.intelligence.features.kernels.price import (
 from src.intelligence.features.kernels.smc import (
     _FVG_OUTPUT_KEYS,
     _POOL_OUTPUT_KEYS,
-    AMD,
     BOS,
     FVG,
     OB,
@@ -135,7 +133,6 @@ from src.intelligence.features.kernels.smc import (
     _compute_liquidity_sweeps,
     _compute_order_blocks,
     _compute_supply_demand_zones,
-    _derive_amd_cycle,
 )
 from src.intelligence.features.kernels.volume import (
     _cmf,
@@ -255,9 +252,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "prior_session_high_dist_atr": "structural",
     "prior_session_low_dist_atr": "structural",
     "prior_session_close_dist_atr": "structural",
-    "overnight_high_dist_atr": "structural",
-    "overnight_low_dist_atr": "structural",
-    "overnight_range_pct": "structural",
     "opening_gap_pct": "structural",
     "weekly_pivot_dist_atr": "structural",
     "weekly_r1_dist_atr": "structural",
@@ -265,8 +259,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "weekly_s1_dist_atr": "structural",
     "weekly_s2_dist_atr": "structural",
     "nearest_level_dist_atr": "structural",
-    "asian_session_high_dist_atr": "structural",
-    "asian_session_low_dist_atr": "structural",
     "gap_filled": "structural",
     # Regime-level
     "hmm_regime_prob": "regime",
@@ -292,7 +284,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "yield_slope_z": "macro",
     # Calendar / session
     "in_ny_session": "calendar",
-    "in_london_kz": "calendar",
     "in_overlap": "calendar",
     "power_hour": "calendar",
     "opening_range": "calendar",
@@ -342,7 +333,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "equity_beta_z": "macro",
     "rate_beta_z": "macro",
     # Named Interaction Primitives (Phase 151 Plan 05, todos 066/104)
-    "ret_div_1m_5m": "quant",
     "ret_div_5m_1h": "quant",
     "ret_div_1h_1d": "quant",
     "opex_flag": "calendar",
@@ -517,10 +507,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "choch_direction": "smart_money",
     "smc_trend_direction": "smart_money",
     "bars_since_last_shift": "smart_money",
-    "amd_phase": "smart_money",
-    "amd_manipulation_detected": "smart_money",
-    "amd_distribution_direction": "smart_money",
-    "manip_strength": "smart_money",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -565,8 +551,6 @@ class FeatureFactoryConfig:
         ny_session_end_utc_hour: APR feature.session.ny_end_utc_hour
         overlap_start_utc_hour: APR feature.session.overlap_start_utc_hour
         overlap_end_utc_hour: APR feature.session.overlap_end_utc_hour
-        london_kz_start_utc_hour: APR feature.session.london_kz_start_utc_hour
-        london_kz_end_utc_hour: APR feature.session.london_kz_end_utc_hour
         power_hour_start_utc_hour: APR feature.session.power_hour_start_utc_hour
         power_hour_end_utc_hour: APR feature.session.power_hour_end_utc_hour
         opening_range_start_minute: APR feature.session.opening_range_start_minute
@@ -680,9 +664,6 @@ class FeatureFactoryConfig:
         smc_zones_max_tracked_zones: APR feature.smc.zones.max_tracked_zones
         smc_bos_choch_lookback: APR feature.smc.bos_choch.lookback
         smc_bos_choch_swing_neighbor: APR feature.smc.bos_choch.swing_neighbor
-        smc_amd_accum_start_utc_hour: APR feature.smc.amd.accum_start_utc_hour
-        smc_amd_manip_end_utc_hour: APR feature.smc.amd.manip_end_utc_hour
-        smc_amd_dist_end_utc_hour: APR feature.smc.amd.dist_end_utc_hour
         swing_pivot_window: APR feature.swing.pivot_window
         swing_lookback_bars: APR feature.swing.lookback_bars
         trend_structure_atr_strength_divisor: APR feature.trend_structure.atr_strength_divisor
@@ -697,8 +678,6 @@ class FeatureFactoryConfig:
         swing_momentum_intensity_ramp_lo: APR feature.swing_momentum.intensity_ramp_lo
         swing_momentum_intensity_ramp_hi: APR feature.swing_momentum.intensity_ramp_hi
         fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
-        session_levels_asia_start_et_hour: APR feature.session_levels.asia_start_et_hour
-        session_levels_asia_end_et_hour: APR feature.session_levels.asia_end_et_hour
         atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
         ctf_higher_tf_map: APR feature.ctf.higher_tf_map
         high_low_spread_window: APR feature.high_low_spread.window
@@ -731,8 +710,6 @@ class FeatureFactoryConfig:
     ny_session_end_utc_hour: int  # feature.session.ny_end_utc_hour
     overlap_start_utc_hour: int  # feature.session.overlap_start_utc_hour
     overlap_end_utc_hour: int  # feature.session.overlap_end_utc_hour
-    london_kz_start_utc_hour: int  # feature.session.london_kz_start_utc_hour
-    london_kz_end_utc_hour: int  # feature.session.london_kz_end_utc_hour
     power_hour_start_utc_hour: int  # feature.session.power_hour_start_utc_hour
     power_hour_end_utc_hour: int  # feature.session.power_hour_end_utc_hour
     opening_range_start_minute: int  # feature.session.opening_range_start_minute
@@ -940,9 +917,6 @@ class FeatureFactoryConfig:
     smc_zones_max_tracked_zones: int = 5  # feature.smc.zones.max_tracked_zones
     smc_bos_choch_lookback: int = 120  # feature.smc.bos_choch.lookback
     smc_bos_choch_swing_neighbor: int = 5  # feature.smc.bos_choch.swing_neighbor
-    smc_amd_accum_start_utc_hour: int = 20  # feature.smc.amd.accum_start_utc_hour
-    smc_amd_manip_end_utc_hour: int = 10  # feature.smc.amd.manip_end_utc_hour
-    smc_amd_dist_end_utc_hour: int = 21  # feature.smc.amd.dist_end_utc_hour
     # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01, contract-only --
     # consumed by Plans 02-04's compute logic). Same defaulting rationale as
     # above (avoid updating every pre-existing direct FeatureFactoryConfig(...)
@@ -967,8 +941,6 @@ class FeatureFactoryConfig:
     swing_momentum_intensity_ramp_lo: float = 1.0  # feature.swing_momentum.intensity_ramp_lo
     swing_momentum_intensity_ramp_hi: float = 2.0  # feature.swing_momentum.intensity_ramp_hi
     fib_cluster_atr_divisor: float = 2.0  # feature.fib.cluster_atr_divisor
-    session_levels_asia_start_et_hour: int = 20  # feature.session_levels.asia_start_et_hour
-    session_levels_asia_end_et_hour: int = 4  # feature.session_levels.asia_end_et_hour
     atr_normalization_min_pct: float = 0.0001  # feature.atr_normalization.min_atr_pct
     # CTF (cross-timeframe) higher-timeframe source mapping (todo 242, migration 305).
     # Single source of truth for both backfill_feature_factory.py's batch
@@ -1200,7 +1172,7 @@ def _precompute_series(
 # Columns compute_batch reads from registry kernels instead of calling helpers inline.
 _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = tuple(
     (
-        "in_ny_session in_london_kz in_overlap power_hour opening_range session_time_pos "
+        "in_ny_session in_overlap power_hour opening_range session_time_pos "
         "dow_sin dow_cos month_position quarter_position days_to_month_end quarter_cycle_sin "
         "quarter_cycle_cos tdom_sin tdom_cos minute_of_hour_sin minute_of_hour_cos "
         "hour_of_day_sin hour_of_day_cos week_of_month_sin week_of_month_cos day_of_month_sin "
@@ -1223,18 +1195,17 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = tuple(
 
 
 # The cross-timeframe columns compute_batch reads from kernels: the three CTF pass-throughs and the
-# three ret_div divergences.
+# two ret_div divergences.
 _CROSS_TF_KERNEL_OUTPUTS: tuple[str, ...] = (
     "ctf_momentum",
     "ctf_vwap_align",
     "ctf_regime_align",
     "ret_div_5m_1h",
     "ret_div_1h_1d",
-    "ret_div_1m_5m",
 )
 # The structure columns compute_batch reads from kernels: the stateless rolling POC, S/R,
-# swing, trend, fib and swing momentum columns, and the cache-backed session VP, session levels
-# and AMD kernels, whose computes replay a fresh FeatureCache over the series (D-25: no caller
+# swing, trend, fib and swing momentum columns, and the cache-backed session VP and session levels
+# kernels, whose computes replay a fresh FeatureCache over the series (D-25: no caller
 # cache state can change a row), with the none-masks of the nullable ones. Each group's outputs
 # come from its one spec.
 _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
@@ -1250,7 +1221,6 @@ _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
     *SWING_MOMENTUM.outputs,
     *SESSION_LEVEL.outputs,
     *VP.outputs,
-    *AMD.outputs,
 )
 
 
@@ -1307,7 +1277,7 @@ def _none_if_nan(value: float) -> float | None:
 # The external-input alignments this module has a builder for: CONSTANT_PER_SERIES by
 # `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`,
 # DAILY_REFERENCE_GRID by `kernels.macro.daily_reference_grid` (the daily-grid kernels run on it),
-# HTF_ASOF_CLOSE and LTF_ASOF_BAR_START by `_cross_tf_kernel_inputs`. A kernel module
+# HTF_ASOF_CLOSE by `_cross_tf_kernel_inputs`. A kernel module
 # declaring an external with any other Alignment is refused rather than fed an unaligned value.
 _BUILT_ALIGNMENTS = frozenset(
     {
@@ -1315,7 +1285,6 @@ _BUILT_ALIGNMENTS = frozenset(
         Alignment.DAILY_ASOF_CLOSE,
         Alignment.DAILY_REFERENCE_GRID,
         Alignment.HTF_ASOF_CLOSE,
-        Alignment.LTF_ASOF_BAR_START,
     }
 )
 
@@ -1386,14 +1355,12 @@ def _cross_tf_kernel_inputs(
     tf: str,
     cache: FeatureCache,
     ctf_by_ts: CtfSeries | None,
-    ltf_ret_by_ts: dict | None,
 ) -> dict[str, np.ndarray]:
-    """The five cross-timeframe `ext_*` inputs on the row grid.
+    """The four cross-timeframe `ext_*` inputs on the row grid.
 
     Batch path (`ctf_by_ts` given): `ctf_row_inputs` looks each row up among the HTF values
     keyed by their bar's close. Live path: the cache's CTF values broadcast and the
-    HTF return is NaN (the divergences have no live-path plumbing). `ext_ltf_last_log_ret` is the
-    1m return taken at the row's bar start, NaN where the dict has none.
+    HTF return is NaN (the divergences have no live-path plumbing).
     """
     n = len(row_ns)
     if ctf_by_ts is not None:
@@ -1405,12 +1372,6 @@ def _cross_tf_kernel_inputs(
             "ext_ctf_regime_align": np.full(n, cache.ctf_regime_align, dtype=np.float64),
             "ext_htf_last_log_ret": np.full(n, np.nan),
         }
-    # Same UTC-nanosecond convention as the CTF and macro paths: a naive timestamp is taken as UTC
-    # on either side, so naive and aware inputs match identically.
-    ltf = {bar_ts_ns(ts): value for ts, value in (ltf_ret_by_ts or {}).items()}
-    out["ext_ltf_last_log_ret"] = np.array(
-        [ltf.get(int(ns), np.nan) for ns in row_ns.tolist()], dtype=np.float64
-    )
     return out
 
 
@@ -1548,7 +1509,6 @@ def _build_feature_vector(
     flight_quality: float,
     yield_slope_z: float,
     in_ny_session: float | None,
-    in_london_kz: float | None,
     in_overlap: float | None,
     power_hour: float | None,
     opening_range: float | None,
@@ -1680,7 +1640,6 @@ def _build_feature_vector(
     sb_corr_z: float,
     equity_beta_z: float | None,
     rate_beta_z: float | None,
-    ret_div_1m_5m: float | None,
     ret_div_5m_1h: float | None,
     ret_div_1h_1d: float | None,
     opex_flag: float,
@@ -1742,9 +1701,6 @@ def _build_feature_vector(
     prior_session_high_dist_atr: float | None = None,
     prior_session_low_dist_atr: float | None = None,
     prior_session_close_dist_atr: float | None = None,
-    overnight_high_dist_atr: float | None = None,
-    overnight_low_dist_atr: float | None = None,
-    overnight_range_pct: float | None = None,
     opening_gap_pct: float | None = None,
     weekly_pivot_dist_atr: float | None = None,
     weekly_r1_dist_atr: float | None = None,
@@ -1752,8 +1708,6 @@ def _build_feature_vector(
     weekly_s1_dist_atr: float | None = None,
     weekly_s2_dist_atr: float | None = None,
     nearest_level_dist_atr: float | None = None,
-    asian_session_high_dist_atr: float | None = None,
-    asian_session_low_dist_atr: float | None = None,
     gap_filled: float | None = None,
     canary_noise_gaussian: float = 0.0,
     canary_noise_uniform: float = 0.0,
@@ -1796,10 +1750,6 @@ def _build_feature_vector(
     choch_direction: float | None = None,
     smc_trend_direction: float | None = None,
     bars_since_last_shift: float | None = None,
-    amd_phase: float | None = None,
-    amd_manipulation_detected: float | None = None,
-    amd_distribution_direction: float | None = None,
-    manip_strength: float | None = None,
 ) -> FeatureVector:
     return FeatureVector(
         # The rule-5 columns (z-scores, RSI, the products reading them) are missing (None) on a
@@ -1869,7 +1819,6 @@ def _build_feature_vector(
         flight_quality=_missing_if_nan(flight_quality),
         yield_slope_z=_missing_if_nan(yield_slope_z),
         in_ny_session=in_ny_session,
-        in_london_kz=in_london_kz,
         in_overlap=in_overlap,
         power_hour=power_hour,
         opening_range=opening_range,
@@ -2002,7 +1951,6 @@ def _build_feature_vector(
         sb_corr_z=_missing_if_nan(sb_corr_z),
         equity_beta_z=_missing_if_nan(equity_beta_z),
         rate_beta_z=_missing_if_nan(rate_beta_z),
-        ret_div_1m_5m=_guard(ret_div_1m_5m),
         ret_div_5m_1h=_guard(ret_div_5m_1h),
         ret_div_1h_1d=_guard(ret_div_1h_1d),
         opex_flag=_guard(opex_flag, 0.0),
@@ -2101,9 +2049,6 @@ def _build_feature_vector(
         prior_session_high_dist_atr=_guard(prior_session_high_dist_atr),
         prior_session_low_dist_atr=_guard(prior_session_low_dist_atr),
         prior_session_close_dist_atr=_guard(prior_session_close_dist_atr),
-        overnight_high_dist_atr=_guard(overnight_high_dist_atr),
-        overnight_low_dist_atr=_guard(overnight_low_dist_atr),
-        overnight_range_pct=_guard(overnight_range_pct),
         opening_gap_pct=_guard(opening_gap_pct),
         weekly_pivot_dist_atr=_guard(weekly_pivot_dist_atr),
         weekly_r1_dist_atr=_guard(weekly_r1_dist_atr),
@@ -2111,8 +2056,6 @@ def _build_feature_vector(
         weekly_s1_dist_atr=_guard(weekly_s1_dist_atr),
         weekly_s2_dist_atr=_guard(weekly_s2_dist_atr),
         nearest_level_dist_atr=_guard(nearest_level_dist_atr),
-        asian_session_high_dist_atr=_guard(asian_session_high_dist_atr),
-        asian_session_low_dist_atr=_guard(asian_session_low_dist_atr),
         gap_filled=_guard(gap_filled),
         canary_noise_gaussian=_guard(canary_noise_gaussian, 0.0),
         canary_noise_uniform=_guard(canary_noise_uniform, 0.0),
@@ -2154,10 +2097,6 @@ def _build_feature_vector(
         choch_direction=_guard(choch_direction),
         smc_trend_direction=_guard(smc_trend_direction),
         bars_since_last_shift=_missing_if_nan(bars_since_last_shift),
-        amd_phase=_guard(amd_phase),
-        amd_manipulation_detected=_guard(amd_manipulation_detected),
-        amd_distribution_direction=_guard(amd_distribution_direction),
-        manip_strength=_guard(manip_strength),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -2178,7 +2117,6 @@ def _merge_structural_fields(
     pool_fields: dict[str, float | None],
     zone_fields: dict[str, float | None],
     bos_fields: dict[str, float | None],
-    amd_fields: dict[str, float],
 ) -> dict[str, float | None]:
     """Merge the 14 Phase 163-165 structural/SMC field dicts into one.
 
@@ -2212,7 +2150,6 @@ def _merge_structural_fields(
         **{k: pool_fields[k] for k in _POOL_OUTPUT_KEYS},
         **zone_fields,
         **bos_fields,
-        **amd_fields,
     }
 
 
@@ -2331,19 +2268,18 @@ class FeatureFactory:
         _swing_momentum_fields = _compute_swing_momentum(highs, lows, volumes, config)
         _fib_fields = _compute_fib_zones(close_, atr_val, _swing_fields, config)
 
-        # Session Levels (Phase 165 Plan 05): the last 16 Phase 165 fields,
-        # derived from FeatureCache's raw session/overnight/Asian-block/
-        # prior-completed-week state. The caller (e.g. feature_vector_pipeline
+        # Session Levels (Phase 165 Plan 05): the last 11 Phase 165 fields,
+        # derived from FeatureCache's raw session/prior-completed-week state. The caller (e.g. feature_vector_pipeline
         # .py's _process_bar_compute) is required to call
         # cache.update_session_levels(...) before compute() runs -- this
         # function only reads the cache, never mutates it.
-        _session_level_fields = _derive_session_levels(cache, close_, atr_val, tf, config)
+        _session_level_fields = _derive_session_levels(cache, close_, atr_val, config)
 
         # Smart Money Concepts (Phase 164 Plan 02): Order Blocks + stateless
         # Breaker/Mitigation, single pure pass per RESEARCH.md's mandated
         # order_blocks -> breaker/mitigation sequencing. Plans 03-04 append
         # fair_value_gap/liquidity_sweeps/liquidity_pools/supply_demand_zones/
-        # bos_choch/amd_cycle after this block, in that order.
+        # bos_choch after this block, in that order.
         _ob_fields = _compute_order_blocks(
             opens, highs, lows, closes, volumes, close_, atr_val, config
         )
@@ -2363,9 +2299,7 @@ class FeatureFactory:
 
         # Smart Money Concepts (Phase 164 Plan 04): Supply/Demand Zones (soft-
         # consumes _fvg_midpoint/_price_in_premium from the FVG/pools block
-        # above, per RESEARCH.md's mandated ordering), then BOS/CHoCH, then
-        # AMD Cycle (reads FeatureCache's overnight-range state -- populated
-        # by the caller's update_overnight_range(), never recomputed here).
+        # above, per RESEARCH.md's mandated ordering), then BOS/CHoCH.
         _zone_fields = _compute_supply_demand_zones(
             opens,
             highs,
@@ -2379,7 +2313,6 @@ class FeatureFactory:
         )
 
         _bos_fields = _compute_bos_choch(highs, lows, closes, close_, atr_val, config)
-        _amd_fields = _derive_amd_cycle(cache, bar_ts, config)
 
         _structural_fields = _merge_structural_fields(
             vp_extra,
@@ -2395,7 +2328,6 @@ class FeatureFactory:
             _pool_fields,
             _zone_fields,
             _bos_fields,
-            _amd_fields,
         )
 
         _dow = _dow_encoding(bar_ts)
@@ -2546,7 +2478,6 @@ class FeatureFactory:
             flight_quality=cache.flight_quality,
             yield_slope_z=yield_slope_z_val,
             in_ny_session=_in_ny_session(bar_ts, config),
-            in_london_kz=_in_london_kz(bar_ts, config),
             in_overlap=_in_overlap(bar_ts, config),
             power_hour=_power_hour(bar_ts, config),
             opening_range=_opening_range(bar_ts, config),
@@ -2736,7 +2667,6 @@ class FeatureFactory:
             # (todo filed at that plan's Task 4). opex_flag/quad_witching_flag
             # need only bar_ts, which IS in scope on both paths, so they
             # compute real values here too.
-            ret_div_1m_5m=None,
             ret_div_5m_1h=None,
             ret_div_1h_1d=None,
             opex_flag=_opex_flag(bar_ts),
@@ -2783,7 +2713,6 @@ class FeatureFactory:
         cross_asset_by_date: dict | None = None,
         ctf_by_ts: CtfSeries | None = None,
         beta_by_date: dict | None = None,
-        ltf_ret_by_ts: dict | None = None,
     ) -> list[tuple[datetime, FeatureVector]]:
         """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
 
@@ -2802,8 +2731,8 @@ class FeatureFactory:
             equity_beta_z, TLT for rate_beta_z) -- a self-regression is degenerate
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts (a CtfSeries
             keyed by HTF bar close; a plain dict raises TypeError) via CtfSeries.asof
-          - VP (poc_dist_atr, va_position, + 12 structural fields), the 16 session-level
-            fields and the 4 AMD fields are registry kernels that replay a fresh
+          - VP (poc_dist_atr, va_position, + 12 structural fields), the 11 session-level
+            fields are registry kernels that replay a fresh
             FeatureCache over the whole series inside compute_kernels (D-25: no caller-held
             cache state can change a row; their outputs are declared intraday-only on 1d,
             design D1, so they are None there). S/R (sr_support_dist, sr_resist_dist,
@@ -2812,11 +2741,7 @@ class FeatureFactory:
             OHLCV -- no cache/tick-data dependency, same mechanism in live and batch.
           - ret_div_5m_1h/ret_div_1h_1d (Phase 151 Plan 05) read ctf_by_ts's
             htf_last_log_ret field (same bisect lookup as CTF above), timeframe-
-            pinned to tf=="5m"/"1h" respectively, None elsewhere. ret_div_1m_5m
-            reads ltf_ret_by_ts (a separate causal merge-walk dict, tf=="5m"
-            only), None wherever the key is absent (~99% of 5m bars -- 1m
-            OHLCV coverage is far shorter than 5m's, a documented data
-            limitation, not a defect).
+            pinned to tf=="5m"/"1h" respectively, None elsewhere.
         When cross_asset_by_date is None (live path):
           - cross-asset and CTF groups read from cache (unchanged behavior); VP and S/R
             use the same OHLCV-derived computation as the batch path. beta_by_date is
@@ -2859,7 +2784,7 @@ class FeatureFactory:
                 **_macro_kernel_inputs(
                     row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
                 ),
-                **_cross_tf_kernel_inputs(row_ns, tf, cache, ctf_by_ts, ltf_ret_by_ts),
+                **_cross_tf_kernel_inputs(row_ns, tf, cache, ctf_by_ts),
             },
             config,
             outputs=list(
@@ -2895,8 +2820,8 @@ class FeatureFactory:
             close_ = float(bar["close"])
             vol_ = float(bar["volume"])
 
-            # The session VP, session-levels and AMD accumulators are NOT updated here: those
-            # three groups are registry kernels whose computes replay a fresh FeatureCache over
+            # The session VP and session-levels accumulators are NOT updated here: those
+            # two groups are registry kernels whose computes replay a fresh FeatureCache over
             # the whole series (D-25), so no caller-held cache state can change a row.
 
             # Skip warm-up
@@ -2964,11 +2889,6 @@ class FeatureFactory:
             _zone_fields = _kernel_row(k, ZONE, i)
             _bos_fields = _kernel_row(k, BOS, i)
 
-            # AMD reads the overnight range: a registry kernel replaying a fresh cache (all
-            # four outputs declared intraday-only on 1d, so they read back None on a daily
-            # series).
-            _amd_fields = _kernel_row(k, AMD, i, declared=na)
-
             _structural_fields = _merge_structural_fields(
                 vp_extra,
                 _sr_fields,
@@ -2983,7 +2903,6 @@ class FeatureFactory:
                 _pool_fields,
                 _zone_fields,
                 _bos_fields,
-                _amd_fields,
             )
 
             # Regime-level primitives (all from cache). hmm_regime_prob/entropy/
@@ -3034,7 +2953,6 @@ class FeatureFactory:
             # (D1): the kernel grid carries NaN there, which is None here (never the 0.0 a
             # plain float() read would hand _guard downstream).
             in_ny_session_val = _none_if_nan(k["in_ny_session"][i])
-            in_london_kz_val = _none_if_nan(k["in_london_kz"][i])
             in_overlap_val = _none_if_nan(k["in_overlap"][i])
             power_hour_val = _none_if_nan(k["power_hour"][i])
             opening_range_val = _none_if_nan(k["opening_range"][i])
@@ -3058,7 +2976,6 @@ class FeatureFactory:
             ctf_momentum_val = float(k["ctf_momentum"][i])
             ctf_vwap_align_val = float(k["ctf_vwap_align"][i])
             ctf_regime_align_val = float(k["ctf_regime_align"][i])
-            ret_div_1m_5m_val = _none_if_nan(k["ret_div_1m_5m"][i])
             ret_div_5m_1h_val = _none_if_nan(k["ret_div_5m_1h"][i])
             ret_div_1h_1d_val = _none_if_nan(k["ret_div_1h_1d"][i])
 
@@ -3396,7 +3313,6 @@ class FeatureFactory:
                 flight_quality=flight_quality_val,
                 yield_slope_z=yield_slope_z_val,
                 in_ny_session=in_ny_session_val,
-                in_london_kz=in_london_kz_val,
                 in_overlap=in_overlap_val,
                 power_hour=power_hour_val,
                 opening_range=opening_range_val,
@@ -3528,7 +3444,6 @@ class FeatureFactory:
                 sb_corr_z=sb_corr_z_val,
                 equity_beta_z=equity_beta_z_val,
                 rate_beta_z=rate_beta_z_val,
-                ret_div_1m_5m=ret_div_1m_5m_val,
                 ret_div_5m_1h=ret_div_5m_1h_val,
                 ret_div_1h_1d=ret_div_1h_1d_val,
                 opex_flag=opex_flag_val,
@@ -3665,7 +3580,6 @@ def _cold_start_vector(
         flight_quality=cache.flight_quality,
         yield_slope_z=cache.yield_slope_z,
         in_ny_session=0.0,
-        in_london_kz=0.0,
         in_overlap=0.0,
         power_hour=0.0,
         opening_range=0.0,
@@ -3834,7 +3748,6 @@ def _cold_start_vector(
         # real values when bar_ts is available (len(bars) == 1); with zero
         # bars there is no timestamp at all, so they fall back to 0.0 (the
         # same neutral convention already used above for dow_sin/cos etc).
-        ret_div_1m_5m=None,
         ret_div_5m_1h=None,
         ret_div_1h_1d=None,
         opex_flag=_opex_flag(bar_ts) if bar_ts is not None else 0.0,
@@ -3911,10 +3824,6 @@ def _cold_start_vector(
         choch_direction=None,
         smc_trend_direction=None,
         bars_since_last_shift=None,
-        amd_phase=None,
-        amd_manipulation_detected=None,
-        amd_distribution_direction=None,
-        manip_strength=None,
         # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01): cold start
         # (len(bars) < 2) has no bar history, so no swing/trend/fib/session
         # structure has ever been detected -- neutral None for all 41 is
@@ -3947,9 +3856,6 @@ def _cold_start_vector(
         prior_session_high_dist_atr=None,
         prior_session_low_dist_atr=None,
         prior_session_close_dist_atr=None,
-        overnight_high_dist_atr=None,
-        overnight_low_dist_atr=None,
-        overnight_range_pct=None,
         opening_gap_pct=None,
         weekly_pivot_dist_atr=None,
         weekly_r1_dist_atr=None,
@@ -3957,8 +3863,6 @@ def _cold_start_vector(
         weekly_s1_dist_atr=None,
         weekly_s2_dist_atr=None,
         nearest_level_dist_atr=None,
-        asian_session_high_dist_atr=None,
-        asian_session_low_dist_atr=None,
         gap_filled=None,
         momentum_rank_z=None,
         volume_rank_z=None,

@@ -19,7 +19,6 @@ from src.intelligence.features.kernels._primitives import _pearson_acf1, _skewne
 from src.intelligence.features.kernels.calendar import (
     _days_since_quarter_end,
     _earnings_season_flag,
-    _in_london_kz,
     _opening_range,
     _opex_flag,
     _power_hour,
@@ -79,8 +78,6 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
@@ -365,18 +362,6 @@ def test_pearson_acf1_cold_start():
 # ---------------------------------------------------------------------------
 
 
-def test_in_london_kz_inside():
-    ts = datetime(2026, 1, 7, 8, 30, tzinfo=UTC)
-    cfg = _make_cfg()
-    assert _in_london_kz(ts, cfg) == 1.0
-
-
-def test_in_london_kz_outside():
-    ts = datetime(2026, 1, 7, 12, 0, tzinfo=UTC)
-    cfg = _make_cfg()
-    assert _in_london_kz(ts, cfg) == 0.0
-
-
 def test_power_hour_inside():
     ts = datetime(2026, 1, 7, 19, 30, tzinfo=UTC)
     cfg = _make_cfg()
@@ -452,7 +437,7 @@ def test_feature_vector_domain_complete():
     Primitives Extension fields (todo 320) = 298, + 2 Earnings-Season
     Calendar Primitive fields (Phase 176 Plan 03, todo 353) = 300."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 300
+    assert len(FEATURE_VECTOR_DOMAIN) == 289
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

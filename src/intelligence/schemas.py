@@ -1186,8 +1186,8 @@ class FeatureVector:
         yield slope, TIP/TLT and HYG/LQD spread z-scores, stock-bond correlation
         fast/slow/z, equity/rate factor betas (2 nullable, see field comments)
       Named Interaction Primitives (5, Phase 151 Plan 05, todos 066/104): the 5
-        pre-specified, Fable-reviewed tier-1 interaction candidates -- 3 cross-TF
-        return divergences (ret_div_1m_5m/5m_1h/1h_1d, nullable + timeframe-pinned,
+        pre-specified, Fable-reviewed tier-1 interaction candidates -- 2 cross-TF
+        return divergences (ret_div_5m_1h/1h_1d, nullable + timeframe-pinned,
         see field comments) + 2 calendar event flags (opex_flag, quad_witching_flag,
         non-nullable, no market-holiday table by design)
       Theory-Motivated Interactions (10, Phase 151 Plan 06): momentum_vol_regime_product,
@@ -1230,7 +1230,7 @@ class FeatureVector:
       Price-Volume Interactions (8, Phase 142.5 Plan 05.5): vol_body_product, ret_vol_product_fast, price_vol_corr_fast/slow, range_vol_product, up_vol_body_diff, ret_vol_ratio_fast, vol_skew_product
       Session-level — Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01):
         swing detection (7), trend structure (6), swing momentum (8), fibonacci
-        zones (4), session levels (16). All `float | None` with NO default
+        zones (4), session levels (11). All `float | None` with NO default
         (D-01 nullable-field fix -- see class-level docstring paragraph above),
         placed immediately before the defaulted canary block below (dataclass
         field ordering requires every non-defaulted field to precede every
@@ -1254,9 +1254,8 @@ class FeatureVector:
       Phase 151 Plans 01 + 03 + 04 + 05 + 06 + todo 320 + Phase 176 Plan 03]
       + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
-      self-regression) + 3 Cross-TF divergences (Phase 151 Plan 05, nullable
-      -- timeframe-pinned, None where the pair is undefined or, for
-      ret_div_1m_5m, where 1m OHLCV coverage is absent), all defaulted/
+      self-regression) + 2 Cross-TF divergences (Phase 151 Plan 05, nullable
+      -- timeframe-pinned, None where the pair is undefined), all defaulted/
       nullable for cold-start/construction-site blast-radius,
       degenerate-self-regression, or timeframe-undefined reasons -- see
       Canary field comments, the Smart Money Concepts block comment, and the
@@ -1339,9 +1338,8 @@ class FeatureVector:
     vix_z: float | None
     flight_quality: float | None
     yield_slope_z: float | None
-    # Calendar (11: 9 original + 2 new)
+    # Calendar (10: 9 original + 2 new, minus in_london_kz)
     in_ny_session: float | None
-    in_london_kz: float | None
     in_overlap: float | None
     power_hour: float | None
     opening_range: float | None
@@ -1483,21 +1481,15 @@ class FeatureVector:
     )  # zscore(rolling OLS slope of symbol daily log_ret on TLT daily log_ret); None for TLT itself (APR: feature.factor_beta.window / .zscore_window)
     # Named Interaction Primitives (5, Phase 151 Plan 05, todos 066/104) --
     # the 5 pre-specified, Fable-reviewed tier-1 interaction candidates from
-    # ROADMAP's consolidated roster. ret_div_1m_5m/5m_1h/1h_1d are
+    # ROADMAP's consolidated roster. ret_div_5m_1h/1h_1d are
     # `float | None` with NO default (required-but-nullable, same idiom as
     # equity_beta_z/rate_beta_z above): each is pinned to the LOWER
     # timeframe of its pair and is None everywhere else -- None means "this
     # tf pair is undefined here," never a fake 0.0 divergence (which would
     # be indistinguishable from "the two timeframes actually agree").
-    # ret_div_1m_5m is additionally None wherever 1m OHLCV coverage is
-    # absent (~99% of the 5m corpus -- 1m coverage is 2026-03-23..2026-06-23
-    # versus 5m's 2006-06-02..2026-07-07, a deliberate, documented data
-    # limitation, not a defect). opex_flag/quad_witching_flag are
+    # opex_flag/quad_witching_flag are
     # non-nullable floats (1.0/0.0), always computable from bar_ts alone --
     # see the two helper functions' docstrings for the exact formulas.
-    ret_div_1m_5m: (
-        float | None
-    )  # last 1m log return - own 5m log return; populated at tf=="5m" only, and only where 1m OHLCV exists
     ret_div_5m_1h: (
         float | None
     )  # own 5m log return - last 1h log return; populated at tf=="5m" only
@@ -1791,13 +1783,10 @@ class FeatureVector:
     nearest_fib_dist_atr: float | None
     fib_cluster_strength: float | None
     in_fib_discount_zone: float | None
-    # Session Levels (16, Phase 165 Plan 04, D-07..D-09/D-13)
+    # Session Levels (11, Phase 165 Plan 04, D-07..D-09/D-13)
     prior_session_high_dist_atr: float | None
     prior_session_low_dist_atr: float | None
     prior_session_close_dist_atr: float | None
-    overnight_high_dist_atr: float | None
-    overnight_low_dist_atr: float | None
-    overnight_range_pct: float | None
     opening_gap_pct: float | None
     weekly_pivot_dist_atr: float | None
     weekly_r1_dist_atr: float | None
@@ -1805,8 +1794,6 @@ class FeatureVector:
     weekly_s1_dist_atr: float | None
     weekly_s2_dist_atr: float | None
     nearest_level_dist_atr: float | None
-    asian_session_high_dist_atr: float | None
-    asian_session_low_dist_atr: float | None
     gap_filled: float | None
     # Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068) — genuine
     # FeatureVector fields (not measurement-time-only diagnostics), so
@@ -1879,10 +1866,6 @@ class FeatureVector:
     choch_direction: float | None = None
     smc_trend_direction: float | None = None
     bars_since_last_shift: float | None = None
-    amd_phase: float | None = None
-    amd_manipulation_detected: float | None = None
-    amd_distribution_direction: float | None = None
-    manip_strength: float | None = None
     # Cross-sectional (3, nullable — never implemented; always None (todo 103,
     # confirmed 2026-07-27). The "Phase 139 enrichment pass" this comment used to
     # cite doesn't exist as a real, planned unit of work — deferred pending real

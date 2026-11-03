@@ -277,23 +277,15 @@ class FeatureVectorPipeline(BaseDaemon):
         only call site (bars are already flowing, so `_prewarm_threshold_config()` has
         already run in `_setup()`).
 
-        Also replays `update_overnight_range()` over the same buffered history
-        (Phase 164 Plan 04) -- without this, AMD's overnight-range state would
-        cold-start on every restart while VP/S-R state does not (T-164-07),
-        silently freezing amd_phase/amd_manipulation_detected/
-        amd_distribution_direction/manip_strength at neutral defaults until a
-        full new accumulation cycle passes. Same warm-up source and exclusion
-        as `update_wk_vwap()`/`update_session_vp()` above.
-
         Also replays the `update_session_levels` mutator over the same buffered
-        history (Phase 165 Plan 04) -- without this, the session/overnight/Asian/
+        history (Phase 165 Plan 04) -- without this, the session/
         weekly-adjacent state built for `session_levels.py`'s rewrite would
         cold-start on every restart that does not land exactly on a session
-        boundary, silently freezing all 16 Plan 05 FeatureVector columns at
+        boundary, silently freezing all 11 Plan 05 FeatureVector columns at
         NULL until a full session and a full ISO week have elapsed -- the
         same T-164-07 cold-start gap Phase 164 had to fix retroactively. Same
         warm-up source and exclusion as `update_wk_vwap()`/
-        `update_session_vp()`/`update_overnight_range()` above.
+        `update_session_vp()` above.
         """
         key = f"{symbol}:{tf}"
         if key not in self._feature_caches:
@@ -310,9 +302,6 @@ class FeatureVectorPipeline(BaseDaemon):
                     bar.close,
                     float(bar.volume),
                     self._feature_factory_config,
-                )
-                cache.update_overnight_range(
-                    bar.ts, bar.high, bar.low, self._feature_factory_config
                 )
                 cache.update_session_levels(
                     bar.ts, bar.open, bar.high, bar.low, bar.close, self._feature_factory_config
@@ -636,8 +625,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.session.ny_end_utc_hour", 20),
         ("feature.session.overlap_start_utc_hour", 12),
         ("feature.session.overlap_end_utc_hour", 15),
-        ("feature.session.london_kz_start_utc_hour", 7),
-        ("feature.session.london_kz_end_utc_hour", 10),
         ("feature.session.power_hour_start_utc_hour", 19),
         ("feature.session.power_hour_end_utc_hour", 21),
         ("feature.session.opening_range_start_minute", 810),
@@ -776,9 +763,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.zones.max_tracked_zones", 5),
         ("feature.smc.bos_choch.lookback", 120),
         ("feature.smc.bos_choch.swing_neighbor", 5),
-        ("feature.smc.amd.accum_start_utc_hour", 20),
-        ("feature.smc.amd.manip_end_utc_hour", 10),
-        ("feature.smc.amd.dist_end_utc_hour", 21),
         # --- migration 267: Phase 165 Plan 01 Swing/Fib/Trend/Session Structure
         # (contract only -- consumed by Plans 02-04) ---
         ("feature.swing.pivot_window", 5),
@@ -795,8 +779,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.swing_momentum.intensity_ramp_lo", 1.0),
         ("feature.swing_momentum.intensity_ramp_hi", 2.0),
         ("feature.fib.cluster_atr_divisor", 2.0),
-        ("feature.session_levels.asia_start_et_hour", 20),
-        ("feature.session_levels.asia_end_et_hour", 4),
         ("feature.atr_normalization.min_atr_pct", 0.0001),
         (
             "feature.ctf.higher_tf_map",
@@ -929,8 +911,6 @@ class FeatureVectorPipeline(BaseDaemon):
             ny_session_end_utc_hour=_int("feature.session.ny_end_utc_hour", 20),
             overlap_start_utc_hour=_int("feature.session.overlap_start_utc_hour", 12),
             overlap_end_utc_hour=_int("feature.session.overlap_end_utc_hour", 15),
-            london_kz_start_utc_hour=_int("feature.session.london_kz_start_utc_hour", 7),
-            london_kz_end_utc_hour=_int("feature.session.london_kz_end_utc_hour", 10),
             power_hour_start_utc_hour=_int("feature.session.power_hour_start_utc_hour", 19),
             power_hour_end_utc_hour=_int("feature.session.power_hour_end_utc_hour", 21),
             opening_range_start_minute=_int("feature.session.opening_range_start_minute", 810),
@@ -1086,9 +1066,6 @@ class FeatureVectorPipeline(BaseDaemon):
             smc_zones_max_tracked_zones=_int("feature.smc.zones.max_tracked_zones", 5),
             smc_bos_choch_lookback=_int("feature.smc.bos_choch.lookback", 120),
             smc_bos_choch_swing_neighbor=_int("feature.smc.bos_choch.swing_neighbor", 5),
-            smc_amd_accum_start_utc_hour=_int("feature.smc.amd.accum_start_utc_hour", 20),
-            smc_amd_manip_end_utc_hour=_int("feature.smc.amd.manip_end_utc_hour", 10),
-            smc_amd_dist_end_utc_hour=_int("feature.smc.amd.dist_end_utc_hour", 21),
             swing_pivot_window=_int("feature.swing.pivot_window", 5),
             swing_lookback_bars=_int("feature.swing.lookback_bars", 120),
             trend_structure_atr_strength_divisor=_float(
@@ -1111,8 +1088,6 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.swing_momentum.intensity_ramp_hi", 2.0
             ),
             fib_cluster_atr_divisor=_float("feature.fib.cluster_atr_divisor", 2.0),
-            session_levels_asia_start_et_hour=_int("feature.session_levels.asia_start_et_hour", 20),
-            session_levels_asia_end_et_hour=_int("feature.session_levels.asia_end_et_hour", 4),
             atr_normalization_min_pct=_float("feature.atr_normalization.min_atr_pct", 0.0001),
             ctf_higher_tf_map=_dict(
                 "feature.ctf.higher_tf_map",
@@ -1441,15 +1416,9 @@ class FeatureVectorPipeline(BaseDaemon):
         # VP fields. Mirrors compute_batch()'s per-bar update_session_vp() call.
         cache.update_session_vp(bar.ts, bar.high, bar.low, bar.close, float(bar.volume), config)
 
-        # AMD overnight-range accumulator (Phase 164 Plan 04): update BEFORE
-        # compute() reads FeatureCache's overnight-range/manipulation state
-        # to derive the 4 AMD FeatureVector fields. Mirrors compute_batch()'s
-        # per-bar update_overnight_range() call immediately above.
-        cache.update_overnight_range(bar.ts, bar.high, bar.low, config)
-
         # Session-levels accumulator (Phase 165 Plan 04): update BEFORE
-        # compute() reads FeatureCache's session/overnight/Asian/weekly-
-        # adjacent state (Plan 05 derives the 16 FeatureVector fields).
+        # compute() reads FeatureCache's session/weekly-
+        # adjacent state (Plan 05 derives the 11 FeatureVector fields).
         # Mirrors compute_batch()'s per-bar update_session_levels() call.
         cache.update_session_levels(bar.ts, bar.open, bar.high, bar.low, bar.close, config)
 

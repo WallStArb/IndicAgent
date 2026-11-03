@@ -108,8 +108,6 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
@@ -823,7 +821,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 300, f"Expected 300 fields, got {len(fields)}"
+        assert len(fields) == 289, f"Expected 289 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

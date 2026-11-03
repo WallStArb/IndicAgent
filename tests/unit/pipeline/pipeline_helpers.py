@@ -95,8 +95,6 @@ def make_agent() -> FeatureVectorPipeline:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,

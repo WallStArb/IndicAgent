@@ -1,31 +1,27 @@
 """Smart money concept kernels: order blocks, fair value gaps, liquidity sweeps and pools,
-supply and demand zones, BOS/CHoCH and the AMD cycle (D-25).
+supply and demand zones and BOS/CHoCH (D-25).
 
 The helpers are the ones `feature_factory` used to hold, moved unchanged. A stateless kernel
 slices the same causal window the batch loop sliced, `[max(0, i - lookback + 1) : i + 1]`, and
 reads the loop's `atr_val` (the ATR padded series at row i). The zones kernel consumes the FVG
 midpoint and pool premium flag as intermediate outputs, so its declared memory chains through
-theirs. The AMD kernel replays a fresh `FeatureCache` with the loop's overnight-range update and
-is path dependent. Every helper returns a float for every key, never None.
+theirs. Every helper returns a float for every key, never None.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from src.intelligence.features.contract.registry import Kernel
-from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,
     _is_valid_atr,
-    undefined_on,
     window_start,
 )
-from src.intelligence.utils import clamp, find_peaks, find_troughs
+from src.intelligence.utils import find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 if TYPE_CHECKING:
@@ -728,7 +724,7 @@ def _pool_touches_for(lvl_type: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Smart Money Concepts — Supply/Demand Zones + BOS/CHoCH + AMD Cycle (Plan 04)
+# Smart Money Concepts — Supply/Demand Zones + BOS/CHoCH (Plan 04)
 # ---------------------------------------------------------------------------
 
 # D1 rule 2 (todo 584 4b-2 group 4): a side's distance/freshness are None when that side has
@@ -755,11 +751,6 @@ _BOS_FALLBACK: dict[str, float | None] = {
     "smc_trend_direction": 0.0,
     "bars_since_last_shift": None,
 }
-
-_AMD_PHASE_UNKNOWN = 0.0
-_AMD_PHASE_ACCUMULATION = 1.0
-_AMD_PHASE_MANIPULATION = 2.0
-_AMD_PHASE_DISTRIBUTION = 3.0
 
 
 def _compute_supply_demand_zones(
@@ -1042,71 +1033,6 @@ def _compute_bos_choch(
     }
 
 
-def _amd_phase_ordinal(bar_ts: datetime | None, config: FeatureFactoryConfig) -> float:
-    """Ordinal-encode the current AMD cycle phase from bar_ts's UTC hour (Plan 04).
-
-    0.0=unknown (no timestamp), 1.0=accumulation, 2.0=manipulation,
-    3.0=distribution -- matches migration 266's column COMMENT and
-    164-RESEARCH.md's Anti-patterns A2 mapping. Ported from AMDCyclePlugin's
-    phase determination (archive/smc_context/amd_cycle.py); boundaries are
-    the same 4 APR-backed UTC hours FeatureCache.update_overnight_range()
-    already uses for its own cycle-key derivation.
-    """
-    if bar_ts is None:
-        return _AMD_PHASE_UNKNOWN
-    ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
-    hour = ts.hour
-    accum_start = config.smc_amd_accum_start_utc_hour
-    manip_end = config.smc_amd_manip_end_utc_hour
-    dist_end = config.smc_amd_dist_end_utc_hour
-    if hour >= accum_start:
-        return _AMD_PHASE_ACCUMULATION
-    if hour < manip_end:
-        return _AMD_PHASE_MANIPULATION
-    if hour < dist_end:
-        return _AMD_PHASE_DISTRIBUTION
-    return _AMD_PHASE_ACCUMULATION
-
-
-def _derive_amd_cycle(
-    cache: FeatureCache,
-    bar_ts: datetime | None,
-    config: FeatureFactoryConfig,
-) -> dict[str, float]:
-    """Derive the 4 clamped/ordinal AMD FeatureVector fields from FeatureCache state (Plan 04).
-
-    Reads FeatureCache's overnight-range/manipulation state (set by
-    update_overnight_range(), called once per bar by the caller before
-    compute()/inside compute_batch()'s loop) -- never recomputes overnight
-    range itself, matching _derive_session_vp()'s "read raw cache state,
-    derive bounded output" shape. amd_phase is ordinal-encoded here (see
-    _amd_phase_ordinal); manip_strength is clamped to [0,1]
-    (164-RESEARCH.md Pitfall 3 -- the mutator's raw breach-depth ratio can
-    exceed 1.0 on an overshoot breach). amd_distribution_direction is gated
-    to the distribution phase only, matching AMDCyclePlugin's own
-    "dist_direction only meaningful during distribution" semantics --
-    FeatureCache's raw amd_distribution_direction stays set from the
-    manipulation breach bar through the rest of the cycle for the mutator's
-    own internal bookkeeping, but this derivation only surfaces it once the
-    cycle has actually reached distribution.
-
-    Never raises: a cold cache (no update_overnight_range() call yet) reads
-    back its dataclass defaults (all 0.0), which this function treats as
-    "no manipulation detected yet" -- a genuine neutral reading, not an
-    error state.
-    """
-    phase = _amd_phase_ordinal(bar_ts, config)
-    amd_distribution_direction = (
-        cache.amd_distribution_direction if phase == _AMD_PHASE_DISTRIBUTION else 0.0
-    )
-    return {
-        "amd_phase": phase,
-        "amd_manipulation_detected": float(cache.amd_manipulation_detected),
-        "amd_distribution_direction": float(amd_distribution_direction),
-        "manip_strength": clamp(cache.manip_strength, 0.0, 1.0),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Kernels
 # ---------------------------------------------------------------------------
@@ -1116,14 +1042,6 @@ OB = KeyGroup.from_fallback(_OB_FALLBACK)
 SWEEP = KeyGroup.from_fallback(_SWEEP_FALLBACK)
 ZONE = KeyGroup.from_fallback(_ZONE_FALLBACK)
 BOS = KeyGroup.from_fallback(_BOS_FALLBACK)
-AMD = KeyGroup(
-    (
-        "amd_phase",
-        "amd_manipulation_detected",
-        "amd_distribution_direction",
-        "manip_strength",
-    )
-)
 
 
 def _lookback_of(name: str):
@@ -1249,16 +1167,6 @@ def _compute_bos_columns(x, config):
     return BOS.columns(len(closes), row)
 
 
-def _compute_amd_columns(x, config):
-    highs, lows, ts = x["high"], x["low"], x["ts_dt"]
-    cache = FeatureCache()
-    rows: dict[int, dict[str, float]] = {}
-    for i in range(1, len(highs)):
-        cache.update_overnight_range(ts[i], float(highs[i]), float(lows[i]), config)
-        rows[i] = _derive_amd_cycle(cache, ts[i], config)
-    return AMD.columns(len(highs), rows.__getitem__)
-
-
 def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()):
     return Kernel(
         name=name,
@@ -1321,20 +1229,5 @@ KERNELS = (
         _BOS_LOOKBACK,
         _compute_bos_columns,
         zero_is_state=frozenset({"bos_direction", "choch_direction", "smc_trend_direction"}),
-    ),
-    Kernel(
-        name="amd_cycle",
-        outputs=AMD.outputs,
-        inputs=("ts_dt", "high", "low"),
-        memory=lambda config: 0,
-        compute=_compute_amd_columns,
-        # the cycle is anchored on the overnight range, which a whole-session bar does not have
-        # (manip_strength reads the same manipulation state, so it cannot fire either)
-        not_applicable=undefined_on("1d", AMD.outputs),
-        path_dependent=True,
-        path_dependent_reason=(
-            "the overnight-range accumulator state and its cycle resets depend on where the "
-            "series starts"
-        ),
     ),
 )

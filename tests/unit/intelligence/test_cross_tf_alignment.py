@@ -9,7 +9,7 @@ dict passing through and a 5m row reading the unfinished 1h bar). `ctf_series_by
 builds and keys in one step and `compute_batch` and `ctf_row_inputs` accept only its `CtfSeries`.
 
 Columns under test: ctf_momentum, ctf_vwap_align, ctf_regime_align, ret_div_5m_1h,
-ret_div_1h_1d and ret_div_1m_5m.
+ret_div_1h_1d.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.cross_tf import (
     CtfRecord,
     CtfSeries,
-    _build_ltf_return_series,
     ctf_row_inputs,
     ctf_series_by_close,
 )
@@ -133,7 +132,7 @@ def _hourly_ltf(sessions: list[date], seed: int = 9) -> list[dict]:
     return bars
 
 
-def _compute(bars: list[dict], tf: str, ctf, ltf_ret: dict | None = None):
+def _compute(bars: list[dict], tf: str, ctf):
     """compute_batch as the legacy batch path calls it for the CTF and ret_div inputs."""
     results = FeatureFactory.compute_batch(
         bars,
@@ -143,7 +142,6 @@ def _compute(bars: list[dict], tf: str, ctf, ltf_ret: dict | None = None):
         CONFIG,
         warm_up_bars=0,
         ctf_by_ts=ctf or None,
-        ltf_ret_by_ts=ltf_ret or None,
     )
     return {ts: fv for ts, fv in results}
 
@@ -208,37 +206,6 @@ def test_b_perturbing_day_d_leaves_the_1h_rows_of_day_d_unchanged():
         assert same_day
         for ts in same_day:
             assert _ctf_values(base[ts], "ret_div_1h_1d") == _ctf_values(alt[ts], "ret_div_1h_1d")
-
-
-# ---- Test C: 1m to 5m ----------------------------------------------------------------------
-
-
-def _minute_bars(sessions: list[date], seed: int = 11) -> list[dict]:
-    """1m bars stamped at bar END (service_utils: a 1m ts is the close time)."""
-    rng, price, bars = random.Random(seed), 100.0, []
-    for d in sessions:
-        ts = _utc(d, SESSION_OPEN_UTC) + timedelta(minutes=1)
-        end = _utc(d, REGULAR_CLOSE_UTC)
-        while ts <= end:
-            fields, price = _ohlcv(rng, price)
-            bars.append({"ts": ts, **fields})
-            ts += timedelta(minutes=1)
-    return bars
-
-
-def test_c_1m_bars_at_or_after_a_5m_rows_end_do_not_reach_it():
-    sessions = _sessions(4)
-    rows = _five_minute_bars(sessions)
-    minutes = _minute_bars(sessions)
-    base = _compute(rows, "5m", None, _build_ltf_return_series(minutes, [b["ts"] for b in rows]))
-    cut_row = rows[150]
-    row_end = cut_row["ts"] + FIVE_MIN
-    changed = _perturbed(minutes, lambda b: b["ts"] < row_end)
-    alt = _compute(rows, "5m", None, _build_ltf_return_series(changed, [b["ts"] for b in rows]))
-    earlier = [ts for ts in base if ts + FIVE_MIN <= row_end]
-    assert len(earlier) > 100
-    for ts in earlier:
-        assert base[ts].ret_div_1m_5m == alt[ts].ret_div_1m_5m, ts
 
 
 # ---- Row reads only HTF bars closed by its bar end -----------------------------------------
@@ -494,33 +461,6 @@ def test_real_rows_ignore_htf_bars_not_closed_by_their_bar_end(symbol, tf, htf_t
 
 def _naive(bars: list[dict]) -> list[dict]:
     return [{**b, "ts": b["ts"].replace(tzinfo=None)} for b in bars]
-
-
-def test_naive_and_aware_timestamps_give_the_same_ltf_return_input():
-    """The 1m return lookup uses the same UTC-nanosecond convention as the CTF and macro paths, so
-    naive bars (taken as UTC) read the same values as aware bars. RED before: every
-    ext_ltf_last_log_ret was NaN for naive rows against an aware-keyed series."""
-    from src.intelligence.feature_factory import _cross_tf_kernel_inputs
-
-    rows = _five_minute_bars(_sessions(3))
-    minutes = _minute_bars(_sessions(3))
-    series = _build_ltf_return_series(minutes, [b["ts"] for b in rows])
-    assert series
-
-    def run(bars, ltf):
-        ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
-        return _cross_tf_kernel_inputs(ns, "5m", FeatureCache(), None, ltf)["ext_ltf_last_log_ret"]
-
-    aware = run(rows, series)
-    assert np.isfinite(aware).any()
-    naive_rows = _naive(rows)
-    naive_series = _build_ltf_return_series(_naive(minutes), [b["ts"] for b in naive_rows])
-    for got in (
-        run(naive_rows, series),
-        run(rows, naive_series),
-        run(naive_rows, naive_series),
-    ):
-        assert got.tobytes() == aware.tobytes()
 
 
 def test_ctf_series_survives_pickle_copy_and_deepcopy_and_stays_immutable():

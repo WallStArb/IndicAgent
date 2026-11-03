@@ -39,7 +39,7 @@ def test_window_start_is_the_causal_lookback_window():
     assert [window_start(i, 3) for i in range(5)] == [0, 0, 0, 1, 2]
 
 
-@pytest.mark.parametrize("kernel_name", [k.name for k in smc.KERNELS if k.name != "amd_cycle"])
+@pytest.mark.parametrize("kernel_name", [k.name for k in smc.KERNELS])
 def test_smc_stateless_memory_reads_the_lookback_the_compute_reads(kernel_name):
     lookbacks = {
         "order_blocks": smc._OB_LOOKBACK,
@@ -105,7 +105,6 @@ def test_none_free_groups_stay_non_nullable():
     assert smc.BOS.nullable == frozenset(
         {"bos_strength", "choch_strength", "bars_since_last_shift"}
     )
-    assert smc.AMD.nullable == frozenset()  # retires whole in todo 584 item 6 (D5)
     assert vp_sr.SR.nullable == frozenset(
         {
             "sr_support_dist",

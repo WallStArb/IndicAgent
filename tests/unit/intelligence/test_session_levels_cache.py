@@ -28,8 +28,7 @@ def _bars_utc(start_utc: datetime, count: int, step_minutes: int, price_fn):
 
 
 def _cfg(**overrides: object):
-    """Default FeatureFactoryConfig -- session_levels_asia_start_et_hour/asia_end_et_hour
-    default to 20/4 (Plan 01) unless overridden."""
+    """Default FeatureFactoryConfig unless overridden."""
     return _make_cfg(**overrides)
 
 
@@ -48,8 +47,6 @@ def test_session_levels_cold_start_is_none() -> None:
         "_sl_prior_session_high",
         "_sl_prior_session_low",
         "_sl_prior_session_close",
-        "_sl_overnight_high",
-        "_sl_overnight_low",
         "_prior_wk_high",
         "_prior_wk_low",
         "_prior_wk_close",
@@ -96,43 +93,6 @@ def test_session_levels_rollover_snapshots_prior_session() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) overnight accumulator freezes at rollover
-# ---------------------------------------------------------------------------
-
-
-def test_session_levels_overnight_freezes_at_rollover() -> None:
-    cache = FeatureCache()
-    cfg = _cfg()
-
-    rth_bar = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday 9:30 AM ET
-    cache.update_session_levels(rth_bar, 100.0, 101.0, 99.0, 100.5, cfg)
-    assert (
-        cache._sl_on_acc_high is None
-    ), "an RTH bar alone must never populate the overnight accumulator"
-
-    post_close = datetime(2026, 7, 6, 20, 5, tzinfo=UTC)  # 4:05 PM ET, same session_day
-    cache.update_session_levels(post_close, 100.0, 103.0, 97.0, 100.0, cfg)
-    late_evening = datetime(2026, 7, 7, 2, 0, tzinfo=UTC)  # 10:00 PM ET, same session_day
-    cache.update_session_levels(late_evening, 100.0, 104.0, 96.0, 100.0, cfg)
-    pre_open = datetime(
-        2026, 7, 7, 7, 0, tzinfo=UTC
-    )  # 3:00 AM ET next day, still session_day Jul 6
-    cache.update_session_levels(pre_open, 100.0, 105.0, 95.0, 100.0, cfg)
-
-    assert cache._sl_on_acc_high == 105.0
-    assert cache._sl_on_acc_low == 95.0
-    assert cache._sl_overnight_high is None, "not yet frozen -- the session hasn't rolled over"
-
-    next_rth = datetime(2026, 7, 7, 13, 30, tzinfo=UTC)  # Tuesday 9:30 AM ET -- rollover
-    cache.update_session_levels(next_rth, 110.0, 111.0, 109.0, 110.5, cfg)
-
-    assert cache._sl_overnight_high == 105.0
-    assert cache._sl_overnight_low == 95.0
-    assert cache._sl_on_acc_high is None
-    assert cache._sl_on_acc_low is None
-
-
-# ---------------------------------------------------------------------------
 # (d) gap_filled latches within a session and resets at rollover
 # ---------------------------------------------------------------------------
 
@@ -174,50 +134,6 @@ def test_session_levels_gap_filled_latches_and_resets() -> None:
             d2 + timedelta(minutes=offset), 150.0, 160.0, 150.0, 155.0, cfg
         )
         assert cache2._sl_gap_filled == 0.0
-
-
-# ---------------------------------------------------------------------------
-# (e) Asian block cycle key
-# ---------------------------------------------------------------------------
-
-
-def test_session_levels_asian_block_cycle_key() -> None:
-    cache = FeatureCache()
-    cfg = _cfg()  # defaults: asia_start_et_hour=20, asia_end_et_hour=4
-
-    outside_before = datetime(2026, 7, 6, 23, 0, tzinfo=UTC)  # 19:00 ET -- outside
-    cache.update_session_levels(outside_before, 100.0, 100.0, 99.0, 100.0, cfg)
-    assert cache._sl_asia_high is None
-
-    block_start = datetime(2026, 7, 7, 0, 30, tzinfo=UTC)  # 20:30 ET Jul 6 -- inside, block start
-    cache.update_session_levels(block_start, 105.0, 105.0, 104.0, 105.0, cfg)
-    assert cache._sl_asia_high == 105.0
-    assert cache._sl_asia_low == 104.0
-
-    same_block = datetime(2026, 7, 7, 6, 0, tzinfo=UTC)  # 02:00 ET Jul 7 -- inside, same block
-    cache.update_session_levels(same_block, 106.0, 106.0, 103.0, 106.0, cfg)
-    assert cache._sl_asia_high == 106.0, "midnight-straddle: same block, extremes extend"
-    assert cache._sl_asia_low == 103.0
-
-    outside_after = datetime(2026, 7, 7, 9, 0, tzinfo=UTC)  # 05:00 ET -- outside
-    cache.update_session_levels(outside_after, 200.0, 200.0, 1.0, 200.0, cfg)
-    assert cache._sl_asia_high == 106.0, "outside-window bars must never touch the accumulator"
-    assert cache._sl_asia_low == 103.0
-
-    new_block = datetime(2026, 7, 8, 0, 30, tzinfo=UTC)  # 20:30 ET Jul 7 -- inside, NEW block
-    cache.update_session_levels(new_block, 110.0, 110.0, 109.0, 110.0, cfg)
-    assert cache._sl_asia_high == 110.0, "new block must reset before accumulating"
-    assert cache._sl_asia_low == 109.0
-
-    # Parametrized non-default asia hours: proves the APR keys are actually read.
-    moved_cache = FeatureCache()
-    moved_cfg = _cfg(session_levels_asia_start_et_hour=22, session_levels_asia_end_et_hour=2)
-    # 20:30 ET is inside the DEFAULT window but OUTSIDE this moved window (start=22).
-    moved_cache.update_session_levels(block_start, 105.0, 105.0, 104.0, 105.0, moved_cfg)
-    assert moved_cache._sl_asia_high is None, (
-        "with asia_start_et_hour=22, a 20:30 ET bar must NOT start a block -- "
-        "proves the APR key value, not a hardcoded 20, gates the window"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,13 +227,13 @@ def test_session_levels_dst_boundary() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (i) no collision with Phase 163/164 accumulator state
+# (i) no collision with Phase 163 accumulator state
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_no_collision_with_amd_or_vp_state() -> None:
+def test_session_levels_no_collision_with_vp_state() -> None:
     """Direct guard for T-165-14. Deliberately drives update_session_levels
-    BEFORE update_session_vp/update_overnight_range on every bar (the reverse
+    BEFORE update_session_vp on every bar (the reverse
     of production call order) -- both mutators derive an identical session-day
     value from the identical bar_ts, so a shared-key collision is invisible
     when the production ordering (VP first) is used verbatim: whichever
@@ -345,16 +261,11 @@ def test_session_levels_no_collision_with_amd_or_vp_state() -> None:
     for ts, o, h, low, c in bars:
         cache_with.update_session_levels(ts, o, h, low, c, cfg)
         cache_with.update_session_vp(ts, h, low, c, 1000.0, cfg)
-        cache_with.update_overnight_range(ts, h, low, cfg)
 
         cache_without.update_session_vp(ts, h, low, c, 1000.0, cfg)
-        cache_without.update_overnight_range(ts, h, low, cfg)
 
     assert cache_with._session_day == cache_without._session_day
     assert cache_with._sess_bars == cache_without._sess_bars
-    assert cache_with._overnight_day == cache_without._overnight_day
-    assert cache_with._overnight_high == cache_without._overnight_high
-    assert cache_with._overnight_low == cache_without._overnight_low
 
 
 # ---------------------------------------------------------------------------

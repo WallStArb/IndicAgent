@@ -91,7 +91,6 @@ BASELINE_COLUMNS: frozenset[str] = frozenset(
         "yield_slope_z",
         # Calendar (11)
         "in_ny_session",
-        "in_london_kz",
         "in_overlap",
         "power_hour",
         "opening_range",

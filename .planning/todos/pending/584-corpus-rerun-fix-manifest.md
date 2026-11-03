@@ -29,7 +29,7 @@ anything found after the pin moves waits for the following rerun.
 | 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
-| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | screened 2026-11-02, open |
+| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); the defect fixes (ret_div NULL on lower tfs, `ctf_vwap_align`, `sweep_detected`) stay open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | in progress (indicagent-ef, 2026-11-03): implementation spec pinned in the additions doc's "Implementation spec" section - ten stored columns (residual.py, distribution.py, dividend.py, all new modules), `days_to_ex_dividend` deferred (dividend_events carries no declaration time, pin-down 3 unresolved by data), rank_z retirement rides the landing |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -469,12 +469,28 @@ the columns into four classes:
 (`tests/unit/intelligence/test_kernel_no_object_contract.py`) is in; goldens regenerated first in
 `8a9c60e8d`. Degenerate correlation windows go through `_corr_or_nan` (floor `STD_FLOOR`, 1e-8,
 where the two inline guards used 1e-10); streaming and batch paths agree for `vol_persistence`
-and `vol_trend_ratio` (NaN on a zero-volume slow window). Left for item 8, which owns the
-`feature_factory` guard sites: `_guard(..., 0.0|1.0)` and the `_series_last(..., 0.0)` fallbacks
-still turn these NaNs back into fills before storage (the six names in
-`_LEGACY_WARMUP_NAN_TO_ZERO`), and `vwap_dev_sigma` has a 0.0 default vector. Pre-existing cold
-zeros in `_ret_skew_z_series_full`, `_ret_acf1_z_series_full` and the `vol_trend_ratio` cold-start
-1.0 are not part of 4c.
+and `vol_trend_ratio` (NaN on a zero-volume slow window). Not part of 4c: the legacy `feature_factory` `_guard(..., 0.0|1.0)` and `_series_last(..., 0.0)`
+refills and the `vwap_dev_sigma` default vector (todo 463; the rerun's `_compute_series_columns` keeps
+the kernel NaN, so they do not block it), and the cold prefixes in `_ret_skew_z_series_full`,
+`_ret_acf1_z_series_full` and the `vol_trend_ratio` cold start (todo 474; they sit inside declared
+memory, so the rebuild masks them).
+
+### Item 6 landed (2026-11-03)
+
+D5 retire executed as the 2026-11-02 edit list specified: 11 columns (`in_london_kz`, `amd_phase`,
+`amd_manipulation_detected`, `amd_distribution_direction`, `manip_strength`, the five
+`session_levels` overnight/Asian columns, `ret_div_1m_5m`). The `amd_cycle` kernel is gone whole,
+`calendar_session` has five outputs, `session_levels` eleven with no 1d declaration (and no `tf`
+input), `cross_tf_divergence` two, and `minute_of_hour_*` is declared undefined on {"1d", "1h"}.
+Also gone: `update_overnight_range` and the AMD, overnight and Asian `FeatureCache` state, the
+`ext_ltf_last_log_ret` external with `Alignment.LTF_ASOF_BAR_START`, `_build_ltf_return_series` and
+the 1m fetches that fed it (backfill worker, pilot gate, parity capture), the seven
+`FeatureFactoryConfig` hour fields. Migration 561 deletes their seven APR keys; the 11 concepts are
+`deprecated` through `ops_concept_registry_override.py`. `feature_vectors` and `feature_vectors_v2`
+keep the physical columns (derived cache; the DROP waits for the rebuild's summary card), recorded
+as `RETIRED_COLUMNS` in the v2 schema test. The v2.x pydantic copies in `I3Structure`/`SMCContext`
+are untouched. The legacy live `compute()` still emits `minute_of_hour_*` as 0.0/1.0 on 1h (as it already did on 1d), a legacy-path fill for todo 463. Golden regenerated in its own commit (`1f917b6ed`): only `minute_of_hour_*` on 1h
+changed besides the dropped columns.
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

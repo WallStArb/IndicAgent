@@ -133,15 +133,6 @@ def _month_position(bar_ts: datetime) -> float:
     return bar_ts.day / days
 
 
-def _in_london_kz(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in the London killzone, else 0.0."""
-    return (
-        1.0
-        if config.london_kz_start_utc_hour <= bar_ts.hour < config.london_kz_end_utc_hour
-        else 0.0
-    )
-
-
 def _power_hour(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
     """1.0 if bar_ts is in power hour, else 0.0."""
     return (
@@ -296,7 +287,6 @@ def _earnings_season_flag(bar_ts: datetime, config: FeatureFactoryConfig) -> flo
 
 _SESSION_OUTPUTS = (
     "in_ny_session",
-    "in_london_kz",
     "in_overlap",
     "power_hour",
     "opening_range",
@@ -338,7 +328,6 @@ def _compute_session(inputs, config):
     out = {name: np.empty(len(dts)) for name in _SESSION_OUTPUTS}
     for i, bar_ts in enumerate(dts):
         out["in_ny_session"][i] = _in_ny_session(bar_ts, config)
-        out["in_london_kz"][i] = _in_london_kz(bar_ts, config)
         out["in_overlap"][i] = _in_overlap(bar_ts, config)
         out["power_hour"][i] = _power_hour(bar_ts, config)
         out["opening_range"][i] = _opening_range(bar_ts, config)
@@ -414,7 +403,7 @@ KERNELS = (
         inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_session,
-        # a daily bar is the whole session: it has no inside/outside, killzone or range
+        # a daily bar is the whole session: it has no inside/outside or range
         not_applicable=undefined_on("1d", _SESSION_OUTPUTS),
     ),
     Kernel(
@@ -423,16 +412,15 @@ KERNELS = (
         inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_cycles,
-        # the clock-time encodings are the bar's time of day; a daily bar has none
-        not_applicable=undefined_on(
-            "1d",
-            (
-                "minute_of_hour_sin",
-                "minute_of_hour_cos",
-                "hour_of_day_sin",
-                "hour_of_day_cos",
-            ),
-        ),
+        # the clock-time encodings are the bar's time of day; a daily bar has none, and on 1h
+        # bars the minute is constant :00, so the minute encodings carry no information there
+        not_applicable={
+            **undefined_on("1d", ("hour_of_day_sin", "hour_of_day_cos")),
+            **{
+                name: frozenset({"1d", "1h"})
+                for name in ("minute_of_hour_sin", "minute_of_hour_cos")
+            },
+        },
     ),
     Kernel(
         name="calendar_events",

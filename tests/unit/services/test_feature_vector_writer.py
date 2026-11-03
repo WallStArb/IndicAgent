@@ -73,7 +73,6 @@ def _make_valid_feature_vector():
         flight_quality=0.0,
         yield_slope_z=0.0,
         in_ny_session=1.0,
-        in_london_kz=0.0,
         in_overlap=0.0,
         power_hour=0.0,
         opening_range=0.0,
@@ -119,7 +118,6 @@ def _make_valid_feature_vector():
         sb_corr_z=0.0,
         equity_beta_z=0.0,
         rate_beta_z=0.0,
-        ret_div_1m_5m=None,
         ret_div_5m_1h=None,
         ret_div_1h_1d=None,
         opex_flag=0.0,
@@ -278,9 +276,6 @@ def _make_valid_feature_vector():
         prior_session_high_dist_atr=None,
         prior_session_low_dist_atr=None,
         prior_session_close_dist_atr=None,
-        overnight_high_dist_atr=None,
-        overnight_low_dist_atr=None,
-        overnight_range_pct=None,
         opening_gap_pct=None,
         weekly_pivot_dist_atr=None,
         weekly_r1_dist_atr=None,
@@ -288,8 +283,6 @@ def _make_valid_feature_vector():
         weekly_s1_dist_atr=None,
         weekly_s2_dist_atr=None,
         nearest_level_dist_atr=None,
-        asian_session_high_dist_atr=None,
-        asian_session_low_dist_atr=None,
         gap_filled=None,
     )
 
@@ -347,7 +340,7 @@ def test_record_to_insert_params_returns_159_tuple():
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 309, f"Expected 309, got {len(params)}"
+    assert len(params) == 298, f"Expected 298, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -412,10 +405,10 @@ def test_record_to_insert_params_feature_values_match_vector():
     assert params[21] == v.atr_z
     # $31 = hurst (index 30)
     assert params[30] == v.hurst
-    # $58 = ctf_regime_align (index 57)
-    assert params[57] == v.ctf_regime_align
-    # $62 = ret_acf1_z (index 61)
-    assert params[61] == v.ret_acf1_z
+    # $57 = ctf_regime_align (index 56; in_london_kz retired ahead of it, todo 584 item 6)
+    assert params[56] == v.ctf_regime_align
+    # $61 = ret_acf1_z (index 60)
+    assert params[60] == v.ret_acf1_z
 
 
 def test_feature_vector_id_is_deterministic():
@@ -472,7 +465,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 309, f"Expected 309-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 298, f"Expected 298-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -636,7 +629,7 @@ def test_insert_sql_has_159_placeholders():
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 309, f"Expected 309 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 298, f"Expected 298 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

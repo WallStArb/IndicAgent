@@ -1,8 +1,8 @@
 """Live-versus-batch parity for FeatureFactory: one replay and one assertion for every primitive
 test that checks a forgotten compute_batch() wiring update.
 
-The replay follows compute_batch()'s per-bar order: from bar 1, update_session_vp,
-update_overnight_range and update_session_levels, then compute(), then advance_bar(). It does
+The replay follows compute_batch()'s per-bar order: from bar 1, update_session_vp
+and update_session_levels, then compute(), then advance_bar(). It does
 not refresh the regime cache, so the regime fields (and the products built on them) are outside
 what these helpers can compare. Fixtures pass UTC-aware timestamps and float prices, which
 compute_batch() would otherwise normalise first.
@@ -28,7 +28,6 @@ _PARITY_TOL = 1e-6
 def _apply_mutators(cache: FeatureCache, bar: dict, cfg: FeatureFactoryConfig) -> None:
     """The per-bar mutators compute_batch() runs before compute()."""
     cache.update_session_vp(bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg)
-    cache.update_overnight_range(bar["ts"], bar["high"], bar["low"], cfg)
     cache.update_session_levels(bar["ts"], bar["open"], bar["high"], bar["low"], bar["close"], cfg)
 
 

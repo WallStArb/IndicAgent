@@ -144,7 +144,6 @@ _D02_ENUMERATED_BROADCAST_FEATURES = frozenset(
         "week_of_year_sin",
         "week_of_year_cos",
         "in_ny_session",
-        "in_london_kz",
         "in_overlap",
         "power_hour",
         "opening_range",

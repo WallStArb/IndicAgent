@@ -137,9 +137,6 @@ class Alignment(enum.Enum):
     # A higher-timeframe value keyed by its bar's close time (the next HTF bar's start) and read
     # with kernels.cross_tf.ctf_row_inputs: a row reads only HTF bars closed by its bar start.
     HTF_ASOF_CLOSE = "htf_asof_close"
-    # A lower-timeframe value (the last 1m log return) taken from 1m bars stamped at or before
-    # the row's bar start (kernels.cross_tf._build_ltf_return_series).
-    LTF_ASOF_BAR_START = "ltf_asof_bar_start"
 
 
 @dataclass(frozen=True)

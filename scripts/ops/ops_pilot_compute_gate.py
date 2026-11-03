@@ -40,7 +40,6 @@ from services._batch_utils import load_config_service_sync  # noqa: E402
 from services.backfill_feature_factory import (  # noqa: E402
     _NO_FLOOR,
     _build_feature_factory_config,
-    _build_ltf_return_series,
     _compute_series_columns,
     _fetch_bar_arrays,
     _fetch_bars_from_db,
@@ -119,7 +118,7 @@ def _unit_inputs(
 ):
     """Bars and every external input of one unit, built exactly as `_rebuild_worker` builds
     them (the same helpers, one definition of each alignment)."""
-    bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows, _NO_FLOOR)
+    bars, _ = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows, _NO_FLOOR)
     symbol_1d = _fetch_bars_from_db(conn, symbol, "1d", until=horizon, floor=_NO_FLOOR)
     beta_by_date = build_symbol_beta_series(
         symbol_1d, reference[SPY], reference[TLT], symbol, config
@@ -128,11 +127,6 @@ def _unit_inputs(
     htf_bars = (
         symbol_1d if htf_tf == "1d" else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon)
     )
-    ltf_ret_by_ts = None
-    if tf == "5m":
-        ltf_bars = _fetch_bars_from_db(conn, symbol, "1m", until=horizon)
-        if ltf_bars:
-            ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, bar_times)
     return bars, _series_kernel_inputs(
         symbol,
         tf,
@@ -141,7 +135,6 @@ def _unit_inputs(
         cross_asset_by_date,
         beta_by_date,
         htf_bars,
-        ltf_ret_by_ts,
     )
 
 

@@ -3,11 +3,11 @@ fields are non-constant, ATR-unit, live==batch, and NULL (never a plausible numb
 insufficient data (D-01, the todo-153 failure shape).
 
 Plan 02 (swing detection + trend structure), Plan 03 (swing momentum + fibonacci zones),
-and Plan 05 (session levels + the phase-closing 41-column completeness gate) share this
+and Plan 05 (session levels + the phase-closing 36-column completeness gate) share this
 file -- shared helpers (`_make_cfg`, `RNG`, `N`) stay at module level, sub-scopes are
 sectioned by comment header. This file now covers all four Phase 165 sub-scopes (swing
 detection, trend structure, swing momentum, fibonacci zones, session levels) plus a
-phase-wide gate proving all 41 columns produce real values.
+phase-wide gate proving all 36 columns produce real values.
 """
 
 from __future__ import annotations
@@ -109,8 +109,6 @@ def _make_cfg(**overrides: object) -> FeatureFactoryConfig:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
@@ -866,16 +864,13 @@ def test_swing_momentum_fib_apr_keys_are_live(bars):
 
 
 # ---------------------------------------------------------------------------
-# Phase 165 Plan 05: Session Levels (16 fields) + phase-closing completeness gate
+# Phase 165 Plan 05: Session Levels (11 fields) + phase-closing completeness gate
 # ---------------------------------------------------------------------------
 
 _SESSION_LEVEL_FIELDS = (
     "prior_session_high_dist_atr",
     "prior_session_low_dist_atr",
     "prior_session_close_dist_atr",
-    "overnight_high_dist_atr",
-    "overnight_low_dist_atr",
-    "overnight_range_pct",
     "opening_gap_pct",
     "weekly_pivot_dist_atr",
     "weekly_r1_dist_atr",
@@ -883,13 +878,11 @@ _SESSION_LEVEL_FIELDS = (
     "weekly_s1_dist_atr",
     "weekly_s2_dist_atr",
     "nearest_level_dist_atr",
-    "asian_session_high_dist_atr",
-    "asian_session_low_dist_atr",
     "gap_filled",
 )
 
 # The union of every Phase 165 field, in FeatureVector dataclass declaration order
-# (Plan 02's 13 + Plan 03's 12 + Plan 05's 16 = 41).
+# (Plan 02's 13 + Plan 03's 12 + Plan 05's 11 = 36).
 _PHASE_165_FIELDS = (
     _SWING_FIELDS + _TREND_FIELDS + _SWING_MOMENTUM_FIELDS + _FIB_FIELDS + _SESSION_LEVEL_FIELDS
 )
@@ -925,7 +918,7 @@ def _build_session_levels_bars() -> list[dict]:
     """~8 days of 30-min bars (continuous calendar coverage, not RTH-only) with the
     same dual-frequency-oscillation + random-walk shape as the module `bars`
     fixture -- spans multiple ET session-day rollovers and at least one ISO-week
-    boundary, so all 16 session-levels fields (plus the swing/trend/fib fields
+    boundary, so all 11 session-levels fields (plus the swing/trend/fib fields
     the `bars` fixture already exercises at 1-minute granularity) take real,
     varying non-None values. Continuous (not RTH-only) calendar coverage means
     every ET calendar-date change is a session rollover in this synthetic
@@ -975,7 +968,7 @@ def session_batch_5m(session_bars, cfg) -> list:
 
 
 def test_session_levels_non_constant_batch(session_batch_5m):
-    """Each of the 16 session-levels fields must take at least 2 distinct
+    """Each of the 11 session-levels fields must take at least 2 distinct
     non-None values across a multi-session, multi-week batch run -- except
     gap_filled, for which both 0.0 and 1.0 must occur."""
     results = session_batch_5m
@@ -1169,7 +1162,7 @@ def test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded(cfg):
 
 
 # ---------------------------------------------------------------------------
-# (e) tf=='1d' suppression -- gated inside the helper, live/batch cannot diverge
+# (e) tf=='1d' presence -- the kernel declares no 1d suppression any more
 # ---------------------------------------------------------------------------
 
 
@@ -1178,25 +1171,13 @@ def _present(value) -> bool:
     return value is not None and not (isinstance(value, float) and math.isnan(value))
 
 
-def test_session_levels_daily_suppression(session_bars, session_batch_5m, cfg):
-    """The five outputs the session_levels kernel declares not applicable on 1d are missing at
-    tf=='1d' (`compute_kernels` writes them NaN) and present at tf=='5m' on the same bars;
-    opening_gap_pct and the weekly five are present at both."""
+def test_session_levels_daily_presence(session_bars, session_batch_5m, cfg):
+    """The session_levels kernel declares nothing not applicable on 1d (the overnight and Asian
+    outputs that were are retired, todo 584 item 6): opening_gap_pct and the weekly five are
+    present at both 5m and 1d."""
     results_5m = session_batch_5m
     cache_1d = FeatureCache()
     results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", cache_1d, cfg)
-
-    for field in (
-        "overnight_high_dist_atr",
-        "overnight_low_dist_atr",
-        "overnight_range_pct",
-        "asian_session_high_dist_atr",
-        "asian_session_low_dist_atr",
-    ):
-        n_5m = sum(1 for _, fv in results_5m if _present(getattr(fv, field)))
-        n_1d = sum(1 for _, fv in results_1d if _present(getattr(fv, field)))
-        assert n_5m > 0, f"{field} never populated at tf='5m' -- fixture too short"
-        assert n_1d == 0, f"{field} must be missing at tf=='1d', found {n_1d} value(s)"
 
     for field in (
         "opening_gap_pct",
@@ -1280,25 +1261,25 @@ def test_session_levels_gap_filled_column(cfg):
 
 
 # ---------------------------------------------------------------------------
-# (g) live == batch parity for all 16 session-levels fields
+# (g) live == batch parity for all 11 session-levels fields
 # ---------------------------------------------------------------------------
 
 
 def test_session_levels_live_batch_parity(session_bars, session_batch_5m, cfg):
     """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6
-    on all 16 session-levels fields -- catches a forgotten compute_batch() wiring update."""
+    on all 11 session-levels fields -- catches a forgotten compute_batch() wiring update."""
     assert_live_batch_parity(
         _SESSION_LEVEL_FIELDS, session_batch_5m[-1][1], live_last(session_bars, cfg)
     )
 
 
 # ---------------------------------------------------------------------------
-# (h) THE phase-closing gate: all 41 Phase 165 columns produce real values
+# (h) THE phase-closing gate: all 36 Phase 165 columns produce real values
 # ---------------------------------------------------------------------------
 
 
 def test_phase165_all_41_fields_non_constant_batch(session_batch_5m):
-    """Every one of the 41 Phase 165 fields must take at least one non-None
+    """Every one of the 36 Phase 165 fields must take at least one non-None
     value somewhere across a multi-session, multi-week batch run -- the
     single test that catches a whole sub-scope silently failing to wire (the
     todo-153 failure mode)."""
@@ -1324,7 +1305,7 @@ def test_phase165_field_set_matches_registry():
     unreachable so this test stays CI-clean (house pattern, matches
     tests/unit/test_spread_leg_pair_validity.py)."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(_PHASE_165_FIELDS) == 41
+    assert len(_PHASE_165_FIELDS) == 36
     assert set(_PHASE_165_FIELDS) <= fv_fields
 
     for field in _PHASE_165_FIELDS:
@@ -1337,7 +1318,8 @@ def test_phase165_field_set_matches_registry():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT name FROM concept_registry WHERE domain = 'feature' AND added_phase = '165'"
+                "SELECT name FROM concept_registry WHERE domain = 'feature' "
+                "AND added_phase = '165' AND status <> 'deprecated'"
             )
             registry_names = {row[0] for row in cur.fetchall()}
     finally:
@@ -1373,17 +1355,15 @@ def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, sessio
     assert not leaked, f"declared-1d outputs with values in batch: {leaked[:5]}"
 
     # The same columns carry values at 5m where the fixture supplies the inputs (session flags,
-    # clock encodings, VP and AMD; the ret_div divergences need CTF externals the fixture
+    # clock encodings and VP; the ret_div divergences need CTF externals the fixture
     # does not pass, so they stay missing at 5m too and are not asserted here).
     populated_at_5m = (
         "in_ny_session",
-        "in_london_kz",
         "session_time_pos",
         "hour_of_day_sin",
         "minute_of_hour_sin",
         "poc_dist_atr",
         "va_position",
-        "amd_phase",
     )
     for name in populated_at_5m:
         assert any(

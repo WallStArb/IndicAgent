@@ -26,14 +26,32 @@ _EVIDENCE = (
 KEYS = ("symbol", "tf", "bar_ts")
 REGIME_TEXT = ("regime", "regime_volatility")
 
-# Dropped feature columns and why (mirrors the evidence JSON). The Asian session pair is NOT
-# here: the vp_sr kernel computes it, so it stays in the table.
+# Dropped feature columns and why (mirrors the evidence JSON).
 DROPPED_COLUMNS: dict[str, str] = {
     "momentum_rank_z": "todo 421: never computed, cross-sectional rank is not a kernel",
     "volume_rank_z": "todo 421",
     "volatility_rank_z": "todo 421",
     "regime_rolling": "text column never computed, not a FeatureVector field",
     "days_to_month_end": "todo 115: exact duplicate of 1 - month_position",
+}
+# Columns the registry retired after migration 425 created the table (todo 584 item 6, D5): the
+# kernels are gone and the writers stop populating them, but the physical columns stay until the
+# rebuild's summary card is written (derived cache, no same-day DROP).
+RETIRED_COLUMNS: dict[str, str] = {
+    name: "todo 584 item 6 (D5): universe-dead on US equity regular-hours bars"
+    for name in (
+        "in_london_kz",
+        "amd_phase",
+        "amd_manipulation_detected",
+        "amd_distribution_direction",
+        "manip_strength",
+        "overnight_high_dist_atr",
+        "overnight_low_dist_atr",
+        "overnight_range_pct",
+        "asian_session_high_dist_atr",
+        "asian_session_low_dist_atr",
+        "ret_div_1m_5m",
+    )
 }
 NEVER_COMPUTED = ("momentum_rank_z", "volume_rank_z", "volatility_rank_z")
 METADATA_DROPPED: dict[str, str] = {
@@ -112,7 +130,7 @@ def test_migration_source_strings() -> None:
 def test_migration_columns_equal_registry_derivation() -> None:
     columns = parsed_columns()
     assert len(columns) == len(set(columns)), "duplicate column in migration"
-    assert set(columns) == expected_columns()
+    assert set(columns) == expected_columns() | set(RETIRED_COLUMNS)
     # The 186-24 evidence counts migration 425's table; later additions are counted on top.
     evidence = json.loads(_EVIDENCE.read_text())
     assert len(created_columns()) == evidence["expected_column_count"]
@@ -125,4 +143,5 @@ def test_dropped_columns_absent_and_unowned_contract_intact() -> None:
         assert name not in columns, name
     for name in NEVER_COMPUTED:
         assert name in UNOWNED_COLUMNS, name
-    assert {"asian_session_high_dist_atr", "asian_session_low_dist_atr"} <= columns
+    assert set(RETIRED_COLUMNS) <= columns  # physical columns stay until the rebuild card
+    assert not set(RETIRED_COLUMNS) & expected_columns()

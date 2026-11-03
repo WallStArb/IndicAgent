@@ -253,7 +253,7 @@ _STRUCTURAL_VP_SR_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES
 _SMC_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
     _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
         "ob_bull_dist_atr"
-    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("manip_strength")
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("bars_since_last_shift")
     + 1
 ]
 
@@ -316,14 +316,14 @@ _PHASE151_CROSS_ASSET_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_N
 ]
 
 # The 5 new Phase 151 Plan 05 fields (migration 290) are a ninth contiguous,
-# same-order slice -- 3 cross-TF return divergences (ret_div_1m_5m/5m_1h/1h_1d)
+# same-order slice -- 2 cross-TF return divergences (ret_div_5m_1h/1h_1d; ret_div_1m_5m retired, todo 584 item 6)
 # immediately followed by 2 calendar event flags (opex_flag,
 # quad_witching_flag), declared as ONE contiguous run in schemas.py
 # immediately after Plan 04's rate_beta_z field. Same derive-don't-hand-type
 # discipline as the eight slices above; appended at the end of the column
 # list below.
 _PHASE151_INTERACTION_NAMED_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
-    _ALL_FEATURE_VECTOR_FIELD_NAMES.index("ret_div_1m_5m") : _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index("ret_div_5m_1h") : _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
         "quad_witching_flag"
     )
     + 1
@@ -404,7 +404,8 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT/UPSERT SQL ───────────────────────────────────────────────
 
-# 309 columns (as of 2026-09-23): $1 content-key, $2-$8 structural, $9-$62
+# 309 columns as of 2026-09-23 (298 after todo 584 item 6 retired 11; the ranges below are the
+# original layout and no longer line up past $48, the order is _ALL_COLUMN_NAMES): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
 # to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
@@ -469,7 +470,6 @@ _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "flight_quality",
     "yield_slope_z",
     "in_ny_session",
-    "in_london_kz",
     "in_overlap",
     "power_hour",
     "opening_range",
@@ -809,75 +809,74 @@ def feature_vector_to_insert_params(
         regime,  # $7  nullable
         regime_label_source,  # $8
         # Momentum (5 original)
-        vector.momentum_z_fast,  # $9
-        vector.momentum_z_mid,  # $10
-        vector.range_position,  # $11
-        vector.bar_close_pos,  # $12
-        vector.gap_z,  # $13
+        vector.momentum_z_fast,
+        vector.momentum_z_mid,
+        vector.range_position,
+        vector.bar_close_pos,
+        vector.gap_z,
         # Volume and order flow (8)
-        vector.informed_flow,  # $14
-        vector.volume_z,  # $15
-        vector.ofi_z,  # $16
-        vector.ofi_div,  # $17
-        vector.cvd_slope_z,  # $18
-        vector.cmf,  # $19
-        vector.rel_volume,  # $20
-        vector.vwap_dev_sigma,  # $21
+        vector.informed_flow,
+        vector.volume_z,
+        vector.ofi_z,
+        vector.ofi_div,
+        vector.cvd_slope_z,
+        vector.cmf,
+        vector.rel_volume,
+        vector.vwap_dev_sigma,
         # Volatility (2)
-        vector.atr_z,  # $22
-        vector.vol_ratio,  # $23
+        vector.atr_z,
+        vector.vol_ratio,
         # Session-level (4)
-        vector.poc_dist_atr,  # $24
-        vector.va_position,  # $25
-        vector.sr_support_dist,  # $26
-        vector.sr_resist_dist,  # $27
+        vector.poc_dist_atr,
+        vector.va_position,
+        vector.sr_support_dist,
+        vector.sr_resist_dist,
         # Regime-level (10)
-        vector.hmm_regime_prob,  # $28
-        vector.hmm_entropy,  # $29
-        vector.hmm_duration,  # $30
-        vector.hurst,  # $31
-        vector.shannon,  # $32
-        vector.garch_ratio,  # $33
-        vector.hma_slope_z,  # $34
-        vector.adx,  # $35
-        vector.aroon_fast,  # $36
-        vector.aroon_slow,  # $37
+        vector.hmm_regime_prob,
+        vector.hmm_entropy,
+        vector.hmm_duration,
+        vector.hurst,
+        vector.shannon,
+        vector.garch_ratio,
+        vector.hma_slope_z,
+        vector.adx,
+        vector.aroon_fast,
+        vector.aroon_slow,
         # Oscillators (6)
-        vector.rsi_fast,  # $38
-        vector.rsi_mid,  # $39
-        vector.rsi_slow,  # $40
-        vector.cci_fast,  # $41
-        vector.cci_mid,  # $42
-        vector.cci_slow,  # $43
+        vector.rsi_fast,
+        vector.rsi_mid,
+        vector.rsi_slow,
+        vector.cci_fast,
+        vector.cci_mid,
+        vector.cci_slow,
         # Cross-asset (3)
-        vector.vix_z,  # $44
-        vector.flight_quality,  # $45
-        vector.yield_slope_z,  # $46
+        vector.vix_z,
+        vector.flight_quality,
+        vector.yield_slope_z,
         # Calendar (9 original)
-        vector.in_ny_session,  # $47
-        vector.in_london_kz,  # $48
-        vector.in_overlap,  # $49
-        vector.power_hour,  # $50
-        vector.opening_range,  # $51
-        vector.above_wk_vwap,  # $52
-        vector.dow_sin,  # $53
-        vector.dow_cos,  # $54
-        vector.month_position,  # $55
+        vector.in_ny_session,
+        vector.in_overlap,
+        vector.power_hour,
+        vector.opening_range,
+        vector.above_wk_vwap,
+        vector.dow_sin,
+        vector.dow_cos,
+        vector.month_position,
         # Cross-timeframe (3)
-        vector.ctf_momentum,  # $56
-        vector.ctf_vwap_align,  # $57
-        vector.ctf_regime_align,  # $58
+        vector.ctf_momentum,
+        vector.ctf_vwap_align,
+        vector.ctf_regime_align,
         # Statistical / liquidity (4)
-        vector.amihud_illiq_z,  # $59
-        vector.high_52w_dist,  # $60
-        vector.ret_skew_z,  # $61
-        vector.ret_acf1_z,  # $62
+        vector.amihud_illiq_z,
+        vector.high_52w_dist,
+        vector.ret_skew_z,
+        vector.ret_acf1_z,
         # New columns (migration 159)
         bar_close_ts,  # $63  computed from bar_ts + TF duration
-        vector.momentum_z_slow,  # $64
-        vector.momentum_reversal_z,  # $65
-        vector.quarter_position,  # $66
-        vector.days_to_month_end,  # $67
+        vector.momentum_z_slow,
+        vector.momentum_reversal_z,
+        vector.quarter_position,
+        vector.days_to_month_end,
         vector.momentum_rank_z,  # $68  None until Phase 139 enrichment
         vector.volume_rank_z,  # $69  None until Phase 139 enrichment
         vector.volatility_rank_z,  # $70  None until Phase 139 enrichment

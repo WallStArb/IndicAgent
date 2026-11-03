@@ -109,8 +109,6 @@ def _make_config() -> FeatureFactoryConfig:
         ny_session_end_utc_hour=20,
         overlap_start_utc_hour=12,
         overlap_end_utc_hour=15,
-        london_kz_start_utc_hour=7,
-        london_kz_end_utc_hour=10,
         power_hour_start_utc_hour=19,
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
@@ -271,7 +269,6 @@ def _make_zero_vector() -> FeatureVector:
         flight_quality=0.0,
         yield_slope_z=0.0,
         in_ny_session=0.0,
-        in_london_kz=0.0,
         in_overlap=0.0,
         power_hour=0.0,
         opening_range=0.0,
@@ -317,7 +314,6 @@ def _make_zero_vector() -> FeatureVector:
         sb_corr_z=0.0,
         equity_beta_z=0.0,
         rate_beta_z=0.0,
-        ret_div_1m_5m=None,
         ret_div_5m_1h=None,
         ret_div_1h_1d=None,
         opex_flag=0.0,
@@ -476,9 +472,6 @@ def _make_zero_vector() -> FeatureVector:
         prior_session_high_dist_atr=None,
         prior_session_low_dist_atr=None,
         prior_session_close_dist_atr=None,
-        overnight_high_dist_atr=None,
-        overnight_low_dist_atr=None,
-        overnight_range_pct=None,
         opening_gap_pct=None,
         weekly_pivot_dist_atr=None,
         weekly_r1_dist_atr=None,
@@ -486,8 +479,6 @@ def _make_zero_vector() -> FeatureVector:
         weekly_s1_dist_atr=None,
         weekly_s2_dist_atr=None,
         nearest_level_dist_atr=None,
-        asian_session_high_dist_atr=None,
-        asian_session_low_dist_atr=None,
         gap_filled=None,
     )
 
@@ -880,70 +871,6 @@ class TestBuildSymbolBetaSeries:
         equity_beta_z, rate_beta_z = result[last_date]
         assert equity_beta_z is not None and math.isfinite(equity_beta_z)
         assert rate_beta_z is not None and math.isfinite(rate_beta_z)
-
-
-# ---------------------------------------------------------------------------
-# Test 12: _build_ltf_return_series (Phase 151 Plan 05, todo 066)
-# ---------------------------------------------------------------------------
-
-
-class TestBuildLtfReturnSeries:
-    def test_never_derives_from_a_1m_bar_strictly_after_target_ts(self) -> None:
-        """Causality guard (T-151-10): no returned value may be derived from a
-        1m bar whose own ts is strictly after the target 5m bar's ts."""
-        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
-
-        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
-        ltf_bars = [
-            {"ts": base + timedelta(minutes=i), "close": 100.0 + i * 0.1} for i in range(20)
-        ]
-        target_ts_list = [base + timedelta(minutes=i) for i in (2, 7, 12, 17, 25)]
-
-        result = _build_ltf_return_series(ltf_bars, target_ts_list)
-
-        assert result, "expected at least one entry"
-        for target_ts in result:
-            eligible = [b for b in ltf_bars if b["ts"] <= target_ts]
-            assert eligible, f"no eligible 1m bar for {target_ts}, should not be in result"
-            last_eligible_ts = eligible[-1]["ts"]
-            assert last_eligible_ts <= target_ts, (
-                f"selected 1m bar ts {last_eligible_ts} is after target {target_ts} "
-                "-- lookahead bias"
-            )
-
-    def test_matches_manual_log_return_at_exact_bar_boundary(self) -> None:
-        """When target_ts exactly matches a 1m bar's own ts, the returned value
-        must be log(close[k] / close[k-1]) for that bar."""
-        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
-
-        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
-        closes = [100.0, 101.0, 99.5, 102.0]
-        ltf_bars = [{"ts": base + timedelta(minutes=i), "close": c} for i, c in enumerate(closes)]
-        target_ts_list = [base + timedelta(minutes=3)]
-
-        result = _build_ltf_return_series(ltf_bars, target_ts_list)
-        expected = math.log(closes[3] / closes[2])
-        assert result[target_ts_list[0]] == pytest.approx(expected, abs=1e-12)
-
-    def test_no_entry_before_any_eligible_1m_bar(self) -> None:
-        """A target_ts strictly before the first 1m bar's ts yields no entry."""
-        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
-
-        base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
-        ltf_bars = [{"ts": base + timedelta(minutes=i), "close": 100.0 + i} for i in range(5)]
-        target_ts_list = [base - timedelta(minutes=1)]
-
-        result = _build_ltf_return_series(ltf_bars, target_ts_list)
-        assert target_ts_list[0] not in result
-
-    def test_empty_inputs_return_empty_dict(self) -> None:
-        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
-
-        assert _build_ltf_return_series([], [datetime(2026, 1, 1, tzinfo=UTC)]) == {}
-        assert (
-            _build_ltf_return_series([{"ts": datetime(2026, 1, 1, tzinfo=UTC), "close": 1.0}], [])
-            == {}
-        )
 
 
 class TestRestrictTimeframes:
@@ -1848,7 +1775,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
     horizon = times[-1] + timedelta(days=2)
     conn = _WorkerConn(
         _bar_tuples(bars),
-        [_bar_tuples(late[tma.SYMBOL]), [], []],  # symbol 1d, htf 1h, ltf 1m
+        [_bar_tuples(late[tma.SYMBOL]), []],  # symbol 1d, htf 1h
     )
     monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
     unit_ranges = [(0, (times[0], horizon))]
@@ -1880,7 +1807,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
 
     # Expected values: the same externals through one compute_kernels call from series start.
     inputs = module._series_kernel_inputs(
-        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, []
     )
     out = compute_kernels(
         default_registry(),
@@ -1922,7 +1849,7 @@ def test_early_macro_nan_is_spooled_as_null_and_does_not_raise(monkeypatch, tmp_
     )
     arrays, times = _bar_arrays(bars)
     inputs = module._series_kernel_inputs(
-        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, []
     )
     series = module._compute_series_columns(inputs, _rebuild_config())
 
@@ -2026,7 +1953,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
     # A late row keeps its value: flight_quality equals the kernel output at that bar (the
     # fixture's daily history is shorter than the z-score windows, so vix_z is still NaN there).
     inputs = module._series_kernel_inputs(
-        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, []
     )
     out = compute_kernels(
         default_registry(),

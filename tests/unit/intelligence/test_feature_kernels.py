@@ -71,7 +71,6 @@ PATH_DEPENDENT = {
     "vwap_dev_sigma",
     "session_vp",
     "session_levels",
-    "amd_cycle",
     "ctf_source",
     # the regime kernels: the walk-forward fits run from the series start (kernels/regime.py)
     "hmm_trend_walk_forward",
@@ -84,7 +83,6 @@ ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 # compute_batch calls none of these helpers by name any more; it reads registry outputs.
 DELEGATED_HELPERS = (
     "_in_ny_session",
-    "_in_london_kz",
     "_in_overlap",
     "_power_hour",
     "_opening_range",
@@ -233,7 +231,6 @@ def _synthetic_case():
             "5m",
             FeatureCache(),
             None,
-            None,
         ),
     }
     batch = {
@@ -376,13 +373,13 @@ def test_compute_batch_calls_no_delegated_helper():
     assert called == []
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_sixteen():
+def test_the_path_dependent_allow_list_is_the_reviewed_fifteen():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
-    so it has to be added to PATH_DEPENDENT here (and this count changed) by a person. Twelve
+    so it has to be added to PATH_DEPENDENT here (and this count changed) by a person. Eleven
     feature kernels plus the four regime kernels (two walk-forward fits and their labels)."""
     declared = {k.name for k in default_registry().kernels if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 16
+    assert len(PATH_DEPENDENT) == 15
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])

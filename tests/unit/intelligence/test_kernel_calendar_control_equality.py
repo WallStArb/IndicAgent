@@ -67,7 +67,6 @@ def test_calendar_kernels_equal_per_row_scalars():
         session,
         {
             "in_ny_session": [cal._in_ny_session(d, config) for d in dts],
-            "in_london_kz": [cal._in_london_kz(d, config) for d in dts],
             "in_overlap": [cal._in_overlap(d, config) for d in dts],
             "power_hour": [cal._power_hour(d, config) for d in dts],
             "opening_range": [cal._opening_range(d, config) for d in dts],

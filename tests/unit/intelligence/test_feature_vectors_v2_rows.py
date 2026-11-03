@@ -21,6 +21,7 @@ from src.intelligence.features.feature_vector_persistence import (
 from tests.unit.intelligence.test_feature_vectors_v2_schema import (
     _EVIDENCE,
     METADATA_DROPPED,
+    RETIRED_COLUMNS,
     added_columns,
     created_columns,
     expected_columns,
@@ -37,7 +38,7 @@ _DROPPED_METADATA = (
 
 
 def test_column_count_and_order_match_the_migration() -> None:
-    assert len(FEATURE_VECTORS_V2_COLUMNS) == 314
+    assert len(FEATURE_VECTORS_V2_COLUMNS) == 303
     assert FEATURE_VECTORS_V2_COLUMNS[:5] == (
         "symbol",
         "tf",
@@ -49,15 +50,18 @@ def test_column_count_and_order_match_the_migration() -> None:
     # The writer COPYs with an explicit column list, so the physical order of the appended
     # columns does not need to match the registry order.
     assert added_columns() == ["high_low_spread", "roll_spread"]
-    assert [c for c in FEATURE_VECTORS_V2_COLUMNS if c not in added_columns()] == created_columns()
-    assert sorted(FEATURE_VECTORS_V2_COLUMNS) == sorted(parsed_columns())
+    live_created = [c for c in created_columns() if c not in RETIRED_COLUMNS]
+    assert [c for c in FEATURE_VECTORS_V2_COLUMNS if c not in added_columns()] == live_created
+    assert sorted(FEATURE_VECTORS_V2_COLUMNS) == sorted(
+        c for c in parsed_columns() if c not in RETIRED_COLUMNS
+    )
     assert set(FEATURE_VECTORS_V2_COLUMNS) == expected_columns()
 
 
 def test_numeric_columns_are_the_registry_derivation_never_typed() -> None:
     registry = default_registry()
     numeric = feature_vectors_v2_numeric_columns()
-    assert len(numeric) == 309
+    assert len(numeric) == 298
     assert list(numeric) == [
         c
         for c in registry.feature_columns()
@@ -73,6 +77,7 @@ def test_dropped_columns_absent_and_pinned_to_the_evidence_file() -> None:
     columns = set(FEATURE_VECTORS_V2_COLUMNS)
     assert not columns & set(FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS)
     assert not columns & set(_DROPPED_METADATA)
+    assert not columns & set(RETIRED_COLUMNS)
     assert set(_DROPPED_METADATA) == set(METADATA_DROPPED)
     # The three rank columns are not in feature_columns(); days_to_month_end is, so it is the
     # one the derivation excludes explicitly.
@@ -80,7 +85,9 @@ def test_dropped_columns_absent_and_pinned_to_the_evidence_file() -> None:
     for name in ("momentum_rank_z", "volume_rank_z", "volatility_rank_z"):
         assert name in UNOWNED_COLUMNS
         assert name not in default_registry().feature_columns()
-    assert {"asian_session_high_dist_atr", "asian_session_low_dist_atr"} <= columns
+    assert not {"asian_session_high_dist_atr", "asian_session_low_dist_atr"} & set(
+        columns
+    )  # retired, todo 584 item 6
 
 
 def test_lazy_attribute_rejects_unknown_names() -> None:

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.core.bar_accumulator import _ET, _RTH_CLOSE_ET, _RTH_OPEN_ET
+from src.core.bar_accumulator import _ET, _RTH_OPEN_ET
 from src.intelligence.features.kernels._primitives import (
     _corr_or_nan,
     _z_or_nan,
@@ -124,15 +124,6 @@ class FeatureCache:
     sr_support_dist: float = 0.0
     sr_resist_dist: float = 0.0
 
-    # AMD Cycle state (Phase 164), populated by update_overnight_range().
-    # amd_phase is NOT cached here -- it's derived statelessly from bar_ts
-    # via _amd_phase_ordinal() in feature_factory.py, with no cache read.
-    # RAW state here: amd_manipulation_detected/amd_distribution_direction/
-    # manip_strength are set unclamped by the mutator per 164-RESEARCH.md.
-    amd_manipulation_detected: float = 0.0
-    amd_distribution_direction: float = 0.0
-    manip_strength: float = 0.0
-
     # Internal rolling history for the HMA slope z-score
     _hma_slope_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
 
@@ -156,14 +147,6 @@ class FeatureCache:
     _prior_wk_high: float | None = field(default=None, repr=False)
     _prior_wk_low: float | None = field(default=None, repr=False)
     _prior_wk_close: float | None = field(default=None, repr=False)
-
-    # Internal accumulators for AMD overnight-range tracking (Phase 164 Plan 01,
-    # analogous to the weekly-VWAP accumulators above). _overnight_day is the
-    # calendar date (UTC) on which the current accumulation cycle began -- see
-    # update_overnight_range() for the cycle-key derivation.
-    _overnight_high: float | None = field(default=None, repr=False)
-    _overnight_low: float | None = field(default=None, repr=False)
-    _overnight_day: object = field(default=None, repr=False)
 
     # Internal accumulator for session volume profile (Phase 163 Plan 01, D-03).
     # Non-incremental: the full histogram is recomputed over these accumulated
@@ -192,14 +175,6 @@ class FeatureCache:
     # atr_val is available in a mutator (same division of labour as
     # update_session_vp()/_derive_session_vp()).
     #
-    # _sl_overnight_high/_sl_overnight_low track a DIFFERENT window from
-    # Phase 164's _overnight_high/_overnight_low/_overnight_day (the AMD
-    # 20:00-UTC accumulation-phase window): this is the ET non-RTH block of
-    # bars between one session close and the next session open. The two are
-    # deliberately tracked separately, never unified -- sharing state between
-    # two conceptually different "overnight" windows would silently corrupt
-    # both.
-    #
     # _sl_session_day is a separate key from Phase 163's _session_day for the
     # same reason: two mutators sharing one boundary key would each see "no
     # change" after the other flips it first, silently breaking both resets.
@@ -216,19 +191,6 @@ class FeatureCache:
     _sl_prior_session_low: float | None = field(default=None, repr=False)
     _sl_prior_session_close: float | None = field(default=None, repr=False)
     _sl_gap_filled: float = field(default=0.0, repr=False)  # D-13 latch, reset each session day
-    _sl_on_acc_high: float | None = field(
-        default=None, repr=False
-    )  # running non-RTH accumulator, current block
-    _sl_on_acc_low: float | None = field(default=None, repr=False)
-    _sl_overnight_high: float | None = field(
-        default=None, repr=False
-    )  # frozen at last completed session rollover
-    _sl_overnight_low: float | None = field(default=None, repr=False)
-    _sl_asia_day: object = field(
-        default=None, repr=False
-    )  # ET date the current Asian block started
-    _sl_asia_high: float | None = field(default=None, repr=False)
-    _sl_asia_low: float | None = field(default=None, repr=False)
 
     def refresh_regime(self, bars: list[dict], config: FeatureFactoryConfig) -> None:
         """Recompute regime-level features from bars and update cache.
@@ -465,7 +427,7 @@ class FeatureCache:
         close: float,
         config: FeatureFactoryConfig,
     ) -> None:
-        """Track session/overnight/Asian-block/weekly-adjacent state for session_levels.py's
+        """Track session/weekly-adjacent state for session_levels.py's
         D-08 rewrite (Phase 165 Plan 04), timestamp-driven throughout -- NO bar count
         appears anywhere in this method (see the retirement note immediately above
         this method for the three archived constants this replaces and their real
@@ -477,13 +439,7 @@ class FeatureCache:
         raises, on any input (naive datetime, zero prices, a single bar, sparse
         history).
 
-        Overnight here is a DIFFERENT window from Phase 164's AMD
-        _overnight_high/_overnight_low/_overnight_day (the 20:00-UTC accumulation
-        phase): this is the ET non-RTH block of bars between one session's close
-        and the next session's open. The two windows are deliberately tracked
-        separately via the _sl_ prefix -- see the field-block comment above.
-
-        ATR-normalized outputs (the 16 FeatureVector columns) are derived in
+        ATR-normalized outputs (the 11 FeatureVector columns) are derived in
         compute() by Plan 05, never here -- no atr_val is available in a mutator,
         the same division of labour as update_session_vp()/_derive_session_vp().
         """
@@ -491,18 +447,12 @@ class FeatureCache:
         et = ts.astimezone(_ET)
         et_date = et.date()
         session_day = et_date if et.time() >= _RTH_OPEN_ET else et_date - timedelta(days=1)
-        in_rth = _RTH_OPEN_ET <= et.time() < _RTH_CLOSE_ET
 
         if session_day != self._sl_session_day:
             if self._sl_session_day is not None:
                 self._sl_prior_session_high = self._sl_session_high
                 self._sl_prior_session_low = self._sl_session_low
                 self._sl_prior_session_close = self._sl_session_close
-                if self._sl_on_acc_high is not None:
-                    self._sl_overnight_high = self._sl_on_acc_high
-                    self._sl_overnight_low = self._sl_on_acc_low
-            self._sl_on_acc_high = None
-            self._sl_on_acc_low = None
             self._sl_gap_filled = 0.0
             self._sl_session_open = open_
             self._sl_session_high = high
@@ -517,14 +467,6 @@ class FeatureCache:
             )
         self._sl_session_close = close
 
-        if not in_rth:
-            self._sl_on_acc_high = (
-                high if self._sl_on_acc_high is None else max(self._sl_on_acc_high, high)
-            )
-            self._sl_on_acc_low = (
-                low if self._sl_on_acc_low is None else min(self._sl_on_acc_low, low)
-            )
-
         if (
             self._sl_prior_session_close is not None
             and self._sl_session_low is not None
@@ -532,19 +474,6 @@ class FeatureCache:
             and self._sl_session_low <= self._sl_prior_session_close <= self._sl_session_high
         ):
             self._sl_gap_filled = 1.0
-
-        asia_start = config.session_levels_asia_start_et_hour
-        asia_end = config.session_levels_asia_end_et_hour
-        if et.hour >= asia_start or et.hour < asia_end:
-            asia_day = et_date if et.hour >= asia_start else et_date - timedelta(days=1)
-            if asia_day != self._sl_asia_day:
-                self._sl_asia_high = None
-                self._sl_asia_low = None
-                self._sl_asia_day = asia_day
-            self._sl_asia_high = (
-                high if self._sl_asia_high is None else max(self._sl_asia_high, high)
-            )
-            self._sl_asia_low = low if self._sl_asia_low is None else min(self._sl_asia_low, low)
 
     def advance_bar(
         self,
@@ -666,96 +595,6 @@ class FeatureCache:
                 else:  # only a full-window correlation enters the history
                     self._sb_corr_history.append(self.sb_corr_fast)
                     self.sb_corr_z = _z_or_nan(self._sb_corr_history, config.sb_corr_zscore_window)
-
-    def update_overnight_range(
-        self,
-        bar_ts: datetime,
-        high: float,
-        low: float,
-        config: FeatureFactoryConfig,
-    ) -> None:
-        """Track the AMD accumulation-phase overnight high/low with UTC boundary reset.
-
-        Ported from AMDCyclePlugin (src/intelligence/archive/smc_context/amd_cycle.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10]),
-        ICT Accumulation/Manipulation/Distribution cycle: the accumulation phase
-        (feature.smc.amd.accum_start_utc_hour, default 20:00 UTC, through end of
-        calendar day) builds an overnight high/low range that the manipulation
-        phase (00:00 UTC through feature.smc.amd.manip_end_utc_hour, default
-        10:00 UTC) then tests via a breach-then-reverse sweep.
-
-        Session-boundary-reset shape follows update_wk_vwap() exactly (D-13
-        precedent), keyed on a UTC-hour-derived accumulation-cycle date instead
-        of ISO week: bars during accumulation (hour >= accum_start_utc_hour)
-        belong to the cycle that started TODAY (UTC date); bars during
-        manipulation/distribution (hour < accum_start_utc_hour) belong to the
-        cycle that started YESTERDAY (the overnight range formed the prior
-        evening). When the cycle key changes, _overnight_high/_overnight_low
-        reset and per-cycle flags (amd_manipulation_detected,
-        amd_distribution_direction) clear so the next cycle fires fresh —
-        matching AMDCyclePlugin's per-day flag reset.
-
-        Manipulation-detection adaptation: this mutator's signature carries only
-        high/low (no close), so the archived "breach then close back inside the
-        range" reversal test is adapted to an intrabar high/low proxy: an upside
-        sweep is high > overnight_high AND low < overnight_high within the SAME
-        bar (wicked back below); a downside sweep is the mirror. manip_strength
-        is set as the RAW (unclamped) breach-depth ratio — Plan 04's compute()
-        derivation applies the [0,1] clamp and the amd_phase ordinal encoding;
-        this mutator only tracks overnight range + manipulation-phase transition
-        state, per 164-RESEARCH.md Pitfall 3/4.
-
-        All thresholds read from `config` (feature.smc.amd.* APR keys) — zero
-        hardcoded constants, per CLAUDE.md's APR mandate.
-
-        NOT YET INVOKED anywhere in this plan — call sites (compute_batch loop,
-        live per-bar handler, warm-up replay block) are added in Plan 04
-        alongside AMD's compute() derivation.
-        """
-        ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
-        hour = ts.hour
-        accum_start = config.smc_amd_accum_start_utc_hour
-        manip_end = config.smc_amd_manip_end_utc_hour
-
-        # Cycle key: the UTC calendar date on which the current accumulation
-        # window began. Accumulation bars (hour >= accum_start) belong to
-        # today's cycle; manipulation/distribution bars (hour < accum_start)
-        # belong to the cycle that started the PRIOR calendar day.
-        cycle_day = ts.date() if hour >= accum_start else (ts.date() - timedelta(days=1))
-
-        if cycle_day != self._overnight_day:
-            self._overnight_high = None
-            self._overnight_low = None
-            self._overnight_day = cycle_day
-            self.amd_manipulation_detected = 0.0
-            self.amd_distribution_direction = 0.0
-
-        if hour >= accum_start:
-            prior_high = self._overnight_high
-            prior_low = self._overnight_low
-            self._overnight_high = high if prior_high is None else max(prior_high, high)
-            self._overnight_low = low if prior_low is None else min(prior_low, low)
-            return
-
-        on_high = self._overnight_high
-        on_low = self._overnight_low
-        if on_high is None or on_low is None:
-            return
-        on_range = on_high - on_low
-
-        # Manipulation detection only runs during the manipulation-phase window
-        # and only once per cycle (matches AMDCyclePlugin's manipulation_done
-        # gate) -- once fired, the range is held for the rest of the cycle.
-        if hour < manip_end and self.amd_manipulation_detected == 0.0:
-            if high > on_high and low < on_high:
-                # Upside sweep then wick back inside the range -> bearish distribution expected
-                self.amd_manipulation_detected = 1.0
-                self.manip_strength = (high - on_high) / on_range if on_range > 0 else 0.0
-                self.amd_distribution_direction = -1.0
-            elif low < on_low and high > on_low:
-                # Downside sweep then wick back inside the range -> bullish distribution expected
-                self.amd_manipulation_detected = 1.0
-                self.manip_strength = (on_low - low) / on_range if on_range > 0 else 0.0
-                self.amd_distribution_direction = 1.0
 
 
 # ---------------------------------------------------------------------------

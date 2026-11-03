@@ -118,7 +118,6 @@ def _make_sentinel_record():
         flight_quality=37.37,
         yield_slope_z=38.38,
         in_ny_session=39.39,
-        in_london_kz=40.40,
         in_overlap=41.41,
         power_hour=42.42,
         opening_range=43.43,
@@ -184,7 +183,6 @@ def _make_sentinel_record():
         # persisted tuple by migration 290; no longer the true tail as of
         # migration 291 (Phase 151 Plan 06) -- see the Theory-Motivated
         # Interactions block immediately below.
-        ret_div_1m_5m=63.01,
         ret_div_5m_1h=63.02,
         ret_div_1h_1d=63.03,
         opex_flag=63.04,
@@ -343,9 +341,6 @@ def _make_sentinel_record():
         prior_session_high_dist_atr=None,
         prior_session_low_dist_atr=None,
         prior_session_close_dist_atr=None,
-        overnight_high_dist_atr=None,
-        overnight_low_dist_atr=None,
-        overnight_range_pct=None,
         opening_gap_pct=None,
         weekly_pivot_dist_atr=None,
         weekly_r1_dist_atr=None,
@@ -353,8 +348,6 @@ def _make_sentinel_record():
         weekly_s1_dist_atr=None,
         weekly_s2_dist_atr=None,
         nearest_level_dist_atr=None,
-        asian_session_high_dist_atr=None,
-        asian_session_low_dist_atr=None,
         gap_filled=None,
     )
     return FeatureVectorRecord(
@@ -389,7 +382,7 @@ def test_params_length_is_159():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309, f"Expected 309, got {len(params)}"
+    assert len(params) == 298, f"Expected 298, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -492,28 +485,28 @@ def test_hurst_at_index_30():
     assert params[30] == pytest.approx(23.23), f"$31 (hurst) wrong: {params[30]}"
 
 
-def test_ctf_momentum_at_index_55():
-    """params[55] ($56) must be ctf_momentum sentinel value 48.48."""
+def test_ctf_momentum_at_index_54():
+    """params[54] ($55) must be ctf_momentum sentinel value 48.48."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[55] == pytest.approx(48.48), f"$56 (ctf_momentum) wrong: {params[55]}"
+    assert params[54] == pytest.approx(48.48), f"$55 (ctf_momentum) wrong: {params[54]}"
 
 
-def test_ret_acf1_z_at_index_61():
-    """params[61] ($62) must be ret_acf1_z sentinel value 54.54."""
+def test_ret_acf1_z_at_index_60():
+    """params[60] ($61) must be ret_acf1_z sentinel value 54.54."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[61] == pytest.approx(54.54), f"$62 (ret_acf1_z) wrong: {params[61]}"
+    assert params[60] == pytest.approx(54.54), f"$61 (ret_acf1_z) wrong: {params[60]}"
 
 
-def test_bar_close_ts_at_index_62():
-    """params[62] ($63) must be bar_close_ts (datetime, computed as bar_ts + 1h)."""
+def test_bar_close_ts_at_index_61():
+    """params[61] ($62) must be bar_close_ts (datetime, computed as bar_ts + 1h)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
@@ -521,18 +514,18 @@ def test_bar_close_ts_at_index_62():
 
     # tf='1h' => bar_close_ts = bar_ts + 3600s
     expected = datetime(2026, 6, 22, 15, 0, 0, tzinfo=UTC)
-    assert isinstance(params[62], datetime), f"$63 must be datetime, got {type(params[62])}"
-    assert params[62] == expected, f"$63 (bar_close_ts) wrong: {params[62]}"
+    assert isinstance(params[61], datetime), f"$62 must be datetime, got {type(params[61])}"
+    assert params[61] == expected, f"$62 (bar_close_ts) wrong: {params[61]}"
 
 
-def test_volatility_rank_z_at_index_69():
-    """params[69] ($70) must be volatility_rank_z (None for cross-sectional fields)."""
+def test_volatility_rank_z_at_index_68():
+    """params[68] ($69) must be volatility_rank_z (None for cross-sectional fields)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[69] is None, f"$70 (volatility_rank_z) must be None, got {params[69]}"
+    assert params[68] is None, f"$69 (volatility_rank_z) must be None, got {params[68]}"
 
 
 def test_no_cross_contamination_between_feature_groups():
@@ -550,29 +543,29 @@ def test_no_cross_contamination_between_feature_groups():
     assert params[8] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_fast position"
 
 
-def test_body_ratio_at_index_70():
-    """params[70] ($71) must be body_ratio sentinel value 55.01 -- first of the
+def test_body_ratio_at_index_69():
+    """params[69] ($70) must be body_ratio sentinel value 55.01 -- first of the
     91 Renaissance primitive columns wired 2026-07-08."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[70] == pytest.approx(55.01), f"$71 (body_ratio) wrong: {params[70]}"
+    assert params[69] == pytest.approx(55.01), f"$70 (body_ratio) wrong: {params[69]}"
 
 
-def test_hour_of_day_sin_at_index_88():
-    """params[88] ($89) must be hour_of_day_sin sentinel value 56.01."""
+def test_hour_of_day_sin_at_index_87():
+    """params[87] ($88) must be hour_of_day_sin sentinel value 56.01."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[88] == pytest.approx(56.01), f"$89 (hour_of_day_sin) wrong: {params[88]}"
+    assert params[87] == pytest.approx(56.01), f"$88 (hour_of_day_sin) wrong: {params[87]}"
 
 
-def test_parkinson_vol_z_at_index_143():
-    """params[143] ($144) must be parkinson_vol_z sentinel value 59.01.
+def test_parkinson_vol_z_at_index_142():
+    """params[142] ($143) must be parkinson_vol_z sentinel value 59.01.
 
     Index shifted from 145 (post migration 206) after migration 211 dropped
     new_high_flag/new_low_flag, both of which sit earlier in field order.
@@ -582,11 +575,11 @@ def test_parkinson_vol_z_at_index_143():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[143] == pytest.approx(59.01), f"$144 (parkinson_vol_z) wrong: {params[143]}"
+    assert params[142] == pytest.approx(59.01), f"$143 (parkinson_vol_z) wrong: {params[142]}"
 
 
-def test_vol_skew_product_at_index_158():
-    """params[158] ($159) must be vol_skew_product sentinel value 60.08 -- the
+def test_vol_skew_product_at_index_157():
+    """params[157] ($158) must be vol_skew_product sentinel value 60.08 -- the
     last Renaissance primitive (canary + structural VP/SR columns follow it,
     migration 223/255). Index shifted from 160 after migration 211 dropped
     new_high_flag/new_low_flag.
@@ -596,11 +589,11 @@ def test_vol_skew_product_at_index_158():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[158] == pytest.approx(60.08), f"$159 (vol_skew_product) wrong: {params[158]}"
+    assert params[157] == pytest.approx(60.08), f"$158 (vol_skew_product) wrong: {params[157]}"
 
 
-def test_sr_level_count_at_index_180_is_last_element():
-    """params[180] ($181) must be sr_level_count sentinel value 61.17 -- the
+def test_sr_level_count_at_index_179_is_last_element():
+    """params[179] ($180) must be sr_level_count sentinel value 61.17 -- the
     final column of the pre-Phase-164 contract, appended after the canary
     fields by migration 255 (Phase 163 Plan 01). No longer the true last
     element of the tuple as of migration 266 (Phase 164 Plan 01) -- 36 SMC
@@ -612,31 +605,12 @@ def test_sr_level_count_at_index_180_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[180] == pytest.approx(61.17), f"$181 (sr_level_count) wrong: {params[180]}"
+    assert len(params) == 298
+    assert params[179] == pytest.approx(61.17), f"$180 (sr_level_count) wrong: {params[179]}"
 
 
-def test_manip_strength_at_index_216_is_last_element():
-    """params[216] ($217) must be manip_strength -- the final column of the
-    pre-Phase-165 contract, appended after the structural VP/SR fields by
-    migration 266's 36 SMC institutional-footprint columns (Phase 164 Plan
-    01). No longer the true last element of the tuple as of migration 267
-    (Phase 165 Plan 01) -- 41 swing/fib/trend/session structure columns are
-    appended after it; see test_gap_filled_at_index_257_is_last_element below
-    for the new tail. manip_strength is None here since
-    _make_sentinel_record() does not set any of the 36 SMC fields
-    (contract-only, placeholder None until Plans 02-04)."""
-    from services.feature_vector_writer import _record_to_insert_params
-
-    record = _make_sentinel_record()
-    params = _record_to_insert_params(record)
-
-    assert len(params) == 309
-    assert params[216] is None, f"$217 (manip_strength) wrong: {params[216]}"
-
-
-def test_gap_filled_at_index_257():
-    """params[257] ($258) must be gap_filled -- the final column of the
+def test_gap_filled_at_index_247():
+    """params[247] ($248) must be gap_filled -- the final column of the
     pre-Phase-151 contract, appended after the SMC fields by migration 267's
     41 swing/fib/trend/session structure columns (Phase 165 Plan 01). No
     longer the true last element of the tuple as of migration 293 (Phase 151
@@ -650,12 +624,12 @@ def test_gap_filled_at_index_257():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[257] is None, f"$258 (gap_filled) wrong: {params[257]}"
+    assert len(params) == 298
+    assert params[247] is None, f"$248 (gap_filled) wrong: {params[247]}"
 
 
-def test_vwap_dev_sigma_velocity_at_index_267():
-    """params[267] ($268) must be vwap_dev_sigma_velocity sentinel value
+def test_vwap_dev_sigma_velocity_at_index_257():
+    """params[257] ($258) must be vwap_dev_sigma_velocity sentinel value
     47.59 -- the final column of the pre-Phase-151-Plan-03 contract, appended
     after the Swing/Fib/Trend/Session Structure fields by migration 293's 10
     calendar cycle/TDOM/minute + velocity columns (Phase 151 Plan 01). No
@@ -668,14 +642,14 @@ def test_vwap_dev_sigma_velocity_at_index_267():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[267] == pytest.approx(
+    assert len(params) == 298
+    assert params[257] == pytest.approx(
         47.59
-    ), f"$268 (vwap_dev_sigma_velocity) wrong: {params[267]}"
+    ), f"$258 (vwap_dev_sigma_velocity) wrong: {params[257]}"
 
 
-def test_abs_ret_autocorr_1_at_index_278():
-    """params[278] ($279) must be abs_ret_autocorr_1 sentinel value 62.11 --
+def test_abs_ret_autocorr_1_at_index_268():
+    """params[268] ($269) must be abs_ret_autocorr_1 sentinel value 62.11 --
     appended after the Recency/Statistical Atomics fields by migration 288's
     11 recency/statistical atomics columns (Phase 151 Plan 03). No longer the
     true last element as of migration 289 (Phase 151 Plan 04) -- 7 cross-asset
@@ -687,12 +661,12 @@ def test_abs_ret_autocorr_1_at_index_278():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[278] == pytest.approx(62.11), f"$279 (abs_ret_autocorr_1) wrong: {params[278]}"
+    assert len(params) == 298
+    assert params[268] == pytest.approx(62.11), f"$269 (abs_ret_autocorr_1) wrong: {params[268]}"
 
 
-def test_rate_beta_z_at_index_285():
-    """params[285] ($286) must be rate_beta_z sentinel value 62.18 -- the
+def test_rate_beta_z_at_index_275():
+    """params[275] ($276) must be rate_beta_z sentinel value 62.18 -- the
     final column of the pre-Phase-151-Plan-05 contract, appended after the
     Recency/Statistical Atomics fields by migration 289's 7 cross-asset
     spread/beta atomics columns (Phase 151 Plan 04). No longer the true last
@@ -705,13 +679,13 @@ def test_rate_beta_z_at_index_285():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[279] == pytest.approx(62.12), f"$280 (tip_tlt_ret_z) wrong: {params[279]}"
-    assert params[285] == pytest.approx(62.18), f"$286 (rate_beta_z) wrong: {params[285]}"
+    assert len(params) == 298
+    assert params[269] == pytest.approx(62.12), f"$270 (tip_tlt_ret_z) wrong: {params[269]}"
+    assert params[275] == pytest.approx(62.18), f"$276 (rate_beta_z) wrong: {params[275]}"
 
 
-def test_quad_witching_flag_at_index_290():
-    """params[290] ($291) must be quad_witching_flag sentinel value 63.05 --
+def test_quad_witching_flag_at_index_279():
+    """params[279] ($280) must be quad_witching_flag sentinel value 63.05 --
     the final column of the pre-Phase-151-Plan-06 contract, appended after
     the cross-asset spread/beta fields by migration 290's 5 Named
     Interaction Primitives columns (Phase 151 Plan 05). No longer the true
@@ -724,16 +698,15 @@ def test_quad_witching_flag_at_index_290():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[286] == pytest.approx(63.01), f"$287 (ret_div_1m_5m) wrong: {params[286]}"
-    assert params[287] == pytest.approx(63.02), f"$288 (ret_div_5m_1h) wrong: {params[287]}"
-    assert params[288] == pytest.approx(63.03), f"$289 (ret_div_1h_1d) wrong: {params[288]}"
-    assert params[289] == pytest.approx(63.04), f"$290 (opex_flag) wrong: {params[289]}"
-    assert params[290] == pytest.approx(63.05), f"$291 (quad_witching_flag) wrong: {params[290]}"
+    assert len(params) == 298
+    assert params[276] == pytest.approx(63.02), f"$277 (ret_div_5m_1h) wrong: {params[276]}"
+    assert params[277] == pytest.approx(63.03), f"$278 (ret_div_1h_1d) wrong: {params[277]}"
+    assert params[278] == pytest.approx(63.04), f"$279 (opex_flag) wrong: {params[278]}"
+    assert params[279] == pytest.approx(63.05), f"$280 (quad_witching_flag) wrong: {params[279]}"
 
 
-def test_efficiency_volume_product_at_index_300():
-    """params[300] ($301) must be efficiency_volume_product sentinel value
+def test_efficiency_volume_product_at_index_289():
+    """params[289] ($290) must be efficiency_volume_product sentinel value
     64.10 -- the final column of the pre-todo-320 contract, appended after
     the Named Interaction Primitives fields by migration 291's 10
     Theory-Motivated Interaction columns (Phase 151 Plan 06). No longer the
@@ -746,39 +719,39 @@ def test_efficiency_volume_product_at_index_300():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[291] == pytest.approx(
+    assert len(params) == 298
+    assert params[280] == pytest.approx(
         64.01
-    ), f"$292 (momentum_vol_regime_product) wrong: {params[291]}"
-    assert params[292] == pytest.approx(
+    ), f"$281 (momentum_vol_regime_product) wrong: {params[280]}"
+    assert params[281] == pytest.approx(
         64.02
-    ), f"$293 (momentum_trend_product) wrong: {params[292]}"
-    assert params[293] == pytest.approx(
+    ), f"$282 (momentum_trend_product) wrong: {params[281]}"
+    assert params[282] == pytest.approx(
         64.03
-    ), f"$294 (breakout_volume_product) wrong: {params[293]}"
-    assert params[294] == pytest.approx(
+    ), f"$283 (breakout_volume_product) wrong: {params[282]}"
+    assert params[283] == pytest.approx(
         64.04
-    ), f"$295 (reversion_hurst_product) wrong: {params[294]}"
-    assert params[295] == pytest.approx(
+    ), f"$284 (reversion_hurst_product) wrong: {params[283]}"
+    assert params[284] == pytest.approx(
         64.05
-    ), f"$296 (quarter_momentum_product) wrong: {params[295]}"
-    assert params[296] == pytest.approx(
+    ), f"$285 (quarter_momentum_product) wrong: {params[284]}"
+    assert params[285] == pytest.approx(
         64.06
-    ), f"$297 (variance_ratio_momentum_product) wrong: {params[296]}"
-    assert params[297] == pytest.approx(
+    ), f"$286 (variance_ratio_momentum_product) wrong: {params[285]}"
+    assert params[286] == pytest.approx(
         64.07
-    ), f"$298 (illiquidity_momentum_product) wrong: {params[297]}"
-    assert params[298] == pytest.approx(
+    ), f"$287 (illiquidity_momentum_product) wrong: {params[286]}"
+    assert params[287] == pytest.approx(
         64.08
-    ), f"$299 (yield_slope_momentum_product) wrong: {params[298]}"
-    assert params[299] == pytest.approx(64.09), f"$300 (vix_reversion_product) wrong: {params[299]}"
-    assert params[300] == pytest.approx(
+    ), f"$288 (yield_slope_momentum_product) wrong: {params[287]}"
+    assert params[288] == pytest.approx(64.09), f"$289 (vix_reversion_product) wrong: {params[288]}"
+    assert params[289] == pytest.approx(
         64.10
-    ), f"$301 (efficiency_volume_product) wrong: {params[300]}"
+    ), f"$290 (efficiency_volume_product) wrong: {params[289]}"
 
 
-def test_volume_z_velocity_at_index_306():
-    """params[306] ($307) must be volume_z_velocity sentinel value 65.06 --
+def test_volume_z_velocity_at_index_295():
+    """params[295] ($296) must be volume_z_velocity sentinel value 65.06 --
     the final column of the pre-migration-350 contract, appended after the
     Theory-Motivated Interactions fields by migration 316's 6 Velocity
     Primitives Extension columns (todo 320). No longer the true last element
@@ -791,17 +764,17 @@ def test_volume_z_velocity_at_index_306():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[301] == pytest.approx(65.01), f"$302 (rsi_velocity_fast) wrong: {params[301]}"
-    assert params[302] == pytest.approx(65.02), f"$303 (rsi_velocity_mid) wrong: {params[302]}"
-    assert params[303] == pytest.approx(65.03), f"$304 (rsi_velocity_slow) wrong: {params[303]}"
-    assert params[304] == pytest.approx(65.04), f"$305 (ofi_z_velocity) wrong: {params[304]}"
-    assert params[305] == pytest.approx(65.05), f"$306 (cvd_slope_z_velocity) wrong: {params[305]}"
-    assert params[306] == pytest.approx(65.06), f"$307 (volume_z_velocity) wrong: {params[306]}"
+    assert len(params) == 298
+    assert params[290] == pytest.approx(65.01), f"$291 (rsi_velocity_fast) wrong: {params[290]}"
+    assert params[291] == pytest.approx(65.02), f"$292 (rsi_velocity_mid) wrong: {params[291]}"
+    assert params[292] == pytest.approx(65.03), f"$293 (rsi_velocity_slow) wrong: {params[292]}"
+    assert params[293] == pytest.approx(65.04), f"$294 (ofi_z_velocity) wrong: {params[293]}"
+    assert params[294] == pytest.approx(65.05), f"$295 (cvd_slope_z_velocity) wrong: {params[294]}"
+    assert params[295] == pytest.approx(65.06), f"$296 (volume_z_velocity) wrong: {params[295]}"
 
 
-def test_days_since_quarter_end_at_index_308_is_last_element():
-    """params[307]/params[308] ($308/$309) must be earnings_season_flag/
+def test_days_since_quarter_end_at_index_297_is_last_element():
+    """params[307]/params[297] ($308/$298) must be earnings_season_flag/
     days_since_quarter_end sentinel values 66.01/66.02 -- the new final
     columns, appended after the Velocity Primitives Extension fields by
     migration 350's 2 Earnings-Season Calendar Primitive columns (Phase 176
@@ -813,12 +786,12 @@ def test_days_since_quarter_end_at_index_308_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 309
-    assert params[306] == pytest.approx(
+    assert len(params) == 298
+    assert params[295] == pytest.approx(
         65.06
-    ), f"$307 (volume_z_velocity) shifted, still expected here: {params[306]}"
-    assert params[307] == pytest.approx(66.01), f"$308 (earnings_season_flag) wrong: {params[307]}"
-    assert params[308] == pytest.approx(
+    ), f"$296 (volume_z_velocity) shifted, still expected here: {params[295]}"
+    assert params[296] == pytest.approx(66.01), f"$297 (earnings_season_flag) wrong: {params[296]}"
+    assert params[297] == pytest.approx(
         66.02
-    ), f"$309 (days_since_quarter_end) wrong: {params[308]}"
-    assert params[308] == params[-1], "days_since_quarter_end must be the true last element"
+    ), f"$298 (days_since_quarter_end) wrong: {params[297]}"
+    assert params[297] == params[-1], "days_since_quarter_end must be the true last element"

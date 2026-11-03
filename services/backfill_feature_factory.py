@@ -121,7 +121,6 @@ from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import none_mask_name
 from src.intelligence.features.kernels.cross_tf import (
     _build_ctf_series,
-    _build_ltf_return_series,
     _rekey_ctf_series_to_actual_close,
 )
 from src.intelligence.features.kernels.macro import (
@@ -426,8 +425,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ny_session_end_utc_hour=int(cfg.get_sync("feature.session.ny_end_utc_hour", 20)),
         overlap_start_utc_hour=int(cfg.get_sync("feature.session.overlap_start_utc_hour", 12)),
         overlap_end_utc_hour=int(cfg.get_sync("feature.session.overlap_end_utc_hour", 15)),
-        london_kz_start_utc_hour=int(cfg.get_sync("feature.session.london_kz_start_utc_hour", 7)),
-        london_kz_end_utc_hour=int(cfg.get_sync("feature.session.london_kz_end_utc_hour", 10)),
         power_hour_start_utc_hour=int(
             cfg.get_sync("feature.session.power_hour_start_utc_hour", 19)
         ),
@@ -599,9 +596,6 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         smc_zones_max_tracked_zones=int(cfg.get_sync("feature.smc.zones.max_tracked_zones", 5)),
         smc_bos_choch_lookback=int(cfg.get_sync("feature.smc.bos_choch.lookback", 120)),
         smc_bos_choch_swing_neighbor=int(cfg.get_sync("feature.smc.bos_choch.swing_neighbor", 5)),
-        smc_amd_accum_start_utc_hour=int(cfg.get_sync("feature.smc.amd.accum_start_utc_hour", 20)),
-        smc_amd_manip_end_utc_hour=int(cfg.get_sync("feature.smc.amd.manip_end_utc_hour", 10)),
-        smc_amd_dist_end_utc_hour=int(cfg.get_sync("feature.smc.amd.dist_end_utc_hour", 21)),
         swing_pivot_window=int(cfg.get_sync("feature.swing.pivot_window", 5)),
         swing_lookback_bars=int(cfg.get_sync("feature.swing.lookback_bars", 120)),
         trend_structure_atr_strength_divisor=float(
@@ -632,14 +626,8 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
             cfg.get_sync("feature.swing_momentum.intensity_ramp_hi", 2.0)
         ),
         fib_cluster_atr_divisor=float(cfg.get_sync("feature.fib.cluster_atr_divisor", 2.0)),
-        session_levels_asia_start_et_hour=int(
-            cfg.get_sync("feature.session_levels.asia_start_et_hour", 20)
-        ),
         atr_normalization_min_pct=float(
             cfg.get_sync("feature.atr_normalization.min_atr_pct", 0.0001)
-        ),
-        session_levels_asia_end_et_hour=int(
-            cfg.get_sync("feature.session_levels.asia_end_et_hour", 4)
         ),
         ctf_higher_tf_map=_get_dict_config(
             cfg, "feature.ctf.higher_tf_map", {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
@@ -1097,12 +1085,11 @@ def _series_kernel_inputs(
     cross_asset_by_date: dict,
     beta_by_date: dict,
     htf_bars: list[dict],
-    ltf_ret_by_ts: dict | None,
 ) -> dict[str, np.ndarray]:
     """The bar arrays and every external input of one series, built as compute_batch builds them
     (the same three helpers, so one definition of each alignment): the symbol and tf constants,
     the ten daily macro columns as-of the bar end (NaN before the first record, no_fill), and the
-    higher-timeframe and 1m externals. `bars` holds ts (UTC nanoseconds), open, high, low, close,
+    higher-timeframe externals. `bars` holds ts (UTC nanoseconds), open, high, low, close,
     volume and volume_basis arrays.
 
     An empty `htf_bars` yields an empty CTF series (the kernels' own pre-first-HTF-close values),
@@ -1141,7 +1128,6 @@ def _series_kernel_inputs(
             tf,
             None,  # type: ignore[arg-type]
             ctf_series,
-            ltf_ret_by_ts,
         ),
     }
 
@@ -1349,13 +1335,8 @@ def _rebuild_worker(args: tuple) -> dict:
                 if htf_tf == "1d"
                 else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon, floor=floor)
             )
-            ltf_ret_by_ts: dict | None = None
-            if tf == "5m":
-                # ret_div_1m_5m reads 1m returns where 1m bars exist (a short, documented window).
-                ltf_bars = _fetch_bars_from_db(conn, symbol, "1m", until=horizon)
-                ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, bar_times) if ltf_bars else None
             inputs = _series_kernel_inputs(
-                symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars, ltf_ret_by_ts
+                symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars
             )
             series = _compute_series_columns(inputs, config)
             del inputs
