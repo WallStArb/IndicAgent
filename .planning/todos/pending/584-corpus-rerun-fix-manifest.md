@@ -29,7 +29,7 @@ anything found after the pin moves waits for the following rerun.
 | 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
-| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` and `sweep_detected` stay open |
+| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` stays open |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | in progress (indicagent-ef, 2026-11-03): implementation spec pinned in the additions doc's "Implementation spec" section - ten stored columns (residual.py, distribution.py, dividend.py, all new modules), `days_to_ex_dividend` deferred (dividend_events carries no declaration time, pin-down 3 unresolved by data), rank_z retirement rides the landing |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -512,6 +512,23 @@ now declared `not_applicable` off their own timeframe (`ret_div_5m_1h` undefined
 golden does not move. Decision against the lead ruling "defined on tf <= X": a finer row's own
 return is a different horizon, so the column would mislabel it; building a 1d external for 5m and
 15m would be a new feature, not a fix.
+
+### Item 6b landed (2026-11-03): ctf_vwap_align was absorbing, not a 474 fill
+
+Cause, measured on `feature_vectors_v2` 1h rows and on daily bars: `_build_ctf_series` computed
+sign(close - VWAP anchored at the start of the higher-timeframe series). On the 1h rows the HTF is
+1d with history from 2006, so a trending name sits on one side of its inception VWAP for good: the
+89 constant names are 84 at +1 and 5 at -1, never 0 and never NaN (ADI above it on 98% of daily
+bars, ACIW 87%, AGNC 23%; a 252-bar window flips 110 to 190 times on the same names). The 474 path
+named in the first finding (VWAP filled with the close on a no-volume window) cannot fire on the
+tradeable view, which has `volume > 0`. The VWAP now covers the last `feature.ctf.vwap_window` HTF
+bars (migration 562, [initial_estimate] 20, the HMM return buffer's length), NaN until the window
+is full and NaN on a window with no volume, from direct window sums (a prefix-sum difference cannot
+resolve a zero-volume window after 1e11 of earlier volume). A window below 2 raises. Only
+`ctf_vwap_align` moves in the golden. The pilot run reads the per-timeframe sign-flip rate and the
+lead recalibrates the window. Known and not part of 6b: the legacy `_guard` still turns the NaN
+into 0.0 on the legacy FeatureVector path and the live `FeatureCache.ctf_vwap_align` is never
+updated (todo 463; the rerun's `_compute_series_columns` keeps the NaN).
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

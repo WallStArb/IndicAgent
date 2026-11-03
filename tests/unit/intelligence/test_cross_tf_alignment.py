@@ -494,3 +494,86 @@ def test_a_rebuilt_series_keeps_the_builders_validation():
         CtfSeries._reconstruct(*bad)
     with pytest.raises(ValueError, match="distinct|increasing|length"):
         CtfSeries._reconstruct(np.array([1, 2], dtype=np.int64), *([np.zeros(3)] * 4))
+
+
+# ---- ctf_vwap_align: rolling VWAP window (todo 584 6b) -------------------------------------
+
+
+def _vwap_bars(closes: list[float], volume: float = 1000.0) -> list[dict]:
+    start = datetime(2020, 1, 1, tzinfo=UTC)
+    return [
+        {
+            "ts": start + timedelta(days=i),
+            "open": c,
+            "high": c * 1.01,
+            "low": c * 0.99,
+            "close": c,
+            "volume": volume,
+        }
+        for i, c in enumerate(closes)
+    ]
+
+
+def _vwap_align(bars: list[dict]) -> np.ndarray:
+    from src.intelligence.features.kernels.cross_tf import _build_ctf_series
+
+    series = _build_ctf_series(bars, CONFIG)
+    return np.array([series[b["ts"]].ctf_vwap_align for b in bars])
+
+
+def test_vwap_align_is_nan_until_the_window_is_full():
+    window = CONFIG.ctf_vwap_window
+    align = _vwap_align(_vwap_bars([100.0 + i for i in range(window + 5)]))
+    assert np.isnan(align[: window - 1]).all()
+    assert np.isfinite(align[window - 1 :]).all()
+
+
+def test_vwap_align_is_not_absorbing_after_a_long_trend():
+    """A VWAP anchored at the series start stays below the close after a long rise, so the sign
+    never flips back; the rolling window follows a reversal within its own length."""
+    window = CONFIG.ctf_vwap_window
+    rise = [100.0 * 1.01**i for i in range(300)]
+    fall = [rise[-1] * 0.97**i for i in range(1, window * 2)]
+    align = _vwap_align(_vwap_bars(rise + fall))
+    assert align[299] == 1.0
+    assert align[-1] == -1.0
+
+
+def test_vwap_align_is_nan_on_a_window_with_no_volume():
+    bars = _vwap_bars([100.0 + i for i in range(60)])
+    for bar in bars[30:]:
+        bar["volume"] = 0.0
+    align = _vwap_align(bars)
+    assert np.isfinite(align[CONFIG.ctf_vwap_window - 1 : 30]).all()
+    assert np.isnan(align[30 + CONFIG.ctf_vwap_window - 1 :]).all()
+
+
+def test_vwap_align_zero_volume_window_is_nan_after_a_huge_early_volume_history():
+    """A difference of prefix sums cannot resolve a zero-volume window after 1e11 of earlier
+    volume; direct window sums do."""
+    bars = _vwap_bars([100.0 + (i % 7) for i in range(400)], volume=5e8)
+    for bar in bars[300:]:
+        bar["volume"] = 0.0
+    align = _vwap_align(bars)
+    assert np.isnan(align[300 + CONFIG.ctf_vwap_window - 1 :]).all()
+
+
+def test_vwap_window_below_two_is_refused():
+    import dataclasses
+
+    from src.intelligence.features.kernels.cross_tf import _build_ctf_series
+
+    with pytest.raises(ValueError, match="vwap_window"):
+        _build_ctf_series(
+            _vwap_bars([100.0 + i for i in range(30)]),
+            dataclasses.replace(CONFIG, ctf_vwap_window=1),
+        )
+
+
+def test_ret_div_columns_are_declared_undefined_on_every_other_known_timeframe():
+    from src.intelligence.features.contract.registry import default_registry
+    from src.intelligence.features.feature_vector_persistence import _TF_SECONDS
+
+    kernel = next(k for k in default_registry().kernels if k.name == "cross_tf_divergence")
+    for output, own in (("ret_div_5m_1h", "5m"), ("ret_div_1h_1d", "1h")):
+        assert set(kernel.not_applicable[output]) == set(_TF_SECONDS) - {own}

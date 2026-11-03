@@ -680,6 +680,7 @@ class FeatureFactoryConfig:
         fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
         atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
         ctf_higher_tf_map: APR feature.ctf.higher_tf_map
+        ctf_vwap_window: APR feature.ctf.vwap_window
         high_low_spread_window: APR feature.high_low_spread.window
         roll_spread_window: APR feature.roll_spread.window
     """
@@ -953,6 +954,8 @@ class FeatureFactoryConfig:
     ctf_higher_tf_map: dict = field(  # feature.ctf.higher_tf_map
         default_factory=lambda: {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
     )
+    # Rolling VWAP window, in HTF bars, behind ctf_vwap_align (todo 584 6b).
+    ctf_vwap_window: int = 20  # feature.ctf.vwap_window
     # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353). Same
     # defaulting rationale as canary_rng_seed above (avoid updating every
     # pre-existing direct FeatureFactoryConfig(...) construction site); the 2

@@ -46,6 +46,11 @@ from src.intelligence.features.kernels.macro import bar_ts_ns
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
+def _same(a, b) -> bool:
+    """CtfRecord equality with NaN equal to NaN (a VWAP window that is not yet full is NaN)."""
+    return np.array_equal(tuple(a), tuple(b), equal_nan=True)
+
+
 def _to_bar_dicts(bars: list[BarMessage]) -> list[dict]:
     return [
         {
@@ -247,7 +252,7 @@ class TestCtfBatchJoinLookaheadFix:
         bar_ts_mid_forming_window = forming_bar_ts + timedelta(minutes=5)
         selected = self._join(ctf_by_ts, bar_ts_mid_forming_window)
 
-        assert selected == unshifted[bar_before_forming_ts], (
+        assert _same(selected, unshifted[bar_before_forming_ts]), (
             "must select the prior, fully-closed HTF bar's values, not the still-forming "
             "one covering this bar_ts -- this is exactly todo 243's lookahead"
         )
@@ -255,7 +260,7 @@ class TestCtfBatchJoinLookaheadFix:
         # At the exact instant the forming bar actually closes, it becomes the correct
         # selection.
         selected_at_close = self._join(ctf_by_ts, actual_close_ts)
-        assert selected_at_close == unshifted[forming_bar_ts]
+        assert _same(selected_at_close, unshifted[forming_bar_ts])
 
     def test_partial_bar_close_uses_actual_next_bar_start_not_flat_duration_offset(self):
         """The RTH-session-opening 1h bar is a genuine 30-minute partial in production
@@ -282,7 +287,7 @@ class TestCtfBatchJoinLookaheadFix:
         # Right at the true close (30 min later), the partial bar's values must already
         # be selectable -- a flat +1h offset would still be 30 minutes away from firing.
         selected_at_true_close = self._join(ctf_by_ts, actual_close_ts)
-        assert selected_at_true_close == unshifted[second_to_last_ts], (
+        assert _same(selected_at_true_close, unshifted[second_to_last_ts]), (
             "must resolve to the partial bar's own values at its true (30-min) close, "
             "not remain stuck on the prior bar until a flat 1h offset would have fired"
         )
@@ -300,7 +305,7 @@ class TestCtfBatchJoinLookaheadFix:
 
         own_bar_ts = htf_bars_msgs[-1].ts
         selected = self._join(ctf_by_ts, own_bar_ts)
-        assert selected == per_start[own_bar_ts], (
+        assert _same(selected, per_start[own_bar_ts]), (
             "1d self-referential join must resolve to the bar's own value, not a prior "
             "day's -- re-keying this case would be a regression, not a fix"
         )

@@ -784,6 +784,7 @@ class FeatureVectorPipeline(BaseDaemon):
             "feature.ctf.higher_tf_map",
             {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
         ),
+        ("feature.ctf.vwap_window", 20),
         # --- migration 350: Phase 176 Plan 03 Earnings-Season Calendar Primitive ---
         ("feature.earnings_season.start_days", 14),
         ("feature.earnings_season.end_days", 42),
@@ -1093,6 +1094,7 @@ class FeatureVectorPipeline(BaseDaemon):
                 "feature.ctf.higher_tf_map",
                 {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"},
             ),
+            ctf_vwap_window=_int("feature.ctf.vwap_window", 20),
             earnings_season_start_days=_int("feature.earnings_season.start_days", 14),
             earnings_season_end_days=_int("feature.earnings_season.end_days", 42),
             high_low_spread_window=_int("feature.high_low_spread.window", 21),

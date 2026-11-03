@@ -61,7 +61,7 @@ def _build_ctf_series(
 ) -> dict:
     """Build {htf_bar_period_start: CtfRecord} in O(n).
 
-    Single-pass streaming computation: Wilder RSI + cumulative VWAP + HMM forward
+    Single-pass streaming computation: Wilder RSI + rolling-window VWAP + HMM forward
     + causal HTF log return. Avoids O(n²) slice reprocessing. All values are
     causal — bar k uses only bars 0..k. Keys are period-start timestamps,
     matching `htf_bars[k]["ts"]` exactly; callers that need close-time keys (see
@@ -82,14 +82,32 @@ def _build_ctf_series(
     rsi_series = wilder_rsi_series(closes, period)
     ctf_mom = np.clip((rsi_series - 50.0) / 50.0, -1.0, 1.0)
 
-    # ctf_vwap_align: sign(close - cumulative VWAP). This series is built outside
-    # compute_kernels, so it carries the same loud check (todo 564).
+    # ctf_vwap_align: sign(close - VWAP over the last `ctf_vwap_window` HTF bars). This series is
+    # built outside compute_kernels, so it carries the same loud check (todo 564). The window is
+    # rolling because a VWAP anchored at the series start is absorbing: after years of history a
+    # trending name sits on one side of it for good (84 names stuck at +1 and 5 at -1 on the 1h
+    # rows, todo 584 6b). NaN until a full window exists and NaN on a window with no volume
+    # (no_fill: no VWAP, no sign).
     require_finite_volume(volumes, "_build_ctf_series", [b["ts"] for b in htf_bars])
+    window = config.ctf_vwap_window
+    if window < 2:
+        raise ValueError(f"feature.ctf.vwap_window must be at least 2, got {window}")
     typical = (highs + lows + closes) / 3.0
-    cum_tp_vol = np.cumsum(typical * volumes)
-    cum_vol = np.cumsum(volumes)
-    vwap = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, closes)
-    ctf_vwap = np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0))
+    vwap = np.full(n, np.nan)
+    if n >= window:
+        # Direct window sums, not a difference of prefix sums: on a long history the prefix
+        # sums reach 1e11 and their difference cannot resolve a zero-volume window.
+        window_vol = np.lib.stride_tricks.sliding_window_view(volumes, window).sum(axis=1)
+        window_tp_vol = np.lib.stride_tricks.sliding_window_view(typical * volumes, window).sum(
+            axis=1
+        )
+        has_volume = window_vol > 1e-10
+        vwap[window - 1 :][has_volume] = window_tp_vol[has_volume] / window_vol[has_volume]
+    ctf_vwap = np.where(
+        np.isnan(vwap),
+        np.nan,
+        np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0)),
+    )
 
     # ctf_regime_align: HMM forward pass — 0.0 (ranging) or 1.0 (trending)
     ctf_regime = np.zeros(n, dtype=float)
@@ -298,7 +316,8 @@ def ctf_series_by_close(
 def ctf_row_inputs(row_ns: np.ndarray, ctf_by_ts: CtfSeries) -> dict[str, np.ndarray]:
     """The four HTF externals on the row grid (`row_ns`: bar starts as UTC int64 nanoseconds).
 
-    `ext_ctf_*` are 0.0 before the first HTF close; `ext_htf_last_log_ret` is NaN there. A plain
+    `ext_ctf_*` are 0.0 before the first HTF close (`ext_ctf_vwap_align` is also NaN while its
+    rolling window is not full or holds no volume); `ext_htf_last_log_ret` is NaN there. A plain
     dict is refused with TypeError (see `CtfSeries`).
     """
     momentum, vwap, regime, htf_ret, valid = require_ctf_series(ctf_by_ts).asof(row_ns)
@@ -379,9 +398,7 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_ctf_source,
         path_dependent=True,
-        path_dependent_reason=(
-            "cumulative VWAP and the HMM forward pass run from the series start"
-        ),
+        path_dependent_reason=("the Wilder RSI and the HMM forward pass run from the series start"),
     ),
     Kernel(
         name="ctf_passthrough",
@@ -400,8 +417,8 @@ KERNELS = (
         # only: on a finer or coarser row the "own" return is another horizon and the name would
         # mislabel it (todo 584 item 6a; the schema has always documented the pinning).
         not_applicable={
-            **undefined_on(("1m", "15m", "1h", "1d"), ("ret_div_5m_1h",)),
-            **undefined_on(("1m", "5m", "15m", "1d"), ("ret_div_1h_1d",)),
+            **undefined_on(("1m", "15m", "1h", "4h", "1d"), ("ret_div_5m_1h",)),
+            **undefined_on(("1m", "5m", "15m", "4h", "1d"), ("ret_div_1h_1d",)),
         },
     ),
 )
