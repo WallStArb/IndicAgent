@@ -192,7 +192,8 @@
    "1d": "1d"
   },
   "earnings_season_start_days": 14,
-  "earnings_season_end_days": 42
+  "earnings_season_end_days": 42,
+  "ctf_vwap_window": 20
  },
  "synthetic_config": {
   "momentum_window_fast": 5,
@@ -383,7 +384,8 @@
    "1d": "1d"
   },
   "earnings_season_start_days": 14,
-  "earnings_season_end_days": 42
+  "earnings_season_end_days": 42,
+  "ctf_vwap_window": 20
  },
  "columns": [
   "feature_vector_id",
@@ -1185,39 +1187,59 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 4423144,
- "regenerated_from": "c3d448d0c6257dcf3e49ff1cbd06a2bc319d7e41",
- "regeneration_reason": "todo 584 item 6 (D5): 11 universe-dead columns retired (in_london_kz, amd_phase/amd_manipulation_detected/amd_distribution_direction/manip_strength, the 5 session_levels overnight and Asian columns, ret_div_1m_5m); the golden drops those columns and the unused 1m inputs, and minute_of_hour_sin/cos go NaN on 1h by declaration",
+ "fixture_bytes": 3992399,
+ "regenerated_from": "99f4738a81a84b8e2f225d74eb7366e38e83a931",
+ "regeneration_reason": "todo 584 item 6b: ctf_vwap_align is sign(close - VWAP of the last 20 HTF bars) from direct window sums, NaN until the window is full and on a window with no volume (was a VWAP anchored at the series start, absorbing on trending names); ctf_vwap_window 20 added to both config snapshots",
  "changed_columns": {
   "synthetic|SPY|5m": [],
-  "real|SPY|5m": [],
-  "real|SPY|15m": [],
+  "real|SPY|5m": [
+   "ctf_vwap_align"
+  ],
+  "real|SPY|15m": [
+   "ctf_vwap_align"
+  ],
   "real|SPY|1h": [
-   "minute_of_hour_cos",
-   "minute_of_hour_sin"
+   "ctf_vwap_align"
   ],
-  "real|SPY|1d": [],
-  "real|QQQ|5m": [],
-  "real|QQQ|15m": [],
+  "real|SPY|1d": [
+   "ctf_vwap_align"
+  ],
+  "real|QQQ|5m": [
+   "ctf_vwap_align"
+  ],
+  "real|QQQ|15m": [
+   "ctf_vwap_align"
+  ],
   "real|QQQ|1h": [
-   "minute_of_hour_cos",
-   "minute_of_hour_sin"
+   "ctf_vwap_align"
   ],
-  "real|QQQ|1d": [],
-  "real|TLT|5m": [],
-  "real|TLT|15m": [],
+  "real|QQQ|1d": [
+   "ctf_vwap_align"
+  ],
+  "real|TLT|5m": [
+   "ctf_vwap_align"
+  ],
+  "real|TLT|15m": [
+   "ctf_vwap_align"
+  ],
   "real|TLT|1h": [
-   "minute_of_hour_cos",
-   "minute_of_hour_sin"
+   "ctf_vwap_align"
   ],
-  "real|TLT|1d": [],
-  "real|XLE|5m": [],
-  "real|XLE|15m": [],
+  "real|TLT|1d": [
+   "ctf_vwap_align"
+  ],
+  "real|XLE|5m": [
+   "ctf_vwap_align"
+  ],
+  "real|XLE|15m": [
+   "ctf_vwap_align"
+  ],
   "real|XLE|1h": [
-   "minute_of_hour_cos",
-   "minute_of_hour_sin"
+   "ctf_vwap_align"
   ],
-  "real|XLE|1d": []
+  "real|XLE|1d": [
+   "ctf_vwap_align"
+  ]
  },
  "regeneration_history": [
   {
@@ -2662,6 +2684,42 @@
     "real|XLE|5m": [],
     "real|XLE|15m": [],
     "real|XLE|1h": [],
+    "real|XLE|1d": []
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "c3d448d0c6257dcf3e49ff1cbd06a2bc319d7e41",
+   "regeneration_reason": "todo 584 item 6 (D5): 11 universe-dead columns retired (in_london_kz, amd_phase/amd_manipulation_detected/amd_distribution_direction/manip_strength, the 5 session_levels overnight and Asian columns, ret_div_1m_5m); the golden drops those columns and the unused 1m inputs, and minute_of_hour_sin/cos go NaN on 1h by declaration",
+   "changed_columns": {
+    "synthetic|SPY|5m": [],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [],
+    "real|SPY|1h": [
+     "minute_of_hour_cos",
+     "minute_of_hour_sin"
+    ],
+    "real|SPY|1d": [],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [
+     "minute_of_hour_cos",
+     "minute_of_hour_sin"
+    ],
+    "real|QQQ|1d": [],
+    "real|TLT|5m": [],
+    "real|TLT|15m": [],
+    "real|TLT|1h": [
+     "minute_of_hour_cos",
+     "minute_of_hour_sin"
+    ],
+    "real|TLT|1d": [],
+    "real|XLE|5m": [],
+    "real|XLE|15m": [],
+    "real|XLE|1h": [
+     "minute_of_hour_cos",
+     "minute_of_hour_sin"
+    ],
     "real|XLE|1d": []
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
