@@ -45,3 +45,13 @@ regenerated columns are written once.
 2. Add `neutral_reason` to the `Kernel` output contract and the registry check.
 3. Switch the undefined ones to NaN behind a failing test per column.
 4. Regenerate the goldens in a separate commit; run the IC impact check on the changed columns.
+
+## Cold-start fills still inside kernels (2026-11-03, noted at 584 4c landing ac32408ab)
+
+`_ret_skew_z_series_full` and `_ret_acf1_z_series_full` (`kernels/price.py`) prepend zeros for
+the cold window, and `_vol_trend_ratio_series_full` (`kernels/volume.py`) returns 1.0 before
+`vol_trend_slow` bars. All three sit inside the kernel's declared memory, and
+`effective_memory_bars` composes memory through upstream kernels, so the rebuild masks them
+(products such as `vol_skew_product` inherit the mask): no stored value is wrong, which is why
+they did not ride 584. The hazard is any consumer that reads `compute_kernels` output without
+the warmup mask. Fix: NaN for the cold prefix, the 4b-1 cold doctrine.

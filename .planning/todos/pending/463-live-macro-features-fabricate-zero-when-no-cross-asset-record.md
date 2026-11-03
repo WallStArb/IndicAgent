@@ -63,3 +63,14 @@ rebuild carry 0.0 for these columns on their early history, and the rebuild repl
    `ic_measure` NaN handling).
 2. Implement option 1 behind a failing test: `compute()` with no record returns None macro fields.
 3. Add the live-versus-rebuild parity test on rows before the first record.
+
+## Scope extension (2026-11-03, 584 4c landing ac32408ab)
+
+The same legacy-build-path fill now also covers the columns 4c moved to NaN at the kernel layer
+(degenerate correlation and persistence windows via `_corr_or_nan`): `_build_feature_vector`'s
+`_guard(..., 0.0|1.0)` sites and the `_series_last(..., 0.0)` fallbacks turn them back into
+fills, and `vwap_dev_sigma` has a 0.0 default vector. The parity test lists them in
+`_LEGACY_WARMUP_NAN_TO_ZERO` (`tests/unit/intelligence/test_feature_kernels.py`). This does not
+touch the corpus rerun: `_compute_series_columns` reads the kernel arrays and keeps the NaN. It
+is one fix with the macro fields here: the legacy FeatureVector path stops fabricating values,
+or it is deleted when the feed returns (todo 582 sets that path's fate).
