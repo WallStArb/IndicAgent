@@ -578,7 +578,6 @@
   "fvg_dist_atr",
   "fvg_size_atr",
   "fvg_open_count",
-  "sweep_detected",
   "sweep_strength",
   "reclaim_velocity",
   "bars_since_last_sweep",
@@ -1049,7 +1048,6 @@
   "fvg_dist_atr",
   "fvg_size_atr",
   "fvg_open_count",
-  "sweep_detected",
   "sweep_strength",
   "reclaim_velocity",
   "bars_since_last_sweep",
@@ -1187,59 +1185,27 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 3992399,
- "regenerated_from": "99f4738a81a84b8e2f225d74eb7366e38e83a931",
- "regeneration_reason": "todo 584 item 6b: ctf_vwap_align is sign(close - VWAP of the last 20 HTF bars) from direct window sums, NaN until the window is full and on a window with no volume (was a VWAP anchored at the series start, absorbing on trending names); ctf_vwap_window 20 added to both config snapshots",
+ "fixture_bytes": 3989731,
+ "regenerated_from": "88863919fb3069e1acd09e4b54d05d60338a4273",
+ "regeneration_reason": "todo 584 item 6c: sweep_detected retired (saturated at 1.0, bars_since_last_sweep == 0 is the per-bar event); the liquidity_sweeps kernel no longer gates on ATR, so sweep_strength, reclaim_velocity and bars_since_last_sweep exist where ATR is invalid",
  "changed_columns": {
   "synthetic|SPY|5m": [],
-  "real|SPY|5m": [
-   "ctf_vwap_align"
-  ],
-  "real|SPY|15m": [
-   "ctf_vwap_align"
-  ],
-  "real|SPY|1h": [
-   "ctf_vwap_align"
-  ],
-  "real|SPY|1d": [
-   "ctf_vwap_align"
-  ],
-  "real|QQQ|5m": [
-   "ctf_vwap_align"
-  ],
-  "real|QQQ|15m": [
-   "ctf_vwap_align"
-  ],
-  "real|QQQ|1h": [
-   "ctf_vwap_align"
-  ],
-  "real|QQQ|1d": [
-   "ctf_vwap_align"
-  ],
-  "real|TLT|5m": [
-   "ctf_vwap_align"
-  ],
-  "real|TLT|15m": [
-   "ctf_vwap_align"
-  ],
-  "real|TLT|1h": [
-   "ctf_vwap_align"
-  ],
-  "real|TLT|1d": [
-   "ctf_vwap_align"
-  ],
-  "real|XLE|5m": [
-   "ctf_vwap_align"
-  ],
-  "real|XLE|15m": [
-   "ctf_vwap_align"
-  ],
-  "real|XLE|1h": [
-   "ctf_vwap_align"
-  ],
-  "real|XLE|1d": [
-   "ctf_vwap_align"
-  ]
+  "real|SPY|5m": [],
+  "real|SPY|15m": [],
+  "real|SPY|1h": [],
+  "real|SPY|1d": [],
+  "real|QQQ|5m": [],
+  "real|QQQ|15m": [],
+  "real|QQQ|1h": [],
+  "real|QQQ|1d": [],
+  "real|TLT|5m": [],
+  "real|TLT|15m": [],
+  "real|TLT|1h": [],
+  "real|TLT|1d": [],
+  "real|XLE|5m": [],
+  "real|XLE|15m": [],
+  "real|XLE|1h": [],
+  "real|XLE|1d": []
  },
  "regeneration_history": [
   {
@@ -2721,6 +2687,62 @@
      "minute_of_hour_sin"
     ],
     "real|XLE|1d": []
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "99f4738a81a84b8e2f225d74eb7366e38e83a931",
+   "regeneration_reason": "todo 584 item 6b: ctf_vwap_align is sign(close - VWAP of the last 20 HTF bars) from direct window sums, NaN until the window is full and on a window with no volume (was a VWAP anchored at the series start, absorbing on trending names); ctf_vwap_window 20 added to both config snapshots",
+   "changed_columns": {
+    "synthetic|SPY|5m": [],
+    "real|SPY|5m": [
+     "ctf_vwap_align"
+    ],
+    "real|SPY|15m": [
+     "ctf_vwap_align"
+    ],
+    "real|SPY|1h": [
+     "ctf_vwap_align"
+    ],
+    "real|SPY|1d": [
+     "ctf_vwap_align"
+    ],
+    "real|QQQ|5m": [
+     "ctf_vwap_align"
+    ],
+    "real|QQQ|15m": [
+     "ctf_vwap_align"
+    ],
+    "real|QQQ|1h": [
+     "ctf_vwap_align"
+    ],
+    "real|QQQ|1d": [
+     "ctf_vwap_align"
+    ],
+    "real|TLT|5m": [
+     "ctf_vwap_align"
+    ],
+    "real|TLT|15m": [
+     "ctf_vwap_align"
+    ],
+    "real|TLT|1h": [
+     "ctf_vwap_align"
+    ],
+    "real|TLT|1d": [
+     "ctf_vwap_align"
+    ],
+    "real|XLE|5m": [
+     "ctf_vwap_align"
+    ],
+    "real|XLE|15m": [
+     "ctf_vwap_align"
+    ],
+    "real|XLE|1h": [
+     "ctf_vwap_align"
+    ],
+    "real|XLE|1d": [
+     "ctf_vwap_align"
+    ]
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
   }
