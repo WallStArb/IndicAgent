@@ -834,7 +834,9 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                 (event,),
                 lambda c, w=window: getattr(c, w),
                 lambda x, c, w=window, ev=event, col=column: {
-                    col: _bars_since_event_series_full(x[ev] > 0.5, getattr(c, w))
+                    # raw float events (1.0/0.0/NaN): the helper reads a NaN
+                    # row as unknown, not as "no spike" (todo 560, 584 4b-2)
+                    col: _bars_since_event_series_full(x[ev], getattr(c, w))
                 },
             )
         )

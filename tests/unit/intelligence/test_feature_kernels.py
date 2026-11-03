@@ -790,3 +790,51 @@ def test_group2_oscillator_helpers_are_nan_where_undefined() -> None:
     assert _vol_asymmetry_ratio(np.array([0.01, 0.03, -0.01, -0.03])) == 1.0  # symmetric
     az = _vol_asymmetry_z_series_full(flat, 5)
     assert np.isnan(az).all()  # cold all the way on a flat series
+
+
+def test_group3_bars_since_event_is_nan_when_censored() -> None:
+    """D1 rule 2 (todo 584 4b-2 group 3): bars since an event is right-censored
+    -> NaN when no event is known inside the trailing window, and an unknown
+    (NaN) event row newer than the newest known True censors the count too
+    (todo 560); unknowns older than the newest True leave it a measurement."""
+    from src.intelligence.features.kernels.price import _bars_since_event_series_full
+
+    w = 5
+    # no-event and single-event recency semantics live in
+    # test_feature_factory_batch.py::TestBarsSinceEventSeriesFull.
+
+    # an unknown row NEWER than the newest True censors the count
+    ev = np.zeros(10)
+    ev[2] = 1.0
+    ev[4] = np.nan
+    out = _bars_since_event_series_full(ev, w)
+    assert out[3] == 1.0  # True at 2 is the newest known fact
+    assert np.isnan(out[4:8]).all()  # unknown at 4 shadows the True at 2
+
+    # an unknown row OLDER than the newest True leaves the count measured
+    ev2 = np.zeros(10)
+    ev2[4] = 1.0
+    ev2[2] = np.nan
+    out2 = _bars_since_event_series_full(ev2, w)
+    assert out2[4] == 0.0
+    assert out2[6] == 2.0
+
+    # a bool event array (the legacy caller shape) behaves identically
+    evb = np.zeros(8, dtype=bool)
+    evb[2] = True
+    assert np.array_equal(
+        _bars_since_event_series_full(evb, w),
+        _bars_since_event_series_full(np.where(evb, 1.0, 0.0), w),
+        equal_nan=True,
+    )
+
+    # the extreme_move producer emits unknown (NaN) for both NaN sources: a
+    # NaN close (NaN abs_log_ret) and any window still holding it (NaN
+    # rolling_std); neither may read as "no event" (lead ruling 2026-11-03,
+    # mirroring _compute_vol_spike_events).
+    from src.intelligence.features.kernels.price import _compute_extreme_move_events
+
+    ret = np.array([0.01, 0.02, np.nan, 0.03, 0.0, 0.01, 0.02, 0.0])
+    ev3 = _compute_extreme_move_events(ret, 1.5, 4)
+    assert np.isnan(ev3[2:6]).all()  # row 2 plus every window still holding it
+    assert np.isfinite(ev3[[0, 1, 6, 7]]).all()  # windows fully past recover

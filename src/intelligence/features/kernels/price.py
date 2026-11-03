@@ -686,22 +686,46 @@ def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray
     """result[i] == bars elapsed since the most recent True in
     events[max(0, i-window+1):i+1], as a float in [0, window-1].
     result[i] == 0.0 means events[i] is True. When no event occurred inside
-    the trailing window, saturates to float(window-1) -- NOT 0.0 (which would
-    falsely assert "an event just happened") and NOT NaN. O(n) total via a
-    deque of True-event indices (each index enters and leaves at most once).
+    the trailing window the count is right-censored -- the last event may be
+    arbitrarily older than the window -- so it is NaN, never a fabricated
+    float(window-1) and never 0.0 (which would falsely assert "an event just
+    happened") (todo 584 rule 2). A non-finite (unknown) event row more recent
+    than the last in-window True is NaN too: a masked row reads as unknown,
+    not as "no event" (todo 560). O(n): two vectorized prepasses (unknown
+    mask, event mask) and one loop carrying the newest known-True and the
+    newest unknown index.
     """
     n = len(events)
-    out = np.full(n, float(window - 1), dtype=float)
+    out = np.full(n, np.nan, dtype=float)
     if n == 0:
         return out
-    dq: deque[int] = deque()
+    unknown = (~np.isfinite(events)).tolist()
+    is_event = (events > 0.5).tolist()  # NaN compares False
+    last_true = -1
+    last_unknown = -1
     for i in range(n):
-        if events[i]:
-            dq.append(i)
-        while dq and dq[0] <= i - window:
-            dq.popleft()
-        out[i] = float(i - dq[-1]) if dq else float(window - 1)
+        if unknown[i]:
+            last_unknown = i
+        elif is_event[i]:
+            last_true = i
+        # Measured only when the newest in-window True is more recent than
+        # every unknown; an unknown newer than that True censors the count
+        # (a spike may have occurred there, todo 560).
+        if last_true >= 0 and i - last_true < window and last_unknown < last_true:
+            out[i] = float(i - last_true)
     return out
+
+
+def _compute_extreme_move_events(
+    abs_log_ret: np.ndarray, sigma_threshold: float, window: int
+) -> np.ndarray:
+    """float 1.0/0.0 with NaN where either operand is non-finite: a NaN close
+    makes abs_log_ret NaN and a window holding a NaN makes rolling_std NaN;
+    an unknown row reads as unknown, not as "no move" (todo 560; mirrors
+    _compute_vol_spike_events)."""
+    std = _rolling_std_series(abs_log_ret, window)
+    known = np.isfinite(abs_log_ret) & np.isfinite(std)
+    return np.where(known, (abs_log_ret > sigma_threshold * std).astype(float), np.nan)
 
 
 def _dist_from_high_series_full(
@@ -1687,9 +1711,9 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                 ("_abs_log_ret",),
                 lambda c, w=window: getattr(c, w),
                 lambda x, c, w=window, ev=event: {
-                    ev: x["_abs_log_ret"]
-                    > c.extreme_move_sigma_threshold
-                    * _rolling_std_series(x["_abs_log_ret"], getattr(c, w))
+                    ev: _compute_extreme_move_events(
+                        x["_abs_log_ret"], c.extreme_move_sigma_threshold, getattr(c, w)
+                    )
                 },
             )
         )

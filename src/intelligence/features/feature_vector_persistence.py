@@ -912,8 +912,9 @@ def feature_vector_to_insert_params(
         *(getattr(vector, name) for name in _PHASE151_CALENDAR_VELOCITY_FIELD_NAMES),
         # Recency / Statistical Atomics fields (migration 288, Phase 151 Plan
         # 03) — same derive-by-name discipline, appended immediately after
-        # the calendar/velocity fields (module docstring). All real computed
-        # floats from day one.
+        # the calendar/velocity fields (module docstring). Computed from day
+        # one; the four event counters are None when censored (todo 584
+        # 4b-2 group 3).
         *(getattr(vector, name) for name in _PHASE151_RECENCY_FIELD_NAMES),
         # Cross-asset Spread/Beta Atomics fields (migration 289, Phase 151
         # Plan 04) — same derive-by-name discipline, appended immediately

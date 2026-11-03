@@ -1209,7 +1209,10 @@ class FeatureVector:
         _EARNINGS_SEASON_FIELD_NAMES derived slice covers exactly this block
       Recency / Statistical Atomics (11, Phase 151 Plan 03, todo 180): bars_since_high/low_fast/slow,
         bars_since_52w_high/low, bars_since_extreme_move_fast/slow, bars_since_vol_spike_fast/slow
-        (all BOUNDED rolling-window statistics in [0, window-1], never expanding), abs_ret_autocorr_1
+        (bars_since_high/low_* and bars_since_52w_* are BOUNDED rolling-window statistics in
+        [0, window-1], never expanding; the four event counters are right-censored: None when no
+        event is known inside the window, todo 584 rule 2),
+        abs_ret_autocorr_1
         (lag-1 autocorrelation of |log returns| -- volatility clustering, distinct from the signed
         ret_autocorr_1 below)
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
@@ -1439,10 +1442,18 @@ class FeatureVector:
     bars_since_52w_low: (
         float  # bars since rolling-min(low, high_52w_window); [0, high_52w_window-1]
     )
-    bars_since_extreme_move_fast: float  # bars since |log_ret| > sigma_threshold*rolling_std, fast window (APR: feature.bars_since_extreme_move.sigma_threshold)
-    bars_since_extreme_move_slow: float  # bars since |log_ret| > sigma_threshold*rolling_std, slow window (APR: feature.bars_since_extreme_move.sigma_threshold)
-    bars_since_vol_spike_fast: float  # bars since rel_volume > vol_spike_threshold, fast window (APR: feature.bars_since_vol_spike.threshold)
-    bars_since_vol_spike_slow: float  # bars since rel_volume > vol_spike_threshold, slow window (APR: feature.bars_since_vol_spike.threshold)
+    bars_since_extreme_move_fast: (
+        float | None
+    )  # bars since |log_ret| > sigma_threshold*rolling_std, fast window (APR: feature.bars_since_extreme_move.sigma_threshold)
+    bars_since_extreme_move_slow: (
+        float | None
+    )  # bars since |log_ret| > sigma_threshold*rolling_std, slow window (APR: feature.bars_since_extreme_move.sigma_threshold)
+    bars_since_vol_spike_fast: (
+        float | None
+    )  # bars since rel_volume > vol_spike_threshold, fast window (APR: feature.bars_since_vol_spike.threshold)
+    bars_since_vol_spike_slow: (
+        float | None
+    )  # bars since rel_volume > vol_spike_threshold, slow window (APR: feature.bars_since_vol_spike.threshold)
     abs_ret_autocorr_1: float  # lag-1 Pearson autocorrelation of |log returns| (volatility clustering), bounded [-1,1] (definitional, no APR)
     # Cross-asset — Spread/Beta Atomics (7, Phase 151 Plan 04, todos 123/180).
     # tip_tlt_ret_z/hyg_lqd_ret_z/sb_corr_* are symbol-independent (same value

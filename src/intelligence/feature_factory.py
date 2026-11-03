@@ -1987,10 +1987,10 @@ def _build_feature_vector(
         bars_since_low_slow=_guard(bars_since_low_slow, 0.0),
         bars_since_52w_high=_guard(bars_since_52w_high, 0.0),
         bars_since_52w_low=_guard(bars_since_52w_low, 0.0),
-        bars_since_extreme_move_fast=_guard(bars_since_extreme_move_fast, 0.0),
-        bars_since_extreme_move_slow=_guard(bars_since_extreme_move_slow, 0.0),
-        bars_since_vol_spike_fast=_guard(bars_since_vol_spike_fast, 0.0),
-        bars_since_vol_spike_slow=_guard(bars_since_vol_spike_slow, 0.0),
+        bars_since_extreme_move_fast=_missing_if_nan(bars_since_extreme_move_fast),
+        bars_since_extreme_move_slow=_missing_if_nan(bars_since_extreme_move_slow),
+        bars_since_vol_spike_fast=_missing_if_nan(bars_since_vol_spike_fast),
+        bars_since_vol_spike_slow=_missing_if_nan(bars_since_vol_spike_slow),
         abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
         # Missing stays missing (todo 463, D1 rules 1 and 5): NaN becomes None, never 0.0.
         tip_tlt_ret_z=_missing_if_nan(tip_tlt_ret_z),
@@ -2701,18 +2701,13 @@ class FeatureFactory:
             bars_since_52w_low=_series_last(
                 s.bars_since_52w_low, float(config.high_52w_window - 1)
             ),
-            bars_since_extreme_move_fast=_series_last(
-                s.bars_since_extreme_move_fast, float(config.dist_window_fast - 1)
-            ),
-            bars_since_extreme_move_slow=_series_last(
-                s.bars_since_extreme_move_slow, float(config.dist_window_slow - 1)
-            ),
-            bars_since_vol_spike_fast=_series_last(
-                s.bars_since_vol_spike_fast, float(config.dist_window_fast - 1)
-            ),
-            bars_since_vol_spike_slow=_series_last(
-                s.bars_since_vol_spike_slow, float(config.dist_window_slow - 1)
-            ),
+            # Right-censored counters fall back to NaN -> None via
+            # _missing_if_nan: an empty series supports no event claim
+            # (todo 584 4b-2 group 3, rule 2).
+            bars_since_extreme_move_fast=_series_last(s.bars_since_extreme_move_fast, math.nan),
+            bars_since_extreme_move_slow=_series_last(s.bars_since_extreme_move_slow, math.nan),
+            bars_since_vol_spike_fast=_series_last(s.bars_since_vol_spike_fast, math.nan),
+            bars_since_vol_spike_slow=_series_last(s.bars_since_vol_spike_slow, math.nan),
             abs_ret_autocorr_1=_series_last(s.abs_ret_autocorr_1, 0.0),
             # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04). Live path
             # reads cache-broadcast values, same as vix_z/flight_quality/
@@ -3254,9 +3249,10 @@ class FeatureFactory:
 
             # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180) —
             # same precomputed-series indexing pattern as the velocity
-            # primitives above. Fallback is the saturating value
-            # float(window-1) for each field's own window, matching
-            # compute()'s _series_last fallback convention exactly.
+            # primitives above. Fallback is float(window-1) where an
+            # in-window extreme exists by construction (high/low/52w) and
+            # NaN for the four right-censored event counters (rule 2),
+            # matching compute()'s _series_last fallbacks.
             bars_since_high_fast_val = (
                 float(s.bars_since_high_fast[i])
                 if i < len(s.bars_since_high_fast)
@@ -3290,22 +3286,22 @@ class FeatureFactory:
             bars_since_extreme_move_fast_val = (
                 float(s.bars_since_extreme_move_fast[i])
                 if i < len(s.bars_since_extreme_move_fast)
-                else float(config.dist_window_fast - 1)
+                else math.nan
             )
             bars_since_extreme_move_slow_val = (
                 float(s.bars_since_extreme_move_slow[i])
                 if i < len(s.bars_since_extreme_move_slow)
-                else float(config.dist_window_slow - 1)
+                else math.nan
             )
             bars_since_vol_spike_fast_val = (
                 float(s.bars_since_vol_spike_fast[i])
                 if i < len(s.bars_since_vol_spike_fast)
-                else float(config.dist_window_fast - 1)
+                else math.nan
             )
             bars_since_vol_spike_slow_val = (
                 float(s.bars_since_vol_spike_slow[i])
                 if i < len(s.bars_since_vol_spike_slow)
-                else float(config.dist_window_slow - 1)
+                else math.nan
             )
             abs_ret_autocorr_1_val = (
                 float(s.abs_ret_autocorr_1[i]) if i < len(s.abs_ret_autocorr_1) else 0.0
@@ -3809,10 +3805,14 @@ def _cold_start_vector(
         bars_since_low_slow=49.0,
         bars_since_52w_high=251.0,
         bars_since_52w_low=251.0,
-        bars_since_extreme_move_fast=19.0,
-        bars_since_extreme_move_slow=49.0,
-        bars_since_vol_spike_fast=19.0,
-        bars_since_vol_spike_slow=49.0,
+        # The four right-censored event counters are None at cold start: with
+        # no bar history no event can be known inside any window, and the old
+        # saturating literals (window minus one) asserted a censoring boundary
+        # the data does not support (todo 584 4b-2 group 3, rule 2).
+        bars_since_extreme_move_fast=None,
+        bars_since_extreme_move_slow=None,
+        bars_since_vol_spike_fast=None,
+        bars_since_vol_spike_slow=None,
         abs_ret_autocorr_1=0.0,
         # Phase 151 Plan 04: cold start (len(bars) < 2) has no bar history and
         # no symbol context (this function has no `symbol` parameter -- same

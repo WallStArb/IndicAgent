@@ -348,14 +348,33 @@ synthetic aroon_fast/slow, cci_fast/mid/slow, range_position, vol_asymmetry_z, r
 vol_asymmetry_z only; full suite green. Gates: /simplify nothing to apply (cold guards
 load-bearing, pinned eps kept); /review one finding, fixed and re-verified. The 24bae0c41
 review debt was cleared first: 4 agents (2 CLAUDE.md compliance, 2 bug hunt), no findings.
-REMAINING in 4b-2 (successor starts here): group 3 bars_since caps 19/49 -> NaN
-(`_bars_since_event_series_full` price.py ~685 saturates to window-1; consumers
-`bars_since_extreme_move_*` price.py ~1704 and `bars_since_vol_spike_*` volume.py ~837;
-build sites feature_factory.py ~1990-1993, schemas, and the neutral-vector defaults ~3812;
-note for the fix: `_vol_spike_event_*` preserves NaN for masked volume rows but the
-consumer's `x[ev] > 0.5` reads unknown as no-event - the probe decides whether the honest
-NaN-aware form rides along); group 4 smc/vp_sr no-object fallbacks -> none-masks (skip ALL
-amd_cycle entries per the D5 note below); then 4c.
+GROUP 3 LANDED 2026-11-03 (a8, successor of the quota-dead worker; the dead WIP verified
+complete and coherent, goldens independently regenerated bit-identical at 2fdd5efa2 before
+any edit): the four event counters are right-censored - NaN when no event is known inside
+the trailing window (rule 2), None through `_missing_if_nan` (build sites ~1990,
+cold-start vector, schemas `float | None`); unknown event rows NEWER than the newest known
+True censor the count, older unknowns leave it exact (lead ruling 15:35Z). Producer
+symmetry (lead-approved): `_compute_extreme_move_events` emits float 1.0/0.0/NaN, NaN when
+either operand is non-finite (NaN close, NaN-holding window), mirroring
+`_compute_vol_spike_events`; sole consumer of the event series is the
+bars_since_extreme_move kernel itself (no other reader in src/services/tests/scripts);
+both producers feed the helper raw float events. /simplify substance: helper rewritten to
+vectorized prepasses + scalar newest-True (824-case equivalence probe bit-identical, ~10x
+measured); the retired window-1 literal also killed at both upstream `_series_last`/per-row
+fallbacks (kept for bars_since_high/low/52w where the in-window extreme exists by
+construction); migration 558 supersedes 288's saturating column comments (applied live).
+Golden delta: only the four counters, all 17 cases. RE-PARK: item-8 pre-staged kernels
+moved kernels/ -> features/_item8_staging/ (lead-authorized; sha256 identical before/after,
+/tmp/item8_sha_*.txt) because the shared suite had been red at HEAD from registry
+auto-discovery since ~15:00Z - six ownership/probe tests, stash-proof
+/tmp/g3_head_verify.log; dag-invariants' walk reaches the staging dir but stays green;
+item 8's wiring landing moves them back as its first step. Gates: /simplify (4 agents),
+/review medium (5 findings: the producer asymmetry - fixed as the approved extension;
+vacuous all-NaN bounds test; self-contradictory schemas block comment; stale DB column
+comments -> 558; staging location - declined, the lead's ruled path), full suite green.
+REMAINING in 4b-2 (successor starts here): group 4 smc/vp_sr no-object fallbacks ->
+none-masks (skip ALL amd_cycle entries per the D5 note below; probe at
+/tmp/584_item4/probe_no_object.py); then 4c.
 4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
 (`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
 `_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and

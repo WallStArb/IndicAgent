@@ -1201,6 +1201,32 @@ def test_bar_anatomy_primitives() -> None:
     assert math.isfinite(fv_deg.range_efficiency)
 
 
+def test_bars_since_event_columns_right_censored() -> None:
+    """todo 584 4b-2 group 3 (rule 2): the four event counters are None on a
+    series with no event inside the window -- right-censored, never a fabricated
+    window-minus-one or 0.0. bars_since_high/low stay the measured 0.0 on the
+    same flat series (zero_is_state class, 4c declaration)."""
+    bars = [
+        {
+            "ts": datetime(2026, 1, 2, 9, 30, i, tzinfo=UTC),
+            "open": 100.0,
+            "high": 100.0,
+            "low": 100.0,
+            "close": 100.0,
+            "volume": 1000.0,
+        }
+        for i in range(60)
+    ]
+    fv = FeatureFactory.compute(bars, "SPY", "1m", _make_cache(), _make_config())
+    assert fv.bars_since_extreme_move_fast is None
+    assert fv.bars_since_extreme_move_slow is None
+    assert fv.bars_since_vol_spike_fast is None
+    assert fv.bars_since_vol_spike_slow is None
+    assert fv.bars_since_high_fast == 0.0
+    assert fv.bars_since_low_fast == 0.0
+    assert fv.bars_since_52w_high == 0.0
+
+
 def test_lagged_returns() -> None:
     """6 lagged log-return primitives: ret_lag_1/2/3 (definitional) +
     ret_lag_fast/mid/slow (APR-backed gradient windows).

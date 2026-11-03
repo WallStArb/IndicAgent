@@ -475,9 +475,10 @@ class TestBarsSinceRollingExtremeSeriesFull:
 
 
 class TestBarsSinceEventSeriesFull:
-    """_bars_since_event_series_full: bounded [0, window-1] bars-since-most-
-    recent-True, saturating to window-1 (never 0.0/NaN) when no event
-    occurred inside the trailing window."""
+    """_bars_since_event_series_full: bars-since-most-recent-True, bounded
+    [0, window-1] where an event is known inside the trailing window; NaN
+    (right-censored, never a fabricated window-1 or 0.0) when no event is
+    known there (todo 584 4b-2 group 3, rule 2)."""
 
     def test_boundedness_randomized(self) -> None:
         from src.intelligence.features.kernels.price import _bars_since_event_series_full
@@ -486,17 +487,19 @@ class TestBarsSinceEventSeriesFull:
         events = rng.random(500) > 0.85
         for window in (10, 20, 50):
             out = _bars_since_event_series_full(events, window)
-            assert np.all(out >= 0) and np.all(
-                out <= window - 1
-            ), f"window={window} out of bounds: min={out.min()} max={out.max()}"
+            finite = out[~np.isnan(out)]
+            assert finite.size > 0, f"window={window} fully censored on a firing series"
+            assert np.all(finite >= 0) and np.all(
+                finite <= window - 1
+            ), f"window={window} out of bounds: min={finite.min()} max={finite.max()}"
 
-    def test_saturation_no_event_in_window(self) -> None:
+    def test_right_censored_no_event_in_window(self) -> None:
         window = 10
         from src.intelligence.features.kernels.price import _bars_since_event_series_full
 
         events = np.zeros(50, dtype=bool)  # never fires
         out = _bars_since_event_series_full(events, window)
-        assert np.all(out == float(window - 1))
+        assert np.isnan(out).all()
 
     def test_recency_semantics(self) -> None:
         from src.intelligence.features.kernels.price import _bars_since_event_series_full
