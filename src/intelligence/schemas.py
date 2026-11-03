@@ -1586,7 +1586,7 @@ class FeatureVector:
         float  # cos(2*pi*month/12), bounded [-1, 1] (NEW pair; only month_position existed before)
     )
     # Renaissance Primitives — Volume Structure (12, Phase 142.5 Plan 02)
-    vol_acceleration: float  # V_t / V_{t-1}, unbounded positive (APR: none, bar-relative)
+    vol_acceleration: float | None  # V_t / V_{t-1}, unbounded positive (APR: none, bar-relative)
     dollar_vol_z: float | None  # z-score of (V*C) (APR: feature.dollar_vol.window)
     vol_range_ratio: float  # V_t/(H-L) normalized over N (APR: feature.vol_range_ratio.window)
     vol_trend_ratio: float  # vol_MA_fast/vol_MA_slow (APR: feature.vol_trend.fast/.slow)
@@ -1641,25 +1641,35 @@ class FeatureVector:
         float  # lag-5 Pearson autocorrelation of log returns, bounded [-1,1] (definitional, no APR)
     )
     updown_ratio_fast: (
-        float  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.fast)
+        float
+        | None  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.fast)
     )
     updown_ratio_slow: (
-        float  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.slow)
+        float
+        | None  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.slow)
     )
     streak_z: (
         float | None
     )  # z-score of signed directional streak length (APR: feature.streak.window)
     # Renaissance Primitives — Realized Variance / Volatility (14, Phase 142.5 Plan 03)
-    realized_var_ratio_fast: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
-    realized_var_ratio_slow: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
+    realized_var_ratio_fast: (
+        float | None
+    )  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
+    realized_var_ratio_slow: (
+        float | None
+    )  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
     range_to_close: float  # (H-L)/C, unbounded non-neg (no APR)
     true_range_pct: float  # TR/C, unbounded non-neg (no APR)
     vol_of_vol: float | None  # z-score of rolling std(atr_z) (APR: feature.vol_of_vol.window)
     high_low_corr: (
         float  # correlation of H and L, bounded [-1,1] (APR: feature.high_low_corr.window)
     )
-    variance_ratio_fast: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.fast)
-    variance_ratio_slow: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.slow)
+    variance_ratio_fast: (
+        float | None
+    )  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.fast)
+    variance_ratio_slow: (
+        float | None
+    )  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.slow)
     vol_asymmetry_z: (
         float | None
     )  # z-score of std(ret|up)/std(ret|down) (APR: feature.vol_asymmetry.window)
@@ -1672,7 +1682,8 @@ class FeatureVector:
         float | None
     )  # z-score of close-to-close historical volatility (APR: feature.hv.slow)
     hv_ratio: (
-        float  # hv_fast / rolling_mean(hv, N), unbounded non-neg (APR: feature.hv.ratio_window)
+        float
+        | None  # hv_fast / rolling_mean(hv, N), unbounded non-neg (APR: feature.hv.ratio_window)
     )
     # Renaissance Primitives — Alternative Volatility Estimators (3, Phase 142.5 Plan 04)
     parkinson_vol_z: (
@@ -1697,7 +1708,9 @@ class FeatureVector:
     vol_velocity_z: (
         float | None
     )  # z-score of rolling atr_z velocity (APR: feature.vol_velocity.window)
-    intraday_noise_ratio: float  # sum(|ret|)/|net_ret| over session, unbounded non-neg (APR: feature.intraday_noise.window)
+    intraday_noise_ratio: (
+        float | None
+    )  # sum(|ret|)/|net_ret| over session, unbounded non-neg (APR: feature.intraday_noise.window)
     # Renaissance Primitives — Price-Volume Interactions (8, Phase 142.5 Plan 05.5)
     vol_body_product: float | None  # body_ratio * volume_z, unbounded symmetric around 0 (no APR)
     ret_vol_product_fast: (

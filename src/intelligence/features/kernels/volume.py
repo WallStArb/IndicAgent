@@ -84,13 +84,14 @@ def _cmf(
 def _vol_acceleration(volumes: np.ndarray, eps: float = EPS) -> float:
     """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
 
-    Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
+    NaN on insufficient history or a near-zero prior volume: the ratio is
+    undefined, not 1.0 (D1 rule 5, todo 584).
     """
     if len(volumes) < 2:
-        return 1.0
+        return math.nan
     prev = float(volumes[-2])
     if prev < eps:
-        return 1.0
+        return math.nan
     return float(volumes[-1]) / prev
 
 
@@ -397,16 +398,17 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = EPS) -> np.ndarray:
-    """result[i] == streaming _vol_acceleration at bar i. Index 0 padded with 1.0."""
+    """result[i] == streaming _vol_acceleration at bar i. NaN at index 0 (no
+    prior bar) and wherever the prior volume is near zero, matching the
+    scalar's rule-5 semantics."""
     n = len(volumes)
-    result = np.ones(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     v = volumes.astype(float)
-    prev = v[:-1]
-    curr = v[1:]
-    safe_prev = np.where(prev > eps, prev, 1.0)
-    result[1:] = np.where(prev > eps, curr / safe_prev, 1.0)
+    # rule 5: undefined where the prior volume is near zero; result is already
+    # NaN there, so the masked divide never touches those entries
+    np.divide(v[1:], v[:-1], out=result[1:], where=v[:-1] > eps)
     return result
 
 

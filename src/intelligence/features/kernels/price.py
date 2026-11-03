@@ -323,12 +323,12 @@ def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
 def _updown_ratio(rets: np.ndarray, eps: float = EPS) -> float:
     """count(up bars) / count(down bars) over the given return window.
 
-    Returns 1.0 (neutral) when there are zero down bars — including an empty
-    window — rather than an unbounded/undefined ratio.
+    NaN when the window has no down bars, including an empty window: the ratio
+    is undefined (D1 rule 5, todo 584), not 1.0.
     """
     up = int(np.sum(rets > eps))
     down = int(np.sum(rets < -eps))
-    return float(up) / down if down > 0 else 1.0
+    return float(up) / down if down > 0 else math.nan
 
 
 def _streak_length(signs: np.ndarray) -> float:
@@ -355,19 +355,19 @@ def _realized_var_ratio(closes: np.ndarray, fast_window: int, slow_window: int) 
     """Ratio of realized return variance across two window scales:
     var(ret, fast) / var(ret, slow). Uses expanding windows
     (min(window, available)) for consistency with the batch series
-    precompute. Returns 1.0 (neutral) on insufficient history in either
-    window or near-zero slow-window variance.
+    precompute. NaN on insufficient history in either window or a near-zero
+    slow-window variance (the ratio is undefined, D1 rule 5).
     """
     if len(closes) < 2:
-        return 1.0
+        return math.nan
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
     w_slow = min(slow_window, len(log_rets))
     w_fast = min(fast_window, len(log_rets))
     if w_slow < 2 or w_fast < 2:
-        return 1.0
+        return math.nan
     var_slow = float(np.var(log_rets[-w_slow:]))
     var_fast = float(np.var(log_rets[-w_fast:]))
-    return var_fast / var_slow if var_slow > 1e-14 else 1.0
+    return var_fast / var_slow if var_slow > 1e-14 else math.nan
 
 
 def _range_to_close(high: float, low: float, close: float, eps: float = EPS) -> float:
@@ -395,22 +395,22 @@ def _variance_ratio(closes: np.ndarray, n: int) -> float:
     return)), using overlapping N-period sums computed over ALL available
     return history (the classic full-sample VR specification-test estimator
     — no separate sample-window APR key). Under a random walk, VR -> 1.0.
-    Returns 1.0 (random-walk neutral) when insufficient history exists for
-    either variance estimate.
+    NaN when insufficient history exists for either variance estimate or the
+    1-period variance is zero (the ratio is undefined, D1 rule 5).
     """
     if len(closes) < 2 or n < 1:
-        return 1.0
+        return math.nan
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
     m = len(log_rets)
     if m < n + 1:
-        return 1.0
+        return math.nan
     var_1 = float(np.var(log_rets))
     if var_1 < 1e-14:
-        return 1.0
+        return math.nan
     cs = np.concatenate([[0.0], np.cumsum(log_rets)])
     agg = cs[n:] - cs[:-n]
     if len(agg) < 2:
-        return 1.0
+        return math.nan
     var_n = float(np.var(agg))
     return var_n / (n * var_1)
 
@@ -844,10 +844,12 @@ def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = Fals
 
 def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _updown_ratio over the trailing `window` returns
-    ending at bar i. O(n) via cumulative up/down bar counts.
+    ending at bar i. O(n) via cumulative up/down bar counts. NaN where the
+    trailing window has no down bars or no returns yet (bar 0), matching the
+    scalar's rule-5 semantics.
     """
     n = len(closes)
-    result = np.ones(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -861,7 +863,8 @@ def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS)
         start = j + 1 - w
         up_count = cs_up[j + 1] - cs_up[start]
         down_count = cs_down[j + 1] - cs_down[start]
-        result[j + 1] = up_count / down_count if down_count > 0 else 1.0
+        if down_count > 0:
+            result[j + 1] = up_count / down_count
     return result
 
 
@@ -902,10 +905,12 @@ def _realized_var_ratio_series_full(
     closes: np.ndarray, fast_window: int, slow_window: int
 ) -> np.ndarray:
     """result[i] == streaming _realized_var_ratio(closes[:i+1], fast_window,
-    slow_window). O(n) via cumsum of returns and squared returns.
+    slow_window). O(n) via cumsum of returns and squared returns. NaN where
+    the scalar is undefined (no returns yet, a window under 2, or a near-zero
+    slow variance), matching its rule-5 semantics.
     """
     n = len(closes)
-    result = np.ones(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -994,9 +999,11 @@ def _variance_ratio_series_full(closes: np.ndarray, n_window: int) -> np.ndarray
     via prefix sums of the 1-period return series and its N-period
     overlapping aggregate (both expanding over ALL available history, no
     bounded rolling sample — matches the full-sample Lo-MacKinlay estimator).
+    NaN where the scalar is undefined (insufficient history for either
+    variance or a zero 1-period variance), matching its rule-5 semantics.
     """
     total = len(closes)
-    result = np.ones(total, dtype=float)
+    result = np.full(total, np.nan)
     if total < 2 or n_window < 1:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -1092,10 +1099,12 @@ def _hv_ratio_series_full(
     closes: np.ndarray, hv_fast_window: int, ratio_window: int, eps: float = EPS
 ) -> np.ndarray:
     """hv_fast / rolling_mean(hv_fast series, ratio_window). result[i] ==
-    streaming hv_ratio at bar i. O(n) via cumsum of the HV series.
+    streaming hv_ratio at bar i. O(n) via cumsum of the HV series. NaN where
+    the ratio is undefined: bar 0 (no returns yet) or a trailing mean HV at
+    zero (a flat window, D1 rule 5).
     """
     n = len(closes)
-    result = np.ones(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -1107,7 +1116,8 @@ def _hv_ratio_series_full(
         start = j + 1 - w
         s = cs[j] - (cs[start - 1] if start > 0 else 0.0)
         mean_hv = s / w
-        result[j + 1] = hv_series[j] / mean_hv if mean_hv > eps else 1.0
+        if mean_hv > eps:
+            result[j + 1] = hv_series[j] / mean_hv
     return result
 
 
@@ -1205,12 +1215,12 @@ def _intraday_noise_ratio_series_full(
 ) -> np.ndarray:
     """result[i] == the intraday noise ratio (sum(|log_ret|) / |net log_ret|)
     over the trailing `session_bars` bars ending at bar i. O(n) via cumsum of
-    |log_ret| and log_ret over a fixed `session_bars` window. Stays 0.0 until
-    i >= session_bars (insufficient-history guard); 1.0 when net progress is
-    at or near zero (no dominant direction).
+    |log_ret| and log_ret over a fixed `session_bars` window. NaN until
+    i >= session_bars (the window does not exist yet) and wherever net
+    progress is at or near zero: the ratio is undefined, not 1.0 (D1 rule 5).
     """
     n = len(closes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < session_bars + 1:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -1220,7 +1230,8 @@ def _intraday_noise_ratio_series_full(
         start = idx - session_bars
         sum_abs = cs_abs[idx] - cs_abs[start]
         net = cs_net[idx] - cs_net[start]
-        result[idx] = sum_abs / abs(net) if abs(net) > eps else 1.0
+        if abs(net) > eps:
+            result[idx] = sum_abs / abs(net)
     return result
 
 

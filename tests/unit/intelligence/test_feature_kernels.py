@@ -648,3 +648,45 @@ def test_daily_asof_index_is_causal_and_needs_no_memory_on_a_ragged_grid(tf):
     for t in rows:
         known = [a for a in available if a <= int(ts[t]) + duration_ns]
         np.testing.assert_array_equal(daily_asof_indices(ts[: t + 1], tf, known), full[: t + 1])
+
+
+def test_group1_ratio_helpers_are_nan_where_undefined() -> None:
+    """D1 rule 5 (todo 584 4b-2): the 0/0 ratio family yields NaN wherever its
+    window does not define the ratio - cold, degenerate, or zero denominator -
+    never a fabricated 1.0."""
+    from src.intelligence.features.kernels.price import (
+        _hv_ratio_series_full,
+        _intraday_noise_ratio_series_full,
+        _realized_var_ratio,
+        _realized_var_ratio_series_full,
+        _updown_ratio,
+        _updown_ratio_series_full,
+        _variance_ratio,
+        _variance_ratio_series_full,
+    )
+    from src.intelligence.features.kernels.volume import (
+        _vol_acceleration,
+        _vol_acceleration_series_full,
+    )
+
+    flat = np.full(12, 100.0)
+    assert math.isnan(_updown_ratio(np.array([0.01, 0.02, 0.03])))  # no down bars
+    assert np.isnan(_updown_ratio_series_full(flat, 5)).all()  # no down bars anywhere
+    assert math.isnan(_updown_ratio_series_full(np.array([100.0]), 5)[0])
+    assert math.isnan(_realized_var_ratio(flat, 3, 8))  # zero slow variance
+    assert math.isnan(_realized_var_ratio(np.array([1.0, 2.0]), 3, 8))  # w_fast < 2
+    assert np.isnan(_realized_var_ratio_series_full(flat, 3, 8)).all()
+    assert math.isnan(_variance_ratio(flat, 4))  # zero 1-period variance
+    assert math.isnan(_variance_ratio(np.array([1.0, 2.0, 3.0]), 4))  # m < n + 1
+    assert np.isnan(_variance_ratio_series_full(flat, 4)).all()
+    assert np.isnan(_hv_ratio_series_full(flat, 5, 5)).all()  # flat window, mean HV 0
+    assert math.isnan(_hv_ratio_series_full(np.array([100.0]), 5, 5)[0])
+    noise = _intraday_noise_ratio_series_full(flat, 6)  # net progress zero
+    assert np.isnan(noise).all()
+    assert np.isnan(_intraday_noise_ratio_series_full(np.array([1.0, 2.0]), 6)).all()  # warmup
+    assert math.isnan(_vol_acceleration(np.array([100.0])))  # no prior bar
+    assert _vol_acceleration(np.array([100.0, 0.0])) == 0.0  # zero CURRENT volume: measured
+    assert math.isnan(_vol_acceleration(np.array([0.0, 100.0])))  # zero prior volume
+    va = _vol_acceleration_series_full(np.array([0.0, 100.0, 0.0]))
+    assert np.isnan(va[:2]).all()  # prior volume zero (or no prior bar)
+    assert va[2] == 0.0  # zero CURRENT volume over a positive prior is measured

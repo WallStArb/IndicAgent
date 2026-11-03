@@ -1293,12 +1293,12 @@ def test_volume_structure() -> None:
     assert 0.0 <= fv.mfi_fast <= 100.0
     assert 0.0 <= fv.mfi_slow <= 100.0
 
-    # Edge case: zero volume on prior bar must not raise ZeroDivisionError
-    # (epsilon guard on vol_acceleration = V_t / V_{t-1}).
+    # Edge case: zero volume on the prior bar makes V_t / V_{t-1} undefined;
+    # the column is missing (None), never a fabricated 1.0 (D1 rule 5, todo 584).
     bars_zero_vol = _make_bars(80)
     bars_zero_vol[-2]["volume"] = 0.0
     fv_zero = FeatureFactory.compute(bars_zero_vol, "SPY", "1m", cache, config)
-    assert math.isfinite(fv_zero.vol_acceleration)
+    assert fv_zero.vol_acceleration is None
 
 
 def test_return_distribution() -> None:
@@ -1347,11 +1347,11 @@ def test_realized_variance() -> None:
     assert math.isfinite(fv.bb_pct_b_slow)
 
     # Edge case: insufficient history (fewer bars than longest window) must
-    # not raise. variance_ratio_slow keeps its measured neutral; a z-score with
-    # no spread window is missing (None), never a fabricated 0.0 (D1 rule 5).
+    # not raise. An undefined ratio is missing (None) alongside the z-scores,
+    # never a fabricated neutral (D1 rule 5, todo 584).
     bars_short = _make_bars(3)
     fv_short = FeatureFactory.compute(bars_short, "SPY", "1m", cache, config)
-    assert math.isfinite(fv_short.variance_ratio_slow)
+    assert fv_short.variance_ratio_slow is None
     assert fv_short.hv_z_slow is None
 
 
