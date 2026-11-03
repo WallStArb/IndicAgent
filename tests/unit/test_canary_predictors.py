@@ -223,7 +223,7 @@ class TestFeatureVectorCanaryFields:
         # test was written) = 298, +2 Earnings-Season Calendar Primitive
         # fields (Phase 176 Plan 03, todo 353, added after this test was
         # written) = 300, minus the 11 universe-dead columns todo 584 item 6 (D5) retired = 289.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2 - 11
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2 - 12
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +541,7 @@ class TestFeatureFactoryIntegration:
         # (Phase 151 Plan 06) = 292, +6 Velocity Primitives Extension fields
         # (todo 320) = 298, +2 Earnings-Season Calendar Primitive fields
         # (Phase 176 Plan 03, todo 353) = 300.
-        assert len(dataclasses.fields(fv)) == 289
+        assert len(dataclasses.fields(fv)) == 288
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ anything found after the pin moves waits for the following rerun.
 | 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
-| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` stays open |
+| 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` retired and the sweeps ATR gate removed (6c); row 6 is done |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | in progress (indicagent-ef, 2026-11-03): implementation spec pinned in the additions doc's "Implementation spec" section - ten stored columns (residual.py, distribution.py, dividend.py, all new modules), `days_to_ex_dividend` deferred (dividend_events carries no declaration time, pin-down 3 unresolved by data), rank_z retirement rides the landing |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -529,6 +529,30 @@ resolve a zero-volume window after 1e11 of earlier volume). A window below 2 rai
 lead recalibrates the window. Known and not part of 6b: the legacy `_guard` still turns the NaN
 into 0.0 on the legacy FeatureVector path and the live `FeatureCache.ctf_vwap_align` is never
 updated (todo 463; the rerun's `_compute_series_columns` keeps the NaN).
+
+### Item 6c landed (2026-11-03): sweep_detected retired, liquidity_sweeps loses its ATR gate
+
+Measured on `feature_vectors_v2` (lead, 20 large caps: rate 0.9973 to 1.0000 on every name at 15m,
+0.9995 to 1.0000 at 1h; this session, AAPL/MSFT/KO/JPM/XOM since 2026-06-01: 5m 0.9994 over 19,890
+rows, 15m 1.0000 over 6,630, 1h 1.0000 over 1,785, 1d 1.0000 over 420). The cause is the
+definition: the flag is 1.0 when any sweep exists anywhere in the 120-bar lookback, which real
+series almost always have. The per-bar event is `bars_since_last_sweep == 0`, already stored, at
+0.29 to 0.36 on the same rows. Deleted rather than redefined (Musk step 2): kernel output,
+`zero_is_state` entry, `FeatureVector` field, concept deprecated through
+`ops_concept_registry_override.py`, physical columns kept (added to `RETIRED_COLUMNS`). Sweep
+geometry never divides by ATR (depth is a percent of the swing price), so `_compute_liquidity_sweeps`
+loses its `_is_valid_atr` gate and the kernel its ATR input; strength, velocity and bars-since now
+exist on bars with an invalid ATR. Only `sweep_detected` leaves the golden (real series have a valid
+ATR). Audit of the other SMC kernels for the same gate (reported, not fixed here): `bos_choch`
+divides by ATR only for `bos_strength` and `choch_strength`, yet the gate also resets
+`bos_direction`, `choch_direction`, `smc_trend_direction` and `bars_since_last_shift`;
+`fair_value_gap` divides only for `fvg_dist_atr` and `fvg_size_atr`, yet the gate also zeroes
+`fvg_open_count` and `fvg_midpoint` (the zones kernel consumes the midpoint); `order_blocks`
+divides only for the two `ob_*_dist_atr` and `breaker_dist_atr`, yet the gate also resets
+`ob_strength`, `ob_mitigated_flag`, `breaker_block_active` and `ob_mitigation_pct`. The pools and
+zones kernels use ATR in the detection itself, so their gates are needed. Gate note for 6a and 6b:
+`/code-review` and `/simplify` ran over both before the 6b landing; their findings that were fixed
+are in the 6b commit (direct window sums, window guard, `4h` in the denylist, stale text).
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

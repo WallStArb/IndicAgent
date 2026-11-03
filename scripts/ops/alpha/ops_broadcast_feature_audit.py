@@ -28,7 +28,7 @@ feature broadcast but NOT in macro/session/calendar, or vice versa).
 THREE-WAY VERDICT (Phase 173 / todo 270, 2026-08-25): `_classify_broadcast` returns
 'broadcast' / 'idiosyncratic' / 'inconclusive', not a bool. The original boolean
 contract had a real defect: a feature that is constant across symbols ONLY because
-it never fired in the sampled window (e.g. `sweep_detected`, `bos_direction` --
+it never fired in the sampled window (e.g. `bos_strength`, `bos_direction` --
 rare, event-driven structural features) was indistinguishable from a genuine
 bar_ts-derived broadcast signal (e.g. `dow_sin`, which is constant across symbols by
 CONSTRUCTION, not by coincidence). The temporal-variance guard fixes this: a verdict
@@ -217,7 +217,7 @@ def _classify_broadcast(values_by_bar_ts: dict[Any, np.ndarray], epsilon: float)
     contributed a representative value (including the empty-input and
     single-group cases), or every representative value is identical (a globally
     constant feature, e.g. a rare event flag that never fired in this sample
-    window -- the sweep_detected/bos_direction false-positive case this guard
+    window -- the bos_strength/bos_direction false-positive case this guard
     exists to catch). Absence of contradicting evidence is NOT evidence of
     broadcast structure, so the classifier abstains rather than defaulting to
     'broadcast'.

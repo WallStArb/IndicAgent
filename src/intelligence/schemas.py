@@ -1844,7 +1844,6 @@ class FeatureVector:
     fvg_dist_atr: float | None = None
     fvg_size_atr: float | None = None
     fvg_open_count: float | None = None
-    sweep_detected: float | None = None
     sweep_strength: float | None = None
     reclaim_velocity: float | None = None
     bars_since_last_sweep: float | None = None

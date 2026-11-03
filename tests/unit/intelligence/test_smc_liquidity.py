@@ -3,7 +3,7 @@
 Wires FeatureFactory._compute_liquidity_sweeps() / _compute_liquidity_pools()
 (stateless, ported from archive/smc_context/liquidity_sweeps.py + liquidity_pools.py)
 into FeatureFactory.compute()/compute_batch(), replacing the 9 None placeholders Plan 01
-threaded for sweep_detected/sweep_strength/reclaim_velocity/bars_since_last_sweep/
+threaded for sweep_strength/reclaim_velocity/bars_since_last_sweep/
 bsl_dist_atr/ssl_dist_atr/bsl_touches/ssl_touches/pool_count. Liquidity Pools is
 single-timeframe-descoped per 164-RESEARCH.md: PWH/PWL/PDH/PDL (which need a 1d frame the
 live compute() signature cannot provide) are dropped -- only equal-highs/equal-lows +
@@ -34,7 +34,7 @@ from tests.unit.intelligence.live_parity import (
     live_last,
 )
 
-_SWEEP_FIELDS = ("sweep_detected", "sweep_strength", "reclaim_velocity", "bars_since_last_sweep")
+_SWEEP_FIELDS = ("sweep_strength", "reclaim_velocity", "bars_since_last_sweep")
 _POOL_FIELDS = ("bsl_dist_atr", "ssl_dist_atr", "bsl_touches", "ssl_touches", "pool_count")
 
 
@@ -266,12 +266,11 @@ def _equal_highs_pool_bars() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def test_sweep_detected_fires_with_bounded_strength_and_velocity(cfg):
+def test_sweep_fires_with_bounded_strength_and_velocity(cfg):
     bars = _sweep_bars()
     cache = FeatureCache()
     fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
 
-    assert fv.sweep_detected == 1.0
     assert fv.sweep_strength is not None and 0.0 <= fv.sweep_strength <= 1.0
     assert fv.reclaim_velocity is not None and 0.0 <= fv.reclaim_velocity <= 1.0
     assert fv.bars_since_last_sweep is not None
@@ -287,7 +286,6 @@ def test_no_sweep_in_window_never_nan(cfg):
     cache = FeatureCache()
     fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
 
-    assert fv.sweep_detected == 0.0
     # no sweep ever detected in-window: the count is right-censored to None, never 0.0
     # ("absence has no defined age", D1 rule 2, todo 584 4b-2 group 4)
     assert fv.bars_since_last_sweep is None
@@ -346,21 +344,24 @@ def test_pwh_pwl_pdh_pdl_never_computed(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_sweeps_fallback_on_invalid_atr():
+def test_sweeps_have_no_atr_gate():
+    """Sweep geometry never divides by ATR, so a bar with no valid ATR still reports its sweep.
+    Window: a swing low at index 2, a later bar that wicks below it and closes back above."""
     import numpy as np
 
-    highs = np.array([100.0, 101.0, 100.5, 101.5, 100.0])
-    lows = np.array([99.0, 99.5, 99.0, 100.0, 99.5])
-    closes = np.array([99.5, 100.5, 99.5, 100.5, 99.8])
-
-    result = _compute_liquidity_sweeps(highs, lows, closes, 99.8, 0.0, _make_cfg())
-    assert result["sweep_detected"] == 0.0
-    # no object exists: the strength/velocity/age of a sweep that never happened are None
-    # (D1 rule 2, todo 584 4b-2 group 4), never a fabricated 0.0
-    assert result["bars_since_last_sweep"] is None
-    assert result["sweep_strength"] is None
-    assert result["reclaim_velocity"] is None
-    assert math.isfinite(result["sweep_detected"])
+    cfg = _make_cfg()
+    neighbor = cfg.smc_liquidity_sweeps_swing_neighbor
+    n = 4 * neighbor + 4
+    lows = np.full(n, 100.0)
+    highs = np.full(n, 101.0)
+    closes = np.full(n, 100.5)
+    lows[neighbor] = 98.0  # the swing low
+    sweep_bar = 2 * neighbor + 2
+    lows[sweep_bar] = 97.0  # wicks below the swing low
+    closes[sweep_bar] = 99.0  # and closes back above it
+    result = _compute_liquidity_sweeps(highs, lows, closes, cfg)
+    assert result["bars_since_last_sweep"] is not None
+    assert result["sweep_strength"] is not None
 
 
 def test_pools_fallback_on_invalid_atr():
@@ -385,8 +386,7 @@ def test_sweeps_fallback_on_short_window():
     lows = np.array([99.0, 99.5])
     closes = np.array([99.5, 100.5])
 
-    result = _compute_liquidity_sweeps(highs, lows, closes, 100.5, 1.0, _make_cfg())
-    assert result["sweep_detected"] == 0.0
+    result = _compute_liquidity_sweeps(highs, lows, closes, _make_cfg())
     assert result["sweep_strength"] is None
     assert result["bars_since_last_sweep"] is None
 
@@ -449,7 +449,7 @@ def test_compute_batch_produces_non_constant_liquidity_fields(cfg):
     results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
     assert len(results) == len(bars) - 1
 
-    for field in ("sweep_detected", "bars_since_last_sweep"):
+    for field in ("bars_since_last_sweep",):
         vals = _finite([getattr(fv, field) for _, fv in results])
         assert len(vals) > 1
         assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"

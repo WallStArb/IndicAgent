@@ -10,7 +10,7 @@ structure. This script classifies which active features have it, empirically.
 
 The classifier returns one of three verdicts -- 'broadcast', 'idiosyncratic',
 'inconclusive' -- rather than a bool. The temporal-variance guard exists because a
-never-fired event flag (e.g. sweep_detected, manip_strength) can be constant across
+never-fired event flag (e.g. bos_strength, bos_direction) can be constant across
 symbols AND constant across bar_ts within a narrow sample window, which the old
 boolean contract misclassified 'broadcast' with zero real evidence of bar_ts-derived
 structure. 'inconclusive' means "no evidence either way," not "assumed broadcast."
@@ -92,7 +92,7 @@ class TestClassifyBroadcast:
         assert _classify_broadcast({}, epsilon=1e-9) == "inconclusive"
 
     def test_globally_constant_feature_is_inconclusive_not_broadcast(self) -> None:
-        """The sweep_detected / manip_strength false-positive case: a rare,
+        """The bos_strength / bos_direction false-positive case: a rare,
         event-driven feature that never fired in the sampled window is constant
         across symbols (spread == 0 in every group) AND constant across bar_ts
         (every group's representative value is identical) -- zero real evidence

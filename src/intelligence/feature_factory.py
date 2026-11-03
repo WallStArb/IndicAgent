@@ -485,7 +485,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "fvg_dist_atr": "smart_money",
     "fvg_size_atr": "smart_money",
     "fvg_open_count": "smart_money",
-    "sweep_detected": "smart_money",
     "sweep_strength": "smart_money",
     "reclaim_velocity": "smart_money",
     "bars_since_last_sweep": "smart_money",
@@ -1731,7 +1730,6 @@ def _build_feature_vector(
     fvg_dist_atr: float | None = None,
     fvg_size_atr: float | None = None,
     fvg_open_count: float | None = None,
-    sweep_detected: float | None = None,
     sweep_strength: float | None = None,
     reclaim_velocity: float | None = None,
     bars_since_last_sweep: float | None = None,
@@ -2078,7 +2076,6 @@ def _build_feature_vector(
         fvg_dist_atr=_missing_if_nan(fvg_dist_atr),
         fvg_size_atr=_missing_if_nan(fvg_size_atr),
         fvg_open_count=_guard(fvg_open_count),
-        sweep_detected=_guard(sweep_detected),
         sweep_strength=_missing_if_nan(sweep_strength),
         reclaim_velocity=_missing_if_nan(reclaim_velocity),
         bars_since_last_sweep=_missing_if_nan(bars_since_last_sweep),
@@ -2295,7 +2292,7 @@ class FeatureFactory:
         _fvg_fields = _compute_fvg(highs, lows, closes, close_, atr_val, config)
         _fvg_midpoint = _fvg_fields["fvg_midpoint"]  # Plan 04 zones local, not persisted
 
-        _sweep_fields = _compute_liquidity_sweeps(highs, lows, closes, close_, atr_val, config)
+        _sweep_fields = _compute_liquidity_sweeps(highs, lows, closes, config)
 
         _pool_fields = _compute_liquidity_pools(highs, lows, closes, close_, atr_val, config)
         _price_in_premium = _pool_fields["price_in_premium"]  # Plan 04 zones local, not persisted
@@ -3804,7 +3801,6 @@ def _cold_start_vector(
         fvg_dist_atr=None,
         fvg_size_atr=None,
         fvg_open_count=None,
-        sweep_detected=None,
         sweep_strength=None,
         reclaim_velocity=None,
         bars_since_last_sweep=None,

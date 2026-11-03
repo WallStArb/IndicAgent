@@ -436,9 +436,10 @@ def _compute_fvg(
 # ---------------------------------------------------------------------------
 
 # D1 rule 2 (todo 584 4b-2 group 4): the strength/velocity of a sweep that never happened and
-# a right-censored bars-since count are None; sweep_detected stays the 0.0 event flag.
+# a right-censored bars-since count are None. (The sweep_detected flag was retired, todo 584 6c:
+# any sweep anywhere in the lookback is the norm, so it was 1.0 on every row; the per-bar event is
+# bars_since_last_sweep == 0.)
 _SWEEP_FALLBACK: dict[str, float | None] = {
-    "sweep_detected": 0.0,
     "sweep_strength": None,
     "reclaim_velocity": None,
     "bars_since_last_sweep": None,
@@ -466,8 +467,6 @@ def _compute_liquidity_sweeps(
     highs: np.ndarray,
     lows: np.ndarray,
     closes: np.ndarray,
-    close_: float,
-    atr_val: float,
     config: FeatureFactoryConfig,
 ) -> dict[str, float | None]:
     """Liquidity Sweeps -- stateless wick-beyond-swing + reclaim scan (Plan 03).
@@ -487,12 +486,10 @@ def _compute_liquidity_sweeps(
 
     Falls back to _SWEEP_FALLBACK (never raises; the strength/velocity/bars-since of a sweep
     that never happened in-window are None -- "absence has no defined age", D1 rule 2, todo
-    584 4b-2 group 4) when atr_val is invalid or the window is too short for swing detection.
+    584 4b-2 group 4) when the window is too short for swing detection or holds no swing or sweep.
+    Sweep geometry never divides by ATR (depth is a percent of the swing price), so there is no
+    ATR input and no ATR gate.
     """
-    atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return dict(_SWEEP_FALLBACK)
-
     lookback = config.smc_liquidity_sweeps_lookback
     h = highs[-lookback:]
     lo = lows[-lookback:]
@@ -577,7 +574,6 @@ def _compute_liquidity_sweeps(
 
     latest = max(sweeps, key=lambda s: s["bar_idx"])
     return {
-        "sweep_detected": 1.0,
         "sweep_strength": float(latest["sweep_strength"]),
         "reclaim_velocity": float(latest["reclaim_velocity"]),
         "bars_since_last_sweep": float(n_bars - 1 - int(latest["bar_idx"])),
@@ -1096,17 +1092,12 @@ def _compute_fvg_columns(x, config):
 
 
 def _compute_sweeps_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
+    highs, lows, closes = x["high"], x["low"], x["close"]
 
     def row(i):
         s = window_start(i, _SWEEP_LOOKBACK(config))
         return _compute_liquidity_sweeps(
-            highs[s : i + 1],
-            lows[s : i + 1],
-            closes[s : i + 1],
-            float(closes[i]),
-            float(atr[i]),
-            config,
+            highs[s : i + 1], lows[s : i + 1], closes[s : i + 1], config
         )
 
     return SWEEP.columns(len(closes), row)
@@ -1201,10 +1192,9 @@ KERNELS = (
     _stateless(
         "liquidity_sweeps",
         SWEEP,
-        ("high", "low", "close", ATR_RAW_PADDED),
+        ("high", "low", "close"),
         _SWEEP_LOOKBACK,
         _compute_sweeps_columns,
-        zero_is_state=frozenset({"sweep_detected"}),
     ),
     _stateless(
         "liquidity_pools",

@@ -38,7 +38,7 @@ DROPPED_COLUMNS: dict[str, str] = {
 # kernels are gone and the writers stop populating them, but the physical columns stay until the
 # rebuild's summary card is written (derived cache, no same-day DROP).
 RETIRED_COLUMNS: dict[str, str] = {
-    name: "todo 584 item 6 (D5): universe-dead on US equity regular-hours bars"
+    name: "todo 584 item 6: retired (D5 universe-dead, or the saturated sweep_detected flag, 6c)"
     for name in (
         "in_london_kz",
         "amd_phase",
@@ -51,6 +51,7 @@ RETIRED_COLUMNS: dict[str, str] = {
         "asian_session_high_dist_atr",
         "asian_session_low_dist_atr",
         "ret_div_1m_5m",
+        "sweep_detected",
     )
 }
 NEVER_COMPUTED = ("momentum_rank_z", "volume_rank_z", "volatility_rank_z")
