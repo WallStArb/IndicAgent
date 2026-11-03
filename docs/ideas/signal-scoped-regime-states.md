@@ -46,6 +46,15 @@ surrounding HMM proposal it arrived in needs rework to fit the design.
   members' importance degrades, level, or is falling, velocity, in the fragile state),
   yfinance sourcing (RSP and SPY are panel names), and NFCI (weekly FRED, banned until
   todo 482).
+- Cost and inputs: one `regime_signals/` module following `breadth_vol.py` (pure function over
+  pre-fetched bars, causal expanding rank). SPY and RSP are onboarded panel names (verified
+  2026-11-03); the extremes count runs over the existing universe, which is the measuring
+  instrument, not something to expand. No new securities, no new data paths.
+- No new atomic features: these are market-wide states; conditioning goes through the S7 regime
+  slot (todo 548) and stratification joins, never as per-symbol feature columns. A member-level
+  interaction column (member z x state) would be a new feature and a new look, which the
+  combiner routing exists to avoid; an HMM posterior, if ever built, follows
+  `features/kernels/regime.py`'s walk-forward template (186-13) as a state producer.
 - Sequenced with the rest: independent divergence episodes are measured first (E15 step 0,
   constraint above) before any variant runs; the poor regime-conditional prior applies
   unchanged.

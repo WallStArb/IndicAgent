@@ -234,6 +234,11 @@ categories. Rules that follow:
   level margin, is declared up front and counted as a look.
 - Labels land in a CVR namespace and broadcast at session cadence through the same `align` node
   as every other macro axis; by the broadcast rule above there is no intraday version.
+- Build cost: two derived measures on the stored series (level and slope margins), landing as
+  kernels on the series registry through the phase 184 B2 `kernel_source` adapter (todo 475)
+  with labels via the rebuild; macro series reach a row only as causally aligned external
+  inputs (the `features/kernels/macro.py` pattern). No per-symbol atomic features and no
+  securities: every input is a stored series.
 - Preregistrable equity predictions follow the mechanism story, each a named look: bear regimes
   hurt long-duration growth names; steepening helps financials through net interest margin while
   flattening compresses it; bear flatteners hit small caps first as the late-cycle warning.
