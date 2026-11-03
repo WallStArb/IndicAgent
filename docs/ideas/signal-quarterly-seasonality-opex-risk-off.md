@@ -11,6 +11,13 @@ session for a statistical error, kept here as a worked cautionary example, not a
 **Origin:** User-observed pattern, stated as an impression, not a claim: "we could see market
 sell offs in weeks 9-11 [of the quarter]... some risk off I have seen or mechanical selling —
 maybe it also coincides with quarterly OPEX as well."
+**Machinery note 2026-11-03 (v3.5):** the code citations in "What already exists" predate the
+phase 186 deletions: `ic_engine.py` and `ensemble_trainer.py` are gone (IC measurement is
+`src/intelligence/measure/ic.py` through the research runner), and `equity_regime_model.py` was
+deleted with todo 381 (the 9-state label is computed by
+`src/intelligence/regime_signals/breadth_vol.py` behind the `cross_sectional_regime_model`
+dispatcher). Calendar primitives live in `src/intelligence/features/kernels/calendar.py`. The
+hypothesis and its two-claim split are unchanged; only the named machinery moved.
 
 ---
 
