@@ -120,7 +120,29 @@ Exit: 186-26 complete on all timeframes (owner restart condition 1).
       before the data exists.
 - [ ] Vintage recommendation with rationale for the owner (E18).
 
+Answer (2026-11-03, read-only reader, verified by the lead): it depends on what the family
+reads. S0 reads prices only (`snapshot.py` from `market_data_ohlcv_tradeable`), and
+`PanelSpec.fields` admits only high, low and sector_pit (`spec.py:89`). Nothing in the runner
+imports `feature_inputs.py`. A price-derived 1d family (`research/specs/daily_residual_h5.yaml`
+pattern) runs today; any family that reads stored feature columns needs task 10.
+
+### Task 10: phase 184 wiring wave (worker: one session, research files only)
+
+The gate (187-08/09/10, 187-15 Task 2) has landed, so this starts now, in parallel with task 1:
+no file overlap (`src/intelligence/research/` only). Order: 184-06 -> 05 and 07 -> 08 -> 09 -> 10,
+each with `repro_frozen` bit-identical. A plan-checker pass against today's code comes first
+(the plans predate 584; 184-08 still names migration 526), and the lead edits the plans before
+execution. 184-12's dry S0 build runs after 186-27.
+
+Exit: a spec with a stored feature member runs through S0 -> S8 on a synthetic panel, and the
+frozen verdicts reproduce bit-identically.
+
 ### Owner decisions (lead brings each with a recommendation)
+
+- Price-only families before the feature corpus: restart condition 1 (186-26 complete) concerns
+  features, which a price-derived family never reads. Lead recommendation: lift the clean-data
+  rule for price-derived 1d families once conditions 2-4 hold (1d gaps per 566, written universe,
+  vintage). That puts a counted test ahead of the rerun. Its looks count in the same vintage.
 
 - Vintage question (E18), before task 9 is frozen.
 - Clean-data lift, after task 6 and task 7.
@@ -129,6 +151,7 @@ Exit: 186-26 complete on all timeframes (owner restart condition 1).
 
 ## Critical path
 
-Task 1 -> pin -> task 4 -> task 5 (needs task 3) -> task 6 -> owner lift (needs task 7) -> first
-counted test (needs task 9, and task 8's answer decides whether 184 sits in between). Tasks 2, 3,
-7, 8 and 9 run now, in parallel with task 1.
+Feature families: task 1 -> pin -> task 4 -> task 5 (needs task 3) -> task 6 -> owner lift (needs
+task 7) -> counted test (needs tasks 9 and 10). Price-derived 1d family, if the owner takes the
+recommendation: task 3 (566) + task 7 + vintage -> counted test, with no wait on the rerun.
+Tasks 2, 3, 7, 9 and 10 run now, in parallel with task 1.
