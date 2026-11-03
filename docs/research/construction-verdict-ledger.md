@@ -37,6 +37,25 @@ Family designs: `docs/plans/archive/2026-09-25-alpha-research-architecture.md` s
 | 11 | Price-only daily families: residual and industry momentum, daily sector lead-lag (unified design attempt 3; todo 441) | Design only. Residual momentum is the section 2 reopen of the TSMOM sleeve FAIL. Universe 1,502 `compute_eligible_1d` (the todo text says 931). Declares `panel.total_return` and its overlap with family 4 | Pre-registration; S1 residual target on the daily panel |
 | 12 | `generated_family`: a registered grammar over daily OHLCV primitives, in-fold selection plus ridge (attempt 3b; todo 440) | Design only. Discovery without preconceptions; every grammar expansion is a counted look | Family 11's S1 target; grammar registered; E17 H0 battery ridge cells |
 
+**Diversification lens (added 2026-11-03).** The standard six-cluster industry taxonomy was
+mapped against this queue (owner question: does it refine the family program). Every applicable
+cluster is already owned by rows here or in section 3, so it adds no new families:
+
+| Cluster | Where it lives here |
+|---|---|
+| Directional trend and momentum | Families 9 and 11, the TSMOM reopen (residual momentum), the cross-timeframe stack (todo 445) |
+| Relative value and mean reversion | Families 4 and 9; the S1 residual cross-section is the whole machine; pairs and cointegration are the five stat-arb rows in section 3 |
+| Microstructure | Family 10 (order flow from bars). LOB market making has no data; execution algos are downstream and costs never gate discovery |
+| Volatility and options | Family 8 plus the two listed-derivatives rows in section 3; blocked on an options vendor |
+| Macro, event and factor | Families 5 to 8 and the macro layer's event catalog; carry is tabled with futures; factor exposure is S1's job, not a family |
+| Meta-level allocation and regime weighting | The S7 combiner over `src/intelligence/ensemble/` shrinkage and mean-variance weights; the scoped-regime-states conditioned weights (level, boundary, confluence) are the regime-weighting piece |
+
+The lens earns its keep one way: when the next family is chosen, prefer drivers, horizons and
+mechanics that decorrelate from every promoted member, because stacking only pays on a
+diversified member set. The framework's Level 1 (ML signal stacking) is an S7 combiner variant
+that waits for members to stack: today the binding constraint is member discovery, not
+combination (family 1 refused on costs, family 2 recorded no significant members).
+
 ## 2. Reopened as new family members (pre-registration pending)
 
 Owner decision 2026-09-25. Reopened because the old verdict came from a gate E15 removed, from a
@@ -91,6 +110,7 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | Equity stat arb: ML on residuals | same | Idea, not queued. Overlaps todo 440 and the S7 combiner; the slide's IC of about 0.11 is a leakage warning, not a target |
 | Equity stat arb: Kalman or OU spread with a time-varying hedge ratio | same | Reopened by the owner 2026-10-28 with `cointegrated_pairs_residual`: section 2 and todo 559 |
 | Equity stat arb: ETF or index arbitrage | same | Not pursued: speed and creation-redemption bound, conflicts with the no hyper-traded rule; the lead-lag form is row 3 of section 1 |
+| Equal-risk-contribution construction variant beside the mean-variance weights | Added 2026-11-03 (the six-cluster lens exercise; standard allocation baseline) | Not queued. A construction-rule variant, not an edge source; meaningless below two promoted members, so it sequences itself after member discovery and needs no design work until then |
 | v2.x-era ideas (written against the I1-I7 plugin tier removed in 185-45; archive tag `archive/v2x-ai-stack-2026-10`; todo 509 holds the remainder): treat each as an idea to re-derive on the v3 kernel registry, not code to revive | Confluence `docs/research/intel-confluence-detection-persistence-layer.md`; PrecedentEngine `docs/research/intel-precedent-engine.md`; LightGBM scoring `docs/research/archive/2026-03-19-ml-scoring-research.md`; candlestick patterns `docs/research/archive/candlestick-pattern-expansion-research.md`; palette brainstorm `docs/research/archive/intelligence-redo-brainstorm.md`; BOCPD `docs/plans/archive/2026-02-14-bocpd-changepoint-design.md`; Kalman trend `docs/plans/archive/2026-02-19-kalman-trend-design.md`; I7 quant audit `docs/research/archive/i7-quant-audit-2026-03-16.md`; Renaissance refinements (105 ideas, unsorted) `docs/research/archive/signal-06-renaissance-refinements.md` | Confluence and PrecedentEngine are drafts (the glossary gates PrecedentEngine on the ensemble showing IC > 0); the rest are archived. SMC and OFI features from the palette brainstorm are already v3 columns |
 
 ## 4. Verdict record (frozen, chronological)
