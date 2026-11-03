@@ -1221,54 +1221,28 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 4446023,
- "regenerated_from": "e028612a83aa810a760cf2198f355e27d5425819",
- "regeneration_reason": "584 4b-2 group 1: the 0/0 ratio family NaN where undefined",
+ "fixture_bytes": 4449347,
+ "regenerated_from": "3dfffd3c86b688ba6fb533b8067de706159260cc",
+ "regeneration_reason": "584 4b-2 group 2 (final form): oscillator/percentile family and ruled ratios NaN where undefined; finite formulas untouched",
  "changed_columns": {
   "synthetic|SPY|5m": [
-   "hv_ratio",
-   "intraday_noise_ratio",
-   "momentum_vol_regime_product",
-   "realized_var_ratio_fast",
-   "realized_var_ratio_slow",
-   "updown_ratio_fast",
-   "variance_ratio_fast",
-   "variance_ratio_momentum_product",
-   "variance_ratio_slow"
+   "range_position"
   ],
   "real|SPY|5m": [],
-  "real|SPY|15m": [
-   "intraday_noise_ratio"
-  ],
+  "real|SPY|15m": [],
   "real|SPY|1h": [],
   "real|SPY|1d": [],
   "real|QQQ|5m": [],
   "real|QQQ|15m": [],
-  "real|QQQ|1h": [
-   "intraday_noise_ratio"
-  ],
+  "real|QQQ|1h": [],
   "real|QQQ|1d": [],
-  "real|TLT|5m": [
-   "intraday_noise_ratio"
-  ],
-  "real|TLT|15m": [
-   "intraday_noise_ratio"
-  ],
-  "real|TLT|1h": [
-   "intraday_noise_ratio"
-  ],
-  "real|TLT|1d": [
-   "intraday_noise_ratio"
-  ],
-  "real|XLE|5m": [
-   "intraday_noise_ratio"
-  ],
-  "real|XLE|15m": [
-   "intraday_noise_ratio"
-  ],
-  "real|XLE|1h": [
-   "intraday_noise_ratio"
-  ],
+  "real|TLT|5m": [],
+  "real|TLT|15m": [],
+  "real|TLT|1h": [],
+  "real|TLT|1d": [],
+  "real|XLE|5m": [],
+  "real|XLE|15m": [],
+  "real|XLE|1h": [],
   "real|XLE|1d": []
  },
  "regeneration_history": [
@@ -2066,6 +2040,122 @@
      "variance_ratio_momentum_product",
      "vol_skew_product",
      "yield_slope_momentum_product"
+    ]
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "e028612a83aa810a760cf2198f355e27d5425819",
+   "regeneration_reason": "584 4b-2 group 1: the 0/0 ratio family NaN where undefined",
+   "changed_columns": {
+    "synthetic|SPY|5m": [
+     "hv_ratio",
+     "intraday_noise_ratio",
+     "momentum_vol_regime_product",
+     "realized_var_ratio_fast",
+     "realized_var_ratio_slow",
+     "updown_ratio_fast",
+     "variance_ratio_fast",
+     "variance_ratio_momentum_product",
+     "variance_ratio_slow"
+    ],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [
+     "intraday_noise_ratio"
+    ],
+    "real|SPY|1h": [],
+    "real|SPY|1d": [],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [
+     "intraday_noise_ratio"
+    ],
+    "real|QQQ|1d": [],
+    "real|TLT|5m": [
+     "intraday_noise_ratio"
+    ],
+    "real|TLT|15m": [
+     "intraday_noise_ratio"
+    ],
+    "real|TLT|1h": [
+     "intraday_noise_ratio"
+    ],
+    "real|TLT|1d": [
+     "intraday_noise_ratio"
+    ],
+    "real|XLE|5m": [
+     "intraday_noise_ratio"
+    ],
+    "real|XLE|15m": [
+     "intraday_noise_ratio"
+    ],
+    "real|XLE|1h": [
+     "intraday_noise_ratio"
+    ],
+    "real|XLE|1d": []
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "3dfffd3c86b688ba6fb533b8067de706159260cc",
+   "regeneration_reason": "584 4b-2 group 2: oscillator/percentile family and ruled ratios NaN where undefined (mfi, stoch_k, bb_pct_b, cci, aroon cold rows, price/vol percentile all-equal, efficiency_ratio zero-movement, vol_range_ratio degenerate bar, vol_asymmetry cold, range_position, zero-range bar anatomy)",
+   "changed_columns": {
+    "synthetic|SPY|5m": [
+     "aroon_fast",
+     "aroon_slow",
+     "cci_fast",
+     "cci_mid",
+     "cci_slow",
+     "range_position",
+     "vol_asymmetry_z"
+    ],
+    "real|SPY|5m": [
+     "vol_asymmetry_z"
+    ],
+    "real|SPY|15m": [
+     "vol_asymmetry_z"
+    ],
+    "real|SPY|1h": [
+     "vol_asymmetry_z"
+    ],
+    "real|SPY|1d": [
+     "vol_asymmetry_z"
+    ],
+    "real|QQQ|5m": [
+     "vol_asymmetry_z"
+    ],
+    "real|QQQ|15m": [
+     "vol_asymmetry_z"
+    ],
+    "real|QQQ|1h": [
+     "vol_asymmetry_z"
+    ],
+    "real|QQQ|1d": [
+     "vol_asymmetry_z"
+    ],
+    "real|TLT|5m": [
+     "vol_asymmetry_z"
+    ],
+    "real|TLT|15m": [
+     "vol_asymmetry_z"
+    ],
+    "real|TLT|1h": [
+     "vol_asymmetry_z"
+    ],
+    "real|TLT|1d": [
+     "vol_asymmetry_z"
+    ],
+    "real|XLE|5m": [
+     "vol_asymmetry_z"
+    ],
+    "real|XLE|15m": [
+     "vol_asymmetry_z"
+    ],
+    "real|XLE|1h": [
+     "vol_asymmetry_z"
+    ],
+    "real|XLE|1d": [
+     "vol_asymmetry_z"
     ]
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
