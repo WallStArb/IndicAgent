@@ -175,3 +175,76 @@ any dedup judgment; the rule is never to drop data that could carry signal.
    the consumer test, and any add-list column no family names stays `candidate` (still built in
    the pass, per the owner's standing directive, but never `active` until consumed).
 
+## Implementation spec (584 item 8, session indicagent-ef, 2026-11-03)
+
+The pinned definitions below resolve the five pin-downs; the kernel modules carry the same text.
+Reference: Avellaneda & Lee 2010 (Quantitative Finance 10(7) 761-782) is the consumer paper for
+the residual family; its s-score machinery (OU half-life, equilibrium sigma) stays
+research-layer-first as decided above.
+
+Scope: ten stored columns this pass. `days_to_ex_dividend` does NOT enter:
+`dividend_events` and `dividend_events_reconciled` carry ex-date, amount and prev-close only,
+with no declaration/announcement timestamp, so "days to the next ex-date" cannot be computed at
+t without reading the future (pin-down 3). It stays research-layer-only until the dividend
+layer records availability times.
+
+Modules (all new, `src/intelligence/features/kernels/`):
+
+- `residual.py` - the market-residual family, sibling of `kernels/macro.py`'s beta path. One
+  builder over the daily reference grid, one grid kernel, one row-grid pass-through with
+  `ext_*` DAILY_ASOF_CLOSE externals, exactly the `factor_beta_daily`/`build_symbol_beta_series`
+  shape. The beta inside the residual is THE equity beta: the same rolling OLS estimator and the
+  same `feature.factor_beta.window` seed, never a second beta definition.
+- `distribution.py` - the single-name return-distribution and scale columns.
+- `dividend.py` - `dividend_yield`.
+
+Definitions (daily grain, broadcast to every timeframe by date, the beta cadence contract; the
+market series is SPY daily log returns, pin-down 2; all windows full-window only, NaN until
+filled, zero-spread z NaN):
+
+1. `market_residual_return[t]` = r_sym[t] - beta[t] * r_spy[t], where beta[t] is the trailing
+   `feature.factor_beta.window` OLS slope over returns ending at t (var_spy <= 1e-12: NaN). NaN
+   at every date for SPY (self-regression is degenerate, the equity_beta_z rule).
+2. `idiosyncratic_volatility[t]` = sample std (ddof=1) of the residual over the trailing
+   `feature.idiosyncratic_volatility.window` (default 21, [conventional] monthly, Ang et al.
+   2006; unannualized).
+3. `market_residual_z[t]` = trailing time-series z of the name's own residual series over
+   `feature.market_residual.z_window` (default 252, [conventional] one trading year), pin-down
+   1: cross-sectional standardization never happens in storage.
+4. `market_residual_lag1_acf[t]` = lag-1 autocorrelation of the residual over
+   `feature.market_residual.lag1_acf_window` (default 63, [initial_estimate] one quarter).
+5. `residual_beta_stability[t]` = sample std (ddof=1) of the rolling beta over
+   `feature.residual_beta_stability.window` (default 60, [initial_estimate]); pin-down 4
+   resolved to the dispersion estimator, not beta-minus-lag-k: no sign ambiguity, one window,
+   composes with the beta history the kernel already accumulates.
+6. `max_daily_return[t]` = max daily log return over `feature.max_daily_return.window` (default
+   21, [conventional] monthly, Bali et al. MAX).
+7. `max_drawdown[t]` = 1 - min over the trailing `feature.max_drawdown.window` (default 252,
+   [conventional]) grid dates of close[j] / max(close within the window up to j). Close-based,
+   price-only (pin-down 5): the total-return adjustment is a research-layer concern via
+   `panel.total_return`. Stored <= 0; 0.0 is a measured state (new high held through the
+   window).
+8. `downside_deviation[t]` = sqrt(mean(min(r, 0)^2)) over `feature.downside_deviation.window`
+   (default 252, [conventional]); target 0; 0.0 is measured (no negative return in the window).
+9. `size_proxy[t]` = mean over `feature.size_proxy.window` own-grid bars (default 63,
+   [initial_estimate]) of ln(close * volume); dollar volume <= 0 is NaN, and the column runs
+   per volume-basis segment (it reads the volume level). Stored at the row timeframe like every
+   own-bars column; the level is a scale, not comparable across timeframes.
+10. `dividend_yield[t]` = sum of dividend_events amount over the trailing
+    `feature.dividend_yield.window` (default 252, [conventional] trailing twelve months) grid
+    dates divided by close[t]; one event per ex-date, Yahoo amount first with IBKR fallback (the
+    view's documented naive default; 606 of 42,926 two-source events disagree beyond rounding,
+    bounded except part-stock specials). Outside `dividend_event_coverage` the window is
+    unknown, never zero: the builder supplies NaN for out-of-coverage dates and a window
+    holding one is NaN (no_fill). 0.0 over a fully covered window is measured (zero_is_state).
+
+Registry: all ten enter `concept_registry` as `candidate` (domain `feature`), V2_ONLY_COLUMNS
+with the 553 pattern, `feature_vectors_v2` real columns by migration, promotion only when a
+family prereg names the column. The three never-computed `rank_z` concept rows retire to
+`deprecated` through ConceptRegistryService in the same landing (todo 421's registry half).
+
+Grid-kernel memory (daily bars): residual family = factor_beta.window + max(z_window,
+idio_volatility.window, lag1_acf_window, beta_stability.window) + 2; max_daily_return = its
+window; max_drawdown/downside_deviation = their windows; dividend_yield = window + 1;
+size_proxy (row grid) = its window. Pass-throughs declare 0, the macro pattern.
+
