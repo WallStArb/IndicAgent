@@ -29,7 +29,7 @@ from scripts.infrastructure.backfill import _fetch_queue as fq
 from scripts.infrastructure.backfill import _history_fetch_item as hfi
 from scripts.infrastructure.backfill import ohlcv_history_fetcher as hf
 from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE, FetcherLock
-from scripts.infrastructure.backfill._history_fetch_item import GatewayLost, ItemOutcome
+from scripts.infrastructure.backfill._history_fetch_item import DEFERRED, GatewayLost, ItemOutcome
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _TODAY = date(2026, 10, 6)
@@ -828,6 +828,30 @@ async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_eff
     assert seen["ctx"].conn.log.count("SET LOCAL ROLE bar_derivation_writer") == 3
     assert fetcher.summary["n_error"] == 1
     assert '"status": "partial"' in (tmp_path / "status.json").read_text()
+
+
+async def test_a_deferred_item_is_counted_never_recorded_and_outside_the_lanes(
+    tmp_path, _no_side_effects
+):
+    """Todo 534: a window wholly past its deferral horizon asked nothing, so the ledger keeps the
+    series' last real outcome and only n_deferred sees it."""
+    statuses = {"AAA": "ok", "BBB": DEFERRED}
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        return _outcome(row, statuses[row.symbol])
+
+    fetcher, _ = _fetcher(tmp_path, _plan([_ranked(s) for s in statuses]), fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert _no_side_effects.outcomes == [("AAA", "15m", "ok", "ibkr")]
+    assert fetcher.summary["n_deferred"] == 1 and fetcher.summary["n_items"] == 1
+    assert sum(fetcher.summary["lanes"].values()) == 1
+
+
+def test_the_run_plan_carries_the_parsed_horizon_into_every_context():
+    source = Path(hf.__file__).read_text()
+    assert "parse_defer_after(infra_values.get(DEFER_AFTER_KEY), self._registry)" in source
+    assert "defer_after=plan.defer_after" in source
 
 
 async def test_a_flagged_restatement_is_counted_and_never_makes_the_run_partial(

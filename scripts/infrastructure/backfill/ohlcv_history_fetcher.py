@@ -125,9 +125,12 @@ from scripts.infrastructure.backfill._fetcher_lock import (  # noqa: E402
     FetcherLock,
 )
 from scripts.infrastructure.backfill._history_fetch_item import (  # noqa: E402
+    DEFER_AFTER_KEY,
+    DEFERRED,
     FetchContext,
     ItemOutcome,
     fetch_item_with_retries,
+    parse_defer_after,
 )
 from scripts.ops.bars.ops_split_detect import (  # noqa: E402
     SPLIT_RULE_KEYS,
@@ -527,6 +530,8 @@ class RunPlan:
     # Per-provider planner inputs (load_provider_plan): the dispatch hands each item's own
     # plan to its registry entry's fetch hook.
     plans: Mapping[str, ProviderPlan] = field(default_factory=dict)
+    # APR infra.backfill.defer_after, parsed once per run (FetchContext.defer_after).
+    defer_after: Mapping[tuple[str, str], datetime] = field(default_factory=dict)
 
 
 def item_lane(plan: RunPlan, row: CoverageRow, *, full_scan: bool = False) -> tuple[str, bool, int]:
@@ -897,6 +902,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             overlap_sessions=plan.overlap_sessions,
             settle=settle,
             on_intake=self._mark_intake,
+            defer_after=plan.defer_after,
         )
 
     async def _run_subprocess(self, argv: list[str]) -> int:
@@ -937,6 +943,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             for name in self._registry
         }
         default_plan = plans.get(default_provider())
+        defer_after = parse_defer_after(infra_values.get(DEFER_AFTER_KEY), self._registry)
         tf_fetch_config = _history_fetch._load_tf_fetch_config(self.settings)
         scopes = resolve_scopes(self.args, config.default_scopes)
         candidates = build_candidates(
@@ -999,6 +1006,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             parity=parity,
             providers=frozenset({default_provider()}) if pairs else frozenset(),
             plans=plans,
+            defer_after=defer_after,
         )
 
     def _is_default_run(self) -> bool:
@@ -1424,10 +1432,11 @@ class OHLCVHistoryFetcher(BaseBatch):
                         return
                     visited.add(key)
                 lane, full_scan, overlap_days = item_lane(plan, row, full_scan=self.args.full_scan)
-                state.lanes[lane] += 1
                 outcome = await self._fetch_one(
                     plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
                 )
+                if outcome.status != DEFERRED:  # lane counts reconcile with n_items
+                    state.lanes[lane] += 1
                 self._mark_progress()
                 if outcome.status in ("ok", "no_data"):
                     self._mark_intake()
@@ -1711,6 +1720,8 @@ class OHLCVHistoryFetcher(BaseBatch):
         )
 
     def _record_outcome(self, ctx: Any, outcome: ItemOutcome) -> None:
+        if outcome.status == DEFERRED:
+            return  # nothing was asked: the ledger keeps the series' last real outcome
         conn = ctx.get_conn()
         with conn.transaction():
             cur = conn.cursor()
@@ -1871,6 +1882,8 @@ class _LoopState:
     # the intake watchdog; stalled names the cause when the run ended that way.
     n_gateway_lost: int = 0
     n_stalled: int = 0
+    # Items wholly past their deferral horizon (not asked, not recorded, not in n_items).
+    n_deferred: int = 0
     stalled: str | None = None
     touched_1d: dict[str, datetime] = field(default_factory=dict)
     lanes: Counter[str] = field(default_factory=Counter)
@@ -1883,6 +1896,8 @@ class _LoopState:
             self.n_ok += 1
         elif outcome.status == "no_data":
             self.n_no_data += 1
+        elif outcome.status == DEFERRED:
+            self.n_deferred += 1
         else:
             self.n_error += 1
         self.n_flagged_series += len(outcome.flags)
@@ -1908,6 +1923,7 @@ class _LoopState:
             "n_1d_derived": len(self.touched_1d),
             "n_gateway_lost": self.n_gateway_lost,
             "n_stalled": self.n_stalled,
+            "n_deferred": self.n_deferred,
         }
 
 

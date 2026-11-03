@@ -42,9 +42,10 @@ and its APR overlay).
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -76,6 +77,7 @@ from services.complete_bar_gate import keep_complete
 from services.ohlcv_coverage_writer import DESTINATION_RAW, FETCH_STATUSES, CoverageDelta
 from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
+from src.core.service_utils import parse_iso_ts
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions, session_complete_at
 from src.intelligence.bars.vendor_kind import (
@@ -96,6 +98,12 @@ _GRID_SOURCE_TF = "5m"
 # tunable: the bound itself is infra.ibkr.history_request_timeout (APR); three checks per
 # bound cap how far past it a stall can run before cancellation at a third of the bound.
 _STALL_CHECKS_PER_TIMEOUT = 3
+
+
+DEFER_AFTER_KEY = "infra.backfill.defer_after"
+# An item whose whole window lies past its deferral horizon: nothing was asked, so nothing is
+# recorded in the ledger or counted as intake (_LoopState.n_deferred counts it).
+DEFERRED = "deferred"
 
 
 @dataclass(frozen=True)
@@ -140,8 +148,10 @@ class ItemOutcome:
     overlap_pairs: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.status not in FETCH_STATUSES:
-            raise ValueError(f"unknown item status {self.status!r}; expected {FETCH_STATUSES}")
+        if self.status not in (*FETCH_STATUSES, DEFERRED):
+            raise ValueError(
+                f"unknown item status {self.status!r}; expected {(*FETCH_STATUSES, DEFERRED)}"
+            )
 
 
 class ProgressClock:
@@ -257,6 +267,9 @@ class FetchContext:
     # Called with the rows a persisted chunk wrote: the fetcher's intake watchdog counts these
     # (successful intake, unlike an attempt or a stall check). None outside a fetcher run.
     on_intake: Callable[[int], None] | None = None
+    # APR infra.backfill.defer_after (migration 563): (vendor, timeframe) -> the horizon that
+    # ends fetch_item's plan early; the later slots wait for a run without it. Empty: none.
+    defer_after: Mapping[tuple[str, str], datetime] = field(default_factory=dict)
 
     @property
     def vendor(self) -> str:
@@ -609,27 +622,51 @@ async def _head_floor(
     return _midnight(head_ts) if head_ts is not None else None
 
 
+def parse_defer_after(raw: str | None, vendors: Iterable[str]) -> dict[tuple[str, str], datetime]:
+    """APR infra.backfill.defer_after (migration 563), {vendor: {timeframe: ISO instant}}, as
+    {(vendor, timeframe): instant}. Unset defers nothing. Anything else that is not a known
+    vendor, a record-planner timeframe (end-exclusive, like the horizon) and an instant raises:
+    a horizon silently dropped would spend the budget the key exists to protect."""
+    if raw is None:
+        return {}
+    value = json.loads(raw)
+    horizons: dict[tuple[str, str], datetime] = {}
+    for vendor, by_tf in value.items() if isinstance(value, dict) else [(None, value)]:
+        if vendor not in vendors or not isinstance(by_tf, dict):
+            raise ValueError(f"{DEFER_AFTER_KEY}: {vendor!r} is not a registry vendor's object")
+        for timeframe, stamp in by_tf.items():
+            instant = parse_iso_ts(stamp) if timeframe in _RECORD_PLAN_TFS else None
+            if instant is None:
+                raise ValueError(
+                    f"{DEFER_AFTER_KEY}: {vendor}/{timeframe} = {stamp!r} is not an instant "
+                    f"on a timeframe in {sorted(_RECORD_PLAN_TFS)}"
+                )
+            horizons[(vendor, timeframe)] = instant
+    return horizons
+
+
 def _before_head(window_end: datetime, head_floor: datetime | None) -> bool:
     """True when the whole window lies at or before the vendor's head (or tape floor)."""
     return head_floor is not None and window_end <= head_floor
 
 
 def _plan_gaps(
-    ctx: FetchContext, instrument: Any, timeframe: str, start_dt: datetime
+    ctx: FetchContext, instrument: Any, timeframe: str, start_dt: datetime, end_dt: datetime
 ) -> list[tuple[datetime, datetime]]:
     """The gap asks for one (symbol, timeframe) of ctx.vendor, through the shared planners.
 
     Raw is stored per source, agnostic to every other source, so the one question is: which
-    slots of [start_dt, end) are missing from THIS vendor's own ohlcv_raw rows, minus its own
+    slots of [start_dt, end_dt) are missing from THIS vendor's own ohlcv_raw rows, minus its own
     answered request windows (a confirmed empty included)? Another vendor's rows, answers and
-    the canonical selection never cover a slot. No date cutoff restricts the question.
+    the canonical selection never cover a slot. end_dt is the run's end, or an earlier deferral
+    horizon that orders the asking (fetch_item); no other cutoff restricts the question.
 
     1d: the vendor's complete daily bars per NYSE session (detect_gaps_1d_from_d1).
     5m/15m/1h: the record planner (expected slots minus stored minus answered windows).
     Anything else (1m, 4h): the legacy grid difference with the empty-history gate.
     Every path folds in the provider-verified empty span under one freshness rule.
     """
-    symbol, end_dt = instrument.symbol, ctx.end_dt
+    symbol = instrument.symbol
     vendor = ctx.vendor
     empty = ctx.empty_ranges.get((vendor, symbol, timeframe))
     # The no-data evidence threshold is the item plan's (phase 190); the leaf module's own
@@ -722,6 +759,7 @@ def _with_verification_asks(
     ctx: FetchContext,
     timeframe: str,
     start_dt: datetime,
+    end_dt: datetime,
     gaps: list[tuple[datetime, datetime]],
     *,
     overlap: bool,
@@ -740,8 +778,9 @@ def _with_verification_asks(
     - 1d (`ctx.overlap_sessions`): the last N sessions are re-asked so a split shows as a
       constant ratio (D-21);
     - escalation (`refetch`): the whole window, stored or not, after a restated overlap.
+
+    end_dt bounds them like the gaps (a deferral horizon included).
     """
-    end_dt = ctx.end_dt
     if timeframe == "1d":
         gaps_d = [(a.date(), b.date()) for a, b in gaps]
         if refetch:
@@ -791,7 +830,8 @@ async def fetch_item(
     reconciled from D1) and 185-22 (1d overlap). Changes versus the pipeline:
     - CD-04: every chunk persists atomically with its requests (and CoverageDelta, non-1d).
     - Todo 387: a fully covered series is planned from its latest bar, not 20 years back.
-    - CD-05: the outcome is classified (ok / no_data / error) for the ledger.
+    - CD-05: the outcome is classified (ok / no_data / error) for the ledger; `deferred` (a
+      window wholly past its deferral horizon, todo 534) asked nothing and is never recorded.
     - CD-08: the clock is touched on every answered request and persisted chunk.
     - The head lookup, qualify and FX/crypto 1m deep fetch are cached per symbol per run.
 
@@ -830,6 +870,7 @@ async def fetch_item(
         return ItemOutcome(symbol, timeframe, status, n_bars=n_bars, error=error)
 
     start_dt = _fetch_start(ctx.end_dt, fetch_days)
+    plan_end = ctx.end_dt
     head_floor: datetime | None = None
     if asks is not None:
         overlap = False
@@ -847,14 +888,23 @@ async def fetch_item(
         head_floor = await _head_floor(ctx, instrument, timeframe, start_dt, tail=tail)
         if head_floor is not None and head_floor > start_dt:
             start_dt = head_floor
-
+        # A deferral horizon (APR infra.backfill.defer_after) ends the plan early: the vendor's
+        # budget goes first to history no other vendor holds (IBKR 5m before 2016, todo 534).
+        # A window with nothing to ask before it is deferred whole, its update-lane overlap
+        # included (the overlap verifies a series alongside new intake). An escalation is a
+        # correction, not backfill: it re-asks its whole window whatever the horizon.
+        horizon = None if refetch else ctx.defer_after.get((ctx.vendor, timeframe))
+        if horizon is not None and horizon < plan_end:
+            plan_end = horizon
+        planned = (
+            _plan_gaps(ctx, instrument, timeframe, start_dt, plan_end)
+            if start_dt < plan_end
+            else []
+        )
+        if plan_end < ctx.end_dt and not planned:
+            return ItemOutcome(symbol, timeframe, DEFERRED)
         gaps = _with_verification_asks(
-            ctx,
-            timeframe,
-            start_dt,
-            _plan_gaps(ctx, instrument, timeframe, start_dt),
-            overlap=overlap,
-            refetch=refetch,
+            ctx, timeframe, start_dt, plan_end, planned, overlap=overlap, refetch=refetch
         )
     clock.touch()
     if not gaps:
@@ -884,7 +934,7 @@ async def fetch_item(
         # The record and D1 planners are end-exclusive (gap_end is the last missing slot's
         # end); the legacy planner's 1m range ends at the slot's start, so 1m asks through
         # the slot's end, capped at now so a bar still forming stays a gap.
-        fetch_end = min(gap_end + interval, ctx.end_dt) if timeframe == "1m" else gap_end
+        fetch_end = min(gap_end + interval, plan_end) if timeframe == "1m" else gap_end
         asked_at = datetime.now(UTC)
         try:
             bars = await ctx.provider.fetch_historical_bars(

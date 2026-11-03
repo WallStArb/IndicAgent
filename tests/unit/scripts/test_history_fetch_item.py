@@ -1049,6 +1049,86 @@ def test_no_gaps_is_ok_without_a_fetch(env):
     assert provider.calls == []
 
 
+# --- defer_after (todo 534: pre-2016 IBKR 5m first) ---------------------------
+
+_DEFER_AT = datetime(2016, 1, 1, tzinfo=UTC)
+_DEFER = {("ibkr", "5m"): _DEFER_AT}
+
+
+def test_a_deferral_horizon_ends_the_plan(env):
+    env.record_gaps = [(datetime(2014, 6, 2, tzinfo=UTC), _DEFER_AT)]
+    provider = FakeProvider()
+    _fetch(_ctx(provider, defer_after=_DEFER), _row("5m"))
+    assert env.gap_calls[0].end == _DEFER_AT
+    assert [(c["start"], c["end"]) for c in provider.calls] == [env.record_gaps[0]]
+
+
+def test_nothing_to_ask_before_the_horizon_is_deferred_not_ok(env):
+    env.record_gaps = []
+    provider = FakeProvider()
+    outcome = _fetch(_ctx(provider, defer_after=_DEFER), _row("5m"))
+    assert outcome.status == item_mod.DEFERRED and provider.calls == []
+
+
+def test_a_window_starting_past_the_horizon_is_deferred_unplanned(env):
+    row = _row("5m", latest=datetime(2016, 3, 1, 15, 0, tzinfo=UTC), status="ok")
+    outcome = _fetch(_ctx(FakeProvider(), defer_after=_DEFER), row, overlap_days=3)
+    assert outcome.status == item_mod.DEFERRED and env.gap_calls == []
+
+
+def test_the_update_overlap_is_not_re_asked_without_new_intake(env):
+    # Caught up to the horizon: the overlap verifies alongside new bars, so none is asked.
+    env.record_gaps = []
+    provider = FakeProvider()
+    row = _row("5m", latest=datetime(2015, 12, 31, 20, 55, tzinfo=UTC), status="ok")
+    outcome = _fetch(_ctx(provider, defer_after=_DEFER), row, overlap_days=3)
+    assert outcome.status == item_mod.DEFERRED and provider.calls == []
+
+
+def test_an_escalation_re_asks_its_whole_window_whatever_the_horizon(env):
+    env.record_gaps = []
+    provider = FakeProvider()
+    _fetch(_ctx(provider, defer_after=_DEFER), _row("5m"), full_scan=True, refetch=True)
+    assert env.gap_calls[0].end == _END
+    assert provider.calls and max(c["end"] for c in provider.calls) == _END
+
+
+@pytest.mark.parametrize("vendor, tf", [("ibkr", "15m"), ("alpaca", "5m")])
+def test_a_horizon_binds_only_its_own_vendor_and_timeframe(env, vendor, tf):
+    ctx = _ctx(FakeProvider(), defer_after={(vendor, "5m" if tf == "15m" else tf): _DEFER_AT})
+    _fetch(ctx, _row(tf))
+    assert env.gap_calls[0].end == _END
+
+
+@pytest.mark.parametrize(
+    "stored, expected",
+    [
+        (None, {}),
+        ("{}", {}),
+        ('{"ibkr": {"5m": "2016-01-01T00:00:00+00:00"}}', _DEFER),
+        ('{"ibkr": {"5m": "2016-01-01T00:00:00Z"}}', _DEFER),
+    ],
+)
+def test_parse_defer_after(stored, expected):
+    assert item_mod.parse_defer_after(stored, {"ibkr"}) == expected
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        '{"ibkr": {"5m": "not a date"}}',
+        '{"IBKR": {"5m": "2016-01-01T00:00:00Z"}}',  # unknown vendor
+        '{"ibkr": {"5min": "2016-01-01T00:00:00Z"}}',  # unknown timeframe
+        '{"ibkr": {"1d": "2016-01-04T00:00:00Z"}}',  # 1d plans sessions inclusively
+        '{"ibkr": "2016-01-01T00:00:00Z"}',  # wrong shape
+        '"2016-01-01T00:00:00Z"',
+    ],
+)
+def test_a_malformed_horizon_fails_loudly(stored):
+    with pytest.raises(ValueError, match="infra.backfill.defer_after"):
+        item_mod.parse_defer_after(stored, {"ibkr"})
+
+
 def test_answered_with_zero_bars_is_no_data(env):
     provider = FakeProvider(bars_by_tf={})
     outcome = _fetch(_ctx(provider), _row("15m"))
@@ -1632,7 +1712,7 @@ def test_the_gap_planner_knows_nothing_of_the_verification_lanes():
     import inspect
 
     params = set(inspect.signature(item_mod._plan_gaps).parameters)
-    assert params == {"ctx", "instrument", "timeframe", "start_dt"}
+    assert params == {"ctx", "instrument", "timeframe", "start_dt", "end_dt"}
     assert {"overlap", "refetch"} <= set(
         inspect.signature(item_mod._with_verification_asks).parameters
     )
