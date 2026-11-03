@@ -1221,29 +1221,104 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 4449347,
- "regenerated_from": "3dfffd3c86b688ba6fb533b8067de706159260cc",
- "regeneration_reason": "584 4b-2 group 2 (final form): oscillator/percentile family and ruled ratios NaN where undefined; finite formulas untouched",
+ "fixture_bytes": 4450629,
+ "regenerated_from": "2fdd5efa207febd48695688cbfbf64019cfcbc43",
+ "regeneration_reason": "584 4b-2 group 3: bars_since event counters right-censored to NaN (no event in window, rule 2); NaN-aware event consumers - unknown event rows newer than the newest known True censor (todo 560); extreme_move producer emits float events NaN-when-operand-non-finite (lead ruling 2026-11-03); four counters None at cold start",
  "changed_columns": {
   "synthetic|SPY|5m": [
-   "range_position"
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
   ],
-  "real|SPY|5m": [],
-  "real|SPY|15m": [],
-  "real|SPY|1h": [],
-  "real|SPY|1d": [],
-  "real|QQQ|5m": [],
-  "real|QQQ|15m": [],
-  "real|QQQ|1h": [],
-  "real|QQQ|1d": [],
-  "real|TLT|5m": [],
-  "real|TLT|15m": [],
-  "real|TLT|1h": [],
-  "real|TLT|1d": [],
-  "real|XLE|5m": [],
-  "real|XLE|15m": [],
-  "real|XLE|1h": [],
-  "real|XLE|1d": []
+  "real|SPY|5m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|SPY|15m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast"
+  ],
+  "real|SPY|1h": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|SPY|1d": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|QQQ|5m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|QQQ|15m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast"
+  ],
+  "real|QQQ|1h": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|QQQ|1d": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|TLT|5m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|TLT|15m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast"
+  ],
+  "real|TLT|1h": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|TLT|1d": [
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|XLE|5m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|XLE|15m": [
+   "bars_since_extreme_move_fast",
+   "bars_since_extreme_move_slow",
+   "bars_since_vol_spike_fast"
+  ],
+  "real|XLE|1h": [
+   "bars_since_extreme_move_fast",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ],
+  "real|XLE|1d": [
+   "bars_since_extreme_move_fast",
+   "bars_since_vol_spike_fast",
+   "bars_since_vol_spike_slow"
+  ]
  },
  "regeneration_history": [
   {
@@ -2157,6 +2232,32 @@
     "real|XLE|1d": [
      "vol_asymmetry_z"
     ]
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "3dfffd3c86b688ba6fb533b8067de706159260cc",
+   "regeneration_reason": "584 4b-2 group 2 (final form): oscillator/percentile family and ruled ratios NaN where undefined; finite formulas untouched",
+   "changed_columns": {
+    "synthetic|SPY|5m": [
+     "range_position"
+    ],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [],
+    "real|SPY|1h": [],
+    "real|SPY|1d": [],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [],
+    "real|QQQ|1d": [],
+    "real|TLT|5m": [],
+    "real|TLT|15m": [],
+    "real|TLT|1h": [],
+    "real|TLT|1d": [],
+    "real|XLE|5m": [],
+    "real|XLE|15m": [],
+    "real|XLE|1h": [],
+    "real|XLE|1d": []
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
   }
