@@ -1,6 +1,6 @@
 # Scoped regime states: a stable of world, market and sector states
 
-**Status:** Idea, 2026-10-28. Unreviewed Sonnet 5.5 consolidation of three owner ideas; needs an Opus or Fable rigor pass before it moves to `docs/research/`. Nothing is queued or built.
+**Status:** Idea, 2026-10-28, extended 2026-11-03 with the fragile-divergence state. Unreviewed Sonnet 5.5 consolidation of three owner ideas; needs an Opus or Fable rigor pass before it moves to `docs/research/`. Nothing is queued or built.
 **Origin:** owner, 2026-10-28: factor importance may change in identifiable regimes and at shifts; edge may sit where several regimes coincide or at their boundaries; regimes that answer scoped questions (what is the world doing, a sector, a market) are easier and less data-hungry than per-symbol ones, and a stable of them can apply to every symbol. Earlier owner idea folded in: the participation state (2026-09-25).
 
 ## The idea in two halves
@@ -10,8 +10,45 @@
 | Scope | Question | Inputs on hand |
 |---|---|---|
 | World | Is the world risk-on or risk-off | Four existing macro groups (equity, rates, commodity, fx in `market_regimes`), stored cross-asset features (`vix_z`, `flight_quality`, `hyg_lqd_ret_z`) |
-| Market | How broad is participation | RSP/SPY concentration and breadth (`docs/ideas/signal-participation-state-style-spreads.md`) |
+| Market | How broad is participation | RSP/SPY concentration and breadth (`docs/ideas/signal-participation-state-style-spreads.md`); net 52-week extremes (the fragile-divergence state, below) |
 | Sector | What is this sector doing | The 11 sector ETFs (XLB, XLC, XLE, XLF, XLI, XLK, XLP, XLRE, XLU, XLV, XLY), all onboarded; membership by point-in-time sector (carried in the S0 snapshot) |
+
+**A third market kernel: the fragile-divergence state (2026-11-03).** Owner question: the
+breadth-divergence picture (index near an all-time high while net new 52-week lows outnumber
+highs) as a market regime. The salvageable core is one observable the stable lacks; the
+surrounding HMM proposal it arrived in needs rework to fit the design.
+
+- New kernel: net 52-week highs minus lows as a fraction of panel names, causal expanding
+  percentile rank (`causal_rank.py`, the same transform as `breadth_vol.py`'s two axes).
+  Extremes-based participation: the existing breadth axis (fraction above the 200-day MA) is
+  level-based and cannot separate narrowing leadership from a broad selloff.
+- The state is a confluence of continuous states: index position high (distance from ATH on
+  panel SPY), net extremes low, and the concentration state `c_t` negative
+  (`signal-participation-state-style-spreads.md`). The demand half's confluence variant already
+  defines how a state is used; this is its first concrete triple.
+- Survivorship guard: net extremes are counted on the S0 point-in-time universe only. A fixed
+  today's-names count over history silently understates deterioration (dead names are absent
+  pre-onboarding); the span where the panel universe is representative is part of the power
+  statement.
+- An HMM posterior over these kernels is one legal producer of the continuous state
+  (`market_regimes` stores the probability vector), sequenced behind the simpler composite:
+  walk-forward only (in-sample fit-then-predict is lookahead; the per-symbol HMM columns carry
+  that defect until the 186-26 rebuild, todos 248, 466), semantic labels assigned by a declared
+  rule on emission means (state indices are a permutation, never an assumption), state count
+  and every feature set counted as looks, the seed an APR key with the invalidation warning,
+  and it must clear the scrambled-data null-arm control and beat the causal-rank composite
+  before it displaces them. Macro tightening stays out of the emissions: rate direction and
+  slope are the four-quadrant axis (`signal-macro-context-layer.md`), a separate declared
+  dimension.
+- Dropped from the proposal: the 0.65-probability defensive overlay (regimes are disclosure
+  only and never gate, UD-07; the threshold is post-hoc), the dispersion/mean-reversion
+  strategy shift (the honest form is a preregistered conditional test: momentum and trend
+  members' importance degrades, level, or is falling, velocity, in the fragile state),
+  yfinance sourcing (RSP and SPY are panel names), and NFCI (weekly FRED, banned until
+  todo 482).
+- Sequenced with the rest: independent divergence episodes are measured first (E15 step 0,
+  constraint above) before any variant runs; the poor regime-conditional prior applies
+  unchanged.
 
 **Demand: conditioned weights.** A member's importance is allowed to depend on a state, one pre-registered S7 combiner variant at a time:
 
