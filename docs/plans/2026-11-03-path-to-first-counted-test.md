@@ -130,7 +130,9 @@ pattern) runs today; any family that reads stored feature columns needs task 10.
 
 The gate (187-08/09/10, 187-15 Task 2) has landed, so this starts now, in parallel with task 1:
 no file overlap (`src/intelligence/research/` only). Order: 184-06 -> 05 and 07 -> 08 -> 09 -> 10,
-each with `repro_frozen` bit-identical. A plan-checker pass against today's code comes first
+each with `repro_frozen` bit-identical; `tools/gate.py --compare-all` (hours, locked) runs once after
+184-10 for the whole wave, not per plan. Executors work in detached worktrees off origin/main.
+Landed: 184-06 (c6ac44aa6). A plan-checker pass against today's code comes first
 (the plans predate 584; 184-08 still names migration 526), and the lead edits the plans before
 execution. 184-12's dry S0 build runs after 186-27.
 
