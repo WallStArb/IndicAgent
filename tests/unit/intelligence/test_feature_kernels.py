@@ -690,3 +690,103 @@ def test_group1_ratio_helpers_are_nan_where_undefined() -> None:
     va = _vol_acceleration_series_full(np.array([0.0, 100.0, 0.0]))
     assert np.isnan(va[:2]).all()  # prior volume zero (or no prior bar)
     assert va[2] == 0.0  # zero CURRENT volume over a positive prior is measured
+
+
+def test_group2_oscillator_helpers_are_nan_where_undefined() -> None:
+    """D1 rule 5 (todo 584 4b-2 group 2): the oscillator/percentile family and
+    the three lead-ruled ratios yield NaN wherever the window defines no
+    statistic; genuine measurements (flat-window aroon 0.0, symmetric
+    vol_asymmetry 1.0, zero-rising-flow mfi 0.0) stay."""
+    from src.intelligence.features.kernels.price import (
+        _aroon_osc,
+        _aroon_windowed,
+        _bar_close_pos,
+        _bb_pct_b,
+        _bb_pct_b_series_full,
+        _body_ratio,
+        _cci,
+        _cci_windowed,
+        _efficiency_ratio,
+        _efficiency_ratio_series_full,
+        _lower_wick_ratio,
+        _price_percentile,
+        _price_percentile_series_full,
+        _stoch_k,
+        _stoch_k_series_full,
+        _upper_wick_ratio,
+        _vol_asymmetry_ratio,
+        _vol_asymmetry_z_series_full,
+    )
+    from src.intelligence.features.kernels.volume import (
+        _mfi,
+        _mfi_series_full,
+        _vol_range_ratio,
+        _vol_range_ratio_series_full,
+    )
+
+    flat = np.full(12, 100.0)
+    rising = np.linspace(100.0, 112.0, 13)
+
+    # zero-range bar anatomy: undefined, not 0.5/0.0
+    assert math.isnan(_bar_close_pos(10.0, 10.0, 10.0))
+    assert math.isnan(_body_ratio(10.0, 10.0, 10.0, 10.0))
+    assert math.isnan(_upper_wick_ratio(10.0, 10.0, 10.0, 10.0))
+    assert math.isnan(_lower_wick_ratio(10.0, 10.0, 10.0, 10.0))
+
+    # stoch_k: degenerate rolling range is 0/0
+    assert math.isnan(_stoch_k(100.0, flat, flat))
+    assert np.isnan(_stoch_k_series_full(flat, flat, flat, 5)).all()
+
+    # price_percentile: cold and all-equal windows define no rank
+    assert math.isnan(_price_percentile(100.0, np.array([100.0])))
+    assert math.isnan(_price_percentile(100.0, flat))
+    pp = _price_percentile_series_full(flat, 5)
+    assert np.isnan(pp).all()
+    # a varied window keeps a measured rank
+    assert 0.0 < _price_percentile(101.0, np.array([99.0, 100.0, 101.0, 102.0])) <= 1.0
+
+    # efficiency_ratio: zero movement is 0/0 (updown_ratio precedent)
+    assert math.isnan(_efficiency_ratio(np.array([100.0])))
+    assert math.isnan(_efficiency_ratio(flat))
+    assert np.isnan(_efficiency_ratio_series_full(flat, 5)).all()
+    assert _efficiency_ratio(rising) == 1.0  # perfectly linear: measured
+
+    # bb_pct_b: degenerate band is 0/0
+    assert math.isnan(_bb_pct_b(np.array([100.0])))
+    assert math.isnan(_bb_pct_b(flat))
+    assert np.isnan(_bb_pct_b_series_full(flat, 5)).all()
+
+    # cci: zero MAD defines no channel; cold is NaN
+    assert math.isnan(_cci(flat, flat, flat, 7))
+    assert np.isnan(_cci_windowed((flat + flat + flat) / 3.0, 7)).all()
+
+    # aroon: cold rows NaN; a flat FULL window keeps its measured 0.0
+    assert math.isnan(_aroon_osc(flat[:6], flat[:6], 7))  # fewer than period + 1 bars
+    aw = _aroon_windowed(flat, flat, 7)
+    assert np.isnan(aw[:7]).all()
+    assert (aw[7:] == 0.0).all()
+
+    # mfi: cold and zero-flow NaN; flat tp with positive volume is a measured 0.0
+    assert math.isnan(_mfi(flat[:1], flat[:1], flat[:1], np.array([100.0]), 5))
+    assert math.isnan(_mfi(flat, flat, flat, np.zeros(12), 5))
+    mf = _mfi_series_full(flat, flat, flat, np.full(12, 100.0), 5)
+    assert math.isnan(mf[0])
+    assert (mf[1:] == 0.0).all()
+
+    # vol_range_ratio: a degenerate bar is undefined and its window recovers
+    v = np.full(8, 100.0)
+    h = np.full(8, 101.0)
+    lo = np.full(8, 99.0)
+    h[4] = lo[4] = 100.0
+    vr = _vol_range_ratio_series_full(v, h, lo, 3)
+    assert math.isnan(_vol_range_ratio(v[:5], h[:5], lo[:5], 3))  # window holds bar 4
+    assert np.isnan(vr[4:7]).all()  # degenerate bar inside the trailing window
+    assert vr[7] == 1.0  # window fully past the bad bar: measured again
+
+    # vol_asymmetry: cold NaN; degenerate down-std NaN; symmetric stays measured
+    assert math.isnan(_vol_asymmetry_ratio(np.array([0.01, 0.02])))  # no down obs
+    assert math.isnan(_vol_asymmetry_ratio(np.array([0.01, -0.01, 0.01])))  # 1 down only
+    assert math.isnan(_vol_asymmetry_ratio(np.array([0.01, -0.01, -0.01, 0.02])))  # 0 down std
+    assert _vol_asymmetry_ratio(np.array([0.01, 0.03, -0.01, -0.03])) == 1.0  # symmetric
+    az = _vol_asymmetry_z_series_full(flat, 5)
+    assert np.isnan(az).all()  # cold all the way on a flat series

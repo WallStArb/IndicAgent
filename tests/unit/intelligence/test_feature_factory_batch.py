@@ -130,10 +130,13 @@ class TestMinWindowDerived:
         bars = _make_bars_dicts(60)
         results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
         assert len(results) > 0, "compute_batch returned no results"
-        # All non-null FeatureVector fields must be finite
+        # Every emitted row is a measurement or missing (None), never a fabricated
+        # neutral; the last row has the full window, so it must be a measurement.
         for _, fv in results:
-            assert math.isfinite(fv.cci_slow), f"cci_slow not finite: {fv.cci_slow}"
-            assert math.isfinite(fv.aroon_slow), f"aroon_slow not finite: {fv.aroon_slow}"
+            assert fv.cci_slow is None or math.isfinite(fv.cci_slow)
+            assert fv.aroon_slow is None or math.isfinite(fv.aroon_slow)
+        assert math.isfinite(results[-1][1].cci_slow)
+        assert math.isfinite(results[-1][1].aroon_slow)
 
 
 class TestWilderRsiSeries:

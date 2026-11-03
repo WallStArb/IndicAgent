@@ -1264,8 +1264,8 @@ class FeatureVector:
     # Momentum (7 total: 5 original + 2 new scale-named)
     momentum_z_fast: float | None  # fast-scale return z-score (APR: feature.momentum.window_fast)
     momentum_z_mid: float | None  # mid-scale return z-score (APR: feature.momentum.window_mid)
-    range_position: float
-    bar_close_pos: float
+    range_position: float | None
+    bar_close_pos: float | None
     gap_z: float | None
     momentum_z_slow: float | None  # slow-scale return z-score (APR: feature.momentum.window_slow)
     momentum_reversal_z: float | None  # 1-bar return z-score (concept-named: short-term reversal)
@@ -1323,15 +1323,15 @@ class FeatureVector:
     garch_ratio: float | None
     hma_slope_z: float | None
     adx: float | None
-    aroon_fast: float
-    aroon_slow: float
+    aroon_fast: float | None
+    aroon_slow: float | None
     # Oscillators (6)
     rsi_fast: float | None
     rsi_mid: float | None
     rsi_slow: float | None
-    cci_fast: float
-    cci_mid: float
-    cci_slow: float
+    cci_fast: float | None
+    cci_mid: float | None
+    cci_slow: float | None
     # Cross-asset (3)
     vix_z: float | None
     flight_quality: float | None
@@ -1550,9 +1550,9 @@ class FeatureVector:
     ret_skew_z: float | None
     ret_acf1_z: float | None
     # Renaissance Primitives — Bar Anatomy Ratios (8, Phase 142.5 Plan 01)
-    body_ratio: float  # (C - O) / (H - L), bounded [-1, 1]
-    upper_wick_ratio: float  # (H - max(O,C)) / (H - L), bounded [0, 1]
-    lower_wick_ratio: float  # (min(O,C) - L) / (H - L), bounded [0, 1]
+    body_ratio: float | None  # (C - O) / (H - L), bounded [-1, 1]
+    upper_wick_ratio: float | None  # (H - max(O,C)) / (H - L), bounded [0, 1]
+    lower_wick_ratio: float | None  # (min(O,C) - L) / (H - L), bounded [0, 1]
     range_vs_atr: float  # (H - L) / ATR_N, unbounded positive
     close_vs_open_direction: float  # sign(C - O), categorical {-1, 0, 1}
     overnight_gap: float  # (O - prev_C) / prev_C, unbounded
@@ -1588,19 +1588,22 @@ class FeatureVector:
     # Renaissance Primitives — Volume Structure (12, Phase 142.5 Plan 02)
     vol_acceleration: float | None  # V_t / V_{t-1}, unbounded positive (APR: none, bar-relative)
     dollar_vol_z: float | None  # z-score of (V*C) (APR: feature.dollar_vol.window)
-    vol_range_ratio: float  # V_t/(H-L) normalized over N (APR: feature.vol_range_ratio.window)
+    vol_range_ratio: (
+        float | None
+    )  # V_t/(H-L) normalized over N (APR: feature.vol_range_ratio.window)
     vol_trend_ratio: float  # vol_MA_fast/vol_MA_slow (APR: feature.vol_trend.fast/.slow)
     up_vol_ratio_fast: float  # sum(V|C>O)/sum(V), bounded [0,1] (APR: feature.up_vol_ratio.fast)
     up_vol_ratio_slow: float  # sum(V|C>O)/sum(V), bounded [0,1] (APR: feature.up_vol_ratio.slow)
     vol_percentile: (
-        float  # rolling percentile rank of V_t, bounded [0,1] (APR: feature.vol_percentile.window)
+        float
+        | None  # rolling percentile rank of V_t, bounded [0,1] (APR: feature.vol_percentile.window)
     )
     vol_persistence: (
         float  # lag-1 autocorrelation of V, bounded [-1,1] (APR: feature.vol_persistence.window)
     )
     vol_std_z: float | None  # z-score of rolling std(V) (APR: feature.vol_std.window)
-    mfi_fast: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.fast)
-    mfi_slow: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.slow)
+    mfi_fast: float | None  # Money Flow Index, bounded [0,100] (APR: feature.mfi.fast)
+    mfi_slow: float | None  # Money Flow Index, bounded [0,100] (APR: feature.mfi.slow)
     obv_z: float | None  # z-score of OBV (APR: feature.obv.window)
     # Renaissance Primitives — Breakout Distance (14, Phase 142.5 Plan 05)
     dist_from_high_fast: (
@@ -1618,15 +1621,23 @@ class FeatureVector:
     range_pct_fast: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_fast)
     range_pct_slow: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_slow)
     stoch_k_fast: (
-        float  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_fast)
+        float | None  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_fast)
     )
     stoch_k_slow: (
-        float  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_slow)
+        float | None  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_slow)
     )
-    price_percentile_fast: float  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_fast)
-    price_percentile_slow: float  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_slow)
-    efficiency_ratio_fast: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_fast)
-    efficiency_ratio_slow: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_slow)
+    price_percentile_fast: (
+        float | None
+    )  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_fast)
+    price_percentile_slow: (
+        float | None
+    )  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_slow)
+    efficiency_ratio_fast: (
+        float | None
+    )  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_fast)
+    efficiency_ratio_slow: (
+        float | None
+    )  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_slow)
     # Renaissance Primitives — Return Distribution (7, Phase 142.5 Plan 03)
     ret_kurtosis_z_fast: (
         float | None
@@ -1673,8 +1684,12 @@ class FeatureVector:
     vol_asymmetry_z: (
         float | None
     )  # z-score of std(ret|up)/std(ret|down) (APR: feature.vol_asymmetry.window)
-    bb_pct_b_fast: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.fast)
-    bb_pct_b_slow: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.slow)
+    bb_pct_b_fast: (
+        float | None
+    )  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.fast)
+    bb_pct_b_slow: (
+        float | None
+    )  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.slow)
     hv_z_fast: (
         float | None
     )  # z-score of close-to-close historical volatility (APR: feature.hv.fast)
@@ -1721,7 +1736,9 @@ class FeatureVector:
     range_vol_product: (
         float | None
     )  # range_vs_atr * volume_z, unbounded symmetric around 0 (no APR)
-    up_vol_body_diff: float  # up_vol_ratio_fast - body_ratio, approx bounded [-1,1] (no APR)
+    up_vol_body_diff: (
+        float | None
+    )  # up_vol_ratio_fast - body_ratio, missing when body_ratio is (no APR)
     ret_vol_ratio_fast: float | None  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
     vol_skew_product: float | None  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
     # Swing/Fib/Trend/Session Structure (41, Phase 165 Plan 01). D-01 nullable

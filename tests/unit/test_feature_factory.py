@@ -269,8 +269,9 @@ class TestBarLevelPrimitives:
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         assert math.isclose(fv.bar_close_pos, 0.5, abs_tol=1e-9)
 
-    def test_bar_close_pos_high_equals_low_returns_half(self) -> None:
-        """When high == low, epsilon guard must prevent ZeroDivisionError and return 0.5."""
+    def test_bar_close_pos_high_equals_low_is_missing(self) -> None:
+        """When high == low the close position inside a range that does not exist is
+        undefined: missing (None), never a fabricated 0.5 (D1 rule 5, todo 584)."""
         bars = _make_bars(50)
         bars[-1]["high"] = 10.0
         bars[-1]["low"] = 10.0
@@ -279,8 +280,7 @@ class TestBarLevelPrimitives:
         config = _make_config()
         cache = _make_cache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isfinite(fv.bar_close_pos)
-        assert fv.bar_close_pos == 0.5
+        assert fv.bar_close_pos is None
 
     def test_ofi_z_is_ohlcv_proxy_not_tick_path(self) -> None:
         """ofi_z must be computed without tick_buffer (OHLCV proxy only)."""
@@ -1190,9 +1190,14 @@ def test_bar_anatomy_primitives() -> None:
     bars_degenerate[-1]["close"] = 10.0
     bars_degenerate[-1]["open"] = 10.0
     fv_deg = FeatureFactory.compute(bars_degenerate, "SPY", "1m", cache, config)
-    assert math.isfinite(fv_deg.body_ratio)
-    assert math.isfinite(fv_deg.upper_wick_ratio)
-    assert math.isfinite(fv_deg.lower_wick_ratio)
+    # A ratio over a range that does not exist is missing, not a fabricated neutral
+    # (D1 rule 5, todo 584); range_efficiency keeps its own guard (exempt list).
+    assert fv_deg.body_ratio is None
+    assert fv_deg.upper_wick_ratio is None
+    assert fv_deg.lower_wick_ratio is None
+    # The compound consumes body_ratio: a difference with a missing parent is
+    # missing, never a fabricated 0.0 (584 4b-2 review finding).
+    assert fv_deg.up_vol_body_diff is None
     assert math.isfinite(fv_deg.range_efficiency)
 
 

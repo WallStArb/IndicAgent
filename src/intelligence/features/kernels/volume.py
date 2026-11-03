@@ -109,17 +109,25 @@ def _vol_range_ratio(
     """Volume per unit of price range, normalized against its own trailing average.
 
     raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
-    Unbounded positive. Returns 0.0 on a degenerate current bar (H == L) or cold start.
+    Unbounded positive. NaN on a degenerate bar (H == L): volume over a range
+    that does not exist is undefined, and a trailing window holding such a bar
+    defines no mean either (windows entirely past the bad bar recover; the
+    _cumsum_window_moments convention, D1 rule 5, todo 584). NaN on cold start
+    and on a zero/empty mean (0/0).
     """
     n = len(volumes)
     if n < 1:
-        return 0.0
+        return float("nan")
     ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
+    degenerate = ranges <= eps
+    raw = np.where(degenerate, np.nan, volumes.astype(float) / np.where(degenerate, 1.0, ranges))
     w = min(window, n)
-    mean_raw = float(np.mean(raw[-w:]))
+    window_raw = raw[-w:]
+    if not np.all(np.isfinite(window_raw)):
+        return float("nan")
+    mean_raw = float(np.mean(window_raw))
     if mean_raw < eps:
-        return 0.0
+        return float("nan")
     return float(raw[-1]) / mean_raw
 
 
@@ -168,13 +176,18 @@ def _up_vol_ratio(
 def _vol_percentile(volumes: np.ndarray, window: int) -> float:
     """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
 
-    Returns 0.5 (neutral) on cold start (fewer than 2 bars in the window).
+    NaN on cold start (fewer than 2 bars in the window) and on an all-equal
+    window: the rank of a value among identical values is a tie-break
+    convention, not a measurement (the price_percentile precedent, D1 rule 5,
+    todo 584).
     """
     n = len(volumes)
     w = min(window, n)
     if w < 2:
-        return 0.5
+        return float("nan")
     hist = volumes[-w:].astype(float)
+    if float(hist.max()) - float(hist.min()) < EPS:
+        return float("nan")
     return _percentile_rank(hist, float(hist[-1]))
 
 
@@ -212,13 +225,16 @@ def _mfi(
 ) -> float:
     """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
 
-    tp = (H + L + C) / 3. Bounded [0, 100]. Returns 50.0 (neutral) on cold start
-    or near-zero total money flow. Shared implementation for mfi_fast/slow.
+    tp = (H + L + C) / 3. Bounded [0, 100]. NaN on cold start (no pair of
+    typical prices) or zero total money flow: the rising share of a flow that
+    does not exist is 0/0 (D1 rule 5, todo 584). A flat-tp window with positive
+    volume keeps its measured 0.0 (no flow on rising bars). Shared
+    implementation for mfi_fast/slow.
     """
     n = len(closes)
     w = min(window, n - 1) if n >= 2 else 0
     if w < 1:
-        return 50.0
+        return float("nan")
     tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
         -(w + 1) :
     ].astype(float)
@@ -230,7 +246,7 @@ def _mfi(
     money_flow = tp * v
     total = float(np.sum(money_flow))
     if total < eps:
-        return 50.0
+        return float("nan")
     rising_flow = float(np.sum(money_flow[tp > prev_tp]))
     return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
 
@@ -421,20 +437,35 @@ def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: i
 def _vol_range_ratio_series_full(
     volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum."""
+    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum.
+
+    A degenerate bar (H == L) makes raw NaN; a trailing window holding one is
+    NaN and recovers once the bar leaves the window (the _cumsum_window_moments
+    convention: cumsums over the finite-zeroed values plus a bad-count, so one
+    bad bar never poisons the rows after its window). D1 rule 5, todo 584.
+    """
     n = len(volumes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan, dtype=float)
     if n < 1:
         return result
     ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
-    cs = np.cumsum(raw)
+    degenerate = ranges <= eps
+    safe_ranges = np.where(degenerate, 1.0, ranges)
+    raw = np.where(degenerate, np.nan, volumes.astype(float) / safe_ranges)
+    bad = ~np.isfinite(raw)
+    good = np.where(bad, 0.0, raw)
+    cs = np.cumsum(good)
+    cs_bad = np.cumsum(bad.astype(float))
     for i in range(n):
         w = min(window, i + 1)
         start = i + 1 - w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        mean_raw = s / w
-        result[i] = raw[i] / mean_raw if mean_raw > eps else 0.0
+        prev_cs = cs[start - 1] if start > 0 else 0.0
+        prev_bad = cs_bad[start - 1] if start > 0 else 0.0
+        if cs_bad[i] - prev_bad > 0.0:
+            continue
+        mean_raw = (cs[i] - prev_cs) / w
+        if mean_raw > eps:
+            result[i] = raw[i] / mean_raw
     return result
 
 
@@ -482,9 +513,11 @@ def _up_vol_ratio_series_full(
 
 
 def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_percentile at bar i. O(n x window)."""
+    """result[i] == streaming _vol_percentile at bar i. O(n x window).
+
+    NaN on cold rows and all-equal windows, matching the scalar (D1 rule 5)."""
     n = len(volumes)
-    result = np.full(n, 0.5, dtype=float)
+    result = np.full(n, np.nan, dtype=float)
     if n < 2:
         return result
     vols = volumes.astype(float)
@@ -493,6 +526,8 @@ def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
         if w < 2:
             continue
         hist = vols[i + 1 - w : i + 1]
+        if float(hist.max()) - float(hist.min()) < EPS:
+            continue
         result[i] = _percentile_rank(hist, float(hist[-1]))
     return result
 
@@ -529,9 +564,11 @@ def _mfi_series_full(
 ) -> np.ndarray:
     """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
     fixed per bar regardless of window; only the rolling sums need cumsum).
+    Cold rows and zero-flow windows are NaN, matching the scalar (D1 rule 5,
+    todo 584).
     """
     n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
+    result = np.full(n, np.nan, dtype=float)
     if n < 2:
         return result
     tp = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0

@@ -211,14 +211,15 @@ def test_cci_uniform_prices():
     h = np.full(30, 101.0)
     lo = np.full(30, 99.0)
     c = np.full(30, 100.0)
-    assert _cci(h, lo, c, 20) == 0.0
+    # zero MAD defines no channel: NaN, not 0.0 (D1 rule 5, todo 584)
+    assert math.isnan(_cci(h, lo, c, 20))
 
 
 def test_cci_cold_start():
     h = np.array([101.0, 102.0])
     lo = np.array([99.0, 100.0])
     c = np.array([100.0, 101.0])
-    assert _cci(h, lo, c, 10) == 0.0
+    assert math.isnan(_cci(h, lo, c, 10))
 
 
 def test_cci_finite():
@@ -252,7 +253,7 @@ def test_aroon_range():
 def test_aroon_cold_start():
     h = np.array([101.0, 102.0])
     lo = np.array([99.0, 100.0])
-    assert _aroon_osc(h, lo, 14) == 0.0
+    assert math.isnan(_aroon_osc(h, lo, 14))
 
 
 # ---------------------------------------------------------------------------

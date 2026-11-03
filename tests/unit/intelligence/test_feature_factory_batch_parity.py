@@ -933,7 +933,7 @@ def test_build_feature_vector_guards_nan():
         efficiency_volume_product=0.0,
     )
     assert fv.momentum_z_fast is None  # nan -> missing, never a fabricated 0.0 (D1 rule 5)
-    assert fv.range_position == 0.5  # inf -> fallback 0.5
+    assert fv.range_position is None  # inf -> missing (D1 rule 5, todo 584 4b-2)
     assert fv.momentum_z_mid == 0.0  # finite, unchanged
 
 
