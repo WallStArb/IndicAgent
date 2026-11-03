@@ -328,9 +328,18 @@ zero-range wick/body/close-position; helpers: price.py `_stoch_k` ~262, `_price_
 ~84, wick ratios ~94/104; volume.py `_mfi` ~204, `_mfi_series_full` ~520); group 3
 bars_since caps 19/49 -> NaN (`_bars_since_event_series_full` price.py ~665 saturates to
 window-1; `bars_since_vol_spike` volume.py ~789); group 4 smc/vp_sr no-object fallbacks ->
-none-masks (skip ALL amd_cycle entries per the D5 note below); then 4c. OPEN for lead/owner
-adjudication (not in the fix list, flag only): vol_range_ratio degenerate-bar 0.0,
-vol_asymmetry_ratio cold 1.0, efficiency_ratio zero-movement 0.0.
+none-masks (skip ALL amd_cycle entries per the D5 note below); then 4c. GATE DEBT (lead,
+2026-11-03): the /review subagent for 24bae0c41 died on the 5h quota wall; the twin probe is
+parity evidence, not a bug hunt. The successor's FIRST act is /review over the 24bae0c41 diff
+before starting group 2 (small-landing shape makes any material fix cheap). ADJUDICATED (lead
+2026-11-03; verify-first discipline applies to each, aroon-style - confirm the 0/0 in code
+before flipping): efficiency_ratio zero-movement 0.0 -> NaN (updown_ratio precedent: net move
+0 over path length 0 is 0/0, a window with no movement defines no efficiency);
+vol_range_ratio degenerate-bar 0.0 -> NaN (wick/body/close-position precedent: volume over a
+range that does not exist is undefined); vol_asymmetry_ratio cold 1.0 -> NaN (4b-1 cold
+doctrine, no exceptions), full-window symmetric case SEPARATE - verify whether 1.0 there is a
+genuine measurement (stays, rel_volume class) or another 0/0 (NaN). All three join the 4b-2
+fix list with their twins and build-site flips.
 4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
 (`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
 `_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
