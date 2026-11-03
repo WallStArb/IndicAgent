@@ -302,6 +302,35 @@ missing, as designed. Recalibrate the two tolerances on the first pilot run at t
 G5 (sibling script) follow.
 
 Item 4 resume state (Track A, 2026-11-02; 4a landed, **4b-1 LANDED** same day, 4b-2+/4c open).
+
+**4b-2 GROUP 1 LANDED (Track A, 2026-11-03, 24bae0c41 + golden a77074136):** the 0/0 ratio
+family. Kernels NaN where the window does not define the statistic, scalar + `_series_full`
+twins identically: `updown_ratio` (no down bars), `realized_var_ratio` (degenerate slow
+variance, sub-2 windows), `variance_ratio` (same), `hv_ratio` (bar 0, zero mean HV),
+`intraday_noise_ratio` (warmup, net-zero session movement), `vol_acceleration` (no prior bar,
+zero prior volume; zero CURRENT volume over positive prior stays measured 0.0). Build site: 9
+columns `_guard(x, 1.0)` -> `_missing_if_nan`; schemas `float | None` (both policed by
+`test_missing_routing_ties_to_the_schema_annotation`). Evidence: kernel-layer products
+(`momentum_vol_regime_product`, `variance_ratio_momentum_product`) propagate the NaN
+array-wise with no extra edit; a 2673-comparison randomized scalar/twin probe (random, flat,
+zeros, zero-head, short inputs) shows exact NaN-placement agreement; the only value deltas are
+pre-existing cumsum-vs-`np.var` summation noise (<=2.9e-08 relative) on a cancellation stress
+case, formulas untouched. `/simplify`: one fix applied (dead `safe_prev` alias in
+`_vol_acceleration_series_full` replaced by a masked `np.divide`); two altitude suggestions
+skipped (boundary-wide NaN->None sweep at FeatureVector construction: out of scope, per-field
+routing is deliberate and test-policed; shared `_ratio_or_nan` helper: abstracts only the
+trivial half, the per-site degeneracy predicates stay anyway). `/review` subagent died on the
+5h quota wall (resets 20:52 UTC 2026-11-03); the machine probe above is the review evidence.
+REMAINING in 4b-2 (successor starts here): group 2 oscillator/percentile family (mfi 50, mfi
+series, stoch_k 0.5, bb_pct_b 0.5, cci 0.0, aroon 0.0-on-flat, price_percentile all-equal,
+zero-range wick/body/close-position; helpers: price.py `_stoch_k` ~262, `_price_percentile`
+~275, `_bb_pct_b` ~432, `_cci` ~501, `_aroon_osc` ~517, `_bar_close_pos` ~41, `_body_ratio`
+~84, wick ratios ~94/104; volume.py `_mfi` ~204, `_mfi_series_full` ~520); group 3
+bars_since caps 19/49 -> NaN (`_bars_since_event_series_full` price.py ~665 saturates to
+window-1; `bars_since_vol_spike` volume.py ~789); group 4 smc/vp_sr no-object fallbacks ->
+none-masks (skip ALL amd_cycle entries per the D5 note below); then 4c. OPEN for lead/owner
+adjudication (not in the fix list, flag only): vol_range_ratio degenerate-bar 0.0,
+vol_asymmetry_ratio cold 1.0, efficiency_ratio zero-movement 0.0.
 4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
 (`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
 `_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
