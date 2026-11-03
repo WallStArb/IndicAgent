@@ -23,7 +23,8 @@ _PRICE_FIELDS = ("open", "close", "volume")
 # bytes and hash are exactly those of panels written before them.
 OPTIONAL_BAR_FIELDS = ("high", "low")  # [n, m], NaN where missing, like the price fields
 SECTOR_PIT = "sector_pit"  # [n_sessions, m] int16: index into manifest["sector_codes"], -1 none
-OPTIONAL_ARRAY_FIELDS = (*OPTIONAL_BAR_FIELDS, SECTOR_PIT)
+CLOSES_AT = "closes_at"  # [n] datetime64[ns]: each row's availability time (plan 184-06)
+OPTIONAL_ARRAY_FIELDS = (*OPTIONAL_BAR_FIELDS, SECTOR_PIT, CLOSES_AT)
 
 
 def present(panel: Panel, names: tuple[str, ...] = OPTIONAL_ARRAY_FIELDS) -> dict[str, np.ndarray]:
@@ -52,6 +53,8 @@ class Panel:
     # Each name's SCH sector as of each session (point in time, plan 187-15), on request: an
     # index into manifest["sector_codes"], -1 for a session in which the name has no bar.
     sector_pit: np.ndarray | None = None
+    # Per-row (not per-name): the time each row's bar is known, for aligning inputs from another tf.
+    closes_at: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         n, m = len(self.timestamps), len(self.symbols)
@@ -67,6 +70,13 @@ class Panel:
             raise ValueError("valid must be one entry per row")
         if self.sectors and len(self.sectors) != m:
             raise ValueError(f"{len(self.sectors)} sectors for {m} symbols")
+        if self.closes_at is not None and (
+            self.closes_at.shape != (n,) or self.closes_at.dtype != np.dtype("datetime64[ns]")
+        ):
+            raise ValueError(
+                f"closes_at must be datetime64[ns] of shape {(n,)}, got "
+                f"{self.closes_at.dtype} {self.closes_at.shape}"
+            )
         if self.sector_pit is not None:
             if self.sector_pit.shape != (n // self.bars_per_session, m):
                 raise ValueError(f"sector_pit has shape {self.sector_pit.shape}")
@@ -250,5 +260,10 @@ def select_symbols(panel: Panel, symbols: list[str]) -> Panel:
         volume=np.asarray(panel.volume)[:, idx],
         sectors=tuple(panel.sectors[j] for j in keep) if panel.sectors else (),
         valid=np.isfinite(np.asarray(panel.close)[:, idx]).any(axis=1),
-        **{name: np.asarray(array)[:, idx] for name, array in present(panel).items()},
+        # closes_at is per row, so it is kept as is.
+        **{
+            name: np.asarray(array)[:, idx]
+            for name, array in present(panel).items()
+            if name != CLOSES_AT
+        },
     )

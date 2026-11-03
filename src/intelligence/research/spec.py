@@ -59,6 +59,8 @@ MEMBER_PREFIX = "src.intelligence.research.families."
 _STRICT = ConfigDict(extra="forbid", strict=True, frozen=True)
 IsoDate = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}$")]
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")]
+# A research kernel's output name (features/research_kernels/rolling.py): <family>_w<window>.
+_KERNEL_COLUMN = re.compile(r"(?P<family>[a-z][a-z0-9_]*)_w(?P<window>\d+)")
 
 
 class TotalReturnSpec(BaseModel):
@@ -86,7 +88,8 @@ class PanelSpec(BaseModel):
     total_return: TotalReturnSpec | None = None
     # Plan 187-15: optional S0 arrays (high and low bars, each name's point-in-time SCH sector);
     # absent from every earlier spec, so their hashes are unchanged.
-    fields: list[Literal["high", "low", "sector_pit"]] | None = None
+    # Plan 184-06: closes_at, each row's availability time (clock.closes_at), for aligned inputs.
+    fields: list[Literal["high", "low", "sector_pit", "closes_at"]] | None = None
 
     @field_validator("fields")
     @classmethod
@@ -116,6 +119,46 @@ class PanelSpec(BaseModel):
         return self.bars_per_session
 
 
+class MemberInputSpec(BaseModel):
+    """Where a member reads its input when it is not the S1 residual bar returns (plan 184-06).
+
+    The source tf lives here, not on the panel: `_check_book` requires a book's families to
+    share one panel (the book clock). `column` is an identifier only; S0 and kernel_source check
+    it against the registry before any SQL.
+    """
+
+    model_config = _STRICT
+    kind: Literal["feature", "kernel"]
+    column: Identifier
+    tf: Literal["5m", "15m", "1h", "1d"]
+    max_age_rows: int = Field(ge=0)  # source rows an aligned value may age (align.align)
+    # feature_inputs.config_projection_hash of the FeatureFactoryConfig projection that computed
+    # the source. Not provenance_batch.apr_hash (the hash of the full APR snapshot), which it is
+    # never compared with. The kernel config is the source tf's provenance config (184-02).
+    config_projection_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    coverage_floor: float | None = Field(default=None, gt=0, le=1)  # populated-symbol fraction
+    windows: dict[str, int] | None = None  # kernel: research family -> pinned window
+    max_gap_rows: int | None = Field(default=None, ge=0)  # kernel gap rule
+
+    @model_validator(mode="after")
+    def _kind_fields(self) -> MemberInputSpec:
+        if self.kind == "feature":
+            if self.coverage_floor is None:
+                raise ValueError("a feature input needs coverage_floor")
+            if self.windows is not None or self.max_gap_rows is not None:
+                raise ValueError("a feature input takes no windows or max_gap_rows")
+            return self
+        if not self.windows or self.max_gap_rows is None:
+            raise ValueError("a kernel input needs windows and max_gap_rows")
+        match = _KERNEL_COLUMN.fullmatch(self.column)
+        if match is None or self.windows != {match["family"]: int(match["window"])}:
+            raise ValueError(
+                f"kernel column {self.column!r} must be <family>_w<window> matching windows "
+                f"{self.windows}"
+            )
+        return self
+
+
 class MemberSpec(BaseModel):
     model_config = _STRICT
     name: Identifier
@@ -123,6 +166,19 @@ class MemberSpec(BaseModel):
     params: dict[str, int | float]
     slot_history_sessions: int = Field(ge=1)
     declared_memory_rows: int = Field(ge=1)
+    # Plan 184-06. Optional, dropped from the canonical form while unset. `input` absent means
+    # the S1 residual bar returns (every earlier spec). smoothing_half_life is the fixed menu
+    # smoothing.SMOOTHING_HALF_LIVES (design D3), for input members only (B5).
+    input: MemberInputSpec | None = None
+    smoothing_half_life: Literal[5, 21, 63] | None = None
+
+    @model_validator(mode="after")
+    def _smoothing_needs_input(self) -> MemberSpec:
+        if self.smoothing_half_life is not None and self.input is None:
+            raise ValueError(
+                f"member {self.name}: smoothing_half_life applies to input members only (B5)"
+            )
+        return self
 
     @field_validator("signal")
     @classmethod
@@ -265,6 +321,16 @@ class FamilySpec(BaseModel):
         if len(set(names)) != len(names):
             raise ValueError(f"duplicate member names: {names}")
         return value
+
+    @model_validator(mode="after")
+    def _inputs_need_the_clock(self) -> FamilySpec:
+        if any(m.input is not None for m in self.members) and "closes_at" not in (
+            self.panel.fields or ()
+        ):
+            raise ValueError("a member input needs closes_at in panel.fields")
+        if self.panel.tf != "1d" and any(m.smoothing_half_life for m in self.members):
+            raise ValueError("smoothing_half_life needs a 1d book clock (RESEARCH A5)")
+        return self
 
 
 class CombinerSpec(BaseModel):
@@ -459,6 +525,8 @@ def _sha(text: str) -> str:
 _OPTIONAL_PANEL_FIELDS = ("transform", "members_universe", "total_return", "fields")
 # The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
+# Plan 184-06: per-member fields, left out of each member's canonical form while unset.
+_OPTIONAL_MEMBER_FIELDS = ("input", "smoothing_half_life")
 _OPTIONAL_COMBINER_FIELDS = (
     "kind",
     "window_sessions",
@@ -489,6 +557,10 @@ def _family_dump(model: FamilySpec) -> dict:
     data = model.model_dump(mode="json")
     _drop_unset(data, "panel", _OPTIONAL_PANEL_FIELDS)
     _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)
+    for member in data["members"]:
+        for key in _OPTIONAL_MEMBER_FIELDS:
+            if member[key] is None:
+                del member[key]
     return data
 
 

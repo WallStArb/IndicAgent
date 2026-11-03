@@ -182,3 +182,30 @@ def test_a_transform_refuses_high_and_low(tmp_path):
     path.write_text(text)
     with pytest.raises(ValueError, match="does not carry high or low"):
         load_spec_from_file(path, root=tmp_path)
+
+
+def test_closes_at_round_trips_and_a_panel_without_it_is_unchanged(tmp_path):
+    grid = build_grid(_bars(), "1d")
+    closes = grid.timestamps.astype("datetime64[ns]") + np.timedelta64(21, "h")
+    with_clock = panel_mod.Panel(**{**grid.__dict__, "closes_at": closes})
+    path = panel_mod.save(with_clock, tmp_path)
+    loaded = panel_mod.load(path)
+    np.testing.assert_array_equal(loaded.closes_at, closes)
+    assert loaded.closes_at.dtype == np.dtype("datetime64[ns]")
+    picked = panel_mod.select_symbols(loaded, ["BBB"])
+    np.testing.assert_array_equal(picked.closes_at, closes)
+    plain = panel_mod.save(grid, tmp_path / "plain")
+    assert not (plain / "closes_at.npy").exists()
+    assert panel_mod.load(plain).closes_at is None
+    for bad in (closes[:-1], closes.astype("datetime64[us]"), closes[:, None]):
+        with pytest.raises(ValueError, match="closes_at"):
+            panel_mod.Panel(**{**grid.__dict__, "closes_at": bad})
+
+
+def test_the_runner_sub_panel_keeps_closes_at_rows():
+    from src.intelligence.research.runner import _sub_panel
+
+    grid = build_grid(_bars(), "1d")
+    closes = grid.timestamps.astype("datetime64[ns]")
+    full = panel_mod.Panel(**{**grid.__dict__, "closes_at": closes})
+    np.testing.assert_array_equal(_sub_panel(full, 2).closes_at, closes[:2])

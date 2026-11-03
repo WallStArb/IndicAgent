@@ -1519,6 +1519,20 @@ different window is a different member.
 
 ---
 
+### `smoothing menu`
+
+The fixed set of causal FIR half-lives, 5, 21 and 63 sessions on the daily clock, that a family
+member with an `input` may pin in its spec (`smoothing_half_life`) before any run (multi-timeframe
+design D3). The memory at the 1e-4 impulse cut is 67, 280 and 838 sessions. Never tuned on
+outcomes; a member without an `input` takes none.
+
+**Not:** `half-life` of a tag or weight (a decay parameter re-estimated over time).
+**Banned:** (none)
+**Status:** active
+**Code surface:** `SMOOTHING_HALF_LIVES` in `src/intelligence/research/smoothing.py`; `MemberSpec.smoothing_half_life`
+
+---
+
 ### `predictor`
 
 A pure, registered computation from a panel to a continuous score per (row, symbol), using only
