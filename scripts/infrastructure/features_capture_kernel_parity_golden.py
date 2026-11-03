@@ -8,7 +8,7 @@ regenerated only in a commit of its own that states the reason (D-25).
 Sample (fixed before capture): symbols SPY, QQQ, TLT, XLE; timeframes 5m, 15m, 1h, 1d; every
 window ends before 2026-06-20. Intraday cases fetch 1,200 output bars plus the warm-up; 1d
 fetches the last 1,500 bars; higher-timeframe bars (1h for 5m and 15m) are the last 600 bars
-up to the window end; 1m bars for the 5m ret_div feature span the 5m window; 1d bars for the
+up to the window end; 1d bars for the
 four symbols and SHY, TIP, HYG, LQD feed the cross-asset and beta series.
 
 Usage: python scripts/infrastructure/features_capture_kernel_parity_golden.py [--dry-run]
@@ -68,11 +68,6 @@ SELECT timestamp, open, high, low, close, volume FROM market_data_ohlcv_tradeabl
 WHERE symbol = %s AND timeframe = %s AND timestamp <= %s
 ORDER BY timestamp DESC LIMIT %s
 """
-_SQL_SPAN = """
-SELECT timestamp, open, high, low, close, volume FROM market_data_ohlcv_tradeable
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
-ORDER BY timestamp ASC
-"""
 
 
 def _arrays(rows: list[tuple], *, reverse: bool) -> dict[str, np.ndarray]:
@@ -122,11 +117,6 @@ def _fetch_inputs(conn, warm_up_bars: int, htf_map: dict) -> tuple[dict, list[di
                 if case["htf_tf"] and case["htf_tf"] != "1d":
                     cur.execute(_SQL_LAST_UPTO, (symbol, case["htf_tf"], last_dt, HTF_BARS))
                     _put(store, f"{prefix}/htf", _arrays(cur.fetchall(), reverse=True))
-                if tf == "5m":
-                    cur.execute(_SQL_SPAN, (symbol, "1m", first_dt, last_dt))
-                    ltf = _arrays(cur.fetchall(), reverse=False)
-                    if len(ltf["ts"]):
-                        _put(store, f"{prefix}/ltf", ltf)
                 case["main_bars"] = int(len(main["ts"]))
                 case["window_start_utc"] = first_dt.isoformat()
                 case["window_end_utc"] = last_dt.isoformat()

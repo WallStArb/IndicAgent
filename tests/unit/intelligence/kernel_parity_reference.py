@@ -178,7 +178,6 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
     from src.intelligence.features.kernels._cache_state import FeatureCache
     from src.intelligence.features.kernels.cross_tf import (
         _build_ctf_series,
-        _build_ltf_return_series,
         _rekey_ctf_series_to_actual_close,
     )
     from src.intelligence.features.kernels.macro import (
@@ -205,10 +204,6 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
     ctf_by_ts = (
         _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf) if period_start else None
     )
-    ltf_ret_by_ts = None
-    if tf == "5m" and f"{prefix}/ltf/ts" in npz.files:
-        ltf_bars = _series_bars(npz, f"{prefix}/ltf")
-        ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, [b["ts"] for b in bars])
 
     results = FeatureFactory.compute_batch(
         bars,
@@ -220,7 +215,6 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
         cross_asset_by_date=cross_asset_by_date,
         ctf_by_ts=ctf_by_ts,
         beta_by_date=beta_by_date,
-        ltf_ret_by_ts=ltf_ret_by_ts,
     )
     calendar = get_market_calendar()
     rows = [
