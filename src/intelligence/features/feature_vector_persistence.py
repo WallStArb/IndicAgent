@@ -872,14 +872,14 @@ def feature_vector_to_insert_params(
         vector.ret_skew_z,
         vector.ret_acf1_z,
         # New columns (migration 159)
-        bar_close_ts,  # $63  computed from bar_ts + TF duration
+        bar_close_ts,  # computed from bar_ts + TF duration
         vector.momentum_z_slow,
         vector.momentum_reversal_z,
         vector.quarter_position,
         vector.days_to_month_end,
-        vector.momentum_rank_z,  # $68  None until Phase 139 enrichment
-        vector.volume_rank_z,  # $69  None until Phase 139 enrichment
-        vector.volatility_rank_z,  # $70  None until Phase 139 enrichment
+        vector.momentum_rank_z,  # None until Phase 139 enrichment
+        vector.volume_rank_z,  # None until Phase 139 enrichment
+        vector.volatility_rank_z,  # None until Phase 139 enrichment
         # Renaissance Primitives (migration 206, Phase 142.5) — wired 2026-07-08,
         # see module docstring. $71 onward: derived by name from
         # _RENAISSANCE_PRIMITIVE_FIELD_NAMES (dataclasses.fields(FeatureVector)

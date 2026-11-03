@@ -2659,9 +2659,9 @@ class FeatureFactory:
             sb_corr_z=cache.sb_corr_z,
             equity_beta_z=None if symbol == "SPY" else cache.equity_beta_z,
             rate_beta_z=None if symbol == "TLT" else cache.rate_beta_z,
-            # Named Interaction Primitives (Phase 151 Plan 05). The 3 cross-TF
+            # Named Interaction Primitives (Phase 151 Plan 05). The 2 cross-TF
             # divergences have NO live-path plumbing today (batch is the
-            # corpus/IC-measurement path; the LTF/HTF merge-walk builders live
+            # corpus/IC-measurement path; the HTF series builder lives
             # only in backfill_feature_factory.py) -- always None here, same
             # asymmetry already documented for the Plan 04 cross-asset gap
             # (todo filed at that plan's Task 4). opex_flag/quad_witching_flag
@@ -2747,7 +2747,7 @@ class FeatureFactory:
             use the same OHLCV-derived computation as the batch path. beta_by_date is
             ignored on this path -- equity_beta_z/rate_beta_z read from cache (0.0 live
             default until plan 151-09 wires a live-path writer), same SPY/TLT None
-            special-case applied via the `symbol` argument. The 3 cross-TF divergences
+            special-case applied via the `symbol` argument. The 2 cross-TF divergences
             have no live-path plumbing today -- always None (Plan 05, same asymmetry
             documented for the Plan 04 cross-asset gap).
         """
@@ -2875,10 +2875,9 @@ class FeatureFactory:
             _swing_momentum_fields = _kernel_row(k, SWING_MOMENTUM, i)
             _fib_fields = _kernel_row(k, FIB, i)
 
-            # Session Levels (Phase 165 Plan 05): the 16 session-level fields, a registry
-            # kernel replaying a fresh cache (the five overnight/Asian distances are declared
-            # intraday-only on 1d and read back None).
-            _session_level_fields = _kernel_row(k, SESSION_LEVEL, i, declared=na)
+            # Session Levels (Phase 165 Plan 05): the 11 session-level fields, a registry
+            # kernel replaying a fresh cache.
+            _session_level_fields = _kernel_row(k, SESSION_LEVEL, i)
 
             # Smart money concepts: registry kernels over the same causal windows the loop
             # used to slice, each reading the loop's atr_val.

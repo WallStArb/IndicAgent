@@ -28,7 +28,7 @@ feature broadcast but NOT in macro/session/calendar, or vice versa).
 THREE-WAY VERDICT (Phase 173 / todo 270, 2026-08-25): `_classify_broadcast` returns
 'broadcast' / 'idiosyncratic' / 'inconclusive', not a bool. The original boolean
 contract had a real defect: a feature that is constant across symbols ONLY because
-it never fired in the sampled window (e.g. `sweep_detected`, `manip_strength` --
+it never fired in the sampled window (e.g. `sweep_detected`, `bos_direction` --
 rare, event-driven structural features) was indistinguishable from a genuine
 bar_ts-derived broadcast signal (e.g. `dow_sin`, which is constant across symbols by
 CONSTRUCTION, not by coincidence). The temporal-variance guard fixes this: a verdict
@@ -72,7 +72,7 @@ CAVEATS:
   a recency-only sample is fragile whenever the most recent stretch of history is
   itself degenerate -- this corpus's active universe is 100% equities (useRTH=True
   fetch) and intraday ingestion has been stalled since 2026-08-13, so the most-recent
-  window alone would show zero temporal variance for in_ny_session/in_london_kz (both
+  window alone would show zero temporal variance for in_ny_session/in_overlap (both
   genuinely bar_ts-only functions) even though real off-RTH evidence exists earlier in
   history. A truly per-symbol feature might still appear broadcast if its rare,
   event-driven signal never fired anywhere in the stratified sample -- this is exactly
@@ -217,7 +217,7 @@ def _classify_broadcast(values_by_bar_ts: dict[Any, np.ndarray], epsilon: float)
     contributed a representative value (including the empty-input and
     single-group cases), or every representative value is identical (a globally
     constant feature, e.g. a rare event flag that never fired in this sample
-    window -- the sweep_detected/manip_strength false-positive case this guard
+    window -- the sweep_detected/bos_direction false-positive case this guard
     exists to catch). Absence of contradicting evidence is NOT evidence of
     broadcast structure, so the classifier abstains rather than defaulting to
     'broadcast'.
@@ -256,7 +256,7 @@ def _stratified_sample(all_bar_ts: list[Any], n: int) -> list[Any]:
     degenerate. Confirmed live: this corpus's active universe is 100% equities
     (useRTH=True fetch), and intraday ingestion has been stalled since
     2026-08-13, so the most-recent-200-timestamps window contains ONLY
-    regular-trading-hours bars -- in_ny_session/in_london_kz read as constant
+    regular-trading-hours bars -- in_ny_session/in_overlap read as constant
     (zero temporal evidence) in that window despite being genuinely bar_ts-only
     functions (verified via src/intelligence/feature_factory.py -- same
     zero-symbol-parameter signature as in_overlap/power_hour, which DO classify

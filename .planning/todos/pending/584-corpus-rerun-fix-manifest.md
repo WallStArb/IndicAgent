@@ -492,6 +492,13 @@ as `RETIRED_COLUMNS` in the v2 schema test. The v2.x pydantic copies in `I3Struc
 are untouched. The legacy live `compute()` still emits `minute_of_hour_*` as 0.0/1.0 on 1h (as it already did on 1d), a legacy-path fill for todo 463. Golden regenerated in its own commit (`1f917b6ed`): only `minute_of_hour_*` on 1h
 changed besides the dropped columns.
 
+Item 6 gate note: `/code-review` ran before the landing; `/simplify` ran afterwards over
+`1f917b6ed^..47f35b440` and landed as its own commit (stale counts and comments naming the retired
+columns, the no-op `declared=na`, the half-stripped `$N` annotations in
+`feature_vector_persistence`, and the dead `ltf` members stripped from `real_inputs.npz`). Left
+for the owner: `_FETCH_STAGE_TIMEFRAMES` still fetches 1m bars in `--fetch-only`, and the 1m consumer
+is gone; whether anything else reads 1m rows is not traced.
+
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 
 The code half landed before Track A's 4b-1 leg; this note records the design for the record and

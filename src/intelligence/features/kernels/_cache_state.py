@@ -170,7 +170,7 @@ class FeatureCache:
     _sess_in_lvn: float = field(default=0.0, repr=False)
 
     # Internal state for session_levels.py's D-08 rewrite (Phase 165 Plan 04).
-    # NEVER FeatureVector fields -- Plan 05 derives the 16 ATR-normalized/
+    # NEVER FeatureVector fields -- Plan 05 derives the 11 ATR-normalized/
     # bounded session_levels columns from this raw state in compute(); no
     # atr_val is available in a mutator (same division of labour as
     # update_session_vp()/_derive_session_vp()).
@@ -417,7 +417,7 @@ class FeatureCache:
     # ~5 sessions of bars at 5m, ~15 sessions at 15m, ~60 sessions/~12 weeks
     # at 1h, ~1.5 years of calendar days at 1d) exist nowhere below; every
     # boundary decision here is timestamp-driven via ts.astimezone(_ET) +
-    # _RTH_OPEN_ET/_RTH_CLOSE_ET instead.
+    # _RTH_OPEN_ET instead.
     def update_session_levels(
         self,
         bar_ts: datetime,

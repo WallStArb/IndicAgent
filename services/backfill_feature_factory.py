@@ -800,7 +800,7 @@ def unit_fetch_start(
     at row 0, a refit cadence counted from the first bar) has no finite memory, so the answer is
     `series_start`; `path_dependent_contributors` names them. With every column requested the
     registry has 14 such contributing kernels (the HMM regime pair and their labels, session VP and
-    levels, AMD, the weekly VWAP, the statistics refresh and autocorrelation kernels, among
+    levels, the weekly VWAP, the statistics refresh and autocorrelation kernels, among
     them), so a full rebuild unit computes from the series start and the memory branch serves a
     subset of columns. External inputs (daily macro records, HTF
     values) are built by the caller from the full source history on the row grid, so their
@@ -1047,7 +1047,7 @@ def _compute_series_columns(
 
     The call runs from the series start over the registry's full output set, regime and
     regime_volatility included (the HMM walk-forward kernels, R-10); the session VP, session
-    levels, AMD, weekly VWAP, hurst, shannon, garch, hma, adx and product columns are registry
+    levels, weekly VWAP, hurst, shannon, garch, hma, adx and product columns are registry
     kernels too, so no FeatureCache is built or read and a pre-warmed cache cannot change a row.
     A nullable column's none mask turns its NaN into missing; a column with a finite declared
     memory is missing for rows inside that memory (no_fill). The result is float32 (the table's

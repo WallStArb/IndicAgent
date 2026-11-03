@@ -1238,9 +1238,9 @@ class FeatureVector:
         (None until Plans 02-04 wire real compute logic); never a raw price
         level or raw bar index (D-02/D-04).
       Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068): canary_noise_gaussian, canary_noise_uniform, canary_constant, canary_near_constant, canary_acausal_placebo
-      Session-level — Smart Money Concepts (36, Phase 164 Plan 01): order blocks (4),
+      Session-level — Smart Money Concepts (32, Phase 164 Plan 01): order blocks (4),
         breaker/mitigation blocks (3), fair value gaps (3), liquidity sweeps (4),
-        liquidity pools (5), supply/demand zones (7), BOS/CHoCH (6), AMD cycle (4).
+        liquidity pools (5), supply/demand zones (7), BOS/CHoCH (6).
         All ATR-distance/bounded/count/ordinal placeholders (None until Plans 02-04
         wire real compute logic); never a raw price level (D-16).
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
@@ -1252,7 +1252,7 @@ class FeatureVector:
       Earnings-Season Calendar Primitive (non-nullable, Phase 176 Plan 03,
       todo 353),
       Phase 151 Plans 01 + 03 + 04 + 05 + 06 + todo 320 + Phase 176 Plan 03]
-      + 49 optional [3 cross-sectional + 5 canary + 36 SMC + 2 Cross-asset
+      + 49 optional [3 cross-sectional + 5 canary + 32 SMC + 2 Cross-asset
       factor betas (Phase 151 Plan 04, nullable for the factor proxy's own
       self-regression) + 2 Cross-TF divergences (Phase 151 Plan 05, nullable
       -- timeframe-pinned, None where the pair is undefined), all defaulted/
@@ -1822,7 +1822,7 @@ class FeatureVector:
     canary_acausal_placebo: float = (
         0.0  # existing feature deliberately paired against a forward-shifted return window (look-ahead leak), positive control
     )
-    # Session-level — Smart Money Concepts (36, Phase 164 Plan 01). Defaulted
+    # Session-level — Smart Money Concepts (32, Phase 164 Plan 01). Defaulted
     # to None (unlike the Phase 163 session block above, which has no default)
     # because this block is placed after the canary block above, which already
     # has defaults -- Python dataclass field ordering requires every field
@@ -1833,7 +1833,7 @@ class FeatureVector:
     # blast radius across every pre-existing hardcoded FeatureVector(...) test
     # constructor" rationale. Order Blocks (4) / Breaker+Mitigation (3) / FVG
     # (3) / Liquidity Sweeps (4) / Liquidity Pools (5) / Supply-Demand Zones
-    # (7) / BOS-CHoCH (6) / AMD Cycle (4) = 36.
+    # (7) / BOS-CHoCH (6) = 32.
     ob_bull_dist_atr: float | None = None
     ob_bear_dist_atr: float | None = None
     ob_strength: float | None = None
