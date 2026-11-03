@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
@@ -27,7 +27,8 @@ from src.config.classification_service import DEFAULT_SCHEME, SECTOR_LEVEL
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
 from src.intelligence.bars.label_inputs import load_label_inputs
-from src.intelligence.research import data_quality
+from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.research import clock, data_quality, feature_inputs
 from src.intelligence.research import dividends as dividends_mod
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.panel import Panel
@@ -51,6 +52,13 @@ _BARS_SQL = (
     "SELECT timestamp, open, close, volume{extra} FROM market_data_ohlcv_tradeable "
     "WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4 "
     "ORDER BY timestamp"
+)
+
+# Plan 184-07 (B1d): the (vendor, kind) pairs serving a 15m or 1h span, a separate pinned query so
+# the bar SELECT keeps its exact text.
+_VENDOR_SET_SQL = (
+    "SELECT DISTINCT vendor, kind FROM market_data_ohlcv_tradeable "
+    "WHERE timeframe = $1 AND symbol = ANY($2) AND timestamp >= $3 AND timestamp < $4"
 )
 
 # Plan 187-15: each name's SCH sector (the level-SECTOR_LEVEL ancestor of its classification)
@@ -222,6 +230,27 @@ def sector_grid(
     return np.where(traded, out, -1).astype(np.int16), [list(t) for t in table]
 
 
+def warmup_fetch_start(start: datetime, tf: str, sessions: int) -> datetime:
+    """Plan 184-07 (B1c): where S0 starts fetching so `sessions` whole NYSE sessions precede
+    `start`: the open of the `sessions`-th session before it (the session date's midnight UTC on
+    1d, where bars are stamped by date). `sessions == 0` returns `start` unchanged."""
+    if sessions < 0:
+        raise ValueError(f"warmup_sessions must be >= 0, got {sessions}")
+    if sessions == 0:
+        return start
+    day = start.date()
+    window = sessions * 7 // 5 + 14  # calendar days; widened until enough sessions exist
+    while True:
+        before = [d for d in nyse_sessions(day - timedelta(days=window), day) if d < day]
+        if len(before) >= sessions:
+            break
+        window *= 2
+    first = before[-sessions]
+    if tf == "1d":
+        return datetime(first.year, first.month, first.day, tzinfo=UTC)
+    return nyse_sessions(first, first)[first][0]
+
+
 def session_dates(panel: Panel) -> np.ndarray:
     """datetime64[D] [S], each session's exchange-local date (the dates build_grid keyed on)."""
     first = panel.timestamps[:: panel.bars_per_session]
@@ -352,19 +381,28 @@ async def build_panel(
     manifest_extra: dict | None = None,
     dividends: bool = False,
     fields: tuple[str, ...] = (),
+    warmup_sessions: int = 0,
 ) -> Path:
     """Fetch, grid, and write a content-hashed panel directory; returns its path.
     `manifest_extra` (for example the universe dimension) is merged into the manifest.
     `dividends` also captures the per-session dividend grid a total-return spec needs, so the
     snapshot hash covers the dividend facts the run used. `fields` (PanelSpec.fields) adds the
     high and low arrays and each name's point-in-time sector; without it the bytes are those of
-    every earlier snapshot."""
-    unknown = set(fields) - {*panel_mod.OPTIONAL_BAR_FIELDS, panel_mod.SECTOR_PIT}
+    every earlier snapshot. `fields` may also name closes_at (each row's availability time,
+    plan 184-07 B1b). `warmup_sessions` fetches that many NYSE sessions before `start` so
+    declared member memory is filled at the first scored row (B1c); the manifest records
+    fetch_start and scored_start, and 0 writes the bytes of every earlier snapshot."""
+    unknown = set(fields) - {
+        *panel_mod.OPTIONAL_BAR_FIELDS,
+        panel_mod.SECTOR_PIT,
+        panel_mod.CLOSES_AT,
+    }
     if unknown:
         raise ValueError(f"unknown panel fields: {sorted(unknown)}")
     bar_fields = tuple(f for f in panel_mod.OPTIONAL_BAR_FIELDS if f in fields)
     bars_sql = _BARS_SQL.format(extra="".join(f", {f}" for f in bar_fields))
-    lo, hi = (utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
+    scored_lo, hi = (utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
+    lo = warmup_fetch_start(scored_lo, tf, warmup_sessions)
     pool = await read_only_pool(dsn)
     try:
         oos = await pool.fetchval(_OOS_START_SQL)
@@ -372,6 +410,16 @@ async def build_panel(
             raise ValueError("alpha.validation.oos_start is not set")
         if hi > oos:
             raise ValueError(f"end_exclusive {end_exclusive} is past oos_start {oos.isoformat()}")
+
+        vendor_kinds = None
+        if fields or tf in feature_inputs.INTRADAY_DERIVED_TFS:
+            vendor_rows = await pool.fetch(_VENDOR_SET_SQL, tf, sorted(symbols), lo, hi)
+            try:
+                vendor_kinds = feature_inputs.check_intraday_vendors(
+                    tf, [(r["vendor"], r["kind"]) for r in vendor_rows]
+                )
+            except feature_inputs.FeatureInputRefused as error:
+                raise ValueError(f"{tf} snapshot refused (B1d): {error}") from error
 
         async def fetch(sym: str):
             rows = await pool.fetch(bars_sql, sym, tf, lo, hi)
@@ -463,5 +511,16 @@ async def build_panel(
         sector_pit, codes = sector_grid(session_dates(grid), grid.symbols, traded, sector_rows)
         manifest["sector_codes"] = codes
         manifest["sector_source"] = {"scheme": DEFAULT_SCHEME, "level": SECTOR_LEVEL}
-    grid = dataclasses.replace(grid, manifest=manifest, sector_pit=sector_pit)
+    closes_at = None
+    if panel_mod.CLOSES_AT in fields:
+        closes_at = clock.closes_at(grid.timestamps, grid.valid, tf, grid.bars_per_session)
+    if fields:
+        manifest["bar_vendor_kinds"] = vendor_kinds
+    if warmup_sessions > 0:
+        manifest["warmup_prefix"] = {
+            "sessions": warmup_sessions,
+            "fetch_start": lo.isoformat(),
+            "scored_start": scored_lo.isoformat(),
+        }
+    grid = dataclasses.replace(grid, manifest=manifest, sector_pit=sector_pit, closes_at=closes_at)
     return panel_mod.save(grid, Path(out_dir), extra)

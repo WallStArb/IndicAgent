@@ -2346,6 +2346,16 @@ spans), and not the `screen` (the statistical test over a vintage). **Banned:** 
 `scripts/infrastructure/universe_expansion_onboard_manifest.py`,
 `src/intelligence/research/runner.py` (`_load_panel`), `config/universe/` (manifests)
 
+### `warmup prefix`
+
+The sessions S0 fetches before a snapshot's start so every member's declared memory is filled at
+the first scored row. Its length is the largest member memory, from the one member-memory function
+(`member_memory.warmup_prefix_sessions`); the snapshot manifest records it (`warmup_prefix`:
+sessions, `fetch_start`, `scored_start`). Prefix rows are never scored and never extend past
+`end_exclusive` or `alpha.validation.oos_start`. A snapshot built without a prefix is byte-identical
+to every earlier one.
+**Code surface:** `src/intelligence/research/snapshot.py` (`build_panel`, `warmup_fetch_start`)
+
 ---
 
 ## See Also
