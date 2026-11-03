@@ -1499,7 +1499,7 @@ def _build_feature_vector(
     cvd_slope_z: float | None,
     cmf: float,
     rel_volume: float,
-    vwap_dev_sigma: float,
+    vwap_dev_sigma: float | None,
     atr_z: float | None,
     vol_ratio: float,
     poc_dist_atr: float | None,
@@ -1820,7 +1820,8 @@ def _build_feature_vector(
         cvd_slope_z=_missing_if_nan(cvd_slope_z),
         cmf=_guard(cmf),
         rel_volume=_guard(rel_volume, 1.0),
-        vwap_dev_sigma=_guard(vwap_dev_sigma),
+        # zero-spread window -> NaN, not a fabricated 0.0 (D1 rule 5, todo 584 4c)
+        vwap_dev_sigma=_missing_if_nan(vwap_dev_sigma),
         atr_z=_missing_if_nan(atr_z),
         vol_ratio=_guard(vol_ratio, 1.0),
         poc_dist_atr=_missing_if_nan(poc_dist_atr),

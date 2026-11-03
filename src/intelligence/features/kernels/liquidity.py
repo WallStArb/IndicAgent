@@ -180,6 +180,7 @@ KERNELS = (
         ("high", "low", "close"),
         lambda c: c.high_low_spread_window,
         _compute_high_low_spread,
+        zero_is_state=frozenset({"high_low_spread"}),
     ),
     _k(
         "roll_spread",

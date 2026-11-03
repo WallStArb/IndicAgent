@@ -102,9 +102,12 @@ def applicable_columns(registry, columns: tuple[str, ...], tf: str) -> frozenset
 
 
 def zero_is_state(registry) -> frozenset[str]:
-    """Outputs where 0.0 is a measured state (G3 skips them)."""
-    # TODO(584 D1): `Kernel.zero_is_state` lands with design D1 (item 4); empty until then.
-    return frozenset(o for k in registry.kernels for o in getattr(k, "zero_is_state", ()))
+    """Outputs where 0.0 is a measured state (G3 skips them).
+
+    Declared per kernel since todo 584 item 4c; pinned registry-wide by
+    tests/unit/intelligence/test_kernel_no_object_contract.py.
+    """
+    return frozenset(o for k in registry.kernels for o in k.zero_is_state)
 
 
 def declared_memory(registry, config, columns: tuple[str, ...]) -> dict[str, int | None]:

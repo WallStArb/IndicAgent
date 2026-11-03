@@ -14,6 +14,7 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     EPS,
     _atr_series_full,
+    _corr_or_nan,
     _fixed_window_zscore_series,
     _is_valid_atr,
     _is_valid_atr_series,
@@ -32,7 +33,6 @@ from src.intelligence.features.kernels._primitives import (
     wilder_memory_bars,
     wilder_rsi_series,
 )
-from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
     pass
@@ -550,24 +550,27 @@ def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
 
 def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int) -> np.ndarray:
     """Log-return velocity series, z-scored. result[i] == streaming momentum_z at bar i.
-    Returns zeros for i < window (cold start matches streaming's 0.0).
+    NaN for i < window: the window does not exist yet (D1 rule 2, todo 584 4c) --
+    a fabricated 0.0 leaks into the path-dependent products, which store every row.
     """
     n = len(closes)
     if n <= window:
-        return np.zeros(n, dtype=float)
+        return np.full(n, np.nan)
     log_returns = np.log(np.maximum(closes[window:], 1e-10) / np.maximum(closes[:-window], 1e-10))
     z = _fixed_window_zscore_series(log_returns, zscore_window)
-    return np.concatenate([np.zeros(window, dtype=float), z])
+    return np.concatenate([np.full(window, np.nan), z])
 
 
 def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> np.ndarray:
-    """1-bar log-return z-scored series. result[i] == streaming momentum_reversal_z at bar i."""
+    """1-bar log-return z-scored series. result[i] == streaming momentum_reversal_z at bar i.
+    Row 0 has no return: NaN (D1 rule 2, todo 584 4c), not a fabricated 0.0.
+    """
     n = len(closes)
     if n < 2:
-        return np.zeros(n, dtype=float)
+        return np.full(n, np.nan)
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
     z = _rolling_zscore_series(log_rets, zscore_window)
-    return np.concatenate([[0.0], z])
+    return np.concatenate([[np.nan], z])
 
 
 def _ret_skew_z_series_full(closes: np.ndarray, skew_window: int, zscore_window: int) -> np.ndarray:
@@ -852,7 +855,8 @@ def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = Fals
     """Expanding-window lag-k Pearson autocorrelation of log returns, computed
     over ALL available history up to each bar. result[i] == streaming
     _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
-    (one new pair added per bar, no window to re-sum).
+    (one new pair added per bar, no window to re-sum). NaN until lag+2 pairs
+    exist and wherever either side has no spread (D1 rule 5, todo 584 4c).
 
     use_abs=True (Phase 151 Plan 03, todo 180): computes the identical
     construction over |log returns| instead of signed log returns --
@@ -862,7 +866,7 @@ def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = Fals
     are byte-identical to the pre-refactor behavior.
     """
     n = len(closes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
@@ -1034,16 +1038,19 @@ def _vol_of_vol_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
 
 def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int) -> np.ndarray:
     """result[i] == streaming safe_corr(H, L) over the trailing (expanding
-    until saturated) `window` bars ending at bar i. O(n x window).
+    until saturated) `window` bars ending at bar i. O(n x window). NaN where
+    either side of the window has no spread: the correlation of a zero-spread
+    window is undefined (D1 rule 5, todo 584 4c), never 0.0.
     """
     n = len(highs)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     h = highs.astype(float)
     lo = lows.astype(float)
     for i in range(n):
         w = min(window, i + 1)
         start = i + 1 - w
-        result[i] = safe_corr(h[start : i + 1], lo[start : i + 1])
+        hs, ls = h[start : i + 1], lo[start : i + 1]
+        result[i] = _corr_or_nan(hs, ls, w)
     return result
 
 
@@ -1488,9 +1495,11 @@ def _compute_high_low_corr(x, config):
     }
 
 
-def _scaled_series_kernel(name, template, inputs, memory_of, compute_of):
+def _scaled_series_kernel(name, template, inputs, memory_of, compute_of, zero_is_state=False):
     """One kernel per fast/slow scale: name `{template}_{scale}`; `memory_of(config, scale)`
-    and `compute_of(x, config, scale)` are the scale-specific memory and array."""
+    and `compute_of(x, config, scale)` are the scale-specific memory and array.
+    `zero_is_state=True` declares the scaled column measured (0.0) on the
+    no-object series (D1 rule 4, todo 584 4c)."""
     out = []
     for scale in ("fast", "slow"):
         column = template.format(scale=scale)
@@ -1501,6 +1510,7 @@ def _scaled_series_kernel(name, template, inputs, memory_of, compute_of):
                 inputs,
                 lambda c, s=scale: memory_of(c, s),
                 lambda x, c, s=scale, col=column: {col: compute_of(x, c, s)},
+                zero_is_state=frozenset({column}) if zero_is_state else frozenset(),
             )
         )
     return tuple(out)
@@ -1519,6 +1529,7 @@ _BREAKOUT_KERNELS = (
             x["_atr_valid"],
             getattr(c, f"dist_window_{s}"),
         ),
+        zero_is_state=True,
     ),
     *_scaled_series_kernel(
         "dist_from_low",
@@ -1532,6 +1543,7 @@ _BREAKOUT_KERNELS = (
             x["_atr_valid"],
             getattr(c, f"dist_window_{s}"),
         ),
+        zero_is_state=True,
     ),
     *_scaled_series_kernel(
         "range_pct",
@@ -1541,6 +1553,7 @@ _BREAKOUT_KERNELS = (
         lambda x, c, s: _range_pct_series_full(
             x["close"], x["high"], x["low"], getattr(c, f"range_window_{s}")
         ),
+        zero_is_state=True,
     ),
     *_scaled_series_kernel(
         "stoch_k",
@@ -1701,6 +1714,7 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                     lambda x, c, w=window, s=source, m=mode, col=column: {
                         col: _bars_since_rolling_extreme_series_full(x[s], getattr(c, w), m)
                     },
+                    zero_is_state=frozenset({column}),
                 )
             )
         event = f"_extreme_move_event_{scale}"
@@ -1740,6 +1754,7 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                 lambda x, c, s=source, m=mode, col=column: {
                     col: _bars_since_rolling_extreme_series_full(x[s], c.high_52w_window, m)
                 },
+                zero_is_state=frozenset({column}),
             )
         )
     return tuple(out)
@@ -1819,6 +1834,7 @@ def _ret_lag_kernels() -> tuple[Kernel, ...]:
                     [_ret_lag_3(x["close"][: i + 1]) for i in range(len(x["close"]))]
                 ),
             },
+            zero_is_state=frozenset({"ret_lag_1", "ret_lag_2", "ret_lag_3"}),
         )
     ]
     for scale, fn in (("fast", _ret_lag_fast), ("mid", _ret_lag_mid), ("slow", _ret_lag_slow)):
@@ -1835,6 +1851,7 @@ def _ret_lag_kernels() -> tuple[Kernel, ...]:
                         [f(x["close"][: i + 1], getattr(c, w)) for i in range(len(x["close"]))]
                     )
                 },
+                zero_is_state=frozenset({column}),
             )
         )
     return tuple(out)
@@ -2067,6 +2084,7 @@ KERNELS = (
         ("close",),
         lambda c: c.high_52w_window,
         _compute_high_52w_dist,
+        zero_is_state=frozenset({"high_52w_dist"}),
     ),
     _k(
         "ret_kurtosis_z",
@@ -2188,6 +2206,7 @@ KERNELS = (
         ("high", "low", "close"),
         lambda c: 0,
         _compute_range_to_close,
+        zero_is_state=frozenset({"range_to_close"}),
     ),
     _k(
         "true_range_pct",
@@ -2195,6 +2214,7 @@ KERNELS = (
         ("high", "low", "close"),
         lambda c: 1,
         _compute_true_range_pct,
+        zero_is_state=frozenset({"true_range_pct"}),
     ),
     _k("abs_log_ret", ("_abs_log_ret",), ("close",), lambda c: 1, _compute_abs_log_ret),
     *_recency_kernels(),
@@ -2210,6 +2230,7 @@ KERNELS = (
         ("open", "high", "low", "close"),
         lambda c: 0,
         _compute_bar_shape,
+        zero_is_state=frozenset({"close_vs_open_direction"}),
     ),
     _k(
         "range_vs_atr",
@@ -2217,6 +2238,7 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         lambda c: 0,
         _compute_range_vs_atr,
+        zero_is_state=frozenset({"range_vs_atr"}),
     ),
     _k(
         "prev_close_scalars",
@@ -2224,6 +2246,9 @@ KERNELS = (
         ("open", "high", "low", "close"),
         lambda c: 1,
         _compute_prev_close_scalars,
+        zero_is_state=frozenset(
+            {"intraday_ret", "open_ret", "open_vs_intraday", "overnight_gap", "range_efficiency"}
+        ),
     ),
     *_ret_lag_kernels(),
     _k(
@@ -2240,6 +2265,7 @@ KERNELS = (
         ("high", "low", "close"),
         bounded_window_bars,
         _compute_bounded_window_scalars,
+        zero_is_state=frozenset({"aroon_fast", "aroon_slow", "vol_ratio"}),
     ),
     _k(
         "ret_vol_ratio_fast",
@@ -2256,6 +2282,7 @@ KERNELS = (
         _compute_bar_statistics_refresh,
         path_dependent=True,
         path_dependent_reason="refresh cadence counts from row 0 and the hma slope history accumulates across refreshes",
+        zero_is_state=frozenset({"shannon"}),
     ),
     _k(
         "price_only_products",

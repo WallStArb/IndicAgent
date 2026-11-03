@@ -13,6 +13,7 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     EPS,
     STD_FLOOR,
+    _corr_or_nan,
     _fixed_window_zscore_series,
     _is_valid_atr,
     _k,
@@ -27,7 +28,6 @@ from src.intelligence.features.kernels.price import (
     _up_vol_body_diff,
     _vol_velocity_z_series_full,
 )
-from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
     pass
@@ -136,7 +136,8 @@ def _vol_trend_ratio(
 ) -> float:
     """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
 
-    Returns 1.0 (neutral) on cold start (fewer than slow_window bars).
+    Returns 1.0 (neutral) on cold start (fewer than slow_window bars); NaN on a zero-volume
+    slow window, where the ratio is undefined (D1 rule 5, todo 584 4c).
     """
     n = len(volumes)
     if n < slow_window:
@@ -144,7 +145,7 @@ def _vol_trend_ratio(
     v = volumes.astype(float)
     ma_fast = float(np.mean(v[-fast_window:]))
     ma_slow = float(np.mean(v[-slow_window:]))
-    return ma_fast / ma_slow if ma_slow > eps else 1.0
+    return ma_fast / ma_slow if ma_slow > eps else float("nan")
 
 
 def _up_vol_ratio(
@@ -194,12 +195,13 @@ def _vol_percentile(volumes: np.ndarray, window: int) -> float:
 def _vol_persistence(volumes: np.ndarray, window: int) -> float:
     """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
 
-    Returns 0.0 on cold start (fewer than 2 bars in the window). Reuses _pearson_acf1.
+    NaN on cold start (fewer than 2 bars) or a zero-spread window: the
+    autocorrelation of constant volume is undefined (D1 rule 5, todo 584 4c).
     """
     n = len(volumes)
     w = min(window, n)
     if w < 2:
-        return 0.0
+        return float("nan")
     hist = volumes[-w:].astype(float)
     return _pearson_acf1(hist)
 
@@ -376,9 +378,11 @@ def _vwap_dev_sigma_series_full(
     """VWAP deviation in sigma series. result[i] == streaming vwap_dev_sigma at bar i.
     Uses running VWAP (cumsum) + running std (Welford via cumsums) — O(n) total.
     Parity tolerance 1e-6 due to cumulative floating-point accumulation vs np.std.
+    NaN where the running deviation has no spread: the z-score of a zero-spread
+    window is undefined (D1 rule 5, todo 584 4c), never 0.0.
     """
     n = len(closes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     typical = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
@@ -484,7 +488,7 @@ def _vol_trend_ratio_series_full(
         sum_s = cs[i] - (cs[i - slow_window] if i - slow_window >= 0 else 0.0)
         ma_f = sum_f / fast_window
         ma_s = sum_s / slow_window
-        result[i] = ma_f / ma_s if ma_s > eps else 1.0
+        result[i] = ma_f / ma_s if ma_s > eps else np.nan
     return result
 
 
@@ -535,7 +539,7 @@ def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
     """result[i] == streaming _vol_persistence at bar i. O(n x window)."""
     n = len(volumes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     vols = volumes.astype(float)
@@ -617,8 +621,8 @@ def _price_vol_corr_series_full(
     intentionally consistent with that established rolling-correlation
     pattern rather than introducing a one-off O(n) prefix-sum variant that
     would diverge from it. Degeneracy handling (near-zero variance in either
-    slice -> 0.0) delegates to `safe_corr()`, the same shared helper
-    _high_low_corr_series_full already uses.
+    slice -> NaN, D1 rule 5) delegates to `_corr_or_nan()`, the same shared
+    helper _high_low_corr_series_full uses.
 
     `abs_rets` may be passed in precomputed (the fast/slow calls in
     `_precompute_series` share one `abs_rets` array rather than each
@@ -627,7 +631,7 @@ def _price_vol_corr_series_full(
     of abs_rets/volumes per bar, so the per-bar cost is O(window), not O(i).
     """
     n = len(closes)
-    result = np.zeros(n, dtype=float)
+    result = np.full(n, np.nan)
     if n < 2:
         return result
     if abs_rets is None:
@@ -639,9 +643,7 @@ def _price_vol_corr_series_full(
         start = i - window
         rets_w = abs_rets[start:i]
         vol_w = vols[start + 1 : i + 1]
-        if len(rets_w) < 2:
-            continue
-        result[i] = safe_corr(rets_w, vol_w)
+        result[i] = _corr_or_nan(rets_w, vol_w, window)
     return result
 
 
@@ -888,6 +890,7 @@ KERNELS = (
         ("volume",),
         lambda c: c.volume_zscore_window,
         _compute_rel_volume,
+        zero_is_state=frozenset({"rel_volume"}),
     ),
     _k(
         "amihud_illiq_z",
@@ -913,6 +916,7 @@ KERNELS = (
         ("volume",),
         lambda c: 1,
         _compute_vol_acceleration,
+        zero_is_state=frozenset({"vol_acceleration"}),
     ),
     _k(
         "dollar_vol_z",
@@ -934,6 +938,7 @@ KERNELS = (
         ("volume",),
         lambda c: c.vol_trend_slow,
         _compute_vol_trend_ratio,
+        zero_is_state=frozenset({"vol_trend_ratio"}),
     ),
     _k(
         "up_vol_ratio",
@@ -941,6 +946,7 @@ KERNELS = (
         ("volume", "open", "close"),
         lambda c: max(c.up_vol_ratio_fast, c.up_vol_ratio_slow),
         _compute_up_vol_ratio,
+        zero_is_state=frozenset({"up_vol_ratio_fast", "up_vol_ratio_slow"}),
     ),
     _k(
         "vol_percentile",
@@ -965,6 +971,7 @@ KERNELS = (
         ("high", "low", "close", "volume"),
         lambda c: max(c.mfi_fast, c.mfi_slow) + 1,
         _compute_mfi,
+        zero_is_state=frozenset({"mfi_fast", "mfi_slow"}),
     ),
     _k("obv_z", ("obv_z",), ("close", "volume"), lambda c: c.obv_window + 1, _compute_obv_z),
     _k(
@@ -974,13 +981,21 @@ KERNELS = (
         lambda c: max(c.price_vol_corr_fast, c.price_vol_corr_slow) + 1,
         _compute_price_vol_corr,
     ),
-    _k("cmf", ("cmf",), ("high", "low", "close", "volume"), bounded_window_bars, _compute_cmf),
+    _k(
+        "cmf",
+        ("cmf",),
+        ("high", "low", "close", "volume"),
+        bounded_window_bars,
+        _compute_cmf,
+        zero_is_state=frozenset({"cmf"}),
+    ),
     _k(
         "informed_flow",
         ("informed_flow",),
         ("open", "close", ATR_RAW_PADDED),
         lambda c: 0,
         _compute_informed_flow,
+        zero_is_state=frozenset({"informed_flow"}),
     ),
     _k(
         "vol_spike_events",

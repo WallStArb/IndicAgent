@@ -269,6 +269,14 @@ _LEGACY_WARMUP_NAN_TO_ZERO = frozenset(
         "sb_corr_z",
         "vix_reversion_product",
         "yield_slope_momentum_product",
+        # todo 584 4c: the kernel layer NaNs cold/degenerate correlation and
+        # persistence windows (D1 rule 5); compute_batch still guards them to 0.0
+        "abs_ret_autocorr_1",
+        "ret_autocorr_1",
+        "ret_autocorr_5",
+        "price_vol_corr_fast",
+        "price_vol_corr_slow",
+        "vol_persistence",
     }
 )
 

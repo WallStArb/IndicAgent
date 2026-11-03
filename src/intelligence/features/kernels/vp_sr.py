@@ -1384,6 +1384,9 @@ KERNELS = (
         inputs=("high", "low", "close", "volume", ATR_RAW_PADDED, "tf"),
         memory=lambda config: _sr_max_lookback(config) - 1,
         compute=_compute_support_resistance,
+        # sr_level_count stays 0.0 when no level exists (a measured empty set);
+        # D1 rule 4, todo 584 4c. Every other output is NaN there (group 4).
+        zero_is_state=frozenset({"sr_level_count"}),
     ),
     Kernel(
         name="swing_structure",

@@ -1589,14 +1589,13 @@ def test_price_volume_interaction_helpers_direct() -> None:
     volumes = rng.uniform(1e5, 1e6, 60)
     corr = _price_vol_corr_series_full(closes, volumes, window=20)[-1]
     assert -1.0 <= corr <= 1.0
-    # Insufficient history: fewer bars than window.
-    assert _price_vol_corr_series_full(closes[:10], volumes[:10], window=20)[-1] == 0.0
-    # Degenerate: constant volume (zero variance).
+    # Correlation of a window that does not exist or has zero spread in either
+    # operand is undefined, never a fabricated 0.0 (D1 rule 5, todo 584 4c).
+    assert math.isnan(_price_vol_corr_series_full(closes[:10], volumes[:10], window=20)[-1])
     const_volumes = np.full(60, 5e5)
-    assert _price_vol_corr_series_full(closes, const_volumes, window=20)[-1] == 0.0
-    # Degenerate: constant price (zero return variance).
+    assert math.isnan(_price_vol_corr_series_full(closes, const_volumes, window=20)[-1])
     const_closes = np.full(60, 100.0)
-    assert _price_vol_corr_series_full(const_closes, volumes, window=20)[-1] == 0.0
+    assert math.isnan(_price_vol_corr_series_full(const_closes, volumes, window=20)[-1])
 
 
 def test_compute_batch_parity() -> None:

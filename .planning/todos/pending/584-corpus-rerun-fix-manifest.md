@@ -463,6 +463,19 @@ the columns into four classes:
   finite-or-NaN only. The probe lives at `/tmp/584_item4/probe_no_object.py` (rerun to
   regenerate the list; it needs `HmmConfig.from_values(SMALL_HMM_APR.get)` on the config).
 
+### Item 4c landed (2026-11-03)
+
+`Kernel.zero_is_state` declared per kernel and the registry-wide no-object test
+(`tests/unit/intelligence/test_kernel_no_object_contract.py`) is in; goldens regenerated first in
+`8a9c60e8d`. Degenerate correlation windows go through `_corr_or_nan` (floor `STD_FLOOR`, 1e-8,
+where the two inline guards used 1e-10); streaming and batch paths agree for `vol_persistence`
+and `vol_trend_ratio` (NaN on a zero-volume slow window). Left for item 8, which owns the
+`feature_factory` guard sites: `_guard(..., 0.0|1.0)` and the `_series_last(..., 0.0)` fallbacks
+still turn these NaNs back into fills before storage (the six names in
+`_LEGACY_WARMUP_NAN_TO_ZERO`), and `vwap_dev_sigma` has a 0.0 default vector. Pre-existing cold
+zeros in `_ret_skew_z_series_full`, `_ret_acf1_z_series_full` and the `vol_trend_ratio` cold-start
+1.0 are not part of 4c.
+
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 
 The code half landed before Track A's 4b-1 leg; this note records the design for the record and

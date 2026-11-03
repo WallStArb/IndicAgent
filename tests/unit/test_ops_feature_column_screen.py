@@ -40,7 +40,10 @@ def test_judge_canary_must_hold_its_value_on_every_row():
 
 def test_registry_accessors_tolerate_missing_declarations():
     columns = ("a", "b")
-    bare = SimpleNamespace(kernels=(SimpleNamespace(outputs=("a",)),))
+    # applicable_outputs is still forward-declared (item 2): a registry without it
+    # falls back to all columns. zero_is_state landed with todo 584 4c as a Kernel
+    # dataclass field, so every registry carries it; no missing-state to tolerate.
+    bare = SimpleNamespace(kernels=(SimpleNamespace(outputs=("a",), zero_is_state=frozenset()),))
     assert applicable_columns(bare, columns, "1d") == {"a", "b"}
     assert zero_is_state(bare) == frozenset()
     declared = SimpleNamespace(

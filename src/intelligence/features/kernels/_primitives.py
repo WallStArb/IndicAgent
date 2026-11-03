@@ -336,14 +336,15 @@ def _percentile_rank(hist: np.ndarray, current: float) -> float:
 
 
 def _pearson_acf1(arr: np.ndarray) -> float:
-    """Pearson lag-1 autocorrelation. Returns 0.0 if std < 1e-10 or len < 2."""
+    """Pearson lag-1 autocorrelation. NaN if std < 1e-10 or len < 2: the
+    autocorrelation of a zero-spread window is undefined (D1 rule 5, todo 584 4c)."""
     if len(arr) < 2:
-        return 0.0
+        return math.nan
     x = arr[:-1] - arr[:-1].mean()
     y = arr[1:] - arr[1:].mean()
     denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
     if denom < 1e-10:
-        return 0.0
+        return math.nan
     return float(np.dot(x, y) / denom)
 
 

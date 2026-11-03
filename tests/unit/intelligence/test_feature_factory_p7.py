@@ -354,7 +354,10 @@ def test_ret_acf1_finite():
 
 
 def test_pearson_acf1_cold_start():
-    assert _pearson_acf1(np.array([1.0])) == 0.0
+    # one return is no pair to correlate: undefined, not a fabricated 0.0 (D1 rule 5,
+    # todo 584 4c); a zero-spread window is NaN for the same reason
+    assert math.isnan(_pearson_acf1(np.array([1.0])))
+    assert math.isnan(_pearson_acf1(np.full(5, 2.0)))
 
 
 # ---------------------------------------------------------------------------

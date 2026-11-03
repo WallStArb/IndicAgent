@@ -1259,23 +1259,28 @@ def _compute_amd_columns(x, config):
     return AMD.columns(len(highs), rows.__getitem__)
 
 
-def _stateless(name, group, inputs, lookback, compute):
+def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()):
     return Kernel(
         name=name,
         outputs=group.outputs,
         inputs=inputs,
         memory=lambda config: lookback(config) - 1,
         compute=compute,
+        zero_is_state=zero_is_state,
     )
 
 
 KERNELS = (
+    # zero_is_state per kernel: the 0.0 entries of each fallback dict (an event flag,
+    # a count, or a direction where 0 = neutral/no break is a measured state); D1 rule 4,
+    # todo 584 4c. Every other output is NaN there (D1 rule 2, group 4).
     _stateless(
         "order_blocks",
         OB,
         ("open", "high", "low", "close", "volume", ATR_RAW_PADDED),
         _OB_LOOKBACK,
         _compute_order_blocks_columns,
+        zero_is_state=frozenset({"breaker_block_active", "ob_mitigated_flag"}),
     ),
     _stateless(
         "fair_value_gaps",
@@ -1283,6 +1288,7 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _FVG_LOOKBACK,
         _compute_fvg_columns,
+        zero_is_state=frozenset({"fvg_open_count"}),
     ),
     _stateless(
         "liquidity_sweeps",
@@ -1290,6 +1296,7 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _SWEEP_LOOKBACK,
         _compute_sweeps_columns,
+        zero_is_state=frozenset({"sweep_detected"}),
     ),
     _stateless(
         "liquidity_pools",
@@ -1297,6 +1304,7 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _POOL_LOOKBACK,
         _compute_pools_columns,
+        zero_is_state=frozenset({"bsl_touches", "pool_count", "ssl_touches"}),
     ),
     _stateless(
         "supply_demand_zones",
@@ -1304,6 +1312,7 @@ KERNELS = (
         ("open", "high", "low", "close", ATR_RAW_PADDED, _FVG_MIDPOINT, _PRICE_IN_PREMIUM),
         _ZONE_LOOKBACK,
         _compute_zones_columns,
+        zero_is_state=frozenset({"active_demand_zones", "active_supply_zones"}),
     ),
     _stateless(
         "bos_choch",
@@ -1311,6 +1320,7 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _BOS_LOOKBACK,
         _compute_bos_columns,
+        zero_is_state=frozenset({"bos_direction", "choch_direction", "smc_trend_direction"}),
     ),
     Kernel(
         name="amd_cycle",

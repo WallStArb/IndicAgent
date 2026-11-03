@@ -1280,7 +1280,7 @@ class FeatureVector:
     cvd_slope_z: float | None
     cmf: float
     rel_volume: float
-    vwap_dev_sigma: float
+    vwap_dev_sigma: float | None  # zero-spread window -> None (D1 rule 5, todo 584 4c)
     # Volatility (2) - part of bar-level computation
     atr_z: float | None
     vol_ratio: float
