@@ -222,8 +222,10 @@ filled, zero-spread z NaN):
 7. `max_drawdown[t]` = 1 - min over the trailing `feature.max_drawdown.window` (default 252,
    [conventional]) grid dates of close[j] / max(close within the window up to j). Close-based,
    price-only (pin-down 5): the total-return adjustment is a research-layer concern via
-   `panel.total_return`. Stored <= 0; 0.0 is a measured state (new high held through the
-   window).
+   `panel.total_return`. Stored in [0, 1]; 0.0 is a measured state (new high held through the
+   window). Lead ruling 2026-11-03: the earlier `Stored <= 0` contradicted the formula (every
+   ratio is <= 1, so 1 - min is in [0, 1]); the formula stands, matching
+   research/evaluate.py's positive-magnitude max_drawdown.
 8. `downside_deviation[t]` = sqrt(mean(min(r, 0)^2)) over `feature.downside_deviation.window`
    (default 252, [conventional]); target 0; 0.0 is measured (no negative return in the window).
 9. `size_proxy[t]` = mean over `feature.size_proxy.window` own-grid bars (default 63,
