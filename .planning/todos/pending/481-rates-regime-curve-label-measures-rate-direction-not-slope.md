@@ -48,3 +48,11 @@ control before IC stratification uses it (ledger: regime-conditioned use is a po
 - Todo 480 (the stored series this check used).
 - `market_regimes` `rates` group last written 2026-08-11 (streaming path down), so nothing downstream
   currently moves with these labels.
+
+## Update 2026-11-03
+
+The four-quadrant rate regime design (`docs/ideas/signal-macro-context-layer.md`, "The
+four-quadrant rate regime") resolves this todo as option 3: a rate-direction margin from the
+measured series (mean of the `DGS2` and `DGS10` changes) and a slope margin from `T10Y2Y`,
+crossed into four joint labels. The scheduling constraint stands (with the 186 regime rebuild)
+and every new label set still clears the null-arm control.

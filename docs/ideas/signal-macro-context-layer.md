@@ -1,7 +1,8 @@
 # Macro context layer: market-wide series and events, point in time by measurement - Idea
 
 **Status:** Idea, design refined 2026-10-01 by a council pass (below), extended same day with the
-cross-timeframe stratification design. The series store exists (`economic_series_observation`,
+cross-timeframe stratification design, and 2026-11-03 with the four-quadrant rate regime (below).
+The series store exists (`economic_series_observation`,
 todo 480); the point-in-time corrections it needs are todo 482, deferred to the start of phase
 184 B8.
 Needs a rigor pass before promotion to `docs/research/`.
@@ -13,7 +14,9 @@ number below was measured then); `docs/ideas/from-ssfi/signal-event-catalog-and-
 `docs/research/calendar-primitives.md`); `docs/research/signal-temporal-atomic-primitives.md`;
 `src/intelligence/research/snapshot.py`; todos 475, 480, 481, 482; the owner's 2026-10-01
 question on stratifying the timeframe stack (5m/15m/1h/1d) by macro regime, which this
-revision's new section answers.
+revision's new section answers; the owner's 2026-11-03 question on the market-standard
+bull/bear and steepener/flattener taxonomy as a macro rate regime, which the four-quadrant
+section answers.
 
 ## The problem
 
@@ -213,6 +216,32 @@ series and current state, so a future spec counts the right thing as its look.
 | Real-yield shock | `DFII10` | Level change, z-scored | Named in the deletion list above; not yet built |
 | Event proximity | FRED release calendar (schedule series, not yet landed) | Days-to-next-FOMC/CPI/jobs | Needs the schedule-series piece (build order table, "Schedule series") before it exists at all |
 
+**The four-quadrant rate regime.** Added 2026-11-03, owner question: does the market-standard
+bull/bear and steepener/flattener taxonomy make a good macro rate regime. Yes, and it is not a
+new axis: it is the product of the first two rows of the table above, the sign of the level
+change crossed with the sign of the slope change, and it resolves todo 481 as its option 3. The
+two margins are the level and slope rotation of the two-point curve (level = mean of the `DGS2`
+and `DGS10` changes; slope = `T10Y2Y` change), so the four joint labels (bull steepener, bull
+flattener, bear steepener, bear flattener) are a principled discretization, not four free
+categories. Rules that follow:
+
+- The margins are the primary declared dimensions. The joint cells carry the interaction
+  structure but few independent observations (a handful of macro cycles in the stored span), so
+  no quadrant cell gets a look of its own before both margins clear the scrambled-data null-arm
+  control.
+- The change window is one APR parameter with a preregistered value (21-day primary, the
+  smoothing todo 481 measured); a second window, or the single-yield `DGS10` variant of the
+  level margin, is declared up front and counted as a look.
+- Labels land in a CVR namespace and broadcast at session cadence through the same `align` node
+  as every other macro axis; by the broadcast rule above there is no intraday version.
+- Preregistrable equity predictions follow the mechanism story, each a named look: bear regimes
+  hurt long-duration growth names; steepening helps financials through net interest margin while
+  flattening compresses it; bear flatteners hit small caps first as the late-cycle warning.
+  None is tested before the clean-data rule lifts (owner, 2026-10-30).
+- A power statement (label spell counts, persistence, clustering into macro cycles at the
+  declared window) is written from the stored series before any conditional test. It is
+  descriptive measurement, not a hypothesis test, so it may run before that gate lifts.
+
 **What this is not.** These axes are an additional, orthogonal conditioning dimension — they do
 not replace or merge with the existing idiosyncratic (per-symbol HMM) or systematic
 (cross-sectional VIX x breadth) regime system. A family may stratify by symbol regime, market
@@ -262,7 +291,7 @@ No new phase. Each piece has a natural owner:
 | Daily timer installed and enabled | operator step (sudo), any time | not urgent: FRED serves the ICE spreads for a trailing three years and everything since 2023-10 is stored; daily collection adds measured `fetch` availability times |
 | S0 economic block: decision-time join, age, maximum age, knowledge cutoff, hashed into the manifest; the shift test | phase 184 (scope item B8, beside the `align` node) | 482 done |
 | Derived macro measures as kernels | phase 184 B2 (`kernel_source` on the 186 registry); todo 475 moves the macro kernels to the series registry | 186 kernel registry |
-| Rates regime curve from the measured slope | todo 481, with the 186 regime rebuild | null-arm control |
+| Rates regime from the measured series: level and slope margins, crossed into the four quadrants | todo 481 (resolved to option 3), with the 186 regime rebuild | null-arm control; the four-quadrant rules above |
 | Schedule series (FOMC, CPI, jobs report from FRED's release calendar: 333 releases, CPI dates since 1949, jobs report since 1955, future dates included) and the event study | the first pre-registered spec that needs them, through the phase 187 runner | a written spec with its power stated |
 | NY Fed Primary Dealer and SOMA lending, Tier 2 FRED series | todo 480 (deferred) | a named consumer; monthly and weekly series only after 482 |
 
@@ -279,7 +308,7 @@ No doc is archived; each states its owner here.
 | Calendar coordinates and the point-selection rule | `docs/research/signal-temporal-atomic-primitives.md` | canonical |
 | Quarterly and opex seasonality | `signal-quarterly-seasonality-opex-risk-off.md` | idea |
 | Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | idea, refreshed 2026-10-01 |
-| Rate, credit and funding regime axes, broadcast across the timeframe stack | "Stratifying the timeframe stack by macro regime" above; todo 481 | curve tier tracks the 10-year change with an inverted sign; the other candidate axes are unbuilt |
+| Rate, credit and funding regime axes, broadcast across the timeframe stack | "Stratifying the timeframe stack by macro regime" above; todo 481 | curve tier tracks the 10-year change with an inverted sign (todo 481, resolved 2026-11-03 to the measured-series margins crossed into the four-quadrant label); the other candidate axes are unbuilt |
 | Sensitivity to market-wide factors or events | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | consumers of this layer |
 | `macro_features` / `macro_analyzer` | the dormant streaming path | no reader; if streaming returns, it computes from the same kernels rather than keep a second macro home |
 | Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not this layer |
