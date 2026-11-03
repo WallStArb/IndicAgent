@@ -321,25 +321,41 @@ skipped (boundary-wide NaN->None sweep at FeatureVector construction: out of sco
 routing is deliberate and test-policed; shared `_ratio_or_nan` helper: abstracts only the
 trivial half, the per-site degeneracy predicates stay anyway). `/review` subagent died on the
 5h quota wall (resets 20:52 UTC 2026-11-03); the machine probe above is the review evidence.
-REMAINING in 4b-2 (successor starts here): group 2 oscillator/percentile family (mfi 50, mfi
-series, stoch_k 0.5, bb_pct_b 0.5, cci 0.0, aroon 0.0-on-flat, price_percentile all-equal,
-zero-range wick/body/close-position; helpers: price.py `_stoch_k` ~262, `_price_percentile`
-~275, `_bb_pct_b` ~432, `_cci` ~501, `_aroon_osc` ~517, `_bar_close_pos` ~41, `_body_ratio`
-~84, wick ratios ~94/104; volume.py `_mfi` ~204, `_mfi_series_full` ~520); group 3
-bars_since caps 19/49 -> NaN (`_bars_since_event_series_full` price.py ~665 saturates to
-window-1; `bars_since_vol_spike` volume.py ~789); group 4 smc/vp_sr no-object fallbacks ->
-none-masks (skip ALL amd_cycle entries per the D5 note below); then 4c. GATE DEBT (lead,
-2026-11-03): the /review subagent for 24bae0c41 died on the 5h quota wall; the twin probe is
-parity evidence, not a bug hunt. The successor's FIRST act is /review over the 24bae0c41 diff
-before starting group 2 (small-landing shape makes any material fix cheap). ADJUDICATED (lead
-2026-11-03; verify-first discipline applies to each, aroon-style - confirm the 0/0 in code
-before flipping): efficiency_ratio zero-movement 0.0 -> NaN (updown_ratio precedent: net move
-0 over path length 0 is 0/0, a window with no movement defines no efficiency);
-vol_range_ratio degenerate-bar 0.0 -> NaN (wick/body/close-position precedent: volume over a
-range that does not exist is undefined); vol_asymmetry_ratio cold 1.0 -> NaN (4b-1 cold
-doctrine, no exceptions), full-window symmetric case SEPARATE - verify whether 1.0 there is a
-genuine measurement (stays, rel_volume class) or another 0/0 (NaN). All three join the 4b-2
-fix list with their twins and build-site flips.
+**4b-2 GROUP 2 LANDED (Track A, 2026-11-03, ce7548847 + golden dc5c659c4):** the
+oscillator/percentile family plus the three lead-ruled ratios. Kernels NaN where the window
+defines no statistic, scalar + `_series_full` twins identically, finite formulas untouched:
+mfi (cold, zero total flow; flat-tp positive-volume 0.0 stays measured), stoch_k (zero
+range), bb_pct_b (cold, zero std), cci (cold, zero MAD), aroon (cold rows < period+1; a
+flat FULL window keeps its measured 0.0: np.argmax first-occurrence picks the oldest bar and
+up/down pick the same bar, so the oscillator is tie-break-invariant - verified before
+landing, 4c declaration), price_percentile + vol_percentile (cold, all-equal window),
+efficiency_ratio (zero movement, updown_ratio precedent), vol_range_ratio (degenerate bar;
+NaN-aware window with recovery, `_cumsum_window_moments` precedent), vol_asymmetry_ratio
+(cold, degenerate down-std; genuine std_up == std_down stays a measured 1.0, the
+separate-verify outcome), range_position (probe extension: fabricated 0.0 on a flat range),
+zero-range bar anatomy (body/upper-wick/lower-wick/close-position); vol_percentile joined as
+a second probe extension (same all-equal convention as its ruled sibling price_percentile).
+Build site: 23 columns `_guard(x, neutral)` -> `_missing_if_nan` (22 planned + the review
+fix below), schemas `float | None`, tied by `test_missing_routing_ties_to_the_schema_
+annotation`. The /review gate found one material bug, fixed before landing:
+`up_vol_body_diff` (`up_vol_ratio_fast - body_ratio`) still routed `_guard(x, 0.0)`, which
+fabricates 0.0 where a genuine measurement was stored before body_ratio went NaN; now
+`_missing_if_nan` + `float | None` (a difference with a missing parent is missing; a
+non-finite difference of finite inputs is impossible, so no `_guard_counted` tripwire).
+Evidence: 6460-check scalar/twin parity probe (random, flat, zeros, zero-head, short,
+degenerate-head; exact NaN placement, <=1e-08 relative on finite values); golden delta:
+synthetic aroon_fast/slow, cci_fast/mid/slow, range_position, vol_asymmetry_z, real
+vol_asymmetry_z only; full suite green. Gates: /simplify nothing to apply (cold guards
+load-bearing, pinned eps kept); /review one finding, fixed and re-verified. The 24bae0c41
+review debt was cleared first: 4 agents (2 CLAUDE.md compliance, 2 bug hunt), no findings.
+REMAINING in 4b-2 (successor starts here): group 3 bars_since caps 19/49 -> NaN
+(`_bars_since_event_series_full` price.py ~685 saturates to window-1; consumers
+`bars_since_extreme_move_*` price.py ~1704 and `bars_since_vol_spike_*` volume.py ~837;
+build sites feature_factory.py ~1990-1993, schemas, and the neutral-vector defaults ~3812;
+note for the fix: `_vol_spike_event_*` preserves NaN for masked volume rows but the
+consumer's `x[ev] > 0.5` reads unknown as no-event - the probe decides whether the honest
+NaN-aware form rides along); group 4 smc/vp_sr no-object fallbacks -> none-masks (skip ALL
+amd_cycle entries per the D5 note below); then 4c.
 4b-1 landed the helper layer AND its build-site half: `_primitives.py` z-score helpers
 (`_zscore_last`/`_z_or_nan` one implementation, `_rolling_zscore_series`,
 `_fixed_window_zscore_series`) NaN on cold and zero-spread; `wilder_rsi_series` NaN cold and
