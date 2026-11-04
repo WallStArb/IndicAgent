@@ -3,7 +3,7 @@
 
 Runs the pure measure jobs of src/intelligence/measure/ (proposer with its term structure across
 the tf's horizons, regime_volatility disclosure, member monitoring) and writes
-feature_ic_scores_v2 only through bulk_load(), one provenance batch per unit. A unit is
+feature_ic_scores only through bulk_load(), one provenance batch per unit. A unit is
 (job, tf): it owns every row of its scope (unstratified, regime_volatility or member_window) in
 that tf, so the replace DELETE and the provenance supersede flip share one definition, the
 BulkLoadSpec unit_key, and a change of family, symbols or window replaces the unit. A real run
@@ -42,7 +42,6 @@ A NaN IC is written as NULL, never as NaN or zero. A traded bar with no feature_
 a symbol is not an observation: every job receives the `present` slot mask.
 
 Compute stays in the pure measure package; this module fetches, aligns, builds rows and writes.
-The legacy feature_ic_scores table is never touched.
 
 Usage:
     python services/ic_measure.py --tf 1d --dry-run
@@ -146,7 +145,7 @@ _logger = structlog.get_logger(__name__)
 
 # Service identity and schema identifiers: APR-exempt (CLAUDE.md exempt list).
 _JOB = "ic-measure"
-TARGET_TABLE = "feature_ic_scores_v2"
+TARGET_TABLE = "feature_ic_scores"
 _WRITER = "ic_measure"
 POOLED_SYMBOL = "POOLED"
 ALL_REGIMES = "_all"
@@ -517,7 +516,7 @@ def _cell_row(
     reliable: bool,
     **extra: Any,
 ) -> tuple:
-    """One feature_ic_scores_v2 row in COLUMNS order: the fields every job writes, the pooled
+    """One feature_ic_scores row in COLUMNS order: the fields every job writes, the pooled
     defaults, and the job's own columns in `extra` (an unknown column name raises)."""
     fields: dict[str, Any] = {
         "vector_domain": VECTOR_DOMAIN,
@@ -1429,7 +1428,7 @@ def _spec(job: str, run: TfRun, ctx: TfContext, identity: Mapping[str, Any]) -> 
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fresh IC jobs -> feature_ic_scores_v2")
+    parser = argparse.ArgumentParser(description="Fresh IC jobs -> feature_ic_scores")
     parser.add_argument(
         "--tf", action="append", help="timeframe (repeatable); default: every tf in APR"
     )
@@ -1461,7 +1460,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def table_rows_by_tf(dsn: str) -> dict[str, int]:
-    """Per-tf row counts of feature_ic_scores_v2 -- the manifest's coverage numbers are
+    """Per-tf row counts of feature_ic_scores -- the manifest's coverage numbers are
     the table's state after the run, not the run's own writes: a fully skipped tf
     (identity match on every unit) writes zero rows while its rows from the prior run
     are exactly what a completeness gate must still see."""

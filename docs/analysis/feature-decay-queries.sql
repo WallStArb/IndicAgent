@@ -78,55 +78,5 @@ WHERE monitor_type = 'ic_lifecycle'
   AND metric_name = 'regime_shift_fraction'
 ORDER BY evaluated_at DESC;
 
--- ---------------------------------------------------------------------------
--- (d) Active features whose latest feature_ic_scores cell sits closest to the
---     materiality boundary -- an early-warning view of features at risk of demotion
---     on the NEXT ic_engine run. "distance_to_boundary" is standing_weight *
---     |ic_ci_lower| minus alpha.decay.materiality_threshold; values near zero (from
---     either side) are the features to watch. Restricted to POOLED cross-sectional
---     cells at the pinned mid lookahead (the same population the lifecycle hook
---     evaluates), most recent training_window_end only.
--- ---------------------------------------------------------------------------
-
-WITH latest_window AS (
-    SELECT max(training_window_end) AS training_window_end
-    FROM feature_ic_scores
-    WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
-),
-mid_lookahead AS (
-    SELECT config_value::int AS lookahead_bars
-    FROM config_state
-    WHERE config_key = 'alpha.ic.lookahead.mid'
-)
-SELECT
-    fis.feature_name,
-    fis.tf,
-    fis.regime,
-    fis.ic_ci_lower,
-    fis.passes_fdr,
-    COALESCE(ew.weight, 0.0) AS standing_weight,
-    COALESCE(ew.weight, 0.0) * abs(fis.ic_ci_lower) AS material_score,
-    (SELECT config_value::float FROM config_state WHERE config_key = 'alpha.decay.materiality_threshold') AS materiality_threshold,
-    COALESCE(ew.weight, 0.0) * abs(fis.ic_ci_lower)
-        - (SELECT config_value::float FROM config_state WHERE config_key = 'alpha.decay.materiality_threshold')
-        AS distance_to_boundary
-FROM feature_ic_scores fis
-CROSS JOIN latest_window lw
-CROSS JOIN mid_lookahead ml
-LEFT JOIN ensemble_weights ew
-       ON ew.symbol = 'UNIVERSE'
-      AND ew.tf = fis.tf
-      AND ew.regime = fis.regime
-      AND ew.feature_name = fis.feature_name
-      AND ew.weight_version = (SELECT config_value FROM config_state WHERE config_key = 'alpha.ensemble.weight_version')
-WHERE fis.symbol = 'POOLED'
-  AND fis.is_pooled = true
-  AND fis.regime != '_pooled'
-  AND fis.training_window_end = lw.training_window_end
-  AND fis.lookahead_bars = ml.lookahead_bars
-  AND fis.feature_status_at_eval = 'active'
-ORDER BY abs(
-    COALESCE(ew.weight, 0.0) * abs(fis.ic_ci_lower)
-    - (SELECT config_value::float FROM config_state WHERE config_key = 'alpha.decay.materiality_threshold')
-) ASC
-LIMIT 25;
+-- (d) retired 2026-11-04: it read the ic_engine-era feature_ic_scores scopes, ensemble_weights
+-- and alpha.ic.lookahead.mid, all gone (migration 575, phase 186); see git history.

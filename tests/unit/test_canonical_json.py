@@ -34,7 +34,7 @@ def test_the_research_spec_hash_uses_the_same_function() -> None:
 def test_bulk_load_keys_equal_the_inline_dumps_they_replaced_for_json_inputs() -> None:
     spec = BulkLoadSpec(
         writer="ic_measure.proposer",
-        target_table="feature_ic_scores_v2",
+        target_table="feature_ic_scores",
         time_column="training_window_end",
         tf="1d",
         range_start=datetime(2020, 1, 1, tzinfo=UTC),

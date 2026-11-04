@@ -7,10 +7,10 @@ cells) and its most recent lifecycle transition (`concept_transition_log`). The 
 the registry's writers stored; it never judges a concept itself (UCR: only
 `ConceptRegistryService` flips a status).
 
-`ic` is the fresh IC store `ic_measure` writes (`feature_ic_scores_v2`), one row per (timeframe,
+`ic` is the fresh IC store `ic_measure` writes (`feature_ic_scores`), one row per (timeframe,
 regime scope, horizon) at that group's newest training window (the current measurement, not the
 pile-up of every window ever written): rows, features, and features with a cell passing FDR.
-It is empty until the 186-26 feature rebuild lands, and the page says so.
+It is empty until the todo 584 feature rerun lands and ic_measure runs on it, and the page says so.
 """
 
 from typing import Any
@@ -57,22 +57,22 @@ async def concepts(db: DatabaseManager) -> Envelope:
 async def ic(db: DatabaseManager) -> Envelope:
     rows = await db.execute_query(
         "WITH latest AS (SELECT tf, regime_scope, lookahead_bars, "
-        "max(training_window_end) AS training_window_end FROM feature_ic_scores_v2 "
+        "max(training_window_end) AS training_window_end FROM feature_ic_scores "
         "GROUP BY tf, regime_scope, lookahead_bars) "
         "SELECT tf, regime_scope, lookahead_bars, count(*) AS rows, "
         "count(DISTINCT feature_name) AS features, "
         "count(DISTINCT feature_name) FILTER (WHERE passes_fdr) AS features_passing_fdr, "
         "training_window_end AS window_end, max(computed_at) AS computed_at "
-        "FROM feature_ic_scores_v2 "
+        "FROM feature_ic_scores "
         "JOIN latest USING (tf, regime_scope, lookahead_bars, training_window_end) "
         "GROUP BY tf, regime_scope, lookahead_bars, training_window_end "
         "ORDER BY tf, regime_scope, lookahead_bars"
     )
     return envelope(
-        "feature_ic_scores_v2",
+        "feature_ic_scores",
         rows,
         newest(rows, "computed_at"),
-        detail="ic_measure writes it once the 186-26 feature rebuild lands",
+        detail="ic_measure writes it once the todo 584 feature rerun lands",
     )
 
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent IC Measure (fresh IC jobs -> feature_ic_scores_v2) -- phase 186, services/ic_measure.py
+Description=IndicAgent IC Measure (fresh IC jobs -> feature_ic_scores) -- phase 186, services/ic_measure.py
 After=network.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
 

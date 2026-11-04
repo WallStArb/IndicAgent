@@ -480,12 +480,11 @@ class TestValidateCompressedHypertable:
     """This is the hand-curated allow-list for compressed_hypertable_write_session's own
     heavy machinery, deliberately NOT the live-queried `_known_compressed_hypertables` set
     below (code review, 2026-09-17): the live DB has 26 compressed hypertables today, but
-    this mechanism has only been built/incident-hardened for 2 of them -- a pure static
+    this mechanism has only been built/incident-hardened for one of them -- a pure static
     check, no conn involved."""
 
-    def test_known_hypertables_do_not_raise(self) -> None:
+    def test_the_hardened_table_does_not_raise(self) -> None:
         _validate_compressed_hypertable("feature_ic_scores")
-        _validate_compressed_hypertable("feature_ic_scores_v2")
 
     def test_feature_vectors_is_refused_since_migration_570(self) -> None:
         """The table under the name has one writer, bulk_load; no in-place UPDATE session may
@@ -957,11 +956,11 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
 
     def test_raises_when_session_active_for_a_different_table(self) -> None:
         conn = _mock_sync_conn()
-        with compressed_hypertable_write_session(conn, "feature_ic_scores_v2"):
-            with pytest.raises(RuntimeError, match="feature_ic_scores"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
+            with pytest.raises(RuntimeError, match="feature_vectors"):
                 bulk_update_by_key(
                     conn,
-                    table="feature_ic_scores",
+                    table="feature_vectors",
                     temp_table="_t",
                     key_cols=["symbol"],
                     set_cols=["regime"],

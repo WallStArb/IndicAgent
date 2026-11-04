@@ -896,7 +896,7 @@ def _spec() -> Any:
 
     return BulkLoadSpec(
         writer="ic_measure.proposer",
-        target_table="feature_ic_scores_v2",
+        target_table="feature_ic_scores",
         time_column="training_window_end",
         tf="1d",
         range_start=datetime(2026, 1, 1, tzinfo=UTC),

@@ -5,7 +5,8 @@ peer symbols, (bar_ts, symbol) order, stride) through `measure.ic.pooled_rank_ic
 table's targets and with kernel targets, and attributes every target difference to a cause.
 
 Nothing here opens a connection or reads APR: fetchers and `MeasureParams` are injected. The
-live caller is `tests/integration/test_ic_parity_replay.py`.
+live caller was `tests/integration/test_ic_parity_replay.py`, retired with the table it replayed
+(migration 575); the result is `.planning/phases/186-*/186-20-PARITY-REPORT.md`.
 
 Mirrors `services/ic_engine.py`:
 

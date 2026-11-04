@@ -170,7 +170,7 @@ check_canary_integrity() {
         echo "  leakage), or per-symbol false clears exceeded the"
         echo "  pre-committed Binomial tail bound."
         echo
-        echo "  Pipeline halted. Do not use this run's feature_ic_scores_v2"
+        echo "  Pipeline halted. Do not use this run's feature_ic_scores"
         echo "  with unverified measurement integrity."
         echo
         exit 1
@@ -336,7 +336,7 @@ check_regime_consistency
 run_step 3 "cross_sectional_regime_model" \
     "$PYTHON" services/cross_sectional_regime_model.py
 
-# Step 4 — IC Measure (feature_vectors + market_regimes → feature_ic_scores_v2;
+# Step 4 — IC Measure (feature_vectors + market_regimes → feature_ic_scores;
 # phase 186 D-17/D-22: the old ic_engine and the forward_returns table are deleted,
 # targets come from the panel.forward_returns kernel inside ic_measure). ic_measure
 # computes its own training window and enforces alpha.validation.oos_start itself

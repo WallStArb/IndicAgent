@@ -253,18 +253,15 @@ def _apply_corpus_fdr(results: list[dict[str, Any]], fdr_alpha: float) -> None:
 
 
 async def _read_in_sample_qualifying_count(pool: asyncpg.Pool, tf: str) -> int:
-    """Query existing feature_ic_scores for the in-sample qualifying-cell count.
-
-    Qualifying definition matches the OOS harness: ic_ci_lower > 0 AND passes_fdr = true.
-    READ-ONLY.
+    """Refuses: since migration 575, feature_ic_scores holds ic_measure's POOLED rows (proposer
+    cells, regime_volatility disclosure, member windows), while this harness scores every symbol
+    over the full lookahead grid, so the two counts measure different populations and the
+    drop verdict would be silently biased. Removal: todo 554.
     """
-    row = await pool.fetchrow(
-        "SELECT count(*) FROM feature_ic_scores "
-        "WHERE tf = $1 AND ic_ci_lower > 0 AND passes_fdr = true "
-        "AND regime_scope <> 'earnings_season'",
-        tf,
+    raise RuntimeError(
+        "ops_oos_holdout_eval: no like-for-like in-sample population in feature_ic_scores "
+        "since migration 575 (POOLED proposer cells only); see todo 554"
     )
-    return int(row[0]) if row else 0
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +353,9 @@ def _append_look_log(
 
 
 async def main() -> None:
+    # Refuse before any setup I/O: the comparison has no like-for-like population (see
+    # _read_in_sample_qualifying_count).
+    await _read_in_sample_qualifying_count(None, "")  # type: ignore[arg-type]
     parser = argparse.ArgumentParser(
         description="Read-only OOS holdout IC scorer — diagnostic only, never a promotion gate."
     )

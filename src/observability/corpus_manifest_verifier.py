@@ -40,36 +40,10 @@ _APR_DEFAULT_MIN_ROWS_PER_SYMBOL_REGIME = 9
 _APR_DEFAULT_MAX_NULL_RATE = 0.05
 _APR_DEFAULT_NULL_RATE_SAMPLE_SIZE = 10000
 
-# Todo 146: the per-tf lookahead grid is per-tf, not a single shared grid -- a bar
-# count means a different scale on different tfs (e.g. 5 is 15m's old slow AND part of
-# nothing consistent post-146). This file previously read the alpha.ic.lookahead.{tf}.{scale}
-# APR keys, which retired with the old ic_engine stack (phase 186 plan 23, migration 431).
-# The hardcoded mirror below is the documented source of the expected grid: at retirement
-# it equaled the APR values bytewise (verified in 186-23 Task 1), so the conversion is
-# deliberate, not a silent fallback. It mirrors the Ring 2 services layer's
-# LOOKAHEAD_FALLBACKS_BY_TF dict (services package, _batch_utils module) BY VALUE, not by
-# import -- src/observability/ is Ring 0 and must not import the services layer, per this
-# repo's pre-commit Ring 0 boundary check. Keep in sync with that dict by hand if the grid
-# ever changes.
-_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
-    "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
-    "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
-    "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
-    "1d": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
-}
-
-# Todo 208/per-tf-active-scale-set design (2026-07-30): alpha.ic.active_scales.{tf}
-# controls WHICH of the 4 scales the IC measurement attempts per tf -- 1h excludes
-# slow/extended (0.000 measured target completeness under the same-session gate that
-# todo 208 later removed). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
-# by import -- src/observability/ is Ring 0, see the Ring-0-boundary comment above
-# _LOOKAHEADS_BY_TF. Keep in sync with that dict by hand if it ever changes.
-_APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
-    "5m": ("fast", "mid", "slow", "extended"),
-    "15m": ("fast", "mid", "slow", "extended"),
-    "1h": ("fast", "mid"),
-    "1d": ("fast", "mid", "slow", "extended"),
-}
+# The expected per-tf lookahead grid is the IC writer's own configuration, the APR key
+# services/ic_measure.py reads (HORIZONS_KEY), so the gate and the writer cannot disagree. Read
+# here as a raw config_state value: src/observability/ is Ring 0 and must not import services/.
+_APR_KEY_IC_HORIZONS = "alpha.ic_measure.horizons"
 
 
 def _open_db_conn() -> Any:
@@ -80,15 +54,12 @@ def _open_db_conn() -> Any:
 def _load_apr_values(conn: Any) -> dict[str, Any]:
     """Load APR-controlled thresholds from config_state.
 
-    Falls back to hardcoded defaults when keys are absent (e.g., before
-    migration adds them). Always returns a complete dict. The per-tf lookahead
-    grid is not APR-backed anymore: the alpha.ic.lookahead.* keys retired with
-    the old ic_engine stack (phase 186 plan 23), so _LOOKAHEADS_BY_TF
-    above is the source (see its comment).
+    Falls back to hardcoded defaults when a threshold key is absent. The lookahead grid has no
+    fallback: it is the IC writer's `alpha.ic_measure.horizons`, and a missing or malformed
+    value raises (a guessed grid would let the gate pass or halt on the wrong expectation).
     """
-    active_scales_keys = [f"alpha.ic.active_scales.{tf}" for tf in _APR_DEFAULT_ACTIVE_SCALES_BY_TF]
     keys = [
-        *active_scales_keys,
+        _APR_KEY_IC_HORIZONS,
         _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME,
         _APR_KEY_MAX_NULL_RATE,
         _APR_KEY_NULL_RATE_SAMPLE_SIZE,
@@ -101,25 +72,15 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         )
         rows = {r[0]: r[1] for r in cur.fetchall()}
 
-    active_scales_by_tf: dict[str, tuple[str, ...]] = {}
-    for tf, default_scales in _APR_DEFAULT_ACTIVE_SCALES_BY_TF.items():
-        raw = rows.get(f"alpha.ic.active_scales.{tf}")
-        try:
-            # None (key absent) -> default_scales. A present-but-empty "[]" is a
-            # deliberate "no scales active" configuration and must NOT fall back to
-            # the default -- matches canonicalize_active_scales([]) == () in
-            # services/_batch_utils.py, the Ring 2 path this Ring 0 copy mirrors.
-            parsed = json.loads(raw) if raw is not None else None
-            active_scales_by_tf[tf] = default_scales if parsed is None else tuple(parsed)
-        except (ValueError, TypeError):
-            active_scales_by_tf[tf] = default_scales
-
-    # active_scales_by_tf is unconditionally populated for the same four tfs the
-    # lookahead dict iterates, so direct indexing cannot miss.
-    lookaheads_by_tf: dict[str, set[int]] = {
-        tf: {bars for scale, bars in defaults.items() if scale in active_scales_by_tf[tf]}
-        for tf, defaults in _LOOKAHEADS_BY_TF.items()
-    }
+    raw_horizons = rows.get(_APR_KEY_IC_HORIZONS)
+    if raw_horizons is None:
+        raise RuntimeError(f"{_APR_KEY_IC_HORIZONS} is missing from config_state")
+    try:
+        lookaheads_by_tf: dict[str, set[int]] = {
+            tf: {int(h) for h in horizons} for tf, horizons in json.loads(raw_horizons).items()
+        }
+    except (ValueError, TypeError, AttributeError) as error:
+        raise RuntimeError(f"{_APR_KEY_IC_HORIZONS} is malformed: {raw_horizons!r}") from error
 
     raw_min_rows = rows.get(_APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME)
     if raw_min_rows is not None:
@@ -236,7 +197,6 @@ class CorpusManifestVerifier:
         conn: Any,
         required_tfs: list[str],
         required_symbols: list[str],
-        training_window_end: str | None = None,
     ) -> None:
         """Verify data quality checks (CORPUS-01 from Phase 141).
 
@@ -246,7 +206,7 @@ class CorpusManifestVerifier:
         - Symbol coverage (distinct symbol count per TF >= len(required_symbols))
         - Schema completeness (POOLED rows for all TFs, no missing lookaheads)
         - Feature distribution (NULL rate < APR threshold per feature column, per-TF sampled)
-        - Consistency (training_window_end consistent, no NULL regimes, no zero-weight strata)
+        - Consistency (no empty regime label)
         """
         apr = _load_apr_values(conn)
         expected_lookaheads_by_tf: dict[str, set[int]] = apr["lookaheads_by_tf"]
@@ -272,8 +232,7 @@ class CorpusManifestVerifier:
             cur.execute("""
                 SELECT tf, COUNT(*) as count
                 FROM feature_ic_scores
-                WHERE symbol = 'POOLED' AND regime != '_pooled'
-                  AND regime_scope <> 'earnings_season'
+                WHERE symbol = 'POOLED' AND regime_scope = 'unstratified'
                 GROUP BY tf
                 ORDER BY tf
                 """)
@@ -288,8 +247,7 @@ class CorpusManifestVerifier:
             cur.execute("""
                 SELECT tf, lookahead_bars, COUNT(DISTINCT feature_name) as n_features
                 FROM feature_ic_scores
-                WHERE symbol = 'POOLED' AND regime != '_pooled'
-                  AND regime_scope <> 'earnings_season'
+                WHERE symbol = 'POOLED' AND regime_scope = 'unstratified'
                 GROUP BY tf, lookahead_bars
                 ORDER BY tf, lookahead_bars
                 """)
@@ -316,36 +274,16 @@ class CorpusManifestVerifier:
             conn, required_tfs, apr["max_null_rate"], apr["null_rate_sample_size"]
         )
 
-        # Check 5: No NULL regime labels in POOLED rows
+        # Check 5: no empty regime label (NOT NULL covers NULL; an empty string would read as
+        # a real regime_volatility label).
         _logger.info("corpus_verification.checking_regime_labels")
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*)
-                FROM feature_ic_scores
-                WHERE symbol = 'POOLED' AND (regime IS NULL OR regime = '')
-                """)
-            null_regime_count = cur.fetchone()[0]
-            if null_regime_count > 0:
-                raise RuntimeError(f"{null_regime_count} POOLED rows have NULL/empty regime labels")
-
-        # Check 7: Training window end consistency
-        if training_window_end:
-            _logger.info("corpus_verification.checking_training_window_consistency")
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM feature_ic_scores
-                    WHERE training_window_end != %s
-                    """,
-                    (training_window_end,),
+            cur.execute("SELECT COUNT(*) FROM feature_ic_scores WHERE regime = ''")
+            empty_regime_count = cur.fetchone()[0]
+            if empty_regime_count > 0:
+                raise RuntimeError(
+                    f"{empty_regime_count} feature_ic_scores rows have an empty regime"
                 )
-                inconsistent_count = cur.fetchone()[0]
-                if inconsistent_count > 0:
-                    raise RuntimeError(
-                        f"{inconsistent_count} feature_ic_scores rows have "
-                        f"training_window_end != {training_window_end}"
-                    )
 
         _logger.info("corpus_verification.data_quality_verified")
 

@@ -10,7 +10,7 @@
 / `trade_frames`/`trade_executions`/`signal_ledger`) describe the **v2.x pipeline — archived, no
 live consumer as of 2026-07-02** (see `CLAUDE.md` Architecture section). They are retained below
 for historical ownership record, not as live behavior. The v3.0 pipeline
-(`feature_vectors` → kernel forward returns → `feature_ic_scores_v2` via `ic_measure`;
+(`feature_vectors` → kernel forward returns → `feature_ic_scores` via `ic_measure`;
 the old `forward_returns` table was dropped by migration 430, phase 186 plan 23)
 is the live canonical set.
 
@@ -54,7 +54,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | v3.0 feature vectors (per-bar) | `{env}.intelligence.feature_vectors` | `feature_vectors` | `FeatureWriter` | 54-scalar typed feature primitives per bar. No JSONB — all columns. IC Engine reads this; never writes to it. |
 | v3.0 regime labels (per bar) | None (batch UPDATE) | `feature_vectors.regime` | `RegimeWriter` | HMM Viterbi per-(symbol,tf) sequence; UPDATEs `feature_vectors.regime` and `regime_label_source`. Single canonical writer — IC Engine reads but never writes regime. |
 | v3.0 outcome labels (forward returns) | None (kernel compute) | *(none — `forward_returns` dropped by migration 430, 186-23)* | `panel.forward_returns` kernel via `ICMeasure` | Causal log returns `ln(open[T+N+1]/open[T+1])` at 1/5/20/60 bar horizons. The old `ForwardReturnWriter`/table were deleted in phase 186 plan 23; targets are computed with the kernel, never stored as a label table. |
-| v3.0 IC scores (per feature×symbol×tf×regime×lookahead) | None (batch INSERT) | `feature_ic_scores` (frozen; fresh rows to `feature_ic_scores_v2`) | `ICEngine` (deleted 186-23; `ICMeasure` writes v2) | Spearman IC + bootstrap CI + BH-FDR + walk-forward results. Legacy table frozen, dropped whole by 186-28. |
+| v3.0 IC scores (per feature×symbol×tf×regime×lookahead) | None (batch INSERT) | `feature_ic_scores` (migration 413 schema since migration 575) | `ICMeasure` (`ICEngine` deleted 186-23) | Spearman IC + bootstrap CI + BH-FDR per scope. The ic_engine-era table was dropped by migration 575. |
 | v3.0 IC discovery report | None (file write) | `docs/analysis/ic-discovery-report-{date}.md` | `ICEngine` | Markdown report of features passing FDR + walk-forward gates by regime and TF. Written at end of each IC Engine run. Not a DB table — filesystem artifact. |
 
 <!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger view (renamed from signal_ledger_full, Phase 130) — verified 2026-09-04 -->

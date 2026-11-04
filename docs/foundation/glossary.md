@@ -207,14 +207,14 @@ The layer that transforms raw market data (OHLCV) into measurable features — d
 
 **Current implementation:** `FeatureFactory` (I1-I4 cadence tiers; the "54 features" count is historical)
 **Output:** `FeatureVector` → `feature_vectors` table
-**Rebuilt table:** `feature_vectors_v2` (312 columns, PK `symbol, tf, bar_ts`, 1-year chunks) is written only by the rebuild writer through `bulk_load`, and takes the `feature_vectors` name at the swap in phase 186-27.
+**Rebuilt table:** `feature_vectors` (built as `feature_vectors_v2`, the name since migration 570; 324 columns, PK `symbol, tf, bar_ts`, 1-year chunks) is written only by the rebuild writer through `bulk_load`.
 **Not:** synonymous with "Feature Factory" — FeatureFactory is the mechanism; signal processing layer is the generic concept. Other implementations could exist (different feature sets, different computation strategies) without changing what this layer IS.
 
 **Distinction from theory-laden features:** Primitives like `body_ratio` or `overnight_gap_z` encode no market theory. Theory-laden features like `poc_dist_atr` or `sr_support_dist` assume support/resistance has meaning — they may have IC but they are not primitives.
 
 **Synonyms:** `feature engineering layer` (ML community), `feature extraction layer` (signal processing). All refer to the same concept: raw data in, measurable features out.
 
-**Status:** active (mechanism live; the "54 features" count and the Stage 0 framing above are historical - the current rebuild table is `feature_vectors_v2` becoming `feature_vectors` in phase 186-27)
+**Status:** active (mechanism live; the "54 features" count and the Stage 0 framing above are historical - the kernel table took the `feature_vectors` name at migration 570)
 **Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` (historical; Stage 0 is retired)
 
 ---
@@ -544,7 +544,7 @@ The Corwin-Schultz (2012) bid-ask spread estimate from bar highs and lows, as a 
 **Banned:** (none)
 **Status:** active (todo 553, kernel `src/intelligence/features/kernels/liquidity.py`)
 
-**Code surface:** feature column `high_low_spread` (feature_vectors_v2); APR `feature.high_low_spread.window`.
+**Code surface:** feature column `high_low_spread` (feature_vectors); APR `feature.high_low_spread.window`.
 
 **Reach of a large move:** any large real price move, or a vendor step that survives arbitration, enters every Roll window holding its return (up to `window` rows) and up to 21 Corwin-Schultz window means. Vendor seams and bad prints are settled in the bar layer (D-191-Q arbitration, quarantine list), never in the kernel.
 
@@ -559,7 +559,7 @@ The Roll (1984) implied bid-ask spread, `2 sqrt(-cov)`, where `cov` is the seria
 **Banned:** (none)
 **Status:** active (todo 553, kernel `src/intelligence/features/kernels/liquidity.py`)
 
-**Code surface:** feature column `roll_spread` (feature_vectors_v2); APR `feature.roll_spread.window`.
+**Code surface:** feature column `roll_spread` (feature_vectors); APR `feature.roll_spread.window`.
 
 **Reach of a large move:** see `high-low spread`; the same holds for every Roll window that holds the move's return.
 
@@ -1040,7 +1040,7 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 **Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
 **Banned:** predictive power score, signal quality score
-**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by the old `services/ic_engine.py` (deleted, phase 186 plan 23); the table is frozen and dropped whole by plan 186-28 (fresh rows go to `feature_ic_scores_v2`)
+**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by the old `services/ic_engine.py` (deleted, phase 186 plan 23); that table was dropped by migration 575 (2026-11-04), and the name now holds the fresh IC table `ic_measure` writes
 
 ---
 
@@ -1178,7 +1178,7 @@ Ledoit-Wolf ensemble optimization uses the IC Sharpe time series (not raw IC) to
 **Annualized for cross-TF comparison:** `IC_Sharpe_annualized = IC_Sharpe_bar × sqrt(bars_per_year)`. The annualized form is for comparison only — ensemble weights use bar-unit IC Sharpe.
 
 **Not:** a backtest Sharpe ratio (which measures P&L consistency). IC Sharpe measures predictive consistency, one step upstream.
-**Status:** active — computed by `ic_measure.py` (with HAC and stride-bias corrections) into `feature_ic_scores_v2`; the frozen `feature_ic_scores` rows and `ensemble_weights.ic_sharpe` were retired with the old chain in phase 186
+**Status:** active — computed by `ic_measure.py` (with HAC and stride-bias corrections) into `feature_ic_scores`; the ic_engine-era rows (dropped by migration 575) and `ensemble_weights.ic_sharpe` were retired with the old chain in phase 186
 
 ---
 
@@ -1385,7 +1385,7 @@ different grains, not just once:
 
 - **Feature grain** (pre-weighting, between `regime classifier` and `ensemble optimizer`):
   measures whether each individual feature in the `FeatureVector` predicts forward returns.
-  **Current implementation:** Spearman IC (`ic_measure.py`, kernel forward returns) → `feature_ic_scores_v2` (the deleted `ic_engine.py` wrote the frozen `feature_ic_scores`)
+  **Current implementation:** Spearman IC (`ic_measure.py`, kernel forward returns) → `feature_ic_scores` (the deleted `ic_engine.py` wrote the table migration 575 dropped)
 - **Ensemble grain** (post-scoring, after `alpha scorer`): the same operation applied to
   the ensemble's own combined `alpha_score` instead of a single feature column -- does the
   *ensemble's* prediction predict returns, not just its inputs.
@@ -1816,7 +1816,7 @@ regime-explained share reported on every book test; never gating. **Banned:** (n
 
 ### `rebuild unit`
 
-One (symbol chunk, tf, time range) slice of the feature_vectors_v2 rebuild
+One (symbol chunk, tf, time range) slice of the feature_vectors rebuild
 (services/backfill_feature_factory.py run_rebuild_stage), keyed by a provenance batch record so
 a kill-and-resume skips completed units and recomputes the rest. **Banned:** (none)
 **Status:** active (phase 186)
@@ -1837,29 +1837,29 @@ services/_batch_utils.py bulk_load)
 
 The one writer of the fresh IC table (`services/ic_measure.py`, oneshot, phase 186 D-17). It runs
 the pure measure jobs (proposer with term structure, `regime_volatility` disclosure, monitoring)
-and writes `feature_ic_scores_v2` only through `bulk_load()`, one provenance batch per unit
+and writes `feature_ic_scores` only through `bulk_load()`, one provenance batch per unit
 (job, tf); a unit owns every row of its scope in that tf, and feature blocking is memory only.
 **Banned:** (none)
 **Status:** active (phase 186 plan 14)
 
 ---
 
-### `feature_ic_scores_v2`
+### `feature_ic_scores`
 
-The fresh IC hypertable (migration 413): `regime_scope` is in the primary key from creation, and
+The IC hypertable (migration 413, built as `feature_ic_scores_v2`; the name since migration 575,
+which dropped the ic_engine-era table that held it): `regime_scope` is in the primary key, and
 `training_window_end` has one meaning, the latest target exit bar used by the cell, always before
-`alpha.validation.oos_start`. Sole writer `ic_measure`. The legacy `feature_ic_scores` table is
-frozen and dropped whole by plan 186-28. **Banned:** (none)
+`alpha.validation.oos_start`, per tf. Sole writer `ic_measure`. **Banned:** (none)
 **Status:** active (phase 186 plan 14)
 
 ---
 
 ### `fresh regime_scope values`
 
-The three values `feature_ic_scores_v2.regime_scope` allows: `unstratified` (proposer cells,
+The three values `feature_ic_scores.regime_scope` allows: `unstratified` (proposer cells,
 regime `_all`), `regime_volatility` (disclosure, regime = the label) and `member_window`
 (monitoring, one row per window, regime `_all`). The legacy values (`cross_sectional`,
-`symbol_hmm`, `pooled`, `earnings_season`) cannot enter the v2 table. **Banned:** (none)
+`symbol_hmm`, `pooled`, `earnings_season`) cannot enter the table. **Banned:** (none)
 **Status:** active (phase 186 plan 14)
 
 ---

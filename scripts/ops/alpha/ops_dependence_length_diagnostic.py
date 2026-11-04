@@ -76,9 +76,11 @@ _FLAG_RATIO_FALLBACK = 2.0
 # actually uses in production).
 _BLOCK_SIZE_DEFAULTS = {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
 
+# Per tf: training_window_end is each tf's own last target exit bar before oos_start
+# (migration 413), so the anchor and the integrity_monitor key are taken per tf.
 _LATEST_VINTAGE_SQL = (
     "SELECT max(training_window_end) FROM feature_ic_scores "
-    "WHERE regime_scope <> 'earnings_season'"
+    "WHERE regime_scope = 'unstratified' AND tf = $1"
 )
 _SYMBOLS_SQL = """
     SELECT DISTINCT symbol FROM feature_vectors WHERE tf = $1 ORDER BY symbol LIMIT $2
@@ -203,11 +205,6 @@ async def main() -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
-        vintage = await pool.fetchval(_LATEST_VINTAGE_SQL)
-        if vintage is None:
-            print("ERROR: feature_ic_scores is empty -- no vintage to anchor the sample.")
-            return 0
-
         flag_ratio = await _load_config_float(
             pool, "alpha.ic.dependence_length_flag_ratio", _FLAG_RATIO_FALLBACK
         )
@@ -222,7 +219,7 @@ async def main() -> int:
 
         print("# Dependence-Length Diagnostic (todo 145)\n")
         print(
-            f"vintage: {vintage}, max_symbols={args.max_symbols}, "
+            f"vintage: per tf, max_symbols={args.max_symbols}, "
             f"flag_ratio_threshold={flag_ratio}, block_sizes={block_sizes}\n"
         )
         print(
@@ -239,6 +236,10 @@ async def main() -> int:
         n_flagged = 0
 
         for tf in tfs:
+            vintage = await pool.fetchval(_LATEST_VINTAGE_SQL, tf)
+            if vintage is None:
+                print(f"WARNING: no feature_ic_scores vintage for tf={tf}; skipped")
+                continue
             block_size = block_sizes[tf]
             symbol_rows = await pool.fetch(_SYMBOLS_SQL, tf, args.max_symbols)
             symbols = [r["symbol"] for r in symbol_rows]

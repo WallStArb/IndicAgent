@@ -77,7 +77,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
     "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
-    "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
+    "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores via bulk_load (phase 186, D-17)
     "indicagent-feature-lifecycle": 8,  # oneshot (todo 402); feature_ic_scores -> concept_evaluation + concept_registry
     # Phase 185 D2b derived grid (plan 11): tradeable 5m -> derived 15m/1h + digests.
     # Oneshot with no timer: the IBKR history fetcher runs the grid stage after a run that

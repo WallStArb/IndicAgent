@@ -122,14 +122,11 @@ class TestIntegrityMonitorInsertSqlShape:
         )
 
 
-class TestLatestVintageScopeExclusion:
-    """Phase 176 (todo 353) scope-consumer audit: this file writes integrity_monitor
-    rows that gate downstream consumers the same way reliable/passes_walkforward
-    already do, so it is decision-driving. Its only feature_ic_scores touch is this
-    vintage anchor -- defense-in-depth against a future redesign where
-    earnings-season conditioning runs as a separate pass with its own
-    training_window_end (today it shares the main ic_engine run's window, per
-    176-04-PLAN.md, so this is currently a no-op filter, not a live bug fix)."""
+class TestLatestVintageAnchor:
+    """This file writes integrity_monitor rows that gate downstream consumers, so its one
+    feature_ic_scores touch, the vintage anchor, must read the migration 413 semantics: the
+    proposer's unstratified scope, per tf (training_window_end is each tf's own last exit bar)."""
 
-    def test_latest_vintage_excludes_earnings_season(self) -> None:
-        assert "regime_scope <> 'earnings_season'" in _LATEST_VINTAGE_SQL
+    def test_latest_vintage_reads_the_unstratified_scope_per_tf(self) -> None:
+        assert "regime_scope = 'unstratified'" in _LATEST_VINTAGE_SQL
+        assert "tf = $1" in _LATEST_VINTAGE_SQL

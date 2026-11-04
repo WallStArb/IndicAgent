@@ -24,13 +24,13 @@ High level; the schema is in `production/migrations/` and the owners are in `doc
 | Group | Tables | Retention |
 |---|---|---|
 | Bars | `ohlcv_raw` (every vendor answer, last-wins), `market_data_ohlcv` (canonical selection), views `market_data_ohlcv_tradeable` and `bar_source_policy_current`, `ohlcv_revision`, `bar_quality_flag`, `bar_session_choice`, `dividend_events` | Forever; `ohlcv_raw` is never wiped |
-| Features | `feature_vectors_v2` (rebuild in progress), `market_regimes`, `feature_ic_scores_v2`, `macro_features` | Rebuildable cache |
+| Features | `feature_vectors` (empty until the 584 rerun), `market_regimes`, `feature_ic_scores`, `macro_features` | Rebuildable cache |
 | Research | `research_run`, `concept_registry`, `concept_evaluation`, `concept_gate` | Conclusions are records, kept |
 | Registries | `instruments`, `instrument_tags`, `instrument_classification`, `controlled_vocabulary`, `config_schema`, `config_state`, `config_history` | Forever |
 
 **Never delete `market_data_ohlcv` or `ohlcv_raw`.** All derived tables rebuild from them.
 
-Time columns: `market_data_ohlcv` and `ohlcv_raw` use `timestamp` (not `ts`); `feature_vectors_v2` uses `bar_ts` and `tf`.
+Time columns: `market_data_ohlcv` and `ohlcv_raw` use `timestamp` (not `ts`); `feature_vectors` uses `bar_ts` and `tf`.
 
 **Checkpoint files** (not DB) are in-process state only; delete to force a cold start.
 
@@ -562,7 +562,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
 
 # Latest feature rows per timeframe
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT tf, MAX(bar_ts) AS last_feature FROM feature_vectors_v2 GROUP BY tf"
+  "SELECT tf, MAX(bar_ts) AS last_feature FROM feature_vectors GROUP BY tf"
 ```
 
 ---

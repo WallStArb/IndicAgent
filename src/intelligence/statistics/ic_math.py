@@ -373,8 +373,8 @@ def vol_normalized_return(
     guarding one scalar at a time.
 
     This is a measurement-time diagnostic helper only -- it does not replace the
-    production return target (`return_fast/mid/slow/extended` stay raw in
-    `forward_returns`/`feature_ic_scores`). See
+    production return target (IC targets stay raw executable returns from
+    `panel.forward_returns`, as stored in `feature_ic_scores`). See
     `scripts/ops/alpha/ops_vol_normalized_target_ab.py` for the explicit A/B this
     feeds; per the locked validation contract (143.1-CONTEXT.md Component F), this
     is never a silent production swap -- retire the transform if vol-normalized

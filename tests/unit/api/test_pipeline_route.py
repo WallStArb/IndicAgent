@@ -34,7 +34,7 @@ def _db_answers(mock_db, *, failing=0, ic_newest=None, research=True):
             return [{"newest_bar": FRESH}]
         if "FROM concept_registry" in sql:
             return [{"status": "active", "count": 3}]
-        if "FROM feature_ic_scores_v2" in sql:
+        if "FROM feature_ic_scores" in sql:
             return [{"ic_rows": 0, "newest": ic_newest}]
         if "FROM research_run" in sql:
             return [{"status": "completed", "runs": 2, "newest": FRESH}] if research else []

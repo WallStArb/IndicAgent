@@ -5,9 +5,9 @@ Phase 143.1-02).
 
 Expectation-aware, false-halt-aware assertion over the 5 canary/control predictors
 (concept_registry domain='feature', is_control=true rows; migrations 283/284). Queries
-feature_ic_scores_v2 (ic_measure's table; the legacy feature_ic_scores is frozen at
-the last ic_engine vintage and drops in phase 186 plan 28) for
-every canary x stratum cell in the latest training_window_end vintage and evaluates
+feature_ic_scores (ic_measure's table since migration 575; the ic_engine-era table it
+replaced is dropped) for
+every canary x stratum cell in each tf's latest training_window_end vintage and evaluates
 each against its control_expectation ('negative_control' | 'positive_control').
 
 HARD-halt (loud, non-zero exit / raised error) if:
@@ -41,7 +41,7 @@ in docs/plans/methodology-change-ledger.md (entry E7, and its 2026-08-02 addendu
 per this project's pre-commitment convention for gate-affecting decisions.
 
 Wired into scripts/ops/corpus/ops_corpus_pipeline_run.sh immediately after Step 4
-(ic_measure) -- feature_ic_scores_v2 must exist before this gate has anything to read.
+(ic_measure) -- feature_ic_scores must exist before this gate has anything to read.
 
 Usage:
     python scripts/ops/alpha/ops_canary_integrity_assert.py
@@ -71,41 +71,46 @@ _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
 # bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
 _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 
-# Phase 186 repoint: ic_measure (writer of feature_ic_scores_v2) replaced ic_engine as
-# the pipeline's IC step, so the gate must score the vintage the run it guards just
-# wrote; reading the legacy table would evaluate a frozen corpse instead.
-# regime_scope = 'unstratified' is the v2 translation of the old "<> 'earnings_season'"
+# The gate scores the vintage ic_measure (writer of feature_ic_scores) just wrote.
+# regime_scope = 'unstratified' is the migration 413 translation of the old "<> 'earnings_season'"
 # filter: the proposer's family measurement, not a stratified overlay scope.
-_LATEST_VINTAGE_SQL = (
-    "SELECT MAX(training_window_end) FROM feature_ic_scores_v2 "
-    "WHERE regime_scope = 'unstratified'"
-)
+# Only proposer cells are testable: ic_measure fills ic_ci_* and passes_fdr at each tf's proposer
+# horizon alone (proposer_rows), so passes_fdr IS NOT NULL selects exactly them; untestable
+# horizons would inflate the negative-control cell count and loosen the Binomial bound. The
+# vintage is per (tf, horizon): training_window_end is that cell's last target exit bar before
+# oos_start (migration 413), so one MAX across tfs would leave the other tfs unevaluated. The
+# gate is not tied to one ic_measure run id; it reads each cell's latest vintage.
 
 _CANARY_ROWS_SQL = """
     SELECT
         s.feature_name, s.symbol, s.tf, s.regime, s.is_pooled,
         s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr,
-        NULL::double precision AS cumulative_e_value,
+        s.cumulative_e_value,
         r.control_expectation
-    FROM feature_ic_scores_v2 s
+    FROM feature_ic_scores s
     JOIN concept_registry r ON r.name = s.feature_name AND r.domain = 'feature'
     JOIN concept_gate cg ON cg.concept_id = r.concept_id
     WHERE r.is_control = true
-      AND s.training_window_end = $1
       AND s.regime_scope = 'unstratified'
+      AND s.passes_fdr IS NOT NULL
+      AND s.training_window_end = (
+          SELECT max(v.training_window_end) FROM feature_ic_scores v
+          WHERE v.tf = s.tf AND v.lookahead_bars = s.lookahead_bars
+            AND v.regime_scope = 'unstratified'
+      )
 """
-# cumulative_e_value is selected as NULL: the e-value pilot (Component C, todo 079) was
-# an ic_engine experiment and v2 has no such column, so evaluate_e_value_decay sees no
-# coverage and reports it (its empty-scope path reports, never hard-fails).
+# cumulative_e_value: migration 413 keeps the column but ic_measure never writes it (the e-value
+# pilot, Component C, todo 079, was an ic_engine experiment), so evaluate_e_value_decay sees NULL
+# coverage and reports it (its empty-scope path reports, never hard-fails) until it does.
 # concept_gate is INNER JOINed for consistency with every other Phase 170-repointed
 # ops_* script's tombstone defense (ops_broadcast_feature_audit.py et al.) -- a no-op
 # today since migration 284 hardcodes is_control=false on both gate-less tombstone
 # rows, but this keeps the exclusion structural rather than incidental to that value.
 
 # e-value pilot scope (Component C, todo 079, Phase 143.1 Plan 06): tf=5m only, matching
-# the deleted ic_engine's _e_value_pilot_active gate. With v2 carrying no e-value column
+# the deleted ic_engine's _e_value_pilot_active gate. With ic_measure writing no e-value
 # (see the _CANARY_ROWS_SQL comment) this scope evaluates zero rows today; it stays so
-# the check reactivates unchanged if a v2 e-value column ever lands.
+# the check reactivates unchanged once ic_measure fills cumulative_e_value.
 _E_VALUE_PILOT_TFS = frozenset({"5m"})
 
 
@@ -284,10 +289,9 @@ def evaluate_e_value_decay(
     rows with no e-value column at all) is silently
     excluded from n_rows_evaluated, not treated as a violation. Unlike
     evaluate()'s base canary integrity check, an empty result (no e-value
-    coverage yet) is NOT a hard-halt condition here: the e-value column
-    belonged to the ic_engine era and feature_ic_scores_v2 does not carry it
-    (it is selected as NULL, see _CANARY_ROWS_SQL), so this self-verification
-    reports zero coverage until a v2 e-value column ever lands.
+    coverage yet) is NOT a hard-halt condition here: feature_ic_scores (migration 413)
+    keeps the cumulative_e_value column but ic_measure does not write it yet (see the
+    _CANARY_ROWS_SQL comment), so this self-verification reports zero coverage until it does.
 
     The acausal-placebo positive control's cumulative e-value crossing the
     promotion threshold is the EXPECTED healthy behavior (it should grow --
@@ -365,11 +369,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 async def _fetch_rows(pool: asyncpg.Pool) -> list[dict[str, Any]]:
-    vintage = await pool.fetchval(_LATEST_VINTAGE_SQL)
-    if vintage is None:
-        return []
-    rows = await pool.fetch(_CANARY_ROWS_SQL, vintage)
-    return [dict(r) for r in rows]
+    return [dict(r) for r in await pool.fetch(_CANARY_ROWS_SQL)]
 
 
 async def main() -> int:

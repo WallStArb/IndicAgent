@@ -1172,15 +1172,15 @@ _COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL = (
 # GUC-override/VACUUM sequence against a table it was never designed or tested for. Adding
 # a table here must be a deliberate, reviewed decision -- a live query must never make it
 # on this mechanism's behalf.
-# feature_ic_scores_v2 (phase 186 plan 14): an empty fresh table with no scheduled compression policy;
-# the session runs against it for services/ic_measure.py (decompress, recompress and VACUUM, which
+# feature_ic_scores (the migration 413 table): no scheduled compression policy; the session
+# runs against it for services/ic_measure.py (decompress, recompress and VACUUM, which
 # the plan 186-14 integration test exercises on indicagent_test).
 # feature_vectors left the set at migration 570 (2026-11-04): the hardening was for the dropped v1
 # table, and the table now under that name has one writer, bulk_load (D-24, append only). Keeping
 # it here would let the legacy in-place UPDATE writers (regime_writer and the corpus repair
 # scripts) overwrite the rebuild's walk-forward labels behind provenance that still names the
 # rebuild; without it every such session refuses loudly.
-_WRITE_SESSION_HARDENED_TABLES = frozenset({"feature_ic_scores", "feature_ic_scores_v2"})
+_WRITE_SESSION_HARDENED_TABLES = frozenset({"feature_ic_scores"})
 
 
 def _validate_compressed_hypertable(hypertable: str) -> None:
@@ -1801,9 +1801,9 @@ counts were never the problem; the now-removed same-ET-session completeness gate
 under the corrected, session-agnostic completeness definition is a separate, open
 tier-count/spacing question (todo 208's Step 3, deliberately deferred, not settled
 by this table). The alpha.ic.lookahead.* APR keys retired with the old ic_engine
-stack (phase 186 plan 23), so this dict is the grid's source; ops_oos_holdout_eval.py
-falls back to it per tf, and src/observability/corpus_manifest_verifier.py mirrors it
-BY VALUE (Ring 0 must not import the services layer)."""
+stack (phase 186 plan 23). Its one remaining consumer is ops_oos_holdout_eval.py, which
+refuses since migration 575 and goes with todo 554; the IC writer's grid is
+alpha.ic_measure.horizons, which corpus_manifest_verifier.py reads directly."""
 
 
 def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:

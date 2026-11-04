@@ -77,7 +77,9 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   584 decision). The 186-26 rows on pin `92e588385` were discarded (migration 569, 298 GB freed;
   provenance `superseded`), so nothing resumes. The swap landed 2026-11-04 (migration 570): one
   table name, `feature_vectors` (empty, kernel schema; the 89 GB v1 table dropped), the rebuild
-  compresses at every full-universe stage end, the streaming feature writer unit is disabled. Next: the fix
+  compresses at every full-universe stage end, the streaming feature writer unit is disabled. Migration 575
+  (2026-11-04) did the same for IC: one table, `feature_ic_scores` (413 schema, empty until
+  186-28's fresh run); the ic_engine-era table and its two views are dropped. Next: the fix
   batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase); pre-2016 results carry a survivorship caveat (todo 534).
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection

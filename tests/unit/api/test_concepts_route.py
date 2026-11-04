@@ -19,7 +19,7 @@ def _answers(mock_db, *, fail_table=None):
     async def execute_query(sql, *args):
         if fail_table and f"FROM {fail_table}" in sql:
             raise TimeoutError("command_timeout")
-        if "FROM feature_ic_scores_v2" in sql:
+        if "FROM feature_ic_scores" in sql:
             return []
         return [
             {"name": "a", "status": "active", "evaluated_at": EVALUATED, "triggered_at": None},
@@ -49,13 +49,13 @@ def test_concepts_carry_their_latest_evidence_and_transition(client, mock_db):
 def test_an_empty_ic_store_says_what_fills_it(client, mock_db):
     _answers(mock_db)
     ic = client.get("/api/concepts/summary").json()["ic"]
-    assert ic["source"] == "feature_ic_scores_v2"
+    assert ic["source"] == "feature_ic_scores"
     assert ic["rows"] == [] and ic["as_of"] is None
-    assert "186-26" in ic["meta"]["detail"]
+    assert "584" in ic["meta"]["detail"]
 
 
 def test_a_failing_section_does_not_take_down_the_other(client, mock_db):
-    _answers(mock_db, fail_table="feature_ic_scores_v2")
+    _answers(mock_db, fail_table="feature_ic_scores")
     body = client.get("/api/concepts/summary").json()
     assert body["ic"]["meta"]["error"] == "TimeoutError"
     assert body["concepts"]["rows"]

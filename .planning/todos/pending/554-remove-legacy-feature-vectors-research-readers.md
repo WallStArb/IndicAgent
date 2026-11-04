@@ -40,3 +40,10 @@ runnable.
 No `scripts/research/` entry remains in the boundary test's allow-list and the holdout-eval
 entry is gone; then this file moves to `completed/` (the boundary test requires a pending removal
 todo only while a legacy entry exists).
+
+## Note 2026-11-04 (migration 575)
+
+`scripts/ops/corpus/ops_oos_holdout_eval.py` now refuses at the top of `main()`: its in-sample
+count read the ic_engine-era `feature_ic_scores`, and the 413 table under that name has no
+like-for-like population (POOLED rows only, CI and FDR at the proposer horizon alone). Its removal
+stays with this todo.

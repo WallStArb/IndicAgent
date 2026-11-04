@@ -18,3 +18,12 @@ integration suite is never fully green.
 
 Decide per test with its owner: retire the parity replay (its premise is gone) and rewrite the quarantine
 check against the live invariant (every quarantined bar is absent from the tradeable view), not the copy count.
+
+## Parity replay retired (2026-11-04, migration 575)
+
+`tests/integration/test_ic_parity_replay.py` is deleted: it replayed POOLED cross-sectional cells
+of the ic_engine-era `feature_ic_scores`, which migration 575 dropped (after `forward_returns` in
+186-23), so nothing it reads exists. Its committed 186-20 parity report stays as the evidence. The
+pure harness (`tests/unit/measure/parity_replay.py`) and its unit tests remain. Left here: the
+quarantine check.
+

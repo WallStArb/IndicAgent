@@ -241,15 +241,13 @@ class TestReadOosStartAsync:
 
 class TestReadInSampleQualifyingCountAsync:
     @pytest.mark.asyncio
-    async def test_returns_int_from_mocked_pool(self):
+    async def test_refuses_without_a_like_for_like_population(self):
         from scripts.ops.corpus.ops_oos_holdout_eval import _read_in_sample_qualifying_count
 
         mock_pool = AsyncMock()
-        mock_pool.fetchrow = AsyncMock(return_value=(42,))
-
-        count = await _read_in_sample_qualifying_count(mock_pool, "5m")
-
-        assert count == 42
+        with pytest.raises(RuntimeError, match="like-for-like"):
+            await _read_in_sample_qualifying_count(mock_pool, "5m")
+        mock_pool.fetchrow.assert_not_called()
 
 
 class TestReadOosRowsAsync:

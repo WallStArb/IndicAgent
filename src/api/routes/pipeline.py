@@ -69,11 +69,11 @@ async def measure(db: DatabaseManager) -> Envelope:
             "SELECT status, count(*) AS count FROM concept_registry GROUP BY status ORDER BY status"
         ),
         db.execute_query(
-            "SELECT count(*) AS ic_rows, max(computed_at) AS newest FROM feature_ic_scores_v2"
+            "SELECT count(*) AS ic_rows, max(computed_at) AS newest FROM feature_ic_scores"
         ),
     )
     return envelope(
-        "concept_registry, feature_ic_scores_v2", rows, ic[0]["newest"], ic_rows=ic[0]["ic_rows"]
+        "concept_registry, feature_ic_scores", rows, ic[0]["newest"], ic_rows=ic[0]["ic_rows"]
     )
 
 

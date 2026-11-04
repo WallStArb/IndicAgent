@@ -735,3 +735,14 @@ class TestCanaryIntegrityAssertion:
         from scripts.ops.alpha.ops_canary_integrity_assert import _binomial_tail_bound
 
         assert _binomial_tail_bound(n_cells=0, p=0.05, tail_alpha=0.01) == 0
+
+
+def test_canary_rows_sql_reads_proposer_cells_at_their_own_vintage():
+    """Migration 413 semantics: only proposer cells carry CI/FDR (passes_fdr IS NOT NULL),
+    and the vintage is each (tf, horizon)'s own latest training_window_end."""
+    from scripts.ops.alpha.ops_canary_integrity_assert import _CANARY_ROWS_SQL
+
+    sql = " ".join(_CANARY_ROWS_SQL.split())
+    assert "s.passes_fdr IS NOT NULL" in sql
+    assert "v.tf = s.tf AND v.lookahead_bars = s.lookahead_bars" in sql
+    assert "s.cumulative_e_value" in sql and "NULL::double precision" not in sql

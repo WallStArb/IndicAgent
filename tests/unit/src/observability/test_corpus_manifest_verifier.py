@@ -6,10 +6,9 @@ read a single global "expected lookaheads" set off a phantom alpha.ic.lookaheads
 (plural) APR key that was never actually seeded in any migration -- it always silently
 used the hardcoded [1, 5, 20, 60] fallback, applied uniformly to every tf. Todo 146's
 fix read the real 16 alpha.ic.lookahead.{tf}.{scale} keys with no cross-tf leakage.
-Those keys retired with the old ic_engine stack (phase 186 plan 23), so the verifier's
-per-tf grid now comes from the by-value mirror _LOOKAHEADS_BY_TF (the
-documented source); the tests below prove the mirror is used per-tf and that stray
-rows for the retired keys cannot leak into the expected set.
+Those keys retired with the old ic_engine stack (phase 186 plan 23). Since migration 575 the
+verifier reads the IC writer's own grid, alpha.ic_measure.horizons; the tests below prove it is
+used per tf, that its absence raises, and that stray rows for the retired keys cannot leak in.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ import pytest
 from src.observability.corpus_manifest_verifier import (
     _ABSENCE_EXEMPT_TFS,
     _FEATURE_COLUMNS,
-    _LOOKAHEADS_BY_TF,
     CorpusManifestVerifier,
     _check_feature_null_rates,
     _load_apr_values,
@@ -57,64 +55,50 @@ class _FakeCursor:
         return self._pending[0] if self._pending else None
 
 
+# The live alpha.ic_measure.horizons value (2026-11-04).
+_HORIZONS = '{"5m":[6,12,39],"15m":[2,5,10],"1h":[1,2],"1d":[1,2,5,10]}'
+
+
 class _FakeConn:
-    def __init__(self, config_rows: list[tuple[str, str]], fetch_results: list[Any] | None = None):
-        self._config_rows = config_rows
+    def __init__(
+        self,
+        config_rows: list[tuple[str, str]],
+        fetch_results: list[Any] | None = None,
+        horizons: str | None = _HORIZONS,
+    ):
+        extra = [] if horizons is None else [("alpha.ic_measure.horizons", horizons)]
+        self._config_rows = [*config_rows, *extra]
         self._fetch_results = fetch_results or []
 
     def cursor(self, **kwargs: Any) -> _FakeCursor:
         return _FakeCursor(self._config_rows, self._fetch_results)
 
 
-def test_load_apr_values_uses_mirror_not_retired_keys():
-    """The alpha.ic.lookahead.{tf}.{scale} keys retired with the old ic_engine stack
-    (phase 186 plan 23). Stray config rows under those names must be ignored: the
-    per-tf mirror is the documented source, and a leftover row can never leak in."""
-    conn = _FakeConn(
-        config_rows=[
-            ("alpha.ic.lookahead.5m.fast", "1"),
-            ("alpha.ic.lookahead.5m.mid", "6"),
-            ("alpha.ic.lookahead.5m.slow", "12"),
-            ("alpha.ic.lookahead.5m.extended", "39"),
-        ]
-    )
+def test_load_apr_values_reads_the_ic_writer_horizons_per_tf():
+    apr = _load_apr_values(_FakeConn(config_rows=[]))
+    assert apr["lookaheads_by_tf"] == {
+        "5m": {6, 12, 39},
+        "15m": {2, 5, 10},
+        "1h": {1, 2},
+        "1d": {1, 2, 5, 10},
+    }
+
+
+def test_load_apr_values_raises_without_the_horizons_key():
+    with pytest.raises(RuntimeError, match="alpha.ic_measure.horizons"):
+        _load_apr_values(_FakeConn(config_rows=[], horizons=None))
+
+
+def test_load_apr_values_raises_runtime_error_on_malformed_horizons():
+    with pytest.raises(RuntimeError, match="malformed"):
+        _load_apr_values(_FakeConn(config_rows=[], horizons="[1, 2]"))
+
+
+def test_load_apr_values_ignores_stray_rows_for_retired_keys():
+    """A leftover row for a retired per-tf key (alpha.ic.lookahead.1d.mid=99) never leaks in."""
+    conn = _FakeConn(config_rows=[("alpha.ic.lookahead.1d.mid", "99")])
     apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["5m"] == set(_LOOKAHEADS_BY_TF["5m"].values())
-
-
-def test_load_apr_values_falls_back_per_tf_when_keys_absent():
-    """No config_state rows at all -- every tf must fall back to ITS OWN default grid,
-    not a single shared default applied uniformly."""
-    conn = _FakeConn(config_rows=[])
-    apr = _load_apr_values(conn)
-    for tf, defaults in _LOOKAHEADS_BY_TF.items():
-        if tf == "1h":
-            continue  # 1h's active_scales excludes slow/extended -- asserted separately below
-        assert apr["lookaheads_by_tf"][tf] == set(defaults.values())
-    # Confirms tfs genuinely differ -- proves this isn't accidentally passing because
-    # every tf's fallback happens to be identical.
-    assert apr["lookaheads_by_tf"]["5m"] != apr["lookaheads_by_tf"]["15m"]
-    # 1h's active_scales fallback (fast/mid only) excludes slow(20)/extended(60) --
-    # not the full default grid like the other tfs.
-    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
-
-
-def test_load_apr_values_ignores_stray_rows_for_retired_keys_per_tf():
-    """A leftover row for a retired per-tf key (here 1d mid=99) must not leak into any
-    tf's expected set -- every tf's grid comes from the mirror alone."""
-    conn = _FakeConn(
-        config_rows=[
-            ("alpha.ic.lookahead.1d.fast", "1"),
-            ("alpha.ic.lookahead.1d.mid", "99"),
-            ("alpha.ic.lookahead.1d.slow", "5"),
-            ("alpha.ic.lookahead.1d.extended", "10"),
-        ]
-    )
-    apr = _load_apr_values(conn)
-    assert 99 not in apr["lookaheads_by_tf"]["1d"]
-    assert 99 not in apr["lookaheads_by_tf"]["15m"]
-    assert apr["lookaheads_by_tf"]["1d"] == set(_LOOKAHEADS_BY_TF["1d"].values())
-    assert apr["lookaheads_by_tf"]["15m"] == set(_LOOKAHEADS_BY_TF["15m"].values())
+    assert all(99 not in grid for grid in apr["lookaheads_by_tf"].values())
 
 
 def test_verify_data_quality_check3_no_cross_tf_leakage(monkeypatch, tmp_path):
@@ -171,44 +155,9 @@ def test_verify_data_quality_check3_passes_with_correct_per_tf_grid(tmp_path):
         pass
 
 
-def test_load_apr_values_scopes_lookaheads_by_active_scales_for_1h():
-    """1h's active_scales excludes slow/extended (live since migration 271) -- Check 3's
-    expected set for 1h must reflect only the ACTIVE scales' bar counts, not all 4
-    unconditionally, or the check will false-positive-fail on every real corpus run."""
-    conn = _FakeConn(
-        config_rows=[
-            ("alpha.ic.active_scales.1h", '["fast","mid"]'),
-        ]
-    )
-    apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}  # fast=1, mid=2 -- NOT {1,2,20,60}
-
-
-def test_load_apr_values_active_scales_falls_back_when_key_absent():
-    """No alpha.ic.active_scales.* rows at all -- must fall back to the by-value mirror
-    of ACTIVE_SCALES_FALLBACKS_BY_TF (1h -> fast/mid only), not silently include all 4."""
-    conn = _FakeConn(config_rows=[])
-    apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
-    assert apr["lookaheads_by_tf"]["5m"] == {1, 6, 12, 39}  # 5m keeps all 4, unaffected
-
-
-def test_load_apr_values_active_scales_explicit_empty_list_stays_empty():
-    """todo 212: an operator-configured alpha.ic.active_scales.{tf} = '[]' (a deliberate
-    "no scales active" state) must NOT be treated the same as the key being absent --
-    it must produce a genuinely empty expected set, matching
-    canonicalize_active_scales([]) == () in services/_batch_utils.py (the Ring 2 path
-    this Ring 0 copy mirrors). Before the fix, `tuple(parsed) if parsed else default`
-    silently fell back to the tf's default scale set for both an absent key AND an
-    explicit empty list."""
-    conn = _FakeConn(config_rows=[("alpha.ic.active_scales.1h", "[]")])
-    apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["1h"] == set()  # NOT {1, 2} (the fast/mid default)
-
-
 def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path):
     """Positive case mirroring test_verify_data_quality_check3_passes_with_correct_per_tf_grid
-    but for 1h post-fix: only fast(1)/mid(2) rows exist, and Check 3 must NOT raise."""
+    for 1h: exactly its configured horizons (1, 2) exist, and Check 3 must NOT raise."""
     verifier = CorpusManifestVerifier(tmp_path)
     fetch_results = [
         [(2,)],
@@ -228,14 +177,10 @@ def test_verify_data_quality_check3_passes_for_1h_with_only_two_scales(tmp_path)
 
 
 def test_verify_data_quality_check3_fails_on_unexpected_lookaheads_for_1h(tmp_path):
-    """Symmetric-direction case (final whole-branch review finding 1): 1h's
-    active_scales excludes slow/extended, so its expected set is only {1, 2}
-    (fast, mid). If feature_ic_scores somehow also has a lookahead_bars=20 (slow)
-    row for 1h -- e.g. the by-value ACTIVE_SCALES_FALLBACKS_BY_TF/
-    _APR_DEFAULT_ACTIVE_SCALES_BY_TF mirrors drifting out of sync, or a stale row
-    an exclusion-driven purge failed to clear -- Check 3 must still catch it. Prior
-    to this fix, Check 3 only computed `expected - actual` (missing) and silently
-    ignored anything present in `actual` but absent from `expected`."""
+    """Symmetric-direction case (final whole-branch review finding 1): 1h's configured
+    horizons are {1, 2} (alpha.ic_measure.horizons; longer ones cross the session, D-18). A
+    1h lookahead_bars=20 row (a stale row, or a writer drifting from its own configuration)
+    must still fail Check 3: it checks `actual - expected` as well as `expected - actual`."""
     verifier = CorpusManifestVerifier(tmp_path)
 
     fetch_results = [
@@ -253,24 +198,19 @@ def test_verify_data_quality_check3_fails_on_unexpected_lookaheads_for_1h(tmp_pa
         verifier.verify_data_quality(conn, required_tfs=["1h"], required_symbols=["A", "B"])
 
 
-class TestEarningsSeasonScopeExclusion:
-    """Phase 176 (todo 353) scope-consumer audit: this is a crash-loud gate run
-    before Phase 141 consumption of alpha_events (module docstring of
-    ops_corpus_final_verification.py) -- decision-driving. Without this exclusion,
-    Check 2 ("POOLED rows exist for all TFs") and Check 3 ("all lookaheads present
-    per TF") could both be fooled into a false PASS by earnings-season rows existing
-    for a TF where the real three-scope production population is actually missing --
+class TestUnstratifiedScopeFilter:
+    """Checks 2 and 3 must count only the proposer's unstratified rows: other scopes in the
+    same table (regime_volatility, member_window) would otherwise satisfy "POOLED rows exist
+    for all TFs" or "all lookaheads present" for a TF whose unstratified population is missing.
     SQL-text inspection, no live DB required (mirrors this file's own house style)."""
 
-    def test_check2_pooled_rows_excludes_earnings_season(self) -> None:
+    def test_checks_2_and_3_read_the_unstratified_scope_only(self) -> None:
+        # Migration 413 scopes (unstratified, regime_volatility, member_window): the
+        # per-tf presence and lookahead checks hold the proposer's unstratified rows, so a
+        # regime_volatility or member_window row cannot fake a PASS for a missing TF.
         source = inspect.getsource(CorpusManifestVerifier.verify_data_quality)
-        assert "regime_scope <> 'earnings_season'" in source
-
-    def test_check3_lookaheads_excludes_earnings_season(self) -> None:
-        source = inspect.getsource(CorpusManifestVerifier.verify_data_quality)
-        # Both checks share the same source blob; assert the exclusion appears at
-        # least twice (once per check) rather than just once for either check alone.
-        assert source.count("regime_scope <> 'earnings_season'") >= 2
+        assert source.count("regime_scope = 'unstratified'") >= 2
+        assert "earnings_season" not in source
 
 
 def _null_rate_conn(rows_by_tf: dict[str, dict[str, int]]):
