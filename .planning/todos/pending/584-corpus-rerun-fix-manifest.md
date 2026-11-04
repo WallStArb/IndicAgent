@@ -654,6 +654,34 @@ returns 3. Also noted (8b): a builder window that reaches past the declared memo
 a gap day only makes the warmup mask conservative, since the builder emits NaN until its own window
 fills; no change.
 
+### Item G4-a landed (2026-11-04): rolling sums are exact per window
+
+The dry pilot's G4 memory check found a length-dependent numeric defect, not float noise.
+`_cumsum_window_moments` (and `_bb_pct_b_series_full`) took each window sum as a difference of
+whole-series prefix sums, whose rounding grows with the running total. Measured with the new
+`ops_pilot_compute_gate.py --drift` (max |full - windowed| in float32 ulps, SPY, 3 probe rows,
+`causality_probe.measure_memory_drift`; the default gate is unchanged):
+
+| kernel output | SPY 1h (35,647 rows) before / after | SPY 5m (399,508 rows) before / after |
+|---|---|---|
+| garman_klass_vol_z | 1 / 0 | 3,834 (rel 4.0e-4) / 0 |
+| parkinson_vol_z | 5 / 0 | 1,498 (rel 1.3e-4) / 0 |
+| bb_pct_b_fast | 0 / 0 | 759 (rel 6.0e-5) / 0 |
+| bb_pct_b_slow | 0 / 0 | 392 (rel 4.3e-5) / 0 |
+| the other 312 float outputs | 0 / 0 | 0 / 0 |
+
+Fix (the 6b precedent): `_trailing_window_sums` adds each window left to right, so a window's sum
+depends only on its own values and a recompute over any suffix returns the same bits; every user of
+`_cumsum_window_moments` (rolling mean, std, z-score, hv_z, parkinson, garman_klass, yang_zhang) and
+`_bb_pct_b_series_full` takes it. The bad-value count keeps an exact integer prefix difference.
+Cost is O(n * window) vector additions. After the change both timeframes measure 0 ulp on all 316
+outputs. Golden regenerated first (1 to 3 columns per case). Audit, reported and not fixed here:
+`volume.py` still differences whole-series prefix sums in `_dollar_vol_z`-style rolling kernels
+(about lines 354-356, 389-394, 410, 461-462, 483-508, 583-584) and `price.py` in the realized-vol,
+efficiency-ratio and session-return kernels (about lines 422, 820, 975-976, 1073-1078, 1178,
+1292-1293). SPY showed no drift in them at 1h or 5m, but the pattern is the same and grows with
+length; the lead decides whether to port them before the pin.
+
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 
 The code half landed before Track A's 4b-1 leg; this note records the design for the record and
