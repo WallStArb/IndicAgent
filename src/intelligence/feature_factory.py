@@ -31,7 +31,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import structlog
@@ -84,6 +84,7 @@ from src.intelligence.features.kernels.cross_tf import (
     CtfSeries,
     ctf_row_inputs,
 )
+from src.intelligence.features.kernels.distribution import DISTRIBUTION_COLUMNS
 from src.intelligence.features.kernels.macro import (
     RECORD_COLUMNS,
     CrossAssetRecord,
@@ -118,6 +119,7 @@ from src.intelligence.features.kernels.price import (
     _upper_wick_ratio,
     _vol_ratio,
 )
+from src.intelligence.features.kernels.residual import RESIDUAL_COLUMNS
 from src.intelligence.features.kernels.smc import (
     _FVG_OUTPUT_KEYS,
     _POOL_OUTPUT_KEYS,
@@ -680,6 +682,15 @@ class FeatureFactoryConfig:
         atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
         ctf_higher_tf_map: APR feature.ctf.higher_tf_map
         ctf_vwap_window: APR feature.ctf.vwap_window
+        market_residual_z_window: APR feature.market_residual.z_window
+        idiosyncratic_volatility_window: APR feature.idiosyncratic_volatility.window
+        market_residual_lag1_acf_window: APR feature.market_residual.lag1_acf_window
+        residual_beta_stability_window: APR feature.residual_beta_stability.window
+        max_daily_return_window: APR feature.max_daily_return.window
+        max_drawdown_window: APR feature.max_drawdown.window
+        downside_deviation_window: APR feature.downside_deviation.window
+        size_proxy_window: APR feature.size_proxy.window
+        dividend_yield_window: APR feature.dividend_yield.window
         high_low_spread_window: APR feature.high_low_spread.window
         roll_spread_window: APR feature.roll_spread.window
     """
@@ -955,6 +966,17 @@ class FeatureFactoryConfig:
     )
     # Rolling VWAP window, in HTF bars, behind ctf_vwap_align (todo 584 6b).
     ctf_vwap_window: int = 20  # feature.ctf.vwap_window
+    # Item 8 add-list windows (todo 584 D2): the market-residual, return-distribution, size and
+    # dividend-yield families. Defaulted like ctf_vwap_window; the two service entrypoints wire them.
+    market_residual_z_window: int = 252  # feature.market_residual.z_window
+    idiosyncratic_volatility_window: int = 21  # feature.idiosyncratic_volatility.window
+    market_residual_lag1_acf_window: int = 63  # feature.market_residual.lag1_acf_window
+    residual_beta_stability_window: int = 60  # feature.residual_beta_stability.window
+    max_daily_return_window: int = 21  # feature.max_daily_return.window
+    max_drawdown_window: int = 252  # feature.max_drawdown.window
+    downside_deviation_window: int = 252  # feature.downside_deviation.window
+    size_proxy_window: int = 63  # feature.size_proxy.window
+    dividend_yield_window: int = 252  # feature.dividend_yield.window
     # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353). Same
     # defaulting rationale as canary_rng_seed above (avoid updating every
     # pre-existing direct FeatureFactoryConfig(...) construction site); the 2
@@ -1349,6 +1371,38 @@ def _macro_kernel_inputs(
         rate = None if symbol == "TLT" else cache.rate_beta_z
         out["ext_equity_beta_z"] = np.full(n, np.nan if equity is None else equity)
         out["ext_rate_beta_z"] = np.full(n, np.nan if rate is None else rate)
+    return out
+
+
+class DailySeriesRecord(NamedTuple):
+    """One symbol's daily-grain add-list records (todo 584 item 8), each keyed by date: the
+    market-residual family, the return-distribution family and the dividend yield. A family left
+    None (or empty) reads NaN on every row."""
+
+    residual: dict | None = None
+    distribution: dict | None = None
+    dividend_yield: dict | None = None
+
+
+def _daily_records_kernel_inputs(
+    row_ns: np.ndarray, tf: str, records: DailySeriesRecord | None
+) -> dict[str, np.ndarray]:
+    """The `ext_*` inputs of the item-8 daily families on the row grid, aligned as-of the row's
+    bar end like the betas (a record dated d is available from d's 16:00 ET close). A row with no
+    available record, or a family with no records, reads NaN: undefined, never a fill."""
+    records = records or DailySeriesRecord()
+    families = (
+        (records.residual, RESIDUAL_COLUMNS, getattr),
+        (records.distribution, DISTRIBUTION_COLUMNS, getattr),
+        (records.dividend_yield, ("dividend_yield",), lambda value, name: value),
+    )
+    out: dict[str, np.ndarray] = {}
+    for by_date, names, read in families:
+        dates = sorted(by_date or {})
+        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
+        for name in names:
+            column = [read(by_date[d], name) for d in dates] + [np.nan]
+            out[f"ext_{name}"] = np.array(column, dtype=np.float64)[index]
     return out
 
 

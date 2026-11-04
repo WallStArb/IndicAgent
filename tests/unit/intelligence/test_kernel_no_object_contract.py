@@ -48,6 +48,8 @@ _EXEMPT_KERNELS = frozenset(
         "canary_noise",
         "canary_constant",
         "canary_acausal_placebo",
+        # a level, not an event: ln(dollar volume) of a flat positive-volume series is measured
+        "size_proxy",
     }
 )
 
@@ -130,7 +132,14 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
         if column in kernel.zero_is_state:
             if np.isinf(stored).any():
                 offenders_bad_state.append((column, kernel.name, "inf"))
-            elif scenario == "flat" and len(stored) and np.isnan(stored).all():
+            elif (
+                scenario == "flat"
+                and len(stored)
+                and np.isnan(stored).all()
+                # an externally fed pass-through reads this test's all-NaN externals, so its
+                # NaN says nothing about the declaration
+                and not any(name.startswith("ext_") for name in kernel.inputs)
+            ):
                 # all-NaN on the long flat series means the declaration does not
                 # describe the kernel's real behavior (at two bars NaN is expected:
                 # the window does not exist yet)

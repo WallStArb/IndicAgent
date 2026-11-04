@@ -44,6 +44,7 @@ from services.backfill_feature_factory import (  # noqa: E402
     _fetch_bar_arrays,
     _fetch_bars_from_db,
     _series_kernel_inputs,
+    build_daily_records,
     default_data_horizon,
     feature_vectors_v2_output_columns,
 )
@@ -135,6 +136,7 @@ def _unit_inputs(
         cross_asset_by_date,
         beta_by_date,
         htf_bars,
+        build_daily_records(conn, symbol, symbol_1d, reference[SPY], config),
     )
 
 

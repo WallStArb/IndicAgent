@@ -21,6 +21,7 @@ import pytest
 from src.intelligence.feature_factory import (
     FeatureFactory,
     _cross_tf_kernel_inputs,
+    _daily_records_kernel_inputs,
     _macro_kernel_inputs,
 )
 from src.intelligence.features.contract.causality_probe import (
@@ -232,6 +233,8 @@ def _synthetic_case():
             FeatureCache(),
             None,
         ),
+        # the item-8 daily families have no live-cache branch: every row reads NaN
+        **_daily_records_kernel_inputs(inputs["ts"], "5m", None),
     }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)
@@ -438,6 +441,9 @@ def test_probe_registry_statuses_on_the_daily_grid(config_key):
     assert statuses == {
         "cross_asset_daily": "path_dependent_skipped_memory",
         "factor_beta_daily": "ok",
+        "market_residual_daily": "ok",
+        "distribution_daily": "ok",
+        "dividend_yield_daily": "ok",
     }
 
 
@@ -571,6 +577,9 @@ def test_daily_grid_kernels_are_causal_when_symbols_start_late_and_have_holes(co
     assert statuses == {
         "cross_asset_daily": "path_dependent_skipped_memory",
         "factor_beta_daily": "ok",
+        "market_residual_daily": "ok",
+        "distribution_daily": "ok",
+        "dividend_yield_daily": "ok",
     }
     out = default_registry().by_name("cross_asset_daily").compute(available, config)
     # the guard branches were taken: the record exists from row 1 while each late spread is NaN;

@@ -31,7 +31,7 @@ anything found after the pin moves waits for the following rerun.
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` retired and the sweeps ATR gate removed (6c); row 6 is done |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
-| 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | in progress (indicagent-ef, 2026-11-03): implementation spec pinned in the additions doc's "Implementation spec" section - ten stored columns (residual.py, distribution.py, dividend.py, all new modules), `days_to_ex_dividend` deferred (dividend_events carries no declaration time, pin-down 3 unresolved by data), rank_z retirement rides the landing |
+| 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | landed 2026-11-03: ten stored columns (kernels/residual.py, distribution.py, dividend.py), migration 559, rank_z concepts deprecated; `days_to_ex_dividend` deferred (no declaration time in `dividend_events`) |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
 | 10 | Calendar start 2000 (`_PMC_RANGE_START`); the 41 newly failing names backfilled or named holds | 564 same-batch, owner restart conditions | landed 2026-11-01 (data lane); the 41 are named verdict-gate holds for this rerun, see below |
 | 11 | Proven-span start per name (design D4), closes 532: names held only for early-history holes (the 41 from item 10, AAOI, AGL, ACMR, ADPT and the like) enter the rerun from their proven start | 532, item 10 | landed 2026-11-01 (data lane), ledger E19; 189 of 205 failing names return, all 41 |
@@ -553,6 +553,32 @@ divides only for the two `ob_*_dist_atr` and `breaker_dist_atr`, yet the gate al
 zones kernels use ATR in the detection itself, so their gates are needed. Gate note for 6a and 6b:
 `/code-review` and `/simplify` ran over both before the 6b landing; their findings that were fixed
 are in the 6b commit (direct window sums, window guard, `4h` in the denylist, stale text).
+
+### Item 8 landed (2026-11-03): the add-list
+
+Ten stored columns in three kernel modules (`kernels/residual.py`, `distribution.py`,
+`dividend.py`), the spec pinned in `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md`
+("Implementation spec"); `days_to_ex_dividend` stays out (no declaration time in
+`dividend_events`). Wiring: nine `FeatureFactoryConfig` fields (defaulted, read by both service
+config builders) and nine APR seeds; `DailySeriesRecord` plus `_daily_records_kernel_inputs` align the
+daily records as-of the row's bar end like the betas; `build_daily_records` in the backfill
+service runs the three builders per symbol (Yahoo coverage span decides known versus unknown,
+one amount per ex-date Yahoo first with IBKR fallback, an ex-date without a bar moves to the next
+bar); the pilot gate builds the same records. Ten `V2_ONLY_COLUMNS` entries, ten columns on
+`feature_vectors_v2` and ten `candidate` concept rows by migration 559 (applied live; feature rows
+are seeded by migration as in 289, `register_idea.py` takes the idea domains only); the three
+`rank_z` concepts deprecated through `ops_concept_registry_override.py` (421). The parity golden
+does not move: it holds the legacy-path columns only, as for `high_low_spread`. The new daily-grid
+kernels pass the causality and memory probe ("ok"), and the macro-alignment truncation tests cut
+and rebuild all ten.
+Decisions in the build: the residual builder runs over dates both the name and SPY have a bar on
+(a missing bar would read as a stale close and a fabricated 0.0 return); `build_symbol_beta_series`
+still iterates the union of dates and so carries that zero return on such dates, which makes the
+stored `equity_beta_z` differ from the residual's beta in those rare cases. Left open, with the
+reviewers' cost notes: the daily records are rebuilt for each (symbol, timeframe) unit (about four
+times the daily work and two small queries per symbol; hoist per symbol if the rerun's cost shows
+it), the columns are rebuild-only (V2-only, no live path), and the beta loop is a second
+implementation of the macro one (add an equivalence test or share a generator).
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

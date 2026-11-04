@@ -1192,7 +1192,14 @@ class TestRebuildUnitDesign:
 
         registry = default_registry()
         config = _make_config()
-        grid_only = {"cross_asset_daily", "factor_beta_daily", "ctf_source"}
+        grid_only = {
+            "cross_asset_daily",
+            "factor_beta_daily",
+            "ctf_source",
+            "market_residual_daily",
+            "distribution_daily",
+            "dividend_yield_daily",
+        }
         for kernel in registry.kernels:
             externals = [n for n in kernel.inputs if n.startswith(("ext_", "ref_"))]
             if not externals or kernel.name in grid_only:
@@ -1679,7 +1686,7 @@ class _ListCursor:
 
 class _WorkerConn:
     """Serves the worker's two read shapes: the named server cursor over the tf's bars, and
-    the plain cursor's fetchall over the 1d/htf/1m fetches, in call order."""
+    the plain cursor's fetchall over the 1d, dividend and htf fetches, in call order."""
 
     def __init__(self, tf_rows, list_fetches):
         self._tf_rows = tf_rows
@@ -1775,7 +1782,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
     horizon = times[-1] + timedelta(days=2)
     conn = _WorkerConn(
         _bar_tuples(bars),
-        [_bar_tuples(late[tma.SYMBOL]), []],  # symbol 1d, htf 1h
+        [_bar_tuples(late[tma.SYMBOL]), [], [], []],  # symbol 1d, div coverage, div amounts, htf 1h
     )
     monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
     unit_ranges = [(0, (times[0], horizon))]

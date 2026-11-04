@@ -446,6 +446,16 @@ UNOWNED_COLUMNS: Mapping[str, str] = {
 V2_ONLY_COLUMNS: Mapping[str, str] = {
     "high_low_spread": "todo 553: added after 186-24 (migration 526); feature_vectors_v2 only",
     "roll_spread": "todo 553: added after 186-24 (migration 526); feature_vectors_v2 only",
+    "market_residual_return": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "idiosyncratic_volatility": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "market_residual_z": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "market_residual_lag1_acf": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "residual_beta_stability": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "max_daily_return": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "max_drawdown": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "downside_deviation": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "size_proxy": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+    "dividend_yield": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
 }
 
 

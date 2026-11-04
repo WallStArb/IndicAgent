@@ -1,6 +1,7 @@
 """Inputs for the daily-grid kernels (186-15).
 
-`cross_asset_daily` and `factor_beta_daily` run on a daily reference grid: one row per date. On
+`cross_asset_daily`, `factor_beta_daily` and the item-8 daily families (market residual,
+distribution, dividend yield) run on a daily reference grid: one row per date. On
 an intraday row grid several rows share a date, and a builder keyed by date would see the later
 rows of the same date, so the causality probe runs these kernels on this grid instead. Not a
 test module.
@@ -14,7 +15,15 @@ import numpy as np
 
 from tests.unit.intelligence import kernel_parity_reference as ref
 
-DAILY_GRID_KERNELS = frozenset({"cross_asset_daily", "factor_beta_daily"})
+DAILY_GRID_KERNELS = frozenset(
+    {
+        "cross_asset_daily",
+        "factor_beta_daily",
+        "market_residual_daily",
+        "distribution_daily",
+        "dividend_yield_daily",
+    }
+)
 _CLOSE_COLUMNS = (
     "ref_spy_close",
     "ref_tlt_close",
@@ -45,6 +54,11 @@ def daily_grid_inputs(n: int, seed: int = 21, *, ragged: bool = False) -> dict[s
     inputs: dict[str, np.ndarray] = {"ts": ts, "symbol": np.array(["QQQ"] * n, dtype=object)}
     for name in _CLOSE_COLUMNS:
         inputs[name] = np.cumprod(1.0 + rng.normal(0.0, 0.01, n)) * 100.0
+    # The reconciled dividend amount: unknown (NaN) outside coverage, 0.0 on covered dates, an
+    # event every 40th row.
+    dividend = np.where(np.arange(n) % 40 == 0, 0.5, 0.0)
+    dividend[:30] = np.nan
+    inputs["ref_dividend_amount"] = dividend
     if ragged:
         for offset, (name, start) in enumerate(RAGGED_START_ROWS.items()):
             inputs[name][:start] = np.nan

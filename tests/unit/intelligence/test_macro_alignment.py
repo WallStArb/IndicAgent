@@ -7,6 +7,7 @@ at 10:00 ET on d reads the 16:00 ET close of d. The record is only available fro
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from datetime import UTC, date, datetime, timedelta
 
@@ -16,6 +17,11 @@ import pytest
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.features.kernels._cache_state import FeatureCache
+from src.intelligence.features.kernels.distribution import (
+    _DISTRIBUTION_GRID_OUTPUTS,
+    DISTRIBUTION_COLUMNS,
+)
+from src.intelligence.features.kernels.dividend import _DIVIDEND_GRID_OUTPUTS
 from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     MACRO_COLUMNS,
@@ -26,9 +32,22 @@ from src.intelligence.features.kernels.macro import (
     daily_asof_indices,
     daily_close_availability,
 )
+from src.intelligence.features.kernels.residual import _RESIDUAL_GRID_OUTPUTS, RESIDUAL_COLUMNS
 from tests.unit.intelligence import kernel_parity_reference as ref
 
-CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
+CONFIG = dataclasses.replace(
+    ref.build_config(ref.load_manifest()["synthetic_config"]),
+    # item-8 windows short enough that the 100-session fixture has defined values at the cut rows
+    market_residual_z_window=20,
+    idiosyncratic_volatility_window=10,
+    market_residual_lag1_acf_window=20,
+    residual_beta_stability_window=15,
+    max_daily_return_window=10,
+    max_drawdown_window=20,
+    downside_deviation_window=20,
+    size_proxy_window=10,
+    dividend_yield_window=15,
+)
 SYMBOL = "QQQ"
 N_SESSIONS = 100
 INTRADAY_SESSIONS = range(70, 82)
@@ -256,8 +275,54 @@ def _constant_per_series_outputs(bars: list[dict]) -> dict[str, np.ndarray]:
     return {"symbol": built["symbol"], "tf": built["tf"]}
 
 
+def _dividend_amount_bars(daily_bars: list[dict]) -> list[dict]:
+    """The reconciled per-date dividend amount as pseudo-bars on the symbol's dates: unknown (NaN)
+    for the first ten sessions (outside coverage), 0.0 on covered dates and 0.5 every 30th."""
+    return [
+        {
+            "ts": b["ts"],
+            "close": (np.nan if i < 10 else (0.5 if i % 30 == 0 else 0.0)),
+        }
+        for i, b in enumerate(daily_bars)
+    ]
+
+
+def _add_list_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, np.ndarray]:
+    """The item-8 pass-through outputs on the intraday row grid, from raw daily bars: the three
+    builders, the as-of alignment, and the pass-through kernels."""
+    from src.intelligence.feature_factory import DailySeriesRecord, _daily_records_kernel_inputs
+    from src.intelligence.features.kernels.distribution import (
+        DISTRIBUTION_COLUMNS,
+        build_distribution_series,
+    )
+    from src.intelligence.features.kernels.dividend import build_dividend_yield_series
+    from src.intelligence.features.kernels.residual import (
+        RESIDUAL_COLUMNS,
+        build_market_residual_series,
+    )
+
+    symbol_bars = daily[SYMBOL]
+    amounts = {b["ts"].date(): b["close"] for b in _dividend_amount_bars(symbol_bars)}
+    records = DailySeriesRecord(
+        residual=build_market_residual_series(symbol_bars, daily["SPY"], SYMBOL, CONFIG),
+        distribution=build_distribution_series(symbol_bars, CONFIG),
+        dividend_yield=build_dividend_yield_series(symbol_bars, amounts, CONFIG),
+    )
+    ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
+    inputs = {"ts": ts, **_daily_records_kernel_inputs(ts, "5m", records)}
+    return compute_kernels(
+        default_registry(),
+        inputs,
+        CONFIG,
+        outputs=[*RESIDUAL_COLUMNS, *DISTRIBUTION_COLUMNS, "dividend_yield"],
+    )
+
+
+ADD_LIST_COLUMNS = (*RESIDUAL_COLUMNS, *DISTRIBUTION_COLUMNS, "dividend_yield")
+
+
 def _daily_asof_close_outputs(bars: list[dict], daily: dict[str, list[dict]]):
-    return _macro_outputs(daily, bars)
+    return {**_macro_outputs(daily, bars), **_add_list_outputs(daily, bars)}
 
 
 def _truncate_daily_asof_close(daily, bars, cut_row):
@@ -280,11 +345,21 @@ def _daily_grid_outputs(daily: dict[str, list[dict]], symbol: str = SYMBOL) -> d
 
     series = {f"ref_{s.lower()}_close": daily[s] for s in CROSS_ASSET_SYMBOLS}
     series["ref_sym_close"] = daily[symbol]
+    series["ref_dividend_amount"] = _dividend_amount_bars(daily[symbol])
     grid = daily_reference_grid(series)
     n = len(grid["ts"])
     inputs = {**grid, "symbol": np.array([symbol] * n, dtype=object)}
     return compute_kernels(
-        default_registry(), inputs, CONFIG, outputs=[*_XA_OUTPUTS, *_BETA_OUTPUTS]
+        default_registry(),
+        inputs,
+        CONFIG,
+        outputs=[
+            *_XA_OUTPUTS,
+            *_BETA_OUTPUTS,
+            *_RESIDUAL_GRID_OUTPUTS,
+            *_DISTRIBUTION_GRID_OUTPUTS,
+            *_DIVIDEND_GRID_OUTPUTS,
+        ],
     )
 
 
@@ -314,14 +389,16 @@ def _external_outputs(alignment, bars, daily):
     if alignment is Alignment.DAILY_ASOF_CLOSE:
         out = _daily_asof_close_outputs(bars, daily)
         # macro_pass_through emits each ext_<column> as <column>
-        assert {f"ext_{c}" for c in out if c in MACRO_COLUMNS} == set(declared)
+        assert {f"ext_{c}" for c in out if c in (*MACRO_COLUMNS, *ADD_LIST_COLUMNS)} == set(
+            declared
+        )
         return out
     if alignment is Alignment.CONSTANT_PER_SERIES:
         return _constant_per_series_outputs(bars)
     if alignment is Alignment.DAILY_REFERENCE_GRID:
         from src.intelligence.features.kernels.macro import _CLOSE_EXTERNALS
 
-        assert set(declared) == {*_CLOSE_EXTERNALS, "ref_sym_close"}
+        assert set(declared) == {*_CLOSE_EXTERNALS, "ref_sym_close", "ref_dividend_amount"}
         return _daily_grid_outputs(daily)
     if alignment is Alignment.HTF_ASOF_CLOSE:
         out = _htf_asof_close_outputs(bars, _cross_tf_hours())
@@ -395,12 +472,13 @@ def _covered_externals(alignment, bars, daily) -> set[str]:
     """The externals of `alignment` that `_external_outputs` builds and truncates, by name."""
     out = _external_outputs(alignment, bars, daily)
     if alignment is Alignment.DAILY_ASOF_CLOSE:
-        return {f"ext_{c}" for c in out if c in MACRO_COLUMNS}
+        return {f"ext_{c}" for c in out if c in (*MACRO_COLUMNS, *ADD_LIST_COLUMNS)}
     if alignment is Alignment.DAILY_REFERENCE_GRID:
         from src.intelligence.features.kernels.macro import daily_reference_grid
 
         series = {f"ref_{s.lower()}_close": daily[s] for s in CROSS_ASSET_SYMBOLS}
         series["ref_sym_close"] = daily[SYMBOL]
+        series["ref_dividend_amount"] = _dividend_amount_bars(daily[SYMBOL])
         return set(daily_reference_grid(series)) - {"ts"}
     return set(out)
 

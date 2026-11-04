@@ -100,9 +100,11 @@ from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES, GRID_TIME
 from src.intelligence.bars.vendor_kind import DERIVED_PAIR, grid_volume_basis, volume_basis
 from src.intelligence.bars.verdict_gate import MONITOR_TYPE
 from src.intelligence.feature_factory import (
+    DailySeriesRecord,
     FeatureFactoryConfig,
     _batch_kernel_inputs,
     _cross_tf_kernel_inputs,
+    _daily_records_kernel_inputs,
     _macro_kernel_inputs,
 )
 from src.intelligence.features.contract.registry import (
@@ -123,6 +125,11 @@ from src.intelligence.features.kernels.cross_tf import (
     _build_ctf_series,
     _rekey_ctf_series_to_actual_close,
 )
+from src.intelligence.features.kernels.distribution import build_distribution_series
+from src.intelligence.features.kernels.dividend import (
+    build_dividend_yield_series,
+    reconciled_amounts,
+)
 from src.intelligence.features.kernels.macro import (
     HYG,
     LQD,
@@ -134,6 +141,7 @@ from src.intelligence.features.kernels.macro import (
     build_cross_asset_series,
     build_symbol_beta_series,
 )
+from src.intelligence.features.kernels.residual import build_market_residual_series
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider
@@ -633,6 +641,21 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
             cfg, "feature.ctf.higher_tf_map", {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
         ),
         ctf_vwap_window=int(cfg.get_sync("feature.ctf.vwap_window", 20)),
+        market_residual_z_window=int(cfg.get_sync("feature.market_residual.z_window", 252)),
+        idiosyncratic_volatility_window=int(
+            cfg.get_sync("feature.idiosyncratic_volatility.window", 21)
+        ),
+        market_residual_lag1_acf_window=int(
+            cfg.get_sync("feature.market_residual.lag1_acf_window", 63)
+        ),
+        residual_beta_stability_window=int(
+            cfg.get_sync("feature.residual_beta_stability.window", 60)
+        ),
+        max_daily_return_window=int(cfg.get_sync("feature.max_daily_return.window", 21)),
+        max_drawdown_window=int(cfg.get_sync("feature.max_drawdown.window", 252)),
+        downside_deviation_window=int(cfg.get_sync("feature.downside_deviation.window", 252)),
+        size_proxy_window=int(cfg.get_sync("feature.size_proxy.window", 63)),
+        dividend_yield_window=int(cfg.get_sync("feature.dividend_yield.window", 252)),
         earnings_season_start_days=int(cfg.get_sync("feature.earnings_season.start_days", 14)),
         earnings_season_end_days=int(cfg.get_sync("feature.earnings_season.end_days", 42)),
         high_low_spread_window=int(cfg.get_sync("feature.high_low_spread.window", 21)),
@@ -1078,6 +1101,45 @@ def _compute_series_columns(
     )
 
 
+_DIVIDEND_COVERAGE_SQL = (
+    "SELECT covered_from, covered_to FROM dividend_event_coverage "
+    "WHERE source = 'yahoo' AND symbol = %s"
+)
+# One amount per ex-date, Yahoo first with the IBKR-derived event as the fallback (the
+# reconciled view's documented naive default); the dispute rule is a research-layer concern.
+_DIVIDEND_AMOUNTS_SQL = (
+    "SELECT ex_date, COALESCE(max(amount) FILTER (WHERE source = 'yahoo'), "
+    "max(amount) FILTER (WHERE source = 'ibkr_adjusted_last_ratio')) "
+    "FROM dividend_events WHERE symbol = %s GROUP BY ex_date"
+)
+
+
+def build_daily_records(
+    conn,
+    symbol: str,
+    symbol_1d_bars: list[dict],
+    spy_1d_bars: list[dict],
+    config: FeatureFactoryConfig,
+) -> DailySeriesRecord:
+    """The item-8 daily families of one symbol (todo 584 D2): market residual against SPY,
+    return distribution, dividend yield. `conn` is a read-only connection; a symbol with no Yahoo
+    coverage row gets an all-NaN dividend yield (unknown, never 0.0)."""
+    with conn.cursor() as cur:
+        cur.execute(_DIVIDEND_COVERAGE_SQL, (symbol,))
+        coverage_rows = cur.fetchall()
+        cur.execute(_DIVIDEND_AMOUNTS_SQL, (symbol,))
+        amounts = dict(cur.fetchall())
+    coverage = (coverage_rows[0][0], coverage_rows[0][1]) if coverage_rows else None
+    bar_dates = [bar["ts"].date() for bar in symbol_1d_bars]
+    return DailySeriesRecord(
+        residual=build_market_residual_series(symbol_1d_bars, spy_1d_bars, symbol, config),
+        distribution=build_distribution_series(symbol_1d_bars, config),
+        dividend_yield=build_dividend_yield_series(
+            symbol_1d_bars, reconciled_amounts(bar_dates, coverage, amounts), config
+        ),
+    )
+
+
 def _series_kernel_inputs(
     symbol: str,
     tf: str,
@@ -1086,6 +1148,7 @@ def _series_kernel_inputs(
     cross_asset_by_date: dict,
     beta_by_date: dict,
     htf_bars: list[dict],
+    daily_records: DailySeriesRecord | None = None,
 ) -> dict[str, np.ndarray]:
     """The bar arrays and every external input of one series, built as compute_batch builds them
     (the same three helpers, so one definition of each alignment): the symbol and tf constants,
@@ -1130,6 +1193,7 @@ def _series_kernel_inputs(
             None,  # type: ignore[arg-type]
             ctf_series,
         ),
+        **_daily_records_kernel_inputs(row_ns, tf, daily_records),
     }
 
 
@@ -1330,6 +1394,7 @@ def _rebuild_worker(args: tuple) -> dict:
             beta_by_date = build_symbol_beta_series(
                 symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
             )
+            daily_records = build_daily_records(conn, symbol, symbol_1d_bars, spy_1d_bars, config)
             htf_tf = config.ctf_higher_tf_map.get(tf)
             htf_bars = (
                 symbol_1d_bars
@@ -1337,7 +1402,14 @@ def _rebuild_worker(args: tuple) -> dict:
                 else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon, floor=floor)
             )
             inputs = _series_kernel_inputs(
-                symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars
+                symbol,
+                tf,
+                bars,
+                config,
+                cross_asset_by_date,
+                beta_by_date,
+                htf_bars,
+                daily_records,
             )
             series = _compute_series_columns(inputs, config)
             del inputs

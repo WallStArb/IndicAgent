@@ -38,7 +38,7 @@ _DROPPED_METADATA = (
 
 
 def test_column_count_and_order_match_the_migration() -> None:
-    assert len(FEATURE_VECTORS_V2_COLUMNS) == 302
+    assert len(FEATURE_VECTORS_V2_COLUMNS) == 312
     assert FEATURE_VECTORS_V2_COLUMNS[:5] == (
         "symbol",
         "tf",
@@ -46,10 +46,24 @@ def test_column_count_and_order_match_the_migration() -> None:
         "regime",
         "regime_volatility",
     )
-    # Migration 425's columns keep their DDL order; migration 526 appended the todo 553 pair.
+    # Migration 425's columns keep their DDL order; migrations 526 and 559 appended the later columns.
     # The writer COPYs with an explicit column list, so the physical order of the appended
     # columns does not need to match the registry order.
-    assert added_columns() == ["high_low_spread", "roll_spread"]
+    assert added_columns() == [
+        "high_low_spread",
+        "roll_spread",
+        # migration 559 (todo 584 item 8): the add-list
+        "market_residual_return",
+        "idiosyncratic_volatility",
+        "market_residual_z",
+        "market_residual_lag1_acf",
+        "residual_beta_stability",
+        "max_daily_return",
+        "max_drawdown",
+        "downside_deviation",
+        "size_proxy",
+        "dividend_yield",
+    ]
     live_created = [c for c in created_columns() if c not in RETIRED_COLUMNS]
     assert [c for c in FEATURE_VECTORS_V2_COLUMNS if c not in added_columns()] == live_created
     assert sorted(FEATURE_VECTORS_V2_COLUMNS) == sorted(
@@ -61,7 +75,7 @@ def test_column_count_and_order_match_the_migration() -> None:
 def test_numeric_columns_are_the_registry_derivation_never_typed() -> None:
     registry = default_registry()
     numeric = feature_vectors_v2_numeric_columns()
-    assert len(numeric) == 297
+    assert len(numeric) == 307
     assert list(numeric) == [
         c
         for c in registry.feature_columns()
