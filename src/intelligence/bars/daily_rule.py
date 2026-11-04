@@ -77,8 +77,9 @@ Session dates: the raw read dates each series by its own stamp convention
 midnight New York (04:00 or 05:00 UTC). Observations carry the session date, the rule compares
 sessions only, and every canonical bar is one row per session at 00:00 UTC.
 
-Scale (D-21): an observation is stale for a date when some recorded split takes effect after
-the date and the observation was fetched before that split's recorded_at, unless its request is
+Scale (D-21): an observation is stale for a date on or before some recorded split's
+effective_date (the last day on the old scale, migration 400; the bar on that date is old-scale,
+d2-v5 fixed the d2-v4 off-by-one) and was fetched before that split's recorded_at, unless its request is
 the split's evidence (the refetch that revealed it). LEGACY_IMPORT observations are always stale
 for a split-affected date: they re-import the stored corpus. The splits are the rows of
 corporate_action_current, so a voided or superseded split never reaches the rule.
@@ -126,7 +127,7 @@ from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRec
 from src.intelligence.bars.sources import ROUTE_ALPACA
 from src.intelligence.bars.vendor_basis import BP
 
-RULE_VERSION = "d2-v4"
+RULE_VERSION = "d2-v5"
 
 TIMEFRAME = "1d"
 ROUTE_SMART = "SMART"
@@ -333,8 +334,12 @@ def _epoch(dt: datetime) -> float:
 
 
 def _stale_for(obs: Observation, split: SplitRecord) -> bool:
-    if obs.bar_date >= split.effective_date:
-        return False
+    if split.rescale_routes:
+        return False  # a calendar_audit split rescales its routes and stales no one (todo 587)
+    if obs.bar_date > split.effective_date:
+        return (
+            False  # effective_date is the last day on the old scale (migration 400): its bar is old
+        )
     if obs.legacy:
         return True
     return _epoch(obs.fetched_at) < _epoch(split.recorded_at) and (
@@ -379,6 +384,60 @@ def _basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None
     return None
 
 
+# corporate_action.inferred_by of a split recovered from the external calendar (migration 567):
+# the one kind of split the rule applies as a rescale (todo 587).
+CALENDAR_AUDIT = "calendar_audit"
+
+
+def rescale_routes(vendor: str, kind: str) -> frozenset[str]:
+    """The observation routes behind a canonical (vendor, kind) span (todo 587): the routes a
+    calendar_audit split, measured unadjusted over that canonical span, rescales."""
+    if (vendor, kind) in (PRIMARY_PAIR[VENDOR_IBKR], FALLBACK_PAIR):
+        return frozenset({ROUTE_SMART, ROUTE_LEGACY})
+    if (vendor, kind) == PRIMARY_PAIR[VENDOR_ALPACA]:
+        return frozenset({ROUTE_ALPACA})
+    raise ValueError(f"canonical ({vendor!r}, {kind!r}) has no rescalable route")
+
+
+def _rescale_factors(obs: Observation, splits: Sequence[SplitRecord]) -> list[float]:
+    """The factors of the rescale splits over the observation's route dated on or after its bar
+    (effective_date is the last day on the old scale), in effective-date order (todo 587)."""
+    return [
+        split.factor
+        for split in sorted(splits, key=lambda s: s.effective_date)
+        if obs.route in split.rescale_routes and obs.bar_date <= split.effective_date
+    ]
+
+
+def split_scale(obs: Observation, splits: Sequence[SplitRecord]) -> float:
+    """The cumulative factor dividing an observation's prices: the product of _rescale_factors,
+    multiplied left to right in effective-date order (1.0 when none applies). The order and the
+    single division are the lineage view's (canonical_bar_lineage, migration 568), so the two
+    stay bit-exact."""
+    scale = 1.0
+    for factor in _rescale_factors(obs, splits):
+        scale *= factor
+    return scale
+
+
+def _rescaled(obs: Observation, splits: Sequence[SplitRecord]) -> Observation:
+    """Prices divided by split_scale, volume (a share count) multiplied, rounded half up the way
+    the lineage view rounds (floor(x + 0.5)), so a share count stays an integer. An observation
+    no rescale split covers is returned as is."""
+    if not _rescale_factors(obs, splits):
+        return obs
+    scale = split_scale(obs, splits)
+    volume = None if obs.volume is None else int(math.floor(obs.volume * scale + 0.5))
+    return replace(
+        obs,
+        open=obs.open / scale,
+        high=obs.high / scale,
+        low=obs.low / scale,
+        close=obs.close / scale,
+        volume=volume,
+    )
+
+
 def _by_vendor_day(
     observations: Sequence[Observation], splits: Sequence[SplitRecord]
 ) -> dict[str, dict[date, _VendorDay]]:
@@ -394,6 +453,7 @@ def _by_vendor_day(
         vendor = _ROUTE_VENDOR.get(obs.route)
         if vendor is None:
             continue
+        obs = _rescaled(obs, splits)
         current, stale = pools[vendor].setdefault(obs.bar_date, ([], []))
         (current if _is_current(obs, splits) else stale).append(obs)
     return {

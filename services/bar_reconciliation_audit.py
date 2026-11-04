@@ -81,6 +81,7 @@ from services.bar_derivation import (
     _SELECT_STORED_1D_SQL,
     _derive_for_tf,
     _month_digest_rows,
+    split_rescale_routes,
 )
 from services.bar_hold import Hold
 from services.bar_hold import held as read_held
@@ -1169,6 +1170,7 @@ def _splits(rows: Iterable[Mapping[str, Any]]) -> list[SplitRecord]:
             recorded_at=r["recorded_at"],
             factor=r["factor"],
             evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
+            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_span")),
         )
         for r in rows
     ]

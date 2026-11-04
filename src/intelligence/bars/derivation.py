@@ -49,6 +49,11 @@ class SplitRecord:
     recorded_at: datetime
     factor: float
     evidence_request_ids: tuple[str, ...] = ()
+    # Todo 587 (inferred_by calendar_audit): the observation routes measured unadjusted over this
+    # split. Non-empty makes the split a rescale, never a staleness trigger: those routes'
+    # observations dated on or before effective_date (the last day on the old scale) are divided
+    # by the factor. Empty (every other split) keeps the D-21 stale semantics.
+    rescale_routes: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

@@ -102,7 +102,7 @@ def _pairs(result) -> dict[date, tuple[str, str]]:
 
 
 def test_rule_version_and_alpaca_identity():
-    assert RULE_VERSION == "d2-v4"
+    assert RULE_VERSION == "d2-v5"
     assert PRIMARY_PAIR["alpaca"] == ALPACA
     # The canonical kind is the raw kind, as canonical 5m carries Alpaca rows (D-191-B).
     assert canonical_kind_for_raw("alpaca", "sip_rth") == "sip_rth"

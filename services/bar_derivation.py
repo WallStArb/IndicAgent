@@ -94,6 +94,7 @@ from services.bar_scrub import FlagRow, scrub_symbols, write_flags
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.daily_rule import (
+    CALENDAR_AUDIT,
     FLAG_FALLBACK_SEAM,
     FLAG_NO_VOLUME,
     FLAG_PRE_SPLIT,
@@ -104,6 +105,7 @@ from src.intelligence.bars.daily_rule import (
     PolicyRow,
     derive_daily_v2,
     observation_from_raw,
+    rescale_routes,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
@@ -430,11 +432,25 @@ ORDER BY r."timestamp", r.vendor, r.kind
 
 _SELECT_DAILY_SPLITS_SQL = """
 SELECT effective_date, recorded_at, factor,
-       COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids
+       COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids,
+       inferred_by, detail->'unadjusted_span' AS unadjusted_span
 FROM corporate_action_current
 WHERE symbol = $1
 ORDER BY effective_date
 """
+
+
+def split_rescale_routes(inferred_by: str, unadjusted_span: Any) -> frozenset[str]:
+    """A calendar_audit split's rescaled routes from its recorded unadjusted (vendor, kind) span
+    (todo 587); empty for every other split. A calendar_audit row without its span raises: it
+    would otherwise fall back to the stale semantics and quarantine the pre-split history."""
+    if inferred_by != CALENDAR_AUDIT:
+        return frozenset()
+    span = json.loads(unadjusted_span) if isinstance(unadjusted_span, str) else unadjusted_span
+    if not span or not span.get("vendor") or not span.get("kind"):
+        raise ValueError(f"calendar_audit split without its unadjusted span: {unadjusted_span!r}")
+    return rescale_routes(span["vendor"], span["kind"])
+
 
 # The 1d source decisions (migration 446), read once per run.
 _SELECT_POLICY_1D_SQL = """
@@ -1987,6 +2003,7 @@ async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], 
             recorded_at=r["recorded_at"],
             factor=r["factor"],
             evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
+            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_span")),
         )
         for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
     ]

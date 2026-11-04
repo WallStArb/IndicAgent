@@ -147,7 +147,7 @@ def test_known_case_fixture_is_present_and_documented():
 def test_rule_version():
     # d2-v3 (plan 185-52, todo 517): a stale-only primary yields to a basis-tested current
     # fallback answer.
-    assert RULE_VERSION == "d2-v4"
+    assert RULE_VERSION == "d2-v5"
 
 
 def test_tradier_date_takes_the_latest_tradier_observation():
@@ -590,9 +590,11 @@ def test_a_voided_split_is_not_an_input_and_changes_nothing():
 
 
 def test_only_dates_before_the_split_are_restated():
-    # Effective inside the span: Tradier answers on or after it are current and stay primary.
+    # Effective inside the span: Tradier answers after it are current and stay primary.
+    # effective_date is the last day on the old scale (migration 400; d2-v5 fixed d2-v4's
+    # off-by-one), so the split whose new scale starts on days[14] is dated days[13].
     days, observations, _ = _restated_case()
-    split = SplitRecord(days[14], _SPLIT_FETCH, 2.0)
+    split = SplitRecord(days[13], _SPLIT_FETCH, 2.0)
     after = [o for o in observations if not (o.route == "TRADIER" and o.bar_date >= days[14])]
     after += [_obs("TRADIER", d, 10.0, request_id=f"t2{d}") for d in days[14:]]
     result = _derive(after, splits=[split])

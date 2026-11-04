@@ -468,7 +468,7 @@ def test_apply_records_restated_dates_in_the_load_detail():
     _run(conn)
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
-    assert detail["rule_version"] == "d2-v4" and len(detail["restated"]) == 7
+    assert detail["rule_version"] == "d2-v5" and len(detail["restated"]) == 7
     assert {(r["vendor"], r["kind"]) for r in conn.stored["TEST"].values()} == {
         ("ibkr", "fallback")
     }
@@ -604,7 +604,7 @@ def test_open_batch_gets_rule_d2v4_and_the_integrity_and_scrub_keys(monkeypatch)
 
     monkeypatch.setattr(bar_derivation_module, "open_batch", fake_open)
     _run(conn)
-    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v4"
+    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v5"
     keys = set(seen["apr_snapshot"])
     assert "threshold.bar_integrity.fallback_basis_tolerance_bp" in keys
     assert "threshold.bar_integrity.max_revision_ratio" in keys
@@ -1065,5 +1065,5 @@ def test_a_zero_volume_alpaca_bar_never_reaches_canonical():
     assert result["zero_volume"] == 1
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
-    assert detail["rule_version"] == "d2-v4"
+    assert detail["rule_version"] == "d2-v5"
     assert detail["zero_volume"] == [_D3.isoformat()]
