@@ -2,7 +2,7 @@
 
 Driver: `.venv/bin/python scripts/research/e17_null_battery.py 184-05-battery.json --battery src.intelligence.research.null_battery_persistent --sims 1000 --workers 6`
 
-Battery module commit: 49e21bb41 (clean certified code, no uncommitted change; the simulation code is unchanged in later commits, which only fill `PASSING_CERTIFICATES` and the refusal message). Record: 26 scenarios, 1,000 simulations each, 4,000-session panels, 60 names. The raw record is not committed (cells and counts are in the table).
+Battery module commit: 49e21bb41, kept reachable by tag `battery/184-05` (it was rebased to 9ceb891b6 on main, content-identical for the battery module, `families/features.py` and the driver: `git diff 49e21bb41 9ceb891b6` on those paths is empty) (clean certified code, no uncommitted change; the simulation code is unchanged in later commits, which only fill `PASSING_CERTIFICATES` and the refusal message). Record: 26 scenarios, 1,000 simulations each, 4,000-session panels, 60 names. The raw record is not committed (cells and counts are in the table).
 
 ## Rule, fixed before the run
 
