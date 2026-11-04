@@ -18,8 +18,8 @@ from src.intelligence.bars.corporate_actions import SplitRatioRule
 
 _RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
 _TOL = 0.3
-_WITNESS = audit.Witness(windows=(2, 3), listing_sessions=2)
-_PARAMS = audit.AuditParams(_RULE, _TOL, _WITNESS)
+_SESSIONS = 3
+_PARAMS = audit.AuditParams(_RULE, _TOL, _SESSIONS)
 _DAYS = [
     date(2005, 2, 14) + timedelta(days=i)
     for i in range(24)
@@ -34,23 +34,18 @@ def _step(day, on, factor, adjusted):
     return 1.0 if (adjusted or day < on) else 1.0 / factor
 
 
-def _series(on, factor, *, adjusted=False, volume_steps=True, days=_DAYS, pair=("ibkr", "named")):
+def _series(on, factor, *, adjusted=False, days=_DAYS, pair=("ibkr", "named")):
     """Canonical (date, close, vendor, kind) at 100 stepping by 1/factor on `on` unless adjusted,
-    the raw series canonical is served from (volume 1000 stepping by factor unless the share
-    count stays flat), and the calendar's split-adjusted closes, which never step."""
+    the raw series canonical is served from, and the calendar's split-adjusted closes, which never
+    step."""
     canonical = [(d, 100.0 * _step(d, on, factor, adjusted), *pair) for d in days]
-    raw = [
-        (d, close, 1000 * (factor if (volume_steps and d >= on) else 1))
-        for d, close, _, _ in canonical
-    ]
+    raw = [(d, close) for d, close, _, _ in canonical]
     calendar = [(d, 100.0 / factor, factor if d == on else 0.0) for d in days]
     return canonical, calendar, raw
 
 
-def _judge(symbol, canonical, calendar, raw, first_bars=None):
-    return audit.judge_events(
-        symbol, canonical, calendar, raw, first_bars or {}, _RULE, _TOL, _WITNESS
-    )
+def _judge(symbol, canonical, calendar, raw, excluded=()):
+    return audit.judge_events(symbol, canonical, calendar, raw, _RULE, _TOL, _SESSIONS, excluded)
 
 
 def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
@@ -66,8 +61,6 @@ def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
     assert (event.canonical_vendor, event.canonical_kind) == ("ibkr", "named")
     assert json.loads(event.route_steps) == {"ibkr/smart_trades": round(-math.log(2.0), 6)}
     assert event.unadjusted_routes == "ibkr/smart_trades"
-    assert event.volume_stat == 1.0
-    assert json.loads(event.volume_windows) == [round(math.log(2.0), 6)] * 2
 
 
 def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
@@ -77,37 +70,28 @@ def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
     assert _judge("IBM", canonical, calendar, {_IBKR: raw})[0].verdict == "not_a_split_ratio"
 
 
-def test_a_flat_share_count_vetoes_only_with_a_spin_off_witness():
-    """SNX-shaped: the price halves on the date, the share count does not move, and the spun-off
-    company lists that week. Volume alone never vetoes (lead ruling 2026-11-04)."""
-    canonical, calendar, raw = _series(_ON, 2.0, volume_steps=False)
-    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw})
-    assert (event.verdict, event.volume_stat, event.co_listed) == ("confirmed", 0.0, "")
-    spun = {"SNX": date(2000, 1, 3), "CNXC": date(2005, 3, 1), "OLD": date(2000, 1, 3)}
-    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw}, spun)
-    assert (event.verdict, event.co_listed) == ("volume_veto", "CNXC")
-    far = {"CNXC": date(2005, 3, 10)}  # five sessions after the date: outside two
-    assert _judge("SNX", canonical, calendar, {_IBKR: raw}, far)[0].verdict == "confirmed"
-
-
-def test_a_split_shaped_share_count_confirms_despite_a_co_listing():
+def test_an_operator_listed_spin_off_is_excluded_never_a_row():
+    """SNX-shaped: a clean ratio with an unadjusted step, but the operator's list names it a
+    spin-off (todo 587 Decision point 2)."""
     canonical, calendar, raw = _series(_ON, 2.0)
-    [event] = _judge("AAPL", canonical, calendar, {_IBKR: raw}, {"NEW": _ON})
-    assert (event.verdict, event.co_listed) == ("confirmed", "NEW")
+    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw}, {("SNX", _ON)})
+    assert (event.verdict, event.unadjusted_routes) == ("excluded_spin_off", "ibkr/smart_trades")
+    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw}, {("SNX", date(2005, 3, 1))})
+    assert event.verdict == "confirmed"
 
 
-def test_an_ambiguous_share_count_confirms_with_its_statistic():
-    canonical, calendar, raw = _series(_ON, 2.0)
-    ambiguous = [(d, c, int(1000 * 2**0.4) if d >= _ON else 1000) for d, c, _ in raw]
-    [event] = _judge("AAPL", canonical, calendar, {_IBKR: ambiguous})
-    assert event.verdict == "confirmed" and 0.25 < event.volume_stat < 0.5
-
-
-def test_missing_share_count_evidence_never_vetoes():
-    canonical, calendar, raw = _series(_ON, 2.0)
-    short = [row for row in raw if row[0] >= date(2005, 2, 25)]  # one session before the date
-    [event] = _judge("AAPL", canonical, calendar, {_IBKR: short})
-    assert (event.verdict, event.volume_stat, event.volume_windows) == ("confirmed", None, "[]")
+def test_the_spin_off_list_starts_with_snx_and_needs_reason_and_evidence(tmp_path):
+    listed = audit.spin_off_exclusions()
+    assert listed == {
+        ("SNX", date(2020, 12, 1)): "Concentrix spin-off, CNXC first lists the same week"
+    }
+    bad = tmp_path / "x.csv"
+    bad.write_text("symbol,date,reason,evidence\nIBM,2021-11-04,Kyndryl,\n")
+    with pytest.raises(ValueError):
+        audit.spin_off_exclusions(bad)
+    bad.write_text("symbol,date,reason,evidence\nIBM,2021-11-04,a,b\nIBM,2021-11-04,a,b\n")
+    with pytest.raises(ValueError):
+        audit.spin_off_exclusions(bad)
 
 
 def test_every_series_before_the_date_is_measured_on_its_own():
@@ -118,16 +102,16 @@ def test_every_series_before_the_date_is_measured_on_its_own():
     [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_unadjusted})
     # IBKR has no session after the date: its scale cannot be measured, so no row.
     assert event.verdict == "route_conflict"
-    ibkr = [(d, c, v) for d, c, v in alpaca]
+    ibkr = list(alpaca)
     [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr})
     assert (event.verdict, event.unadjusted_routes) == (
         "confirmed",
         "alpaca/sip_rth;ibkr/smart_trades",
     )
-    ibkr_adjusted = [(d, c / 2 if d < _ON else c, v) for d, c, v in alpaca]
+    ibkr_adjusted = [(d, c / 2 if d < _ON else c) for d, c in alpaca]
     [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_adjusted})
     assert (event.verdict, event.unadjusted_routes) == ("confirmed", "alpaca/sip_rth")
-    ibkr_odd = [(d, c * 1.3 if d < _ON else c, v) for d, c, v in alpaca]
+    ibkr_odd = [(d, c * 1.3 if d < _ON else c) for d, c in alpaca]
     [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_odd})
     assert event.verdict == "route_conflict"
 
@@ -144,7 +128,6 @@ def test_a_route_step_never_crosses_another_calendar_event():
     # A spin-off two weeks before: the series' ratio to the calendar before it is not measured.
     calendar = [(d, c * (1.2 if d < date(2005, 2, 21) else 1.0), f) for d, c, f in calendar]
     calendar = [(d, c, 1.2 if d == date(2005, 2, 21) else f) for d, c, f in calendar]
-    raw = [(d, c, v) for d, c, v in raw]
     events = _judge("AAPL", canonical, calendar, {_IBKR: raw})
     split = next(e for e in events if e.calendar_date == _ON)
     assert json.loads(split.route_steps) == {"ibkr/smart_trades": round(-math.log(2.0), 6)}
@@ -177,9 +160,6 @@ _LINE = {
     "canonical_kind": "named",
     "route_steps": '{"ibkr/smart_trades": -0.693147}',
     "unadjusted_routes": "ibkr/smart_trades",
-    "volume_stat": "0.94",
-    "volume_windows": "[0.65]",
-    "co_listed": "",
     "verdict": "confirmed",
     "ratio": "2.0",
     "error": "",
@@ -206,16 +186,14 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
                 "canonical_step": "2.30",
                 "calendar_adjusted_step": "0.0",
                 "route_steps": '{"ibkr/smart_trades": 2.302585}',
-                "volume_stat": "",
-                "volume_windows": "[]",
                 "ratio": "0.1",
             },
             {"symbol": "IBM", "calendar_factor": "1.046", "verdict": "not_a_split_ratio"},
             {"symbol": "XPO", "verdict": "conflict"},
-            {"symbol": "SNX", "verdict": "volume_veto", "co_listed": "CNXC"},
+            {"symbol": "SNX", "verdict": "excluded_spin_off"},
         ],
     )
-    rows = audit.confirmed_rows(path, _PARAMS)
+    rows = audit.confirmed_rows(path, _PARAMS, excluded=set())
     assert [(r["symbol"], r["action_type"], r["factor"]) for r in rows] == [
         ("AAPL", "split", 2.0),
         ("UNIT", "reverse_split", 0.1),
@@ -224,16 +202,12 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
     assert detail["unadjusted_routes"] == [{"vendor": "ibkr", "kind": "smart_trades"}]
     assert "unadjusted_span" not in detail
     assert detail["audit_file"] == "audit.csv" and len(detail["audit_sha256"]) == 64
-    assert detail["rel_tol"] == _TOL
-    assert detail["witness"] == {"windows": (2, 3), "listing_sessions": 2}
-    assert detail["co_listed"] == []
-    assert (detail["volume"], rows[1]["detail"]["volume"]) == (0.94, "unmeasured")
+    assert detail["rel_tol"] == _TOL and detail["route_sessions"] == _SESSIONS
 
 
 @pytest.mark.parametrize(
     "edit",
     [
-        {"volume_stat": "0.05", "co_listed": "CNXC"},  # a distribution: two witnesses
         {"route_steps": '{"ibkr/smart_trades": -0.3}'},  # a series off both scales
         {"route_steps": '{"ibkr/smart_trades": null}'},  # an unmeasured series
         {"unadjusted_routes": ""},  # a hand-edited list
@@ -245,7 +219,13 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
 def test_a_line_the_current_apr_would_not_confirm_raises(tmp_path, edit):
     path = _write(tmp_path / "audit.csv", [edit])
     with pytest.raises(ValueError):
-        audit.confirmed_rows(path, _PARAMS)
+        audit.confirmed_rows(path, _PARAMS, excluded=set())
+
+
+def test_a_confirmed_line_the_spin_off_list_now_names_raises(tmp_path):
+    path = _write(tmp_path / "audit.csv", [{}])
+    with pytest.raises(ValueError):
+        audit.confirmed_rows(path, _PARAMS, excluded={("AAPL", date(2005, 2, 28))})
 
 
 def test_an_existing_row_of_any_state_near_the_date_blocks_a_second_one():
@@ -268,8 +248,7 @@ class _Cursor:
                 ("infra.backfill.split_ratio_max_denominator", "4"),
                 ("infra.backfill.split_ratio_rel_tol", "0.002"),
                 ("threshold.split_continuity.rel_tol", "0.3"),
-                ("threshold.split_calendar.volume_windows", "[2, 3]"),
-                ("threshold.split_calendar.spin_off_listing_sessions", "2"),
+                ("threshold.split_calendar.route_sessions", "3"),
             ]
         self._row = None
 
@@ -335,22 +314,20 @@ def test_every_unconfirmed_candidate_and_only_those_is_flagged(tmp_path):
         tmp_path / "audit.csv",
         [
             {},
-            {"symbol": "SNX", "verdict": "volume_veto", "co_listed": "CNXC", "volume_stat": "0.2"},
+            {"symbol": "SNX", "verdict": "excluded_spin_off"},
             {"symbol": "JMSB", "verdict": "route_conflict"},
-            {"symbol": "AA", "verdict": "conflict", "volume_stat": ""},
+            {"symbol": "AA", "verdict": "conflict"},
             {"symbol": "MSFT", "verdict": "adjusted"},
             {"symbol": "IBM", "verdict": "not_a_split_ratio"},
         ],
     )
     got = audit.unconfirmed_candidates(path)
     assert [(c["symbol"], c["detail"]["verdict"]) for c in got] == [
-        ("SNX", "volume_veto"),
+        ("SNX", "excluded_spin_off"),
         ("JMSB", "route_conflict"),
         ("AA", "conflict"),
     ]
-    assert got[0]["detail"]["co_listed"] == ["CNXC"] and got[0]["effective_date"] == date(
-        2005, 2, 25
-    )
+    assert got[0]["effective_date"] == date(2005, 2, 25)
 
 
 class _AsyncTx:
@@ -389,7 +366,7 @@ def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
     import services.bar_derivation_batch as batch
     import services.bar_scrub as scrub
 
-    path = _write(tmp_path / "audit.csv", [{"symbol": "SNX", "verdict": "volume_veto"}])
+    path = _write(tmp_path / "audit.csv", [{"symbol": "SNX", "verdict": "excluded_spin_off"}])
     written = []
 
     async def fake_write_flags(conn, **kw):

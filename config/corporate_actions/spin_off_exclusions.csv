@@ -1,0 +1,2 @@
+symbol,date,reason,evidence
+SNX,2020-12-01,"Concentrix spin-off, CNXC first lists the same week","Yahoo writes a 2.0 split; share-count statistic 0.247 (median of the 20/60/120-session log volume steps in units of log 2, measured 2026-11-04); CNXC first canonical 1d bar 2020-11-24; Alpaca sip_rth and IBKR smart_trades both carry the -log 2 step unadjusted. Total-return question for the dividend layer (todo 587 Decision point 2)."

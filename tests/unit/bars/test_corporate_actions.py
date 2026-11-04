@@ -23,8 +23,6 @@ from src.intelligence.bars.corporate_actions import (
     judge_calendar_split,
     recognised_split_ratio,
     scale_step,
-    share_count_stat,
-    share_count_vetoes,
     split_continuity,
     unknown_return_mask,
 )
@@ -291,28 +289,6 @@ def test_split_continuity_reads_a_reverse_split_in_its_own_orientation():
 def test_split_continuity_refuses_a_factor_of_one():
     with pytest.raises(ValueError):
         split_continuity(0.0, 1.0, _TOL)
-
-
-def test_the_share_count_statistic_is_the_median_window_in_units_of_log_f():
-    log2 = math.log(2.0)
-    assert share_count_stat([log2 * 0.2, log2 * 0.9, log2 * 1.1], 2.0) == pytest.approx(0.9)
-    assert share_count_stat([math.log(0.1)], 0.1) == pytest.approx(1.0)  # 1-for-10
-    assert share_count_stat([], 2.0) is None
-
-
-@pytest.mark.parametrize(
-    "stat, witness, vetoes",
-    [
-        (0.2, True, True),  # nearer no change, and a new listing that week
-        (0.49, True, True),
-        (0.5, True, False),
-        (0.2, False, False),  # volume alone never vetoes
-        (None, True, False),  # missing evidence never vetoes
-        (1.8, True, False),
-    ],
-)
-def test_the_share_count_vetoes_only_with_a_spin_off_witness(stat, witness, vetoes):
-    assert share_count_vetoes(stat, witness) is vetoes
 
 
 @pytest.mark.parametrize(

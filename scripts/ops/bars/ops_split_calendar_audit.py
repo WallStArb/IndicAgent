@@ -16,22 +16,19 @@ Two steps, with the evidence a reviewed, committed file between them:
        spin-offs Yahoo writes as fractional splits) on its date;
     2. the price step: canonical steps by -log ratio across the date beyond Yahoo's adjusted step,
        Yahoo's adjusted close continuous (judge_calendar_split, threshold.split_continuity.rel_tol).
-    The share count can only veto (lead ruling 2026-11-04): on canonical's raw series, the log
-    volume step across the date over each window of threshold.split_calendar.volume_windows
-    (truncated at the neighbouring calendar events), in units of log ratio, median over the
-    measurable windows (share_count_stat). A split is vetoed (volume_veto, no row, review) only
-    when the statistic is below 0.5 and a spin-off witness is present: an instrument whose first
-    canonical 1d session falls within threshold.split_calendar.spin_off_listing_sessions of the
-    name's sessions around effective_date. Anything else confirms; both are recorded.
+    A spin-off a calendar writes as a clean ratio is an explicit exclusion on the operator's list
+    (config/corporate_actions/spin_off_exclusions.csv: excluded_spin_off, no row; it belongs to the
+    dividend/total-return layer). No automatic veto: volume and new-listing witnesses were
+    measured and rejected (2026-11-04: a co-listing within a week occurs on 69% of sessions).
     Then every raw series with an observation before the date is measured on its own: its close
-    over Yahoo's adjusted close, medians over the shortest volume window's sessions on each side inside
+    over Yahoo's adjusted close, medians over threshold.split_calendar.route_sessions sessions on each side inside
     the neighbouring calendar events, steps by -log ratio (unadjusted, the row names it in
     unadjusted_routes and the rule rescales it), 0 (adjusted) or anything else (conflict). A
     split with a conflicting or unmeasurable series gets no row (route_conflict): the scale is
     measured per series, never assumed across a vendor seam. Every event is written with its
     verdict and evidence.
 --quarantine-unconfirmed CSV [--commit]: quarantine the first new-scale canonical bar of every
-    candidate left unconfirmed (volume_veto, route_conflict, conflict) under bar_quality_flag rule
+    candidate left unconfirmed (excluded_spin_off, route_conflict, conflict) under bar_quality_flag rule
     unconfirmed_split, through bar_scrub.write_flags; dry run unless --commit.
 --apply CSV [--commit]: re-judge each confirmed line under the current APR and insert it unless
     the name already has any corporate_action row (current, superseded or void) within a week of
@@ -52,7 +49,7 @@ import statistics
 import sys
 import time
 from bisect import bisect_left
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -70,8 +67,6 @@ from src.intelligence.bars.corporate_actions import (  # noqa: E402
     SplitRatioRule,
     judge_calendar_split,
     scale_step,
-    share_count_stat,
-    share_count_vetoes,
 )
 from src.intelligence.bars.daily_rule import (  # noqa: E402
     FALLBACK_PAIR,
@@ -84,8 +79,10 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
-VOLUME_WINDOWS_KEY = "threshold.split_calendar.volume_windows"
-LISTING_SESSIONS_KEY = "threshold.split_calendar.spin_off_listing_sessions"
+ROUTE_SESSIONS_KEY = "threshold.split_calendar.route_sessions"
+# Operator-maintained spin-offs a calendar writes as clean split ratios (todo 587 Decision point
+# 2): never a split row; they belong to the dividend/total-return layer.
+SPIN_OFF_EXCLUSIONS = project_root / "config" / "corporate_actions" / "spin_off_exclusions.csv"
 _WRITER_ROLE = "bar_derivation_writer"
 # "Across the date" means sessions this close to the calendar date; a split with no session
 # nearby (a hole, a listing that starts after it) is unmeasured. Definitional, not tunables.
@@ -105,7 +102,7 @@ WHERE symbol = %s AND timeframe = '1d' AND close > 0 ORDER BY timestamp
 # The rescalable raw series as the daily read reads them (bar_derivation._SELECT_DAILY_RAW_SQL):
 # session-dated in each series' zone, test callers' requests left out.
 _RAW_SQL = """
-SELECT r.vendor, r.kind, (r."timestamp" AT TIME ZONE s.zone)::date AS bar_date, r.close, r.volume
+SELECT r.vendor, r.kind, (r."timestamp" AT TIME ZONE s.zone)::date AS bar_date, r.close
 FROM ohlcv_raw r
 JOIN unnest(%s::text[], %s::text[], %s::text[]) AS s(vendor, kind, zone)
   ON s.vendor = r.vendor AND s.kind = r.kind
@@ -113,13 +110,6 @@ LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
 WHERE r.symbol = %s AND r.timeframe = '1d' AND r.close > 0
   AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%%')
 ORDER BY bar_date
-"""
-# Every instrument's first canonical 1d session (the spin-off witness).
-_FIRST_BARS_SQL = """
-SELECT i.symbol,
-       (SELECT (min(m."timestamp") AT TIME ZONE 'UTC')::date FROM market_data_ohlcv m
-         WHERE m.symbol = i.symbol AND m.timeframe = '1d') AS first_bar
-FROM instruments i
 """
 _RESCALABLE = sorted(RESCALABLE_SERIES)
 # The raw series each canonical (vendor, kind) is served from (canonical_bar_lineage's mapping).
@@ -141,22 +131,8 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 """
 
 
-@dataclass(frozen=True)
-class Witness:
-    """The veto witnesses' APR (threshold.split_calendar.*, migration 571): the session windows of
-    the volume step (the shortest also bounds the per-series price medians) and how many of the
-    name's sessions around effective_date a new listing may fall to witness a spin-off."""
-
-    windows: tuple[int, ...]
-    listing_sessions: int
-
-    @property
-    def price_sessions(self) -> int:
-        return min(self.windows)
-
-
-# One raw series of a name: (session date, close, volume) in date order.
-RawSeries = Sequence[tuple[date, float, int | None]]
+# One raw series of a name: (session date, close) in date order.
+RawSeries = Sequence[tuple[date, float]]
 
 
 def series_key(series: tuple[str, str]) -> str:
@@ -170,8 +146,8 @@ class CalendarEvent:
     symbol: str
     calendar_date: date
     calendar_factor: float
-    # judge_calendar_split's verdict, "unmeasured", or for a confirmed price step whose other
-    # witnesses fail: route_conflict, volume_veto (share count below 0.5 and a co-listing)
+    # judge_calendar_split's verdict, "unmeasured", or for a confirmed price step: route_conflict
+    # (a series conflicts or cannot be measured) or excluded_spin_off (the operator's list)
     verdict: str
     ratio: float | None = None
     effective_date: date | None = None  # canonical's last session on the old scale
@@ -186,15 +162,6 @@ class CalendarEvent:
     # ";"-joined vendor/kind of the series measured unadjusted (what a row's detail records; on
     # an adjusted event, a series still unadjusted for a split canonical is adjusted for)
     unadjusted_routes: str | None = None
-    # Confirmed price steps only, on canonical's series: share_count_stat (empty = unmeasured)
-    # and the measured windows' log volume steps, a JSON list in the order of witness.windows
-    # (unmeasurable windows left out)
-    volume_stat: float | None = None
-    volume_windows: str | None = None
-    # Confirmed price steps only: ";"-joined instruments whose first canonical 1d session falls
-    # within witness.listing_sessions of the name's sessions around effective_date (the spin-off
-    # witness; a veto needs it and a share count below 0.5)
-    co_listed: str | None = None
 
 
 def _bracket(days: Sequence[date], on: date) -> tuple[int, int] | None:
@@ -222,32 +189,13 @@ def _route_step(
     after effective_date and before the date (the rule rescales on or before effective_date only,
     so that bar would keep the old scale)."""
     lo, hi = span
-    if any(effective < d < day for d, _, _ in series):
+    if any(effective < d < day for d, _ in series):
         return None
-    before = [
-        (d, c / calendar_close[d]) for d, c, _ in series if lo <= d < day and d in calendar_close
-    ]
-    after = [c / calendar_close[d] for d, c, _ in series if day <= d < hi and d in calendar_close]
+    before = [c / calendar_close[d] for d, c in series if lo <= d < day and d in calendar_close]
+    after = [c / calendar_close[d] for d, c in series if day <= d < hi and d in calendar_close]
     if not before or not after:
         return None
-    step = math.log(statistics.median(after[:n]) / statistics.median(r for _, r in before[-n:]))
-    return round(step, 6)
-
-
-def _volume_steps(
-    series: RawSeries, day: date, span: tuple[date, date], windows: Sequence[int]
-) -> list[float]:
-    """log(median volume after / median before) per window with n traded sessions on each side
-    inside span (truncated at the neighbouring calendar events); an unmeasurable window is left
-    out."""
-    lo, hi = span
-    before = [v for d, _, v in series if lo <= d < day and v]
-    after = [v for d, _, v in series if day <= d < hi and v]
-    return [
-        math.log(statistics.median(after[:n]) / statistics.median(before[-n:]))
-        for n in windows
-        if len(before) >= n and len(after) >= n
-    ]
+    return round(math.log(statistics.median(after[:n]) / statistics.median(before[-n:])), 6)
 
 
 def _unadjusted(
@@ -263,22 +211,23 @@ def _unadjusted(
     return sorted(key for key, r in readings.items() if r == "unadjusted")
 
 
-def _witnessed(
+def _final_verdict(
+    symbol: str,
+    calendar_date: date,
     canonical_series: str,
     route_steps: Mapping[str, float | None],
-    volume_stat: float | None,
-    co_listed: Sequence[str],
     ratio: float,
     rel_tol: float,
+    excluded: Collection[tuple[str, date]],
 ) -> tuple[str, list[str] | None]:
-    """A price-confirmed split's final verdict from the per-series scales and the distribution
-    veto (share count plus a spin-off witness), and its unadjusted series. Pure; confirmed_rows
-    re-runs it on the recorded numbers."""
+    """A price-confirmed split's final verdict and its unadjusted series: an operator-listed
+    spin-off is excluded; otherwise every series must read unadjusted or adjusted, canonical's own
+    unadjusted. Pure; confirmed_rows re-runs it on the recorded numbers."""
     unadjusted = _unadjusted(route_steps, ratio, rel_tol)
+    if (symbol, calendar_date) in excluded:
+        return "excluded_spin_off", unadjusted
     if unadjusted is None or canonical_series not in unadjusted:
         return "route_conflict", unadjusted
-    if share_count_vetoes(volume_stat, bool(co_listed)):
-        return "volume_veto", unadjusted
     return "confirmed", unadjusted
 
 
@@ -287,13 +236,13 @@ def judge_events(
     canonical: Sequence[tuple[date, float, str, str]],
     calendar: Sequence[tuple[date, float, float]],
     raw: Mapping[tuple[str, str], RawSeries],
-    first_bars: Mapping[str, date],
     rule: SplitRatioRule,
     rel_tol: float,
-    witness: Witness,
+    route_sessions: int,
+    excluded: Collection[tuple[str, date]] = (),
 ) -> list[CalendarEvent]:
-    """Every calendar split event of one name, judged. Pure. first_bars is every instrument's first
-    canonical 1d session (the spin-off witness: a new listing near the date)."""
+    """Every calendar split event of one name, judged. Pure. excluded is the operator's spin-off
+    list as (symbol, calendar date)."""
     c_days = [row[0] for row in canonical]
     # yfinance can emit an action row with no price: steps use priced rows only.
     priced = [row for row in calendar if math.isfinite(row[1]) and row[1] > 0]
@@ -314,42 +263,28 @@ def judge_events(
         effective, _, vendor, kind = canonical[c[0]]
         route_steps: dict[str, float | None] | None = None
         unadjusted: list[str] | None = None
-        volume_stat = volume_windows = None
-        co_listed: list[str] | None = None
         if verdict in ("confirmed", "adjusted"):
+            assert ratio is not None
             i = bisect_left(event_days, day)
             span = (
                 event_days[i - 1] if i else date.min,
                 event_days[i + 1] if i + 1 < len(event_days) else date.max,
             )
             route_steps = {
-                series_key(series): _route_step(
-                    rows, y_close, day, effective, span, witness.price_sessions
-                )
+                series_key(series): _route_step(rows, y_close, day, effective, span, route_sessions)
                 for series, rows in sorted(raw.items())
                 if rows and rows[0][0] < day
             }
-            assert ratio is not None
             if verdict == "confirmed":
                 own = _RAW_SERIES_OF.get((vendor, kind))
-                steps = _volume_steps(raw.get(own, ()), day, span, witness.windows)
-                stat = share_count_stat(steps, ratio)
-                volume_stat = None if stat is None else round(stat, 6)
-                volume_windows = json.dumps([round(x, 6) for x in steps])
-                lo = c_days[max(c[0] - witness.listing_sessions, 0)]
-                hi = c_days[min(c[0] + witness.listing_sessions, len(c_days) - 1)]
-                co_listed = sorted(
-                    other
-                    for other, first in first_bars.items()
-                    if other != symbol and lo <= first <= hi
-                )
-                verdict, unadjusted = _witnessed(
+                verdict, unadjusted = _final_verdict(
+                    symbol,
+                    day,
                     series_key(own) if own else "",
                     route_steps,
-                    volume_stat,
-                    co_listed,
                     ratio,
                     rel_tol,
+                    excluded,
                 )
             else:
                 unadjusted = _unadjusted(route_steps, ratio, rel_tol)
@@ -367,12 +302,24 @@ def judge_events(
                 kind,
                 None if route_steps is None else json.dumps(route_steps, sort_keys=True),
                 None if unadjusted is None else ";".join(unadjusted),
-                volume_stat,
-                volume_windows,
-                None if co_listed is None else ";".join(co_listed),
             )
         )
     return events
+
+
+def spin_off_exclusions(path: Path = SPIN_OFF_EXCLUSIONS) -> dict[tuple[str, date], str]:
+    """The operator's spin-off list: (symbol, calendar date) -> reason. Every line needs a reason
+    and its evidence; a malformed or duplicated line raises."""
+    out: dict[tuple[str, date], str] = {}
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            key = (line["symbol"], date.fromisoformat(line["date"]))
+            if not line["reason"].strip() or not line["evidence"].strip() or key in out:
+                raise ValueError(
+                    f"spin-off exclusion {key}: needs one line with reason and evidence"
+                )
+            out[key] = line["reason"]
+    return out
 
 
 @dataclass(frozen=True)
@@ -381,48 +328,41 @@ class AuditParams:
 
     rule: SplitRatioRule
     rel_tol: float
-    witness: Witness
+    route_sessions: int
 
     @classmethod
     def from_apr(cls, values: Mapping[str, Any]) -> AuditParams:
         return cls(
             split_rule_from_apr(values),
             float(values[REL_TOL_KEY]),
-            Witness(
-                tuple(int(n) for n in json.loads(values[VOLUME_WINDOWS_KEY])),
-                int(values[LISTING_SESSIONS_KEY]),
-            ),
+            int(values[ROUTE_SESSIONS_KEY]),
         )
 
 
 def _apr(conn: Any) -> AuditParams:
     with conn.cursor() as cur:
-        cur.execute(
-            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, VOLUME_WINDOWS_KEY, LISTING_SESSIONS_KEY],)
-        )
+        cur.execute(_APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, ROUTE_SESSIONS_KEY],))
         return AuditParams.from_apr(dict(cur.fetchall()))
 
 
-def _raw_series(
-    conn: Any, symbol: str
-) -> dict[tuple[str, str], list[tuple[date, float, int | None]]]:
+def _raw_series(conn: Any, symbol: str) -> dict[tuple[str, str], list[tuple[date, float]]]:
     vendors, kinds = zip(*_RESCALABLE, strict=True)
     zones = [RAW_DAILY_SESSION_ZONE[series] for series in _RESCALABLE]
-    raw: dict[tuple[str, str], list[tuple[date, float, int | None]]] = {}
-    for vendor, kind, day, close, volume in conn.execute(
+    raw: dict[tuple[str, str], list[tuple[date, float]]] = {}
+    for vendor, kind, day, close in conn.execute(
         _RAW_SQL, (list(vendors), list(kinds), zones, symbol)
     ):
-        raw.setdefault((vendor, kind), []).append((day, float(close), volume))
+        raw.setdefault((vendor, kind), []).append((day, float(close)))
     return raw
 
 
 def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[str, int]:
     """Read-only: every calendar event of every name into `out`; returns counts per verdict."""
     counts: dict[str, int] = {}
+    excluded = spin_off_exclusions()
     with psycopg.connect(settings.database_url) as conn, out.open("w", newline="") as fh:
         params = _apr(conn)
         names = list(symbols) if symbols else [r[0] for r in conn.execute(_ACTIVE_SQL)]
-        first_bars = {s: d for s, d in conn.execute(_FIRST_BARS_SQL) if d is not None}
         writer = csv.DictWriter(fh, fieldnames=[*CalendarEvent.__dataclass_fields__, "error"])
         writer.writeheader()
         for symbol in names:
@@ -438,16 +378,15 @@ def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[
             canonical = [
                 (d, float(c), v, k) for d, c, v, k in conn.execute(_CANONICAL_SQL, (symbol,))
             ]
-            raw = _raw_series(conn, symbol)
             for event in judge_events(
                 symbol,
                 canonical,
                 calendar,
-                raw,
-                first_bars,
+                _raw_series(conn, symbol),
                 params.rule,
                 params.rel_tol,
-                params.witness,
+                params.route_sessions,
+                excluded,
             ):
                 writer.writerow({**asdict(event), "error": ""})
                 counts[event.verdict] = counts.get(event.verdict, 0) + 1
@@ -459,14 +398,18 @@ def _route(key: str) -> dict[str, str]:
     return {"vendor": vendor, "kind": kind}
 
 
-def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
+def confirmed_rows(
+    path: Path, params: AuditParams, excluded: Collection[tuple[str, date]] | None = None
+) -> list[dict[str, Any]]:
     """The audit CSV's confirmed lines as corporate_action rows (factor = old/new-scale price).
 
-    Each line is re-judged from its recorded steps under the current APR, all three witnesses and
-    every series' scale (a hand-edited file, or one from another tolerance, cannot write what the
-    current rule would not confirm), so the parameters in detail are the ones that confirmed it,
+    Each line is re-judged from its recorded steps under the current APR and the current spin-off
+    list, every series' scale included (a hand-edited file, or one from another tolerance, cannot
+    write what the current rule would not confirm), so the parameters in detail are the ones that confirmed it,
     beside the file's sha256. detail.unadjusted_routes is the list the daily rule rescales."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if excluded is None:
+        excluded = spin_off_exclusions()
     rows = []
     with path.open() as fh:
         for line in csv.DictReader(fh):
@@ -485,15 +428,14 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
             assert ratio is not None
             route_steps = json.loads(line["route_steps"])
             own = _RAW_SERIES_OF.get((line["canonical_vendor"], line["canonical_kind"]))
-            volume_stat = float(line["volume_stat"]) if line["volume_stat"] else None
-            co_listed = [x for x in line["co_listed"].split(";") if x]
-            verdict, unadjusted = _witnessed(
+            verdict, unadjusted = _final_verdict(
+                line["symbol"],
+                date.fromisoformat(line["calendar_date"]),
                 series_key(own) if own else "",
                 route_steps,
-                volume_stat,
-                co_listed,
                 ratio,
                 params.rel_tol,
+                excluded,
             )
             if verdict != "confirmed" or ";".join(unadjusted or ()) != line["unadjusted_routes"]:
                 raise ValueError(f"{where}: {verdict} ({unadjusted}) under the current APR")
@@ -515,14 +457,11 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
                         },
                         "route_steps": route_steps,
                         "unadjusted_routes": [_route(key) for key in unadjusted or ()],
-                        "volume": "unmeasured" if volume_stat is None else volume_stat,
-                        "volume_windows": json.loads(line["volume_windows"] or "[]"),
-                        "co_listed": co_listed,
                         "audit_file": path.name,
                         "audit_sha256": digest,
                         "rule": asdict(params.rule),
                         "rel_tol": params.rel_tol,
-                        "witness": asdict(params.witness),
+                        "route_sessions": params.route_sessions,
                         "todo": 587,
                     },
                 }
@@ -571,7 +510,7 @@ def apply(settings: Settings, path: Path, *, commit: bool) -> int:
 # kernels still span the break: open item on todo 587's review list.
 UNCONFIRMED_RULE = "unconfirmed_split"
 UNCONFIRMED_RULE_VERSION = "split-calendar-audit"
-_UNCONFIRMED_VERDICTS = frozenset({"volume_veto", "route_conflict", "conflict"})
+_UNCONFIRMED_VERDICTS = frozenset({"excluded_spin_off", "route_conflict", "conflict"})
 _UNCONFIRMED_FIELDS = ("open", "high", "low", "close")
 _FIRST_NEW_SCALE_SQL = """
 SELECT min("timestamp") FROM market_data_ohlcv
@@ -596,8 +535,6 @@ def unconfirmed_candidates(path: Path) -> list[dict[str, Any]]:
                     "calendar_factor": float(line["calendar_factor"]),
                     "verdict": line["verdict"],
                     "canonical_step": float(line["canonical_step"]),
-                    "volume_stat": float(line["volume_stat"]) if line["volume_stat"] else None,
-                    "co_listed": [x for x in (line["co_listed"] or "").split(";") if x],
                     "audit_file": path.name,
                     "audit_sha256": digest,
                     "todo": 587,

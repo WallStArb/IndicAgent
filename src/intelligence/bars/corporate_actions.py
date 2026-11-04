@@ -27,7 +27,6 @@ seeds threshold.seam.ratio_snap_tol); there is no default here.
 from __future__ import annotations
 
 import math
-import statistics
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -172,38 +171,6 @@ def scale_step(step: float, ratio: float, rel_tol: float) -> ScaleStep:
     if abs(step) <= tol:
         return "adjusted"
     return "conflict"
-
-
-def share_count_stat(volume_steps: Sequence[float], ratio: float) -> float | None:
-    """The share-count statistic of a calendar split (todo 587): the median, over the measurable
-    windows, of log(median daily volume after the date / median before) in units of log f, on
-    one series that serves volume across it unadjusted for the split. None when no window is
-    measurable.
-
-    A real f-for-1 split multiplies the share count by f, so turnover carries the statistic
-    toward 1; a spin-off or stock dividend a calendar writes as a clean split ratio leaves the
-    count unchanged, toward 0. Turnover is noisy (2026-11-04, 60 sessions: median 0.77,
-    interquartile 0.52 to 1.14 over 364 price-confirmed splits), so the statistic only vetoes
-    (share_count_vetoes, with a spin-off witness), never confirms: the calendar, the price step at
-    the exact ratio and the calendar's continuity confirm a split (lead ruling 2026-11-04)."""
-    if not volume_steps:
-        return None
-    return statistics.median(step / math.log(ratio) for step in volume_steps)
-
-
-# The share-count statistic's midpoint between no change (0) and the split (1): below it the count
-# is nearer to not having moved. Definitional, not a tunable.
-_NO_SHARE_CHANGE_BELOW = 0.5
-
-
-def share_count_vetoes(stat: float | None, spin_off_witness: bool) -> bool:
-    """A split is vetoed only when two independent pieces of evidence agree it is a distribution
-    (lead ruling 2026-11-04): the share count is nearer no change than the split (a measured
-    statistic below 0.5) and a spin-off witness is present (an instrument that first lists within
-    a few sessions of the date). Volume alone vetoed 27 price-confirmed splits and was right once
-    (SNX 2020-12-01, Concentrix), so it never vetoes on its own; missing evidence never vetoes. A
-    false veto leaves a fabricated split-day return in canonical, as wrong as a false confirm."""
-    return spin_off_witness and stat is not None and stat < _NO_SHARE_CHANGE_BELOW
 
 
 SplitContinuity = Literal["continuous", "unadjusted", "double_adjusted"]
