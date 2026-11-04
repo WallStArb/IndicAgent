@@ -140,9 +140,38 @@ def _unit_inputs(
     )
 
 
+def _print_drift(unit: str, drift: dict, top: int = 15) -> None:
+    """The per-kernel float drift of a --drift run, largest ulp first, then the distribution."""
+    rows = [
+        (name, out, s["max_ulp"], s["max_rel"], int(s["n_diff"]), int(s["n_nan_mismatch"]))
+        for name, outs in drift.items()
+        for out, s in outs.items()
+    ]
+    ulps = sorted((r[2] for r in rows), reverse=True)
+    nonzero = [u for u in ulps if u > 0]
+    print(
+        f"{unit}: {len(rows)} float outputs, {len(nonzero)} with drift, "
+        f"max ulp {ulps[0] if ulps else 0:.2f}, "
+        f"median of nonzero {nonzero[len(nonzero) // 2] if nonzero else 0:.2f}",
+        flush=True,
+    )
+    for name, out, ulp, rel, n_diff, n_nan in sorted(rows, key=lambda r: -r[2])[:top]:
+        print(
+            f"  {name}.{out}: max_ulp {ulp:.2f} max_rel {rel:.2e} rows_differ {n_diff} nan_mismatch {n_nan}",
+            flush=True,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--units", nargs="+", required=True, help="SYMBOL:TF pairs to gate")
+    parser.add_argument(
+        "--drift",
+        action="store_true",
+        help="measure, per kernel and float output, the largest |full - windowed| in float32 "
+        "ulps and the relative error (causality_probe.measure_memory_drift) instead of gating "
+        "G4 on exact equality; memory violations are recorded, not raised, and G5 is skipped",
+    )
     args = parser.parse_args(argv)
     units = []
     for unit in args.units:
@@ -186,10 +215,19 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     unit = unit_registry(registry, inputs)
                     entry["g4_kernels"] = len(unit.kernels)
-                    entry["g4"] = probe_registry(unit, inputs, config, entry["probe_rows"])
+                    drift: dict | None = {} if args.drift else None
+                    entry["g4"] = probe_registry(
+                        unit, inputs, config, entry["probe_rows"], drift=drift
+                    )
+                    if drift is not None:
+                        entry["drift"] = drift
+                        _print_drift(f"{symbol}:{tf}", drift)
                 except (CausalityViolation, MemoryViolation) as error:
                     entry["g4"] = f"FAIL {type(error).__name__}: {error}"
                     failures += 1
+                if args.drift:
+                    print(f"{symbol}:{tf}: rows {n}, drift measured", flush=True)
+                    continue
                 # G5: the same unit computed twice, bit-identical.
                 first = _compute_series_columns(inputs, config)
                 second = _compute_series_columns(inputs, config)

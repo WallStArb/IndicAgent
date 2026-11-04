@@ -165,9 +165,55 @@ def memory_check(
     return memory
 
 
+def measure_memory_drift(
+    kernel: Kernel,
+    inputs: Mapping[str, np.ndarray],
+    config: object,
+    rows: np.ndarray,
+    *,
+    full: Mapping[str, np.ndarray],
+) -> dict[str, dict[str, float]]:
+    """Per float output, how far the windowed recompute is from the full-series one over the
+    probe rows, with no pass or fail: `max_ulp` (largest |full - windowed| in float32 ulps of the
+    larger magnitude), `max_rel` (largest relative difference) and `n_diff` (rows that differ at
+    all), over the same rows and the same declared-memory window `memory_check` uses. Rows where
+    one side is NaN and the other is not are counted in `n_nan_mismatch`, not in the ulp figures.
+    A pure measurement for setting a float tolerance (todo 584 G4); `memory_check` is unchanged.
+    """
+    memory = int(kernel.memory(config))  # type: ignore[arg-type]
+    stats: dict[str, dict[str, float]] = {
+        name: {"max_ulp": 0.0, "max_rel": 0.0, "n_diff": 0.0, "n_nan_mismatch": 0.0}
+        for name in kernel.outputs
+        if np.asarray(full[name]).dtype.kind == "f"
+    }
+    if not stats:
+        return stats
+    for t in (int(r) for r in np.sort(np.asarray(rows))):
+        if t < memory:
+            continue
+        window = _run(kernel, inputs, config, t - memory, t + 1)
+        for name, entry in stats.items():
+            a, b = full[name][t : t + 1], window[name][-1:]
+            nan_a, nan_b = np.isnan(a), np.isnan(b)
+            entry["n_nan_mismatch"] += float(np.sum(nan_a != nan_b))
+            both = ~nan_a & ~nan_b & (a != b)
+            if not both.any():
+                continue
+            a64, b64 = a[both].astype(np.float64), b[both].astype(np.float64)
+            diff = np.abs(a64 - b64)
+            scale = np.maximum(np.abs(a64), np.abs(b64))
+            unit = np.spacing(scale.astype(np.float32)).astype(np.float64)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                entry["max_ulp"] = max(entry["max_ulp"], float(np.max(diff / unit)))
+                entry["max_rel"] = max(entry["max_rel"], float(np.max(diff / scale)))
+            entry["n_diff"] += float(both.sum())
+    return stats
+
+
 STATUS_OK = "ok"
 STATUS_PATH_DEPENDENT = "path_dependent_skipped_memory"
 STATUS_ACAUSAL_CONTROL = "acausal_control_detected"
+STATUS_MEMORY_VIOLATION_MEASURED = "memory_violation_measured"
 
 
 def probe_registry(
@@ -177,8 +223,14 @@ def probe_registry(
     rows: np.ndarray,
     *,
     ulp: int = 0,
+    drift: dict[str, dict[str, dict[str, float]]] | None = None,
 ) -> dict[str, str]:
     """Run the checks over every kernel in topological order; return name -> status.
+
+    `drift`, when given, switches the memory check to measurement: each causal kernel's float
+    outputs are measured with `measure_memory_drift` into `drift[kernel]` and a memory violation
+    is recorded as the status `memory_violation_measured` instead of raised, so one run covers
+    every kernel. Without it nothing changes.
 
     `inputs` carries the bar fields and every external input the registry declares. A causal
     kernel gets the causality probe and the memory check (`ok`). A path-dependent kernel gets
@@ -210,7 +262,16 @@ def probe_registry(
             if kernel.path_dependent:
                 statuses[kernel.name] = STATUS_PATH_DEPENDENT
             else:
-                memory_check(kernel, available, config, rows, ulp=ulp, full=full)
-                statuses[kernel.name] = STATUS_OK
+                if drift is not None:
+                    drift[kernel.name] = measure_memory_drift(
+                        kernel, available, config, rows, full=full
+                    )
+                try:
+                    memory_check(kernel, available, config, rows, ulp=ulp, full=full)
+                    statuses[kernel.name] = STATUS_OK
+                except MemoryViolation:
+                    if drift is None:
+                        raise
+                    statuses[kernel.name] = STATUS_MEMORY_VIOLATION_MEASURED
         available.update({name: np.asarray(native[name]) for name in kernel.outputs})
     return statuses
