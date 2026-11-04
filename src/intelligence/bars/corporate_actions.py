@@ -184,19 +184,26 @@ def share_count_stat(volume_steps: Sequence[float], ratio: float) -> float | Non
     toward 1; a spin-off or stock dividend a calendar writes as a clean split ratio leaves the
     count unchanged, toward 0. Turnover is noisy (2026-11-04, 60 sessions: median 0.77,
     interquartile 0.52 to 1.14 over 364 price-confirmed splits), so the statistic only vetoes
-    (share_count_vetoes), never confirms: the calendar, the price step at the exact ratio and the
-    calendar's continuity confirm a split (lead ruling 2026-11-04)."""
+    (share_count_vetoes, with a spin-off witness), never confirms: the calendar, the price step at
+    the exact ratio and the calendar's continuity confirm a split (lead ruling 2026-11-04)."""
     if not volume_steps:
         return None
     return statistics.median(step / math.log(ratio) for step in volume_steps)
 
 
-def share_count_vetoes(stat: float | None, veto_below: float) -> bool:
-    """A split is vetoed only on robust evidence the share count did not change: a measured
-    statistic below veto_below (much nearer 0, no change, than 1, a split). Missing evidence
-    (None) and the ambiguous band never veto: a false veto leaves a fabricated split-day return
-    in canonical, as wrong as a false confirm."""
-    return stat is not None and stat < veto_below
+# The share-count statistic's midpoint between no change (0) and the split (1): below it the count
+# is nearer to not having moved. Definitional, not a tunable.
+_NO_SHARE_CHANGE_BELOW = 0.5
+
+
+def share_count_vetoes(stat: float | None, spin_off_witness: bool) -> bool:
+    """A split is vetoed only when two independent pieces of evidence agree it is a distribution
+    (lead ruling 2026-11-04): the share count is nearer no change than the split (a measured
+    statistic below 0.5) and a spin-off witness is present (an instrument that first lists within
+    a few sessions of the date). Volume alone vetoed 27 price-confirmed splits and was right once
+    (SNX 2020-12-01, Concentrix), so it never vetoes on its own; missing evidence never vetoes. A
+    false veto leaves a fabricated split-day return in canonical, as wrong as a false confirm."""
+    return spin_off_witness and stat is not None and stat < _NO_SHARE_CHANGE_BELOW
 
 
 SplitContinuity = Literal["continuous", "unadjusted", "double_adjusted"]

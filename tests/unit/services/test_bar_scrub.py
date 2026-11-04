@@ -409,4 +409,15 @@ def test_prune_stale_never_deletes_the_arbitration_quarantine_flags():
 
     flat = " ".join(_DELETE_STALE_SQL.split())
     assert "'vendor_disagreement'" in flat
-    assert "rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement')" in flat
+    assert (
+        "rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement',"
+        " 'unconfirmed_split')" in flat
+    )
+
+
+def test_prune_stale_never_deletes_the_unconfirmed_split_quarantine():
+    """unconfirmed_split rows are written by the split calendar audit (todo 587), not by a scrub
+    rule; a pruning scrub must leave them, or the fabricated split-day return reappears."""
+    from services.bar_scrub import _DELETE_STALE_SQL
+
+    assert "'unconfirmed_split'" in " ".join(_DELETE_STALE_SQL.split())

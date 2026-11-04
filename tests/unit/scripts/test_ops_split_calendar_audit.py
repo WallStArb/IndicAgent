@@ -5,10 +5,11 @@ No database, no Yahoo: canonical, raw and calendar rows are literals.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import math
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -17,7 +18,7 @@ from src.intelligence.bars.corporate_actions import SplitRatioRule
 
 _RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
 _TOL = 0.3
-_WITNESS = audit.Witness(windows=(2, 3), veto_below=0.25)
+_WITNESS = audit.Witness(windows=(2, 3), listing_sessions=2)
 _PARAMS = audit.AuditParams(_RULE, _TOL, _WITNESS)
 _DAYS = [
     date(2005, 2, 14) + timedelta(days=i)
@@ -46,8 +47,10 @@ def _series(on, factor, *, adjusted=False, volume_steps=True, days=_DAYS, pair=(
     return canonical, calendar, raw
 
 
-def _judge(symbol, canonical, calendar, raw):
-    return audit.judge_events(symbol, canonical, calendar, raw, _RULE, _TOL, _WITNESS)
+def _judge(symbol, canonical, calendar, raw, first_bars=None):
+    return audit.judge_events(
+        symbol, canonical, calendar, raw, first_bars or {}, _RULE, _TOL, _WITNESS
+    )
 
 
 def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
@@ -74,11 +77,23 @@ def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
     assert _judge("IBM", canonical, calendar, {_IBKR: raw})[0].verdict == "not_a_split_ratio"
 
 
-def test_a_flat_share_count_vetoes_a_clean_ratio():
-    """A spin-off shape: the price halves on the date but the share count does not move."""
+def test_a_flat_share_count_vetoes_only_with_a_spin_off_witness():
+    """SNX-shaped: the price halves on the date, the share count does not move, and the spun-off
+    company lists that week. Volume alone never vetoes (lead ruling 2026-11-04)."""
     canonical, calendar, raw = _series(_ON, 2.0, volume_steps=False)
     [event] = _judge("SNX", canonical, calendar, {_IBKR: raw})
-    assert (event.verdict, event.volume_stat) == ("volume_veto", 0.0)
+    assert (event.verdict, event.volume_stat, event.co_listed) == ("confirmed", 0.0, "")
+    spun = {"SNX": date(2000, 1, 3), "CNXC": date(2005, 3, 1), "OLD": date(2000, 1, 3)}
+    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw}, spun)
+    assert (event.verdict, event.co_listed) == ("volume_veto", "CNXC")
+    far = {"CNXC": date(2005, 3, 10)}  # five sessions after the date: outside two
+    assert _judge("SNX", canonical, calendar, {_IBKR: raw}, far)[0].verdict == "confirmed"
+
+
+def test_a_split_shaped_share_count_confirms_despite_a_co_listing():
+    canonical, calendar, raw = _series(_ON, 2.0)
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: raw}, {"NEW": _ON})
+    assert (event.verdict, event.co_listed) == ("confirmed", "NEW")
 
 
 def test_an_ambiguous_share_count_confirms_with_its_statistic():
@@ -164,6 +179,7 @@ _LINE = {
     "unadjusted_routes": "ibkr/smart_trades",
     "volume_stat": "0.94",
     "volume_windows": "[0.65]",
+    "co_listed": "",
     "verdict": "confirmed",
     "ratio": "2.0",
     "error": "",
@@ -196,7 +212,7 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
             },
             {"symbol": "IBM", "calendar_factor": "1.046", "verdict": "not_a_split_ratio"},
             {"symbol": "XPO", "verdict": "conflict"},
-            {"symbol": "SNX", "verdict": "volume_veto"},
+            {"symbol": "SNX", "verdict": "volume_veto", "co_listed": "CNXC"},
         ],
     )
     rows = audit.confirmed_rows(path, _PARAMS)
@@ -208,17 +224,16 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
     assert detail["unadjusted_routes"] == [{"vendor": "ibkr", "kind": "smart_trades"}]
     assert "unadjusted_span" not in detail
     assert detail["audit_file"] == "audit.csv" and len(detail["audit_sha256"]) == 64
-    assert detail["rel_tol"] == _TOL and detail["witness"] == {
-        "windows": (2, 3),
-        "veto_below": 0.25,
-    }
+    assert detail["rel_tol"] == _TOL
+    assert detail["witness"] == {"windows": (2, 3), "listing_sessions": 2}
+    assert detail["co_listed"] == []
     assert (detail["volume"], rows[1]["detail"]["volume"]) == (0.94, "unmeasured")
 
 
 @pytest.mark.parametrize(
     "edit",
     [
-        {"volume_stat": "0.05"},  # the share count did not move
+        {"volume_stat": "0.05", "co_listed": "CNXC"},  # a distribution: two witnesses
         {"route_steps": '{"ibkr/smart_trades": -0.3}'},  # a series off both scales
         {"route_steps": '{"ibkr/smart_trades": null}'},  # an unmeasured series
         {"unadjusted_routes": ""},  # a hand-edited list
@@ -254,7 +269,7 @@ class _Cursor:
                 ("infra.backfill.split_ratio_rel_tol", "0.002"),
                 ("threshold.split_continuity.rel_tol", "0.3"),
                 ("threshold.split_calendar.volume_windows", "[2, 3]"),
-                ("threshold.split_calendar.volume_veto_below", "0.25"),
+                ("threshold.split_calendar.spin_off_listing_sessions", "2"),
             ]
         self._row = None
 
@@ -313,3 +328,93 @@ def test_the_audit_mode_never_writes_the_table():
     source = audit.__file__ and open(audit.__file__).read()
     audit_body = source[source.index("def audit(") : source.index("def confirmed_rows(")]
     assert "INSERT" not in audit_body and "commit" not in audit_body
+
+
+def test_every_unconfirmed_candidate_and_only_those_is_flagged(tmp_path):
+    path = _write(
+        tmp_path / "audit.csv",
+        [
+            {},
+            {"symbol": "SNX", "verdict": "volume_veto", "co_listed": "CNXC", "volume_stat": "0.2"},
+            {"symbol": "JMSB", "verdict": "route_conflict"},
+            {"symbol": "AA", "verdict": "conflict", "volume_stat": ""},
+            {"symbol": "MSFT", "verdict": "adjusted"},
+            {"symbol": "IBM", "verdict": "not_a_split_ratio"},
+        ],
+    )
+    got = audit.unconfirmed_candidates(path)
+    assert [(c["symbol"], c["detail"]["verdict"]) for c in got] == [
+        ("SNX", "volume_veto"),
+        ("JMSB", "route_conflict"),
+        ("AA", "conflict"),
+    ]
+    assert got[0]["detail"]["co_listed"] == ["CNXC"] and got[0]["effective_date"] == date(
+        2005, 2, 25
+    )
+
+
+class _AsyncTx:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def start(self):
+        self.conn.events.append("begin")
+
+    async def commit(self):
+        self.conn.events.append("commit")
+
+    async def rollback(self):
+        self.conn.events.append("rollback")
+
+
+class _AsyncConn:
+    def __init__(self, rules):
+        self.rules, self.events = rules, []
+
+    def transaction(self):
+        return _AsyncTx(self)
+
+    async def fetchval(self, sql, *args):
+        if "quarantine_rules" in sql:
+            return self.rules
+        return datetime(2005, 2, 28, tzinfo=UTC)
+
+    async def fetch(self, sql, *args):
+        return [{"symbol": "GONE"}]
+
+
+def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
+    tmp_path, monkeypatch
+):
+    import services.bar_derivation_batch as batch
+    import services.bar_scrub as scrub
+
+    path = _write(tmp_path / "audit.csv", [{"symbol": "SNX", "verdict": "volume_veto"}])
+    written = []
+
+    async def fake_write_flags(conn, **kw):
+        written.append((kw["symbol"], kw["rules_evaluated"], [f.quarantine for f in kw["flags"]]))
+        return len(kw["flags"])
+
+    async def fake_open(conn, **kw):
+        return "b"
+
+    async def fake_close(conn, *a, **kw):
+        return None
+
+    monkeypatch.setattr(scrub, "write_flags", fake_write_flags)
+    monkeypatch.setattr(batch, "open_batch", fake_open)
+    monkeypatch.setattr(batch, "close_batch", fake_close)
+    conn = _AsyncConn('["unconfirmed_split"]')
+    assert asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False)) == 1
+    # A name flagged today but absent from the file is cleared; the candidate is quarantined.
+    assert written == [
+        ("GONE", frozenset({"unconfirmed_split"}), []),
+        ("SNX", frozenset({"unconfirmed_split"}), [True]),
+    ]
+    assert conn.events == ["begin", "rollback"]
+    conn = _AsyncConn('["unconfirmed_split"]')
+    asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=True))
+    assert conn.events == ["begin", "commit"]
+    with pytest.raises(ValueError, match="quarantine_rules"):
+        asyncio.run(audit.quarantine_unconfirmed(_AsyncConn('["price_sanity"]'), path, commit=True))

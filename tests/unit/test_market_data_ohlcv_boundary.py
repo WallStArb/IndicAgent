@@ -31,6 +31,11 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # Adding a new call site requires adding a row here with a real reason, not just silencing
 # the test.
 _ALLOW_LIST: dict[str, str] = {
+    "scripts/ops/bars/ops_split_calendar_audit.py": (
+        "PERMANENT (todo 587): the spin-off witness reads each instrument's first canonical 1d "
+        "bar, and the unconfirmed_split flag targets the first traded bar after a date; the "
+        "tradeable view hides quarantined bars, so a re-run would move the flag to the next one."
+    ),
     "services/backfill_feature_factory.py": (
         "PERMANENT (todo 555): the rebuild reads the (vendor, kind) of the 5m rows a derived grid "
         "bar was built from to label its volume basis; a quarantined or zero-volume constituent "

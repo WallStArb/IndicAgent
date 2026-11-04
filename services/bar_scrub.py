@@ -108,7 +108,8 @@ _DELETE_STALE_SQL = """
 DELETE FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = $2
   AND rule <> ALL($3::text[])
-  AND rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement')
+  AND rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement',
+                   'unconfirmed_split')
   AND ($4::timestamptz IS NULL OR "timestamp" >= $4)
   AND ($5::timestamptz IS NULL OR "timestamp" < $5)
 """
@@ -275,8 +276,9 @@ async def write_flags(
     One transaction whose first statement is SET LOCAL ROLE bar_derivation_writer:
     DELETE the flags of the evaluated rules in [start, end), optionally DELETE the
     flags of rules no longer evaluated (prune_stale, so a dropped rule cannot
-    leave quarantine rows hiding bars -- everything except
-    'legacy_price_sanity_status', which no rule code owns), then INSERT the new
+    leave quarantine rows hiding bars -- everything except the rules no scrub rule code owns:
+    'legacy_price_sanity_status', 'split_seam', the policy apply's 'vendor_disagreement' and the
+    split calendar audit's 'unconfirmed_split'), then INSERT the new
     rows. Returns the number of rows inserted. Never touches market_data_ohlcv.
     """
     rules_evaluated = frozenset(rules_evaluated)

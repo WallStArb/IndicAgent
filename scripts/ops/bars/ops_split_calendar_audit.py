@@ -19,9 +19,10 @@ Two steps, with the evidence a reviewed, committed file between them:
     The share count can only veto (lead ruling 2026-11-04): on canonical's raw series, the log
     volume step across the date over each window of threshold.split_calendar.volume_windows
     (truncated at the neighbouring calendar events), in units of log ratio, median over the
-    measurable windows (share_count_stat). Below threshold.split_calendar.volume_veto_below the
-    count robustly did not move (a spin-off or stock distribution): volume_veto, no row, review.
-    Unmeasurable or ambiguous evidence never vetoes; the statistic is recorded either way.
+    measurable windows (share_count_stat). A split is vetoed (volume_veto, no row, review) only
+    when the statistic is below 0.5 and a spin-off witness is present: an instrument whose first
+    canonical 1d session falls within threshold.split_calendar.spin_off_listing_sessions of the
+    name's sessions around effective_date. Anything else confirms; both are recorded.
     Then every raw series with an observation before the date is measured on its own: its close
     over Yahoo's adjusted close, medians over the shortest volume window's sessions on each side inside
     the neighbouring calendar events, steps by -log ratio (unadjusted, the row names it in
@@ -29,6 +30,9 @@ Two steps, with the evidence a reviewed, committed file between them:
     split with a conflicting or unmeasurable series gets no row (route_conflict): the scale is
     measured per series, never assumed across a vendor seam. Every event is written with its
     verdict and evidence.
+--quarantine-unconfirmed CSV [--commit]: quarantine the first new-scale canonical bar of every
+    candidate left unconfirmed (volume_veto, route_conflict, conflict) under bar_quality_flag rule
+    unconfirmed_split, through bar_scrub.write_flags; dry run unless --commit.
 --apply CSV [--commit]: re-judge each confirmed line under the current APR and insert it unless
     the name already has any corporate_action row (current, superseded or void) within a week of
     the date; one transaction under bar_derivation_writer. Dry run unless --commit.
@@ -81,7 +85,7 @@ from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
 VOLUME_WINDOWS_KEY = "threshold.split_calendar.volume_windows"
-VOLUME_VETO_KEY = "threshold.split_calendar.volume_veto_below"
+LISTING_SESSIONS_KEY = "threshold.split_calendar.spin_off_listing_sessions"
 _WRITER_ROLE = "bar_derivation_writer"
 # "Across the date" means sessions this close to the calendar date; a split with no session
 # nearby (a hole, a listing that starts after it) is unmeasured. Definitional, not tunables.
@@ -110,6 +114,13 @@ WHERE r.symbol = %s AND r.timeframe = '1d' AND r.close > 0
   AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%%')
 ORDER BY bar_date
 """
+# Every instrument's first canonical 1d session (the spin-off witness).
+_FIRST_BARS_SQL = """
+SELECT i.symbol,
+       (SELECT (min(m."timestamp") AT TIME ZONE 'UTC')::date FROM market_data_ohlcv m
+         WHERE m.symbol = i.symbol AND m.timeframe = '1d') AS first_bar
+FROM instruments i
+"""
 _RESCALABLE = sorted(RESCALABLE_SERIES)
 # The raw series each canonical (vendor, kind) is served from (canonical_bar_lineage's mapping).
 _RAW_SERIES_OF = {
@@ -132,12 +143,12 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 
 @dataclass(frozen=True)
 class Witness:
-    """The share-count witness's APR (threshold.split_calendar.*, migration 571): the session
-    windows the volume step is measured over (the shortest also bounds the per-series price
-    medians) and the statistic below which it vetoes."""
+    """The veto witnesses' APR (threshold.split_calendar.*, migration 571): the session windows of
+    the volume step (the shortest also bounds the per-series price medians) and how many of the
+    name's sessions around effective_date a new listing may fall to witness a spin-off."""
 
     windows: tuple[int, ...]
-    veto_below: float
+    listing_sessions: int
 
     @property
     def price_sessions(self) -> int:
@@ -160,7 +171,7 @@ class CalendarEvent:
     calendar_date: date
     calendar_factor: float
     # judge_calendar_split's verdict, "unmeasured", or for a confirmed price step whose other
-    # witnesses fail: route_conflict, volume_veto
+    # witnesses fail: route_conflict, volume_veto (share count below 0.5 and a co-listing)
     verdict: str
     ratio: float | None = None
     effective_date: date | None = None  # canonical's last session on the old scale
@@ -180,6 +191,10 @@ class CalendarEvent:
     # (unmeasurable windows left out)
     volume_stat: float | None = None
     volume_windows: str | None = None
+    # Confirmed price steps only: ";"-joined instruments whose first canonical 1d session falls
+    # within witness.listing_sessions of the name's sessions around effective_date (the spin-off
+    # witness; a veto needs it and a share count below 0.5)
+    co_listed: str | None = None
 
 
 def _bracket(days: Sequence[date], on: date) -> tuple[int, int] | None:
@@ -252,16 +267,17 @@ def _witnessed(
     canonical_series: str,
     route_steps: Mapping[str, float | None],
     volume_stat: float | None,
-    witness: Witness,
+    co_listed: Sequence[str],
     ratio: float,
     rel_tol: float,
 ) -> tuple[str, list[str] | None]:
-    """A price-confirmed split's final verdict from the per-series scales and the share-count
-    veto, and its unadjusted series. Pure; confirmed_rows re-runs it on the recorded numbers."""
+    """A price-confirmed split's final verdict from the per-series scales and the distribution
+    veto (share count plus a spin-off witness), and its unadjusted series. Pure; confirmed_rows
+    re-runs it on the recorded numbers."""
     unadjusted = _unadjusted(route_steps, ratio, rel_tol)
     if unadjusted is None or canonical_series not in unadjusted:
         return "route_conflict", unadjusted
-    if share_count_vetoes(volume_stat, witness.veto_below):
+    if share_count_vetoes(volume_stat, bool(co_listed)):
         return "volume_veto", unadjusted
     return "confirmed", unadjusted
 
@@ -271,11 +287,13 @@ def judge_events(
     canonical: Sequence[tuple[date, float, str, str]],
     calendar: Sequence[tuple[date, float, float]],
     raw: Mapping[tuple[str, str], RawSeries],
+    first_bars: Mapping[str, date],
     rule: SplitRatioRule,
     rel_tol: float,
     witness: Witness,
 ) -> list[CalendarEvent]:
-    """Every calendar split event of one name, judged. Pure."""
+    """Every calendar split event of one name, judged. Pure. first_bars is every instrument's first
+    canonical 1d session (the spin-off witness: a new listing near the date)."""
     c_days = [row[0] for row in canonical]
     # yfinance can emit an action row with no price: steps use priced rows only.
     priced = [row for row in calendar if math.isfinite(row[1]) and row[1] > 0]
@@ -297,6 +315,7 @@ def judge_events(
         route_steps: dict[str, float | None] | None = None
         unadjusted: list[str] | None = None
         volume_stat = volume_windows = None
+        co_listed: list[str] | None = None
         if verdict in ("confirmed", "adjusted"):
             i = bisect_left(event_days, day)
             span = (
@@ -317,11 +336,18 @@ def judge_events(
                 stat = share_count_stat(steps, ratio)
                 volume_stat = None if stat is None else round(stat, 6)
                 volume_windows = json.dumps([round(x, 6) for x in steps])
+                lo = c_days[max(c[0] - witness.listing_sessions, 0)]
+                hi = c_days[min(c[0] + witness.listing_sessions, len(c_days) - 1)]
+                co_listed = sorted(
+                    other
+                    for other, first in first_bars.items()
+                    if other != symbol and lo <= first <= hi
+                )
                 verdict, unadjusted = _witnessed(
                     series_key(own) if own else "",
                     route_steps,
                     volume_stat,
-                    witness,
+                    co_listed,
                     ratio,
                     rel_tol,
                 )
@@ -343,6 +369,7 @@ def judge_events(
                 None if unadjusted is None else ";".join(unadjusted),
                 volume_stat,
                 volume_windows,
+                None if co_listed is None else ";".join(co_listed),
             )
         )
     return events
@@ -363,7 +390,7 @@ class AuditParams:
             float(values[REL_TOL_KEY]),
             Witness(
                 tuple(int(n) for n in json.loads(values[VOLUME_WINDOWS_KEY])),
-                float(values[VOLUME_VETO_KEY]),
+                int(values[LISTING_SESSIONS_KEY]),
             ),
         )
 
@@ -371,7 +398,7 @@ class AuditParams:
 def _apr(conn: Any) -> AuditParams:
     with conn.cursor() as cur:
         cur.execute(
-            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, VOLUME_WINDOWS_KEY, VOLUME_VETO_KEY],)
+            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, VOLUME_WINDOWS_KEY, LISTING_SESSIONS_KEY],)
         )
         return AuditParams.from_apr(dict(cur.fetchall()))
 
@@ -395,6 +422,7 @@ def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[
     with psycopg.connect(settings.database_url) as conn, out.open("w", newline="") as fh:
         params = _apr(conn)
         names = list(symbols) if symbols else [r[0] for r in conn.execute(_ACTIVE_SQL)]
+        first_bars = {s: d for s, d in conn.execute(_FIRST_BARS_SQL) if d is not None}
         writer = csv.DictWriter(fh, fieldnames=[*CalendarEvent.__dataclass_fields__, "error"])
         writer.writeheader()
         for symbol in names:
@@ -412,7 +440,14 @@ def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[
             ]
             raw = _raw_series(conn, symbol)
             for event in judge_events(
-                symbol, canonical, calendar, raw, params.rule, params.rel_tol, params.witness
+                symbol,
+                canonical,
+                calendar,
+                raw,
+                first_bars,
+                params.rule,
+                params.rel_tol,
+                params.witness,
             ):
                 writer.writerow({**asdict(event), "error": ""})
                 counts[event.verdict] = counts.get(event.verdict, 0) + 1
@@ -451,11 +486,12 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
             route_steps = json.loads(line["route_steps"])
             own = _RAW_SERIES_OF.get((line["canonical_vendor"], line["canonical_kind"]))
             volume_stat = float(line["volume_stat"]) if line["volume_stat"] else None
+            co_listed = [x for x in line["co_listed"].split(";") if x]
             verdict, unadjusted = _witnessed(
                 series_key(own) if own else "",
                 route_steps,
                 volume_stat,
-                params.witness,
+                co_listed,
                 ratio,
                 params.rel_tol,
             )
@@ -481,6 +517,7 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
                         "unadjusted_routes": [_route(key) for key in unadjusted or ()],
                         "volume": "unmeasured" if volume_stat is None else volume_stat,
                         "volume_windows": json.loads(line["volume_windows"] or "[]"),
+                        "co_listed": co_listed,
                         "audit_file": path.name,
                         "audit_sha256": digest,
                         "rule": asdict(params.rule),
@@ -528,15 +565,143 @@ def apply(settings: Settings, path: Path, *, commit: bool) -> int:
     return 0
 
 
+# The loud flag of every calendar split left unconfirmed (lead ruling 2026-11-04): its first
+# new-scale canonical bar is quarantined (the rule is in threshold.bar_scrub.quarantine_rules,
+# migration 571), so no one-day fabricated return reaches research. Multi-day returns and rolling
+# kernels still span the break: open item on todo 587's review list.
+UNCONFIRMED_RULE = "unconfirmed_split"
+UNCONFIRMED_RULE_VERSION = "split-calendar-audit"
+_UNCONFIRMED_VERDICTS = frozenset({"volume_veto", "route_conflict", "conflict"})
+_UNCONFIRMED_FIELDS = ("open", "high", "low", "close")
+_FIRST_NEW_SCALE_SQL = """
+SELECT min("timestamp") FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d' AND volume > 0
+  AND "timestamp" >= (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+"""
+_QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'"
+_FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
+
+
+def unconfirmed_candidates(path: Path) -> list[dict[str, Any]]:
+    """The audit CSV's measured split candidates left without a row (the review list): a veto, a
+    series conflict, or a price step at a different ratio. Each carries what the flag records."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open() as fh:
+        return [
+            {
+                "symbol": line["symbol"],
+                "effective_date": date.fromisoformat(line["effective_date"]),
+                "detail": {
+                    "calendar_date": line["calendar_date"],
+                    "calendar_factor": float(line["calendar_factor"]),
+                    "verdict": line["verdict"],
+                    "canonical_step": float(line["canonical_step"]),
+                    "volume_stat": float(line["volume_stat"]) if line["volume_stat"] else None,
+                    "co_listed": [x for x in (line["co_listed"] or "").split(";") if x],
+                    "audit_file": path.name,
+                    "audit_sha256": digest,
+                    "todo": 587,
+                },
+            }
+            for line in csv.DictReader(fh)
+            if line["verdict"] in _UNCONFIRMED_VERDICTS
+        ]
+
+
+async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
+    """One transaction: an unconfirmed_split flag on the first traded canonical bar after each
+    candidate's effective_date (the raw table, so a re-run finds the same bar once it is
+    quarantined), through bar_scrub.write_flags under one scrub batch; rolled back
+    unless commit. The rule is this file's alone, so it is replaced globally (a name flagged today
+    but absent from the file is cleared). Refuses unless the rule quarantines (APR list) and when a
+    candidate has no bar after its date."""
+    from services.bar_derivation_batch import close_batch, open_batch
+    from services.bar_scrub import FlagRow, write_flags
+
+    rules = json.loads(await conn.fetchval(_QUARANTINE_RULES_SQL) or "[]")
+    if UNCONFIRMED_RULE not in rules:
+        raise ValueError(f"{UNCONFIRMED_RULE!r} is not in threshold.bar_scrub.quarantine_rules")
+    tx = conn.transaction()
+    await tx.start()
+    try:
+        by_symbol: dict[str, list[FlagRow]] = {
+            r["symbol"]: [] for r in await conn.fetch(_FLAGGED_SQL, UNCONFIRMED_RULE)
+        }
+        for c in unconfirmed_candidates(path):
+            stamp = await conn.fetchval(_FIRST_NEW_SCALE_SQL, c["symbol"], c["effective_date"])
+            if stamp is None:
+                raise ValueError(f"{c['symbol']} has no canonical bar after {c['effective_date']}")
+            by_symbol.setdefault(c["symbol"], []).append(
+                FlagRow(
+                    stamp,
+                    UNCONFIRMED_RULE,
+                    UNCONFIRMED_RULE_VERSION,
+                    _UNCONFIRMED_FIELDS,
+                    True,
+                    c["detail"],
+                )
+            )
+        batch_id = await open_batch(
+            conn,
+            stage="scrub",
+            rule_version=UNCONFIRMED_RULE_VERSION,
+            apr_snapshot={"threshold.bar_scrub.quarantine_rules": [UNCONFIRMED_RULE]},
+            n_symbols=len(by_symbol),
+            detail={"source": "ops_split_calendar_audit --quarantine-unconfirmed", "todo": 587},
+        )
+        written = 0
+        for symbol, flags in sorted(by_symbol.items()):
+            written += await write_flags(
+                conn,
+                tf="1d",
+                symbol=symbol,
+                rules_evaluated=frozenset({UNCONFIRMED_RULE}),
+                flags=flags,
+                start=None,
+                end=None,
+                batch_id=batch_id,
+            )
+        await close_batch(conn, batch_id, status="completed", detail={"quarantined": written})
+    except BaseException:
+        await tx.rollback()
+        raise
+    if commit:
+        await tx.commit()
+    else:
+        await tx.rollback()
+    print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} first bars")
+    return written
+
+
+async def _quarantine(settings: Settings, path: Path, *, commit: bool) -> int:
+    import asyncpg
+
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(dsn)
+    try:
+        await quarantine_unconfirmed(conn, path, commit=commit)
+    finally:
+        await conn.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--audit", action="store_true", help="judge the calendar into --out")
     mode.add_argument("--apply", type=Path, metavar="CSV", help="write an audit's confirmed rows")
+    mode.add_argument(
+        "--quarantine-unconfirmed",
+        type=Path,
+        metavar="CSV",
+        help="flag the first new-scale bar of every unconfirmed candidate (unconfirmed_split)",
+    )
     parser.add_argument("--out", type=Path, help="--audit: the CSV to write")
     parser.add_argument("--symbols", nargs="*", default=None)
     add_write_mode_args(
-        parser, dry_run="--apply: report what would be written (default)", commit="--apply: write"
+        parser,
+        dry_run="--apply/--quarantine-unconfirmed: report what would be written (default)",
+        commit="--apply/--quarantine-unconfirmed: write",
     )
     args = parser.parse_args(argv)
     settings = Settings()
@@ -545,6 +710,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--audit needs --out")
         print(audit(settings, args.symbols, args.out))
         return 0
+    if args.quarantine_unconfirmed:
+        return asyncio.run(_quarantine(settings, args.quarantine_unconfirmed, commit=args.commit))
     return apply(settings, args.apply, commit=args.commit)
 
 

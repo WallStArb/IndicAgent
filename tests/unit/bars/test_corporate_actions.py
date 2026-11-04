@@ -301,11 +301,18 @@ def test_the_share_count_statistic_is_the_median_window_in_units_of_log_f():
 
 
 @pytest.mark.parametrize(
-    "stat, vetoes",
-    [(None, False), (0.0, True), (0.24, True), (0.25, False), (0.4, False), (1.8, False)],
+    "stat, witness, vetoes",
+    [
+        (0.2, True, True),  # nearer no change, and a new listing that week
+        (0.49, True, True),
+        (0.5, True, False),
+        (0.2, False, False),  # volume alone never vetoes
+        (None, True, False),  # missing evidence never vetoes
+        (1.8, True, False),
+    ],
 )
-def test_the_share_count_only_vetoes_on_robust_evidence(stat, vetoes):
-    assert share_count_vetoes(stat, 0.25) is vetoes
+def test_the_share_count_vetoes_only_with_a_spin_off_witness(stat, witness, vetoes):
+    assert share_count_vetoes(stat, witness) is vetoes
 
 
 @pytest.mark.parametrize(
