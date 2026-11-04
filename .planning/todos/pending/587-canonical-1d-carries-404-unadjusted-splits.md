@@ -60,10 +60,18 @@ stock dividends). The 534 intraday backfill does not carry this defect.
 
 ## Order
 
-Rows and the D7 check first (correct under any application choice), then the rule change after
-the owner's veto window, then re-derive the 283 names, D7 clean, then the 584 pin. Gates per
-CLAUDE.md for every code landing; `ops_selection_gate`-equivalent recompute and the lineage check
-on the re-derived names.
+One atomic landing: the rows, the rule change and the re-derive land together, with no interim
+state. Rows alone are NOT neutral (ab, 2026-11-04): `daily_rule._stale_for` marks every
+pre-split observation stale when a split row is recorded after it was fetched, the pre-2016
+default (IBKR primary, no fallback) then serves it flagged `pre_split_unrefetched`, the existing
+APR quarantines it, and `--changed-only` re-derives on new `corporate_action` records, so the
+05:20Z nightly would quarantine whole pre-split spans. An IBKR refetch re-serves the same
+unadjusted bars. The rule therefore treats a `calendar_audit` split, over its recorded
+unadjusted (vendor, kind) span, as rescale, never stale. The code, migration, audit CSV and D7
+check may land first only if nothing writes a `calendar_audit` row (`--apply` stays dry-run).
+Then the atomic landing after the owner's veto window, re-derive the 283 names, D7 clean, then
+the 584 pin. Gates per CLAUDE.md for every code landing; `ops_selection_gate`-equivalent
+recompute and the lineage check on the re-derived names.
 
 ## Done when
 
