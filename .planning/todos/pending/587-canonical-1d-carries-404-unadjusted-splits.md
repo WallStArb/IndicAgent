@@ -97,16 +97,37 @@ the `_stale_for` off-by-one fix (zero impact on the one current row, ETHA), and 
 lineage view divides raw by the same product). Dry run on AMZN, ADBE, AMGN, KLAC, GIS: 1,834 of 1,834
 rescaled bars lineage-exact, all 7 splits continuous, no bar added or removed.
 
+Review fixes 2026-11-04 (worktree `wt587land`, rebased on origin/main, unpushed; lead ruling on
+the volume witness): the audit measures every raw series before each split on its own and the row
+lists them (`detail.unadjusted_routes`); the share count only vetoes (median over 20/60/120-session
+windows in units of log f below 0.25, migration 571); D7 also judges route seams against every
+partial product of the splits. Corrected CSV: 352 confirmed on 258 names (all naming
+ibkr/smart_trades), 27 volume_veto, 1 route_conflict (JMSB 2017-09-06), other verdicts unchanged.
+Dry run (AMZN ADBE AMGN KLAC GIS SNX SLB BH): 5,536 rescaled bars lineage-exact, D7 clean, 2016-01-04
+step unchanged, no bar added or removed.
+
+Review list (no row; owner or lead decides each):
+- volume_veto with an independent reason: SNX 2020-12-01 (statistic 0.247; CNXC lists that week): a
+  suspected spin-off for the dividend/total-return layer (Decision point 2), never a split row.
+- volume_veto with no independent reason (statistic, then the per-window log volume steps in the
+  CSV): AAON 2001-10-01, AXON 2004-04-30 and 2004-11-30, CCBG 2005-07-05, DHI 2002-04-10, EAT
+  2001-01-17, EBAY 2000-05-25, FCEL 1999-11-17 and 2001-06-20, FLO 2005-07-05, GILD 2002-03-08 and
+  2004-09-07, INCY 2000-09-01, MMSI 2002-04-12, MSTR 2002-07-31, PAR 2006-01-09, POOL 2001-09-10 and
+  2003-09-15, RBA 2004-05-07, RES 2005-03-11, REX 2002-02-12, RMBS 2000-06-15, SF 2004-09-16, TRMB
+  2004-03-05, TTWO 2005-04-12, ZBRA 2004-08-26. No second listing that week and no Yahoo dividend.
+- route_conflict JMSB 2017-09-06 and the 6 conflicts. None of these split-day bars carries a
+  quarantine flag (27 carry only the informational vol_scaled_jump), so research reads their step.
+
 Resume on the lead's go:
-1. Cherry-pick 78375ea30 and 5e3845df2 onto main; gates (pre-commit, unit suite); push.
-2. `psql -f production/migrations/568_canonical_bar_lineage_calendar_rescale.sql`.
-3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 380 and the name list must
-   equal the CSV's confirmed set (diff them). Then `--commit`.
-4. `bar_derivation --stage daily --symbols <the 268> --apply`, then `--rewrite-digests`.
-5. D7: split_continuity clean on the 268, lineage_missing unchanged, overall verdict counts before
+1. Cherry-pick the worktree's 587 commits onto main; gates (pre-commit, unit suite); push.
+2. `psql -f` migrations 568 and 571.
+3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 352 and the name list must
+   equal the CSV's confirmed set (258 names; diff them). Then `--commit`.
+4. `bar_derivation --stage daily --symbols <the 258> --apply`, then `--rewrite-digests`.
+5. D7: split_continuity clean on the 258, lineage_missing unchanged, overall verdict counts before
    and after for all names.
 
 After the landing: the six bad bars (FTNT 2014-01-10, CMCSA 2017-02-17, CDE 2008-11-18, CME
 2008-07-14, OKE 2005-04-13, NEXN 2025-02-18) go to quarantine under a new `operator_bad_bar` rule
 (design approved). Open questions: a non-Yahoo witness for FBIZ's 2015-08 split; the OKE, PATK, RSPF
-scale breaks at the 2016-01-04 seam; the CME 2007-07 to 2008-07 hole.
+scale breaks at the 2016-01-04 seam (with the other adjusted-on-date cases, todo 592); the CME 2007-07 to 2008-07 hole.
