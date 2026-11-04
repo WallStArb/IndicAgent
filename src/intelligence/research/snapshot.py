@@ -411,7 +411,7 @@ async def us_session_equity_symbols(dsn: str) -> list[str]:
 
 _TF_MINUTES = {**clock.TF_MINUTES, clock.DAILY_TF: _MINUTES_PER_DAY}
 _AXIS = "__axis__"  # the pseudo-symbol that gives every chunk panel the one shared grid
-_PROBE_SYMBOLS = 3
+PROBE_SYMBOLS = 3
 
 
 @dataclasses.dataclass(frozen=True)
@@ -725,7 +725,7 @@ async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dic
     idx = {m.member: np.full((n_book, m_book), -1, dtype=np.int32) for m in req.members}
     pieces: dict[str, list] = {m.member: [] for m in req.members}
     probe = (
-        np.full((n_src, min(_PROBE_SYMBOLS, m_book), 5), np.nan)
+        np.full((n_src, min(PROBE_SYMBOLS, m_book), 5), np.nan)
         if any(m.kind == "kernel" for m in req.members)
         else None
     )

@@ -31,7 +31,7 @@ import hashlib
 import importlib
 import math
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -40,9 +40,13 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.features.contract import causality_probe as truncation
+from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import KernelRegistryError, default_registry
 from src.intelligence.research import (
+    align,
     certificate,
+    clock,
     contribution,
     data_quality,
     dividends,
@@ -52,6 +56,7 @@ from src.intelligence.research import (
     null_battery_persistent,
     power,
     provenance,
+    smoothing,
     snapshot,
     static_sizes,
     store,
@@ -227,10 +232,19 @@ def _member_fn(spec: FamilySpec, member, bars_per_session: int):
 
 
 def compute_members(
-    spec: FamilySpec, resid_bar: np.ndarray, *, bars_per_session: int
+    spec: FamilySpec,
+    resid_bar: np.ndarray,
+    *,
+    bars_per_session: int,
+    panel: Panel | None = None,
 ) -> dict[str, np.ndarray]:
-    """S2: every member on the same residual bar returns."""
-    return {m.name: _member_fn(spec, m, bars_per_session)(resid_bar) for m in spec.members}
+    """S2: every member on its declared input: the S1 residual bar returns (unchanged for every
+    resid_bar member) or, for a feature or kernel member, the source value S2b aligned to the
+    book clock (`panel` carries the S0 sources)."""
+    return {
+        m.name: _member_fn(spec, m, bars_per_session)(member_input(spec, m, panel, resid_bar))
+        for m in spec.members
+    }
 
 
 def _sub_panel(panel: Panel, sessions: int) -> Panel:
@@ -275,8 +289,12 @@ def real_guards(
     reports = {name: guards.integrity(panel, alpha) for name, alpha in members.items()}
     rows = _probe_rows(panel, g, transform)
     reach = {}
+    input_reports = {}
     for m in spec.members:
         fn = _member_fn(spec, m, bps)
+        if m.input is not None:
+            reach[m.name], input_reports[m.name] = _guard_input_member(spec, m, panel, fn, rows)
+            continue
         declared = m.slot_history_sessions * bps
         guards.causality_probe_array(fn, residuals.bar, rows, seed=g.seed)
         reach[m.name] = guards.memory_check_array(
@@ -310,6 +328,8 @@ def real_guards(
         "s1_probe_rows": len(sub_rows),
         "s1_memory_reach": s1_reach,
     }
+    if input_reports:
+        summary["input_members"] = input_reports
     return {"reports": reports, "summary": summary}
 
 
@@ -559,6 +579,397 @@ def _build_fields(spec: FamilySpec) -> tuple[str, ...]:
     return tuple(sorted(fields))
 
 
+# --- S2b and S3 for feature and kernel members (plan 184-10) ------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class InputSources:
+    """Where S2b reads a snapshot's source arrays: the book snapshot directory (equal-tf arrays and
+    a finer source's index evidence), the child directory of each coarser tf, and the snapshot's
+    columns. Digests were checked when the snapshot loaded (`_load_panel`), so reads here are
+    plain memory maps. `cache` holds the run's member indexes (Panel.sources is not hashed)."""
+
+    path: Path
+    symbols: tuple[str, ...]
+    children: Mapping[str, Path]
+    cache: dict = dataclasses.field(default_factory=dict, compare=False, repr=False)
+
+    def array(self, name: str) -> np.ndarray:
+        return np.asarray(store.read_array(self.path, name))
+
+    def has(self, name: str) -> bool:
+        return store.has_array(self.path, name)
+
+    def _dir(self, tf: str, book_tf: str) -> Path:
+        path = self.path if tf == book_tf else self.children.get(tf)
+        if path is None:
+            raise ValueError(f"no loaded source for tf {tf}")
+        return path
+
+    def source_array(self, tf: str, book_tf: str, name: str) -> np.ndarray:
+        directory = self._dir(tf, book_tf)
+        if not store.has_array(directory, name):
+            raise ValueError(f"no loaded source array {name!r} for tf {tf}")
+        return np.asarray(store.read_array(directory, name))
+
+    def source_grid(self, tf: str, book_tf: str) -> Panel:
+        """The source-clock panel (the book's own grid when tf is the book's)."""
+        key = ("grid", tf)
+        if key not in self.cache:
+            self.cache[key] = panel_mod.load(self._dir(tf, book_tf), verify=False)
+        return self.cache[key]
+
+    def columns(self, symbols: tuple[str, ...]) -> slice | np.ndarray:
+        """The snapshot columns of the analysis panel's symbols (a members_universe narrowing
+        selects; a symbol the snapshot lacks, such as a total_return segment, is refused)."""
+        if tuple(symbols) == self.symbols:
+            return slice(None)
+        where = {s: j for j, s in enumerate(self.symbols)}
+        missing = [s for s in symbols if s not in where]
+        if missing:
+            raise RunRefused(
+                f"input members read S0 source columns by symbol; {missing[:3]} is not one "
+                "(total_return segments are not supported)"
+            )
+        return np.array([where[s] for s in symbols])
+
+
+def _attach_sources(panel: Panel, sources: InputSources) -> Panel:
+    return dataclasses.replace(panel, sources=sources)
+
+
+@dataclasses.dataclass(frozen=True)
+class MemberIndex:
+    """One member's alignment to the book clock: `gather(values, gather_idx)` is the aligned
+    input. `src_idx` are the same reads as source-grid rows (what S3 checks against
+    `src_closes`); for a coarser or equal source the two index arrays are one."""
+
+    values: np.ndarray
+    gather_idx: np.ndarray
+    src_idx: np.ndarray
+    src_closes: np.ndarray  # datetime64[ns] [ns], clock.closes_at on the source bar grid
+
+
+def _is_finer(source_tf: str, book_tf: str) -> bool:
+    return _BARS_PER_SESSION[source_tf] > _BARS_PER_SESSION[book_tf]
+
+
+def _input_sources(panel: Panel | None, m: MemberSpec) -> InputSources:
+    sources = None if panel is None else panel.sources
+    if not isinstance(sources, InputSources):
+        raise ValueError(f"member {m.name}: no loaded source for tf {m.input.tf}")
+    return sources
+
+
+def member_index(spec: FamilySpec, m: MemberSpec, panel: Panel) -> MemberIndex:
+    """S2b: the only alignment of a member's source to the book clock. A coarser or equal source
+    is aligned here with `align.align_index` over availability recomputed from the source grid;
+    a finer source replays the index S0 persisted, remapped into the referenced values. No
+    availability is read from stored metadata."""
+    inp, book_tf = m.input, spec.panel.tf
+    sources = _input_sources(panel, m)
+    if panel.closes_at is None:
+        raise RunRefused(f"member {m.name}: the panel carries no closes_at (B1b)")
+    key = (
+        m.name,
+        inp.kind,
+        inp.tf,
+        inp.column,
+        tuple(sorted((inp.windows or {}).items())),
+        inp.max_age_rows,
+        panel.symbols,
+    )
+    if key in sources.cache:
+        return sources.cache[key]
+    cols = sources.columns(panel.symbols)
+    bps = _BARS_PER_SESSION[inp.tf]
+    if _is_finer(inp.tf, book_tf):
+        for name in (f"idx__{m.name}", f"ref_rows__{m.name}", f"ref_values__{m.name}"):
+            if not sources.has(name):
+                raise ValueError(f"member {m.name}: no loaded source for tf {inp.tf} ({name})")
+        src_closes = clock.closes_at(
+            sources.array(f"src_ts__{inp.tf}"), sources.array(f"src_valid__{inp.tf}"), inp.tf, bps
+        )
+        src_idx = sources.array(f"idx__{m.name}")[:, cols]
+        if src_idx.shape[0] != len(panel.timestamps):
+            raise RunRefused(
+                f"member {m.name}: the persisted index has {src_idx.shape[0]} book rows, the "
+                f"panel {len(panel.timestamps)} (a transform changed the row grid)"
+            )
+        ref_rows = sources.array(f"ref_rows__{m.name}")
+        used = np.maximum(src_idx, 0)
+        pos = np.searchsorted(ref_rows, used)
+        if np.any((src_idx >= 0) & (ref_rows[np.minimum(pos, max(len(ref_rows) - 1, 0))] != used)):
+            raise ValueError(f"member {m.name}: persisted index reads rows missing from ref_rows")
+        gather_idx = np.where(src_idx >= 0, pos, -1).astype(np.int32)
+        values = sources.array(f"ref_values__{m.name}")[:, cols]
+    else:
+        name = (
+            feature_inputs.feature_array_name(inp.tf, inp.column)
+            if inp.kind == "feature"
+            else f"kernel__{inp.tf}__{m.name}"
+        )
+        values = sources.source_array(inp.tf, book_tf, name)[:, cols]
+        grid = sources.source_grid(inp.tf, book_tf)
+        src_closes = clock.closes_at(grid.timestamps, grid.valid, inp.tf, grid.bars_per_session)
+        src_idx = gather_idx = align.align_index(
+            np.isfinite(values), src_closes, panel.closes_at, inp.max_age_rows
+        )
+    sources.cache[key] = MemberIndex(values, gather_idx, src_idx, src_closes)
+    return sources.cache[key]
+
+
+def member_input(
+    spec: FamilySpec, m: MemberSpec, panel: Panel | None, resid_bar: np.ndarray
+) -> np.ndarray:
+    """A member's declared input: the S1 residual bar returns for a resid_bar member (the same
+    object, so those members are untouched), else the S2b-aligned source, smoothed when the
+    member pins a half-life."""
+    if m.input is None:
+        return resid_bar
+    index = member_index(spec, m, panel)
+    aligned = align.gather(index.values, index.gather_idx)
+    if m.smoothing_half_life is None:
+        return aligned
+    return smoothing.smooth(aligned, m.smoothing_half_life)
+
+
+def _probe_panels(
+    spec: FamilySpec, m: MemberSpec, panel: Panel, need_hl: bool
+) -> list[tuple[int, Panel]]:
+    """(panel column, one-symbol source-clock Panel of raw bars) for the symbols S0 kept raw
+    bars of (a finer source: its probe symbols) or the first symbols (otherwise)."""
+    inp, sources = m.input, panel.sources
+    bps = _BARS_PER_SESSION[inp.tf]
+    out = []
+    if _is_finer(inp.tf, spec.panel.tf):
+        bars = sources.array(f"probe_bars__{inp.tf}")
+        ts, valid = sources.array(f"src_ts__{inp.tf}"), sources.array(f"src_valid__{inp.tf}")
+        for i, name in enumerate(panel.manifest["sources"][inp.tf]["probe_symbols"]):
+            if name not in panel.symbols:
+                continue
+            b = bars[:, [i], :]
+            one = Panel(
+                tf=inp.tf,
+                symbols=(name,),
+                timestamps=ts,
+                bars_per_session=bps,
+                valid=valid,
+                open=b[:, :, 0],
+                close=b[:, :, 3],
+                volume=b[:, :, 4],
+                high=b[:, :, 1] if need_hl else None,
+                low=b[:, :, 2] if need_hl else None,
+            )
+            out.append((panel.symbols.index(name), one))
+        return out
+    grid = sources.source_grid(inp.tf, spec.panel.tf)
+    for pcol, name in list(enumerate(panel.symbols))[: snapshot.PROBE_SYMBOLS]:
+        j = [grid.symbols.index(name)]
+        hl = {
+            f: (
+                np.asarray(getattr(grid, f))[:, j]
+                if need_hl and getattr(grid, f) is not None
+                else None
+            )
+            for f in ("high", "low")
+        }
+        one = Panel(
+            tf=grid.tf,
+            symbols=(name,),
+            timestamps=grid.timestamps,
+            bars_per_session=grid.bars_per_session,
+            valid=grid.valid,
+            open=np.asarray(grid.open)[:, j],
+            close=np.asarray(grid.close)[:, j],
+            volume=np.asarray(grid.volume)[:, j],
+            **hl,
+        )
+        out.append((pcol, one))
+    return out
+
+
+def _kernel_column(p1: Panel, m: MemberSpec, config, need_hl: bool) -> np.ndarray:
+    inp = m.input
+    result = kernel_source.kernel_source(
+        p1,
+        [inp.column],
+        dict(inp.windows),
+        config,
+        max_gap_rows=int(inp.max_gap_rows),
+        high=p1.high if need_hl else None,
+        low=p1.low if need_hl else None,
+    )
+    return result.values[inp.column][:, 0]
+
+
+def _perturb(p1: Panel, later: np.ndarray, fill: str, rng: np.random.Generator) -> Panel:
+    """p1 with every raw bar in the `later` rows replaced (NaN, or one seeded rescale per row for
+    the prices, which keeps high >= low, and one for the volume)."""
+    price = np.exp(rng.normal(0.0, 0.5, int(later.sum())))
+    volume = np.exp(rng.normal(0.0, 0.5, int(later.sum())))
+    fields = {}
+    for name in ("open", "high", "low", "close", "volume"):
+        array = getattr(p1, name)
+        if array is None:
+            continue
+        array = np.array(array, dtype=float, copy=True)
+        if fill == "nan":
+            array[later] = np.nan
+        else:
+            array[later] *= (volume if name == "volume" else price)[:, None]
+        fields[name] = array
+    return dataclasses.replace(p1, **fields)
+
+
+def _truncation_probe(registry, p1: Panel, config, m: MemberSpec, need_hl: bool, n_rows: int):
+    """Phase 186's truncation probe and memory check on the member's kernel chain, over the
+    present rows of one probe symbol; returns the kernel names probed."""
+    close = np.asarray(p1.close, dtype=float)[:, 0]
+    present = np.flatnonzero(np.asarray(p1.valid, dtype=bool) & np.isfinite(close))
+    if present.size == 0:
+        return []
+    inputs = {
+        "ts": np.asarray(p1.timestamps).astype("datetime64[ns]").astype(np.int64)[present],
+        "tf": np.full(present.size, p1.tf, dtype=object),
+    }
+    for name in ("open", "high", "low", "close", "volume"):
+        array = getattr(p1, name)
+        if array is not None and (need_hl or name not in ("high", "low")):
+            inputs[name] = np.asarray(array, dtype=float)[present, 0]
+    available = with_derived_inputs(inputs)
+    n_probe = min(max(n_rows, 1), present.size)
+    rows = np.unique(np.linspace(0, present.size - 1, n_probe).astype(np.int64))
+    names = []
+    try:
+        for kernel in registry.topological_order((m.input.column,)):
+            truncation.causality_probe(kernel, available, config, rows)
+            if not kernel.path_dependent:
+                truncation.memory_check(kernel, available, config, rows)
+            native = kernel.compute({k: available[k] for k in kernel.inputs}, config)
+            available.update({k: np.asarray(native[k]) for k in kernel.outputs})
+            names.append(kernel.name)
+    except (truncation.CausalityViolation, truncation.MemoryViolation) as error:
+        raise guards.GuardFailure(f"member {m.name}: kernel truncation probe: {error}") from error
+    return names
+
+
+def _kernel_probe(
+    spec: FamilySpec, m: MemberSpec, panel: Panel, x: np.ndarray, fn, rows: np.ndarray
+) -> dict:
+    """End-to-end probe for a kernel member (184-REVIEWS row 1). Per probe symbol the kernel,
+    alignment and smoother are recomputed from the S0 raw bars and must equal the persisted
+    input; then every raw bar not available by a decision row's close is replaced (NaN, then a
+    seeded rescale) and the member recomputed: alpha rows at or before that decision row must not
+    move. The cross-section is the stored one with only the probe columns recomputed."""
+    g, inp = spec.guards, m.input
+    config = _manifest_configs(panel.manifest)[inp.tf]
+    need_hl = _needs_high_low(m)
+    index = member_index(spec, m, panel)
+    dst, h = panel.closes_at, m.smoothing_half_life
+    probes = _probe_panels(spec, m, panel, need_hl)
+    if not probes:
+        raise guards.GuardFailure(f"member {m.name}: no S0 probe symbol is in the panel")
+
+    def aligned_column(p1: Panel) -> tuple[np.ndarray, np.ndarray]:
+        col = _kernel_column(p1, m, config, need_hl)[:, None]
+        idx = align.align_index(np.isfinite(col), index.src_closes, dst, inp.max_age_rows)
+        return idx[:, 0], align.gather(col, idx)[:, 0]
+
+    registry = kernel_source.kernel_registry(inp.windows, config)
+    kernels: list[str] = []
+    for pcol, p1 in probes:
+        idx, value = aligned_column(p1)
+        same = np.array_equal(idx, index.src_idx[:, pcol])
+        if not (same and np.array_equal(value, x[:, pcol], equal_nan=True)):
+            raise guards.GuardFailure(
+                f"member {m.name}: persisted {inp.tf} source differs from the kernel recomputed "
+                f"from raw bars on {p1.symbols[0]}"
+            )
+        kernels = _truncation_probe(registry, p1, config, m, need_hl, g.n_random)
+
+    def smoothed(a: np.ndarray) -> np.ndarray:
+        return a if h is None else smoothing.smooth(a, h)
+
+    base_in = smoothed(x)
+    base_out = fn(base_in)
+    base_nan = np.isnan(base_out)
+    scored = _scored_mask(panel)
+    at = np.sort(rows if scored is None else rows[scored[rows]])
+    limit = max(g.n_random, 1)
+    if len(at) > limit:
+        at = at[np.linspace(0, len(at) - 1, limit).round().astype(np.int64)]
+    rng = np.random.default_rng(g.seed)
+    for fill in ("nan", "rescale"):
+        for t in (int(r) for r in at):
+            if np.isnat(dst[t]):
+                continue
+            later = np.isnat(index.src_closes) | (index.src_closes > dst[t])
+            if not later.any():
+                continue
+            work = base_in.copy()
+            for pcol, p1 in probes:
+                _, value = aligned_column(_perturb(p1, later, fill, rng))
+                work[:, [pcol]] = smoothed(value[:, None].astype(x.dtype, copy=False))
+            out = fn(work)[: t + 1]
+            out_nan = np.isnan(out)
+            moved = (out_nan != base_nan[: t + 1]) | (~out_nan & (out != base_out[: t + 1]))
+            if moved.any():
+                raise guards.GuardFailure(
+                    f"lookahead: member {m.name} alpha row {int(np.argwhere(moved)[0][0])} changed "
+                    f"when raw {inp.tf} bars available after decision row {t} were replaced "
+                    f"({fill})"
+                )
+    return {
+        "kernel_probe_symbols": [p1.symbols[0] for _, p1 in probes],
+        "kernel_probe_rows": len(at),
+        "kernel_truncation": kernels,
+    }
+
+
+def _guard_input_member(
+    spec: FamilySpec, m: MemberSpec, panel: Panel, fn, rows: np.ndarray
+) -> tuple[int, dict]:
+    """S3 for a feature or kernel member: every scored row's alignment against availability
+    recomputed from the source grid, the causality probe and memory check over the aligned input
+    composed with the smoother (declared at MemberMemory.transform_rows, the memory object that
+    feeds the warmup prefix and E17's L), and for a kernel the end-to-end raw-bar probe. A stored
+    feature's own causality is phase 186's truncation probe, cited here by code_key."""
+    g, inp = spec.guards, m.input
+    index = member_index(spec, m, panel)
+    memory = _member_memory(spec, m, _manifest_configs(panel.manifest))
+    scored = _scored_mask(panel)
+    scored_rows = np.arange(len(panel.timestamps)) if scored is None else np.flatnonzero(scored)
+    align.check_alignment(
+        index.src_idx, index.src_closes, panel.closes_at, inp.max_age_rows, scored_rows
+    )
+    x = align.gather(index.values, index.gather_idx)
+    h = m.smoothing_half_life
+
+    def member_fn(a: np.ndarray) -> np.ndarray:
+        return fn(a if h is None else smoothing.smooth(a, h))
+
+    guards.causality_probe_array(member_fn, x, rows, seed=g.seed)
+    declared = memory.transform_rows
+    reach = guards.memory_check_array(
+        member_fn, x, rows[rows < len(x) - declared - 1], declared=declared
+    )
+    block = panel.manifest["sources"][inp.tf].get("provenance", {})
+    report = {
+        "kind": inp.kind,
+        "source_tf": inp.tf,
+        "alignment_rows_checked": int(len(scored_rows)),
+        "reach": reach,
+        "declared_reach": declared,
+        "code_key": block.get("code_key"),
+    }
+    if inp.kind == "feature":
+        report["value_causality"] = "phase 186 truncation probe (code_key); 184 proves alignment"
+    else:
+        report.update(_kernel_probe(spec, m, panel, x, fn, rows))
+    return reach, report
+
+
 def _check_spec(spec: FamilySpec, mode: str = "real", book: BookSpec | None = None) -> None:
     """Spec load, no data read. `mode` is the run mode (real, exploration or synthetic) and `book`
     the BookSpec the family runs in, if any: the input-member subset and certificate checks need
@@ -756,15 +1167,21 @@ def _source_match(spec: FamilySpec, panel: Panel) -> dict[str, tuple]:
     return out
 
 
+def _scored_mask(panel: Panel) -> np.ndarray | None:
+    """bool [n]: rows at or after the snapshot's scored start; None without a warmup prefix."""
+    prefix = panel.manifest.get("warmup_prefix")
+    if not prefix:
+        return None
+    cut = datetime.fromisoformat(prefix["scored_start"]).astimezone(UTC).replace(tzinfo=None)
+    return np.asarray(panel.timestamps).astype("datetime64[ns]") >= np.datetime64(cut, "ns")
+
+
 def _trade(panel: Panel, cfg) -> np.ndarray:
     """The rows a run may trade: the scored span of the evaluation config on valid rows, and
     never a warmup prefix row (those only fill member memory, B1c)."""
     trade = trade_mask(panel.timestamps, cfg) & panel.valid
-    prefix = panel.manifest.get("warmup_prefix")
-    if prefix:
-        cut = datetime.fromisoformat(prefix["scored_start"]).astimezone(UTC).replace(tzinfo=None)
-        trade &= np.asarray(panel.timestamps).astype("datetime64[ns]") >= np.datetime64(cut, "ns")
-    return trade
+    scored = _scored_mask(panel)
+    return trade if scored is None else trade & scored
 
 
 async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, str, Panel | None]:
@@ -777,8 +1194,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, st
         path = await build(ctx.dsn, ctx.snapshot_dir, spec)
     digest = store.verify(path)
     panel = panel_mod.load(path)
-    if panel.manifest.get("sources"):
-        snapshot.verify_sources(path)
+    children = snapshot.verify_sources(path) if panel.manifest.get("sources") else {}
     universe_hash = _symbol_digest(panel.symbols)
     grid = dividends.load_grid(path)
     manifest = panel.manifest
@@ -801,9 +1217,12 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, st
         symbols = await snapshot.us_session_equity_symbols(ctx.dsn)
     elif spec.panel.members_universe == "daily_unseen":
         symbols = await snapshot.daily_unseen_symbols(ctx.dsn)
+    sources = InputSources(Path(path), tuple(panel.symbols), children)
     panel, source_probe = _prepare_panel(
         spec, panel, source_hash=digest, symbols=symbols, grid=grid
     )
+    if _input_members(spec):
+        panel = _attach_sources(panel, sources)
     return panel, digest, universe_hash, source_probe
 
 
@@ -994,7 +1413,7 @@ async def run_family(
         residuals = compute_residuals(
             panel, horizon=spec.horizon, factor_spec=factor_spec, transform=transform
         )
-        members = compute_members(spec, residuals.bar, bars_per_session=bps)
+        members = compute_members(spec, residuals.bar, bars_per_session=bps, panel=panel)
         try:
             checked = real_guards(
                 panel,
@@ -1404,7 +1823,7 @@ async def run_book(
         columns, members, memories, slot_histories, member_keys = [], [], [], [], []
         member_fams: list[str] = []
         for fam in families:
-            fam_members = compute_members(fam, residuals.bar, bars_per_session=bps)
+            fam_members = compute_members(fam, residuals.bar, bars_per_session=bps, panel=panel)
             _log(f"S3 guards {fam.family}")
             try:
                 real_guards(

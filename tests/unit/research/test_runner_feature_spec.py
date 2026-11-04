@@ -494,6 +494,7 @@ def _load(monkeypatch, spec, manifest, *, closes=True):
     monkeypatch.setattr(runner_mod.dividends, "load_grid", lambda path: None)
     monkeypatch.setattr(snapshot, "verify_sources", lambda path: {})
     monkeypatch.setattr(runner_mod, "_prepare_panel", lambda spec, source, **kw: (source, None))
+    monkeypatch.setattr(runner_mod, "_attach_sources", lambda panel, sources: panel)
     ctx = RunContext(root=None, budget=None, snapshot="path")
     return asyncio.run(runner_mod._load_panel(spec, ctx))
 

@@ -55,6 +55,9 @@ class Panel:
     sector_pit: np.ndarray | None = None
     # Per-row (not per-name): the time each row's bar is known, for aligning inputs from another tf.
     closes_at: np.ndarray | None = None
+    # Plan 184-10: where S2b reads the source arrays of a feature or kernel member (the runner's
+    # InputSources). Run plumbing, not data: never saved, hashed or compared.
+    sources: object | None = dataclasses.field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         n, m = len(self.timestamps), len(self.symbols)
@@ -209,9 +212,11 @@ def save(panel: Panel, out_dir: Path, extra: dict[str, np.ndarray] | None = None
     return store.write(out_dir, "panel", arrays, meta)
 
 
-def load(path: Path) -> Panel:
-    """Verify the content hash, then load memory-mapped."""
-    store.verify(path)
+def load(path: Path, *, verify: bool = True) -> Panel:
+    """Verify the content hash, then load memory-mapped. `verify=False` re-reads a directory
+    whose hash the caller already checked (a child source read once per member)."""
+    if verify:
+        store.verify(path)
     meta = store.read_meta(path)
     return Panel(
         tf=meta["tf"],
