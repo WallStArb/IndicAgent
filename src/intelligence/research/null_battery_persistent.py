@@ -133,9 +133,16 @@ _DISCRETE = tuple(
     f.name for f in dataclasses.fields(BatteryCertificate) if f.name != "source_memory_bars_max"
 )
 
-# The certificates whose every gating cell held size at 0.05 and 0.01 (184-05-BATTERY.md). An
-# empty tuple refuses every input member until the battery has run.
-PASSING_CERTIFICATES: tuple[BatteryCertificate, ...] = ()
+# The certificates whose every gating cell held size at 0.05 and 0.01 in both arms (184-05-
+# BATTERY.md, battery module commit 49e21bb41); a failing route stays refused (todo 586).
+PASSING_CERTIFICATES: tuple[BatteryCertificate, ...] = (
+    BatteryCertificate("feature", None, None, "1h", "1d", 1, "equal_weight", 1, None, 140),
+    BatteryCertificate("feature", None, None, "15m", "1d", 1, "equal_weight", 1, None, 520),
+    BatteryCertificate("feature", None, 5, "1d", "1d", 1, "equal_weight", 1, None, 252),
+    BatteryCertificate("rk_high_dist", 126, None, "1d", "1d", 1, "equal_weight", 1, 2, 125),
+    BatteryCertificate("rk_vwap_dev", 20, None, "1d", "1d", 1, "equal_weight", 1, 2, 19),
+    BatteryCertificate("rk_vwap_dev", 20, None, "1h", "1d", 1, "equal_weight", 1, 2, 19),
+)
 
 
 def _mismatches(request: CertificateRequest, cert: BatteryCertificate) -> list[str]:
@@ -161,7 +168,11 @@ def admit(
     if nearest is None:
         raise NotCertified("no passing battery certificate exists (184-05-BATTERY.md)")
     _, cert, wrong = nearest
-    detail = ", ".join(f"{f}: {getattr(request, f)!r} vs {getattr(cert, f, None)!r}" for f in wrong)
+    detail = ", ".join(
+        f"{f}: {getattr(request, f)!r} vs "
+        f"{getattr(cert, 'source_memory_bars_max' if f == 'source_memory_bars' else f)!r}"
+        for f in wrong
+    )
     raise NotCertified(f"no battery certificate covers the request; nearest differs in {detail}")
 
 

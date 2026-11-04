@@ -1,6 +1,7 @@
 """The persistent-predictor E17 battery module (plan 184-05): cells, certificates, wiring."""
 
 import dataclasses
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -249,6 +250,48 @@ def test_persistence_matches_tau():
 # --- the passing set follows the committed report ---------------------------------------
 
 
-def test_passing_certificates_are_certificates_of_gating_cells():
-    gating = {c.certificate for c in _gating()}
-    assert set(b.PASSING_CERTIFICATES) <= gating
+def _report_rows():
+    """{cell: (role, certificate, verdict)} parsed from the committed battery report."""
+    path = (
+        Path(__file__).resolve().parents[3]
+        / ".planning/phases/184-multi-timeframe-research-inputs/184-05-BATTERY.md"
+    )
+    rows = {}
+    for line in path.read_text().splitlines():
+        cols = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cols) != 22 or cols[1] not in ("gate", "diag"):
+            continue
+
+        def val(x):
+            return None if x == "None" else int(x) if x.lstrip("-").isdigit() else x
+
+        cert = b.BatteryCertificate(
+            identity=cols[2],
+            window=val(cols[3]),
+            smoothing_half_life=val(cols[4]),
+            source_tf=cols[5],
+            book_tf=cols[6],
+            horizon=val(cols[7]),
+            combiner=cols[8],
+            max_age_rows=val(cols[9]),
+            max_gap_rows=val(cols[10]),
+            source_memory_bars_max=val(cols[11]),
+        )
+        rows[cols[0]] = (cols[1], cert, cols[21])
+    return rows
+
+
+def test_report_has_one_row_per_scenario_with_its_certificate():
+    rows = _report_rows()
+    assert set(rows) == {c.name for c in b.scenarios()}
+    for sc in b.scenarios():
+        assert rows[sc.name][1] == sc.certificate
+        assert (rows[sc.name][0] == "diag") == (sc.name in b.DIAGNOSTIC_CELLS)
+
+
+def test_passing_certificates_match_report():
+    gating = [(cert, verdict) for role, cert, verdict in _report_rows().values() if role == "gate"]
+    want = {cert for cert, _ in gating if all(v == "PASS" for c, v in gating if c == cert)}
+    assert want
+    assert set(b.PASSING_CERTIFICATES) == want
+    assert len(b.PASSING_CERTIFICATES) == len(want)
