@@ -78,7 +78,8 @@ def test_incomplete_rebuild_units_refuse_and_the_count_is_reported():
     (reason,) = rec.recovery_refusals(conn, _OPEN, [])
     assert "7 rebuild unit(s)" in reason and "live or resumable" in reason
     query, params = conn.queries[0]
-    assert "provenance_batch" in query and "status <> 'completed'" in query
+    assert "provenance_batch" in query
+    assert "status NOT IN ('completed', 'superseded')" in query
     assert params == (["feature_vectors"],)
 
 

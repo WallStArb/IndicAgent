@@ -22,6 +22,14 @@ UPDATE provenance_batch
 SET status = 'superseded'
 WHERE target_table = 'feature_vectors_v2' AND status = 'completed';
 
-TRUNCATE feature_vectors_v2;
+-- Guarded like 526: the integration replay has no feature_vectors_v2 (462 drops it after the
+-- 433 baseline), so a bare TRUNCATE would stop the replay here.
+DO $$
+BEGIN
+    IF to_regclass('feature_vectors_v2') IS NOT NULL THEN
+        TRUNCATE feature_vectors_v2;
+    END IF;
+END
+$$;
 
 COMMIT;

@@ -63,6 +63,8 @@ def _is_true(value: Any) -> bool:
 
 
 def _incomplete_unit_refusal(conn: Any, raw_state: str) -> str | None:
+    """Refuse while any unit of the targets is live or resumable. completed and superseded are
+    terminal (migration 416); any other status refuses (fail closed)."""
     try:
         spec = json.loads(raw_state)
         table = spec["table"]
@@ -72,7 +74,8 @@ def _incomplete_unit_refusal(conn: Any, raw_state: str) -> str | None:
     if not _IDENTIFIER.match(str(table)):
         return f"{_KEY_STATE_TABLE} names an invalid table {table!r}; recovery refuses"
     query = sql.SQL(
-        "SELECT count(*) FROM {table} WHERE target_table = ANY(%s) AND status <> 'completed'"
+        "SELECT count(*) FROM {table} WHERE target_table = ANY(%s)"
+        " AND status NOT IN ('completed', 'superseded')"
     ).format(table=sql.Identifier(table))
     with conn.cursor() as cur:
         cur.execute(query, (targets,))
