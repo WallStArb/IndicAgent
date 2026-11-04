@@ -114,7 +114,46 @@ def test_the_gate_and_clock_are_wired():
     gate = b.static_gate()
     assert isinstance(gate, static_sizes.StaticGate)
     assert gate.cell_rows == 1
-    assert gate.static_sd == (max(c.static_cell_sd for c in _gating()),)
+
+
+def test_default_gate_is_zero_while_no_passing_certificate_has_a_stress_cell():
+    """Todo 588 B1: the only cells with static means failed, so every passing certificate gates
+    at 0 until part B adds passing static-stress cells."""
+    gate = b.static_gate()
+    assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
+    for c in b.PASSING_CERTIFICATES:
+        gate = b.static_gate([c])
+        assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,), c
+    assert max(c.static_cell_sd for c in _gating()) > 0  # the failed cells did carry sizes
+
+
+def test_gate_comes_from_the_given_certificates_cells_only(monkeypatch):
+    base = _cell("f1d_tau20")
+    stressed = dataclasses.replace(
+        base,
+        name="stress",
+        certificate=dataclasses.replace(base.certificate, source_tf="1h"),
+        static_cell_sd=0.3,
+        slot_effect_sd=0.02,
+    )
+    other = dataclasses.replace(base, name="other", static_cell_sd=0.1, slot_effect_sd=0.01)
+    monkeypatch.setattr(b, "scenarios", lambda: (other, stressed))
+    assert b.static_gate([other.certificate]).static_sd == (0.1,)
+    assert b.static_gate([stressed.certificate]).static_sd == (0.3,)
+    assert b.static_gate([stressed.certificate]).time_of_day == (0.02,)
+    both = b.static_gate([other.certificate, stressed.certificate])
+    assert both.static_sd == (0.3,)
+    # a certificate no cell carries gates at 0
+    nothing = dataclasses.replace(base.certificate, window=7)
+    assert b.static_gate([nothing]).static_sd == (0.0,)
+    assert b.static_gate([]).static_sd == (0.0,)
+
+
+def test_a_diagnostic_cell_never_lifts_a_gate(monkeypatch):
+    base = _cell("f1d_tau20")
+    diag = dataclasses.replace(base, name="hostile_tau200", static_cell_sd=0.3)
+    monkeypatch.setattr(b, "scenarios", lambda: (diag,))
+    assert b.static_gate([base.certificate]).static_sd == (0.0,)
 
 
 # --- admission --------------------------------------------------------------------------
@@ -289,9 +328,50 @@ def test_report_has_one_row_per_scenario_with_its_certificate():
         assert (rows[sc.name][0] == "diag") == (sc.name in b.DIAGNOSTIC_CELLS)
 
 
-def test_passing_certificates_match_report():
+def _report_text():
+    return (
+        Path(__file__).resolve().parents[3]
+        / ".planning/phases/184-multi-timeframe-research-inputs/184-05-BATTERY.md"
+    ).read_text()
+
+
+def _report_passing():
     gating = [(cert, verdict) for role, cert, verdict in _report_rows().values() if role == "gate"]
-    want = {cert for cert, _ in gating if all(v == "PASS" for c, v in gating if c == cert)}
+    return {cert for cert, _ in gating if all(v == "PASS" for c, v in gating if c == cert)}
+
+
+def test_passing_certificates_are_the_reports_passing_set_minus_the_withheld():
+    want = _report_passing()
     assert want
-    assert set(b.PASSING_CERTIFICATES) == want
-    assert len(b.PASSING_CERTIFICATES) == len(want)
+    assert set(b.WITHHELD_CERTIFICATES) <= want
+    assert set(b.PASSING_CERTIFICATES) == want - set(b.WITHHELD_CERTIFICATES)
+    assert len(b.PASSING_CERTIFICATES) == len(want) - len(b.WITHHELD_CERTIFICATES)
+
+
+def test_every_withheld_certificate_is_listed_in_the_report_with_its_reason():
+    text = _report_text()
+    assert "## Withheld" in text
+    section = text.split("## Withheld", 1)[1]
+    assert b.WITHHELD_CERTIFICATES
+    for cert, reason in b.WITHHELD_CERTIFICATES.items():
+        assert reason.strip()
+        assert reason in section, cert
+
+
+def test_the_withheld_set_is_the_588_set():
+    withheld = {
+        (c.identity, c.smoothing_half_life, c.source_tf, c.book_tf) for c in b.WITHHELD_CERTIFICATES
+    }
+    assert withheld == {
+        ("feature", 5, "1d", "1d"),
+        ("rk_vwap_dev", None, "1d", "1d"),
+        ("rk_vwap_dev", None, "1h", "1d"),
+    }
+    assert {c.identity for c in b.PASSING_CERTIFICATES} == {"feature", "rk_high_dist"}
+    assert all(c.smoothing_half_life is None for c in b.PASSING_CERTIFICATES)
+
+
+@pytest.mark.parametrize("cert", list(b.WITHHELD_CERTIFICATES))
+def test_a_withheld_route_is_refused_by_the_default_pool(cert):
+    with pytest.raises(b.NotCertified):
+        b.admit(_request(cert))

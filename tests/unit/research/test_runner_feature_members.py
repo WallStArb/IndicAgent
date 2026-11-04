@@ -481,8 +481,15 @@ def test_kernel_e2e_a_planted_acausal_kernel_fails(tmp_path, monkeypatch):
 # --- S0 -> S8 on a synthetic panel -------------------------------------------------------
 
 
-def test_synthetic_run_with_a_stored_feature_member_completes_s0_to_s8(tmp_path):
+def test_synthetic_run_with_a_stored_feature_member_completes_s0_to_s8(tmp_path, monkeypatch):
     import asyncio
+
+    from src.intelligence.research import null_battery_persistent, static_sizes
+
+    # This test pins the S0 to S8 pipeline, not the static gate: no passing certificate has a
+    # static-stress cell (todo 588), so the real gate is 0 and a random panel would be refused.
+    open_gate = static_sizes.StaticGate("test", 1, (1.0,), (1.0,))
+    monkeypatch.setattr(null_battery_persistent, "static_gate", lambda certificates=None: open_gate)
 
     from src.intelligence.research.runner import BudgetConfig, RunContext, run_family
     from src.intelligence.research.spec import LoadedSpec

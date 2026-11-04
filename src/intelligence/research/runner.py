@@ -31,7 +31,7 @@ import hashlib
 import importlib
 import math
 import sys
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -80,6 +80,7 @@ from src.intelligence.research.evidence import (
     turnover_per_session,
 )
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
+from src.intelligence.research.families import features as features_family
 from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.horizon import HorizonRule
 from src.intelligence.research.ledger import (
@@ -151,18 +152,41 @@ class LedgerPort(Protocol):
     async def start_subset_refits(self, parent_run_id: str, refits, author: str) -> dict: ...
 
 
-async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
+async def _source_configs(
+    dsn: str, spec: FamilySpec
+) -> tuple[list[str], list, dict[str, FeatureFactoryConfig]]:
+    """(universe symbols, source requests, verified FeatureFactoryConfig per source tf) for a
+    spec with input members, read before any bar is fetched (B1c, B1f). The member memory and
+    the certificate's memory bound are checked on them, so a refusal needs no snapshot."""
     symbols = await snapshot.universe_symbols(dsn, spec.panel.universe)
-    inputs: dict = {}
     sources = _source_requests(spec)
+    configs: dict[str, FeatureFactoryConfig] = {}
     if sources:
-        # The verified provenance configs first: member memory, the certificate's memory bound
-        # and the warmup prefix all derive from them, before any bar is fetched (B1c, B1f).
         found = await snapshot.source_configs(
             dsn, sources, spec.panel.start, spec.panel.end_exclusive, symbols=symbols
         )
         configs = {tf: entry["config"] for tf, entry in found.items()}
         _check_member_memory(spec, configs)
+    return symbols, sources, configs
+
+
+async def preflight_member_memory(spec: FamilySpec, ctx: RunContext) -> None:
+    """Refuse a member whose declared memory or source memory the certificate does not cover
+    before the ledger opens a run (todo 588 m1): a refusal must never burn a spec hash as a
+    failed run. Needs the provenance configs, so it runs when this run builds its own snapshot
+    (the default build) or is handed a snapshot whose manifest records them."""
+    if not _input_members(spec):
+        return
+    if ctx.snapshot is not None:
+        _check_member_memory(spec, _manifest_configs(store.read_meta(ctx.snapshot)["manifest"]))
+    elif ctx.build_snapshot is None and ctx.dsn is not None:
+        await _source_configs(ctx.dsn, spec)
+
+
+async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
+    symbols, sources, configs = await _source_configs(dsn, spec)
+    inputs: dict = {}
+    if sources:
         inputs = {
             "warmup_sessions": _warmup_prefix(spec, configs),
             "sources": sources,
@@ -419,14 +443,15 @@ def _check_supported_subset(spec: FamilySpec, book: BookSpec | None) -> None:
         )
 
 
-def _admit(spec: FamilySpec, m: MemberSpec, source_memory_bars: int) -> None:
-    """The member's route against the passing battery certificates (184-05)."""
+def _certificate_request(
+    spec: FamilySpec, m: MemberSpec, source_memory_bars: int
+) -> null_battery_persistent.CertificateRequest:
     inp = m.input
     if inp.kind == "feature":
         identity, window = "feature", None
     else:
         ((identity, window),) = inp.windows.items()
-    request = null_battery_persistent.CertificateRequest(
+    return null_battery_persistent.CertificateRequest(
         identity=identity,
         window=window,
         smoothing_half_life=m.smoothing_half_life,
@@ -438,10 +463,45 @@ def _admit(spec: FamilySpec, m: MemberSpec, source_memory_bars: int) -> None:
         max_gap_rows=inp.max_gap_rows,
         source_memory_bars=source_memory_bars,
     )
+
+
+def _admit(
+    spec: FamilySpec, m: MemberSpec, source_memory_bars: int
+) -> null_battery_persistent.BatteryCertificate:
+    """The member's route against the passing battery certificates (184-05); the certificate that
+    covers it."""
     try:
-        null_battery_persistent.admit(request)
+        return null_battery_persistent.admit(_certificate_request(spec, m, source_memory_bars))
     except null_battery_persistent.NotCertified as error:
         raise RunRefused(f"member {m.name}: {error}") from error
+
+
+def _check_member_signal(m: MemberSpec) -> None:
+    """The battery certified one member function (families.features.centred); an input member
+    with any other signal ran a route no cell tested (todo 588 B2)."""
+    if resolve_member(m.signal) is not features_family.centred:
+        raise RunRefused(
+            f"member {m.name}: an input member's signal must be "
+            f"{features_family.__name__}.centred, the one function the 184-05 battery certified "
+            f"(got {m.signal})"
+        )
+
+
+def _check_input_mix(specs: Sequence[FamilySpec]) -> None:
+    """One input member per book, and never beside residual-return members: the battery's cells
+    are single-member books on one route (todo 588 m3)."""
+    inputs = [m.name for s in specs for m in _input_members(s)]
+    residual = [m.name for s in specs for m in s.members if m.input is None]
+    if len(inputs) > 1:
+        raise RunRefused(
+            f"a book runs at most one input member until the battery certifies multi-member "
+            f"books (todo 588 m3): {inputs}"
+        )
+    if inputs and residual:
+        raise RunRefused(
+            "a book mixing input members and residual-return members is not certified "
+            f"(todo 588 m3): {inputs} with {residual}"
+        )
 
 
 def _check_input_members(spec: FamilySpec, mode: str, book: BookSpec | None) -> None:
@@ -456,7 +516,9 @@ def _check_input_members(spec: FamilySpec, mode: str, book: BookSpec | None) -> 
     if mode == "synthetic":
         return
     _check_supported_subset(spec, book)
+    _check_input_mix([spec])
     for m in _input_members(spec):
+        _check_member_signal(m)
         _admit(spec, m, 0)
 
 
@@ -1036,6 +1098,8 @@ def _check_spec_tree(loaded: LoadedSpec, mode: str = "real") -> None:
     for spec in specs:
         if isinstance(spec, FamilySpec):
             _check_spec(spec, mode, book)
+    if mode != "synthetic":
+        _check_input_mix([s for s in specs if isinstance(s, FamilySpec)])
     # A real record's spec hash names its decision statistic (E17): a spec written before E17
     # never runs, and re-scoring one under E17 is a new spec hash, not the old one reused.
     for spec in {id(s): s for s in [loaded.model, *specs]}.values():
@@ -1283,7 +1347,22 @@ def static_gate(spec: FamilySpec) -> static_sizes.StaticGate:
             f"family {spec.family}: no E17 H0 battery covers {module.__name__}; one at the "
             "family's measured static sizes must pass first (methodology-change-ledger E17)"
         )
+    if module.NULL_BATTERY == null_battery_persistent.__name__:
+        return null_battery_persistent.static_gate(_member_certificates(spec))
     return static_sizes.gate_for(module)
+
+
+def _member_certificates(spec: FamilySpec) -> list[null_battery_persistent.BatteryCertificate]:
+    """The passing certificates the input members route through, for the static gate (todo 588
+    B1: a family is gated at the sizes its own certificates held). A member no certificate
+    covers adds none; the admission check refuses it with its reason."""
+    found = []
+    for m in _input_members(spec):
+        try:
+            found.append(null_battery_persistent.admit(_certificate_request(spec, m, 0)))
+        except null_battery_persistent.NotCertified:
+            continue
+    return found
 
 
 def static_precondition(spec: FamilySpec, panel: Panel, gate: static_sizes.StaticGate) -> dict:
@@ -1343,6 +1422,7 @@ async def run_family(
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
         root, code_commit = await _gate(loaded, ctx, once=not exploring, mode=mode)
+        await preflight_member_memory(spec, ctx)  # before the ledger: a refusal is never charged
         identities = family_identities(loaded)
         concept = {m.name: f"member.{spec.family}.{m.name}" for m in spec.members}
         request = RunRequest(
@@ -1757,6 +1837,7 @@ async def run_book(
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
         root, code_commit = await _gate(loaded, ctx)
+        await preflight_member_memory(fam0, ctx)  # before the ledger: a refusal is never charged
         request = RunRequest(
             kind="book_test",
             spec_path=loaded.path,

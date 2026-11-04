@@ -88,7 +88,7 @@ def member_text(name, input_yaml, rows, smoothing=None):
     return out
 
 
-def make_spec(members, *, tf="1d", bps=1, horizon=1):
+def make_spec_text(members, *, tf="1d", bps=1, horizon=1):
     text = FAMILY.replace("family: fam_one", "family: features")
     text = text.replace("horizon: 2", f"horizon: {horizon}")
     text = text.replace("tf: 15m", f"tf: {tf}").replace(
@@ -97,7 +97,11 @@ def make_spec(members, *, tf="1d", bps=1, horizon=1):
     text = text.replace('"2006-07-01"', f'"{START}"').replace('"2025-12-24"', f'"{END}"')
     head, rest = text.split("members:\n", 1)
     tail = rest.split("construction:", 1)[1]
-    return parse_spec_text(head + "members:\n" + "".join(members) + "construction:" + tail)
+    return head + "members:\n" + "".join(members) + "construction:" + tail
+
+
+def make_spec(members, **kw):
+    return parse_spec_text(make_spec_text(members, **kw))
 
 
 def feature_member(name="m1", *, tf="1d", column=FEATURE, smoothing=None, max_age=1, bps=1):
@@ -617,3 +621,203 @@ def test_input_members_outside_the_first_family_are_refused(certs):
     )
     with pytest.raises(RunRefused, match="first family"):
         runner_mod._check_spec_tree(loaded, "real")
+
+
+# --- todo 588 part A ----------------------------------------------------------------------
+
+
+def _with_signal(member_yaml, signal):
+    return member_yaml.replace(CENTRED, signal)
+
+
+def test_b2_an_input_member_must_use_the_certified_function(certs):
+    certs(cert())
+    other = "src.intelligence.research.families.intraday_periodicity.same_slot_mean"
+    spec = make_spec([_with_signal(feature_member(), other)])
+    with pytest.raises(RunRefused, match=r"families\.features\.centred"):
+        runner_mod._check_spec(spec)
+    runner_mod._check_spec(spec, mode="synthetic")  # the battery itself runs open
+    runner_mod._check_spec(make_spec([feature_member()]))
+
+
+def test_m3_more_than_one_input_member_is_refused(certs):
+    certs(cert())
+    spec = make_spec([feature_member("a"), feature_member("b")])
+    with pytest.raises(RunRefused, match="at most one input member"):
+        runner_mod._check_spec(spec)
+    runner_mod._check_spec(spec, mode="synthetic")
+
+
+def _residual_member(spec):
+    from src.intelligence.research.families.common import declared_memory_rows
+
+    FACTOR_SPECS = runner_mod.FACTOR_SPECS
+    want = declared_memory_rows(
+        1, spec.panel.analysis_bars_per_session, FACTOR_SPECS[spec.factor_spec]
+    )
+    return spec.members[0].model_copy(
+        update={
+            "name": "r1",
+            "input": None,
+            "params": {},
+            "signal": "src.intelligence.research.families.intraday_periodicity.same_slot_mean",
+            "declared_memory_rows": want,
+        }
+    )
+
+
+def test_m3_input_and_residual_members_do_not_mix(certs):
+    certs(cert())
+    spec = make_spec([feature_member()])
+    mixed = spec.model_copy(update={"members": [*spec.members, _residual_member(spec)]})
+    with pytest.raises(RunRefused, match="mixing input members and residual"):
+        runner_mod._check_spec(mixed)
+    runner_mod._check_spec(mixed, mode="synthetic")
+
+
+def test_m3_the_book_wide_check_spans_families(certs):
+    certs(cert())
+    inp = make_spec([feature_member()])
+    plain = inp.model_copy(update={"members": [_residual_member(inp)]})
+    runner_mod._check_input_mix([inp])
+    runner_mod._check_input_mix([plain])
+    with pytest.raises(RunRefused, match="mixing input members and residual"):
+        runner_mod._check_input_mix([inp, plain])
+
+
+def test_item8_slot_history_zero_is_allowed_for_an_input_member_only(certs):
+    certs(cert())
+    rows = source_rows("1d", FEATURE, slot=0)
+    zero = member_text("m1", feature_in(), rows).replace(
+        "slot_history_sessions: 1", "slot_history_sessions: 0"
+    )
+    spec = make_spec([zero])
+    assert spec.members[0].slot_history_sessions == 0
+    runner_mod._check_spec(spec)
+    runner_mod._check_member_memory(spec, CONFIGS)
+    residual = _spec_text().replace("slot_history_sessions: 1", "slot_history_sessions: 0", 1)
+    with pytest.raises(ValueError, match="slot_history_sessions must be at least 1"):
+        parse_spec_text(residual)
+
+
+def test_b1_the_static_gate_is_the_members_certificate_only(certs, monkeypatch):
+    spec = make_spec([feature_member()])
+    seen = []
+    monkeypatch.setattr(
+        nbp, "static_gate", lambda certificates=None: seen.append(certificates) or "gate"
+    )
+    certs(cert())
+    assert runner_mod.static_gate(spec) == "gate"
+    assert seen == [[cert()]]
+    certs()  # an uncovered member adds no certificate; admission refuses it with a reason
+    runner_mod.static_gate(spec)
+    assert seen[-1] == []
+
+
+def test_b1_a_passing_certificate_with_no_stress_cell_refuses_a_measured_static_size(certs):
+    """End to end on the real battery: gate 0, so any measured size above 0 is refused."""
+    spec = make_spec([feature_member(tf="1h", bps=1)])
+    real = nbp.PASSING_CERTIFICATES[0]
+    certs(real)
+    gate = runner_mod.static_gate(spec)
+    assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
+
+
+def test_m2_unmatched_rows_inside_the_scored_span_refuse():
+    ts = np.array(["2010-01-04", "2010-01-05", "2010-01-06"], dtype="datetime64[ns]")
+    grid = SimpleNamespace(timestamps=ts)
+    scored_lo = datetime(2010, 1, 5, tzinfo=UTC)
+    scored = np.array([False, True, True])
+
+    def row(day, v=1.0):
+        return ("A", datetime.fromisoformat(f"{day}T00:00:00+00:00"), v)
+
+    def call(rows):
+        return snapshot._feature_rows_to_grid(
+            rows, grid, ["A"], [FEATURE], REG, CONFIG, scored, scored_lo
+        )
+
+    call([row("2010-01-05")])  # all matched
+    call([row("2010-01-05"), row("2009-12-31")])  # unmatched warmup row: counted, not refused
+    with pytest.raises(ValueError, match="inside the scored span"):
+        call([row("2010-01-05"), row("2010-01-07")])  # off-grid inside the span
+    with pytest.raises(ValueError, match="inside the scored span"):
+        call([row("2010-01-05"), ("ZZ", datetime(2010, 1, 6, tzinfo=UTC), 1.0)])  # unknown name
+
+
+def _run_features_family(repo, ctx):
+    from src.intelligence.research.spec import load_spec_from_head
+
+    loaded = load_spec_from_head(repo, "research/specs/f.yaml")
+    return asyncio.run(runner_mod.run_family(loaded, ctx, mode="real"))
+
+
+def test_m1_a_memory_refusal_opens_no_research_run(certs, monkeypatch, tmp_path):
+    """The provenance config disagrees with the declared memory: refused before start_runs, so
+    no spec hash is burned."""
+    import subprocess
+
+    from tests.unit.research.test_runner_order import FakeLedger
+
+    certs(cert())
+    repo = tmp_path
+    for args in (
+        ("init", "-q"),
+        ("config", "user.email", "t@example.com"),
+        ("config", "user.name", "t"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    (repo / "research/specs").mkdir(parents=True)
+    text = make_spec_text([feature_member()]).replace(
+        "  session_scoring: true\n", "  session_scoring: true\n  timing_statistic: e17\n", 1
+    )
+    (repo / "research/specs/f.yaml").write_text(text)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "i"], check=True)
+
+    other = dataclasses.replace(CONFIG, percentile_window_slow=CONFIG.percentile_window_slow + 10)
+
+    async def symbols(dsn, dimension):
+        return ["A"]
+
+    async def configs(dsn, sources, start, end, *, symbols):
+        return {s.tf: {"block": BLOCK, "config": other} for s in sources}
+
+    async def never_built(*a, **k):
+        raise AssertionError("a snapshot was built")
+
+    monkeypatch.setattr(snapshot, "universe_symbols", symbols)
+    monkeypatch.setattr(snapshot, "source_configs", configs)
+    monkeypatch.setattr(snapshot, "build_panel", never_built)
+    ledger = FakeLedger()
+    ctx = RunContext(
+        root=repo,
+        budget=runner_mod.BudgetConfig("v", 1, 0.05),
+        ledger=ledger,
+        dsn="dsn",
+        snapshot_dir=tmp_path,
+    )
+    with pytest.raises(RunRefused, match="declared_memory_rows"):
+        _run_features_family(repo, ctx)
+    assert "start_runs" not in ledger.calls
+    assert not any(isinstance(c, tuple) for c in ledger.calls)  # no finish_run either
+
+
+def test_m1_preflight_reads_a_handed_snapshots_manifest(certs, monkeypatch):
+    certs(cert())
+    spec = make_spec([feature_member()])
+    other = {"sources": {"1d": {"provenance": {**BLOCK}}}}
+    ctx = RunContext(root=None, budget=None, snapshot="path")
+    monkeypatch.setattr(store, "read_meta", lambda path: {"manifest": other})
+    asyncio.run(runner_mod.preflight_member_memory(spec, ctx))  # matching memory: proceeds
+    bad = spec.model_copy(
+        update={
+            "members": [
+                spec.members[0].model_copy(
+                    update={"declared_memory_rows": spec.members[0].declared_memory_rows + 1}
+                )
+            ]
+        }
+    )
+    with pytest.raises(RunRefused, match="declared_memory_rows"):
+        asyncio.run(runner_mod.preflight_member_memory(bad, ctx))

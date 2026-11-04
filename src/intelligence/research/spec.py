@@ -164,13 +164,21 @@ class MemberSpec(BaseModel):
     name: Identifier
     signal: str
     params: dict[str, int | float]
-    slot_history_sessions: int = Field(ge=1)
+    slot_history_sessions: int = Field(ge=0)
     declared_memory_rows: int = Field(ge=1)
     # Plan 184-06. Optional, dropped from the canonical form while unset. `input` absent means
     # the S1 residual bar returns (every earlier spec). smoothing_half_life is the fixed menu
     # smoothing.SMOOTHING_HALF_LIVES (design D3), for input members only (B5).
     input: MemberInputSpec | None = None
     smoothing_half_life: Literal[5, 21, 63] | None = None
+
+    @model_validator(mode="after")
+    def _slot_history_needs_residual_member(self) -> MemberSpec:
+        # An input member adds no history over its aligned input (the certified condition,
+        # todo 588 item 8); a residual-return member's slot history is at least one session.
+        if self.input is None and self.slot_history_sessions < 1:
+            raise ValueError(f"member {self.name}: slot_history_sessions must be at least 1")
+        return self
 
     @model_validator(mode="after")
     def _smoothing_needs_input(self) -> MemberSpec:

@@ -135,13 +135,35 @@ _DISCRETE = tuple(
 
 # The certificates whose every gating cell held size at 0.05 and 0.01 in both arms (184-05-
 # BATTERY.md, battery module commit 49e21bb41); a failing route stays refused (todo 586).
-PASSING_CERTIFICATES: tuple[BatteryCertificate, ...] = (
+_REPORT_PASSING: tuple[BatteryCertificate, ...] = (
     BatteryCertificate("feature", None, None, "1h", "1d", 1, "equal_weight", 1, None, 140),
     BatteryCertificate("feature", None, None, "15m", "1d", 1, "equal_weight", 1, None, 520),
     BatteryCertificate("feature", None, 5, "1d", "1d", 1, "equal_weight", 1, None, 252),
     BatteryCertificate("rk_high_dist", 126, None, "1d", "1d", 1, "equal_weight", 1, 2, 125),
     BatteryCertificate("rk_vwap_dev", 20, None, "1d", "1d", 1, "equal_weight", 1, 2, 19),
     BatteryCertificate("rk_vwap_dev", 20, None, "1h", "1d", 1, "equal_weight", 1, 2, 19),
+)
+
+# Report-passing certificates the runner does not admit, each with the reason (todo 588; the
+# report's table stays the evidence and is never edited). A certificate returns only when a
+# battery cell tests what the reason names (todo 588 part B).
+WITHHELD_CERTIFICATES: dict[BatteryCertificate, str] = {
+    _REPORT_PASSING[2]: (
+        "smoothing 5 on a 1d source passes only because the unsmoothed 1d to 1d route fails at "
+        "tau 60 and 200 (persistence); it returns only if it passes at tau 200"
+    ),
+    _REPORT_PASSING[4]: (
+        "rk_vwap_dev 1d to 1d: the cells assume one volume basis; withheld until S0 supplies "
+        "volume_basis and the battery certifies a mixed volume basis"
+    ),
+    _REPORT_PASSING[5]: (
+        "rk_vwap_dev 1h to 1d: the cells assume one volume basis; withheld until S0 supplies "
+        "volume_basis and the battery certifies a mixed volume basis"
+    ),
+}
+
+PASSING_CERTIFICATES: tuple[BatteryCertificate, ...] = tuple(
+    c for c in _REPORT_PASSING if c not in WITHHELD_CERTIFICATES
 )
 
 
@@ -291,13 +313,21 @@ def scenarios() -> tuple[PersistentScenario, ...]:
 DIAGNOSTIC_CELLS = frozenset({"hostile_tau200"})
 
 
-def static_gate() -> static_sizes.StaticGate:
-    """The sizes every gating cell holds at: static per-name sd and the per-slot mean sd, one
-    cell row per session on the daily clock."""
+def static_gate(
+    certificates: Sequence[BatteryCertificate] | None = None,
+) -> static_sizes.StaticGate:
+    """The sizes the given certificates (default: every passing one) were shown to hold at: the
+    max over the gating cells that carry one of them. A failing cell never lifts a gate, and a
+    certificate with no static-stress cell gates at 0, so any measured size refuses (todo 588
+    B1): the honest state until part B adds the stress cells."""
+    pool = PASSING_CERTIFICATES if certificates is None else tuple(certificates)
+    cells = tuple(c for c in scenarios() if c.certificate in pool)
+    if not any(c.name not in DIAGNOSTIC_CELLS for c in cells):
+        return static_sizes.StaticGate(__name__, 1, (0.0,), (0.0,))
     return static_sizes.gate_from_cells(
         __name__,
         1,
-        scenarios(),
+        cells,
         DIAGNOSTIC_CELLS,
         static=lambda c: (c.static_cell_sd,),
         time_of_day=lambda c: (c.slot_effect_sd,),

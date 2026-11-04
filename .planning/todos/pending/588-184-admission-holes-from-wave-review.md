@@ -56,3 +56,13 @@ row loss, the chunk grid and feature timestamp matching on live data.
 Part A has landed and its tests pin each refusal, part B's report is committed, and
 `PASSING_CERTIFICATES` matches it. 184-12 has run clean before any counted test with an input
 member.
+
+## Part A landed (2026-11-04)
+
+All eight items are in, each pinned by a refusal test. `PASSING_CERTIFICATES` is now
+`feature 1h->1d`, `feature 15m->1d` and `rk_high_dist 126 1d->1d`; the smoothing-5 and both
+`rk_vwap_dev` certificates are in `WITHHELD_CERTIFICATES` with reasons, and 184-05-BATTERY.md has a
+"Withheld" section (the measured table is untouched). The static gate is per certificate from that
+certificate's own cells (`null_battery_persistent.static_gate(certificates)`), so every passing
+certificate gates at 0 until part B. Item 8 relaxes `slot_history_sessions` to 0 for input members
+only. Part B and C remain.

@@ -552,10 +552,20 @@ def _block_info(tf: str, kind: str, tried: dict) -> dict:
     }
 
 
-def _feature_rows_to_grid(rows, grid: Panel, symbols, columns, registry, config, scored):
+def _feature_rows_to_grid(
+    rows, grid: Panel, symbols, columns, registry, config, scored, scored_lo: datetime
+):
     """Scatter, mask warmup and return {column: float32 [n, k]}, present, counts, per-column
-    manifest pieces. Pure over fetched rows."""
+    manifest pieces. Pure over fetched rows. A stored row inside the scored span that lands on
+    no grid slot refuses (todo 588 m2): its value was dropped from a counted test."""
     arrays, unmatched = feature_inputs.scatter_rows(rows, grid.timestamps, symbols, columns)
+    if unmatched:
+        cut = np.datetime64(scored_lo.astimezone(UTC).replace(tzinfo=None), "ns")
+        lost = feature_inputs.unmatched_since(rows, grid.timestamps, symbols, cut)
+        if lost:
+            raise ValueError(
+                f"{lost} stored feature rows inside the scored span match no grid slot (B1e)"
+            )
     present = feature_inputs.present_mask(rows, grid.timestamps, symbols)
     masked, warm = {}, {}
     for column in columns:
@@ -589,7 +599,7 @@ async def _whole_source(
         sql = feature_inputs.feature_select_sql(columns, registry, tf=tf)
         rows = await ctx.pool.fetch(sql, tf, list(symbols), lo, ctx.hi)
         masked, present, unmatched, warm = _feature_rows_to_grid(
-            rows, grid, symbols, columns, registry, config, scored
+            rows, grid, symbols, columns, registry, config, scored, ctx.scored_lo
         )
         floors = _floors(stored, lambda m: m.column)
         info["unmatched_rows"] = unmatched
@@ -741,7 +751,7 @@ async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dic
         if feature_sql:
             rows = await ctx.pool.fetch(feature_sql, tf, list(chunk), lo, ctx.hi)
             masked, present, miss, w = _feature_rows_to_grid(
-                rows, grid, chunk, columns, registry, config, scored
+                rows, grid, chunk, columns, registry, config, scored, ctx.scored_lo
             )
             unmatched += miss
             for c in columns:

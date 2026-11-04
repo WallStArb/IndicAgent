@@ -71,3 +71,15 @@ SIZE FAILS. Ten gating cells exceed the bound at 0.05 or 0.01 in at least one ar
 Pattern: oversize grows with predictor persistence. The sd of t in the book arm rises from 0.9-1.0 at tau 1-20 to 1.06 (tau 60) and 1.15 (tau 200); the member arm stays near 1.0 and fails only at 5m tau 200 and the hourly book. Long-memory smoothed cells (63-day half-life, 838 sessions) and the 1h book at tau 200 show the same shape. This is consistent with an HAC lag that does not scale with the persistence of the weights (todo 547's horizon-tied lag amendment is the related change); no fix is proposed here.
 
 Power cost (Pitfall 8): mean tested sessions per cell are in the table (3,434 of 4,000 at memory 254; 2,596 at the 838-session smoother, 1,092 session L).
+
+## Withheld
+
+The table above is unchanged evidence. Three of the six certificates it lists as passing are not admitted by the runner (todo 588, `WITHHELD_CERTIFICATES` in `null_battery_persistent.py`); `PASSING_CERTIFICATES` is the passing set minus these.
+
+| certificate | cells | reason |
+|---|---|---|
+| feature, smoothing 5, 1d to 1d | f1d_s5_tau5, f1d_s5_tau60 | smoothing 5 on a 1d source passes only because the unsmoothed 1d to 1d route fails at tau 60 and 200 (persistence); it returns only if it passes at tau 200 |
+| rk_vwap_dev 20, 1d to 1d | rk_vwap_dev_w20_1d | rk_vwap_dev 1d to 1d: the cells assume one volume basis; withheld until S0 supplies volume_basis and the battery certifies a mixed volume basis |
+| rk_vwap_dev 20, 1h to 1d | rk_vwap_dev_w20_1h | rk_vwap_dev 1h to 1d: the cells assume one volume basis; withheld until S0 supplies volume_basis and the battery certifies a mixed volume basis |
+
+The static gate is also per certificate and built from that certificate's cells only: no passing certificate has a static-stress cell, so each gates at 0 and a real panel with measurable static sizes is refused until todo 588 part B.

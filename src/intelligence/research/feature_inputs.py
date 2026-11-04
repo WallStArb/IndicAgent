@@ -176,6 +176,21 @@ def scatter_rows(
     return out, int((~ok).sum())
 
 
+def unmatched_since(
+    rows: Sequence[Sequence[Any]],
+    timestamps: np.ndarray,
+    symbols: Sequence[str],
+    since: np.datetime64,
+) -> int:
+    """Rows shaped (symbol, bar_ts, ...) that land on no grid slot and are stamped at or after
+    `since` (the scored span's start); unmatched warmup-prefix rows are not counted."""
+    ok, _r, _c = _slot_map(rows, timestamps, symbols)
+    if not len(rows):
+        return 0
+    ts = np.array([_ns(r[1]) for r in rows], dtype="datetime64[ns]")
+    return int((~ok & (ts >= since)).sum())
+
+
 def present_mask(
     rows: Sequence[Sequence[Any]], timestamps: np.ndarray, symbols: Sequence[str]
 ) -> np.ndarray:
