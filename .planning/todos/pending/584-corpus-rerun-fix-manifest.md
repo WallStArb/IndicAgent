@@ -31,6 +31,7 @@ anything found after the pin moves waits for the following rerun.
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` retired and the sweeps ATR gate removed (6c); row 6 is done |
 | 6d | SMC ATR gates narrowed (bos_choch, fair_value_gap, order_blocks): an invalid ATR no longer wipes the outputs that do not divide by it | this todo | landed 2026-11-03 (golden first; invalid-ATR share measured in the 6d note) |
+| 8b | Beta builders iterate common dates only (no stale-close 0.0 return on a gap day) | this todo | landed 2026-11-03 (golden unchanged; impact measured in the 8b note) |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | landed 2026-11-03: ten stored columns (kernels/residual.py, distribution.py, dividend.py), migration 559, rank_z concepts deprecated; `days_to_ex_dividend` deferred (no declaration time in `dividend_events`) |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -599,6 +600,28 @@ tolerance, impulse and base thresholds), and zones with an invalid ATR ignore th
 midpoint. Golden regenerated first: only `fvg_open_count` on the synthetic cold rows moves (real
 series have a valid ATR after warmup). `test_smc_atr_gate_narrowing.py` pins that an invalid ATR
 changes only the ATR outputs. Stored values on invalid-ATR rows change, so this rides the pin.
+
+### Item 8b landed (2026-11-03): the beta builders run on common dates only
+
+`build_symbol_beta_series` iterated the union of the name's, SPY's and TLT's dates. On a date one
+series had no bar, the missing bar read as a stale close, a fabricated 0.0 return entered the beta
+window, and the next real return was measured from the stale close. It now runs on
+`common_bar_dates` (the dates every series has a bar on; `prev_close` advances only there), the
+same helper the market-residual builder uses, so the stored `equity_beta_z`/`rate_beta_z` and the
+residual's beta cannot disagree on gap days. Impact on real data is small and bounded (1d,
+tradeable view): against SPY the names AAPL, BIL, CENT, GNE, HON, INGN, KO and SCCO have 0 to 2
+dates SPY has and they lack, and 1 to 7 dates they have and SPY lacks, over about 25 years, so a
+handful of windows per name carry the old zero return. Consumers checked: the backfill worker, the
+pilot gate and `compute_batch` take the builder's date-keyed dict and read it as-of
+(`daily_asof_indices`), and the `factor_beta_daily` grid kernel runs the same builder, so a date
+with no record is skipped by all of them. The golden does not move (the fixtures have no gap
+days); `test_beta_series_gaps.py` pins that a gap day emits no record and enters no zero return.
+`build_cross_asset_series` has the same union-of-dates shape for its returns and is not changed
+here: it handles partial coverage on purpose (`n_partial_coverage_dates`) and intersecting its six
+series would shrink its output, so it needs its own ruling. Known: the daily-grid kernels' declared
+memory counts grid rows (the union of dates) while the builders now count common dates, so around a
+gap day a window reaches a few rows further back than declared; a unit computes from the series
+start, so no warmup mask is affected, and the holes-and-late-start probe cases pass.
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

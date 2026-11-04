@@ -57,7 +57,7 @@ from src.intelligence.features.contract.registry import (
     constant_value,
 )
 from src.intelligence.features.kernels._primitives import _corr_or_nan, _z_or_nan
-from src.intelligence.features.kernels.macro import SPY, _grid_bars
+from src.intelligence.features.kernels.macro import SPY, _grid_bars, common_bar_dates
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -116,10 +116,7 @@ def build_market_residual_series(
 
     bars_map = {"sym": symbol_1d_bars, "spy": spy_1d_bars}
     dates_map = {k: [b["ts"].date() for b in v] for k, v in bars_map.items()}
-    # Only dates both series have a bar on: a missing bar would otherwise read as a stale close
-    # and a fabricated 0.0 return. prev_close advances only on these dates, so a return spans the
-    # same calendar interval for the name and for SPY.
-    all_dates = sorted(set(dates_map["sym"]) & set(dates_map["spy"]))
+    common_dates = common_bar_dates(dates_map)  # see common_bar_dates: no stale-close 0.0 returns
 
     cursors: dict[str, int] = {k: 0 for k in bars_map}
     prev_close: dict[str, float] = dict.fromkeys(bars_map, 0.0)
@@ -136,7 +133,7 @@ def build_market_residual_series(
     residual_beta_stability = math.nan
     result: dict = {}
 
-    for d in all_dates:
+    for d in common_dates:
         for k in bars_map:
             cursors[k] = bisect_right(dates_map[k], d)
         sym_end, spy_end = cursors["sym"], cursors["spy"]

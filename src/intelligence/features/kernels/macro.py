@@ -404,6 +404,17 @@ def build_cross_asset_series(
     return result
 
 
+def common_bar_dates(dates_by_series: Mapping[str, Sequence[date]]) -> list[date]:
+    """Ascending dates every series has a bar on.
+
+    A return builder that iterated the union of dates would read a missing bar as a stale close
+    and a fabricated 0.0 return; on common dates only, with the previous close advancing only
+    there, each return spans the same calendar interval for every series (todo 584 8b)."""
+    if not dates_by_series:
+        return []
+    return sorted(set.intersection(*(set(dates) for dates in dates_by_series.values())))
+
+
 def build_symbol_beta_series(
     symbol_1d_bars: list[dict],
     spy_1d_bars: list[dict],
@@ -425,17 +436,19 @@ def build_symbol_beta_series(
     equity_beta_z is None at EVERY date when symbol == SPY (self-regression
     against itself is degenerate, beta identically 1); rate_beta_z is None at
     every date when symbol == TLT. Mirrors build_cross_asset_series' O(D)
-    incremental alignment pattern (bisect cursors, prev_close trackers).
+    incremental alignment pattern (bisect cursors, prev_close trackers). Runs over the dates all
+    three series have a bar on (`common_bar_dates`), never a stale close.
 
-    Moved verbatim from services/backfill_feature_factory.py's
-    _build_symbol_beta_series (Plan 151-09 Task 1).
+    Moved from services/backfill_feature_factory.py's _build_symbol_beta_series (Plan 151-09 Task 1);
+    the date loop was narrowed to common dates in todo 584 8b. Records are date-keyed and read
+    as-of (`daily_asof_indices`), so a date with no record is simply skipped by every consumer.
     """
     is_spy = symbol == SPY
     is_tlt = symbol == TLT
 
     bars_map = {"sym": symbol_1d_bars, "spy": spy_1d_bars, "tlt": tlt_1d_bars}
     dates_map = {k: [b["ts"].date() for b in v] for k, v in bars_map.items()}
-    all_dates = sorted(set().union(*dates_map.values()))
+    common_dates = common_bar_dates(dates_map)
 
     cursors: dict[str, int] = {k: 0 for k in bars_map}
     prev_close: dict[str, float] = dict.fromkeys(bars_map, 0.0)
@@ -451,7 +464,7 @@ def build_symbol_beta_series(
     rate_beta_z: float = math.nan
     result: dict = {}
 
-    for d in all_dates:
+    for d in common_dates:
         for k in bars_map:
             cursors[k] = bisect.bisect_right(dates_map[k], d)
 
