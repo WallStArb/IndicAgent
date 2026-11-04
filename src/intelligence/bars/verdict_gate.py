@@ -37,6 +37,8 @@ REQUIRED_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
                 "unexplained_seam",
                 # todo 545 step 5a: Alpaca/IBKR disagreement after the D-191-Q arbitration
                 "alpaca_basis_run",
+                # todo 587: every recorded split crossed continuously (not unadjusted, not twice)
+                "split_continuity",
             }
         ),
         "5m": frozenset({"slot_coverage", "digest_fresh", "coverage_cache"}),

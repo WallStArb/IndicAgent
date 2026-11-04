@@ -120,6 +120,68 @@ def recognised_split_ratio(factor: float, rule: SplitRatioRule) -> float | None:
     return None
 
 
+CalendarVerdict = Literal["confirmed", "adjusted", "conflict", "not_a_split_ratio"]
+
+
+def judge_calendar_split(
+    calendar_factor: float,
+    canonical_step: float,
+    calendar_adjusted_step: float,
+    rule: SplitRatioRule,
+    rel_tol: float,
+) -> tuple[CalendarVerdict, float | None]:
+    """Whether canonical carries a calendar split unadjusted (todo 587), and its ratio.
+
+    calendar_factor is the external calendar's old-scale/new-scale factor (Yahoo: 2.0 for 2-for-1,
+    0.1 for 1-for-10, fractional for a spin-off). canonical_step is canonical's log close step across
+    the date; calendar_adjusted_step the same step in the calendar source's split-adjusted closes.
+    A split ratio is required first: recognised_split_ratio refuses the spin-offs Yahoo writes as
+    fractional splits (IBM 2021 1.046). Then canonical's step in excess of the calendar's adjusted
+    step (the day's real move) is compared with the expected unadjusted step s = -log(ratio),
+    within rel_tol * |s|:
+
+    - confirmed: the excess is s (two independent checks: the external date and ratio, and our
+      own measured step at that date and ratio);
+    - adjusted: no excess (canonical already split-adjusted, nothing to record);
+    - conflict: anything else (a different ratio, a wrong calendar date): review, no row.
+    """
+    ratio = recognised_split_ratio(calendar_factor, rule)
+    if ratio is None:
+        return "not_a_split_ratio", None
+    expected = -math.log(ratio)
+    tol = rel_tol * abs(expected)
+    # The calendar's adjusted step is the day's real move; what canonical carries beyond it is
+    # the scale break (a real move on the split date must not hide an unadjusted split).
+    excess = canonical_step - calendar_adjusted_step
+    if abs(excess - expected) <= tol:
+        return "confirmed", ratio
+    if abs(excess) <= tol:
+        return "adjusted", ratio
+    return "conflict", ratio
+
+
+SplitContinuity = Literal["continuous", "unadjusted", "double_adjusted"]
+
+
+def split_continuity(canonical_step: float, factor: float, rel_tol: float) -> SplitContinuity:
+    """D7 split_continuity (todo 587): a recorded split must leave canonical continuous.
+
+    At a split of factor f (old-scale/new-scale price), canonical's log step across the date sits
+    near -log f when the span before it is still unadjusted, and near +log f when it was adjusted
+    twice (a vendor restated its history after the rule rescaled it). Either, within
+    rel_tol * |log f|, fails by name.
+    """
+    if not (math.isfinite(factor) and factor > 0 and factor != 1):
+        raise ValueError(f"split factor must be positive, finite and not 1, got {factor!r}")
+    expected = -math.log(factor)
+    tol = rel_tol * abs(expected)
+    if abs(canonical_step - expected) <= tol:
+        return "unadjusted"
+    if abs(canonical_step + expected) <= tol:
+        return "double_adjusted"
+    return "continuous"
+
+
 @dataclass(frozen=True)
 class DisputedDate:
     """One dividend reported by both sources with disagreeing ex-dates.

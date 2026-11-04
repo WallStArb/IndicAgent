@@ -148,6 +148,12 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             "the overlap split detector (migration 406) and its sanctioned corrections: "
             "--supersede, --void, --hold-rescale (migration 461, plan 185-51)",
         ),
+        Writer(
+            "scripts/ops/bars/ops_split_calendar_audit.py",
+            _segment("inferred_by", "calendar_audit"),
+            "splits canonical 1d carries unadjusted, confirmed from the external split calendar "
+            "(migration 567, todo 587)",
+        ),
     ),
     # Held names (migration 461, plan 185-51): record_hold and release_hold only.
     "bar_hold": (

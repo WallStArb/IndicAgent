@@ -814,6 +814,7 @@ _APR_PATTERNS = [
     "infra.bar_derivation.%",
     "infra.ibkr.venue_fallback.%",
     "threshold.bar_integrity.%",
+    "threshold.split_continuity.rel_tol",
     "infra.bar_integrity.%",
     "infra.selection_gate.request_load_match_s",
     "infra.grid_parity.%",
@@ -1262,6 +1263,8 @@ class _IntegrityParams:
     # The D7 dated-exception record (migration 547's infra.grid_parity.dated_exceptions), the
     # raw JSON document; None or empty dates nothing (fail closed).
     dated_exceptions_json: str | None = None
+    # Migration 567's threshold.split_continuity.rel_tol (todo 587, split_continuity).
+    split_continuity_rel_tol: float = 0.3
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
@@ -1296,6 +1299,7 @@ class _IntegrityParams:
             ),
             load_match_s=float(_cfg(apr, "infra.selection_gate.request_load_match_s", 5.0)),
             dated_exceptions_json=(_cfg(apr, "infra.grid_parity.dated_exceptions", "") or None),
+            split_continuity_rel_tol=float(_cfg(apr, "threshold.split_continuity.rel_tol", 0.3)),
         )
 
 

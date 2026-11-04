@@ -119,6 +119,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
     judge_name_1d,
     month_digests,
     proven_start,
+    split_discontinuities,
     stale_digest_months,
 )
 
@@ -136,6 +137,7 @@ class _Thresholds:
     basis_window_sessions: int = 3
     basis_tolerance_bp: float = 10.0
     freshness_max_lag_sessions_1d: int = 2
+    split_continuity_rel_tol: float = 0.3
 
 
 def _obs(day: date, close: float, route: str = "TRADIER") -> Observation:
@@ -1020,3 +1022,45 @@ def test_judge_reports_alpaca_basis_run_and_fails_an_unexplained_run():
 def test_grid_parity_a_missing_volume_is_a_mismatch_not_a_pass():
     archived = {_T0: (1.0, 2.0, 0.5, 1.5, float("nan"))}
     assert grid_parity({_T0: _BAR}, archived, timeframe="15m") == (1, 1, 0)
+
+
+# --- todo 587: split_continuity ----------------------------------------------------------
+
+
+def _closes_stored(closes):
+    return [
+        StoredBar(datetime(d.year, d.month, d.day, tzinfo=UTC), c, c, c, c, 1000.0, "ibkr", "named")
+        for d, c in closes
+    ]
+
+
+def _split(day, factor):
+    return SplitRecord(
+        effective_date=day, recorded_at=datetime(2026, 11, 4, tzinfo=UTC), factor=factor
+    )
+
+
+def test_split_continuity_names_an_unadjusted_and_a_double_adjusted_split():
+    d = [date(2010, 6, 10), date(2010, 6, 11), date(2010, 6, 14), date(2010, 6, 15)]
+    # effective_date is the last day on the old scale (2010-06-11); the step lands on 06-14.
+    unadjusted = _closes_stored([(d[0], 100.0), (d[1], 100.0), (d[2], 50.0), (d[3], 50.0)])
+    assert split_discontinuities(unadjusted, [_split(d[1], 2.0)], 0.3) == [(d[1], "unadjusted")]
+    doubled = _closes_stored([(d[0], 25.0), (d[1], 25.0), (d[2], 50.0), (d[3], 50.0)])
+    assert split_discontinuities(doubled, [_split(d[1], 2.0)], 0.3) == [(d[1], "double_adjusted")]
+    adjusted = _closes_stored([(d[0], 50.0), (d[1], 50.5), (d[2], 50.0), (d[3], 51.0)])
+    assert split_discontinuities(adjusted, [_split(d[1], 2.0)], 0.3) == []
+
+
+def test_a_split_outside_the_stored_span_is_not_judged():
+    stored = _closes_stored([(date(2012, 1, 3), 10.0), (date(2012, 1, 4), 10.0)])
+    assert split_discontinuities(stored, [_split(date(2010, 6, 11), 2.0)], 0.3) == []
+
+
+def test_split_continuity_never_measures_across_a_hole_or_an_untradeable_bar():
+    d = [date(2010, 6, 10), date(2010, 6, 11), date(2010, 9, 14)]
+    across_hole = _closes_stored([(d[0], 100.0), (d[1], 100.0), (d[2], 50.0)])
+    assert split_discontinuities(across_hole, [_split(d[1], 2.0)], 0.3) == []
+    e = [date(2010, 6, 10), date(2010, 6, 11), date(2010, 6, 14), date(2010, 6, 15)]
+    stored = _closes_stored([(e[0], 50.0), (e[1], 50.0), (e[2], 100.0), (e[3], 50.0)])
+    # A quarantined old-scale print on 06-14 is not what research reads.
+    assert split_discontinuities(stored, [_split(e[1], 2.0)], 0.3, quarantined={e[2]}) == []

@@ -10,6 +10,7 @@ rolling the symbol back.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 
 import numpy as np
@@ -19,7 +20,9 @@ from src.intelligence.bars.corporate_actions import (
     SplitRatioRule,
     disputed_dates,
     infer_split,
+    judge_calendar_split,
     recognised_split_ratio,
+    split_continuity,
     unknown_return_mask,
 )
 from src.intelligence.bars.seams import Seam
@@ -211,3 +214,77 @@ def test_an_unusable_rule_raises() -> None:
         recognised_split_ratio(2.0, SplitRatioRule(50, 0, 0.002))
     with pytest.raises(ValueError, match="rule"):
         recognised_split_ratio(2.0, SplitRatioRule(50, 4, 0.0))
+
+
+# --- todo 587: the split calendar audit and D7 split_continuity ---------------------------
+
+# The live APR rule (infra.backfill.split_ratio_*, migration 461) and tolerance (migration 567).
+_LIVE_RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
+_TOL = 0.3
+
+
+@pytest.mark.parametrize(
+    "case, factor",
+    [
+        ("IBM 2021-11-04 Kyndryl", 1.046),
+        ("XPO 2021-08-02 GXO", 1.718),
+        ("A 2014-11-03 Keysight", 1.398),
+        ("DOV 2014-03-03 Knowles", 1.205),
+        ("ZBH 2022-03-01 ZimVie", 1.03),
+        ("J 2024-09-30 Amentum", 1.197),
+    ],
+)
+def test_yahoo_spin_off_factors_are_never_a_split(case, factor):
+    """Yahoo writes spin-offs as fractional splits; they must never become split rows, whatever
+    canonical's step on the date (todo 587, decision 2)."""
+    step = -math.log(factor)  # even a step that matches the factor exactly
+    assert judge_calendar_split(factor, step, 0.0, _LIVE_RULE, _TOL) == ("not_a_split_ratio", None)
+
+
+@pytest.mark.parametrize("factor", [2.0, 1.5, 1.25, 3.0, 0.1, 1 / 3])
+def test_an_unadjusted_split_with_a_continuous_calendar_close_is_confirmed(factor):
+    step = -math.log(factor) + 0.01  # the split plus an ordinary day
+    assert judge_calendar_split(factor, step, 0.005, _LIVE_RULE, _TOL) == ("confirmed", factor)
+
+
+def test_an_already_adjusted_canonical_records_nothing():
+    assert judge_calendar_split(2.0, 0.02, 0.01, _LIVE_RULE, _TOL) == ("adjusted", 2.0)
+
+
+def test_a_real_move_on_the_split_date_does_not_hide_an_unadjusted_split():
+    # A 5:4 split on a +8% day: canonical carries the move plus the scale break.
+    move = math.log(1.08)
+    canonical = -math.log(1.25) + move
+    assert judge_calendar_split(1.25, canonical, move, _LIVE_RULE, _TOL) == ("confirmed", 1.25)
+
+
+def test_a_real_crash_on_an_adjusted_canonical_is_adjusted_not_a_split():
+    crash = -math.log(2.0)
+    assert judge_calendar_split(2.0, crash, crash, _LIVE_RULE, _TOL) == ("adjusted", 2.0)
+
+
+def test_a_different_ratio_is_a_conflict_for_review():
+    assert judge_calendar_split(2.0, -math.log(3.0), 0.0, _LIVE_RULE, _TOL)[0] == "conflict"
+
+
+@pytest.mark.parametrize(
+    "step, verdict",
+    [
+        (0.0, "continuous"),
+        (0.05, "continuous"),
+        (-math.log(2.0), "unadjusted"),
+        (math.log(2.0), "double_adjusted"),
+    ],
+)
+def test_split_continuity_fails_unadjusted_and_double_adjusted_by_name(step, verdict):
+    assert split_continuity(step, 2.0, _TOL) == verdict
+
+
+def test_split_continuity_reads_a_reverse_split_in_its_own_orientation():
+    # 1-for-10: price x10 on the date when still unadjusted.
+    assert split_continuity(math.log(10.0), 0.1, _TOL) == "unadjusted"
+
+
+def test_split_continuity_refuses_a_factor_of_one():
+    with pytest.raises(ValueError):
+        split_continuity(0.0, 1.0, _TOL)

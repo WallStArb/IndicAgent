@@ -46,6 +46,7 @@ def test_required_checks_match_the_design():
         "digest_fresh",
         "unexplained_seam",
         "alpaca_basis_run",
+        "split_continuity",
     }
     assert REQUIRED_CHECKS["5m"] == {"slot_coverage", "digest_fresh", "coverage_cache"}
     assert REQUIRED_CHECKS["15m"] == REQUIRED_CHECKS["1h"] == {"digest_fresh", "grid_parity"}

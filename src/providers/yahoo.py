@@ -1,10 +1,10 @@
 """Yahoo Finance reference data via yfinance. All yfinance logic lives here.
 
 Two owner-approved uses, nothing else: corporate-action history IBKR's API does not expose (todo 428,
-dividends), and long-history index levels (`^GSPC` from 1927, `^NDX` from 1985) stored as context-only
-economic series (`YahooSource`, owner decision 2026-10-01). Never a tradeable price: bars stay IBKR's,
-and `YahooSource` accepts index tickers only. yfinance is synchronous (HTTP), so async entry points run
-it in a worker thread.
+dividends; todo 587, the split calendar), and long-history index levels (`^GSPC` from 1927, `^NDX`
+from 1985) stored as context-only economic series (`YahooSource`, owner decision 2026-10-01). Never
+a tradeable price: bars stay IBKR's, and `YahooSource` accepts index tickers only. yfinance is
+synchronous (HTTP), so async entry points run it in a worker thread.
 """
 
 from __future__ import annotations
@@ -51,6 +51,35 @@ async def fetch_daily_close_and_dividends(
     (rows, None) or ([], error)."""
     try:
         rows = await asyncio.to_thread(_daily_close_and_dividends, symbol)
+    except Exception as error:
+        return [], f"{type(error).__name__}: {error}"[:200]
+    if not rows:
+        return [], "no history returned"
+    return rows, None
+
+
+def _daily_close_and_splits(symbol: str) -> list[tuple[date, float, float]]:
+    history = yfinance.Ticker(yahoo_symbol(symbol)).history(
+        period="max", auto_adjust=False, actions=True, raise_errors=True
+    )
+    # Close is split-adjusted (auto_adjust=False), so a split leaves it continuous; "Stock Splits"
+    # is 0 on a day without one. Yahoo also writes spin-offs here as fractional factors (IBM
+    # 2021-11-04 1.046): the caller's split-ratio rule, not this reader, separates them (todo 587).
+    return [
+        (ts.date(), float(close), float(split))
+        for ts, close, split in zip(
+            history.index, history["Close"], history["Stock Splits"], strict=True
+        )
+    ]
+
+
+async def fetch_daily_close_and_splits(
+    symbol: str,
+) -> tuple[list[tuple[date, float, float]], str | None]:
+    """Full daily (day, split-adjusted close, split factor or 0) history: (rows, None) or
+    ([], error). Corporate-action history IBKR's API does not expose (todo 587)."""
+    try:
+        rows = await asyncio.to_thread(_daily_close_and_splits, symbol)
     except Exception as error:
         return [], f"{type(error).__name__}: {error}"[:200]
     if not rows:

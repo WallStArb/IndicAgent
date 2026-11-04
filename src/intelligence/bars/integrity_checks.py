@@ -5,7 +5,9 @@ verdicts; nothing here touches a database or the APR.
 
 from __future__ import annotations
 
+import math
 import time
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -14,6 +16,7 @@ from typing import NamedTuple, Protocol
 
 import numpy as np
 
+from src.intelligence.bars.corporate_actions import split_continuity
 from src.intelligence.bars.daily_rule import (
     FALLBACK_PAIR,
     PRIMARY_PAIR,
@@ -166,6 +169,7 @@ CHECKS_1D = (
     "digest_fresh",
     "unexplained_seam",
     "alpaca_basis_run",
+    "split_continuity",
     "report_age",
     CHECK_FRESHNESS_1D,
 )
@@ -193,6 +197,7 @@ class IntegrityThresholds(Protocol):
     basis_window_sessions: int
     basis_tolerance_bp: float
     freshness_max_lag_sessions_1d: int
+    split_continuity_rel_tol: float
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,46 @@ class NameReport1d:
     alpaca_runs: list[BasisRun] = field(default_factory=list)
     # earliest session whose coverage to the last session passes session_coverage (design D4)
     proven_start: date | None = None
+
+
+# A split is judged only across sessions this close together: a step spanning a hole would mix
+# weeks of real moves into the scale question (session_coverage owns holes). Definitional.
+_SPLIT_BRACKET_MAX_DAYS = 7
+
+
+def split_discontinuities(
+    stored: Sequence[StoredBar],
+    splits: Sequence[SplitRecord],
+    rel_tol: float,
+    quarantined: Collection[date] = (),
+) -> list[tuple[date, str]]:
+    """(effective date, verdict) of every recorded split canonical does not cross continuously
+    (todo 587): the close step from the last tradeable session on or before the split's effective
+    date (the last day on the old scale, migration 400) to the next one, judged by
+    corporate_actions.split_continuity. Tradeable means what research reads: volume > 0 and not
+    quarantined. A split without tradeable sessions within _SPLIT_BRACKET_MAX_DAYS on both sides
+    is not measurable here and is skipped."""
+    closes = sorted(
+        (bar.timestamp.date(), bar.close)
+        for bar in stored
+        if bar.close is not None
+        and bar.close > 0
+        and (bar.volume or 0) > 0
+        and bar.timestamp.date() not in quarantined
+    )
+    days = [day for day, _ in closes]
+    found: list[tuple[date, str]] = []
+    for split in sorted(splits, key=lambda s: s.effective_date):
+        after = bisect_right(days, split.effective_date)
+        if after == 0 or after == len(days):
+            continue
+        if (days[after] - days[after - 1]).days > _SPLIT_BRACKET_MAX_DAYS:
+            continue
+        step = math.log(closes[after][1] / closes[after - 1][1])
+        state = split_continuity(step, split.factor, rel_tol)
+        if state != "continuous":
+            found.append((split.effective_date, state))
+    return found
 
 
 def month_digests(
@@ -343,7 +388,7 @@ def judge_name_1d(
     era_start: date,
     timings: dict[str, float] | None = None,
 ) -> NameReport1d:
-    """The nine 1d verdicts of one name (design section 6; freshness_1d from 185-46). Pure; timings, when given, collects
+    """The ten 1d verdicts of one name (design section 6; freshness_1d from 185-46). Pure; timings, when given, collects
     seconds per check. Thresholds that are definitions (zero tolerance) live here as 0.0.
 
     session_coverage is era-scoped and anchored at the name's proven start (design D4, todo 532):
@@ -451,6 +496,16 @@ def judge_name_1d(
     )
     verdicts.append(verdict("alpaca_basis_run", not alpaca_runs, len(alpaca_runs), 0.0))
     timed("alpaca_basis_run", started)
+
+    started = time.perf_counter()
+    discontinuous = split_discontinuities(
+        inputs.stored,
+        inputs.splits,
+        thresholds.split_continuity_rel_tol,
+        quarantined={stamp.date() for stamp, _rule, quarantine in inputs.flags if quarantine},
+    )
+    verdicts.append(verdict("split_continuity", not discontinuous, len(discontinuous), 0.0))
+    timed("split_continuity", started)
 
     age_hours = (
         0.0
