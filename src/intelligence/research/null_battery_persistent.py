@@ -246,6 +246,23 @@ class PersistentScenario:
     vol_clustering: bool = False
     late_fraction: float = 0.4
     late_name: bool = True
+    # A two-member book (todo 588 part B): the second member's route. It shares the first's book
+    # tf, horizon and combiner; the member arm scores each member and the book arm their mean.
+    partner: BatteryCertificate | None = None
+
+    def __post_init__(self) -> None:
+        if self.partner is not None:
+            wrong = [
+                f
+                for f in ("book_tf", "horizon", "combiner", "max_age_rows")
+                if getattr(self.partner, f) != getattr(self.certificate, f)
+            ]
+            if wrong:
+                raise ValueError(f"a book's members share {wrong}")
+
+    @property
+    def members(self) -> tuple[BatteryCertificate, ...]:
+        return (self.certificate,) + (() if self.partner is None else (self.partner,))
 
     @property
     def source_bars_per_session(self) -> int:
@@ -257,22 +274,26 @@ class PersistentScenario:
 
 
 def cell_memory_sessions(sc: PersistentScenario) -> int:
-    """The cell's E17 L: book_memory over the one member-memory function, with the certificate's
-    tested source memory as the member's."""
-    cert, bk = sc.certificate, sc.book_bars_per_session
-    kw = dict(
-        source_memory_bars=cert.source_memory_bars_max,
-        source_bars_per_session=sc.source_bars_per_session,
-        max_age_rows=cert.max_age_rows,
-        smoothing_half_life=cert.smoothing_half_life,
-        slot_history_sessions=0,  # centred adds no history over its aligned input
-        book_bars_per_session=bk,
-    )
+    """The cell's E17 L: book_memory over the one member-memory function, with each certificate's
+    tested source memory as its member's."""
+    bk = sc.book_bars_per_session
+    sessions, rows = [], []
+    for cert in sc.members:
+        kw = dict(
+            source_memory_bars=cert.source_memory_bars_max,
+            source_bars_per_session=_SOURCE_BARS[cert.source_tf],
+            max_age_rows=cert.max_age_rows,
+            smoothing_half_life=cert.smoothing_half_life,
+            slot_history_sessions=0,  # centred adds no history over its aligned input
+            book_bars_per_session=bk,
+        )
+        sessions.append(feature_member_memory_sessions(**kw))
+        rows.append(feature_member_memory_rows(**kw))
     return book_memory(
-        [feature_member_memory_sessions(**kw)],
-        [feature_member_memory_rows(**kw)],
-        cert.horizon,
-        EqualWeight((1.0,)),
+        sessions,
+        rows,
+        sc.certificate.horizon,
+        EqualWeight((1.0,) * len(sc.members)),
         HorizonRule(),
         bk,
     ).sessions
@@ -307,30 +328,104 @@ def scenarios() -> tuple[PersistentScenario, ...]:
     cells.append(
         PersistentScenario("hostile_tau200", daily, 200, static_cell_sd=0.3, vol_clustering=True)
     )
+    return tuple(cells) + _part_b_cells()
+
+
+def _part_b_cells() -> tuple[PersistentScenario, ...]:
+    """The todo 588 part B cells, appended after the 184-05 cells (the drivers seed by position,
+    so the original cells keep their seeds). Every one gates.
+
+    Static stress: each passing route at tau 200 with static means at 1x and 2x the measured
+    size. Time-of-day stress: the same at the daily book's one slot, where a time-of-day effect
+    is the mean return common to every name (static_sizes.measure on a daily panel reads exactly
+    that), at 1x and 2x the measured slot effect; a kernel cell has no source-tf effect to
+    stress separately and a 1d source has no intraday slot, so the stored 1d route and the kernel
+    carry static cells only. Books: the two-member 1h plus 15m book at tau 20 and 200. The
+    smoothing-5 re-earn test at tau 200."""
+    cells: list[PersistentScenario] = []
+    members = {tf: _feature_cert(tf, "1d", None) for tf in ("1h", "15m")}
+    high = next(k.name for k in KERNELS if family_of(k.name) == "rk_high_dist")
+    routes = [(f"f{tf}", cert, 200.0) for tf, cert in members.items()]
+    routes.append((f"{high}_1d", _kernel_cert(high, "1d"), None))
+    for label, cert, tau in routes:
+        suffix = "" if tau is None else "_tau200"
+        for k in (1, 2):
+            cells.append(
+                PersistentScenario(
+                    f"{label}_static{k}x{suffix}",
+                    cert,
+                    tau,
+                    static_cell_sd=k * MEASURED_STATIC_CELL_SD,
+                )
+            )
+    for label, cert, tau in routes[:2]:
+        for k in (1, 2):
+            cells.append(
+                PersistentScenario(
+                    f"{label}_slot{k}x_tau200",
+                    cert,
+                    tau,
+                    slot_effect_sd=k * MEASURED_SLOT_EFFECT_SD,
+                )
+            )
+    cells += [
+        PersistentScenario(f"book_f1h_f15m_tau{t}", members["1h"], t, partner=members["15m"])
+        for t in (20, 200)
+    ]
+    cells.append(PersistentScenario("f1d_s5_tau200", _feature_cert("1d", "1d", 5), 200))
     return tuple(cells)
 
 
 DIAGNOSTIC_CELLS = frozenset({"hostile_tau200"})
 
 
+# Stress cells (static or time-of-day) that held size at 0.05 and 0.01 in every arm, from the
+# committed reports (184-05-BATTERY.md, its Part B extension). A stress cell not listed here
+# lifts no gate, whether it failed or has not run: the gate fails closed (todo 588).
+PASSED_STRESS_CELLS: frozenset[str] = frozenset()
+
+
+def _stressed(cell: PersistentScenario) -> bool:
+    return cell.static_cell_sd > 0 or cell.slot_effect_sd > 0
+
+
 def static_gate(
     certificates: Sequence[BatteryCertificate] | None = None,
 ) -> static_sizes.StaticGate:
-    """The sizes the given certificates (default: every passing one) were shown to hold at: the
-    max over the gating cells that carry one of them. A failing cell never lifts a gate, and a
-    certificate with no static-stress cell gates at 0, so any measured size refuses (todo 588
-    B1): the honest state until part B adds the stress cells."""
+    """The sizes the given certificates (default: every passing one) were shown to hold at. Per
+    certificate: the max over its own gating cells that passed (an unstressed cell holds 0, a
+    stress cell counts only from PASSED_STRESS_CELLS), so a failed or unrun stress cell never
+    lifts a gate and a certificate with no passed stress cell gates at 0 (todo 588 B1). A book
+    of several routes holds only the size every one of them held: the minimum over the
+    certificates."""
     pool = PASSING_CERTIFICATES if certificates is None else tuple(certificates)
-    cells = tuple(c for c in scenarios() if c.certificate in pool)
-    if not any(c.name not in DIAGNOSTIC_CELLS for c in cells):
+    if not pool:
         return static_sizes.StaticGate(__name__, 1, (0.0,), (0.0,))
-    return static_sizes.gate_from_cells(
+    cells = scenarios()
+    gates = []
+    for cert in dict.fromkeys(pool):
+        own = tuple(
+            c
+            for c in cells
+            if cert in c.members
+            and c.name not in DIAGNOSTIC_CELLS
+            and (not _stressed(c) or c.name in PASSED_STRESS_CELLS)
+        )
+        gates.append(
+            static_sizes.gate_from_cells(
+                __name__,
+                1,
+                own or (PersistentScenario("none", cert, 1.0),),
+                DIAGNOSTIC_CELLS,
+                static=lambda c: (c.static_cell_sd,),
+                time_of_day=lambda c: (c.slot_effect_sd,),
+            )
+        )
+    return static_sizes.StaticGate(
         __name__,
         1,
-        cells,
-        DIAGNOSTIC_CELLS,
-        static=lambda c: (c.static_cell_sd,),
-        time_of_day=lambda c: (c.slot_effect_sd,),
+        (min(g.static_sd[0] for g in gates),),
+        (min(g.time_of_day[0] for g in gates),),
     )
 
 
@@ -373,6 +468,7 @@ def _daily_scenario(sc: PersistentScenario) -> DailyScenario:
         sessions=sc.sessions,
         names=sc.names,
         t4_noise=sc.t4_noise,
+        market_mean=sc.slot_effect_sd,  # a daily book's one slot (_part_b_cells)
         static_sd=sc.static_cell_sd,
         factor_sd=sc.factor_sd,
         vol_clustering=sc.vol_clustering,
@@ -456,10 +552,9 @@ def _source_path(
 
 
 def _kernel_values(
-    sc: PersistentScenario, resid: np.ndarray, rng: np.random.Generator
+    sc: PersistentScenario, cert: BatteryCertificate, resid: np.ndarray, rng: np.random.Generator
 ) -> np.ndarray:
-    cert = sc.certificate
-    bars = sc.source_bars_per_session
+    bars = _SOURCE_BARS[cert.source_tf]
     opens, high, low, close = _source_path(resid, bars, rng)
     stamps, _ = _grid(sc.sessions, cert.source_tf)
     n = len(stamps)
@@ -487,17 +582,21 @@ def _kernel_values(
     return result.values[output]
 
 
-def member_alpha(sc: PersistentScenario, seed: int, resid: np.ndarray) -> np.ndarray:
-    """The member's alpha [n, m] on the book clock: the persistent source, aligned to the book
-    clock, smoothed when the certificate says so, then the centred rank."""
-    cert, rng = sc.certificate, np.random.default_rng((seed, 17))
-    bars, bk = sc.source_bars_per_session, sc.book_bars_per_session
+def member_alpha(
+    sc: PersistentScenario, seed: int, resid: np.ndarray, index: int = 0
+) -> np.ndarray:
+    """Member `index`'s alpha [n, m] on the book clock: the persistent source, aligned to the book
+    clock, smoothed when the certificate says so, then the centred rank. Each member draws its
+    own stream (the first keeps the stream of every earlier cell)."""
+    cert = sc.members[index]
+    rng = np.random.default_rng((seed, 17 + 100 * index))
+    bars, bk = _SOURCE_BARS[cert.source_tf], sc.book_bars_per_session
     if cert.identity == "feature":
         x = _ar1(rng, sc.sessions * bars, sc.names, sc.tau_sessions * bars)
         listed = np.repeat(_session_listed(resid, bk), bars, axis=0)
         x[~listed] = np.nan
     else:
-        x = _kernel_values(sc, resid, rng)
+        x = _kernel_values(sc, cert, resid, rng)
     if cert.source_tf != cert.book_tf:
         x = align(
             x,
@@ -514,42 +613,47 @@ def member_alpha(sc: PersistentScenario, seed: int, resid: np.ndarray) -> np.nda
 
 
 def simulate_detail(sc: PersistentScenario, seed: int) -> dict[str, tuple[float, float, int]]:
-    """One H0 panel: {arm: (t, p, tested sessions)} for the member and the equal-weight book."""
+    """One H0 panel: {arm: (t, p, tested sessions)} for the member and the equal-weight book. A
+    two-member book also scores its second member as `member_b`."""
     bk, memory = sc.book_bars_per_session, cell_memory_sessions(sc)
     resid, target = null_returns(sc, seed)
-    alpha = member_alpha(sc, seed, resid)
+    alphas = [member_alpha(sc, seed, resid, i) for i in range(len(sc.members))]
     window = _VOL_WINDOW_SESSIONS * bk
     vol = trailing_vol(resid, window_rows=window, min_finite=window // 2)
     trade = np.zeros(len(resid), dtype=bool)
     trade[_WARMUP_SESSIONS * bk :] = True
-    weights, has = rank_vol_neutral_weights(
-        alpha, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
-    )
-    member = timing_test(
-        weights,
-        target,
-        has,
-        trade,
-        bars_per_session=bk,
-        warmup_sessions=_WARMUP_SESSIONS,
-        memory_sessions=memory,
-        overlap_sessions=sc.certificate.horizon - 1 if bk == 1 else None,
-    )
+
+    def member(alpha: np.ndarray):
+        weights, has = rank_vol_neutral_weights(
+            alpha, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
+        )
+        return timing_test(
+            weights,
+            target,
+            has,
+            trade,
+            bars_per_session=bk,
+            warmup_sessions=_WARMUP_SESSIONS,
+            memory_sessions=memory,
+            overlap_sessions=sc.certificate.horizon - 1 if bk == 1 else None,
+        ).hac
+
     book = book_timing(
-        alpha[:, :, None],
+        np.stack(alphas, axis=2),
         target,
         vol,
         trade,
-        combiner=EqualWeight((1.0,)),
+        combiner=EqualWeight((1.0,) * len(alphas)),
         rule=RankVolNeutral(1.0, _COVERAGE_FLOOR),
         bars_per_session=bk,
         warmup_sessions=_WARMUP_SESSIONS,
         memory_sessions=memory,
-    ).timing
-    return {
-        "member": (member.hac.t, member.hac.p, member.hac.n),
-        "book_equal": (book.hac.t, book.hac.p, book.hac.n),
-    }
+    ).timing.hac
+    arms = {"member": member(alphas[0])}
+    if len(alphas) > 1:
+        arms["member_b"] = member(alphas[1])
+    arms["book_equal"] = book
+    return {arm: (h.t, h.p, h.n) for arm, h in arms.items()}
 
 
 def simulate(sc: PersistentScenario, seed: int) -> dict[str, tuple[float, float]]:

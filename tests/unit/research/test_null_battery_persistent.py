@@ -16,10 +16,14 @@ from src.intelligence.research.member_memory import (
     feature_member_memory_rows,
     feature_member_memory_sessions,
 )
+from src.intelligence.research.null_battery import MEASURED_SLOT_EFFECT_SD, MEASURED_STATIC_CELL_SD
 
 
 def _gating():
     return [c for c in b.scenarios() if c.name not in b.DIAGNOSTIC_CELLS]
+
+
+_ORIGINAL_CELLS = 26  # the 184-05 cells; part B cells follow (their seeds depend on position)
 
 
 def _cell(name):
@@ -116,15 +120,14 @@ def test_the_gate_and_clock_are_wired():
     assert gate.cell_rows == 1
 
 
-def test_default_gate_is_zero_while_no_passing_certificate_has_a_stress_cell():
-    """Todo 588 B1: the only cells with static means failed, so every passing certificate gates
-    at 0 until part B adds passing static-stress cells."""
-    gate = b.static_gate()
-    assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
+def test_gate_fails_closed_until_a_stress_cell_is_recorded_as_passed(monkeypatch):
+    """Todo 588 B1: a stress cell lifts a gate only from PASSED_STRESS_CELLS; with none
+    recorded every certificate gates at 0 even though the cells exist."""
+    monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset())
+    assert max(c.static_cell_sd for c in _gating()) > 0
     for c in b.PASSING_CERTIFICATES:
         gate = b.static_gate([c])
         assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,), c
-    assert max(c.static_cell_sd for c in _gating()) > 0  # the failed cells did carry sizes
 
 
 def test_gate_comes_from_the_given_certificates_cells_only(monkeypatch):
@@ -138,11 +141,17 @@ def test_gate_comes_from_the_given_certificates_cells_only(monkeypatch):
     )
     other = dataclasses.replace(base, name="other", static_cell_sd=0.1, slot_effect_sd=0.01)
     monkeypatch.setattr(b, "scenarios", lambda: (other, stressed))
+    monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset({"other", "stress"}))
     assert b.static_gate([other.certificate]).static_sd == (0.1,)
     assert b.static_gate([stressed.certificate]).static_sd == (0.3,)
     assert b.static_gate([stressed.certificate]).time_of_day == (0.02,)
+    # a book of both routes holds only the size every route held
     both = b.static_gate([other.certificate, stressed.certificate])
-    assert both.static_sd == (0.3,)
+    assert both.static_sd == (0.1,) and both.time_of_day == (0.01,)
+    # a stress cell that failed or has not run lifts nothing
+    monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset({"other"}))
+    assert b.static_gate([stressed.certificate]).static_sd == (0.0,)
+    assert b.static_gate([other.certificate]).static_sd == (0.1,)
     # a certificate no cell carries gates at 0
     nothing = dataclasses.replace(base.certificate, window=7)
     assert b.static_gate([nothing]).static_sd == (0.0,)
@@ -286,6 +295,73 @@ def test_persistence_matches_tau():
     assert 0.85 < lag1 < 0.99
 
 
+# --- part B cells (todo 588) ------------------------------------------------------------
+
+
+def _part_b():
+    return {c.name: c for c in b.scenarios()[_ORIGINAL_CELLS:]}
+
+
+def test_part_b_cells_are_appended_gating_and_unique():
+    cells = _part_b()
+    assert len(cells) == 13 and not set(cells) & b.DIAGNOSTIC_CELLS
+    assert b.scenarios()[_ORIGINAL_CELLS - 1].name == "hostile_tau200"  # seeds keep their position
+
+
+def test_part_b_stress_cells_use_one_and_two_times_the_measured_sizes():
+    cells = _part_b()
+    for route in ("f1h", "f15m"):
+        for k in (1, 2):
+            assert cells[f"{route}_static{k}x_tau200"].static_cell_sd == pytest.approx(
+                k * MEASURED_STATIC_CELL_SD
+            )
+            assert cells[f"{route}_slot{k}x_tau200"].slot_effect_sd == pytest.approx(
+                k * MEASURED_SLOT_EFFECT_SD
+            )
+            assert cells[f"{route}_static{k}x_tau200"].tau_sessions == 200
+    kernel = {n: c for n, c in cells.items() if n.startswith("rk_high_dist")}
+    assert sorted(kernel) == [
+        "rk_high_dist_w126_1d_static1x",
+        "rk_high_dist_w126_1d_static2x",
+    ]  # a kernel has no tau; a 1d source has no intraday slot
+    assert all(c.slot_effect_sd == 0 for n, c in cells.items() if "static" in n)
+    assert all(c.static_cell_sd == 0 for n, c in cells.items() if "slot" in n)
+
+
+def test_part_b_smoothing_five_is_tested_at_tau_200():
+    c = _part_b()["f1d_s5_tau200"]
+    assert (c.certificate.smoothing_half_life, c.certificate.source_tf, c.tau_sessions) == (
+        5,
+        "1d",
+        200,
+    )
+
+
+def test_a_daily_book_slot_effect_is_a_common_mean_return():
+    sc = dataclasses.replace(_part_b()["f1h_slot2x_tau200"], sessions=300, names=20)
+    plain = dataclasses.replace(sc, slot_effect_sd=0.0)
+    mean = np.nanmean(b.null_returns(sc, 3)[0]) - np.nanmean(b.null_returns(plain, 3)[0])
+    assert mean == pytest.approx(sc.slot_effect_sd, abs=1e-9)
+
+
+def test_two_member_book_scores_each_member_and_the_book():
+    sc = dataclasses.replace(_part_b()["book_f1h_f15m_tau20"], sessions=1500, names=30)
+    out = b.simulate(sc, 5)
+    assert set(out) == {"member", "member_b", "book_equal"}
+    assert all(np.isfinite(v).all() for v in out.values())
+    assert out == b.simulate(sc, 5)
+    one = dataclasses.replace(sc, partner=None)
+    assert set(b.simulate(one, 5)) == {"member", "book_equal"}
+    # L is book_memory over both members' memory (the larger binds)
+    assert b.cell_memory_sessions(sc) >= b.cell_memory_sessions(one)
+
+
+def test_a_book_partner_must_share_the_book_clock():
+    sc = _part_b()["book_f1h_f15m_tau20"]
+    with pytest.raises(ValueError, match="share"):
+        dataclasses.replace(sc, partner=dataclasses.replace(sc.partner, book_tf="1h"))
+
+
 # --- the passing set follows the committed report ---------------------------------------
 
 
@@ -322,8 +398,8 @@ def _report_rows():
 
 def test_report_has_one_row_per_scenario_with_its_certificate():
     rows = _report_rows()
-    assert set(rows) == {c.name for c in b.scenarios()}
-    for sc in b.scenarios():
+    assert set(rows) == {c.name for c in b.scenarios()[:_ORIGINAL_CELLS]}
+    for sc in b.scenarios()[:_ORIGINAL_CELLS]:
         assert rows[sc.name][1] == sc.certificate
         assert (rows[sc.name][0] == "diag") == (sc.name in b.DIAGNOSTIC_CELLS)
 
