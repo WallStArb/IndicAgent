@@ -477,6 +477,19 @@ the kernel NaN, so they do not block it), and the cold prefixes in `_ret_skew_z_
 `_ret_acf1_z_series_full` and the `vol_trend_ratio` cold start (todo 474; they sit inside declared
 memory, so the rebuild masks them).
 
+### Final state (2026-11-04, work paused by the owner)
+
+Landed on origin/main: items 1 to 12 and 6a, 6b, 6c, 6d, 8b, 3 and G4-a (each with its own note
+below). Not run: the official pilot (D3 G1-G5), which waits on 587's atomic landing. Open until
+then: the prefix-sum audit list in the G4-a note (volume.py and price.py kernels that still
+difference whole-series prefix sums; SPY showed no drift in them at 1h or 5m, the official
+pilot's G4 decides whether they are ported before the pin); the 15m units and the G1-G3 screen on
+the pilot names were not run (the dry pilot ran 1d and SPY 1h/5m only); `build_cross_asset_series`
+still iterates the union of dates (deliberate, partial coverage). Live APR/DB state matches the
+code: migrations 559, 561, 562, 566 applied; `feature.hmm.n_components` is 3 and its
+`config_history` rows 176 and 265 are reconstructed (see the item 3 note). The pilot tool takes
+`--drift` for the ulp measurement; run it one unit at a time with at least 6 GB available.
+
 ### Item 6 landed (2026-11-03)
 
 D5 retire executed as the 2026-11-02 edit list specified: 11 columns (`in_london_kz`, `amd_phase`,
