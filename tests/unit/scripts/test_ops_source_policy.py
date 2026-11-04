@@ -202,6 +202,90 @@ def test_close_targets_only_the_open_row_and_refuses_when_none_is_open(monkeypat
     assert _run_cli(monkeypatch, conn, [*_CLOSE, "--apply"]) == 2
 
 
+_RETIRE = [
+    "--retire",
+    "--symbol",
+    "QRVO",
+    "--valid-from",
+    "2016-01-04",
+    "--reason",
+    "todo 566 3c",
+    "--evidence",
+    '{"ibkr_head": null}',
+]
+
+
+class _RetireConn(_CliConn):
+    """--retire: the live-row lookup answers `row`; the retire UPDATE reports `retired` rows."""
+
+    def __init__(self, row: dict | None, retired: int = 1) -> None:
+        super().__init__(closed=retired)
+        self.row = row
+        self.lookups: list[tuple] = []
+        self.writes: list[tuple] = []
+
+    async def fetchrow(self, sql, *args):
+        assert "FROM bar_source_policy_current" in sql  # a retired row is never found again
+        self.lookups.append(args)
+        return self.row
+
+    async def execute(self, sql, *args):
+        self.writes.append(args)
+        return await super().execute(sql, *args)
+
+
+_LIVE_ROW = {"policy_id": "ac4a8b7b", "primary_source": "ibkr", "fallback_source": None}
+
+
+def test_retire_dry_run_finds_the_row_and_writes_nothing(monkeypatch):
+    conn = _RetireConn(_LIVE_ROW)
+    assert _run_cli(monkeypatch, conn, _RETIRE) == 0
+    assert conn.lookups == [("QRVO", date(2016, 1, 4))] and conn.statements == []
+
+
+def test_retire_apply_retires_the_row_with_reason_and_evidence_in_one_statement(monkeypatch):
+    conn = _RetireConn(_LIVE_ROW)
+    assert _run_cli(monkeypatch, conn, [*_RETIRE, "--apply"]) == 0
+    assert conn.statements == [policy._RETIRE_SYMBOL_ROW_SQL]
+    assert conn.writes == [
+        ("QRVO", date(2016, 1, 4), 'todo 566 3c | evidence: {"ibkr_head": null}')
+    ]
+    sql = policy._RETIRE_SYMBOL_ROW_SQL
+    assert "retired_at IS NULL" in sql and "timeframe = '1d'" in sql
+
+
+@pytest.mark.parametrize("row, retired", [(None, 1), (_LIVE_ROW, 0)])
+def test_retire_refuses_a_missing_or_concurrently_retired_row(monkeypatch, row, retired):
+    conn = _RetireConn(row, retired=retired)
+    assert _run_cli(monkeypatch, conn, [*_RETIRE, "--apply"]) == 2
+
+
+@pytest.mark.parametrize(
+    "extra, message",
+    [
+        (["--timeframe", "5m"], "1d only"),
+        (["--timeframe", "1h"], "1d only"),
+        (["--valid-to", "2026-10-03"], "takes no"),
+        (["--reselect"], "takes no"),
+        (["--evidence", "{}"], "non-empty JSON"),
+        (["--evidence", "{ibkr_head: null}"], "not JSON"),
+        (["--symbols", "MKC"], "takes no"),
+    ],
+)
+def test_retire_refuses_before_connecting(extra, message):
+    with pytest.raises(SystemExit, match=message):
+        policy.main([*_RETIRE, *extra])
+
+
+def test_retire_refuses_a_bad_date_and_an_incomplete_command():
+    bad = [*_RETIRE]
+    bad[bad.index("2016-01-04")] = "2016-1-4"
+    with pytest.raises(SystemExit, match="--valid-from"):
+        policy.main(bad)
+    with pytest.raises(SystemExit, match="--retire needs"):
+        policy.main(["--retire", "--symbol", "QRVO"])
+
+
 _ALPACA_SPAN = [
     "--add",
     "--timeframe",

@@ -11,8 +11,15 @@ as it overlaps none (the table's EXCLUDE constraint is the backstop). `--primary
 `--fallback` are checked at run time against the CVR `bar_vendor` codes (an unknown vendor is
 refused with the valid list); no vendor list lives in this file. The 5m Alpaca spans of the
 selection gate (plan 191-07, D-191-C) are written through `insert_row` only.
---close: close a name's open symbol row of --timeframe at --valid-to (the only UPDATE the table's
-trigger allows); --reason required and printed, since the closed row's own fields are immutable.
+--close: close a name's open symbol row of --timeframe at --valid-to (with retirement, the only
+UPDATEs the table's trigger allows); --reason required and printed, since the closed row's own
+fields are immutable.
+--retire: take one live 1d symbol row (--symbol, --valid-from) out of force in one statement,
+recorded with --reason and --evidence (retired_at, retired_reason); the default then serves its
+span once the daily stage re-derives the name. It reaches a dated span --close cannot (todo 566:
+an arbitration row whose primary holds no bars). 1d only: the daily stage is the one derivation
+that reads symbol rows (the 15m/1h grid derives from 5m), and a direct timeframe would change
+canonical piecemeal.
 
 Backdated rows of a direct timeframe (1m, 5m, 4h; review finding 6 of plan 191-07). Selection
 re-selects only the window a load touches, so a span added (or closed) with a date before today
@@ -249,6 +256,14 @@ WHERE policy_id = $1::uuid AND symbol IS NOT NULL AND retired_at IS NULL
 _RETIRE_DEFAULTS_SQL = """
 UPDATE bar_source_policy SET retired_at = now(), retired_reason = $2
 WHERE timeframe = $1 AND symbol IS NULL AND retired_at IS NULL
+"""
+_LIVE_SYMBOL_ROW_SQL = """
+SELECT policy_id::text, primary_source, fallback_source, valid_to, reason
+FROM bar_source_policy_current WHERE timeframe = '1d' AND symbol = $1 AND valid_from = $2
+"""
+_RETIRE_SYMBOL_ROW_SQL = """
+UPDATE bar_source_policy SET retired_at = now(), retired_reason = $3
+WHERE timeframe = '1d' AND symbol = $1 AND valid_from = $2 AND retired_at IS NULL
 """
 _CLOSE_DEFAULT_SQL = """
 UPDATE bar_source_policy SET valid_to = $2
@@ -773,6 +788,14 @@ async def _main(args: argparse.Namespace) -> int:
                 return 2
             print(f"inserted {args.symbol}")
             return 0
+        if args.retire:
+            return await retire_symbol_row(
+                conn,
+                args.symbol,
+                _parse_date(args.valid_from),
+                f"{args.reason} | evidence: {json.dumps(json.loads(args.evidence), sort_keys=True)}",
+                apply=args.apply,
+            )
         if args.close:
             print(f"close {args.symbol} {args.timeframe} at {args.valid_to}: {args.reason}")
             valid_to = _parse_date(args.valid_to)
@@ -832,9 +855,32 @@ async def _main(args: argparse.Namespace) -> int:
                 symbols=symbols,
                 start=_parse_date(args.valid_from),
             )
-        raise SystemExit("choose --add, --close, --plan or --reselect-only")
+        raise SystemExit("choose --add, --close, --retire, --plan or --reselect-only")
     finally:
         await conn.close()
+
+
+async def retire_symbol_row(
+    conn: Any, symbol: str, valid_from: date, reason: str, *, apply: bool
+) -> int:
+    """--retire: one live 1d symbol row out of force by its (symbol, valid_from). The UPDATE is
+    the check: a row another writer retired first matches nothing and refuses (exit 2)."""
+    row = await conn.fetchrow(_LIVE_SYMBOL_ROW_SQL, symbol, valid_from)
+    if row is None:
+        print(f"refused: no live 1d row for {symbol} from {valid_from}")
+        return 2
+    print(f"retire {symbol} 1d {dict(row)}: {reason}")
+    if not apply:
+        print("dry run: nothing retired (use --apply)")
+        return 0
+    if _count(await conn.execute(_RETIRE_SYMBOL_ROW_SQL, symbol, valid_from, reason)) != 1:
+        print(f"refused: the {symbol} row from {valid_from} was retired meanwhile")
+        return 2
+    print(
+        "retired; the nightly daily stage (--changed-only) picks it up, or apply it now with: "
+        f".venv/bin/python services/bar_derivation.py --stage daily --symbols {symbol} --apply"
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -842,6 +888,7 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--add", action="store_true")
     mode.add_argument("--close", action="store_true")
+    mode.add_argument("--retire", action="store_true", help="retire one live symbol row")
     mode.add_argument("--plan", help="JSON ranking decision applied in one transaction (520)")
     mode.add_argument("--reselect-only", action="store_true")
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
@@ -866,7 +913,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _validate(args: argparse.Namespace) -> None:
-    """Refuse an incomplete --add or --close before any connection opens."""
+    """Refuse an incomplete --add, --close or --retire before any connection opens."""
     if args.add:
         if not (args.symbol and args.valid_from and args.primary and args.reason):
             raise SystemExit("--add needs --symbol, --valid-from, --primary and --reason")
@@ -875,6 +922,25 @@ def _validate(args: argparse.Namespace) -> None:
             raise SystemExit("--add needs --evidence, a non-empty JSON object")
     if args.close and not (args.symbol and args.valid_to and args.reason):
         raise SystemExit("--close needs --symbol, --valid-to and --reason")
+    if args.retire:
+        if not (args.symbol and args.valid_from and args.reason):
+            raise SystemExit("--retire needs --symbol, --valid-from, --reason and --evidence")
+        try:
+            evidence = json.loads(args.evidence or "null")
+        except json.JSONDecodeError as error:
+            raise SystemExit(f"--retire --evidence is not JSON: {error}") from error
+        if not isinstance(evidence, dict) or not evidence:
+            raise SystemExit("--retire needs --evidence, a non-empty JSON object")
+        if args.timeframe != "1d":
+            raise SystemExit(f"--retire is 1d only, not {args.timeframe} (module docstring)")
+        if args.valid_to or args.reselect or args.primary or args.fallback or args.symbols:
+            raise SystemExit(
+                "--retire takes no --valid-to, --reselect, --primary, --fallback or --symbols"
+            )
+        try:
+            _parse_date(args.valid_from)
+        except ValueError as error:
+            raise SystemExit(f"--retire --valid-from: {error}") from error
     if args.reselect_only and not (args.symbols and args.valid_from):
         raise SystemExit("--reselect-only needs --symbols, --valid-from and --timeframe")
 
