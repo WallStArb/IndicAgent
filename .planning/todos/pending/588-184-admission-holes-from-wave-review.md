@@ -82,3 +82,15 @@ any other count or combination of input members stays refused, and a book of the
 withheld. The stress cells cannot move the statistic (dollar-neutral weights and the lagged cell
 mean remove static means and a common mean), so the ceilings record sizes tested, not a sharper
 claim. Part C remains.
+
+## Lead note on Part B (2026-11-04)
+
+The static-mean and time-of-day stress cells cannot fail by construction: dollar-neutral
+weights and the lagged cell mean remove an injected static or common mean, and at a fixed seed
+t was identical across stress sizes. So the earned ceilings (static 0.038, time of day 0.0192)
+record the sizes tested, not a demonstrated robustness. Admission stays conservative and nothing
+is admitted on a false claim. Open methodology question for the next E17 work (todo 586/547): if
+the statistic is immune to static means in this form, the static gate certifies nothing and is a
+deletion candidate; if real panels carry a static component the battery's injection does not
+model (a per-name mean correlated with a persistent signal), the battery needs that cell instead.
+Decide with a measured real-data example, not by argument.
