@@ -1,41 +1,58 @@
 """ops_split_calendar_audit.py (todo 587): calendar splits judged against canonical, pure parts.
 
-No database, no Yahoo: canonical and calendar rows are literals.
+No database, no Yahoo: canonical, raw and calendar rows are literals.
 """
 
 from __future__ import annotations
 
 import csv
+import json
 import math
 from datetime import date, timedelta
+
+import pytest
 
 from scripts.ops.bars import ops_split_calendar_audit as audit
 from src.intelligence.bars.corporate_actions import SplitRatioRule
 
 _RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
 _TOL = 0.3
+_WITNESS = audit.Witness(sessions=3, volume_rel_tol=0.5)
+_PARAMS = audit.AuditParams(_RULE, _TOL, _WITNESS)
 _DAYS = [
-    date(2005, 2, 22) + timedelta(days=i)
-    for i in range(10)
-    if (date(2005, 2, 22) + timedelta(days=i)).weekday() < 5
+    date(2005, 2, 14) + timedelta(days=i)
+    for i in range(24)
+    if (date(2005, 2, 14) + timedelta(days=i)).weekday() < 5
 ]
+_ON = date(2005, 2, 28)  # AAPL's 2:1
+_IBKR = ("ibkr", "smart_trades")
+_ALPACA = ("alpaca", "sip_rth")
 
 
-def _series(split_on: date, factor: float, *, adjusted: bool):
-    """Canonical (date, close, vendor, kind) at 100, stepping by 1/factor on split_on unless
-    adjusted; the calendar's split-adjusted closes never step."""
-    canonical = [
-        (d, 100.0 / factor if (d >= split_on or adjusted) else 100.0, "ibkr", "named")
-        for d in _DAYS
+def _step(day, on, factor, adjusted):
+    return 1.0 if (adjusted or day < on) else 1.0 / factor
+
+
+def _series(on, factor, *, adjusted=False, volume_steps=True, days=_DAYS, pair=("ibkr", "named")):
+    """Canonical (date, close, vendor, kind) at 100 stepping by 1/factor on `on` unless adjusted,
+    the raw series canonical is served from (volume 1000 stepping by factor unless the share
+    count stays flat), and the calendar's split-adjusted closes, which never step."""
+    canonical = [(d, 100.0 * _step(d, on, factor, adjusted), *pair) for d in days]
+    raw = [
+        (d, close, 1000 * (factor if (volume_steps and d >= on) else 1))
+        for d, close, _, _ in canonical
     ]
-    calendar = [(d, 50.0, factor if d == split_on else 0.0) for d in _DAYS]
-    return canonical, calendar
+    calendar = [(d, 100.0 / factor, factor if d == on else 0.0) for d in days]
+    return canonical, calendar, raw
+
+
+def _judge(symbol, canonical, calendar, raw):
+    return audit.judge_events(symbol, canonical, calendar, raw, _RULE, _TOL, _WITNESS)
 
 
 def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
-    on = date(2005, 2, 28)  # AAPL's 2:1
-    canonical, calendar = _series(on, 2.0, adjusted=False)
-    [event] = audit.judge_events("AAPL", canonical, calendar, _RULE, _TOL)
+    canonical, calendar, raw = _series(_ON, 2.0)
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: raw})
     # effective_date is the last day on the old scale (migration 400): the Friday before.
     assert (event.verdict, event.ratio, event.effective_date) == (
         "confirmed",
@@ -43,92 +60,162 @@ def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
         date(2005, 2, 25),
     )
     assert event.canonical_step == round(-math.log(2.0), 6)
-    assert (event.unadjusted_vendor, event.unadjusted_kind) == ("ibkr", "named")
+    assert (event.canonical_vendor, event.canonical_kind) == ("ibkr", "named")
+    assert json.loads(event.route_steps) == {"ibkr/smart_trades": round(-math.log(2.0), 6)}
+    assert event.unadjusted_routes == "ibkr/smart_trades"
+    assert event.volume_step == round(math.log(2.0), 6)
 
 
 def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
-    on = date(2005, 2, 28)
-    canonical, calendar = _series(on, 2.0, adjusted=True)
-    assert audit.judge_events("AAPL", canonical, calendar, _RULE, _TOL)[0].verdict == "adjusted"
-    canonical, calendar = _series(on, 1.046, adjusted=False)  # IBM 2021 Kyndryl as Yahoo writes it
-    assert audit.judge_events("IBM", canonical, calendar, _RULE, _TOL)[0].verdict == (
-        "not_a_split_ratio"
+    canonical, calendar, raw = _series(_ON, 2.0, adjusted=True)
+    assert _judge("AAPL", canonical, calendar, {_IBKR: raw})[0].verdict == "adjusted"
+    canonical, calendar, raw = _series(_ON, 1.046)  # IBM 2021 Kyndryl as Yahoo writes it
+    assert _judge("IBM", canonical, calendar, {_IBKR: raw})[0].verdict == "not_a_split_ratio"
+
+
+def test_a_spin_off_written_as_a_clean_ratio_fails_the_share_count_witness():
+    """SNX-shaped: the price halves on the date but the share count does not move."""
+    canonical, calendar, raw = _series(_ON, 2.0, volume_steps=False)
+    [event] = _judge("SNX", canonical, calendar, {_IBKR: raw})
+    assert (event.verdict, event.volume_step) == ("volume_mismatch", 0.0)
+
+
+def test_a_share_count_too_short_to_measure_is_no_row():
+    canonical, calendar, raw = _series(_ON, 2.0)
+    short = [row for row in raw if row[0] >= date(2005, 2, 24)]
+    assert _judge("AAPL", canonical, calendar, {_IBKR: short})[0].verdict == "volume_unmeasured"
+
+
+def test_every_series_before_the_date_is_measured_on_its_own():
+    """The SNX seam (review 2026-11-04): an IBKR span before an Alpaca one is measured against the
+    calendar, never assumed from the series canonical serves at the date."""
+    canonical, calendar, alpaca = _series(_ON, 2.0, pair=("alpaca", "sip_rth"))
+    ibkr_unadjusted = [row for row in alpaca if row[0] < date(2005, 2, 21)]
+    [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_unadjusted})
+    # IBKR has no session after the date: its scale cannot be measured, so no row.
+    assert event.verdict == "route_conflict"
+    ibkr = [(d, c, v) for d, c, v in alpaca]
+    [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr})
+    assert (event.verdict, event.unadjusted_routes) == (
+        "confirmed",
+        "alpaca/sip_rth;ibkr/smart_trades",
     )
+    ibkr_adjusted = [(d, c / 2 if d < _ON else c, v) for d, c, v in alpaca]
+    [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_adjusted})
+    assert (event.verdict, event.unadjusted_routes) == ("confirmed", "alpaca/sip_rth")
+    ibkr_odd = [(d, c * 1.3 if d < _ON else c, v) for d, c, v in alpaca]
+    [event] = _judge("SNX", canonical, calendar, {_ALPACA: alpaca, _IBKR: ibkr_odd})
+    assert event.verdict == "route_conflict"
+
+
+def test_a_series_that_started_after_the_date_is_not_measured():
+    canonical, calendar, raw = _series(_ON, 2.0)
+    later = [row for row in raw if row[0] >= _ON]
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: raw, _ALPACA: later})
+    assert set(json.loads(event.route_steps)) == {"ibkr/smart_trades"}
+
+
+def test_a_route_step_never_crosses_another_calendar_event():
+    canonical, calendar, raw = _series(_ON, 2.0)
+    # A spin-off two weeks before: the series' ratio to the calendar before it is not measured.
+    calendar = [(d, c * (1.2 if d < date(2005, 2, 21) else 1.0), f) for d, c, f in calendar]
+    calendar = [(d, c, 1.2 if d == date(2005, 2, 21) else f) for d, c, f in calendar]
+    raw = [(d, c, v) for d, c, v in raw]
+    events = _judge("AAPL", canonical, calendar, {_IBKR: raw})
+    split = next(e for e in events if e.calendar_date == _ON)
+    assert json.loads(split.route_steps) == {"ibkr/smart_trades": round(-math.log(2.0), 6)}
+
+
+def test_a_series_bar_after_effective_date_and_before_the_date_is_unmeasurable():
+    """The rule rescales on or before effective_date: a series bar canonical lacks between it and
+    the calendar date would keep the old scale, so the event is no row."""
+    canonical, calendar, raw = _series(_ON, 2.0)
+    canonical = [row for row in canonical if row[0] != date(2005, 2, 25)]
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: raw})
+    assert event.effective_date == date(2005, 2, 24) and event.verdict == "route_conflict"
 
 
 def test_a_split_with_no_canonical_session_nearby_is_unmeasured():
-    canonical, calendar = _series(date(2005, 2, 28), 2.0, adjusted=False)
+    canonical, calendar, raw = _series(_ON, 2.0)
     calendar.append((date(2010, 6, 1), 50.0, 3.0))
-    events = audit.judge_events("AAPL", canonical, calendar, _RULE, _TOL)
+    events = _judge("AAPL", canonical, calendar, {_IBKR: raw})
     assert [e.verdict for e in events] == ["confirmed", "unmeasured"]
 
 
-def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
-    path = tmp_path / "audit.csv"
-    fields = [*audit.CalendarEvent.__dataclass_fields__, "error"]
-    lines = [
-        [
-            "AAPL",
-            "2005-02-28",
-            "2.0",
-            "2005-02-28",
-            "-0.69",
-            "0.01",
-            "ibkr",
-            "named",
-            "confirmed",
-            "2.0",
-        ],
-        [
-            "UNIT",
-            "2025-08-04",
-            "0.1",
-            "2025-08-04",
-            "2.30",
-            "0.0",
-            "ibkr",
-            "named",
-            "confirmed",
-            "0.1",
-        ],
-        [
-            "IBM",
-            "2021-11-04",
-            "1.046",
-            "2021-11-04",
-            "-0.04",
-            "0.0",
-            "alpaca",
-            "sip_rth",
-            "not_a_split_ratio",
-            "",
-        ],
-        [
-            "XPO",
-            "2021-08-02",
-            "1.718",
-            "2021-08-02",
-            "-0.50",
-            "0.0",
-            "alpaca",
-            "sip_rth",
-            "conflict",
-            "1.75",
-        ],
-    ]
+_LINE = {
+    "symbol": "AAPL",
+    "calendar_date": "2005-02-28",
+    "calendar_factor": "2.0",
+    "effective_date": "2005-02-25",
+    "canonical_step": "-0.69",
+    "calendar_adjusted_step": "0.01",
+    "canonical_vendor": "ibkr",
+    "canonical_kind": "named",
+    "route_steps": '{"ibkr/smart_trades": -0.693147}',
+    "unadjusted_routes": "ibkr/smart_trades",
+    "volume_step": "0.65",
+    "verdict": "confirmed",
+    "ratio": "2.0",
+    "error": "",
+}
+
+
+def _write(path, lines):
     with path.open("w", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(fields)
+        writer = csv.DictWriter(fh, fieldnames=[*audit.CalendarEvent.__dataclass_fields__, "error"])
+        writer.writeheader()
         for line in lines:
-            writer.writerow([*line, ""])
-    rows = audit.confirmed_rows(path, _RULE, _TOL)
+            writer.writerow({**_LINE, **line})
+    return path
+
+
+def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
+    path = _write(
+        tmp_path / "audit.csv",
+        [
+            {},
+            {
+                "symbol": "UNIT",
+                "calendar_factor": "0.1",
+                "canonical_step": "2.30",
+                "calendar_adjusted_step": "0.0",
+                "route_steps": '{"ibkr/smart_trades": 2.302585}',
+                "volume_step": "-2.2",
+                "ratio": "0.1",
+            },
+            {"symbol": "IBM", "calendar_factor": "1.046", "verdict": "not_a_split_ratio"},
+            {"symbol": "XPO", "verdict": "conflict"},
+            {"symbol": "SNX", "verdict": "volume_mismatch"},
+        ],
+    )
+    rows = audit.confirmed_rows(path, _PARAMS)
     assert [(r["symbol"], r["action_type"], r["factor"]) for r in rows] == [
         ("AAPL", "split", 2.0),
         ("UNIT", "reverse_split", 0.1),
     ]
-    assert rows[0]["detail"]["unadjusted_span"] == {"vendor": "ibkr", "kind": "named"}
-    assert rows[0]["detail"]["audit_file"] == "audit.csv"
-    assert len(rows[0]["detail"]["audit_sha256"]) == 64 and rows[0]["detail"]["rel_tol"] == _TOL
+    detail = rows[0]["detail"]
+    assert detail["unadjusted_routes"] == [{"vendor": "ibkr", "kind": "smart_trades"}]
+    assert "unadjusted_span" not in detail
+    assert detail["audit_file"] == "audit.csv" and len(detail["audit_sha256"]) == 64
+    assert detail["rel_tol"] == _TOL and detail["witness"] == {"sessions": 3, "volume_rel_tol": 0.5}
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"volume_step": "0.05"},  # the share count did not move
+        {"route_steps": '{"ibkr/smart_trades": -0.3}'},  # a series off both scales
+        {"route_steps": '{"ibkr/smart_trades": null}'},  # an unmeasured series
+        {"unadjusted_routes": ""},  # a hand-edited list
+        {
+            "route_steps": '{"alpaca/sip_rth": -0.69, "ibkr/smart_trades": 0.0}'
+        },  # own series adjusted
+    ],
+)
+def test_a_line_the_current_apr_would_not_confirm_raises(tmp_path, edit):
+    path = _write(tmp_path / "audit.csv", [edit])
+    with pytest.raises(ValueError):
+        audit.confirmed_rows(path, _PARAMS)
 
 
 def test_an_existing_row_of_any_state_near_the_date_blocks_a_second_one():
@@ -151,6 +238,8 @@ class _Cursor:
                 ("infra.backfill.split_ratio_max_denominator", "4"),
                 ("infra.backfill.split_ratio_rel_tol", "0.002"),
                 ("threshold.split_continuity.rel_tol", "0.3"),
+                ("threshold.split_calendar.witness_sessions", "3"),
+                ("threshold.split_calendar.volume_rel_tol", "0.5"),
             ]
         self._row = None
 
@@ -188,26 +277,7 @@ class _Conn:
 
 
 def _audit_file(tmp_path):
-    path = tmp_path / "audit.csv"
-    with path.open("w", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow([*audit.CalendarEvent.__dataclass_fields__, "error"])
-        writer.writerow(
-            [
-                "AAPL",
-                "2005-02-28",
-                "2.0",
-                "2005-02-25",
-                "-0.69",
-                "0.01",
-                "ibkr",
-                "named",
-                "confirmed",
-                "2.0",
-                "",
-            ]
-        )
-    return path
+    return _write(tmp_path / "audit.csv", [{}])
 
 
 def test_no_calendar_audit_row_is_committed_without_commit(tmp_path, monkeypatch):

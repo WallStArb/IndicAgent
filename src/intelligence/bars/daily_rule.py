@@ -1,7 +1,8 @@
-"""The unified canonical 1d rule d2-v4 (phase 185 plans 36 and 52; data layer integrity design
+"""The unified canonical 1d rule d2-v5 (phase 185 plans 36 and 52; data layer integrity design
 sections 2 and 4 and its Amendment 2026-10-07,
 docs/plans/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
-docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3).
+docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3; d2-v5 is todo 587's
+calendar split rescale, Scale below).
 
 One pure function replaces both D2's derive_daily (d2-v1) and the Tradier loader's inline rule
 (tradier-v1): D1 observations of both vendors, the bar_source_policy rows and the current
@@ -83,6 +84,13 @@ d2-v5 fixed the d2-v4 off-by-one) and was fetched before that split's recorded_a
 the split's evidence (the refetch that revealed it). LEGACY_IMPORT observations are always stale
 for a split-affected date: they re-import the stored corpus. The splits are the rows of
 corporate_action_current, so a voided or superseded split never reaches the rule.
+
+Calendar rescale (d2-v5, todo 587): a calendar_audit split stales no one. Its row names the raw
+series measured on the old scale before it (detail.unadjusted_routes, RESCALABLE_SERIES), and
+an observation of those series dated on or before its effective_date has its prices divided by
+the product of every such split's factor (multiplied in effective-date order, one division) and
+its volume multiplied by it, rounded floor(x + 0.5). Each series is measured on its own
+observations, never assumed from another's: a route the row does not name keeps its scale.
 
 Basis: the ratio of IBKR's current-scale close to Tradier's close on the current scale. Where
 Tradier has only stale observations, its latest stale close divided by the factors of the splits
@@ -389,14 +397,23 @@ def _basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None
 CALENDAR_AUDIT = "calendar_audit"
 
 
+# The raw 1d series a calendar_audit split can record unadjusted (its detail.unadjusted_routes,
+# one {vendor, kind} per series measured on the old scale against the calendar), and the
+# observation routes each carries (todo 587). They are the series canonical serves under the
+# current policy (IBKR primary and fallback, Alpaca primary); Tradier is policy data of the closed
+# pre-D row and serves nothing, so the audit never measures it and no row can name it.
+RESCALABLE_SERIES: dict[tuple[str, str], frozenset[str]] = {
+    (VENDOR_IBKR, "smart_trades"): frozenset({ROUTE_SMART, ROUTE_LEGACY}),
+    (VENDOR_ALPACA, "sip_rth"): frozenset({ROUTE_ALPACA}),
+}
+
+
 def rescale_routes(vendor: str, kind: str) -> frozenset[str]:
-    """The observation routes behind a canonical (vendor, kind) span (todo 587): the routes a
-    calendar_audit split, measured unadjusted over that canonical span, rescales."""
-    if (vendor, kind) in (PRIMARY_PAIR[VENDOR_IBKR], FALLBACK_PAIR):
-        return frozenset({ROUTE_SMART, ROUTE_LEGACY})
-    if (vendor, kind) == PRIMARY_PAIR[VENDOR_ALPACA]:
-        return frozenset({ROUTE_ALPACA})
-    raise ValueError(f"canonical ({vendor!r}, {kind!r}) has no rescalable route")
+    """The observation routes of one raw series a calendar_audit split measured unadjusted."""
+    try:
+        return RESCALABLE_SERIES[(vendor, kind)]
+    except KeyError:
+        raise ValueError(f"raw ({vendor!r}, {kind!r}) is no rescalable 1d series") from None
 
 
 def _rescale_factors(obs: Observation, splits: Sequence[SplitRecord]) -> list[float]:
@@ -683,7 +700,7 @@ def derive_daily_v2(
     basis_window_sessions: int,
     basis_tolerance_bp: float,
 ) -> DailyV2Result:
-    """The canonical 1d bars of one symbol under d2-v4 (module docstring)."""
+    """The canonical 1d bars of one symbol under d2-v5 (module docstring)."""
     if basis_window_sessions < 1:
         raise ValueError("basis_window_sessions must be at least 1")
     screened = _screen(observations, splits)

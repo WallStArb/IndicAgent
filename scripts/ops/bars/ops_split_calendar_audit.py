@@ -5,20 +5,32 @@ it), but IBKR smart_trades 1d before 2016 misses about half of its splits (measu
 This tool finds them from the calendar, never from jumps (a 3:2 or 5:4 split sits under any jump
 threshold), and records each confirmed one as a corporate_action row, inferred_by calendar_audit
 (migration 567, its own single-writer segment). Raw is never touched; applying the factor is the
-daily rule's job, and the rows land in the same landing as that rule (todo 587, Order): under
-today's rule a split row makes every pre-split observation stale.
+daily rule's job (d2-v5), and the rows land in the same landing as that rule (todo 587, Order).
 
 Two steps, with the evidence a reviewed, committed file between them:
 
 --audit --out CSV [--symbols ...]: read-only. Per name, Yahoo's daily split-adjusted closes and
-    split events (src/providers/yahoo.py) and canonical 1d (the tradeable view). Each event is
-    judged by corporate_actions.judge_calendar_split: a recognised split ratio (APR
-    infra.backfill.split_ratio_*, which refuses the spin-offs Yahoo writes as fractional splits),
-    canonical stepping by -log ratio across the date, Yahoo's adjusted close not stepping (APR
-    threshold.split_continuity.rel_tol). Every event is written with its verdict and evidence.
---apply CSV [--commit]: re-judge each confirmed line's ratio under the current APR and insert it
-    unless the name already has any corporate_action row (current, superseded or void) within a
-    week of the date; one transaction under bar_derivation_writer. Dry run unless --commit.
+    split events (src/providers/yahoo.py), canonical 1d (the tradeable view) and the raw 1d series
+    canonical is served from (daily_rule.RESCALABLE_SERIES). A split is confirmed by three
+    independent witnesses, each judged in corporate_actions:
+    1. the calendar: a recognised split ratio (APR infra.backfill.split_ratio_*, which refuses the
+       spin-offs Yahoo writes as fractional splits) on its date;
+    2. the price step: canonical steps by -log ratio across the date beyond Yahoo's adjusted step
+       (judge_calendar_split, APR threshold.split_continuity.rel_tol);
+    3. the share count: on canonical's raw series at the date, the median daily volume over the
+       witness_sessions sessions after the date over the median before steps by +log ratio
+       (share_count_step, APR threshold.split_calendar.*). A spin-off or stock dividend a
+       calendar writes as a clean ratio leaves the count flat and fails.
+    Then every raw series with an observation before the date is measured on its own: its close
+    over Yahoo's adjusted close, medians over the witness_sessions sessions on each side inside
+    the neighbouring calendar events, steps by -log ratio (unadjusted, the row names it in
+    unadjusted_routes and the rule rescales it), 0 (adjusted) or anything else (conflict). A
+    split with a conflicting or unmeasurable series gets no row (route_conflict): the scale is
+    measured per series, never assumed across a vendor seam. Every event is written with its
+    verdict and evidence.
+--apply CSV [--commit]: re-judge each confirmed line under the current APR and insert it unless
+    the name already has any corporate_action row (current, superseded or void) within a week of
+    the date; one transaction under bar_derivation_writer. Dry run unless --commit.
 
 effective_date is the last day on the old scale (migration 400's definition).
 """
@@ -31,10 +43,11 @@ import csv
 import hashlib
 import json
 import math
+import statistics
 import sys
 import time
 from bisect import bisect_left
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -51,10 +64,22 @@ from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
     SplitRatioRule,
     judge_calendar_split,
+    scale_step,
+    share_count_step,
+)
+from src.intelligence.bars.daily_rule import (  # noqa: E402
+    FALLBACK_PAIR,
+    PRIMARY_PAIR,
+    RAW_DAILY_SESSION_ZONE,
+    RESCALABLE_SERIES,
+    VENDOR_ALPACA,
+    VENDOR_IBKR,
 )
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
+WITNESS_SESSIONS_KEY = "threshold.split_calendar.witness_sessions"
+VOLUME_REL_TOL_KEY = "threshold.split_calendar.volume_rel_tol"
 _WRITER_ROLE = "bar_derivation_writer"
 # "Across the date" means sessions this close to the calendar date; a split with no session
 # nearby (a hole, a listing that starts after it) is unmeasured. Definitional, not tunables.
@@ -68,9 +93,28 @@ _FETCH_ATTEMPTS = 3
 _FETCH_RETRY_S = 5.0
 
 _CANONICAL_SQL = """
-SELECT timestamp::date, close, vendor, kind FROM market_data_ohlcv_tradeable
+SELECT ("timestamp" AT TIME ZONE 'UTC')::date, close, vendor, kind FROM market_data_ohlcv_tradeable
 WHERE symbol = %s AND timeframe = '1d' AND close > 0 ORDER BY timestamp
 """
+# The rescalable raw series as the daily read reads them (bar_derivation._SELECT_DAILY_RAW_SQL):
+# session-dated in each series' zone, test callers' requests left out.
+_RAW_SQL = """
+SELECT r.vendor, r.kind, (r."timestamp" AT TIME ZONE s.zone)::date AS bar_date, r.close, r.volume
+FROM ohlcv_raw r
+JOIN unnest(%s::text[], %s::text[], %s::text[]) AS s(vendor, kind, zone)
+  ON s.vendor = r.vendor AND s.kind = r.kind
+LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = %s AND r.timeframe = '1d' AND r.close > 0
+  AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%%')
+ORDER BY bar_date
+"""
+_RESCALABLE = sorted(RESCALABLE_SERIES)
+# The raw series each canonical (vendor, kind) is served from (canonical_bar_lineage's mapping).
+_RAW_SERIES_OF = {
+    PRIMARY_PAIR[VENDOR_IBKR]: (VENDOR_IBKR, "smart_trades"),
+    FALLBACK_PAIR: (VENDOR_IBKR, "smart_trades"),
+    PRIMARY_PAIR[VENDOR_ALPACA]: (VENDOR_ALPACA, "sip_rth"),
+}
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
@@ -85,19 +129,45 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 
 
 @dataclass(frozen=True)
+class Witness:
+    """The share-count and per-series witnesses' APR (threshold.split_calendar.*, migration 571)."""
+
+    sessions: int
+    volume_rel_tol: float
+
+
+# One raw series of a name: (session date, close, volume) in date order.
+RawSeries = Sequence[tuple[date, float, int | None]]
+
+
+def series_key(series: tuple[str, str]) -> str:
+    return f"{series[0]}/{series[1]}"
+
+
+@dataclass(frozen=True)
 class CalendarEvent:
     """One calendar split event judged against canonical (one line of the audit CSV)."""
 
     symbol: str
     calendar_date: date
     calendar_factor: float
-    effective_date: date | None  # canonical's last session on the old scale
-    canonical_step: float | None
-    calendar_adjusted_step: float | None
-    unadjusted_vendor: str | None  # the canonical bar before the step: the span measured
-    unadjusted_kind: str | None
-    verdict: str  # judge_calendar_split's verdict, or "unmeasured"
-    ratio: float | None
+    # judge_calendar_split's verdict, "unmeasured", or for a confirmed price step whose other
+    # witnesses fail: route_conflict, volume_unmeasured, volume_mismatch
+    verdict: str
+    ratio: float | None = None
+    effective_date: date | None = None  # canonical's last session on the old scale
+    canonical_step: float | None = None
+    calendar_adjusted_step: float | None = None
+    canonical_vendor: str | None = None  # the canonical bar before the step
+    canonical_kind: str | None = None
+    # Confirmed and adjusted events only. JSON {"vendor/kind": log step of the series' close over
+    # Yahoo's across the date, or null when the series has observations before the date but
+    # cannot be measured}
+    route_steps: str | None = None
+    # ";"-joined vendor/kind of the series measured unadjusted (what a row's detail records; on
+    # an adjusted event, a series still unadjusted for a split canonical is adjusted for)
+    unadjusted_routes: str | None = None
+    volume_step: float | None = None  # log(median volume after / before), canonical's series
 
 
 def _bracket(days: Sequence[date], on: date) -> tuple[int, int] | None:
@@ -110,61 +180,198 @@ def _bracket(days: Sequence[date], on: date) -> tuple[int, int] | None:
     return after - 1, after
 
 
+# Steps are recorded to six decimals and judged as recorded, so --apply re-judges the same numbers.
+def _route_step(
+    series: RawSeries,
+    calendar_close: Mapping[date, float],
+    day: date,
+    effective: date,
+    span: tuple[date, date],
+    n: int,
+) -> float | None:
+    """log(close / calendar close) after the date minus before it, medians over the series' n
+    sessions nearest the date on each side inside span (between the neighbouring calendar events,
+    so no other event's factor enters). None when a side is empty, or when the series has a bar
+    after effective_date and before the date (the rule rescales on or before effective_date only,
+    so that bar would keep the old scale)."""
+    lo, hi = span
+    if any(effective < d < day for d, _, _ in series):
+        return None
+    before = [
+        (d, c / calendar_close[d]) for d, c, _ in series if lo <= d < day and d in calendar_close
+    ]
+    after = [c / calendar_close[d] for d, c, _ in series if day <= d < hi and d in calendar_close]
+    if not before or not after:
+        return None
+    step = math.log(statistics.median(after[:n]) / statistics.median(r for _, r in before[-n:]))
+    return round(step, 6)
+
+
+def _volume_step(series: RawSeries, day: date, span: tuple[date, date], n: int) -> float | None:
+    """log(median volume after / median before) over n traded sessions on each side inside span;
+    None when a side has fewer."""
+    lo, hi = span
+    before = [v for d, _, v in series if lo <= d < day and v][-n:]
+    after = [v for d, _, v in series if day <= d < hi and v][:n]
+    if len(before) < n or len(after) < n:
+        return None
+    return round(math.log(statistics.median(after) / statistics.median(before)), 6)
+
+
+def _unadjusted(
+    route_steps: Mapping[str, float | None], ratio: float, rel_tol: float
+) -> list[str] | None:
+    """The series measured unadjusted, or None when any series is unmeasured or conflicts."""
+    readings = {
+        key: None if step is None else scale_step(step, ratio, rel_tol)
+        for key, step in route_steps.items()
+    }
+    if any(r is None or r == "conflict" for r in readings.values()):
+        return None
+    return sorted(key for key, r in readings.items() if r == "unadjusted")
+
+
+def _witnessed(
+    canonical_series: str,
+    route_steps: Mapping[str, float | None],
+    volume_step: float | None,
+    ratio: float,
+    rel_tol: float,
+    witness: Witness,
+) -> tuple[str, list[str] | None]:
+    """A price-confirmed split's final verdict from its other witnesses, and its unadjusted
+    series. Pure; confirmed_rows re-runs it on the recorded steps."""
+    unadjusted = _unadjusted(route_steps, ratio, rel_tol)
+    if unadjusted is None or canonical_series not in unadjusted:
+        return "route_conflict", unadjusted
+    if volume_step is None:
+        return "volume_unmeasured", unadjusted
+    if not share_count_step(volume_step, ratio, witness.volume_rel_tol):
+        return "volume_mismatch", unadjusted
+    return "confirmed", unadjusted
+
+
 def judge_events(
     symbol: str,
     canonical: Sequence[tuple[date, float, str, str]],
     calendar: Sequence[tuple[date, float, float]],
+    raw: Mapping[tuple[str, str], RawSeries],
     rule: SplitRatioRule,
     rel_tol: float,
+    witness: Witness,
 ) -> list[CalendarEvent]:
     """Every calendar split event of one name, judged. Pure."""
     c_days = [row[0] for row in canonical]
     # yfinance can emit an action row with no price: steps use priced rows only.
     priced = [row for row in calendar if math.isfinite(row[1]) and row[1] > 0]
     y_days = [row[0] for row in priced]
+    y_close = {row[0]: row[1] for row in priced}
+    event_days = sorted(day for day, _c, f in calendar if math.isfinite(f) and f not in (0.0, 1.0))
     events: list[CalendarEvent] = []
     for day, _close, factor in calendar:
         if not math.isfinite(factor) or factor in (0.0, 1.0):
             continue
         c, y = _bracket(c_days, day), _bracket(y_days, day)
         if c is None or y is None:
-            events.append(
-                CalendarEvent(symbol, day, factor, None, None, None, None, None, "unmeasured", None)
-            )
+            events.append(CalendarEvent(symbol, day, factor, "unmeasured"))
             continue
         c_step = math.log(canonical[c[1]][1] / canonical[c[0]][1])
         y_step = math.log(priced[y[1]][1] / priced[y[0]][1])
         verdict, ratio = judge_calendar_split(factor, c_step, y_step, rule, rel_tol)
-        _, _, vendor, kind = canonical[c[0]]
+        effective, _, vendor, kind = canonical[c[0]]
+        route_steps: dict[str, float | None] | None = None
+        unadjusted: list[str] | None = None
+        volume_step = None
+        if verdict in ("confirmed", "adjusted"):
+            i = bisect_left(event_days, day)
+            span = (
+                event_days[i - 1] if i else date.min,
+                event_days[i + 1] if i + 1 < len(event_days) else date.max,
+            )
+            route_steps = {
+                series_key(series): _route_step(
+                    rows, y_close, day, effective, span, witness.sessions
+                )
+                for series, rows in sorted(raw.items())
+                if rows and rows[0][0] < day
+            }
+            assert ratio is not None
+            if verdict == "confirmed":
+                own = _RAW_SERIES_OF.get((vendor, kind))
+                volume_step = _volume_step(raw.get(own, ()), day, span, witness.sessions)
+                verdict, unadjusted = _witnessed(
+                    series_key(own) if own else "",
+                    route_steps,
+                    volume_step,
+                    ratio,
+                    rel_tol,
+                    witness,
+                )
+            else:
+                unadjusted = _unadjusted(route_steps, ratio, rel_tol)
         events.append(
             CalendarEvent(
                 symbol,
                 day,
                 factor,
-                c_days[c[0]],
+                verdict,
+                ratio,
+                effective,
                 round(c_step, 6),
                 round(y_step, 6),
                 vendor,
                 kind,
-                verdict,
-                ratio,
+                None if route_steps is None else json.dumps(route_steps, sort_keys=True),
+                None if unadjusted is None else ";".join(unadjusted),
+                volume_step,
             )
         )
     return events
 
 
-def _apr(conn: Any) -> tuple[SplitRatioRule, float]:
+@dataclass(frozen=True)
+class AuditParams:
+    """The audit's APR (raises KeyError on a missing key: migrations 461, 567 and 571 seed them)."""
+
+    rule: SplitRatioRule
+    rel_tol: float
+    witness: Witness
+
+    @classmethod
+    def from_apr(cls, values: Mapping[str, Any]) -> AuditParams:
+        return cls(
+            split_rule_from_apr(values),
+            float(values[REL_TOL_KEY]),
+            Witness(int(values[WITNESS_SESSIONS_KEY]), float(values[VOLUME_REL_TOL_KEY])),
+        )
+
+
+def _apr(conn: Any) -> AuditParams:
     with conn.cursor() as cur:
-        cur.execute(_APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY],))
-        values = dict(cur.fetchall())
-    return split_rule_from_apr(values), float(values[REL_TOL_KEY])
+        cur.execute(
+            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, WITNESS_SESSIONS_KEY, VOLUME_REL_TOL_KEY],)
+        )
+        return AuditParams.from_apr(dict(cur.fetchall()))
+
+
+def _raw_series(
+    conn: Any, symbol: str
+) -> dict[tuple[str, str], list[tuple[date, float, int | None]]]:
+    vendors, kinds = zip(*_RESCALABLE, strict=True)
+    zones = [RAW_DAILY_SESSION_ZONE[series] for series in _RESCALABLE]
+    raw: dict[tuple[str, str], list[tuple[date, float, int | None]]] = {}
+    for vendor, kind, day, close, volume in conn.execute(
+        _RAW_SQL, (list(vendors), list(kinds), zones, symbol)
+    ):
+        raw.setdefault((vendor, kind), []).append((day, float(close), volume))
+    return raw
 
 
 def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[str, int]:
     """Read-only: every calendar event of every name into `out`; returns counts per verdict."""
     counts: dict[str, int] = {}
     with psycopg.connect(settings.database_url) as conn, out.open("w", newline="") as fh:
-        rule, rel_tol = _apr(conn)
+        params = _apr(conn)
         names = list(symbols) if symbols else [r[0] for r in conn.execute(_ACTIVE_SQL)]
         writer = csv.DictWriter(fh, fieldnames=[*CalendarEvent.__dataclass_fields__, "error"])
         writer.writeheader()
@@ -181,35 +388,57 @@ def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[
             canonical = [
                 (d, float(c), v, k) for d, c, v, k in conn.execute(_CANONICAL_SQL, (symbol,))
             ]
-            for event in judge_events(symbol, canonical, calendar, rule, rel_tol):
+            raw = _raw_series(conn, symbol)
+            for event in judge_events(
+                symbol, canonical, calendar, raw, params.rule, params.rel_tol, params.witness
+            ):
                 writer.writerow({**asdict(event), "error": ""})
                 counts[event.verdict] = counts.get(event.verdict, 0) + 1
     return counts
 
 
-def confirmed_rows(path: Path, rule: SplitRatioRule, rel_tol: float) -> list[dict[str, Any]]:
+def _route(key: str) -> dict[str, str]:
+    vendor, kind = key.split("/")
+    return {"vendor": vendor, "kind": kind}
+
+
+def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
     """The audit CSV's confirmed lines as corporate_action rows (factor = old/new-scale price).
 
-    Each line is re-judged from its recorded steps under the current APR (a hand-edited file, or one
-    from another tolerance, cannot write what the current rule would not confirm), so the rule and
-    rel_tol in detail are the ones that confirmed it, beside the file's sha256."""
+    Each line is re-judged from its recorded steps under the current APR, all three witnesses and
+    every series' scale (a hand-edited file, or one from another tolerance, cannot write what the
+    current rule would not confirm), so the parameters in detail are the ones that confirmed it,
+    beside the file's sha256. detail.unadjusted_routes is the list the daily rule rescales."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     rows = []
     with path.open() as fh:
         for line in csv.DictReader(fh):
             if line["verdict"] != "confirmed":
                 continue
+            where = f"{line['symbol']} {line['calendar_date']}"
             verdict, ratio = judge_calendar_split(
                 float(line["calendar_factor"]),
                 float(line["canonical_step"]),
                 float(line["calendar_adjusted_step"]),
-                rule,
-                rel_tol,
+                params.rule,
+                params.rel_tol,
             )
             if verdict != "confirmed" or not math.isclose(ratio or 0.0, float(line["ratio"])):
-                raise ValueError(
-                    f"{line['symbol']} {line['calendar_date']}: {verdict} under the current APR"
-                )
+                raise ValueError(f"{where}: {verdict} under the current APR")
+            assert ratio is not None
+            route_steps = json.loads(line["route_steps"])
+            own = _RAW_SERIES_OF.get((line["canonical_vendor"], line["canonical_kind"]))
+            volume_step = float(line["volume_step"])
+            verdict, unadjusted = _witnessed(
+                series_key(own) if own else "",
+                route_steps,
+                volume_step,
+                ratio,
+                params.rel_tol,
+                params.witness,
+            )
+            if verdict != "confirmed" or ";".join(unadjusted or ()) != line["unadjusted_routes"]:
+                raise ValueError(f"{where}: {verdict} ({unadjusted}) under the current APR")
             rows.append(
                 {
                     "symbol": line["symbol"],
@@ -222,14 +451,18 @@ def confirmed_rows(path: Path, rule: SplitRatioRule, rel_tol: float) -> list[dic
                         "calendar_factor": float(line["calendar_factor"]),
                         "canonical_step": float(line["canonical_step"]),
                         "calendar_adjusted_step": float(line["calendar_adjusted_step"]),
-                        "unadjusted_span": {
-                            "vendor": line["unadjusted_vendor"],
-                            "kind": line["unadjusted_kind"],
+                        "canonical_route": {
+                            "vendor": line["canonical_vendor"],
+                            "kind": line["canonical_kind"],
                         },
+                        "route_steps": route_steps,
+                        "unadjusted_routes": [_route(key) for key in unadjusted or ()],
+                        "volume_step": volume_step,
                         "audit_file": path.name,
                         "audit_sha256": digest,
-                        "rule": asdict(rule),
-                        "rel_tol": rel_tol,
+                        "rule": asdict(params.rule),
+                        "rel_tol": params.rel_tol,
+                        "witness": asdict(params.witness),
                         "todo": 587,
                     },
                 }
@@ -240,8 +473,7 @@ def confirmed_rows(path: Path, rule: SplitRatioRule, rel_tol: float) -> list[dic
 def apply(settings: Settings, path: Path, *, commit: bool) -> int:
     """One transaction: every confirmed row whose event is undecided; rolled back unless commit."""
     with psycopg.connect(settings.database_url) as conn:
-        rule, rel_tol = _apr(conn)
-        rows = confirmed_rows(path, rule, rel_tol)
+        rows = confirmed_rows(path, _apr(conn))
         cur = conn.cursor()
         cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
         written = 0

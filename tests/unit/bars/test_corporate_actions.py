@@ -22,6 +22,8 @@ from src.intelligence.bars.corporate_actions import (
     infer_split,
     judge_calendar_split,
     recognised_split_ratio,
+    scale_step,
+    share_count_step,
     split_continuity,
     unknown_return_mask,
 )
@@ -288,3 +290,33 @@ def test_split_continuity_reads_a_reverse_split_in_its_own_orientation():
 def test_split_continuity_refuses_a_factor_of_one():
     with pytest.raises(ValueError):
         split_continuity(0.0, 1.0, _TOL)
+
+
+@pytest.mark.parametrize(
+    "volume_step, factor, passes",
+    [
+        (math.log(2.0), 2.0, True),  # the count doubled with a 2:1
+        (math.log(2.0) * 1.8, 2.0, True),  # turnover rose beyond the split: no evidence against
+        (math.log(2.0) * 0.6, 2.0, True),
+        (math.log(2.0) * 0.25, 2.0, False),  # SNX 2020-12-01 at 60 sessions: a spin-off
+        (0.0, 2.0, False),  # the count did not move
+        (-math.log(2.0), 2.0, False),
+        (math.log(0.1), 0.1, True),  # 1-for-10: the count falls tenfold
+        (0.0, 0.1, False),
+    ],
+)
+def test_the_share_count_witness_is_one_sided_against_no_split(volume_step, factor, passes):
+    assert share_count_step(volume_step, factor, 0.5) is passes
+
+
+@pytest.mark.parametrize(
+    "step, reading",
+    [
+        (-math.log(2.0), "unadjusted"),
+        (0.01, "adjusted"),
+        (-0.3, "conflict"),
+        (math.log(2.0), "conflict"),
+    ],
+)
+def test_a_series_scale_step_reads_unadjusted_adjusted_or_conflict(step, reading):
+    assert scale_step(step, 2.0, _TOL) == reading

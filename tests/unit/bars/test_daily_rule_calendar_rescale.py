@@ -96,19 +96,80 @@ def test_a_calendar_split_never_rescales_or_stales_another_route():
     assert split_scale(alpaca, [_split()]) == 1.0
 
 
-def test_rescale_routes_follow_the_recorded_canonical_span():
-    assert rescale_routes("ibkr", "named") == _SMART
-    assert rescale_routes("ibkr", "fallback") == _SMART
+def test_rescale_routes_follow_the_recorded_raw_series():
+    assert rescale_routes("ibkr", "smart_trades") == _SMART
     assert rescale_routes("alpaca", "sip_rth") == frozenset({"ALPACA"})
-    with pytest.raises(ValueError):
-        rescale_routes("tradier", "consolidated")
+    for series in (("tradier", "consolidated"), ("ibkr", "named"), ("ibkr", "smart_adjusted")):
+        with pytest.raises(ValueError):
+            rescale_routes(*series)
 
 
-def test_the_loader_reads_the_span_and_refuses_a_calendar_row_without_one():
+def test_the_loader_reads_every_unadjusted_route_and_refuses_a_calendar_row_without_them():
     assert split_rescale_routes("nightly_overlap", None) == frozenset()
-    assert split_rescale_routes("calendar_audit", '{"vendor": "ibkr", "kind": "named"}') == _SMART
-    with pytest.raises(ValueError):
-        split_rescale_routes("calendar_audit", None)
+    one = '[{"vendor": "ibkr", "kind": "smart_trades"}]'
+    assert split_rescale_routes("calendar_audit", one) == _SMART
+    both = [{"vendor": "ibkr", "kind": "smart_trades"}, {"vendor": "alpaca", "kind": "sip_rth"}]
+    assert split_rescale_routes("calendar_audit", both) == _SMART | {"ALPACA"}
+    # d2-v5's first draft recorded one canonical span: such a row (or none) raises, never stales.
+    for bad in (None, [], '{"vendor": "ibkr", "kind": "named"}', [{"vendor": "ibkr"}], ["ibkr"]):
+        with pytest.raises(ValueError):
+            split_rescale_routes("calendar_audit", bad)
+
+
+def test_a_split_rescales_every_measured_route_across_the_vendor_seam():
+    """SNX-shaped (review 2026-11-04): IBKR serves before 2016, Alpaca after, the split is in the
+    Alpaca era and both series measured unadjusted. The rule must rescale the IBKR span too, or
+    the seam carries a fabricated -log f step."""
+    policy = (
+        PolicyRow("1d", None, date(1990, 1, 1), date(2016, 1, 4), "observed", "ibkr", None),
+        PolicyRow("1d", None, date(2016, 1, 4), None, "observed", "alpaca", "ibkr"),
+    )
+    ibkr = [_obs(d, 100.0) for d in _sessions(date(2015, 12, 28), 5)]
+    split_day = date(2016, 1, 6)
+    alpaca = [
+        _obs(d, 100.0 if d <= split_day else 50.0, route="ALPACA")
+        for d in _sessions(date(2016, 1, 4), 5)
+    ]
+    split = _split(_SMART | {"ALPACA"}, day=split_day)
+    result = derive_daily_v2(
+        ibkr + alpaca,
+        list(policy),
+        [split],
+        symbol="TEST",
+        basis_window_sessions=5,
+        basis_tolerance_bp=10.0,
+    )
+    assert {b.close for b in result.bars} == {50.0}
+    assert len(result.bars) == len({o.bar_date for o in ibkr + alpaca})
+
+
+def test_split_scale_is_one_left_fold_in_effective_date_order():
+    """The lineage view's split_factor_product (migration 568) is float8mul folded from 1 in
+    ORDER BY effective_date, then one division: split_scale must be the same IEEE sequence."""
+    factors = [(date(2001, 3, 1), 1.5), (date(2004, 7, 1), 4 / 3), (date(2010, 2, 1), 1.25)]
+    splits = [_split(day=d, factor=f) for d, f in reversed(factors)]
+    obs = _obs(date(2000, 1, 3), 300.0)
+    expected = 1.0
+    for _, f in factors:
+        expected *= f
+    assert split_scale(obs, splits) == expected
+    rescaled = derive_daily_v2(
+        [obs],
+        list(_IBKR_ONLY),
+        splits,
+        symbol="TEST",
+        basis_window_sessions=5,
+        basis_tolerance_bp=10.0,
+    ).bars[0]
+    assert rescaled.close == 300.0 / expected and rescaled.volume == math.floor(
+        1000 * expected + 0.5
+    )
+    sql = open("production/migrations/568_canonical_bar_lineage_calendar_rescale.sql").read()
+    assert "SFUNC = float8mul" in sql and "INITCOND = '1'" in sql
+    assert "split_factor_product(c.factor ORDER BY c.effective_date)" in sql
+    assert "o.close / s.scale IS NOT DISTINCT FROM m.close" in sql
+    assert "floor(o.volume * s.scale + 0.5)::bigint" in sql
+    assert "'unadjusted_routes'" in sql and "'unadjusted_span'" not in sql
 
 
 def test_a_stale_split_stales_the_bar_on_its_effective_date():

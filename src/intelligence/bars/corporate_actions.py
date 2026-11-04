@@ -148,16 +148,48 @@ def judge_calendar_split(
     ratio = recognised_split_ratio(calendar_factor, rule)
     if ratio is None:
         return "not_a_split_ratio", None
-    expected = -math.log(ratio)
-    tol = rel_tol * abs(expected)
     # The calendar's adjusted step is the day's real move; what canonical carries beyond it is
     # the scale break (a real move on the split date must not hide an unadjusted split).
-    excess = canonical_step - calendar_adjusted_step
-    if abs(excess - expected) <= tol:
-        return "confirmed", ratio
-    if abs(excess) <= tol:
-        return "adjusted", ratio
-    return "conflict", ratio
+    scale = scale_step(canonical_step - calendar_adjusted_step, ratio, rel_tol)
+    return ("confirmed" if scale == "unadjusted" else scale), ratio
+
+
+ScaleStep = Literal["unadjusted", "adjusted", "conflict"]
+
+
+def scale_step(step: float, ratio: float, rel_tol: float) -> ScaleStep:
+    """A scale break's reading against split ratio f (old-scale/new-scale price), within
+    rel_tol * |log f|: -log f is a series still unadjusted for the split, 0 one adjusted for it,
+    anything else a conflict. The step is a log price step in excess of the day's real move:
+    canonical's against the calendar's adjusted close (judge_calendar_split), or one raw route's
+    ratio to the calendar's adjusted close across the date (the audit's per-route scale, todo
+    587), where the real move cancels."""
+    expected = -math.log(ratio)
+    tol = rel_tol * abs(expected)
+    if abs(step - expected) <= tol:
+        return "unadjusted"
+    if abs(step) <= tol:
+        return "adjusted"
+    return "conflict"
+
+
+def share_count_step(volume_step: float, ratio: float, rel_tol: float) -> bool:
+    """The third witness of a calendar split (todo 587): the share count steps by the ratio.
+
+    volume_step is log(median daily volume after the date / median before) on one series that
+    serves volume across it, unadjusted for the split. A real f-for-1 split multiplies the share
+    count by f, so turnover carries the step toward log f; a spin-off or a stock dividend a
+    calendar writes as a clean split ratio leaves the count unchanged, a step toward 0. The test is
+    one-sided against that alternative: the step must reach (1 - rel_tol) of log f in log f's own
+    direction. A step beyond log f (turnover rising after a split, common) is no evidence for the
+    no-split alternative and passes. rel_tol 0.5 is the midpoint between the two hypotheses.
+
+    Measured 2026-11-04 over the 380 price-confirmed splits (60 sessions a side): the step in
+    units of log f has median 0.77 and interquartile range 0.52 to 1.14, so about a quarter of real
+    splits fail and go to review; SNX 2020-12-01 (the Concentrix spin-off Yahoo writes as 2:1)
+    reads 0.25 and fails. A noisy witness: it bounds the false-split rate, it cannot prove one."""
+    expected = math.log(ratio)
+    return volume_step / expected >= 1.0 - rel_tol
 
 
 SplitContinuity = Literal["continuous", "unadjusted", "double_adjusted"]

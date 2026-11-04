@@ -1064,3 +1064,62 @@ def test_split_continuity_never_measures_across_a_hole_or_an_untradeable_bar():
     stored = _closes_stored([(e[0], 50.0), (e[1], 50.0), (e[2], 100.0), (e[3], 50.0)])
     # A quarantined old-scale print on 06-14 is not what research reads.
     assert split_discontinuities(stored, [_split(e[1], 2.0)], 0.3, quarantined={e[2]}) == []
+
+
+def _routed(rows):
+    return [
+        StoredBar(datetime(d.year, d.month, d.day, tzinfo=UTC), c, c, c, c, 1000.0, v, k)
+        for d, c, v, k in rows
+    ]
+
+
+def _rescale(day, factor, routes=frozenset({"SMART", "LEGACY_IMPORT", "ALPACA"})):
+    return SplitRecord(day, datetime(2026, 11, 4, tzinfo=UTC), factor, (), routes)
+
+
+# IBKR serves through 2015, Alpaca from 2016-01-04; a 2:1 calendar split on 2016-01-06 rescaled
+# both series. Then IBKR restates its history on the new scale (last-wins raw): the rule divides
+# the restated IBKR span a second time while Alpaca is right.
+_SEAM = [date(2015, 12, 30), date(2015, 12, 31), date(2016, 1, 4), date(2016, 1, 5)]
+_SEAM_AFTER = [date(2016, 1, 6), date(2016, 1, 7)]
+
+
+def test_a_partial_restatement_is_caught_at_the_route_seam_not_only_at_the_split_date():
+    rows = [
+        (_SEAM[0], 25.0, "ibkr", "named"),
+        (_SEAM[1], 25.0, "ibkr", "named"),
+        (_SEAM[2], 50.0, "alpaca", "sip_rth"),
+        (_SEAM[3], 50.0, "alpaca", "sip_rth"),
+        (_SEAM_AFTER[0], 50.0, "alpaca", "sip_rth"),
+        (_SEAM_AFTER[1], 50.5, "alpaca", "sip_rth"),
+    ]
+    split = _rescale(_SEAM[3], 2.0)
+    assert split_discontinuities(_routed(rows), [split], 0.3) == [(_SEAM[1], "double_adjusted")]
+    healthy = [(d, 50.0 if c == 25.0 else c, v, k) for d, c, v, k in rows]
+    assert split_discontinuities(_routed(healthy), [split], 0.3) == []
+
+
+def test_a_seam_step_of_a_partial_product_of_the_splits_fails_by_name():
+    """Two later splits (2:1 then 3:2): a seam broken by 3.0 (both) or by 1.5 (the later one
+    alone) is a scale the splits explain; the seam before the first split judges both runs."""
+    rows = [
+        (_SEAM[0], 75.0, "ibkr", "named"),
+        (_SEAM[1], 75.0, "ibkr", "named"),
+        (_SEAM[2], 50.0, "alpaca", "sip_rth"),
+        (_SEAM[3], 50.0, "alpaca", "sip_rth"),
+    ]
+    splits = [_rescale(date(2016, 3, 1), 2.0), _rescale(date(2017, 3, 1), 1.5)]
+    assert split_discontinuities(_routed(rows), splits, 0.3) == [(_SEAM[1], "unadjusted")]
+    tripled = [(d, 150.0 if c == 75.0 else c, v, k) for d, c, v, k in rows]
+    assert split_discontinuities(_routed(tripled), splits, 0.3) == [(_SEAM[1], "unadjusted")]
+
+
+def test_seams_are_judged_only_for_a_name_with_a_calendar_rescale():
+    rows = [
+        (_SEAM[0], 25.0, "ibkr", "named"),
+        (_SEAM[1], 25.0, "ibkr", "named"),
+        (_SEAM[2], 50.0, "alpaca", "sip_rth"),
+        (_SEAM[3], 50.0, "alpaca", "sip_rth"),
+    ]
+    stale_semantics = SplitRecord(date(2016, 3, 1), datetime(2026, 11, 4, tzinfo=UTC), 2.0)
+    assert split_discontinuities(_routed(rows), [stale_semantics], 0.3) == []

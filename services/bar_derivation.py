@@ -433,23 +433,30 @@ ORDER BY r."timestamp", r.vendor, r.kind
 _SELECT_DAILY_SPLITS_SQL = """
 SELECT effective_date, recorded_at, factor,
        COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids,
-       inferred_by, detail->'unadjusted_span' AS unadjusted_span
+       inferred_by, detail->'unadjusted_routes' AS unadjusted_routes
 FROM corporate_action_current
 WHERE symbol = $1
 ORDER BY effective_date
 """
 
 
-def split_rescale_routes(inferred_by: str, unadjusted_span: Any) -> frozenset[str]:
-    """A calendar_audit split's rescaled routes from its recorded unadjusted (vendor, kind) span
-    (todo 587); empty for every other split. A calendar_audit row without its span raises: it
-    would otherwise fall back to the stale semantics and quarantine the pre-split history."""
+def split_rescale_routes(inferred_by: str, unadjusted_routes: Any) -> frozenset[str]:
+    """A calendar_audit split's rescaled observation routes: the union over its recorded
+    unadjusted raw series (detail.unadjusted_routes, a list of {vendor, kind}; todo 587); empty
+    for every other split. A calendar_audit row without a non-empty list, or naming a series the
+    rule cannot rescale, raises: it would otherwise fall back to the stale semantics and
+    quarantine the pre-split history, or leave a measured span unadjusted."""
     if inferred_by != CALENDAR_AUDIT:
         return frozenset()
-    span = json.loads(unadjusted_span) if isinstance(unadjusted_span, str) else unadjusted_span
-    if not span or not span.get("vendor") or not span.get("kind"):
-        raise ValueError(f"calendar_audit split without its unadjusted span: {unadjusted_span!r}")
-    return rescale_routes(span["vendor"], span["kind"])
+    routes = (
+        json.loads(unadjusted_routes) if isinstance(unadjusted_routes, str) else unadjusted_routes
+    )
+    if not isinstance(routes, list) or not routes:
+        raise ValueError(f"calendar_audit split without its unadjusted routes: {routes!r}")
+    try:
+        return frozenset().union(*(rescale_routes(r["vendor"], r["kind"]) for r in routes))
+    except (KeyError, TypeError):
+        raise ValueError(f"calendar_audit split with malformed routes: {routes!r}") from None
 
 
 # The 1d source decisions (migration 446), read once per run.
@@ -2003,7 +2010,7 @@ async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], 
             recorded_at=r["recorded_at"],
             factor=r["factor"],
             evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_span")),
+            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes")),
         )
         for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
     ]

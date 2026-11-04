@@ -255,38 +255,69 @@ class NameReport1d:
 _SPLIT_BRACKET_MAX_DAYS = 7
 
 
+def _run_products(factors: Sequence[float]) -> list[float]:
+    """The product of every contiguous run of factors (in the given order, multiplied left to
+    right), runs whose product is 1 left out: the scales a partial restatement can leave."""
+    products = []
+    for i in range(len(factors)):
+        product = 1.0
+        for factor in factors[i:]:
+            product *= factor
+            if not math.isclose(product, 1.0):
+                products.append(product)
+    return products
+
+
 def split_discontinuities(
     stored: Sequence[StoredBar],
     splits: Sequence[SplitRecord],
     rel_tol: float,
     quarantined: Collection[date] = (),
 ) -> list[tuple[date, str]]:
-    """(effective date, verdict) of every recorded split canonical does not cross continuously
-    (todo 587): the close step from the last tradeable session on or before the split's effective
-    date (the last day on the old scale, migration 400) to the next one, judged by
-    corporate_actions.split_continuity. Tradeable means what research reads: volume > 0 and not
-    quarantined. A split without tradeable sessions within _SPLIT_BRACKET_MAX_DAYS on both sides
-    is not measurable here and is skipped."""
-    closes = sorted(
-        (bar.timestamp.date(), bar.close)
+    """(date, verdict) of every judged date canonical does not cross continuously (todo 587): the
+    close step from the last tradeable session on or before the date to the next one, judged by
+    corporate_actions.split_continuity against the product of every contiguous run of the name's
+    splits dated on or after it (in effective-date order). Tradeable means what research reads:
+    volume > 0 and not quarantined.
+
+    The judged dates are every split's effective date (the last day on the old scale, migration
+    400) and, when any split is a calendar_audit rescale, every route seam: the last tradeable
+    session before the served (vendor, kind) changes. A rescale is applied per raw series, so a
+    series a vendor restated after the row was written is divided twice while the others are not;
+    the break then shows at the seam between them, not at the split date. A date without
+    tradeable sessions within _SPLIT_BRACKET_MAX_DAYS on both sides is not measurable here and is
+    skipped."""
+    tradeable = sorted(
+        (bar.timestamp.date(), bar.close, (bar.vendor, bar.kind))
         for bar in stored
         if bar.close is not None
         and bar.close > 0
         and (bar.volume or 0) > 0
         and bar.timestamp.date() not in quarantined
     )
-    days = [day for day, _ in closes]
+    days = [day for day, _, _ in tradeable]
+    ordered = sorted(splits, key=lambda s: s.effective_date)
+    judged = {split.effective_date for split in ordered}
+    if any(split.rescale_routes for split in ordered):
+        judged |= {
+            day
+            for (day, _, pair), (_, _, following) in zip(tradeable, tradeable[1:], strict=False)
+            if pair != following
+        }
     found: list[tuple[date, str]] = []
-    for split in sorted(splits, key=lambda s: s.effective_date):
-        after = bisect_right(days, split.effective_date)
+    for day in sorted(judged):
+        after = bisect_right(days, day)
         if after == 0 or after == len(days):
             continue
         if (days[after] - days[after - 1]).days > _SPLIT_BRACKET_MAX_DAYS:
             continue
-        step = math.log(closes[after][1] / closes[after - 1][1])
-        state = split_continuity(step, split.factor, rel_tol)
-        if state != "continuous":
-            found.append((split.effective_date, state))
+        step = math.log(tradeable[after][1] / tradeable[after - 1][1])
+        later = [split.factor for split in ordered if split.effective_date >= day]
+        for product in _run_products(later):
+            state = split_continuity(step, product, rel_tol)
+            if state != "continuous":
+                found.append((day, state))
+                break
     return found
 
 

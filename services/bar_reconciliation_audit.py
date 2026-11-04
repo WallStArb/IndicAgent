@@ -1170,7 +1170,7 @@ def _splits(rows: Iterable[Mapping[str, Any]]) -> list[SplitRecord]:
             recorded_at=r["recorded_at"],
             factor=r["factor"],
             evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_span")),
+            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes")),
         )
         for r in rows
     ]
