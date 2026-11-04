@@ -72,12 +72,12 @@ landed, then one full feature recompute of the corpus, (3) ensemble research on 
 orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are out until
 2026-11-05 23:16Z).
 
-- **Critical path: todo 584 (corpus rerun fix manifest).** The 186-26 output on pin `92e588385`
-  carries known stored-value defects (564, 583, 474), so it is not swapped in. Stage 1/1b (1d) is
-  complete; stage 2 (intraday) was paused 2026-11-01 23:05Z at 650/1,252 names (resume command
-  and env in `data/scratch/186-26/`; resuming is moot once the pin moves). Next: the fix batch
-  lands on main, a pilot chunk at the new pin passes the column screen, then the rerun (1d then
-  intraday), then 186-27 swap, 186-28, 184.
+- **Critical path: todo 584 (corpus rerun fix manifest).** Decision 2026-11-04 (owner): no
+  corpus compute until the data is complete (the 5m coverage target, todo 534; definition in the
+  584 decision). The 186-26 rows on pin `92e588385` were discarded (migration 569, 298 GB freed;
+  provenance `superseded`), so nothing resumes. Next: the fix batch keeps landing on main; the
+  table swap runs on the empty table so there is one name, `feature_vectors` (no `_v2`); when 534
+  meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184.
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
   gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the

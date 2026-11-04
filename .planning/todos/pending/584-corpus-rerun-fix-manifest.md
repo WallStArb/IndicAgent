@@ -7,6 +7,30 @@ source: lead orchestrator (indicagent-4f), owner sequence 2026-11-01: data -> al
 
 # Corpus rerun: the one list of fixes that must land before the feature recompute
 
+## Decision (2026-11-04, owner and lead): complete data first, one table name
+
+1. **No corpus compute until the data is complete.** The rerun (pilot included) starts only when
+   the 5m coverage target is met: every active name whose 1d history starts before 2016 has IBKR
+   5m back to its 1d start, or a recorded empty-history answer for the missing span (the vendor
+   has none), and Alpaca 5m from 2016 is at its vendor ceiling (already true). Measured from
+   `ohlcv_raw` and the fetcher's empty-history records, not inferred. Todo 534 is the lane; the
+   vendor memo (`docs/ideas/vendor-pre2016-intraday-history.md`) is the only lever that shortens
+   it. Fixes keep landing on main meanwhile; the pin moves once, when the gate passes.
+2. **The 186-26 rows are gone.** Migration 569 (596942155) truncated `feature_vectors_v2`
+   (298 GB, uncompressed because `compress_completed_chunks` runs only at a finished run's end)
+   and flipped its 1,647 provenance records to `superseded`. Nothing resumes on pin `92e588385`.
+3. **No versioned table names.** The swap runs before the rerun, on an empty table: the old
+   `feature_vectors` (89 GB, stale, old schema) is dropped behind its 186-01 card, the empty
+   `feature_vectors_v2` becomes `feature_vectors`, and the `_v2` identifiers in code
+   (`FEATURE_VECTORS_V2_COLUMNS`, `feature_vector_v2_row_values`, `feature_vectors_v2_*_columns`,
+   `_V2_TABLE`, `REBUILD_TARGET_TABLE`, the `ic_measure` default, the pipeline route) take the
+   unversioned name. The rerun then writes straight into `feature_vectors`. It lands as the first
+   code item of the next batch so the rebuild modules are edited once. 186-27's new-vs-old drift
+   report is dropped: both sides are discarded, and the pilot gate G1-G5 is the check on the new
+   compute.
+4. **The rerun compresses as it goes.** A stage compresses its completed year chunks when the stage
+   ends, not only when the whole run ends, so a paused run never sits uncompressed again.
+
 ## Decision (2026-11-01 23:10Z)
 
 The 186-26 output on pin `92e588385` carries known stored-value defects (564 `hma_slope_z` is a
