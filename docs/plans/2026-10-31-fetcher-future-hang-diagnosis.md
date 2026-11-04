@@ -5,7 +5,7 @@ dumps and cgroup reads taken by indicagent-9f (fetcher dumps preserved at
 `logs/todo538_fetched_dump_20261031_2135z.txt` and `..._2145z.txt`; the 21:20Z factory dump was
 NOT saved to disk and reaches this doc only as the verbatim stack quoted in the factory
 section below), the factory and fetcher logs (the factory log is
-`/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log`, the pinned tree's own copy;
+`/home/bg/dev/indicagent-186-26/logs/backfill_feature_factory.log`, the pinned tree's own copy (tree and log removed 2026-11-04);
 the main checkout has an unrelated same-named 1d log), and `feature_vectors_v2` counts.
 Read-only: no code landed against either site; both are in live import closures (the fetcher
 is the owner's P0 unit, the factory runs the pinned rebuild). Fixes land in a stop window
