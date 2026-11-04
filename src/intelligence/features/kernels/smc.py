@@ -5,7 +5,8 @@ The helpers are the ones `feature_factory` used to hold, moved unchanged. A stat
 slices the same causal window the batch loop sliced, `[max(0, i - lookback + 1) : i + 1]`, and
 reads the loop's `atr_val` (the ATR padded series at row i). The zones kernel consumes the FVG
 midpoint and pool premium flag as intermediate outputs, so its declared memory chains through
-theirs. Every helper returns a float for every key, never None.
+theirs. Every helper returns a value for every key and never raises; an object that does not exist,
+or an ATR-normalized distance with no valid ATR, is None.
 """
 
 from __future__ import annotations
@@ -148,14 +149,13 @@ def _compute_order_blocks(
     every bar's [low, high] since its formation and its own [bottom, top]
     zone (mitigation_blocks.py's running-max logic, recomputed in-pass).
 
-    Falls back to _OB_FALLBACK (never raises) when atr_val is invalid or the window has too
-    few bars to run the impulse scan; per-side distances are also None when that side has no
-    candidate (D1 rule 2, todo 584 4b-2 group 4: the distance/strength of an object that does
-    not exist is undefined, never a fabricated 0.0).
+    Falls back to _OB_FALLBACK (never raises) when the window has too few bars to run the
+    impulse scan; per-side distances are also None when that side has no candidate (D1 rule 2,
+    todo 584 4b-2 group 4: the distance/strength of an object that does not exist is undefined,
+    never a fabricated 0.0). Only the three distances divide by ATR: with an invalid ATR they
+    are None and the strength, mitigation and breaker flags are computed as usual (todo 584 6d).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return dict(_OB_FALLBACK)
 
     lookback = config.smc_order_blocks_lookback
     o = opens[-lookback:]
@@ -255,10 +255,10 @@ def _compute_order_blocks(
     nearest_overall = min(candidates, key=_dist)
 
     ob_bull_dist_atr: float | None = (
-        float(_dist(nearest_bull) / atr_val) if nearest_bull is not None else None
+        float(_dist(nearest_bull) / atr_val) if nearest_bull is not None and atr_valid else None
     )
     ob_bear_dist_atr: float | None = (
-        float(_dist(nearest_bear) / atr_val) if nearest_bear is not None else None
+        float(_dist(nearest_bear) / atr_val) if nearest_bear is not None and atr_valid else None
     )
     ob_strength = float(nearest_overall["strength"])
     ob_mitigated_flag = float(nearest_overall["mitigated"])
@@ -306,7 +306,7 @@ def _compute_order_blocks(
             breaker_block_active = 1.0
         elif breaker_direction < 0.0 and close_ > b_top:
             breaker_block_active = 1.0
-        breaker_dist_atr = float(abs(close_ - b_mid) / atr_val)
+        breaker_dist_atr = float(abs(close_ - b_mid) / atr_val) if atr_valid else None
 
     return {
         "ob_bull_dist_atr": ob_bull_dist_atr,
@@ -324,7 +324,8 @@ def _compute_order_blocks(
 # ---------------------------------------------------------------------------
 
 # D1 rule 2 (todo 584 4b-2 group 4): distance/size of a gap that does not exist are None; the
-# count stays 0.0 and fvg_midpoint keeps its 0.0 in-memory sentinel (zones' soft dependency).
+# count stays 0.0 and fvg_midpoint keeps its 0.0 in-memory sentinel (zones' soft dependency). With
+# gaps but no valid ATR only the two distances are None; the count and midpoint are computed.
 _FVG_FALLBACK: dict[str, float | None] = {
     "fvg_dist_atr": None,
     "fvg_size_atr": None,
@@ -367,13 +368,13 @@ def _compute_fvg(
     local for Plan 04's supply/demand-zones block (soft dependency per
     164-RESEARCH.md), never threaded into _build_feature_vector.
 
-    Falls back to _FVG_FALLBACK (never raises) when atr_val is invalid or the window has
-    fewer than 3 bars; the fallback's None values mark the no-gap case (D1 rule 2, todo 584
-    4b-2 group 4).
+    Falls back to _FVG_FALLBACK (never raises) when the window has fewer than 3 bars or holds no
+    open gap; the fallback's None values mark the no-gap case (D1 rule 2, todo 584 4b-2 group 4).
+    Only the two ATR-normalized distances divide by ATR: with an invalid ATR they are None while
+    the open count and the midpoint (the zones kernel consumes it) are computed as usual (todo
+    584 6d).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return dict(_FVG_FALLBACK)
 
     lookback = config.smc_fvg_lookback
     h = highs[-lookback:]
@@ -424,8 +425,10 @@ def _compute_fvg(
     midpoint = (nearest["top"] + nearest["bottom"]) / 2.0
 
     return {
-        "fvg_dist_atr": float(abs(close_ - midpoint) / atr_val),
-        "fvg_size_atr": float((nearest["top"] - nearest["bottom"]) / atr_val),
+        "fvg_dist_atr": float(abs(close_ - midpoint) / atr_val) if atr_valid else None,
+        "fvg_size_atr": (
+            float((nearest["top"] - nearest["bottom"]) / atr_val) if atr_valid else None
+        ),
         "fvg_open_count": float(len(candidates)),
         "fvg_midpoint": float(midpoint),
     }
@@ -964,12 +967,11 @@ def _compute_bos_choch(
     (byte-identical to bos_strength there) are both dropped per the
     field-by-field raw-price/redundancy audit -- neither is returned here.
 
-    Falls back to _BOS_FALLBACK (never raises) when atr_val is invalid or
-    fewer than 2 swing highs/lows exist in-window.
+    Falls back to _BOS_FALLBACK (never raises) when fewer than 2 swing highs/lows exist in-window.
+    Only the two strengths divide by ATR: with an invalid ATR they are None and the directions,
+    the trend and bars_since_last_shift are computed as usual (todo 584 6d).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return dict(_BOS_FALLBACK)
 
     lookback = config.smc_bos_choch_lookback
     h = highs[-lookback:]
@@ -997,17 +999,21 @@ def _compute_bos_choch(
     check_from = max(swing_highs[-1], swing_lows[-1]) + 1
 
     bos_direction = 0.0
-    bos_strength: float | None = None  # no break in-window -> no strength object
+    bos_strength: float | None = None  # no break in-window, or no valid ATR -> no strength
     shift_idx: int | None = None
     for i in range(check_from, n_bars):
         if c[i] > last_sh_price:
             bos_direction = 1.0
-            bos_strength = float(max(0.0, (float(c[i]) - last_sh_price) / atr_val))
+            bos_strength = (
+                float(max(0.0, (float(c[i]) - last_sh_price) / atr_val)) if atr_valid else None
+            )
             shift_idx = i
             break
         if c[i] < last_sl_price:
             bos_direction = -1.0
-            bos_strength = float(max(0.0, (last_sl_price - float(c[i])) / atr_val))
+            bos_strength = (
+                float(max(0.0, (last_sl_price - float(c[i])) / atr_val)) if atr_valid else None
+            )
             shift_idx = i
             break
 

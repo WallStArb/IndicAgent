@@ -30,6 +30,7 @@ anything found after the pin moves waits for the following rerun.
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` retired and the sweeps ATR gate removed (6c); row 6 is done |
+| 6d | SMC ATR gates narrowed (bos_choch, fair_value_gap, order_blocks): an invalid ATR no longer wipes the outputs that do not divide by it | this todo | landed 2026-11-03 (golden first; invalid-ATR share measured in the 6d note) |
 | 7 | Delete list after migration 543 (dropped-volume path, `volume_reset`, APR key retire) and the config field rename | 564 same-batch | landed 17cfe233b (migration 555 applied live; the field is deleted, so the rename is moot) |
 | 8 | Add-list per design D2 (558's eight rows); never-computed `rank_z` registry rows retired | 558, 421 | landed 2026-11-03: ten stored columns (kernels/residual.py, distribution.py, dividend.py), migration 559, rank_z concepts deprecated; `days_to_ex_dividend` deferred (no declaration time in `dividend_events`) |
 | 9 | Pilot gate tool (design D3) | this todo | G1-G3 and `--pilot` landed in `scripts/ops/ops_feature_column_screen.py` (through /simplify, /review and the full suite); tolerances and the 30 pilot names are APR (migration 557); G1 and G3 tolerate the absent D1 registry declarations (`applicable_outputs`, `zero_is_state`) and the report says so until item 2 lands. G4 and G5 landed in `scripts/ops/ops_pilot_compute_gate.py` (commit 3c7d1b349: probe_registry over the compute's own kernel plan at three truncation quarters plus the bundle-readable acausal controls; double compute with bit-level digests; smoke SPY:1d 139 kernels, canary control caught, digests identical). Open: a pilot run at the new pin, then recalibration of the two tolerances from its gap and share distributions |
@@ -579,6 +580,25 @@ reviewers' cost notes: the daily records are rebuilt for each (symbol, timeframe
 times the daily work and two small queries per symbol; hoist per symbol if the rerun's cost shows
 it), the columns are rebuild-only (V2-only, no live path), and the beta loop is a second
 implementation of the macro one (add an equivalence test or share a generator).
+
+### Item 6d landed (2026-11-03): the SMC ATR gates narrowed to the outputs that divide by ATR
+
+Measured first (last 40,000 5m / 30,000 15m / 20,000 1h bars and the 1d history per name; invalid
+means `_is_valid_atr`: ATR not finite, not positive, or below `feature.atr_normalization.min_atr_pct`
+of the close): SPY, AAPL, KO and USMV are invalid on 0.04% to 0.07% of intraday rows and 0.3% of 1d
+rows, all of it ATR warmup (0.0% after 200 bars); SHY 1.1% of 5m rows and 0.05% at 15m/1h, BIL 5.4%
+of 5m, 3.0% of 15m and 0.7% of 1h rows (ultra-short T-bill ETFs, flat for long stretches, past
+warmup too). So the gate is cheap to keep wrong on large caps and costly on the cash-like ETFs,
+where it wiped the whole SMC group. Change: `bos_choch` (only the two strengths divide by ATR;
+directions, trend and bars_since_last_shift are computed), `fair_value_gap` (only the two
+distances; open count and midpoint are computed, the midpoint feeds zones), `order_blocks` (only
+the three distances; strength, mitigation flag and pct, and breaker flag are computed). Each
+returns None for the ATR outputs when the ATR is invalid. `liquidity_pools` and
+`supply_demand_zones` keep the whole-fallback gate: ATR is in their detection (equal-level
+tolerance, impulse and base thresholds), and zones with an invalid ATR ignore the now-populated
+midpoint. Golden regenerated first: only `fvg_open_count` on the synthetic cold rows moves (real
+series have a valid ATR after warmup). `test_smc_atr_gate_narrowing.py` pins that an invalid ATR
+changes only the ATR outputs. Stored values on invalid-ATR rows change, so this rides the pin.
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

@@ -310,11 +310,12 @@ def test_no_raw_or_redundant_fields_on_feature_vector(cfg):
 
 
 # ---------------------------------------------------------------------------
-# (d) Fallback contract -- never raises on atr<=0 or too-few swing points (T-164-05)
+# (d) Fallback contract -- never raises on a too-short window or too-few swing points (T-164-05);
+# the invalid-ATR behavior is pinned in test_smc_atr_gate_narrowing.py
 # ---------------------------------------------------------------------------
 
 
-def test_bos_choch_fallback_on_invalid_atr(cfg):
+def test_bos_choch_fallback_on_a_too_short_window(cfg):
     highs = np.array([100.0, 101.0, 100.5, 101.5, 100.0])
     lows = np.array([99.0, 99.5, 99.0, 100.0, 99.5])
     closes = np.array([99.5, 100.5, 99.5, 100.5, 99.8])
