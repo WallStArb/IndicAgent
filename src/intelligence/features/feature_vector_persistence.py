@@ -625,7 +625,6 @@ REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
 REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
     "regime_volatility",
     "hmm_vol_prob_calm",
-    "hmm_vol_prob_elevated",
     "hmm_vol_prob_turbulent",
     "hmm_vol_regime_prob",
     "hmm_vol_entropy",

@@ -1168,3 +1168,48 @@ hypothesis test.
 so it adds no selection pressure to a hypothesis test. Frozen verdicts are not re-scored.
 
 **Built by:** todo 584 item 11; closes todo 532.
+
+### E20: 2026-11-04: the trend HMM state count moves from K=5 to K=3, one global value (583 refusal-rule study)
+
+**Observed before the change.** `feature.hmm.n_components` was 5, from a 2026-06-26 BIC study on
+four ETFs at 5m (migration 172) applied to every timeframe. The walk-forward fit refuses a segment
+when a state is barely occupied (`degenerate_occupation`); at K=5 that stranded 4,036 of 5,260 1d
+segments across 337 names (design D6), and todo 478 had found the same stranding for the
+volatility family at K=3.
+
+**The rule, fixed before the run.** For K in {3, 4, 5}, the K with the lowest share of refused
+segments; ties within two percentage points go to the smaller K. The choice depends on fit
+validity only, never on returns. Run per timeframe on a fixed-seed name sample (1d: the 337
+refusal names plus 100 fully written names; 1h and 5m: 40 names), complete shards only.
+
+**Result (refused share of segments, trend).**
+
+| tf | K=3 | K=4 | K=5 | chosen |
+|----|-----|-----|-----|--------|
+| 5m | 6.2% | 7.9% | 17.0% | 3 |
+| 15m | 1.3% | 3.5% | 12.0% | 3 |
+| 1h | 1.5% | 5.5% | 9.6% | 3 |
+| 1d | rule on complete data | | | 3 |
+
+Volatility family: K=2 at every timeframe (1h: 0.0% refused against 56.6% at K=3), equal to the
+existing `alpha.hmm_volatility.n_components`, so unchanged.
+
+**What changed.** `feature.hmm.n_components` 5 to 3 (migration 566, with its `config_history` row
+quoting the rule and the table). A per-timeframe mechanism (`feature.hmm.n_components.<tf>`) was
+built and then not shipped: the answer is uniform, so four keys would hold one value (Musk step 2).
+At K=3 `_build_label_map` assigns trending_down, ranging and trending_up; `transition_up` and
+`transition_down` no longer occur. No code branches on them (the label tuple keeps them so label
+codes stay stable). Every stored trend regime label changes, which the 186-26 rebuild at the new
+pin covers. Companion change, same item: `hmm_vol_prob_elevated` is retired (D6): with K=2 the
+label map never assigns the middle label, so the column was 0.0 by construction. The volatility
+family's numeric block drops from seven columns to six; no stored value changes.
+
+**BIC disclosure.** BIC prefers the grid edge K=6 on every timeframe, including 1d (380 of 437
+names), so it does not bound K under these emissions and is uninformative here; the refusal rule
+governs per D6. At 5m the BIC reference K was 6 (trend) and 5 (volatility), so |dK| against the
+chosen value is 3 and 3. Nothing in this choice was judged on returns.
+
+**Pre-registered?** The rule was written before the run (design D6, 2026-11-02). The K it selected
+was not predicted. Frozen verdicts are not re-scored.
+
+**Built by:** todo 584 item 3; 583 study.

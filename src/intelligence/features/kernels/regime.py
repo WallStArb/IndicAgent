@@ -33,7 +33,6 @@ from src.intelligence.features.kernels._hmm import (
     FAMILY_SPECS,
     FAMILY_TREND,
     FAMILY_VOLATILITY,
-    N_NUMERIC_COLUMNS,
     HmmConfig,
     RegimeEventRecord,
     RegimeFamilySpec,
@@ -114,7 +113,7 @@ def _compute_family(
         return _hmm.FamilyResult(
             np.full(n, np.nan),
             np.full(n, _hmm.STATUS_NO_MODEL),
-            np.full((N_NUMERIC_COLUMNS, n), np.nan),
+            np.full((spec.n_numeric, n), np.nan),
         )
     # obs row j is log-return row valid_start + j, which is bar row valid_start + j + 1
     return _hmm.walk_forward_family_arrays(obs, valid_start + 1, n, params, tf, spec)

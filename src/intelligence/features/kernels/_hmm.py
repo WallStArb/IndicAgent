@@ -41,7 +41,7 @@ from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 # migration 411) and never fall back to these. They remain only as the defaults of the legacy
 # helpers the analysis pilots call (`_build_obs_matrix`, `_log_emit_full`, `_compute_log_emit`),
 # which 186-16 deletes with the pilots. 1e-300 (the log and variance floors below) is a mathematical guard against log(0) and
-# division by zero, not a tunable, and N_NUMERIC_COLUMNS is a schema identifier; both stay
+# division by zero, not a tunable, and N_TAIL_NUMERIC_COLUMNS is a schema identifier; both stay
 # constants.
 _DEFAULT_COVARIANCE_RIDGE = 1e-6
 _DEFAULT_MOMENTUM_VOL_FLOOR = 1e-8
@@ -1060,10 +1060,10 @@ VOLATILITY_LABELS: tuple[str, ...] = (_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBU
 FAMILY_TREND = "trend"
 FAMILY_VOLATILITY = "volatility"
 
-# Numeric columns per family: three state-group probabilities, hmm_regime_prob, hmm_entropy,
-# hmm_duration, hmm_churn. A schema identifier (the owned-column tuples in
-# feature_vector_persistence), checked against them below, not a tunable.
-N_NUMERIC_COLUMNS = 7
+# Numeric columns per family: the state-group probabilities its `prob_order` selects, then
+# hmm_regime_prob, hmm_entropy, hmm_duration, hmm_churn (`N_TAIL_NUMERIC_COLUMNS`). A schema
+# identifier (the owned-column tuples in feature_vector_persistence), checked against them below.
+N_TAIL_NUMERIC_COLUMNS = 4
 
 # segment_status codes: 0 no model yet, 1 written, 2 degenerate_occupation, 3 not_converged,
 # 4 any other gate reason (fit_failed among them: the segment's fit raised, todo 467). Code 5
@@ -1143,8 +1143,10 @@ class RegimeFamilySpec:
 
     `prob_order` indexes the (high-state mass, mid-state mass, low-state mass) triple that
     `_alpha_history_to_regime_probs` returns as (p_up, p_ranging, p_down): trend columns are
-    (up, ranging, down) = (0, 1, 2) and volatility columns are (calm = the low group, elevated,
-    turbulent = the high group) = (2, 1, 0).
+    (up, ranging, down) = (0, 1, 2) and volatility columns are (calm = the low group, turbulent =
+    the high group) = (2, 0). The volatility family stores no middle-state probability: with K = 2
+    the label map never assigns the middle label, so `hmm_vol_prob_elevated` was 0.0 by
+    construction (todo 584 D6, retired).
     """
 
     family: str
@@ -1152,7 +1154,7 @@ class RegimeFamilySpec:
     labels: tuple[str, ...]
     event_prefix: str
     config_prefix: str
-    prob_order: tuple[int, int, int]
+    prob_order: tuple[int, ...]
     inputs: tuple[str, ...]
     build_observations: Callable[
         [np.ndarray, np.ndarray | None, HmmConfig, int | None], tuple[np.ndarray, int]
@@ -1175,8 +1177,17 @@ class RegimeFamilySpec:
         """(n_components, covariance_type) of this family."""
         return (
             int(getattr(params, f"{self.config_prefix}_n_components")),
-            str(getattr(params, f"{self.config_prefix}_covariance_type")),
+            self.covariance_type(params),
         )
+
+    def covariance_type(self, params: HmmConfig) -> str:
+        """The family's covariance type (the same on every timeframe)."""
+        return str(getattr(params, f"{self.config_prefix}_covariance_type"))
+
+    @property
+    def n_numeric(self) -> int:
+        """Rows of the family's numeric block."""
+        return len(self.numeric_outputs)
 
     def code_of_state(self, state_labels: tuple[str, ...]) -> np.ndarray:
         """Label-tuple index of each state's label (ValueError for a label outside the set)."""
@@ -1204,7 +1215,7 @@ FAMILY_SPECS: dict[str, RegimeFamilySpec] = {
         labels=VOLATILITY_LABELS,
         event_prefix="volatility_",
         config_prefix="hmm_volatility",
-        prob_order=(2, 1, 0),
+        prob_order=(2, 0),
         inputs=("close", "tf"),
         build_observations=_volatility_observations,
         regime_column=REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0],
@@ -1213,7 +1224,15 @@ FAMILY_SPECS: dict[str, RegimeFamilySpec] = {
         numeric_outputs=tuple(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:]),
     ),
 }
-assert all(len(f.numeric_outputs) == N_NUMERIC_COLUMNS for f in FAMILY_SPECS.values())
+assert all(
+    len(f.numeric_outputs) == len(f.prob_order) + N_TAIL_NUMERIC_COLUMNS
+    for f in FAMILY_SPECS.values()
+)
+# volatility columns are (calm = the low group, turbulent = the high group) = prob_order (2, 0)
+assert FAMILY_SPECS[FAMILY_VOLATILITY].numeric_outputs[:2] == (
+    "hmm_vol_prob_calm",
+    "hmm_vol_prob_turbulent",
+)
 
 
 def _run_durations(
@@ -1257,7 +1276,7 @@ def walk_forward_family_arrays(
 
     code = np.full(n_rows, np.nan)
     status = np.full(n_rows, STATUS_NO_MODEL)
-    numeric = np.full((N_NUMERIC_COLUMNS, n_rows), np.nan)
+    numeric = np.full((spec.n_numeric, n_rows), np.nan)
 
     # One BLAS thread is part of the kernel's definition: with several threads the fit's low
     # bits differ from the golden and, on this box, run to run (test_regime_kernel.py). Every

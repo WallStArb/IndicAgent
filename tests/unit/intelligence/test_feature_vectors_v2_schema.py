@@ -52,6 +52,7 @@ RETIRED_COLUMNS: dict[str, str] = {
         "asian_session_low_dist_atr",
         "ret_div_1m_5m",
         "sweep_detected",
+        "hmm_vol_prob_elevated",
     )
 }
 NEVER_COMPUTED = ("momentum_rank_z", "volume_rank_z", "volatility_rank_z")

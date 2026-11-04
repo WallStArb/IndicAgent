@@ -37,7 +37,8 @@ def test_migration_registers_exactly_the_seed_columns_active_with_a_gate():
     sql = _sql()
     for name in seed.EXPECTED_COLUMNS:
         assert f"('{name}'," in sql
-    assert sql.count("('hmm_") == len(seed.EXPECTED_COLUMNS)
+    # the migration predates the retire of hmm_vol_prob_elevated (todo 584 D6): it registered 11
+    assert sql.count("('hmm_") == len(seed.EXPECTED_COLUMNS) + 1
     assert "'active', true" in sql and "INSERT INTO concept_gate" in sql
     assert "concept_recipe" not in sql  # recipes are the S6 ledger's
 
@@ -45,7 +46,7 @@ def test_migration_registers_exactly_the_seed_columns_active_with_a_gate():
 def test_seed_columns_are_regime_writer_owned_hmm_columns():
     owned = set(REGIME_WRITER_OWNED_COLUMN_NAMES) | set(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
     assert seed.EXPECTED_COLUMNS <= owned
-    assert len(seed.EXPECTED_COLUMNS) == 11
+    assert len(seed.EXPECTED_COLUMNS) == 10  # 11 less hmm_vol_prob_elevated (retired, D6)
 
 
 def test_seed_code_pointer_and_commit_are_pinned():

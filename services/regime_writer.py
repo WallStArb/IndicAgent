@@ -23,7 +23,8 @@ CORRECTNESS INVARIANTS:
     K=2: trending_up (high), trending_down (low)
     K=3: trending_up, ranging, trending_down
     K=5: trending_up, transition_up, ranging, transition_down, trending_down
-         (BIC-validated K as of Phase 140.5-P2 BIC study 2026-06-26)
+         (BIC-validated K as of Phase 140.5-P2 BIC study 2026-06-26; the live trend K is 3
+         since the 583 refusal-rule study, todo 584 item 3, so the transition labels no longer occur)
   For K>3, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"

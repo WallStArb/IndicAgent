@@ -348,7 +348,7 @@ def bic_fit_record(
         record["error"] = "insufficient_observations"
         return record
     train_scaled = StandardScaler().fit_transform(obs)
-    covariance_type = spec.model_fields(params)[1]
+    covariance_type = spec.covariance_type(params)
     if len(train_scaled) < params.hmm_full_cov_min_obs:
         covariance_type = "diag"
     record["covariance_type"] = covariance_type

@@ -26,7 +26,7 @@ anything found after the pin moves waits for the following rerun.
 |---|---|---|---|
 | 1 | `hma_slope_z` NaN while the slope history is short; parity golden updated | 564 | landed 20c1dcddc (shared helper: the cache and macro/beta z-scores are NaN in warmup too) |
 | 2 | 1d applicability (design D1): intraday-session columns declared out of scope (NaN by declaration); VP/structure group decided per column | 564 done-when 2 | landed 2026-11-02 (Track A, indicagent-dc WIP resumed): `Kernel.not_applicable` mapping (amended rule 3; `minute_of_hour_*` on 1h is a data entry away for item 6), the batch path routes the cache-backed VP/session-levels/AMD kernels through `compute_kernels`, golden regenerated in its own commit; follow-up landed same day: `kernel_source` forwards `Panel.tf` as the per-row tf external, so research requests whose closure declares `not_applicable` outputs or reads tf directly run and gate on the panel's tf instead of refusing (pre-fix: loud `KernelSourceRefused`, never a default; `repro_frozen` bit-identical) |
-| 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | direction set 2026-11-02: keep both families; 1d trend K=3 (583 rule on complete data) lands as `feature.hmm.n_components.1d` plus a methodology-ledger entry; intraday trend K comes from the preregistered deep-data study (583 todo, "Deep-data K study"); vol stays K=2 this pass; the retirement rides item 6 |
+| 3 | HMM whole-name NULL (D6): stale-volume cause fixed by the rerun; trend K per timeframe; `hmm_vol_prob_elevated` retires | 583 | landed 2026-11-04: trend K=3 uniform (migration 566, E20), `hmm_vol_prob_elevated` retired; 1d K=3 rule per 583 |
 | 4 | Undefined is NaN (design D1) in kernel fallbacks; genuine zero states keep 0.0 and are declared (option 2; `no_fill` is an invariant, not a preference) | 474 | decided, open |
 | 5 | Macro inputs: no fabricated zero without a cross-asset record; previous closes tracked before the first record | 463, 464 | landed: macro.py aee2404d9 (82); the streaming cache (vix, yield, TIP/HYG, spread correlation, flight quality), the legacy FeatureVector macro fields, the two macro products and the betas (`float \| None`, NaN is None) landed 2026-11-02 (02); shared `_z_or_nan`/`_corr_or_nan` in `_primitives.py`; parity golden regenerated from stored inputs (synthetic: ten macro columns; real 1d: `vix_z`, `sb_corr_z`, `vix_reversion_product`, early rows 0.0 to NaN). Unblocks item 8 |
 | 6 | Intraday screen findings (D5): retire the universe-dead session columns; fix the intraday defects | this todo | retire landed 2026-11-03 (11 columns, migration 561); `ret_div` NULL on other tfs resolved as by definition (6a); `ctf_vwap_align` fixed as an absorbing anchored VWAP (6b); `sweep_detected` retired and the sweeps ATR gate removed (6c); row 6 is done |
@@ -622,6 +622,29 @@ series would shrink its output, so it needs its own ruling. Known: the daily-gri
 memory counts grid rows (the union of dates) while the builders now count common dates, so around a
 gap day a window reaches a few rows further back than declared; a unit computes from the series
 start, so no warmup mask is affected, and the holes-and-late-start probe cases pass.
+
+### Item 3 landed (2026-11-04): trend K=3, hmm_vol_prob_elevated retired
+
+The 583 refusal-rule study is complete and uniform: trend K=3 at 1d/5m/15m/1h (refused share 5m
+6.2% vs K4 7.9%, K5 17.0%; 15m 1.3% vs 3.5%, 12.0%; 1h 1.5% vs 5.5%, 9.6%; 1d from the rule on
+complete data), volatility K=2 at every timeframe (1h 0.0% vs K3 56.6%), equal to the existing
+`alpha.hmm_volatility.n_components`. So the per-timeframe key mechanism that was first built was
+deleted before landing; migration 566 only moves `feature.hmm.n_components` from 5 to 3 with the
+provenance `[583 refusal-rule study 2026-11-04, uniform across 1d/5m/15m/1h]` and a
+`config_history` row quoting the rule and the table. Methodology-ledger entry E20 holds the table,
+the rule fixed beforehand, the uniform-K decision and the BIC disclosure (BIC prefers K=6 on every
+timeframe, 380 of 437 names at 1d, so it is uninformative here). Label map at K=3: trending_down,
+ranging, trending_up; `transition_up`/`transition_down` no longer occur. Consumers checked: nothing
+branches on them (the label tuple keeps them so codes stay stable; the seeded vocabulary, the
+migration comments and the glossary still list them as valid codes). `hmm_vol_prob_elevated`
+retires per D6: the volatility family's numeric block drops from seven columns to six
+(`prob_order` (2, 0); `N_NUMERIC_COLUMNS` replaced by the per-family `n_numeric`), the column
+leaves `REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES`, the concept is deprecated, the physical
+columns stay (`RETIRED_COLUMNS`). The regime-kernel golden changes layout only: every volatility
+case drops one column and zero values changed (flip report all zero). The pin now waits only on
+the data-lane items. Also noted (8b): a builder window that reaches past the declared memory around
+a gap day only makes the warmup mask conservative, since the builder emits NaN until its own window
+fills; no change.
 
 ### Item 12 landed (d003eb028, 2026-11-02 03:41; verified read-only by Track A, indicagent-ea)
 

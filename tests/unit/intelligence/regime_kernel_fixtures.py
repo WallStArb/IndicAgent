@@ -31,7 +31,6 @@ FAMILY_LABELS: dict[str, tuple[str, ...]] = {
 
 # Numeric column order of the golden, per family, equal to
 # REGIME_WRITER_OWNED_COLUMN_NAMES[1:] and REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:].
-N_NUMERIC_COLUMNS = 7
 
 # Stated small configuration (186-13): trend n_components 3, windows 20, n_iter 50; volatility
 # n_components 3, vol_window 20, vol_of_vol_window 60; the remaining values are the live values. The per-tf schedule is small so a 3,000-bar series has several refit segments.

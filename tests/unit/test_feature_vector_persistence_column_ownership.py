@@ -38,11 +38,11 @@ def _upsert_set_columns() -> list[str]:
 
 
 def test_regime_volatility_tuple_shape():
-    """8-element tuple, regime_volatility first, in migration 307's declared order."""
+    """7-element tuple, regime_volatility first, in migration 307's declared order less the retired
+    hmm_vol_prob_elevated (todo 584 D6)."""
     expected = (
         "regime_volatility",
         "hmm_vol_prob_calm",
-        "hmm_vol_prob_elevated",
         "hmm_vol_prob_turbulent",
         "hmm_vol_regime_prob",
         "hmm_vol_entropy",
@@ -50,7 +50,7 @@ def test_regime_volatility_tuple_shape():
         "hmm_vol_churn",
     )
     assert REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES == expected
-    assert len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) == 8
+    assert len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) == 7
 
 
 def test_regime_volatility_columns_absent_from_upsert_do_update_set():

@@ -1769,11 +1769,11 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
     assert len(update_rows[0]) == len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) + 3
-    assert len(update_rows[0]) == 11
+    assert len(update_rows[0]) == 10
 
 
 def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high_vol_half():
-    """hmm_vol_prob_turbulent (row index 3) must be higher, on average, over bars in
+    """hmm_vol_prob_turbulent (row index 2) must be higher, on average, over bars in
     the high-volatility half of a _make_vol_switching_closes series than over the
     low-volatility half. This must fail if the p_down/p_up positions in the row tuple
     are swapped -- verified by temporarily swapping, confirming red, then restoring."""
@@ -1803,50 +1803,17 @@ def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high
     update_rows = result
 
     # _make_vol_switching_closes' switch point is at raw-close index n // 2; bar_ts
-    # (row index 10) is monotonically increasing with that same raw index, so bucketing
+    # (row index 9) is monotonically increasing with that same raw index, so bucketing
     # by timestamp relative to the switch point's timestamp is equivalent.
     switch_ts = timestamps[n // 2]
-    low_vol_turbulent = [row[3] for row in update_rows if row[10] < switch_ts]
-    high_vol_turbulent = [row[3] for row in update_rows if row[10] >= switch_ts]
+    low_vol_turbulent = [row[2] for row in update_rows if row[9] < switch_ts]
+    high_vol_turbulent = [row[2] for row in update_rows if row[9] >= switch_ts]
 
     assert len(low_vol_turbulent) > 0
     assert len(high_vol_turbulent) > 0
     assert sum(high_vol_turbulent) / len(high_vol_turbulent) > sum(low_vol_turbulent) / len(
         low_vol_turbulent
     )
-
-
-def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
-    """At n_components=2, hmm_vol_prob_elevated (row index 2) must be 0.0 for every
-    row -- no state carries the 'elevated' label when there is no mid slot."""
-
-    n = 900
-    closes = _make_vol_switching_closes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn_volatility(closes, timestamps)
-
-    result = _compute_symbol_tf_volatility_walk_forward(
-        conn=conn,
-        symbol="SPY",
-        tf="1h",
-        n_components=2,
-        vol_window=20,
-        vol_of_vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        refit_every_bars=200,
-        initial_warmup_bars=300,
-        covariance_type="diag",
-        full_cov_min_obs=0,
-        min_state_occupation=0.0,
-    )
-
-    assert result is not None
-    update_rows = result
-    assert len(update_rows) > 0
-    for row in update_rows:
-        assert len(row) == 11
-        assert row[2] == 0.0
 
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_none_fetch(monkeypatch):

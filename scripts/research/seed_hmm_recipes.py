@@ -32,7 +32,6 @@ EXPECTED_COLUMNS = frozenset(
         "hmm_churn",
         "hmm_vol_regime_prob",
         "hmm_vol_prob_calm",
-        "hmm_vol_prob_elevated",
         "hmm_vol_prob_turbulent",
         "hmm_vol_entropy",
         "hmm_vol_duration",
@@ -87,7 +86,7 @@ async def _seed(dsn: str, apply: bool) -> int:
         return 1
     before = await _names(dsn, _MISSING_SQL)
     if before != EXPECTED_COLUMNS:
-        print(f"refused: expected all 11 columns without a recipe, found {len(before)} (run once)")
+        print(f"refused: expected all 10 columns without a recipe, found {len(before)} (run once)")
         return 1
     if not apply:
         print(

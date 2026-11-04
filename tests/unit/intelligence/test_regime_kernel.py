@@ -149,11 +149,11 @@ def test_label_tuples_equal_the_golden_label_order():
         assert FAMILY_SPECS[family].labels == FAMILY_LABELS[family]
 
 
-def test_registry_owns_the_sixteen_regime_columns():
+def test_registry_owns_the_fifteen_regime_columns():
     registry = default_registry()
     outputs = {o for k in registry.kernels if k.origin == "regime" for o in k.outputs}
     columns = set(registry.feature_columns()) & set(ALL_COLUMNS)
-    assert columns == set(ALL_COLUMNS) and len(ALL_COLUMNS) == 16
+    assert columns == set(ALL_COLUMNS) and len(ALL_COLUMNS) == 15
     assert FAMILY_SPECS["trend"].numeric_outputs == REGIME_WRITER_OWNED_COLUMN_NAMES[1:]
     assert (
         FAMILY_SPECS["volatility"].numeric_outputs
@@ -588,7 +588,7 @@ def test_duration_and_churn_restart_across_a_skipped_segment(family):
 
     assert list(result.status[width : 2 * width]) == [_hmm.STATUS_DEGENERATE_OCCUPATION] * width
     assert not np.isnan(result.code[width - 1]) and np.isnan(result.code[width])
-    duration, churn = result.numeric[5], result.numeric[6]
+    duration, churn = result.numeric[-2], result.numeric[-1]
     assert duration[width - 1] == width  # segment 1: A held four bars
     assert duration[2 * width] == 1.0  # first bar after the gap restarts, not 5
     assert duration[2 * width + 1] == 2.0
