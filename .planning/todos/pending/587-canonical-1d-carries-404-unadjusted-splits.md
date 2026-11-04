@@ -97,34 +97,36 @@ the `_stale_for` off-by-one fix (zero impact on the one current row, ETHA), and 
 lineage view divides raw by the same product). Dry run on AMZN, ADBE, AMGN, KLAC, GIS: 1,834 of 1,834
 rescaled bars lineage-exact, all 7 splits continuous, no bar added or removed.
 
-Review fixes 2026-11-04 (worktree `wt587land`, rebased on origin/main, unpushed; lead ruling on
-the volume witness): the audit measures every raw series before each split on its own and the row
-lists them (`detail.unadjusted_routes`); the share count only vetoes (median over 20/60/120-session
-windows in units of log f below 0.25, migration 571); D7 also judges route seams against every
-partial product of the splits. Corrected CSV: 352 confirmed on 258 names (all naming
-ibkr/smart_trades), 27 volume_veto, 1 route_conflict (JMSB 2017-09-06), other verdicts unchanged.
-Dry run (AMZN ADBE AMGN KLAC GIS SNX SLB BH): 5,536 rescaled bars lineage-exact, D7 clean, 2016-01-04
-step unchanged, no bar added or removed.
+Review fixes 2026-11-04 (worktree `wt587land`, rebased on origin/main, unpushed; lead rulings):
+the audit measures every raw series before each split on its own and the row lists them
+(`detail.unadjusted_routes`); D7 also judges route seams against every partial product of the
+splits. No automatic veto: a volume statistic and a new-listing witness were measured and dropped
+(volume alone vetoed 27 confirmed splits and was right once; a co-listing within five sessions
+occurs on 69% of sessions). Spin-offs are explicit exclusions in
+`config/corporate_actions/spin_off_exclusions.csv`. Corrected CSV: 378 confirmed on 266 names (all
+naming ibkr/smart_trades), 1 excluded_spin_off (SNX), 1 route_conflict (JMSB), other verdicts
+unchanged. Dry run (AMZN ADBE AMGN KLAC GIS SNX SLB BH): 5,536 rescaled bars lineage-exact, D7
+clean, 2016-01-04 step unchanged, no bar added or removed by the rows.
 
-Review list (no row; owner or lead decides each):
-- volume_veto with an independent reason: SNX 2020-12-01 (statistic 0.247; CNXC lists that week): a
-  suspected spin-off for the dividend/total-return layer (Decision point 2), never a split row.
-- volume_veto with no independent reason (statistic, then the per-window log volume steps in the
-  CSV): AAON 2001-10-01, AXON 2004-04-30 and 2004-11-30, CCBG 2005-07-05, DHI 2002-04-10, EAT
-  2001-01-17, EBAY 2000-05-25, FCEL 1999-11-17 and 2001-06-20, FLO 2005-07-05, GILD 2002-03-08 and
-  2004-09-07, INCY 2000-09-01, MMSI 2002-04-12, MSTR 2002-07-31, PAR 2006-01-09, POOL 2001-09-10 and
-  2003-09-15, RBA 2004-05-07, RES 2005-03-11, REX 2002-02-12, RMBS 2000-06-15, SF 2004-09-16, TRMB
-  2004-03-05, TTWO 2005-04-12, ZBRA 2004-08-26. No second listing that week and no Yahoo dividend.
-- route_conflict JMSB 2017-09-06 and the 6 conflicts. None of these split-day bars carries a
-  quarantine flag (27 carry only the informational vol_scaled_jump), so research reads their step.
+Review list (no row; each split-day bar quarantined by `unconfirmed_split`):
+- SNX 2020-12-01: Concentrix spin-off (operator exclusion); a total-return question for the
+  dividend layer (Decision point 2).
+- JMSB 2017-09-06 route_conflict: canonical steps at an ibkr/fallback seam, the series is flat.
+- The 6 conflicts (AA 2016-11-01, CMCSA 2017-02-21, ELS 2019-10-16, OKE 2001-06-12 and 2012-06-04,
+  SNEX 2023-11-27).
+- Open item: `unconfirmed_split` quarantines only the first new-scale bar, so no one-day
+  fabricated return reaches research, but multi-day returns and rolling kernels still span each
+  of these breaks. Not solved by this landing.
 
 Resume on the lead's go:
 1. Cherry-pick the worktree's 587 commits onto main; gates (pre-commit, unit suite); push.
 2. `psql -f` migrations 568 and 571.
-3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 352 and the name list must
-   equal the CSV's confirmed set (258 names; diff them). Then `--commit`.
-4. `bar_derivation --stage daily --symbols <the 258> --apply`, then `--rewrite-digests`.
-5. D7: split_continuity clean on the 258, lineage_missing unchanged, overall verdict counts before
+3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 378 and the name list must
+   equal the CSV's confirmed set (266 names; diff them). Then `--commit`.
+4. `ops_split_calendar_audit.py --quarantine-unconfirmed <csv>` dry: 8 first bars (SNX, JMSB, the
+   6 conflicts). Then `--commit`.
+5. `bar_derivation --stage daily --symbols <the 266> --apply`, then `--rewrite-digests`.
+6. D7: split_continuity clean on the 266, lineage_missing unchanged, overall verdict counts before
    and after for all names.
 
 After the landing: the six bad bars (FTNT 2014-01-10, CMCSA 2017-02-17, CDE 2008-11-18, CME
