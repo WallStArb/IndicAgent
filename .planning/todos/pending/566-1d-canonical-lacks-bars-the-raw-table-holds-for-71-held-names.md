@@ -130,3 +130,13 @@ can. Their raw survives (H: alpaca sip_rth 2,723 rows from 2016-01-04 plus ibkr 
 strengthens the existing promotion decision (owner, after todo 491): the 27 names are not just
 never-derived, they are stranded in a ledger-inconsistent state (load row says applied 2,702+,
 canonical holds 15), which is the silent-wrong-answer surface this todo exists to close.
+
+## Status 2026-11-04 (session ab; work paused by the owner)
+
+- Group 1, QRVO: done. Its stale 1d policy row is retired through `ops_source_policy.py --retire`
+  (6433a469a; 1d only, evidence required, one atomic UPDATE).
+- Group 2, the 27 class-A names: the open loop. Resume: run an IBKR 1d pre-2016 fetch for the 27
+  through `ohlcv_history_fetcher.py --symbols ...` in a gap between timer runs (never two fetchers;
+  `default_scopes` unchanged), then re-derive them with `bar_derivation --stage daily --symbols ...`
+  and read their D7 rows. Eligibility promotion stays the owner's decision (todo 491).
+- Group 3: waiting on the owner (the arbitration-lane refusals); no action here.

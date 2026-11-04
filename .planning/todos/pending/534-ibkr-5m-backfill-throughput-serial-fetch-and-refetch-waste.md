@@ -68,3 +68,16 @@ timeouts in 45 minutes before ending `stalled`; 3 lanes ran 2 h 47 min at about 
 the first 33 minutes, so no gain over 3 and no loss. The owner chose to keep 4 and stop testing
 concurrency. Throughput appears limited below 12 lanes by something other than lane count (IBKR
 pacing or per-request latency at the gateway); not investigated.
+
+## Status 2026-11-04: pre-2016 first (session ab)
+
+`infra.backfill.defer_after` (migration 563, fabb62e5a) is the planning horizon: IBKR 5m gaps after
+it are deferred (status `deferred`, never recorded, never counted as intake); escalations ignore it.
+In the 3 hours before the 2026-11-03 23:19Z restart, 0% of IBKR 5m asks were pre-2016; after it,
+100%. Measured throughput: about 13.5 ms of server time per bar, flat across window size and era; 4
+lanes give about 1.1M rows/h (8 collapsed to about 132k); the 5m chunk ceiling is 150 days; pacing
+cap 58 requests per 10 minutes. Coalescing small gap asks is not material (1.9% of server time;
+`gap_cluster_max_days` 90 already merges near holes). No IBKR extended-hours fetch (lead ruling).
+
+Buying the pre-2016 history instead: `docs/ideas/vendor-pre2016-intraday-history.md` (Massive
+recommended, FirstRate second), waiting on the owner.

@@ -82,3 +82,31 @@ dividend layer's amounts are confirmed on the same split-adjusted basis for the 
 Evidence files (ab's scratchpad, 2026-11-04): `yahoo_splits.csv`, `canonical_vs_yahoo_splits.csv`
 (the candidate list), `split_candidates.csv`, `split_basis.csv`, `jump_spotcheck.csv`. Copy the
 candidate list into the landing so it outlives the scratchpad.
+
+## Status 2026-11-04 (session ab; paused by the owner, the 14:00Z go is cancelled)
+
+Safe set landed: d891857d2 (migration 567, `scripts/ops/bars/ops_split_calendar_audit.py`, D7
+`split_continuity`) and bf5abd1d8 (`config/corporate_actions/split_calendar_audit_2026_11_04.csv`:
+380 confirmed on 268 names, 545 adjusted, 291 not a split ratio, 6 conflict, 1,611 unmeasured). No
+`calendar_audit` row is written.
+
+Atomic part, built and unpushed: local branch `wip/587-atomic-d2v5` = 5e3845df2 (the lead's tag
+`wip/587-atomic` 78375ea30 plus the LEGACY pinning test). It holds rule d2-v5 (prices on the recorded
+unadjusted span divided by the factor product in effective-date order, volume floor(v * scale + 0.5)),
+the `_stale_for` off-by-one fix (zero impact on the one current row, ETHA), and migration 568 (the
+lineage view divides raw by the same product). Dry run on AMZN, ADBE, AMGN, KLAC, GIS: 1,834 of 1,834
+rescaled bars lineage-exact, all 7 splits continuous, no bar added or removed.
+
+Resume on the lead's go:
+1. Cherry-pick 78375ea30 and 5e3845df2 onto main; gates (pre-commit, unit suite); push.
+2. `psql -f production/migrations/568_canonical_bar_lineage_calendar_rescale.sql`.
+3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 380 and the name list must
+   equal the CSV's confirmed set (diff them). Then `--commit`.
+4. `bar_derivation --stage daily --symbols <the 268> --apply`, then `--rewrite-digests`.
+5. D7: split_continuity clean on the 268, lineage_missing unchanged, overall verdict counts before
+   and after for all names.
+
+After the landing: the six bad bars (FTNT 2014-01-10, CMCSA 2017-02-17, CDE 2008-11-18, CME
+2008-07-14, OKE 2005-04-13, NEXN 2025-02-18) go to quarantine under a new `operator_bad_bar` rule
+(design approved). Open questions: a non-Yahoo witness for FBIZ's 2015-08 split; the OKE, PATK, RSPF
+scale breaks at the 2016-01-04 seam; the CME 2007-07 to 2008-07 hole.
