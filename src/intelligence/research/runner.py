@@ -34,16 +34,22 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
+from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.features.contract.registry import KernelRegistryError, default_registry
 from src.intelligence.research import (
     certificate,
     contribution,
     data_quality,
     dividends,
+    feature_inputs,
     guards,
+    kernel_source,
+    null_battery_persistent,
     power,
     provenance,
     snapshot,
@@ -79,6 +85,11 @@ from src.intelligence.research.ledger import (
     RunRequest,
     SubsetRefit,
 )
+from src.intelligence.research.member_memory import (
+    MemberMemory,
+    feature_member_memory,
+    warmup_prefix_sessions,
+)
 from src.intelligence.research.panel import SECTOR_PIT, Panel, fwd_span, present
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
 from src.intelligence.research.recipe import RecipeContent
@@ -87,10 +98,14 @@ from src.intelligence.research.spec import (
     BookSpec,
     FamilySpec,
     LoadedSpec,
+    MemberSpec,
     resolve_member,
 )
 from src.intelligence.research.timing import e17_memory, timing_test
 from src.intelligence.research.transforms import PanelTransform
+
+if TYPE_CHECKING:
+    from src.intelligence.feature_factory import FeatureFactoryConfig
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
 
@@ -133,6 +148,20 @@ class LedgerPort(Protocol):
 
 async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
     symbols = await snapshot.universe_symbols(dsn, spec.panel.universe)
+    inputs: dict = {}
+    sources = _source_requests(spec)
+    if sources:
+        # The verified provenance configs first: member memory, the certificate's memory bound
+        # and the warmup prefix all derive from them, before any bar is fetched (B1c, B1f).
+        found = await snapshot.source_configs(
+            dsn, sources, spec.panel.start, spec.panel.end_exclusive, symbols=symbols
+        )
+        configs = {tf: entry["config"] for tf, entry in found.items()}
+        _check_member_memory(spec, configs)
+        inputs = {
+            "warmup_sessions": _warmup_prefix(spec, configs),
+            "sources": sources,
+        }
     return await snapshot.build_panel(
         dsn,
         out_dir,
@@ -142,7 +171,8 @@ async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
         end_exclusive=spec.panel.end_exclusive,
         manifest_extra={"universe": spec.panel.universe},
         dividends=spec.panel.total_return is not None,
-        fields=tuple(spec.panel.fields or ()),
+        fields=_build_fields(spec),
+        **inputs,
     )
 
 
@@ -307,20 +337,249 @@ def family_identities(loaded: LoadedSpec) -> list[Identity]:
     return ids
 
 
-def _check_spec(spec: FamilySpec) -> None:
+# --- feature and kernel input members (plan 184-09) ---------------------------------------
+
+# Regular-session bars per source tf (the grid snapshot.build_grid derives; the 1h grid ends on
+# the short 15:30 bucket). Pinned against the battery's table in the tests.
+_BARS_PER_SESSION = {"1d": 1, "1h": 7, "15m": 26, "5m": 78}
+# The supported subset of input-member books (184-REVIEWS row 4): the source tfs by book tf.
+_SUPPORTED_SOURCES = {"1d": ("1d", "1h", "15m", "5m"), "1h": ("1d",)}
+
+
+def _input_members(spec: FamilySpec) -> list[MemberSpec]:
+    return [m for m in spec.members if m.input is not None]
+
+
+def _check_input_column(m: MemberSpec) -> None:
+    """A member's column is in the registry, applicable on its tf and has finite memory. Needs
+    no data and no config; a regime-origin column is S0's to stop (B1j needs the batches)."""
+    inp = m.input
+    try:
+        if inp.kind == "feature":
+            registry = default_registry()
+            feature_inputs.check_columns([inp.column], registry, inp.tf)
+            feature_inputs.refuse_path_dependent(inp.column, registry)
+        elif kernel_source.kernel_registry(inp.windows, None).is_path_dependent(inp.column):
+            raise RunRefused(f"member {m.name}: {inp.column} is path dependent (B1g)")
+    except (ValueError, KernelRegistryError) as error:
+        raise RunRefused(f"member {m.name}: {error}") from error
+
+
+def _check_pins(spec: FamilySpec) -> None:
+    pinned: dict[str, tuple[str, str]] = {}
+    for m in _input_members(spec):
+        pin = m.input.config_projection_hash
+        first = pinned.setdefault(m.input.tf, (pin, m.name))
+        if first[0] != pin:
+            raise RunRefused(
+                f"members {first[1]} and {m.name} pin different config_projection_hash values "
+                f"for source tf {m.input.tf}: one provenance config per source tf"
+            )
+
+
+def _check_supported_subset(spec: FamilySpec, book: BookSpec | None) -> None:
+    """The routes the battery covers (184-REVIEWS row 4), refused before any certificate lookup."""
+    allowed = _SUPPORTED_SOURCES.get(spec.panel.tf, ())
+    problems = [
+        f"member {m.name}: a {m.input.tf} source on a {spec.panel.tf} book"
+        for m in _input_members(spec)
+        if m.input.tf not in allowed
+    ]
+    if spec.horizon != 1:
+        problems.append(f"horizon {spec.horizon}")
+    if book is not None and _combiner_kind(book) != "equal_weight":
+        problems.append(f"combiner {_combiner_kind(book)}")
+    if book is not None and book.horizon_rule is not None:
+        problems.append("a horizon rule")
+    if problems:
+        raise RunRefused(
+            "input members run in the supported subset only (daily books with 1d, 1h, 15m or 5m "
+            "sources, hourly books with 1d sources, horizon 1, equal weight, no horizon rule; "
+            f"184-REVIEWS row 4): {'; '.join(problems)}"
+        )
+
+
+def _admit(spec: FamilySpec, m: MemberSpec, source_memory_bars: int) -> None:
+    """The member's route against the passing battery certificates (184-05)."""
+    inp = m.input
+    if inp.kind == "feature":
+        identity, window = "feature", None
+    else:
+        ((identity, window),) = inp.windows.items()
+    request = null_battery_persistent.CertificateRequest(
+        identity=identity,
+        window=window,
+        smoothing_half_life=m.smoothing_half_life,
+        source_tf=inp.tf,
+        book_tf=spec.panel.tf,
+        horizon=spec.horizon,
+        combiner="equal_weight",
+        max_age_rows=inp.max_age_rows,
+        max_gap_rows=inp.max_gap_rows,
+        source_memory_bars=source_memory_bars,
+    )
+    try:
+        null_battery_persistent.admit(request)
+    except null_battery_persistent.NotCertified as error:
+        raise RunRefused(f"member {m.name}: {error}") from error
+
+
+def _check_input_members(spec: FamilySpec, mode: str, book: BookSpec | None) -> None:
+    """Everything about input members that needs no data. Synthetic mode skips the subset and the
+    certificate so the battery itself can run (184-REVIEWS row 3); the source memory against the
+    certificate's bound is checked once the provenance config is known (_check_member_memory)."""
+    if not _input_members(spec):
+        return
+    for m in _input_members(spec):
+        _check_input_column(m)
+    _check_pins(spec)
+    if mode == "synthetic":
+        return
+    _check_supported_subset(spec, book)
+    for m in _input_members(spec):
+        _admit(spec, m, 0)
+
+
+def _member_memory(
+    spec: FamilySpec, m: MemberSpec, configs: dict[str, FeatureFactoryConfig] | None
+) -> MemberMemory:
+    """The one member-memory function: `configs` maps a source tf to the FeatureFactoryConfig
+    built from its verified provenance (never defaults). A residual-bar member keeps its declared
+    rule (slot history in sessions, declared rows including S1's reach)."""
+    bps = spec.panel.analysis_bars_per_session
+    inp = m.input
+    if inp is None:
+        return MemberMemory(
+            source_memory_bars=0,
+            max_age_rows=0,
+            smoothing_sessions=0,
+            slot_history_sessions=m.slot_history_sessions,
+            book_bars_per_session=bps,
+            sessions=m.slot_history_sessions,
+            rows=m.declared_memory_rows,
+        )
+    config = (configs or {}).get(inp.tf)
+    if config is None:
+        raise RunRefused(f"member {m.name}: no verified provenance config for source tf {inp.tf}")
+    try:
+        if inp.kind == "feature":
+            source_bars = feature_inputs.column_memory_bars(inp.column, config, default_registry())
+        else:
+            source_bars = kernel_source.kernel_member_memory_bars(inp.column, inp.windows, config)
+        return feature_member_memory(
+            source_memory_bars=source_bars,
+            source_bars_per_session=_BARS_PER_SESSION[inp.tf],
+            max_age_rows=inp.max_age_rows,
+            smoothing_half_life=m.smoothing_half_life,
+            slot_history_sessions=m.slot_history_sessions,
+            book_bars_per_session=bps,
+        )
+    except (ValueError, KernelRegistryError) as error:
+        raise RunRefused(f"member {m.name}: {error}") from error
+
+
+def _check_member_memory(spec: FamilySpec, configs: dict[str, FeatureFactoryConfig]) -> None:
+    """Declared rows against the verified memory, and the source memory against the certificate's
+    bound; both refuse before any bar is fetched or member computed."""
+    for m in _input_members(spec):
+        memory = _member_memory(spec, m, configs)
+        if m.declared_memory_rows != memory.rows:
+            raise RunRefused(
+                f"member {m.name}: declared_memory_rows {m.declared_memory_rows} != {memory.rows} "
+                "(source memory under the provenance config, alignment, smoothing, slot history)"
+            )
+        _admit(spec, m, memory.source_memory_bars)
+
+
+def _manifest_configs(manifest: dict) -> dict[str, FeatureFactoryConfig]:
+    """The configs a snapshot was built under: each source tf's verified provenance block."""
+    return {
+        tf: feature_inputs.feature_config(info["provenance"])
+        for tf, info in (manifest.get("sources") or {}).items()
+    }
+
+
+def _member_memories(spec: FamilySpec, manifest: dict) -> dict[str, MemberMemory]:
+    """Every member's memory; the E17 L of the run is book_memory / timing.e17_memory over these."""
+    configs = _manifest_configs(manifest) if _input_members(spec) else None
+    return {m.name: _member_memory(spec, m, configs) for m in spec.members}
+
+
+def _warmup_prefix(spec: FamilySpec, configs: dict[str, FeatureFactoryConfig]) -> int:
+    return warmup_prefix_sessions(
+        [_member_memory(spec, m, configs).sessions for m in _input_members(spec)]
+    )
+
+
+def _needs_high_low(m: MemberSpec) -> bool:
+    inp = m.input
+    if inp.kind != "kernel":
+        return False
+    registry = kernel_source.kernel_registry(inp.windows, None)
+    return any(
+        name in ("high", "low")
+        for kernel in registry.topological_order((inp.column,))
+        for name in kernel.inputs
+    )
+
+
+def _source_requests(spec: FamilySpec) -> list[snapshot.SourceRequest]:
+    """The S0 source requests the spec implies: one per distinct source tf, with its config pin."""
+    by_tf: dict[str, list[MemberSpec]] = {}
+    for m in _input_members(spec):
+        by_tf.setdefault(m.input.tf, []).append(m)
+    return [
+        snapshot.SourceRequest(
+            tf=tf,
+            pinned_config_projection_hash=members[0].input.config_projection_hash,
+            members=tuple(
+                snapshot.MemberSourceRequest(
+                    member=m.name,
+                    kind=m.input.kind,
+                    column=m.input.column,
+                    windows=None if m.input.windows is None else dict(m.input.windows),
+                    max_age_rows=m.input.max_age_rows,
+                    max_gap_rows=m.input.max_gap_rows,
+                    coverage_floor=m.input.coverage_floor,
+                )
+                for m in members
+            ),
+            need_high_low=any(_needs_high_low(m) for m in members),
+        )
+        for tf, members in sorted(by_tf.items())
+    ]
+
+
+def _build_fields(spec: FamilySpec) -> tuple[str, ...]:
+    """The panel's optional arrays: the spec's, plus high and low when a kernel member on the
+    book's own tf reads them (plan 187-15's field path)."""
+    fields = set(spec.panel.fields or ())
+    if any(r.need_high_low and r.tf == spec.panel.tf for r in _source_requests(spec)):
+        fields |= {"high", "low"}
+    return tuple(sorted(fields))
+
+
+def _check_spec(spec: FamilySpec, mode: str = "real", book: BookSpec | None = None) -> None:
+    """Spec load, no data read. `mode` is the run mode (real, exploration or synthetic) and `book`
+    the BookSpec the family runs in, if any: the input-member subset and certificate checks need
+    both (synthetic stays open so the battery itself can run)."""
     bps = spec.panel.analysis_bars_per_session
     factor_spec = FACTOR_SPECS[spec.factor_spec]
     for m in spec.members:
-        want = declared_memory_rows(m.slot_history_sessions, bps, factor_spec)
-        if m.declared_memory_rows != want:
-            raise RunRefused(
-                f"member {m.name}: declared_memory_rows {m.declared_memory_rows} != {want} "
-                f"(slot history {m.slot_history_sessions} sessions plus S1's reach)"
-            )
+        if m.input is None:
+            want = declared_memory_rows(m.slot_history_sessions, bps, factor_spec)
+            if m.declared_memory_rows != want:
+                raise RunRefused(
+                    f"member {m.name}: declared_memory_rows {m.declared_memory_rows} != {want} "
+                    f"(slot history {m.slot_history_sessions} sessions plus S1's reach)"
+                )
         resolve_member(m.signal)
+    _check_input_members(spec, mode, book)
 
 
-async def _gate(loaded: LoadedSpec, ctx: RunContext, *, once: bool = True) -> tuple[Path, str]:
+async def _gate(
+    loaded: LoadedSpec, ctx: RunContext, *, once: bool = True, mode: str = "real"
+) -> tuple[Path, str]:
     root = provenance.repo_root(ctx.root)
     try:
         blob = provenance.require_committed(root, loaded.path)
@@ -333,7 +592,7 @@ async def _gate(loaded: LoadedSpec, ctx: RunContext, *, once: bool = True) -> tu
             for fam in book.families:
                 provenance.require_committed(root, fam.path)
         if not loaded.books:  # a pod's members were checked when their own attempts ran
-            _check_spec_tree(loaded)
+            _check_spec_tree(loaded, mode)
         provenance.require_clean(root)
     except provenance.ProvenanceRefusal as error:
         raise RunRefused(str(error)) from error
@@ -353,11 +612,19 @@ def _require_r1(spec: FamilySpec | BookSpec) -> None:
         )
 
 
-def _check_spec_tree(loaded: LoadedSpec) -> None:
+def _check_spec_tree(loaded: LoadedSpec, mode: str = "real") -> None:
     specs = [f.model for f in loaded.families] or [loaded.model]
+    book = loaded.model if isinstance(loaded.model, BookSpec) else None
+    # S0 is built from the book's first family (run_book), so a later family's input members
+    # would find no source arrays: refused until S0 is requested for the whole book.
+    later = [s.family for s in specs[1:] if isinstance(s, FamilySpec) and _input_members(s)]
+    if later:
+        raise RunRefused(
+            f"input members outside the book's first family are not supported: {later}"
+        )
     for spec in specs:
         if isinstance(spec, FamilySpec):
-            _check_spec(spec)
+            _check_spec(spec, mode, book)
     # A real record's spec hash names its decision statistic (E17): a spec written before E17
     # never runs, and re-scoring one under E17 is a new spec hash, not the old one reused.
     for spec in {id(s): s for s in [loaded.model, *specs]}.values():
@@ -438,6 +705,68 @@ async def _analysis_panel(
     return prepared, None, None, source_probe
 
 
+def _prefix_ok(manifest: dict, book_tf: str, required: int) -> bool:
+    """The recorded warmup prefix holds `required` sessions: the declared count and, recomputed
+    from the NYSE calendar between fetch_start and scored_start, the real one (184-REVIEWS row
+    17). fetch_start must be the book clock's own start for that many sessions, so every source
+    clock (same sessions, own bar stamps) has them too."""
+    prefix = manifest.get("warmup_prefix")
+    if not prefix or prefix["sessions"] < required:
+        return False
+    fetch = datetime.fromisoformat(prefix["fetch_start"])
+    scored = datetime.fromisoformat(prefix["scored_start"])
+    first = (fetch if book_tf == "1d" else fetch.astimezone(ZoneInfo("America/New_York"))).date()
+    last = scored.date()
+    available = 0
+    if first < last:
+        available = sum(1 for d in nyse_sessions(first, last) if d < last)
+    return (
+        scored.date().isoformat() == manifest.get("start")
+        and available >= required
+        and snapshot.warmup_fetch_start(scored, book_tf, available) == fetch
+    )
+
+
+def _source_match(spec: FamilySpec, panel: Panel) -> dict[str, tuple]:
+    """The snapshot-against-spec pairs for input members: closes_at, the source tfs, each tf's
+    config hash against its pin and the warmup prefix. A spec without input members expects
+    neither sources nor a prefix, so a snapshot built for another spec cannot slip in."""
+    manifest = panel.manifest
+    sources = manifest.get("sources") or {}
+    inputs = _input_members(spec)
+    if not inputs:
+        return {
+            "sources": (sorted(sources), []),
+            "warmup_prefix": ("warmup_prefix" in manifest, False),
+        }
+    pins = {m.input.tf: m.input.config_projection_hash for m in inputs}
+    out: dict[str, tuple] = {
+        "closes_at": (panel.closes_at is not None, True),
+        "source_tfs": (sorted(sources), sorted(pins)),
+    }
+    for tf, pin in sorted(pins.items()):
+        out[f"config_hash.{tf}"] = ((sources.get(tf) or {}).get("config_hash"), pin)
+    required = None
+    if set(pins) <= set(sources):
+        required = _warmup_prefix(spec, _manifest_configs(manifest))
+    out["warmup_prefix"] = (
+        required is not None and _prefix_ok(manifest, spec.panel.tf, required),
+        True,
+    )
+    return out
+
+
+def _trade(panel: Panel, cfg) -> np.ndarray:
+    """The rows a run may trade: the scored span of the evaluation config on valid rows, and
+    never a warmup prefix row (those only fill member memory, B1c)."""
+    trade = trade_mask(panel.timestamps, cfg) & panel.valid
+    prefix = panel.manifest.get("warmup_prefix")
+    if prefix:
+        cut = datetime.fromisoformat(prefix["scored_start"]).astimezone(UTC).replace(tzinfo=None)
+        trade &= np.asarray(panel.timestamps).astype("datetime64[ns]") >= np.datetime64(cut, "ns")
+    return trade
+
+
 async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, str, Panel | None]:
     """(analysis panel, snapshot content hash, universe hash, transform probe source). The
     universe hash (todo 491) is the sha256 over the S0 snapshot's symbol list, before any
@@ -448,6 +777,8 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, st
         path = await build(ctx.dsn, ctx.snapshot_dir, spec)
     digest = store.verify(path)
     panel = panel_mod.load(path)
+    if panel.manifest.get("sources"):
+        snapshot.verify_sources(path)
     universe_hash = _symbol_digest(panel.symbols)
     grid = dividends.load_grid(path)
     manifest = panel.manifest
@@ -458,10 +789,13 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, st
         "end_exclusive": (manifest.get("end_exclusive"), spec.panel.end_exclusive),
         "universe": (manifest.get("universe"), spec.panel.universe),
         "dividends": (grid is not None, spec.panel.total_return is not None),
+        **_source_match(spec, panel),
     }
     wrong = {k: v for k, v in expected.items() if v[0] != v[1]}
     if wrong:
         raise ValueError(f"snapshot does not match the spec: {wrong}")
+    if _input_members(spec):
+        _check_member_memory(spec, _manifest_configs(manifest))
     symbols = None
     if spec.panel.members_universe == "us_session_equity":
         symbols = await snapshot.us_session_equity_symbols(ctx.dsn)
@@ -589,7 +923,7 @@ async def run_family(
     if real:
         if ctx.ledger is None:
             raise RunRefused("real mode needs a ledger")
-        root, code_commit = await _gate(loaded, ctx, once=not exploring)
+        root, code_commit = await _gate(loaded, ctx, once=not exploring, mode=mode)
         identities = family_identities(loaded)
         concept = {m.name: f"member.{spec.family}.{m.name}" for m in spec.members}
         request = RunRequest(
@@ -610,7 +944,7 @@ async def run_family(
             raise RunRefused(str(error)) from error
         run_ids = {name: started[concept[name]] for name in concept}
     else:
-        _check_spec(spec)
+        _check_spec(spec, "synthetic")
         _require_r1(spec)
         if panel is None:
             raise ValueError("synthetic mode needs a panel")
@@ -676,7 +1010,8 @@ async def run_family(
             return results
         vol = _vol(spec, residuals.bar, bps)
         cfg = spec.scoring.evaluation_config()
-        trade = trade_mask(panel.timestamps, cfg) & panel.valid
+        trade = _trade(panel, cfg)
+        memories = _member_memories(spec, panel.manifest)
         hashes = {
             "spec_hash": loaded.spec_hash,
             "spec_blob": loaded.blob_sha,
@@ -701,7 +1036,7 @@ async def run_family(
                 trade,
                 bars_per_session=bps,
                 warmup_sessions=cfg.warmup_sessions,
-                memory_sessions=e17_memory(m.slot_history_sessions, spec.horizon, bps),
+                memory_sessions=e17_memory(memories[m.name].sessions, spec.horizon, bps),
                 overlap_sessions=spec.horizon - 1 if bps == 1 else None,
             )
             series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
@@ -711,7 +1046,7 @@ async def run_family(
                 if exploring
                 else _shift_diagnostic(
                     alpha,
-                    m.declared_memory_rows + fwd_span(spec.horizon),
+                    memories[m.name].rows + fwd_span(spec.horizon),
                     spec,
                     spec.horizon,
                     panel,
@@ -1023,7 +1358,7 @@ async def run_book(
         run_id = started[subject]
     else:
         for fam in families:
-            _check_spec(fam)
+            _check_spec(fam, "synthetic", book)
         for s in (book, *families):
             _require_r1(s)
         if panel is None:
@@ -1085,11 +1420,12 @@ async def run_book(
                 return await finish(
                     "guard_failed", {"stage": "S3", "family": fam.family, "error": str(error)}
                 )
+            fam_memories = _member_memories(fam, panel.manifest)
             for m in fam.members:
                 columns.append(fam_members[m.name])
                 members.append((resolve_member(m.signal), dict(m.params)))
-                memories.append(m.declared_memory_rows)
-                slot_histories.append(m.slot_history_sessions)
+                memories.append(fam_memories[m.name].rows)
+                slot_histories.append(fam_memories[m.name].sessions)
                 member_keys.append(f"{fam.family}.{m.name}")
                 member_fams.append(fam.family)
             del fam_members
@@ -1186,7 +1522,7 @@ async def run_book(
         _log("S8 book test")
         vol = _vol(book, residuals.bar, bps)
         cfg = book.scoring.evaluation_config()
-        trade = trade_mask(panel.timestamps, cfg) & panel.valid
+        trade = _trade(panel, cfg)
         booked = book_timing(
             stack,
             residuals.fwd,
