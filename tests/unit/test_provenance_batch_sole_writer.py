@@ -36,6 +36,10 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: creates the table and guard triggers (its sole-writer rule comment "
         "matches the pattern)"
     ),
+    "production/migrations/569_discard_186_26_rebuild_rows.sql": (
+        "PERMANENT: one-time operator discard of the 186-26 rows (owner 2026-11-04); the only "
+        "write is the sanctioned completed -> superseded flip (migration 416), applied live"
+    ),
 }
 
 _REMEDY = (
