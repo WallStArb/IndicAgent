@@ -74,7 +74,18 @@ landing on origin/main.
 - [ ] Confirm the 229 D7-hold names and the 16 recent listings enter the rerun from their proven
       span (D4, item 11).
 
-Exit: 566 closed; the rerun's name list is generated, not typed.
+- [ ] Split recovery (2026-11-04 entity audit): pre-2016 IBKR named 1d misses old splits (316 of
+      503 pre-2016 jumps sit at a split ratio; `corporate_action` held one row), breaking the stated
+      invariant that stored equity bars are split-adjusted. Confirmed splits become `corporate_action`
+      rows (witness 1: named vs `smart_adjusted` ratio break; witness 2, independent of IBKR: Yahoo
+      split history); the daily rule applies them; raw is untouched; re-derive; D7. The same check
+      runs on IBKR 5m pre-2016. This gates the pin: every 1d kernel computes on canonical.
+- [ ] Entity continuity: 63 names whose canonical starts before the listed entity existed (ticker
+      reuse, shells, OTC pre-listing). Owner rules per class; fixes go through policy rows or excused
+      spans, never raw deletion.
+
+Exit: 566 closed, splits recovered and D7 clean on the recovered names, entity spans ruled; the
+rerun's name list is generated, not typed.
 
 ### Task 4: pin move and pilot (worker: 3a after task 1, or a fresh session)
 
