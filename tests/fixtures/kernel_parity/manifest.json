@@ -1185,11 +1185,13 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 3989731,
- "regenerated_from": "88863919fb3069e1acd09e4b54d05d60338a4273",
- "regeneration_reason": "todo 584 item 6c: sweep_detected retired (saturated at 1.0, bars_since_last_sweep == 0 is the per-bar event); the liquidity_sweeps kernel no longer gates on ATR, so sweep_strength, reclaim_velocity and bars_since_last_sweep exist where ATR is invalid",
+ "fixture_bytes": 3990637,
+ "regenerated_from": "6abaa186d6f164748c365ca70119a48010909dea",
+ "regeneration_reason": "todo 584 item 6d: bos_choch, fair_value_gap and order_blocks no longer return their whole fallback on an invalid ATR; only the outputs that divide by ATR are None, the directions, trend, bars_since_last_shift, open count, midpoint, strength and flags are computed",
  "changed_columns": {
-  "synthetic|SPY|5m": [],
+  "synthetic|SPY|5m": [
+   "fvg_open_count"
+  ],
   "real|SPY|5m": [],
   "real|SPY|15m": [],
   "real|SPY|1h": [],
@@ -2743,6 +2745,30 @@
     "real|XLE|1d": [
      "ctf_vwap_align"
     ]
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "88863919fb3069e1acd09e4b54d05d60338a4273",
+   "regeneration_reason": "todo 584 item 6c: sweep_detected retired (saturated at 1.0, bars_since_last_sweep == 0 is the per-bar event); the liquidity_sweeps kernel no longer gates on ATR, so sweep_strength, reclaim_velocity and bars_since_last_sweep exist where ATR is invalid",
+   "changed_columns": {
+    "synthetic|SPY|5m": [],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [],
+    "real|SPY|1h": [],
+    "real|SPY|1d": [],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [],
+    "real|QQQ|1d": [],
+    "real|TLT|5m": [],
+    "real|TLT|15m": [],
+    "real|TLT|1h": [],
+    "real|TLT|1d": [],
+    "real|XLE|5m": [],
+    "real|XLE|15m": [],
+    "real|XLE|1h": [],
+    "real|XLE|1d": []
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
   }
