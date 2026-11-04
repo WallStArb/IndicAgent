@@ -149,6 +149,13 @@ self-review their own diffs, so after 184-10 one independent /code-review covers
 (the plans predate 584; 184-08 still names migration 526), and the lead edits the plans before
 execution. 184-12's dry S0 build runs after 186-27.
 
+Landed 2026-11-04: 184-05 (9ceb891b6, battery 6/13 certificates), 184-09 (1e2bd5584), 184-10
+(2e2ec9487); wave gate PASSED (logs/gate/20261104T112922Z_e1cca6456): unit suite, repro_frozen
+bit-identical, compare-all. compare-all replays completed evidence runs, and `research_run` is empty
+since the 10-30 reset, so it replayed zero runs: vacuous until real runs exist; the wave's parity
+evidence is the suite plus repro_frozen. The independent wave review found admission holes: todo
+588 (refuse first, then earn admission back by battery cells; 184-12's dry build is its part C).
+
 Exit: a spec with a stored feature member runs through S0 -> S8 on a synthetic panel, and the
 frozen verdicts reproduce bit-identically.
 
