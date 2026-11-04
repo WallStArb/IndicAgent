@@ -121,3 +121,14 @@ def test_a_stale_split_stales_the_bar_on_its_effective_date():
     assert not _stale_for(_obs(_OLD + timedelta(days=3), 50.0), overlap_row)
     evidence = SplitRecord(_OLD, _RECORDED, 2.0, (f"SMART-{_OLD}",))
     assert not _stale_for(_obs(_OLD, 50.0), evidence)  # the refetch that revealed it
+
+
+def test_a_legacy_observation_under_a_calendar_split_rescales_like_smart():
+    """LEGACY_IMPORT sits on SMART's basis on the confirmed spans (2026-11-04: 3 legacy dates in
+    1 of 380 splits, both route switches flat), so the rescale treats it identically."""
+    smart = _obs(_OLD, 100.0, volume=1001)
+    legacy = Observation("L", "LEGACY_IMPORT", _OLD, 100.0, 100.0, 100.0, 100.0, 1001, _T0, True)
+    from src.intelligence.bars.daily_rule import _rescaled
+
+    a, b = _rescaled(smart, [_split()]), _rescaled(legacy, [_split()])
+    assert (a.open, a.close, a.volume) == (b.open, b.close, b.volume) == (50.0, 50.0, 2002)
