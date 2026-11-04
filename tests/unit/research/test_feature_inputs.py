@@ -115,22 +115,60 @@ def _pin(batches, *, pin: str = SNAP_HASH, symbols=("AAA", "BBB"), start=T0, end
 
 def test_columns_unknown_refuses():
     with pytest.raises(FeatureInputRefused, match="B1e"):
-        fi.check_columns(["not_a_feature"], REG)
+        fi.check_columns(["not_a_feature"], REG, "1d")
 
 
 def test_columns_quote_refuses_before_sql():
     with pytest.raises(FeatureInputRefused, match="B1e"):
-        fi.feature_select_sql([PLAIN + '"; DROP TABLE x; --'], REG)
+        fi.feature_select_sql([PLAIN + '"; DROP TABLE x; --'], REG, tf="1d")
 
 
 def test_columns_select_sql_text():
-    a, b = REG.feature_columns()[:2]
-    sql = fi.feature_select_sql([a, b], REG)
+    a, b = sorted(REG.applicable_outputs("1d"))[:2]
+    sql = fi.feature_select_sql([a, b], REG, tf="1d")
     for part in (f'"{a}"', f'"{b}"', "symbol", "bar_ts", "ORDER BY bar_ts, symbol"):
         assert part in sql
     for n in range(1, 5):
         assert f"${n}" in sql
     assert "*" not in sql
+
+
+def test_columns_not_applicable_on_tf_refused_with_rule_id():
+    column = next(c for c in REG.feature_columns() if c in REG.not_applicable_outputs("1d"))
+    with pytest.raises(FeatureInputRefused, match="B1e") as error:
+        fi.check_columns([column], REG, "1d")
+    assert column in str(error.value) and "1d" in str(error.value)
+    other = next(tf for tf in ("5m", "15m", "1h") if column not in REG.not_applicable_outputs(tf))
+    assert fi.check_columns([column], REG, other) == (column,)
+
+
+def test_columns_retired_column_refused():
+    kept = REG.feature_columns()[0]
+    with pytest.raises(FeatureInputRefused, match="B1e"):
+        fi.check_columns(["retired_column_xyz", kept], REG, "1h")
+
+
+def test_columns_read_registry_at_call_time():
+    class Fake:
+        def __init__(self, cols):
+            self.cols = cols
+
+        def feature_columns(self):
+            return self.cols
+
+        def not_applicable_outputs(self, tf):
+            return frozenset()
+
+    assert fi.check_columns(["x"], Fake(("x",)), "1d") == ("x",)
+    with pytest.raises(FeatureInputRefused, match="B1e"):
+        fi.check_columns(["x"], Fake(("y",)), "1d")
+
+
+def test_columns_v2_only_column_in_registry_accepted():
+    # a column present in the registry is accepted whatever the live table holds (the table swap
+    # is 186-27; real reads wait for it)
+    v2 = next(c for c in REG.applicable_outputs("1d") if c not in {PLAIN})
+    assert fi.check_columns([v2], REG, "1d") == (v2,)
 
 
 # ---------------------------------------------------------------------------

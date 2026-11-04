@@ -75,9 +75,11 @@ PROVENANCE_SQL = (
 # ---------------------------------------------------------------------------
 
 
-def check_columns(names: Iterable[str], registry: KernelRegistry) -> tuple[str, ...]:
+def check_columns(names: Iterable[str], registry: KernelRegistry, tf: str) -> tuple[str, ...]:
     """The names, each checked against the registry's feature columns (the SQL-injection
-    control: only an allow-listed identifier is ever quoted into SQL)."""
+    control: only an allow-listed identifier is ever quoted into SQL). A column the registry
+    declares not applicable on `tf` is NULL by declaration and refused here, at spec load, not
+    late at coverage. The registry is read at call time; no column list is cached."""
     allowed = set(registry.feature_columns())
     out = tuple(names)
     if not out:
@@ -87,12 +89,19 @@ def check_columns(names: Iterable[str], registry: KernelRegistry) -> tuple[str, 
         raise FeatureInputRefused(f"unknown feature columns {unknown} (B1e)")
     if len(set(out)) != len(out):
         raise FeatureInputRefused(f"duplicate feature columns in {list(out)} (B1e)")
+    not_applicable = sorted(n for n in out if n in registry.not_applicable_outputs(tf))
+    if not_applicable:
+        raise FeatureInputRefused(
+            f"feature columns {not_applicable} are not applicable on {tf} and always NULL there (B1e)"
+        )
     return out
 
 
-def feature_select_sql(names: Sequence[str], registry: KernelRegistry | None = None) -> str:
+def feature_select_sql(
+    names: Sequence[str], registry: KernelRegistry | None = None, *, tf: str
+) -> str:
     """The pinned feature read: $1 tf, $2 symbols, $3 start, $4 end (exclusive)."""
-    columns = check_columns(names, registry if registry is not None else default_registry())
+    columns = check_columns(names, registry if registry is not None else default_registry(), tf)
     quoted = ", ".join(f'"{c}"' for c in columns)
     return (
         f"SELECT symbol, bar_ts, {quoted} FROM {FEATURE_TABLE} "
@@ -417,6 +426,16 @@ def coverage_check(
 ) -> dict:
     """The coverage block, by `feature_tf_quality` over per-symbol counts from the [t, i]
     array; refuses below the pinned floor or when no symbol has a row."""
+    return coverage_from_counts(
+        symbol_counts(values, symbols, present=present), feature=feature, tf=tf, floor=floor
+    )
+
+
+def symbol_counts(
+    values: np.ndarray, symbols: Sequence[str], *, present: np.ndarray
+) -> list[SymbolCounts]:
+    """Per-symbol row counts of a [t, i] array by row presence. Symbols are independent, so counts
+    from disjoint symbol chunks concatenate to the single-pass counts."""
     if values.shape != present.shape or values.shape[1] != len(symbols):
         raise ValueError("values, present and symbols must agree on shape")
     counts = []
@@ -430,7 +449,14 @@ def coverage_check(
                 n_non_finite=int(np.isinf(cells).sum()),
             )
         )
-    quality = feature_tf_quality(feature, tf, counts)
+    return counts
+
+
+def coverage_from_counts(
+    counts: Sequence[SymbolCounts], *, feature: str, tf: str, floor: float
+) -> dict:
+    """The coverage block from per-symbol counts; refuses below the floor (B1h)."""
+    quality = feature_tf_quality(feature, tf, list(counts))
     coverage = quality.symbol_coverage
     if coverage is None or coverage < floor:
         raise FeatureInputRefused(

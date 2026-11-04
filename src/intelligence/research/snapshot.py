@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal
 
 import asyncpg
 import numpy as np
@@ -28,10 +30,19 @@ from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
 from src.intelligence.bars.label_inputs import load_label_inputs
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.research import clock, data_quality, feature_inputs
+from src.intelligence.features.contract.registry import default_registry
+from src.intelligence.research import (
+    align,
+    clock,
+    data_quality,
+    feature_inputs,
+    kernel_source,
+    store,
+)
 from src.intelligence.research import dividends as dividends_mod
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.panel import Panel
+from src.intelligence.statistics.feature_coverage import SymbolCounts
 
 _POOL_SIZE = 6
 _EXCHANGE_TZ = "America/New_York"
@@ -46,6 +57,17 @@ PRICE_SOURCE = "market_data_ohlcv_tradeable"  # the manifest's "source" on every
 _OOS_START_SQL = (
     "SELECT config_value::timestamptz FROM config_state "
     "WHERE config_key = 'alpha.validation.oos_start'"
+)
+# Plan 184-08: symbols per feature-read chunk (migration 564), and the timestamps pass that builds a
+# finer source's one grid axis before any chunk is read.
+_CHUNK_SQL = (
+    "SELECT config_value::int FROM config_state "
+    "WHERE config_key = 'infra.research.snapshot_feature_chunk_symbols'"
+)
+_AXIS_SQL = (
+    "SELECT timestamp, close FROM market_data_ohlcv_tradeable "
+    "WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4 "
+    "ORDER BY timestamp"
 )
 _KNOWN_SQL = "SELECT symbol FROM instruments WHERE symbol = ANY($1)"
 _BARS_SQL = (
@@ -119,6 +141,19 @@ async def read_only_pool(dsn: str) -> asyncpg.Pool:
         min_size=1,
         max_size=_POOL_SIZE,
         server_settings={"default_transaction_read_only": "on"},
+    )
+
+
+async def _fetch_bars(pool, sql: str, sym: str, tf: str, lo: datetime, hi: datetime):
+    """(symbol, bars tuple or None when the symbol has no bars in [lo, hi))."""
+    rows = await pool.fetch(sql, sym, tf, lo, hi)
+    if not rows:
+        return sym, None
+    ts, *values = zip(*rows)  # one pass over the records
+    stamps = pd.DatetimeIndex(ts).tz_convert(UTC).tz_localize(None)
+    return sym, (
+        stamps.values.astype("datetime64[ns]"),
+        *(np.array(x, dtype=float) for x in values),
     )
 
 
@@ -370,6 +405,436 @@ async def us_session_equity_symbols(dsn: str) -> list[str]:
     return [r["symbol"] for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# Plan 184-08: feature and kernel members on source timeframes
+# ---------------------------------------------------------------------------
+
+_TF_MINUTES = {**clock.TF_MINUTES, clock.DAILY_TF: _MINUTES_PER_DAY}
+_AXIS = "__axis__"  # the pseudo-symbol that gives every chunk panel the one shared grid
+_PROBE_SYMBOLS = 3
+
+
+@dataclasses.dataclass(frozen=True)
+class MemberSourceRequest:
+    """One research member's source input: a stored feature column or a research kernel."""
+
+    member: str
+    kind: Literal["feature", "kernel"]
+    column: str
+    windows: Mapping[str, int] | None
+    max_age_rows: int
+    max_gap_rows: int | None
+    coverage_floor: float | None
+
+
+@dataclasses.dataclass(frozen=True)
+class SourceRequest:
+    """All members reading one source timeframe, with that tf's one config-hash pin."""
+
+    tf: str
+    pinned_config_projection_hash: str
+    members: tuple[MemberSourceRequest, ...]
+    need_high_low: bool
+
+
+def _check_requests(sources: Sequence[SourceRequest], registry) -> None:
+    """Refuse every bad column before any SQL is sent."""
+    seen = set()
+    for req in sources:
+        if req.tf not in _TF_MINUTES:
+            raise ValueError(f"unknown source tf {req.tf!r}")
+        if req.tf in seen:
+            raise ValueError(f"two source requests for tf {req.tf}: one pin per tf")
+        seen.add(req.tf)
+        stored = [m.column for m in req.members if m.kind == "feature"]
+        if stored:
+            try:
+                feature_inputs.check_columns(sorted(set(stored)), registry, req.tf)
+            except feature_inputs.FeatureInputRefused as error:
+                raise ValueError(str(error)) from error
+        for m in req.members:
+            if m.kind == "kernel" and m.max_gap_rows is None:
+                raise ValueError(f"kernel member {m.member} needs max_gap_rows")
+
+
+async def _tf_configs(
+    pool, sources: Sequence[SourceRequest], symbols: Sequence[str], spans, registry
+) -> dict[str, dict]:
+    """tf -> {"block": provenance block, "config": FeatureFactoryConfig}; `spans` maps tf to its
+    (start, end). Refuses (B1f, B1j) before any bar or feature row is fetched."""
+    out = {}
+    for req in sorted(sources, key=lambda r: r.tf):
+        start, end = spans[req.tf]
+        rows = await pool.fetch(
+            feature_inputs.PROVENANCE_SQL,
+            list(feature_inputs.PROVENANCE_TARGET_TABLES),
+            req.tf,
+            start,
+            end,
+        )
+        batches = [dict(r) for r in rows]
+        try:
+            block = feature_inputs.provenance_pin(
+                batches,
+                symbols=sorted(symbols),
+                span_start=start,
+                span_end=end,
+                pinned_config_projection_hash=req.pinned_config_projection_hash,
+            )
+            feature_inputs.refuse_regime_columns(
+                [m.column for m in req.members if m.kind == "feature"], registry, batches
+            )
+            out[req.tf] = {"block": block, "config": feature_inputs.feature_config(block)}
+        except feature_inputs.FeatureInputRefused as error:
+            raise ValueError(str(error)) from error
+    return out
+
+
+async def source_configs(
+    dsn: str,
+    sources: Sequence[SourceRequest],
+    start: str,
+    end: str,
+    *,
+    symbols: Sequence[str],
+) -> dict[str, dict]:
+    """The verified provenance block and FeatureFactoryConfig per source tf over [start, end),
+    before any bar is fetched, so the runner can compute member memory and the warmup prefix
+    from them (184-09). `symbols` are the names the provenance must cover."""
+    registry = default_registry()
+    _check_requests(sources, registry)
+    lo, hi = utc(datetime.fromisoformat(start)), utc(datetime.fromisoformat(end))
+    pool = await read_only_pool(dsn)
+    try:
+        return await _tf_configs(
+            pool, sources, symbols, {r.tf: (lo, hi) for r in sources}, registry
+        )
+    finally:
+        await pool.close()
+
+
+@dataclasses.dataclass
+class _Ctx:
+    pool: Any
+    registry: Any
+    book: Panel
+    book_closes: np.ndarray
+    scored_lo: datetime
+    hi: datetime
+    warmup_sessions: int
+    chunk: int
+
+
+def _scored_rows(grid_ts: np.ndarray, scored_lo: datetime) -> np.ndarray:
+    cut = np.datetime64(scored_lo.astimezone(UTC).replace(tzinfo=None), "ns")
+    return np.asarray(grid_ts).astype("datetime64[ns]") >= cut
+
+
+def _floors(members: Sequence[MemberSourceRequest], key) -> dict[str, float | None]:
+    """The strictest declared coverage floor per key (None when no member declares one)."""
+    out: dict[str, float | None] = {}
+    for m in members:
+        floor = m.coverage_floor
+        current = out.get(key(m))
+        out[key(m)] = (
+            floor if current is None else (current if floor is None else max(current, floor))
+        )
+    return out
+
+
+def _block_info(tf: str, kind: str, tried: dict) -> dict:
+    return {
+        "tf": tf,
+        "relation": kind,
+        "config_hash": tried["block"]["projection_hash"],
+        "projection": tried["block"]["projection"],
+        "provenance": tried["block"],
+    }
+
+
+def _feature_rows_to_grid(rows, grid: Panel, symbols, columns, registry, config, scored):
+    """Scatter, mask warmup and return {column: float32 [n, k]}, present, counts, per-column
+    manifest pieces. Pure over fetched rows."""
+    arrays, unmatched = feature_inputs.scatter_rows(rows, grid.timestamps, symbols, columns)
+    present = feature_inputs.present_mask(rows, grid.timestamps, symbols)
+    masked, warm = {}, {}
+    for column in columns:
+        memory = feature_inputs.column_memory_bars(column, config, registry)
+        masked[column], warm[column] = feature_inputs.warmup_mask(
+            arrays[column], memory, present=present
+        )
+    return masked, present & scored[:, None], unmatched, warm
+
+
+async def _whole_source(
+    ctx: _Ctx, req: SourceRequest, tried: dict
+) -> tuple[dict, dict, Panel | None]:
+    """A source at the book's clock or coarser: its arrays on its own grid (the book's when equal)
+    and its manifest block; the child panel is returned for the caller to save."""
+    tf, registry, config = req.tf, ctx.registry, tried["config"]
+    symbols = ctx.book.symbols
+    if tf == ctx.book.tf:
+        grid, child = ctx.book, None
+    else:
+        grid = await _read_source_grid(ctx, tf, req.need_high_low, symbols)
+        child = grid
+    lo = warmup_fetch_start(ctx.scored_lo, tf, ctx.warmup_sessions)
+    scored = _scored_rows(grid.timestamps, ctx.scored_lo)
+    arrays: dict[str, np.ndarray] = {}
+    info = _block_info(tf, "equal" if child is None else "coarser", tried)
+    info["columns"], info["unmatched_rows"] = {}, 0
+    stored = [m for m in req.members if m.kind == "feature"]
+    if stored:
+        columns = sorted({m.column for m in stored})
+        sql = feature_inputs.feature_select_sql(columns, registry, tf=tf)
+        rows = await ctx.pool.fetch(sql, tf, list(symbols), lo, ctx.hi)
+        masked, present, unmatched, warm = _feature_rows_to_grid(
+            rows, grid, symbols, columns, registry, config, scored
+        )
+        floors = _floors(stored, lambda m: m.column)
+        info["unmatched_rows"] = unmatched
+        for column in columns:
+            cov = None
+            if floors[column] is not None:
+                cov = _coverage(
+                    feature_inputs.symbol_counts(masked[column], symbols, present=present),
+                    column,
+                    tf,
+                    floors[column],
+                )
+            info["columns"][column] = {"warmup": warm[column], "coverage": cov}
+            arrays[feature_inputs.feature_array_name(tf, column)] = masked[column]
+    for m in (k for k in req.members if k.kind == "kernel"):
+        result = _run_kernel(grid, m, config, req.need_high_low)
+        values = result.values[m.column]
+        cov = None
+        if m.coverage_floor is not None:
+            present = np.isfinite(np.asarray(grid.close)) & scored[:, None]
+            cov = _coverage(
+                feature_inputs.symbol_counts(values, symbols, present=present),
+                m.column,
+                tf,
+                m.coverage_floor,
+            )
+        arrays[f"kernel__{tf}__{m.member}"] = values
+        info["columns"][m.member] = {
+            "memory_bars": result.memory_bars[m.column],
+            "gap_masked": result.gap_masked[m.column],
+            "warmup_masked": result.warmup_masked[m.column],
+            "coverage": cov,
+        }
+    return arrays, info, child
+
+
+def _coverage(counts, column: str, tf: str, floor: float) -> dict:
+    try:
+        return feature_inputs.coverage_from_counts(counts, feature=column, tf=tf, floor=floor)
+    except feature_inputs.FeatureInputRefused as error:
+        raise ValueError(str(error)) from error
+
+
+def _run_kernel(grid: Panel, m: MemberSourceRequest, config, need_high_low: bool):
+    try:
+        return kernel_source.kernel_source(
+            grid,
+            [m.column],
+            dict(m.windows or {}),
+            config,
+            max_gap_rows=int(m.max_gap_rows),  # type: ignore[arg-type]
+            high=grid.high if need_high_low else None,
+            low=grid.low if need_high_low else None,
+        )
+    except kernel_source.KernelSourceRefused as error:
+        raise ValueError(str(error)) from error
+
+
+def _source_fields(need_high_low: bool) -> tuple[str, ...]:
+    return panel_mod.OPTIONAL_BAR_FIELDS if need_high_low else ()
+
+
+def _bars_sql(fields: tuple[str, ...]) -> str:
+    return _BARS_SQL.format(extra="".join(f", {f}" for f in fields))
+
+
+def _empty_bars(n_fields: int):
+    return (np.array([], dtype="datetime64[ns]"), *(np.array([]) for _ in range(3 + n_fields)))
+
+
+async def _read_source_grid(ctx: _Ctx, tf: str, need_high_low: bool, symbols) -> Panel:
+    """The source grid for exactly the book's symbols (a name without source bars is a NaN
+    column), with closes_at."""
+    fields = _source_fields(need_high_low)
+    lo = warmup_fetch_start(ctx.scored_lo, tf, ctx.warmup_sessions)
+    sql = _bars_sql(fields)
+    got = dict(
+        await asyncio.gather(*(_fetch_bars(ctx.pool, sql, s, tf, lo, ctx.hi) for s in symbols))
+    )
+    bars = {s: got[s] if got[s] is not None else _empty_bars(len(fields)) for s in symbols}
+    grid = build_grid(bars, tf, fields)
+    closes = clock.closes_at(grid.timestamps, grid.valid, tf, grid.bars_per_session)
+    return dataclasses.replace(grid, closes_at=closes)
+
+
+async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dict, dict]:
+    """A source finer than the book: per symbol chunk, its values on the source clock, reduced to
+    the int32 source-row index align_index produced plus the referenced source rows and values.
+    No aligned value array is persisted (S2b replays the index)."""
+    tf, registry, config = req.tf, ctx.registry, tried["config"]
+    symbols, m_book = ctx.book.symbols, len(ctx.book.symbols)
+    fields = _source_fields(req.need_high_low)
+    lo = warmup_fetch_start(ctx.scored_lo, tf, ctx.warmup_sessions)
+    sql = _bars_sql(fields)
+    chunks = [symbols[i : i + ctx.chunk] for i in range(0, m_book, ctx.chunk)]
+
+    # pass 1: the one grid axis, from timestamps (and finite closes) of every symbol
+    all_ts, finite_ts = [], []
+    for chunk in chunks:
+        for rows in await asyncio.gather(
+            *(ctx.pool.fetch(_AXIS_SQL, s, tf, lo, ctx.hi) for s in chunk)
+        ):
+            if rows:
+                ts, close = zip(*rows)
+                stamps = (
+                    pd.DatetimeIndex(ts)
+                    .tz_convert(UTC)
+                    .tz_localize(None)
+                    .values.astype("datetime64[ns]")
+                )
+                all_ts.append(stamps)
+                finite_ts.append(stamps[np.isfinite(np.array(close, dtype=float))])
+    union = np.unique(np.concatenate(all_ts)) if all_ts else np.array([], dtype="datetime64[ns]")
+    finite = np.concatenate(finite_ts) if finite_ts else union[:0]
+    axis_close = np.where(np.isin(union, finite), 1.0, np.nan)
+    ones = np.ones(len(union))
+    axis_bars = (union, ones, axis_close, ones, *(ones for _ in fields))
+    axis = build_grid({_AXIS: axis_bars}, tf, fields)
+    src_ts, src_valid = axis.timestamps, axis.valid
+    src_closes = clock.closes_at(src_ts, src_valid, tf, axis.bars_per_session)
+    scored = _scored_rows(src_ts, ctx.scored_lo)
+    n_src, n_book = len(src_ts), len(ctx.book_closes)
+
+    stored = [m for m in req.members if m.kind == "feature"]
+    columns = sorted({m.column for m in stored})
+    feature_sql = feature_inputs.feature_select_sql(columns, registry, tf=tf) if columns else None
+    floors_col = _floors(stored, lambda m: m.column)
+    floors_kernel = {m.member: m.coverage_floor for m in req.members if m.kind == "kernel"}
+    counts: dict[str, list[SymbolCounts]] = {k: [] for k in (*columns, *floors_kernel)}
+    warm = {k: {"memory_bars": 0, "masked_rows": 0, "masked_finite": 0} for k in columns}
+    kernel_info = {m: {"gap_masked": 0, "warmup_masked": 0} for m in floors_kernel}
+    unmatched = 0
+    idx = {m.member: np.full((n_book, m_book), -1, dtype=np.int32) for m in req.members}
+    pieces: dict[str, list] = {m.member: [] for m in req.members}
+    probe = (
+        np.full((n_src, min(_PROBE_SYMBOLS, m_book), 5), np.nan)
+        if any(m.kind == "kernel" for m in req.members)
+        else None
+    )
+    col0 = 0
+    for chunk in chunks:
+        got = dict(
+            await asyncio.gather(*(_fetch_bars(ctx.pool, sql, s, tf, lo, ctx.hi) for s in chunk))
+        )
+        bars = {s: got[s] if got[s] is not None else _empty_bars(len(fields)) for s in chunk}
+        grid = _chunk_grid(axis_bars, bars, tf, fields)
+        sl = slice(col0, col0 + len(chunk))
+        values: dict[str, np.ndarray] = {}
+        if feature_sql:
+            rows = await ctx.pool.fetch(feature_sql, tf, list(chunk), lo, ctx.hi)
+            masked, present, miss, w = _feature_rows_to_grid(
+                rows, grid, chunk, columns, registry, config, scored
+            )
+            unmatched += miss
+            for c in columns:
+                values[c] = masked[c]
+                counts[c] += feature_inputs.symbol_counts(masked[c], chunk, present=present)
+                for key, v in w[c].items():
+                    warm[c][key] = v if key == "memory_bars" else warm[c][key] + v
+        for m in req.members:
+            if m.kind == "kernel":
+                result = _run_kernel(grid, m, config, req.need_high_low)
+                arr = result.values[m.column]
+                kernel_info[m.member]["gap_masked"] += result.gap_masked[m.column]
+                kernel_info[m.member]["warmup_masked"] += result.warmup_masked[m.column]
+                kernel_info[m.member]["memory_bars"] = result.memory_bars[m.column]
+                present = np.isfinite(np.asarray(grid.close)) & scored[:, None]
+                counts[m.member] += feature_inputs.symbol_counts(arr, chunk, present=present)
+            else:
+                arr = values[m.column]
+            ix = align.align_index(np.isfinite(arr), src_closes, ctx.book_closes, m.max_age_rows)
+            idx[m.member][:, sl] = ix
+            rows_c = np.unique(ix[ix >= 0])
+            pieces[m.member].append((sl, rows_c, arr[rows_c]))
+        if probe is not None:
+            for j in range(col0, min(col0 + len(chunk), probe.shape[1])):
+                k = j - col0
+                hl = (grid.high[:, k], grid.low[:, k]) if req.need_high_low else (None, None)
+                for f, col in enumerate(
+                    (grid.open[:, k], hl[0], hl[1], grid.close[:, k], grid.volume[:, k])
+                ):
+                    if col is not None:
+                        probe[:, j, f] = col
+        col0 += len(chunk)
+
+    info = _block_info(tf, "finer", tried)
+    info["columns"], info["unmatched_rows"] = {}, unmatched
+    for c in columns:
+        info["columns"][c] = {
+            "warmup": warm[c],
+            "coverage": (
+                _coverage(counts[c], c, tf, floors_col[c]) if floors_col[c] is not None else None
+            ),
+        }
+    for name, floor in floors_kernel.items():
+        info["columns"][name] = {
+            **kernel_info[name],
+            "coverage": _coverage(counts[name], name, tf, floor) if floor is not None else None,
+        }
+    info["members"] = {m.member: {"max_age_rows": m.max_age_rows} for m in req.members}
+    arrays: dict[str, np.ndarray] = {f"src_ts__{tf}": src_ts, f"src_valid__{tf}": src_valid}
+    for m in req.members:
+        used = [p[1] for p in pieces[m.member]]
+        union_rows = np.unique(np.concatenate(used)) if used else np.zeros(0, dtype=np.int64)
+        ref = np.full((len(union_rows), m_book), np.nan, dtype=np.float32)
+        for sl, rows_c, vals in pieces[m.member]:
+            ref[np.searchsorted(union_rows, rows_c), sl] = vals
+        arrays[f"idx__{m.member}"] = idx[m.member]
+        arrays[f"ref_rows__{m.member}"] = union_rows.astype(np.int32)
+        arrays[f"ref_values__{m.member}"] = ref
+    if probe is not None:
+        arrays[f"probe_bars__{tf}"] = probe
+        info["probe_symbols"] = list(symbols[: probe.shape[1]])
+    return arrays, info
+
+
+def _chunk_grid(axis_bars, bars, tf: str, fields: tuple[str, ...]) -> Panel:
+    """A chunk's panel on the shared grid: the axis pseudo-symbol joins the build so every chunk
+    sees the whole union of timestamps, then is dropped."""
+    full = build_grid({**bars, _AXIS: axis_bars}, tf, fields)
+    keep = len(bars)
+    names = ("open", "close", "volume", *fields)
+    return dataclasses.replace(
+        full,
+        symbols=full.symbols[:keep],
+        **{f: getattr(full, f)[:, :keep] for f in names},
+    )
+
+
+def verify_sources(book_path: Path) -> dict[str, Path]:
+    """Re-verify every child source dir against the digest the book manifest recorded; returns
+    tf -> dir. A changed byte in a child raises."""
+    book_path = Path(book_path)
+    sources = store.read_meta(book_path)["manifest"].get("sources", {})
+    out = {}
+    for tf, info in sorted(sources.items()):
+        if "dir" not in info:
+            continue
+        path = book_path.parent / info["dir"]
+        if store.verify(path) != info["sha256"]:
+            raise ValueError(f"source {tf} digest differs from the book manifest")
+        out[tf] = path
+    return out
+
+
 async def build_panel(
     dsn: str,
     out_dir: Path,
@@ -382,6 +847,7 @@ async def build_panel(
     dividends: bool = False,
     fields: tuple[str, ...] = (),
     warmup_sessions: int = 0,
+    sources: Sequence[SourceRequest] | None = None,
 ) -> Path:
     """Fetch, grid, and write a content-hashed panel directory; returns its path.
     `manifest_extra` (for example the universe dimension) is merged into the manifest.
@@ -391,7 +857,14 @@ async def build_panel(
     every earlier snapshot. `fields` may also name closes_at (each row's availability time,
     plan 184-07 B1b). `warmup_sessions` fetches that many NYSE sessions before `start` so
     declared member memory is filled at the first scored row (B1c); the manifest records
-    fetch_start and scored_start, and 0 writes the bytes of every earlier snapshot."""
+    fetch_start and scored_start, and 0 writes the bytes of every earlier snapshot. `sources`
+    (plan 184-08) adds each source tf's gated feature and kernel inputs under the one verified
+    config per tf: arrays of a source at or coarser than the book's clock (a child dir per coarser
+    tf), and for a finer source compact evidence plus an align_index source-row index. Without
+    `sources` the bytes are those of every earlier snapshot."""
+    registry = default_registry()
+    sources = tuple(sources or ())
+    _check_requests(sources, registry)
     unknown = set(fields) - {
         *panel_mod.OPTIONAL_BAR_FIELDS,
         panel_mod.SECTOR_PIT,
@@ -399,7 +872,8 @@ async def build_panel(
     }
     if unknown:
         raise ValueError(f"unknown panel fields: {sorted(unknown)}")
-    bar_fields = tuple(f for f in panel_mod.OPTIONAL_BAR_FIELDS if f in fields)
+    want_high_low = any(r.need_high_low and r.tf == tf for r in sources)
+    bar_fields = tuple(f for f in panel_mod.OPTIONAL_BAR_FIELDS if f in fields or want_high_low)
     bars_sql = _BARS_SQL.format(extra="".join(f", {f}" for f in bar_fields))
     scored_lo, hi = (utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
     lo = warmup_fetch_start(scored_lo, tf, warmup_sessions)
@@ -421,19 +895,19 @@ async def build_panel(
             except feature_inputs.FeatureInputRefused as error:
                 raise ValueError(f"{tf} snapshot refused (B1d): {error}") from error
 
-        async def fetch(sym: str):
-            rows = await pool.fetch(bars_sql, sym, tf, lo, hi)
-            if not rows:
-                return sym, None
-            ts, *values = zip(*rows)  # one pass over the records
-            stamps = pd.DatetimeIndex(ts).tz_convert(UTC).tz_localize(None)
-            return sym, (
-                stamps.values.astype("datetime64[ns]"),
-                *(np.array(x, dtype=float) for x in values),
-            )
-
         requested = sorted(symbols)
-        fetched = await asyncio.gather(*(fetch(s) for s in requested))
+        chunk = 0
+        if sources:
+            chunk = await pool.fetchval(_CHUNK_SQL)
+            if not chunk or chunk < 1:
+                raise ValueError("infra.research.snapshot_feature_chunk_symbols is not set")
+            spans = {
+                r.tf: (warmup_fetch_start(scored_lo, r.tf, warmup_sessions), hi) for r in sources
+            }
+            configs = await _tf_configs(pool, sources, requested, spans, registry)
+        fetched = await asyncio.gather(
+            *(_fetch_bars(pool, bars_sql, sym, tf, lo, hi) for sym in requested)
+        )
         known = {r["symbol"] for r in await pool.fetch(_KNOWN_SQL, requested)}
         async with pool.acquire() as conn:
             label_inputs = await load_label_inputs(conn, symbols=requested, tf=tf, start=lo, end=hi)
@@ -473,10 +947,30 @@ async def build_panel(
                     _SECTOR_SQL, DEFAULT_SCHEME, SECTOR_LEVEL, requested, lo.date(), hi.date()
                 )
             ]
+        empty = [s for s, b in fetched if b is None]
+        grid = build_grid({s: b for s, b in fetched if b is not None}, tf, bar_fields)
+        source_arrays: dict[str, np.ndarray] = {}
+        source_info: dict[str, dict] = {}
+        children: dict[str, Panel] = {}
+        if sources:
+            book_closes = clock.closes_at(grid.timestamps, grid.valid, tf, grid.bars_per_session)
+            ctx = _Ctx(
+                pool, registry, grid, book_closes, scored_lo, hi, warmup_sessions, int(chunk)
+            )
+            for req in sorted(sources, key=lambda r: r.tf):
+                if _TF_MINUTES[req.tf] < _TF_MINUTES[tf]:
+                    arrays, info = await _finer_source(ctx, req, configs[req.tf])
+                    source_arrays.update(arrays)
+                else:
+                    arrays, info, child = await _whole_source(ctx, req, configs[req.tf])
+                    if child is None:
+                        source_arrays.update(arrays)
+                    else:
+                        children[req.tf] = child
+                        info["_child_arrays"] = arrays
+                source_info[req.tf] = info
     finally:
         await pool.close()
-    empty = [s for s, b in fetched if b is None]
-    grid = build_grid({s: b for s, b in fetched if b is not None}, tf, bar_fields)
     manifest = {
         **grid.manifest,
         "source": PRICE_SOURCE,
@@ -522,5 +1016,18 @@ async def build_panel(
             "fetch_start": lo.isoformat(),
             "scored_start": scored_lo.isoformat(),
         }
+    if sources:
+        for req_tf, info in source_info.items():
+            child_arrays = info.pop("_child_arrays", None)
+            if child_arrays is not None:
+                child = dataclasses.replace(
+                    children[req_tf],
+                    manifest={**children[req_tf].manifest, "source": PRICE_SOURCE, "tf": req_tf},
+                )
+                path = panel_mod.save(child, Path(out_dir) / "sources" / req_tf, child_arrays)
+                info["dir"] = str(path.relative_to(Path(out_dir)))
+                info["sha256"] = store.verify(path)
+        manifest["sources"] = source_info
+        extra = {**(extra or {}), **source_arrays}
     grid = dataclasses.replace(grid, manifest=manifest, sector_pit=sector_pit, closes_at=closes_at)
     return panel_mod.save(grid, Path(out_dir), extra)
