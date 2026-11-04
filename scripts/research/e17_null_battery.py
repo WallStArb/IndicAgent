@@ -132,7 +132,7 @@ def main() -> int:
         ).split(),
         "sims_per_cell": args.sims,
         "bound_quantile": _BOUND_QUANTILE,
-        "scenarios": [sc.__dict__ for sc in cells],
+        "scenarios": [dataclasses.asdict(sc) for sc in cells],
         "report": report,
         "failures": failures,
         "seconds": time.time() - start,
