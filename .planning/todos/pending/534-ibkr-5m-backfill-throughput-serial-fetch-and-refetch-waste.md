@@ -81,3 +81,13 @@ cap 58 requests per 10 minutes. Coalescing small gap asks is not material (1.9% 
 
 Buying the pre-2016 history instead: `docs/ideas/vendor-pre2016-intraday-history.md` (Massive
 recommended, FirstRate second), waiting on the owner.
+
+## Owner decision 2026-11-04: IBKR only, survivorship bias accepted
+
+The owner declined buying pre-2016 intraday history (Massive and FirstRate, vendor memo). IBKR stays
+the only pre-2016 5m source, and its completion is the data gate for the corpus rerun (todo 584
+decision 1). IBKR serves only names that trade today and the universe was chosen today, so every
+result whose sample includes pre-2016 5m carries a survivorship caveat in its record and summary
+card. Coverage at the decision (lead, from `ohlcv_raw` against each name's 1d start): of 1,177
+names with 1d before 2016, 84 at depth, 410 partial, 683 none. Fetcher healthy at about 1M bars/h
+after the 2026-11-04 11:45 EST gateway restart race (one failed start, recovered on the 12:00 timer).

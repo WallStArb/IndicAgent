@@ -77,7 +77,7 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   584 decision). The 186-26 rows on pin `92e588385` were discarded (migration 569, 298 GB freed;
   provenance `superseded`), so nothing resumes. Next: the fix batch keeps landing on main; the
   table swap runs on the empty table so there is one name, `feature_vectors` (no `_v2`); when 534
-  meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184.
+  meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase); pre-2016 results carry a survivorship caveat (todo 534).
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
   gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the
