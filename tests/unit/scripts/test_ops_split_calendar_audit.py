@@ -17,7 +17,7 @@ from src.intelligence.bars.corporate_actions import SplitRatioRule
 
 _RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
 _TOL = 0.3
-_WITNESS = audit.Witness(sessions=3, volume_rel_tol=0.5)
+_WITNESS = audit.Witness(windows=(2, 3), veto_below=0.25)
 _PARAMS = audit.AuditParams(_RULE, _TOL, _WITNESS)
 _DAYS = [
     date(2005, 2, 14) + timedelta(days=i)
@@ -63,7 +63,8 @@ def test_an_unadjusted_two_for_one_is_confirmed_with_its_evidence():
     assert (event.canonical_vendor, event.canonical_kind) == ("ibkr", "named")
     assert json.loads(event.route_steps) == {"ibkr/smart_trades": round(-math.log(2.0), 6)}
     assert event.unadjusted_routes == "ibkr/smart_trades"
-    assert event.volume_step == round(math.log(2.0), 6)
+    assert event.volume_stat == 1.0
+    assert json.loads(event.volume_windows) == [round(math.log(2.0), 6)] * 2
 
 
 def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
@@ -73,17 +74,25 @@ def test_an_adjusted_canonical_and_a_spin_off_record_nothing():
     assert _judge("IBM", canonical, calendar, {_IBKR: raw})[0].verdict == "not_a_split_ratio"
 
 
-def test_a_spin_off_written_as_a_clean_ratio_fails_the_share_count_witness():
-    """SNX-shaped: the price halves on the date but the share count does not move."""
+def test_a_flat_share_count_vetoes_a_clean_ratio():
+    """A spin-off shape: the price halves on the date but the share count does not move."""
     canonical, calendar, raw = _series(_ON, 2.0, volume_steps=False)
     [event] = _judge("SNX", canonical, calendar, {_IBKR: raw})
-    assert (event.verdict, event.volume_step) == ("volume_mismatch", 0.0)
+    assert (event.verdict, event.volume_stat) == ("volume_veto", 0.0)
 
 
-def test_a_share_count_too_short_to_measure_is_no_row():
+def test_an_ambiguous_share_count_confirms_with_its_statistic():
     canonical, calendar, raw = _series(_ON, 2.0)
-    short = [row for row in raw if row[0] >= date(2005, 2, 24)]
-    assert _judge("AAPL", canonical, calendar, {_IBKR: short})[0].verdict == "volume_unmeasured"
+    ambiguous = [(d, c, int(1000 * 2**0.4) if d >= _ON else 1000) for d, c, _ in raw]
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: ambiguous})
+    assert event.verdict == "confirmed" and 0.25 < event.volume_stat < 0.5
+
+
+def test_missing_share_count_evidence_never_vetoes():
+    canonical, calendar, raw = _series(_ON, 2.0)
+    short = [row for row in raw if row[0] >= date(2005, 2, 25)]  # one session before the date
+    [event] = _judge("AAPL", canonical, calendar, {_IBKR: short})
+    assert (event.verdict, event.volume_stat, event.volume_windows) == ("confirmed", None, "[]")
 
 
 def test_every_series_before_the_date_is_measured_on_its_own():
@@ -153,7 +162,8 @@ _LINE = {
     "canonical_kind": "named",
     "route_steps": '{"ibkr/smart_trades": -0.693147}',
     "unadjusted_routes": "ibkr/smart_trades",
-    "volume_step": "0.65",
+    "volume_stat": "0.94",
+    "volume_windows": "[0.65]",
     "verdict": "confirmed",
     "ratio": "2.0",
     "error": "",
@@ -180,12 +190,13 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
                 "canonical_step": "2.30",
                 "calendar_adjusted_step": "0.0",
                 "route_steps": '{"ibkr/smart_trades": 2.302585}',
-                "volume_step": "-2.2",
+                "volume_stat": "",
+                "volume_windows": "[]",
                 "ratio": "0.1",
             },
             {"symbol": "IBM", "calendar_factor": "1.046", "verdict": "not_a_split_ratio"},
             {"symbol": "XPO", "verdict": "conflict"},
-            {"symbol": "SNX", "verdict": "volume_mismatch"},
+            {"symbol": "SNX", "verdict": "volume_veto"},
         ],
     )
     rows = audit.confirmed_rows(path, _PARAMS)
@@ -197,13 +208,17 @@ def test_only_confirmed_lines_become_rows_in_the_tables_orientation(tmp_path):
     assert detail["unadjusted_routes"] == [{"vendor": "ibkr", "kind": "smart_trades"}]
     assert "unadjusted_span" not in detail
     assert detail["audit_file"] == "audit.csv" and len(detail["audit_sha256"]) == 64
-    assert detail["rel_tol"] == _TOL and detail["witness"] == {"sessions": 3, "volume_rel_tol": 0.5}
+    assert detail["rel_tol"] == _TOL and detail["witness"] == {
+        "windows": (2, 3),
+        "veto_below": 0.25,
+    }
+    assert (detail["volume"], rows[1]["detail"]["volume"]) == (0.94, "unmeasured")
 
 
 @pytest.mark.parametrize(
     "edit",
     [
-        {"volume_step": "0.05"},  # the share count did not move
+        {"volume_stat": "0.05"},  # the share count did not move
         {"route_steps": '{"ibkr/smart_trades": -0.3}'},  # a series off both scales
         {"route_steps": '{"ibkr/smart_trades": null}'},  # an unmeasured series
         {"unadjusted_routes": ""},  # a hand-edited list
@@ -238,8 +253,8 @@ class _Cursor:
                 ("infra.backfill.split_ratio_max_denominator", "4"),
                 ("infra.backfill.split_ratio_rel_tol", "0.002"),
                 ("threshold.split_continuity.rel_tol", "0.3"),
-                ("threshold.split_calendar.witness_sessions", "3"),
-                ("threshold.split_calendar.volume_rel_tol", "0.5"),
+                ("threshold.split_calendar.volume_windows", "[2, 3]"),
+                ("threshold.split_calendar.volume_veto_below", "0.25"),
             ]
         self._row = None
 

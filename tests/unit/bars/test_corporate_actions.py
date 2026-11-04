@@ -23,7 +23,8 @@ from src.intelligence.bars.corporate_actions import (
     judge_calendar_split,
     recognised_split_ratio,
     scale_step,
-    share_count_step,
+    share_count_stat,
+    share_count_vetoes,
     split_continuity,
     unknown_return_mask,
 )
@@ -292,21 +293,19 @@ def test_split_continuity_refuses_a_factor_of_one():
         split_continuity(0.0, 1.0, _TOL)
 
 
+def test_the_share_count_statistic_is_the_median_window_in_units_of_log_f():
+    log2 = math.log(2.0)
+    assert share_count_stat([log2 * 0.2, log2 * 0.9, log2 * 1.1], 2.0) == pytest.approx(0.9)
+    assert share_count_stat([math.log(0.1)], 0.1) == pytest.approx(1.0)  # 1-for-10
+    assert share_count_stat([], 2.0) is None
+
+
 @pytest.mark.parametrize(
-    "volume_step, factor, passes",
-    [
-        (math.log(2.0), 2.0, True),  # the count doubled with a 2:1
-        (math.log(2.0) * 1.8, 2.0, True),  # turnover rose beyond the split: no evidence against
-        (math.log(2.0) * 0.6, 2.0, True),
-        (math.log(2.0) * 0.25, 2.0, False),  # SNX 2020-12-01 at 60 sessions: a spin-off
-        (0.0, 2.0, False),  # the count did not move
-        (-math.log(2.0), 2.0, False),
-        (math.log(0.1), 0.1, True),  # 1-for-10: the count falls tenfold
-        (0.0, 0.1, False),
-    ],
+    "stat, vetoes",
+    [(None, False), (0.0, True), (0.24, True), (0.25, False), (0.4, False), (1.8, False)],
 )
-def test_the_share_count_witness_is_one_sided_against_no_split(volume_step, factor, passes):
-    assert share_count_step(volume_step, factor, 0.5) is passes
+def test_the_share_count_only_vetoes_on_robust_evidence(stat, vetoes):
+    assert share_count_vetoes(stat, 0.25) is vetoes
 
 
 @pytest.mark.parametrize(

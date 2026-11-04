@@ -27,6 +27,7 @@ seeds threshold.seam.ratio_snap_tol); there is no default here.
 from __future__ import annotations
 
 import math
+import statistics
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -173,23 +174,29 @@ def scale_step(step: float, ratio: float, rel_tol: float) -> ScaleStep:
     return "conflict"
 
 
-def share_count_step(volume_step: float, ratio: float, rel_tol: float) -> bool:
-    """The third witness of a calendar split (todo 587): the share count steps by the ratio.
+def share_count_stat(volume_steps: Sequence[float], ratio: float) -> float | None:
+    """The share-count statistic of a calendar split (todo 587): the median, over the measurable
+    windows, of log(median daily volume after the date / median before) in units of log f, on
+    one series that serves volume across it unadjusted for the split. None when no window is
+    measurable.
 
-    volume_step is log(median daily volume after the date / median before) on one series that
-    serves volume across it, unadjusted for the split. A real f-for-1 split multiplies the share
-    count by f, so turnover carries the step toward log f; a spin-off or a stock dividend a
-    calendar writes as a clean split ratio leaves the count unchanged, a step toward 0. The test is
-    one-sided against that alternative: the step must reach (1 - rel_tol) of log f in log f's own
-    direction. A step beyond log f (turnover rising after a split, common) is no evidence for the
-    no-split alternative and passes. rel_tol 0.5 is the midpoint between the two hypotheses.
+    A real f-for-1 split multiplies the share count by f, so turnover carries the statistic
+    toward 1; a spin-off or stock dividend a calendar writes as a clean split ratio leaves the
+    count unchanged, toward 0. Turnover is noisy (2026-11-04, 60 sessions: median 0.77,
+    interquartile 0.52 to 1.14 over 364 price-confirmed splits), so the statistic only vetoes
+    (share_count_vetoes), never confirms: the calendar, the price step at the exact ratio and the
+    calendar's continuity confirm a split (lead ruling 2026-11-04)."""
+    if not volume_steps:
+        return None
+    return statistics.median(step / math.log(ratio) for step in volume_steps)
 
-    Measured 2026-11-04 over the 380 price-confirmed splits (60 sessions a side): the step in
-    units of log f has median 0.77 and interquartile range 0.52 to 1.14, so about a quarter of real
-    splits fail and go to review; SNX 2020-12-01 (the Concentrix spin-off Yahoo writes as 2:1)
-    reads 0.25 and fails. A noisy witness: it bounds the false-split rate, it cannot prove one."""
-    expected = math.log(ratio)
-    return volume_step / expected >= 1.0 - rel_tol
+
+def share_count_vetoes(stat: float | None, veto_below: float) -> bool:
+    """A split is vetoed only on robust evidence the share count did not change: a measured
+    statistic below veto_below (much nearer 0, no change, than 1, a split). Missing evidence
+    (None) and the ambiguous band never veto: a false veto leaves a fabricated split-day return
+    in canonical, as wrong as a false confirm."""
+    return stat is not None and stat < veto_below
 
 
 SplitContinuity = Literal["continuous", "unadjusted", "double_adjusted"]

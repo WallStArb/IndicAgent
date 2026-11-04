@@ -11,18 +11,19 @@ Two steps, with the evidence a reviewed, committed file between them:
 
 --audit --out CSV [--symbols ...]: read-only. Per name, Yahoo's daily split-adjusted closes and
     split events (src/providers/yahoo.py), canonical 1d (the tradeable view) and the raw 1d series
-    canonical is served from (daily_rule.RESCALABLE_SERIES). A split is confirmed by three
-    independent witnesses, each judged in corporate_actions:
+    canonical is served from (daily_rule.RESCALABLE_SERIES). A split is confirmed by:
     1. the calendar: a recognised split ratio (APR infra.backfill.split_ratio_*, which refuses the
        spin-offs Yahoo writes as fractional splits) on its date;
-    2. the price step: canonical steps by -log ratio across the date beyond Yahoo's adjusted step
-       (judge_calendar_split, APR threshold.split_continuity.rel_tol);
-    3. the share count: on canonical's raw series at the date, the median daily volume over the
-       witness_sessions sessions after the date over the median before steps by +log ratio
-       (share_count_step, APR threshold.split_calendar.*). A spin-off or stock dividend a
-       calendar writes as a clean ratio leaves the count flat and fails.
+    2. the price step: canonical steps by -log ratio across the date beyond Yahoo's adjusted step,
+       Yahoo's adjusted close continuous (judge_calendar_split, threshold.split_continuity.rel_tol).
+    The share count can only veto (lead ruling 2026-11-04): on canonical's raw series, the log
+    volume step across the date over each window of threshold.split_calendar.volume_windows
+    (truncated at the neighbouring calendar events), in units of log ratio, median over the
+    measurable windows (share_count_stat). Below threshold.split_calendar.volume_veto_below the
+    count robustly did not move (a spin-off or stock distribution): volume_veto, no row, review.
+    Unmeasurable or ambiguous evidence never vetoes; the statistic is recorded either way.
     Then every raw series with an observation before the date is measured on its own: its close
-    over Yahoo's adjusted close, medians over the witness_sessions sessions on each side inside
+    over Yahoo's adjusted close, medians over the shortest volume window's sessions on each side inside
     the neighbouring calendar events, steps by -log ratio (unadjusted, the row names it in
     unadjusted_routes and the rule rescales it), 0 (adjusted) or anything else (conflict). A
     split with a conflicting or unmeasurable series gets no row (route_conflict): the scale is
@@ -65,7 +66,8 @@ from src.intelligence.bars.corporate_actions import (  # noqa: E402
     SplitRatioRule,
     judge_calendar_split,
     scale_step,
-    share_count_step,
+    share_count_stat,
+    share_count_vetoes,
 )
 from src.intelligence.bars.daily_rule import (  # noqa: E402
     FALLBACK_PAIR,
@@ -78,8 +80,8 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
-WITNESS_SESSIONS_KEY = "threshold.split_calendar.witness_sessions"
-VOLUME_REL_TOL_KEY = "threshold.split_calendar.volume_rel_tol"
+VOLUME_WINDOWS_KEY = "threshold.split_calendar.volume_windows"
+VOLUME_VETO_KEY = "threshold.split_calendar.volume_veto_below"
 _WRITER_ROLE = "bar_derivation_writer"
 # "Across the date" means sessions this close to the calendar date; a split with no session
 # nearby (a hole, a listing that starts after it) is unmeasured. Definitional, not tunables.
@@ -130,10 +132,16 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 
 @dataclass(frozen=True)
 class Witness:
-    """The share-count and per-series witnesses' APR (threshold.split_calendar.*, migration 571)."""
+    """The share-count witness's APR (threshold.split_calendar.*, migration 571): the session
+    windows the volume step is measured over (the shortest also bounds the per-series price
+    medians) and the statistic below which it vetoes."""
 
-    sessions: int
-    volume_rel_tol: float
+    windows: tuple[int, ...]
+    veto_below: float
+
+    @property
+    def price_sessions(self) -> int:
+        return min(self.windows)
 
 
 # One raw series of a name: (session date, close, volume) in date order.
@@ -152,7 +160,7 @@ class CalendarEvent:
     calendar_date: date
     calendar_factor: float
     # judge_calendar_split's verdict, "unmeasured", or for a confirmed price step whose other
-    # witnesses fail: route_conflict, volume_unmeasured, volume_mismatch
+    # witnesses fail: route_conflict, volume_veto
     verdict: str
     ratio: float | None = None
     effective_date: date | None = None  # canonical's last session on the old scale
@@ -167,7 +175,11 @@ class CalendarEvent:
     # ";"-joined vendor/kind of the series measured unadjusted (what a row's detail records; on
     # an adjusted event, a series still unadjusted for a split canonical is adjusted for)
     unadjusted_routes: str | None = None
-    volume_step: float | None = None  # log(median volume after / before), canonical's series
+    # Confirmed price steps only, on canonical's series: share_count_stat (empty = unmeasured)
+    # and the measured windows' log volume steps, a JSON list in the order of witness.windows
+    # (unmeasurable windows left out)
+    volume_stat: float | None = None
+    volume_windows: str | None = None
 
 
 def _bracket(days: Sequence[date], on: date) -> tuple[int, int] | None:
@@ -207,15 +219,20 @@ def _route_step(
     return round(step, 6)
 
 
-def _volume_step(series: RawSeries, day: date, span: tuple[date, date], n: int) -> float | None:
-    """log(median volume after / median before) over n traded sessions on each side inside span;
-    None when a side has fewer."""
+def _volume_steps(
+    series: RawSeries, day: date, span: tuple[date, date], windows: Sequence[int]
+) -> list[float]:
+    """log(median volume after / median before) per window with n traded sessions on each side
+    inside span (truncated at the neighbouring calendar events); an unmeasurable window is left
+    out."""
     lo, hi = span
-    before = [v for d, _, v in series if lo <= d < day and v][-n:]
-    after = [v for d, _, v in series if day <= d < hi and v][:n]
-    if len(before) < n or len(after) < n:
-        return None
-    return round(math.log(statistics.median(after) / statistics.median(before)), 6)
+    before = [v for d, _, v in series if lo <= d < day and v]
+    after = [v for d, _, v in series if day <= d < hi and v]
+    return [
+        math.log(statistics.median(after[:n]) / statistics.median(before[-n:]))
+        for n in windows
+        if len(before) >= n and len(after) >= n
+    ]
 
 
 def _unadjusted(
@@ -234,20 +251,18 @@ def _unadjusted(
 def _witnessed(
     canonical_series: str,
     route_steps: Mapping[str, float | None],
-    volume_step: float | None,
+    volume_stat: float | None,
+    witness: Witness,
     ratio: float,
     rel_tol: float,
-    witness: Witness,
 ) -> tuple[str, list[str] | None]:
-    """A price-confirmed split's final verdict from its other witnesses, and its unadjusted
-    series. Pure; confirmed_rows re-runs it on the recorded steps."""
+    """A price-confirmed split's final verdict from the per-series scales and the share-count
+    veto, and its unadjusted series. Pure; confirmed_rows re-runs it on the recorded numbers."""
     unadjusted = _unadjusted(route_steps, ratio, rel_tol)
     if unadjusted is None or canonical_series not in unadjusted:
         return "route_conflict", unadjusted
-    if volume_step is None:
-        return "volume_unmeasured", unadjusted
-    if not share_count_step(volume_step, ratio, witness.volume_rel_tol):
-        return "volume_mismatch", unadjusted
+    if share_count_vetoes(volume_stat, witness.veto_below):
+        return "volume_veto", unadjusted
     return "confirmed", unadjusted
 
 
@@ -281,7 +296,7 @@ def judge_events(
         effective, _, vendor, kind = canonical[c[0]]
         route_steps: dict[str, float | None] | None = None
         unadjusted: list[str] | None = None
-        volume_step = None
+        volume_stat = volume_windows = None
         if verdict in ("confirmed", "adjusted"):
             i = bisect_left(event_days, day)
             span = (
@@ -290,7 +305,7 @@ def judge_events(
             )
             route_steps = {
                 series_key(series): _route_step(
-                    rows, y_close, day, effective, span, witness.sessions
+                    rows, y_close, day, effective, span, witness.price_sessions
                 )
                 for series, rows in sorted(raw.items())
                 if rows and rows[0][0] < day
@@ -298,14 +313,17 @@ def judge_events(
             assert ratio is not None
             if verdict == "confirmed":
                 own = _RAW_SERIES_OF.get((vendor, kind))
-                volume_step = _volume_step(raw.get(own, ()), day, span, witness.sessions)
+                steps = _volume_steps(raw.get(own, ()), day, span, witness.windows)
+                stat = share_count_stat(steps, ratio)
+                volume_stat = None if stat is None else round(stat, 6)
+                volume_windows = json.dumps([round(x, 6) for x in steps])
                 verdict, unadjusted = _witnessed(
                     series_key(own) if own else "",
                     route_steps,
-                    volume_step,
+                    volume_stat,
+                    witness,
                     ratio,
                     rel_tol,
-                    witness,
                 )
             else:
                 unadjusted = _unadjusted(route_steps, ratio, rel_tol)
@@ -323,7 +341,8 @@ def judge_events(
                 kind,
                 None if route_steps is None else json.dumps(route_steps, sort_keys=True),
                 None if unadjusted is None else ";".join(unadjusted),
-                volume_step,
+                volume_stat,
+                volume_windows,
             )
         )
     return events
@@ -342,14 +361,17 @@ class AuditParams:
         return cls(
             split_rule_from_apr(values),
             float(values[REL_TOL_KEY]),
-            Witness(int(values[WITNESS_SESSIONS_KEY]), float(values[VOLUME_REL_TOL_KEY])),
+            Witness(
+                tuple(int(n) for n in json.loads(values[VOLUME_WINDOWS_KEY])),
+                float(values[VOLUME_VETO_KEY]),
+            ),
         )
 
 
 def _apr(conn: Any) -> AuditParams:
     with conn.cursor() as cur:
         cur.execute(
-            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, WITNESS_SESSIONS_KEY, VOLUME_REL_TOL_KEY],)
+            _APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY, VOLUME_WINDOWS_KEY, VOLUME_VETO_KEY],)
         )
         return AuditParams.from_apr(dict(cur.fetchall()))
 
@@ -428,14 +450,14 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
             assert ratio is not None
             route_steps = json.loads(line["route_steps"])
             own = _RAW_SERIES_OF.get((line["canonical_vendor"], line["canonical_kind"]))
-            volume_step = float(line["volume_step"])
+            volume_stat = float(line["volume_stat"]) if line["volume_stat"] else None
             verdict, unadjusted = _witnessed(
                 series_key(own) if own else "",
                 route_steps,
-                volume_step,
+                volume_stat,
+                params.witness,
                 ratio,
                 params.rel_tol,
-                params.witness,
             )
             if verdict != "confirmed" or ";".join(unadjusted or ()) != line["unadjusted_routes"]:
                 raise ValueError(f"{where}: {verdict} ({unadjusted}) under the current APR")
@@ -457,7 +479,8 @@ def confirmed_rows(path: Path, params: AuditParams) -> list[dict[str, Any]]:
                         },
                         "route_steps": route_steps,
                         "unadjusted_routes": [_route(key) for key in unadjusted or ()],
-                        "volume_step": volume_step,
+                        "volume": "unmeasured" if volume_stat is None else volume_stat,
+                        "volume_windows": json.loads(line["volume_windows"] or "[]"),
                         "audit_file": path.name,
                         "audit_sha256": digest,
                         "rule": asdict(params.rule),
