@@ -51,7 +51,6 @@ from scripts.infrastructure._capture_common import git_head  # noqa: E402
 from src.intelligence.features.kernels._hmm import FAMILY_SPECS, HmmConfig  # noqa: E402
 from tests.unit.intelligence.regime_kernel_fixtures import (  # noqa: E402
     FAMILY_LABELS,
-    N_NUMERIC_COLUMNS,
     SMALL_HMM_APR,
     digest_case,
     make_synthetic_regime_bars,
@@ -137,7 +136,7 @@ def dump_state(out: Path, path: Path) -> None:
             code, status, columns = run_kernel_full(apr, bars, family, tf)
             arrays[f"{name}|{family}|code"] = code
             arrays[f"{name}|{family}|status"] = status
-            for c in range(N_NUMERIC_COLUMNS):
+            for c in range(FAMILY_SPECS[family].n_numeric):
                 arrays[f"{name}|{family}|c{c}"] = columns[c]
     np.savez(path, **arrays)
 
@@ -169,8 +168,17 @@ def change_report(pre_path: Path, post_path: Path, out: Path) -> dict[str, Any]:
                     lost, gained = lost + (hi - lo) * was, gained + (hi - lo) * now
                 lo = hi
             changed = []
-            for c in range(N_NUMERIC_COLUMNS):
-                x, y = pre[f"{key}|c{c}"], post[f"{key}|c{c}"]
+            for c in range(FAMILY_SPECS[family].n_numeric):
+                # a dump taken before todo 584 item 3 holds the volatility family's retired
+                # middle-state probability at column 1: the later columns sit one place higher
+                pre_c = (
+                    c + 1
+                    if family == "volatility"
+                    and f"{key}|c{FAMILY_SPECS[family].n_numeric}" in pre.files
+                    and c >= 1
+                    else c
+                )
+                x, y = pre[f"{key}|c{pre_c}"], post[f"{key}|c{c}"]
                 diff = ~((x == y) | (np.isnan(x) & np.isnan(y)))
                 changed.append([int(diff.sum()), int((diff & ~flip_rows).sum())])
             report[f"{name}/{family}"] = {
@@ -186,7 +194,9 @@ def _same(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) ->
     bad = []
     if not np.array_equal(a[0], b[0]):
         bad.append("labels")
-    for c in range(N_NUMERIC_COLUMNS):
+    if len(a[1]) != len(b[1]):
+        raise ValueError(f"numeric blocks differ in height: {len(a[1])} vs {len(b[1])}")
+    for c in range(len(a[1])):
         x = np.ascontiguousarray(a[1][c]).view(np.uint32)
         y = np.ascontiguousarray(b[1][c]).view(np.uint32)
         nan_a, nan_b = np.isnan(a[1][c]), np.isnan(b[1][c])
