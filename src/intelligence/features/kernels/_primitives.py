@@ -127,37 +127,67 @@ def _atr_series_full(
     return atr
 
 
+def _trailing_window_sums(values: np.ndarray, window: int) -> np.ndarray:
+    """Sum of every expanding-then-saturated trailing window, each window added left to right.
+
+    Row i is the sum of values[max(0, i - window + 1):i + 1]. A difference of prefix sums
+    (cs[i] - cs[i - window]) loses digits to the size of the whole series' running total, so
+    its error grows with series length (SPY 5m, 400k rows: up to 3,834 float32 ulps in the
+    rolling vol z-scores, todo 584 G4-a). Here a window's sum depends only on that window's own
+    values, in one fixed order, so a recompute over any suffix that holds the window returns the
+    identical bits; the cost is O(n * window) vector additions.
+    """
+    if window < 1:
+        raise ValueError(f"window must be at least 1, got {window}")
+    values = np.asarray(values, dtype=float)  # one precision for the head and the saturated rows
+    n = len(values)
+    out = np.empty(n, dtype=float)
+    head = min(window - 1, n)
+    if head > 0:
+        out[:head] = np.cumsum(values[:head])
+    if n >= window:
+        saturated = n - window + 1
+        acc = np.array(values[:saturated], dtype=float)
+        for k in range(1, window):
+            acc += values[k : k + saturated]
+        out[window - 1 :] = acc
+    return out
+
+
 def _cumsum_window_moments(
     arr: np.ndarray, window: int, *, squares: bool = True
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    """Trailing mean and clamped variance of every expanding-then-saturated window, by cumsums.
+    """Trailing mean and clamped variance of every expanding-then-saturated window, from exact
+    per-window sums (`_trailing_window_sums`).
 
     Row i covers arr[max(0, i - window + 1):i + 1] (effective size min(window, i + 1)). The
-    mean is (cs[i] - cs[start - 1]) / eff_w and the variance max(s2 / eff_w - mean * mean, 0.0)
-    with the clamp keeping a NaN and never turning a value into NaN. Each operation is the
-    IEEE operation the per-row loops this replaces performed, in the same order, so the
-    results are bit-identical to them. With `squares` False only the mean is computed and the
+    mean is the window sum / eff_w and the variance max(s2 / eff_w - mean * mean, 0.0)
+    with the clamp keeping a NaN and never turning a value into NaN. Each window is added left
+    to right, as the per-row loops this replaces did, so the results are bit-identical to them
+    and do not depend on the series length. With `squares` False only the mean is computed and the
     variance is None.
 
     A window holding a NaN or inf defines nothing: its mean and variance are NaN (D1 rule 5,
-    todo 584), and windows entirely past the bad value recover. The cumsums run over the
-    NaN-zeroed array with a second cumsum of the bad-count, so one bad value never poisons
-    the rows after its window (a plain cumsum would carry the NaN to the end of the series).
+    todo 584), and windows entirely past the bad value recover. The sums run over the
+    NaN-zeroed array with a cumsum of the bad-count, so one bad value never poisons the rows
+    after its window (a plain cumsum would carry the NaN to the end of the series).
     """
     n = len(arr)
     eff_w = np.minimum(window, np.arange(1, n + 1))
-    prev = np.arange(n) + 1 - eff_w - 1  # index of cs just before the window; -1 means none
-    prev_idx = np.maximum(prev, 0)
-    prev_ok = prev >= 0
     bad = ~np.isfinite(arr)
     good = np.where(bad, 0.0, arr)
 
     def window_sums(values: np.ndarray) -> np.ndarray:
-        cs = np.cumsum(values)
-        return cs - np.where(prev_ok, cs[prev_idx], 0.0)
+        return _trailing_window_sums(values, window)
+
+    def window_bad_count(flags: np.ndarray) -> np.ndarray:
+        # 0/1 counts are exactly representable, so a prefix-sum difference is exact here
+        cs = np.cumsum(flags, dtype=np.int64)
+        lag = np.concatenate((np.zeros(min(window, n), dtype=np.int64), cs[: max(n - window, 0)]))
+        return cs - lag
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        has_bad = window_sums(bad.astype(float)) > 0.0
+        has_bad = window_bad_count(bad) > 0
         mean = window_sums(good) / eff_w
         mean[has_bad] = np.nan
         if not squares:
@@ -175,7 +205,7 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     effective window min(window, i+1) — the series expands until it saturates at
     `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
 
-    Uses cumulative sums — O(n) total.
+    Uses exact per-window sums — O(n * window) total.
     NaN where fewer than 2 samples or std <= STD_FLOOR: the z-score of a window
     that does not spread is undefined (D1 rule 5, todo 584), never a 0.0 fill.
     """

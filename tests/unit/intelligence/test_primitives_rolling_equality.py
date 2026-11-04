@@ -1,4 +1,4 @@
-"""The vectorized cumsum rolling statistics equal the per-row loops they replaced, bit for bit."""
+"""The vectorized rolling statistics (exact per-window sums) equal the per-row loops, bit for bit."""
 
 from __future__ import annotations
 
@@ -15,11 +15,21 @@ from src.intelligence.features.kernels._primitives import (
 )
 
 
+def _window_sum(values, start, stop):
+    """One window added left to right (the per-window sums of `_trailing_window_sums`)."""
+    total = float(values[start])
+    for v in values[start + 1 : stop]:
+        total += float(v)
+    return total
+
+
 def _window_terms(cs, cs2, i, window, bad):
+    """`cs`, `cs2` are the finite-zeroed values and their squares (name kept from the prefix-sum
+    reference this replaced, todo 584 G4-a)."""
     eff_w = min(window, i + 1)
     start = i + 1 - eff_w
-    s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-    s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+    s = _window_sum(cs, start, i + 1)
+    s2 = _window_sum(cs2, start, i + 1)
     mean = s / eff_w
     if bad[start : i + 1].any():  # a window holding a non-finite value defines nothing (D1 rule 5)
         return eff_w, np.nan, np.nan
@@ -33,7 +43,7 @@ def _ref_zscore(arr, window):
         return out
     bad = ~np.isfinite(arr)
     good = np.where(bad, 0.0, arr)
-    cs, cs2 = np.cumsum(good), np.cumsum(good * good)
+    cs, cs2 = good, good * good
     for i in range(1, n):
         _, mean, var = _window_terms(cs, cs2, i, window, bad)
         std = math.sqrt(var)
@@ -47,7 +57,7 @@ def _ref_std(arr, window):
         return out
     bad = ~np.isfinite(arr)
     good = np.where(bad, 0.0, arr)
-    cs, cs2 = np.cumsum(good), np.cumsum(good * good)
+    cs, cs2 = good, good * good
     for i in range(len(arr)):
         out[i] = math.sqrt(_window_terms(cs, cs2, i, window, bad)[2])
     return out
@@ -59,14 +69,14 @@ def _ref_mean(arr, window):
         return out
     bad = ~np.isfinite(arr)
     good = np.where(bad, 0.0, arr)
-    cs = np.cumsum(good)
+    cs = good
     for i in range(len(arr)):
         eff_w = min(window, i + 1)
         start = i + 1 - eff_w
         if bad[start : i + 1].any():
             out[i] = np.nan
         else:
-            out[i] = (cs[i] - (cs[start - 1] if start > 0 else 0.0)) / eff_w
+            out[i] = _window_sum(cs, start, i + 1) / eff_w
     return out
 
 
@@ -106,3 +116,24 @@ def test_mean_bit_identical(window):
     for name, arr in _cases():
         want, got = _ref_mean(arr, window), _rolling_mean_series(arr, window)
         assert got.tobytes() == want.tobytes(), (name, window)
+
+
+def test_window_sums_do_not_depend_on_the_series_length_and_match_fsum():
+    """The defect behind todo 584 G4-a: a difference of whole-series prefix sums loses digits to
+    the running total. Exact per-window sums give the same bits for a window whether the series
+    before it is long or absent, and agree with math.fsum to rounding."""
+    from src.intelligence.features.kernels._primitives import _trailing_window_sums
+
+    rng = np.random.default_rng(7)
+    values = 1.0e6 + rng.normal(0.0, 1.0, 30_000)
+    window = 50
+    full = _trailing_window_sums(values, window)
+    tail = _trailing_window_sums(values[-(window + 5) :], window)
+    np.testing.assert_array_equal(full[-6:], tail[-6:])  # same bits, with or without the history
+    for i in (window, 12_345, 29_999):
+        exact = math.fsum(values[i - window + 1 : i + 1])
+        assert abs(full[i] - exact) <= 1e-9 * abs(exact)
+    float32_in = _trailing_window_sums(values[:200].astype(np.float32), window)
+    assert float32_in.dtype == np.float64
+    with pytest.raises(ValueError):
+        _trailing_window_sums(values, 0)

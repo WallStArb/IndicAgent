@@ -28,6 +28,7 @@ from src.intelligence.features.kernels._primitives import (
     _skewness,
     _sliding_rolling_max,
     _sliding_rolling_min,
+    _trailing_window_sums,
     _zscore_last,
     bounded_window_bars,
     wilder_memory_bars,
@@ -1118,23 +1119,21 @@ def _vol_asymmetry_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 
 def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _bb_pct_b over the trailing (expanding until
-    saturated) `window` bars ending at bar i. O(n) via cumsum of price and
-    squared price. NaN on cold rows (w < 2) and degenerate bands (D1 rule 5).
+    saturated) `window` bars ending at bar i. O(n * window) via per-window sums of price and
+    squared price (exact per-window sums). NaN on cold rows (w < 2) and degenerate bands (D1 rule 5).
     """
     n = len(closes)
     result = np.full(n, np.nan, dtype=float)
     if n < 2:
         return result
     c = closes.astype(float)
-    cs = np.cumsum(c)
-    cs2 = np.cumsum(c * c)
+    sums = _trailing_window_sums(c, window)
+    sums2 = _trailing_window_sums(c * c, window)
     for i in range(n):
         w = min(window, i + 1)
         if w < 2:
             continue
-        start = i + 1 - w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+        s, s2 = sums[i], sums2[i]
         mean = s / w
         var = max(s2 / w - mean * mean, 0.0)
         std = math.sqrt(var)
