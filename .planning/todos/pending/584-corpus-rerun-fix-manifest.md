@@ -642,7 +642,15 @@ retires per D6: the volatility family's numeric block drops from seven columns t
 leaves `REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES`, the concept is deprecated, the physical
 columns stay (`RETIRED_COLUMNS`). The regime-kernel golden changes layout only: every volatility
 case drops one column and zero values changed (flip report all zero). The pin now waits only on
-the data-lane items. Also noted (8b): a builder window that reaches past the declared memory around
+the data-lane items. Repair (2026-11-04): a first, per-timeframe migration 566 was applied live and
+reverted before landing; it had deleted `feature.hmm.n_components`' `config_history` rows (APR as of
+t reads this table). They were re-created with their original timestamps reconstructed from
+evidence, since no backup holds them (`data/backups/*` carry only retired-key and unrelated
+config_history dumps; the baseline fixture seed has no history inserts): `migration_176`, version 2,
+2026-06-19 14:45:42.183585+00 from the baseline fixture's `config_state` row for the key, and
+`migration_265`, version 2, 2026-07-28 15:07:16+00 from migration 265's git commit date (0eb45042f);
+both reasons say RECONSTRUCTED. Verified: an as-of read at 2026-08-01 returns 5 and at 2026-11-05
+returns 3. Also noted (8b): a builder window that reaches past the declared memory around
 a gap day only makes the warmup mask conservative, since the builder emits NaN until its own window
 fills; no change.
 
