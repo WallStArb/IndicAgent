@@ -132,7 +132,9 @@ The gate (187-08/09/10, 187-15 Task 2) has landed, so this starts now, in parall
 no file overlap (`src/intelligence/research/` only). Order: 184-06 -> 05 and 07 -> 08 -> 09 -> 10,
 each with `repro_frozen` bit-identical; `tools/gate.py --compare-all` (hours, locked) runs once after
 184-10 for the whole wave, not per plan. Executors work in detached worktrees off origin/main.
-Landed: 184-06 (c6ac44aa6). A plan-checker pass against today's code comes first
+Landed: 184-06 (c6ac44aa6), 184-07 (37368678d), 184-08 (3295e6902, migration 564). Executors
+self-review their own diffs, so after 184-10 one independent /code-review covers the whole wave
+(06-10) alongside the compare-all run. A plan-checker pass against today's code comes first
 (the plans predate 584; 184-08 still names migration 526), and the lead edits the plans before
 execution. 184-12's dry S0 build runs after 186-27.
 
