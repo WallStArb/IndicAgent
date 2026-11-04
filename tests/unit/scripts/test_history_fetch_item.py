@@ -472,9 +472,12 @@ class FakeProvider:
     def is_connected(self) -> bool:
         return self.connected
 
-    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+    async def session_alive(self, timeout_sec: float | None = None) -> bool:
         # todo 577's probe: a live session, so a qualify False is a genuine unknown contract.
         return True
+
+    def is_undefined_contract(self, symbol: str) -> bool:
+        return False  # todo 585: no Error 200 answers, so a qualify False is probed
 
     async def qualify_instrument(self, instrument) -> bool:
         self.qualify_calls.append(instrument.symbol)

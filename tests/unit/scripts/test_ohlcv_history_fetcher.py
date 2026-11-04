@@ -1878,9 +1878,13 @@ class _QualifiedProvider:
     """is_connected() stays True (the TCP socket is up) while the session is dead: qualify
     answers False and the liveness probe answers per `alive`."""
 
-    def __init__(self, alive: bool) -> None:
+    def __init__(self, alive: bool, undefined: frozenset[str] = frozenset()) -> None:
         self.alive = alive
         self.probed = 0
+        self.undefined = undefined  # todo 585: symbols IBKR answered with Error 200
+
+    def is_undefined_contract(self, symbol: str) -> bool:
+        return symbol in self.undefined
 
     def is_connected(self) -> bool:
         return True
@@ -1888,7 +1892,7 @@ class _QualifiedProvider:
     async def qualify_instrument(self, instrument, **_kwargs) -> bool:
         return False
 
-    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+    async def session_alive(self, timeout_sec: float | None = None) -> bool:
         self.probed += 1
         return self.alive
 
@@ -1907,6 +1911,20 @@ async def test_qualify_false_on_a_dead_session_is_gateway_lost() -> None:
     with pytest.raises(GatewayLost, match="liveness probe"):
         await hfi._ensure_qualified(_Ctx(provider), SimpleNamespace(symbol="MKC"))
     assert provider.probed == 1
+
+
+@pytest.mark.asyncio
+async def test_an_answered_unknown_contract_is_charged_and_never_probed() -> None:
+    """Todo 585 (LXP, five runs on 2026-11-03): IBKR's Error 200 "No security definition" is an
+    answer, so the session is alive. A probe that fails anyway must not turn it into a gateway
+    loss: the False is cached and the item is charged to the name."""
+    provider = _QualifiedProvider(alive=False, undefined=frozenset({"LXP"}))
+    ctx = _Ctx(provider)
+    assert await hfi._ensure_qualified(ctx, SimpleNamespace(symbol="LXP")) is False
+    assert ctx.qualified["LXP"] is False and provider.probed == 0
+    # Another symbol's Error 200 says nothing about this one: a dead session still fails loud.
+    with pytest.raises(GatewayLost, match="liveness probe"):
+        await hfi._ensure_qualified(ctx, SimpleNamespace(symbol="MKC"))
 
 
 @pytest.mark.asyncio

@@ -52,3 +52,6 @@ the error class) is superseded: with this fix that shape raises instead of reach
 Landed 2026-11-01, commit 7f3343608 (session b0; an earlier local draft of this commit briefly
 carried an attribution line and was amended away in the worktree before pushing — no such commit
 reached main).
+
+Follow-up 2026-11-04: the probe added here read a live session as lost after IBKR's Error 200 for
+LXP and ended five runs on 2026-11-03; an Error 200 answer now skips the probe (todo 585).

@@ -26,6 +26,7 @@ class TestIBKREquityQualification:
         provider.logger = MagicMock()
         provider._qualified_contracts = {}
         provider._local_to_canonical = {}
+        provider._undefined_contracts = set()
 
         instrument = Instrument(
             symbol="SPY",
@@ -58,6 +59,7 @@ class TestIBKREquityQualification:
         provider.logger = MagicMock()
         provider._qualified_contracts = {}
         provider._local_to_canonical = {}
+        provider._undefined_contracts = set()
 
         instrument = Instrument(
             symbol="BRK.B",
@@ -74,6 +76,77 @@ class TestIBKREquityQualification:
             assert await provider.qualify_instrument(instrument) is True
             assert mock_ib.reqContractDetailsAsync.call_args[0][0].symbol == "BRK B"
         assert "BRK.B" in provider._qualified_contracts
+
+
+class TestIBKRUndefinedContract:
+    """Todo 585: is_undefined_contract is True only for IBKR's Error 200 on that symbol's own
+    request, so a timeout or another error still reaches the session liveness probe."""
+
+    @staticmethod
+    def _provider():
+        from src.providers.ibkr import IBKRProvider
+
+        provider = IBKRProvider.__new__(IBKRProvider)
+        provider.logger = MagicMock()
+        provider._qualified_contracts = {}
+        provider._local_to_canonical = {}
+        provider._undefined_contracts = set()
+        return provider
+
+    _LXP = Instrument(
+        symbol="LXP", asset_class=AssetClass.EQUITY, exchange="SMART", session_id="nyse"
+    )
+
+    @staticmethod
+    def _ib(code: int | None, answer=None, raises: BaseException | None = None):
+        """A fake IB whose contract-details call emits `code` for the request's contract."""
+        handlers = []
+
+        class _Event:
+            def __iadd__(self, handler):
+                handlers.append(handler)
+                return self
+
+            def __isub__(self, handler):
+                handlers.remove(handler)
+                return self
+
+        ib = MagicMock()
+        ib.errorEvent = _Event()
+
+        async def details(contract):
+            if code is not None:
+                for handler in list(handlers):
+                    handler(7, code, "No security definition has been found", contract)
+            if raises is not None:
+                raise raises
+            return answer if answer is not None else []
+
+        ib.reqContractDetailsAsync = details
+        return ib, handlers
+
+    @pytest.mark.asyncio
+    async def test_error_200_marks_the_symbol_undefined(self):
+        provider = self._provider()
+        provider._ib, handlers = self._ib(200)
+        assert await provider.qualify_instrument(self._LXP) is False
+        assert provider.is_undefined_contract("LXP") and handlers == []
+
+    @pytest.mark.asyncio
+    async def test_error_200_raised_as_a_request_error_still_marks_the_symbol(self):
+        provider = self._provider()
+        provider._ib, _ = self._ib(200, raises=RuntimeError("RequestError 200"))
+        assert await provider.qualify_instrument(self._LXP) is False
+        assert provider.is_undefined_contract("LXP")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("code, raises", [(None, TimeoutError()), (322, None)])
+    async def test_a_timeout_or_another_error_is_not_undefined(self, code, raises):
+        provider = self._provider()
+        provider._undefined_contracts.add("LXP")  # a previous answer never leaks
+        provider._ib, _ = self._ib(code, raises=raises)
+        assert await provider.qualify_instrument(self._LXP) is False
+        assert not provider.is_undefined_contract("LXP")
 
 
 class TestIBKRUseRTH:

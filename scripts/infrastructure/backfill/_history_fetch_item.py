@@ -548,7 +548,12 @@ async def _ensure_qualified(ctx: FetchContext, instrument: Any) -> bool:
     stays True and the qualify False is the dead session, not an unknown contract.
     Before caching the False, probe the session (reqCurrentTime): a dead session raises
     GatewayLost so the run fast-fails and the summary records gateway_lost, instead of
-    re-failing every queued item as plain errors."""
+    re-failing every queued item as plain errors.
+
+    todo 585: IBKR's Error 200 "No security definition" for the symbol proves the session alive
+    and is the name's own definitional failure, so it is never probed: cached False, the item
+    ends error and is charged toward the name's exclusion. A probe after it once read a live
+    session as lost and ended five runs at LXP (2026-11-03). Any other False is probed."""
     symbol = instrument.symbol
     if symbol in ctx.qualified:
         return ctx.qualified[symbol]
@@ -557,7 +562,11 @@ async def _ensure_qualified(ctx: FetchContext, instrument: Any) -> bool:
         if not await ctx.provider.connect():
             raise GatewayLost(f"IBKR reconnect before qualifying {symbol} failed")
     qualified = bool(await ctx.provider.qualify_instrument(instrument))
-    if not qualified and not await ctx.provider.session_alive():
+    if (
+        not qualified
+        and not ctx.provider.is_undefined_contract(symbol)
+        and not await ctx.provider.session_alive()
+    ):
         raise GatewayLost(
             f"IBKR session did not answer the liveness probe before qualifying {symbol}"
         )

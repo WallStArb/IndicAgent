@@ -321,6 +321,9 @@ _HIST_PACING_WAIT_RELEASE_S = 60.0
 # overridable (infra.ibkr.history_probe_timeout_s / history_probe_symbol); fallback defaults.
 _HIST_PROBE_TIMEOUT_S = 60.0
 _HIST_PROBE_SYMBOL = "SPY"
+# Session liveness probe (todo 577/585, session_alive): reqCurrentTime's timeout. APR-overridable
+# (infra.ibkr.session_probe_timeout_s, migration 565); fallback default.
+_SESSION_PROBE_TIMEOUT_S = 10.0
 # IBKR rejects an identical history request repeated inside 15 s (pacing rule): probes are spaced
 # at least this far apart. A vendor rule, not a tunable.
 _HIST_PROBE_MIN_SPACING_S = 15.0
@@ -333,6 +336,7 @@ HIST_RATE_LIMIT_KEYS = (
     "infra.ibkr.hist_pacing_wait_release_s",
     "infra.ibkr.history_probe_timeout_s",
     "infra.ibkr.history_probe_symbol",
+    "infra.ibkr.session_probe_timeout_s",
 )
 
 
@@ -342,6 +346,7 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
     keys keep their defaults. DB-ignorant: each caller loads the rows its own way."""
     global _IBKR_HIST_RATE_LIMIT, _IBKR_HIST_WINDOW_S, _IBKR_HIST_RATE_LIMIT_BY_TF  # noqa: PLW0603
     global _HIST_PACING_WAIT_RELEASE_S, _HIST_PROBE_TIMEOUT_S, _HIST_PROBE_SYMBOL  # noqa: PLW0603
+    global _SESSION_PROBE_TIMEOUT_S  # noqa: PLW0603
     if "infra.ibkr.rate_limit_max_requests" in values:
         _IBKR_HIST_RATE_LIMIT = int(values["infra.ibkr.rate_limit_max_requests"])
     if "infra.ibkr.rate_limit_window_sec" in values:
@@ -357,6 +362,8 @@ def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
         _HIST_PROBE_TIMEOUT_S = float(values["infra.ibkr.history_probe_timeout_s"])
     if "infra.ibkr.history_probe_symbol" in values:
         _HIST_PROBE_SYMBOL = str(values["infra.ibkr.history_probe_symbol"])
+    if "infra.ibkr.session_probe_timeout_s" in values:
+        _SESSION_PROBE_TIMEOUT_S = float(values["infra.ibkr.session_probe_timeout_s"])
 
 
 def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
@@ -420,6 +427,7 @@ _MAX_CLIENT_ID = 50
 _IB_GATEWAY_PROC_PATTERN = "ibcalpha.ibc.IbcGateway"
 _IB_GATEWAY_CONTAINER = "ib-gateway"
 _ERR_326 = "Error 326"  # IBKR clientId-already-in-use sentinel string
+_IB_ERR_NO_SECURITY_DEFINITION = 200  # IBKR's answer to a contract it does not define
 
 
 def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None:
@@ -845,6 +853,9 @@ class IBKRProvider:
         # SMART chunks of the last fetch_historical_bars call that failed every retry: the
         # call still returns what it got, so a caller deciding "complete" must check this.
         self.last_fetch_failed_chunks = 0
+        # Symbols whose last qualify IBKR answered with Error 200 (todo 585), keyed by symbol so
+        # the workers sharing this provider never read each other's answer.
+        self._undefined_contracts: set[str] = set()
 
     async def connect(self) -> bool:
         """Connect to TWS/Gateway. Returns True on success."""
@@ -1939,7 +1950,7 @@ class IBKRProvider:
         _no_data_req_ids.discard(getattr(bars, "reqId", None))
         return bool(bars)
 
-    async def session_alive(self, timeout_sec: float = 10.0) -> bool:
+    async def session_alive(self, timeout_sec: float | None = None) -> bool:
         """Liveness probe for the qualify-on-dead-socket case (todo 577): the TCP socket to
         the gateway container can stay up while the IBKR session is dead, so is_connected()
         stays True and qualify_instrument returns False exactly like a genuine unknown
@@ -1948,10 +1959,17 @@ class IBKRProvider:
         if not self._ib:
             return False
         try:
-            await asyncio.wait_for(self._ib.reqCurrentTimeAsync(), timeout=timeout_sec)
+            await asyncio.wait_for(
+                self._ib.reqCurrentTimeAsync(),
+                timeout=_SESSION_PROBE_TIMEOUT_S if timeout_sec is None else timeout_sec,
+            )
             return True
         except Exception:
             return False
+
+    def is_undefined_contract(self, symbol: str) -> bool:
+        """True when the symbol's last qualify_instrument got IBKR's Error 200 (todo 585)."""
+        return symbol in self._undefined_contracts
 
     async def qualify_instrument(
         self,
@@ -1966,9 +1984,16 @@ class IBKRProvider:
         ibkr_symbol and trading_class are resolved by the caller (IBKRAdapter);
         direct callers may omit them and they are derived from provider_meta.
         Returns True if successfully qualified.
+
+        A False is told apart by is_undefined_contract (todo 585): IBKR answered with Error
+        200 "No security definition" (a definitional failure of the name, which proves the
+        session alive), or it did not (timeout, another error, no client: the only case worth
+        a session liveness probe).
         """
+        self._undefined_contracts.discard(instrument.symbol)
         if not self._ib:
             return False
+        refused: list[int] = []  # IBKR's Error 200 for this request (todo 585)
         try:
             ibkr_meta = instrument.provider_meta.get("ibkr", {})
             if instrument.asset_class == AssetClass.FUTURES:
@@ -2005,7 +2030,17 @@ class IBKRProvider:
             # own in ib_async (unlike reqHistoricalDataAsync's internal default=60) --
             # fully unbounded without this wrapper. Same failure class as the historical-
             # data hang migration 199 fixed elsewhere in this file.
-            details = await self._contract_details(contract)
+            def on_error(req_id: int, code: int, _text: str, err_contract: Any) -> None:
+                if code == _IB_ERR_NO_SECURITY_DEFINITION and err_contract == contract:
+                    refused.append(req_id)
+
+            self._ib.errorEvent += on_error
+            try:
+                details = await self._contract_details(contract)
+            finally:
+                self._ib.errorEvent -= on_error
+            if refused and not details:
+                self._undefined_contracts.add(instrument.symbol)
             if details:
                 qualified = details[0].contract
                 self._qualified_contracts[instrument.symbol] = qualified
@@ -2026,6 +2061,8 @@ class IBKRProvider:
             )
             return False
         except Exception as e:
+            if refused:  # RaiseRequestErrors turns the Error 200 answer into an exception
+                self._undefined_contracts.add(instrument.symbol)
             logger.warning(
                 "qualify_instrument failed", extra={"symbol": instrument.symbol, "error": str(e)}
             )

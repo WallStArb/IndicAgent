@@ -17,6 +17,7 @@ def _provider_with_fake_ib(details_return_value):
     provider.logger = MagicMock()
     provider._qualified_contracts = {}
     provider._local_to_canonical = {}
+    provider._undefined_contracts = set()
     provider._ib = MagicMock()
     provider._ib.reqContractDetailsAsync = AsyncMock(return_value=details_return_value)
     return provider
@@ -137,6 +138,7 @@ class TestFetchContractClassification:
         provider.logger = MagicMock()
         provider._qualified_contracts = {}
         provider._local_to_canonical = {}
+        provider._undefined_contracts = set()
         provider._ib = None
 
         with pytest.raises(RuntimeError):
