@@ -76,6 +76,8 @@ _DAYS_TO_EARLIEST_EXPIRY = _meter.create_gauge(
     description="Days until the earliest expiry among live exceptions (unset when none expires)",
 )
 
+_HAS_ROWS_SQL = "SELECT EXISTS (SELECT 1 FROM feature_vectors) AS has_rows"
+
 _COVERAGE_GAP_SQL = """
     SELECT symbol, count(*) AS total_rows, count(regime) AS non_null_regime_rows
     FROM feature_vectors
@@ -201,6 +203,13 @@ def _connect_db(settings: Settings) -> psycopg.Connection:
     return conn
 
 
+def _table_has_rows(cur: psycopg.Cursor) -> bool:
+    """Whether feature_vectors holds any row: an empty table has no gaps to find, which must not
+    read as a clean audit."""
+    cur.execute(_HAS_ROWS_SQL)
+    return bool(cur.fetchone()["has_rows"])
+
+
 def _fetch_coverage_gaps(cur: psycopg.Cursor) -> list[str]:
     """Pure-ish helper — exported for unit tests. Takes an open cursor, returns the
     list of symbols with zero non-null feature_vectors.regime rows."""
@@ -227,57 +236,69 @@ def main() -> None:
             cfg.get_sync(_EXCEPTIONS_KEY, "[]"), int(cfg.get_sync(_MAX_PERMANENT_KEY, 5))
         )
         with conn.cursor(row_factory=dict_row) as cur:
-            gap_symbols = _fetch_coverage_gaps(cur)
+            empty = not _table_has_rows(cur)
+            gap_symbols = [] if empty else _fetch_coverage_gaps(cur)
 
         today = datetime.now(UTC).date()
-        result = evaluate_gaps(gap_symbols, exceptions, today)
         live = [e for e in exceptions if e.expires is None or e.expires >= today]
         _EXCEPTIONS_LIVE.set(len(live))
         expiring = [(e.expires - today).days for e in live if e.expires is not None]
         if expiring:
             _DAYS_TO_EARLIEST_EXPIRY.set(min(expiring))
-        permanent = [e for e in exceptions if e.kind == KIND_PERMANENT]
-        if permanent:
-            _logger.info(
-                "regime_coverage_auditor.permanent_exceptions",
-                symbols=[e.symbol for e in permanent],
-                reasons={e.symbol: e.reason for e in permanent},
-            )
-        if result.excepted:
-            _logger.info(
-                "regime_coverage_auditor.gap_excepted",
-                n_symbols=len(result.excepted),
-                excepted={
-                    e.symbol: f"{e.kind}: {e.reason} (todo {e.todo}, until {e.expires}, clears on {e.clears_on})"
-                    for e in result.excepted
-                },
-            )
-        for entry in result.stale_exceptions:
+
+        if empty:
+            # Nothing to audit (migration 570 left the kernel table empty until the todo 584
+            # rerun fills it): an expected state, so exit 0, but the status and the warning name
+            # it instead of reporting a clean audit.
+            status = "empty_table"
             _logger.warning(
-                "regime_coverage_auditor.stale_exception",
-                symbol=entry.symbol,
-                reason=entry.reason,
-                note="listed as a gap but feature_vectors.regime now has labels for it; "
-                "remove the entry from APR",
+                "regime_coverage_auditor.empty_table",
+                note="feature_vectors has no rows; regime coverage is unaudited",
             )
-        if result.failed:
-            _logger.warning(
-                "regime_coverage_auditor.gap_found",
-                n_symbols=len(result.unregistered) + len(result.expired),
-                unregistered=result.unregistered,
-                expired=result.expired,
-                note="feature_vectors.regime is 100% NULL for these symbols and no live "
-                "exception covers them. Diagnose with "
-                "scripts/infrastructure/features_regime_kernel_coverage_sweep.py, then register "
-                "an exception (with an expiry) or fix the cause. See todo 168 for the "
-                "fix-direction precedent (near-miss vs true degenerate-collapse split).",
-            )
-            status = "gap_found"
-            exit_code = 1
-        elif result.excepted:
-            _logger.info("regime_coverage_auditor.no_unregistered_gap_found")
         else:
-            _logger.info("regime_coverage_auditor.no_gap_found")
+            result = evaluate_gaps(gap_symbols, exceptions, today)
+            permanent = [e for e in exceptions if e.kind == KIND_PERMANENT]
+            if permanent:
+                _logger.info(
+                    "regime_coverage_auditor.permanent_exceptions",
+                    symbols=[e.symbol for e in permanent],
+                    reasons={e.symbol: e.reason for e in permanent},
+                )
+            if result.excepted:
+                _logger.info(
+                    "regime_coverage_auditor.gap_excepted",
+                    n_symbols=len(result.excepted),
+                    excepted={
+                        e.symbol: f"{e.kind}: {e.reason} (todo {e.todo}, until {e.expires}, clears on {e.clears_on})"
+                        for e in result.excepted
+                    },
+                )
+            for entry in result.stale_exceptions:
+                _logger.warning(
+                    "regime_coverage_auditor.stale_exception",
+                    symbol=entry.symbol,
+                    reason=entry.reason,
+                    note="listed as a gap but feature_vectors.regime now has labels for it; "
+                    "remove the entry from APR",
+                )
+            if result.failed:
+                _logger.warning(
+                    "regime_coverage_auditor.gap_found",
+                    n_symbols=len(result.unregistered) + len(result.expired),
+                    unregistered=result.unregistered,
+                    expired=result.expired,
+                    note="feature_vectors.regime is 100% NULL for these symbols and no live "
+                    "exception covers them. Diagnose with "
+                    "scripts/infrastructure/features_regime_kernel_coverage_sweep.py, then register "
+                    "an exception (with an expiry) or fix the cause. See todo 168 for the "
+                    "fix-direction precedent (near-miss vs true degenerate-collapse split).",
+                )
+                status = "gap_found"
+                exit_code = 1
+            elif result.excepted:
+                _logger.info("regime_coverage_auditor.no_unregistered_gap_found")
+            else:
+                _logger.info("regime_coverage_auditor.no_gap_found")
 
         elapsed = time.monotonic() - t0
         _logger.info(

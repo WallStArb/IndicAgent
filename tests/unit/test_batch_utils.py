@@ -484,8 +484,14 @@ class TestValidateCompressedHypertable:
     check, no conn involved."""
 
     def test_known_hypertables_do_not_raise(self) -> None:
-        _validate_compressed_hypertable("feature_vectors")
         _validate_compressed_hypertable("feature_ic_scores")
+        _validate_compressed_hypertable("feature_ic_scores_v2")
+
+    def test_feature_vectors_is_refused_since_migration_570(self) -> None:
+        """The table under the name has one writer, bulk_load; no in-place UPDATE session may
+        open on it (the legacy regime writers would overwrite the rebuild's labels)."""
+        with pytest.raises(ValueError, match="feature_vectors"):
+            _validate_compressed_hypertable("feature_vectors")
 
     def test_a_live_compressed_table_outside_the_hardened_set_still_raises(self) -> None:
         """The regression this class exists to prevent (code review, 2026-09-17): a table
@@ -622,7 +628,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(n_decompressed=1)
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             calls_at_entry = [c.args[0] for c in cur.execute.call_args_list]
             assert any(sql.startswith("SELECT decompress_chunk") for sql in calls_at_entry)
             assert not any(sql.startswith("SELECT compress_chunk") for sql in calls_at_entry)
@@ -641,7 +647,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(n_decompressed=40, n_recompressed=40)
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         assert cur.execute.call_count == 8
@@ -650,7 +656,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(n_decompressed=1, n_recompressed=2)
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         sqls = [c.args[0] for c in cur.execute.call_args_list]
@@ -659,7 +665,7 @@ class TestCompressedHypertableWriteSession:
         vacuum_idx = next(i for i, s in enumerate(sqls) if s.startswith("VACUUM"))
 
         assert decompress_idx < compress_idx < vacuum_idx
-        assert sqls[vacuum_idx] == "VACUUM feature_vectors"
+        assert sqls[vacuum_idx] == "VACUUM feature_ic_scores"
 
     def test_recompresses_and_vacuums_even_when_body_raises(self) -> None:
         """The finally guarantee -- a caller's write loop raising mid-batch must not leave
@@ -668,7 +674,7 @@ class TestCompressedHypertableWriteSession:
         cur = conn.cursor.return_value.__enter__.return_value
 
         with pytest.raises(RuntimeError, match="boom"):
-            with compressed_hypertable_write_session(conn, "feature_vectors"):
+            with compressed_hypertable_write_session(conn, "feature_ic_scores"):
                 raise RuntimeError("boom")
 
         sqls = [c.args[0] for c in cur.execute.call_args_list]
@@ -696,7 +702,7 @@ class TestCompressedHypertableWriteSession:
         cur.execute.side_effect = _tracked_execute
 
         with pytest.raises(RuntimeError, match="boom"):
-            with compressed_hypertable_write_session(conn, "feature_vectors"):
+            with compressed_hypertable_write_session(conn, "feature_ic_scores"):
                 raise RuntimeError("boom")
 
         assert call_order == ["rollback", "compress"]
@@ -707,7 +713,7 @@ class TestCompressedHypertableWriteSession:
         conn.commit() already ran)."""
         conn = _mock_sync_conn()
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         conn.rollback.assert_called_once()
@@ -725,7 +731,7 @@ class TestCompressedHypertableWriteSession:
 
         cur.execute.side_effect = _record_autocommit_and_pass
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         assert autocommit_during_vacuum == [True]
@@ -738,7 +744,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(n_decompressed=0, n_recompressed=0)
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         sqls = [c.args[0] for c in cur.execute.call_args_list]
@@ -760,7 +766,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(compression_jobs=[(1065, True)])
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             calls_at_entry = [c.args for c in cur.execute.call_args_list]
             assert ("SELECT alter_job(%s, scheduled => false)", (1065,)) in calls_at_entry
             assert not any(a[0] == "SELECT alter_job(%s, scheduled => %s)" for a in calls_at_entry)
@@ -775,7 +781,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(compression_jobs=[(1065, False)])
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         all_calls = [c.args for c in cur.execute.call_args_list]
@@ -801,7 +807,7 @@ class TestCompressedHypertableWriteSession:
         cur.execute.side_effect = _fail_on_decompress
 
         with pytest.raises(RuntimeError, match="statement timeout"):
-            with compressed_hypertable_write_session(conn, "feature_vectors"):
+            with compressed_hypertable_write_session(conn, "feature_ic_scores"):
                 pytest.fail("body must never run -- entry phase failed first")
 
         all_calls = [c.args for c in cur.execute.call_args_list]
@@ -815,7 +821,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn()
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         assert not any("alter_job" in str(c.args[0]) for c in cur.execute.call_args_list)
@@ -836,7 +842,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn()
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             calls_at_entry = [
                 (c.args[0], c.args[1] if len(c.args) > 1 else None)
                 for c in cur.execute.call_args_list
@@ -876,7 +882,7 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn(n_decompressed=1, n_recompressed=1)
         cur = conn.cursor.return_value.__enter__.return_value
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             pass
 
         sqls = [c.args[0] for c in cur.execute.call_args_list]
@@ -895,15 +901,15 @@ class TestCompressedHypertableWriteSession:
         conn = _mock_sync_conn()
         assert _active_write_session_hypertable.get() is None
 
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
-            assert _active_write_session_hypertable.get() == "feature_vectors"
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
+            assert _active_write_session_hypertable.get() == "feature_ic_scores"
 
         assert _active_write_session_hypertable.get() is None
 
     def test_contextvar_cleared_even_when_body_raises(self) -> None:
         conn = _mock_sync_conn()
         with pytest.raises(RuntimeError):
-            with compressed_hypertable_write_session(conn, "feature_vectors"):
+            with compressed_hypertable_write_session(conn, "feature_ic_scores"):
                 raise RuntimeError("boom")
         assert _active_write_session_hypertable.get() is None
 
@@ -911,12 +917,12 @@ class TestCompressedHypertableWriteSession:
 class TestCompressedHypertableWriteSessionOrNoop:
     def test_returns_real_session_when_apply_true(self) -> None:
         conn = _mock_sync_conn()
-        with compressed_hypertable_write_session_or_noop(conn, "feature_vectors", apply=True):
-            assert _active_write_session_hypertable.get() == "feature_vectors"
+        with compressed_hypertable_write_session_or_noop(conn, "feature_ic_scores", apply=True):
+            assert _active_write_session_hypertable.get() == "feature_ic_scores"
 
     def test_returns_noop_when_apply_false(self) -> None:
         conn = MagicMock()
-        with compressed_hypertable_write_session_or_noop(conn, "feature_vectors", apply=False):
+        with compressed_hypertable_write_session_or_noop(conn, "feature_ic_scores", apply=False):
             assert _active_write_session_hypertable.get() is None
         conn.cursor.assert_not_called()
 
@@ -924,10 +930,10 @@ class TestCompressedHypertableWriteSessionOrNoop:
 class TestBulkUpdateByKeyCompressedHypertableGuard:
     def test_raises_when_no_session_active_for_compressed_hypertable(self) -> None:
         conn = MagicMock()
-        with pytest.raises(RuntimeError, match="feature_vectors"):
+        with pytest.raises(RuntimeError, match="feature_ic_scores"):
             bulk_update_by_key(
                 conn,
-                table="feature_vectors",
+                table="feature_ic_scores",
                 temp_table="_t",
                 key_cols=["symbol"],
                 set_cols=["regime"],
@@ -938,10 +944,10 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
 
     def test_succeeds_when_session_active_for_this_table(self) -> None:
         conn = _mock_sync_conn()
-        with compressed_hypertable_write_session(conn, "feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
             bulk_update_by_key(
                 conn,
-                table="feature_vectors",
+                table="feature_ic_scores",
                 temp_table="_t",
                 key_cols=["symbol"],
                 set_cols=["regime"],
@@ -951,11 +957,11 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
 
     def test_raises_when_session_active_for_a_different_table(self) -> None:
         conn = _mock_sync_conn()
-        with compressed_hypertable_write_session(conn, "feature_ic_scores"):
-            with pytest.raises(RuntimeError, match="feature_vectors"):
+        with compressed_hypertable_write_session(conn, "feature_ic_scores_v2"):
+            with pytest.raises(RuntimeError, match="feature_ic_scores"):
                 bulk_update_by_key(
                     conn,
-                    table="feature_vectors",
+                    table="feature_ic_scores",
                     temp_table="_t",
                     key_cols=["symbol"],
                     set_cols=["regime"],
@@ -1332,7 +1338,7 @@ class TestDecompressHeadroomGuard:
             "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
         ):
             with pytest.raises(RuntimeError, match="refused"):
-                check_decompress_headroom("feature_vectors", int(491e9), "/", 0.10)
+                check_decompress_headroom("feature_ic_scores", int(491e9), "/", 0.10)
 
     def test_passes_with_room_to_spare(self):
         from services._batch_utils import check_decompress_headroom
@@ -1340,7 +1346,7 @@ class TestDecompressHeadroomGuard:
         with patch(
             "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
         ):
-            check_decompress_headroom("feature_vectors", int(6e9), "/", 0.10)
+            check_decompress_headroom("feature_ic_scores", int(6e9), "/", 0.10)
 
     @pytest.mark.real_headroom_check
     def test_sync_session_refuses_before_touching_anything(self):
@@ -1354,7 +1360,7 @@ class TestDecompressHeadroomGuard:
             "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
         ):
             with pytest.raises(RuntimeError, match="refused"):
-                with compressed_hypertable_write_session(conn, "feature_vectors"):
+                with compressed_hypertable_write_session(conn, "feature_ic_scores"):
                     pass
         sql = " ".join(str(c.args[0]) for c in cur.execute.call_args_list)
         assert "alter_job" not in sql and "decompress_chunk" not in sql
@@ -1371,7 +1377,7 @@ class TestDecompressHeadroomGuard:
             "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
         ):
             with pytest.raises(RuntimeError, match="refused"):
-                async with async_compressed_hypertable_write_session(conn, "feature_vectors"):
+                async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
                     pass
         conn.execute.assert_not_called()
 
@@ -1389,7 +1395,7 @@ class TestNativeDmlWriteMode:
         cur.fetchall.return_value = []
         cur.fetchone.return_value = ("0", "0", "0")
         with patch("services._batch_utils.shutil.disk_usage") as usage:
-            with compressed_hypertable_write_session(conn, "feature_vectors", decompress=False):
+            with compressed_hypertable_write_session(conn, "feature_ic_scores", decompress=False):
                 pass
         usage.assert_not_called()
         sql = " ".join(str(c.args[0]) for c in cur.execute.call_args_list)

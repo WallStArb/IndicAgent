@@ -29,10 +29,7 @@ def _db_answers(mock_db, *, failing=0, ic_newest=None, research=True):
                 }
             ]
         if "FROM feature_vectors" in sql:
-            return [
-                {"store": "feature_vectors", "newest_bar": OLD},
-                {"store": "feature_vectors_v2", "newest_bar": None},
-            ]
+            return [{"newest_bar": OLD}]
         if "FROM market_regimes" in sql:
             return [{"newest_bar": FRESH}]
         if "FROM concept_registry" in sql:
@@ -131,7 +128,6 @@ def test_one_dead_feed_is_not_hidden_by_a_healthy_one(client, mock_db):
                 "runs": 1,
                 "newest": FRESH,
                 "ic_rows": 0,
-                "store": "feature_vectors",
             }
         ]
 

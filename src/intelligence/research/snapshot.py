@@ -467,7 +467,7 @@ async def _tf_configs(
         start, end = spans[req.tf]
         rows = await pool.fetch(
             feature_inputs.PROVENANCE_SQL,
-            list(feature_inputs.PROVENANCE_TARGET_TABLES),
+            feature_inputs.FEATURE_TABLE,
             req.tf,
             start,
             end,

@@ -63,7 +63,7 @@ def clamp_to_real_range_array(column: np.ndarray) -> np.ndarray:
     float32's range clamp to +-max, nonzero values below its smallest magnitude become
     0.0; NaN and infinity are left as they are (Postgres accepts both in a real
     column). Lives next to its scalar sibling so the two cannot drift; the vectorized
-    form is what a whole-column producer (the feature_vectors_v2 rebuild) runs before
+    form is what a whole-column producer (the feature_vectors rebuild) runs before
     spooling, letting its bulk_load skip the per-row clamp."""
     finite = np.isfinite(column)
     magnitude = np.abs(column)

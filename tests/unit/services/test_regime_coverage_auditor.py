@@ -155,7 +155,7 @@ class _Gauges:
         )
 
 
-def _run_main(monkeypatch, gaps, raw_exceptions, max_permanent=5):
+def _run_main(monkeypatch, gaps, raw_exceptions, max_permanent=5, has_rows=True):
     class _Cfg:
         def get_sync(self, key, default=None):
             if key == auditor._EXCEPTIONS_KEY:
@@ -179,6 +179,7 @@ def _run_main(monkeypatch, gaps, raw_exceptions, max_permanent=5):
     monkeypatch.setattr(auditor, "Settings", lambda: object())
     monkeypatch.setattr(auditor, "_connect_db", lambda _settings: conn)
     monkeypatch.setattr(auditor, "load_config_service_sync", lambda _conn: _Cfg())
+    monkeypatch.setattr(auditor, "_table_has_rows", lambda _cur: has_rows)
     monkeypatch.setattr(auditor, "_fetch_coverage_gaps", lambda _cur: gaps)
     monkeypatch.setattr(auditor, "init_otel_providers", lambda **_kw: None)
     monkeypatch.setattr(auditor, "flush_and_shutdown_metrics", lambda: None)
@@ -189,6 +190,20 @@ def _run_main(monkeypatch, gaps, raw_exceptions, max_permanent=5):
     with pytest.raises(SystemExit) as exit_info:
         auditor.main()
     return exit_info.value.code, statuses[-1]
+
+
+def test_main_reports_an_empty_table_instead_of_a_clean_audit(monkeypatch):
+    """Migration 570 left feature_vectors empty until the rerun: nothing audited is not a pass."""
+    code, status = _run_main(
+        monkeypatch, [], json.dumps([_entry(expires="2999-01-01")]), has_rows=False
+    )
+    assert (code, status) == (0, "empty_table")
+
+
+def test_main_keeps_the_expiry_gauges_live_on_an_empty_table(monkeypatch):
+    gauges = _Gauges(monkeypatch)
+    _run_main(monkeypatch, [], json.dumps([_permanent()]), has_rows=False)
+    assert gauges.live == [1]
 
 
 def test_main_exits_zero_when_every_gap_is_excepted(monkeypatch):

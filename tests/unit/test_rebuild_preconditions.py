@@ -142,11 +142,11 @@ def test_dependencies_pass_when_every_marker_is_true():
 
 def test_dependencies_fail_naming_each_missing_marker():
     markers = {name: True for name in rp.REQUIRED_DEPENDENCY_MARKERS}
-    markers["feature_vectors_v2_relation"] = False
+    markers["feature_vectors_relation"] = False
     del markers["bulk_load_import"]
     result = check_dependencies_landed(markers)
     assert not result.ok
-    assert "feature_vectors_v2_relation" in result.detail
+    assert "feature_vectors_relation" in result.detail
     assert "bulk_load_import" in result.detail
 
 
@@ -155,7 +155,7 @@ def test_dependency_marker_names_are_pinned():
         "bulk_load_import",
         "registry_regime_origin",
         "kernels_regime_module",
-        "feature_vectors_v2_relation",
+        "feature_vectors_relation",
         "writer_module_import",
     }
 
@@ -166,7 +166,7 @@ def test_dependency_marker_names_are_pinned():
 
 
 def test_drops_pass_when_no_old_relation_is_present():
-    assert check_drops_landed(frozenset({"feature_vectors_v2", "market_data_ohlcv"})).ok
+    assert check_drops_landed(frozenset({"feature_vectors", "market_data_ohlcv"})).ok
 
 
 def test_drops_fail_naming_each_surviving_table():
@@ -581,7 +581,7 @@ def test_fetch_bar_verdict_inputs_requires_intraday_checks_plus_stray_vendor_row
 def test_fetch_landed_markers_gathers_every_required_marker(tmp_path):
     state = tmp_path / "STATE.md"
     state.write_text("## Current position\n- Derived grid COMPLETE 2026-10-10 late (73.1M rows)\n")
-    conn = _FakeConn([[("feature_vectors_v2",)]])
+    conn = _FakeConn([[("feature_vectors",)]])
     markers = fetch_landed_markers(conn, state_path=state)
     assert set(markers) == set(rp.REQUIRED_DEPENDENCY_MARKERS) | {"grid_marker"}
     assert all(markers.values()), markers

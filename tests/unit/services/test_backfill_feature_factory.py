@@ -1,5 +1,5 @@
 """Unit tests for BackfillFeatureFactory: the fetch stage's helpers, the rebuild unit design
-(186-25, D-32a, D-26) and the feature_vectors_v2 rebuild writer (D-28, todo 339).
+(186-25, D-32a, D-26) and the feature_vectors rebuild writer (D-28, todo 339).
 
 CI-clean: no live IBKR, no live DB. All DB interactions are faked; the rebuild-writer tests
 run the stage's group flow over stub workers and spool files, never the real compute pool.
@@ -39,9 +39,9 @@ from src.intelligence.features.contract.registry import (
     default_registry,
 )
 from src.intelligence.features.feature_vector_persistence import (
-    feature_vector_v2_row_values,
-    feature_vectors_v2_numeric_columns,
-    feature_vectors_v2_output_columns,
+    feature_vector_row_values,
+    feature_vectors_numeric_columns,
+    feature_vectors_output_columns,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.macro import (
@@ -1281,7 +1281,7 @@ class _StubCfg:
         return self._values.get(key, default)
 
 
-_NUMERIC_WIDTH = len(feature_vectors_v2_numeric_columns())
+_NUMERIC_WIDTH = len(feature_vectors_numeric_columns())
 
 
 def _unit_spec(range_start, range_end, tf="1d", symbols=("AAA", "BBB")):
@@ -1289,7 +1289,7 @@ def _unit_spec(range_start, range_end, tf="1d", symbols=("AAA", "BBB")):
 
     return BulkLoadSpec(
         writer=module._JOB,
-        target_table="feature_vectors_v2",
+        target_table="feature_vectors",
         time_column="bar_ts",
         tf=tf,
         range_start=range_start,
@@ -1314,7 +1314,7 @@ def _group_plan(tf, specs, chunk=("AAA", "BBB"), chunk_index=0, blind=()):
 def _write_spool(path: Path, symbol: str, tf: str, times, regime=None) -> int:
     with open(path, "w") as handle:
         for ts in times:
-            row = feature_vector_v2_row_values(symbol, tf, ts, regime, None, [0.0] * _NUMERIC_WIDTH)
+            row = feature_vector_row_values(symbol, tf, ts, regime, None, [0.0] * _NUMERIC_WIDTH)
             handle.write(module._spool_line(row))
     return len(times)
 
@@ -1404,6 +1404,9 @@ class _FakeWriteConn:
         self.closed = True
 
 
+_HORIZON_YEAR_START = datetime(2026, 1, 1, tzinfo=UTC)
+
+
 def _run_rebuild_stage(
     monkeypatch,
     tmp_path,
@@ -1415,9 +1418,12 @@ def _run_rebuild_stage(
     symbols=("AAA", "BBB"),
     timeframes=("1d",),
     cfg_values=None,
+    bound=_HORIZON_YEAR_START,
+    bound_calls=None,
 ):
     """Run run_rebuild_stage over canned group plans, a stub worker pool and a recording
-    bulk_load. Returns (summary, pool, recorder, compress_calls)."""
+    bulk_load; `compression_bound` returns `bound` and records its scope in `bound_calls`.
+    Returns (summary, pool, recorder, compress_calls)."""
     completed = set(completed)
     worker = worker if worker is not None else _stub_worker({})
     recorder = bulk_load if bulk_load is not None else _BulkLoadRecorder()
@@ -1454,6 +1460,16 @@ def _run_rebuild_stage(
         module,
         "_compress_completed_chunks",
         lambda conn, table, before: compress_calls.append((table, before)) or 0,
+    )
+    monkeypatch.setattr(
+        module,
+        "compression_bound",
+        lambda conn, chunks, tfs, horizon, code_key, apr, starts, known: (
+            bound_calls.append((list(chunks), list(tfs), dict(known)))
+            if bound_calls is not None
+            else None
+        )
+        or bound,
     )
     summary = module.run_rebuild_stage(
         settings=SimpleNamespace(database_url="postgresql://fake"),
@@ -1501,7 +1517,7 @@ def test_a_fully_completed_group_dispatches_no_worker_and_issues_no_copy(monkeyp
     assert recorder.load_order == []
     assert summary["units_skipped"] == 1
     assert summary["units_loaded"] == 0
-    assert compress_calls == []
+    assert compress_calls == []  # a --symbols stage defers compression
 
 
 def test_unit_row_bound_refuses_before_any_write(monkeypatch, tmp_path):
@@ -1565,40 +1581,107 @@ def test_spool_row_count_mismatch_raises_loudly(monkeypatch, tmp_path):
         _run_rebuild_stage(monkeypatch, tmp_path, {(0, "1d"): plan}, bulk_load=recorder)
 
 
-def test_compression_defers_to_a_clean_full_scope_run(monkeypatch, tmp_path):
-    """A chunk can hold rows from any symbol chunk and tf (360-day interval, not year
-    aligned), so nothing compresses mid-run: a full-scope run with every unit completed
-    compresses once at the end; a failed
-    unit or a partial scope defers (resume traffic must never meet a compressed chunk)."""
+def test_every_stage_compresses_up_to_the_full_scope_bound(monkeypatch, tmp_path):
+    """Compression runs at every stage end, whatever the invocation's scope (todo 584 item 4):
+    chunks ending at or before `compression_bound` compress. The bound sees the full universe's
+    chunks and every APR target tf, never the --symbols/--tf scope, and receives the stage's own
+    groups with each unit's completion so it plans nothing twice."""
     u1, u2 = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
     plan = _group_plan("1d", [u1, u2])
 
+    bound_calls: list = []
     clean, _pool, _rec, calls = _run_rebuild_stage(
-        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=None, timeframes=None
+        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=None, bound_calls=bound_calls
     )
-    assert len(calls) == 1 and calls[0][0] == "feature_vectors_v2"
+    assert calls == [("feature_vectors", _HORIZON_YEAR_START)]
     assert clean["compression"] == "done"
+    [(chunks, tfs, known)] = bound_calls
+    assert tfs == ["5m", "15m", "1h", "1d"]
+    assert [s for chunk in chunks for s in chunk] == ["AAA", "BBB", "CCC"]
+    assert list(known.values()) == [[(u1.range_start, True), (u2.range_start, True)]]
 
+    pending = datetime(2019, 3, 4, tzinfo=UTC)
+    bound_calls.clear()
+    held, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        {(0, "1d"): plan},
+        symbols=None,
+        bulk_load=_BulkLoadRecorder(fail_keys={u1.batch_key}),
+        bound=pending,
+        bound_calls=bound_calls,
+    )
+    assert list(bound_calls[0][2].values()) == [[(u1.range_start, False), (u2.range_start, True)]]
+    assert calls == [("feature_vectors", pending)]
+    assert held["compression"] == "partial: units pending"
+    assert held["compressed_before"] == "2019-03-04T00:00:00Z"
+
+    # A failed unit in the horizon year cannot lower the bound, but the stage is not "done".
     failed, _pool, _rec, calls = _run_rebuild_stage(
         monkeypatch,
         tmp_path,
         {(0, "1d"): plan},
         symbols=None,
-        timeframes=None,
         bulk_load=_BulkLoadRecorder(fail_keys={u1.batch_key}),
     )
-    assert calls == []
-    assert failed["compression"].startswith("deferred")
+    assert calls == [("feature_vectors", _HORIZON_YEAR_START)]
+    assert failed["compression"] == "partial: units pending"
 
-    partial, _pool, _rec, calls = _run_rebuild_stage(
-        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=("AAA",), timeframes=("1d",)
+    bound_calls.clear()
+    scoped, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=("AAA",), bound_calls=bound_calls
+    )
+    assert calls == [] and bound_calls == []
+    assert scoped["compression"].startswith("deferred: --symbols")
+
+
+def test_the_apr_switch_turns_stage_compression_off(monkeypatch, tmp_path):
+    plan = _group_plan("1d", [_unit_spec(*_YEAR_2020)])
+    summary, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        {(0, "1d"): plan},
+        symbols=None,
+        cfg_values={"infra.bulk_load.compress_on_complete": False},
     )
     assert calls == []
-    assert partial["compression"].startswith("deferred")
+    assert summary["compression"].startswith("off")
 
 
-def test_no_write_targets_the_old_feature_vectors_table():
-    """D-28/D-24: the module holds no INSERT/UPDATE/COPY against the old table (source grep)."""
+def test_compression_bound_is_the_earliest_uncompleted_unit_of_the_full_scope(monkeypatch):
+    """Known groups are taken as given; an out-of-scope group is planned and its units checked
+    by batch_key (the planner's own completion test)."""
+    done, open_ = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
+    planned_calls: list = []
+
+    def plan_group(conn, chunk_index, chunk, tf, horizon, code_key, apr, starts):
+        planned_calls.append((chunk, tf))
+        return _group_plan(tf, [done, open_]) if tf == "5m" else None
+
+    monkeypatch.setattr(module, "_plan_group", plan_group)
+    monkeypatch.setattr(
+        module,
+        "_completed_provenance_batch",
+        lambda conn, spec: {"status": "completed"} if spec.batch_key == done.batch_key else None,
+    )
+    chunk = ("AAA", "BBB")
+    horizon = datetime(2026, 10, 1, tzinfo=UTC)
+    known = {(chunk, "1d"): [(datetime(2000, 1, 1, tzinfo=UTC), True)]}
+    args = (object(), [chunk], ["1d", "5m", "1h"], horizon, "k" * 64, {}, {})
+    assert module.compression_bound(*args, known) == open_.range_start
+    assert planned_calls == [(chunk, "5m"), (chunk, "1h")]
+
+    known[(chunk, "1d")] = [(datetime(2000, 1, 1, tzinfo=UTC), False)]
+    assert module.compression_bound(*args, known) == datetime(2000, 1, 1, tzinfo=UTC)
+
+    monkeypatch.setattr(module, "_plan_group", lambda *a: None)
+    known[(chunk, "1d")] = [(datetime(2000, 1, 1, tzinfo=UTC), True)]
+    assert module.compression_bound(*args, known) == _HORIZON_YEAR_START
+
+
+def test_feature_vectors_is_written_only_through_bulk_load():
+    """D-28/D-24: the module holds no raw INSERT/UPDATE/COPY against feature_vectors (source
+    grep); every row goes through bulk_load."""
     import re
 
     source = Path(module.__file__).read_text()
@@ -1619,7 +1702,7 @@ def test_regime_comes_from_the_registry_in_the_same_pass():
     assert "compute_kernels(" in source
     # The regime columns are outputs of the same compute_kernels call as the numerics: the
     # worker builds every column of a series from the one call (see _compute_series_columns).
-    outputs = list(feature_vectors_v2_output_columns())
+    outputs = list(feature_vectors_output_columns())
     assert "regime" in outputs and "regime_volatility" in outputs
     worker_source = inspect.getsource(module._compute_series_columns)
     assert worker_source.count("compute_kernels(") == 1
@@ -1744,7 +1827,7 @@ _CACHE_BACKED_COLUMNS = (
 
 
 def _macro_column_indices() -> dict[str, int]:
-    names = feature_vectors_v2_numeric_columns()
+    names = feature_vectors_numeric_columns()
     return {
         name: names.index(name)
         for name in (
@@ -1820,9 +1903,9 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
         default_registry(),
         inputs,
         _rebuild_config(),
-        outputs=list(feature_vectors_v2_output_columns()),
+        outputs=list(feature_vectors_output_columns()),
     )
-    names = feature_vectors_v2_numeric_columns()
+    names = feature_vectors_numeric_columns()
     spooled: dict[str, list[tuple[int, float]]] = {c: [] for c in _CACHE_BACKED_COLUMNS}
     for row in module.read_spool_rows(spool_path):
         bar_index = int(np.searchsorted(arrays["ts"], bar_ts_ns(row[2])))
@@ -1877,7 +1960,7 @@ def test_early_macro_nan_is_spooled_as_null_and_does_not_raise(monkeypatch, tmp_
     lines = path.read_text().splitlines()
     assert not any("NaN" in line or "nan" in line for line in lines)
     n_early = tma.BARS_PER_SESSION * (tma.TARGET_SESSION - tma.INTRADAY_SESSIONS.start)
-    names = feature_vectors_v2_numeric_columns()
+    names = feature_vectors_numeric_columns()
     macro_at = _macro_column_indices()
     early = [line.split(",") for line in lines[:n_early]]
     for cells in early:
@@ -1888,7 +1971,7 @@ def test_early_macro_nan_is_spooled_as_null_and_does_not_raise(monkeypatch, tmp_
     assert Path(module.__file__).read_text().count("validate_feature_vector") == 0
 
 
-def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vectors_v2(
+def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vectors(
     monkeypatch, tmp_path
 ):
     """End to end through the write loop: early rows' macro columns load as None (NULL), none
@@ -1947,7 +2030,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
     rows = recorder.rows_by_key[plan.units[0].spec.batch_key]
 
     # Early rows (bar_ts before the first daily record's date) load NULL macro columns.
-    names = feature_vectors_v2_numeric_columns()
+    names = feature_vectors_numeric_columns()
     macro_at = _macro_column_indices()
     first_record_ts = late[tma.SYMBOL][0]["ts"]
     by_ts = {r[2]: r for r in rows}
@@ -1966,7 +2049,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
         default_registry(),
         inputs,
         _rebuild_config(),
-        outputs=list(feature_vectors_v2_output_columns()),
+        outputs=list(feature_vectors_output_columns()),
     )
     last_ts = times[-1]
     last = by_ts[last_ts]
@@ -1984,7 +2067,7 @@ def test_full_column_set_fetch_start_is_the_series_start():
     from services.backfill_feature_factory import path_dependent_contributors, unit_fetch_start
 
     registry = default_registry()
-    outputs = list(feature_vectors_v2_output_columns())
+    outputs = list(feature_vectors_output_columns())
     series_start = datetime(2010, 1, 4, tzinfo=UTC)
     got = unit_fetch_start(
         registry, outputs, "5m", datetime(2020, 1, 1, tzinfo=UTC), series_start, tma.CONFIG
@@ -2014,7 +2097,7 @@ def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
     ]
     assert plan.blind_symbols == {"BBB"}
     unit = plan.units[0]
-    assert unit.spec.target_table == "feature_vectors_v2"
+    assert unit.spec.target_table == "feature_vectors"
     assert len(unit.spec.input_digest) == 64
     assert unit.index == 0
 

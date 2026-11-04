@@ -439,23 +439,23 @@ UNOWNED_COLUMNS: Mapping[str, str] = {
 }
 
 
-# Registry feature columns the legacy FeatureVector (and the old feature_vectors table) does not
-# carry, each with the reason: they are stored only in feature_vectors_v2, which the 186-26
-# rebuild writes. The legacy chain retires at the 186-27 swap and is not extended, so a test that
-# holds the registry against FeatureVector subtracts exactly these.
-V2_ONLY_COLUMNS: Mapping[str, str] = {
-    "high_low_spread": "todo 553: added after 186-24 (migration 526); feature_vectors_v2 only",
-    "roll_spread": "todo 553: added after 186-24 (migration 526); feature_vectors_v2 only",
-    "market_residual_return": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "idiosyncratic_volatility": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "market_residual_z": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "market_residual_lag1_acf": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "residual_beta_stability": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "max_daily_return": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "max_drawdown": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "downside_deviation": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "size_proxy": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
-    "dividend_yield": "todo 584 item 8 (D2): add-list, migration 559; feature_vectors_v2 only",
+# Registry feature columns the legacy FeatureVector (the dormant streaming contract) does not
+# carry, each with the reason: only the kernel path computes them and only feature_vectors stores
+# them. The legacy contract is not extended, so a test that holds the registry against
+# FeatureVector subtracts exactly these.
+KERNEL_ONLY_COLUMNS: Mapping[str, str] = {
+    "high_low_spread": "todo 553: added after 186-24 (migration 526)",
+    "roll_spread": "todo 553: added after 186-24 (migration 526)",
+    "market_residual_return": "todo 584 item 8 (D2): add-list, migration 559",
+    "idiosyncratic_volatility": "todo 584 item 8 (D2): add-list, migration 559",
+    "market_residual_z": "todo 584 item 8 (D2): add-list, migration 559",
+    "market_residual_lag1_acf": "todo 584 item 8 (D2): add-list, migration 559",
+    "residual_beta_stability": "todo 584 item 8 (D2): add-list, migration 559",
+    "max_daily_return": "todo 584 item 8 (D2): add-list, migration 559",
+    "max_drawdown": "todo 584 item 8 (D2): add-list, migration 559",
+    "downside_deviation": "todo 584 item 8 (D2): add-list, migration 559",
+    "size_proxy": "todo 584 item 8 (D2): add-list, migration 559",
+    "dividend_yield": "todo 584 item 8 (D2): add-list, migration 559",
 }
 
 

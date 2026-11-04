@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Backfill Feature Factory: the IBKR fetch stage and the feature_vectors_v2 rebuild writer.
+"""Backfill Feature Factory: the IBKR fetch stage and the feature_vectors rebuild writer.
 
 Stage 1 (--fetch-only): fetch IBKR OHLCV history into market_data_ohlcv at target depths, 5m and
 1m only, through the ingress write contract (_history_fetch.store_bars, plan 185-42). Phase 185
 owns it. No checkpoint: every run asks the full depth and the contract writes only new and changed
 rows.
 
-Stage 2 (--compute-only): the single rebuild writer for feature_vectors_v2 (phase 186, D-28).
+Stage 2 (--compute-only): the single rebuild writer for feature_vectors (phase 186, D-28).
 A unit of work is (symbol chunk, tf, calendar-year range), recorded as one provenance_batch row
-(D-24) with target_table feature_vectors_v2; a rerun after a kill skips every unit whose record is
+(D-24) with target_table feature_vectors; a rerun after a kill skips every unit whose record is
 completed and recomputes the rest (D-32a). Workers are compute-only: one task per symbol runs the
 kernel registry ONCE over the symbol's whole history (regime and regime_volatility included, in
 the same pass: no UPDATE path exists, no separate regime pass, R-10) and writes one spool
 file per (symbol, unit) under a directory the main process owns; they return paths and row
 counts, never row lists (todo 339). The main process merges a unit's symbol spools in time order
-and streams them through bulk_load() on one serial writer connection. Nothing writes the old
-feature_vectors table.
+and streams them through bulk_load() on one serial writer connection.
 
 Default: both stages run in sequence. Source invariant (T1/D-05): only market_data_ohlcv (via the
 market_data_ohlcv_tradeable view, todo 124) is read for compute.
@@ -27,7 +26,7 @@ workers running and a backend possibly mid-COPY:
     ps -eo pid,cmd | awk '/backfill_feature_factory/ && !/awk/ {print $1}' | xargs kill
     # confirm zero remain, then look for a leftover write backend and terminate it:
     #   select pid, state, wait_event from pg_stat_activity
-    #    where state = 'active' and wait_event = 'ClientWrite' and query like 'COPY feature_vectors_v2%';
+    #    where state = 'active' and wait_event = 'ClientWrite' and query like 'COPY feature_vectors%';
     #   select pg_terminate_backend(<pid>);
 
 then relaunch the same command: completed units are skipped, a killed unit left a `started`
@@ -78,7 +77,12 @@ sys.path.insert(0, str(project_root))
 
 
 from scripts.infrastructure.backfill._history_fetch import store_bars
-from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL, BulkLoadSpec
+from services._batch_utils import (
+    _BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY,
+    _BULK_LOAD_DEFAULT_COMPRESS_ON_COMPLETE,
+    BAR_DIGEST_ABSENT_SYMBOL,
+    BulkLoadSpec,
+)
 from services._batch_utils import bar_content_digests as _bar_content_digests
 from services._batch_utils import bulk_load as _bulk_load
 from services._batch_utils import completed_provenance_batch as _completed_provenance_batch
@@ -94,7 +98,7 @@ from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.real_column_range import clamp_to_real_range_array
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.bars.integrity_checks import INFO_PROVEN_START
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES, GRID_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import DERIVED_PAIR, grid_volume_basis, volume_basis
@@ -114,10 +118,10 @@ from src.intelligence.features.contract.registry import (
     default_registry,
 )
 from src.intelligence.features.feature_vector_persistence import (
-    feature_vector_v2_row_values,
-    feature_vectors_v2_columns,
-    feature_vectors_v2_numeric_columns,
-    feature_vectors_v2_output_columns,
+    feature_vector_row_values,
+    feature_vectors_columns,
+    feature_vectors_numeric_columns,
+    feature_vectors_output_columns,
 )
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import none_mask_name
@@ -981,14 +985,13 @@ async def run_fetch_stage(
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: the rebuild writer (D-28). feature_vectors_v2 only, through bulk_load().
+# Stage 2: the rebuild writer (D-28). feature_vectors only, through bulk_load().
 # ---------------------------------------------------------------------------
 
-_V2_TABLE = "feature_vectors_v2"
-_V2_TIME_COLUMN = "bar_ts"
-# ETFs trade on NYSE/NASDAQ/ARCA with identical hours; the old table filtered non-trading bars at
-# source and the rebuilt one keeps the same row set so the swap's drift report compares like with
-# like.
+_FEATURE_TABLE = "feature_vectors"
+_FEATURE_TIME_COLUMN = "bar_ts"
+# ETFs trade on NYSE/NASDAQ/ARCA with identical hours; the v1 table filtered non-trading bars at
+# source and the rebuild keeps the same row set.
 _TRADING_EXCHANGE = "NYSE"
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 # A name with no proven start reads from the beginning of its series.
@@ -1037,7 +1040,7 @@ def default_data_horizon(now: datetime | None = None) -> datetime:
 class SeriesColumns(NamedTuple):
     """One (symbol, tf) series' computed columns on the bar grid."""
 
-    # (n_bars, n_numeric) float32 in feature_vectors_v2_numeric_columns() order; NaN is missing.
+    # (n_bars, n_numeric) float32 in feature_vectors_numeric_columns() order; NaN is missing.
     numeric: np.ndarray
     regime: np.ndarray  # object, None where unlabeled
     regime_volatility: np.ndarray
@@ -1067,7 +1070,7 @@ def _compute_series_columns(
     config: FeatureFactoryConfig,
     registry: KernelRegistry | None = None,
 ) -> SeriesColumns:
-    """Every feature_vectors_v2 feature column of one series from ONE `compute_kernels` call.
+    """Every feature_vectors feature column of one series from ONE `compute_kernels` call.
 
     The call runs from the series start over the registry's full output set, regime and
     regime_volatility included (the HMM walk-forward kernels, R-10); the session VP, session
@@ -1078,8 +1081,8 @@ def _compute_series_columns(
     type) with out-of-range values clamped the way bulk_load clamps.
     """
     registry = registry if registry is not None else default_registry()
-    numeric_names = feature_vectors_v2_numeric_columns()
-    outputs = list(feature_vectors_v2_output_columns())
+    numeric_names = feature_vectors_numeric_columns()
+    outputs = list(feature_vectors_output_columns())
     out = compute_kernels(registry, inputs, config, outputs=outputs)
     n = len(inputs["close"])
     warmups = column_warmup_bars(registry, numeric_names, config)
@@ -1198,7 +1201,7 @@ def _series_kernel_inputs(
 
 
 def _spool_line(row: tuple) -> str:
-    """One feature_vectors_v2 row as a CSV line: bar_ts as epoch microseconds, a missing value
+    """One feature_vectors row as a CSV line: bar_ts as epoch microseconds, a missing value
     (None) as an empty field, floats with 9 significant digits (round-trips float32 exactly)."""
     symbol, tf, bar_ts, regime, regime_volatility = row[:5]
     for text in (symbol, tf, regime, regime_volatility):
@@ -1274,7 +1277,7 @@ def _write_unit_spool(
             handle.write(
                 "".join(
                     _spool_line(
-                        feature_vector_v2_row_values(
+                        feature_vector_row_values(
                             symbol,
                             tf,
                             bar_times[k],
@@ -1445,6 +1448,55 @@ GROUP BY m.symbol, yr
 """
 
 
+def open_chunk_floor(horizon: datetime) -> datetime:
+    """Jan 1 of the horizon year: the chunk holding the horizon stays open for later writes, so
+    compression never reaches past this instant."""
+    return datetime(horizon.year, 1, 1, tzinfo=UTC)
+
+
+def compression_bound(
+    conn: Any,
+    full_chunks: Sequence[tuple[str, ...]],
+    timeframes: Sequence[str],
+    horizon: datetime,
+    code_key: str,
+    apr_snapshot: Mapping[str, Any],
+    starts: Mapping[str, datetime],
+    known: Mapping[tuple[tuple[str, ...], str], Sequence[tuple[datetime, bool]]],
+) -> datetime:
+    """Chunks ending at or before this instant can be compressed (todo 584 item 4): the open
+    chunk floor, pulled back to the earliest `range_start` of any unit of the full scope (every
+    universe chunk, every target tf) that is not completed. "Completed" is the planner's own test,
+    the unit's batch_key (code key, APR snapshot, input digest, symbol chunk), so a restated bar,
+    an APR change or a reshuffled chunk keeps its unit pending here exactly as the planner sees it.
+
+    `known` carries the stage's own groups, (chunk, tf) -> [(range_start, completed)], so a
+    full-scope stage plans nothing again; groups outside its --symbols/--tf scope are planned
+    here. A unit renamed after its chunk was compressed is refused loudly by bulk_load (compressed
+    chunk in range), never written silently.
+    """
+    bound = open_chunk_floor(horizon)
+    for chunk_index, chunk in enumerate(full_chunks):
+        for tf in timeframes:
+            units = known.get((chunk, tf))
+            if units is None:
+                plan = _plan_group(
+                    conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
+                )
+                units = (
+                    []
+                    if plan is None
+                    else [
+                        (u.spec.range_start, _completed_provenance_batch(conn, u.spec) is not None)
+                        for u in plan.units
+                    ]
+                )
+            for range_start, completed in units:
+                if not completed:
+                    bound = min(bound, range_start)
+    return bound
+
+
 def _year_span(range_start: datetime, range_end: datetime) -> range:
     """The calendar years a half-open [range_start, range_end) touches: the end minus one
     microsecond, so a Jan 1 00:00:00 end does not include that year."""
@@ -1538,8 +1590,8 @@ def _plan_group(
         blind |= {s for s in merged if digests[s] == BAR_DIGEST_ABSENT_SYMBOL}
         spec = BulkLoadSpec(
             writer=_JOB,
-            target_table=_V2_TABLE,
-            time_column=_V2_TIME_COLUMN,
+            target_table=_FEATURE_TABLE,
+            time_column=_FEATURE_TIME_COLUMN,
             tf=tf,
             range_start=range_start,
             range_end=range_end,
@@ -1583,7 +1635,7 @@ def _write_group(
     skips its per-row clamp. Removes the group's spool directory when done, whatever happened.
     """
     group = prepared.plan
-    columns = feature_vectors_v2_columns()
+    columns = feature_vectors_columns()
     try:
         results = [future.result() for future in prepared.futures]
         failures = [r for r in results if r["error"]]
@@ -1669,7 +1721,7 @@ def run_rebuild_stage(
     horizon: datetime | None = None,
     spool_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Rebuild feature_vectors_v2 for the compute_eligible_1d universe (D-28, D-32a).
+    """Rebuild feature_vectors for the compute_eligible_1d universe (D-28, D-32a).
 
     Chunk-major: for each symbol chunk, for each tf, one group. A group is planned from bar
     statistics and month digests alone, each unit's provenance row is consulted
@@ -1678,10 +1730,12 @@ def run_rebuild_stage(
     its start (the path-dependent kernels need it, see `unit_fetch_start`), once per (symbol,
     tf), and each unit takes its year of rows from that one pass.
 
-    Compression runs once at the end, only for a full-scope run (no --symbols, no --tf) with
-    every unit completed: a chunk can hold rows from any symbol chunk and tf (the 360-day
-    interval is not year aligned), so compressing earlier could make bulk_load refuse later
-    units, and a chunk containing the horizon stays open for later writes.
+    Compression runs at the end of every full-universe stage (any --tf, failed units or not); a
+    --symbols stage defers it, because its unit keys follow its own chunks. A chunk can hold rows
+    from any symbol chunk and tf (the 360-day interval is not year aligned), so only chunks ending
+    before the earliest not-completed unit of the full scope are compressed
+    (`compression_bound`); a compressed chunk would make bulk_load refuse a later unit, and the
+    chunk containing the horizon stays open for later writes.
 
     Returns the stage summary (units total, skipped, loaded, failed; rows; digest-blind symbols;
     the per (tf, year) chunk checklist; compression).
@@ -1691,12 +1745,13 @@ def run_rebuild_stage(
         raise ValueError("run_rebuild_stage: horizon must be tz-aware")
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
-    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
+    all_timeframes = _get_target_timeframes(cfg)
+    target_timeframes = _restrict_timeframes(all_timeframes, timeframes)
     symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
     block_rows = int(cfg.get_sync(_REBUILD_BLOCK_ROWS_KEY, _REBUILD_BLOCK_ROWS_DEFAULT))
     blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
     registry = default_registry()
-    feature_outputs = list(feature_vectors_v2_output_columns())
+    feature_outputs = list(feature_vectors_output_columns())
     code_key = unit_code_key(registry, feature_outputs)
     apr_snapshot = dataclasses.asdict(config)
     spool_root = spool_root or _SPOOL_ROOT_DEFAULT
@@ -1744,6 +1799,7 @@ def run_rebuild_stage(
         "horizon": horizon.isoformat(),
     }
     blind: set[str] = set()
+    planned: dict[tuple[tuple[str, ...], str], list[RebuildUnit]] = {}
     expected: dict[tuple[str, int], set[str]] = {}
     completed_keys: set[str] = set()
     write_conn = psycopg.connect(settings.database_url)  # bulk_load commits; not autocommit
@@ -1759,6 +1815,7 @@ def run_rebuild_stage(
                 plan = _plan_group(
                     db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
                 )
+                planned[(chunk, tf)] = [] if plan is None else plan.units
                 if plan is None:
                     summary["empty_groups"] += 1
                     continue
@@ -1841,16 +1898,28 @@ def run_rebuild_stage(
                 "expected_units": len(keys),
                 "completed_units": len(keys & completed_keys),
             }
-        full_scope = symbols is None and timeframes is None
-        if not full_scope:
-            summary["compression"] = "deferred: partial scope (--symbols or --tf)"
-        elif summary["units_failed"]:
-            summary["compression"] = "deferred: failed units"
+        if not cfg.get_sync(
+            _BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY, _BULK_LOAD_DEFAULT_COMPRESS_ON_COMPLETE
+        ):
+            summary["compression"] = f"off: {_BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY} is false"
+        elif symbols:
+            # A --symbols stage keys its units by its own chunks, which no full-universe plan
+            # matches, so the bound would replan the whole corpus and still find nothing to free.
+            summary["compression"] = "deferred: --symbols scope; a full-universe stage compresses"
         else:
-            summary["chunks_compressed"] = _compress_completed_chunks(
-                write_conn, _V2_TABLE, datetime(horizon.year, 1, 1, tzinfo=UTC)
+            known = {
+                key: [(u.spec.range_start, u.spec.batch_key in completed_keys) for u in units]
+                for key, units in planned.items()
+            }
+            bound = compression_bound(
+                db_conn, chunks, all_timeframes, horizon, code_key, apr_snapshot, starts, known
             )
-            summary["compression"] = "done"
+            summary["chunks_compressed"] = _compress_completed_chunks(
+                write_conn, _FEATURE_TABLE, bound
+            )
+            summary["compressed_before"] = format_iso_ts(bound)
+            clean = bound == open_chunk_floor(horizon) and not summary["units_failed"]
+            summary["compression"] = "done" if clean else "partial: units pending"
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
@@ -1881,7 +1950,7 @@ def _completion_status(summary: dict[str, Any]) -> str:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Backfill Feature Factory: the IBKR fetch stage and the feature_vectors_v2 "
+            "Backfill Feature Factory: the IBKR fetch stage and the feature_vectors "
             "rebuild writer"
         )
     )
@@ -1893,7 +1962,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--compute-only",
         action="store_true",
-        help="Only run Stage 2 (the feature_vectors_v2 rebuild writer), skip IBKR fetch",
+        help="Only run Stage 2 (the feature_vectors rebuild writer), skip IBKR fetch",
     )
     parser.add_argument(
         "--client-id",

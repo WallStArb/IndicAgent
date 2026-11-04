@@ -1,4 +1,4 @@
-"""D-32 rebuild preconditions, checked before the feature_vectors_v2 rebuild is launched.
+"""D-32 rebuild preconditions, checked before the feature_vectors rebuild is launched.
 
 Consumed by 186-26's first task: it calls `fetch_coverage_inputs` (empty-history spans),
 `fetch_landed_markers`, `fetch_d2_inputs` (1d verdicts), `fetch_bar_verdict_inputs` (intraday
@@ -93,7 +93,7 @@ REQUIRED_DEPENDENCY_MARKERS: frozenset[str] = frozenset(
         "bulk_load_import",
         "registry_regime_origin",
         "kernels_regime_module",
-        "feature_vectors_v2_relation",
+        "feature_vectors_relation",
         "writer_module_import",
     }
 )
@@ -515,10 +515,14 @@ def fetch_landed_markers(conn: Any, state_path: Path | None = None) -> dict[str,
     markers["kernels_regime_module"] = (_PROJECT_ROOT / REGIME_KERNEL_RELATIVE_PATH).is_file()
 
     with conn.cursor() as cur:
+        # The kernel table, not merely a relation of that name: the v1 table it replaced at
+        # migration 570 carried per-row pipeline_version, which the kernel table never has.
         cur.execute(
-            "SELECT to_regclass('feature_vectors_v2') IS NOT NULL",
+            "SELECT to_regclass('feature_vectors') IS NOT NULL AND NOT EXISTS ("
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' "
+            "AND table_name = 'feature_vectors' AND column_name = 'pipeline_version')",
         )
-        markers["feature_vectors_v2_relation"] = bool(cur.fetchone()[0])
+        markers["feature_vectors_relation"] = bool(cur.fetchone()[0])
 
     try:
         markers["grid_marker"] = GRID_MARKER_NEEDLE in state_path.read_text(

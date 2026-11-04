@@ -1,4 +1,4 @@
-"""The feature_vectors_v2 row contract (186-25): registry-derived columns pinned to the 186-24
+"""The feature_vectors row contract (186-25): registry-derived columns pinned to the 186-24
 migration, the dropped set pinned to its evidence file, and the row builder's NaN policy."""
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ import pytest
 from src.intelligence.features import feature_vector_persistence as persistence
 from src.intelligence.features.contract.registry import UNOWNED_COLUMNS, default_registry
 from src.intelligence.features.feature_vector_persistence import (
-    FEATURE_VECTORS_V2_COLUMNS,
-    FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS,
-    feature_vector_v2_row_values,
-    feature_vectors_v2_columns,
-    feature_vectors_v2_numeric_columns,
+    FEATURE_VECTORS_COLUMNS,
+    FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS,
+    feature_vector_row_values,
+    feature_vectors_columns,
+    feature_vectors_numeric_columns,
 )
-from tests.unit.intelligence.test_feature_vectors_v2_schema import (
+from tests.unit.intelligence.test_feature_vectors_schema import (
     _EVIDENCE,
     METADATA_DROPPED,
     RETIRED_COLUMNS,
@@ -38,8 +38,8 @@ _DROPPED_METADATA = (
 
 
 def test_column_count_and_order_match_the_migration() -> None:
-    assert len(FEATURE_VECTORS_V2_COLUMNS) == 311
-    assert FEATURE_VECTORS_V2_COLUMNS[:5] == (
+    assert len(FEATURE_VECTORS_COLUMNS) == 311
+    assert FEATURE_VECTORS_COLUMNS[:5] == (
         "symbol",
         "tf",
         "bar_ts",
@@ -65,31 +65,31 @@ def test_column_count_and_order_match_the_migration() -> None:
         "dividend_yield",
     ]
     live_created = [c for c in created_columns() if c not in RETIRED_COLUMNS]
-    assert [c for c in FEATURE_VECTORS_V2_COLUMNS if c not in added_columns()] == live_created
-    assert sorted(FEATURE_VECTORS_V2_COLUMNS) == sorted(
+    assert [c for c in FEATURE_VECTORS_COLUMNS if c not in added_columns()] == live_created
+    assert sorted(FEATURE_VECTORS_COLUMNS) == sorted(
         c for c in parsed_columns() if c not in RETIRED_COLUMNS
     )
-    assert set(FEATURE_VECTORS_V2_COLUMNS) == expected_columns()
+    assert set(FEATURE_VECTORS_COLUMNS) == expected_columns()
 
 
 def test_numeric_columns_are_the_registry_derivation_never_typed() -> None:
     registry = default_registry()
-    numeric = feature_vectors_v2_numeric_columns()
+    numeric = feature_vectors_numeric_columns()
     assert len(numeric) == 306
     assert list(numeric) == [
         c
         for c in registry.feature_columns()
-        if c not in FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS | {"regime", "regime_volatility"}
+        if c not in FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS | {"regime", "regime_volatility"}
     ]
-    assert feature_vectors_v2_columns() == FEATURE_VECTORS_V2_COLUMNS
+    assert feature_vectors_columns() == FEATURE_VECTORS_COLUMNS
 
 
 def test_dropped_columns_absent_and_pinned_to_the_evidence_file() -> None:
     evidence = json.loads(_EVIDENCE.read_text())
-    assert set(evidence["dropped_columns"]) == set(FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS)
+    assert set(evidence["dropped_columns"]) == set(FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS)
     assert set(evidence["metadata_dropped"]) == set(_DROPPED_METADATA)
-    columns = set(FEATURE_VECTORS_V2_COLUMNS)
-    assert not columns & set(FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS)
+    columns = set(FEATURE_VECTORS_COLUMNS)
+    assert not columns & set(FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS)
     assert not columns & set(_DROPPED_METADATA)
     assert not columns & set(RETIRED_COLUMNS)
     assert set(_DROPPED_METADATA) == set(METADATA_DROPPED)
@@ -110,14 +110,14 @@ def test_lazy_attribute_rejects_unknown_names() -> None:
 
 
 def _numeric(fill: float) -> list[float]:
-    return [fill] * len(feature_vectors_v2_numeric_columns())
+    return [fill] * len(feature_vectors_numeric_columns())
 
 
 def test_row_values_put_keys_and_regime_first_and_match_the_column_count() -> None:
     ts = datetime(2020, 1, 2, 14, 30, tzinfo=UTC)
-    row = feature_vector_v2_row_values("SPY", "5m", ts, "bull", None, _numeric(1.5))
+    row = feature_vector_row_values("SPY", "5m", ts, "bull", None, _numeric(1.5))
     assert row[:5] == ("SPY", "5m", ts, "bull", None)
-    assert len(row) == len(FEATURE_VECTORS_V2_COLUMNS)
+    assert len(row) == len(FEATURE_VECTORS_COLUMNS)
     assert all(v == 1.5 for v in row[5:])
 
 
@@ -128,7 +128,7 @@ def test_nan_is_missing_so_none_and_never_zero_or_nan_text() -> None:
         numeric[i] = math.nan
     numeric[3] = 0.0
     numeric[4] = math.inf
-    row = feature_vector_v2_row_values(
+    row = feature_vector_row_values(
         "SPY", "1d", datetime(2020, 1, 2, tzinfo=UTC), None, None, numeric
     )
     values = row[5:]
@@ -141,6 +141,4 @@ def test_nan_is_missing_so_none_and_never_zero_or_nan_text() -> None:
 
 def test_wrong_numeric_length_raises() -> None:
     with pytest.raises(ValueError, match="numeric values"):
-        feature_vector_v2_row_values(
-            "SPY", "1d", datetime(2020, 1, 2, tzinfo=UTC), None, None, [1.0]
-        )
+        feature_vector_row_values("SPY", "1d", datetime(2020, 1, 2, tzinfo=UTC), None, None, [1.0])

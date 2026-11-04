@@ -1,6 +1,6 @@
 """The legacy FeatureVector path keeps a missing macro value missing (todo 463, D1 rules 1 and 5).
 
-Rows reach feature_vectors_v2 through `feature_vector_v2_row_values`, which maps a missing macro
+Rows reach feature_vectors through `feature_vector_row_values`, which maps a missing macro
 value (the kernels' NaN before the first daily record, 186 review F9/B5a) to NULL, never 0.0 and
 never the text NaN. The legacy `FeatureFactory._build_feature_vector` that serves the live
 pipeline until the 186-27 swap now does the same: the macro fields and the two macro products are
@@ -17,8 +17,8 @@ from structlog.testing import capture_logs
 from src.intelligence import feature_factory as ff
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_vector_persistence import (
-    feature_vector_v2_row_values,
-    feature_vectors_v2_numeric_columns,
+    feature_vector_row_values,
+    feature_vectors_numeric_columns,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.macro import (
@@ -102,11 +102,11 @@ def test_the_tripwire_still_fires_when_the_inputs_are_finite_and_the_product_is_
 def test_the_rebuild_row_builder_writes_the_early_nan_as_null_not_zero():
     """The v2 row builder maps the kernels' NaN to None (NULL after COPY); the legacy
     path no longer fabricates a 0.0 either, and the rebuild never calls it."""
-    numeric_names = feature_vectors_v2_numeric_columns()
+    numeric_names = feature_vectors_numeric_columns()
     numeric = [1.0] * len(numeric_names)
     for name in ("vix_z", "tip_tlt_ret_z", "hyg_lqd_ret_z", "equity_beta_z"):
         numeric[numeric_names.index(name)] = np.float32("nan")
-    row = feature_vector_v2_row_values(
+    row = feature_vector_row_values(
         "QQQ", "5m", tma._row_ts(tma.TARGET_SESSION, 14, 0), None, None, numeric
     )
     values = row[5:]

@@ -31,6 +31,46 @@ source: lead orchestrator (indicagent-4f), owner sequence 2026-11-01: data -> al
 4. **The rerun compresses as it goes.** A stage compresses its completed year chunks when the stage
    ends, not only when the whole run ends, so a paused run never sits uncompressed again.
 
+### Decision items 3 and 4 landed (2026-11-04, migration 570)
+
+- **Item 3, one name.** Migration 570 dropped the old `feature_vectors` (89 GB, behind card
+  `cache-feature-vectors-v1`) and renamed the empty `feature_vectors_v2` to `feature_vectors`
+  (indexes and constraints renamed, table comment rewritten, the 11 `config_schema` descriptions
+  that named `_v2` updated). No view depended on either table. Every `_v2` code identifier took
+  the bare name (`FEATURE_VECTORS_COLUMNS`, `feature_vector_row_values`,
+  `feature_vectors_{,numeric_,output_}columns`, `_FEATURE_TABLE`, `KERNEL_ONLY_COLUMNS`, the
+  `ic_measure` default, the one-store pipeline route, the ops screens, the test files). The
+  remaining `_v2` strings are history: migrations up to 569, evidence JSON paths, and the schema
+  test's pre-570 migration parse. Provenance: the 1,647 `feature_vectors_v2` rows are all
+  `superseded` and stay as written; S0 reads completed rows for `feature_vectors` only
+  (`PROVENANCE_TARGET_TABLES` and `REBUILD_TARGET_TABLE` collapsed into `FEATURE_TABLE`).
+- **No compression policy, a deliberate change from 186-27's plan text.** `bulk_load` refuses a
+  unit whose `range_start` a scheduled policy's `compress_after` covers, and every rebuild unit
+  starts on Jan 1 of its first bar's year, so a policy would refuse the whole rerun. The writer is
+  the compression mechanism (item 4).
+- **Item 4, compress as it goes.** Every full-universe stage end (any `--tf`, failed units or not)
+  compresses chunks ending before `compression_bound`: Jan 1 of the horizon year, pulled back
+  to the earliest `range_start` of any not-completed unit of the full scope (every universe chunk,
+  every APR tf), with completion judged by the planner's own `batch_key`. A full-scope stage
+  reuses its plans; only out-of-scope groups are planned again. `infra.bulk_load.compress_on_complete`
+  gates it. A `--symbols` stage defers (its unit keys follow its own chunks, which no
+  full-universe plan matches), so the rerun's stages run on the full universe. Limit set by the layout: chunks are time-only (360 days, every tf and name), and the
+  run is chunk-major, so a chunk compresses only once every name and tf in its span is written; a
+  pause mid-stage still leaves that stage's span uncompressed. The 186-26 run would never have
+  compressed even at its end (its intraday stage ran with `--symbols`, which the old full-scope
+  gate deferred). A unit renamed after its chunk compressed (a restated bar) is refused loudly by
+  `bulk_load`; the unit-scoped decompress path is todo 589.
+- **Legacy in-place writers refused.** `feature_vectors` left `_WRITE_SESSION_HARDENED_TABLES`, so
+  `regime_writer` and the v1 corpus repair scripts refuse instead of overwriting the rebuild's
+  walk-forward labels (retirement: todo 590). The rebuild precondition marker now proves the
+  kernel table (no `pipeline_version` column), and `regime_coverage_auditor` reports
+  `empty_table` instead of a clean pass until the rerun fills the table.
+- **Streaming writer.** `indicagent-feature-vector-writer` stopped and disabled 2026-11-04: it
+  persists the legacy v1 contract, no table matches it now, and its producer
+  (`feature_vector_pipeline`, failed) computes with the v2.x factory, not the kernels. Code kept
+  with the dormant streaming block (todo 579 KEEP); reactivation conditions in
+  `docs/operations/operations-infrastructure.md`.
+
 ## Decision (2026-11-01 23:10Z)
 
 The 186-26 output on pin `92e588385` carries known stored-value defects (564 `hma_slope_z` is a
@@ -768,4 +808,5 @@ The D3 gate tool is independent and is built now.
 1. Items 1-12 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
    bit-identical where research or statistics moved.
 2. The pilot chunk at the new pin passes gates G1 to G5 (design D3) on every timeframe.
-3. The rerun is launched at the new pin (1d then intraday), and 186-27 proceeds on its output.
+3. The rerun is launched at the new pin (1d then intraday) and writes into `feature_vectors`
+   (one name since migration 570).

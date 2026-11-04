@@ -79,7 +79,7 @@ def _batch(
     snapshot: dict | None = None,
     status: str = "completed",
     writer: str = fi.REBUILD_WRITER,
-    target_table: str = fi.REBUILD_TARGET_TABLE,
+    target_table: str = fi.FEATURE_TABLE,
 ) -> dict:
     return {
         "batch_key": key,
@@ -164,7 +164,7 @@ def test_columns_read_registry_at_call_time():
         fi.check_columns(["x"], Fake(("y",)), "1d")
 
 
-def test_columns_v2_only_column_in_registry_accepted():
+def test_columns_kernel_only_column_in_registry_accepted():
     # a column present in the registry is accepted whatever the live table holds (the table swap
     # is 186-27; real reads wait for it)
     v2 = next(c for c in REG.applicable_outputs("1d") if c not in {PLAIN})
@@ -436,8 +436,9 @@ def test_hmm_column_refused_on_old_writer():
 
 
 def test_hmm_column_refused_on_wrong_target():
+    # The pre-migration-570 name: its records are superseded history, never a covering batch.
     with pytest.raises(FeatureInputRefused, match="B1j"):
-        fi.refuse_regime_columns([HMM_COL], REG, [_batch(target_table="feature_vectors")])
+        fi.refuse_regime_columns([HMM_COL], REG, [_batch(target_table="feature_vectors_v2")])
 
 
 def test_hmm_column_refused_without_batches():

@@ -1,9 +1,9 @@
-"""Gate the stored feature columns of feature_vectors_v2 per timeframe and name (todo 564 done-when
+"""Gate the stored feature columns of feature_vectors per timeframe and name (todo 564 done-when
 3; todo 584 design D3, gates G1-G3). A column that carries no information, starts far later than
 its declared memory, or is mostly an exact 0.0 fill reads as real to the S0 read; the gates name
 it when it appears in a stage's output or in a pilot chunk before a full pass.
 
-Screened columns are the registry's numeric feature columns (`feature_vectors_v2_numeric_columns`).
+Screened columns are the registry's numeric feature columns (`feature_vectors_numeric_columns`).
 Per (tf, name) and column:
 - G1 dead: all NULL, no finite value (all NaN or infinite), or one value across its finite rows
   (NaN warmup and infinities do not make a constant column live), outside the registry's declared
@@ -56,7 +56,7 @@ from src.intelligence.features.contract.registry import (  # noqa: E402
     feature_memory_bars,
 )
 from src.intelligence.features.feature_vector_persistence import (  # noqa: E402
-    feature_vectors_v2_numeric_columns,
+    feature_vectors_numeric_columns,
 )
 from src.intelligence.features.kernels.control import _CANARY_CONSTANT_VALUE  # noqa: E402
 
@@ -235,7 +235,7 @@ def _query(
     return sql.SQL(
         "SELECT tf, symbol, count(*), {aggs} FROM ("
         "SELECT tf, symbol, row_number() OVER (PARTITION BY symbol, tf ORDER BY bar_ts) AS rn, {cols}"
-        " FROM feature_vectors_v2{where}) t GROUP BY tf, symbol ORDER BY tf, symbol"
+        " FROM feature_vectors{where}) t GROUP BY tf, symbol ORDER BY tf, symbol"
     ).format(
         aggs=sql.SQL(", ").join(aggregates(c) for c in columns),
         cols=sql.SQL(", ").join(sql.Identifier(c) for c in columns),
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.pilot and args.symbol:
         parser.error("--pilot and --symbol both name the symbols; give one")
 
-    columns = feature_vectors_v2_numeric_columns()
+    columns = feature_vectors_numeric_columns()
     registry = default_registry()
     with psycopg.connect(get_settings().database_url) as conn:
         cfg = load_config_service_sync(conn)

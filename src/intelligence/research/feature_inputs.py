@@ -48,15 +48,13 @@ class FeatureInputRefused(ValueError):
     """A stored feature input S0 must not use; the message names the rule id."""
 
 
-# Schema identifiers. 186-27 keeps the rebuilt rows under the `_v2` name in provenance, so both
-# target names are read (RESEARCH Pattern 5).
+# Schema identifiers. Provenance rows with target 'feature_vectors_v2' (the pre-migration-570 name)
+# are all superseded history; only completed rows for FEATURE_TABLE are read.
 FEATURE_TABLE = "feature_vectors"
-PROVENANCE_TARGET_TABLES = ("feature_vectors", "feature_vectors_v2")
-# The 186-26 rebuild's provenance identity (services/backfill_feature_factory.py `_JOB` and
-# `_V2_TABLE`). Only its batches carry walk-forward HMM regime columns; earlier regime labels were
-# fit on the whole series and leak the future (todo 248).
+# The rebuild writer's provenance identity (services/backfill_feature_factory.py `_JOB` and
+# `_FEATURE_TABLE`). Only its batches carry walk-forward HMM regime columns; earlier regime labels
+# were fit on the whole series and leak the future (todo 248).
 REBUILD_WRITER = "backfill-feature-factory"
-REBUILD_TARGET_TABLE = "feature_vectors_v2"
 # The only (vendor, kind) a 15m or 1h research bar may come from: the derived 5m-grid aggregate.
 DERIVED_INTRADAY = ("derived", "5m_grid")
 INTRADAY_DERIVED_TFS = ("15m", "1h")
@@ -64,7 +62,7 @@ INTRADAY_DERIVED_TFS = ("15m", "1h")
 PROVENANCE_SQL = (
     "SELECT batch_key, writer, target_table, tf, range_start, range_end, symbols, code_key, "
     "apr_hash, apr_snapshot, input_digest, generation, status FROM provenance_batch "
-    "WHERE status = 'completed' AND target_table = ANY($1) AND tf = $2 "
+    "WHERE status = 'completed' AND target_table = $1 AND tf = $2 "
     "AND range_start < $4 AND range_end > $3 "
     "ORDER BY batch_key, generation"
 )
@@ -496,7 +494,7 @@ def coverage_from_counts(
 def refuse_regime_columns(
     columns: Iterable[str], registry: KernelRegistry, batches: Iterable[Mapping[str, Any]]
 ) -> None:
-    """A regime-origin column is refused unless every completed batch is the 186-26 rebuild
+    """A regime-origin column is refused unless every completed batch is the rebuild writer's
     (writer and target table), whose HMM labels are walk-forward (todo 248)."""
     regime = sorted(c for c in columns if registry.by_output(c).origin == "regime")
     if not regime:
@@ -506,13 +504,13 @@ def refuse_regime_columns(
         {
             (str(b.get("writer")), str(b.get("target_table")))
             for b in completed
-            if (b.get("writer"), b.get("target_table")) != (REBUILD_WRITER, REBUILD_TARGET_TABLE)
+            if (b.get("writer"), b.get("target_table")) != (REBUILD_WRITER, FEATURE_TABLE)
         }
     )
     if not completed or foreign:
         raise FeatureInputRefused(
             f"regime columns {regime} need every covering batch from the walk-forward rebuild "
-            f"({REBUILD_WRITER}, {REBUILD_TARGET_TABLE}); found {foreign or 'no batches'} (B1j)"
+            f"({REBUILD_WRITER}, {FEATURE_TABLE}); found {foreign or 'no batches'} (B1j)"
         )
 
 

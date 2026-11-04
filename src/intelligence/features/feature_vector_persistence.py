@@ -1,4 +1,5 @@
-"""Canonical persistence contract for the feature_vectors hypertable.
+"""Persistence contracts for feature rows: the feature_vectors row contract and the legacy
+streaming FeatureVector contract.
 
 Single source of truth for:
   - INSERT SQL (column count derived from FeatureVector, not hardcoded: 1
@@ -6,17 +7,17 @@ Single source of truth for:
   - Content-key derivation: SHA-256(symbol|tf|bar_ts_ns|pipeline_version|feature_factory_version)[:32] as UUID
   - Row serializer: FeatureVector fields -> INSERT tuple, one element per column
 
-Both the live write path (FeatureVectorWriter, asyncpg) and the batch compute
-path (backfill_feature_factory, psycopg) import from here. One schema
-definition, two consumers — schema drift is structurally impossible.
+2026-10-01: feature_vectors row contract (phase 186 plan 25, D-28). The table is written only
+by services/backfill_feature_factory.py through bulk_load(); its column list
+(`FEATURE_VECTORS_COLUMNS`) is derived from the kernel registry, never typed, and
+`feature_vector_row_values` is the one row constructor for it.
 
-2026-10-01: feature_vectors_v2 row contract (phase 186 plan 25, D-28). The rebuilt table is
-written only by services/backfill_feature_factory.py through bulk_load(); its column list
-(`FEATURE_VECTORS_V2_COLUMNS`) is derived from the kernel registry, never typed, and
-`feature_vector_v2_row_values` is the one row constructor for it. The old feature_vectors
-INSERT/UPSERT SQL and `feature_vector_to_insert_params` below serve the live pipeline until the
-186-27 swap and must not be pointed at v2: they validate rows (a NaN raises) and carry
-pipeline_version, feature_vector_id and bar_close_ts, none of which v2 has.
+2026-11-04 (migration 570, todo 584 item 3): the table built under the name feature_vectors_v2
+took the name feature_vectors and the v1 table was dropped. The INSERT/UPSERT SQL and
+`feature_vector_to_insert_params` below are the legacy v1 contract of the dormant streaming
+writer (services/feature_vector_writer.py, unit disabled); no table matches it any more. Never
+point it at feature_vectors: it validates rows (a NaN raises) and carries pipeline_version,
+feature_vector_id and bar_close_ts, none of which the table has.
 
 2026-07-08: extended from 70 to 161 columns. Phase 142.5 added 91 primitive
 fields to FeatureVector and the DB schema (migration 206) with compute logic
@@ -955,16 +956,16 @@ def feature_vector_to_insert_params(
 
 
 # ---------------------------------------------------------------------------
-# feature_vectors_v2 row contract (phase 186 plan 25, D-28)
+# feature_vectors row contract (phase 186 plan 25, D-28)
 # ---------------------------------------------------------------------------
 
-# Registry feature columns the v2 table does not carry (186-24 migration 425, proofs in
+# Registry feature columns the table does not carry (186-24 migration 425, proofs in
 # .planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/
-# 186-24-feature-vectors-v2-schema.json). tests/unit/intelligence/test_feature_vectors_v2_rows.py
+# 186-24-feature-vectors-v2-schema.json). tests/unit/intelligence/test_feature_vectors_rows.py
 # pins this tuple to that evidence file and to the migration. days_to_month_end is inside the
 # registry's feature_columns() and so must be excluded here; the three rank columns are in
 # UNOWNED_COLUMNS, not feature_columns(), so they never appear in the derivation below.
-FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS: frozenset[str] = frozenset(
+FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS: frozenset[str] = frozenset(
     {
         "momentum_rank_z",
         "volume_rank_z",
@@ -974,13 +975,13 @@ FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
-FEATURE_VECTORS_V2_KEY_COLUMNS: tuple[str, ...] = ("symbol", "tf", "bar_ts")
-FEATURE_VECTORS_V2_TEXT_COLUMNS: tuple[str, ...] = ("regime", "regime_volatility")
+FEATURE_VECTORS_KEY_COLUMNS: tuple[str, ...] = ("symbol", "tf", "bar_ts")
+FEATURE_VECTORS_TEXT_COLUMNS: tuple[str, ...] = ("regime", "regime_volatility")
 
 
 @functools.cache
-def feature_vectors_v2_numeric_columns() -> tuple[str, ...]:
-    """The numeric (real) columns of feature_vectors_v2, in registry order (`feature_columns()`
+def feature_vectors_numeric_columns() -> tuple[str, ...]:
+    """The numeric (real) columns of feature_vectors, in registry order (`feature_columns()`
     is sorted by name), minus the dropped set and the two regime text outputs.
 
     The registry is imported here, not at module import: a kernel module (`_hmm`) imports this
@@ -988,39 +989,39 @@ def feature_vectors_v2_numeric_columns() -> tuple[str, ...]:
     """
     from src.intelligence.features.contract.registry import default_registry
 
-    skip = FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS | set(FEATURE_VECTORS_V2_TEXT_COLUMNS)
+    skip = FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS | set(FEATURE_VECTORS_TEXT_COLUMNS)
     return tuple(c for c in default_registry().feature_columns() if c not in skip)
 
 
 @functools.cache
-def feature_vectors_v2_columns() -> tuple[str, ...]:
-    """Column order of the feature_vectors_v2 rows the writer builds: keys, the two regime text
+def feature_vectors_columns() -> tuple[str, ...]:
+    """Column order of the feature_vectors rows the writer builds: keys, the two regime text
     columns, then the numeric columns in registry order. Migration 425 created the table in this
     order; columns a later migration adds (526) sit last physically, which is harmless because
     the writer COPYs with this explicit column list."""
     return (
-        *FEATURE_VECTORS_V2_KEY_COLUMNS,
-        *FEATURE_VECTORS_V2_TEXT_COLUMNS,
-        *feature_vectors_v2_numeric_columns(),
+        *FEATURE_VECTORS_KEY_COLUMNS,
+        *FEATURE_VECTORS_TEXT_COLUMNS,
+        *feature_vectors_numeric_columns(),
     )
 
 
-def feature_vectors_v2_output_columns() -> tuple[str, ...]:
-    """The non-key columns of feature_vectors_v2 (the two regime text outputs plus the numeric
+def feature_vectors_output_columns() -> tuple[str, ...]:
+    """The non-key columns of feature_vectors (the two regime text outputs plus the numeric
     columns): what a compute pass must produce for the table. Derived from the key-column
     constant, never a hard-coded offset, so a key-column change cannot silently shift it."""
-    return feature_vectors_v2_columns()[len(FEATURE_VECTORS_V2_KEY_COLUMNS) :]
+    return feature_vectors_columns()[len(FEATURE_VECTORS_KEY_COLUMNS) :]
 
 
 def __getattr__(name: str) -> tuple[str, ...]:
-    # Lazy module attribute (PEP 562): `from ... import FEATURE_VECTORS_V2_COLUMNS` works and
-    # resolves the registry on first use, never at import (see feature_vectors_v2_numeric_columns).
-    if name == "FEATURE_VECTORS_V2_COLUMNS":
-        return feature_vectors_v2_columns()
+    # Lazy module attribute (PEP 562): `from ... import FEATURE_VECTORS_COLUMNS` works and
+    # resolves the registry on first use, never at import (see feature_vectors_numeric_columns).
+    if name == "FEATURE_VECTORS_COLUMNS":
+        return feature_vectors_columns()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def feature_vector_v2_row_values(
+def feature_vector_row_values(
     symbol: str,
     tf: str,
     bar_ts: datetime,
@@ -1028,18 +1029,18 @@ def feature_vector_v2_row_values(
     regime_volatility: str | None,
     numeric_values: Sequence[float],
 ) -> tuple:
-    """One feature_vectors_v2 row in `feature_vectors_v2_columns()` order.
+    """One feature_vectors row in `feature_vectors_columns()` order.
 
-    `numeric_values` are the numeric columns in `feature_vectors_v2_numeric_columns()` order. A
+    `numeric_values` are the numeric columns in `feature_vectors_numeric_columns()` order. A
     NaN is missing data (no_fill: a warmup row, a macro column before the first daily record, a
     column a mask marks None) and is written as None, so the COPY stores NULL and never the text
     NaN. The legacy row builders raise on NaN and re-fabricated 0.0 through `_guard`; neither
     runs here. An infinite value is kept as it is (a loud value downstream, not a silent NULL).
     """
-    n_numeric = len(feature_vectors_v2_numeric_columns())
+    n_numeric = len(feature_vectors_numeric_columns())
     if len(numeric_values) != n_numeric:
         raise ValueError(
-            f"feature_vector_v2_row_values: got {len(numeric_values)} numeric values, "
+            f"feature_vector_row_values: got {len(numeric_values)} numeric values, "
             f"the table has {n_numeric}"
         )
     return (

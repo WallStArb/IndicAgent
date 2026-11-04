@@ -52,12 +52,9 @@ async def ingest(db: DatabaseManager) -> Envelope:
 
 
 async def features(db: DatabaseManager) -> Envelope:
-    """Newest bar in the live feature store and in the 186-26 rebuild target."""
-    rows = await db.execute_query(
-        "SELECT 'feature_vectors' AS store, max(bar_ts) AS newest_bar FROM feature_vectors "
-        "UNION ALL SELECT 'feature_vectors_v2', max(bar_ts) FROM feature_vectors_v2"
-    )
-    return envelope("feature_vectors, feature_vectors_v2", rows, newest(rows, "newest_bar"))
+    """Newest bar in the feature store."""
+    rows = await db.execute_query("SELECT max(bar_ts) AS newest_bar FROM feature_vectors")
+    return envelope("feature_vectors", rows, newest(rows, "newest_bar"))
 
 
 async def regimes(db: DatabaseManager) -> Envelope:

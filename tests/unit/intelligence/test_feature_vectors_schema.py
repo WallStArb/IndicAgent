@@ -1,7 +1,10 @@
-"""Source-level guard: feature_vectors_v2's columns equal the kernel registry's column set (186-24).
+"""Source-level guard: feature_vectors' columns equal the kernel registry's column set (186-24).
 
-The table's columns are migration 425's CREATE TABLE plus every later migration's
-`ALTER TABLE feature_vectors_v2 ... ADD COLUMN` (migration 526, todo 553). The expectation is
+The table's columns are migration 425's CREATE TABLE (as feature_vectors_v2) plus every later
+migration's `ALTER TABLE ... ADD COLUMN` under the table's name at that migration:
+feature_vectors_v2 before migration 570 renamed it, feature_vectors from then on (526, todo 553,
+is one such addition). Before 570, `ALTER TABLE feature_vectors` is the dropped v1 table and never
+counts. The expectation is
 derived from `default_registry()` and `UNOWNED_COLUMNS`, never from a hardcoded list, so a later
 registry change fails here instead of silently skewing the rebuilt table against what the
 kernels compute (train-serve skew for 186-25 and 186-27).
@@ -66,7 +69,7 @@ METADATA_DROPPED: dict[str, str] = {
 
 
 def expected_columns() -> set[str]:
-    """Registry-derived column set of feature_vectors_v2."""
+    """Registry-derived column set of feature_vectors."""
     feature = set(default_registry().feature_columns()) | set(UNOWNED_COLUMNS)
     return (feature - set(DROPPED_COLUMNS)) | set(KEYS) | set(REGIME_TEXT)
 
@@ -75,6 +78,17 @@ def migration_path() -> Path:
     paths = sorted(_MIGRATIONS.glob("*_feature_vectors_v2.sql"))
     assert len(paths) == 1, paths
     return paths[0]
+
+
+def _migration_number(path: Path) -> int:
+    return int(path.name.split("_", 1)[0])
+
+
+def rename_number() -> int:
+    """The migration that gave the table the name feature_vectors (570)."""
+    paths = sorted(_MIGRATIONS.glob("*_feature_vectors_one_name.sql"))
+    assert len(paths) == 1, paths
+    return _migration_number(paths[0])
 
 
 def _migration_lines() -> list[str]:
@@ -91,21 +105,24 @@ def created_columns() -> list[str]:
 
 def added_columns() -> list[str]:
     """Columns later migrations add, in migration order: indented
-    `ADD COLUMN [IF NOT EXISTS] name real` lines under `ALTER TABLE feature_vectors_v2`, one per line.
+    `ADD COLUMN [IF NOT EXISTS] name real` lines under `ALTER TABLE <the table's name then>`, one
+    per line. The rename migration itself adds no column and is skipped.
     """
-    created = int(migration_path().name.split("_", 1)[0])
+    created = _migration_number(migration_path())
+    renamed = rename_number()
     pattern = re.compile(r"^\s+ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*) real[,;]$")
     columns: list[str] = []
     for path in sorted(_MIGRATIONS.glob("*.sql")):
         number = path.name.split("_", 1)[0]
-        if not number.isdigit() or int(number) <= created:
+        if not number.isdigit() or int(number) <= created or int(number) == renamed:
             continue
+        name = "feature_vectors_v2" if int(number) < renamed else "feature_vectors"
         text = path.read_text()
-        if "ALTER TABLE feature_vectors_v2" not in text:
+        if not re.search(rf"ALTER TABLE {name}\b", text):
             continue
         lines = [line.split("--", 1)[0].rstrip() for line in text.splitlines()]
         found = [m.group(1) for line in lines if (m := pattern.match(line))]
-        assert found, f"{path.name} alters feature_vectors_v2 but no ADD COLUMN line parsed"
+        assert found, f"{path.name} alters {name} but no ADD COLUMN line parsed"
         columns.extend(found)
     return columns
 

@@ -8,7 +8,7 @@ names, 2026-11-02, with --end at the stage panel end). Nothing is written to the
 component count so the same names can be compared across K.
 
 `--stored` (which implies --within-panel, and assumes the stored K is the current APR K) reads
-what the rebuild already stored in feature_vectors_v2 (the family's regime column
+what the rebuild already stored in feature_vectors (the family's regime column
 non-null = segment written) and lays the same segments over the bars without fitting, so the
 stored K arm costs one query per name; `--summarize` checks stored against computed where both
 exist and prefers stored in the table, naming the source of each cell.
@@ -273,7 +273,7 @@ def _pct(value: float | None) -> str:
 def _panel_from_row(conn: psycopg.Connection, symbol: str, tf: str, timestamps: list) -> int:
     """Index of the first bar at or after the name's first stored feature row."""
     first = conn.execute(
-        "SELECT min(bar_ts) FROM feature_vectors_v2 WHERE symbol = %s AND tf = %s", (symbol, tf)
+        "SELECT min(bar_ts) FROM feature_vectors WHERE symbol = %s AND tf = %s", (symbol, tf)
     ).fetchone()[0]
     return 0 if first is None else bisect.bisect_left(timestamps, first)
 
@@ -289,7 +289,7 @@ def _stored_record(
     from_row: int,
 ) -> dict:
     """The stored arm for one name: the segments the rebuild would lay out over these bars, each
-    counted written when its first row has stored output in feature_vectors_v2."""
+    counted written when its first row has stored output in feature_vectors."""
     close, volume = series["close"], series["volume"]
     prefix = _finite_prefix_rows(close, volume) if spec.needs_volume else _finite_prefix_rows(close)
     obs, valid_start = spec.build_observations(
@@ -298,7 +298,7 @@ def _stored_record(
     refit, warmup = params.walk_forward_schedule(tf)
     boundary = max(warmup, spec.model_fields(params)[0] * params.hmm_min_obs_factor)
     query = sql.SQL(
-        "SELECT bar_ts FROM feature_vectors_v2 WHERE symbol = %s AND tf = %s AND {} IS NOT NULL"
+        "SELECT bar_ts FROM feature_vectors WHERE symbol = %s AND tf = %s AND {} IS NOT NULL"
     ).format(sql.Identifier(spec.regime_column))
     stored_ts = {row[0] for row in conn.execute(query, (symbol, tf))}
     if stored_ts and stored_ts.isdisjoint(series["timestamps"]):

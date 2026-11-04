@@ -21,9 +21,7 @@ from src import providers
 from src.config import settings as settings_module
 from src.providers.base import ProviderSessionLost
 
-_STATE = json.dumps(
-    {"table": "provenance_batch", "target_tables": ["feature_vectors_v2", "feature_vectors"]}
-)
+_STATE = json.dumps({"table": "provenance_batch", "target_tables": ["feature_vectors"]})
 _OPEN = {
     "infra.bar_derivation.venue_bars_intraday": "true",
     "infra.bar_derivation.intraday_recovery_unlocked": "true",
@@ -81,7 +79,7 @@ def test_incomplete_rebuild_units_refuse_and_the_count_is_reported():
     assert "7 rebuild unit(s)" in reason and "live or resumable" in reason
     query, params = conn.queries[0]
     assert "provenance_batch" in query and "status <> 'completed'" in query
-    assert params == (["feature_vectors_v2", "feature_vectors"],)
+    assert params == (["feature_vectors"],)
 
 
 def test_a_malformed_state_table_value_refuses_without_querying():

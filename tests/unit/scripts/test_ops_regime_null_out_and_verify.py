@@ -17,7 +17,6 @@ import pytest
 from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _COLUMN_FAMILIES,
     _DEFAULT_COLUMN_FAMILY_OBJ,
-    _STATUS_FAILED,
     _STATUS_VERIFIED_NULL,
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
@@ -32,9 +31,6 @@ from scripts.ops.corpus.ops_regime_null_out_and_verify import (
 )
 from tests.unit._compressed_hypertable_write_session_fakes import (
     WRITE_SESSION_ENTRY_RESPONSES as _WRITE_SESSION_ENTRY_RESPONSES,
-)
-from tests.unit._compressed_hypertable_write_session_fakes import (
-    WRITE_SESSION_EXIT_RESPONSES as _WRITE_SESSION_EXIT_RESPONSES,
 )
 from tests.unit._compressed_hypertable_write_session_fakes import (
     ScriptedConn as _ScriptedConn,
@@ -101,42 +97,14 @@ class TestColumnFamilyRegistry:
         assert regime_path != vol_path
 
 
-class TestNullOutPerCellUpdates:
-    def test_n_symbols_x_m_tfs_issue_exactly_nxm_updates_no_batched_scope(self, tmp_path):
-        # 2 symbols x 2 tfs = 4 cells, each a clean pass: pre-count, update, verify.
-        # Wrapped in compressed_hypertable_write_session's fixed entry/exit sequence
-        # (empty chunk lists -> no actual decompress/compress work, just the bracket).
-        responses = list(_WRITE_SESSION_ENTRY_RESPONSES)
-        for _ in range(4):
-            responses += [
-                {"fetchone": (5,)},  # pre_null_labeled
-                {"rowcount": 5},  # UPDATE rowcount
-                {"fetchone": (0,)},  # post-condition: zero remaining
-            ]
-        responses += _WRITE_SESSION_EXIT_RESPONSES
-        conn = _ScriptedConn(responses)
-        manifest_path = tmp_path / "manifest.json"
-
-        n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h", "1d"], manifest_path, dry_run=False)
-
-        assert n_failed == 0
-        updates = _update_calls(conn)
-        assert len(updates) == 4
-        seen_pairs = {params for _, params in updates}
-        assert seen_pairs == {("SPY", "1h"), ("SPY", "1d"), ("QQQ", "1h"), ("QQQ", "1d")}
-        # Scoped to _run_null_out's OWN per-cell queries, excluding the write-session
-        # bracket's calls (known count from the same fixture used to build `responses`
-        # above) -- compressed_hypertable_write_session's own APR config lookup legitimately
-        # uses `= ANY(%s)` to fetch 2 keys in one round trip (unrelated to per-cell
-        # symbol/tf batching, already covered by test_batch_utils.py), which is not the
-        # "no batched scope" invariant this test actually verifies.
-        cell_calls = conn.calls[
-            len(_WRITE_SESSION_ENTRY_RESPONSES) : len(conn.calls)
-            - len(_WRITE_SESSION_EXIT_RESPONSES)
-        ]
-        for sql, _ in cell_calls:
-            assert "IN (" not in sql
-            assert "= ANY(" not in sql
+class TestNullOutRefusesTheKernelTable:
+    def test_a_real_run_refuses_to_open_a_write_session_on_feature_vectors(self, tmp_path):
+        """Migration 570: feature_vectors is the rebuild's table (one writer, bulk_load) and left
+        the write-session allow-list, so this v1 repair pass refuses before any UPDATE."""
+        conn = _ScriptedConn(list(_WRITE_SESSION_ENTRY_RESPONSES))
+        with pytest.raises(ValueError, match="feature_vectors"):
+            _run_null_out(conn, ["SPY"], ["1h"], tmp_path / "manifest.json", dry_run=False)
+        assert _update_calls(conn) == []
 
 
 class TestNullOutRequiresSymbols:
@@ -198,47 +166,6 @@ class TestNullOutDryRun:
 
 
 class TestNullOutManifestResumability:
-    def test_verified_null_cell_is_skipped_on_rerun(self, tmp_path):
-        manifest_path = tmp_path / "manifest.json"
-        manifest_path.write_text(
-            json.dumps(
-                {
-                    _manifest_key("SPY", "1h"): {
-                        "status": _STATUS_VERIFIED_NULL,
-                        "pre_null_labeled": 5,
-                        "rows_affected": 5,
-                        "elapsed_s": 0.1,
-                    }
-                }
-            )
-        )
-        # Only QQQ/1h should actually run: write-session entry, then pre-count, update,
-        # verify, then write-session exit.
-        conn = _ScriptedConn(
-            [
-                *_WRITE_SESSION_ENTRY_RESPONSES,
-                {"fetchone": (3,)},
-                {"rowcount": 3},
-                {"fetchone": (0,)},
-                *_WRITE_SESSION_EXIT_RESPONSES,
-            ]
-        )
-
-        n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
-
-        assert n_failed == 0
-        assert len(conn.calls) == len(_WRITE_SESSION_ENTRY_RESPONSES) + 3 + len(
-            _WRITE_SESSION_EXIT_RESPONSES
-        )
-        # The 3 cell-level calls (pre-count, update, verify) sit between the write-session
-        # entry and exit brackets -- sliced by the same centralized fixture lengths used to
-        # build `conn`'s scripted responses above, not a hardcoded index.
-        cell_calls = conn.calls[
-            len(_WRITE_SESSION_ENTRY_RESPONSES) : len(_WRITE_SESSION_ENTRY_RESPONSES) + 3
-        ]
-        for sql, params in cell_calls:
-            assert params == ("QQQ", "1h")
-
     def test_all_cells_already_verified_skips_the_write_session_entirely(self, tmp_path):
         """Efficiency fix (2026-08-14): when the whole requested scope is already a
         verified-null resume no-op, _run_null_out must not pay for a decompress/
@@ -262,38 +189,6 @@ class TestNullOutManifestResumability:
 
         assert n_failed == 0
         assert len(conn.calls) == 0
-
-
-class TestNullOutFailedCellContinues:
-    def test_postcondition_failure_marks_cell_failed_and_continues(self, tmp_path):
-        manifest_path = tmp_path / "manifest.json"
-        # Cell 1 (SPY/1h): post-condition fails (remaining_nonnull=3).
-        # Cell 2 (QQQ/1h): post-condition passes.
-        conn = _ScriptedConn(
-            [
-                *_WRITE_SESSION_ENTRY_RESPONSES,
-                {"fetchone": (5,)},
-                {"rowcount": 5},
-                {"fetchone": (3,)},  # FAIL
-                {"fetchone": (2,)},
-                {"rowcount": 2},
-                {"fetchone": (0,)},  # PASS
-                *_WRITE_SESSION_EXIT_RESPONSES,
-            ]
-        )
-
-        n_failed = _run_null_out(conn, ["SPY", "QQQ"], ["1h"], manifest_path, dry_run=False)
-
-        assert n_failed == 1
-        assert len(_update_calls(conn)) == 2  # both cells attempted, run did not abort
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest[_manifest_key("SPY", "1h")]["status"] == _STATUS_FAILED
-        assert manifest[_manifest_key("QQQ", "1h")]["status"] == _STATUS_VERIFIED_NULL
-
-
-# ---------------------------------------------------------------------------
-# Task 2 -- verify-post-null / verify-post-relabel modes
-# ---------------------------------------------------------------------------
 
 
 class TestVerifyPostNull:

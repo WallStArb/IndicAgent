@@ -56,7 +56,7 @@ def test_unit_registry_plans_the_compute_and_adds_only_readable_controls(monkeyp
         ],
         [ExternalInput("ref_spy_close", np.dtype(np.float64), Alignment.DAILY_REFERENCE_GRID)],
     )
-    monkeypatch.setattr(gate, "feature_vectors_v2_output_columns", lambda: ("fv_col",))
+    monkeypatch.setattr(gate, "feature_vectors_output_columns", lambda: ("fv_col",))
     inputs = {"close": np.arange(4, dtype=np.float64)}
     scoped = gate.unit_registry(registry, inputs)
     assert [k.name for k in scoped.kernels] == ["series_feature", "canary"]  # daily-grid excluded

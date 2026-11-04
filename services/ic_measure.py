@@ -1450,7 +1450,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--start",
         help="ISO 8601 start of the window with a Z or offset (default: earliest tradeable bar)",
     )
-    parser.add_argument("--feature-table", default="feature_vectors_v2")
+    parser.add_argument("--feature-table", default="feature_vectors")
     parser.add_argument("--dry-run", action="store_true", help="compute and report, write nothing")
     parser.add_argument(
         "--allow-absent-digests",

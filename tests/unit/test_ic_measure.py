@@ -245,13 +245,13 @@ class TestFeatureNames:
             ("a_label", "text"),
         ]
         conn = FakeConn(rows_responder(rows))
-        names = ic_measure.feature_names(conn, "feature_vectors_v2")
+        names = ic_measure.feature_names(conn, "feature_vectors")
         # a column the rebuild adds is measured (sorted, after the FeatureVector order); a text column
         # and a FeatureVector field held as text are not
         assert names == [fv_names[0], fv_names[2], "alpha_new_feature", "zeta_new_feature"]
 
-    def test_the_default_feature_table_is_the_rebuilt_one(self) -> None:
-        assert ic_measure._parse_args([]).feature_table == "feature_vectors_v2"
+    def test_the_default_feature_table_is_feature_vectors(self) -> None:
+        assert ic_measure._parse_args([]).feature_table == "feature_vectors"
 
     def test_a_missing_table_raises(self) -> None:
         with pytest.raises(ValueError, match="feature_nope does not exist"):

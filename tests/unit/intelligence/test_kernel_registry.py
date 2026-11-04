@@ -277,7 +277,7 @@ def test_registry_covers_every_d25_origin():
 def test_feature_columns_plus_unowned_equal_schema():
     """Every numeric FeatureVector column is a kernel output or a listed, reasoned exception,
     exactly: nothing unowned is unlisted and nothing listed is also owned."""
-    from src.intelligence.features.contract.registry import UNOWNED_COLUMNS, V2_ONLY_COLUMNS
+    from src.intelligence.features.contract.registry import KERNEL_ONLY_COLUMNS, UNOWNED_COLUMNS
     from src.intelligence.features.feature_vector_persistence import (
         NUMERIC_COLUMN_NAMES,
         REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
@@ -292,10 +292,12 @@ def test_feature_columns_plus_unowned_equal_schema():
     }
     # owned columns outside the numeric schema are the regime writer's own columns (labels and
     # the walk-forward numerics the writer persists), which feature_vectors carries separately,
-    # and the reasoned V2_ONLY_COLUMNS that only feature_vectors_v2 stores
-    assert owned - numeric <= regime_writer_columns | set(V2_ONLY_COLUMNS)
-    assert set(V2_ONLY_COLUMNS) <= owned - numeric
-    assert all(isinstance(reason, str) and reason.strip() for reason in V2_ONLY_COLUMNS.values())
+    # and the reasoned KERNEL_ONLY_COLUMNS that only feature_vectors stores
+    assert owned - numeric <= regime_writer_columns | set(KERNEL_ONLY_COLUMNS)
+    assert set(KERNEL_ONLY_COLUMNS) <= owned - numeric
+    assert all(
+        isinstance(reason, str) and reason.strip() for reason in KERNEL_ONLY_COLUMNS.values()
+    )
     assert (owned & numeric) | set(UNOWNED_COLUMNS) == numeric
     assert not owned & set(UNOWNED_COLUMNS)
     assert all(isinstance(reason, str) and reason.strip() for reason in UNOWNED_COLUMNS.values())

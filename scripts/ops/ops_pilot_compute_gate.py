@@ -46,7 +46,7 @@ from services.backfill_feature_factory import (  # noqa: E402
     _series_kernel_inputs,
     build_daily_records,
     default_data_horizon,
-    feature_vectors_v2_output_columns,
+    feature_vectors_output_columns,
 )
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.features.contract.causality_probe import (  # noqa: E402
@@ -80,7 +80,7 @@ def unit_registry(registry: KernelRegistry, inputs: dict) -> KernelRegistry:
     daily-grid kernels (`cross_asset_daily`, `factor_beta_daily`) are excluded because the unit
     compute never runs them: their outputs arrive as the `ext_*` externals `_series_kernel_inputs`
     aligns onto the rows, so their inputs (`ref_spy_close`, ...) are not in the bundle."""
-    kernels = list(registry.topological_order(list(feature_vectors_v2_output_columns())))
+    kernels = list(registry.topological_order(list(feature_vectors_output_columns())))
     planned = {kernel.name for kernel in kernels}
     closable = with_derived_inputs(inputs)
     kernels += [

@@ -9,11 +9,10 @@ is added here with a reason.
 
 Two patterns, independent of which physical table name is current: a `FROM`/`JOIN` of the table
 and a quoted table-name literal (which catches `sql.Identifier("feature_vectors")`, table
-constants and `--feature-table` defaults). Both match `feature_vectors`, `feature_vectors_v2`
-and any swap-era name such as `feature_vectors_old` alike. The allow-list is keyed by file, not
-by table name, so 186-27's swap (readers move from `_v2` to the bare name) keeps every entry
-valid; if 186-27 deletes a file's last reference, its executor prunes that stale entry in the
-same commit.
+constants and `--feature-table` defaults). Both match `feature_vectors` and any suffixed name
+(`feature_vectors_v2` before migration 570, a future swap-era name) alike. The allow-list is
+keyed by file, not by table name; a change that deletes a file's last reference prunes that
+stale entry in the same commit.
 
 Entries are per file; a directory is never listed, so a new file under `scripts/research/`
 fails closed even beside listed legacy scripts. Each legacy research reader's reason names the
@@ -56,23 +55,24 @@ _ALLOW_LIST: dict[str, str] = {
         "WRITER: the streaming persistence writer; checks the table's columns at startup."
     ),
     "services/backfill_feature_factory.py": (
-        "WRITER: the 186-26 rebuild writer; names its target table feature_vectors_v2."
+        "WRITER: the rebuild writer; names its target table feature_vectors."
     ),
     "services/regime_writer.py": (
         "WRITER: writes the regime columns by key and reads the rows it updates."
     ),
     "services/_batch_utils.py": (
-        "WRITER: bulk-load infrastructure; the table is in the hardened write-session set."
+        "WRITER: bulk-load infrastructure; names the table where the write-session allow-list "
+        "excludes it (migration 570)."
     ),
     "services/rebuild_preconditions.py": (
-        "WRITER: 186-26 launch preconditions check that feature_vectors_v2 exists."
+        "WRITER: rebuild launch preconditions check that feature_vectors exists."
     ),
     # Measurement.
     "scripts/ops/ops_hmm_refusal_screen.py": (
         "MEASUREMENT: todo 583 stored arm; reads the regime column to lay stored segments."
     ),
     "scripts/ops/ops_feature_column_screen.py": (
-        "MEASUREMENT: todo 564/584 dead-column and pilot gate screen over feature_vectors_v2."
+        "MEASUREMENT: todo 564/584 dead-column and pilot gate screen over feature_vectors."
     ),
     "services/ic_measure.py": (
         "MEASUREMENT: the IC measure job's feature table argument (sql.Identifier)."
