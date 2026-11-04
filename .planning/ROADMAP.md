@@ -65,7 +65,7 @@ runs. STATE.md holds current position; PRIORITIES.md holds the lane order and th
 |---|---|---|---|
 | 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | Complete (plans 01-25, 2026-10-31). Residual: the restore toolchain and backup removal are todo 574, on or after 2026-11-12 (integration-test residue 572 closed 2026-11-01) |
 | 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2 and 186-28 remain; 186-26 stage 1/1b 1d done 2026-10-30 (5,424,063 rows), stage 2 intraday paused 2026-11-01 at 650/1,252 symbols pending todo 584's stored-value fixes (the corpus is recomputed once at the new pin); 186-27 swap is the next gate |
-| 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Planned 2026-10-27: 14 plans in 8 waves; wave 1 runs on 5b's go; wiring after 187-15 Task 2; real data after 186-27 |
+| 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Plans 01-10 landed 2026-11-04 (a feature member runs S0->S8 on a synthetic panel; admission per todo 588: feature 1h/15m->1d, rk_high_dist 126, the 1h+15m book); 11 open; 12 (dry S0 on real data) waits on 186-27; 13-14 on todo 482 |
 | 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-11 landed, and 15 Task 2 (`PanelSpec.fields`, which with 09 and 10 unblocks 184's wiring); 12 next, then 13-15. E17 daily statistic landed 2026-10-30 (todo 547); the Step B v2 battery passed 2026-10-31, so StepM selection is unblocked; the owner holds the S1-drift option A/B decision. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
 | 5 | Testing | Family 2's one evidence run and the daily price-only families at 191-20's re-derive; feature and regime families after 184 | 1d re-derive landed 2026-10-29; the lane waits on the owner's S1-drift A/B call (todo 547) and the clean-data rule; E17 verdict: every battery cell passes except the pre-registered cause-3 S1-drift pattern on `residual_momentum_12_1_z` |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing | Not planned; waits on a candidate book |
@@ -159,12 +159,12 @@ Plans:
 - [x] 184-02-PLAN.md - research kernels package and `kernel_source` (wave 1)
 - [x] 184-03-PLAN.md - smoothing menu, member memory, lag term structure in statistics (wave 1)
 - [x] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 2)
-- [ ] 184-05-PLAN.md - E17 battery for persistent predictors and battery-certificate admission (wave 3)
-- [ ] 184-06-PLAN.md - spec surface for feature and kernel members; `closes_at` in 187-15's fields (wave 2)
-- [ ] 184-07-PLAN.md - S0 bar side: closes_at, warmup prefix, derived-vendor refusal (wave 3)
-- [ ] 184-08-PLAN.md - S0 feature block with every todo 435 gate; compact source evidence and align index for finer sources (wave 4)
-- [ ] 184-09-PLAN.md - runner spec-time memory, route refusal, S0 request (wave 5)
-- [ ] 184-10-PLAN.md - member dispatch on the book clock and S3 for input members (wave 6)
+- [x] 184-05-PLAN.md - E17 battery for persistent predictors and battery-certificate admission (wave 3)
+- [x] 184-06-PLAN.md - spec surface for feature and kernel members; `closes_at` in 187-15's fields (wave 2)
+- [x] 184-07-PLAN.md - S0 bar side: closes_at, warmup prefix, derived-vendor refusal (wave 3)
+- [x] 184-08-PLAN.md - S0 feature block with every todo 435 gate; compact source evidence and align index for finer sources (wave 4)
+- [x] 184-09-PLAN.md - runner spec-time memory, route refusal, S0 request (wave 5)
+- [x] 184-10-PLAN.md - member dispatch on the book clock and S3 for input members (wave 6)
 - [ ] 184-11-PLAN.md - IC term structure by lag as a record nothing reads (wave 7)
 - [ ] 184-12-PLAN.md - one dry S0 build on the rebuilt table, gated on 186-27 (wave 5)
 - [ ] 184-13-PLAN.md - economic block in S0, gated on todo 482 (wave 6)

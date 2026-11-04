@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-11-02T17:10:20.460Z"
+last_updated: "2026-11-04T11:42:49.735Z"
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 162
-  completed_plans: 145
+  completed_plans: 150
   percent: 33
 ---
 
@@ -42,7 +42,30 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Current position (2026-11-01 23:20Z)
+## Current position (2026-11-04, paused by the owner)
+
+Operative plan: `docs/plans/2026-11-03-path-to-first-counted-test.md` (lead: indicagent-16).
+All work is paused; nothing is in flight except the IBKR history fetcher timer.
+
+- Todo 584: every code item has landed (1-12, 6a-6d, 8b, 3 at K=3 uniform with ledger E20, G4-a
+  exact window sums). The pin waits on todo 587 and the owner's data rulings.
+- Todo 587 (P0): 380 confirmed unadjusted splits over 268 names in canonical 1d. The safe set has
+  landed (migration 567, audit tool, CSV, D7 `split_continuity`). The atomic landing (d2-v5
+  rescale + migration 568 lineage view) is unpushed at tag `wip/587-atomic` (5e3845df2) and waits
+  for the lead's go after the owner's 185-49 ruling.
+- Phase 184: plans 05-10 landed; a feature member runs S0 -> S8 on a synthetic panel. Todo 588
+  closed the admission holes (parts A and B): admitted are feature 1h->1d, feature 15m->1d,
+  rk_high_dist 126 and the 1h+15m book. Part C is 184-12's real-data dry build after 186-27.
+  compare-all was vacuous (empty `research_run`).
+- Next, in order: the owner's decisions below -> 587 atomic landing -> official pilot G1-G5 on a
+  fresh executor -> pin -> 1d rerun -> 186-27 -> 184-12.
+
+Owner decisions added 2026-11-04 (lead recommendation in each source): todo 566 policy classes
+(3a keep and excuse, 3b close 7 rows, 3d keep, 3e keep refused); the clean-data lift for
+price-derived 1d families; admitting the 27 compute_eligible_1d=false names; the entity classes
+(63 early starts plus MTCH, RCAT, GEN); the 185-49 reversal for todo 587's rescale.
+
+## Previous position (2026-11-01 23:20Z)
 
 Owner sequence (2026-11-01): (1) data squared away, (2) every fix that changes a stored value
 landed, then one full feature recompute of the corpus, (3) ensemble research on the result. Lead
