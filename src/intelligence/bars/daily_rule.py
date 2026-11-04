@@ -4,7 +4,7 @@ docs/plans/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
 docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3; d2-v5 is todo 587's
 calendar split rescale, Scale below).
 
-One pure function replaces both D2's derive_daily (d2-v1) and the Tradier loader's inline rule
+One pure function, derive_daily, replaces both D2's d2-v1 rule and the Tradier loader's inline rule
 (tradier-v1): D1 observations of both vendors, the bar_source_policy rows and the current
 corporate actions in; canonical 1d bars, their flags and the refused interior dates out.
 
@@ -464,7 +464,7 @@ def _by_vendor_day(
     for obs in observations:
         if obs.what_to_show != "TRADES":
             raise ValueError(
-                f"observation {obs.request_id} is {obs.what_to_show!r}; derive_daily_v2 takes "
+                f"observation {obs.request_id} is {obs.what_to_show!r}; derive_daily takes "
                 "TRADES observations only (the caller must filter)"
             )
         vendor = _ROUTE_VENDOR.get(obs.route)
@@ -691,7 +691,7 @@ class _BasisFrame:
         return _within(_median_ratio(window, self.ratios), tolerance_bp)
 
 
-def derive_daily_v2(
+def derive_daily(
     observations: Sequence[Observation],
     policy_rows: Sequence[PolicyRow],
     splits: Sequence[SplitRecord],

@@ -21,7 +21,7 @@ from src.intelligence.bars.daily_rule import (
     FLAG_FALLBACK_SEAM,
     FLAG_PRE_SPLIT,
     PolicyRow,
-    derive_daily_v2,
+    derive_daily,
 )
 from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS
 from tests.unit.bars.test_daily_rule import _case
@@ -48,7 +48,7 @@ def _derive_without_tradier(symbol: str):
     """The proof harness's core: the unchanged rule over the case with Tradier removed."""
     observations, splits = _case(symbol)
     kept = [o for o in observations if o.route != "TRADIER"]
-    return derive_daily_v2(
+    return derive_daily(
         kept,
         [_DEFAULT],
         splits,

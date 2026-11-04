@@ -23,7 +23,7 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     PolicyRow,
     alpaca_era_start,
-    derive_daily_v2,
+    derive_daily,
     primary_pair,
     resolve_policy,
     servable_primary_dates,
@@ -490,7 +490,7 @@ def judge_name_1d(
     )
 
     started = time.perf_counter()
-    derived = derive_daily_v2(
+    derived = derive_daily(
         inputs.observations,
         inputs.policy_rows,
         inputs.splits,

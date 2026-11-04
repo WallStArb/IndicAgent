@@ -21,7 +21,7 @@ from src.intelligence.bars.daily_rule import (
     FLAG_PRE_SPLIT,
     RULE_VERSION,
     PolicyRow,
-    derive_daily_v2,
+    derive_daily,
     observation_from_raw,
     resolve_policy,
 )
@@ -82,7 +82,7 @@ def _sessions(start: date, n: int) -> list[date]:
 
 
 def _derive(observations, policy=(_DEFAULT,), splits=(), symbol="TEST"):
-    return derive_daily_v2(
+    return derive_daily(
         observations,
         list(policy),
         list(splits),
@@ -221,7 +221,7 @@ def test_nearest_window_ties_go_to_the_earlier_session():
     observations = [_obs("TRADIER", d, 100.0, request_id=f"t{d}") for d in days if d != hole]
     ratios = {days[0]: 1.0, days[1]: 1.0, days[2]: 1.0, days[3]: 1.01, days[4]: 1.01}
     observations += [_obs("SMART", d, 100.0 * r, request_id=f"s{d}") for d, r in ratios.items()]
-    result = derive_daily_v2(
+    result = derive_daily(
         observations,
         [_DEFAULT],
         [],

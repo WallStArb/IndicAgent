@@ -110,7 +110,7 @@ def test_verdict_is_a_plain_record():
 from dataclasses import dataclass, replace  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
 
-from src.intelligence.bars.daily_rule import RULE_VERSION, derive_daily_v2  # noqa: E402
+from src.intelligence.bars.daily_rule import RULE_VERSION, derive_daily  # noqa: E402
 from src.intelligence.bars.derivation import Observation, SplitRecord  # noqa: E402
 from src.intelligence.bars.integrity_checks import (  # noqa: E402
     CHECKS_1D,
@@ -170,7 +170,7 @@ def _stored(day: date, close: float, vendor: str = "tradier", kind: str = "conso
 
 def _clean() -> NameInputs1d:
     observations = [_obs(d, 100.0 + i) for i, d in enumerate(_SESSIONS)]
-    derived = derive_daily_v2(
+    derived = derive_daily(
         observations,
         _POLICY,
         [],
@@ -392,7 +392,7 @@ def _restated_inputs() -> NameInputs1d:
         base = 100.0 + 0.1 * i
         observations.append(_obs(day, base * 2, "TRADIER"))
         observations.append(replace(_obs(day, base, "SMART"), fetched_at=_IBKR_REFETCH))
-    derived = derive_daily_v2(
+    derived = derive_daily(
         observations,
         _POLICY,
         [split],
@@ -874,7 +874,7 @@ def _alpaca_inputs(dead: date | None = None) -> NameInputs1d:
         observations.append(_obs(day, close, "SMART"))
         alpaca = _obs(day, close, "ALPACA")
         observations.append(replace(alpaca, volume=0) if day == dead else alpaca)
-    derived = derive_daily_v2(
+    derived = derive_daily(
         observations,
         _ALPACA_PRIMARY,
         [],

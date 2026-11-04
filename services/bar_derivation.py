@@ -103,7 +103,7 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     DailyV2Result,
     PolicyRow,
-    derive_daily_v2,
+    derive_daily,
     observation_from_raw,
     rescale_routes,
 )
@@ -1634,7 +1634,7 @@ class BarDerivation(BaseBatch):
         observations, splits = await read_daily_inputs(conn, symbol)
         if not observations:
             return _DailyResult(symbol, "no_observations")
-        derived = derive_daily_v2(
+        derived = derive_daily(
             observations,
             params.policy,
             splits,

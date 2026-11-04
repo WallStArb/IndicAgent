@@ -13,7 +13,7 @@ from services.bar_derivation import split_rescale_routes
 from src.intelligence.bars.daily_rule import (
     FLAG_PRE_SPLIT,
     PolicyRow,
-    derive_daily_v2,
+    derive_daily,
     rescale_routes,
     split_scale,
 )
@@ -39,7 +39,7 @@ def _obs(day: date, close: float, volume: int = 1000, route: str = "SMART") -> O
 
 
 def _derive(observations, splits):
-    return derive_daily_v2(
+    return derive_daily(
         observations,
         list(_IBKR_ONLY),
         list(splits),
@@ -131,7 +131,7 @@ def test_a_split_rescales_every_measured_route_across_the_vendor_seam():
         for d in _sessions(date(2016, 1, 4), 5)
     ]
     split = _split(_SMART | {"ALPACA"}, day=split_day)
-    result = derive_daily_v2(
+    result = derive_daily(
         ibkr + alpaca,
         list(policy),
         [split],
@@ -153,7 +153,7 @@ def test_split_scale_is_one_left_fold_in_effective_date_order():
     for _, f in factors:
         expected *= f
     assert split_scale(obs, splits) == expected
-    rescaled = derive_daily_v2(
+    rescaled = derive_daily(
         [obs],
         list(_IBKR_ONLY),
         splits,

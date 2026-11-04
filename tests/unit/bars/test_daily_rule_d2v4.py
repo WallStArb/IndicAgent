@@ -24,7 +24,7 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     PolicyRow,
     alpaca_era_start,
-    derive_daily_v2,
+    derive_daily,
     observation_from_raw,
     raw_session_date,
     servable_primary_dates,
@@ -84,7 +84,7 @@ def _sessions(start: date, n: int) -> list[date]:
 
 
 def _derive(observations, policy=(_ALPACA_DEFAULT,), splits=(), window=_WINDOW):
-    return derive_daily_v2(
+    return derive_daily(
         observations,
         list(policy),
         list(splits),
@@ -564,7 +564,7 @@ def _golden_runs(with_alpaca: bool):
                 for i, d in enumerate(sorted(set(dates) | set(extra)))
             ]
         for name, rows in _golden_policies(symbol, switch).items():
-            result = derive_daily_v2(
+            result = derive_daily(
                 observations,
                 rows,
                 splits,

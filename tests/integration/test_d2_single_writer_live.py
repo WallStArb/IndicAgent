@@ -8,7 +8,7 @@ Asserts the D-191-Q world: the canonical 1d identities are exactly CANONICAL_1D_
 sip_rth) primary from 2016-01-04, (ibkr, named) under an IBKR-primary policy row, (ibkr,
 fallback) where the rule serves IBKR, (ibkr, venue) where a venue route is canonical); the
 canonical_bar_lineage view holds only the current rule version (per-bar request-id completeness
-is the audit's lineage_missing check); a seeded sample recomputed with derive_daily_v2 equals
+is the audit's lineage_missing check); a seeded sample recomputed with derive_daily equals
 the stored bars; every month with bars has a current digest; no scale break across a recorded
 split.
 
@@ -30,7 +30,7 @@ import pytest
 
 from services.bar_derivation import _SELECT_POLICY_1D_SQL, read_daily_inputs
 from services.bar_hold import held as read_held
-from src.intelligence.bars.daily_rule import RULE_VERSION, TIMEFRAME, PolicyRow, derive_daily_v2
+from src.intelligence.bars.daily_rule import RULE_VERSION, TIMEFRAME, PolicyRow, derive_daily
 from src.intelligence.bars.sources import (
     CANONICAL_1D_KINDS,
     CANONICAL_1D_SOURCES,
@@ -206,7 +206,7 @@ async def test_lineage_view_holds_only_the_current_rule_version(conn):
     assert versions == {RULE_VERSION}
 
 
-async def test_stored_values_equal_derive_daily_v2_for_a_sample_recomputed_from_d1(conn):
+async def test_stored_values_equal_derive_daily_for_a_sample_recomputed_from_d1(conn):
     window = int(
         await conn.fetchval(
             "SELECT config_value FROM config_state WHERE config_key = $1", _WINDOW_KEY
@@ -239,7 +239,7 @@ async def test_stored_values_equal_derive_daily_v2_for_a_sample_recomputed_from_
         observations, splits = await read_daily_inputs(conn, symbol)
         derived = {
             b.bar_date: b
-            for b in derive_daily_v2(
+            for b in derive_daily(
                 observations,
                 policy,
                 splits,

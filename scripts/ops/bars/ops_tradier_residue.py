@@ -68,7 +68,7 @@ from services.bar_derivation import (
     read_daily_params,
 )
 from src.config.settings import Settings  # noqa: E402
-from src.intelligence.bars.daily_rule import ROUTE_TRADIER, derive_daily_v2  # noqa: E402
+from src.intelligence.bars.daily_rule import ROUTE_TRADIER, derive_daily  # noqa: E402
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
 from src.intelligence.bars.gap_plan import COVERAGE_WHAT_TO_SHOW  # noqa: E402
 from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS  # noqa: E402
@@ -673,7 +673,7 @@ async def _derive_without_tradier(
         observations, splits = await read_daily_inputs(conn, symbol)
         kept = [o for o in observations if o.route != ROUTE_TRADIER]
         return (
-            derive_daily_v2(
+            derive_daily(
                 kept,
                 params.policy,
                 splits,

@@ -78,7 +78,7 @@ pre-2016 gap sessions** (was 12,198); CUBE and JBTM are fully derived. Live reco
   counted run.
 - **B. 22 names, D-191-Q IBKR symbol rows where IBKR has no raw answer: 28,359 by-design
   sessions** ("IBKR serves, with no bar where IBKR is missing", 191-D191Q-ARBITRATION.md), but
-  recorded nowhere: under an IBKR primary `derive_daily_v2` hits `if fallback is None or frame
+  recorded nowhere: under an IBKR primary `derive_daily` hits `if fallback is None or frame
   is None: continue` (`daily_rule.py`) with no refusal category. Sample: AKTS, 1,956 sessions,
   canonical only from 2026-01-09. Fix: owner arbitration (extend IBKR symbol rows), plus a
   small honesty-only code fix persisting an `unserved_primary` refusal in `ohlcv_load.detail`
@@ -100,7 +100,7 @@ lane); (2) owner arbitration on the 22 IBKR-row names and the APTV-style refusal
 
 ## unserved_primary landed (research lane, 2026-10-31, commit a852f7008)
 
-Class B honesty fix: `derive_daily_v2` lists the branch's dates in `DailyV2Result.unserved_primary`
+Class B honesty fix: `derive_daily` lists the branch's dates in `DailyV2Result.unserved_primary`
 and the daily stage persists them in `ohlcv_load.detail` (`unserved_primary`, ISO dates, beside
 refused_head/stale_only), with the CSV report column and batch summary count. First write lands with
 the next 05:20/05:45 UTC bar_derivation run. Two scope notes:

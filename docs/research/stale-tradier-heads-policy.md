@@ -43,7 +43,7 @@ All on the live data after the swap. Tools and outputs are in `logs/185-49/` (gi
    the vendor out of its ordinary range (same 99th percentile, 250 sessions). IBKR alone steps inside
    the run on BNY (6), CF (10), CPAY (8), DOV (1: 2014-03-03, IBKR -17.6% while Tradier moves 1.1%),
    MGM (34) and WELL (9); every other run has no IBKR-only step.
-4. Bar-level preview (`tools/policy_preview.py`: the daily stage's own `derive_daily_v2` and
+4. Bar-level preview (`tools/policy_preview.py`: the daily stage's own `derive_daily` and
    `classify` on live inputs, live policy plus hypothetical rows, read-only). With the live policy it
    reproduces the stored bars exactly (0/0/0 on 10 names). With a head row per name: removals are
    only the head's Tradier dates plus Tradier-only dates inside the run (1 on most names, mostly

@@ -824,7 +824,7 @@ def test_daily_stage_calls_d2v2_and_writes_no_lineage():
     from tests.unit._source_grep_helpers import read_source
 
     source = read_source("services", "bar_derivation.py")
-    assert "derive_daily_v2" in source
+    assert "derive_daily" in source
     assert "_UPSERT_LINEAGE_SQL" not in source
     assert not re.search(r"(?:INSERT\s+INTO|UPDATE|COPY)\s+canonical_bar_lineage\b", source)
 
