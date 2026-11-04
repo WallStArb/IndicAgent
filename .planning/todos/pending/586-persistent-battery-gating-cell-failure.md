@@ -30,3 +30,11 @@ Oversize grows with predictor persistence tau. In the book arm the sd of t is 0.
 ## Passing certificates
 
 feature 1h and 15m sources (no smoothing), feature 1d with smoothing 5, rk_high_dist 126, rk_vwap_dev 20 on 1d and on 1h.
+
+## Update 2026-11-04 (todo 588 part B)
+
+The part B cell `f1d_s5_tau200` (feature, smoothing 5, 1d source, 1d book) fails in the book arm
+(70 of 1,000 at 0.05 against a bound of 67; 23 at 0.01 against 18; sd of t 1.16). Smoothing 5 on a
+1d source therefore leaves the passing list: it passed at tau 5 and 60 only because the unsmoothed
+route fails at tau 60 and 200, and smoothing does not remove that persistence. The route stays
+refused. The other twelve part B cells hold (184-05-BATTERY.md, Part B extension).

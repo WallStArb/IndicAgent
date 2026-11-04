@@ -21,6 +21,7 @@ from src.intelligence.research.member_memory import (
     feature_member_memory_sessions,
     warmup_prefix_sessions,
 )
+from src.intelligence.research.null_battery import MEASURED_SLOT_EFFECT_SD, MEASURED_STATIC_CELL_SD
 from src.intelligence.research.null_battery_persistent import BatteryCertificate
 from src.intelligence.research.runner import RunContext, RunRefused
 from src.intelligence.research.smoothing import smoothing_memory_sessions
@@ -640,12 +641,55 @@ def test_b2_an_input_member_must_use_the_certified_function(certs):
     runner_mod._check_spec(make_spec([feature_member()]))
 
 
-def test_m3_more_than_one_input_member_is_refused(certs):
+def test_m3_two_input_members_on_one_route_are_refused(certs):
     certs(cert())
     spec = make_spec([feature_member("a"), feature_member("b")])
-    with pytest.raises(RunRefused, match="at most one input member"):
+    with pytest.raises(RunRefused, match="certified composition"):
         runner_mod._check_spec(spec)
     runner_mod._check_spec(spec, mode="synthetic")
+
+
+def _two_routes(monkeypatch, *, certified=True, passing=2, third=False):
+    """A 1d feature route and a 1h feature route on a 1d book; the pair is a certified
+    composition when `certified`."""
+    a, b = cert(), cert(source_tf="1h")
+    monkeypatch.setattr(nbp, "PASSING_CERTIFICATES", (a, b)[:passing])
+    monkeypatch.setattr(nbp, "CERTIFIED_BOOKS", (frozenset({a, b}),) if certified else ())
+    members = [feature_member("a"), feature_member("b", tf="1h")]
+    if third:
+        members.append(feature_member("c", tf="1h"))
+    return make_spec(members)
+
+
+def test_part_b_a_certified_two_member_composition_is_admitted(monkeypatch):
+    spec = _two_routes(monkeypatch)
+    runner_mod._check_spec(spec)
+    runner_mod._check_member_memory(spec, CONFIGS)
+
+
+def test_part_b_an_uncertified_composition_is_refused(monkeypatch):
+    spec = _two_routes(monkeypatch, certified=False)
+    with pytest.raises(RunRefused, match="certified composition"):
+        runner_mod._check_spec(spec)
+
+
+def test_part_b_a_composition_needs_every_route_passing(monkeypatch):
+    spec = _two_routes(monkeypatch, passing=1)
+    with pytest.raises(RunRefused, match="no battery certificate covers"):
+        runner_mod._check_spec(spec)
+
+
+def test_part_b_a_composition_is_exactly_its_members(monkeypatch):
+    spec = _two_routes(monkeypatch, third=True)
+    with pytest.raises(RunRefused, match="certified composition"):
+        runner_mod._check_spec(spec)
+
+
+def test_part_b_static_gate_of_a_composition_is_the_weakest_route(monkeypatch):
+    spec = _two_routes(monkeypatch)
+    spec = spec.model_copy(update={"family": "features"})
+    gate = runner_mod.static_gate(spec)
+    assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
 
 
 def _residual_member(spec):
@@ -683,6 +727,8 @@ def test_m3_the_book_wide_check_spans_families(certs):
     runner_mod._check_input_mix([plain])
     with pytest.raises(RunRefused, match="mixing input members and residual"):
         runner_mod._check_input_mix([inp, plain])
+    with pytest.raises(RunRefused, match="more than one family"):
+        runner_mod._check_input_mix([inp, inp])
 
 
 def test_item8_slot_history_zero_is_allowed_for_an_input_member_only(certs):
@@ -714,13 +760,17 @@ def test_b1_the_static_gate_is_the_members_certificate_only(certs, monkeypatch):
     assert seen[-1] == []
 
 
-def test_b1_a_passing_certificate_with_no_stress_cell_refuses_a_measured_static_size(certs):
-    """End to end on the real battery: gate 0, so any measured size above 0 is refused."""
+def test_b1_the_real_gate_is_the_ceiling_the_certificates_own_cells_held(certs):
+    """End to end on the real battery (todo 588 part B): a route is gated at the largest stress
+    its own passing cells held, so a measured size above it is refused."""
     spec = make_spec([feature_member(tf="1h", bps=1)])
     real = nbp.PASSING_CERTIFICATES[0]
     certs(real)
     gate = runner_mod.static_gate(spec)
-    assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
+    assert gate.static_sd == (pytest.approx(2 * MEASURED_STATIC_CELL_SD),)
+    assert gate.time_of_day == (pytest.approx(2 * MEASURED_SLOT_EFFECT_SD),)
+    unstressed = nbp.static_gate([dataclasses.replace(real, window=7)])
+    assert unstressed.static_sd == (0.0,) and unstressed.time_of_day == (0.0,)
 
 
 def test_m2_unmatched_rows_inside_the_scored_span_refuse():

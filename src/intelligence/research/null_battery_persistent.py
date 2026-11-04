@@ -19,7 +19,8 @@ the overnight move a daily open-to-open target shares with a close-to-close sign
 book draws bar returns directly and keeps its target in session.
 
 Supported subset (184-REVIEWS row 4): daily books with 1d, 1h, 15m and 5m sources and hourly
-books with 1d sources, horizon 1, equal-weight. Each gating cell carries a BatteryCertificate
+books with 1d sources, horizon 1, equal-weight; todo 588 part B adds stress cells and a
+two-member book. Each gating cell carries a BatteryCertificate
 and a feature or kernel is admitted only by `admit`, which matches every discrete field of the
 request and the member's source memory against a certificate the battery has passed. Compute
 only.
@@ -133,12 +134,13 @@ _DISCRETE = tuple(
     f.name for f in dataclasses.fields(BatteryCertificate) if f.name != "source_memory_bars_max"
 )
 
-# The certificates whose every gating cell held size at 0.05 and 0.01 in both arms (184-05-
-# BATTERY.md, battery module commit 49e21bb41); a failing route stays refused (todo 586).
+# The route certificates whose every single-route gating cell held size at 0.05 and 0.01 in
+# both arms (184-05-BATTERY.md and its Part B extension, battery module commits 49e21bb41 and
+# eb6651a9f); a failing route stays refused (todo 586, 588). The smoothing-5 1d route that the
+# first run passed failed its tau-200 cell (f1d_s5_tau200), so it is not a passing route.
 _REPORT_PASSING: tuple[BatteryCertificate, ...] = (
     BatteryCertificate("feature", None, None, "1h", "1d", 1, "equal_weight", 1, None, 140),
     BatteryCertificate("feature", None, None, "15m", "1d", 1, "equal_weight", 1, None, 520),
-    BatteryCertificate("feature", None, 5, "1d", "1d", 1, "equal_weight", 1, None, 252),
     BatteryCertificate("rk_high_dist", 126, None, "1d", "1d", 1, "equal_weight", 1, 2, 125),
     BatteryCertificate("rk_vwap_dev", 20, None, "1d", "1d", 1, "equal_weight", 1, 2, 19),
     BatteryCertificate("rk_vwap_dev", 20, None, "1h", "1d", 1, "equal_weight", 1, 2, 19),
@@ -148,19 +150,21 @@ _REPORT_PASSING: tuple[BatteryCertificate, ...] = (
 # report's table stays the evidence and is never edited). A certificate returns only when a
 # battery cell tests what the reason names (todo 588 part B).
 WITHHELD_CERTIFICATES: dict[BatteryCertificate, str] = {
-    _REPORT_PASSING[2]: (
-        "smoothing 5 on a 1d source passes only because the unsmoothed 1d to 1d route fails at "
-        "tau 60 and 200 (persistence); it returns only if it passes at tau 200"
-    ),
-    _REPORT_PASSING[4]: (
+    _REPORT_PASSING[3]: (
         "rk_vwap_dev 1d to 1d: the cells assume one volume basis; withheld until S0 supplies "
         "volume_basis and the battery certifies a mixed volume basis"
     ),
-    _REPORT_PASSING[5]: (
+    _REPORT_PASSING[4]: (
         "rk_vwap_dev 1h to 1d: the cells assume one volume basis; withheld until S0 supplies "
         "volume_basis and the battery certifies a mixed volume basis"
     ),
 }
+
+# Compositions of passing routes whose own book cells (both members and the equal-weight book)
+# held size (todo 588 part B): a book of several input members runs only as one of these.
+CERTIFIED_BOOKS: tuple[frozenset[BatteryCertificate], ...] = (
+    frozenset({_REPORT_PASSING[0], _REPORT_PASSING[1]}),
+)
 
 PASSING_CERTIFICATES: tuple[BatteryCertificate, ...] = tuple(
     c for c in _REPORT_PASSING if c not in WITHHELD_CERTIFICATES
@@ -196,6 +200,19 @@ def admit(
         for f in wrong
     )
     raise NotCertified(f"no battery certificate covers the request; nearest differs in {detail}")
+
+
+def admit_book(routes: Sequence[BatteryCertificate]) -> None:
+    """A book of one input member needs only its route's certificate (`admit`); several run only
+    as exactly a certified composition (distinct routes, no member added or repeated)."""
+    if len(routes) <= 1:
+        return
+    if len(set(routes)) == len(routes) and frozenset(routes) in CERTIFIED_BOOKS:
+        return
+    raise NotCertified(
+        f"a book of {len(routes)} input members is not a certified composition: only "
+        "compositions whose own battery cells passed run (todo 588 part B)"
+    )
 
 
 def _feature_cert(source_tf: str, book_tf: str, smoothing: int | None) -> BatteryCertificate:
@@ -382,7 +399,21 @@ DIAGNOSTIC_CELLS = frozenset({"hostile_tau200"})
 # Stress cells (static or time-of-day) that held size at 0.05 and 0.01 in every arm, from the
 # committed reports (184-05-BATTERY.md, its Part B extension). A stress cell not listed here
 # lifts no gate, whether it failed or has not run: the gate fails closed (todo 588).
-PASSED_STRESS_CELLS: frozenset[str] = frozenset()
+PASSED_STRESS_CELLS: frozenset[str] = frozenset(
+    {
+        "f1h_static1x_tau200",
+        "f1h_static2x_tau200",
+        "f1h_slot1x_tau200",
+        "f1h_slot2x_tau200",
+        "f15m_static1x_tau200",
+        "f15m_static2x_tau200",
+        "f15m_slot1x_tau200",
+        "f15m_slot2x_tau200",
+        "rk_high_dist_w126_1d_static1x",
+        "rk_high_dist_w126_1d_static2x",
+        "book1h_f1d_tau20",  # a slot-stress cell of a route that failed at tau 200
+    }
+)
 
 
 def _stressed(cell: PersistentScenario) -> bool:
@@ -402,31 +433,23 @@ def static_gate(
     if not pool:
         return static_sizes.StaticGate(__name__, 1, (0.0,), (0.0,))
     cells = scenarios()
-    gates = []
-    for cert in dict.fromkeys(pool):
-        own = tuple(
+    routes = tuple(dict.fromkeys(pool))
+    # one entry per route, then the composition's own cells when the book holds several routes
+    owners = [lambda c, r=r: r in c.members for r in routes]
+    if len(routes) > 1:
+        owners.append(lambda c: set(c.members) == set(routes))
+    static, time_of_day = [], []
+    for owns in owners:
+        held = [
             c
             for c in cells
-            if cert in c.members
+            if owns(c)
             and c.name not in DIAGNOSTIC_CELLS
             and (not _stressed(c) or c.name in PASSED_STRESS_CELLS)
-        )
-        gates.append(
-            static_sizes.gate_from_cells(
-                __name__,
-                1,
-                own or (PersistentScenario("none", cert, 1.0),),
-                DIAGNOSTIC_CELLS,
-                static=lambda c: (c.static_cell_sd,),
-                time_of_day=lambda c: (c.slot_effect_sd,),
-            )
-        )
-    return static_sizes.StaticGate(
-        __name__,
-        1,
-        (min(g.static_sd[0] for g in gates),),
-        (min(g.time_of_day[0] for g in gates),),
-    )
+        ]
+        static.append(max((c.static_cell_sd for c in held), default=0.0))
+        time_of_day.append(max((c.slot_effect_sd for c in held), default=0.0))
+    return static_sizes.StaticGate(__name__, 1, (min(static),), (min(time_of_day),))
 
 
 # --- grids --------------------------------------------------------------------------------

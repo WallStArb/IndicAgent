@@ -66,3 +66,19 @@ All eight items are in, each pinned by a refusal test. `PASSING_CERTIFICATES` is
 certificate's own cells (`null_battery_persistent.static_gate(certificates)`), so every passing
 certificate gates at 0 until part B. Item 8 relaxes `slot_history_sessions` to 0 for input members
 only. Part B and C remain.
+
+## Part B landed (2026-11-04)
+
+Thirteen gating cells ran at battery module commit eb6651a9f (tag `battery/588-b`, 1,000 sims, 4,000
+sessions, 60 names); the table and rule are in 184-05-BATTERY.md ("Part B extension"). Twelve hold
+size at 0.05 and 0.01. `PASSING_CERTIFICATES` stays feature 1h to 1d, feature 15m to 1d and
+rk_high_dist 126 1d to 1d, and each now gates at the largest stress its own passing cells held:
+static 0.038 (twice the measured size) for all three, time-of-day 0.0192 for the two feature routes
+and 0 for rk_high_dist (no applicable cell). The two-member book feature 1h with feature 15m
+(equal weight) passed both book cells and is the one certified composition (`CERTIFIED_BOOKS`);
+any other count or combination of input members stays refused, and a book of the two gates at 0
+(its cells carry no stress). Smoothing 5 does not return: `f1d_s5_tau200` fails in the book arm
+(70 at 0.05, 23 at 0.01), so it is a failing route (todo 586). The `rk_vwap_dev` certificates stay
+withheld. The stress cells cannot move the statistic (dollar-neutral weights and the lagged cell
+mean remove static means and a common mean), so the ceilings record sizes tested, not a sharper
+claim. Part C remains.

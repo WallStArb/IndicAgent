@@ -488,20 +488,32 @@ def _check_member_signal(m: MemberSpec) -> None:
 
 
 def _check_input_mix(specs: Sequence[FamilySpec]) -> None:
-    """One input member per book, and never beside residual-return members: the battery's cells
-    are single-member books on one route (todo 588 m3)."""
-    inputs = [m.name for s in specs for m in _input_members(s)]
+    """Input members live in one family, never beside residual-return members: the battery's
+    cells are books of input members on certified routes (todo 588 m3). How many, and which
+    routes together, is _check_book_routes."""
+    with_inputs = [s.family for s in specs if _input_members(s)]
     residual = [m.name for s in specs for m in s.members if m.input is None]
-    if len(inputs) > 1:
+    if len(with_inputs) > 1:
         raise RunRefused(
-            f"a book runs at most one input member until the battery certifies multi-member "
-            f"books (todo 588 m3): {inputs}"
+            f"input members in more than one family are not certified (todo 588 m3): {with_inputs}"
         )
-    if inputs and residual:
+    if with_inputs and residual:
+        inputs = [m.name for s in specs for m in _input_members(s)]
         raise RunRefused(
             "a book mixing input members and residual-return members is not certified "
             f"(todo 588 m3): {inputs} with {residual}"
         )
+
+
+def _check_book_routes(
+    spec: FamilySpec, routes: Sequence[null_battery_persistent.BatteryCertificate]
+) -> None:
+    """A book of more than one input member runs only as a composition whose own cells passed
+    (todo 588 part B); one member needs just its route's certificate."""
+    try:
+        null_battery_persistent.admit_book(routes)
+    except null_battery_persistent.NotCertified as error:
+        raise RunRefused(f"family {spec.family}: {error}") from error
 
 
 def _check_input_members(spec: FamilySpec, mode: str, book: BookSpec | None) -> None:
@@ -517,9 +529,11 @@ def _check_input_members(spec: FamilySpec, mode: str, book: BookSpec | None) -> 
         return
     _check_supported_subset(spec, book)
     _check_input_mix([spec])
+    routes = []
     for m in _input_members(spec):
         _check_member_signal(m)
-        _admit(spec, m, 0)
+        routes.append(_admit(spec, m, 0))
+    _check_book_routes(spec, routes)
 
 
 def _member_memory(

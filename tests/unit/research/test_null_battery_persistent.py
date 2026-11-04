@@ -145,9 +145,16 @@ def test_gate_comes_from_the_given_certificates_cells_only(monkeypatch):
     assert b.static_gate([other.certificate]).static_sd == (0.1,)
     assert b.static_gate([stressed.certificate]).static_sd == (0.3,)
     assert b.static_gate([stressed.certificate]).time_of_day == (0.02,)
-    # a book of both routes holds only the size every route held
+    # a book of both routes needs cells of its own composition; with none it holds nothing
     both = b.static_gate([other.certificate, stressed.certificate])
-    assert both.static_sd == (0.1,) and both.time_of_day == (0.01,)
+    assert both.static_sd == (0.0,) and both.time_of_day == (0.0,)
+    pair = dataclasses.replace(
+        base, name="pair", partner=stressed.certificate, static_cell_sd=0.05, slot_effect_sd=0.005
+    )
+    monkeypatch.setattr(b, "scenarios", lambda: (other, stressed, pair))
+    monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset({"other", "stress", "pair"}))
+    both = b.static_gate([other.certificate, stressed.certificate])
+    assert both.static_sd == (0.05,) and both.time_of_day == (0.005,)  # the weakest
     # a stress cell that failed or has not run lifts nothing
     monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset({"other"}))
     assert b.static_gate([stressed.certificate]).static_sd == (0.0,)
@@ -362,6 +369,49 @@ def test_a_book_partner_must_share_the_book_clock():
         dataclasses.replace(sc, partner=dataclasses.replace(sc.partner, book_tf="1h"))
 
 
+def test_admit_book_one_route_needs_no_composition():
+    c = _cell("f1d_tau20").certificate
+    b.admit_book([c])
+
+
+def test_admit_book_several_routes_must_be_a_certified_composition(monkeypatch):
+    one = _cell("f1d_tau20").certificate
+    two = dataclasses.replace(one, source_tf="1h")
+    three = dataclasses.replace(one, source_tf="15m")
+    monkeypatch.setattr(b, "CERTIFIED_BOOKS", (frozenset({one, two}),))
+    b.admit_book([one, two])
+    b.admit_book([two, one])
+    for routes in ([one, three], [one, one], [one, two, three], [two, two]):
+        with pytest.raises(b.NotCertified, match="certified composition"):
+            b.admit_book(routes)
+    monkeypatch.setattr(b, "CERTIFIED_BOOKS", ())
+    with pytest.raises(b.NotCertified, match="certified composition"):
+        b.admit_book([one, two])
+
+
+def test_certified_books_are_pairs_of_passing_routes():
+    for book in b.CERTIFIED_BOOKS:
+        assert len(book) == 2 and book <= set(b.PASSING_CERTIFICATES)
+        assert any(set(c.members) == book for c in b.scenarios())
+
+
+def test_gate_of_a_composition_never_exceeds_the_cells_of_the_composition(monkeypatch):
+    sc = dataclasses.replace(
+        _part_b()["f1h_static1x_tau200"], name="solo_stress", static_cell_sd=0.04
+    )
+    other = _part_b()["f15m_static1x_tau200"]
+    other = dataclasses.replace(other, name="other_stress", static_cell_sd=0.03)
+    pair = dataclasses.replace(
+        _part_b()["book_f1h_f15m_tau20"], name="pair_unstressed", partner=other.certificate
+    )
+    monkeypatch.setattr(b, "scenarios", lambda: (sc, other, pair))
+    monkeypatch.setattr(b, "PASSED_STRESS_CELLS", frozenset({"solo_stress", "other_stress"}))
+    assert b.static_gate([sc.certificate]).static_sd == (0.04,)
+    assert b.static_gate([other.certificate]).static_sd == (0.03,)
+    # the pair's own passed cells hold no stress: the book gates at 0
+    assert b.static_gate([sc.certificate, other.certificate]).static_sd == (0.0,)
+
+
 # --- the passing set follows the committed report ---------------------------------------
 
 
@@ -398,8 +448,8 @@ def _report_rows():
 
 def test_report_has_one_row_per_scenario_with_its_certificate():
     rows = _report_rows()
-    assert set(rows) == {c.name for c in b.scenarios()[:_ORIGINAL_CELLS]}
-    for sc in b.scenarios()[:_ORIGINAL_CELLS]:
+    assert set(rows) == {c.name for c in b.scenarios()}
+    for sc in b.scenarios():
         assert rows[sc.name][1] == sc.certificate
         assert (rows[sc.name][0] == "diag") == (sc.name in b.DIAGNOSTIC_CELLS)
 
@@ -411,9 +461,20 @@ def _report_text():
     ).read_text()
 
 
+def _verdicts():
+    return {name: verdict == "PASS" for name, (_, _, verdict) in _report_rows().items()}
+
+
 def _report_passing():
-    gating = [(cert, verdict) for role, cert, verdict in _report_rows().values() if role == "gate"]
-    return {cert for cert, _ in gating if all(v == "PASS" for c, v in gating if c == cert)}
+    """Routes whose every single-route gating cell passed (a book cell judges its composition,
+    not the route it lists first)."""
+    ok = _verdicts()
+    gating = [c for c in b.scenarios() if c.name not in b.DIAGNOSTIC_CELLS and c.partner is None]
+    return {
+        c.certificate
+        for c in gating
+        if all(ok[g.name] for g in gating if g.certificate == c.certificate)
+    }
 
 
 def test_passing_certificates_are_the_reports_passing_set_minus_the_withheld():
@@ -439,7 +500,6 @@ def test_the_withheld_set_is_the_588_set():
         (c.identity, c.smoothing_half_life, c.source_tf, c.book_tf) for c in b.WITHHELD_CERTIFICATES
     }
     assert withheld == {
-        ("feature", 5, "1d", "1d"),
         ("rk_vwap_dev", None, "1d", "1d"),
         ("rk_vwap_dev", None, "1h", "1d"),
     }
@@ -451,3 +511,67 @@ def test_the_withheld_set_is_the_588_set():
 def test_a_withheld_route_is_refused_by_the_default_pool(cert):
     with pytest.raises(b.NotCertified):
         b.admit(_request(cert))
+
+
+def test_certified_books_are_the_compositions_whose_every_cell_passed():
+    ok = _verdicts()
+    books = {}
+    for c in b.scenarios():
+        if c.partner is not None:
+            books.setdefault(frozenset(c.members), []).append(ok[c.name])
+    assert books
+    assert set(b.CERTIFIED_BOOKS) == {k for k, v in books.items() if all(v)}
+
+
+def test_passed_stress_cells_are_the_reports_passing_stress_cells():
+    ok = _verdicts()
+    stressed = {
+        c.name
+        for c in b.scenarios()
+        if c.name not in b.DIAGNOSTIC_CELLS and (c.static_cell_sd or c.slot_effect_sd)
+    }
+    assert b.PASSED_STRESS_CELLS == {n for n in stressed if ok[n]}
+    assert not any(n in b.PASSED_STRESS_CELLS for n in b.DIAGNOSTIC_CELLS)
+
+
+def _route(identity, tf, memory_bound):
+    return next(
+        c.certificate
+        for c in b.scenarios()
+        if c.certificate.identity == identity
+        and c.certificate.source_tf == tf
+        and c.certificate.smoothing_half_life is None
+        and c.certificate.source_memory_bars_max == memory_bound
+        and c.certificate.book_tf == "1d"
+    )
+
+
+def test_part_b_ceilings_are_the_largest_stress_each_certificate_held():
+    one_hour, quarter, high = _route("feature", "1h", 140), _route("feature", "15m", 520), None
+    high = next(c for c in b.PASSING_CERTIFICATES if c.identity == "rk_high_dist")
+    static, slot = 2 * MEASURED_STATIC_CELL_SD, 2 * MEASURED_SLOT_EFFECT_SD
+    for cert in (one_hour, quarter):
+        gate = b.static_gate([cert])
+        assert gate.static_sd == (pytest.approx(static),)
+        assert gate.time_of_day == (pytest.approx(slot),)
+    gate = b.static_gate([high])
+    assert gate.static_sd == (pytest.approx(static),) and gate.time_of_day == (0.0,)
+    # the certified two-member book has no stress cell of its own
+    pair = b.static_gate([one_hour, quarter])
+    assert pair.static_sd == (0.0,) and pair.time_of_day == (0.0,)
+
+
+def test_part_b_passing_and_withheld_lists():
+    assert {(c.identity, c.source_tf, c.window) for c in b.PASSING_CERTIFICATES} == {
+        ("feature", "1h", None),
+        ("feature", "15m", None),
+        ("rk_high_dist", "1d", 126),
+    }
+    assert {(c.identity, c.source_tf) for c in b.WITHHELD_CERTIFICATES} == {
+        ("rk_vwap_dev", "1d"),
+        ("rk_vwap_dev", "1h"),
+    }
+    smoothing_five = _cell("f1d_s5_tau200").certificate
+    assert smoothing_five not in b.PASSING_CERTIFICATES
+    with pytest.raises(b.NotCertified):
+        b.admit(_request(smoothing_five))
