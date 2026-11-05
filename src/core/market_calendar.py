@@ -119,6 +119,14 @@ class MarketCalendar:
         """
         return date.fromisoformat(min(self._daily_sessions[exchange]))
 
+    def session_bounds(self, exchange: str, date_obj: date) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """The (open, close) of the exchange's regular session on date_obj, both UTC.
+
+        An early close shows as an earlier close, so a session's length is its own. Raises
+        KeyError for an exchange the calendar was never taught or a date that is no session.
+        """
+        return self._daily_sessions[exchange][date_obj.isoformat()]
+
     def supports_exchange(self, exchange: str) -> bool:
         """Return True if this exchange has a registered calendar.
 

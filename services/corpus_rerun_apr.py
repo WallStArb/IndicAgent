@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from src.config.config_service import ConfigService
 
@@ -41,7 +42,7 @@ def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
     """Every rerun key, read with no default: a key migration 579 did not seed is a KeyError,
     never a silent fallback value."""
 
-    def value(key: str) -> object:
+    def value(key: str) -> Any:
         seeded = cfg.get_sync(key)
         if seeded is None:
             raise KeyError(f"APR key {key} is not seeded (migration 579)")
