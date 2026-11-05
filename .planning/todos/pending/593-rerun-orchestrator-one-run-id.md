@@ -54,3 +54,13 @@ refuses cells from any other run (with a test). The dead shell orchestrator is d
   measurement, 1d calendar continuity) are applied. Next: execute 186-30 and 186-32 (parallel),
   then 186-31, each through /simplify, /review and tools/gate.py.
 
+## 186-30 landed (2026-11-05)
+
+Run identity is on main: migration 578 (corpus_run with immutable identity and append-only
+caveats, corpus_run_step, provenance_batch.run_id moving only on a takeover to started), the
+rebuild's run_id, Jan-1 intraday span and chunk_indices (execution filters only), ic_measure
+--run-id, and the canary gate requiring --run-id over the APR tf list and refusing any tf whose
+proposer unit is not completed under that run (with tests). Summary:
+`.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/186-30-SUMMARY.md`.
+Left: 186-32 (migration 579, data gate) and 186-31 (step runner, deletes the dead shell
+orchestrator).
