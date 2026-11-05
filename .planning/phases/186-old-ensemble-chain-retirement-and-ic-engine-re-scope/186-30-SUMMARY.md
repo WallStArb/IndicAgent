@@ -30,11 +30,11 @@ canary gate judges exactly one run. Migration 578 is applied live. No compute wa
 
 ## Commits
 
-- 132255cc6 feat(186-30): corpus_run identity and provenance_batch.run_id (migration 578, applied live)
-- 0fbe1ee3e feat(186-30): run_id and the intraday span in the rebuild writer; ic_measure --run-id
-- a9b0789db feat(186-30): the canary gate judges one run
-- 9cb7b9246 refactor(186-30): one comparison for the span's Jan 1 UTC bound check
-- the docs commit carrying this summary, STATE, ROADMAP, PRIORITIES and todo 593
+- 9a9ef91c6 feat(186-30): corpus_run identity and provenance_batch.run_id (migration 578, applied live)
+- 60ccaea3d feat(186-30): run_id and the intraday span in the rebuild writer; ic_measure --run-id
+- 7fe8f8be4 feat(186-30): the canary gate judges one run
+- 8265a1b77 refactor(186-30): one comparison for the span's Jan 1 UTC bound check
+- 2cb145916 docs(186-30): this summary, STATE, ROADMAP, PRIORITIES and todo 593
 
 Review: two independent AGY rounds (the second quoting code and tests for each must_have and
 hunting four named failure classes) found nothing material.
