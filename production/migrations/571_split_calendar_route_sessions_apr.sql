@@ -13,10 +13,11 @@
 -- neighbouring calendar events) the per-series price medians run over. [conventional] 20, one
 -- month; the ratio to the calendar's close is precise to basis points, so a month is ample.
 --
--- threshold.bar_scrub.quarantine_rules gains unconfirmed_split: the audit's
--- --quarantine-unconfirmed writes it (through bar_scrub.write_flags) on the first new-scale bar of
--- every candidate left unconfirmed, so no one-day fabricated return reaches research. The list
--- only decides the quarantine bit when a flag is written; no such flag exists before the run.
+-- threshold.bar_scrub.quarantine_rules gains unconfirmed_split and operator_bad_bar: the audit's
+-- --quarantine-unconfirmed writes them (through bar_scrub.write_flags) on the first new-scale bar of
+-- every candidate left unconfirmed, so no one-day fabricated return reaches research, and on every
+-- bar of config/corporate_actions/operator_bad_bars.csv. The list only decides the quarantine bit
+-- when a flag is written; no such flag exists before the run.
 -- Not an ML learning target. Idempotent.
 
 BEGIN;
@@ -44,17 +45,22 @@ SELECT now(), s.config_key, 1, s.config_value, 'migration_571',
  );
 
 UPDATE config_state
-SET config_value = (config_value::jsonb || '["unconfirmed_split"]'::jsonb)::text,
+SET config_value = (
+        config_value::jsonb
+        || (SELECT COALESCE(jsonb_agg(r), '[]'::jsonb)
+              FROM jsonb_array_elements_text('["unconfirmed_split", "operator_bad_bar"]'::jsonb) r
+             WHERE NOT (config_value::jsonb ? r))
+    )::text,
     version = version + 1
 WHERE config_key = 'threshold.bar_scrub.quarantine_rules'
-  AND NOT (config_value::jsonb ? 'unconfirmed_split');
+  AND NOT (config_value::jsonb ?& ARRAY['unconfirmed_split', 'operator_bad_bar']);
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
 SELECT now(), cs.config_key, cs.version, cs.config_value, 'migration_571',
-       'unconfirmed_split flags quarantine a 1d bar: the first new-scale bar of an unconfirmed calendar split (todo 587)'
+       'unconfirmed_split and operator_bad_bar flags quarantine a 1d bar: the first new-scale bar of an unconfirmed calendar split, and an operator-listed bad bar (todo 587)'
   FROM config_state cs
  WHERE cs.config_key = 'threshold.bar_scrub.quarantine_rules'
-   AND cs.config_value::jsonb ? 'unconfirmed_split'
+   AND cs.config_value::jsonb ?& ARRAY['unconfirmed_split', 'operator_bad_bar']
    AND NOT EXISTS (
        SELECT 1 FROM config_history ch
         WHERE ch.config_key = cs.config_key AND ch.version = cs.version

@@ -77,6 +77,8 @@ import asyncio
 import calendar
 import csv
 import json
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -458,6 +460,26 @@ def split_rescale_routes(inferred_by: str, unadjusted_routes: Any) -> frozenset[
         return frozenset().union(*(rescale_routes(r["vendor"], r["kind"]) for r in routes))
     except (KeyError, TypeError):
         raise ValueError(f"calendar_audit split with malformed routes: {routes!r}") from None
+
+
+def split_record(r: Mapping[str, Any]) -> SplitRecord:
+    """One _SELECT_DAILY_SPLITS_SQL row as the rule's SplitRecord. A calendar_audit row without a
+    finite calendar_adjusted_step raises: D7 would otherwise judge its date against a real move
+    of 0 and could pass a double adjustment or fail a spin-off day silently."""
+    routes = split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes"))
+    step = r.get("calendar_adjusted_step")
+    if routes and (step is None or not math.isfinite(step)):
+        raise ValueError(
+            f"calendar_audit split {r['effective_date']} without a finite calendar_adjusted_step"
+        )
+    return SplitRecord(
+        effective_date=r["effective_date"],
+        recorded_at=r["recorded_at"],
+        factor=r["factor"],
+        evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
+        rescale_routes=routes,
+        calendar_adjusted_step=step if routes else 0.0,
+    )
 
 
 # The 1d source decisions (migration 446), read once per run.
@@ -2005,18 +2027,9 @@ async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], 
     ]
     if not observations:
         return [], []
-    splits = [
-        SplitRecord(
-            effective_date=r["effective_date"],
-            recorded_at=r["recorded_at"],
-            factor=r["factor"],
-            evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes")),
-            calendar_adjusted_step=r.get("calendar_adjusted_step") or 0.0,
-        )
-        for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
+    return observations, [
+        split_record(r) for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
     ]
-    return observations, splits
 
 
 def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:

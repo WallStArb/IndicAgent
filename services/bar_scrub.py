@@ -109,7 +109,7 @@ DELETE FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = $2
   AND rule <> ALL($3::text[])
   AND rule NOT IN ('legacy_price_sanity_status', 'split_seam', 'vendor_disagreement',
-                   'unconfirmed_split')
+                   'unconfirmed_split', 'operator_bad_bar')
   AND ($4::timestamptz IS NULL OR "timestamp" >= $4)
   AND ($5::timestamptz IS NULL OR "timestamp" < $5)
 """
@@ -278,7 +278,7 @@ async def write_flags(
     flags of rules no longer evaluated (prune_stale, so a dropped rule cannot
     leave quarantine rows hiding bars -- everything except the rules no scrub rule code owns:
     'legacy_price_sanity_status', 'split_seam', the policy apply's 'vendor_disagreement' and the
-    split calendar audit's 'unconfirmed_split'), then INSERT the new
+    split calendar audit's 'unconfirmed_split' and 'operator_bad_bar'), then INSERT the new
     rows. Returns the number of rows inserted. Never touches market_data_ohlcv.
     """
     rules_evaluated = frozenset(rules_evaluated)

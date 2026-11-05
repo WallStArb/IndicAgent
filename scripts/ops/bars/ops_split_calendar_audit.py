@@ -29,7 +29,8 @@ Two steps, with the evidence a reviewed, committed file between them:
     verdict and evidence.
 --quarantine-unconfirmed CSV [--commit]: quarantine the first new-scale canonical bar of every
     candidate left unconfirmed (excluded_spin_off, route_conflict, conflict) under bar_quality_flag rule
-    unconfirmed_split, through bar_scrub.write_flags; dry run unless --commit.
+    unconfirmed_split, and every bar of config/corporate_actions/operator_bad_bars.csv under rule
+    operator_bad_bar, through bar_scrub.write_flags; dry run unless --commit.
 --apply CSV [--commit]: re-judge each confirmed line under the current APR and insert it unless
     the name already has any corporate_action row (current, superseded or void) within a week of
     the date; one transaction under bar_derivation_writer. Dry run unless --commit.
@@ -318,9 +319,7 @@ def operator_list(path: Path) -> dict[tuple[str, date], str]:
         for line in csv.DictReader(fh):
             key = (line["symbol"], date.fromisoformat(line["date"]))
             if not line["reason"].strip() or not line["evidence"].strip() or key in out:
-                raise ValueError(
-                    f"spin-off exclusion {key}: needs one line with reason and evidence"
-                )
+                raise ValueError(f"{path.name} {key}: needs one line with reason and evidence")
             out[key] = line["reason"]
     return out
 
@@ -512,6 +511,8 @@ def apply(settings: Settings, path: Path, *, commit: bool) -> int:
 # migration 571), so no one-day fabricated return reaches research. Multi-day returns and rolling
 # kernels still span the break: open item on todo 587's review list.
 UNCONFIRMED_RULE = "unconfirmed_split"
+# The operator's listed bad bars (operator_bad_bars.csv) are quarantined in the same step.
+BAD_BAR_RULE = "operator_bad_bar"
 UNCONFIRMED_RULE_VERSION = "split-calendar-audit"
 _UNCONFIRMED_VERDICTS = frozenset({"excluded_spin_off", "route_conflict", "conflict"})
 _UNCONFIRMED_FIELDS = ("open", "high", "low", "close")
@@ -522,6 +523,10 @@ WHERE symbol = $1 AND timeframe = '1d' AND volume > 0
 """
 _QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'"
 _FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
+_BAR_SQL = """
+SELECT "timestamp" FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
+"""
 
 
 def unconfirmed_candidates(
@@ -562,54 +567,60 @@ def unconfirmed_candidates(
 
 
 async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
-    """One transaction: an unconfirmed_split flag on the first traded canonical bar after each
-    candidate's effective_date (the raw table, so a re-run finds the same bar once it is
-    quarantined), through bar_scrub.write_flags under one scrub batch; rolled back
-    unless commit. The rule is this file's alone, so it is replaced globally (a name flagged today
-    but absent from the file is cleared). Refuses unless the rule quarantines (APR list) and when a
-    candidate has no bar after its date."""
+    """One transaction, one scrub batch, through bar_scrub.write_flags; rolled back unless commit:
+    - unconfirmed_split on the first traded canonical bar after each unconfirmed candidate's
+      effective_date (the raw table, so a re-run finds the same bar once it is quarantined);
+    - operator_bad_bar on every bar of operator_bad_bars.csv.
+    Each rule is this tool's alone, so it is replaced globally (a name flagged today but absent
+    from the files is cleared) and a re-run writes the same rows. Refuses unless both rules
+    quarantine (APR list), and when a candidate has no bar after its date or a listed bad bar is
+    not stored."""
     from services.bar_derivation_batch import close_batch, open_batch
     from services.bar_scrub import FlagRow, write_flags
 
     rules = json.loads(await conn.fetchval(_QUARANTINE_RULES_SQL) or "[]")
-    if UNCONFIRMED_RULE not in rules:
-        raise ValueError(f"{UNCONFIRMED_RULE!r} is not in threshold.bar_scrub.quarantine_rules")
+    for rule in (UNCONFIRMED_RULE, BAD_BAR_RULE):
+        if rule not in rules:
+            raise ValueError(f"{rule!r} is not in threshold.bar_scrub.quarantine_rules")
     tx = conn.transaction()
     await tx.start()
     try:
-        by_symbol: dict[str, list[FlagRow]] = {
-            r["symbol"]: [] for r in await conn.fetch(_FLAGGED_SQL, UNCONFIRMED_RULE)
-        }
+        flags: dict[tuple[str, str], list[FlagRow]] = {}
+        for rule in (UNCONFIRMED_RULE, BAD_BAR_RULE):
+            for r in await conn.fetch(_FLAGGED_SQL, rule):
+                flags[(rule, r["symbol"])] = []
+
+        def add(rule: str, symbol: str, stamp: Any, detail: dict[str, Any]) -> None:
+            flags.setdefault((rule, symbol), []).append(
+                FlagRow(stamp, rule, UNCONFIRMED_RULE_VERSION, _UNCONFIRMED_FIELDS, True, detail)
+            )
+
         for c in unconfirmed_candidates(path):
             stamp = await conn.fetchval(_FIRST_NEW_SCALE_SQL, c["symbol"], c["effective_date"])
             if stamp is None:
                 raise ValueError(f"{c['symbol']} has no canonical bar after {c['effective_date']}")
-            by_symbol.setdefault(c["symbol"], []).append(
-                FlagRow(
-                    stamp,
-                    UNCONFIRMED_RULE,
-                    UNCONFIRMED_RULE_VERSION,
-                    _UNCONFIRMED_FIELDS,
-                    True,
-                    c["detail"],
-                )
-            )
+            add(UNCONFIRMED_RULE, c["symbol"], stamp, c["detail"])
+        for (symbol, day), reason in sorted(operator_list(OPERATOR_BAD_BARS).items()):
+            stamp = await conn.fetchval(_BAR_SQL, symbol, day)
+            if stamp is None:
+                raise ValueError(f"listed bad bar {symbol} {day} is not a stored 1d bar")
+            add(BAD_BAR_RULE, symbol, stamp, {"reason": reason, "list": OPERATOR_BAD_BARS.name})
         batch_id = await open_batch(
             conn,
             stage="scrub",
             rule_version=UNCONFIRMED_RULE_VERSION,
-            apr_snapshot={"threshold.bar_scrub.quarantine_rules": [UNCONFIRMED_RULE]},
-            n_symbols=len(by_symbol),
+            apr_snapshot={"threshold.bar_scrub.quarantine_rules": [UNCONFIRMED_RULE, BAD_BAR_RULE]},
+            n_symbols=len({symbol for _, symbol in flags}),
             detail={"source": "ops_split_calendar_audit --quarantine-unconfirmed", "todo": 587},
         )
         written = 0
-        for symbol, flags in sorted(by_symbol.items()):
+        for (rule, symbol), rows in sorted(flags.items()):
             written += await write_flags(
                 conn,
                 tf="1d",
                 symbol=symbol,
-                rules_evaluated=frozenset({UNCONFIRMED_RULE}),
-                flags=flags,
+                rules_evaluated=frozenset({rule}),
+                flags=rows,
                 start=None,
                 end=None,
                 batch_id=batch_id,
@@ -622,7 +633,7 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
         await tx.commit()
     else:
         await tx.rollback()
-    print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} first bars")
+    print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} bars")
     return written
 
 
@@ -647,7 +658,8 @@ def main(argv: list[str] | None = None) -> int:
         "--quarantine-unconfirmed",
         type=Path,
         metavar="CSV",
-        help="flag the first new-scale bar of every unconfirmed candidate (unconfirmed_split)",
+        help="quarantine every unconfirmed candidate's first new-scale bar (unconfirmed_split) "
+        "and every listed bad bar (operator_bad_bar)",
     )
     parser.add_argument("--out", type=Path, help="--audit: the CSV to write")
     parser.add_argument("--symbols", nargs="*", default=None)

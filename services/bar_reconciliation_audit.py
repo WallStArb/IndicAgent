@@ -81,7 +81,7 @@ from services.bar_derivation import (
     _SELECT_STORED_1D_SQL,
     _derive_for_tf,
     _month_digest_rows,
-    split_rescale_routes,
+    split_record,
 )
 from services.bar_hold import Hold
 from services.bar_hold import held as read_held
@@ -1164,17 +1164,7 @@ def _observations(rows: Iterable[Mapping[str, Any]]) -> list[Observation]:
 
 
 def _splits(rows: Iterable[Mapping[str, Any]]) -> list[SplitRecord]:
-    return [
-        SplitRecord(
-            effective_date=r["effective_date"],
-            recorded_at=r["recorded_at"],
-            factor=r["factor"],
-            evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-            rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes")),
-            calendar_adjusted_step=r.get("calendar_adjusted_step") or 0.0,
-        )
-        for r in rows
-    ]
+    return [split_record(r) for r in rows]
 
 
 class _VerdictRun(NamedTuple):

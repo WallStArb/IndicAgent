@@ -302,3 +302,9 @@ def test_split_continuity_refuses_a_factor_of_one():
 )
 def test_a_series_scale_step_reads_unadjusted_adjusted_or_conflict(step, reading):
     assert scale_step(step, 2.0, _TOL) == reading
+
+
+@pytest.mark.parametrize("step", [float("nan"), float("inf"), float("-inf")])
+def test_split_continuity_refuses_a_non_finite_step(step):
+    with pytest.raises(ValueError, match="finite step"):
+        split_continuity(step, 2.0, _TOL)

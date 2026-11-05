@@ -193,3 +193,25 @@ def test_a_legacy_observation_under_a_calendar_split_rescales_like_smart():
 
     a, b = _rescaled(smart, [_split()]), _rescaled(legacy, [_split()])
     assert (a.open, a.close, a.volume) == (b.open, b.close, b.volume) == (50.0, 50.0, 2002)
+
+
+def test_a_calendar_row_without_a_finite_calendar_step_raises_in_the_loader():
+    """D7 judges a calendar split's date against the calendar's real move; a row without it
+    would be judged against 0 (review 2026-11-05)."""
+    from services.bar_derivation import split_record
+
+    row = {
+        "effective_date": _OLD,
+        "recorded_at": _RECORDED,
+        "factor": 2.0,
+        "evidence_request_ids": [],
+        "inferred_by": "calendar_audit",
+        "unadjusted_routes": [{"vendor": "ibkr", "kind": "smart_trades"}],
+        "calendar_adjusted_step": 0.01,
+    }
+    assert split_record(row).calendar_adjusted_step == 0.01
+    for bad in (None, float("nan")):
+        with pytest.raises(ValueError, match="calendar_adjusted_step"):
+            split_record({**row, "calendar_adjusted_step": bad})
+    other = {**row, "inferred_by": "operator", "calendar_adjusted_step": None}
+    assert split_record(other).calendar_adjusted_step == 0.0

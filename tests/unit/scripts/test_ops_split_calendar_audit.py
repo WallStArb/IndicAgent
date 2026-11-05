@@ -383,19 +383,52 @@ def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
     monkeypatch.setattr(scrub, "write_flags", fake_write_flags)
     monkeypatch.setattr(batch, "open_batch", fake_open)
     monkeypatch.setattr(batch, "close_batch", fake_close)
-    conn = _AsyncConn('["unconfirmed_split"]')
-    assert asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False)) == 1
-    # A name flagged today but absent from the file is cleared; the candidate is quarantined.
+    both = '["unconfirmed_split", "operator_bad_bar"]'
+    conn = _AsyncConn(both)
+    assert asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False)) == 2
+    # Both rules, each replaced globally: a name flagged today but absent from the files is
+    # cleared; the unconfirmed candidate and the listed bad bar are quarantined.
     assert written == [
+        ("CMCSA", frozenset({"operator_bad_bar"}), [True]),
+        ("GONE", frozenset({"operator_bad_bar"}), []),
         ("GONE", frozenset({"unconfirmed_split"}), []),
         ("SNX", frozenset({"unconfirmed_split"}), [True]),
     ]
     assert conn.events == ["begin", "rollback"]
-    conn = _AsyncConn('["unconfirmed_split"]')
+    conn = _AsyncConn(both)
     asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=True))
     assert conn.events == ["begin", "commit"]
-    with pytest.raises(ValueError, match="quarantine_rules"):
-        asyncio.run(audit.quarantine_unconfirmed(_AsyncConn('["price_sanity"]'), path, commit=True))
+    for rules in ('["price_sanity"]', '["unconfirmed_split"]', '["operator_bad_bar"]'):
+        with pytest.raises(ValueError, match="quarantine_rules"):
+            asyncio.run(audit.quarantine_unconfirmed(_AsyncConn(rules), path, commit=True))
+
+
+def test_a_listed_bad_bar_that_is_not_stored_refuses_the_quarantine(tmp_path, monkeypatch):
+    path = _write(tmp_path / "audit.csv", [{"symbol": "MSFT", "verdict": "adjusted"}])
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
+    conn = _AsyncConn('["unconfirmed_split", "operator_bad_bar"]')
+
+    async def no_bar(sql, *args):
+        return conn.rules if "quarantine_rules" in sql else None
+
+    conn.fetchval = no_bar
+    with pytest.raises(ValueError, match="not a stored 1d bar"):
+        asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=True))
+    assert conn.events == ["begin", "rollback"]
+
+
+def test_the_shipped_bad_bar_list_names_the_six_bars():
+    bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
+    assert sorted(bad) == sorted(
+        [
+            ("FTNT", date(2014, 1, 10)),
+            ("CMCSA", date(2017, 2, 17)),
+            ("CDE", date(2008, 11, 18)),
+            ("CME", date(2008, 7, 14)),
+            ("OKE", date(2005, 4, 13)),
+            ("NEXN", date(2025, 2, 18)),
+        ]
+    )
 
 
 def _write_bad_bars(tmp_path):

@@ -186,6 +186,8 @@ def split_continuity(canonical_step: float, factor: float, rel_tol: float) -> Sp
     """
     if not (math.isfinite(factor) and factor > 0 and factor != 1):
         raise ValueError(f"split factor must be positive, finite and not 1, got {factor!r}")
+    if not math.isfinite(canonical_step):
+        raise ValueError(f"split_continuity needs a finite step, got {canonical_step!r}")
     expected = -math.log(factor)
     tol = rel_tol * abs(expected)
     if abs(canonical_step - expected) <= tol:
