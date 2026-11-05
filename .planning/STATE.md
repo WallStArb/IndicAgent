@@ -86,8 +86,9 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   (todo 591). The rerun runner (todo 593): 186-30 run identity landed 2026-11-05 (migration 578:
   corpus_run, provenance_batch.run_id, rebuild span/chunk filters, ic_measure and canary
   --run-id); 186-32 landed 2026-11-05 (migration 579 rerun APR, `run_data_gate` read-only; live dry
-  run fails: IBKR era 79 at depth / 482 partial / 574 none of 1,135, Alpaca-era partials are mostly
-  illiquid no-trade slots at min_session_bar_fraction 0.9); 186-31 (span-major step runner) remains;
+  run fails: IBKR era 97 at depth (79 on bars alone) / 468 partial / 570 none of 1,135; Alpaca 2016
+  to 2026-10-05 stays bar-judged since ohlcv_load ranges are served bar spans and the campaign
+  request log is gone, so its 547,938 thin-name partial sessions still fail); 186-31 (span-major step runner) remains;
   it executes only after the 584 data gate. Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
   names, rule d2-v5 rescales them, 13 bars quarantined (7 unconfirmed_split, 6 operator_bad_bar),
   233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the

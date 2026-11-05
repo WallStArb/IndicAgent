@@ -76,3 +76,9 @@ result for the runner to persist. Live dry run (87 s): fails; IBKR era 79 at dep
 names with no-trade slots (a lead decision on the fraction); 10 names without a proven start.
 Summary: `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/186-32-SUMMARY.md`.
 Left: 186-31.
+
+Lead ruling 2026-11-05 applied (055e2033d): a thin session inside a completed vendor answer counts
+(answer_complete; no_data with zero bars is no_trades). Only ohlcv_request pages prove an answer
+(ohlcv_load ranges are served bar spans); Alpaca has request rows from 2026-10-06 only, so
+2016-2026-10 stays bar-judged. Rerun: IBKR era 97 at depth (79 on bars alone), Alpaca 848; 13,785
+failing name-years.
