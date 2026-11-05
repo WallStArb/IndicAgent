@@ -81,17 +81,17 @@ def test_an_operator_listed_spin_off_is_excluded_never_a_row():
 
 
 def test_the_spin_off_list_starts_with_snx_and_needs_reason_and_evidence(tmp_path):
-    listed = audit.spin_off_exclusions()
+    listed = audit.operator_list(audit.SPIN_OFF_EXCLUSIONS)
     assert listed == {
         ("SNX", date(2020, 12, 1)): "Concentrix spin-off, CNXC first lists the same week"
     }
     bad = tmp_path / "x.csv"
     bad.write_text("symbol,date,reason,evidence\nIBM,2021-11-04,Kyndryl,\n")
     with pytest.raises(ValueError):
-        audit.spin_off_exclusions(bad)
+        audit.operator_list(bad)
     bad.write_text("symbol,date,reason,evidence\nIBM,2021-11-04,a,b\nIBM,2021-11-04,a,b\n")
     with pytest.raises(ValueError):
-        audit.spin_off_exclusions(bad)
+        audit.operator_list(bad)
 
 
 def test_every_series_before_the_date_is_measured_on_its_own():
@@ -321,7 +321,7 @@ def test_every_unconfirmed_candidate_and_only_those_is_flagged(tmp_path):
             {"symbol": "IBM", "verdict": "not_a_split_ratio"},
         ],
     )
-    got = audit.unconfirmed_candidates(path)
+    got = audit.unconfirmed_candidates(path, bad_bars=())
     assert [(c["symbol"], c["detail"]["verdict"]) for c in got] == [
         ("SNX", "excluded_spin_off"),
         ("JMSB", "route_conflict"),
@@ -367,6 +367,7 @@ def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
     import services.bar_scrub as scrub
 
     path = _write(tmp_path / "audit.csv", [{"symbol": "SNX", "verdict": "excluded_spin_off"}])
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
     written = []
 
     async def fake_write_flags(conn, **kw):
@@ -395,3 +396,28 @@ def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
     assert conn.events == ["begin", "commit"]
     with pytest.raises(ValueError, match="quarantine_rules"):
         asyncio.run(audit.quarantine_unconfirmed(_AsyncConn('["price_sanity"]'), path, commit=True))
+
+
+def _write_bad_bars(tmp_path):
+    path = tmp_path / "bad.csv"
+    path.write_text("symbol,date,reason,evidence\nCMCSA,2017-02-17,jump,flat on Yahoo\n")
+    return path
+
+
+def test_a_conflict_caused_by_a_listed_bad_bar_is_not_an_unconfirmed_split(tmp_path):
+    """CMCSA 2017-02-21 (review 2026-11-05): the conflict is the 2017-02-17 bad bar, the series
+    is adjusted; the bar goes to operator_bad_bar, not unconfirmed_split."""
+    cmcsa = {
+        "symbol": "CMCSA",
+        "calendar_date": "2017-02-21",
+        "effective_date": "2017-02-17",
+        "verdict": "conflict",
+    }
+    path = _write(tmp_path / "audit.csv", [cmcsa, {**cmcsa, "symbol": "OKE"}])
+    bad = audit.operator_list(_write_bad_bars(tmp_path))
+    assert [c["symbol"] for c in audit.unconfirmed_candidates(path, bad)] == ["OKE"]
+
+
+def test_the_operator_bad_bar_list_holds_cmcsa():
+    bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
+    assert ("CMCSA", date(2017, 2, 17)) in bad and len(bad) == 6

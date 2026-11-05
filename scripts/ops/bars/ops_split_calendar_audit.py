@@ -83,6 +83,9 @@ ROUTE_SESSIONS_KEY = "threshold.split_calendar.route_sessions"
 # Operator-maintained spin-offs a calendar writes as clean split ratios (todo 587 Decision point
 # 2): never a split row; they belong to the dividend/total-return layer.
 SPIN_OFF_EXCLUSIONS = project_root / "config" / "corporate_actions" / "spin_off_exclusions.csv"
+# Operator-listed bad bars (todo 587 point 6; the planned operator_bad_bar quarantine): a calendar
+# conflict whose step bracket holds one is that bar, not an unconfirmed split.
+OPERATOR_BAD_BARS = project_root / "config" / "corporate_actions" / "operator_bad_bars.csv"
 _WRITER_ROLE = "bar_derivation_writer"
 # "Across the date" means sessions this close to the calendar date; a split with no session
 # nearby (a hole, a listing that starts after it) is unmeasured. Definitional, not tunables.
@@ -307,9 +310,9 @@ def judge_events(
     return events
 
 
-def spin_off_exclusions(path: Path = SPIN_OFF_EXCLUSIONS) -> dict[tuple[str, date], str]:
-    """The operator's spin-off list: (symbol, calendar date) -> reason. Every line needs a reason
-    and its evidence; a malformed or duplicated line raises."""
+def operator_list(path: Path) -> dict[tuple[str, date], str]:
+    """An operator list (the spin-off exclusions, the bad bars): (symbol, date) -> reason. Every
+    line needs a reason and its evidence; a malformed or duplicated line raises."""
     out: dict[tuple[str, date], str] = {}
     with path.open() as fh:
         for line in csv.DictReader(fh):
@@ -359,7 +362,7 @@ def _raw_series(conn: Any, symbol: str) -> dict[tuple[str, str], list[tuple[date
 def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[str, int]:
     """Read-only: every calendar event of every name into `out`; returns counts per verdict."""
     counts: dict[str, int] = {}
-    excluded = spin_off_exclusions()
+    excluded = operator_list(SPIN_OFF_EXCLUSIONS)
     with psycopg.connect(settings.database_url) as conn, out.open("w", newline="") as fh:
         params = _apr(conn)
         names = list(symbols) if symbols else [r[0] for r in conn.execute(_ACTIVE_SQL)]
@@ -409,7 +412,7 @@ def confirmed_rows(
     beside the file's sha256. detail.unadjusted_routes is the list the daily rule rescales."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if excluded is None:
-        excluded = spin_off_exclusions()
+        excluded = operator_list(SPIN_OFF_EXCLUSIONS)
     rows = []
     with path.open() as fh:
         for line in csv.DictReader(fh):
@@ -521,10 +524,23 @@ _QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key 
 _FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
 
 
-def unconfirmed_candidates(path: Path) -> list[dict[str, Any]]:
-    """The audit CSV's measured split candidates left without a row (the review list): a veto, a
-    series conflict, or a price step at a different ratio. Each carries what the flag records."""
+def unconfirmed_candidates(
+    path: Path, bad_bars: Collection[tuple[str, date]] | None = None
+) -> list[dict[str, Any]]:
+    """The audit CSV's measured split candidates left without a row (the review list): an
+    excluded spin-off, a series conflict, or a price step at a different ratio. A conflict whose
+    step bracket (effective_date to the calendar date) holds an operator-listed bad bar is that
+    bar, not an unconfirmed split, and is left out. Each carries what the flag records."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if bad_bars is None:
+        bad_bars = operator_list(OPERATOR_BAD_BARS)
+
+    def is_bad_bar(line: dict[str, str]) -> bool:
+        lo, hi = (date.fromisoformat(line[k]) for k in ("effective_date", "calendar_date"))
+        return line["verdict"] == "conflict" and any(
+            symbol == line["symbol"] and lo <= day <= hi for symbol, day in bad_bars
+        )
+
     with path.open() as fh:
         return [
             {
@@ -541,7 +557,7 @@ def unconfirmed_candidates(path: Path) -> list[dict[str, Any]]:
                 },
             }
             for line in csv.DictReader(fh)
-            if line["verdict"] in _UNCONFIRMED_VERDICTS
+            if line["verdict"] in _UNCONFIRMED_VERDICTS and not is_bad_bar(line)
         ]
 
 
