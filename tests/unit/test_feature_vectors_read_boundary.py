@@ -57,9 +57,6 @@ _ALLOW_LIST: dict[str, str] = {
     "services/backfill_feature_factory.py": (
         "WRITER: the rebuild writer; names its target table feature_vectors."
     ),
-    "services/regime_writer.py": (
-        "WRITER: writes the regime columns by key and reads the rows it updates."
-    ),
     "services/_batch_utils.py": (
         "WRITER: bulk-load infrastructure; names the table where the write-session allow-list "
         "excludes it (migration 570)."
@@ -96,13 +93,6 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "scripts/ops/corpus/ops_corpus_pipeline_run.sh": "OPS: corpus pipeline progress counts.",
     "scripts/ops/corpus/ops_pipeline_monitor.sh": "OPS: corpus pipeline monitor counts.",
-    "scripts/ops/corpus/ops_ctf_columns_recompute_15m.py": (
-        "OPS: one-shot ctf column recompute at 15m (reads and rewrites stored columns)."
-    ),
-    "scripts/ops/corpus/ops_regime_null_out_and_verify.py": (
-        "OPS: regime column null-out and verification (todo 248 hygiene)."
-    ),
-    "scripts/ops/corpus/ops_stale_k3_hmm_fields_cleanup.py": ("OPS: stale k=3 HMM field cleanup."),
     "scripts/ops/alpha/ops_broadcast_feature_audit.py": (
         "OPS: broadcast (HTF-constant) feature audit; a data-shape diagnostic, no returns."
     ),

@@ -76,7 +76,6 @@ _DAG_ORDER: dict[str, int] = {
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
-    "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
     "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores via bulk_load (phase 186, D-17)
     "indicagent-feature-lifecycle": 8,  # oneshot (todo 402); feature_ic_scores -> concept_evaluation + concept_registry
     # Phase 185 D2b derived grid (plan 11): tradeable 5m -> derived 15m/1h + digests.
@@ -158,7 +157,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
         "indicagent-borrow-capture",  # Type=oneshot, timer-triggered (todo 438); inactive between fires is correct
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
-        "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct
         "indicagent-feature-lifecycle",  # todo 402; inactive between IC pipeline runs is correct
         # Phase 185 D2b derived grid (plan 11): no timer; the IBKR history fetcher runs the

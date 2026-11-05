@@ -103,6 +103,8 @@ REQUIRED_DEPENDENCY_MARKERS: frozenset[str] = frozenset(
 LIVE_RUN_PROCESS_PATTERN = (
     "ic_engine",
     "backfill_feature_factory",
+    # Retired in todo 590; kept one cycle: an older worktree's copy still sees feature_vectors in
+    # its own write-session allow-list and could UPDATE the kernel table during a rebuild.
     "regime_writer",
     "feature_vector_rebuild",
 )

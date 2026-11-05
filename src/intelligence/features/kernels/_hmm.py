@@ -3,8 +3,8 @@
 Pure functions over arrays: the observation matrices, the causal forward filter and smoother,
 the label maps, and the walk-forward fit-and-decode loop, plus the two declarations every
 caller shares: `HmmConfig` (every APR key the kernels read, with its default) and the per-family
-`RegimeFamilySpec` spec table. `kernels/regime.py` wraps them as registry kernels;
-`services/regime_writer.py` re-imports the moved names so existing callers keep working. The
+`RegimeFamilySpec` spec table. `kernels/regime.py` wraps them as registry kernels, which the
+rebuild writer runs (the in-place `services/regime_writer.py` was retired in todo 590). The
 leading underscore keeps `discover_kernels` from treating this module as a kernel origin.
 
 CORRECTNESS INVARIANTS (unchanged by the move):
@@ -561,9 +561,8 @@ def _alpha_history_to_regime_probs(
     Parameter names are vocab-agnostic (`high_states`/`mid_states`/`low_states`, not
     `bullish_states`/`ranging_states`/`bearish_states`) so this function carries no
     trend-semantic vocabulary -- it is shared by both the trend and volatility label
-    paths. Existing callers pass all three positionally (verified via
-    `grep -n '_alpha_history_to_regime_probs' services/regime_writer.py`; none uses
-    keyword arguments), so this rename requires zero call-site edits.
+    paths. Callers pass all three positionally (none uses keyword arguments), so the
+    rename needed no call-site edits.
 
     alpha_history: shape (n, K), one row per bar.
     Returns 5 lists, each length n, index-aligned to alpha_history's rows.

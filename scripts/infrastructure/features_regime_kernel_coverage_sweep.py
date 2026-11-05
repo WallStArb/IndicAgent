@@ -1,7 +1,7 @@
 """Read-only coverage sweep of the walk-forward HMM regime kernels over stored bars (186-18).
 
 For each (symbol, tf, family) cell the sweep reads the bars from `market_data_ohlcv_tradeable`
-(through regime_writer's own `_fetch_bars`), builds the family's observation matrix once, runs the
+(through `services._batch_utils.fetch_tradeable_series`), builds the family's observation matrix once, runs the
 walk-forward kernel and reports how many refit segments were written, degenerate, not converged or
 gated for another reason, taken from the kernel's own per-segment events. It reads no returns, so
 it adds nothing to any vintage count, and it writes nothing to the database: the only output is
@@ -324,8 +324,12 @@ def main() -> None:
 
     import psycopg
 
-    from services._batch_utils import load_config_service_sync, make_worker_pool
-    from services.regime_writer import _fetch_bars
+    from services._batch_utils import (
+        fetch_tradeable_series,
+        load_config_service_sync,
+        load_tradeable_series_block_rows,
+        make_worker_pool,
+    )
     from src.config.settings import Settings
 
     bad_tfs = [tf for tf in args.tfs if tf not in WALK_FORWARD_TIMEFRAMES]
@@ -337,6 +341,7 @@ def main() -> None:
     with psycopg.connect(Settings().database_url) as conn:
         conn.set_read_only(True)
         cfg = load_config_service_sync(conn)
+        fetch_rows = load_tradeable_series_block_rows(cfg)
         base_hmm = dataclasses.replace(HmmConfig.from_values(cfg.get_sync), **overrides)
         points = [("base", base_hmm)]
         if sweep:
@@ -355,7 +360,7 @@ def main() -> None:
         with make_worker_pool(args.workers, blas_threads_per_worker=1) as pool:
             for i, symbol in enumerate(symbols):
                 for tf in args.tfs:
-                    bars = _fetch_bars(conn, symbol, tf)
+                    bars = fetch_tradeable_series(conn, symbol, tf, fetch_rows)
                     if bars is None:
                         cells.append(
                             {

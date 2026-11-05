@@ -174,11 +174,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             _segment("monitor_type", "ic_bootstrap"),
             "raw INSERT of its own monitor_type",
         ),
-        Writer(
-            "scripts/ops/corpus/ops_stale_k3_hmm_fields_cleanup.py",
-            _segment("monitor_type", "stale_k3_hmm_field_cleanup"),
-            "raw INSERT of its own monitor_type",
-        ),
     ),
     "listing_venue": (
         Writer("services/listing_venue_writer.py", reason="the venue history writer (D-19)"),

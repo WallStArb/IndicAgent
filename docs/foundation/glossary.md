@@ -99,7 +99,7 @@ A discrete conditioning-state label that partitions bars into groups expected to
 - `factor_regime`, a tag category describing conditional instrument performance: `risk_on`, `risk_off`, `defensive`, `growth`, `value`, `momentum`
 - `volatility_regime`, not a separate concept from the idiosyncratic regime above; this term should not be used to describe a second sub-classification. Use `idiosyncratic regime` (or the code name `regime_volatility`) instead.
 
-**Code surface:** `feature_vectors.regime_volatility` (idiosyncratic/symbol, `regime_writer.py --regime-column regime_volatility`), `feature_vectors.regime` (retired trend vocabulary, phased cutover, no longer the stratification source), `market_regimes` (systematic/market, `cross_sectional_regime_model.py`), `factor_regime` category in `tag_vocabulary`.
+**Code surface:** `feature_vectors.regime_volatility` (idiosyncratic/symbol, written by the rebuild's walk-forward HMM kernel, `src/intelligence/features/kernels/regime.py`), `feature_vectors.regime` (retired trend vocabulary, phased cutover, no longer the stratification source), `market_regimes` (systematic/market, `cross_sectional_regime_model.py`), `factor_regime` category in `tag_vocabulary`.
 
 ---
 
@@ -137,7 +137,7 @@ The layer in the quant stack that detects market states and enables downstream p
 **Banned:** (none)
 **Status:** active
 
-**Code surface:** `regime_writer.py` (per-symbol HMM), `cross_sectional_regime_model.py` (cross-sectional), future `StratificationDimension` providers.
+**Code surface:** the per-symbol HMM kernels (`src/intelligence/features/kernels/regime.py`, run by the rebuild writer; the in-place `regime_writer.py` was retired in todo 590), `cross_sectional_regime_model.py` (cross-sectional), future `StratificationDimension` providers.
 
 ---
 
@@ -1364,7 +1364,7 @@ stratification dimension. The predictive measurement layer is run stratified by 
 combination.
 
 **Current implementations:**
-- Per-symbol HMM (`regime_writer.py`) → `feature_vectors.regime_volatility` (3 labels: `calm`/`elevated`/`turbulent`, see `regime` entry). `feature_vectors.regime` (5 labels) still exists during the phased cutover but carries the retired trend vocabulary.
+- Per-symbol HMM (the regime kernels, `kernels/regime.py`) → `feature_vectors.regime_volatility` (3 labels: `calm`/`elevated`/`turbulent`, see `regime` entry). `feature_vectors.regime` (5 labels) still exists during the phased cutover but carries the retired trend vocabulary.
 - Cross-sectional model (`cross_sectional_regime_model.py`) → `market_regimes` (9 labels)
 
 **Not:** a synonym for `regime` (the label output). The regime classifier is the

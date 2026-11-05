@@ -67,8 +67,11 @@ from sklearn.preprocessing import StandardScaler
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import load_config_service_sync  # noqa: E402
-from services.regime_writer import _fetch_bars  # noqa: E402
+from services._batch_utils import (  # noqa: E402
+    fetch_tradeable_series,
+    load_config_service_sync,
+    load_tradeable_series_block_rows,
+)
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.features.kernels._hmm import (  # noqa: E402
     EVENT_CONVERGENCE,
@@ -557,6 +560,7 @@ def main(argv: list[str] | None = None) -> int:
     done = {_cell_key(r) for r in previous if "error" not in r}
     with psycopg.connect(get_settings().database_url) as conn, open(out_path, "a") as out:
         cfg = load_config_service_sync(conn)
+        fetch_rows = load_tradeable_series_block_rows(cfg)
         params = HmmConfig.from_values(cfg.get_sync)
         block_rows = load_rolling_block_rows(cfg.get_sync)
         apr_k = spec.model_fields(params)[0]
@@ -571,7 +575,9 @@ def main(argv: list[str] | None = None) -> int:
             if not todo:
                 continue
             try:
-                bars = _fetch_bars(conn, symbol, args.tf, with_volume=spec.needs_volume)
+                bars = fetch_tradeable_series(
+                    conn, symbol, args.tf, fetch_rows, with_volume=spec.needs_volume
+                )
             except psycopg.Error as error:
                 conn.rollback()
                 print(f"{symbol}: bar fetch failed ({error}), skipped", file=sys.stderr)

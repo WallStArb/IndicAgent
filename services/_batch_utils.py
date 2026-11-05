@@ -310,6 +310,18 @@ _TIMESTAMPTZ_MIN = datetime(1, 1, 1, tzinfo=UTC)
 _BULK_LOAD_HEX_32_64_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
 
+# Tables with exactly one bulk_load writer (single_writer invariant). bulk_load names the target
+# through sql.Identifier, so no source grep can see a second caller; this check refuses one when
+# its spec is built. A value ending in "." admits that service's jobs (ic_measure writes as
+# "ic_measure.<job>"); any other value is the exact writer, because a reader matches it exactly
+# (feature_inputs.REBUILD_WRITER for feature_vectors). feature_vectors: the rebuild writer (todo
+# 590); feature_ic_scores: ic_measure (migration 413, D-17).
+SOLE_BULK_LOAD_WRITERS: dict[str, str] = {
+    "feature_vectors": "backfill-feature-factory",
+    "feature_ic_scores": "ic_measure.",
+}
+
+
 @dataclass(frozen=True)
 class BulkLoadSpec:
     """Identity of one bulk-load unit; batch_key is its idempotency key (D-37).
@@ -340,6 +352,15 @@ class BulkLoadSpec:
             value = getattr(self, name)
             if not isinstance(value, str) or not value:
                 raise ValueError(f"BulkLoadSpec.{name} must be a non-empty string")
+        sole = SOLE_BULK_LOAD_WRITERS.get(self.target_table)
+        admitted = (
+            self.writer.startswith(sole) if sole and sole.endswith(".") else self.writer == sole
+        )
+        if sole is not None and not admitted:
+            raise ValueError(
+                f"BulkLoadSpec: {self.target_table!r} has one writer, {sole!r}; "
+                f"refusing writer {self.writer!r}"
+            )
         for name in ("range_start", "range_end"):
             value = getattr(self, name)
             if not isinstance(value, datetime) or value.tzinfo is None:
@@ -2101,3 +2122,55 @@ class Float32ChunkAccumulator:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()
+
+
+TRADEABLE_SERIES_BLOCK_ROWS_KEY = "infra.tradeable_series.fetch_block_rows"
+_TRADEABLE_SERIES_BLOCK_ROWS_DEFAULT = 10000  # migration 576 seed
+
+
+def load_tradeable_series_block_rows(cfg: ConfigService) -> int:
+    """Rows per server-cursor round trip for `fetch_tradeable_series` (APR, migration 576)."""
+    return int(cfg.get_sync(TRADEABLE_SERIES_BLOCK_ROWS_KEY, _TRADEABLE_SERIES_BLOCK_ROWS_DEFAULT))
+
+
+def fetch_tradeable_series(
+    conn: Any, symbol: str, tf: str, block_rows: int, with_volume: bool = True
+) -> dict[str, Any] | None:
+    """Timestamps, closes and (with `with_volume`) volumes of one whole (symbol, tf) series from
+    `market_data_ohlcv_tradeable`, or None (logging `batch_utils.no_tradeable_bars`) when there
+    are none. No proven-start floor and no horizon: the regime screening and golden-capture
+    tools read the full series (moved verbatim from the retired regime_writer, todo 590).
+
+    `block_rows` is `load_tradeable_series_block_rows(cfg)`. Server-side cursors require no
+    active transaction, so any open one is committed first.
+    """
+    timestamps: list = []
+    closes: list = []
+    volumes: list = []
+    columns = "timestamp, close, volume" if with_volume else "timestamp, close"
+    conn.commit()
+    with conn.cursor("ohlcv_stream") as cur:
+        cur.execute(
+            f"SELECT {columns} "
+            "FROM market_data_ohlcv_tradeable "
+            "WHERE symbol = %s AND timeframe = %s "
+            "ORDER BY timestamp ASC",
+            (symbol, tf),
+        )
+        while True:
+            batch = cur.fetchmany(block_rows)
+            if not batch:
+                break
+            by_column = list(zip(*batch, strict=True))
+            timestamps.extend(by_column[0])
+            closes.extend(by_column[1])
+            if with_volume:
+                volumes.extend(by_column[2])
+    if not timestamps:
+        _logger.warning("batch_utils.no_tradeable_bars", symbol=symbol, tf=tf)
+        return None
+    return {
+        "timestamps": timestamps,
+        "close": np.array(closes, dtype=float),
+        "volume": np.array(volumes, dtype=float) if with_volume else None,
+    }

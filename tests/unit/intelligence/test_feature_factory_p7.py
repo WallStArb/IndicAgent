@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 from datetime import UTC, datetime
 
 import numpy as np
@@ -456,7 +457,7 @@ def test_feature_vector_to_insert_params_length():
     hardcoded 70 and was never updated when migration 206 widened the contract.
     """
     from src.intelligence.features.feature_vector_persistence import (
-        FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
+        FEATURE_VECTOR_INSERT_SQL,
         feature_vector_to_insert_params,
     )
 
@@ -475,7 +476,7 @@ def test_feature_vector_to_insert_params_length():
         regime_label_source="filtered",
         vector=fv,
     )
-    expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s")
+    expected = len(set(re.findall(r"\$\d+", FEATURE_VECTOR_INSERT_SQL)))
     assert len(row) == expected, f"Expected {expected}, got {len(row)}"
 
 

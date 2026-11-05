@@ -1,4 +1,4 @@
-"""Unit tests for the 5D HMM observation builder in regime_writer.
+"""Unit tests for the 5D HMM observation builder in `kernels/_hmm.py`.
 
 Tests verify shape, content, and valid-row count for the enriched observation matrix.
 No DB, no GaussianHMM. Pure numpy.
@@ -15,7 +15,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.regime_writer import _build_obs_matrix
+from src.intelligence.features.kernels._hmm import _build_obs_matrix
 
 _DEFAULT_WINDOWS = {"vol_window": 20, "momentum_window": 20, "vol_of_vol_window": 20}
 

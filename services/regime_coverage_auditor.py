@@ -2,8 +2,8 @@
 """Regime Coverage Auditor — oneshot canary for todo 169.
 
 Checks that every corpus symbol has AT LEAST ONE non-null feature_vectors.regime row
-(per-symbol HMM label, written by regime_writer.py). A symbol with 100% NULL regime is
-a silent gap: regime_writer.py can degenerate-skip a symbol for every (tf) cell forever
+(per-symbol walk-forward HMM label, written by the rebuild's regime kernels). A symbol with
+100% NULL regime is a silent gap: the kernel can degenerate-skip a symbol for every (tf) cell
 without anything else in the pipeline noticing (found by accident, todo 168, 7 symbols
 affected for years). This canary exists so the NEXT such gap is caught immediately
 instead of by accident during an unrelated investigation.

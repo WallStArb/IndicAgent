@@ -1,6 +1,6 @@
-"""Unit test: regime writer hmm_churn rolling-instability feature (P2c).
+"""Unit test: the HMM kernel's hmm_churn rolling-instability feature (P2c).
 
-Verifies _compute_hmm_churn() -- the pure function regime_writer._compute_symbol_tf
+Verifies _compute_hmm_churn() -- the pure kernel function (kernels/_hmm.py) the walk-forward
 calls to build the per-bar hmm_churn value appended to update_rows. Tests verify:
   1. A hand-computed label-change sequence matches _compute_hmm_churn's output
      exactly at every bar.
@@ -27,7 +27,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.regime_writer import _compute_hmm_churn
+from src.intelligence.features.kernels._hmm import _compute_hmm_churn
 
 
 def test_hand_computed_churn_array_matches_exactly():

@@ -46,27 +46,7 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # requires adding a row here with a real reason (ideally: wrap it in
 # compressed_hypertable_write_session / async_compressed_hypertable_write_session
 # instead of writing a new raw UPDATE at all).
-_ALLOW_LIST: dict[str, str] = {
-    "scripts/ops/corpus/ops_regime_null_out_and_verify.py": (
-        "PERMANENT: raw UPDATE retained (not migrated to bulk_update_by_key) because "
-        "_build_null_out_sql always writes a fixed NULL across a family's owned columns "
-        "for a (symbol, tf) scope -- there's no per-row value list for bulk_update_by_key's "
-        "COPY-into-temp-table shape to carry. Wrapped in compressed_hypertable_write_session "
-        "2026-08-14 (todo 306 follow-up), replacing the old log-only "
-        "_log_compression_state() call this superseded."
-    ),
-    "scripts/ops/corpus/ops_stale_k3_hmm_fields_cleanup.py": (
-        "PERMANENT: same shape as ops_regime_null_out_and_verify.py above -- "
-        "_CLEANUP_UPDATE_SQL always writes fixed NULLs across 3 columns for a (symbol, tf) "
-        "scope, not a per-row batch. Wrapped in async_compressed_hypertable_write_session "
-        "2026-08-14 (todo 306 follow-up)."
-    ),
-    "src/intelligence/features/feature_vector_persistence.py": (
-        "PERMANENT: comment only (documents regime_writer.py's write behavior for the "
-        "column-ownership manifest this module owns), not executable SQL -- there is no "
-        "UPDATE here to migrate."
-    ),
-}
+_ALLOW_LIST: dict[str, str] = {}
 
 
 def _find_raw_update_references() -> dict[str, int]:

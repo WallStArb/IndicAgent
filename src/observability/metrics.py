@@ -520,24 +520,6 @@ PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Phase 138 — Regime writer metrics
-# ---------------------------------------------------------------------------
-
-REGIME_WRITER_ROWS_UPDATED_TOTAL = _meter.create_counter(
-    "regime_writer_rows_updated_total",
-    description="feature_vectors rows a regime family wrote; labels symbol, tf, regime_column",
-)
-REGIME_WRITER_RUN_LATENCY_SECONDS = _meter.create_histogram(
-    "regime_writer_run_latency_seconds",
-    description="Full regime labeler run duration",
-    unit="s",
-)
-REGIME_WRITER_NULL_REGIME_REMAINING = _meter.create_gauge(
-    "regime_writer_null_regime_remaining",
-    description="feature_vectors rows still NULL in the run's regime column; labels symbol, tf, regime_column",
-)
-
-# ---------------------------------------------------------------------------
 # Feature lifecycle (data quality, 186-09), emitted by services/feature_lifecycle.py
 # ---------------------------------------------------------------------------
 

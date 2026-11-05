@@ -76,7 +76,7 @@ This step only applies to what remains after steps 1 and 2. Optimizing before de
 
 **IndicAgent Manifestation:**
 - Hot/cold path separation simplifies by giving each layer exactly one job — compute, persistence, and transport optimized independently without coupling
-- `_alpha_pass` (`services/regime_writer.py`, formerly `_causal_decode`) was vectorized — `_compute_log_emit` batch-precomputes log emissions before the alpha-pass loop — only after the HMM algorithm was validated as necessary
+- `_alpha_pass` (then in `services/regime_writer.py`, now `src/intelligence/features/kernels/_hmm.py`; formerly `_causal_decode`) was vectorized — `_compute_log_emit` batch-precomputes log emissions before the alpha-pass loop — only after the HMM algorithm was validated as necessary
 - APR replaces magic numbers — but only in modules that survive the deletion check; migrating constants in code that should be deleted is Step 3 before Step 2
 - Simple > Clever (design-principles.md §12) — readability is the primary optimization target; algorithmic cleverness is secondary
 - Holistic thinking: reducing signal count while adding model complexity nets zero — the ensemble must be simplified together
@@ -97,7 +97,7 @@ Acceleration is a multiplier — it amplifies whatever direction you're already 
 **IndicAgent Manifestation:**
 - Shadow mode first — never accelerate signal promotion before direction is confirmed by evidence (p<0.05, sufficient N)
 - `BaseBatch` Ring 0 base class accelerates iteration on new batch services — but only after the batch pattern was validated through multiple manual implementations
-- `ProcessPoolExecutor` added to `regime_writer` and `ic_engine` for parallelism — only after the underlying algorithms were proven correct
+- `ProcessPoolExecutor` added to `regime_writer` and `ic_engine` (both since retired) for parallelism — only after the underlying algorithms were proven correct
 - `gsd-executor` atomic commits per task — cadence accelerates delivery, but only after `discuss-phase` + `plan-phase` confirm the right work is being done
 - Corpus pipeline `--from-step N` resume flag — accelerates re-runs but only runs validated steps
 

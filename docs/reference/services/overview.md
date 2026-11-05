@@ -92,7 +92,6 @@ The v3.0 alpha chain (`FeatureVectorWriter → ic_measure`; the old ensemble_tra
 
 | Step | File | Writes To |
 |------|------|-----------|
-| Regime Writer | `services/regime_writer.py` | `feature_vectors.regime*` |
 | IC Measure | `services/ic_measure.py` | `feature_ic_scores` (kernel forward returns; migration 413 schema, the name since migration 575) |
 
 ## AI / LLM tier

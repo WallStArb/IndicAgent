@@ -1,6 +1,6 @@
-"""Unit test: regime writer degenerate-model occupation-fraction gate (P2b).
+"""Unit test: the HMM kernel's degenerate-model occupation-fraction gate (P2b).
 
-Verifies _check_occupation_gate() -- the pure function regime_writer._compute_symbol_tf
+Verifies _check_occupation_gate() -- the pure kernel function (kernels/_hmm.py) the walk-forward
 calls after smoothed_states is finalized, before any DB write. Tests verify:
   1. A degenerate fit (one state absorbing >= 1 - min_state_occupation of bars) is
      flagged for skip.
@@ -26,7 +26,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.regime_writer import _check_occupation_gate
+from src.intelligence.features.kernels._hmm import _check_occupation_gate
 
 _MIN_OCCUPATION = 0.05
 

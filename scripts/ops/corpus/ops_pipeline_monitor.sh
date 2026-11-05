@@ -9,11 +9,10 @@ MAIN_LOG=logs/corpus_pipeline_run.log
 SUDO_PASS="${SUDO_PASS:?set via environment (see ~/.claude memory user_sudo_password.md) — do not hardcode here}"
 PYSPY=/home/bg/.local/bin/py-spy
 # [./] (not a literal "/"+".py") -- matches both the direct-script invocation
-# (services/regime_writer.py) and the dotted-module form (-m services.regime_writer,
-# todo 306's documented recovery invocation) that the old literal-path pattern silently
-# missed. Same bug class fixed 2026-08-14 in ops_regime_monitor.sh and
-# per_symbol_regime_candidates_stage2_orthogonality.py's in-flight-write guard.
-SERVICE_PATTERN='services[./](backfill_feature_factory|regime_writer|ic_measure)'
+# (services/<module>.py) and the dotted-module form (-m services.<module>) that a
+# literal-path pattern silently misses. regime_writer left the pattern with its deletion
+# (todo 590); this monitor itself goes with the orchestrator (todo 593).
+SERVICE_PATTERN='services[./](backfill_feature_factory|ic_measure)'
 
 pg() { PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "$1" 2>/dev/null; }
 
@@ -50,7 +49,7 @@ sample_cpu() {
 # DB-write progress fallback: catches phases where the writer is I/O-bound on
 # execute_batch (network round-trip to Postgres) rather than CPU-bound, so
 # client-side CPU ticks don't advance even though rows are landing (e.g.
-# regime_writer's main thread blocked in psycopg2 execute_batch — a single
+# a writer's main thread blocked in psycopg2 execute_batch — a single
 # symbol/TF batch write can take minutes, so a row-count delta over a short
 # poll window is usually 0 even mid-write). An active (non-idle) backend query
 # present at both sample points is direct evidence the writer is doing DB work.

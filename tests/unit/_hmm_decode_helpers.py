@@ -4,16 +4,15 @@
 `_alpha_pass` in the regime kernel, deleted in 186-16 once production ran only
 the Numba `alpha_pass_jit`). It takes (log_emit, transmat, pi0). This adapter reconstructs those inputs from
 the pre-refactor (obs, means, covars, transmat, n_components) call shape that
-tests in this suite still use, mirroring how _compute_symbol_tf constructs
-these inputs in production (services/regime_writer.py _stationary_distribution
-+ _log_emit_diag).
+tests in this suite still use, from the kernel's own
+src/intelligence/features/kernels/_hmm.py _stationary_distribution + _log_emit_diag.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from services.regime_writer import _log_emit_diag, _stationary_distribution
+from src.intelligence.features.kernels._hmm import _log_emit_diag, _stationary_distribution
 
 
 def _causal_decode(

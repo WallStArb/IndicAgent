@@ -550,18 +550,10 @@ VALUES (
 )
 """
 
-_PK_COLUMN_NAMES = frozenset({"symbol", "tf", "bar_ts"})
-
-# Single source of truth for regime_writer.py's column ownership (Ring 1, this module,
-# is the legal place for it -- services/regime_writer.py, Ring 2, imports FROM here,
-# never the reverse). regime_writer batch-UPDATEs these 8 columns via one atomic
-# `UPDATE feature_vectors ... WHERE regime IS NULL` pass, per-symbol fitted K=5 HMM
-# (BIC-validated, APR-governed via alpha.hmm.random_state). Previously this ownership
-# list was hand-typed independently in two places (here and regime_writer.py's own
-# set_cols literal) -- exactly the hand-typed-list-drift failure mode this module's own
-# docstring already documents (2026-07-08, todo 176): a column added to one list and not
-# the other fails silently. Deriving both from one tuple makes that drift structurally
-# impossible instead of merely tested-for.
+# Single source of truth for the trend regime family's column ownership (Ring 1, this module);
+# the kernel FAMILY_SPECS build their owned_columns from it, so the list cannot drift. The v1
+# in-place writer of these columns and its --refresh UPSERT exclusion (the 2026-07-30 incident that
+# nulled feature_vectors.regime) were retired in todo 590; git history holds the full account.
 REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
     "regime",
     "hmm_prob_trending_up",
@@ -573,56 +565,8 @@ REGIME_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
     "hmm_churn",
 )
 
-# Of REGIME_WRITER_OWNED_COLUMN_NAMES' 8 columns, hmm_prob_trending_up/hmm_prob_ranging/
-# hmm_prob_trending_down/hmm_churn aren't in this module's column list at all (safe by
-# construction -- no caller here ever writes them). The intersection with
-# _ALL_COLUMN_NAMES is what must be excluded from DO UPDATE SET:
-#
-# - regime: callers always pass None (they don't compute a regime label themselves).
-#   If included in DO UPDATE SET, a --refresh recompute would silently overwrite every
-#   already-labeled row's regime back to NULL with EXCLUDED's always-None value,
-#   discarding regime_writer's prior work corpus-wide. Confirmed root cause of the
-#   2026-07-30 incident: a --refresh run nulled feature_vectors.regime across all
-#   36.8M rows this way. (A second, independent violation of the same invariant was
-#   found and fixed the same day: services/feature_vector_pipeline.py's live path was
-#   assigning its own heuristic regime value on every bar -- see that file's
-#   _process_bar_compute docstring.)
-#
-# - hmm_regime_prob/hmm_entropy/hmm_duration: now exactly like regime -- callers
-#   always pass None. FeatureFactory.compute()/compute_batch() previously also
-#   populated these same field names via feature_cache.py's inline K=3
-#   forward-filter HMM, a second, different model writing the same column as
-#   regime_writer's fitted K=5 HMM; confirmed live on 2026-07-30 that this had
-#   already mixed the two models' outputs in production (11% same-model-invariant
-#   violation on SPY/1d rows). Resolved 2026-07-30 (todo 207, closed): the K=3
-#   model's output had zero live consumer beyond echoing into this now-removed
-#   wiring, so FeatureFactory.compute()/compute_batch() now pass None for all
-#   three unconditionally, and the dead K=3 forward-pass compute itself was
-#   deleted from feature_cache.py's refresh_regime() (~30% of that function's
-#   cost, per todo 197's earlier profiling). regime_writer.py is now the sole
-#   writer of these 3 columns going forward -- no new mixed-provenance rows
-#   can be created. This does NOT retroactively clean already-persisted rows:
-#   because these columns are excluded from DO UPDATE SET, any row that
-#   already carries a stale K=3 value (written before this fix, or before
-#   regime_writer's next pass reaches that symbol/tf) keeps it indefinitely --
-#   a --refresh cannot clear it, only regime_writer's own
-#   `WHERE regime IS NULL` pass does. ensemble_trainer.py's _META_COLS now
-#   excludes these 3 names too (added alongside this fix) so an unlabeled
-#   row's NULL is never silently imputed to a fabricated 0.0 during training.
-#
-# - regime_label_source: NOT actually regime_writer-owned (absent from
-#   REGIME_WRITER_OWNED_COLUMN_NAMES) -- every caller hardcodes the constant 'filtered'
-#   already, so exclusion vs inclusion here is a no-op in practice. Left excluded for
-#   symmetry with regime; if this field ever becomes genuinely computed/contested,
-#   revisit.
-# Single source of truth for regime_writer.py's regime_volatility column ownership (Ring 1,
-# this module, same rule as REGIME_WRITER_OWNED_COLUMN_NAMES above: services/regime_writer.py,
-# Ring 2, imports FROM here, never the reverse). This family is written by the volatility
-# labeling path (Phase 172) via one bulk UPDATE keyed on (symbol, tf, bar_ts) -- the same
-# atomic-bulk-update shape as the existing regime family, just a separate column set with no
-# shared writer. Omitting it from the exclusion set below would let a --refresh recompute NULL
-# the whole family corpus-wide, exactly the same failure REGIME_WRITER_OWNED_COLUMN_NAMES'
-# comment block documents for `regime` on 2026-07-30.
+# Single source of truth for the regime_volatility family's column ownership (Ring 1, this
+# module, same rule as REGIME_WRITER_OWNED_COLUMN_NAMES above).
 REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
     "regime_volatility",
     "hmm_vol_prob_calm",
@@ -633,17 +577,6 @@ REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES: tuple[str, ...] = (
     "hmm_vol_churn",
 )
 
-_EXTERNALLY_OWNED_COLUMN_NAMES = (
-    frozenset(REGIME_WRITER_OWNED_COLUMN_NAMES)
-    | frozenset(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
-    | {"regime_label_source"}
-)
-_UPDATE_SET_SQL = ",\n    ".join(
-    f"{name} = EXCLUDED.{name}"
-    for name in _ALL_COLUMN_NAMES
-    if name not in _PK_COLUMN_NAMES and name not in _EXTERNALLY_OWNED_COLUMN_NAMES
-)
-
 # feature_vectors' real uniqueness constraint is (symbol, tf, bar_ts) -- NOT
 # feature_vector_id, which is a derived content-key, not a constraint target.
 # DO NOTHING therefore skips ANY re-insert of an existing bar regardless of what
@@ -652,26 +585,9 @@ _UPDATE_SET_SQL = ",\n    ".join(
 # a naive backfill re-run never populated Phase 163's 17 VP/SR columns on 36.7M
 # pre-existing rows (todo 176). FEATURE_VECTOR_INSERT_SQL keeps DO NOTHING for
 # the live write path (a replayed Kafka message for an already-finalized bar
-# should stay a no-op). FEATURE_VECTOR_UPSERT_SQL is the deliberate escape
-# hatch for recompute/backfill callers that need to overwrite existing rows.
+# should stay a no-op). The in-place recompute UPSERT (todo 176) and its psycopg variants were
+# deleted with the v1 in-place writers (todo 590): the kernel table has one writer, bulk_load.
 FEATURE_VECTOR_INSERT_SQL = _INSERT_VALUES_SQL + "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING\n"
-
-FEATURE_VECTOR_UPSERT_SQL = (
-    _INSERT_VALUES_SQL + f"ON CONFLICT (symbol, tf, bar_ts) DO UPDATE SET\n    {_UPDATE_SET_SQL}\n"
-)
-
-
-# psycopg callers use %s placeholders; asyncpg uses $N. Both forms encode the
-# same column contract. Callers choose the right constant for their driver.
-# Descending replacement order prevents $1 matching inside $10, $11, etc.
-def _to_psycopg_placeholders(sql: str) -> str:
-    for i in range(_TOTAL_COLUMNS, 0, -1):
-        sql = sql.replace(f"${i}", "%s")
-    return sql
-
-
-FEATURE_VECTOR_INSERT_SQL_PSYCOPG = _to_psycopg_placeholders(FEATURE_VECTOR_INSERT_SQL)
-FEATURE_VECTOR_UPSERT_SQL_PSYCOPG = _to_psycopg_placeholders(FEATURE_VECTOR_UPSERT_SQL)
 
 
 # ── Content-key derivation ────────────────────────────────────────────────────

@@ -211,16 +211,21 @@ def _epoch_ns(timestamps: list) -> np.ndarray:
 
 
 def _fetch_real_bars(dsn: str) -> dict[str, dict[str, np.ndarray]]:
-    """The sample's bars through the regime writer's own fetch (imported here, not at module
-    level: importing the writer opens its log file)."""
+    """The sample's bars through `fetch_tradeable_series`, the full-series fetch the regime
+    screening tools share (imported here, not at module level)."""
     import psycopg
 
-    from services.regime_writer import _fetch_bars
+    from services._batch_utils import (
+        fetch_tradeable_series,
+        load_config_service_sync,
+        load_tradeable_series_block_rows,
+    )
 
     out: dict[str, dict[str, np.ndarray]] = {}
     with psycopg.connect(dsn) as conn:
+        fetch_rows = load_tradeable_series_block_rows(load_config_service_sync(conn))
         for symbol, tf in SAMPLE:
-            bars = _fetch_bars(conn, symbol, tf)
+            bars = fetch_tradeable_series(conn, symbol, tf, fetch_rows)
             assert bars is not None, f"no bars for {symbol}/{tf}"
             out[f"{symbol}/{tf}"] = {
                 "ts": _epoch_ns(bars["timestamps"]),

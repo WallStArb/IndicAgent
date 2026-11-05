@@ -101,15 +101,10 @@ _ARCHIVED_UNIT_DENYLIST: dict[str, str] = {
 # (unit_name, reason) -- same allow-list-with-reason convention as _ARCHIVED_UNIT_DENYLIST
 # and tests/unit/test_market_data_ohlcv_boundary.py's _ALLOW_LIST.
 _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
-    "indicagent-regime-writer": (
-        "PERMANENT: Phase 138 IC-pipeline oneshot, orchestrated by "
-        "scripts/ops/corpus/ops_corpus_pipeline_run.sh, never deployed as a systemd unit by "
-        "design -- confirmed zero hits in `systemctl list-units --all` (2026-07-31)."
-    ),
     "indicagent-feature-lifecycle": (
-        "PERMANENT: todo 402 oneshot, same corpus-pipeline-script-only pattern as "
-        "indicagent-regime-writer above -- takes the run's --training-window-end, so a static "
-        "unit has nothing to pass it."
+        "PERMANENT: todo 402 oneshot, orchestrated by the corpus pipeline script and never "
+        "deployed as a systemd unit by design -- it takes the run's --training-window-end, so a "
+        "static unit has nothing to pass it."
     ),
 }
 

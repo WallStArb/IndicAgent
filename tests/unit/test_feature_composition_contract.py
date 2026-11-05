@@ -50,13 +50,21 @@ def test_seed_columns_are_regime_writer_owned_hmm_columns():
 
 
 def test_seed_code_pointer_and_commit_are_pinned():
+    # The pointer is provenance: it resolves at its pinned commit, not in today's tree
+    # (services/regime_writer.py was retired in todo 590).
     assert seed.CODE_POINTER == "services.regime_writer:_write_family_results"
-    assert "def _write_family_results" in read_source("services", "regime_writer.py")
     assert re.fullmatch(r"[0-9a-f]{40}", seed.CODE_COMMIT)
     commit = subprocess.run(
         ["git", "cat-file", "-t", seed.CODE_COMMIT], capture_output=True, text=True, check=False
     )
     assert commit.stdout.strip() == "commit"
+    pinned = subprocess.run(
+        ["git", "show", f"{seed.CODE_COMMIT}:services/regime_writer.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "def _write_family_results" in pinned.stdout
 
 
 def test_seed_recipes_are_distinct_valid_recipes():

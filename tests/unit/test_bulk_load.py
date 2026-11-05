@@ -71,7 +71,7 @@ _RANGE_END = datetime(2026, 1, 7, tzinfo=UTC)
 
 def _spec(**overrides: Any) -> BulkLoadSpec:
     fields: dict[str, Any] = dict(
-        writer="feature_vector_rebuild",
+        writer="backfill-feature-factory",
         target_table="feature_vectors",
         time_column="bar_ts",
         tf="1d",
@@ -116,6 +116,21 @@ def _fresh_happy_responses(apr: dict | None = None) -> list[dict]:
 
 
 class TestBulkLoadSpec:
+    def test_a_sole_writer_table_refuses_any_other_writer(self) -> None:
+        """single_writer: bulk_load names the target through sql.Identifier, so no grep sees a
+        second caller; the spec refuses it (todo 590)."""
+        with pytest.raises(ValueError, match="has one writer"):
+            _spec(writer="someone-else")
+        with pytest.raises(ValueError, match="has one writer"):
+            _spec(writer="backfill-feature-factory", target_table="feature_ic_scores")
+        with pytest.raises(ValueError, match="has one writer"):
+            _spec(writer="backfill-feature-factory-v2")
+        with pytest.raises(ValueError, match="has one writer"):
+            _spec(writer="backfill-feature-factory.repair")  # exact: the reader matches exactly
+        spec = _spec(writer="ic_measure.ic_term", target_table="feature_ic_scores")
+        assert spec.writer == "ic_measure.ic_term"
+        assert _spec(writer="anyone", target_table="unregistered_table").writer == "anyone"
+
     def test_symbols_stored_sorted_same_key_unsorted_input(self) -> None:
         sorted_spec = _spec(symbols=("AAA", "BBB"))
         unsorted_spec = _spec(symbols=("BBB", "AAA"))
@@ -152,8 +167,8 @@ class TestBulkLoadSpec:
     def test_each_identity_field_changes_batch_key(self) -> None:
         base = _spec()
         mutations = {
-            "writer": _spec(writer="other_writer"),
-            "target_table": _spec(target_table="feature_ic_scores"),
+            "writer": _spec(writer="other", target_table="unregistered_table"),
+            "target_table": _spec(target_table="unregistered_table"),
             "tf": _spec(tf="15m"),
             "range_start": _spec(range_start=_RANGE_START - timedelta(days=1)),
             "range_end": _spec(range_end=_RANGE_END + timedelta(days=1)),
@@ -570,8 +585,10 @@ class TestUnitKey:
     def test_writer_target_tf_and_replace_where_change_it_and_the_batch_key(self) -> None:
         base = _spec(replace_where=self._WHERE)
         for name, mutated in {
-            "writer": _spec(replace_where=self._WHERE, writer="other"),
-            "target_table": _spec(replace_where=self._WHERE, target_table="feature_ic_scores"),
+            "writer": _spec(
+                replace_where=self._WHERE, writer="other", target_table="unregistered_table"
+            ),
+            "target_table": _spec(replace_where=self._WHERE, target_table="unregistered_table"),
             "tf": _spec(replace_where=self._WHERE, tf="15m"),
             "replace_where": _spec(replace_where={**self._WHERE, "symbol": "OTHER"}),
             "append_only": _spec(),
