@@ -13,6 +13,7 @@ contamination when it is genuinely present.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import math
 from datetime import UTC, datetime, timedelta
@@ -737,12 +738,171 @@ class TestCanaryIntegrityAssertion:
         assert _binomial_tail_bound(n_cells=0, p=0.05, tail_alpha=0.01) == 0
 
 
-def test_canary_rows_sql_reads_proposer_cells_at_their_own_vintage():
-    """Migration 413 semantics: only proposer cells carry CI/FDR (passes_fdr IS NOT NULL),
-    and the vintage is each (tf, horizon)'s own latest training_window_end."""
-    from scripts.ops.alpha.ops_canary_integrity_assert import _CANARY_ROWS_SQL
+# ---------------------------------------------------------------------------
+# 186-30: the gate judges exactly one run (todo 593)
+# ---------------------------------------------------------------------------
 
-    sql = " ".join(_CANARY_ROWS_SQL.split())
-    assert "s.passes_fdr IS NOT NULL" in sql
-    assert "v.tf = s.tf AND v.lookahead_bars = s.lookahead_bars" in sql
-    assert "s.cumulative_e_value" in sql and "NULL::double precision" not in sql
+_RUN = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+_OTHER_RUN = "6fa459ea-ee8a-3ca4-894e-db77e160355e"
+
+
+class _FakeCfg:
+    def __init__(self, value):
+        self.value = value
+
+    async def get(self, key, default=None):
+        assert key == "feature.factory.target_timeframes"
+        return self.value
+
+
+class _FakeGateConn:
+    """asyncpg stand-in: provenance rows per unit_key and canary cells per tf; records the
+    snapshot and every query's parameters."""
+
+    def __init__(self, provenance: dict, cells: dict):
+        self.provenance = provenance
+        self.cells = cells
+        self.queried_units: list[str] = []
+        self.queried_cells: list[tuple] = []
+        self.isolation = None
+
+    def transaction(self, isolation=None, readonly=False):
+        conn = self
+
+        class _Tx:
+            async def __aenter__(self):
+                conn.isolation = (isolation, readonly)
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Tx()
+
+    async def fetch(self, sql, *params):
+        if "FROM provenance_batch" in sql:
+            self.queried_units.append(params[0])
+            return self.provenance.get(params[0], [])
+        self.queried_cells.append(params)
+        return self.cells.get(params[0], [])
+
+
+def _proposer_unit(tf: str) -> str:
+    from services._batch_utils import bulk_load_unit_key
+    from services.ic_measure import job_replace_where, job_writer
+
+    return bulk_load_unit_key(
+        job_writer("proposer"), "feature_ic_scores", tf, job_replace_where("proposer", tf)
+    )
+
+
+def _cells(tf: str) -> list[dict]:
+    return [
+        _row("canary_noise_gaussian", "POOLED", "negative_control", -0.01, False, tf=tf),
+        _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True, tf=tf),
+    ]
+
+
+def _gate(tfs, provenance, cells=None):
+    from scripts.ops.alpha.ops_canary_integrity_assert import fetch_run_rows
+
+    conn = _FakeGateConn(provenance, cells if cells is not None else {tf: _cells(tf) for tf in tfs})
+    rows = asyncio.run(fetch_run_rows(conn, _FakeCfg(tfs), _RUN))
+    return rows, conn
+
+
+def _done(run_id: str = _RUN) -> list[dict]:
+    return [
+        {"status": "superseded", "run_id": _OTHER_RUN},
+        {"status": "completed", "run_id": run_id},
+    ]
+
+
+class TestCanaryGateJudgesOneRun:
+    _TFS = ["5m", "15m", "1h", "1d"]
+
+    def test_every_tf_under_the_run_is_evaluated(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import evaluate
+
+        rows, conn = _gate(self._TFS, {_proposer_unit(tf): _done() for tf in self._TFS})
+        assert sorted({r["tf"] for r in rows}) == sorted(self._TFS)
+        assert conn.queried_units == [_proposer_unit(tf) for tf in self._TFS]
+        # cells are selected by the unit's own scope, in one repeatable-read snapshot
+        assert conn.queried_cells == [(tf, "POOLED", "unstratified") for tf in self._TFS]
+        assert conn.isolation == ("repeatable_read", True)
+        assert evaluate(rows)["n_rows_evaluated"] == 2 * len(self._TFS)
+
+    def test_a_unit_completed_under_another_run_is_refused(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done() for tf in self._TFS}
+        provenance[_proposer_unit("15m")] = _done(_OTHER_RUN)
+        with pytest.raises(
+            CanaryIntegrityViolation, match=f"15m.*completed under run {_OTHER_RUN}"
+        ):
+            _gate(self._TFS, provenance)
+
+    def test_a_superseded_unit_with_no_completed_row_is_refused(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done() for tf in self._TFS}
+        provenance[_proposer_unit("1h")] = [{"status": "superseded", "run_id": _RUN}]
+        with pytest.raises(CanaryIntegrityViolation, match="1h.*no completed.*superseded"):
+            _gate(self._TFS, provenance)
+
+    def test_a_target_tf_with_no_rows_at_all_is_refused_as_missing(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done() for tf in self._TFS if tf != "5m"}
+        cells = {tf: _cells(tf) for tf in self._TFS if tf != "5m"}
+        with pytest.raises(CanaryIntegrityViolation, match="tf 5m: missing"):
+            _gate(self._TFS, provenance, cells)
+
+    def test_a_run_unit_holding_no_canary_cell_is_refused(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done() for tf in self._TFS}
+        cells = {tf: _cells(tf) for tf in self._TFS if tf != "1d"}
+        with pytest.raises(CanaryIntegrityViolation, match="1d.*no canary cell"):
+            _gate(self._TFS, provenance, cells)
+
+    def test_every_failing_tf_is_named_at_once(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        with pytest.raises(CanaryIntegrityViolation) as raised:
+            _gate(self._TFS, {})
+        assert all(f"tf {tf}: missing" in str(raised.value) for tf in self._TFS)
+
+    def test_the_tf_list_follows_the_apr_value(self) -> None:
+        provenance = {_proposer_unit(tf): _done() for tf in self._TFS}
+        rows, conn = _gate(["1h"], provenance)
+        assert conn.queried_units == [_proposer_unit("1h")]
+        assert {r["tf"] for r in rows} == {"1h"}
+        # stored as text, the list is json.loads-ed
+        rows, conn = _gate('["15m", "1d"]', provenance, {tf: _cells(tf) for tf in self._TFS})
+        assert conn.queried_units == [_proposer_unit("15m"), _proposer_unit("1d")]
+
+    @pytest.mark.parametrize("value", [None, [], "[]", ["5m", ""], {"5m": 1}])
+    def test_a_missing_or_malformed_tf_list_is_refused(self, value) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        with pytest.raises(CanaryIntegrityViolation, match="target_timeframes"):
+            _gate(value, {}, {})
+
+    def test_the_cli_requires_a_canonical_run_id(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import _parse_args
+
+        with pytest.raises(SystemExit):
+            _parse_args([])
+        with pytest.raises(SystemExit):
+            _parse_args(["--run-id", "latest"])
+        assert _parse_args(["--run-id", _RUN.upper()]).run_id == _RUN
+
+    def test_the_cell_query_has_no_vintage_subquery(self) -> None:
+        """The run, not the latest vintage, selects the cells."""
+        from scripts.ops.alpha.ops_canary_integrity_assert import _CANARY_ROWS_SQL
+
+        sql = " ".join(_CANARY_ROWS_SQL.split())
+        assert "max(" not in sql.lower()
+        assert "s.passes_fdr IS NOT NULL" in sql
+        assert "s.tf = $1 AND s.symbol = $2 AND s.regime_scope = $3" in sql
+        assert "s.cumulative_e_value" in sql

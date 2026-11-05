@@ -4,11 +4,15 @@ ops_canary_integrity_assert.py -- Component D corpus-run integrity gate (todo 06
 Phase 143.1-02).
 
 Expectation-aware, false-halt-aware assertion over the 5 canary/control predictors
-(concept_registry domain='feature', is_control=true rows; migrations 283/284). Queries
-feature_ic_scores (ic_measure's table since migration 575; the ic_engine-era table it
-replaced is dropped) for
-every canary x stratum cell in each tf's latest training_window_end vintage and evaluates
-each against its control_expectation ('negative_control' | 'positive_control').
+(concept_registry domain='feature', is_control=true rows; migrations 283/284). Judges exactly
+one run (186-30, todo 593): for every tf in APR feature.factory.target_timeframes, the proposer
+unit of feature_ic_scores (ic_measure's table since migration 575) must have its one completed
+provenance_batch row under --run-id; then every canary cell of that unit is evaluated against
+its control_expectation ('negative_control' | 'positive_control').
+
+HARD-halt before any evaluation if a tf's proposer unit is missing, has no completed row
+(superseded or never finished), or was completed under another run, or if the unit holds no
+canary cell: a partial rerun is never judged against an older run's cells.
 
 HARD-halt (loud, non-zero exit / raised error) if:
   - Negative-control canary clears in the POOLED family (symbol='POOLED',
@@ -40,18 +44,18 @@ The chosen quantitative rule (POOLED hard-halt scope + Binomial bound) is record
 in docs/plans/methodology-change-ledger.md (entry E7, and its 2026-08-02 addendum)
 per this project's pre-commitment convention for gate-affecting decisions.
 
-Wired into scripts/ops/corpus/ops_corpus_pipeline_run.sh immediately after Step 4
-(ic_measure) -- feature_ic_scores must exist before this gate has anything to read.
+The canary step of the corpus rerun (186-31) runs it after ic_measure, under the same run id.
 
 Usage:
-    python scripts/ops/alpha/ops_canary_integrity_assert.py
-    python scripts/ops/alpha/ops_canary_integrity_assert.py --tail-alpha 0.01
+    python scripts/ops/alpha/ops_canary_integrity_assert.py --run-id <corpus_run uuid>
+    python scripts/ops/alpha/ops_canary_integrity_assert.py --run-id <uuid> --tail-alpha 0.01
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -62,6 +66,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 from scipy.stats import binom
 
+from services._batch_utils import bulk_load_unit_key, parse_run_id
+from services.ic_measure import JOB_PROPOSER, TARGET_TABLE, job_replace_where, job_writer
+from src.config.config_service import ConfigService
 from src.config.settings import Settings
 
 _FDR_ALPHA_DEFAULT = 0.05
@@ -71,15 +78,21 @@ _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
 # bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
 _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 
-# The gate scores the vintage ic_measure (writer of feature_ic_scores) just wrote.
-# regime_scope = 'unstratified' is the migration 413 translation of the old "<> 'earnings_season'"
-# filter: the proposer's family measurement, not a stratified overlay scope.
-# Only proposer cells are testable: ic_measure fills ic_ci_* and passes_fdr at each tf's proposer
-# horizon alone (proposer_rows), so passes_fdr IS NOT NULL selects exactly them; untestable
-# horizons would inflate the negative-control cell count and loosen the Binomial bound. The
-# vintage is per (tf, horizon): training_window_end is that cell's last target exit bar before
-# oos_start (migration 413), so one MAX across tfs would leave the other tfs unevaluated. The
-# gate is not tied to one ic_measure run id; it reads each cell's latest vintage.
+# The tfs the run must cover: the APR list, never the tfs present in the table, so a tf with no
+# rows is a missing tf (186-30 warning 5).
+_TARGET_TIMEFRAMES_KEY = "feature.factory.target_timeframes"
+
+# The run, not the latest vintage, selects the cells. A tf's proposer cells are the rows its
+# proposer unit owns (ic_measure.job_replace_where: tf, symbol POOLED, regime_scope unstratified);
+# bulk_load replaces a unit's rows and supersedes its other completed provenance rows in one
+# transaction, so the rows of that scope are exactly the unit's one completed row's load, and
+# that row's run_id says which run wrote them. Only proposer cells are testable: ic_measure fills
+# ic_ci_* and passes_fdr at each tf's proposer horizon alone (proposer_rows), so passes_fdr IS
+# NOT NULL selects exactly them; untestable horizons would inflate the negative-control cell
+# count and loosen the Binomial bound.
+_UNIT_PROVENANCE_SQL = (
+    "SELECT status, run_id::text AS run_id FROM provenance_batch WHERE unit_key = $1"
+)
 
 _CANARY_ROWS_SQL = """
     SELECT
@@ -91,13 +104,8 @@ _CANARY_ROWS_SQL = """
     JOIN concept_registry r ON r.name = s.feature_name AND r.domain = 'feature'
     JOIN concept_gate cg ON cg.concept_id = r.concept_id
     WHERE r.is_control = true
-      AND s.regime_scope = 'unstratified'
+      AND s.tf = $1 AND s.symbol = $2 AND s.regime_scope = $3
       AND s.passes_fdr IS NOT NULL
-      AND s.training_window_end = (
-          SELECT max(v.training_window_end) FROM feature_ic_scores v
-          WHERE v.tf = s.tf AND v.lookahead_bars = s.lookahead_bars
-            AND v.regime_scope = 'unstratified'
-      )
 """
 # cumulative_e_value: migration 413 keeps the column but ic_measure never writes it (the e-value
 # pilot, Component C, todo 079, was an ic_engine experiment), so evaluate_e_value_decay sees NULL
@@ -115,7 +123,66 @@ _E_VALUE_PILOT_TFS = frozenset({"5m"})
 
 
 class CanaryIntegrityViolation(RuntimeError):
-    """Raised on a hard-halt condition -- a proven broken measurement pipeline."""
+    """Raised on a hard-halt condition -- a proven broken measurement pipeline, or cells that
+    do not all belong to the run under judgment."""
+
+
+async def target_timeframes(cfg: ConfigService) -> list[str]:
+    """The run's tfs from APR (json.loads of the stored list when it arrives as text); a missing
+    or malformed value is refused, never defaulted."""
+    value = await cfg.get(_TARGET_TIMEFRAMES_KEY)
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not (isinstance(value, list) and value and all(isinstance(tf, str) and tf for tf in value)):
+        raise CanaryIntegrityViolation(
+            f"{_TARGET_TIMEFRAMES_KEY} must be a non-empty list of timeframes, got {value!r}"
+        )
+    return value
+
+
+def unit_run_problem(tf: str, rows: list[dict[str, Any]], run_id: str) -> str | None:
+    """Why a tf's proposer unit does not belong to `run_id` (None when it does): its provenance
+    rows must hold exactly one completed row, recorded under that run."""
+    completed = [row for row in rows if row["status"] == "completed"]
+    if len(completed) == 1 and completed[0]["run_id"] == run_id:
+        return None
+    if len(completed) == 1:
+        return f"tf {tf}: the proposer unit was completed under run {completed[0]['run_id']}"
+    if len(completed) > 1:
+        return f"tf {tf}: the proposer unit has {len(completed)} completed provenance rows"
+    if not rows:
+        return f"tf {tf}: missing (no proposer unit provenance row)"
+    statuses = sorted({row["status"] for row in rows})
+    return f"tf {tf}: the proposer unit has no completed provenance row ({', '.join(statuses)})"
+
+
+async def fetch_run_rows(conn: Any, cfg: ConfigService, run_id: str) -> list[dict[str, Any]]:
+    """Every canary cell of the run's proposer units, one per APR tf, read in one snapshot so a
+    concurrent replace cannot slip between the provenance check and the cell read. Raises
+    CanaryIntegrityViolation naming every tf whose unit is not the run's or holds no cell."""
+    tfs = await target_timeframes(cfg)
+    rows: list[dict[str, Any]] = []
+    problems: list[str] = []
+    async with conn.transaction(isolation="repeatable_read", readonly=True):
+        for tf in tfs:
+            scope = job_replace_where(JOB_PROPOSER, tf)
+            unit_key = bulk_load_unit_key(job_writer(JOB_PROPOSER), TARGET_TABLE, tf, scope)
+            provenance = [dict(r) for r in await conn.fetch(_UNIT_PROVENANCE_SQL, unit_key)]
+            problem = unit_run_problem(tf, provenance, run_id)
+            if problem is None:
+                cells = await conn.fetch(
+                    _CANARY_ROWS_SQL, scope["tf"], scope["symbol"], scope["regime_scope"]
+                )
+                if not cells:
+                    problem = f"tf {tf}: the run's proposer unit holds no canary cell"
+                rows.extend(dict(cell) for cell in cells)
+            if problem is not None:
+                problems.append(problem)
+    if problems:
+        raise CanaryIntegrityViolation(
+            f"run {run_id} cannot be judged, its cells are not all its own: " + "; ".join(problems)
+        )
+    return rows
 
 
 def _clears_gate(row: dict[str, Any]) -> bool:
@@ -180,8 +247,8 @@ def evaluate(
     """
     if not rows:
         raise CanaryIntegrityViolation(
-            "no canary rows found for the latest feature_ic_scores vintage -- the "
-            "corpus run had no canary coverage; this gate cannot validate anything"
+            "no canary rows found for the run -- the corpus run had no canary coverage; this "
+            "gate cannot validate anything"
         )
 
     pooled_negative_clears: list[dict[str, Any]] = []
@@ -342,8 +409,14 @@ def evaluate_e_value_decay(
     return report
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--run-id",
+        required=True,
+        type=parse_run_id,
+        help="the corpus_run (uuid) whose ic_measure cells are judged; no other run's cells mix in",
+    )
     parser.add_argument(
         "--fdr-alpha",
         type=float,
@@ -365,21 +438,18 @@ def _parse_args() -> argparse.Namespace:
         help="Significance level for the POOLED Binomial tail bound -- stricter than "
         "--tail-alpha by default since POOLED is the eligibility-relevant family.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-async def _fetch_rows(pool: asyncpg.Pool) -> list[dict[str, Any]]:
-    return [dict(r) for r in await pool.fetch(_CANARY_ROWS_SQL)]
-
-
-async def main() -> int:
-    args = _parse_args()
+async def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
-        rows = await _fetch_rows(pool)
+        async with pool.acquire() as conn:
+            rows = await fetch_run_rows(conn, ConfigService(dsn, pool=pool), args.run_id)
         report = evaluate(
             rows,
             fdr_alpha=args.fdr_alpha,
@@ -388,7 +458,7 @@ async def main() -> int:
         )
 
         print("# Canary Integrity Report\n")
-        print(f"Evaluated {report['n_rows_evaluated']} canary cells.")
+        print(f"Run {args.run_id}: evaluated {report['n_rows_evaluated']} canary cells.")
         print(
             f"Positive-control (acausal placebo) POOLED cleared: "
             f"{report['placebo_pooled_cleared']} (seen={report['placebo_pooled_seen']})"

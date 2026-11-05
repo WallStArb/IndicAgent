@@ -333,6 +333,30 @@ def parse_run_id(value: str) -> str:
     return str(uuid.UUID(value))
 
 
+def bulk_load_unit_key(
+    writer: str, target_table: str, tf: str, replace_where: Mapping[str, Any] | None
+) -> str:
+    """BulkLoadSpec.unit_key's one definition, for a reader that resolves a unit to its
+    provenance rows without building a spec (the canary gate, 186-30)."""
+    where = None
+    if replace_where is not None:
+        where = {
+            column: (
+                sorted(map(str, value))
+                if isinstance(value, list | tuple | set | frozenset)
+                else str(value)
+            )
+            for column, value in replace_where.items()
+        }
+    identity = {
+        "writer": writer,
+        "target_table": target_table,
+        "tf": tf,
+        "replace_where": where,
+    }
+    return hashlib.sha256(canonical_json(identity).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class BulkLoadSpec:
     """Identity of one bulk-load unit; batch_key is its idempotency key (D-37).
@@ -412,23 +436,7 @@ class BulkLoadSpec:
         input are deliberately absent: a change to any of them replaces the unit instead of
         loading beside it. Two units that must coexist differ in writer, tf or replace_where.
         List values hash sorted, so their order never matters."""
-        where = None
-        if self.replace_where is not None:
-            where = {
-                column: (
-                    sorted(map(str, value))
-                    if isinstance(value, list | tuple | set | frozenset)
-                    else str(value)
-                )
-                for column, value in self.replace_where.items()
-            }
-        identity = {
-            "writer": self.writer,
-            "target_table": self.target_table,
-            "tf": self.tf,
-            "replace_where": where,
-        }
-        return hashlib.sha256(canonical_json(identity).encode()).hexdigest()
+        return bulk_load_unit_key(self.writer, self.target_table, self.tf, self.replace_where)
 
     @property
     def batch_key(self) -> str:
