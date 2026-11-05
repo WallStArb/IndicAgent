@@ -126,9 +126,9 @@ class TestIcMeasureIntegration:
                         (_utc(day), symbol, o, o * 1.01, o * 0.99, o * 1.001),
                     )
                     conn.execute(
-                        "INSERT INTO feature_vectors (symbol, tf, bar_ts, pipeline_version, "
+                        "INSERT INTO feature_vectors (symbol, tf, bar_ts, "
                         f"{_PREDICTIVE}, {_NOISE}, regime_volatility) "
-                        "VALUES (%s, '1d', %s, 'test', %s, %s, %s)",
+                        "VALUES (%s, '1d', %s, %s, %s, %s)",
                         (
                             symbol,
                             _utc(day),
@@ -352,8 +352,8 @@ class TestIcMeasureIntegration:
                     (_utc(new_day), symbol, open_ * 1.002, open_ * 1.01, open_ * 0.99, open_),
                 )
                 conn.execute(
-                    "INSERT INTO feature_vectors (symbol, tf, bar_ts, pipeline_version, "
-                    f"{_PREDICTIVE}, {_NOISE}, regime_volatility) VALUES (%s, '1d', %s, 'test', "
+                    "INSERT INTO feature_vectors (symbol, tf, bar_ts, "
+                    f"{_PREDICTIVE}, {_NOISE}, regime_volatility) VALUES (%s, '1d', %s, "
                     "0.1, 0.2, 'low')",
                     (symbol, _utc(new_day)),
                 )

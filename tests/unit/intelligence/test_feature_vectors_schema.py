@@ -103,14 +103,16 @@ def created_columns() -> list[str]:
     return columns
 
 
-def added_columns() -> list[str]:
-    """Columns later migrations add, in migration order: indented
-    `ADD COLUMN [IF NOT EXISTS] name real` lines under `ALTER TABLE <the table's name then>`, one
-    per line. The rename migration itself adds no column and is skipped.
-    """
+_ADD = re.compile(r"^\s+ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*) real[,;]$")
+_DROP = re.compile(r"^\s+DROP COLUMN (?:IF EXISTS )?([a-z_][a-z0-9_]*)[,;]$")
+
+
+def _altered_columns(pattern: re.Pattern[str]) -> list[str]:
+    """Columns later migrations add or drop, in migration order: indented one-per-line
+    `ADD COLUMN [IF NOT EXISTS] name real` or `DROP COLUMN [IF EXISTS] name` lines under
+    `ALTER TABLE <the table's name then>`. The rename migration itself alters no column."""
     created = _migration_number(migration_path())
     renamed = rename_number()
-    pattern = re.compile(r"^\s+ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*) real[,;]$")
     columns: list[str] = []
     for path in sorted(_MIGRATIONS.glob("*.sql")):
         number = path.name.split("_", 1)[0]
@@ -121,15 +123,25 @@ def added_columns() -> list[str]:
         if not re.search(rf"ALTER TABLE {name}\b", text):
             continue
         lines = [line.split("--", 1)[0].rstrip() for line in text.splitlines()]
-        found = [m.group(1) for line in lines if (m := pattern.match(line))]
-        assert found, f"{path.name} alters {name} but no ADD COLUMN line parsed"
-        columns.extend(found)
+        parsed = [line for line in lines if _ADD.match(line) or _DROP.match(line)]
+        assert parsed, f"{path.name} alters {name} but no ADD or DROP COLUMN line parsed"
+        columns.extend(match.group(1) for match in map(pattern.match, lines) if match)
     return columns
 
 
+def added_columns() -> list[str]:
+    return _altered_columns(_ADD)
+
+
+def dropped_columns() -> list[str]:
+    """Columns later migrations drop (577: the retired columns, from the empty table)."""
+    return _altered_columns(_DROP)
+
+
 def parsed_columns() -> list[str]:
-    """The table's columns in physical order: 425's, then the later additions."""
-    return [*created_columns(), *added_columns()]
+    """The table's columns in physical order: 425's, then the later additions, minus drops."""
+    dropped = set(dropped_columns())
+    return [c for c in (*created_columns(), *added_columns()) if c not in dropped]
 
 
 def test_migration_source_strings() -> None:
@@ -149,11 +161,13 @@ def test_migration_source_strings() -> None:
 def test_migration_columns_equal_registry_derivation() -> None:
     columns = parsed_columns()
     assert len(columns) == len(set(columns)), "duplicate column in migration"
-    assert set(columns) == expected_columns() | set(RETIRED_COLUMNS)
+    assert set(columns) == expected_columns()  # migration 577 dropped the retired columns
     # The 186-24 evidence counts migration 425's table; later additions are counted on top.
     evidence = json.loads(_EVIDENCE.read_text())
     assert len(created_columns()) == evidence["expected_column_count"]
-    assert len(columns) == evidence["expected_column_count"] + len(added_columns())
+    assert len(columns) == (
+        evidence["expected_column_count"] + len(added_columns()) - len(dropped_columns())
+    )
 
 
 def test_dropped_columns_absent_and_unowned_contract_intact() -> None:
@@ -162,5 +176,6 @@ def test_dropped_columns_absent_and_unowned_contract_intact() -> None:
         assert name not in columns, name
     for name in NEVER_COMPUTED:
         assert name in UNOWNED_COLUMNS, name
-    assert set(RETIRED_COLUMNS) <= columns  # physical columns stay until the rebuild card
+    assert not set(RETIRED_COLUMNS) & columns  # migration 577 dropped them from the empty table
+    assert set(RETIRED_COLUMNS) <= set(dropped_columns())
     assert not set(RETIRED_COLUMNS) & expected_columns()

@@ -81,7 +81,9 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   (2026-11-04) did the same for IC: one table, `feature_ic_scores` (413 schema, empty until
   186-28's fresh run); the ic_engine-era table and its two views are dropped. Todo 590 (migration 576) deleted the v1 in-place
   writers: the rebuild is the only writer of `feature_vectors` (CI test plus a `BulkLoadSpec`
-  sole-writer check). Next: the fix
+  sole-writer check). Migration 577 dropped the 13 retired columns from the
+  empty table (311 columns, equal to the registry); the integration baseline is 2026-11-05
+  (todo 591). Next: the fix
   batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase); pre-2016 results carry a survivorship caveat (todo 534).
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection

@@ -65,12 +65,12 @@ TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _TEST_DB_NAME = "indicagent_test"
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
-_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02.sql"
-_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02_hypertables.sql"
-_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-10-16.sql"
-_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-10-02.sql"
-_SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-10-02.sql"
-_SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
+_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-11-05.sql"
+_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-11-05_hypertables.sql"
+_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-11-05.sql"
+_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-11-05.sql"
+_SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-11-05.sql"
+_SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-11-05.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already
@@ -102,7 +102,18 @@ _SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
 # schema-only dump restores every production _compressed_hypertable_N storage table
 # as an orphaned stub, colliding with the compression re-registration's own next-free
 # N (fixed in the hypertables file itself, not here).
-_BASELINE_MIGRATION_CUTOFF = 433
+# 2026-11-05: bumped 433 -> 576 with scripts/infrastructure/regenerate_integration_baseline.py
+# (todo 591), so indicagent_test carries the kernel feature_vectors (570) and the 413
+# feature_ic_scores (575); the old replay could not reach either (462 dropped
+# feature_vectors_v2 after the 433 baseline).
+_BASELINE_MIGRATION_CUTOFF = 576
+
+# Numbers at or below the cutoff that were NOT applied in production when the baseline was
+# dumped (reserved by an unlanded change), so they are not in it and must still replay. Without
+# this a reserved number landing later would be skipped silently. 2026-11-05: 568 and 571-574
+# belong to the todo 587 split-rescale landing. Empty this set at the next regeneration once
+# they are applied.
+_NOT_IN_BASELINE: frozenset[int] = frozenset({568, 571, 572, 573, 574})
 
 # No committed-but-unapplied migrations right now. (Migration 465 rode this exclusion from
 # its 190-02 commit until the 190-06 cutover applied it live with the fetcher stopped, in
@@ -233,6 +244,7 @@ def _replay_post_baseline_migrations() -> None:
         p
         for p in _MIGRATIONS_DIR.glob("*.sql")
         if _migration_number(p) > _BASELINE_MIGRATION_CUTOFF
+        or _migration_number(p) in _NOT_IN_BASELINE
     )
     for path in new_migrations:
         _run_psql_file(path)

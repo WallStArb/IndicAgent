@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 0RkmxMRgogAbW8C4ZTMSJi8guumS4MBXG7YyEh7CuDmV7A3mFuxHHO5UmmOBZux
+\restrict arf7D0IBjZI3fBdTOv5PdcrRjc2wqjWrLH9EmoUQ7XwY3a3hNC1QMj7j6LK4vh4
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
@@ -32,6 +32,7 @@ INSERT INTO public.tag_vocabulary VALUES ('eq_momentum', 'exposure', 'Equity mom
 INSERT INTO public.tag_vocabulary VALUES ('eq_quality', 'exposure', 'Equity quality factor tilt -- split out of the coarse eq_factor tag (Phase 174 D-06) so quality exposure is individually identifiable for factor-specific IC stratification. eq_factor is retained as the parent-level label; this tag refines, not replaces, it.', 'QUAL', 'beta_regression', 252, 0.2, 180);
 INSERT INTO public.tag_vocabulary VALUES ('fi_mbs', 'exposure', 'Agency mortgage-backed securities', NULL, 'definitional', 252, NULL, 180);
 INSERT INTO public.tag_vocabulary VALUES ('fi_intl', 'exposure', 'Non-US developed-market bonds', NULL, 'definitional', 252, NULL, 180);
+INSERT INTO public.tag_vocabulary VALUES ('managed_futures', 'exposure', 'Systematic long-short futures strategy across asset classes (trend following)', NULL, 'definitional', 252, NULL, 180);
 INSERT INTO public.tag_vocabulary VALUES ('rate_sensitive', 'sensitivity', 'Price moves meaningfully with interest rate changes', 'TLT', 'beta_regression', 252, 0.2, 180);
 INSERT INTO public.tag_vocabulary VALUES ('dollar_strength', 'macro_driver', 'Inversely or directly correlated to USD index', 'UUP', 'beta_regression', 252, 0.2, 180);
 INSERT INTO public.tag_vocabulary VALUES ('fi_treasury', 'exposure', 'US Treasury bonds', NULL, 'definitional', 252, NULL, 180);
@@ -109,5 +110,5 @@ INSERT INTO public.tag_vocabulary VALUES ('clean_energy', 'exposure', 'Renewable
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 0RkmxMRgogAbW8C4ZTMSJi8guumS4MBXG7YyEh7CuDmV7A3mFuxHHO5UmmOBZux
+\unrestrict arf7D0IBjZI3fBdTOv5PdcrRjc2wqjWrLH9EmoUQ7XwY3a3hNC1QMj7j6LK4vh4
 

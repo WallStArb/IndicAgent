@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict gIq1Mrp9gdE2WiRfTrWY9dMzepuelhpNxm9TSESPrNXwPHzfBEWHzddqUAmH2C9
+\restrict eEFVqaHboGKj0TQN3Y0ohl6lL3XDLBxEUiBIfpMDeba1cQReA0tPkVgqzprbNdD
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
@@ -50,14 +50,46 @@ INSERT INTO public.controlled_vocabulary VALUES ('timeframe', '1h', '1 Hour', 'O
 INSERT INTO public.controlled_vocabulary VALUES ('asset_class', 'equity', 'Equity', 'Exchange-traded equity/ETF instrument', 1, false, '2026-07-18 00:15:48.608099+00');
 INSERT INTO public.controlled_vocabulary VALUES ('asset_class', 'futures', 'Futures', 'Exchange-traded futures contract', 2, false, '2026-07-18 00:15:48.608099+00');
 INSERT INTO public.controlled_vocabulary VALUES ('asset_class', 'fx', 'FX', 'Foreign exchange spot/forward instrument', 3, false, '2026-07-18 00:15:48.608099+00');
-INSERT INTO public.controlled_vocabulary VALUES ('tier', '0_atomic', 'Atomic', 'Base-level computed feature with no dependency on other features', 1, false, '2026-07-18 00:15:48.608099+00');
-INSERT INTO public.controlled_vocabulary VALUES ('tier', '1_interaction', 'Interaction', 'Feature derived from an interaction between two or more atomic features', 2, false, '2026-07-18 00:15:48.608099+00');
-INSERT INTO public.controlled_vocabulary VALUES ('tier', '2_theory', 'Theory', 'Feature encoding a higher-level theoretical construct', 3, false, '2026-07-18 00:15:48.608099+00');
 INSERT INTO public.controlled_vocabulary VALUES ('regime_volatility', 'calm', 'Calm', 'Lowest realized-vol / vol-of-vol HMM state', 1, false, '2026-08-09 10:48:53.545033+00');
 INSERT INTO public.controlled_vocabulary VALUES ('regime_volatility', 'elevated', 'Elevated', 'Middle realized-vol / vol-of-vol HMM state (K=3 only)', 2, false, '2026-08-09 10:48:53.545033+00');
 INSERT INTO public.controlled_vocabulary VALUES ('regime_volatility', 'turbulent', 'Turbulent', 'Highest realized-vol / vol-of-vol HMM state', 3, false, '2026-08-09 10:48:53.545033+00');
 INSERT INTO public.controlled_vocabulary VALUES ('timeframe', '1d', '1 Day', 'One-day bar timeframe', 6, false, '2026-07-18 00:15:48.608099+00');
 INSERT INTO public.controlled_vocabulary VALUES ('timeframe', '4h', '4 Hour', 'Four-hour bar timeframe', 5, false, '2026-08-16 02:16:12.73381+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_vendor', 'ibkr', 'Interactive Brokers', 'IBKR history and streaming bars', 1, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_vendor', 'alpaca', 'Alpaca', 'Alpaca SIP aggregates (5m depth source)', 2, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_vendor', 'tradier', 'Tradier', 'Tradier daily bars (stored history only; account unfunded, not fetched)', 3, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_vendor', 'derived', 'Derived', 'Bars computed by the grid derivation from 5m, never served by a vendor', 4, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'named', 'named', 'IBKR named-contract direct fetch', 1, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue', 'venue', 'IBKR listing-venue route fetch (volume is not consolidated)', 2, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'continuous', 'continuous', 'IBKR continuous back-adjusted fetch', 3, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'official', 'official', 'IBKR official bars from TWS reconciliation', 4, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'generic', 'generic', 'IBKR generic fetch (real-time bars or fallback path)', 5, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'smart_trades', 'smart_trades', 'IBKR SMART-routed TRADES daily answer', 6, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'smart_adjusted', 'smart_adjusted', 'IBKR SMART-routed ADJUSTED_LAST daily answer (never canonical)', 7, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'fallback', 'fallback', 'IBKR 1d bar admitted by the daily rule where the primary has none (canonical only)', 8, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'consolidated', 'consolidated', 'Tradier consolidated-volume bar', 9, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'sip_rth', 'sip_rth', 'Alpaca SIP aggregate over the regular trading hours window', 10, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', '5m_grid', '5m_grid', '15m or 1h bar derived from 5m on the session-anchored grid', 11, false, '2026-10-13 03:00:06.497155+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue_amex', 'venue_amex', 'IBKR AMEX listing-venue route daily answer (volume is not consolidated)', 2, false, '2026-10-13 20:33:01.749922+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue_arca', 'venue_arca', 'IBKR ARCA listing-venue route daily answer (volume is not consolidated)', 2, false, '2026-10-13 20:33:01.749922+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue_bats', 'venue_bats', 'IBKR BATS listing-venue route daily answer (volume is not consolidated)', 2, false, '2026-10-13 20:33:01.749922+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue_island', 'venue_island', 'IBKR ISLAND listing-venue route daily answer (volume is not consolidated)', 2, false, '2026-10-13 20:33:01.749922+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'venue_nyse', 'venue_nyse', 'IBKR NYSE listing-venue route daily answer (volume is not consolidated)', 2, false, '2026-10-13 20:33:01.749922+00');
+INSERT INTO public.controlled_vocabulary VALUES ('bar_kind', 'iex_rth', 'iex_rth', 'Alpaca IEX aggregate over the regular trading hours window', 12, false, '2026-10-26 13:44:44.940442+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_construction_rule', 'rank_vol_neutral', 'rank_vol_neutral', 'R1: rank of the forecast, inverse-vol scaled, market-neutral (the discovery rule)', 1, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_construction_rule', 'vol_normalized', 'vol_normalized', 'Linear in the forecast, inverse vol', 2, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_construction_rule', 'ic_proportional', 'ic_proportional', 'mu = IC * sigma * z', 3, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_construction_rule', 'mean_variance', 'mean_variance', 'Sigma^-1 mu with a Ledoit-Wolf covariance', 4, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_construction_rule', 'fixed_sign', 'fixed_sign', 'Pre-registered direction, inverse vol', 5, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_combiner', 'ridge', 'ridge', 'Walk-forward ridge over the member stack', 1, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_combiner', 'equal_weight', 'equal_weight', 'Fixed or in-fold signed mean of member z-scores', 2, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_combiner', 'pod', 'pod', 'Session-level sum of member books recorded D_s series', 3, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_timeframe', '5m', '5m', 'Five-minute research panel', 1, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_timeframe', '15m', '15m', 'Fifteen-minute research panel', 2, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_timeframe', '1h', '1h', 'Hourly research panel', 3, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('research_timeframe', '1d', '1d', 'Daily research panel', 4, false, '2026-10-28 12:29:19.35909+00');
+INSERT INTO public.controlled_vocabulary VALUES ('composition', 'base', 'Base', 'A measurement computed from a name''s own bars or the timestamp', 1, false, '2026-10-28 17:13:16.824417+00');
+INSERT INTO public.controlled_vocabulary VALUES ('composition', 'interaction', 'Interaction', 'A feature built from other features', 2, false, '2026-10-28 17:13:16.824417+00');
 
 
 --
@@ -134,5 +166,5 @@ INSERT INTO public.vocabulary_group_member VALUES ('timeframe', 'intraday_plus_h
 -- PostgreSQL database dump complete
 --
 
-\unrestrict gIq1Mrp9gdE2WiRfTrWY9dMzepuelhpNxm9TSESPrNXwPHzfBEWHzddqUAmH2C9
+\unrestrict eEFVqaHboGKj0TQN3Y0ohl6lL3XDLBxEUiBIfpMDeba1cQReA0tPkVgqzprbNdD
 

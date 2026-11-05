@@ -344,7 +344,7 @@
   "src/self_healing/strategies.py": {
    "drain": 1
   },
-  "tests/integration/fixtures/seed_config_2026-10-02.sql": {
+  "tests/integration/fixtures/seed_config_2026-11-05.sql": {
    "drain": 2
   },
   "tests/unit/observability/test_new_plugin_metrics.py": {
