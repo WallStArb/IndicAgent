@@ -15,8 +15,19 @@ mid-history fails.
   the default) mapped through daily_rule.primary_pair with the Alpaca 5m era start read from the
   policy. A session is covered when its in-session bars reach
   infra.corpus_rerun.data_gate.min_session_bar_fraction of its own expected slots (its own open
-  to close, so half days are shorter) or when it lies inside an ohlcv_empty_history span of that
-  vendor; some bars below the fraction is partial, none is missing.
+  to close, so half days are shorter: bar-complete), when it lies inside an ohlcv_empty_history
+  span of that vendor, or when it lies inside a completed answer of that (vendor, kind)
+  (answer-complete, lead ruling 2026-11-05: a thin name's no-trade slots are the vendor's answer,
+  not a hole). A completed answer is an ohlcv_request row of the vendor's coverage evidence
+  (gap_plan.COVERAGE_EVIDENCE) with outcome bars or no_data and no partial bars, whose page is
+  proven: a page followed by the next page of its window proves the span up to that page's start,
+  and a window's last page proves the rest only when its run asked again afterwards (a deadline
+  stops every later request) with fewer pages than the per-window request budget. A session with
+  bars inside a completed answer is answer-complete; one with no bars counts only inside a
+  no_data answer (no_trades), since a bars answer with nothing stored could be a lost insert.
+  ohlcv_load never proves completeness: its requested range is the span of the bars served
+  (requested_start = first_bar on every 5m row). Some bars and no evidence is partial, none is
+  missing.
 - A name with no proven start, no session, or no tradeable 1d session fails, unless the one
   recorded rule holds it: 1d empty-history spans of each 1d policy era's primary provider cover
   every calendar session from the calendar's first session to the horizon.
@@ -46,21 +57,28 @@ from services.corpus_rerun_apr import CorpusRerunApr
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow, primary_pair
+from src.intelligence.bars.gap_plan import ANSWERED_OUTCOMES, COVERAGE_EVIDENCE
 from src.intelligence.bars.vendor_kind import VENDOR_ALPACA, VENDOR_IBKR
 
 _logger = structlog.get_logger(__name__)
 
 TF_5M = "5m"
 TF_1D = "1d"
+NO_DATA_OUTCOME = "no_data"
 _SLOT = timedelta(minutes=5)
 
 # contract_details session_id -> calendar key, as src/core/bar_normalizer.py resolves it (session
 # 'nyse' is judged on the NYSE calendar). A session_id outside this map has no calendar here.
 SESSION_CALENDAR: dict[str, str] = {"nyse": "NYSE"}
 
-COVERED_5M = "covered_5m"
+BAR_COMPLETE = "bar_complete"
+ANSWER_COMPLETE = "answer_complete"
 COVERED_EMPTY = "covered_empty"
+NO_TRADES = "no_trades"
 PARTIAL = "partial"
+# The per-window request budget of the paginating nightly leaf: a window whose pages reached it
+# may have stopped before its last page.
+NIGHTLY_MAX_REQUESTS_KEY = "infra.alpaca.nightly_max_requests"
 
 SURVIVORSHIP_CAVEAT_CODE = "survivorship_pre2016_ibkr_5m"
 SURVIVORSHIP_CAVEAT_SOURCE = "todo 534 owner decision 2026-11-04"
@@ -116,41 +134,103 @@ class EmptySpan:
         return self.verified_from <= day <= self.empty_through
 
 
+@dataclass(frozen=True)
+class AnswerRow:
+    """One ohlcv_request page of the coverage evidence."""
+
+    fetch_run_id: str
+    symbol: str
+    source: str
+    window_start: datetime
+    window_end: datetime
+    outcome: str
+    clean: bool  # partial_bars null or empty
+    answered_at: datetime
+
+
+@dataclass(frozen=True)
+class Answers:
+    """One (symbol, vendor)'s proven answer intervals, merged, [start, end); no_data the subset
+    answered no_data."""
+
+    starts: tuple[datetime, ...] = ()
+    ends: tuple[datetime, ...] = ()
+    no_data: tuple[tuple[datetime, datetime], ...] = ()
+
+    def covers(self, session: Session) -> bool:
+        i = bisect.bisect_right(self.starts, session.open) - 1
+        return i >= 0 and session.close <= self.ends[i]
+
+    def no_data_covers(self, session: Session) -> bool:
+        return any(a <= session.open and session.close <= b for a, b in self.no_data)
+
+
 @dataclass
 class NameYearTally:
     """Session counts of one (symbol, year, era). Before the 5m rows stream in, every session
-    inside an empty-history span is counted as covered_empty (the assumption of no bars); a
-    streamed row replaces that assumption with its own class."""
+    inside an empty-history span counts covered_empty and every other session inside a no_data
+    answer counts no_trades (the assumption of no bars); a streamed row replaces that assumption
+    with its own class."""
 
     sessions: int = 0
     with_1d: int = 0
-    covered_5m: int = 0
+    bar_complete: int = 0
+    answer_complete: int = 0
+    no_trades: int = 0
     covered_empty: int = 0
     partial: int = 0
 
     @property
     def missing(self) -> int:
-        return self.sessions - self.covered_5m - self.covered_empty - self.partial
+        return (
+            self.sessions
+            - self.bar_complete
+            - self.answer_complete
+            - self.no_trades
+            - self.covered_empty
+            - self.partial
+        )
 
     @property
     def uncovered(self) -> int:
         return self.partial + self.missing
 
+    def add(self, other: NameYearTally) -> None:
+        for f in _TALLY_FIELDS:
+            setattr(self, f, getattr(self, f) + getattr(other, f))
+
+    @property
+    def uncovered_by_bars(self) -> int:
+        """Uncovered when completed answers are not counted (the bar basis alone)."""
+        return self.sessions - self.bar_complete - self.covered_empty
+
 
 TallyKey = tuple[str, int, str]  # (symbol, year, era)
+_TALLY_FIELDS = (
+    "sessions",
+    "with_1d",
+    "bar_complete",
+    "answer_complete",
+    "no_trades",
+    "covered_empty",
+    "partial",
+)
 
 
 @dataclass
 class EraCounts:
     names: int = 0
     names_at_depth: int = 0
+    names_at_depth_by_bars: int = 0
     names_partial: int = 0
     names_none: int = 0
     name_years: int = 0
     failing_name_years: int = 0
     sessions: int = 0
     sessions_with_1d: int = 0
-    covered_5m: int = 0
+    bar_complete: int = 0
+    answer_complete: int = 0
+    no_trades: int = 0
     covered_empty: int = 0
     partial_sessions: int = 0
     missing_sessions: int = 0
@@ -329,39 +409,106 @@ def hold_spans(
 # ---------------------------------------------------------------------------
 
 
-def classify_session(bars: int, expected_slots: float, fraction: float, in_span: bool) -> str:
-    """A session with bars: covered by 5m when its bars reach `fraction` of its expected slots,
-    else covered by the empty-history answer when inside a span, else partial."""
+def proven_answers(
+    rows: Iterable[AnswerRow], run_last_answer: Mapping[str, datetime], max_pages: int
+) -> dict[tuple[str, str], Answers]:
+    """The answer intervals the request log proves, per (symbol, vendor).
+
+    Rows sharing (fetch_run_id, symbol, source, window_end) are the pages of one window, in
+    window_start order (a paginating leaf records each page from its resume point to the window's
+    end). Page i proves [its start, page i+1's start). The last page proves [its start, the
+    window end) only when the run answered a later request (a deadline stops every later request)
+    and the window used fewer than `max_pages` requests (the per-window budget). A page whose
+    outcome is not bars or no_data, or that served partial bars, proves nothing itself; it still
+    marks where the page before it ended."""
+    windows: dict[tuple[str, str, str, datetime], list[AnswerRow]] = defaultdict(list)
+    for row in rows:
+        windows[(row.fetch_run_id, row.symbol, row.source, row.window_end)].append(row)
+    intervals: dict[tuple[str, str], list[tuple[datetime, datetime, bool]]] = defaultdict(list)
+    for (run, symbol, source, window_end), pages in windows.items():
+        pages.sort(key=lambda r: r.window_start)
+        last = pages[-1]
+        final = len(pages) < max_pages and run_last_answer.get(run, last.answered_at) > max(
+            p.answered_at for p in pages
+        )
+        bounds = [p.window_start for p in pages[1:]] + [window_end if final else None]
+        for page, end in zip(pages, bounds, strict=True):
+            if end is None or not page.clean or page.outcome not in ANSWERED_OUTCOMES:
+                continue
+            if page.window_start < end:
+                intervals[(symbol, source)].append(
+                    (page.window_start, end, page.outcome == NO_DATA_OUTCOME)
+                )
+    answers: dict[tuple[str, str], Answers] = {}
+    for key, found in intervals.items():
+        merged: list[tuple[datetime, datetime]] = []
+        for start, end, _ in sorted(found):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        answers[key] = Answers(
+            tuple(a for a, _ in merged),
+            tuple(b for _, b in merged),
+            tuple(sorted((a, b) for a, b, no_data in found if no_data)),
+        )
+    return answers
+
+
+def classify_session(
+    bars: int, expected_slots: float, fraction: float, in_span: bool, answered: bool
+) -> str:
+    """A session with bars: bar-complete when its bars reach `fraction` of its expected slots,
+    else covered by an empty-history answer, else answer-complete inside a completed answer,
+    else partial."""
     if bars >= fraction * expected_slots:
-        return COVERED_5M
-    return COVERED_EMPTY if in_span else PARTIAL
+        return BAR_COMPLETE
+    if in_span:
+        return COVERED_EMPTY
+    return ANSWER_COMPLETE if answered else PARTIAL
+
+
+def _zero_bar_class(
+    session: Session, spans: Sequence[EmptySpan], answers: Answers | None
+) -> str | None:
+    """What a session with no bars counts as: covered_empty, no_trades or (None) missing."""
+    if any(s.covers(session.day) for s in spans):
+        return COVERED_EMPTY
+    if answers is not None and answers.no_data_covers(session):
+        return NO_TRADES
+    return None
 
 
 def session_tallies(
     segments: Mapping[str, Sequence[Segment]],
-    days: Sequence[date],
+    sessions: Sequence[Session],
     spans_5m: Mapping[tuple[str, str], Sequence[EmptySpan]],
+    answers: Mapping[tuple[str, str], Answers],
 ) -> dict[TallyKey, NameYearTally]:
-    """Sessions per (symbol, year, era), with every in-span session counted covered_empty.
-    ohlcv_empty_history holds one row per (symbol, timeframe, provider), so spans never
-    overlap and no session is counted twice."""
+    """Sessions per (symbol, year, era), each session a zero-bar class would cover (inside an
+    empty-history span or a no_data answer) counted as that class until its bars stream in."""
+    days = [x.day for x in sessions]
     tallies: dict[TallyKey, NameYearTally] = defaultdict(NameYearTally)
     for symbol, name_segments in segments.items():
         for seg in name_segments:
-            spans = spans_5m.get((symbol, seg.vendor), ())
             last = seg.hi - timedelta(days=1)
             for year in range(seg.lo.year, last.year + 1):
                 lo = max(seg.lo, date(year, 1, 1))
                 hi = min(last, date(year, 12, 31))
                 n = _sessions_in(days, lo, hi)
-                if n == 0:
-                    continue
-                tally = tallies[(symbol, year, seg.era)]
-                tally.sessions += n
-                for span in spans:
-                    a, b = max(lo, span.verified_from), min(hi, span.empty_through)
-                    if a <= b:
-                        tally.covered_empty += _sessions_in(days, a, b)
+                if n:
+                    tallies[(symbol, year, seg.era)].sessions += n
+            spans = spans_5m.get((symbol, seg.vendor), ())
+            vendor_answers = answers.get((symbol, seg.vendor))
+            if not spans and (vendor_answers is None or not vendor_answers.no_data):
+                continue
+            for session in sessions[
+                bisect.bisect_left(days, seg.lo) : bisect.bisect_left(days, seg.hi)
+            ]:
+                kind = _zero_bar_class(session, spans, vendor_answers)
+                if kind is not None:
+                    tally = tallies[(symbol, session.day.year, seg.era)]
+                    setattr(tally, kind, getattr(tally, kind) + 1)
     return dict(tallies)
 
 
@@ -372,16 +519,26 @@ def record_session_bars(
     rows: Iterable[tuple[str, date, int]],
     sessions_by_day: Mapping[date, Session],
     spans_5m: Mapping[tuple[str, str], Sequence[EmptySpan]],
+    answers: Mapping[tuple[str, str], Answers],
     fraction: float,
 ) -> None:
     """Fold one (vendor, kind)'s (symbol, session day, in-session bar count) rows into the
-    tallies."""
+    tallies, replacing the zero-bar class the session was pre-counted under."""
     for symbol, day, bars in rows:
         tally = tallies[(symbol, day.year, era)]
-        in_span = any(s.covers(day) for s in spans_5m.get((symbol, vendor), ()))
-        if in_span:
-            tally.covered_empty -= 1
-        kind = classify_session(bars, sessions_by_day[day].expected_slots, fraction, in_span)
+        session = sessions_by_day[day]
+        spans = spans_5m.get((symbol, vendor), ())
+        vendor_answers = answers.get((symbol, vendor))
+        assumed = _zero_bar_class(session, spans, vendor_answers)
+        if assumed is not None:
+            setattr(tally, assumed, getattr(tally, assumed) - 1)
+        kind = classify_session(
+            bars,
+            session.expected_slots,
+            fraction,
+            any(s.covers(day) for s in spans),
+            vendor_answers is not None and vendor_answers.covers(session),
+        )
         setattr(tally, kind, getattr(tally, kind) + 1)
 
 
@@ -428,21 +585,22 @@ def evaluate(
         years: dict[int, list[tuple[str, NameYearTally]]] = defaultdict(list)
         for (_, year, era), t in by_name[symbol].items():
             years[year].append((era, t))
-            total = name_eras[era]
-            for f in ("sessions", "with_1d", "covered_5m", "covered_empty", "partial"):
-                setattr(total, f, getattr(total, f) + getattr(t, f))
+            name_eras[era].add(t)
         for era, t in name_eras.items():
             counts = eras[era]
             counts.names += 1
+            counts.names_at_depth_by_bars += t.uncovered_by_bars <= tol_5m * t.sessions
             if t.uncovered <= tol_5m * t.sessions:
                 counts.names_at_depth += 1
-            elif t.covered_5m == 0:
+            elif t.bar_complete + t.answer_complete == 0:
                 counts.names_none += 1
             else:
                 counts.names_partial += 1
             counts.sessions += t.sessions
             counts.sessions_with_1d += t.with_1d
-            counts.covered_5m += t.covered_5m
+            counts.bar_complete += t.bar_complete
+            counts.answer_complete += t.answer_complete
+            counts.no_trades += t.no_trades
             counts.covered_empty += t.covered_empty
             counts.partial_sessions += t.partial
             counts.missing_sessions += t.missing
@@ -501,21 +659,21 @@ def _survivorship_caveat(
     per_name: dict[str, NameYearTally] = defaultdict(NameYearTally)
     for (symbol, _, era), t in tallies.items():
         if era == pre_era:
-            total = per_name[symbol]
-            total.sessions += t.sessions
-            total.covered_5m += t.covered_5m
-            total.covered_empty += t.covered_empty
+            per_name[symbol].add(t)
     return {
         "code": SURVIVORSHIP_CAVEAT_CODE,
         "source": SURVIVORSHIP_CAVEAT_SOURCE,
         "text": SURVIVORSHIP_CAVEAT_TEXT,
         "counts": {
             "names_with_1d_before_alpaca_era": len(per_name),
-            "names_pre_era_all_5m": sum(t.covered_5m == t.sessions for t in per_name.values()),
+            "names_pre_era_all_5m": sum(t.bar_complete == t.sessions for t in per_name.values()),
             "names_pre_era_partly_empty_history": sum(
                 t.covered_empty > 0 for t in per_name.values()
             ),
-            "pre_era_sessions_by_5m": sum(t.covered_5m for t in per_name.values()),
+            "pre_era_sessions_by_5m": sum(t.bar_complete for t in per_name.values()),
+            "pre_era_sessions_by_completed_answer": sum(
+                t.answer_complete + t.no_trades for t in per_name.values()
+            ),
             "pre_era_sessions_by_empty_history": sum(t.covered_empty for t in per_name.values()),
         },
     }
@@ -578,6 +736,57 @@ WHERE r.timeframe = %(tf)s AND r.vendor = %(vendor)s AND r.kind = %(kind)s
   AND r.symbol = ANY(%(names)s) AND r."timestamp" >= %(ts_lo)s AND r."timestamp" < %(ts_hi)s
 GROUP BY r.symbol, c.day
 """
+
+
+# Every page of the vendor's coverage evidence (all outcomes: a failed page still marks where the
+# page before it ended), the run's last answer, and the per-window request budget.
+_ANSWER_ROWS_SQL = """
+SELECT fetch_run_id::text, symbol, source, window_start, window_end, outcome,
+       partial_bars IS NULL OR partial_bars = '[]'::jsonb, answered_at
+FROM ohlcv_request
+WHERE timeframe = %(tf)s AND source = %(source)s AND route = %(route)s
+  AND what_to_show = %(what)s AND symbol = ANY(%(names)s)
+  AND window_start IS NOT NULL AND window_start < %(horizon)s
+"""
+
+_RUN_LAST_ANSWER_SQL = """
+SELECT fetch_run_id::text, max(answered_at) FROM ohlcv_request
+WHERE fetch_run_id = ANY(%s::uuid[]) GROUP BY 1
+"""
+
+_APR_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
+
+
+def fetch_answers(
+    conn: Any, vendors: Iterable[str], names: Sequence[str], horizon: datetime
+) -> dict[tuple[str, str], Answers]:
+    """The proven 5m answer intervals of each vendor's coverage evidence triple."""
+    evidence = {source: (source, route, what) for source, route, what in COVERAGE_EVIDENCE}
+    rows: list[AnswerRow] = []
+    with conn.cursor() as cur:
+        for vendor in vendors:
+            if vendor not in evidence:
+                continue
+            source, route, what = evidence[vendor]
+            cur.execute(
+                _ANSWER_ROWS_SQL,
+                {
+                    "tf": TF_5M,
+                    "source": source,
+                    "route": route,
+                    "what": what,
+                    "names": list(names),
+                    "horizon": horizon,
+                },
+            )
+            rows.extend(AnswerRow(*row) for row in cur.fetchall())
+        cur.execute(_RUN_LAST_ANSWER_SQL, (sorted({r.fetch_run_id for r in rows}),))
+        run_last = dict(cur.fetchall())
+        cur.execute(_APR_VALUE_SQL, (NIGHTLY_MAX_REQUESTS_KEY,))
+        budget = cur.fetchone()
+    if budget is None:
+        raise KeyError(f"APR key {NIGHTLY_MAX_REQUESTS_KEY} is not seeded")
+    return proven_answers(rows, run_last, int(budget[0]))
 
 
 def fetch_policy(conn: Any, timeframe: str) -> list[PolicyRow]:
@@ -714,11 +923,12 @@ def run_data_gate(
     }
     spans_5m, spans_1d = fetch_empty_spans(conn, TF_5M), fetch_empty_spans(conn, TF_1D)
 
-    tallies = session_tallies(segments, days, spans_5m)
+    pairs = sorted({(seg.vendor, seg.kind) for segs in segments.values() for seg in segs})
+    answers = fetch_answers(conn, sorted({vendor for vendor, _ in pairs}), names, horizon)
+    tallies = session_tallies(segments, sessions, spans_5m, answers)
     for tally_key, n in fetch_1d_counts(conn, segments, days, horizon).items():
         tallies[tally_key].with_1d = n
     sessions_by_day = {x.day: x for x in sessions}
-    pairs = sorted({(seg.vendor, seg.kind) for segs in segments.values() for seg in segs})
     for vendor, kind in pairs:
         rows = iter_5m_session_bars(conn, vendor, kind, segments, sessions)
         record_session_bars(
@@ -728,6 +938,7 @@ def run_data_gate(
             rows,
             sessions_by_day,
             spans_5m,
+            answers,
             apr.min_session_bar_fraction,
         )
 
