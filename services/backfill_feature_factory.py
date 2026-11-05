@@ -1723,9 +1723,7 @@ def _span_filter(
         return lambda spec: True
     start, end = span
     for name, bound in (("start", start), ("end", end)):
-        if bound.tzinfo is None or bound.astimezone(UTC) != datetime(
-            bound.astimezone(UTC).year, 1, 1, tzinfo=UTC
-        ):
+        if bound.tzinfo is None or bound != datetime(bound.astimezone(UTC).year, 1, 1, tzinfo=UTC):
             raise ValueError(f"run_rebuild_stage: span {name} {bound} is not Jan 1 00:00 UTC")
     if start >= end:
         raise ValueError(f"run_rebuild_stage: span start {start} is not before its end {end}")
