@@ -107,6 +107,7 @@ def test_verdict_is_a_plain_record():
 # judge_name_1d: the per-name verdicts, on fakes (todo 494: no live D1)
 # ---------------------------------------------------------------------------
 
+import math  # noqa: E402
 from dataclasses import dataclass, replace  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
 
@@ -119,6 +120,7 @@ from src.intelligence.bars.integrity_checks import (  # noqa: E402
     judge_name_1d,
     month_digests,
     proven_start,
+    request_boundaries,
     split_discontinuities,
     stale_digest_months,
 )
@@ -1123,3 +1125,39 @@ def test_seams_are_judged_only_for_a_name_with_a_calendar_rescale():
     ]
     stale_semantics = SplitRecord(date(2016, 3, 1), datetime(2026, 11, 4, tzinfo=UTC), 2.0)
     assert split_discontinuities(_routed(rows), [stale_semantics], 0.3) == []
+
+
+def test_a_split_on_a_spin_off_day_is_judged_against_the_calendars_real_move():
+    """EXPE 2011-12-21 (review 2026-11-05): a 1-for-2 reverse split on the TripAdvisor spin-off
+    day. Raw is continuous (+0.038), the calendar's adjusted close drops 0.717, so after the
+    rescale canonical drops 0.656: a real move, not a double adjustment."""
+    d = [date(2011, 12, 19), date(2011, 12, 20), date(2011, 12, 21), date(2011, 12, 22)]
+    before, after = 100.0, 100.0 * math.exp(-0.656)
+    stored = _closes_stored([(d[0], before), (d[1], before), (d[2], after), (d[3], after)])
+    split = SplitRecord(
+        d[1], datetime(2026, 11, 4, tzinfo=UTC), 0.5, (), frozenset({"SMART"}), -0.716536
+    )
+    assert split_discontinuities(stored, [split], 0.3) == []
+    no_move = replace(split, calendar_adjusted_step=0.0)
+    assert split_discontinuities(stored, [no_move], 0.3) == [(d[1], "double_adjusted")]
+
+
+def test_a_sub_window_restated_inside_a_rescaled_span_fails_at_its_request_boundary():
+    """IBKR restates 2010-03 on the new scale (a later request, last-wins raw); the rule divides
+    that window by the 2:1 factor a second time. Canonical is ibkr/named throughout, so no seam;
+    the request boundaries name the break."""
+    days = [date(2010, 3, 1) + timedelta(days=i) for i in range(12)]
+    days = [d for d in days if d.weekday() < 5]
+    restated = set(days[3:6])
+    closes = [(d, 25.0 if d in restated else 50.0) for d in days]
+    stored = _closes_stored(closes)
+    split = _rescale(date(2011, 6, 1), 2.0, frozenset({"SMART", "LEGACY_IMPORT"}))
+    observations = [
+        replace(_obs(d, c, "SMART"), request_id="late" if d in restated else "early")
+        for d, c in closes
+    ]
+    boundaries = request_boundaries(observations, [split])
+    assert boundaries == {days[2], days[5]}
+    assert split_discontinuities(stored, [split], 0.3) == []  # no seam, no split date in range
+    found = split_discontinuities(stored, [split], 0.3, boundaries=boundaries)
+    assert [day for day, _ in found] == [days[2], days[5]]

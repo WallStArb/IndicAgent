@@ -433,7 +433,8 @@ ORDER BY r."timestamp", r.vendor, r.kind
 _SELECT_DAILY_SPLITS_SQL = """
 SELECT effective_date, recorded_at, factor,
        COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids,
-       inferred_by, detail->'unadjusted_routes' AS unadjusted_routes
+       inferred_by, detail->'unadjusted_routes' AS unadjusted_routes,
+       (detail->>'calendar_adjusted_step')::float8 AS calendar_adjusted_step
 FROM corporate_action_current
 WHERE symbol = $1
 ORDER BY effective_date
@@ -2011,6 +2012,7 @@ async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], 
             factor=r["factor"],
             evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
             rescale_routes=split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes")),
+            calendar_adjusted_step=r.get("calendar_adjusted_step") or 0.0,
         )
         for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
     ]

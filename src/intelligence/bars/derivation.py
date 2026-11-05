@@ -54,6 +54,11 @@ class SplitRecord:
     # observations dated on or before effective_date (the last day on the old scale) are divided
     # by the factor. Empty (every other split) keeps the D-21 stale semantics.
     rescale_routes: frozenset[str] = frozenset()
+    # Todo 587, calendar_audit only: the calendar's split-adjusted log close step across the date,
+    # the day's real move. D7 split_continuity judges canonical's step at the split in excess of
+    # it (a reverse split on a spin-off day, EXPE 2011-12-21, is continuous yet drops 48%). The
+    # rule never reads it.
+    calendar_adjusted_step: float = 0.0
 
 
 @dataclass(frozen=True)

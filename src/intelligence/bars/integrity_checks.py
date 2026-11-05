@@ -20,6 +20,7 @@ from src.intelligence.bars.corporate_actions import split_continuity
 from src.intelligence.bars.daily_rule import (
     FALLBACK_PAIR,
     PRIMARY_PAIR,
+    RESCALABLE_SERIES,
     RULE_VERSION,
     PolicyRow,
     alpaca_era_start,
@@ -268,25 +269,57 @@ def _run_products(factors: Sequence[float]) -> list[float]:
     return products
 
 
+def request_boundaries(
+    observations: Sequence[Observation], splits: Sequence[SplitRecord]
+) -> set[date]:
+    """The request (fetch) boundaries inside the rescaled spans (todo 587): per raw series a
+    calendar_audit split rescales, the last observation date before the serving request changes,
+    on or before the last such split's effective_date. A vendor restating part of its history on
+    the new scale (last-wins raw) changes the request mid-span, and the rule divides that window a
+    second time; the break shows there."""
+    rescaled = [s for s in splits if s.rescale_routes]
+    if not rescaled:
+        return set()
+    last = max(s.effective_date for s in rescaled)
+    routes = frozenset().union(*(s.rescale_routes for s in rescaled))
+    boundaries: set[date] = set()
+    for series, series_routes in RESCALABLE_SERIES.items():
+        if not series_routes & routes:
+            continue
+        dated = sorted(
+            (o.bar_date, o.request_id)
+            for o in observations
+            if o.route in series_routes and o.bar_date <= last
+        )
+        boundaries |= {
+            day for (day, req), (_, nxt) in zip(dated, dated[1:], strict=False) if req != nxt
+        }
+    return boundaries
+
+
 def split_discontinuities(
     stored: Sequence[StoredBar],
     splits: Sequence[SplitRecord],
     rel_tol: float,
     quarantined: Collection[date] = (),
+    boundaries: Collection[date] = (),
 ) -> list[tuple[date, str]]:
     """(date, verdict) of every judged date canonical does not cross continuously (todo 587): the
     close step from the last tradeable session on or before the date to the next one, judged by
     corporate_actions.split_continuity against the product of every contiguous run of the name's
     splits dated on or after it (in effective-date order). Tradeable means what research reads:
-    volume > 0 and not quarantined.
+    volume > 0 and not quarantined. At a calendar_audit split's own date the step is judged in
+    excess of the calendar's adjusted step there (the day's real move, as the audit confirmed it),
+    so a split on a spin-off day is not read as double-adjusted.
 
     The judged dates are every split's effective date (the last day on the old scale, migration
-    400) and, when any split is a calendar_audit rescale, every route seam: the last tradeable
-    session before the served (vendor, kind) changes. A rescale is applied per raw series, so a
-    series a vendor restated after the row was written is divided twice while the others are not;
-    the break then shows at the seam between them, not at the split date. A date without
-    tradeable sessions within _SPLIT_BRACKET_MAX_DAYS on both sides is not measurable here and is
-    skipped."""
+    400) and, when any split is a calendar_audit rescale, every route seam (the last tradeable
+    session before the served (vendor, kind) changes) and every request boundary inside a
+    rescaled span (request_boundaries, passed in). A rescale is applied per raw series, so a series
+    a vendor restated after the row was written, wholly or in part, is divided twice while the
+    rest is not; the break then shows at the seam or the boundary, not at the split date. A date
+    without tradeable sessions within _SPLIT_BRACKET_MAX_DAYS on both sides is not measurable here
+    and is skipped."""
     tradeable = sorted(
         (bar.timestamp.date(), bar.close, (bar.vendor, bar.kind))
         for bar in stored
@@ -297,8 +330,11 @@ def split_discontinuities(
     )
     days = [day for day, _, _ in tradeable]
     ordered = sorted(splits, key=lambda s: s.effective_date)
+    # The day's real move at a calendar_audit split's own date; 0 everywhere else.
+    real_move = {s.effective_date: s.calendar_adjusted_step for s in ordered if s.rescale_routes}
     judged = {split.effective_date for split in ordered}
-    if any(split.rescale_routes for split in ordered):
+    if real_move:
+        judged |= set(boundaries)
         judged |= {
             day
             for (day, _, pair), (_, _, following) in zip(tradeable, tradeable[1:], strict=False)
@@ -311,7 +347,7 @@ def split_discontinuities(
             continue
         if (days[after] - days[after - 1]).days > _SPLIT_BRACKET_MAX_DAYS:
             continue
-        step = math.log(tradeable[after][1] / tradeable[after - 1][1])
+        step = math.log(tradeable[after][1] / tradeable[after - 1][1]) - real_move.get(day, 0.0)
         later = [split.factor for split in ordered if split.effective_date >= day]
         for product in _run_products(later):
             state = split_continuity(step, product, rel_tol)
@@ -534,6 +570,7 @@ def judge_name_1d(
         inputs.splits,
         thresholds.split_continuity_rel_tol,
         quarantined={stamp.date() for stamp, _rule, quarantine in inputs.flags if quarantine},
+        boundaries=request_boundaries(inputs.observations, inputs.splits),
     )
     verdicts.append(verdict("split_continuity", not discontinuous, len(discontinuous), 0.0))
     timed("split_continuity", started)
