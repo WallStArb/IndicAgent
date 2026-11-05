@@ -84,6 +84,7 @@ from services._batch_utils import (  # noqa: E402
     compressed_hypertable_write_session,
     kernel_code_modules,
     load_config_service_sync,
+    parse_run_id,
     prior_completed_unit,
     short_lived_conn,
     table_column_types,
@@ -1059,6 +1060,7 @@ class TfRun:
     chunk_rows: int  # rows per server-side cursor fetch (operational)
     bar_digests: Mapping[str, str]  # per measured symbol, taken before the panel build
     snapshot: Mapping[str, Any]  # the units' computational apr_snapshot
+    run_id: str | None = None  # the corpus_run every unit's provenance row records (578)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1205,6 +1207,7 @@ class IcMeasure:
                 chunk_rows=chunk_rows,
                 bar_digests={s: before[s] for s in used},
                 snapshot=identity_snapshot(apr, tf, horizons, oos_start),
+                run_id=self.args.run_id,
             )
             names = feature_names(read_conn, self.args.feature_table)
             for unit in self._units(read_conn, run, ctx, names, keys, jobs):
@@ -1409,11 +1412,23 @@ def _identity(
     return {"job": job, **common, **family, **extra}
 
 
+def job_writer(job: str) -> str:
+    """The provenance writer of a job's units."""
+    return f"{_WRITER}.{job}"
+
+
+def job_replace_where(job: str, tf: str) -> dict[str, str]:
+    """The scope a job's unit owns in one tf: every POOLED row of the job's regime_scope. With
+    job_writer, the one definition of the unit (its unit_key) that a reader resolving a unit to
+    its provenance row recomputes (the canary gate, 186-30)."""
+    return {"tf": tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]}
+
+
 def _spec(job: str, run: TfRun, ctx: TfContext, identity: Mapping[str, Any]) -> BulkLoadSpec:
     """The unit owns every row of its scope in this tf (replace_where names no feature and no
     symbol), so a change to the family, the symbols or the window replaces it."""
     return BulkLoadSpec(
-        writer=f"{_WRITER}.{job}",
+        writer=job_writer(job),
         target_table=TARGET_TABLE,
         time_column="training_window_end",
         tf=run.tf,
@@ -1423,7 +1438,8 @@ def _spec(job: str, run: TfRun, ctx: TfContext, identity: Mapping[str, Any]) -> 
         code_key=job_code_key(job),
         apr_snapshot=run.snapshot,
         input_digest=hashlib.sha256(canonical_json(identity).encode()).hexdigest(),
-        replace_where={"tf": run.tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]},
+        replace_where=job_replace_where(job, run.tf),
+        run_id=run.run_id,
     )
 
 
@@ -1451,6 +1467,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--feature-table", default="feature_vectors")
     parser.add_argument("--dry-run", action="store_true", help="compute and report, write nothing")
+    parser.add_argument(
+        "--run-id",
+        type=parse_run_id,
+        default=None,
+        help="the corpus_run (uuid) every unit's provenance row records (migration 578)",
+    )
     parser.add_argument(
         "--allow-absent-digests",
         action="store_true",

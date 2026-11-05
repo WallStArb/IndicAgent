@@ -61,7 +61,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from pathlib import Path
@@ -82,6 +82,7 @@ from services._batch_utils import (
     _BULK_LOAD_DEFAULT_COMPRESS_ON_COMPLETE,
     BAR_DIGEST_ABSENT_SYMBOL,
     BulkLoadSpec,
+    parse_run_id,
 )
 from services._batch_utils import bar_content_digests as _bar_content_digests
 from services._batch_utils import bulk_load as _bulk_load
@@ -1711,6 +1712,46 @@ def _write_group(
         shutil.rmtree(prepared.spool_dir, ignore_errors=True)
 
 
+def _span_filter(
+    span: tuple[datetime, datetime] | None, timeframes: Sequence[str]
+) -> Callable[[BulkLoadSpec], bool]:
+    """The span's execution test: a unit executes when its range_start is in [start, end). Each
+    intraday unit is one calendar year from Jan 1 UTC (`rebuild_unit_ranges`), so Jan-1 bounds
+    place every unit in exactly one of a partition's spans. A 1d unit covers the whole history,
+    so a stage holding 1d refuses a span; a bound off Jan 1 UTC is refused too."""
+    if span is None:
+        return lambda spec: True
+    start, end = span
+    for name, bound in (("start", start), ("end", end)):
+        if bound.tzinfo is None or bound.astimezone(UTC) != datetime(
+            bound.astimezone(UTC).year, 1, 1, tzinfo=UTC
+        ):
+            raise ValueError(f"run_rebuild_stage: span {name} {bound} is not Jan 1 00:00 UTC")
+    if start >= end:
+        raise ValueError(f"run_rebuild_stage: span start {start} is not before its end {end}")
+    if "1d" in timeframes:
+        raise ValueError(
+            "run_rebuild_stage: a span applies to intraday timeframes only; the 1d unit covers "
+            f"the whole history (timeframes {list(timeframes)})"
+        )
+    return lambda spec: start <= spec.range_start < end
+
+
+def _chunk_filter(chunk_indices: Sequence[int] | None, n_chunks: int) -> frozenset[int] | None:
+    """The symbol chunks that execute (None: all). An index outside the stage's chunking is
+    refused, never silently ignored."""
+    if chunk_indices is None:
+        return None
+    chosen = frozenset(chunk_indices)
+    outside = sorted(i for i in chosen if not 0 <= i < n_chunks)
+    if not chosen or outside:
+        raise ValueError(
+            f"run_rebuild_stage: chunk_indices {sorted(chosen)} must be a non-empty subset of "
+            f"0..{n_chunks - 1}"
+        )
+    return chosen
+
+
 def run_rebuild_stage(
     settings: Settings,
     symbols: list[str] | None,
@@ -1720,6 +1761,9 @@ def run_rebuild_stage(
     *,
     horizon: datetime | None = None,
     spool_root: Path | None = None,
+    run_id: str | None = None,
+    span: tuple[datetime, datetime] | None = None,
+    chunk_indices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Rebuild feature_vectors for the compute_eligible_1d universe (D-28, D-32a).
 
@@ -1737,16 +1781,28 @@ def run_rebuild_stage(
     (`compression_bound`); a compressed chunk would make bulk_load refuse a later unit, and the
     chunk containing the horizon stays open for later writes.
 
-    Returns the stage summary (units total, skipped, loaded, failed; rows; digest-blind symbols;
-    the per (tf, year) chunk checklist; compression).
+    `run_id` (a corpus_run id, migration 578) goes onto every spec this stage loads. `span` and
+    `chunk_indices` are execution filters only (186-30): `span` [start, end), Jan 1 UTC bounds,
+    intraday tfs only, executes the units whose range_start falls in it (each intraday unit is a
+    calendar year, so spans that partition the history execute every unit exactly once);
+    `chunk_indices` executes only those symbol chunks without changing the chunking, so unit
+    identities match the full stage. Neither changes what is planned: every unit of the stage is
+    planned and takes its completion from its own provenance row, filtered out or not, so the
+    compression bound sees the true state of the whole stage, never an assumed one.
+
+    Returns the stage summary (units total, skipped, loaded, failed and out of scope; rows;
+    digest-blind symbols; the per (tf, year) chunk checklist of the executed scope; compression).
     """
     horizon = horizon or default_data_horizon()
     if horizon.tzinfo is None:
         raise ValueError("run_rebuild_stage: horizon must be tz-aware")
+    if run_id is not None:
+        run_id = parse_run_id(run_id)
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
     all_timeframes = _get_target_timeframes(cfg)
     target_timeframes = _restrict_timeframes(all_timeframes, timeframes)
+    in_span = _span_filter(span, target_timeframes)
     symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
     block_rows = int(cfg.get_sync(_REBUILD_BLOCK_ROWS_KEY, _REBUILD_BLOCK_ROWS_DEFAULT))
     blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
@@ -1760,6 +1816,7 @@ def run_rebuild_stage(
     contracts = get_active_contracts(settings, dimension="compute_1d")
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
     chunks = split_symbol_chunks(universe, symbols_per_chunk)
+    executed_chunks = _chunk_filter(chunk_indices, len(chunks))
     starts = proven_starts(db_conn, universe)
     without_start = sorted(set(universe) - set(starts))
     if without_start:
@@ -1779,6 +1836,9 @@ def run_rebuild_stage(
         chunks=len(chunks),
         tfs=target_timeframes,
         horizon=horizon.isoformat(),
+        run_id=run_id,
+        span=None if span is None else [format_iso_ts(bound) for bound in span],
+        chunk_indices=None if executed_chunks is None else sorted(executed_chunks),
         n_workers=n_workers,
         code_key=code_key[:12],
         path_dependent=list(path_dependent_contributors(registry, feature_outputs)),
@@ -1789,6 +1849,7 @@ def run_rebuild_stage(
         "units_skipped": 0,
         "units_loaded": 0,
         "units_failed": 0,
+        "units_out_of_scope": 0,
         "rows_loaded": 0,
         "failed_units": [],
         "empty_groups": 0,
@@ -1820,16 +1881,25 @@ def run_rebuild_stage(
                     summary["empty_groups"] += 1
                     continue
                 blind |= plan.blind_symbols
+                chunk_executes = executed_chunks is None or chunk_index in executed_chunks
                 pending: list[RebuildUnit] = []
                 for unit in plan.units:
+                    # Every planned unit takes its completion from its own provenance row before
+                    # any filter applies: `planned`, and so the compression bound, never assumes.
+                    completed = _completed_provenance_batch(db_conn, unit.spec) is not None
+                    if completed:
+                        completed_keys.add(unit.spec.batch_key)
+                    if not (chunk_executes and in_span(unit.spec)):
+                        summary["units_out_of_scope"] += 1
+                        continue
                     summary["units_total"] += 1
                     for year in unit.years:
                         expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
-                    if _completed_provenance_batch(db_conn, unit.spec) is not None:
+                    if completed:
                         summary["units_skipped"] += 1
-                        completed_keys.add(unit.spec.batch_key)
                     else:
-                        pending.append(unit)
+                        spec = dataclasses.replace(unit.spec, run_id=run_id)
+                        pending.append(dataclasses.replace(unit, spec=spec))
                 if not pending:
                     continue
                 if pool is None:

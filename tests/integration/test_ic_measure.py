@@ -69,6 +69,10 @@ def _utc(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
+_RUN_1 = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+_RUN_2 = "6fa459ea-ee8a-3ca4-894e-db77e160355e"
+
+
 def _args(**overrides: object) -> argparse.Namespace:
     fields: dict[str, object] = dict(
         tf=["1d"],
@@ -79,6 +83,7 @@ def _args(**overrides: object) -> argparse.Namespace:
         feature_table="feature_vectors",
         dry_run=False,
         allow_absent_digests=False,
+        run_id=None,
     )
     fields.update(overrides)
     return argparse.Namespace(**fields)
@@ -186,8 +191,14 @@ class TestIcMeasureIntegration:
             return conn.execute(query, params).fetchone()[0]
 
     def test_case_1_rows_scopes_bound_and_provenance(self, world: dict) -> None:
-        outcomes = self._run(world)
+        outcomes = self._run(world, run_id=_RUN_1)
         assert outcomes and {o.status for o in outcomes} == {"loaded"}
+        # 186-30: every unit's provenance row records the run it was loaded under
+        assert self._scalar(
+            "SELECT count(*) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%' "
+            "AND status = 'completed' AND run_id = %s",
+            (_RUN_1,),
+        ) == len(outcomes)
         scopes = {
             r[0]
             for r in connect(autocommit=False)
@@ -231,9 +242,13 @@ class TestIcMeasureIntegration:
         batches = self._scalar(
             "SELECT count(*) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%'"
         )
-        outcomes = self._run(world)
+        outcomes = self._run(world, run_id=_RUN_2)
         assert {o.status for o in outcomes} == {"skipped"}
         assert self._scalar("SELECT count(*) FROM feature_ic_scores") == rows
+        # a skipped unit keeps the run it was loaded under (run_id is outside its identity)
+        assert (
+            self._scalar("SELECT count(*) FROM provenance_batch WHERE run_id = %s", (_RUN_2,)) == 0
+        )
         assert (
             self._scalar("SELECT count(*) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%'")
             == batches

@@ -874,6 +874,34 @@ class TestUnitOwnsItsScope:
         )
         assert scope.unit_key != one.unit_key
 
+    def test_the_run_id_reaches_every_jobs_spec_outside_its_identity(self) -> None:
+        """186-30: the run object carries --run-id onto every unit's spec; the unit and batch
+        keys are the same with and without it, so a resumed unit keeps its identity."""
+        ctx = _context()
+        run_id = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+        tagged_run = dataclasses.replace(_tf_run(), run_id=run_id)
+        for job in ic_measure._ALL_JOBS:
+            identity = ic_measure._identity(job, {}, {}, {})
+            tagged = ic_measure._spec(job, tagged_run, ctx, identity)
+            plain = ic_measure._spec(job, _tf_run(), ctx, identity)
+            assert tagged.run_id == run_id and plain.run_id is None
+            assert (tagged.unit_key, tagged.batch_key) == (plain.unit_key, plain.batch_key)
+
+    def test_the_unit_key_is_job_writer_and_job_replace_where(self) -> None:
+        """The canary gate resolves a cell's unit from these two functions; they are the unit."""
+        ctx = _context()
+        for job in ic_measure._ALL_JOBS:
+            spec = ic_measure._spec(job, _tf_run(), ctx, ic_measure._identity(job, {}, {}, {}))
+            assert spec.writer == ic_measure.job_writer(job)
+            assert dict(spec.replace_where) == ic_measure.job_replace_where(job, "1d")
+
+    def test_the_cli_takes_a_canonical_run_id_and_refuses_anything_else(self) -> None:
+        run_id = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+        assert ic_measure._parse_args([]).run_id is None
+        assert ic_measure._parse_args(["--run-id", run_id.upper()]).run_id == run_id
+        with pytest.raises(SystemExit):
+            ic_measure._parse_args(["--run-id", "run-7"])
+
     def test_the_identity_holds_the_job_the_shared_inputs_and_the_jobs_own(self) -> None:
         identity = ic_measure._identity(
             "regime_volatility", {"bars": {"A": "x"}}, {"family": "f"}, {"labels": "l"}

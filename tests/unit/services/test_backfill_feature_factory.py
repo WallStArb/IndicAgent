@@ -1375,6 +1375,7 @@ class _BulkLoadRecorder:
     def __init__(self, fail_keys=(), wrong_counts=None):
         self.rows_by_key: dict[str, list[tuple]] = {}
         self.load_order: list[str] = []
+        self.specs: list = []
         self.preclamped_by_key: dict[str, bool] = {}
         self._fail_keys = set(fail_keys)
         self._wrong_counts = dict(wrong_counts or {})
@@ -1384,6 +1385,7 @@ class _BulkLoadRecorder:
         for prev, curr in zip(rows, rows[1:]):
             assert prev[2] <= curr[2], f"rows out of time order in {spec.batch_key[:12]}"
         self.load_order.append(spec.batch_key)
+        self.specs.append(spec)
         self.preclamped_by_key[spec.batch_key] = preclamped_real
         if spec.batch_key in self._fail_keys:
             raise RuntimeError("simulated COPY failure")
@@ -1420,9 +1422,14 @@ def _run_rebuild_stage(
     cfg_values=None,
     bound=_HORIZON_YEAR_START,
     bound_calls=None,
+    real_bound=False,
+    run_id=None,
+    span=None,
+    chunk_indices=None,
 ):
     """Run run_rebuild_stage over canned group plans, a stub worker pool and a recording
-    bulk_load; `compression_bound` returns `bound` and records its scope in `bound_calls`.
+    bulk_load; `compression_bound` returns `bound` and records its scope in `bound_calls`
+    (or, with `real_bound`, runs for real over the canned plans and seeded completions).
     Returns (summary, pool, recorder, compress_calls)."""
     completed = set(completed)
     worker = worker if worker is not None else _stub_worker({})
@@ -1461,16 +1468,16 @@ def _run_rebuild_stage(
         "_compress_completed_chunks",
         lambda conn, table, before: compress_calls.append((table, before)) or 0,
     )
-    monkeypatch.setattr(
-        module,
-        "compression_bound",
-        lambda conn, chunks, tfs, horizon, code_key, apr, starts, known: (
+    real_compression_bound = module.compression_bound
+
+    def _bound(conn, chunks, tfs, horizon, code_key, apr, starts, known):
+        if bound_calls is not None:
             bound_calls.append((list(chunks), list(tfs), dict(known)))
-            if bound_calls is not None
-            else None
-        )
-        or bound,
-    )
+        if real_bound:
+            return real_compression_bound(conn, chunks, tfs, horizon, code_key, apr, starts, known)
+        return bound
+
+    monkeypatch.setattr(module, "compression_bound", _bound)
     summary = module.run_rebuild_stage(
         settings=SimpleNamespace(database_url="postgresql://fake"),
         symbols=list(symbols) if symbols is not None else None,
@@ -1479,6 +1486,9 @@ def _run_rebuild_stage(
         timeframes=list(timeframes) if timeframes is not None else None,
         horizon=datetime(2026, 10, 1, tzinfo=UTC),
         spool_root=tmp_path / "spool",
+        run_id=run_id,
+        span=span,
+        chunk_indices=chunk_indices,
     )
     return summary, pool, recorder, compress_calls
 
@@ -1677,6 +1687,205 @@ def test_compression_bound_is_the_earliest_uncompleted_unit_of_the_full_scope(mo
     monkeypatch.setattr(module, "_plan_group", lambda *a: None)
     known[(chunk, "1d")] = [(datetime(2000, 1, 1, tzinfo=UTC), True)]
     assert module.compression_bound(*args, known) == _HORIZON_YEAR_START
+
+
+# ---------------------------------------------------------------------------
+# 186-30: run_id, the intraday span and chunk_indices are execution filters only
+# ---------------------------------------------------------------------------
+
+_RUN = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+_INTRADAY = ("5m", "15m", "1h")
+_SPAN_YEARS = range(2010, 2016)  # six yearly intraday units per tf
+
+
+def _jan1(year: int) -> datetime:
+    return datetime(year, 1, 1, tzinfo=UTC)
+
+
+_SPAN_1 = (_jan1(2010), _jan1(2012))
+_SPAN_2 = (_jan1(2012), _jan1(2014))
+_SPAN_3 = (_jan1(2014), _jan1(2027))
+
+
+def _span_plans(chunks=(("AAA", "BBB", "CCC"),)) -> dict:
+    """(chunk_index, tf) -> plan: yearly intraday units 2010-2015 and one whole-history 1d unit,
+    per symbol chunk."""
+    plans = {}
+    for index, chunk in enumerate(chunks):
+        for tf in _INTRADAY:
+            specs = [_unit_spec(_jan1(y), _jan1(y + 1), tf, chunk) for y in _SPAN_YEARS]
+            plans[(index, tf)] = _group_plan(tf, specs, chunk, index)
+        daily = [_unit_spec(_jan1(2010), datetime(2026, 10, 1, tzinfo=UTC), "1d", chunk)]
+        plans[(index, "1d")] = _group_plan("1d", daily, chunk, index)
+    return plans
+
+
+def _keys(plans: dict, tfs, years=None, chunk_index=None) -> set[str]:
+    return {
+        u.spec.batch_key
+        for (index, tf), plan in plans.items()
+        if tf in tfs and (chunk_index is None or index == chunk_index)
+        for u in plan.units
+        if years is None or u.spec.range_start.year in years
+    }
+
+
+def test_spans_partitioning_the_history_execute_every_intraday_unit_exactly_once(
+    monkeypatch, tmp_path
+):
+    plans = _span_plans()
+    loaded: list[str] = []
+    for span in (_SPAN_1, _SPAN_2, _SPAN_3):
+        summary, _pool, recorder, _ = _run_rebuild_stage(
+            monkeypatch, tmp_path, plans, timeframes=_INTRADAY, span=span, run_id=_RUN
+        )
+        in_span = {
+            u.spec.batch_key
+            for (_i, tf), plan in plans.items()
+            if tf in _INTRADAY
+            for u in plan.units
+            if span[0] <= u.spec.range_start < span[1]
+        }
+        assert set(recorder.load_order) == in_span
+        assert summary["units_total"] == len(in_span)
+        assert summary["units_out_of_scope"] == 3 * len(_SPAN_YEARS) - len(in_span)
+        assert {spec.run_id for spec in recorder.specs} == {_RUN}
+        loaded += recorder.load_order
+    assert sorted(loaded) == sorted(_keys(plans, _INTRADAY))
+    assert len(loaded) == len(set(loaded))
+
+
+@pytest.mark.parametrize(
+    "span",
+    [
+        (datetime(2012, 1, 2, tzinfo=UTC), _jan1(2014)),
+        (_jan1(2012), datetime(2014, 1, 1, 5, tzinfo=UTC)),
+        (datetime(2012, 1, 1), _jan1(2014)),  # naive
+        (_jan1(2014), _jan1(2012)),
+    ],
+)
+def test_a_span_off_jan_1_utc_or_reversed_is_refused(monkeypatch, tmp_path, span):
+    with pytest.raises(ValueError, match="span"):
+        _run_rebuild_stage(monkeypatch, tmp_path, _span_plans(), timeframes=_INTRADAY, span=span)
+
+
+def test_a_span_on_a_stage_holding_1d_is_refused(monkeypatch, tmp_path):
+    for timeframes in (("1d",), ("1h", "1d")):
+        with pytest.raises(ValueError, match="intraday"):
+            _run_rebuild_stage(
+                monkeypatch, tmp_path, _span_plans(), timeframes=timeframes, span=_SPAN_2
+            )
+
+
+def test_span_2_compresses_up_to_its_end_with_span_1_complete_and_span_3_not_started(
+    monkeypatch, tmp_path
+):
+    """Blocker 1: span 1's units for every tf (and the whole-history 1d unit) are completed in
+    provenance_batch, span 3 has not started. Running span 2 for every intraday tf moves the
+    compression bound to span 2's end: every chunk ending at or before it compresses
+    (_CHUNKS_TO_COMPRESS_SQL: range_end <= bound) and the chunk straddling the span 2 / span 3
+    boundary waits. The known map holds span 1 and span 3 with their own provenance states."""
+    plans = _span_plans()
+    span_1_done = _keys(plans, _INTRADAY, years={2010, 2011}) | _keys(plans, ("1d",))
+    bound_calls: list = []
+    summary, _pool, recorder, calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        completed=span_1_done,
+        symbols=None,
+        timeframes=_INTRADAY,
+        span=_SPAN_2,
+        real_bound=True,
+        bound_calls=bound_calls,
+    )
+    assert set(recorder.load_order) == _keys(plans, _INTRADAY, years={2012, 2013})
+    assert calls == [("feature_vectors", _SPAN_2[1])]
+    assert summary["compression"] == "partial: units pending"
+    [(_chunks, _tfs, known)] = bound_calls
+    for (_chunk, tf), units in known.items():
+        for range_start, completed in units:
+            # span 1 completed because its rows say so, span 2 because this run loaded it,
+            # span 3 pending: nothing assumed for the filtered-out spans
+            assert completed == (range_start < _SPAN_2[1]), (tf, range_start)
+
+
+def test_with_span_1_not_completed_nothing_past_its_first_unit_compresses(monkeypatch, tmp_path):
+    """The negative case: span 1's rows are seeded failed (not completed), so a span 2 run must
+    not treat the filtered-out span 1 as done; the bound stays at span 1's earliest pending
+    range_start."""
+    plans = _span_plans()
+    summary, _pool, _recorder, calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        completed=_keys(plans, ("1d",)),
+        symbols=None,
+        timeframes=_INTRADAY,
+        span=_SPAN_2,
+        real_bound=True,
+    )
+    assert calls == [("feature_vectors", _SPAN_1[0])]
+    assert summary["compressed_before"] == "2010-01-01T00:00:00Z"
+
+
+def test_chunk_indices_execute_one_chunk_with_the_full_stage_identities(monkeypatch, tmp_path):
+    """chunk_indices=[0] (the 186-31 pilot of stage_1d) loads exactly chunk 0's units of the full
+    stage, and every other chunk is still planned and consulted: the known map holds each with
+    its provenance-derived state."""
+    chunks = (("AAA",), ("BBB",), ("CCC",))
+    plans = _span_plans(chunks)
+    cfg = {"infra.feature_factory.rebuild_symbols_per_chunk": 1}
+    chunk_2_done = _keys(plans, ("1d",), chunk_index=2)
+
+    _full, _pool, full_rec, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, plans, symbols=None, timeframes=("1d",), cfg_values=cfg
+    )
+    bound_calls: list = []
+    summary, pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        completed=chunk_2_done,
+        symbols=None,
+        timeframes=("1d",),
+        cfg_values=cfg,
+        chunk_indices=[0],
+        run_id=_RUN,
+        bound_calls=bound_calls,
+    )
+    chunk_0 = _keys(plans, ("1d",), chunk_index=0)
+    assert set(recorder.load_order) == chunk_0
+    assert chunk_0 <= set(full_rec.load_order)
+    assert pool.dispatched == ["AAA"]
+    assert [spec.run_id for spec in recorder.specs] == [_RUN]
+    assert summary["units_total"] == 1 and summary["units_out_of_scope"] == 2
+    [(_chunks, _tfs, known)] = bound_calls
+    assert {chunk: units for (chunk, _tf), units in known.items()} == {
+        ("AAA",): [(_jan1(2010), True)],  # loaded by this run
+        ("BBB",): [(_jan1(2010), False)],  # filtered out, no completed row
+        ("CCC",): [(_jan1(2010), True)],  # filtered out, completed by its own row
+    }
+
+
+@pytest.mark.parametrize("indices", [[], [3], [-1]])
+def test_chunk_indices_outside_the_chunking_are_refused(monkeypatch, tmp_path, indices):
+    with pytest.raises(ValueError, match="chunk_indices"):
+        _run_rebuild_stage(
+            monkeypatch,
+            tmp_path,
+            _span_plans(),
+            timeframes=("1d",),
+            cfg_values={"infra.feature_factory.rebuild_symbols_per_chunk": 1},
+            chunk_indices=indices,
+        )
+
+
+def test_without_a_run_the_specs_carry_no_run_id(monkeypatch, tmp_path):
+    _summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, _span_plans(), timeframes=("1d",)
+    )
+    assert recorder.specs and {spec.run_id for spec in recorder.specs} == {None}
 
 
 def test_feature_vectors_is_written_only_through_bulk_load():
