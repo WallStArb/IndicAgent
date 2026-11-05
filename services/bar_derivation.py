@@ -93,7 +93,7 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from services.bar_hold import held as read_held
 from services.bar_scrub import FlagRow, scrub_symbols, write_flags
-from src.config.settings import Settings
+from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.daily_rule import (
     CALENDAR_AUDIT,
@@ -405,11 +405,16 @@ _DAILY_REPORT_COLUMNS = (
     "unserved_primary",
 )
 
-_DISCOVER_DAILY_SYMBOLS_SQL = """
-SELECT symbol FROM instruments
-WHERE is_active AND compute_eligible_1d
-ORDER BY symbol
-"""
+# The canonical 1d universe: every active name (the backfill dimension), the one set the daily
+# stage derives, the digest rewrite rewrites and D7's 1d report judges (todo 502: a promotion
+# candidate is judged, so its canonical bars and digests must be derived too). compute_eligible_1d
+# gates compute, never the data layer: deriving only it left 27 judged names on a stale rule
+# version (2026-11-05, digest_fresh 27 after the d2-v5 rewrite).
+CANONICAL_1D_DIMENSION = "backfill"
+_DISCOVER_DAILY_SYMBOLS_SQL = (
+    f"SELECT symbol FROM instruments WHERE {dimension_where_clause(CANONICAL_1D_DIMENSION)} "
+    "ORDER BY symbol"
+)
 
 # The current raw 1d rows of the d2-v4 series ($2 vendors, $3 kinds, $4 session zones, zipped
 # pairwise: daily_rule.RAW_DAILY_SERIES and RAW_DAILY_SESSION_ZONE). bar_date is the session date,

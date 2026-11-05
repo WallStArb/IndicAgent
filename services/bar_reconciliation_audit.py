@@ -79,6 +79,7 @@ from services.bar_derivation import (
     _SELECT_DAILY_SPLITS_SQL,
     _SELECT_POLICY_1D_SQL,
     _SELECT_STORED_1D_SQL,
+    CANONICAL_1D_DIMENSION,
     _derive_for_tf,
     _month_digest_rows,
     split_record,
@@ -1955,7 +1956,8 @@ class BarReconciliationAudit(BaseBatch):
             window = _Window.build(now, params)
             compute = await self._universe(conn, dimension_where_clause("compute", "i"))
             compute_1d = await self._universe(conn, dimension_where_clause("compute_1d", "i"))
-            active = await self._universe(conn, dimension_where_clause("backfill", "i"))
+            # The canonical 1d universe the daily stage derives (bar_derivation): judged as derived.
+            active = await self._universe(conn, dimension_where_clause(CANONICAL_1D_DIMENSION, "i"))
             previous_verdict_at = await conn.fetchval(_NEWEST_VERDICT_SQL, _MONITOR_TYPE_VERDICT)
 
             checks: dict[str, _Judged] = {

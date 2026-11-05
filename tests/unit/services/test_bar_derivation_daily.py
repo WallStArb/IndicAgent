@@ -1067,3 +1067,17 @@ def test_a_zero_volume_alpaca_bar_never_reaches_canonical():
     detail = json.loads(load_args[14])
     assert detail["rule_version"] == "d2-v5"
     assert detail["zero_volume"] == [_D3.isoformat()]
+
+
+def test_the_daily_stage_derives_the_universe_d7_judges():
+    """2026-11-05: the daily stage and the digest rewrite derived compute_eligible_1d (1,502)
+    while D7 judged every active name (1,529, todo 502), so 27 judged names kept stale digests
+    after the d2-v5 rewrite. One dimension serves both."""
+    from services import bar_reconciliation_audit as audit
+    from services.bar_derivation import _DISCOVER_DAILY_SYMBOLS_SQL, CANONICAL_1D_DIMENSION
+    from src.config.settings import dimension_where_clause
+
+    assert CANONICAL_1D_DIMENSION == "backfill"
+    assert dimension_where_clause(CANONICAL_1D_DIMENSION) in _DISCOVER_DAILY_SYMBOLS_SQL
+    assert "compute_eligible_1d" not in _DISCOVER_DAILY_SYMBOLS_SQL
+    assert audit.CANONICAL_1D_DIMENSION is CANONICAL_1D_DIMENSION
