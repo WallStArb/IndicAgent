@@ -107,3 +107,12 @@ there are 8 sessions idle in transaction RIGHT NOW, all the rebuild's compute-sp
 finishes, compression re-enabled, the rebuild's read pattern fixed, then the timeout; it is
 PGC_USERSET, reloadable, no restart needed at that point). The compose-managed requirement
 applies when that lands.
+
+## Status 2026-11-05 (lead indicagent-4d)
+
+Compression jobs 1078 (market_data_ohlcv) and 1076 (ohlcv_raw) re-enabled: the 186-26 rebuild
+whose idle-in-transaction reads caused the stall is discarded (migration 569), and no
+idle-in-transaction holder was present. First runs deferred 3 h past the manual D7 audit (next_start
+2026-11-05 15:33Z and 15:48Z). Five chunks (about 5.7 GB) were uncompressed. Job 1065 left with the
+dropped v1 feature_vectors. Still open here: the exporter scrape cost and the idle-in-transaction
+timeout; the rerun plan (186-31) owns the rebuild read pattern.
