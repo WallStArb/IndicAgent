@@ -40,7 +40,8 @@ refuses cells from any other run (with a test). The dead shell orchestrator is d
   tf list.
 - `186-32-PLAN.md` (wave 10, migration 579): the APR seeds for the rerun and the continuity data
   gate (every exchange-calendar session per name-year, 1d and 5m, policy-resolved vendor pairs,
-  names without a start or sessions refused unless held by a recorded rule) with the pre-2016
+  calendar keyed by session_id, pre-2000 1d sessions reported, names without a start or sessions
+  refused unless held by a 1d empty-history span of the era's policy primary) with the pre-2016
   survivorship caveat (todo 534 owner decision 2026-11-04).
 - `186-31-PLAN.md` (wave 11, after 186-30 and 186-32): the step runner `services/corpus_rerun.py`,
   span-major (1d whole history first, then per span 1h, 15m, 5m); span count from
