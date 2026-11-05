@@ -64,3 +64,15 @@ proposer unit is not completed under that run (with tests). Summary:
 `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/186-30-SUMMARY.md`.
 Left: 186-32 (migration 579, data gate) and 186-31 (step runner, deletes the dead shell
 orchestrator).
+
+## 186-32 landed (2026-11-05)
+
+Migration 579 seeds the nine infra.corpus_rerun.* keys (read through
+`services/corpus_rerun_apr.py`); `services/corpus_rerun_data_gate.py` `run_data_gate` measures
+every NYSE session per compute_1d name-year (1d bar, 5m of the policy pair at
+min_session_bar_fraction of the session's own slots or an empty-history span) and returns the
+result for the runner to persist. Live dry run (87 s): fails; IBKR era 79 at depth, 482 partial,
+574 none of 1,135 names; Alpaca era 848 / 641 / 3 of 1,492, where the partials are mostly thin
+names with no-trade slots (a lead decision on the fraction); 10 names without a proven start.
+Summary: `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/186-32-SUMMARY.md`.
+Left: 186-31.
