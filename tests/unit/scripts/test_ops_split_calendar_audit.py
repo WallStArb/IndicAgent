@@ -417,7 +417,7 @@ def test_a_listed_bad_bar_that_is_not_stored_refuses_the_quarantine(tmp_path, mo
     assert conn.events == ["begin", "rollback"]
 
 
-def test_the_shipped_bad_bar_list_names_the_six_bars():
+def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
     bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
     assert sorted(bad) == sorted(
         [
@@ -427,6 +427,7 @@ def test_the_shipped_bad_bar_list_names_the_six_bars():
             ("CME", date(2008, 7, 14)),
             ("OKE", date(2005, 4, 13)),
             ("NEXN", date(2025, 2, 18)),
+            ("FXY", date(2008, 9, 24)),
         ]
     )
 
@@ -449,8 +450,3 @@ def test_a_conflict_caused_by_a_listed_bad_bar_is_not_an_unconfirmed_split(tmp_p
     path = _write(tmp_path / "audit.csv", [cmcsa, {**cmcsa, "symbol": "OKE"}])
     bad = audit.operator_list(_write_bad_bars(tmp_path))
     assert [c["symbol"] for c in audit.unconfirmed_candidates(path, bad)] == ["OKE"]
-
-
-def test_the_operator_bad_bar_list_holds_cmcsa():
-    bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
-    assert ("CMCSA", date(2017, 2, 17)) in bad and len(bad) == 6
