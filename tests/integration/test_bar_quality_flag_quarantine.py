@@ -27,16 +27,21 @@ def _query(sql: str) -> list[tuple]:
         return list(conn.execute(sql).fetchall())
 
 
-def test_legacy_copy_matches_source_statuses() -> None:
-    copied, source, quarantined = _query(
+def test_legacy_copy_survives_and_no_status_bar_is_visible() -> None:
+    """Migration 381 copied every non-null price_sanity_status into protected legacy flags. Since
+    phase 191 canonical rows are re-selected from raw and a rewritten row carries no status, so
+    the copy no longer equals the column (555 copied, 24 statuses left on 2026-11-05). What must
+    hold: the copy is intact and quarantining, and no bar still carrying a status reaches the
+    tradeable view."""
+    copied, quarantined, visible = _query(
         "SELECT (SELECT count(*) FROM bar_quality_flag"
         "  WHERE rule = 'legacy_price_sanity_status'),"
-        " (SELECT count(*) FROM market_data_ohlcv WHERE price_sanity_status IS NOT NULL),"
         " (SELECT count(*) FROM bar_quality_flag"
-        "  WHERE rule = 'legacy_price_sanity_status' AND quarantine)"
+        "  WHERE rule = 'legacy_price_sanity_status' AND quarantine),"
+        " (SELECT count(*) FROM market_data_ohlcv_tradeable WHERE price_sanity_status IS NOT NULL)"
     )[0]
-    assert copied == source, "legacy copy must cover every non-null status"
-    assert quarantined > 0, "confirmed_corrupt statuses must quarantine"
+    assert copied > 0 and quarantined > 0, "the legacy copy is protected and quarantines"
+    assert visible == 0, "a bar carrying a price_sanity_status must not reach research"
 
 
 def test_quarantined_bars_absent_from_tradeable_view() -> None:
@@ -62,12 +67,14 @@ def test_quarantined_bars_absent_from_tradeable_view() -> None:
             assert in_view == 0, f"quarantined bar {symbol}/{timeframe}/{ts} visible in view"
 
 
-def test_unquarantined_legacy_bars_still_visible() -> None:
+def test_unquarantined_flagged_bars_still_visible() -> None:
+    """An informational flag never hides a bar. The legacy copy's non-quarantine keys are gone
+    from canonical since the phase 191 re-selection, so any non-quarantine rule witnesses it."""
     n = _query(
         "SELECT count(*) FROM market_data_ohlcv_tradeable t"
         " JOIN bar_quality_flag q ON q.symbol = t.symbol AND q.timeframe = t.timeframe"
         ' AND q."timestamp" = t."timestamp"'
-        " WHERE NOT q.quarantine AND q.rule = 'legacy_price_sanity_status'"
+        " WHERE NOT q.quarantine"
     )[0][0]
     assert n > 0, "non-quarantined flagged bars must stay in the view"
 
@@ -95,7 +102,8 @@ def test_tradeable_view_column_contract() -> None:
         "low",
         "close",
         "volume",
-        "source",
+        "vendor",
+        "kind",
         "base",
         "price_sanity_status",
     ]

@@ -71,11 +71,12 @@ def conn():
         yield c
 
 
-def _quarantined(c, key) -> bool:
+def _quarantined(c, key, rule: str | None = None) -> bool:
     return c.execute(
         "SELECT EXISTS (SELECT 1 FROM bar_quality_flag WHERE symbol = %s"
-        ' AND timeframe = %s AND "timestamp" = %s::timestamptz AND quarantine)',
-        key,
+        ' AND timeframe = %s AND "timestamp" = %s::timestamptz AND quarantine'
+        " AND (%s::text IS NULL OR rule = %s::text))",
+        (*key, rule, rule),
     ).fetchone()[0]
 
 
@@ -104,7 +105,11 @@ def test_all_72_dry_run_keys_quarantined_and_hidden(conn) -> None:
 
 
 def test_no_ambiguous_key_is_quarantined(conn) -> None:
-    quarantined = [k for k in _dry_run_keys()["AMBIGUOUS"] if _quarantined(conn, k)]
+    """By the scrub's price_sanity rule: another rule may quarantine the same key for its own
+    evidence (FOXA 2019-03-13, vendor_disagreement from the D-191-Q arbitration)."""
+    quarantined = [
+        k for k in _dry_run_keys()["AMBIGUOUS"] if _quarantined(conn, k, rule="price_sanity")
+    ]
     assert quarantined == [], f"AMBIGUOUS keys wrongly quarantined: {quarantined[:5]}"
 
 

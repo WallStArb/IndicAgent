@@ -38,15 +38,16 @@ async def test_the_writer_role_insert_then_conflict_update_of_a_1d_bar():
                     9.0,
                     close,
                     1000,
-                    "ibkr_named",
-                    "SPY",
+                    "ibkr",
+                    "named",
+                    None,
                 )
             row = await conn.fetchrow(
-                "SELECT close, source FROM market_data_ohlcv "
+                "SELECT close, vendor, kind FROM market_data_ohlcv "
                 "WHERE symbol = 'SPY' AND timeframe = '1d' AND \"timestamp\" = $1",
                 _TS,
             )
-            assert (row["close"], row["source"]) == (11.5, "ibkr_named")
+            assert (row["close"], row["vendor"], row["kind"]) == (11.5, "ibkr", "named")
             await conn.execute("RESET ROLE")
             raise _Rollback
     except _Rollback:

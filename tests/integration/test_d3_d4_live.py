@@ -86,12 +86,12 @@ def test_venue_bars_never_became_canonical_while_the_gate_is_false(conn):
             "absolute daily log change or a flag) before relying on venue bars"
         )
     stored = conn.execute(
-        "SELECT count(*) FROM market_data_ohlcv WHERE timeframe = '1d' AND source = 'ibkr_venue'"
+        "SELECT count(*) FROM market_data_ohlcv WHERE timeframe = '1d' AND vendor = 'ibkr' AND kind = 'venue'"
     ).fetchone()[0]
     assert stored == _IBKR_VENUE_1D_BASELINE
     leaked = conn.execute(
         "SELECT count(*) FROM market_data_ohlcv_tradeable "
-        "WHERE source = 'ibkr_venue' AND volume IS NOT NULL"
+        "WHERE vendor = 'ibkr' AND kind = 'venue' AND volume IS NOT NULL"
     ).fetchone()[0]
     assert leaked == 0
 
@@ -99,7 +99,7 @@ def test_venue_bars_never_became_canonical_while_the_gate_is_false(conn):
 def test_no_intraday_venue_bars_are_stored_before_the_recovery_unlocks(conn):
     stored = conn.execute(
         "SELECT count(*) FROM market_data_ohlcv "
-        "WHERE timeframe IN ('5m', '15m', '1h') AND source = 'ibkr_venue'"
+        "WHERE timeframe IN ('5m', '15m', '1h') AND vendor = 'ibkr' AND kind = 'venue'"
     ).fetchone()[0]
     assert stored == 0
 

@@ -43,6 +43,13 @@ def db():
         'VALUES (%s, %s, false, \'{"asset_class": "test"}\'::jsonb)',
         (symbol, symbol),
     )
+    # The test database holds no policy data: canonical selection of the 5m rows reads a
+    # symbol-scoped direct IBKR row (the live 5m default is IBKR before 2016, Alpaca after).
+    conn.execute(
+        "INSERT INTO bar_source_policy (timeframe, symbol, valid_from, ingress_mode, "
+        "primary_source, reason) VALUES ('5m', %s, '1990-01-01', 'direct', 'ibkr', 'test')",
+        (symbol,),
+    )
     try:
         yield conn, symbol
     finally:
@@ -51,9 +58,14 @@ def db():
             conn.execute("DELETE FROM market_data_ohlcv WHERE symbol = %s", (symbol,))
             conn.execute("DELETE FROM ohlcv_raw WHERE symbol = %s", (symbol,))
             conn.execute("DELETE FROM ohlcv_revision WHERE symbol = %s", (symbol,))
+            # The restatement detector's flags (FK to the load) and the 1d selection's session
+            # choices, both written by the contract under test.
+            conn.execute("DELETE FROM ohlcv_restatement_flag WHERE symbol = %s", (symbol,))
+            conn.execute("DELETE FROM bar_session_choice WHERE symbol = %s", (symbol,))
             conn.execute("DELETE FROM ohlcv_load WHERE symbol = %s", (symbol,))
             conn.execute("SET LOCAL session_replication_role = replica")
             conn.execute("DELETE FROM ohlcv_request WHERE symbol = %s", (symbol,))
+            conn.execute("DELETE FROM bar_source_policy WHERE symbol = %s", (symbol,))
             conn.execute("SET LOCAL session_replication_role = origin")
             conn.execute("DELETE FROM instruments WHERE symbol = %s", (symbol,))
         conn.close()
@@ -81,6 +93,7 @@ def _request(symbol: str, tf: str, rows: list, *, what_to_show: str = "TRADES") 
         "test-185-39",
         now,
         now,
+        None,  # partial_bars (migration 479)
     )
 
 
@@ -191,46 +204,44 @@ def test_same_chunk_twice_then_one_changed_bar(db, tf, step):
     ]
 
 
-def test_a_chunk_below_the_floor_with_restated_bars_is_written_not_refused(db):
+def test_a_small_restatement_is_written_last_wins(db):
     conn, symbol = db
     rows = _chunk(symbol, "5m", 78, step_minutes=5)
     _persist(conn, symbol, "5m", rows)
     restated = [
         RawRow(**{**r.__dict__, "close": 10.9}) if i in (10, 11) else r for i, r in enumerate(rows)
     ]
-    result = _persist(conn, symbol, "5m", restated)  # 2 / 78 = 2.6% > 2%, but 78 < 500 stored
-    assert result.ingress.refused is False
+    result = _persist(conn, symbol, "5m", restated)
+    assert result.ingress.n_changed == 2
     assert _n(conn, "ohlcv_revision", symbol) == 2
     assert _loads(conn, symbol)[-1][4:] == (0, 2, 76)
 
 
-def test_a_breaching_chunk_is_held_and_recorded_with_raw_and_canonical_unchanged(db):
+def test_a_large_restatement_is_written_last_wins_and_recoverable(db):
+    """D-191-N (owner 2026-10-14): no load-level refusal and nothing held. A vendor's re-serve of
+    its own history replaces raw last-wins, canonical follows, and every old value is recoverable
+    from ohlcv_revision (origin raw); the restatement detector flags, it never blocks."""
     conn, symbol = db
     rows = _chunk(symbol, "5m", 600, step_minutes=5)
     _persist(conn, symbol, "5m", rows)
-    before_raw = _xmins(conn, "ohlcv_raw", symbol)
-    before_canonical = _xmins(conn, "market_data_ohlcv", symbol)
     restated = [
         RawRow(**{**r.__dict__, "close": 10.9}) if i < 20 else r for i, r in enumerate(rows)
     ]
-    result = _persist(conn, symbol, "5m", restated)  # 3.3% of 600
-    assert result.ingress.refused is True and result.ingress.n_held == 20
-    assert _xmins(conn, "ohlcv_raw", symbol) == before_raw
-    assert _xmins(conn, "market_data_ohlcv", symbol) == before_canonical
-    # The refused offer sits as pending revisions, never as a restatement.
+    result = _persist(conn, symbol, "5m", restated)
+    assert (result.ingress.n_changed, result.ingress.n_unchanged) == (20, 580)
+    assert conn.execute(
+        "SELECT count(*) FROM ohlcv_raw WHERE symbol = %s AND close = 10.9", (symbol,)
+    ).fetchone() == (20,)
+    assert conn.execute(
+        "SELECT count(*) FROM market_data_ohlcv WHERE symbol = %s AND close = 10.9", (symbol,)
+    ).fetchone() == (20,)
     assert conn.execute(
         "SELECT origin, count(*), min(old_close) FROM ohlcv_revision WHERE symbol = %s "
         "GROUP BY origin",
         (symbol,),
-    ).fetchall() == [("pending", 20, 10.9)]
-    outcome, _source, _dest, n_bars, n_new, n_changed, n_unchanged = _loads(conn, symbol)[-1]
-    assert (outcome, n_bars, n_new, n_changed, n_unchanged) == ("refused", 600, 0, 0, 0)
-    detail = conn.execute(
-        "SELECT detail FROM ohlcv_load WHERE symbol = %s AND outcome = 'refused'", (symbol,)
-    ).fetchone()[0]
-    assert "restated 20 / its stored 600" in detail
-    # The refused answer is still recorded, with no digest (nothing was stored).
-    assert _digests(conn, symbol) == [chunk_digest(rows), None]
+    ).fetchall() == [("raw", 20, 10.5)]
+    assert _loads(conn, symbol)[-1] == ("applied", "ibkr", "raw", 600, 0, 20, 580)
+    assert _digests(conn, symbol) == [chunk_digest(rows), chunk_digest(restated)]
 
 
 def test_a_restated_bar_in_a_compressed_chunk_is_rewritten_under_the_real_role(db):
@@ -303,9 +314,9 @@ def test_coverage_moves_with_the_new_rows_in_the_same_transaction(db):
 
 
 def test_the_loader_offers_every_row_to_raw_or_the_pending_list(db):
-    """Port of the no-drop assertion (todo 528 R1): every offered row appears in ohlcv_raw or,
-    when the contract refuses the vendor's restatement of its own history, in the explicit
-    pending list. Regular-hours and extended-hours rows alike."""
+    """Port of the no-drop assertion (todo 528 R1): every offered row appears in ohlcv_raw,
+    regular-hours and extended-hours rows alike; a later answer restating the vendor's own
+    history replaces it last-wins with the old values in ohlcv_revision (D-191-N)."""
     import pandas as pd
 
     conn, symbol = db
@@ -320,11 +331,13 @@ def test_the_loader_offers_every_row_to_raw_or_the_pending_list(db):
         symbol,
         frame(10.5),
         vendor="alpaca",
+        kind="sip_rth",
         timeframe="5m",
         caller="alpaca-5m-load",
         write=True,
+        answered_at=datetime.now(UTC),
     )
-    assert (first.n_offered, first.n_new, first.refused) == (600, 600, False)
+    assert (first.n_offered, first.n_new) == (600, 600)
     assert _n(conn, "ohlcv_raw", symbol) == 600
     assert conn.execute(
         "SELECT DISTINCT vendor, kind FROM ohlcv_raw WHERE symbol = %s", (symbol,)
@@ -334,18 +347,21 @@ def test_the_loader_offers_every_row_to_raw_or_the_pending_list(db):
         symbol,
         frame(11.5),
         vendor="alpaca",
+        kind="sip_rth",
         timeframe="5m",
         caller="alpaca-5m-load",
         write=True,
-    )  # restates all 600 of its own stored rows: refused, held, raw untouched
-    assert second.refused is True and second.n_held == 600 and second.n_new == 0
+        answered_at=datetime.now(UTC),
+    )  # restates all 600 of its own stored rows: written last-wins
+    assert (second.n_new, second.n_changed) == (0, 600)
     assert _n(conn, "ohlcv_raw", symbol) == 600
     assert conn.execute(
-        "SELECT count(*) FROM ohlcv_revision WHERE symbol = %s AND origin = 'pending'", (symbol,)
-    ).fetchone() == (600,)
+        "SELECT count(*), min(old_close) FROM ohlcv_revision WHERE symbol = %s AND origin = 'raw'",
+        (symbol,),
+    ).fetchone() == (600, 10.5)
     assert conn.execute(
-        "SELECT max(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
-    ).fetchone() == (10.5,)
+        "SELECT min(close), max(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
+    ).fetchone() == (11.5, 11.5)
 
 
 # --- apply_raw_contract under the real role (phase 191 plan 04) ------------------------------
@@ -376,14 +392,19 @@ def _raw_cleanup(conn, symbol):
         conn.execute("DELETE FROM ohlcv_raw WHERE symbol = %s", (symbol,))
 
 
-def _apply_raw(conn, rows, *, caller="ibkr-history-fetch", waived=False):
+def _apply_raw(conn, rows, *, caller="ibkr-history-fetch"):
     request = uuid.uuid4()
     with conn.transaction():
         with conn.cursor() as cur:
             params = read_raw_params(cur)
         conn.execute("SET LOCAL ROLE bar_derivation_writer")
         return apply_raw_contract(
-            conn, rows, caller=caller, request_id=request, params=params, waived=waived
+            conn,
+            rows,
+            caller=caller,
+            request_id=request,
+            answered_at=datetime.now(UTC),
+            params=params,
         )
 
 
@@ -391,7 +412,7 @@ def test_raw_contract_records_raw_then_selects_canonical_under_the_role(db):
     conn, symbol = db
     try:
         result = _apply_raw(conn, _raw_rows(symbol, 10))
-        assert (result.n_new, result.n_changed, result.refused) == (10, 0, False)
+        assert (result.n_new, result.n_changed) == (10, 0)
         assert result.selected_slots == 10
         assert _n(conn, "ohlcv_raw", symbol) == 10 and _n(conn, "market_data_ohlcv", symbol) == 10
         assert _loads(conn, symbol) == [("applied", "ibkr", "raw", 10, 10, 0, 0)]
@@ -410,19 +431,19 @@ def test_raw_contract_cross_vendor_difference_writes_no_revision(db):
             _raw_rows(symbol, 10, vendor="alpaca", kind="sip_rth", close=99.0),
             caller="alpaca-5m-load",
         )
-        assert other.refused is False and other.n_new == 10
+        assert other.n_new == 10
         assert _n(conn, "ohlcv_revision", symbol) == 0
         assert _n(conn, "ohlcv_raw", symbol) == 20
     finally:
         _raw_cleanup(conn, symbol)
 
 
-def test_raw_contract_self_restatement_below_the_floor_is_logged_with_vendor_and_kind(db):
+def test_raw_contract_self_restatement_is_logged_with_vendor_and_kind(db):
     conn, symbol = db
     try:
         _apply_raw(conn, _raw_rows(symbol, 10))
         restated = _apply_raw(conn, _raw_rows(symbol, 10, close=10.75))
-        assert restated.n_changed == 10 and restated.refused is False  # 10 < min_stored
+        assert restated.n_changed == 10
         rows = conn.execute(
             "SELECT vendor, kind, origin, old_close FROM ohlcv_revision WHERE symbol = %s",
             (symbol,),
@@ -432,53 +453,30 @@ def test_raw_contract_self_restatement_below_the_floor_is_logged_with_vendor_and
         _raw_cleanup(conn, symbol)
 
 
-def test_raw_contract_refusal_is_durable_selection_never_promotes_the_held_values(db):
-    """Review finding 4: refuse, then re-offer the same values, then assert raw and canonical hold
-    the original answer and the refused values sit as pending revisions."""
+def test_raw_contract_restatement_reaches_canonical_and_stays_recoverable(db):
+    """D-191-N replaces the refusal this test once pinned (review finding 4 of 191-07): a
+    vendor restating 50 of its own 600 stored rows is written last-wins, canonical selection
+    promotes the new values, an unchanged re-offer changes nothing more, and the old values sit
+    in ohlcv_revision (origin raw), never as pending holds."""
     conn, symbol = db
-    min_stored = 500
     try:
-        _apply_raw(conn, _raw_rows(symbol, min_stored + 100))
-        before_raw = conn.execute(
-            "SELECT count(*), sum(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
-        ).fetchone()
-        before_canonical = conn.execute(
-            "SELECT count(*), sum(close) FROM market_data_ohlcv WHERE symbol = %s", (symbol,)
-        ).fetchone()
-        restated = _raw_rows(symbol, min_stored + 100)
+        _apply_raw(conn, _raw_rows(symbol, 600))
         restated = [
             r if i >= 50 else RawRow(**{**r.__dict__, "close": 77.0})
-            for i, r in enumerate(restated)
-        ]  # 50 / 600 changed = 8% > 2%
-        for _ in range(2):  # the second offer is an unchanged re-offer of the refused values
-            result = _apply_raw(conn, restated)
-            assert result.refused is True and result.n_held == 50 and result.selected_slots == 0
-        assert (
-            conn.execute(
-                "SELECT count(*), sum(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
-            ).fetchone()
-            == before_raw
-        )
-        assert (
-            conn.execute(
-                "SELECT count(*), sum(close) FROM market_data_ohlcv WHERE symbol = %s", (symbol,)
-            ).fetchone()
-            == before_canonical
-        )
-        pending = conn.execute(
-            "SELECT count(*), min(old_close), max(old_close) FROM ohlcv_revision "
-            "WHERE symbol = %s AND origin = 'pending'",
+            for i, r in enumerate(_raw_rows(symbol, 600))
+        ]
+        first = _apply_raw(conn, restated)
+        assert first.n_changed == 50 and first.selected_slots == 50  # the touched slots
+        again = _apply_raw(conn, restated)
+        assert (again.n_changed, again.n_unchanged) == (0, 600)
+        for table in ("ohlcv_raw", "market_data_ohlcv"):
+            assert conn.execute(
+                f"SELECT count(*) FROM {table} WHERE symbol = %s AND close = 77.0", (symbol,)
+            ).fetchone() == (50,)
+        assert conn.execute(
+            "SELECT origin, count(*), min(old_close), max(old_close) FROM ohlcv_revision "
+            "WHERE symbol = %s GROUP BY origin",
             (symbol,),
-        ).fetchone()
-        # Review finding 7 (64c004f63): a re-offered refused series does not multiply its hold, so the
-        # second offer adds no pending row for a value already pending.
-        assert pending == (50, 77.0, 77.0)
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM ohlcv_revision WHERE symbol = %s AND origin <> 'pending'",
-                (symbol,),
-            ).fetchone()[0]
-            == 0
-        )
+        ).fetchall() == [("raw", 50, 10.5, 10.5)]
     finally:
         _raw_cleanup(conn, symbol)
