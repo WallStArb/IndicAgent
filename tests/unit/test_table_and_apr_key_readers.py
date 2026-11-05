@@ -138,6 +138,11 @@ _KEEP_TABLES: dict[str, str] = {
         "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "
         "reader is owed"
     ),
+    "corpus_run_step": (
+        "the step runner's bookkeeping, created by migration 578 (plan 186-30) one wave before "
+        "its sole writer and reader, services/corpus_rerun.py (plan 186-31), which removes this "
+        "entry when it lands"
+    ),
 }
 
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its

@@ -644,7 +644,7 @@ class TestBulkLoadReplaceWhere:
         assert "status = 'completed'" in sup_sql
         assert tuple(sup_params) == (spec.unit_key, spec.batch_key, 1)
         _k, insert_sql, insert_params = conn.events[conn.require_index("execute", "INSERT INTO")]
-        assert "unit_key" in insert_sql and tuple(insert_params[-2:]) == (spec.unit_key, 1)
+        assert "unit_key" in insert_sql and tuple(insert_params[-3:]) == (spec.unit_key, 1, None)
 
     def test_a_replacing_load_checks_compressed_chunks_over_the_whole_scope(self) -> None:
         """The DELETE reaches every row of the scope, so the compressed-chunk refusal covers all
@@ -696,7 +696,7 @@ class TestBulkLoadReplaceWhere:
         result = bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
         assert result.status == "loaded"
         _k, insert_sql, insert_params = conn.events[conn.require_index("execute", "INSERT INTO")]
-        assert "generation" in insert_sql and insert_params[-1] == 4  # 3 + 1
+        assert "generation" in insert_sql and insert_params[-2] == 4  # 3 + 1
         assert conn.index_of("execute", "SET status = 'started', attempts = attempts + 1") is None
         _k, done_sql, done_params = conn.events[
             conn.require_index("execute", "'completed', row_count")
@@ -708,7 +708,7 @@ class TestBulkLoadReplaceWhere:
         spec = _spec()
         bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
         _k, _sql, params = conn.events[conn.require_index("execute", "attempts = attempts + 1")]
-        assert tuple(params) == (spec.batch_key, 5)
+        assert tuple(params) == (None, spec.batch_key, 5)  # run_id, key, generation
         _k, _sql, done = conn.events[conn.require_index("execute", "'completed', row_count")]
         assert done[-1] == 5
 
@@ -716,3 +716,64 @@ class TestBulkLoadReplaceWhere:
         conn = _conn([{"fetchone": (1,)}])
         assert batch_utils.prior_completed_unit(conn, _spec()) is False  # append-only
         assert conn.events == []  # and no query was issued
+
+
+# ---------------------------------------------------------------------------
+# run_id: execution metadata recorded on the provenance row, outside the identity (186-30)
+# ---------------------------------------------------------------------------
+
+_RUN_A = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+_RUN_B = "6fa459ea-ee8a-3ca4-894e-db77e160355e"
+
+
+class TestRunId:
+    def test_run_id_changes_neither_the_batch_key_nor_the_unit_key(self) -> None:
+        for base in (_spec(), _spec(replace_where={"tf": "1d"})):
+            for run_id in (_RUN_A, _RUN_B):
+                tagged = _spec(replace_where=base.replace_where, run_id=run_id)
+                assert tagged.batch_key == base.batch_key
+                assert tagged.unit_key == base.unit_key
+
+    def test_the_started_row_carries_the_run_id(self) -> None:
+        conn = _conn(_fresh_happy_responses())
+        bulk_load(conn, _spec(run_id=_RUN_A), _COLUMNS_LIST, _ordered_rows())
+        _k, sql, params = conn.events[conn.require_index("execute", "INSERT INTO provenance_batch")]
+        assert "run_id" in sql and params[-1] == _RUN_A
+
+    def test_a_load_outside_a_run_records_null(self) -> None:
+        conn = _conn(_fresh_happy_responses())
+        bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
+        _k, _sql, params = conn.events[
+            conn.require_index("execute", "INSERT INTO provenance_batch")
+        ]
+        assert params[-1] is None
+
+    @pytest.mark.parametrize("status", ["failed", "started"])
+    def test_a_takeover_under_a_new_run_restamps_the_run_id(self, status: str) -> None:
+        """A row first loaded under run A, retried under run B: the takeover sets B (the 578
+        guard allows run_id to move only on this transition to started)."""
+        conn = _conn([_LOCKED, {"fetchone": (status, None, 1, 2)}] + _fresh_happy_responses()[2:])
+        spec = _spec(run_id=_RUN_B)
+        bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
+        _k, sql, params = conn.events[conn.require_index("execute", "attempts = attempts + 1")]
+        assert "run_id = %s" in sql
+        assert tuple(params) == (_RUN_B, spec.batch_key, 2)
+
+    def test_a_skipped_unit_writes_no_run_id(self) -> None:
+        """A completed unit keeps the run it was loaded under; a later run skips it untouched."""
+        conn = _conn([_LOCKED, {"fetchone": ("completed", 7, 1, 1)}])
+        result = bulk_load(conn, _spec(run_id=_RUN_B), _COLUMNS_LIST, _ordered_rows())
+        assert result.status == "skipped"
+        assert conn.index_of("execute", "UPDATE provenance_batch") is None
+
+    @pytest.mark.parametrize(
+        "value", ["not-a-uuid", _RUN_A.upper(), _RUN_A.replace("-", ""), "{" + _RUN_A + "}"]
+    )
+    def test_a_non_canonical_run_id_is_refused(self, value: str) -> None:
+        with pytest.raises(ValueError, match="run_id|hexadecimal"):
+            _spec(run_id=value)
+
+    def test_parse_run_id_canonicalizes_or_raises(self) -> None:
+        assert batch_utils.parse_run_id(_RUN_A.upper()) == _RUN_A
+        with pytest.raises(ValueError):
+            batch_utils.parse_run_id("run-1")

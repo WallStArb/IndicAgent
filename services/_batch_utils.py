@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, nullcontext
@@ -239,12 +240,14 @@ _BULK_LOAD_SELECT_PROVENANCE_SQL = (
 _BULK_LOAD_INSERT_PROVENANCE_SQL = (
     "INSERT INTO provenance_batch (batch_key, writer, target_table, time_column, tf, "
     "range_start, range_end, symbols, symbols_hash, code_key, apr_hash, apr_snapshot, "
-    "input_digest, unit_key, generation) "
-    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    "input_digest, unit_key, generation, run_id) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
+# A takeover re-stamps the run: a retry under a new run never keeps the old run_id (the 578 guard
+# allows the change only on this transition to started).
 _BULK_LOAD_TAKEOVER_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'started', attempts = attempts + 1, "
-    "started_at = now(), error = NULL WHERE batch_key = %s AND generation = %s"
+    "started_at = now(), error = NULL, run_id = %s WHERE batch_key = %s AND generation = %s"
 )
 _BULK_LOAD_COMPLETE_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'completed', row_count = %s, "
@@ -281,6 +284,7 @@ _PROVENANCE_BATCH_COLUMNS = (
     "input_digest",
     "unit_key",
     "generation",
+    "run_id",
     "row_count",
     "status",
     "attempts",
@@ -322,13 +326,22 @@ SOLE_BULK_LOAD_WRITERS: dict[str, str] = {
 }
 
 
+def parse_run_id(value: str) -> str:
+    """The canonical (lowercase, hyphenated) form of a corpus_run id; raises ValueError on
+    anything that is not a uuid. Also the argparse `type` of every --run-id flag, so a bad id
+    is refused before any compute."""
+    return str(uuid.UUID(value))
+
+
 @dataclass(frozen=True)
 class BulkLoadSpec:
     """Identity of one bulk-load unit; batch_key is its idempotency key (D-37).
 
-    Every field participates in the identity: a change to any one of them (one APR
+    Every field but run_id participates in the identity: a change to any one of them (one APR
     value included, through apr_snapshot) produces a different batch_key, so a rerun
-    that recomputed anything is a new load, not a skipped one.
+    that recomputed anything is a new load, not a skipped one. run_id is execution metadata,
+    outside batch_key and unit_key: a unit resumed or skipped under another run keeps its
+    identity.
     """
 
     writer: str
@@ -346,6 +359,9 @@ class BulkLoadSpec:
     # the range); loading it deletes them and supersedes the unit's prior completed batches in the
     # same transaction. See `unit_key`.
     replace_where: Mapping[str, Any] | None = None
+    # The corpus_run this load runs under (migration 578), recorded on the provenance row; None
+    # outside a run. Not identity: see the class docstring.
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("writer", "target_table", "time_column", "tf"):
@@ -377,6 +393,8 @@ class BulkLoadSpec:
         for name in ("code_key", "input_digest"):
             if not _BULK_LOAD_HEX_32_64_RE.fullmatch(getattr(self, name)):
                 raise ValueError(f"BulkLoadSpec.{name} must be 32-64 lowercase hex characters")
+        if self.run_id is not None and parse_run_id(self.run_id) != self.run_id:
+            raise ValueError("BulkLoadSpec.run_id must be a canonical lowercase uuid string")
 
     @property
     def apr_hash(self) -> str:
@@ -595,11 +613,12 @@ def _bulk_load_locked(
                     spec.input_digest,
                     spec.unit_key,
                     generation,
+                    spec.run_id,
                 ),
             )
         else:  # started (a kill) or failed (a retry): take the row over
             generation = int(existing[3])
-            cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (batch_key, generation))
+            cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (spec.run_id, batch_key, generation))
     conn.commit()
 
     real_positions = _bulk_load_precheck(conn, spec, columns)
