@@ -108,26 +108,39 @@ naming ibkr/smart_trades), 1 excluded_spin_off (SNX), 1 route_conflict (JMSB), o
 unchanged. Dry run (AMZN ADBE AMGN KLAC GIS SNX SLB BH): 5,536 rescaled bars lineage-exact, D7
 clean, 2016-01-04 step unchanged, no bar added or removed by the rows.
 
-Review list (no row; each split-day bar quarantined by `unconfirmed_split`):
+Review list (no row; each split-day bar quarantined by `unconfirmed_split` unless noted):
 - SNX 2020-12-01: Concentrix spin-off (operator exclusion); a total-return question for the
   dividend layer (Decision point 2).
+- EXPE 2011-12-21: a confirmed 1-for-2 reverse split on the TripAdvisor spin-off day; after the
+  rescale canonical carries a real -48% price-only day (log -0.656). Confirmed and rescaled, not
+  quarantined; the spin-off value is a total-return question for the dividend layer, next to SNX.
 - JMSB 2017-09-06 route_conflict: canonical steps at an ibkr/fallback seam, the series is flat.
-- The 6 conflicts (AA 2016-11-01, CMCSA 2017-02-21, ELS 2019-10-16, OKE 2001-06-12 and 2012-06-04,
-  SNEX 2023-11-27).
+- 5 conflicts: AA 2016-11-01, ELS 2019-10-16, OKE 2001-06-12 and 2012-06-04, SNEX 2023-11-27.
+- CMCSA 2017-02-21 is not an unconfirmed split: the conflict is the 2017-02-17 bad bar (the series
+  is adjusted), listed in `config/corporate_actions/operator_bad_bars.csv` for the planned
+  operator_bad_bar quarantine. A conflict whose step bracket holds a listed bad bar is left out
+  of `unconfirmed_split`.
 - Open item: `unconfirmed_split` quarantines only the first new-scale bar, so no one-day
   fabricated return reaches research, but multi-day returns and rolling kernels still span each
   of these breaks. Not solved by this landing.
+
+D7 split_continuity (review 2026-11-05) judges a calendar_audit split's own date in excess of the
+calendar's adjusted step (the day's real move), and in a rescaled name also every route seam and
+every request boundary inside a rescaled span on or before the last split.
 
 Resume on the lead's go:
 1. Cherry-pick the worktree's 587 commits onto main; gates (pre-commit, unit suite); push.
 2. `psql -f` migrations 568 and 571.
 3. `ops_split_calendar_audit.py --apply <csv>` dry: the count must be 378 and the name list must
    equal the CSV's confirmed set (266 names; diff them). Then `--commit`.
-4. `ops_split_calendar_audit.py --quarantine-unconfirmed <csv>` dry: 8 first bars (SNX, JMSB, the
-   6 conflicts). Then `--commit`.
-5. `bar_derivation --stage daily --symbols <the 266> --apply`, then `--rewrite-digests`.
-6. D7: split_continuity clean on the 266, lineage_missing unchanged, overall verdict counts before
-   and after for all names.
+4. `ops_split_calendar_audit.py --quarantine-unconfirmed <csv>` dry: 7 first bars (SNX, JMSB, the
+   5 conflicts). Then `--commit`.
+5. `bar_derivation --stage daily --symbols <the 266> --apply`; then
+   `bar_derivation --stage daily --rewrite-digests --apply` over all names (no `--symbols`):
+   RULE_VERSION is d2-v5, so every name's month digests move.
+6. D7: record the verdict counts per check for all names before step 2 and after step 5.
+   split_continuity clean on the 266, lineage_missing unchanged, and 0 digest_fresh failures
+   after the rewrite.
 
 After the landing: the six bad bars (FTNT 2014-01-10, CMCSA 2017-02-17, CDE 2008-11-18, CME
 2008-07-14, OKE 2005-04-13, NEXN 2025-02-18) go to quarantine under a new `operator_bad_bar` rule
