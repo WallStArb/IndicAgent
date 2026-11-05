@@ -122,7 +122,8 @@ class TestIcMeasureIntegration:
                     o = float(opens[i, j])
                     conn.execute(
                         "INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, "
-                        "low, close, volume) VALUES (%s, %s, '1d', %s, %s, %s, %s, 1000)",
+                        "low, close, volume, vendor, kind) "
+                        "VALUES (%s, %s, '1d', %s, %s, %s, %s, 1000, 'alpaca', 'sip_rth')",
                         (_utc(day), symbol, o, o * 1.01, o * 0.99, o * 1.001),
                     )
                     conn.execute(
@@ -348,7 +349,8 @@ class TestIcMeasureIntegration:
                 ).fetchone()
                 conn.execute(
                     "INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, "
-                    "low, close, volume) VALUES (%s, %s, '1d', %s, %s, %s, %s, 1000)",
+                    "low, close, volume, vendor, kind) "
+                    "VALUES (%s, %s, '1d', %s, %s, %s, %s, 1000, 'alpaca', 'sip_rth')",
                     (_utc(new_day), symbol, open_ * 1.002, open_ * 1.01, open_ * 0.99, open_),
                 )
                 conn.execute(
