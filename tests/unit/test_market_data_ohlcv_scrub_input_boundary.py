@@ -37,6 +37,11 @@ _ALLOW_LIST: dict[str, str] = {
         "re-write flags for bars the tradeable view hides; writes go to "
         "bar_quality_flag only, never market_data_ohlcv (D-09)."
     ),
+    "services/bar_reconciliation_audit.py": (
+        "PERMANENT: D7's isolated_wick check (todo 594) judges each served bar against "
+        "its adjacent traded bars exactly as the scrub rule sees them, quarantined "
+        "included; the candidates themselves come from the tradeable view. Read only."
+    ),
 }
 
 

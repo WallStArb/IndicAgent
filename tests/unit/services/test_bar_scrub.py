@@ -67,8 +67,8 @@ def _stale_run_bars(n: int = 6, *, run: int = 5) -> list[tuple]:
 def _five_min_bars(*, jump_at: int = 4, gap_after: int = 6, n: int = 10) -> list[tuple]:
     """5m bars with a 2x open jump at jump_at and a 2h gap after gap_after.
 
-    A 12x high sits on the jump bar too: with rules=None at 5m only the D-14
-    ports run, so price_sanity must NOT flag it.
+    A 12x high sits on the jump bar too: price_sanity does not run at 5m, so it
+    must NOT flag it.
     """
     rows: list[tuple] = []
     stamp = datetime(2024, 6, 3, 14, 30, tzinfo=UTC)
@@ -222,7 +222,9 @@ def test_counts_cover_every_evaluated_rule_with_zeros() -> None:
     conn = FakeConn({"AAA": _daily_bars(None)}, _apr_rows())
     counts = _run_scrub(conn)
     assert counts == {
+        "busted_trade_window": 0,
         "gap_before_next": 0,
+        "isolated_wick": 0,
         "non_positive_price": 0,
         "ohlc_invariant": 0,
         "price_sanity": 0,
@@ -233,14 +235,20 @@ def test_counts_cover_every_evaluated_rule_with_zeros() -> None:
     }
 
 
-def test_intraday_default_rules_are_d14_ports_only() -> None:
-    """rules=None at 5m runs return_magnitude and gap_before_next only: the 2x
-    open jump and the 2h gap flag, while the 12x high prints no price_sanity."""
+def test_intraday_default_rules_are_d14_ports_and_print_rules() -> None:
+    """rules=None at 5m runs return_magnitude, gap_before_next, isolated_wick and
+    busted_trade_window: the 2x open jump and the 2h gap flag, the 12x high prints no
+    price_sanity, and its own body (the 2x open jump) spans too wide for isolated_wick."""
     conn = FakeConn({"AAA": _five_min_bars()}, _apr_rows())
     counts = _run_scrub(conn, tf="5m")
     # two return_magnitude entries: the jump-up bar and the revert-down bar
     # (both open-to-open returns are suspect, the writer's semantics)
-    assert counts == {"return_magnitude": 2, "gap_before_next": 1}
+    assert counts == {
+        "return_magnitude": 2,
+        "gap_before_next": 1,
+        "isolated_wick": 0,
+        "busted_trade_window": 0,
+    }
     assert _inserted_flags(conn, "price_sanity") == []
     jump_rows = _inserted_flags(conn, "return_magnitude")
     assert all(row[6] is False for row in jump_rows)

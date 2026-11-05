@@ -33,7 +33,7 @@ _FIXTURE_DIR = Path(__file__).parent.parent.parent / "fixtures" / "bars"
 
 def _params(tf: str = "1d", **apr_overrides: object) -> ScrubParams:
     apr = seeded_apr() | apr_overrides
-    return ScrubParams.from_apr(apr, tf)
+    return ScrubParams.from_apr(apr, tf, busted_trade_windows=())
 
 
 def _series(
@@ -108,8 +108,8 @@ def test_from_apr_pins_seeded_values_and_quarantine_list():
 
 def test_from_apr_accepts_config_state_text_values():
     text_form = {key: str(value) for key, value in seeded_apr().items()}
-    assert ScrubParams.from_apr(text_form, "1d") == _params()
-    assert ScrubParams.from_apr(seeded_apr(), "5m").max_abs_return == 0.25
+    assert ScrubParams.from_apr(text_form, "1d", busted_trade_windows=()) == _params()
+    assert ScrubParams.from_apr(seeded_apr(), "5m", busted_trade_windows=()).max_abs_return == 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +308,8 @@ def test_run_rules_accumulates_counts_for_every_rule():
         "volume_outlier",
         "return_magnitude",
         "gap_before_next",
+        "isolated_wick",
+        "busted_trade_window",
     }
     for rule, count in result.counts.items():
         assert count == len([f for f in result.flags if f.rule == rule]), rule

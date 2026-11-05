@@ -29,6 +29,13 @@ has_gap_before_entry). view_disagreement is exported standalone rather than wire
 into run_rules because it needs the adjusted-close view alongside the trades view
 (plan 12's derivation and plan 17's daily pass call it with both series).
 
+isolated_wick (todo 594) flags a bar whose wick reaches min_ratio x its body while the adjacent
+traded bars and the body span less than max_neighbour_span: a print the neighbourhood never
+traded near (a decimal shift, a stub or fat-finger quote). A real wide day moves its neighbours
+too, so the span condition holds it out. busted_trade_window flags every bar inside a window the
+exchanges broke by rule (config/bars/busted_trade_windows.csv) whose high or low lies beyond the
+window's deviation from its reference: those prints never stood as trades.
+
 RULE_VERSION must be bumped on any behavior change: every bar_quality_flag row
 written from these rules carries it (plan 04's schema).
 """
@@ -49,7 +56,7 @@ from src.intelligence.statistics.price_sanity import (
     classify_candidate_bar,
 )
 
-RULE_VERSION: str = "scrub-v1"
+RULE_VERSION: str = "scrub-v2"
 
 # Definitional unit table (APR-exempt: a timeframe's length in seconds is a unit
 # conversion, not a tunable).
@@ -60,6 +67,7 @@ _TF_SECONDS: dict[str, int] = {
     "1h": 3600,
     "1d": 86400,
 }
+_DAY_SECONDS = _TF_SECONDS["1d"]
 
 
 @dataclass(frozen=True)
@@ -75,6 +83,17 @@ class BarFlag:
     rule: str
     fields: tuple[str, ...]
     detail: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BustedTradeWindow:
+    """An exchange-broken trade window: [start_s, end_s) epoch seconds UTC, the deviation from
+    the reference price beyond which trades were broken, and the ruling's citation."""
+
+    start_s: int
+    end_s: int
+    max_deviation: float
+    citation: str
 
 
 @dataclass(frozen=True)
@@ -100,11 +119,22 @@ class ScrubParams:
     max_abs_return: float
     gap_multiplier: int
     gap_max_seconds: int
+    isolated_wick_min_ratio: float
+    isolated_wick_max_neighbour_span: float
     quarantine_rules: frozenset[str]
+    # config/bars/busted_trade_windows.csv, loaded by the caller (no I/O in this module).
+    busted_trade_windows: tuple[BustedTradeWindow, ...]
 
     @classmethod
-    def from_apr(cls, apr: Mapping[str, object], tf: str) -> ScrubParams:
-        """Build params from an APR mapping (str values from config_state are fine)."""
+    def from_apr(
+        cls,
+        apr: Mapping[str, object],
+        tf: str,
+        *,
+        busted_trade_windows: tuple[BustedTradeWindow, ...],
+    ) -> ScrubParams:
+        """Build params from an APR mapping (str values from config_state are fine) and the
+        busted trade windows (required, so no caller drops the rule silently)."""
         rules_raw = apr["threshold.bar_scrub.quarantine_rules"]
         if isinstance(rules_raw, str):
             rules_raw = json.loads(rules_raw)
@@ -129,7 +159,12 @@ class ScrubParams:
             max_abs_return=_as_float(apr[f"alpha.quant.max_abs_return.{tf}"]),
             gap_multiplier=_as_int(apr["alpha.forward_returns.gap_multiplier"]),
             gap_max_seconds=_as_int(apr["alpha.forward_returns.gap_max_seconds"]),
+            isolated_wick_min_ratio=_as_float(apr["threshold.bar_scrub.isolated_wick.min_ratio"]),
+            isolated_wick_max_neighbour_span=_as_float(
+                apr["threshold.bar_scrub.isolated_wick.max_neighbour_span"]
+            ),
             quarantine_rules=frozenset(rules_raw),
+            busted_trade_windows=tuple(busted_trade_windows),
         )
 
 
@@ -182,6 +217,11 @@ def _tf_seconds(tf: str) -> int:
         return _TF_SECONDS[tf]
     except KeyError as error:
         raise ValueError(f"unknown timeframe {tf!r}") from error
+
+
+def _hit_fields(high_hit: np.ndarray, low_hit: np.ndarray, i: int) -> tuple[str, ...]:
+    """The fields ("high", "low") a two-sided price rule fired on at bar i."""
+    return tuple(f for f, hit in (("high", high_hit[i]), ("low", low_hit[i])) if hit)
 
 
 def _finite_or_none(value: float) -> float | None:
@@ -585,6 +625,107 @@ def gap_before_next(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
     return flags
 
 
+def isolated_wick(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """A wick of at least min_ratio x the body, in a neighbourhood that never traded near it.
+
+    The wick ratios are high / max(open, close) and min(open, close) / low. The neighbourhood is
+    the adjacent traded bars (one at a series boundary) plus the bar's own body; its span is
+    max(high) / min(low) over it. A bar flags when either ratio reaches min_ratio and the span is
+    below max_neighbour_span. A lone bar has no neighbourhood and is never judged; a non-positive
+    or missing price never flags (non_positive_price owns that).
+    """
+    n = bars.close.size
+    if n < 2:
+        return []
+    body_hi = np.maximum(bars.open, bars.close)
+    body_lo = np.minimum(bars.open, bars.close)
+    nb_hi = np.full(n, np.nan)
+    nb_lo = np.full(n, np.nan)
+    nb_hi[1:] = bars.high[:-1]
+    nb_lo[1:] = bars.low[:-1]
+    nb_hi[:-1] = np.fmax(nb_hi[:-1], bars.high[1:])
+    nb_lo[:-1] = np.fmin(nb_lo[:-1], bars.low[1:])
+    span_hi = np.fmax(nb_hi, body_hi)
+    span_lo = np.fmin(nb_lo, body_lo)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        up = bars.high / body_hi
+        down = body_lo / bars.low
+        span = span_hi / span_lo
+    valid = (bars.low > 0) & (body_lo > 0) & (span_lo > 0)
+    r = params.isolated_wick_min_ratio
+    high_hit = valid & (up >= r)
+    low_hit = valid & (down >= r)
+    hit = (high_hit | low_hit) & (span < params.isolated_wick_max_neighbour_span)
+    flags: list[BarFlag] = []
+    for i in np.flatnonzero(hit):
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="isolated_wick",
+                fields=_hit_fields(high_hit, low_hit, i),
+                detail={
+                    "high_ratio": float(up[i]),
+                    "low_ratio": float(down[i]),
+                    "neighbour_span": float(span[i]),
+                },
+            )
+        )
+    return flags
+
+
+def busted_trade_window(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """Bars inside an exchange-broken window whose high or low lies beyond its deviation.
+
+    A bar is inside a window when its interval [ts, ts + tf) overlaps [start, end). The
+    reference is the close of the last bar that ends at or before the window start: for 1d the
+    prior session's close (the whole daily bar is quarantined, its high or low carrying broken
+    prints); intraday it must end on the window's own UTC day, so a stale close never judges.
+    With no reference the window is not judged for the series. A bar flags when
+    high > ref x (1 + max_deviation) or low < ref x (1 - max_deviation); a bar inside two
+    windows flags once, on the first.
+    """
+    if not params.busted_trade_windows or bars.close.size == 0:
+        return []
+    tf_seconds = _tf_seconds(bars.tf)
+    ts = bars.ts_seconds
+    ends = ts + tf_seconds
+    flags: list[BarFlag] = []
+    flagged: set[int] = set()
+    for window in params.busted_trade_windows:
+        before = np.flatnonzero(ends <= window.start_s)
+        if before.size == 0:
+            continue
+        ref_index = int(before[-1])
+        if (
+            tf_seconds < _DAY_SECONDS
+            and ends[ref_index] <= window.start_s // _DAY_SECONDS * _DAY_SECONDS
+        ):
+            continue
+        ref = float(bars.close[ref_index])
+        inside = (ts < window.end_s) & (ends > window.start_s)
+        high_hit = inside & (bars.high > ref * (1 + window.max_deviation))
+        low_hit = inside & (bars.low < ref * (1 - window.max_deviation))
+        for i in np.flatnonzero(high_hit | low_hit):
+            if int(i) in flagged:
+                continue
+            flagged.add(int(i))
+            flags.append(
+                BarFlag(
+                    index=int(i),
+                    rule="busted_trade_window",
+                    fields=_hit_fields(high_hit, low_hit, i),
+                    detail={
+                        "reference_close": ref,
+                        "window_start_s": window.start_s,
+                        "window_end_s": window.end_s,
+                        "max_deviation": window.max_deviation,
+                        "citation": window.citation,
+                    },
+                )
+            )
+    return flags
+
+
 def run_rules(bars: SymbolBars, params: ScrubParams) -> ScrubResult:
     """Run every single-symbol D2a rule over one symbol's bars.
 
@@ -602,6 +743,8 @@ def run_rules(bars: SymbolBars, params: ScrubParams) -> ScrubResult:
         "volume_outlier": volume_outlier(bars, params),
         "return_magnitude": return_magnitude(bars, params),
         "gap_before_next": gap_before_next(bars, params),
+        "isolated_wick": isolated_wick(bars, params),
+        "busted_trade_window": busted_trade_window(bars, params),
     }
     ps_flags, candidates = price_sanity(bars, params)
     flags: list[BarFlag] = list(ps_flags)

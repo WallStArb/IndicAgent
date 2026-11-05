@@ -26,7 +26,7 @@ from tests.unit.bars._builders import load_dry_run_report, seeded_apr, three_bar
 
 
 def _params() -> ScrubParams:
-    return ScrubParams.from_apr(seeded_apr(), "1d")
+    return ScrubParams.from_apr(seeded_apr(), "1d", busted_trade_windows=())
 
 
 def _confirmed_verdict(row: dict) -> CandidateVerdict:

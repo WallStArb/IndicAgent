@@ -17,12 +17,17 @@ Usage:
     .venv/bin/python scripts/ops/bars/ops_scrub_historical_pass.py --tf 1d
     .venv/bin/python scripts/ops/bars/ops_scrub_historical_pass.py --tf 1d --apply
     .venv/bin/python scripts/ops/bars/ops_scrub_historical_pass.py --tf 5m --apply
+    .venv/bin/python scripts/ops/bars/ops_scrub_historical_pass.py --tf 5m --rules isolated_wick
+
+--rules limits the pass to the named rules (a new rule's first pass): only their flags are
+replaced, and nothing else is pruned.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -34,7 +39,7 @@ import structlog
 
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
-from services.bar_scrub import discover_scrub_symbols, scrub_symbols
+from services.bar_scrub import BUSTED_TRADE_WINDOWS, discover_scrub_symbols, scrub_symbols
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_async
 from src.core.service_utils import setup_service_logging
@@ -67,6 +72,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Scrub only the first N symbols (after sorting); smoke runs.",
+    )
+    parser.add_argument(
+        "--rules",
+        nargs="+",
+        default=None,
+        help="Evaluate and replace only these rules (default: every rule for the tf).",
     )
     parser.add_argument(
         "--apply",
@@ -141,7 +152,15 @@ async def _run(args: argparse.Namespace) -> int:
                     rule_version=RULE_VERSION,
                     apr_snapshot=snapshot,
                     n_symbols=len(symbols),
-                    detail={"tf": args.tf, "apply": True},
+                    detail={
+                        "tf": args.tf,
+                        "apply": True,
+                        "rules": args.rules,
+                        # the windows file is a rule input beside the APR snapshot (lineage)
+                        "busted_trade_windows_sha256": hashlib.sha256(
+                            BUSTED_TRADE_WINDOWS.read_bytes()
+                        ).hexdigest(),
+                    },
                 )
 
         quarantine_keys: list[tuple[str, str, object]] = []
@@ -151,12 +170,12 @@ async def _run(args: argparse.Namespace) -> int:
                 pool,
                 tf=args.tf,
                 symbols=symbols,
-                rules=None,
+                rules=frozenset(args.rules) if args.rules else None,
                 start=None,
                 end=None,
                 batch_id=batch_id,
                 write=args.apply,
-                prune_stale=args.apply,
+                prune_stale=args.apply and not args.rules,
                 quarantine_key_sink=quarantine_keys,
             )
         except Exception as error:

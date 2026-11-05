@@ -33,7 +33,7 @@ _FXY_2008_09_24 = ("FXY", "2008-09-24T00:00:00Z")
 
 
 def _params(tf: str = "1d") -> ScrubParams:
-    return ScrubParams.from_apr(seeded_apr(), tf)
+    return ScrubParams.from_apr(seeded_apr(), tf, busted_trade_windows=())
 
 
 def _run(row: dict, *, tf: str = "1d"):
@@ -47,7 +47,7 @@ def _quarantine_flags(result, middle: int, params: ScrubParams):
 
 
 def test_rule_version_is_pinned():
-    assert RULE_VERSION == "scrub-v1"
+    assert RULE_VERSION == "scrub-v2"
 
 
 def test_all_45_confirmed_corrupt_rows_quarantined():

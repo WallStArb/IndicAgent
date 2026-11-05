@@ -418,6 +418,8 @@ def test_a_listed_bad_bar_that_is_not_stored_refuses_the_quarantine(tmp_path, mo
 
 
 def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
+    # FXY 2008-09-24 (a 10x high) left the list when the isolated_wick scrub rule took the
+    # class over (todo 594): one mechanism per class.
     bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
     assert sorted(bad) == sorted(
         [
@@ -427,7 +429,6 @@ def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
             ("CME", date(2008, 7, 14)),
             ("OKE", date(2005, 4, 13)),
             ("NEXN", date(2025, 2, 18)),
-            ("FXY", date(2008, 9, 24)),
         ]
     )
 

@@ -28,10 +28,12 @@ returned -- never logged per bar (CLAUDE.md loop-logging rule).
 from __future__ import annotations
 
 import calendar
+import csv
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, time
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -42,11 +44,14 @@ from services._batch_utils import load_apr_dict_async
 from src.intelligence.bars.scrub_rules import (
     RULE_VERSION,
     BarFlag,
+    BustedTradeWindow,
     ScrubParams,
     SymbolBars,
+    busted_trade_window,
     corroborated_verdict,
     count_corroborating,
     gap_before_next,
+    isolated_wick,
     non_positive_price,
     ohlc_invariant,
     price_sanity,
@@ -55,6 +60,7 @@ from src.intelligence.bars.scrub_rules import (
     vol_scaled_jump,
     volume_outlier,
 )
+from src.intelligence.bars.selection import SESSION_TZ
 
 _logger = structlog.get_logger(__name__)
 
@@ -62,6 +68,8 @@ _logger = structlog.get_logger(__name__)
 # and plans 12/17 call it directly with both price series. legacy_price_sanity_status
 # is the migration-381 copy, owned by no rule code.
 _D14_INTRADAY_RULES = frozenset({"return_magnitude", "gap_before_next"})
+# Every timeframe (todo 594): a bad print or a broken trade is a defect at any bar size.
+_PRINT_RULES = frozenset({"isolated_wick", "busted_trade_window"})
 _ALL_1D_RULES = (
     frozenset(
         {
@@ -74,10 +82,15 @@ _ALL_1D_RULES = (
         }
     )
     | _D14_INTRADAY_RULES
+    | _PRINT_RULES
 )
 _PROTECTED_RULES = frozenset({"legacy_price_sanity_status", "view_disagreement"})
 
 _DEFAULT_SYMBOL_BATCH = 50
+
+BUSTED_TRADE_WINDOWS = (
+    Path(__file__).resolve().parent.parent / "config" / "bars" / "busted_trade_windows.csv"
+)
 
 _DISCOVER_SYMBOLS_SQL = """
 SELECT DISTINCT symbol FROM market_data_ohlcv_scrub_input WHERE timeframe = $1 ORDER BY symbol
@@ -137,19 +150,45 @@ class FlagRow(NamedTuple):
 
 
 def default_rules_for_tf(tf: str) -> frozenset[str]:
-    """rules=None contract: every rule at 1d, the D-14 ports at intraday.
+    """rules=None contract: every rule at 1d; the D-14 ports plus the print rules intraday.
 
     Intraday keeps the rules proven at 1d only (D-14): return_magnitude and
     gap_before_next carried from forward_return_writer before phase 186 deletes
-    it. 15m/1h get the full set on the derived grid in plan 12.
+    it, plus isolated_wick and busted_trade_window (todo 594), which judge a print
+    against its own neighbourhood at any bar size.
     """
-    return _ALL_1D_RULES if tf == "1d" else _D14_INTRADAY_RULES
+    return _ALL_1D_RULES if tf == "1d" else _D14_INTRADAY_RULES | _PRINT_RULES
+
+
+def load_busted_trade_windows(path: Path = BUSTED_TRADE_WINDOWS) -> tuple[BustedTradeWindow, ...]:
+    """The exchange-broken trade windows (date, start_et, end_et, max_deviation, citation), as
+    UTC epoch seconds. A line without a citation or with an empty or inverted window raises."""
+    windows: list[BustedTradeWindow] = []
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            day = date.fromisoformat(line["date"])
+            start, end = (
+                int(datetime.combine(day, time.fromisoformat(line[k]), SESSION_TZ).timestamp())
+                for k in ("start_et", "end_et")
+            )
+            deviation = float(line["max_deviation"])
+            if end <= start or not 0 < deviation < 1 or not (line.get("citation") or "").strip():
+                raise ValueError(
+                    f"{path.name} {day}: needs start < end, 0 < deviation < 1, citation"
+                )
+            windows.append(BustedTradeWindow(start, end, deviation, line["citation"]))
+    return tuple(windows)
+
+
+def scrub_params(apr: Any, tf: str) -> ScrubParams:
+    """ScrubParams from an APR mapping plus the busted trade windows file."""
+    return ScrubParams.from_apr(apr, tf, busted_trade_windows=load_busted_trade_windows())
 
 
 async def load_scrub_params(conn: Any, tf: str) -> ScrubParams:
-    """Build ScrubParams from config_state (alpha.* plus threshold.bar_scrub.*)."""
-    apr = await load_apr_dict_async(conn, ["threshold.bar_scrub.%"])
-    return ScrubParams.from_apr(apr, tf)
+    """Build ScrubParams from config_state (alpha.* plus threshold.bar_scrub.*) and the busted
+    trade windows file."""
+    return scrub_params(await load_apr_dict_async(conn, ["threshold.bar_scrub.%"]), tf)
 
 
 async def discover_scrub_symbols(conn: Any, tf: str) -> list[str]:
@@ -217,6 +256,10 @@ def _run_single_symbol_rules(
         flags.extend(return_magnitude(bars, params))
     if "gap_before_next" in rules:
         flags.extend(gap_before_next(bars, params))
+    if "isolated_wick" in rules:
+        flags.extend(isolated_wick(bars, params))
+    if "busted_trade_window" in rules:
+        flags.extend(busted_trade_window(bars, params))
     return flags, candidates
 
 
@@ -343,7 +386,7 @@ async def scrub_symbols(
     """
     async with pool.acquire() as conn:
         apr = await load_apr_dict_async(conn, ["threshold.bar_scrub.%"])
-        params = ScrubParams.from_apr(apr, tf)
+        params = scrub_params(apr, tf)
         symbol_batch = int(_cfg(apr, "infra.bar_scrub.symbol_batch", _DEFAULT_SYMBOL_BATCH))
         if symbols is None:
             symbols = await discover_scrub_symbols(conn, tf)
@@ -356,6 +399,9 @@ async def scrub_symbols(
                 "view_disagreement is called separately with both price views and "
                 "legacy_price_sanity_status belongs to migration 381"
             )
+        unknown = rules - _ALL_1D_RULES
+        if unknown:
+            raise ValueError(f"no scrub rule is named {sorted(unknown)}")
         if write and not batch_id:
             raise ValueError("batch_id is required when write=True (provenance, D-08)")
 

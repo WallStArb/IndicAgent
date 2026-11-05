@@ -635,6 +635,7 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
         "_partial_daily",
         "_dividend_freshness",
         "_stray_sources",
+        "_isolated_wick",
         "_report",
         "_log_verdicts",
         "_write_verdicts",
@@ -2351,3 +2352,46 @@ def test_a_name_with_no_proven_start_writes_a_failing_fact_not_a_stale_one():
     _, run = _run({"AAA": bad, "BBB": _good_name()})
     fact = next(f for f in run.facts if f[1] == "AAA|1d" and f[2] == "proven_start_1d")
     assert fact[5] is False
+
+
+def test_isolated_wick_counts_served_bars_per_name_and_timeframe():
+    result = audit.check_isolated_wick([("SPY", "1d"), ("SPY", "5m"), ("SPY", "5m"), ("GS", "1d")])
+    assert result == audit.CheckResult(4, ("GS|1d=1", "SPY|1d=1", "SPY|5m=2"))
+    assert audit.check_isolated_wick([]) == audit.CheckResult(0, ())
+
+
+def test_isolated_wick_loader_judges_candidates_with_the_scrub_rule(monkeypatch):
+    """The SQL rows are only a prefilter: the scrub rule decides, with the boundary bar judged
+    on its one neighbour and a wide neighbourhood held out."""
+    import asyncio
+
+    from tests.unit.bars._builders import seeded_apr
+
+    async def apr(conn, patterns):
+        return seeded_apr()
+
+    monkeypatch.setattr(audit, "load_apr_dict_async", apr)
+
+    def row(symbol, c, p=None, n=None):
+        out = {"symbol": symbol}
+        for side, bar in (("c", c), ("p", p), ("n", n)):
+            for f, v in zip(("open", "high", "low", "close"), bar or (None,) * 4, strict=True):
+                out[f"{side}_{f}"] = v
+        return out
+
+    rows = {
+        "1d": [
+            row("SPY", (151.49, 1511.7, 151.18, 151.8), (151.0, 152.1, 150.74, 151.7)),
+            row("WIDE", (10.0, 11.0, 3.0, 10.5), (20.0, 21.0, 9.0, 10.0), (10.5, 16.0, 8.0, 15.0)),
+        ],
+        "5m": [row("GS", (119.7, 120.97, 12.15, 119.77), None, (119.8, 120.6, 119.4, 120.2))],
+    }
+
+    class _Conn:
+        async def fetch(self, sql, tf, min_ratio):
+            assert min_ratio == 2.5
+            return rows.get(tf, [])
+
+    judged = asyncio.run(audit.BarReconciliationAudit._isolated_wick(_Conn()))
+    assert judged.result == audit.CheckResult(2, ("GS|5m=1", "SPY|1d=1"))
+    assert judged.n_judged == 3

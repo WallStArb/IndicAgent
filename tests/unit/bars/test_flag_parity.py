@@ -32,7 +32,7 @@ _FIXTURE_DIR = Path(__file__).parent.parent.parent / "fixtures" / "bars"
 
 
 def _params(tf: str = "1d") -> ScrubParams:
-    return ScrubParams.from_apr(seeded_apr(), tf)
+    return ScrubParams.from_apr(seeded_apr(), tf, busted_trade_windows=())
 
 
 def _spiky_opens(n: int, seed: int) -> np.ndarray:

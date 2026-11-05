@@ -22,6 +22,9 @@ with the venue study):
   success recently.
 - stray_sources: 1d/15m/1h rows with a (vendor, kind) the derivation does not write.
 - switches: venue switches differing from the venue study verdict.
+- isolated_wick: bars the tradeable view serves on 1d, 1h, 15m or 5m whose wick the scrub rule
+  isolated_wick flags (todo 594), counted per name and timeframe; a bar the scrub has not judged
+  yet (a new intraday bar) or a dropped quarantine entry shows here.
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
   expected session slots that hold a real bar or lie inside an answered request window,
   and the 15m/1h slots that hide real 5m volume behind a placeholder or a hole.
@@ -50,7 +53,7 @@ import asyncio
 import json
 import math
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -130,6 +133,7 @@ from src.intelligence.bars.integrity_checks import (
     superseded_archive_buckets,
 )
 from src.intelligence.bars.restatement import BASIS_SIGNATURES
+from src.intelligence.bars.scrub_rules import ScrubParams, SymbolBars, isolated_wick
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
     CANONICAL_1D_KINDS,
@@ -534,6 +538,35 @@ def check_held_names(holds: Mapping[str, Sequence[Hold]]) -> CheckResult:
     return CheckResult(len(samples), samples)
 
 
+def _wick_window(row: Mapping[str, Any], tf: str) -> tuple[SymbolBars, int]:
+    """A candidate row (c_*, and p_*/n_* when that neighbour exists) as the bar array the
+    scrub rule reads, with the candidate's index in it."""
+    sides = [side for side in ("p", "c", "n") if row[f"{side}_open"] is not None]
+    o, h, lo, c = (
+        np.array([row[f"{side}_{f}"] for side in sides], dtype=np.float64)
+        for f in ("open", "high", "low", "close")
+    )
+    bars = SymbolBars(
+        symbol=row["symbol"],
+        tf=tf,
+        ts_seconds=np.arange(len(sides), dtype=np.int64),
+        open=o,
+        high=h,
+        low=lo,
+        close=c,
+        volume=np.ones(len(sides)),
+    )
+    return bars, sides.index("c")
+
+
+def check_isolated_wick(served: Iterable[tuple[str, str]]) -> CheckResult:
+    """Served bars the isolated_wick rule flags, one (symbol, timeframe) per bar: the count is
+    the finding, the samples count them per name and timeframe."""
+    per_name = Counter(served)
+    samples = tuple(f"{symbol}|{tf}={n}" for (symbol, tf), n in sorted(per_name.items()))
+    return CheckResult(sum(per_name.values()), samples)
+
+
 # ---------------------------------------------------------------------------
 # Completeness and masked slots (todo 462)
 # ---------------------------------------------------------------------------
@@ -902,6 +935,28 @@ _DAILY_CLOSES_SQL = """
 SELECT symbol, timestamp, close FROM market_data_ohlcv_tradeable
 WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND timestamp >= $2
 ORDER BY symbol, timestamp
+"""
+_ISOLATED_WICK_TFS = ("1d", "1h", "15m", "5m")
+# Served bars at or past the wick ratio floor, with the adjacent traded bars (quarantined
+# included, as the scrub sees them).
+_WICK_CANDIDATES_SQL = """
+SELECT c.symbol,
+       c.open AS c_open, c.high AS c_high, c.low AS c_low, c.close AS c_close,
+       p.open AS p_open, p.high AS p_high, p.low AS p_low, p.close AS p_close,
+       n.open AS n_open, n.high AS n_high, n.low AS n_low, n.close AS n_close
+FROM market_data_ohlcv_tradeable c
+LEFT JOIN LATERAL (
+    SELECT open, high, low, close FROM market_data_ohlcv_scrub_input x
+    WHERE x.symbol = c.symbol AND x.timeframe = c.timeframe AND x."timestamp" < c."timestamp"
+    ORDER BY x."timestamp" DESC LIMIT 1
+) p ON true
+LEFT JOIN LATERAL (
+    SELECT open, high, low, close FROM market_data_ohlcv_scrub_input x
+    WHERE x.symbol = c.symbol AND x.timeframe = c.timeframe AND x."timestamp" > c."timestamp"
+    ORDER BY x."timestamp" LIMIT 1
+) n ON true
+WHERE c.timeframe = $1 AND c.low > 0
+  AND (c.high >= $2 * greatest(c.open, c.close) OR least(c.open, c.close) >= $2 * c.low)
 """
 _QUARANTINE_1D_SQL = """
 SELECT symbol, timestamp FROM bar_quality_flag
@@ -1973,6 +2028,7 @@ class BarReconciliationAudit(BaseBatch):
                 "nightly_skipped": self._nightly_skipped(params, now),
                 "stray_sources": await self._stray_sources(conn, window),
                 "switches": self._switches(params),
+                "isolated_wick": await self._isolated_wick(conn),
             }
             grid = await self._grid_checks(conn, params, window, compute)
             checks["completeness"] = grid.completeness
@@ -2259,6 +2315,24 @@ class BarReconciliationAudit(BaseBatch):
         except FileNotFoundError:
             verdict = {}
         return _Judged(check_switches(params.switches, verdict), len(_SWITCH_VERDICT_TF))
+
+    @staticmethod
+    async def _isolated_wick(conn: Any) -> _Judged:
+        """Every served bar past the rule's ratio floor, with its adjacent traded bars, judged
+        by the scrub rule itself (one source of the rule; the SQL ratio is only a prefilter)."""
+        # The wick thresholds only: the busted windows file is no input to this check.
+        apr = await load_apr_dict_async(conn, ["threshold.bar_scrub.%"])
+        params = ScrubParams.from_apr(apr, "1d", busted_trade_windows=())
+        served: list[tuple[str, str]] = []
+        n_judged = 0
+        for tf in _ISOLATED_WICK_TFS:
+            rows = await conn.fetch(_WICK_CANDIDATES_SQL, tf, params.isolated_wick_min_ratio)
+            n_judged += len(rows)
+            for r in rows:
+                bars, middle = _wick_window(r, tf)
+                if any(f.index == middle for f in isolated_wick(bars, params)):
+                    served.append((r["symbol"], tf))
+        return _Judged(check_isolated_wick(served), n_judged)
 
     async def _grid_checks(
         self, conn: Any, params: _Params, window: _Window, compute: list[str]

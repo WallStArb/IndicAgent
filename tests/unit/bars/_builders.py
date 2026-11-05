@@ -176,6 +176,8 @@ _SEEDED_APR: dict[str, object] = {
     "threshold.bar_scrub.volume_window": 60,
     "threshold.bar_scrub.corroboration_max_clearable_ratio": 2.5,
     "threshold.bar_scrub.view_disagreement_rel": 0.02,
+    "threshold.bar_scrub.isolated_wick.min_ratio": 2.5,
+    "threshold.bar_scrub.isolated_wick.max_neighbour_span": 1.5,
     "threshold.bar_scrub.quarantine_rules": (
         '["ohlc_invariant","non_positive_price","price_sanity",'
         '"split_seam","legacy_price_sanity_status"]'
