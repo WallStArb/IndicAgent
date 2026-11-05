@@ -130,7 +130,15 @@ D7 split_continuity (review 2026-11-05) judges a calendar_audit split's own date
 calendar's adjusted step (the day's real move), and in a rescaled name also every route seam and
 every request boundary inside a rescaled span on or before the last split.
 
-Resume on the lead's go:
+## Landed 2026-11-05 (lead indicagent-4d)
+
+Steps 0-5 done: f5ebae068 on main; migrations 568 and 571 applied (quarantine rules 7 -> 9, all
+kept); `--apply` dry run re-judged 378 of 378, written on 266 names; `--quarantine-unconfirmed`
+wrote 13 flags; the 266 re-derived (233,512 changed, 0 refused, 0 removed, 2 new SHEN sessions);
+`--rewrite-digests` wrote 335,342 digests on 1,502 names, 0 failed. Step 6 (D7 after vs the
+2026-11-05 01:13 baseline) is the one open item; close this todo when it is clean.
+
+Resume on the lead's go (historical):
 0. Before any migration: capture the D7 1d verdict counts per check for all names (the lead holds
    the 2026-11-05 01:13 report as this baseline).
 1. Cherry-pick the worktree's 587 commits onto main; gates (pre-commit, unit suite); push.

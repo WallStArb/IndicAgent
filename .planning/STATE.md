@@ -83,7 +83,12 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   writers: the rebuild is the only writer of `feature_vectors` (CI test plus a `BulkLoadSpec`
   sole-writer check). Migration 577 dropped the 13 retired columns from the
   empty table (311 columns, equal to the registry); the integration baseline is 2026-11-05
-  (todo 591). Next: the fix
+  (todo 591). Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
+  names, rule d2-v5 rescales them, 13 bars quarantined (7 unconfirmed_split, 6 operator_bad_bar),
+  233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the
+  2026-11-05 01:13 baseline. The rerun is planned as 186-30 (run identity) and 186-31 (span-major
+  step runner, todo 593); a fourth plan check is running, with the lead's disk rule (peak at or
+  below 70% of free disk, span count derived, APR headroom guard). Next: the fix
   batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase); pre-2016 results carry a survivorship caveat (todo 534).
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
