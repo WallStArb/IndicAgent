@@ -83,7 +83,9 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   writers: the rebuild is the only writer of `feature_vectors` (CI test plus a `BulkLoadSpec`
   sole-writer check). Migration 577 dropped the 13 retired columns from the
   empty table (311 columns, equal to the registry); the integration baseline is 2026-11-05
-  (todo 591). Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
+  (todo 591). The rerun runner is planned (todo 593: 186-30 run identity,
+  186-31 span-major step runner, plan check round 4 pending); it executes only after the 584 data
+  gate. Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
   names, rule d2-v5 rescales them, 13 bars quarantined (7 unconfirmed_split, 6 operator_bad_bar),
   233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the
   2026-11-05 01:13 baseline. The rerun is planned as 186-30 (run identity) and 186-31 (span-major
