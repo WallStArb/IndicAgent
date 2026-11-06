@@ -4,7 +4,6 @@ import pytest
 from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
-    ABSENCE_EXEMPT_TFS,
     APR_KEYS,
     _query,
     applicable_columns,
@@ -57,19 +56,24 @@ def test_registry_accessors_tolerate_missing_declarations():
     assert zero_is_state(declared) == {"b"}
 
 
-def test_declared_memory_maps_only_path_dependent_columns_to_none(monkeypatch):
-    def is_path_dependent(column):
+def test_declared_memory_is_the_registry_warmup_per_tf_for_every_column():
+    def warmup_bars(column, config, tf):
         if column == "unknown":
-            raise KeyError(column)  # no kernel produces it: loud, not "no memory"
-        return column == "hmm"
+            raise KeyError(column)  # no kernel produces it: loud, never a default
+        return {"adx": 30, "hmm": {"5m": 1539, "1d": 639}[tf]}[column]
 
-    monkeypatch.setattr(
-        "scripts.ops.ops_feature_column_screen.feature_memory_bars", lambda c, cfg, reg: 7
+    registry = SimpleNamespace(
+        warmup_bars=warmup_bars, applicable_outputs=lambda tf: {"adx", "hmm", "unknown"}
     )
-    registry = SimpleNamespace(is_path_dependent=is_path_dependent)
-    assert declared_memory(registry, None, ("adx", "hmm")) == {"adx": 7, "hmm": None}
+    assert declared_memory(registry, None, ("adx", "hmm"), ["5m", "1d"]) == {
+        "5m": {"adx": 30, "hmm": 1539},
+        "1d": {"adx": 30, "hmm": 639},
+    }
     with pytest.raises(KeyError):
-        declared_memory(registry, None, ("unknown",))
+        declared_memory(registry, None, ("unknown",), ["5m"])
+    # a column not applicable on a tf is never judged there, so it needs no warmup there
+    registry.applicable_outputs = lambda tf: {"adx"}
+    assert declared_memory(registry, None, ("unknown",), ["5m"]) == {"5m": {"unknown": 0}}
 
 
 def test_apr_value_raises_on_a_missing_key():
@@ -101,7 +105,7 @@ EMPTY = (0, 0, None, None, None, 0, 0)
 
 
 def _screen(rows, columns=("live", "x"), memory=None, applicable=None, zero_state=frozenset()):
-    memory = memory or dict.fromkeys(columns, 10)
+    memory = {"1d": memory or dict.fromkeys(columns, 10)}
     return screen_rows(
         columns,
         rows,
@@ -125,12 +129,13 @@ def test_g1_dead_column_fails_only_where_applicable():
     assert gate_failures(report) == {"G1": 0, "G2": 0, "G3": 0}
 
 
-def test_g2_flags_a_late_first_finite_row_and_skips_path_dependent_columns():
+def test_g2_flags_a_late_first_finite_row_against_the_declared_warmup():
     rows = [_row("1d", "A", 1200, LIVE, LATE)]
     report, _ = _screen(rows)
     assert report["1d"]["G2"] == {"x": {"n_names": 1, "examples": ["A"]}}
     assert gate_failures(report) == {"G1": 0, "G2": 1, "G3": 0}
-    report, _ = _screen(rows, memory={"live": 10, "x": None})
+    # a path-dependent column declares its anchor warmup and is judged from it like any other
+    report, _ = _screen(rows, memory={"live": 10, "x": 298})
     assert report["1d"]["G2"] == {}
 
 
@@ -158,9 +163,12 @@ def test_short_timeframes_are_skipped():
 
 
 def test_query_renders_the_window_and_post_warmup_filters():
-    text = _query(("adx",), {"adx": 40}, sql.SQL("")).as_string(None)
+    text = _query(("adx",), {"1d": {"adx": 40}}, sql.SQL("")).as_string(None)
     assert "row_number() OVER (PARTITION BY symbol, tf ORDER BY bar_ts)" in text
     assert 'count(*) FILTER (WHERE "adx" = 0 AND rn > 40)' in text
+    # a warmup that differs by tf is a CASE over tf
+    text = _query(("hmm",), {"1d": {"hmm": 639}, "5m": {"hmm": 1539}}, sql.SQL("")).as_string(None)
+    assert "rn > CASE tf WHEN '1d' THEN 639 WHEN '5m' THEN 1539 ELSE 0 END" in text
 
 
 # ---------------------------------------------------------------------------
@@ -175,13 +183,15 @@ def _years(n_years: int, null_years: int) -> tuple:
     return (n, (n, n, 11, -1.0, 1.0, 0, finite_post))
 
 
-def _null_gate(rows, columns=("x",), memory=None, applicable=None, max_null=0.05):
+def _null_gate(rows, columns=("x",), memory=None, applicable=None, objects=(), max_null=0.05):
     tfs = {r[0] for r in rows}
+    per_tf = memory or dict.fromkeys(columns, 10)
     return null_share_gate(
         columns,
         rows,
-        memory=memory or dict.fromkeys(columns, 10),
+        memory={tf: per_tf for tf in tfs},
         applicable={tf: frozenset(columns) if applicable is None else applicable for tf in tfs},
+        object_columns=frozenset(objects),
         max_null_fraction=max_null,
         min_name_rows=252,
     )
@@ -208,82 +218,56 @@ def test_g6_skips_not_applicable_columns():
     assert list(gate["failing"]) == ["y"] and "x" not in gate["worst"]
 
 
-def _path_dependent(n: int, first_rn: int | None, finite: int) -> tuple:
-    return (finite, finite, first_rn, -1.0, 1.0, 0, finite)
+def _post(n: int, warmup: int, finite_post: int) -> tuple:
+    """A column whose rows past its declared warmup hold `finite_post` finite values."""
+    return (finite_post, finite_post, warmup + 1, -1.0, 1.0, 0, finite_post)
 
 
-def test_g6_fails_a_40_percent_null_hmm_column():
-    """A path-dependent column (no declared memory) is measured from each name's first finite
-    row: 40% NULL after it fails."""
-    n = 1010
-    cell = _path_dependent(n, first_rn=11, finite=600)  # 1000 rows from row 11, 600 finite
-    rows = [_row("1h", s, n, cell) for s in ("A", "B")]
-    gate = _null_gate(rows, columns=("hmm_regime_prob",), memory={"hmm_regime_prob": None})["1h"]
-    assert list(gate["failing"]) == ["hmm_regime_prob"]
-    assert gate["worst"] == {"hmm_regime_prob": 0.4}
+def test_g6_fails_a_40_percent_null_hmm_column_past_its_declared_warmup():
+    """An HMM column declares its first refit boundary as its warmup (registry warmup_bars);
+    40% NULL past it fails."""
+    n, warmup = 2539, 1539
+    cell = _post(n, warmup, 600)  # 1000 rows past the warmup, 600 finite
+    rows = [_row("5m", s, n, cell) for s in ("A", "B")]
+    gate = _null_gate(rows, columns=("hmm_regime_prob",), memory={"hmm_regime_prob": warmup})
+    assert list(gate["5m"]["failing"]) == ["hmm_regime_prob"]
+    assert gate["5m"]["worst"] == {"hmm_regime_prob": 0.4}
 
 
 def test_g6_fails_a_path_dependent_column_null_in_a_block_inside_its_span():
-    n = 2000
-    cell = _path_dependent(n, first_rn=1, finite=1700)  # finite from row 1, then a 300-row hole
-    gate = _null_gate([_row("5m", "A", n, cell)], columns=("adx",), memory={"adx": None})["5m"]
+    n, warmup = 2030, 30  # adx: 2000 rows past its declared warmup, a 300-row hole among them
+    gate = _null_gate(
+        [_row("5m", "A", n, _post(n, warmup, 1700))], columns=("adx",), memory={"adx": warmup}
+    )["5m"]
     assert "adx" in gate["failing"] and gate["worst"]["adx"] == pytest.approx(0.15)
-    full = _path_dependent(n, first_rn=40, finite=n - 39)
-    assert (
-        _null_gate([_row("5m", "A", n, full)], columns=("adx",), memory={"adx": None})["5m"][
-            "failing"
-        ]
-        == {}
-    )
-
-
-def test_g6_a_path_dependent_column_with_no_finite_row_counts_every_row():
-    n = 500
-    cell = (0, 0, None, None, None, 0, 0)
-    gate = _null_gate([_row("1h", "A", n, cell)], columns=("hurst",), memory={"hurst": None})["1h"]
-    assert gate["worst"] == {"hurst": 1.0} and "hurst" in gate["failing"]
+    full = _null_gate(
+        [_row("5m", "A", n, _post(n, warmup, 2000))], columns=("adx",), memory={"adx": warmup}
+    )["5m"]
+    assert full["failing"] == {}
 
 
 def test_g6_an_applicable_column_that_cannot_be_measured_fails():
-    n, cell = _years(1, 0)  # 262 rows, memory 300: no name has a row past the warmup
+    n, cell = _years(1, 0)  # 262 rows, warmup 300: no name has a row past it
     gate = _null_gate([_row("1h", "A", n, cell)], memory={"x": 300})["1h"]
     assert gate["failing"]["x"].startswith("cannot be measured")
 
 
-def test_g6_absence_columns_fail_only_when_entirely_null_and_skip_their_absent_tfs():
+def test_g6_object_dependent_columns_fail_only_when_entirely_null():
     n, partial = _years(10, 6)
     _, empty = _years(10, 10)
     cols = ("sr_support_dist",)
-    assert _null_gate([_row("1h", "A", n, partial)], columns=cols)["1h"]["failing"] == {}
-    assert list(_null_gate([_row("1h", "A", n, empty)], columns=cols)["1h"]["failing"]) == list(
-        cols
-    )
-    gate = _null_gate([_row("1d", "A", n, empty)], columns=("poc_dist_atr",))["1d"]
-    assert gate["failing"] == {} and gate["worst"] == {}
-    # poc_dist_atr has no declared memory: measured from its first finite row, and on an
-    # intraday tf it still fails only when entirely NULL
-    pd = {"poc_dist_atr": None}
-    sparse = _path_dependent(n, first_rn=5, finite=100)
-    none = (0, 0, None, None, None, 0, 0)
     assert (
-        _null_gate([_row("5m", "A", n, sparse)], columns=("poc_dist_atr",), memory=pd)["5m"][
-            "failing"
-        ]
-        == {}
+        _null_gate([_row("1h", "A", n, partial)], columns=cols, objects=cols)["1h"]["failing"] == {}
     )
+    gate = _null_gate([_row("1h", "A", n, empty)], columns=cols, objects=cols)["1h"]
+    assert gate["failing"]["sr_support_dist"].startswith("entirely NULL")
+    # not declared object dependent: the same 60% hole fails the share
     assert (
-        "poc_dist_atr"
-        in _null_gate([_row("5m", "A", n, none)], columns=("poc_dist_atr",), memory=pd)["5m"][
-            "failing"
-        ]
+        "sr_support_dist"
+        in _null_gate([_row("1h", "A", n, partial)], columns=cols)["1h"]["failing"]
     )
 
 
-def test_g6_tiers_name_real_columns_and_the_screen_lists_its_apr_keys():
-    from src.intelligence.features.feature_vector_persistence import (
-        feature_vectors_numeric_columns,
-    )
-
-    assert set(ABSENCE_EXEMPT_TFS) <= set(feature_vectors_numeric_columns())
+def test_the_screen_lists_its_apr_keys():
     assert "infra.corpus_rerun.max_null_fraction" in APR_KEYS
     assert "threshold.pilot_gate.warmup_gap_bars" in APR_KEYS

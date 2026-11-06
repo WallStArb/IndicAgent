@@ -70,6 +70,39 @@ class KernelRegistryError(Exception):
     """The kernel set violates the registry contract."""
 
 
+# The events a path-dependent kernel's state can be anchored to (Kernel.memory_anchor).
+ANCHOR_SERIES_START = "series_start"  # an expanding window or a counter from the first row
+ANCHOR_SESSION_OPEN = "session_open"  # accumulators reset at each regular session open
+ANCHOR_WEEK_OPEN = "week_open"  # accumulators reset at each ISO week boundary
+MEMORY_ANCHORS = frozenset({ANCHOR_SERIES_START, ANCHOR_SESSION_OPEN, ANCHOR_WEEK_OPEN})
+
+_TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+_SESSIONS_PER_WEEK = 5
+
+
+def bars_per_session(config: FeatureFactoryConfig, tf: str) -> int:
+    """Bars of one regular session on `tf`: the configured New York session (UTC start to end,
+    390 minutes) over the bar length, rounded up; a daily bar is one session."""
+    if tf == "1d":
+        return 1
+    if tf not in _TF_MINUTES:
+        raise KernelRegistryError(f"no bar length for timeframe {tf!r}")
+    start = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
+    minutes = config.ny_session_end_utc_hour * 60 - start
+    return -(-minutes // _TF_MINUTES[tf])
+
+
+def anchored_warmup(anchor: str, config: FeatureFactoryConfig, tf: str) -> int:
+    """Rows from the series start until a session- or week-anchored accumulator has seen one
+    complete period: the series may start one bar into a period whose state is excluded (row 0
+    exclusion), so two periods bound it."""
+    if anchor == ANCHOR_SESSION_OPEN:
+        return 2 * bars_per_session(config, tf)
+    if anchor == ANCHOR_WEEK_OPEN:
+        return 2 * _SESSIONS_PER_WEEK * bars_per_session(config, tf)
+    raise KernelRegistryError(f"anchor {anchor!r} has no calendar period")
+
+
 @dataclass(frozen=True)
 class Kernel:
     """A pure feature computation.
@@ -93,6 +126,14 @@ class Kernel:
     # answer, so `feature_memory_bars` raises for it).
     path_dependent: bool = False
     path_dependent_reason: str = ""
+    # A path-dependent kernel's memory is unbounded by design, so it declares the event its
+    # state is anchored to (MEMORY_ANCHORS) and its warmup: `warmup(config, tf)` is the number
+    # of rows from the series start before its outputs can first be defined (an int, or one int
+    # per output), derived from its own parameters. `KernelRegistry.warmup_bars` composes it with
+    # the upstream chain; the pilot and corpus gates (G2 late start, G6 NULL share) measure every
+    # column from there. Research memory (`feature_memory_bars`) still refuses such a kernel.
+    memory_anchor: str = ""
+    warmup: Callable[[FeatureFactoryConfig, str], int | Mapping[str, int]] | None = None
     # Absolute float32 tolerance at which the declared memory holds. 0.0 means exact. A non-zero
     # value needs a comment in the kernel module giving the source of the last-bit difference
     # (cumsum-based rolling statistics, Wilder recursions).
@@ -113,6 +154,11 @@ class Kernel:
     # Outputs where 0.0 is the measured state (an event flag or a count over a fully observed
     # window): the pilot gate's fill audit skips them (design D1 rule 4, todo 584).
     zero_is_state: frozenset[str] = frozenset()
+    # Outputs whose object (a level, a node, a value area, a gap, a swing, a zone) may not exist
+    # at a row of real data: they are NaN there by design (D1 rule 2, todo 584 4b-2 group 4), so
+    # a high NULL share is not a fault. The corpus gate's G6 holds them only to not being
+    # entirely NULL where they apply (186-31).
+    object_dependent: frozenset[str] = frozenset()
 
 
 class Alignment(enum.Enum):
@@ -224,7 +270,7 @@ class KernelRegistry:
                 f"external input {name!r} equals the output of {_where(by_output[name])}"
             )
         for kernel in kernels:
-            for field_name in ("not_applicable", "zero_is_state"):
+            for field_name in ("not_applicable", "zero_is_state", "object_dependent"):
                 stray = set(getattr(kernel, field_name)) - set(kernel.outputs)
                 if stray:
                     raise KernelRegistryError(
@@ -343,6 +389,40 @@ class KernelRegistry:
         upstream = [self.effective_memory_bars(up.name, config) for up in self._upstream(kernel)]
         return own + (max(upstream) if upstream else 0)
 
+    def warmup_bars(self, output: str, config: FeatureFactoryConfig, tf: str) -> int:
+        """Rows from the series start before `output` can first be defined on `tf`: the
+        producing kernel's declared memory, or its declared warmup when it is path dependent,
+        plus the largest of the inputs it reads (per input output, so a product of adx is not
+        held to hma_slope_z's warmup). Every feature column has one; a
+        path-dependent kernel without a memory_anchor and warmup raises."""
+        return self._warmup(self.by_output(output), config, tf, output)
+
+    def _warmup(self, kernel: Kernel, config: FeatureFactoryConfig, tf: str, output: str) -> int:
+        if kernel.path_dependent:
+            if kernel.warmup is None or kernel.memory_anchor not in MEMORY_ANCHORS:
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} is path dependent without a memory_anchor in "
+                    f"{sorted(MEMORY_ANCHORS)} and a warmup"
+                )
+            declared = kernel.warmup(config, tf)
+            if isinstance(declared, Mapping):
+                own = declared[output]
+            else:
+                own = declared
+            if not isinstance(own, int) or isinstance(own, bool) or own < 0:
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} declares invalid warmup {own!r}; need an int >= 0"
+                )
+        else:
+            own = _check_memory(kernel, config)
+        external = self._external_names()
+        upstream = [
+            self._warmup(self.by_output(name), config, tf, name)
+            for name in kernel.inputs
+            if name not in BAR_FIELDS and name not in DERIVED_INPUTS and name not in external
+        ]
+        return own + (max(upstream) if upstream else 0)
+
     def outputs(self) -> tuple[str, ...]:
         return tuple(sorted(o for kernel in self.kernels for o in kernel.outputs))
 
@@ -354,6 +434,10 @@ class KernelRegistry:
         """Feature columns meaningful on `tf`: those not declared not_applicable on it."""
         columns = frozenset(self.feature_columns())
         return columns - self.not_applicable_outputs(tf)
+
+    def object_dependent_outputs(self) -> frozenset[str]:
+        """Every output declared object dependent, across all kernels."""
+        return frozenset(o for kernel in self.kernels for o in kernel.object_dependent)
 
     def not_applicable_outputs(self, tf: str) -> frozenset[str]:
         """Every output name declared not applicable on `tf`, across all kernels."""

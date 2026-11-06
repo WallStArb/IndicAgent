@@ -82,8 +82,9 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    on any run id exits at once (a global advisory lock), and a live `ic_measure`,
    `corpus_rerun`, `backfill_feature_factory` or `feature_vector_rebuild` process (a python
    process running that module with `-m` or as its script; not the runner and the shell or
-   timeout that started it, and not a `tail` or `grep` that merely names it) fails the pin
-   gate.
+   timeout that started it, and not a `tail` or `grep` that merely names it; interpreter
+   options such as `-X importtime`, `-u` or `-um` are parsed as CPython parses them) fails the
+   pin gate.
 
 Resume after a kill: re-run the same `--through` command. Completed steps are no-ops; the step
 that was running resumes (its completed units are skipped, a killed unit's started row is
@@ -113,7 +114,8 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
   step summary.
 - `pilot`: stage_1d's symbol chunk 0 and one 1h unit of span 1 (the first year of span 1 that
   holds one), both ordinary units of the real stages, kept; later stages skip them as completed.
-  G1-G3 (`scripts/ops/ops_feature_column_screen.py` on chunk 0, 1d and 1h) and G4-G5
+  G1-G3 and G6 (`scripts/ops/ops_feature_column_screen.py --null-gate` on chunk 0, 1d and 1h)
+  and G4-G5
   (`scripts/ops/ops_pilot_compute_gate.py`, every chunk 0 name at 1d and 1h) must pass. It
   records per-piece wall time, the extrapolated wall clock per stage, the DB load against the
   other lanes, the 1d and intraday bytes per row and the stored-per-spool ratio in
@@ -135,13 +137,14 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
   the plan or any stage summary; the column screen passes per tf, with G6: per (tf, column) the
   NULL or non-finite share of the rows past the column's declared warmup, on the columns the
   registry declares applicable to the tf, at or below `infra.corpus_rerun.max_null_fraction`.
-  The deleted verifier's tiers carry over: `poc_dist_atr` and `va_position` are skipped on 1d
-  (no intraday session), and they and `sr_support_dist`/`sr_resist_dist` fail only when entirely
-  NULL (their object may not exist). Columns with no declared memory (the HMM outputs, adx,
-  hurst, the session and weekly levels) are measured from each name's first finite row, so a
-  hole anywhere after it counts. No applicable column goes unmeasured: one with no measurable row
-  fails. The worst columns are in the screen's report. A revised bar
-  renames its unit, so it shows here as missing.
+  The warmup is the registry's `warmup_bars` per tf for every column: the declared memory, or a
+  path-dependent kernel's declared anchor (`series_start`, `session_open`, `week_open`) and
+  warmup derived from its own parameters (the HMM's first refit boundary, the bar statistics'
+  refresh minimums, the session and week periods), composed over the inputs each column reads.
+  Columns the registry declares object dependent (a level, node, value area, gap, swing or zone
+  that may not exist; `Kernel.object_dependent`) fail only when entirely NULL. The pilot runs the
+  same G6 on its rows, so this class fails in the pilot hour. A revised bar renames its unit, so
+  it shows here as missing.
 - `ic_measure` under the run id with `--report`. Every expected unit (default jobs, every tf in
   `alpha.ic_measure.horizons`) must be in the report, with one completed row that is the
   reported batch_key: loaded or replaced under this run, or reported `skipped` (adopted).

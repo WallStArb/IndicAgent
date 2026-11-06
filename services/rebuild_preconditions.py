@@ -302,21 +302,40 @@ def check_disk_guard(
     )
 
 
+# CPython options that take a separate argument (`-X importtime`, `-W error`).
+_PYTHON_OPTIONS_WITH_ARG = frozenset("XWQ")
+
+
 def invoked_module(process_line: str) -> str | None:
-    """The module a python process runs (`python [-flags] -m pkg.mod` or `python path/mod.py`),
-    by its last dotted or file-stem name; None for anything else. A shell that only mentions a
-    writer (a `tail -f` of its log, a grep) is not that writer."""
+    """The module a python process runs, by its last dotted or file-stem name, parsed as CPython
+    parses its argv: interpreter options first (bundled single letters like `-um`, `-u -O -B`,
+    `-X opt` and `-W arg` with their argument, attached or separate), then `-m module`, `-c`
+    (no module) or the script path. None for anything else: a shell that only mentions a writer
+    (a `tail -f` of its log, a grep) is not that writer."""
     tokens = process_line.split()
     start = next((i for i, t in enumerate(tokens) if Path(t).name.startswith("python")), None)
     if start is None:
         return None
     argv = tokens[start + 1 :]
-    while argv and argv[0].startswith("-") and argv[0] != "-m":
-        argv = argv[1:]
-    if len(argv) >= 2 and argv[0] == "-m":
-        return argv[1].rsplit(".", 1)[-1]
-    if argv and argv[0].endswith(".py"):
-        return Path(argv[0]).stem
+    i = 0
+    while i < len(argv) and argv[i].startswith("-") and argv[i] != "-":
+        if argv[i] == "--":
+            i += 1
+            break
+        letters = argv[i][1:]
+        for j, letter in enumerate(letters):
+            if letter == "m":
+                rest = letters[j + 1 :] or (argv[i + 1] if i + 1 < len(argv) else "")
+                return rest.rsplit(".", 1)[-1] or None
+            if letter == "c":
+                return None
+            if letter in _PYTHON_OPTIONS_WITH_ARG:
+                if j + 1 == len(letters):
+                    i += 1  # the argument is the next token
+                break
+        i += 1
+    if i < len(argv) and argv[i].endswith(".py"):
+        return Path(argv[i]).stem
     return None
 
 

@@ -18,7 +18,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel, constant_tf
+from src.intelligence.features.contract.registry import (
+    ANCHOR_SESSION_OPEN,
+    Kernel,
+    anchored_warmup,
+    constant_tf,
+)
 from src.intelligence.features.kernels._cache_state import (
     FeatureCache,
     _compute_session_value_area,
@@ -1152,6 +1157,13 @@ TREND = KeyGroup.from_fallback(_TREND_STRUCTURE_FALLBACK)
 SWING_MOMENTUM = KeyGroup.from_fallback(_SWING_MOMENTUM_FALLBACK)
 FIB = KeyGroup.from_fallback(_FIB_FALLBACK)
 SESSION_LEVEL = KeyGroup.from_fallback(_SESSION_LEVELS_FALLBACK)
+# The session VP outputs that read an object a session may lack (_derive_vp_fields: a POC, a
+# value area of nonzero width, a high- or low-volume node); the rolling-POC pair reads the
+# rolling POC, which exists once its window is full, so it is measured like any column.
+VP_SESSION_OBJECT_OUTPUTS = VP.nullable - {
+    "poc_rolling_dist_atr",
+    "poc_session_rolling_divergence_atr",
+}
 # The swing, trend and fib columns come from one kernel because the trend and fib helpers
 # reuse the swing pass's pivots (D-06, one find_peaks pass per bar).
 SWING_STRUCTURE = KeyGroup.concat(SWING, TREND, FIB)
@@ -1326,8 +1338,13 @@ KERNELS = (
         compute=_compute_session_vp_columns,
         # a single daily bar has no intraday distribution
         not_applicable=undefined_on("1d", VP.outputs),
+        object_dependent=VP_SESSION_OBJECT_OUTPUTS,
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
+        memory_anchor=ANCHOR_SESSION_OPEN,
+        # the accumulators reset at each session open and row 0's session is excluded, so one
+        # complete session follows within two sessions of bars
+        warmup=lambda config, tf: anchored_warmup(ANCHOR_SESSION_OPEN, config, tf),
     ),
     Kernel(
         name="support_resistance",
@@ -1338,6 +1355,7 @@ KERNELS = (
         # sr_level_count stays 0.0 when no level exists (a measured empty set);
         # D1 rule 4, todo 584 4c. Every other output is NaN there (group 4).
         zero_is_state=frozenset({"sr_level_count"}),
+        object_dependent=SR.nullable,  # no qualifying level cluster in the window
     ),
     Kernel(
         name="swing_structure",
@@ -1345,6 +1363,7 @@ KERNELS = (
         inputs=("high", "low", "close", ATR_RAW_PADDED),
         memory=lambda config: config.swing_lookback_bars - 1,
         compute=_compute_swing_structure_columns,
+        object_dependent=SWING_STRUCTURE.nullable,  # no confirmed swing pivot in the lookback
     ),
     Kernel(
         name="swing_momentum",
@@ -1352,6 +1371,7 @@ KERNELS = (
         inputs=("high", "low", "volume"),
         memory=lambda config: config.swing_momentum_lookback_bars - 1,
         compute=_compute_swing_momentum_columns,
+        object_dependent=SWING_MOMENTUM.nullable,  # fewer swings than a measure needs
     ),
     Kernel(
         name="session_levels",
@@ -1359,8 +1379,14 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
+        # no opening gap (the open equals the prior close) or nothing left to fill
+        object_dependent=frozenset({"opening_gap_pct", "gap_filled"}),
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
+        memory_anchor=ANCHOR_SESSION_OPEN,
+        # the accumulators reset at each session open and row 0's session is excluded, so one
+        # complete session follows within two sessions of bars
+        warmup=lambda config, tf: anchored_warmup(ANCHOR_SESSION_OPEN, config, tf),
     ),
 )

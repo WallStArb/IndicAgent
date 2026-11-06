@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel, volume_basis_segment_starts
+from src.intelligence.features.contract.registry import (
+    ANCHOR_SERIES_START,
+    Kernel,
+    volume_basis_segment_starts,
+)
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     EPS,
@@ -908,6 +912,9 @@ KERNELS = (
         _compute_vwap_dev_sigma,
         path_dependent=True,
         path_dependent_reason="running VWAP and running deviation statistics accumulate from the series start",
+        memory_anchor=ANCHOR_SERIES_START,
+        # _vwap_dev_sigma_series_full: the running deviation std needs two rows to spread
+        warmup=lambda c, tf: 1,
     ),
     _velocity_kernel("vwap_dev_sigma", "vwap_velocity_window"),
     _k(

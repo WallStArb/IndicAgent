@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.contract.registry import ANCHOR_SERIES_START, Kernel
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
@@ -1990,6 +1990,40 @@ def _compute_cache_products(x, config):
 _BAR_STATISTICS = ("hurst", "shannon", "garch_ratio", "hma_slope_z", "adx")
 
 
+def _first_refresh_holding(config, bars: int) -> int:
+    """The first refresh row whose window holds at least `bars` closes. Refresh rows are
+    i = k * regime_cache_refresh_bars (k >= 1); the window at row i is
+    [max(0, i - hurst_window), i], min(i, hurst_window) + 1 closes, and FeatureCache.refresh_regime
+    returns early below min_bars_warmup."""
+    need = max(bars, config.min_bars_warmup)
+    if config.hurst_window + 1 < need:
+        raise ValueError(
+            f"bar statistics never hold {need} closes: hurst_window {config.hurst_window} caps "
+            "every refresh window"
+        )
+    step = config.regime_cache_refresh_bars
+    return max(step, -(-(need - 1) // step) * step)
+
+
+def _bar_statistics_warmup(config) -> dict[str, int]:
+    """Row at which each bar statistic is first defined (_cache_state's own minimums):
+    _hurst_rs needs 16 log returns (17 closes), _shannon_entropy 10 (11 closes), _garch_ratio
+    10 closes of its window, _adx 2 * adx_period + 1 closes. hma_slope_z needs a finite HMA on
+    the closes before the last (_hma: period + round(sqrt(period)) - 1 closes, so the window
+    holds period + round(sqrt(period))), then momentum_zscore_window slopes, one per refresh."""
+    step = config.regime_cache_refresh_bars
+    first_slope = _first_refresh_holding(
+        config, config.hma_period + int(round(math.sqrt(config.hma_period)))
+    )
+    return {
+        "hurst": _first_refresh_holding(config, 17),
+        "shannon": _first_refresh_holding(config, 11),
+        "garch_ratio": _first_refresh_holding(config, 10),
+        "adx": _first_refresh_holding(config, 2 * config.adx_period + 1),
+        "hma_slope_z": first_slope + (config.momentum_zscore_window - 1) * step,
+    }
+
+
 def _compute_bar_statistics_refresh(x, config):
     """Replay of FeatureCache.refresh_regime at compute_batch's cadence on a fresh cache.
 
@@ -2100,6 +2134,10 @@ KERNELS = (
         _compute_ret_autocorr,
         path_dependent=True,
         path_dependent_reason="expanding-window autocorrelation over all history since the series start",
+        memory_anchor=ANCHOR_SERIES_START,
+        # _ret_autocorr_series_full: the pair count reaches 2 at log-return row lag + 1, which
+        # is bar row lag + 2.
+        warmup=lambda c, tf: {"ret_autocorr_1": 1 + 2, "ret_autocorr_5": 5 + 2},
     ),
     _k(
         "abs_ret_autocorr",
@@ -2109,6 +2147,8 @@ KERNELS = (
         _compute_abs_ret_autocorr,
         path_dependent=True,
         path_dependent_reason="expanding-window autocorrelation over all history since the series start",
+        memory_anchor=ANCHOR_SERIES_START,
+        warmup=lambda c, tf: 1 + 2,  # lag 1, as ret_autocorr: bar row lag + 2
     ),
     _k(
         "streak_z",
@@ -2118,6 +2158,10 @@ KERNELS = (
         _compute_streak_z,
         path_dependent=True,
         path_dependent_reason="the signed streak length is unbounded, so no finite window reproduces it",
+        memory_anchor=ANCHOR_SERIES_START,
+        # the streak series starts at row 0 (padded 0.0); _fixed_window_zscore_series is NaN on
+        # its first streak_window - 1 rows
+        warmup=lambda c, tf: c.streak_window - 1,
     ),
     _k(
         "vol_asymmetry_z",
@@ -2148,6 +2192,13 @@ KERNELS = (
         _compute_variance_ratio,
         path_dependent=True,
         path_dependent_reason="full-sample Lo-MacKinlay estimator over all history since the series start",
+        memory_anchor=ANCHOR_SERIES_START,
+        # _variance_ratio_series_full: the N-period aggregate needs agg_upper = j - N + 1 >= 1,
+        # so the first value is log-return row N, bar row N + 1
+        warmup=lambda c, tf: {
+            f"variance_ratio_{scale}": getattr(c, f"variance_ratio_{scale}") + 1
+            for scale in ("fast", "slow")
+        },
     ),
     *_BREAKOUT_KERNELS,
     _k(
@@ -2281,6 +2332,8 @@ KERNELS = (
         _compute_bar_statistics_refresh,
         path_dependent=True,
         path_dependent_reason="refresh cadence counts from row 0 and the hma slope history accumulates across refreshes",
+        memory_anchor=ANCHOR_SERIES_START,
+        warmup=lambda c, tf: _bar_statistics_warmup(c),
         zero_is_state=frozenset({"shannon"}),
     ),
     _k(

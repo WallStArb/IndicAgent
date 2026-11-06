@@ -1195,7 +1195,8 @@ class CorpusRerun:
             raise StepFailed("pilot units: " + "; ".join(problems), summary)
 
         chunk0 = d.symbol_chunks()[0]
-        screen = [d.python, str(COLUMN_SCREEN), "--tf", "1d", "--tf", "1h"]
+        # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
+        screen = [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", "1d", "--tf", "1h"]
         for symbol in chunk0:
             screen += ["--symbol", symbol]
         units = [f"{s}:{tf}" for tf in ("1d", "1h") for s in chunk0]

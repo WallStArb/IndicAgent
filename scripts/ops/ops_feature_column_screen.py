@@ -9,9 +9,13 @@ Per (tf, name) and column:
   (NaN warmup and infinities do not make a constant column live), outside the registry's declared
   applicable outputs for the timeframe. The control canary_constant must hold its declared value on
   every row.
-- G2 warmup gap: the first finite row index minus the declared `feature_memory_bars`, above
-  `threshold.pilot_gate.warmup_gap_bars`. Columns with no finite memory (path dependent: the HMM
-  regime outputs) have no declared memory and are covered by G1 only.
+- G2 warmup gap: the first finite row index minus the column's declared warmup, above
+  `threshold.pilot_gate.warmup_gap_bars`. The warmup is the registry's `warmup_bars` per tf: the
+  declared memory, or a path-dependent kernel's declared anchor warmup (the HMM's first refit
+  boundary, a session or week anchor), so every column is judged the same way.
+- G6 (`--null-gate`): the NULL or non-finite share of the rows past each column's warmup per
+  (tf, column), at `infra.corpus_rerun.max_null_fraction`; a column the registry declares object
+  dependent fails only when entirely NULL.
 - G3 fill audit: the exact-0.0 share of finite post-warmup rows, above
   `threshold.pilot_gate.zero_share_max`, for a column outside the kernels' `zero_is_state` set.
 A name with no more rows than a column's declared memory is not judged on that column (empty is
@@ -49,13 +53,14 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
 from services._batch_utils import get_list_config, load_config_service_sync  # noqa: E402
-from services.backfill_feature_factory import _build_feature_factory_config  # noqa: E402
+from services.backfill_feature_factory import (  # noqa: E402
+    TARGET_TIMEFRAMES_KEY,
+    _build_feature_factory_config,
+    _get_target_timeframes,
+)
 from services.corpus_rerun_apr import MAX_NULL_FRACTION_KEY  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
-from src.intelligence.features.contract.registry import (  # noqa: E402
-    default_registry,
-    feature_memory_bars,
-)
+from src.intelligence.features.contract.registry import default_registry  # noqa: E402
 from src.intelligence.features.feature_vector_persistence import (  # noqa: E402
     feature_vectors_numeric_columns,
 )
@@ -73,18 +78,13 @@ WARMUP_GAP_KEY = "threshold.pilot_gate.warmup_gap_bars"
 ZERO_SHARE_KEY = "threshold.pilot_gate.zero_share_max"
 PILOT_NAMES_KEY = "infra.pilot_gate.names"
 # Every APR key the screen reads (the corpus rerun pins their values, 186-31).
-APR_KEYS: tuple[str, ...] = (WARMUP_GAP_KEY, ZERO_SHARE_KEY, PILOT_NAMES_KEY, MAX_NULL_FRACTION_KEY)
-# G6 tiers carried from the deleted corpus verifier (todo 584 4b-2 group 4, D1 rule 2): these
-# columns are None wherever their object does not exist (no intraday session on 1d for the
-# session volume profile pair; no qualifying support or resistance cluster in the window), so
-# the share gate would fail honest data. They fail G6 only when entirely NULL on a tf where the
-# object can exist, and are skipped on the tfs listed (structurally absent there).
-ABSENCE_EXEMPT_TFS: dict[str, frozenset[str]] = {
-    "poc_dist_atr": frozenset({"1d"}),
-    "va_position": frozenset({"1d"}),
-    "sr_support_dist": frozenset(),
-    "sr_resist_dist": frozenset(),
-}
+APR_KEYS: tuple[str, ...] = (
+    WARMUP_GAP_KEY,
+    ZERO_SHARE_KEY,
+    PILOT_NAMES_KEY,
+    MAX_NULL_FRACTION_KEY,
+    TARGET_TIMEFRAMES_KEY,
+)
 EXAMPLES = 20  # names listed per failing column in the report; counts are always complete
 
 
@@ -128,18 +128,30 @@ def zero_is_state(registry) -> frozenset[str]:
     return frozenset(o for k in registry.kernels for o in k.zero_is_state)
 
 
-def declared_memory(registry, config, columns: tuple[str, ...]) -> dict[str, int | None]:
-    """Declared memory in bars per column; None only where the kernel is path dependent (no
-    finite memory). A column no kernel produces raises, so a registry and schema mismatch is loud.
-    """
-    return {
-        column: (
-            None
-            if registry.is_path_dependent(column)
-            else feature_memory_bars(column, config, registry)
-        )
-        for column in columns
-    }
+def declared_memory(registry, config, columns: tuple[str, ...], tfs) -> dict[str, dict[str, int]]:
+    """Per tf, the rows from the series start before each column can be defined: the registry's
+    declared memory, or a path-dependent kernel's declared anchor warmup (`warmup_bars`), so G2
+    and G6 measure every column the same way. A column no kernel produces, or an applicable one
+    without a declaration, raises: a registry and schema mismatch is loud."""
+    out: dict[str, dict[str, int]] = {}
+    for tf in tfs:
+        applicable = applicable_columns(registry, columns, tf)
+        per_tf: dict[str, int] = {}
+        for column in columns:
+            try:
+                per_tf[column] = registry.warmup_bars(column, config, tf)
+            except Exception:
+                if column in applicable:
+                    raise
+                per_tf[column] = 0  # never judged on this tf: not applicable there
+        out[tf] = per_tf
+    return out
+
+
+def object_dependent(registry) -> frozenset[str]:
+    """Outputs the registry declares NaN wherever their object does not exist (G6 holds them only
+    to not being entirely NULL)."""
+    return frozenset(registry.object_dependent_outputs())
 
 
 def _failing(by_column: dict[str, list[str]]) -> dict[str, dict]:
@@ -162,7 +174,7 @@ def screen_rows(
     columns: tuple[str, ...],
     rows: list[tuple],
     *,
-    memory: dict[str, int | None],
+    memory: dict[str, dict[str, int]],
     applicable: dict[str, frozenset[str]],
     zero_state: frozenset[str],
     min_rows: int,
@@ -191,8 +203,8 @@ def screen_rows(
             for column, (non_null, finite, first_rn, low, high, zeros, finite_post) in zip(
                 columns, per_column, strict=True
             ):
-                mem = memory[column]
-                if mem is not None and n <= mem:
+                mem = memory[tf][column]
+                if n <= mem:
                     continue  # history shorter than the declared memory: empty is expected
                 judged_for[column] += 1
                 why = judge(column, non_null, finite, low, high)
@@ -201,7 +213,7 @@ def screen_rows(
                     if column in applicable[tf]:
                         fails["G1"][column].append(symbol)
                     continue
-                if mem is not None and first_rn - 1 - mem > warmup_gap_max:
+                if first_rn - 1 - mem > warmup_gap_max:
                     fails["G2"][column].append(symbol)
                 if (
                     column not in zero_state
@@ -227,19 +239,18 @@ def null_share_gate(
     columns: tuple[str, ...],
     rows: list[tuple],
     *,
-    memory: dict[str, int | None],
+    memory: dict[str, dict[str, int]],
     applicable: dict[str, frozenset[str]],
+    object_columns: frozenset[str],
     max_null_fraction: float,
     min_name_rows: int,
     worst: int = EXAMPLES,
 ) -> dict[str, dict]:
-    """G6 per tf: the NULL or non-finite share of each applicable column, pooled over the
-    judged names. A column with a declared memory is measured over the rows past it; a column
-    without one (path dependent: the HMM outputs, adx, hurst and the session and weekly levels)
-    from each name's first finite row, so a hole anywhere after its warmup counts and a name
-    with no finite row counts every row. No applicable column goes unmeasured: one with judged
-    names but no measurable row fails. Returns, per tf, the failing columns with their reason
-    and the worst shares whatever their verdict."""
+    """G6 per tf: the NULL or non-finite share of each applicable column over the rows past its
+    declared warmup (`declared_memory`), pooled over the judged names. A column the registry
+    declares object dependent fails only when entirely NULL there (its object may not exist).
+    No applicable column goes unmeasured: one with judged names but no row past its warmup
+    fails. Returns, per tf, the failing columns with their reason and the worst shares."""
     measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
     judged_tfs: set[str] = set()
     for tf, _symbol, n, *stats in rows:
@@ -247,21 +258,16 @@ def null_share_gate(
             continue
         judged_tfs.add(tf)
         for column, cell in zip(columns, batched(stats, STATS_PER_COLUMN, strict=True)):
-            _non_null, finite, first_rn, *_rest, finite_post = cell
-            mem = memory[column]
-            if mem is None:
-                span = n if first_rn is None else n - first_rn + 1
-                measured[(tf, column)][0] += span
-                measured[(tf, column)][1] += finite
-            elif n > mem:
+            mem = memory[tf][column]
+            if n > mem:
                 measured[(tf, column)][0] += n - mem
-                measured[(tf, column)][1] += finite_post
+                measured[(tf, column)][1] += cell[6]
     out: dict[str, dict] = {}
     for tf in sorted({tf for tf, *_ in rows}):
         shares: dict[str, float] = {}
         failing: dict[str, str] = {}
         for column in columns:
-            if column not in applicable[tf] or tf in ABSENCE_EXEMPT_TFS.get(column, ()):
+            if column not in applicable[tf]:
                 continue
             total, finite = measured.get((tf, column), (0, 0))
             if not total:
@@ -270,9 +276,9 @@ def null_share_gate(
                 continue
             share = 1 - finite / total
             shares[column] = round(share, 6)
-            if column in ABSENCE_EXEMPT_TFS:
+            if column in object_columns:
                 if finite == 0:
-                    failing[column] = "entirely NULL where the object can exist (D1 rule 2)"
+                    failing[column] = "entirely NULL where its object can exist (object dependent)"
             elif share > max_null_fraction:
                 failing[column] = f"null share {share:.1%} > {max_null_fraction:.1%}"
         out[tf] = {
@@ -298,8 +304,20 @@ def apr_value(cfg, key: str):
     return value
 
 
+def _warmup_expr(memory: dict[str, dict[str, int]], column: str) -> sql.Composable:
+    """The column's declared warmup in rows, per tf (a CASE over tf when the tfs differ)."""
+    values = {tf: per_tf[column] for tf, per_tf in memory.items()}
+    if len(set(values.values())) <= 1:
+        return sql.Literal(next(iter(values.values()), 0))
+    whens = sql.SQL(" ").join(
+        sql.SQL("WHEN {} THEN {}").format(sql.Literal(tf), sql.Literal(m))
+        for tf, m in sorted(values.items())
+    )
+    return sql.SQL("CASE tf {} ELSE 0 END").format(whens)
+
+
 def _query(
-    columns: tuple[str, ...], memory: dict[str, int | None], where: sql.Composable
+    columns: tuple[str, ...], memory: dict[str, dict[str, int]], where: sql.Composable
 ) -> sql.Composed:
     def aggregates(c: str) -> sql.Composed:
         finite = "{c} > '-Infinity' AND {c} < 'Infinity'"  # NaN sorts above Infinity: excluded
@@ -308,7 +326,7 @@ def _query(
             f"min({{c}}) FILTER (WHERE {finite}), max({{c}}) FILTER (WHERE {finite}), "
             f"count(*) FILTER (WHERE {{c}} = 0 AND rn > {{m}}), "
             f"count(*) FILTER (WHERE {finite} AND rn > {{m}})"
-        ).format(c=sql.Identifier(c), m=sql.Literal(memory[c] or 0))
+        ).format(c=sql.Identifier(c), m=_warmup_expr(memory, c))
 
     return sql.SQL(
         "SELECT tf, symbol, count(*), {aggs} FROM ("
@@ -355,7 +373,8 @@ def main(argv: list[str] | None = None) -> int:
             args.symbol = get_list_config(cfg, PILOT_NAMES_KEY, [])
             if not args.symbol:
                 parser.error("APR key infra.pilot_gate.names is empty")
-        memory = declared_memory(registry, _build_feature_factory_config(cfg), columns)
+        tfs = args.tf or _get_target_timeframes(cfg)
+        memory = declared_memory(registry, _build_feature_factory_config(cfg), columns, tfs)
         filters, params = [], []
         for key, values in (("tf", args.tf), ("symbol", args.symbol)):
             if values:
@@ -400,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             [r for r in rows_by_key.values() if r[0] in report],
             memory=memory,
             applicable={tf: applicable_columns(registry, columns, tf) for tf in report},
+            object_columns=object_dependent(registry),
             max_null_fraction=max_null,
             min_name_rows=args.min_name_rows,
         )

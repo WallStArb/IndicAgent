@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.contract.registry import ANCHOR_WEEK_OPEN, Kernel, anchored_warmup
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import undefined_on, unique_datetimes
 
@@ -438,5 +438,9 @@ KERNELS = (
             "reset bounds it in calendar time, but the bound in bars depends on tf, which a "
             "kernel does not receive"
         ),
+        memory_anchor=ANCHOR_WEEK_OPEN,
+        # the weekly accumulator resets at each ISO week and row 0's week is excluded: one
+        # complete week follows within two weeks of bars on the tf
+        warmup=lambda config, tf: anchored_warmup(ANCHOR_WEEK_OPEN, config, tf),
     ),
 )

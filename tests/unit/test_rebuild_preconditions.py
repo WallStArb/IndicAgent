@@ -285,6 +285,8 @@ def test_fetch_process_lines_drops_this_process_and_its_ancestors_but_keeps_ever
         "4244 bash -c less logs/ic_measure.log",
         "4245 /venv/bin/python -m pytest tests/unit/services/test_corpus_rerun.py",
         "4246 vim services/corpus_rerun.py",
+        "4247 python -c import services.corpus_rerun",
+        "4248 python -X importtime -m pytest tests/unit/services/test_corpus_rerun.py",
     ],
 )
 def test_a_shell_that_only_mentions_a_writer_is_not_refused(line):
@@ -297,6 +299,10 @@ def test_a_shell_that_only_mentions_a_writer_is_not_refused(line):
         "4250 /home/bg/dev/indicagent/.venv/bin/python -m services.corpus_rerun --run-id x",
         "4251 python3.14 -u -m services.ic_measure --run-id y --report r.json",
         "4252 /venv/bin/python /wt/services/backfill_feature_factory.py --compute-only",
+        "4253 python -X importtime -m services.corpus_rerun --run-id x",
+        "4254 python -um services.ic_measure --run-id y",
+        "4255 python3 -W error -O -B /wt/services/ic_measure.py",
+        "4256 python -Ximporttime -mservices.corpus_rerun --run-id x",
     ],
 )
 def test_a_second_runner_or_writer_is_refused(line):

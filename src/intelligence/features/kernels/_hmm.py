@@ -264,6 +264,15 @@ def _vol_of_vol_valid_start(vol_window: int, vol_of_vol_window: int) -> int:
     return vol_window + vol_of_vol_window - 2
 
 
+def _trend_valid_start(vol_window: int, momentum_window: int, vol_of_vol_window: int) -> int:
+    """First log-return row of the trend family's observations: every window full and the
+    vol_of_vol window in real data. The single source of this index."""
+    return max(
+        max(vol_window, momentum_window, vol_of_vol_window) - 1,
+        _vol_of_vol_valid_start(vol_window, vol_of_vol_window),
+    )
+
+
 def _require_complete(obs: np.ndarray) -> np.ndarray:
     """The observation matrix, or ValueError when any emitted value is not finite: a row built
     from a padded warmup entry or a bad input must stop the run, not reach the fit."""
@@ -292,10 +301,7 @@ def _observations_trend(
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
     log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
 
-    valid_start = max(
-        max(vol_window, momentum_window, vol_of_vol_window) - 1,
-        _vol_of_vol_valid_start(vol_window, vol_of_vol_window),
-    )
+    valid_start = _trend_valid_start(vol_window, momentum_window, vol_of_vol_window)
     if len(log_returns) < valid_start + 1:
         return np.empty((0, 5), dtype=float), 0
 
@@ -1125,6 +1131,18 @@ def _trend_observations(
     )
 
 
+def _trend_valid_start_of(params: HmmConfig) -> int:
+    return _trend_valid_start(
+        params.hmm_vol_window, params.hmm_momentum_window, params.hmm_vol_of_vol_window
+    )
+
+
+def _volatility_valid_start_of(params: HmmConfig) -> int:
+    return _vol_of_vol_valid_start(
+        params.hmm_volatility_vol_window, params.hmm_volatility_vol_of_vol_window
+    )
+
+
 def _volatility_observations(
     close: np.ndarray, volume: np.ndarray | None, params: HmmConfig, block_rows: int | None
 ) -> tuple[np.ndarray, int]:
@@ -1158,6 +1176,7 @@ class RegimeFamilySpec:
     build_observations: Callable[
         [np.ndarray, np.ndarray | None, HmmConfig, int | None], tuple[np.ndarray, int]
     ]
+    valid_start: Callable[[HmmConfig], int]  # the builder's first log-return row
     regime_column: str
     code_output: str
     status_output: str
@@ -1178,6 +1197,16 @@ class RegimeFamilySpec:
             int(getattr(params, f"{self.config_prefix}_n_components")),
             self.covariance_type(params),
         )
+
+    def first_labelled_row(self, params: HmmConfig, tf: str) -> int:
+        """The first bar row the walk-forward can label on `tf`: observation row 0 is bar row
+        valid_start + 1 (the regime kernel's offset), and the first refit boundary is
+        max(initial_warmup_bars, n_components * min_obs_factor) observation rows in
+        (_walk_forward_hmm_full). A degenerate or unconverged segment after it stays NaN."""
+        n_components, _ = self.model_fields(params)
+        _refit, initial_warmup = params.walk_forward_schedule(tf)
+        boundary = max(initial_warmup, n_components * params.hmm_min_obs_factor)
+        return self.valid_start(params) + 1 + boundary
 
     def covariance_type(self, params: HmmConfig) -> str:
         """The family's covariance type (the same on every timeframe)."""
@@ -1203,6 +1232,7 @@ FAMILY_SPECS: dict[str, RegimeFamilySpec] = {
         prob_order=(0, 1, 2),
         inputs=("close", "volume", "tf"),
         build_observations=_trend_observations,
+        valid_start=_trend_valid_start_of,
         regime_column=REGIME_WRITER_OWNED_COLUMN_NAMES[0],
         code_output="_hmm_trend_code",
         status_output="_hmm_trend_segment_status",
@@ -1217,6 +1247,7 @@ FAMILY_SPECS: dict[str, RegimeFamilySpec] = {
         prob_order=(2, 0),
         inputs=("close", "tf"),
         build_observations=_volatility_observations,
+        valid_start=_volatility_valid_start_of,
         regime_column=REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0],
         code_output="_hmm_volatility_code",
         status_output="_hmm_volatility_segment_status",

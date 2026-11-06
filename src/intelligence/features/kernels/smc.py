@@ -1172,6 +1172,8 @@ def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()
         memory=lambda config: lookback(config) - 1,
         compute=compute,
         zero_is_state=zero_is_state,
+        # every None in the group's fallback dict is an object that does not exist (module doc)
+        object_dependent=(group.nullable & frozenset(group.outputs)) - zero_is_state,
     )
 
 

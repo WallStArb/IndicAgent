@@ -435,6 +435,8 @@ def test_the_pilot_runs_chunk_0_of_stage_1d_and_one_1h_unit_of_span_1_and_measur
     assert all(c["spool_root"] == Path("/main/logs/rebuild_spool") for c in world.rebuild.calls)
     gates = [argv for argv, _ in world.commands]
     assert any("ops_feature_column_screen.py" in a for argv in gates for a in argv)
+    pilot_screen = next(argv for argv in gates if "ops_feature_column_screen.py" in argv[1])
+    assert "--null-gate" in pilot_screen  # G6 fails in the pilot hour, not after days
     assert any("AAA:1h" in argv for argv in gates)
     measured = world.store.run.measured
     assert measured["pilot_bytes_per_row_intraday"] == 1379.0 and "pilot_db_load" in measured
