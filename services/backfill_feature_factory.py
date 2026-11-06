@@ -1048,6 +1048,10 @@ class SeriesColumns(NamedTuple):
     numeric: np.ndarray
     regime: np.ndarray  # object, None where unlabeled
     regime_volatility: np.ndarray
+    # (n_bars, len(object_columns)) bool: the object-dependent column's own object or validity
+    # state is true at the row (its none mask is 0) and the row is storable (past its warmup)
+    present: np.ndarray | None = None
+    object_columns: tuple[str, ...] = ()
 
 
 def column_warmup_bars(
@@ -1067,6 +1071,19 @@ def column_warmup_bars(
             continue
         warmups[column] = registry.effective_memory_bars(kernel.name, config)
     return warmups
+
+
+def stored_first_row(
+    registry: KernelRegistry, column: str, config: FeatureFactoryConfig, tf: str
+) -> int:
+    """The first row of a series the rebuild can store for `column` on `tf`: a column with a
+    finite memory is written missing inside it (column_warmup_bars, no_fill), so its first
+    storable row is that memory; a path-dependent column is stored from where its value can
+    first exist (the registry's definition_warmup). The corpus gates G2 and G6 measure from here."""
+    defined = registry.definition_warmup(column, config, tf)
+    if registry.is_path_dependent(column):
+        return defined
+    return max(defined, registry.effective_memory_bars(registry.by_output(column).name, config))
 
 
 def _compute_series_columns(
@@ -1091,6 +1108,8 @@ def _compute_series_columns(
     n = len(inputs["close"])
     warmups = column_warmup_bars(registry, numeric_names, config)
     matrix = np.empty((n, len(numeric_names)), dtype=np.float32)
+    objects = tuple(c for c in numeric_names if c in registry.object_dependent_outputs())
+    present = np.zeros((n, len(objects)), dtype=bool)
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         for j, name in enumerate(numeric_names):
             column = np.array(out[name], dtype=np.float64)
@@ -1101,10 +1120,16 @@ def _compute_series_columns(
             if warmup:
                 column[: min(warmup, n)] = np.nan
             matrix[:, j] = clamp_to_real_range_array(column)
+    for k, name in enumerate(objects):
+        # counted only, never written: the none mask is the kernel's own presence state
+        present[:, k] = np.asarray(out[none_mask_name(name)]) <= 0.5
+        present[: min(warmups.get(name, 0), n), k] = False
     return SeriesColumns(
         numeric=matrix,
         regime=np.asarray(out["regime"], dtype=object),
         regime_volatility=np.asarray(out["regime_volatility"], dtype=object),
+        present=present,
+        object_columns=objects,
     )
 
 
@@ -1256,9 +1281,12 @@ def _write_unit_spool(
     range_end: datetime,
     first_row: int,
     block_rows: int,
+    stats_out: dict[str, list[int]] | None = None,
 ) -> int:
     """Write one symbol's rows of the half-open range [range_start, range_end) to `path`; return
-    the row count.
+    the row count. With `stats_out`, also count over the written rows, per object-dependent
+    column, [present, nan_present]: rows where its object or validity state is true, and of
+    those the ones stored missing (the unit's provenance unit_stats, 186-31).
 
     Rows before `first_row` (the dominant-window warmup the old table also skipped) and bars the
     market calendar does not call trading bars are left out. The trading filter runs once over
@@ -1272,6 +1300,14 @@ def _write_unit_spool(
     kept = [
         k for k in range(lo, hi) if calendar.is_trading_bar(_TRADING_EXCHANGE, bar_times[k], tf)
     ]
+    if stats_out is not None and series.object_columns and kept:
+        names = feature_vectors_numeric_columns()
+        index = {name: j for j, name in enumerate(names)}
+        rows = np.asarray(kept)
+        for k, name in enumerate(series.object_columns):
+            present = series.present[rows, k]
+            missing = np.isnan(series.numeric[rows, index[name]])
+            stats_out[name] = [int(present.sum()), int((present & missing).sum())]
     with open(path, "w") as handle:
         for b in range(0, len(kept), block_rows):
             block = kept[b : b + block_rows]
@@ -1422,6 +1458,7 @@ def _rebuild_worker(args: tuple) -> dict:
             del inputs
             for index, (range_start, range_end) in unit_ranges:
                 path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
+                stats: dict[str, list[int]] = {}
                 rows = _write_unit_spool(
                     path,
                     symbol,
@@ -1433,8 +1470,9 @@ def _rebuild_worker(args: tuple) -> dict:
                     range_end,
                     first_row,
                     block_rows,
+                    stats_out=stats,
                 )
-                result["units"][index] = {"path": str(path), "rows": rows}
+                result["units"][index] = {"path": str(path), "rows": rows, "stats": stats}
     except Exception as error:
         result["error"] = f"{type(error).__name__}: {error}"
         worker_log.error("rebuild_worker_failed", symbol=symbol, tf=tf, error=str(error))
@@ -1680,6 +1718,21 @@ def standalone_disk_guard(cfg: ConfigService, conn: Any) -> UnitDiskGuard:
     )
 
 
+def _unit_stats(results: Sequence[dict], index: int) -> dict[str, dict[str, int]]:
+    """Per object-dependent column, the unit's present and nan_present rows summed over its
+    symbols (each worker counts its own written rows)."""
+    totals: dict[str, list[int]] = {}
+    for result in results:
+        for name, (present, nan_present) in result["units"][index].get("stats", {}).items():
+            pair = totals.setdefault(name, [0, 0])
+            pair[0] += present
+            pair[1] += nan_present
+    return {
+        name: {"present": present, "nan_present": nan_present}
+        for name, (present, nan_present) in sorted(totals.items())
+    }
+
+
 def _spool_bytes(results: Sequence[dict], index: int) -> int:
     paths = (Path(r["units"][index]["path"]) for r in results)
     return sum(path.stat().st_size for path in paths if path.exists())
@@ -1770,6 +1823,7 @@ def _write_group(
                     columns,
                     heapq.merge(*streams, key=_spool_row_time),
                     preclamped_real=True,
+                    unit_stats=_unit_stats(results, unit.index),
                 )
             except Exception as error:
                 summary["units_failed"] += 1

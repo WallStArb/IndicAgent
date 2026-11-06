@@ -92,6 +92,8 @@ class FakeStore:
         self.reaching = (0, None)
         self.writes: list[str] = []
         self.loaded: dict[tuple, int] = {}  # (tf, lo, hi) -> rows this run loaded
+        # batch_key -> (tf, unit_stats); a key without an entry carries a healthy count
+        self.stats: dict[str, tuple[str, dict | None]] = {}
         self.lookaheads: dict[str, dict[int, int]] = {"1h": {1: 9}, "1d": {1: 9}}
 
     def step(self, run_id, name):
@@ -142,6 +144,10 @@ class FakeStore:
 
     def rows_reaching(self, oos_start):
         return self.reaching
+
+    def unit_stats(self, keys):
+        healthy = {"swing_high_dist_atr": {"present": 100, "nan_present": 1}}
+        return [(k, *self.stats.get(k, ("1h", healthy))) for k in keys]
 
     def loaded_rows(self, run_id, tf, lo, hi):
         return self.loaded.get((tf, lo, hi), 0)
@@ -255,6 +261,8 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
             "ratio": state["compression"][tf],
         },
         read_json=lambda path: state["report"],
+        object_columns=frozenset({"swing_high_dist_atr"}),
+        applicable=lambda tf: frozenset({"swing_high_dist_atr", "adx"}),
         apr_value=lambda key: {
             "infra.feature_factory.workers": 4,
             "feature.factory.target_timeframes": '["5m", "15m", "1h", "1d"]',
@@ -935,3 +943,66 @@ def test_an_empty_table_plans_nothing_to_find_stored_rows():
 
     conn = _StoredConn(False, set(), [])
     assert cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned).cells == {}
+
+
+# ---------------------------------------------------------------------------
+# G6 for object and event columns: the NULL share of present rows (review round 4)
+# ---------------------------------------------------------------------------
+
+_OBJECTS = frozenset({"swing_high_dist_atr", "bars_since_vol_spike_fast"})
+
+
+def _gate(rows, applicable=None):
+    applies = applicable or (lambda tf: _OBJECTS | {"adx"})
+    return cr.object_share_gate(rows, _OBJECTS, applies, 0.05)
+
+
+def _counted(key, tf, **counts):
+    return (key, tf, {c: {"present": p, "nan_present": n} for c, (p, n) in counts.items()})
+
+
+def test_a_95_percent_nan_swing_column_on_present_rows_fails():
+    rows = [
+        _counted("k1", "5m", swing_high_dist_atr=(1000, 950), bars_since_vol_spike_fast=(800, 0)),
+        _counted("k2", "5m", swing_high_dist_atr=(1000, 950), bars_since_vol_spike_fast=(700, 0)),
+    ]
+    gate = _gate(rows)
+    assert len(gate["failing"]) == 1 and "swing_high_dist_atr" in gate["failing"][0]
+    assert gate["shares"]["5m"]["swing_high_dist_atr"] == pytest.approx(0.95)
+
+
+def test_a_column_nan_only_where_its_object_is_absent_passes():
+    """Absent rows are not present: they never enter the share, however many there are."""
+    rows = [_counted("k1", "5m", swing_high_dist_atr=(40, 0), bars_since_vol_spike_fast=(5, 0))]
+    gate = _gate(rows)
+    assert gate["failing"] == [] and gate["shares"]["5m"]["swing_high_dist_atr"] == 0.0
+
+
+def test_present_zero_on_an_applicable_tf_fails_and_on_another_tf_does_not():
+    rows = [_counted("k1", "1d", swing_high_dist_atr=(0, 0), bars_since_vol_spike_fast=(9, 0))]
+    gate = _gate(rows)
+    assert gate["failing"] == ["tf 1d swing_high_dist_atr: present = 0 on a tf where it applies"]
+    not_on_1d = _gate(rows, applicable=lambda tf: {"bars_since_vol_spike_fast"})
+    assert not_on_1d["failing"] == []
+
+
+def test_a_unit_without_unit_stats_fails():
+    gate = _gate([("k" * 12, "5m", None)])
+    assert gate["failing"] and "carries no unit_stats" in gate["failing"][0]
+
+
+def test_feature_complete_and_the_pilot_run_the_object_gate():
+    world = _world(planned=(_specs("k1"), set()))
+    _through(world, "feature_complete")
+    world.store.provenance["k1"] = RUN
+    world.store.stats["k1"] = ("1h", {"swing_high_dist_atr": {"present": 100, "nan_present": 96}})
+    with pytest.raises(cr.StepFailed, match="object or event column shares fail"):
+        world.runner.execute("feature_complete")
+    pilot = _world()
+    _through(pilot, "pilot")
+    pilot.store.stats = {
+        f"{i:064x}": ("1h", {"swing_high_dist_atr": {"present": 0, "nan_present": 0}})
+        for i in (1, 2)
+    }
+    with pytest.raises(cr.StepFailed, match="G6-objects"):
+        pilot.runner.execute("pilot")

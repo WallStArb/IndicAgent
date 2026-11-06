@@ -1380,8 +1380,10 @@ class _BulkLoadRecorder:
         self._fail_keys = set(fail_keys)
         self._wrong_counts = dict(wrong_counts or {})
 
-    def __call__(self, conn, spec, columns, rows, preclamped_real=False):
+    def __call__(self, conn, spec, columns, rows, preclamped_real=False, unit_stats=None):
         rows = list(rows)
+        self.unit_stats_by_key = getattr(self, "unit_stats_by_key", {})
+        self.unit_stats_by_key[spec.batch_key] = unit_stats
         for prev, curr in zip(rows, rows[1:]):
             assert prev[2] <= curr[2], f"rows out of time order in {spec.batch_key[:12]}"
         self.load_order.append(spec.batch_key)
@@ -2260,7 +2262,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
     # not grow with the series even though one block is a tenth of the series.
     assert set(payload) == {"symbol", "units", "error"}
     unit_payload = payload["units"][0]
-    assert set(unit_payload) == {"path", "rows"}
+    assert set(unit_payload) == {"path", "rows", "stats"}  # stats: object presence counts
     assert unit_payload["rows"] > 100  # several blocks were spooled
     assert len(str(payload)) < 4096
     spool_path = Path(unit_payload["path"])
@@ -2573,3 +2575,64 @@ def test_a_derived_grid_bar_takes_its_basis_from_its_5m_constituents():
         ["5m_grid", "5m_grid"],
     )
     assert codes.tolist() == [1, 3]  # consolidated; then SIP + IBKR constituents = mixed
+
+
+# ---------------------------------------------------------------------------
+# Review round 4 (lead ruling 2026-11-06): object presence counted per unit at compute time
+# ---------------------------------------------------------------------------
+
+
+def test_the_spool_counts_present_and_nan_present_rows_of_each_object_column(tmp_path):
+    """present: rows where the column's own object or validity state is true (its none mask is
+    0); nan_present: of those, the rows stored missing. Absent rows count in neither."""
+    names = feature_vectors_numeric_columns()
+    column = "swing_high_dist_atr"
+    j = names.index(column)
+    n = 10
+    times = [datetime(2020, 3, 2, 15, 0, tzinfo=UTC) + timedelta(minutes=5 * i) for i in range(n)]
+    numeric = np.zeros((n, len(names)), dtype=np.float32)
+    numeric[[1, 2, 3], j] = np.nan  # row 1 absent; rows 2 and 3 present but missing
+    present = np.ones((n, 1), dtype=bool)
+    present[1, 0] = False
+    series = module.SeriesColumns(
+        numeric=numeric,
+        regime=np.full(n, None, dtype=object),
+        regime_volatility=np.full(n, None, dtype=object),
+        present=present,
+        object_columns=(column,),
+    )
+    stats: dict = {}
+    rows = module._write_unit_spool(
+        tmp_path / "u.csv",
+        "AAA",
+        "5m",
+        np.array([module.bar_ts_ns(t) for t in times]),
+        times,
+        series,
+        times[0],
+        times[-1] + timedelta(minutes=5),
+        0,
+        100,
+        stats_out=stats,
+    )
+    assert rows == n
+    assert stats == {column: [n - 1, 2]}
+
+
+def test_a_units_stats_are_summed_over_its_symbols_and_reach_bulk_load(monkeypatch, tmp_path):
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1], chunk=("AAA", "BBB", "CCC"))
+
+    def worker(args):
+        symbol, *_rest = args
+        result = _stub_worker({symbol: {0: [datetime(2020, 3, 1, tzinfo=UTC)]}})(args)
+        result["units"][0]["stats"] = {"sr_support_dist": [10, 1], "in_lvn": [4, 0]}
+        return result
+
+    _summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, worker=worker
+    )
+    assert recorder.unit_stats_by_key[u1.batch_key] == {
+        "in_lvn": {"present": 12, "nan_present": 0},  # three symbols' counts
+        "sr_support_dist": {"present": 30, "nan_present": 3},
+    }

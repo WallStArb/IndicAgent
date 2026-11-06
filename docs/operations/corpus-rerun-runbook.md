@@ -135,16 +135,20 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
 - `feature_complete`: the full scope re-planned now. Every planned unit has a completed row of
   the run (own or adopted); no started or failed row under the run; no digest-blind symbol in
   the plan or any stage summary; the column screen passes per tf, with G6: per (tf, column) the
-  NULL or non-finite share of the rows past the column's declared warmup, on the columns the
-  registry declares applicable to the tf, at or below `infra.corpus_rerun.max_null_fraction`.
-  The warmup is the registry's `warmup_bars` per tf for every column: the declared memory, or a
-  path-dependent kernel's declared anchor (`series_start`, `session_open`, `week_open`) and
-  warmup derived from its own parameters (the HMM's first refit boundary, the bar statistics'
-  refresh minimums, the session and week periods), composed over the inputs each column reads.
-  Columns the registry declares object dependent (a level, node, value area, gap, swing or zone
-  that may not exist; `Kernel.object_dependent`) fail only when entirely NULL. The pilot runs the
-  same G6 on its rows, so this class fails in the pilot hour. A revised bar renames its unit, so
-  it shows here as missing.
+  NULL or non-finite share of the stored rows from the column's first storable row
+  (`stored_first_row`), on the columns the registry declares applicable to the tf, at or below
+  `infra.corpus_rerun.max_null_fraction`. The first storable row is the column's memory where
+  the writer masks it (no_fill), or the first row its value can exist for a path-dependent column:
+  the registry's `definition_warmup`, composed over the definitions (never the seed-independence
+  memory) of the inputs it reads, with session- and week-anchored outputs declaring how many
+  complete periods they need. Object-dependent and event columns (`Kernel.object_dependent`: a
+  level, node, value area, gap, swing, zone, a spike or extreme move in the window, a negative
+  Roll covariance) are judged on the rows where their object exists: the writer counts per unit,
+  from each kernel's own none mask, `present` and `nan_present` into provenance_batch.unit_stats
+  (migration 583), and the share is sum(nan_present) / sum(present) over the run's units per
+  (tf, column). A column with present = 0 on a tf where it applies fails, and the pooled
+  entirely-NULL test stays as a second line. The pilot runs both on its units, so this class
+  fails in the pilot hour. A revised bar renames its unit, so it shows here as missing.
 - `ic_measure` under the run id with `--report`. Every expected unit (default jobs, every tf in
   `alpha.ic_measure.horizons`) must be in the report, with one completed row that is the
   reported batch_key: loaded or replaced under this run, or reported `skipped` (adopted).

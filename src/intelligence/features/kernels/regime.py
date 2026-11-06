@@ -221,7 +221,7 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
         path_dependent_reason=_HEAVY_REASON,
         memory_anchor=ANCHOR_SERIES_START,
         # the first labelled bar row on the tf (RegimeFamilySpec.first_labelled_row)
-        warmup=lambda config, tf: spec.first_labelled_row(_hmm_config(config), tf),
+        definition=lambda config, tf: spec.first_labelled_row(_hmm_config(config), tf),
         # It reads volume returns, not the level. A non-finite close tail is unlabeled and a hole
         # raises (test_regime_kernel.py); a non-finite volume never arrives through
         # compute_kernels (todo 564), and a direct call raises on a volume hole the same way.
@@ -237,7 +237,7 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
         path_dependent=True,
         path_dependent_reason=_LABEL_REASON,
         memory_anchor=ANCHOR_SERIES_START,
-        warmup=lambda config, tf: 0,  # a row's label is its code's; the code carries the warmup
+        definition=lambda config, tf: 0,  # a row's label is its code's; the code carries the warmup
     )
     return heavy, label
 

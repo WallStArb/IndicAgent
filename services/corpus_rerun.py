@@ -306,6 +306,10 @@ _POOLED_LOOKAHEADS_SQL = f"""
 SELECT tf, lookahead_bars, count(*) FROM {_IC_TABLE}
 WHERE symbol = 'POOLED' AND regime_scope = 'unstratified' GROUP BY tf, lookahead_bars
 """
+_UNIT_STATS_SQL = """
+SELECT batch_key, tf, unit_stats FROM provenance_batch
+WHERE batch_key = ANY(%s) AND status = 'completed' AND target_table = 'feature_vectors'
+"""
 _RUN_LOCK_SQL = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
 # One corpus rerun at a time, whatever its run id: two runs would interleave their stages'
 # compression and their units on the same table.
@@ -332,6 +336,10 @@ class RunStore:
     def try_lock(self) -> bool:
         """The global corpus rerun lock (session level, released when the connection closes)."""
         return bool(self._one(_RUN_LOCK_SQL, (RUN_LOCK_NAME,))[0])
+
+    def unit_stats(self, batch_keys: Sequence[str]) -> list[tuple[str, str, dict | None]]:
+        """(batch_key, tf, unit_stats) of the completed feature_vectors units among the keys."""
+        return [tuple(r) for r in self._all(_UNIT_STATS_SQL, (list(batch_keys),))]
 
     def loaded_rows(self, run_id: str, tf: str, lo: datetime, hi: datetime) -> int:
         """Rows this run already loaded of one tf whose units start in [lo, hi)."""
@@ -446,6 +454,46 @@ class RunStore:
 def _json(value: Any) -> Any:
     """JSON-safe copy (datetimes and dates as ISO strings, tuples as lists)."""
     return json.loads(json.dumps(value, default=lambda v: v.isoformat()))
+
+
+def object_share_gate(
+    stats: Sequence[tuple[str, str, Mapping[str, Any] | None]],
+    objects: frozenset[str],
+    applicable: Callable[[str], frozenset[str]],
+    max_null_fraction: float,
+) -> dict[str, Any]:
+    """G6 for the object-dependent and event columns (lead ruling 2026-11-06): per (tf, column)
+    the NULL share of the rows where the column's own object or validity state is true,
+    sum(nan_present) / sum(present) over the units, against max_null_fraction. A column with
+    present = 0 across a whole tf on which it applies fails, and so does a unit that carries no
+    unit_stats (its rows cannot be judged). Returns {failing: [...], shares: {tf: {column}}}."""
+    sums: dict[str, dict[str, list[int]]] = {}
+    failing: list[str] = []
+    for batch_key, tf, unit in stats:
+        if unit is None:
+            failing.append(f"unit {batch_key[:12]} ({tf}) carries no unit_stats")
+            continue
+        per_tf = sums.setdefault(tf, {})
+        for column, counts in unit.items():
+            pair = per_tf.setdefault(column, [0, 0])
+            pair[0] += int(counts["present"])
+            pair[1] += int(counts["nan_present"])
+    shares: dict[str, dict[str, float]] = {}
+    for tf, per_tf in sorted(sums.items()):
+        shares[tf] = {}
+        for column in sorted(objects & applicable(tf)):
+            present, nan_present = per_tf.get(column, (0, 0))
+            if not present:
+                failing.append(f"tf {tf} {column}: present = 0 on a tf where it applies")
+                continue
+            share = nan_present / present
+            shares[tf][column] = round(share, 6)
+            if share > max_null_fraction:
+                failing.append(
+                    f"tf {tf} {column}: null share {share:.1%} of its {present} present rows "
+                    f"> {max_null_fraction:.1%}"
+                )
+    return {"failing": failing, "shares": shares}
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +831,8 @@ class Deps:
     db_load: Callable[[], dict[str, int]]
     apr_value: Callable[[str], Any]
     measure_compression: Callable[[Sequence[str], str], dict[str, Any]]
+    object_columns: frozenset[str]
+    applicable: Callable[[str], frozenset[str]]
     read_json: Callable[[Path], Any]
     monotonic: Callable[[], float] = time.monotonic
 
@@ -1249,7 +1299,11 @@ class CorpusRerun:
         self._merge_measured(measured)
         summary["measured"] = measured
 
+        objects = self._object_gate([*daily["scope_batch_keys"], *hourly["scope_batch_keys"]])
+        summary["gates"]["G6-objects"] = objects
         failed_gates = [name for name, (rc, _) in gates.items() if rc != 0]
+        if objects["failing"]:
+            failed_gates.append("G6-objects")
         if failed_gates:
             raise StepFailed(f"pilot gates failed: {', '.join(failed_gates)}", summary)
         larger = max(measured["pilot_bytes_per_row_1d"], measured["pilot_bytes_per_row_intraday"])
@@ -1313,9 +1367,22 @@ class CorpusRerun:
         failing = [tf for tf, (rc, _) in screens.items() if rc != 0]
         if failing:
             problems.append(f"column screen (G1-G3, G6 null share) fails on {failing}")
+        objects = self._object_gate(keys)
+        summary["object_share"] = objects
+        if objects["failing"]:
+            problems.append(f"{len(objects['failing'])} object or event column shares fail")
         if problems:
             raise StepFailed("feature_complete: " + "; ".join(problems), summary)
         return summary
+
+    def _object_gate(self, batch_keys: Sequence[str]) -> dict[str, Any]:
+        """object_share_gate over these units' provenance unit_stats."""
+        return object_share_gate(
+            self.store.unit_stats(batch_keys),
+            self.deps.object_columns,
+            self.deps.applicable,
+            self.apr.max_null_fraction,
+        )
 
     def apr_tfs(self) -> list[str]:
         return list(self._json_apr(_TARGET_TFS_KEY))
@@ -1471,9 +1538,11 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
     from services import backfill_feature_factory as factory
     from services import corpus_rerun_data_gate as gate
     from services import rebuild_preconditions as rp
+    from src.intelligence.features.contract.registry import default_registry
 
     cfg = load_config_service_sync(conn)
     logs = main_logs_dir()
+    registry = default_registry()
     return Deps(
         settings=settings,
         conn=conn,
@@ -1501,6 +1570,8 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         db_load=lambda: db_load(conn),
         apr_value=lambda key: cfg.get_sync(key),
         measure_compression=lambda symbols, tf: measure_compression(conn, symbols, tf),
+        object_columns=frozenset(registry.object_dependent_outputs()),
+        applicable=lambda tf: frozenset(registry.applicable_outputs(tf)),
         read_json=lambda path: json.loads(path.read_text()),
     )
 

@@ -26,8 +26,10 @@ from src.intelligence.features.kernels._primitives import (
     _rolling_std_series,
     _zscore_last,
     bounded_window_bars,
+    none_mask_name,
 )
 from src.intelligence.features.kernels.price import (
+    _bars_since_event_absent,
     _bars_since_event_series_full,
     _up_vol_body_diff,
     _vol_velocity_z_series_full,
@@ -836,14 +838,17 @@ def _recency_kernels() -> tuple[Kernel, ...]:
         out.append(
             _k(
                 column,
-                (column,),
+                (column, none_mask_name(column)),
                 (event,),
                 lambda c, w=window: getattr(c, w),
                 lambda x, c, w=window, ev=event, col=column: {
                     # raw float events (1.0/0.0/NaN): the helper reads a NaN
                     # row as unknown, not as "no spike" (todo 560, 584 4b-2)
-                    col: _bars_since_event_series_full(x[ev], getattr(c, w))
+                    col: _bars_since_event_series_full(x[ev], getattr(c, w)),
+                    none_mask_name(col): _bars_since_event_absent(x[ev], getattr(c, w)),
                 },
+                # the event: a volume spike inside the window (none mask = no event)
+                object_dependent=frozenset({column}),
             )
         )
     return tuple(out)
@@ -914,7 +919,7 @@ KERNELS = (
         path_dependent_reason="running VWAP and running deviation statistics accumulate from the series start",
         memory_anchor=ANCHOR_SERIES_START,
         # _vwap_dev_sigma_series_full: the running deviation std needs two rows to spread
-        warmup=lambda c, tf: 1,
+        definition=lambda c, tf: 1,
     ),
     _velocity_kernel("vwap_dev_sigma", "vwap_velocity_window"),
     _k(

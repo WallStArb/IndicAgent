@@ -249,9 +249,12 @@ _BULK_LOAD_TAKEOVER_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'started', attempts = attempts + 1, "
     "started_at = now(), error = NULL, run_id = %s WHERE batch_key = %s AND generation = %s"
 )
+# unit_stats (migration 583): what the writer measured of the unit's rows (the rebuild's per
+# object column present / nan_present counts), recorded with the completion and frozen with it.
 _BULK_LOAD_COMPLETE_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'completed', row_count = %s, "
-    "finished_at = now(), error = NULL WHERE batch_key = %s AND generation = %s"
+    "finished_at = now(), error = NULL, unit_stats = %s "
+    "WHERE batch_key = %s AND generation = %s"
 )
 _BULK_LOAD_FAIL_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'failed', error = %s "
@@ -285,6 +288,7 @@ _PROVENANCE_BATCH_COLUMNS = (
     "unit_key",
     "generation",
     "run_id",
+    "unit_stats",
     "row_count",
     "status",
     "attempts",
@@ -503,8 +507,12 @@ def bulk_load(
     *,
     compress_before: datetime | None = None,
     preclamped_real: bool = False,
+    unit_stats: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """Load one (symbols x tf x time range) unit into spec.target_table (D-24).
+
+    `unit_stats` (optional) is recorded on the completed provenance row (migration 583): what
+    the writer measured of the rows it streamed, never part of the unit's identity.
 
     The one bulk-load primitive for phase 186's writers; no existing writer uses it
     yet (186-14, the fresh IC writer, and 186-25, the feature_vectors rebuild, are
@@ -578,7 +586,7 @@ def bulk_load(
 
     try:
         return _bulk_load_locked(
-            conn, spec, columns, rows, time_idx, compress_before, preclamped_real
+            conn, spec, columns, rows, time_idx, compress_before, preclamped_real, unit_stats
         )
     finally:
         # Session advisory locks survive commit/rollback, so the unlock is explicit;
@@ -603,6 +611,7 @@ def _bulk_load_locked(
     time_idx: int,
     compress_before: datetime | None,
     preclamped_real: bool,
+    unit_stats: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """bulk_load's body, run under the batch key's session advisory lock."""
     batch_key = spec.batch_key
@@ -707,7 +716,15 @@ def _bulk_load_locked(
                         )
                     copy.write_row(row)
                     row_count += 1
-            cur.execute(_BULK_LOAD_COMPLETE_PROVENANCE_SQL, (row_count, batch_key, generation))
+            cur.execute(
+                _BULK_LOAD_COMPLETE_PROVENANCE_SQL,
+                (
+                    row_count,
+                    None if unit_stats is None else Jsonb(dict(unit_stats)),
+                    batch_key,
+                    generation,
+                ),
+            )
         conn.commit()
     except Exception as error:
         conn.rollback()

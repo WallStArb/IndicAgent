@@ -58,7 +58,7 @@ import math
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-from src.intelligence.features.kernels._primitives import _k
+from src.intelligence.features.kernels._primitives import _k, none_mask_name
 
 # Corwin and Schultz (2012) eq. 18 denominator, 3 - 2 * sqrt(2): a constant of the estimator.
 _CS_K = 3.0 - 2.0 * math.sqrt(2.0)
@@ -139,12 +139,23 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     Output row t reads closes t - window - 1 .. t (declared memory `window + 1`). Rows
     t <= window are NaN. A window holding a non-positive close is NaN.
     """
+    cov = _roll_covariance(closes, window)
+    out = np.full(len(closes), np.nan)
+    with np.errstate(invalid="ignore"):
+        negative = cov < 0.0
+        out[negative] = 2.0 * np.sqrt(-cov[negative])
+    return out
+
+
+def _roll_covariance(closes: np.ndarray, window: int) -> np.ndarray:
+    """The serial covariance behind roll_spread at each row (NaN where undefined: rows t <= window
+    and windows holding a non-positive close)."""
     n = len(closes)
-    out = np.full(n, np.nan)
+    cov_rows = np.full(n, np.nan)
     if window < 2:
         raise ValueError(f"roll_spread window must be >= 2, got {window}")
     if n < window + 2:
-        return out
+        return cov_rows
     c = closes.astype(float)
     with np.errstate(divide="ignore", invalid="ignore"):
         log_c = np.log(np.where(c > 0.0, c, np.nan))
@@ -153,12 +164,16 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     y = sliding_window_view(r[:-1], window)
     dx = x - x.mean(axis=1, keepdims=True)
     dy = y - y.mean(axis=1, keepdims=True)
-    cov = (dx * dy).sum(axis=1) / (window - 1)
+    cov_rows[window + 1 :] = (dx * dy).sum(axis=1) / (window - 1)
+    return cov_rows
+
+
+def _roll_spread_absent(closes: np.ndarray, window: int) -> np.ndarray:
+    """1.0 where Roll's model implies no spread (a measured serial covariance >= 0), else 0.0:
+    roll_spread's none mask, its validity witness for the corpus gate (186-31). An undefined
+    covariance (a hole) is not absence, so a NaN there counts against the column."""
     with np.errstate(invalid="ignore"):
-        out[window + 1 :] = np.where(
-            cov < 0.0, 2.0 * np.sqrt(np.where(cov < 0.0, -cov, 0.0)), np.nan
-        )
-    return out
+        return (_roll_covariance(closes, window) >= 0.0).astype(float)
 
 
 def _compute_high_low_spread(x, config):
@@ -170,7 +185,10 @@ def _compute_high_low_spread(x, config):
 
 
 def _compute_roll_spread(x, config):
-    return {"roll_spread": _roll_spread_series_full(x["close"], config.roll_spread_window)}
+    return {
+        "roll_spread": _roll_spread_series_full(x["close"], config.roll_spread_window),
+        none_mask_name("roll_spread"): _roll_spread_absent(x["close"], config.roll_spread_window),
+    }
 
 
 KERNELS = (
@@ -184,9 +202,11 @@ KERNELS = (
     ),
     _k(
         "roll_spread",
-        ("roll_spread",),
+        ("roll_spread", none_mask_name("roll_spread")),
         ("close",),
         lambda c: c.roll_spread_window + 1,
         _compute_roll_spread,
+        # the spread exists only where the serial covariance is negative (Roll 1984)
+        object_dependent=frozenset({"roll_spread"}),
     ),
 )

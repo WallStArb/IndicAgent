@@ -31,6 +31,7 @@ from src.intelligence.features.kernels._primitives import (
     _trailing_window_sums,
     _zscore_last,
     bounded_window_bars,
+    none_mask_name,
     wilder_memory_bars,
     wilder_rsi_series,
 )
@@ -684,6 +685,13 @@ def _bars_since_rolling_extreme_series_full(
             dq.popleft()
         out[i] = float(i - dq[0])
     return out
+
+
+def _bars_since_event_absent(events: np.ndarray, window: int) -> np.ndarray:
+    """1.0 where `_bars_since_event_series_full` has no event to count (no known event in the
+    trailing window, or an unknown row newer than the last one), else 0.0: the column's none mask,
+    its object-presence witness for the corpus gate (186-31). The same rule, in one place."""
+    return np.isnan(_bars_since_event_series_full(events, window)).astype(float)
 
 
 def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray:
@@ -1362,6 +1370,9 @@ def _momentum_kernels() -> tuple[Kernel, ...]:
                         x["close"], getattr(c, w), c.momentum_zscore_window
                     )
                 },
+                # the momentum series starts at row window; the fixed-window z of it is NaN on
+                # its first zscore_window - 1 values
+                definition=lambda c, tf, w=window: getattr(c, w) + c.momentum_zscore_window - 1,
             )
         )
         velocity = f"momentum_z_velocity_{scale}"
@@ -1734,12 +1745,15 @@ def _recency_kernels() -> tuple[Kernel, ...]:
         out.append(
             _k(
                 column,
-                (column,),
+                (column, none_mask_name(column)),
                 (event,),
                 lambda c, w=window: getattr(c, w),
                 lambda x, c, w=window, ev=event, col=column: {
-                    col: _bars_since_event_series_full(x[ev], getattr(c, w))
+                    col: _bars_since_event_series_full(x[ev], getattr(c, w)),
+                    none_mask_name(col): _bars_since_event_absent(x[ev], getattr(c, w)),
                 },
+                # the event: an extreme move inside the window (none mask = no event)
+                object_dependent=frozenset({column}),
             )
         )
     for label, source, mode in (("52w_high", "high", "max"), ("52w_low", "low", "min")):
@@ -2065,6 +2079,9 @@ KERNELS = (
         ("high", "low", "close"),
         lambda c: wilder_memory_bars(c.adx_period),
         _compute_atr,
+        # _atr_series_full: true-range row adx_period - 1 is the first non-zero ATR, bar row
+        # adx_period once padded (memory is the Wilder seed-independence span, far longer)
+        definition=lambda c, tf: c.adx_period,
     ),
     _k("atr_valid", ("_atr_valid",), (ATR_RAW_PADDED, "close"), lambda c: 0, _compute_atr_valid),
     _k(
@@ -2088,6 +2105,8 @@ KERNELS = (
         ("close",),
         lambda c: c.momentum_zscore_window + 1,
         _compute_momentum_reversal_z,
+        # an expanding z of log returns from bar row 1: two returns spread at bar row 2
+        definition=lambda c, tf: 2,
     ),
     *_rsi_kernels(),
     _k(
@@ -2137,7 +2156,7 @@ KERNELS = (
         memory_anchor=ANCHOR_SERIES_START,
         # _ret_autocorr_series_full: the pair count reaches 2 at log-return row lag + 1, which
         # is bar row lag + 2.
-        warmup=lambda c, tf: {"ret_autocorr_1": 1 + 2, "ret_autocorr_5": 5 + 2},
+        definition=lambda c, tf: {"ret_autocorr_1": 1 + 2, "ret_autocorr_5": 5 + 2},
     ),
     _k(
         "abs_ret_autocorr",
@@ -2148,7 +2167,7 @@ KERNELS = (
         path_dependent=True,
         path_dependent_reason="expanding-window autocorrelation over all history since the series start",
         memory_anchor=ANCHOR_SERIES_START,
-        warmup=lambda c, tf: 1 + 2,  # lag 1, as ret_autocorr: bar row lag + 2
+        definition=lambda c, tf: 1 + 2,  # lag 1, as ret_autocorr: bar row lag + 2
     ),
     _k(
         "streak_z",
@@ -2161,7 +2180,7 @@ KERNELS = (
         memory_anchor=ANCHOR_SERIES_START,
         # the streak series starts at row 0 (padded 0.0); _fixed_window_zscore_series is NaN on
         # its first streak_window - 1 rows
-        warmup=lambda c, tf: c.streak_window - 1,
+        definition=lambda c, tf: c.streak_window - 1,
     ),
     _k(
         "vol_asymmetry_z",
@@ -2195,7 +2214,7 @@ KERNELS = (
         memory_anchor=ANCHOR_SERIES_START,
         # _variance_ratio_series_full: the N-period aggregate needs agg_upper = j - N + 1 >= 1,
         # so the first value is log-return row N, bar row N + 1
-        warmup=lambda c, tf: {
+        definition=lambda c, tf: {
             f"variance_ratio_{scale}": getattr(c, f"variance_ratio_{scale}") + 1
             for scale in ("fast", "slow")
         },
@@ -2207,6 +2226,8 @@ KERNELS = (
         ("close",),
         lambda c: c.hv_fast + c.hv_ratio_window + 1,
         _compute_hv_ratio,
+        # _hv_ratio_series_full: an expanding std of log returns, two returns at bar row 2
+        definition=lambda c, tf: 2,
     ),
     _k(
         "parkinson_vol_z",
@@ -2333,7 +2354,7 @@ KERNELS = (
         path_dependent=True,
         path_dependent_reason="refresh cadence counts from row 0 and the hma slope history accumulates across refreshes",
         memory_anchor=ANCHOR_SERIES_START,
-        warmup=lambda c, tf: _bar_statistics_warmup(c),
+        definition=lambda c, tf: _bar_statistics_warmup(c),
         zero_is_state=frozenset({"shannon"}),
     ),
     _k(

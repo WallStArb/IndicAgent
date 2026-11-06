@@ -10,12 +10,14 @@ Per (tf, name) and column:
   applicable outputs for the timeframe. The control canary_constant must hold its declared value on
   every row.
 - G2 warmup gap: the first finite row index minus the column's declared warmup, above
-  `threshold.pilot_gate.warmup_gap_bars`. The warmup is the registry's `warmup_bars` per tf: the
-  declared memory, or a path-dependent kernel's declared anchor warmup (the HMM's first refit
-  boundary, a session or week anchor), so every column is judged the same way.
+  `threshold.pilot_gate.warmup_gap_bars`. The warmup is the first row the rebuild can store
+  (backfill_feature_factory.stored_first_row): the memory of a column it masks inside it, or a
+  path-dependent column's definition warmup (the HMM's first refit boundary, a session or week
+  anchor), so every column is judged the same way.
 - G6 (`--null-gate`): the NULL or non-finite share of the rows past each column's warmup per
-  (tf, column), at `infra.corpus_rerun.max_null_fraction`; a column the registry declares object
-  dependent fails only when entirely NULL.
+  (tf, column), at `infra.corpus_rerun.max_null_fraction`. An object-dependent column is judged
+  here only on not being entirely NULL; its share is judged on the rows where its object exists,
+  from the units' provenance unit_stats (services/corpus_rerun.py object_share_gate).
 - G3 fill audit: the exact-0.0 share of finite post-warmup rows, above
   `threshold.pilot_gate.zero_share_max`, for a column outside the kernels' `zero_is_state` set.
 A name with no more rows than a column's declared memory is not judged on that column (empty is
@@ -57,6 +59,7 @@ from services.backfill_feature_factory import (  # noqa: E402
     TARGET_TIMEFRAMES_KEY,
     _build_feature_factory_config,
     _get_target_timeframes,
+    stored_first_row,
 )
 from services.corpus_rerun_apr import MAX_NULL_FRACTION_KEY  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
@@ -129,9 +132,9 @@ def zero_is_state(registry) -> frozenset[str]:
 
 
 def declared_memory(registry, config, columns: tuple[str, ...], tfs) -> dict[str, dict[str, int]]:
-    """Per tf, the rows from the series start before each column can be defined: the registry's
-    declared memory, or a path-dependent kernel's declared anchor warmup (`warmup_bars`), so G2
-    and G6 measure every column the same way. A column no kernel produces, or an applicable one
+    """Per tf, the first row the rebuild can store for each column (stored_first_row): the
+    memory of a column the writer masks inside it, or a path-dependent column's definition
+    warmup (the first row its value can exist), so G2 and G6 measure every column the same way. A column no kernel produces, or an applicable one
     without a declaration, raises: a registry and schema mismatch is loud."""
     out: dict[str, dict[str, int]] = {}
     for tf in tfs:
@@ -139,7 +142,7 @@ def declared_memory(registry, config, columns: tuple[str, ...], tfs) -> dict[str
         per_tf: dict[str, int] = {}
         for column in columns:
             try:
-                per_tf[column] = registry.warmup_bars(column, config, tf)
+                per_tf[column] = stored_first_row(registry, column, config, tf)
             except Exception:
                 if column in applicable:
                     raise

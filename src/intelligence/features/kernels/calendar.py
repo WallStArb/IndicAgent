@@ -439,8 +439,8 @@ KERNELS = (
             "kernel does not receive"
         ),
         memory_anchor=ANCHOR_WEEK_OPEN,
-        # the weekly accumulator resets at each ISO week and row 0's week is excluded: one
-        # complete week follows within two weeks of bars on the tf
-        warmup=lambda config, tf: anchored_warmup(ANCHOR_WEEK_OPEN, config, tf),
+        # a running accumulator of the current ISO week: it exists from the first bar
+        anchor_periods={"above_wk_vwap": 0},
+        definition=lambda config, tf: anchored_warmup(ANCHOR_WEEK_OPEN, config, tf, 0),
     ),
 )

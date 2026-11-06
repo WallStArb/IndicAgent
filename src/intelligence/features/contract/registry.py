@@ -92,15 +92,23 @@ def bars_per_session(config: FeatureFactoryConfig, tf: str) -> int:
     return -(-minutes // _TF_MINUTES[tf])
 
 
-def anchored_warmup(anchor: str, config: FeatureFactoryConfig, tf: str) -> int:
-    """Rows from the series start until a session- or week-anchored accumulator has seen one
-    complete period: the series may start one bar into a period whose state is excluded (row 0
-    exclusion), so two periods bound it."""
+def anchor_period_bars(anchor: str, config: FeatureFactoryConfig, tf: str) -> int:
+    """Bars of one session or one week (five sessions) on `tf`."""
     if anchor == ANCHOR_SESSION_OPEN:
-        return 2 * bars_per_session(config, tf)
+        return bars_per_session(config, tf)
     if anchor == ANCHOR_WEEK_OPEN:
-        return 2 * _SESSIONS_PER_WEEK * bars_per_session(config, tf)
+        return _SESSIONS_PER_WEEK * bars_per_session(config, tf)
     raise KernelRegistryError(f"anchor {anchor!r} has no calendar period")
+
+
+def anchored_warmup(anchor: str, config: FeatureFactoryConfig, tf: str, periods: int) -> int:
+    """Rows from the series start until a session- or week-anchored output that needs `periods`
+    complete periods can exist. 0 for a running accumulator of the current period (it exists
+    from the first bar); otherwise periods + 1 periods of bars, since the series may start one
+    bar into a period whose partial state is excluded (row 0 exclusion)."""
+    if periods == 0:
+        return 0
+    return (periods + 1) * anchor_period_bars(anchor, config, tf)
 
 
 @dataclass(frozen=True)
@@ -126,14 +134,20 @@ class Kernel:
     # answer, so `feature_memory_bars` raises for it).
     path_dependent: bool = False
     path_dependent_reason: str = ""
-    # A path-dependent kernel's memory is unbounded by design, so it declares the event its
-    # state is anchored to (MEMORY_ANCHORS) and its warmup: `warmup(config, tf)` is the number
-    # of rows from the series start before its outputs can first be defined (an int, or one int
-    # per output), derived from its own parameters. `KernelRegistry.warmup_bars` composes it with
-    # the upstream chain; the pilot and corpus gates (G2 late start, G6 NULL share) measure every
-    # column from there. Research memory (`feature_memory_bars`) still refuses such a kernel.
-    memory_anchor: str = ""
-    warmup: Callable[[FeatureFactoryConfig, str], int | Mapping[str, int]] | None = None
+    # Memory is the seed-independence span: rows after which the output no longer depends on
+    # where the series starts (the rebuild stores rows inside it as missing, no_fill). The
+    # definition is earlier: `definition(config, tf)` is the number of rows after the kernel's
+    # inputs are defined before its own output can first exist (an int, or one int per output),
+    # derived from its own code. Default: the memory. A path-dependent kernel has unbounded memory
+    # by design, so it must declare the event its state is anchored to (MEMORY_ANCHORS) and its
+    # definition from the series start. `KernelRegistry.definition_warmup` composes definitions
+    # over the inputs each column reads; the corpus gates measure stored rows from the writer's
+    # first storable row (backfill_feature_factory.stored_first_row).
+    memory_anchor: str | Mapping[str, str] = ""  # one anchor, or one per output
+    # Per anchored output, the complete anchor periods its value needs (0: a running accumulator
+    # of the current period; 1: the prior session's or week's levels).
+    anchor_periods: Mapping[str, int] = field(default_factory=dict)
+    definition: Callable[[FeatureFactoryConfig, str], int | Mapping[str, int]] | None = None
     # Absolute float32 tolerance at which the declared memory holds. 0.0 means exact. A non-zero
     # value needs a comment in the kernel module giving the source of the last-bit difference
     # (cumsum-based rolling statistics, Wilder recursions).
@@ -154,10 +168,11 @@ class Kernel:
     # Outputs where 0.0 is the measured state (an event flag or a count over a fully observed
     # window): the pilot gate's fill audit skips them (design D1 rule 4, todo 584).
     zero_is_state: frozenset[str] = frozenset()
-    # Outputs whose object (a level, a node, a value area, a gap, a swing, a zone) may not exist
-    # at a row of real data: they are NaN there by design (D1 rule 2, todo 584 4b-2 group 4), so
-    # a high NULL share is not a fault. The corpus gate's G6 holds them only to not being
-    # entirely NULL where they apply (186-31).
+    # Outputs whose object (a level, a node, a value area, a gap, a swing, a zone, an event in
+    # the window) may not exist at a row of real data: NaN there by design (D1 rule 2, todo 584
+    # 4b-2 group 4). Each carries its none mask (`_<output>_is_none`): 1 where the kernel's own
+    # object or validity state is false. The rebuild writer counts, per unit, the rows where it is
+    # 0 (present) and of those the NaN ones; the corpus gate's G6 judges that share (186-31).
     object_dependent: frozenset[str] = frozenset()
 
 
@@ -270,6 +285,12 @@ class KernelRegistry:
                 f"external input {name!r} equals the output of {_where(by_output[name])}"
             )
         for kernel in kernels:
+            unmasked = {o for o in kernel.object_dependent if f"_{o}_is_none" not in kernel.outputs}
+            if unmasked:
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} declares object_dependent {sorted(unmasked)} without "
+                    "their none masks (the per-row presence the rebuild writer counts)"
+                )
             for field_name in ("not_applicable", "zero_is_state", "object_dependent"):
                 stray = set(getattr(kernel, field_name)) - set(kernel.outputs)
                 if stray:
@@ -389,39 +410,58 @@ class KernelRegistry:
         upstream = [self.effective_memory_bars(up.name, config) for up in self._upstream(kernel)]
         return own + (max(upstream) if upstream else 0)
 
-    def warmup_bars(self, output: str, config: FeatureFactoryConfig, tf: str) -> int:
-        """Rows from the series start before `output` can first be defined on `tf`: the
-        producing kernel's declared memory, or its declared warmup when it is path dependent,
-        plus the largest of the inputs it reads (per input output, so a product of adx is not
-        held to hma_slope_z's warmup). Every feature column has one; a
-        path-dependent kernel without a memory_anchor and warmup raises."""
-        return self._warmup(self.by_output(output), config, tf, output)
+    def definition_warmup(self, output: str, config: FeatureFactoryConfig, tf: str) -> int:
+        """The first row `output` can exist on `tf`, from the series start: the producing
+        kernel's declared definition (its memory when it declares none) plus the largest
+        definition warmup of the inputs it reads. A path-dependent kernel without a
+        memory_anchor and definition raises."""
+        return self._definition(self.by_output(output), config, tf, output)
 
-    def _warmup(self, kernel: Kernel, config: FeatureFactoryConfig, tf: str, output: str) -> int:
-        if kernel.path_dependent:
-            if kernel.warmup is None or kernel.memory_anchor not in MEMORY_ANCHORS:
-                raise KernelRegistryError(
-                    f"kernel {_where(kernel)} is path dependent without a memory_anchor in "
-                    f"{sorted(MEMORY_ANCHORS)} and a warmup"
-                )
-            declared = kernel.warmup(config, tf)
-            if isinstance(declared, Mapping):
-                own = declared[output]
-            else:
-                own = declared
+    def _definition(
+        self, kernel: Kernel, config: FeatureFactoryConfig, tf: str, output: str
+    ) -> int:
+        if kernel.path_dependent and (
+            kernel.definition is None or self.anchor_of_kernel(kernel, output) not in MEMORY_ANCHORS
+        ):
+            raise KernelRegistryError(
+                f"kernel {_where(kernel)} is path dependent without a memory_anchor in "
+                f"{sorted(MEMORY_ANCHORS)} and a definition"
+            )
+        if kernel.definition is None:
+            own = _check_memory(kernel, config)
+        else:
+            declared = kernel.definition(config, tf)
+            own = declared[output] if isinstance(declared, Mapping) else declared
             if not isinstance(own, int) or isinstance(own, bool) or own < 0:
                 raise KernelRegistryError(
-                    f"kernel {_where(kernel)} declares invalid warmup {own!r}; need an int >= 0"
+                    f"kernel {_where(kernel)} declares invalid definition {own!r}; need an int >= 0"
                 )
-        else:
-            own = _check_memory(kernel, config)
         external = self._external_names()
         upstream = [
-            self._warmup(self.by_output(name), config, tf, name)
+            self._definition(self.by_output(name), config, tf, name)
             for name in kernel.inputs
             if name not in BAR_FIELDS and name not in DERIVED_INPUTS and name not in external
         ]
+        # A path-dependent definition counts from the series start (an absolute row); any other
+        # counts from where its inputs are defined.
+        if kernel.path_dependent:
+            return max([own, *upstream])
         return own + (max(upstream) if upstream else 0)
+
+    @staticmethod
+    def anchor_of_kernel(kernel: Kernel, output: str) -> str:
+        anchor = kernel.memory_anchor
+        return anchor.get(output, "") if isinstance(anchor, Mapping) else anchor
+
+    def anchor_of(self, output: str) -> str:
+        """The anchor of the path-dependent source behind `output` ("" when none)."""
+        source = self._path_dependent_source(self.by_output(output))
+        if source is None:
+            return ""
+        if source.name == self.by_output(output).name:
+            return self.anchor_of_kernel(source, output)
+        anchors = source.memory_anchor
+        return anchors if isinstance(anchors, str) else max(anchors.values())
 
     def outputs(self) -> tuple[str, ...]:
         return tuple(sorted(o for kernel in self.kernels for o in kernel.outputs))

@@ -56,15 +56,14 @@ def test_registry_accessors_tolerate_missing_declarations():
     assert zero_is_state(declared) == {"b"}
 
 
-def test_declared_memory_is_the_registry_warmup_per_tf_for_every_column():
-    def warmup_bars(column, config, tf):
+def test_declared_memory_is_the_first_storable_row_per_tf_for_every_column(monkeypatch):
+    def stored(registry, column, config, tf):
         if column == "unknown":
             raise KeyError(column)  # no kernel produces it: loud, never a default
         return {"adx": 30, "hmm": {"5m": 1539, "1d": 639}[tf]}[column]
 
-    registry = SimpleNamespace(
-        warmup_bars=warmup_bars, applicable_outputs=lambda tf: {"adx", "hmm", "unknown"}
-    )
+    monkeypatch.setattr("scripts.ops.ops_feature_column_screen.stored_first_row", stored)
+    registry = SimpleNamespace(applicable_outputs=lambda tf: {"adx", "hmm", "unknown"})
     assert declared_memory(registry, None, ("adx", "hmm"), ["5m", "1d"]) == {
         "5m": {"adx": 30, "hmm": 1539},
         "1d": {"adx": 30, "hmm": 639},

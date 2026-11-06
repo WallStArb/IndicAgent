@@ -7,6 +7,7 @@ append leaves none of them. The adoption query reads only completed steps.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -175,3 +176,57 @@ def test_the_compression_ratio_is_measured_on_a_scratch_copy(store):
         "WHERE hypertable_name = 'feature_vectors'"
     ).fetchone()[0]
     assert chunks_after == chunks_before
+
+
+def _provenance_row(conn) -> str:
+    key = uuid.uuid4().hex + uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO provenance_batch (batch_key, writer, target_table, time_column, tf, "
+        "range_start, range_end, symbols, symbols_hash, code_key, apr_hash, apr_snapshot, "
+        "input_digest, unit_key) VALUES (%s, 'test-583', 'feature_vectors', 'bar_ts', '1d', "
+        "'2020-01-01', '2021-01-01', ARRAY['ZZ583'], %s, %s, %s, '{}'::jsonb, %s, %s)",
+        (key, "a" * 64, "c" * 64, "d" * 64, "e" * 64, key),
+    )
+    return key
+
+
+class _RollBack(Exception):
+    """Ends the test's transaction: provenance_batch is append only, so nothing is deleted."""
+
+
+def test_unit_stats_are_set_with_the_completion_and_frozen_after(store):
+    """Migration 583: unit_stats moves only on started -> completed; a completed row's
+    unit_stats cannot change, including on the completed -> superseded flip. All inside one
+    rolled-back transaction, each refusal in its own savepoint."""
+    store_, _run_id = store
+    conn = store_.conn
+    stats = '{"swing_high_dist_atr": {"present": 10, "nan_present": 1}}'
+
+    def refused(sql: str, params: tuple, match: str = "") -> None:
+        with pytest.raises(psycopg.errors.CheckViolation, match=match), conn.transaction():
+            conn.execute(sql, params)
+
+    with contextlib.suppress(_RollBack), conn.transaction():
+        key = _provenance_row(conn)
+        refused(
+            "UPDATE provenance_batch SET status = 'failed', unit_stats = %s::jsonb "
+            "WHERE batch_key = %s",
+            (stats, key),
+            "unit_stats is set only",
+        )
+        conn.execute(
+            "UPDATE provenance_batch SET status = 'completed', row_count = 3, finished_at = now(), "
+            "unit_stats = %s::jsonb WHERE batch_key = %s",
+            (stats, key),
+        )
+        assert store_.unit_stats([key])[0][2]["swing_high_dist_atr"]["nan_present"] == 1
+        refused("UPDATE provenance_batch SET unit_stats = '{}'::jsonb WHERE batch_key = %s", (key,))
+        refused(
+            "UPDATE provenance_batch SET status = 'superseded', unit_stats = NULL "
+            "WHERE batch_key = %s",
+            (key,),
+        )
+        conn.execute(
+            "UPDATE provenance_batch SET status = 'superseded' WHERE batch_key = %s", (key,)
+        )
+        raise _RollBack

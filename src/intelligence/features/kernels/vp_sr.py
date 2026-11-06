@@ -20,6 +20,7 @@ import numpy as np
 
 from src.intelligence.features.contract.registry import (
     ANCHOR_SESSION_OPEN,
+    ANCHOR_WEEK_OPEN,
     Kernel,
     anchored_warmup,
     constant_tf,
@@ -1325,6 +1326,8 @@ KERNELS = (
         inputs=("high", "low", "close", "volume", "tf"),
         memory=lambda config: config.session_vp_rolling_window - 1,
         compute=_compute_rolling_poc,
+        # _rolling_poc_price profiles the bars it is given (up to the window): from the first bar
+        definition=lambda config, tf: 0,
         # session-anchored: a daily bar has no session profile
         not_applicable=undefined_on("1d", (_POC,)),
     ),
@@ -1342,9 +1345,9 @@ KERNELS = (
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
         memory_anchor=ANCHOR_SESSION_OPEN,
-        # the accumulators reset at each session open and row 0's session is excluded, so one
-        # complete session follows within two sessions of bars
-        warmup=lambda config, tf: anchored_warmup(ANCHOR_SESSION_OPEN, config, tf),
+        # the current session's profile: a running accumulator, defined from the first bar
+        anchor_periods=dict.fromkeys(VP.outputs, 0),
+        definition=lambda config, tf: anchored_warmup(ANCHOR_SESSION_OPEN, config, tf, 0),
     ),
     Kernel(
         name="support_resistance",
@@ -1384,9 +1387,17 @@ KERNELS = (
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,
-        memory_anchor=ANCHOR_SESSION_OPEN,
-        # the accumulators reset at each session open and row 0's session is excluded, so one
-        # complete session follows within two sessions of bars
-        warmup=lambda config, tf: anchored_warmup(ANCHOR_SESSION_OPEN, config, tf),
+        memory_anchor={
+            o: ANCHOR_WEEK_OPEN if o.startswith("weekly_") else ANCHOR_SESSION_OPEN
+            for o in SESSION_LEVEL.outputs
+        },
+        # the prior session's (and prior week's) levels: one complete period of the anchor
+        anchor_periods={o: 1 for o in SESSION_LEVEL.outputs},
+        definition=lambda config, tf: {
+            o: anchored_warmup(
+                ANCHOR_WEEK_OPEN if o.startswith("weekly_") else ANCHOR_SESSION_OPEN, config, tf, 1
+            )
+            for o in SESSION_LEVEL.outputs
+        },
     ),
 )

@@ -701,7 +701,8 @@ class TestBulkLoadReplaceWhere:
         _k, done_sql, done_params = conn.events[
             conn.require_index("execute", "'completed', row_count")
         ]
-        assert tuple(done_params) == (4, spec.batch_key, 4)  # rows written, key, generation
+        # rows written, unit_stats (none here), key, generation
+        assert tuple(done_params) == (4, None, spec.batch_key, 4)
 
     def test_a_takeover_and_the_completion_name_the_generation_they_act_on(self) -> None:
         conn = _conn([_LOCKED, {"fetchone": ("failed", None, 2, 5)}] + _fresh_happy_responses()[2:])
