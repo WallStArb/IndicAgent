@@ -24,6 +24,6 @@ Package docstrings in each `__init__.py` are the source of truth for details.
 `archive/`, `composites/` and `context/` (item 1, 2026-10-26); the dashboard signal surface and the
 ML batch chain (items 2 and 3) were deleted on 2026-10-26. The I1-I7 signal path, the typed bus and the
 I8 AI stack were removed in plan 185-45; the archive is the local git tag
-`archive/v2x-ai-stack-2026-10` and `data/backups/185-45/` (kept until about 2026-11-06). The
+`archive/v2x-ai-stack-2026-10` (its table dumps were deleted 2026-11-06 at the end of their 30-day retention). The
 pre-removal text of this file, including the plugin protocol, the LLM provider chain and the
 Ollama rules, is in git history at the tag.

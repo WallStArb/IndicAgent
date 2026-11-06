@@ -9,7 +9,7 @@ owner: owner call on the dashboard surface and the ML batch chain; the rest is m
 # v2.x remainder after 185-45: the feature vector pipeline's coupling, the dashboard's signal surface, the ML batch chain
 
 Plan 185-45 removed the I8 AI stack and every v2.x service, unit, script and table with no live
-consumer (archive: git tag `archive/v2x-ai-stack-2026-10`, dumps in `data/backups/185-45/`). What
+consumer (archive: git tag `archive/v2x-ai-stack-2026-10`, table dumps deleted 2026-11-06 after their retention). What
 stays, and why, with the step that would free it:
 
 ## 1. feature_vector_pipeline imports the v2.x pipeline package (DONE 2026-10-26)
@@ -58,7 +58,7 @@ HTTP 404 from the removed `/api/ai/stats` and `/api/signals/{id}/ai`; both handl
 "No swarm data yet").
 
 Owner decision 2026-10-26: delete the v2.x signal panels, their API routes and the empty tables
-(each dumped already in `data/backups/185-45/`); phase 188's forward runner builds its own views.
+(dumped under 185-45; dumps deleted 2026-11-06 after retention); phase 188's forward runner builds its own views.
 
 DONE 2026-10-26 (migration 521): signal, features, validation and drift routes, the signal events
 repository, `src/intelligence/trading/`, the feature-validation service, the dashboard's signal,
