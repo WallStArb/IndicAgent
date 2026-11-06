@@ -10,9 +10,11 @@ import {
   RowsTable,
   SearchInput,
   SMALL_LABEL,
+  Hint,
   pressable,
   type RowTone,
 } from "@/components/cockpit";
+import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import { CONCEPT_STATUSES, type ConceptRow, type ConceptsSummary } from "@/lib/types";
@@ -69,14 +71,14 @@ function LifecycleMatrix({
                 <td key={status} className="py-1 px-1 text-right">
                   {/* A pressed cell stays a button when its count drops to 0, so it can be released. */}
                   {n > 0 || pressed ? (
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
                       aria-pressed={pressed}
                       onClick={() => onSelect(cell)}
-                      className={cn("min-w-12 rounded-md px-2 py-0.5 text-right", pressable(pressed))}
+                      className={cn("h-auto min-w-12 justify-end px-2 py-0.5 text-right font-mono font-normal", pressable(pressed))}
                     >
                       {n.toLocaleString()}
-                    </button>
+                    </Button>
                   ) : (
                     <span className="px-2 text-[var(--text-muted)]">-</span>
                   )}
@@ -126,13 +128,13 @@ const RENDER: Partial<Record<keyof ConceptRow & string, (r: ConceptRow) => React
       ? `${spaced(r.evidence_kind)}: ${r.passed ? "pass" : "fail"}${r.guard_status ? `, guard ${spaced(r.guard_status)}` : ""}`
       : "-",
   statistic: (r) => fixed(r.statistic, 4),
-  evaluated_at: (r) => <span title={fmtUtc(r.evaluated_at)}>{fmtAgo(r.evaluated_at)}</span>,
+  evaluated_at: (r) => <Hint text={fmtUtc(r.evaluated_at)}>{fmtAgo(r.evaluated_at)}</Hint>,
   trigger_reason: (r) =>
     r.trigger_reason ? (
-      <span title={fmtUtc(r.triggered_at)}>
+      <Hint text={fmtUtc(r.triggered_at)}>
         {spaced(r.from_status ?? "-")} to {spaced(r.to_status ?? "-")}, {spaced(r.trigger_reason)},{" "}
         {fmtAgo(r.triggered_at)}
-      </span>
+      </Hint>
     ) : (
       "-"
     ),

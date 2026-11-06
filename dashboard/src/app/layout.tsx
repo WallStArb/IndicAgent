@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit, JetBrains_Mono, Syne } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
@@ -38,9 +39,9 @@ export default function RootLayout({
         <noscript>
           <style>{`[style*="opacity:0;"],[style*="opacity: 0;"],[style$="opacity:0"],[style$="opacity: 0"]{opacity:1!important;transform:none!important}svg rect[style*="scale"]{transform:none!important}`}</style>
         </noscript>
-        <AppShell>
-          {children}
-        </AppShell>
+        <TooltipProvider delayDuration={200}>
+          <AppShell>{children}</AppShell>
+        </TooltipProvider>
       </body>
     </html>
   );

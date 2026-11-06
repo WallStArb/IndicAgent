@@ -1,5 +1,5 @@
 import { AlertTriangle, CircleCheck, Clock } from "lucide-react";
-import { CARD, SMALL_LABEL } from "@/components/cockpit";
+import { CARD, Hint, SMALL_LABEL } from "@/components/cockpit";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -168,12 +168,12 @@ export function Headline({ summary }: { summary: PipelineSummary }) {
 /** The old dashboard's "last updated" stamp: when this payload was generated, in UTC. */
 export function UpdatedStamp({ summary }: { summary: PipelineSummary }) {
   return (
-    <span className="flex flex-col items-end gap-0.5" title={`Stale after ${summary.stale_hours} h`}>
+    <Hint text={`Stale after ${summary.stale_hours} h`} className="flex flex-col items-end gap-0.5">
       <span className={SMALL_LABEL}>Last updated</span>
       <span className="flex items-center gap-1.5 font-mono text-xs text-[var(--text-secondary)]">
         <Clock size={12} />
         {fmtUtc(summary.generated_at)}, every {summary.refresh_seconds} s
       </span>
-    </span>
+    </Hint>
   );
 }

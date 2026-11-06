@@ -52,6 +52,14 @@
   --font-sans: var(--font-outfit);
   --font-mono: var(--font-jetbrains);
   --font-display: var(--font-syne);
+  /* shadcn/ui tokens, mapped onto the cockpit palette */
+  --color-border: var(--border-default);
+  --color-primary: var(--accent-cyan);
+  --color-primary-foreground: var(--bg-base);
+  --color-muted: var(--bg-hover);
+  --color-ring: var(--accent-cyan);
+  --color-popover: var(--bg-elevated);
+  --color-popover-foreground: var(--text-primary);
 }
 
 /* ── Base reset ── */

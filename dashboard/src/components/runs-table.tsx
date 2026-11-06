@@ -1,4 +1,4 @@
-import { RowsTable, type RowTone } from "@/components/cockpit";
+import { Hint, RowsTable, type RowTone } from "@/components/cockpit";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { RunRow } from "@/lib/types";
 import { fixed, spaced } from "@/lib/utils";
@@ -40,8 +40,8 @@ const LABELS: Partial<Record<keyof RunRow & string, string>> = {
 };
 
 const RENDER: Partial<Record<keyof RunRow & string, (r: RunRow) => React.ReactNode>> = {
-  started_at: (r) => <span title={fmtUtc(r.started_at)}>{fmtAgo(r.started_at)}</span>,
-  spec_path: (r) => <span title={r.spec_path}>{specName(r.spec_path)}</span>,
+  started_at: (r) => <Hint text={fmtUtc(r.started_at)}>{fmtAgo(r.started_at)}</Hint>,
+  spec_path: (r) => <Hint text={r.spec_path}>{specName(r.spec_path)}</Hint>,
   kind: (r) => `${spaced(r.kind)}${r.mode === "real" ? "" : ` (${r.mode})`}`,
   status: (r) => spaced(r.status),
   statistic: (r) => r.statistic ?? "-",

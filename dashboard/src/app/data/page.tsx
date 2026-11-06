@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CARD, ErrorNote, PageHeader, Panel } from "@/components/cockpit";
+import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo } from "@/lib/time";
 import type { DataSummary } from "@/lib/types";
@@ -106,13 +107,14 @@ export default function DataPage() {
           error={data?.failing.meta.error}
           footer={
             failingAll.length > FAILING_PREVIEW && (
-              <button
-                type="button"
+              <Button
+                variant="link"
+                size="link"
                 onClick={() => setShowAllFailing((v) => !v)}
-                className="self-start text-[0.65rem] font-mono text-[var(--accent-cyan)] hover:underline"
+                className="self-start text-[0.65rem] font-mono"
               >
                 {showAllFailing ? `show the worst ${FAILING_PREVIEW}` : `show all ${failingAll.length}`}
-              </button>
+              </Button>
             )
           }
         />

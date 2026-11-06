@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, spaced } from "@/lib/utils";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import type { StageStatus } from "@/lib/types";
@@ -275,6 +277,20 @@ export function SearchInput({
   );
 }
 
+/** Wraps a value with a hover and keyboard-focus tooltip (the full UTC time behind an "ago", a full path). */
+export function Hint({ text, children, className }: { text: string; children: React.ReactNode; className?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className={className}>
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{text}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** A row of pressed/unpressed buttons choosing one value (a time range, a state filter). */
 export function ToggleGroup<V>({
   label,
@@ -293,18 +309,15 @@ export function ToggleGroup<V>({
   return (
     <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
       {options.map((o) => (
-        <button
+        <Button
           key={o.key}
-          type="button"
+          variant="ghost"
           aria-pressed={selected === o.value}
           onClick={() => onSelect(o.value)}
-          className={cn(
-            "flex items-center gap-2 rounded-md px-2.5 py-1 text-xs",
-            pressable(selected === o.value),
-          )}
+          className={cn("h-auto gap-2 px-2.5 py-1 text-xs font-normal", pressable(selected === o.value))}
         >
           {o.content}
-        </button>
+        </Button>
       ))}
       {children}
     </div>

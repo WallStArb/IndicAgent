@@ -1,3 +1,5 @@
+import { Separator } from "@/components/ui/separator";
+
 /** Eyebrow, display title and rule shared by the landing sections. */
 export function SectionHeading({
   eyebrow,
@@ -39,7 +41,7 @@ export function SectionHeading({
             {title}
           </h2>
         </div>
-        <div className="flex-1 h-px mb-1" style={{ background: "var(--border-subtle)" }} />
+        <Separator className="mb-1 w-auto flex-1" style={{ background: "var(--border-subtle)" }} />
       </div>
       {intro && (
         <p className="mt-4 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
