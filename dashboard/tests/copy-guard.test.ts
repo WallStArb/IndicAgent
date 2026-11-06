@@ -79,7 +79,7 @@ describe("landing copy guard", () => {
   });
 
   it("allows the word agentic", () => {
-    expect(hero.status).toMatch(/agentic/i);
+    expect(hero.title.join(" ")).toMatch(/agentic/i);
   });
 
   it("states that the agentic research loop is not running and no result is counted", () => {

@@ -1,113 +1,44 @@
-# Intelligence Platform Dashboard
+# IndicAgent dashboard
 
-**Version:** 2.5.0
-**Last Updated:** 2026-05-03
-**Status:** Current - Full I1-I8 intelligence pipeline with AI narratives, signal scorecard, and SMC context
+The landing page and the read-only research cockpit for IndicAgent, an agentic quantitative
+research platform. The cockpit shows what each pipeline stage holds, how fresh it is, and what
+the research ledger has counted. It never writes.
 
-Real-time futures trading dashboard with live pattern detection, market structure, context classification, and technical analysis.
+## Routes
 
-## Features
+| Route | What it shows |
+|---|---|
+| `/` | Landing page: positioning, the triangle, principles, how an edge is found, families, retired ideas |
+| `/pipeline` | Each DAG stage (ingest, feature, regime, measure, research, book): status and newest row |
+| `/data` | Bar coverage per timeframe and vendor |
+| `/instruments`, `/instruments/[symbol]` | Universe map and the per-name passport |
+| `/concepts` | Concept lifecycle and IC evidence |
+| `/research` | Runs recorded in the research ledger |
+| `/books` | Frozen books (not built yet) |
+| `/system` | Service health |
 
-**Futures-Focused Intelligence:**
-- **ES, NQ, RTY Futures**: Primary instruments with 24/7 institutional flow data
-- **Multi-timeframe Analysis**: 1m precision to 15m signals to 1h context (1m, 5m, 15m, 1h, 4h, 1d)
-- **Technical Indicators**: 27 indicator plugins with automatic calculation engine (I1)
-- **Pattern Detection (I5)**: RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence
-- **Market Structure (I3)**: Swing detector, support/resistance, trend structure
-- **Context Classification (I4)**: Volatility regime, trend regime, momentum context
-- **Smart Money Concepts (SMC)**: BOS/CHoCH, FVG, order blocks, liquidity pools
-- **Signal Scorecard (I7)**: All ranked signal candidates per bar with CIS scores
-- **AI Narratives (I8)**: LLM-generated market narratives with model attribution
-- **Real-time Updates**: SSE from IndicAgent API
+Data comes from the FastAPI read-only routes (`src/api/routes/`) through `src/hooks/use-api.ts`.
 
-**Intelligence Platform Integration:**
-- **Foundation Layer**: Live technical indicators with incremental calculation (141x performance)
-- **Pattern Layer**: I5 mathematical pattern detection (divergence, squeeze, confluence)
-- **Structure & Context**: I3 structure and I4 context panels
-- **Future AI Layer**: Pattern interpretation and market context (I8 planned)
-- **External API Ready**: Built for trading system integration
+## Stack
 
-## Layout
+Next.js 16, React 19, Tailwind 4, TypeScript 7, `motion`, shadcn/ui primitives
+(`src/components/ui/`), Vitest. Kept at the same versions as the Delta Investment site.
 
-The dashboard is built from:
+## Copy
 
-- **Price hero** – Current price, change, trend
-- **Indicator grid** – RSI, MACD, SMA/EMA, BB, ATR, Stoch, Williams %R, VWAP, MFI, CCI, etc.
-- **Pattern panel** – I5 pattern detection status and signals
-- **Structure panel** – I3 swing/structure and S/R context
-- **Context panel** – I4 regime and momentum context
+All landing copy lives in `src/lib/copy/landing.ts`; components only arrange it.
+`tests/copy-guard.test.ts` enforces the rules: no fund or person names, no performance or
+investor language, no counted-result claims, and nothing described as running that is still
+being built (the agentic research loop, the forward runner, sealed shadow, capital).
 
-Data is driven by the IndicAgent backend (SSE or Socket.IO). Timeframe selector updates indicators and panels for the selected timeframe.
+## Commands
 
-## Usage
-
-### Development Mode
-
-```bash
-# From dashboard directory
-npm install
-npm run dev
+```
+npx tsc --noEmit && npm run lint && npm test   # the gate
+npm run build && npx next start -p <port>      # local preview
+bash tools/smoke.sh <port>; node tools/overflow.mjs http://localhost:<port>
+node tools/motion-check.mjs http://localhost:<port>
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Ensure the IndicAgent backend and (optionally) Socket.IO server are running for live data.
-
-### Production Build
-
-```bash
-npm run build
-npm start
-```
-
-### Real-time Connection
-
-The dashboard uses either:
-
-- **SSE** – When `NEXT_PUBLIC_USE_SSE=true`, connects to the backend `/api/sse` endpoint
-- **Socket.IO** – Otherwise connects to `http://localhost:8001` (indicagent-websocket service)
-
-Subscribed streams (backend consumes and forwards):
-
-- `ticks:SYMBOL:live` – Real-time price updates
-- `market:SYMBOL:TIMEFRAME` – OHLCV bar data
-- `indicators:SYMBOL:TIMEFRAME` – Technical indicator values
-
-## Timeframe Switching
-
-Use the timeframe selector to switch between 1m, 5m, 15m, 1h, 4h, 1d. Indicator and panel data update for the selected timeframe.
-
-## Monitored Instruments
-
-**Primary Futures (24/7 Trading):**
-- **ES**: S&P 500 E-mini Futures
-- **NQ**: Nasdaq 100 E-mini Futures
-- **RTY**: Russell 2000 E-mini Futures
-
-**Focus**: Futures provide continuous institutional flow data for pattern detection, structure, and context analysis.
-
-## Dependencies
-
-- Next.js 15.4+
-- React 19.1+
-- Socket.IO Client (optional; SSE alternative)
-- Tailwind CSS v4
-- Lucide React Icons
-- shadcn/ui
-
-## Intelligence Platform Integration
-
-**Current Integration (Production Ready):**
-- **Live Data Pipeline**: IBKR futures to Redis Streams to technical indicators and intelligence services
-- **Automatic Calculation**: 12 indicator plugins in real-time (incremental, 141x faster)
-- **I3/I4/I5**: Structure, context, and pattern plugins via intelligence processor service
-- **Real-time Bridge**: SSE or Socket.IO with sub-second latency
-
-**Planned (I6–I8):**
-- **I6 Confluence & Risk**: Multi-factor scoring and risk assessment
-- **I7 Trading Outputs**: Setups and signals
-- **I8 AI Intelligence**: LLM synthesis and interpretation
-
-**Technical Architecture:**
-- Next.js 15.4 with React 19 for real-time rendering
-- SSE primary; Socket.IO client as fallback (env-driven)
-- TypeScript with futures and indicator data models
-- Tailwind v4 and shadcn for responsive, trading-oriented UI
+`indicagent-dashboard.service` runs `npm run build` then `npm run start` from the shared
+checkout. After any package change, run `npm ci` there before restarting the service.
