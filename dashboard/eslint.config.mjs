@@ -1,16 +1,12 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-];
-
-export default eslintConfig;
+// eslint-config-next 16 ships native flat configs; FlatCompat resolved them into a circular reference.
+export default defineConfig([
+  ...nextVitals,
+  ...nextTypescript,
+  // eslint-plugin-react detects the version through APIs ESLint 10 removed; naming it skips the detection.
+  { settings: { react: { version: "19" } } },
+  globalIgnores([".next/**", "node_modules/**", "next-env.d.ts"]),
+]);

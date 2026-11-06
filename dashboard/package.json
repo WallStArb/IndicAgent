@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "node --require ./tools/typescript6-shim.cjs node_modules/eslint/bin/eslint.js src",
     "test": "vitest run"
   },
   "dependencies": {
@@ -24,11 +24,11 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.4",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.13.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript/typescript6": "^6.0.2",
     "eslint": "^10.0.2",
     "eslint-config-next": "^16.1.6",
     "puppeteer-core": "^25.16.0",

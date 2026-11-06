@@ -233,7 +233,8 @@ export function HistoryChart({
     [closes],
   );
 
-  const to = Math.floor(Date.now() / DAY_MS);
+  // Today, read once at mount: render stays pure. A page left open past midnight keeps the older edge until it reloads.
+  const [to] = useState(() => Math.floor(Date.now() / DAY_MS));
   const earliest = Math.min(to, ...lanes.map((l) => l.first), points.length ? points[0][0] : to);
   const from = range === null ? earliest : Math.max(earliest, to - range);
   const labelW = labelWidth(width);
@@ -347,7 +348,7 @@ export function HistoryChart({
       )}
       </>
     ),
-    [close, lanes, bins, x, labelW, plotW, binDays, from, to, height, ended, closeTimeframe],
+    [close, lanes, lanesTop, bins, x, labelW, plotW, binDays, from, to, height, ended, closeTimeframe],
   );
 
   const caption = `${dayLabel(from)} to ${dayLabel(to)}, ${binDays === 1 ? "one day" : `${binDays} days`} per bin`;
