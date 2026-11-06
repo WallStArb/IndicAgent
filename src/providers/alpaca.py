@@ -119,6 +119,11 @@ class AlpacaProvider:
         self._last_request_monotonic = 0.0
         self._client: httpx.AsyncClient | None = None
 
+    @property
+    def route(self) -> str:
+        """The ledger route this leaf's requests are recorded under: the feed it asks."""
+        return self._data_feed.upper()
+
     async def connect(self) -> bool:
         """Open the REST client. REST is connectionless; this only builds it."""
         if not self._settings.alpaca_key_id or not self._settings.alpaca_secret_key:
@@ -166,7 +171,7 @@ class AlpacaProvider:
             fetch_run_id=self._fetch_run_id,
             symbol=request.symbol,
             timeframe=request.timeframe,
-            route=self._data_feed.upper(),
+            route=self.route,
             what_to_show=_TF_TO_ALPACA[request.timeframe],
             primary_exchange=None,
             window_start=page.start,

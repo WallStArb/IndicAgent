@@ -82,6 +82,7 @@ class _PagedLeaf:
         self.sink = sink
         self.answers = answers
         self.unfinished = unfinished
+        self.asked: list[tuple] = []
 
     async def connect(self):
         pass
@@ -90,6 +91,7 @@ class _PagedLeaf:
         pass
 
     async def fetch_ohlcv(self, request, budget):
+        self.asked.append((request.timeframe, request.start, request.end))
         pages = self.answers[request.timeframe]
         for index, page in enumerate(pages):
             record = SimpleNamespace(
@@ -142,7 +144,18 @@ class _Inner:
         return len(self.buffered)
 
 
-def _night(monkeypatch, answers, *, write=True, end=None, unfinished=False, store_fails=()):
+def _night(
+    monkeypatch,
+    answers,
+    *,
+    write=True,
+    end=None,
+    unfinished=False,
+    store_fails=(),
+    windows=None,
+    skip_complete=False,
+    answered=(),
+):
     """Run the nightly over a paged fake leaf; returns (summary, inner sink, load calls). A 5m
     page whose request id is in `store_fails` raises in the load engine."""
     calls: list[tuple] = []
@@ -160,6 +173,7 @@ def _night(monkeypatch, answers, *, write=True, end=None, unfinished=False, stor
     monkeypatch.setattr(ops_bar_nightly, "load_series", fake_series)
     monkeypatch.setattr(ops_bar_nightly, "load_frame", fake_frame)
     monkeypatch.setattr(ops_bar_nightly, "record_fetch_outcome", lambda *a, **k: None)
+    monkeypatch.setattr(ops_bar_nightly, "_complete_asks", lambda *a: list(answered))
     inner = _Inner()
     sink = ops_bar_nightly._NightlySink(inner, _Conn(), provider="alpaca")
     policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
@@ -173,10 +187,10 @@ def _night(monkeypatch, answers, *, write=True, end=None, unfinished=False, stor
             None,
             timedelta(minutes=30),
             ["SPY"],
-            now - timedelta(days=5),
-            end or now - timedelta(minutes=20),
+            windows or [(now - timedelta(days=5), end or now - timedelta(minutes=20))],
             write,
             FetchBudget(deadline=now + timedelta(minutes=30), max_requests=500),
+            skip_complete=skip_complete,
         )
     )
     return summary, inner, calls
@@ -225,7 +239,7 @@ def test_a_failed_page_row_is_written_after_the_symbol(monkeypatch):
         monkeypatch, {"5m": [[_bar(_T1)], RuntimeError("boom")], "1d": [[]]}
     )
     assert inner.written == ["5m-1"]
-    assert [rows for _, _, rows, _ in calls] == [["5m-0"]]
+    assert [rows for _, _, rows, _ in calls] == [["5m-0"], ["1d-0"]]  # 1d still asked
     assert summary["errors"] == 1 and ops_bar_nightly.exit_code(summary) == 1
 
 
@@ -380,8 +394,8 @@ def test_a_page_whose_store_failed_writes_a_failed_row_not_its_answered_row(monk
     assert "5m-1" not in inner.written
     [failed] = inner.written
     assert inner.outcomes[failed] == "failed"
-    assert [rows for _, _, rows, _ in calls] == [["5m-0"]]
-    assert summary["errors"] == 1 and summary["pages"] == 1
+    assert [rows for _, _, rows, _ in calls] == [["5m-0"], ["1d-0"]]  # 1d still asked
+    assert summary["errors"] == 1 and summary["pages"] == 2  # 5m page 0 and the 1d page
 
 
 def test_a_vendor_page_always_fits_one_load_chunk():
@@ -390,3 +404,42 @@ def test_a_vendor_page_always_fits_one_load_chunk():
     from src.providers import alpaca
 
     assert alpaca._PAGE_LIMIT <= CHUNK_ROWS  # noqa: SLF001
+
+
+def test_history_windows_cut_at_each_new_year_outside_every_session():
+    from datetime import date
+
+    windows = ops_bar_nightly.history_windows(date(2016, 1, 4), date(2018, 3, 1))
+    assert [(a.date(), b.date()) for a, b in windows] == [
+        (date(2016, 1, 4), date(2017, 1, 1)),
+        (date(2017, 1, 1), date(2018, 1, 1)),
+        (date(2018, 1, 1), date(2018, 3, 1)),
+    ]
+    # 06:00 UTC: after the latest extended-hours bar (01:00 UTC in winter), before the earliest
+    assert {(a.hour, a.tzinfo) for pair in windows for a in pair} == {(6, UTC)}
+    with pytest.raises(ValueError, match="precede"):
+        ops_bar_nightly.history_windows(date(2018, 1, 1), date(2018, 1, 1))
+
+
+def test_a_rerun_skips_windows_a_complete_ask_already_answered(monkeypatch):
+    """The re-ask's resume rule: windows a complete ask holds are not asked again."""
+    w1 = (datetime(2016, 1, 4, tzinfo=UTC), datetime(2017, 1, 1, tzinfo=UTC))
+    w2 = (datetime(2017, 1, 1, tzinfo=UTC), datetime(2018, 1, 1, tzinfo=UTC))
+    summary, _, calls = _night(
+        monkeypatch,
+        {"5m": [[_bar(_T1)]], "1d": [[]]},
+        windows=[w1, w2],
+        skip_complete=True,
+        answered=[(w1[0] - timedelta(days=1), w1[1])],
+    )
+    assert summary["skipped"] == 2 and summary["pages"] == 2  # w1 skipped on both timeframes
+    assert len(calls) == 2
+
+
+def test_a_failed_window_does_not_abandon_the_symbols_other_windows(monkeypatch):
+    w1 = (datetime(2016, 1, 4, tzinfo=UTC), datetime(2017, 1, 1, tzinfo=UTC))
+    w2 = (datetime(2017, 1, 1, tzinfo=UTC), datetime(2018, 1, 1, tzinfo=UTC))
+    answers = {"5m": [RuntimeError("boom")], "1d": [[]]}
+    summary, _, calls = _night(monkeypatch, answers, windows=[w1, w2])
+    assert summary["errors"] == 2  # both 5m windows failed and were each counted
+    assert [tf for tf, *_ in calls] == ["1d", "1d"]  # the 1d windows were still asked

@@ -43,7 +43,7 @@ import argparse
 import asyncio
 import sys
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pandas as pd
 import psycopg
@@ -107,6 +107,13 @@ def _bars_frame(bars) -> pd.DataFrame:
 _TIMEFRAMES = ("5m", "1d")
 
 
+def _positive(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {number}")
+    return number
+
+
 def parse_timeframes(value: str | None) -> tuple[str, ...]:
     """The timeframes to ask, in nightly order: both by default; one for a history backfill
     (the 1d-only Alpaca history pull, 2026-10-27)."""
@@ -119,6 +126,34 @@ def parse_timeframes(value: str | None) -> tuple[str, ...]:
     return tuple(tf for tf in _TIMEFRAMES if tf in asked)
 
 
+# The instant history windows are cut at: 06:00 UTC lies outside every US equity session,
+# extended hours included (Alpaca serves 5m from 04:00 to 20:00 ET, at the latest 01:00 UTC),
+# so no bar sits on or straddles a cut and no window holds a bar back as unfinished.
+_WINDOW_CUT = time(6, 0, tzinfo=UTC)
+
+
+def history_windows(first: date, end: date) -> list[tuple[datetime, datetime]]:
+    """[first, end) as windows cut at each 1 January (06:00 UTC, _WINDOW_CUT): the re-ask asks
+    history one calendar year at a time (a window of a few pages, so a stop loses little)."""
+    if first >= end:
+        raise ValueError(f"--start {first} must precede --end {end}")
+    cuts = [first, *(date(year, 1, 1) for year in range(first.year + 1, end.year + 1)), end]
+    return [
+        (datetime.combine(a, _WINDOW_CUT), datetime.combine(b, _WINDOW_CUT))
+        for a, b in zip(cuts, cuts[1:], strict=False)
+        if a < b
+    ]
+
+
+# The asked windows of a series' complete asks that held nothing back (migration 581): a window
+# one of them holds needs no new ask.
+_COMPLETE_ASKS_SQL = """
+SELECT ask_start, ask_end FROM ohlcv_ask_current
+WHERE symbol = %s AND timeframe = %s AND source = %s AND route = %s
+  AND complete AND NOT has_partial
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vendor", default="alpaca", help="capture vendor (default alpaca)")
@@ -127,14 +162,48 @@ def main() -> int:
     parser.add_argument(
         "--timeframes", default=None, help="comma-separated subset of 5m,1d; default both"
     )
+    parser.add_argument(
+        "--start",
+        type=date.fromisoformat,
+        default=None,
+        help="history re-ask: first UTC date (with --end; asked one calendar year per window)",
+    )
+    parser.add_argument(
+        "--end",
+        type=date.fromisoformat,
+        default=None,
+        help="history re-ask: end UTC date, exclusive",
+    )
+    parser.add_argument(
+        "--skip-complete",
+        action="store_true",
+        help="skip a window a complete ask already answered (resume a stopped re-ask)",
+    )
+    parser.add_argument(
+        "--deadline-minutes",
+        type=_positive,
+        default=None,
+        help="the run's wall-clock budget; default the APR key",
+    )
+    parser.add_argument(
+        "--max-requests",
+        type=_positive,
+        default=None,
+        help="the request cap of each window; default the APR key",
+    )
     parser.add_argument("--apply", action="store_true", help="write; default plans and prints")
     args = parser.parse_args()
     timeframes = parse_timeframes(args.timeframes)
+    if (args.start is None) != (args.end is None):
+        parser.error("--start and --end go together")
+    if args.start is not None and args.days is not None:
+        parser.error("--days is the nightly tail; a history re-ask takes --start/--end only")
+    if args.start is not None and args.start >= args.end:
+        parser.error(f"--start {args.start} must precede --end {args.end}")
 
     settings = get_settings()
     conn = psycopg.connect(settings.database_url, autocommit=True)
     try:
-        window_days = args.days or _apr_int(conn, "infra.alpaca.nightly_window_days", 5)
         # Alpaca only: the feed the tail is asked on (APR, migrations 511 and 513) and the raw
         # kind that basis is written under; a sip window ends before the recent-SIP horizon.
         data_feed = (
@@ -145,7 +214,13 @@ def main() -> int:
             data_feed,
             _apr_int(conn, "infra.alpaca.sip_recent_lag_minutes", 20),
         )
-        start = end - timedelta(days=window_days)
+        if args.start is not None:
+            windows = history_windows(args.start, args.end)
+            if windows[-1][1] > end:
+                raise SystemExit(f"--end {args.end} reaches past the ask horizon {end}")
+        else:
+            days = args.days or _apr_int(conn, "infra.alpaca.nightly_window_days", 5)
+            windows = [(end - timedelta(days=days), end)]
         with conn.cursor() as cur:
             params = read_raw_params(cur)
             settle = read_settle(cur)
@@ -181,17 +256,25 @@ def main() -> int:
                 params,
                 settle,
                 universe,
-                start,
-                end,
+                windows,
                 args.apply,
                 FetchBudget(
                     deadline=datetime.now(UTC)
                     + timedelta(
-                        minutes=_apr_int(conn, "infra.alpaca.nightly_deadline_minutes", 60)
+                        minutes=(
+                            _apr_int(conn, "infra.alpaca.nightly_deadline_minutes", 60)
+                            if args.deadline_minutes is None
+                            else args.deadline_minutes
+                        )
                     ),
-                    max_requests=_apr_int(conn, "infra.alpaca.nightly_max_requests", 4000),
+                    max_requests=(
+                        _apr_int(conn, "infra.alpaca.nightly_max_requests", 4000)
+                        if args.max_requests is None
+                        else args.max_requests
+                    ),
                 ),
                 timeframes=timeframes,
+                skip_complete=args.skip_complete,
             )
         )
     finally:
@@ -290,6 +373,7 @@ class _NightlySink:
 
 _SUMMARY_KEYS = (
     "pages",
+    "skipped",
     "authored",
     "raw_1d",
     "new",
@@ -311,7 +395,7 @@ def summary_line(summary: dict, *, apply: bool) -> str:
         apply=apply, unselected=summary["unselected"], basis_flagged=summary["basis_flagged"]
     )
     return (
-        f"{status}: {summary['pages']} pages, "
+        f"{status}: {summary['pages']} pages, {summary['skipped']} windows already answered, "
         f"{summary['authored']} 5m rows offered to raw, {summary['raw_1d']} 1d rows offered to "
         f"raw ({summary['new']} new, {summary['changed']} changed, "
         f"{summary['unchanged']} unchanged), {summary['errors']} errors, "
@@ -342,18 +426,18 @@ def exit_code(summary: dict) -> int:
 class _PageStore:
     """Stores one answered page: its complete bars offered with the page's own request row in
     one transaction (5m through the policy, 1d raw capture only); a dry run counts what it
-    would offer and writes nothing. `asked_at` is when the current window was asked (_run sets
-    it per window), the lower bound the complete-bar rule splits against."""
+    would offer and writes nothing. `asked_at` is when the current window was asked and `end`
+    its end (_run sets both per window), what the complete-bar rule splits against."""
 
-    def __init__(self, conn, policy_5m, params, settle, end, write: bool, summary: dict):
+    def __init__(self, conn, policy_5m, params, settle, write: bool, summary: dict):
         self.conn = conn
         self.policy_5m = policy_5m
         self.params = params
         self.settle = settle
-        self.end = end
         self.write = write
         self.summary = summary
         self.asked_at: datetime | None = None
+        self.end: datetime | None = None  # the current window's end
 
     def load(self, record, bars, sink) -> None:
         summary, policy = self.summary, self.policy_5m
@@ -420,44 +504,64 @@ async def _run(
     params,
     settle,
     universe,
-    start,
-    end,
+    windows,
     write: bool,
     budget,
     *,
     timeframes: tuple[str, ...] = _TIMEFRAMES,
+    skip_complete: bool = False,
 ) -> dict:
-    """Ask each (symbol, timeframe) window once. The leaf hands every answered page to the
-    sink's page store, which stores it with its ledger row; a window the budget stopped
-    before its terminal page is counted unfinished (its ask is incomplete in the ledger)."""
+    """Ask each (symbol, timeframe, window) once. The leaf hands every answered page to the
+    sink's page store, which stores it with its ledger row; a window the budget stopped before
+    its terminal page is counted unfinished (its ask is incomplete in the ledger), and with
+    `skip_complete` a window a complete ask already holds is not asked again (the resume rule
+    of a history re-ask: rerun the same command)."""
     await leaf.connect()
     summary = dict.fromkeys(_SUMMARY_KEYS, 0)
-    sink.store = _PageStore(conn, policy_5m, params, settle, end, write, summary)
+    sink.store = _PageStore(conn, policy_5m, params, settle, write, summary)
     try:
         for symbol in universe:
-            try:
-                for timeframe in timeframes:
-                    sink.store.asked_at = datetime.now(UTC)
-                    page = await leaf.fetch_ohlcv(
-                        HistoryRequest(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            start=start,
-                            end=end,
-                            adjustment=ALPACA_RAW_ADJUSTMENT,
-                            rth_only=timeframe == "5m",
-                        ),
-                        budget,
-                    )
+            for timeframe in timeframes:
+                answered = _complete_asks(conn, leaf, symbol, timeframe) if skip_complete else []
+                for start, end in windows:
+                    if any(a <= start and end <= b for a, b in answered):
+                        summary["skipped"] += 1
+                        continue
+                    sink.store.asked_at, sink.store.end = datetime.now(UTC), end
+                    try:
+                        page = await leaf.fetch_ohlcv(
+                            HistoryRequest(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                start=start,
+                                end=end,
+                                adjustment=ALPACA_RAW_ADJUSTMENT,
+                                rth_only=timeframe == "5m",
+                            ),
+                            budget,
+                        )
+                    except Exception as error:  # noqa: BLE001 - one window fails, the run continues
+                        summary["errors"] += 1
+                        print(
+                            f"{symbol} {timeframe} {start:%Y-%m-%d}: ERROR "
+                            f"{type(error).__name__}: {error}",
+                            flush=True,
+                        )
+                        continue
                     if page.next_window_start is not None:
                         summary["unfinished"] += 1
-            except Exception as error:  # noqa: BLE001 - one name fails, the night continues
-                summary["errors"] += 1
-                print(f"{symbol}: ERROR {type(error).__name__}: {error}", flush=True)
             sink.flush(write=write)
     finally:
         await leaf.close()
     return summary
+
+
+def _complete_asks(conn, leaf, symbol: str, timeframe: str) -> list[tuple[datetime, datetime]]:
+    """The asked windows of this series' complete asks (the leaf's vendor and feed), read once
+    per series for the resume rule."""
+    with conn.cursor() as cur:
+        cur.execute(_COMPLETE_ASKS_SQL, (symbol, timeframe, leaf.name, leaf.route))
+        return cur.fetchall()
 
 
 if __name__ == "__main__":

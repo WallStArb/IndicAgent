@@ -228,3 +228,17 @@ def test_ask_fields_are_set_together_or_not_at_all(db):
     conn, symbol = db
     with pytest.raises(psycopg.errors.CheckViolation):
         _write(conn, _page(symbol, str(uuid.uuid4()), None, terminal=False))
+
+
+def test_the_resume_rule_reads_only_complete_asks_of_the_leafs_feed(db):
+    from types import SimpleNamespace
+
+    from scripts.ops.bars.ops_bar_nightly import _complete_asks
+
+    conn, symbol = db
+    leaf = SimpleNamespace(name="alpaca", route="SIP")
+    _write(conn, _page(symbol, str(uuid.uuid4()), 0, terminal=False))  # stopped: not complete
+    assert _complete_asks(conn, leaf, symbol, "5m") == []
+    _write(conn, _page(symbol, str(uuid.uuid4()), 0, terminal=True))
+    assert _complete_asks(conn, leaf, symbol, "5m") == [(_START, _END)]
+    assert _complete_asks(conn, SimpleNamespace(name="alpaca", route="IEX"), symbol, "5m") == []
