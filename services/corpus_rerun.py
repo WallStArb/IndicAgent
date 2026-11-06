@@ -1076,16 +1076,13 @@ class CorpusRerun:
         return summary
 
     def apr_tfs(self) -> list[str]:
-        value = self.deps.apr_value(_TARGET_TFS_KEY)
-        return list(json.loads(value) if isinstance(value, str) else value)
+        return list(self._json_apr(_TARGET_TFS_KEY))
 
     # -- ic_measure, d19_bound, canary -------------------------------------------
 
     def _caveats(self) -> list[dict[str, Any]]:
-        return list(self.store_run().caveats)
-
-    def store_run(self) -> CorpusRun:
-        return self.store.load_run(self.run.run_id)
+        """corpus_run.caveats as stored now (the data gate appended to it after load)."""
+        return list(self.store.load_run(self.run.run_id).caveats)
 
     def _step_ic_measure(self, step: Step) -> dict[str, Any]:
         from services.ic_measure import (
@@ -1352,7 +1349,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = Settings()
     conn = _connect(settings)
     if args.print_identity:
-        print(json.dumps(current_identity(conn)))
+        try:
+            print(json.dumps(current_identity(conn)))
+        finally:
+            conn.close()
         return 0
     setup_service_logging(str(main_logs_dir() / "corpus_rerun.log"))
     try:
