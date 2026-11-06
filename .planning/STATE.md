@@ -72,6 +72,13 @@ landed, then one full feature recompute of the corpus, (3) ensemble research on 
 orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are out until
 2026-11-05 23:16Z).
 
+- **Desk 2026-11-06 03:20Z (lead indicagent-4d):** landed: 594 scrub rules (aff4f022c, mig 580;
+  564 bad bars flagged, 0 served), 186-30 run identity (383e987ce, mig 578), 596 step 1 truthful
+  Alpaca ledger (3a8cc0a77, mig 581, view `ohlcv_ask_current`; first live use is the 04:43Z
+  nightly). In flight: 186-32 data gate lands on 581; 596 re-ask of every Alpaca 5m name
+  2016-2026-10 then the reader switch (913,862 sessions are covered today only by load ranges).
+  Pin gates: 534, 594 (done), 596, the 186-32 gate passing. 587 closes on the next full nightly D7.
+
 - **Critical path: todo 584 (corpus rerun fix manifest).** Decision 2026-11-04 (owner): no
   corpus compute until the data is complete (the 5m coverage target, todo 534; definition in the
   584 decision). The 186-26 rows on pin `92e588385` were discarded (migration 569, 298 GB freed;
