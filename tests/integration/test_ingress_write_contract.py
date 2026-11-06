@@ -93,6 +93,9 @@ def _request(symbol: str, tf: str, rows: list, *, what_to_show: str = "TRADES") 
         "test-185-39",
         now,
         now,
+        None,  # ask_id (migration 581): not an ask
+        None,  # page_index
+        None,  # terminal
         None,  # partial_bars (migration 479)
     )
 

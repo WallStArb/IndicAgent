@@ -151,9 +151,15 @@ def load_frame(
     chunk_rows: int = CHUNK_ROWS,
     on_chunk=None,
     kind: str | None = None,
+    request_rows: list[tuple] | None = None,
 ) -> LoadResult:
     """Offer one vendor frame to ohlcv_raw in chunks, one transaction per chunk; a dry run
-    (`write` False) plans nothing beyond the offered count.
+    (`write` False) plans nothing beyond the offered count and writes no ledger row.
+
+    `request_rows` are the ohlcv_request rows of the one vendor page that served the frame
+    (todo 596): they commit in the same transaction as the page's bars (an empty page commits
+    its row alone), and the raw rows the page writes new or changed carry its request_id. The
+    frame must then fit one chunk, so the ledger row and its bars can never commit apart.
 
     `answered_at` is when the vendor answered the frame (the nightly's request answer time, a
     campaign artifact's recorded fetch time), required for a write: raw is last-wins by serve
@@ -169,16 +175,27 @@ def load_frame(
     if answered_at is None:
         raise ValueError(f"load_frame {symbol}: a write needs the vendor's answer time")
     rows = frame_to_raw_rows(frame, symbol, vendor=vendor, timeframe=timeframe, kind=kind)
+    refresh_in_chunk = bool(request_rows) and coverage and timeframe == "1d"
+    if request_rows:
+        if len(rows) > chunk_rows:
+            raise ValueError(
+                f"load_frame {symbol}: a page's {len(rows)} rows exceed one chunk "
+                f"({chunk_rows}); its ledger row cannot commit with all of its bars"
+            )
+        if not rows:
+            persist_chunk_atomically(conn, request_rows=list(request_rows), raw_rows=[])
+            return LoadResult()
     result = LoadResult()
     for start in range(0, len(rows), chunk_rows):
         chunk = rows[start : start + chunk_rows]
-        persisted = persist_chunk_atomically(  # the campaign writes no ohlcv_request rows
+        persisted = persist_chunk_atomically(  # a campaign artifact has no request rows
             conn,
-            request_rows=[],
+            request_rows=list(request_rows or []),
             raw_rows=chunk,
             caller=caller,
             answered_at=answered_at,
             params=params,
+            refresh_1d_provider=vendor if refresh_in_chunk else None,
             coverage=(
                 CoverageDelta(
                     symbol,
@@ -194,7 +211,7 @@ def load_frame(
         result = result.plus(persisted.ingress)
         if on_chunk:
             on_chunk(start + len(chunk), len(rows))
-    if coverage and timeframe == "1d" and rows:
+    if coverage and timeframe == "1d" and rows and not refresh_in_chunk:
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute("SET LOCAL ROLE bar_derivation_writer")
@@ -213,6 +230,7 @@ def load_series(
     params: RawContractParams | None = None,
     chunk_rows: int = CHUNK_ROWS,
     on_chunk=None,
+    request_rows: list[tuple] | None = None,
 ) -> LoadResult:
     """Load one symbol's frame under a policy; a dry run plans only the offered count. The
     frame must carry a tz-aware UTC `t` column plus the OHLCV columns, and a write the vendor's
@@ -231,4 +249,5 @@ def load_series(
         chunk_rows=chunk_rows,
         on_chunk=on_chunk,
         kind=policy.kind,
+        request_rows=request_rows,
     )

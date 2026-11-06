@@ -291,3 +291,128 @@ def test_definitive_empty_answer_is_authoritative_verdict() -> None:
     assert page.verdict is not None
     assert page.verdict.authoritative_empty is True
     assert records[0].outcome == "no_data"
+
+
+def _fetch(provider, budget_requests: int = 5) -> HistoryPage:
+    import asyncio
+
+    async def run() -> HistoryPage:
+        await provider.connect()
+        try:
+            return await provider.fetch_ohlcv(
+                HistoryRequest(symbol="SPY", timeframe="5m", start=_WINDOW_START, end=_WINDOW_END),
+                FetchBudget(
+                    deadline=datetime.now(UTC) + timedelta(seconds=30),
+                    max_requests=budget_requests,
+                ),
+            )
+        finally:
+            await provider.close()
+
+    return asyncio.run(run())
+
+
+def test_pages_of_one_ask_share_its_id_and_only_the_last_is_terminal() -> None:
+    """Todo 596: every page carries the ask's id and index; only the page without a next-page
+    token is terminal, and page 0 starts at the asked start (the asked window is recorded)."""
+    pages = [
+        _bar_payload(["2026-10-06T14:30:00Z"], next_token="tok1"),
+        _bar_payload(["2026-10-06T14:35:00Z"]),
+    ]
+    provider, records = _provider_with(lambda request: httpx.Response(200, json=pages.pop(0)))
+    _fetch(provider)
+    assert len({r.ask_id for r in records}) == 1 and records[0].ask_id is not None
+    assert [r.page_index for r in records] == [0, 1]
+    assert [r.terminal for r in records] == [False, True]
+    assert records[0].window_start == _WINDOW_START
+    assert all(r.window_end == _WINDOW_END for r in records)
+
+
+def test_a_new_call_is_a_new_ask() -> None:
+    provider, records = _provider_with(
+        lambda request: httpx.Response(200, json=_bar_payload(["2026-10-06T14:30:00Z"]))
+    )
+    _fetch(provider)
+    _fetch(provider)
+    assert records[0].ask_id != records[1].ask_id
+    assert [r.page_index for r in records] == [0, 0]
+
+
+def test_budget_stop_leaves_no_terminal_page() -> None:
+    provider, records = _provider_with(
+        lambda request: httpx.Response(
+            200, json=_bar_payload(["2026-10-06T14:30:00Z"], next_token="tok")
+        )
+    )
+    _fetch(provider, budget_requests=1)
+    assert len(records) == 1 and records[0].terminal is False
+
+
+def test_failed_page_writes_a_failed_row_before_the_error_propagates() -> None:
+    """Todo 596: a page the vendor failed is recorded (outcome failed, never terminal, same
+    ask) and then raised; it was previously lost because raise_for_status ran before _record."""
+    answers = [
+        httpx.Response(200, json=_bar_payload(["2026-10-06T14:30:00Z"], next_token="tok")),
+        httpx.Response(500, json={"message": "boom"}),
+    ]
+    provider, records = _provider_with(lambda request: answers.pop(0))
+    with pytest.raises(httpx.HTTPStatusError):
+        _fetch(provider)
+    assert [r.outcome for r in records] == ["bars", "failed"]
+    assert records[1].terminal is False and records[1].page_index == 1
+    assert records[1].ask_id == records[0].ask_id
+    assert "HTTPStatusError" in records[1].error_text
+    assert records[1].window_start == datetime(2026, 10, 6, 14, 30, tzinfo=UTC)
+
+
+def test_transport_timeout_is_recorded_as_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    provider, records = _provider_with(handler)
+    with pytest.raises(httpx.ReadTimeout):
+        _fetch(provider)
+    assert [(r.outcome, r.terminal, r.page_index) for r in records] == [("timeout", False, 0)]
+
+
+def test_on_page_receives_each_answered_page_with_its_own_bars() -> None:
+    pages = [
+        _bar_payload(["2026-10-06T14:30:00Z"], next_token="tok1"),
+        _bar_payload(["2026-10-06T14:35:00Z", "2026-10-06T14:40:00Z"]),
+    ]
+    seen: list = []
+    provider, records = _provider_with(lambda request: httpx.Response(200, json=pages.pop(0)))
+    provider._on_page = lambda record, bars: seen.append((record, bars))  # noqa: SLF001
+    _fetch(provider)
+    assert [r for r, _ in seen] == records
+    assert [len(b) for _, b in seen] == [1, 2]
+
+
+def test_an_empty_page_with_a_next_token_is_a_failed_page():
+    provider, records = _provider_with(
+        lambda request: httpx.Response(200, json={"bars": [], "next_page_token": "tok"})
+    )
+    with pytest.raises(RuntimeError, match="resume point is unknown"):
+        _fetch(provider)
+    assert [(r.outcome, r.terminal) for r in records] == [("failed", False)]
+
+
+def test_on_page_alone_still_receives_pages():
+    seen: list = []
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=_bar_payload(["2026-10-06T14:30:00Z"]))
+    )
+    provider = AlpacaProvider(_settings(), on_page=lambda record, bars: seen.append(bars))
+
+    original_connect = provider.connect
+
+    async def connect() -> bool:
+        ok = await original_connect()
+        provider._client = httpx.AsyncClient(  # noqa: SLF001 - test seam
+            base_url="https://data.alpaca.markets", transport=transport, timeout=30.0
+        )
+        return ok
+
+    provider.connect = connect  # type: ignore[method-assign]
+    _fetch(provider)
+    assert [len(bars) for bars in seen] == [1]

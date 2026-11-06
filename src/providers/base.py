@@ -310,6 +310,11 @@ class RequestRecord:
     Fields mirror one ohlcv_request row except caller and source, which are sink-level
     facts the campaign supplies. Route is "SMART" or the venue exchange code the
     request was routed to; ib_req_id is IBKR's reqId when the answer carried one.
+
+    A paginated leaf (Alpaca) answers one asked window in pages (migration 581, todo 596):
+    every page carries the window's `ask_id`, its `page_index` (0 first; page 0's
+    window_start is the asked start) and `terminal` (the vendor said no page follows). An
+    unpaginated request leaves all three None and is not an ask.
     """
 
     request_id: str
@@ -329,6 +334,9 @@ class RequestRecord:
     client_id: int | None
     requested_at: datetime
     answered_at: datetime
+    ask_id: str | None = None
+    page_index: int | None = None
+    terminal: bool | None = None
 
 
 class ProviderSessionLost(RuntimeError):

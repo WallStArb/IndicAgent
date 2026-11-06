@@ -29,6 +29,14 @@ takes the loaded value, the Settings field is the fallback). Pagination walks
 ``next_page_token`` until the vendor's span is exhausted or the budget stops
 the leaf; a definitive empty answer returns a NoDataVerdict with
 ``authoritative_empty`` (the REST analogue of IBKR's confirming-chunk walk).
+
+Ledger (todo 596, migration 581): one call is one ask. Every page is reported
+through ``on_request`` with the ask's id, its page index and whether it is
+terminal (no next-page token); a failed or timed-out page is reported before
+the error propagates. ``on_page`` then receives each answered page's record
+with that page's bars, so the caller commits a page's ledger row and its bars
+together. An ask is complete only when its terminal page arrived and no page
+failed (``ohlcv_ask_current``).
 """
 
 from __future__ import annotations
@@ -37,6 +45,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -72,6 +81,16 @@ def _flatten_bars(raw) -> list:
     return list(raw)
 
 
+@dataclass(frozen=True)
+class _Page:
+    """Where one page of an ask stands: the ask's id, the page's index and its resume point
+    (page 0 starts at the asked start)."""
+
+    ask_id: str
+    index: int
+    start: datetime
+
+
 class AlpacaProvider:
     """HistoryProvider leaf for Alpaca's REST bars endpoint."""
 
@@ -85,9 +104,11 @@ class AlpacaProvider:
         data_feed: str | None = None,
         on_request: Callable[[RequestRecord], None] | None = None,
         fetch_run_id: str | None = None,
+        on_page: Callable[[RequestRecord, tuple[OHLCVBar, ...]], None] | None = None,
     ):
         self._settings = settings or Settings()
         self._on_request = on_request
+        self._on_page = on_page
         self._fetch_run_id = fetch_run_id or (str(uuid.uuid4()) if on_request else None)
         # Same pattern as the rate limit: the caller loads the APR value
         # (infra.alpaca.data_feed) and passes it; sip is the leaf's own default so callers
@@ -128,36 +149,43 @@ class AlpacaProvider:
     def _record(
         self,
         request: HistoryRequest,
-        page_start: datetime,
-        window_end: datetime,
+        page: _Page,
         outcome: str,
         n_bars: int,
         requested_at: datetime,
+        *,
+        terminal: bool = False,
         error_text: str | None = None,
-    ) -> None:
-        if self._on_request is None:
-            return
-        self._on_request(
-            RequestRecord(
-                request_id=str(uuid.uuid4()),
-                fetch_run_id=self._fetch_run_id,
-                symbol=request.symbol,
-                timeframe=request.timeframe,
-                route=self._data_feed.upper(),
-                what_to_show=_TF_TO_ALPACA[request.timeframe],
-                primary_exchange=None,
-                window_start=page_start,
-                window_end=window_end,
-                ib_req_id=None,
-                outcome=outcome,  # type: ignore[arg-type]
-                error_code=None,
-                error_text=error_text,
-                n_bars=n_bars,
-                client_id=None,
-                requested_at=requested_at,
-                answered_at=datetime.now(UTC),
-            )
+    ) -> RequestRecord | None:
+        """Report one page of the ask (migration 581): every page carries the ask's id, its
+        index and whether the vendor said no page follows; a failed page is never terminal."""
+        if self._on_request is None and self._on_page is None:
+            return None
+        record = RequestRecord(
+            request_id=str(uuid.uuid4()),
+            fetch_run_id=self._fetch_run_id,
+            symbol=request.symbol,
+            timeframe=request.timeframe,
+            route=self._data_feed.upper(),
+            what_to_show=_TF_TO_ALPACA[request.timeframe],
+            primary_exchange=None,
+            window_start=page.start,
+            window_end=request.end,
+            ib_req_id=None,
+            outcome=outcome,  # type: ignore[arg-type]
+            error_code=None,
+            error_text=error_text,
+            n_bars=n_bars,
+            client_id=None,
+            requested_at=requested_at,
+            answered_at=datetime.now(UTC),
+            ask_id=page.ask_id,
+            page_index=page.index,
+            terminal=terminal,
         )
+        if self._on_request is not None:
+            self._on_request(record)
+        return record
 
     async def fetch_ohlcv(self, request: HistoryRequest, budget: FetchBudget) -> HistoryPage:
         """One caller-driven window of (request.start, request.end], paginated.
@@ -184,11 +212,11 @@ class AlpacaProvider:
 
         bars: list[OHLCVBar] = []
         page_token: str | None = None
-        resume: datetime | None = request.start
+        page = _Page(ask_id=str(uuid.uuid4()), index=0, start=request.start)
         requests_spent = 0
         while True:
             if datetime.now(UTC) >= budget.deadline or requests_spent >= budget.max_requests:
-                return HistoryPage(bars=tuple(bars), next_window_start=resume)
+                return HistoryPage(bars=tuple(bars), next_window_start=page.start)
             self._pace()
             params: dict = {
                 "symbols": request.symbol,
@@ -203,30 +231,20 @@ class AlpacaProvider:
                 params["page_token"] = page_token
             requests_spent += 1
             requested_at = datetime.now(UTC)
-            # Alpaca 404s the trailing-slash form ("/v2/stocks/bars/"), so the bars path
-            # is carried on the request, never via a pathed base_url: httpx normalizes a
-            # pathed base to the slash form (measured live 2026-10-26: slash+params 404).
-            response = await self._client.get(_BARS_PATH, params=params)
-            if response.status_code == 429:
-                retry_after = float(response.headers.get("retry-after", "1"))
-                logger.warning("alpaca rate limited", retry_after_s=retry_after)
-                await asyncio.sleep(retry_after)
-                requests_spent -= 1  # a 429 is pacing, not a spent request
-                continue
-            response.raise_for_status()
-            payload = response.json() or {}
-            page_bars = _flatten_bars(payload.get("bars") or [])
-            n_bars = len(page_bars)
-            self._record(
-                request,
-                resume,
-                request.end,
-                "bars" if n_bars else "no_data",
-                n_bars,
-                requested_at,
-            )
-            for row in page_bars:
-                bars.append(
+            try:
+                # Alpaca 404s the trailing-slash form ("/v2/stocks/bars/"), so the bars path
+                # is carried on the request, never via a pathed base_url: httpx normalizes a
+                # pathed base to the slash form (measured live 2026-10-26: slash+params 404).
+                response = await self._client.get(_BARS_PATH, params=params)
+                if response.status_code == 429:
+                    retry_after = float(response.headers.get("retry-after", "1"))
+                    logger.warning("alpaca rate limited", retry_after_s=retry_after)
+                    await asyncio.sleep(retry_after)
+                    requests_spent -= 1  # a 429 is pacing, not a spent request
+                    continue
+                response.raise_for_status()
+                payload = response.json() or {}
+                page_bars = tuple(
                     OHLCVBar(
                         symbol=request.symbol,
                         timeframe=request.timeframe,
@@ -238,9 +256,40 @@ class AlpacaProvider:
                         volume=int(row["v"]),
                         source=self.name,
                     )
+                    for row in _flatten_bars(payload.get("bars") or [])
                 )
-            page_token = payload.get("next_page_token")
-            if page_token is None:
+                page_token = payload.get("next_page_token")
+                if page_token is not None and not page_bars:
+                    raise RuntimeError(
+                        f"alpaca {request.symbol} {request.timeframe}: an empty page carried a "
+                        "next_page_token; the resume point is unknown"
+                    )
+            except Exception as error:
+                # The failed page is recorded before the error propagates (todo 596): the ask
+                # then holds a non-terminal failed page and is never complete.
+                outcome = "timeout" if isinstance(error, httpx.TimeoutException) else "failed"
+                self._record(
+                    request,
+                    page,
+                    outcome,
+                    0,
+                    requested_at,
+                    error_text=f"{type(error).__name__}: {error}"[:500],
+                )
+                raise
+            terminal = page_token is None
+            record = self._record(
+                request,
+                page,
+                "bars" if page_bars else "no_data",
+                len(page_bars),
+                requested_at,
+                terminal=terminal,
+            )
+            if self._on_page is not None and record is not None:
+                self._on_page(record, page_bars)
+            bars.extend(page_bars)
+            if terminal:
                 verdict = None
                 if not bars:
                     verdict = NoDataVerdict(
@@ -253,4 +302,4 @@ class AlpacaProvider:
                         authoritative_empty=True,
                     )
                 return HistoryPage(bars=tuple(bars), next_window_start=None, verdict=verdict)
-            resume = datetime.fromisoformat(page_bars[-1]["t"])
+            page = _Page(page.ask_id, page.index + 1, page_bars[-1].timestamp)

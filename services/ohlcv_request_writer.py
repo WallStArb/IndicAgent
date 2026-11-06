@@ -12,7 +12,8 @@ no benefit). UPDATE and DELETE do not exist here, by design and by grants.
 
 Record arguments are duck-typed and carry the RequestRecord contract: request_id, fetch_run_id,
 symbol, timeframe, route, what_to_show, primary_exchange, window_start, window_end, ib_req_id,
-outcome, error_code, error_text, n_bars, client_id, requested_at, answered_at. caller and source
+outcome, error_code, error_text, n_bars, client_id, requested_at, answered_at, and optionally the
+paginated ask's ask_id, page_index and terminal (migration 581; absent is NULL). caller and source
 are sink-level facts (whose run this is, which vendor answered). partial_bars (migration 479) is
 NULL unless the fetch layer noted the answer's incomplete bars with `note_partial` before the row
 left the buffer.
@@ -54,11 +55,14 @@ _REQUEST_COLUMNS = (
     "caller",
     "requested_at",
     "answered_at",
+    "ask_id",
+    "page_index",
+    "terminal",
     "partial_bars",
 )
 
 # The content digest of the answer a chunk stored, an optional 20th value on a request row; the
-# sink's own 19-value rows leave it NULL.
+# sink's own rows leave it NULL.
 _DIGEST_COLUMN = "content_digest"
 
 _ROLE = "ohlcv_observation_writer"
@@ -120,8 +124,15 @@ def _request_row(record: Any, *, caller: str, source: str) -> tuple:
         caller,
         record.requested_at,
         record.answered_at,
+        _uuid_or_none(getattr(record, "ask_id", None)),
+        getattr(record, "page_index", None),
+        getattr(record, "terminal", None),
         None,
     )
+
+
+def _uuid_or_none(value: Any) -> uuid_module.UUID | None:
+    return None if value is None else uuid_module.UUID(str(value))
 
 
 # Values in a request row as the sinks buffer it (no content digest), and the position of
@@ -218,6 +229,10 @@ class RequestSink:
     def take_requests(self, request_ids: Any) -> list[tuple]:
         """Hand over the buffered rows for `request_ids` WITHOUT flushing."""
         return self._buffer.take_requests(request_ids)
+
+    def discard(self) -> int:
+        """Drop every buffered row unwritten (a dry run records nothing); return how many."""
+        return len(self._buffer.take_rows())
 
     def note_partial(self, request_id: Any, partial_bars: str) -> None:
         """See _Buffer.note_partial."""

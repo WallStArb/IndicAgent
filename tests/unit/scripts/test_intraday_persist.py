@@ -63,6 +63,9 @@ _REQUEST_ROW = (
     "historical-pipeline",
     datetime(2026, 9, 27, 14, 30, tzinfo=UTC),
     datetime(2026, 9, 27, 14, 30, tzinfo=UTC),
+    None,  # ask_id (migration 581): not an ask
+    None,  # page_index
+    None,  # terminal
     None,  # partial_bars (migration 479)
 )
 
@@ -297,7 +300,7 @@ def test_digest_is_the_chunk_content_digest_and_null_without_bars(contract):
     conn = FakeConn()
     persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW, no_bars], raw_rows=[_RAW_ROW])
     with_bars, without = conn.copies[0][1]
-    assert len(with_bars) == 21 and len(without) == 21
+    assert len(with_bars) == 24 and len(without) == 24
     assert with_bars[-1] == chunk_digest([_RAW_ROW])
     assert len(with_bars[-1]) == 64
     assert without[-1] is None

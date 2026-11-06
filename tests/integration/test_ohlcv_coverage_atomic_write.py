@@ -98,6 +98,9 @@ def _chunk(symbol: str) -> tuple[list[tuple], list[RawRow]]:
         "test-189-01",
         now,
         now,
+        None,  # ask_id (migration 581): not an ask
+        None,  # page_index
+        None,  # terminal
         None,  # partial_bars (migration 479)
     )
     bars = [

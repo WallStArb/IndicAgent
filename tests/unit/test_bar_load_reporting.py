@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pandas as pd
+import pytest
 
 from scripts.ops.bars import ops_bar_load, ops_bar_nightly
 from services import bar_load
@@ -23,6 +23,11 @@ def _flagged(n: int) -> IngressResult:
         "SPY", "5m", "alpaca", "sip_rth", uuid.uuid4(), Restatement(n, n, 1.0, ("share",))
     )
     return IngressResult(n, 0, n, 0, 0, flagged=(flag,))
+
+
+def _summary(**counts) -> dict:
+    """A nightly summary with every key the run initializes, the given counts set."""
+    return dict.fromkeys(ops_bar_nightly._SUMMARY_KEYS, 0) | counts
 
 
 def test_load_result_counts_flagged_series_across_chunks():
@@ -64,63 +69,171 @@ class _Conn:
         return _Cursor(self)
 
 
-def test_nightly_summary_counts_flagged_series_and_stays_applied(monkeypatch):
-    def fake_series(conn, policy, symbol, frame, *, params, write, answered_at=None):
-        return LoadResult().plus(_flagged(len(frame)))
+def _bar(ts):
+    return SimpleNamespace(timestamp=ts, open=1, high=1, low=1, close=1, volume=1)
+
+
+class _PagedLeaf:
+    """A leaf that reports each page through on_request then on_page, as AlpacaProvider does;
+    `answers[timeframe]` is a list of pages, each a list of bars, or an Exception that fails the
+    page after its failed row is reported."""
+
+    def __init__(self, sink, answers, *, unfinished=False):
+        self.sink = sink
+        self.answers = answers
+        self.unfinished = unfinished
+
+    async def connect(self):
+        pass
+
+    async def close(self):
+        pass
+
+    async def fetch_ohlcv(self, request, budget):
+        pages = self.answers[request.timeframe]
+        for index, page in enumerate(pages):
+            record = SimpleNamespace(
+                request_id=f"{request.timeframe}-{index}",
+                answered_at=datetime(2026, 10, 9, 21, tzinfo=UTC),
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                outcome="failed" if isinstance(page, Exception) else "bars",
+            )
+            self.sink.on_request(record)
+            if isinstance(page, Exception):
+                raise page
+            self.sink.on_page(record, page)
+        return SimpleNamespace(
+            bars=[], next_window_start=request.start if self.unfinished else None
+        )
+
+
+class _Inner:
+    """The RequestSink slice the nightly sink uses, recording what it buffered and wrote."""
+
+    def __init__(self):
+        self.buffered: list[str] = []
+        self.written: list[str] = []
+        self.noted: list[tuple[str, str]] = []
+        self.outcomes: dict[str, str] = {}
+
+    def on_request(self, record):
+        self.buffered.append(record.request_id)
+        self.outcomes[record.request_id] = record.outcome
+
+    def take_requests(self, ids):
+        taken = [rid for rid in self.buffered if rid in ids]
+        self.buffered = [rid for rid in self.buffered if rid not in ids]
+        return taken
+
+    def note_partial(self, rid, text):
+        self.noted.append((rid, text))
+
+    def flush(self):
+        self.written += self.buffered
+        n, self.buffered = len(self.buffered), []
+        return n
+
+    def discard(self):
+        n, self.buffered = len(self.buffered), []
+        return n
+
+    def pending(self):
+        return len(self.buffered)
+
+
+def _night(monkeypatch, answers, *, write=True, end=None, unfinished=False, store_fails=()):
+    """Run the nightly over a paged fake leaf; returns (summary, inner sink, load calls). A 5m
+    page whose request id is in `store_fails` raises in the load engine."""
+    calls: list[tuple] = []
+
+    def fake_series(conn, policy, symbol, frame, *, params, write, answered_at, request_rows):
+        if request_rows and request_rows[0] in store_fails:
+            raise RuntimeError("persist failed")
+        calls.append(("5m", list(frame["t"]), request_rows, write))
+        return LoadResult().plus(_flagged(len(frame))) if write else LoadResult(len(frame))
 
     def fake_frame(conn, symbol, frame, **kw):
+        calls.append(("1d", list(frame["t"]), kw["request_rows"], kw["write"]))
         return LoadResult(n_offered=len(frame), n_new=len(frame))
 
     monkeypatch.setattr(ops_bar_nightly, "load_series", fake_series)
     monkeypatch.setattr(ops_bar_nightly, "load_frame", fake_frame)
-
-    page = SimpleNamespace(
-        bars=[
-            SimpleNamespace(
-                timestamp=pd.Timestamp("2026-10-09 13:30", tz="UTC"),
-                open=1,
-                high=1,
-                low=1,
-                close=1,
-                volume=1,
-            )
-        ]
-    )
-
-    class Leaf:
-        async def connect(self):
-            pass
-
-        async def close(self):
-            pass
-
-        async def fetch_ohlcv(self, request, budget):
-            return page
-
-    sink = SimpleNamespace(flush=lambda: 0)
+    monkeypatch.setattr(ops_bar_nightly, "record_fetch_outcome", lambda *a, **k: None)
+    inner = _Inner()
+    sink = ops_bar_nightly._NightlySink(inner, _Conn(), provider="alpaca")
     policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
+    now = datetime.now(UTC)
     summary = asyncio.run(
         ops_bar_nightly._run(
-            Leaf(),
+            _PagedLeaf(sink, answers, unfinished=unfinished),
             None,
             sink,
             policy,
             None,
             timedelta(minutes=30),
             ["SPY"],
-            None,
-            None,
-            True,
-            FetchBudget(deadline=datetime.now(UTC) + timedelta(minutes=30), max_requests=500),
+            now - timedelta(days=5),
+            end or now - timedelta(minutes=20),
+            write,
+            FetchBudget(deadline=now + timedelta(minutes=30), max_requests=500),
         )
     )
+    return summary, inner, calls
+
+
+_T1 = datetime(2026, 10, 9, 13, 30, tzinfo=UTC)
+_T2 = datetime(2026, 10, 9, 13, 35, tzinfo=UTC)
+
+
+def test_nightly_summary_counts_flagged_series_and_stays_applied(monkeypatch):
+    summary, _, _ = _night(monkeypatch, {"5m": [[_bar(_T1)]], "1d": [[]]})
     assert summary["flagged"] == 1 and summary["errors"] == 0
     line = ops_bar_nightly.summary_line(summary, apply=True)
     assert line.startswith("APPLIED") and "1 restatement-flagged" in line
     assert ops_bar_nightly.exit_code(summary) == 0
-    clean = {"authored": 4, "raw_1d": 4, "errors": 0, "flagged": 0, "unselected": 0}
+    clean = _summary(authored=4, raw_1d=4)
     assert ops_bar_nightly.summary_line(clean, apply=True).startswith("APPLIED")
     assert ops_bar_nightly.exit_code(clean) == 0
+
+
+def test_each_page_commits_its_own_request_row_with_its_own_bars(monkeypatch):
+    """Todo 596: a page's ledger row and that page's bars go to the load engine together (one
+    transaction there), never the whole window's bars under one row or rows flushed apart."""
+    summary, inner, calls = _night(monkeypatch, {"5m": [[_bar(_T1)], [_bar(_T2)]], "1d": [[]]})
+    assert [(tf, rows) for tf, _, rows, _ in calls] == [
+        ("5m", ["5m-0"]),
+        ("5m", ["5m-1"]),
+        ("1d", ["1d-0"]),
+    ]
+    assert [stamps for _, stamps, _, _ in calls][:2] == [[_T1], [_T2]]
+    assert inner.written == [] and summary["pages"] == 3
+
+
+def test_a_dry_run_writes_no_ledger_row(monkeypatch):
+    """Todo 596: the nightly used to flush request rows without --apply."""
+    summary, inner, calls = _night(
+        monkeypatch, {"5m": [[_bar(_T1)], RuntimeError("boom")], "1d": [[]]}, write=False
+    )
+    assert inner.written == [] and inner.buffered == []
+    assert all(not write for _, _, _, write in calls)
+    assert summary["errors"] == 1
+
+
+def test_a_failed_page_row_is_written_after_the_symbol(monkeypatch):
+    summary, inner, calls = _night(
+        monkeypatch, {"5m": [[_bar(_T1)], RuntimeError("boom")], "1d": [[]]}
+    )
+    assert inner.written == ["5m-1"]
+    assert [rows for _, _, rows, _ in calls] == [["5m-0"]]
+    assert summary["errors"] == 1 and ops_bar_nightly.exit_code(summary) == 1
+
+
+def test_a_window_the_budget_left_unfinished_fails_the_night(monkeypatch):
+    summary, _, _ = _night(monkeypatch, {"5m": [[_bar(_T1)]], "1d": [[]]}, unfinished=True)
+    assert summary["unfinished"] == 2
+    assert "2 windows unfinished" in ops_bar_nightly.summary_line(summary, apply=True)
+    assert ops_bar_nightly.exit_code(summary) == 1
 
 
 def test_ops_bar_load_uses_the_shared_status():
@@ -134,92 +247,26 @@ def test_unselected_slots_are_reported_and_fail_the_night():
     status = load_status(apply=True, unselected=6)
     assert status != "APPLIED" and "UNSELECTED" in status
     assert load_status(apply=False, unselected=6) == "PLANNED"
-    summary = {"authored": 4, "raw_1d": 0, "errors": 0, "flagged": 0, "unselected": 6}
+    summary = _summary(authored=4, unselected=6)
     assert "6 unselected" in ops_bar_nightly.summary_line(summary, apply=True)
     assert ops_bar_nightly.exit_code(summary) == 1
 
 
-def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monkeypatch):
+def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_page_row(monkeypatch):
     """Second review of 191-07, finding 5: the Alpaca leaf has no forming-bar rule, so the
     nightly splits every page against the time it asked; a bar still forming is not offered to
-    raw and its values go onto the window's last request row."""
-    offered: list[pd.DataFrame] = []
-
-    def fake_series(conn, policy, symbol, frame, *, params, write, answered_at=None):
-        offered.append(frame)
-        return LoadResult(n_offered=len(frame))
-
-    monkeypatch.setattr(ops_bar_nightly, "load_series", fake_series)
-    monkeypatch.setattr(ops_bar_nightly, "load_frame", lambda *a, **k: LoadResult())
+    raw and its values go onto the request row of the page that served it."""
     now = datetime.now(UTC)
     forming = now.replace(second=0, microsecond=0) - timedelta(minutes=now.minute % 5)
-
-    def bar(ts):
-        return SimpleNamespace(timestamp=ts, open=1, high=1, low=1, close=1, volume=1)
-
-    pages = {
-        "5m": SimpleNamespace(bars=[bar(datetime(2026, 10, 9, 13, 30, tzinfo=UTC)), bar(forming)]),
-        "1d": SimpleNamespace(bars=[]),
-    }
-
-    class Leaf:
-        def __init__(self, sink):
-            self.sink = sink
-
-        async def connect(self):
-            pass
-
-        async def close(self):
-            pass
-
-        async def fetch_ohlcv(self, request, budget):
-            self.sink.on_request(
-                SimpleNamespace(
-                    request_id=f"req-{request.timeframe}",
-                    answered_at=now,
-                    symbol=request.symbol,
-                    timeframe=request.timeframe,
-                    outcome="bars",
-                )
-            )
-            return pages[request.timeframe]
-
-    noted: list[tuple[str, str]] = []
-    inner = SimpleNamespace(
-        on_request=lambda record: None,
-        note_partial=lambda rid, text: noted.append((rid, text)),
-        flush=lambda: 0,
-        pending=lambda: 0,
-    )
-    statuses: list[tuple] = []
-    monkeypatch.setattr(
-        ops_bar_nightly,
-        "record_fetch_outcome",
-        lambda cur, symbol, timeframe, status, at, *, provider: statuses.append(
-            (symbol, timeframe, status, provider)
-        ),
-    )
-    sink = ops_bar_nightly._NightlySink(inner, _Conn(), provider="alpaca")
-    policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
-    summary = asyncio.run(
-        ops_bar_nightly._run(
-            Leaf(sink),
-            None,
-            sink,
-            policy,
-            None,
-            timedelta(minutes=30),
-            ["SPY"],
-            None,
-            now + timedelta(days=1),
-            True,
-            FetchBudget(deadline=now + timedelta(minutes=30), max_requests=500),
-        )
+    summary, inner, calls = _night(
+        monkeypatch,
+        {"5m": [[_bar(_T1), _bar(forming)]], "1d": [[]]},
+        end=now + timedelta(days=1),
     )
     assert summary["partial"] == 1 and summary["errors"] == 0
-    assert list(offered[0]["t"]) == [datetime(2026, 10, 9, 13, 30, tzinfo=UTC)]
-    [(request_id, text)] = noted
-    assert request_id == "req-5m" and forming.isoformat() in text
+    assert calls[0][1] == [_T1]
+    [(request_id, text)] = inner.noted
+    assert request_id == "5m-0" and forming.isoformat() in text
     assert "1 incomplete bars held back" in ops_bar_nightly.summary_line(summary, apply=True)
 
 
@@ -240,14 +287,7 @@ def test_a_basis_change_flag_makes_the_load_partial_and_fails_the_night():
     assert (result.n_flagged_series, result.n_basis_flagged) == (2, 1)
     status = load_status(apply=True, basis_flagged=1)
     assert status.startswith("PARTIAL") and "ops_restatement_review" in status
-    summary = {
-        "authored": 78,
-        "raw_1d": 0,
-        "errors": 0,
-        "flagged": 1,
-        "basis_flagged": 1,
-        "unselected": 0,
-    }
+    summary = _summary(authored=78, flagged=1, basis_flagged=1)
     assert ops_bar_nightly.summary_line(summary, apply=True).startswith("PARTIAL")
     assert ops_bar_nightly.exit_code(summary) == 1
 
@@ -286,30 +326,67 @@ def _sink(monkeypatch, *, pending=0):
 def test_a_flush_records_the_newest_outcome_of_each_series_as_the_ledger_status(monkeypatch):
     sink, written, conn = _sink(monkeypatch)
     t = datetime(2026, 10, 30, 4, 40, tzinfo=UTC)
-    sink.on_request(_record("CCO", "5m", "bars", t))
-    sink.on_request(_record("CCO", "5m", "no_data", t + timedelta(minutes=2)))
+    sink.stored(_record("CCO", "5m", "bars", t))  # answered pages count once stored
+    sink.stored(_record("CCO", "5m", "no_data", t + timedelta(minutes=2)))
     sink.on_request(_record("CCO", "1d", "timeout", t + timedelta(minutes=1)))
-    assert sink.flush() == 3
+    assert sink.flush(write=True) == 3
     assert sorted(written) == [
         ("CCO", "1d", "error", 41, "alpaca"),
         ("CCO", "5m", "no_data", 42, "alpaca"),
     ]
     assert conn.statements == ["SET LOCAL ROLE bar_derivation_writer"]
-    sink.flush()
+    sink.flush(write=True)
     assert len(written) == 2  # nothing left to record
 
 
 def test_a_late_arriving_older_record_does_not_move_the_status_back(monkeypatch):
     sink, written, _ = _sink(monkeypatch)
     t = datetime(2026, 10, 30, 4, 40, tzinfo=UTC)
-    sink.on_request(_record("CCO", "5m", "no_data", t + timedelta(minutes=5)))
-    sink.on_request(_record("CCO", "5m", "bars", t))
-    sink.flush()
+    sink.stored(_record("CCO", "5m", "no_data", t + timedelta(minutes=5)))
+    sink.stored(_record("CCO", "5m", "bars", t))
+    sink.flush(write=True)
     assert written == [("CCO", "5m", "no_data", 45, "alpaca")]
 
 
 def test_no_status_is_written_while_request_rows_are_still_buffered(monkeypatch):
     sink, written, conn = _sink(monkeypatch, pending=2)
     sink.on_request(_record("CCO", "5m", "bars", datetime(2026, 10, 30, 4, 40, tzinfo=UTC)))
-    sink.flush()
+    sink.flush(write=True)
     assert written == [] and conn.statements == []
+
+
+def test_an_answered_page_whose_store_failed_moves_no_status(monkeypatch):
+    """A page reported answered whose bars then failed to store leaves no request row, so it
+    must not become the series' newest fetch status either (review of todo 596 step 1)."""
+    sink, written, _ = _sink(monkeypatch)
+    sink.on_request(_record("CCO", "5m", "bars", datetime(2026, 10, 30, 4, 40, tzinfo=UTC)))
+    sink.flush(write=True)
+    assert written == []
+
+
+def test_a_page_row_missing_from_the_buffer_is_loud():
+    """Bars never commit without their ledger row: take() wants exactly one buffered row."""
+    sink = ops_bar_nightly._NightlySink(_Inner(), _Conn(), provider="alpaca")
+    with pytest.raises(RuntimeError, match="expected 1"):
+        sink.take("never-buffered")
+
+
+def test_a_page_whose_store_failed_writes_a_failed_row_not_its_answered_row(monkeypatch):
+    """Review of todo 596 step 1: an answered (possibly terminal) row must never be written
+    without its bars; a failed row for the page takes its place and the ask reads incomplete."""
+    summary, inner, calls = _night(
+        monkeypatch, {"5m": [[_bar(_T1)], [_bar(_T2)]], "1d": [[]]}, store_fails=("5m-1",)
+    )
+    assert "5m-1" not in inner.written
+    [failed] = inner.written
+    assert inner.outcomes[failed] == "failed"
+    assert [rows for _, _, rows, _ in calls] == [["5m-0"]]
+    assert summary["errors"] == 1 and summary["pages"] == 1
+
+
+def test_a_vendor_page_always_fits_one_load_chunk():
+    """The page row commits with all of its bars only while a vendor page fits one chunk."""
+    from services.bar_load import CHUNK_ROWS
+    from src.providers import alpaca
+
+    assert alpaca._PAGE_LIMIT <= CHUNK_ROWS  # noqa: SLF001
