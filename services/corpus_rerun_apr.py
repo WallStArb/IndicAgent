@@ -23,6 +23,21 @@ MAX_MISSING_SESSION_FRACTION_KEY = "infra.corpus_rerun.data_gate.max_missing_ses
 MAX_MISSING_1D_SESSION_FRACTION_KEY = "infra.corpus_rerun.data_gate.max_missing_1d_session_fraction"
 MIN_SESSION_BAR_FRACTION_KEY = "infra.corpus_rerun.data_gate.min_session_bar_fraction"
 BLOCKING_TIMERS_KEY = "infra.corpus_rerun.blocking_timers"
+MAX_NULL_FRACTION_KEY = "infra.corpus_rerun.max_null_fraction"  # migration 582 (186-31)
+
+# Every key the snapshot reads: the runner pins their values in corpus_run.apr_hash.
+APR_KEYS: tuple[str, ...] = (
+    MAX_DISK_FRACTION_KEY,
+    DISK_RESERVE_BYTES_KEY,
+    BYTES_PER_ROW_UNCOMPRESSED_KEY,
+    COMPRESSION_RATIO_KEY,
+    STORED_BYTES_PER_SPOOL_BYTE_KEY,
+    MAX_MISSING_SESSION_FRACTION_KEY,
+    MAX_MISSING_1D_SESSION_FRACTION_KEY,
+    MIN_SESSION_BAR_FRACTION_KEY,
+    BLOCKING_TIMERS_KEY,
+    MAX_NULL_FRACTION_KEY,
+)
 
 
 @dataclass(frozen=True)
@@ -36,16 +51,17 @@ class CorpusRerunApr:
     max_missing_1d_session_fraction: float
     min_session_bar_fraction: float
     blocking_timers: tuple[str, ...]
+    max_null_fraction: float
 
 
 def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
-    """Every rerun key, read with no default: a key migration 579 did not seed is a KeyError,
-    never a silent fallback value."""
+    """Every rerun key, read with no default: a key migrations 579 and 582 did not seed is a
+    KeyError, never a silent fallback value."""
 
     def value(key: str) -> Any:
         seeded = cfg.get_sync(key)
         if seeded is None:
-            raise KeyError(f"APR key {key} is not seeded (migration 579)")
+            raise KeyError(f"APR key {key} is not seeded (migrations 579, 582)")
         return seeded
 
     return CorpusRerunApr(
@@ -58,4 +74,5 @@ def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
         max_missing_1d_session_fraction=float(value(MAX_MISSING_1D_SESSION_FRACTION_KEY)),
         min_session_bar_fraction=float(value(MIN_SESSION_BAR_FRACTION_KEY)),
         blocking_timers=tuple(json.loads(str(value(BLOCKING_TIMERS_KEY)))),
+        max_null_fraction=float(value(MAX_NULL_FRACTION_KEY)),
     )

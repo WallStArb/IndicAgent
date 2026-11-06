@@ -4,6 +4,8 @@ import pytest
 from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
+    ABSENCE_EXEMPT_TFS,
+    APR_KEYS,
     _query,
     applicable_columns,
     apr_value,
@@ -11,6 +13,7 @@ from scripts.ops.ops_feature_column_screen import (
     declared_memory,
     gate_failures,
     judge,
+    null_share_gate,
     registry_declarations,
     screen_rows,
     zero_is_state,
@@ -158,3 +161,71 @@ def test_query_renders_the_window_and_post_warmup_filters():
     text = _query(("adx",), {"adx": 40}, sql.SQL("")).as_string(None)
     assert "row_number() OVER (PARTITION BY symbol, tf ORDER BY bar_ts)" in text
     assert 'count(*) FILTER (WHERE "adx" = 0 AND rn > 40)' in text
+
+
+# ---------------------------------------------------------------------------
+# G6: the post-warmup NULL share (186-31, the deleted verifier's null-rate check restored)
+# ---------------------------------------------------------------------------
+
+
+def _years(n_years: int, null_years: int) -> tuple:
+    """One name, 252 rows a year after a 10-bar warmup, NULL on `null_years` of the years."""
+    n = 10 + 252 * n_years
+    finite_post = 252 * (n_years - null_years)
+    return (n, (n, n, 11, -1.0, 1.0, 0, finite_post))
+
+
+def _null_gate(rows, columns=("x",), memory=None, applicable=None, max_null=0.05):
+    tfs = {r[0] for r in rows}
+    return null_share_gate(
+        columns,
+        rows,
+        memory=memory or dict.fromkeys(columns, 10),
+        applicable={tf: frozenset(columns) if applicable is None else applicable for tf in tfs},
+        max_null_fraction=max_null,
+        min_name_rows=252,
+    )
+
+
+def test_g6_fails_a_column_null_for_4_of_10_years_on_every_name():
+    n, cell = _years(10, 4)
+    rows = [_row("1h", s, n, cell) for s in ("A", "B", "C")]
+    gate = _null_gate(rows)["1h"]
+    assert list(gate["failing"]) == ["x"] and gate["worst"] == {"x": 0.4}
+
+
+def test_g6_passes_a_full_column_and_counts_only_rows_past_the_warmup():
+    n, cell = _years(10, 0)
+    gate = _null_gate([_row("1h", "A", n, cell)])["1h"]
+    assert gate["failing"] == {} and gate["worst"] == {"x": 0.0}
+
+
+def test_g6_skips_not_applicable_and_unmeasurable_columns():
+    n, cell = _years(10, 10)
+    rows = [_row("1h", "A", n, cell, cell)]
+    gate = _null_gate(
+        rows, columns=("x", "hmm"), memory={"x": 10, "hmm": None}, applicable=frozenset({"hmm"})
+    )["1h"]
+    assert gate["failing"] == {} and gate["unmeasured"] == ["hmm"]
+
+
+def test_g6_absence_columns_fail_only_when_entirely_null_and_skip_their_absent_tfs():
+    n, partial = _years(10, 6)
+    _, empty = _years(10, 10)
+    cols = ("sr_support_dist",)
+    assert _null_gate([_row("1h", "A", n, partial)], columns=cols)["1h"]["failing"] == {}
+    assert list(_null_gate([_row("1h", "A", n, empty)], columns=cols)["1h"]["failing"]) == list(
+        cols
+    )
+    gate = _null_gate([_row("1d", "A", n, empty)], columns=("poc_dist_atr",))["1d"]
+    assert gate["failing"] == {} and gate["worst"] == {}
+
+
+def test_g6_tiers_name_real_columns_and_the_screen_lists_its_apr_keys():
+    from src.intelligence.features.feature_vector_persistence import (
+        feature_vectors_numeric_columns,
+    )
+
+    assert set(ABSENCE_EXEMPT_TFS) <= set(feature_vectors_numeric_columns())
+    assert "infra.corpus_rerun.max_null_fraction" in APR_KEYS
+    assert "threshold.pilot_gate.warmup_gap_bars" in APR_KEYS

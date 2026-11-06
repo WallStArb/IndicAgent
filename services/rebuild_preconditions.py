@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from src.intelligence.bars.verdict_gate import (
+    REPORT_MAX_AGE_APR_KEY,
     VerdictScan,
     fetch_verdict_scan,
     load_report_max_age_hours,
@@ -62,6 +63,9 @@ REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
         BACKFILL_COMPLETE_SUMMARY,
     }
 )
+
+# Every APR key the checks read (the verdict freshness window); the corpus rerun pins it.
+APR_KEYS: tuple[str, ...] = (REPORT_MAX_AGE_APR_KEY,)
 
 # Intraday timeframes the bar coverage verdicts judge. Stray vendor rows (15m, 1h) and
 # freshness_1d (1d, 185-46) gate the rebuild only, never promotion.
@@ -101,8 +105,11 @@ REQUIRED_DEPENDENCY_MARKERS: frozenset[str] = frozenset(
 
 # Processes whose presence means another writer is live against the tables this rebuild
 # writes, or that hold the modules a live-or-resumable run forbids editing (D-32a).
+# ic_engine was deleted in 186-23; ic_measure (its successor) and the corpus rerun runner are the
+# live writers now (186-31).
 LIVE_RUN_PROCESS_PATTERN = (
-    "ic_engine",
+    "ic_measure",
+    "corpus_rerun",
     "backfill_feature_factory",
     "feature_vector_rebuild",
 )
@@ -296,7 +303,7 @@ def check_disk_guard(
 
 
 def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str) -> CheckResult:
-    """D-32a/D-01: no ic_engine, backfill_feature_factory or rebuild process
+    """D-32a/D-01: no ic_measure, corpus_rerun, backfill_feature_factory or rebuild process
     may be live, and no resumable run may be indicated (a resumable rebuild forbids edits to
     its import closure and would double-write the units it retakes)."""
     hits = sorted(
@@ -472,19 +479,21 @@ def fetch_final_landed_markers(project_root: Path | None = None) -> dict[str, bo
 
 
 def fetch_process_lines() -> list[str]:
-    """The measured input of check_no_live_run: `ps -eo pid,args` lines minus this process's
-    own. A launcher that wires the precheck into backfill_feature_factory itself (or imports
-    the writer module, as fetch_landed_markers does) would otherwise match
-    LIVE_RUN_PROCESS_PATTERN against its own command line and refuse every launch."""
+    """The measured input of check_no_live_run: `ps -eo pid,ppid,args` lines (as `pid args`)
+    minus this process and its ancestors. The caller (the corpus rerun runner, or a launcher
+    importing the writer module) and the shell or `timeout` that started it would otherwise
+    match LIVE_RUN_PROCESS_PATTERN against their own command lines and refuse every launch."""
     completed = subprocess.run(
-        ["ps", "-eo", "pid,args"], capture_output=True, text=True, check=True
+        ["ps", "-eo", "pid,ppid,args"], capture_output=True, text=True, check=True
     )
-    own_pid = str(os.getpid())
-    return [
-        line
-        for line in completed.stdout.splitlines()
-        if line.split() and line.split()[0] != own_pid
-    ]
+    rows = [line.split(None, 2) for line in completed.stdout.splitlines() if line.split()]
+    parent = {r[0]: r[1] for r in rows if len(r) >= 2}
+    own: set[str] = set()
+    pid: str | None = str(os.getpid())
+    while pid and pid not in own and pid != "0":
+        own.add(pid)
+        pid = parent.get(pid)
+    return [f"{r[0]} {r[2] if len(r) > 2 else ''}".rstrip() for r in rows if r[0] not in own]
 
 
 def fetch_landed_markers(conn: Any, state_path: Path | None = None) -> dict[str, bool]:

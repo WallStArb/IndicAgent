@@ -55,6 +55,7 @@ import argparse
 import asyncio
 import dataclasses
 import hashlib
+import json
 import math
 import sys
 import tempfile
@@ -885,8 +886,13 @@ class UnitPlan:
 class UnitOutcome:
     job: str
     writer: str
-    status: str  # skipped | loaded | replaced | would_skip | would_load | would_replace
+    # skipped | skipped_concurrent | loaded | replaced | would_skip | would_load | would_replace
+    status: str
     rows: int
+    # The unit's identity, so a caller (the corpus rerun, 186-31) adopts exactly the units this
+    # run skipped as already completed and nothing a concurrent writer completed.
+    batch_key: str = ""
+    unit_key: str = ""
 
 
 def execute_unit(
@@ -904,19 +910,29 @@ def execute_unit(
     and is only called when a write actually happens."""
     spec = unit.spec
     if completed_provenance_batch(read_conn, spec) is not None:
-        return UnitOutcome(unit.job, spec.writer, "would_skip" if dry_run else "skipped", 0)
+        status = "would_skip" if dry_run else "skipped"
+        return UnitOutcome(unit.job, spec.writer, status, 0, spec.batch_key, spec.unit_key)
     rows = unit.compute()
     refuse_reaching_oos(rows, oos_start)
     replacing = prior_completed_unit(read_conn, spec)
     if dry_run:
         status = "would_replace" if replacing else "would_load"
-        return UnitOutcome(unit.job, spec.writer, status, len(rows))
+        return UnitOutcome(unit.job, spec.writer, status, len(rows), spec.batch_key, spec.unit_key)
     result: BulkLoadResult = bulk_load(write_session.connection(), spec, COLUMNS, rows)
-    if result.status == "skipped":  # completed by another session between the check and the lock
-        return UnitOutcome(unit.job, spec.writer, "skipped", 0)
+    if result.status == "skipped":
+        # Completed by another session between the check and the lock: not this run's skip, so
+        # the corpus rerun never adopts it (186-31).
+        return UnitOutcome(
+            unit.job, spec.writer, "skipped_concurrent", 0, spec.batch_key, spec.unit_key
+        )
     replaced = replacing or result.rows_replaced > 0
     return UnitOutcome(
-        unit.job, spec.writer, "replaced" if replaced else "loaded", result.row_count
+        unit.job,
+        spec.writer,
+        "replaced" if replaced else "loaded",
+        result.row_count,
+        spec.batch_key,
+        spec.unit_key,
     )
 
 
@@ -1474,11 +1490,30 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="the corpus_run (uuid) every unit's provenance row records (migration 578)",
     )
     parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="write every unit's outcome (job, writer, status, batch_key, unit_key, rows) as JSON",
+    )
+    parser.add_argument(
         "--allow-absent-digests",
         action="store_true",
         help="accept symbols with no bar_content_digest rows (revision detection blind for them)",
     )
     return parser.parse_args(argv)
+
+
+def write_outcome_report(
+    path: Path, outcomes: Sequence[UnitOutcome], failures: Sequence[str]
+) -> None:
+    """The run's unit outcomes as JSON: the corpus rerun adopts exactly the units listed as
+    skipped (identity already completed before this run computed them)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "outcomes": [dataclasses.asdict(outcome) for outcome in outcomes],
+        "failures": list(failures),
+    }
+    path.write_text(json.dumps(report, indent=1, sort_keys=True))
 
 
 def table_rows_by_tf(dsn: str) -> dict[str, int]:
@@ -1516,6 +1551,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             manifest.set_inputs(tfs=runner.tfs, jobs=runner.jobs, oos_start=runner.oos_start_iso)
         for outcome in runner.outcomes:
             print(f"{outcome.status:14s} {outcome.writer:40s} rows={outcome.rows}")
+        if args.report is not None:
+            write_outcome_report(args.report, runner.outcomes, runner.failures)
         if runner.failures:
             status = "failure"
             for failure in runner.failures:

@@ -50,6 +50,7 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import get_list_config, load_config_service_sync  # noqa: E402
 from services.backfill_feature_factory import _build_feature_factory_config  # noqa: E402
+from services.corpus_rerun_apr import MAX_NULL_FRACTION_KEY  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.features.contract.registry import (  # noqa: E402
     default_registry,
@@ -67,6 +68,23 @@ REPORT_DIR = project_root / "logs"
 STATS_PER_COLUMN = 7
 COLUMNS_PER_PASS = 230  # 7 x 230 + 3 stays under Postgres's 1,664-entry target-list cap
 GATES = ("G1", "G2", "G3")
+NULL_GATE = "G6"
+WARMUP_GAP_KEY = "threshold.pilot_gate.warmup_gap_bars"
+ZERO_SHARE_KEY = "threshold.pilot_gate.zero_share_max"
+PILOT_NAMES_KEY = "infra.pilot_gate.names"
+# Every APR key the screen reads (the corpus rerun pins their values, 186-31).
+APR_KEYS: tuple[str, ...] = (WARMUP_GAP_KEY, ZERO_SHARE_KEY, PILOT_NAMES_KEY, MAX_NULL_FRACTION_KEY)
+# G6 tiers carried from the deleted corpus verifier (todo 584 4b-2 group 4, D1 rule 2): these
+# columns are None wherever their object does not exist (no intraday session on 1d for the
+# session volume profile pair; no qualifying support or resistance cluster in the window), so
+# the share gate would fail honest data. They fail G6 only when entirely NULL on a tf where the
+# object can exist, and are skipped on the tfs listed (structurally absent there).
+ABSENCE_EXEMPT_TFS: dict[str, frozenset[str]] = {
+    "poc_dist_atr": frozenset({"1d"}),
+    "va_position": frozenset({"1d"}),
+    "sr_support_dist": frozenset(),
+    "sr_resist_dist": frozenset(),
+}
 EXAMPLES = 20  # names listed per failing column in the report; counts are always complete
 
 
@@ -205,6 +223,57 @@ def screen_rows(
     return report, skipped
 
 
+def null_share_gate(
+    columns: tuple[str, ...],
+    rows: list[tuple],
+    *,
+    memory: dict[str, int | None],
+    applicable: dict[str, frozenset[str]],
+    max_null_fraction: float,
+    min_name_rows: int,
+    worst: int = EXAMPLES,
+) -> dict[str, dict]:
+    """G6 per tf: the NULL or non-finite share of each column's rows past its declared warmup,
+    pooled over the judged names, on the columns applicable to the tf. A column with no declared
+    memory (path dependent: the HMM outputs) has no warmup to measure from and is listed as
+    unmeasured (G1 covers it). Returns, per tf, the failing columns with their shares, the worst
+    columns whatever their verdict, and the unmeasured columns."""
+    post: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
+    for tf, _symbol, n, *stats in rows:
+        if n < min_name_rows:
+            continue
+        for column, cell in zip(columns, batched(stats, STATS_PER_COLUMN, strict=True)):
+            mem = memory[column]
+            if mem is None or n <= mem:
+                continue
+            post[(tf, column)][0] += n - mem
+            post[(tf, column)][1] += cell[6]
+    out: dict[str, dict] = {}
+    for tf in sorted({tf for tf, *_ in rows}):
+        shares: dict[str, float] = {}
+        failing: dict[str, str] = {}
+        for column in columns:
+            if column not in applicable[tf] or tf in ABSENCE_EXEMPT_TFS.get(column, ()):
+                continue
+            total, finite = post.get((tf, column), (0, 0))
+            if not total:
+                continue
+            share = 1 - finite / total
+            shares[column] = round(share, 6)
+            if column in ABSENCE_EXEMPT_TFS:
+                if finite == 0:
+                    failing[column] = "entirely NULL where the object can exist (D1 rule 2)"
+            elif share > max_null_fraction:
+                failing[column] = f"null share {share:.1%} > {max_null_fraction:.1%}"
+        out[tf] = {
+            "max_null_fraction": max_null_fraction,
+            "failing": failing,
+            "worst": dict(sorted(shares.items(), key=lambda kv: -kv[1])[:worst]),
+            "unmeasured": sorted(c for c in columns if memory[c] is None),
+        }
+    return out
+
+
 def gate_failures(report: dict[str, dict]) -> dict[str, int]:
     """Failing (column, name) cells per gate over every timeframe."""
     return {
@@ -257,6 +326,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tf", action="append", help="restrict to these timeframes")
     parser.add_argument("--symbol", action="append", help="restrict to these symbols")
     parser.add_argument("--pilot", action="store_true", help="the APR pilot name list")
+    parser.add_argument(
+        "--null-gate",
+        action="store_true",
+        help=f"also gate G6, the post-warmup NULL share per (tf, column), at {MAX_NULL_FRACTION_KEY}",
+    )
     args = parser.parse_args(argv)
     if args.pilot and args.symbol:
         parser.error("--pilot and --symbol both name the symbols; give one")
@@ -265,10 +339,11 @@ def main(argv: list[str] | None = None) -> int:
     registry = default_registry()
     with psycopg.connect(get_settings().database_url) as conn:
         cfg = load_config_service_sync(conn)
-        warmup_gap_max = int(apr_value(cfg, "threshold.pilot_gate.warmup_gap_bars"))
-        zero_share_max = float(apr_value(cfg, "threshold.pilot_gate.zero_share_max"))
+        warmup_gap_max = int(apr_value(cfg, WARMUP_GAP_KEY))
+        zero_share_max = float(apr_value(cfg, ZERO_SHARE_KEY))
+        max_null = float(apr_value(cfg, MAX_NULL_FRACTION_KEY)) if args.null_gate else None
         if args.pilot:
-            args.symbol = get_list_config(cfg, "infra.pilot_gate.names", [])
+            args.symbol = get_list_config(cfg, PILOT_NAMES_KEY, [])
             if not args.symbol:
                 parser.error("APR key infra.pilot_gate.names is empty")
         memory = declared_memory(registry, _build_feature_factory_config(cfg), columns)
@@ -309,6 +384,19 @@ def main(argv: list[str] | None = None) -> int:
             f"failing columns G1 {len(entry['G1'])}, G2 {len(entry['G2'])}, G3 {len(entry['G3'])}"
         )
     failures = gate_failures(report)
+    nulls: dict[str, dict] = {}
+    if max_null is not None:
+        nulls = null_share_gate(
+            columns,
+            [r for r in rows_by_key.values() if r[0] in report],
+            memory=memory,
+            applicable={tf: applicable_columns(registry, columns, tf) for tf in report},
+            max_null_fraction=max_null,
+            min_name_rows=args.min_name_rows,
+        )
+        failures[NULL_GATE] = sum(len(entry["failing"]) for entry in nulls.values())
+        for tf, entry in nulls.items():
+            print(f"{tf}: G6 failing columns {len(entry['failing'])}; worst {entry['worst']}")
     seen = {symbol for _, symbol in rows_by_key}
     missing_symbols = sorted(set(args.symbol or ()) - seen)
     missing_tf = sorted(set(args.tf or ()) - set(report))
@@ -337,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         "missing_symbols": missing_symbols,
         "gate_failures": failures,
         "report": report,
+        "null_gate": nulls,
     }
     path.write_text(json.dumps(payload, indent=1, sort_keys=True))
     print(f"gate failures {failures}; report: {path}")

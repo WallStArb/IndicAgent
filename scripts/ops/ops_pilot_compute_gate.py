@@ -59,7 +59,10 @@ from src.intelligence.features.contract.registry import (  # noqa: E402
     KernelRegistry,
     default_registry,
 )
-from src.intelligence.features.kernels._hmm import load_rolling_block_rows  # noqa: E402
+from src.intelligence.features.kernels._hmm import (  # noqa: E402
+    ROLLING_BLOCK_ROWS_KEY,
+    load_rolling_block_rows,
+)
 from src.intelligence.features.kernels.macro import (  # noqa: E402
     HYG,
     LQD,
@@ -72,6 +75,8 @@ from src.intelligence.features.kernels.macro import (  # noqa: E402
 )
 
 REPORT_DIR = project_root / "logs"
+# Every APR key the gate reads besides the feature config (the corpus rerun pins them, 186-31).
+APR_KEYS: tuple[str, ...] = (ROLLING_BLOCK_ROWS_KEY,)
 
 
 def unit_registry(registry: KernelRegistry, inputs: dict) -> KernelRegistry:

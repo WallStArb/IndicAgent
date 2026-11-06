@@ -17,19 +17,25 @@ pilot compute gate, the canary).
   worktree at corpus_run.code_commit; the rebuild code key and APR hash equal the run's; services
   is imported from the worktree; FetcherLock is free; every blocking timer is disabled and its
   service not active; no live writer process; the rebuild preconditions pass with the span disk
-  term; the growth since launch plus the next step's projected increment stays inside the limit.
+  term; the growth since launch plus the next step's own increment (its tf's rows in its span not
+  yet loaded under the run, the WAL, two group spools) stays inside the limit.
 - `pilot`: stage_1d's chunk 0 and one 1h unit of span 1 (ordinary units of the real stages, kept),
   G1-G3 (column screen) and G4-G5 (pilot compute gate) on them, per-unit wall time and DB load,
-  the measured bytes per row and stored-per-spool ratio into corpus_run.measured; then the run's
-  spans are re-projected with the larger bytes per row and the pilot fails if any overflows.
+  the measured bytes per row, stored-per-spool ratio and compression ratio (the pilot's rows
+  compressed in a dropped scratch hypertable) into corpus_run.measured; then the run's spans are
+  re-projected with the larger bytes per row and the measured ratio, and the pilot fails if any
+  overflows, before stage_1d.
 - Stage and span steps: run_rebuild_stage on the full universe under the run id with the run's
   unit disk guard; a step fails on a failed, refused or abandoned unit, or a unit of its scope
   without a completed row that belongs to the run; after a span's 5m every chunk ending by the
   span's end (before the open chunk) must be compressed.
 - `feature_complete`: the full scope re-planned now: every unit completed and the run's; no
-  started or failed row under the run; no digest-blind symbol; the column screen per tf.
-- `ic_measure` under the run id, `d19_bound` (no feature_ic_scores row at or after oos_start),
-  `canary --run-id`; the ic_measure and canary summaries carry corpus_run.caveats verbatim.
+  started or failed row under the run; no digest-blind symbol; the column screen per tf with
+  G6, the post-warmup NULL share per (tf, column) at infra.corpus_rerun.max_null_fraction.
+- `ic_measure` under the run id (it reports the units it skipped; only those are adopted, and
+  every expected (tf, horizon) needs POOLED rows), `d19_bound` (no feature_ic_scores row at or
+  after oos_start), `canary --run-id`; the ic_measure and canary summaries carry
+  corpus_run.caveats verbatim. One corpus rerun runs at a time (a global advisory lock).
 
 A unit skipped because a completed row with its identity exists keeps that row's run (completed
 rows are immutable): the step records it as adopted, {unit_key, batch_key, adopted_from_run_id},
@@ -58,7 +64,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -88,6 +94,7 @@ from services.corpus_rerun_budget import (
     plan_spans,
     project,
     span_peak,
+    step_increment,
 )
 from src.config.settings import Settings
 from src.core.canonical_json import canonical_json
@@ -105,6 +112,7 @@ _OOS_START_KEY = "alpha.validation.oos_start"
 _WORKERS_KEY = "infra.feature_factory.workers"
 INTRADAY_ORDER: tuple[str, ...] = ("1h", "15m", "5m")
 OUTPUT_TAIL_CHARS = 4000
+COMPRESSION_RATIO_MEASURED = "compression_ratio_measured"
 
 # The recorded todo 445 decision the rebuild preconditions check (186-26's precheck record).
 TODO445_DECISION_PATH = Path(
@@ -197,12 +205,30 @@ def run_worktree(run_id: str, main_root: Path | None = None) -> Path:
     return root.parent / f"{root.name}-corpus-run-{run_id}"
 
 
-def apr_hash(apr: CorpusRerunApr, factory_config: Any) -> str:
-    """sha256 over the rerun APR and the rebuild's feature config, as this checkout reads them."""
-    snapshot = {
-        "corpus_rerun": dataclasses.asdict(apr),
-        "feature_factory": dataclasses.asdict(factory_config),
-    }
+def pinned_apr_keys(ic_tfs: Iterable[str]) -> list[str]:
+    """Every APR key a step or gate of the run reads, from each module's own list: the rerun
+    APR (data gate, disk budget, timers, G6), the column screen, the pilot compute gate, the
+    rebuild preconditions, the rebuild's planning keys, ic_measure's keys per tf (oos_start and
+    the horizons included, which d19_bound reads too) and the canary's."""
+    from scripts.ops.alpha.ops_canary_integrity_assert import APR_KEYS as canary_keys
+    from scripts.ops.ops_feature_column_screen import APR_KEYS as screen_keys
+    from scripts.ops.ops_pilot_compute_gate import APR_KEYS as pilot_keys
+    from services.backfill_feature_factory import rebuild_apr_keys
+    from services.corpus_rerun_apr import APR_KEYS as rerun_keys
+    from services.ic_measure import _OOS_START_KEY as ic_oos_key
+    from services.ic_measure import apr_keys_read
+    from services.rebuild_preconditions import APR_KEYS as precondition_keys
+
+    keys = {*rerun_keys, *screen_keys, *pilot_keys, *precondition_keys, *rebuild_apr_keys()}
+    keys |= {*canary_keys, ic_oos_key, _IC_HORIZONS_KEY}
+    for tf in ic_tfs:
+        keys.update(apr_keys_read(tf))
+    return sorted(keys)
+
+
+def apr_hash(values: Mapping[str, Any], factory_config: Any) -> str:
+    """sha256 over every pinned APR value and the rebuild's feature config."""
+    snapshot = {"apr": dict(values), "feature_factory": dataclasses.asdict(factory_config)}
     return hashlib.sha256(canonical_json(snapshot).encode()).hexdigest()
 
 
@@ -271,7 +297,19 @@ WHERE hypertable_name = %s AND NOT is_compressed AND range_end <= %s ORDER BY ra
 _REACHING_OOS_SQL = (
     f"SELECT count(*), min(training_window_end) FROM {_IC_TABLE} " "WHERE training_window_end >= %s"
 )
+_LOADED_ROWS_SQL = """
+SELECT COALESCE(sum(row_count), 0) FROM provenance_batch
+WHERE run_id = %s AND status = 'completed' AND target_table = %s AND tf = %s
+  AND range_start >= %s AND range_start < %s
+"""
+_POOLED_LOOKAHEADS_SQL = f"""
+SELECT tf, lookahead_bars, count(*) FROM {_IC_TABLE}
+WHERE symbol = 'POOLED' AND regime_scope = 'unstratified' GROUP BY tf, lookahead_bars
+"""
 _RUN_LOCK_SQL = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
+# One corpus rerun at a time, whatever its run id: two runs would interleave their stages'
+# compression and their units on the same table.
+RUN_LOCK_NAME = "corpus_rerun"
 
 
 class RunStore:
@@ -291,8 +329,20 @@ class RunStore:
             cur.execute(sql, params)
             return list(cur.fetchall())
 
-    def try_lock(self, run_id: str) -> bool:
-        return bool(self._one(_RUN_LOCK_SQL, (f"corpus_rerun:{run_id}",))[0])
+    def try_lock(self) -> bool:
+        """The global corpus rerun lock (session level, released when the connection closes)."""
+        return bool(self._one(_RUN_LOCK_SQL, (RUN_LOCK_NAME,))[0])
+
+    def loaded_rows(self, run_id: str, tf: str, lo: datetime, hi: datetime) -> int:
+        """Rows this run already loaded of one tf whose units start in [lo, hi)."""
+        return int(self._one(_LOADED_ROWS_SQL, (run_id, _FEATURE_TABLE, tf, lo, hi))[0])
+
+    def pooled_lookaheads(self) -> dict[str, dict[int, int]]:
+        """POOLED unstratified feature_ic_scores rows per (tf, lookahead): the proposer units'."""
+        out: dict[str, dict[int, int]] = {}
+        for tf, horizon, n in self._all(_POOLED_LOOKAHEADS_SQL, ()):
+            out.setdefault(tf, {})[int(horizon)] = int(n)
+        return out
 
     def create_run(self, run: CorpusRun) -> None:
         spans = [[s.isoformat(), e.isoformat()] for s, e in run.spans]
@@ -423,21 +473,34 @@ FROM pg_stat_database WHERE datname = current_database()
 """
 
 
+_STORED_COUNTS_SQL = """
+SELECT m.tf, c.idx, (date_trunc('month', m.bar_ts AT TIME ZONE 'UTC'))::date, count(*)
+FROM feature_vectors m
+JOIN unnest(%s::text[], %s::int[], %s::timestamptz[]) AS c(symbol, idx, floor_ts)
+  ON c.symbol = m.symbol
+WHERE m.tf = ANY(%s) AND m.bar_ts >= c.floor_ts AND m.bar_ts < %s
+GROUP BY 1, 2, 3
+"""
+
+
 def fetch_row_counts(
     conn: Any,
     chunks: Sequence[tuple[str, ...]],
     starts: Mapping[str, datetime],
     horizon: datetime,
     timeframes: Sequence[str],
+    *,
+    stored: bool = False,
 ) -> RowCounts:
     """Tradeable bars per (tf, symbol chunk, month) from each name's proven start to the horizon:
-    the rows the rebuild will write, as the planner counts them."""
+    the rows the rebuild will write, as the planner counts them. With `stored`, the rows
+    feature_vectors already holds on the same grid (on disk at launch, so never growth)."""
     from services.backfill_feature_factory import _NO_FLOOR
 
     names = [(s, i) for i, chunk in enumerate(chunks) for s in chunk]
     with conn.cursor() as cur:
         cur.execute(
-            _ROW_COUNTS_SQL,
+            _STORED_COUNTS_SQL if stored else _ROW_COUNTS_SQL,
             (
                 [s for s, _ in names],
                 [i for _, i in names],
@@ -478,6 +541,79 @@ def db_load(conn: Any) -> dict[str, int]:
             "tup_fetched",
         )
         return dict(zip(names, (int(v) for v in cur.fetchone())))
+
+
+_SCRATCH_SCHEMA = "corpus_rerun_scratch"
+_COMPRESSION_SETTINGS_SQL = """
+SELECT attname, segmentby_column_index, orderby_column_index, orderby_asc
+FROM timescaledb_information.compression_settings WHERE hypertable_name = %s
+"""
+
+
+def measure_compression(conn: Any, symbols: Sequence[str], tf: str) -> dict[str, Any]:
+    """Copy the stored rows of (symbols, tf) into a scratch hypertable with feature_vectors'
+    own chunk interval and compression settings, compress it, and return the stored bytes
+    before and after and their ratio. The scratch table is dropped whatever happens;
+    feature_vectors itself is only read, so no chunk a later unit needs is compressed."""
+    from psycopg import sql
+
+    table = sql.Identifier(_SCRATCH_SCHEMA, f"ratio_{uuid.uuid4().hex[:12]}")
+    with conn.cursor() as cur:
+        cur.execute(_COMPRESSION_SETTINGS_SQL, (_FEATURE_TABLE,))
+        settings = cur.fetchall()
+    segment = [a for a, seg, _o, _asc in sorted(settings, key=lambda r: r[1] or 0) if seg]
+    order = [
+        f"{a} {'ASC' if asc else 'DESC'}"
+        for a, _s, o, asc in sorted(settings, key=lambda r: r[2] or 0)
+        if o
+    ]
+    if not segment or not order:
+        raise RuntimeError(f"{_FEATURE_TABLE} has no compression settings to copy")
+    interval = chunk_interval(conn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(_SCRATCH_SCHEMA))
+            )
+            cur.execute(
+                sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING INDEXES)").format(
+                    table, sql.Identifier(_FEATURE_TABLE)
+                )
+            )
+            cur.execute(
+                "SELECT create_hypertable(%s::regclass, 'bar_ts', chunk_time_interval => %s)",
+                (table.as_string(conn), interval),
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER TABLE {} SET (timescaledb.compress, timescaledb.compress_segmentby = "
+                    "{}, timescaledb.compress_orderby = {})"
+                ).format(table, sql.Literal(", ".join(segment)), sql.Literal(", ".join(order)))
+            )
+            cur.execute(
+                sql.SQL(
+                    "INSERT INTO {} SELECT * FROM {} WHERE symbol = ANY(%s) AND tf = %s"
+                ).format(table, sql.Identifier(_FEATURE_TABLE)),
+                (list(symbols), tf),
+            )
+            rows = cur.rowcount
+            cur.execute("SELECT hypertable_size(%s::regclass)", (table.as_string(conn),))
+            before = int(cur.fetchone()[0] or 0)
+            cur.execute(
+                "SELECT count(compress_chunk(c)) FROM show_chunks(%s::regclass) c",
+                (table.as_string(conn),),
+            )
+            cur.execute("SELECT hypertable_size(%s::regclass)", (table.as_string(conn),))
+            after = int(cur.fetchone()[0] or 0)
+    finally:
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(table))
+    return {
+        "rows": rows,
+        "uncompressed_bytes": before,
+        "compressed_bytes": after,
+        "ratio": before / after if rows and after else None,
+    }
 
 
 def run_command(argv: Sequence[str], cwd: Path) -> tuple[int, str]:
@@ -586,6 +722,8 @@ class Deps:
     chunk_interval: Callable[[], timedelta]
     db_load: Callable[[], dict[str, int]]
     apr_value: Callable[[str], Any]
+    measure_compression: Callable[[Sequence[str], str], dict[str, Any]]
+    read_json: Callable[[Path], Any]
     monotonic: Callable[[], float] = time.monotonic
 
 
@@ -761,7 +899,9 @@ class CorpusRerun:
 
     # -- disk --------------------------------------------------------------------
 
-    def _inputs(self, bytes_per_row: float | None = None) -> BudgetInputs:
+    def _inputs(
+        self, bytes_per_row: float | None = None, compression_ratio: float | None = None
+    ) -> BudgetInputs:
         measured = self.run.measured
         return BudgetInputs(
             free_bytes_at_launch=self.run.free_bytes_at_launch,
@@ -771,11 +911,16 @@ class CorpusRerun:
                 float(measured.get("bytes_per_row_max", 0.0)),
                 bytes_per_row or 0.0,
             ),
-            compression_ratio=self.apr.compression_ratio,
+            compression_ratio=compression_ratio or self._compression_ratio(),
             stored_bytes_per_spool_byte=self._stored_per_spool(),
             wal_bytes=self.deps.wal_bytes(),
             chunk_interval=self.deps.chunk_interval(),
         )
+
+    def _compression_ratio(self) -> float:
+        """The pilot's measured ratio once it exists; the APR seed only before the pilot."""
+        measured = self.run.measured.get(COMPRESSION_RATIO_MEASURED)
+        return float(measured) if measured else self.apr.compression_ratio
 
     def _stored_per_spool(self) -> float:
         return max(
@@ -784,7 +929,15 @@ class CorpusRerun:
         )
 
     def _counts(self) -> RowCounts:
-        return counts_from_record(self.run.measured["row_counts"])
+        """The rows the run still had to write at launch: the counts less the rows already
+        stored then (a re-plan over a table holding adoptable units)."""
+        counts = counts_from_record(self.run.measured["row_counts"])
+        stored = self.run.measured.get("stored_row_counts")
+        return counts.minus(counts_from_record(stored)) if stored else counts
+
+    @staticmethod
+    def _step_tf(step: Step) -> str:
+        return step.tf if step.kind == SPAN and step.tf else "1d"
 
     def _peak_for(self, step: Step, inputs: BudgetInputs) -> Peak:
         counts = self._counts()
@@ -792,9 +945,25 @@ class CorpusRerun:
             return span_peak(self.run.spans, step.span_index, counts, inputs)
         return daily_peak(counts, inputs)
 
+    def _increment(self, step: Step, inputs: BudgetInputs) -> float:
+        """The upcoming step's own tf in its span, less what this run already loaded of it (a
+        resumed step), plus the WAL and its spools. Growth since launch already holds the
+        span's earlier tfs and everything compressed."""
+        tf = self._step_tf(step)
+        lo, hi = (
+            self.run.spans[step.span_index]
+            if step.kind == SPAN and step.span_index is not None
+            else (datetime(1970, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
+        )
+        loaded = self.store.loaded_rows(self.run.run_id, tf, lo, hi)
+        return step_increment(
+            self.run.spans, step.span_index, tf, self._counts(), inputs, loaded_rows=loaded
+        )
+
     def _disk_and_preconditions(self, upcoming: Step) -> list[dict[str, Any]]:
         inputs = self._inputs()
         peak = self._peak_for(upcoming, inputs)
+        increment = self._increment(upcoming, inputs)
         free_now = self.deps.free_bytes()
         growth = self.run.free_bytes_at_launch - free_now
         start = (
@@ -816,10 +985,10 @@ class CorpusRerun:
         checks = [
             {
                 "name": "fraction_limit",
-                "ok": growth + peak.increment <= inputs.limit_bytes,
+                "ok": growth + increment <= inputs.limit_bytes,
                 "detail": (
-                    f"growth since launch {growth / 1e9:,.0f} GB + {peak.step} increment "
-                    f"{peak.increment / 1e9:,.0f} GB vs limit {inputs.limit_bytes / 1e9:,.0f} GB"
+                    f"growth since launch {growth / 1e9:,.0f} GB + {upcoming.name} increment "
+                    f"{increment / 1e9:,.0f} GB vs limit {inputs.limit_bytes / 1e9:,.0f} GB"
                 ),
             }
         ]
@@ -999,6 +1168,15 @@ class CorpusRerun:
                 for tf in INTRADAY_ORDER
             },
         }
+        # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
+        # plan-only preview's fallback); the smaller of the 1d and 1h ratios is the conservative
+        # one for every later projection.
+        compression = {tf: d.measure_compression(chunk0, tf) for tf in ("1d", "1h")}
+        measured["pilot_compression"] = compression
+        ratios = [c["ratio"] for c in compression.values() if c.get("ratio")]
+        if len(ratios) != len(compression):
+            raise StepFailed("pilot: no compression ratio measured", {**summary, **measured})
+        measured[COMPRESSION_RATIO_MEASURED] = min(ratios)
         measured["pilot_db_load"] = {
             "before": load_before,
             "after": load_after,
@@ -1013,14 +1191,16 @@ class CorpusRerun:
         if failed_gates:
             raise StepFailed(f"pilot gates failed: {', '.join(failed_gates)}", summary)
         larger = max(measured["pilot_bytes_per_row_1d"], measured["pilot_bytes_per_row_intraday"])
-        inputs = self._inputs(bytes_per_row=larger)
+        inputs = self._inputs(
+            bytes_per_row=larger, compression_ratio=measured[COMPRESSION_RATIO_MEASURED]
+        )
         peaks = project(self.run.spans, counts, inputs)
         summary["reprojection"] = [p.as_record() for p in peaks]
         over = overflowing(peaks, inputs)
         if over:
             raise StepFailed(
-                "the pilot's measured bytes per row overflow the run's spans (spans are "
-                "immutable: start a new run, which plans more spans):\n"
+                "the pilot's measured bytes per row and compression ratio overflow the run's "
+                "spans (spans are immutable: start a new run, which plans more spans):\n"
                 + format_peaks(peaks, inputs.limit_bytes),
                 summary,
             )
@@ -1046,7 +1226,7 @@ class CorpusRerun:
             for part in ("stage_1d_chunk0", "s1_1h_unit"):
                 blind |= set((summary.get(part) or {}).get("digest_blind_symbols") or ())
         screens = {
-            tf: d.run_command([d.python, str(COLUMN_SCREEN), "--tf", tf], d.worktree)
+            tf: d.run_command([d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf], d.worktree)
             for tf in self.apr_tfs()
         }
         summary = {
@@ -1070,7 +1250,7 @@ class CorpusRerun:
             problems.append(f"{len(blind)} digest-blind symbols")
         failing = [tf for tf, (rc, _) in screens.items() if rc != 0]
         if failing:
-            problems.append(f"column screen fails on {failing}")
+            problems.append(f"column screen (G1-G3, G6 null share) fails on {failing}")
         if problems:
             raise StepFailed("feature_complete: " + "; ".join(problems), summary)
         return summary
@@ -1095,38 +1275,81 @@ class CorpusRerun:
 
         pins = self._require_pin(step)
         d = self.deps
-        argv = [d.python, "-m", "services.ic_measure", "--run-id", self.run.run_id]
+        report_path = d.spool_root.parent / "corpus_rerun" / f"ic_measure_{self.run.run_id}.json"
+        argv = [
+            d.python,
+            "-m",
+            "services.ic_measure",
+            "--run-id",
+            self.run.run_id,
+            "--report",
+            str(report_path),
+        ]
         rc, out = d.run_command(argv, d.worktree)
         summary: dict[str, Any] = {
             "pin_checks": pins,
             "returncode": rc,
             "output": out,
+            "report": str(report_path),
             "caveats": self._caveats(),
         }
         if rc != 0:
             raise StepFailed(f"ic_measure exited {rc}", summary)
-        # Exit 0 means every unit of its scope was loaded under the run or skipped because its
-        # identity was completed: such a unit keeps the older run's row and is adopted here.
-        tfs = list(self._json_apr(_IC_HORIZONS_KEY))
+        outcomes = {o["unit_key"]: o for o in d.read_json(report_path)["outcomes"]}
+        horizons = {tf: {int(h) for h in hs} for tf, hs in self._json_apr(_IC_HORIZONS_KEY).items()}
         adopted, problems = [], []
         for job in active_jobs(list(_DEFAULT_JOBS), []):
-            for tf in tfs:
+            for tf in horizons:
                 unit_key = bulk_load_unit_key(
                     job_writer(job), TARGET_TABLE, tf, job_replace_where(job, tf)
                 )
-                rows = self.store.unit_completed(unit_key)
-                if len(rows) != 1:
-                    problems.append(f"{job}/{tf}: {len(rows)} completed rows")
-                    continue
-                batch_key, owner = rows[0]
-                if owner != self.run.run_id:
-                    adopted.append(
-                        {"unit_key": unit_key, "batch_key": batch_key, "adopted_from_run_id": owner}
-                    )
+                problem, adoption = self._ic_unit(job, tf, outcomes.get(unit_key), unit_key)
+                if problem:
+                    problems.append(problem)
+                if adoption:
+                    adopted.append(adoption)
         summary["adopted"] = adopted
+        # Every expected (tf, horizon) has POOLED unstratified rows (the proposer units, whose
+        # rows the checks above tie to this run), and no unexpected horizon does.
+        present = self.store.pooled_lookaheads()
+        for tf, expected in sorted(horizons.items()):
+            have = set(present.get(tf, {}))
+            if expected - have:
+                problems.append(f"tf {tf}: no POOLED rows at lookaheads {sorted(expected - have)}")
+            if have - expected:
+                problems.append(f"tf {tf}: unexpected lookaheads {sorted(have - expected)}")
+        summary["pooled_lookaheads"] = {tf: sorted(v) for tf, v in present.items()}
         if problems:
             raise StepFailed("ic_measure units: " + "; ".join(problems), summary)
         return summary
+
+    def _ic_unit(
+        self, job: str, tf: str, outcome: Mapping[str, Any] | None, unit_key: str
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """(problem, adoption) for one ic_measure unit. Adopted only when this run's ic_measure
+        reported it skipped (its identity was completed before the run computed it) and the
+        unit's one completed row is exactly that batch_key; a loaded unit must be the run's own.
+        A unit another writer completed mid-window matches neither and fails."""
+        name = f"{job}/{tf}"
+        if outcome is None:
+            return f"{name}: no outcome in the ic_measure report", None
+        rows = self.store.unit_completed(unit_key)
+        if len(rows) != 1:
+            return f"{name}: {len(rows)} completed rows", None
+        batch_key, owner = rows[0]
+        if batch_key != outcome["batch_key"]:
+            return f"{name}: the completed row {batch_key[:12]} is not the reported unit", None
+        if outcome["status"] == "skipped":
+            if owner == self.run.run_id:
+                return None, None
+            return None, {
+                "unit_key": unit_key,
+                "batch_key": batch_key,
+                "adopted_from_run_id": owner,
+            }
+        if outcome["status"] in ("loaded", "replaced") and owner == self.run.run_id:
+            return None, None
+        return f"{name}: {outcome['status']} and completed under run {owner}", None
 
     def _json_apr(self, key: str) -> Any:
         value = self.deps.apr_value(key)
@@ -1163,15 +1386,22 @@ def _connect(settings: Settings) -> Any:
     return psycopg.connect(settings.database_url, autocommit=True)
 
 
-def current_identity(conn: Any) -> dict[str, str]:
-    """The rebuild code key and APR hash as THIS process's code reads them (the worktree's when
-    run from it)."""
+def current_identity(conn: Any) -> dict[str, Any]:
+    """The rebuild code key and the APR hash as THIS process's code reads them (the worktree's
+    when run from it), with the pinned keys and their values for the record."""
     from services.backfill_feature_factory import _build_feature_factory_config, rebuild_code_key
 
     cfg = load_config_service_sync(conn)
+    horizons = cfg.get_sync(_IC_HORIZONS_KEY)
+    horizons = json.loads(horizons) if isinstance(horizons, str) else horizons
+    keys = pinned_apr_keys(horizons or {})
+    values = {key: cfg.get_sync(key) for key in keys}
+    missing = sorted(k for k, v in values.items() if v is None)
     return {
         "code_key": rebuild_code_key(),
-        "apr_hash": apr_hash(load_corpus_rerun_apr(cfg), _build_feature_factory_config(cfg)),
+        "apr_hash": apr_hash(values, _build_feature_factory_config(cfg)),
+        "apr_keys": keys,
+        "apr_unseeded": missing,
     }
 
 
@@ -1208,6 +1438,8 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         chunk_interval=lambda: chunk_interval(conn),
         db_load=lambda: db_load(conn),
         apr_value=lambda key: cfg.get_sync(key),
+        measure_compression=lambda symbols, tf: measure_compression(conn, symbols, tf),
+        read_json=lambda path: json.loads(path.read_text()),
     )
 
 
@@ -1215,6 +1447,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
 class Plan:
     horizon: datetime
     counts: RowCounts
+    stored: RowCounts
     inputs: BudgetInputs
     spans: list[tuple[datetime, datetime]]
     peaks: list[Peak]
@@ -1228,6 +1461,9 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
     apr = load_corpus_rerun_apr(cfg)
     ctx = factory._stage_context(settings, conn, None, None)
     counts = fetch_row_counts(conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes)
+    stored = fetch_row_counts(
+        conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes, stored=True
+    )
     inputs = BudgetInputs(
         free_bytes_at_launch=factory.database_free_bytes(cfg),
         max_disk_fraction=apr.max_disk_fraction,
@@ -1237,8 +1473,8 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
         wal_bytes=factory.max_wal_bytes(conn),
         chunk_interval=chunk_interval(conn),
     )
-    plan = plan_spans(counts, inputs)
-    return Plan(horizon, counts, inputs, plan.spans, plan.peaks)
+    plan = plan_spans(counts, inputs, stored=stored)
+    return Plan(horizon, counts, stored, inputs, plan.spans, plan.peaks)
 
 
 def _print_plan(plan: Plan) -> None:
@@ -1254,6 +1490,12 @@ def _print_plan(plan: Plan) -> None:
         f"free at launch {plan.inputs.free_bytes_at_launch / 1e9:,.0f} GB; limit "
         f"{plan.inputs.limit_bytes / 1e9:,.0f} GB; max_wal_size {plan.inputs.wal_bytes / 1e9:,.0f} GB; "
         f"chunk interval {plan.inputs.chunk_interval.days} days"
+    )
+    stored = sum(plan.stored.cells.values())
+    print(
+        f"rows already stored (not growth) {stored:,}; compression ratio "
+        f"{plan.inputs.compression_ratio:g} is the APR seed, a preview only: the pilot measures "
+        "the real ratio and re-projects the spans before stage_1d"
     )
     print(f"{len(plan.spans)} spans: " + ", ".join(f"[{s:%Y}, {e:%Y})" for s, e in plan.spans))
     print(format_peaks(plan.peaks, plan.inputs.limit_bytes))
@@ -1306,6 +1548,9 @@ def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str) -> st
         caveats=(),
         measured={
             "row_counts": counts_record(plan.counts),
+            "stored_row_counts": counts_record(plan.stored),
+            "apr_keys": identity["apr_keys"],
+            "apr_unseeded": identity["apr_unseeded"],
             "plan": [p.as_record() for p in plan.peaks],
             "wal_bytes_at_launch": plan.inputs.wal_bytes,
         },
@@ -1378,8 +1623,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
             return 0
         store = RunStore(conn)
-        if not store.try_lock(args.run_id):
-            print(f"another runner holds run {args.run_id}", file=sys.stderr)
+        if not store.try_lock():
+            print("another corpus rerun runner is live (one at a time)", file=sys.stderr)
             return 1
         run = store.load_run(args.run_id)
         apr = load_corpus_rerun_apr(load_config_service_sync(conn))

@@ -87,6 +87,8 @@ _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 # The tfs the run must cover: the APR list, never the tfs present in the table, so a tf with no
 # rows is a missing tf (186-30 warning 5).
 _TARGET_TIMEFRAMES_KEY = "feature.factory.target_timeframes"
+# Every APR key the gate reads (the corpus rerun pins them, 186-31).
+APR_KEYS: tuple[str, ...] = (_TARGET_TIMEFRAMES_KEY,)
 
 # The run, not the latest vintage, selects the cells. A tf's proposer cells are the rows its
 # proposer unit owns (ic_measure.job_replace_where: tf, symbol POOLED, regime_scope unstratified);

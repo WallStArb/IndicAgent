@@ -247,29 +247,41 @@ def test_no_live_run_passes_on_a_quiet_host():
     assert check_no_live_run([], "").ok
 
 
-def test_fetch_process_lines_drops_this_process_but_keeps_every_other(monkeypatch):
-    """A launcher importing the writer module would self-match
-    LIVE_RUN_PROCESS_PATTERN; the own-pid line must be filtered, every other line kept,
-    and a whitespace-only line dropped without crashing."""
+def test_fetch_process_lines_drops_this_process_and_its_ancestors_but_keeps_every_other(
+    monkeypatch,
+):
+    """The runner (or a launcher importing the writer module) and the shell or timeout that
+    started it would self-match LIVE_RUN_PROCESS_PATTERN; this process and its ancestors are
+    filtered, every other line kept, and a whitespace-only line dropped without crashing."""
     from types import SimpleNamespace
 
     own = str(os.getpid())
     stdout = "\n".join(
         [
-            "  PID COMMAND",
-            f"{own} python services/backfill_feature_factory.py --compute-only",
-            " 999 python services/ic_engine.py --corpus",
-            "1234 tail -f logs/app.log",
+            "  PID  PPID COMMAND",
+            "  77     1 bash -c timeout 3000 python -m services.corpus_rerun --run-id x",
+            "  88    77 timeout 3000 python -m services.corpus_rerun --run-id x",
+            f"{own}    88 python -m services.corpus_rerun --run-id x",
+            " 999     1 python -m services.ic_measure --run-id y",
+            "1234     1 tail -f logs/app.log",
             "   ",
         ]
     )
     monkeypatch.setattr(rp.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=stdout))
-    # The ps header carries no pattern and is kept; only the own-pid and blank lines drop.
-    assert rp.fetch_process_lines() == [
-        "  PID COMMAND",
-        " 999 python services/ic_engine.py --corpus",
+    lines = rp.fetch_process_lines()
+    assert lines == [
+        "PID COMMAND",
+        "999 python -m services.ic_measure --run-id y",
         "1234 tail -f logs/app.log",
     ]
+    assert not check_no_live_run(lines, "").ok  # the other ic_measure is a live writer
+
+
+def test_the_live_run_patterns_name_the_current_writers():
+    assert {"ic_measure", "corpus_rerun", "backfill_feature_factory"} <= set(
+        rp.LIVE_RUN_PROCESS_PATTERN
+    )
+    assert "ic_engine" not in rp.LIVE_RUN_PROCESS_PATTERN  # deleted in 186-23
 
 
 def test_no_live_run_fails_on_a_matching_process_or_resumable_evidence():

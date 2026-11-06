@@ -969,6 +969,33 @@ class TestExecuteUnit:
             self._unit(lambda: calls.append("compute") or []), FakeConn(), None, _OOS, dry_run=False
         )
         assert outcome.status == "skipped" and calls == []
+        spec = _spec()
+        assert (outcome.batch_key, outcome.unit_key) == (spec.batch_key, spec.unit_key)
+
+    def test_a_unit_completed_by_another_session_mid_window_is_not_reported_as_skipped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The corpus rerun adopts only `skipped` (186-31): a unit another writer completed
+        between this run's check and its lock is `skipped_concurrent`."""
+        import json as _json
+
+        monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
+        monkeypatch.setattr(
+            ic_measure,
+            "bulk_load",
+            lambda conn, spec, columns, rows, **kw: BulkLoadResult(spec.batch_key, "skipped", 0, 0),
+        )
+        outcome = ic_measure.execute_unit(
+            self._unit(lambda: [_good_row()]), FakeConn(), _Write(), _OOS, dry_run=False
+        )
+        assert outcome.status == "skipped_concurrent"
+        path = tmp_path / "report.json"
+        ic_measure.write_outcome_report(path, [outcome], ["x: boom"])
+        report = _json.loads(path.read_text())
+        assert report["outcomes"][0]["status"] == "skipped_concurrent"
+        assert report["outcomes"][0]["batch_key"] == _spec().batch_key
+        assert report["failures"] == ["x: boom"]
 
     def test_changed_identity_with_a_prior_completed_unit_replaces(
         self, monkeypatch: pytest.MonkeyPatch

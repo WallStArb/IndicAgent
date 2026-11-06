@@ -36,10 +36,13 @@ CAVEAT = {"code": "survivorship_pre2016_ibkr_5m", "text": "biased", "counts": {"
 
 
 def _counts() -> list[list[Any]]:
-    """1,000 5m rows a month 2010-2015 and 10 1d rows a month, one symbol chunk."""
+    """100 1h, 400 15m and 1,000 5m rows a month 2010-2015 and 10 1d rows a month, one
+    symbol chunk."""
     cells = {}
     for year in range(2010, 2016):
         for month in range(1, 13):
+            cells[("1h", 0, date(year, month, 1))] = 100
+            cells[("15m", 0, date(year, month, 1))] = 400
             cells[("5m", 0, date(year, month, 1))] = 1000
             cells[("1d", 0, date(year, month, 1))] = 10
     return cr.counts_record(RowCounts(cells))
@@ -55,6 +58,7 @@ APR = CorpusRerunApr(
     max_missing_1d_session_fraction=0.01,
     min_session_bar_fraction=0.9,
     blocking_timers=TIMERS,
+    max_null_fraction=0.05,
 )
 
 
@@ -87,6 +91,8 @@ class FakeStore:
         self.uncompressed: list[tuple[str, datetime]] = []
         self.reaching = (0, None)
         self.writes: list[str] = []
+        self.loaded: dict[tuple, int] = {}  # (tf, lo, hi) -> rows this run loaded
+        self.lookaheads: dict[str, dict[int, int]] = {"1h": {1: 9}, "1d": {1: 9}}
 
     def step(self, run_id, name):
         return self.steps.get(name)
@@ -136,6 +142,12 @@ class FakeStore:
 
     def rows_reaching(self, oos_start):
         return self.reaching
+
+    def loaded_rows(self, run_id, tf, lo, hi):
+        return self.loaded.get((tf, lo, hi), 0)
+
+    def pooled_lookaheads(self):
+        return self.lookaheads
 
 
 def _stage_summary(keys, *, failed=0, adopted=(), bpr=1379.0, sps=0.37, rows=100, blind=()):
@@ -202,6 +214,9 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         "gate": _result(),
         "returncodes": {},
         "planned": ([], set()),
+        "compression": {"1d": 5.0, "1h": 7.0},
+        "wal": 16 * 10**9,
+        "report": {"outcomes": []},
     }
     state.update(state_overrides)
 
@@ -232,9 +247,14 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
             SimpleNamespace(name="disk_guard", ok=True, detail="ok")
         ],
         free_bytes=lambda: state["free"],
-        wal_bytes=lambda: 16 * 10**9,
+        wal_bytes=lambda: state["wal"],
         chunk_interval=lambda: timedelta(days=360),
         db_load=lambda: {"other_active": 1, "xact_commit": 10, "blks_read": 5},
+        measure_compression=lambda symbols, tf: {
+            "rows": 10,
+            "ratio": state["compression"][tf],
+        },
+        read_json=lambda path: state["report"],
         apr_value=lambda key: {
             "infra.feature_factory.workers": 4,
             "feature.factory.target_timeframes": '["5m", "15m", "1h", "1d"]',
@@ -442,6 +462,117 @@ def test_the_pilot_fails_before_stage_1d_when_measured_intraday_bytes_overflow_a
     assert len(world.rebuild.calls) == 2
 
 
+def _heavy_pilot(world: World) -> None:
+    """Pilot units measuring 5.27 MB a row (spool ratio large enough that spools are noise): the
+    run's spans fit at a 6x compression ratio and overflow uncompressed."""
+    original = world.rebuild.__call__
+
+    def heavy(**kwargs):
+        summary = original(**kwargs)
+        summary["bytes_per_row_max"] = 5.27e6
+        summary["stored_per_spool_max"] = 1e9
+        return summary
+
+    world.runner.deps.run_stage = heavy
+
+
+def test_the_pilot_measures_the_compression_ratio_and_reprojects_with_it():
+    world = _world()
+    _through(world, "pilot")
+    _heavy_pilot(world)
+    summary = world.runner.execute("pilot")
+    measured = world.store.run.measured
+    assert measured["compression_ratio_measured"] == 5.0  # the smaller of 1d and 1h
+    assert measured["pilot_compression"]["1h"]["ratio"] == 7.0
+    assert summary["reprojection"]
+    assert world.runner._inputs().compression_ratio == 5.0  # every later projection uses it
+
+
+def test_the_pilot_refuses_before_stage_1d_when_the_measured_ratio_overflows_a_span():
+    world = _world(compression={"1d": 1.0, "1h": 1.0})
+    _through(world, "pilot")
+    _heavy_pilot(world)
+    with pytest.raises(cr.StepFailed, match="compression ratio overflow"):
+        world.runner.execute("pilot")
+    with pytest.raises(cr.StepRefused, match="pilot is failed"):
+        world.runner.execute("stage_1d")
+
+
+def test_every_step_of_a_two_span_plan_passes_its_disk_gate_at_the_plans_own_numbers():
+    """Plan the spans, then walk every compute step with the growth since launch set to the
+    footprint the plan models for that step's start: the fraction gate passes everywhere."""
+    from services.corpus_rerun_budget import footprint_before, plan_spans, project, split_years
+
+    probe = _world(wal=0)
+    counts = probe.runner._counts()
+    inputs = probe.runner._inputs()
+    # the limit sits exactly at the two-span plan's own largest peak: no slack to hide a
+    # double count
+    two = project(split_years(counts, 2), counts, inputs)
+    launch = int(max(p.total for p in two) / 0.7) + 1
+    plan = plan_spans(counts, dataclasses.replace(inputs, free_bytes_at_launch=launch))
+    assert len(plan.spans) == 2
+    world = _world(run=_run(spans=tuple(plan.spans), free_bytes_at_launch=launch), wal=0)
+    budget_inputs = world.runner._inputs()
+    for step in world.runner.steps:
+        if step.kind not in ("stage_1d", "span"):
+            continue
+        tf = step.tf if step.kind == "span" else "1d"
+        growth = footprint_before(plan.spans, step.span_index, tf, counts, budget_inputs)
+        world.state["free"] = launch - int(growth)
+        checks = {c["name"]: c for c in world.runner.pin_checks(step)}
+        assert checks["fraction_limit"]["ok"], (step.name, checks["fraction_limit"]["detail"])
+
+
+def test_a_resumed_step_does_not_count_its_loaded_rows_as_growth_again():
+    world = _world()
+    step = world.runner.by_name["s1.5m"]
+    inputs = world.runner._inputs()
+    full = world.runner._increment(step, inputs)
+    world.store.loaded[("5m", *SPANS[0])] = 18_000  # half of span 1's 5m rows
+    assert world.runner._increment(step, inputs) == pytest.approx(full - 18_000 * 1379)
+
+
+def test_feature_complete_runs_the_null_share_gate_per_tf():
+    world = _world(planned=(_specs("k1"), set()))
+    _through(world, "feature_complete")
+    world.store.provenance["k1"] = RUN
+    world.runner.execute("feature_complete")
+    screens = [argv for argv, _ in world.commands if "ops_feature_column_screen.py" in argv[1]]
+    assert len(screens) == 4 and all("--null-gate" in argv for argv in screens)
+
+
+def test_the_pinned_apr_keys_come_from_every_gate():
+    keys = set(cr.pinned_apr_keys(["1h", "1d"]))
+    assert {
+        "threshold.pilot_gate.warmup_gap_bars",
+        "threshold.pilot_gate.zero_share_max",
+        "infra.pilot_gate.names",
+        "infra.corpus_rerun.max_null_fraction",
+        "infra.corpus_rerun.blocking_timers",
+        "infra.hmm.rolling_block_rows",
+        "threshold.bar_integrity.report_max_age_hours",
+        "feature.factory.target_timeframes",
+        "infra.feature_factory.rebuild_symbols_per_chunk",
+        "alpha.validation.oos_start",
+        "alpha.ic_measure.horizons",
+    } <= keys
+    from services.ic_measure import apr_keys_read
+
+    assert set(apr_keys_read("1h")) <= keys
+
+
+def test_the_apr_hash_moves_with_any_pinned_value():
+    @dataclasses.dataclass
+    class Config:
+        window: int = 5
+
+    base = cr.apr_hash({"threshold.pilot_gate.zero_share_max": 0.25}, Config())
+    assert base == cr.apr_hash({"threshold.pilot_gate.zero_share_max": 0.25}, Config())
+    assert base != cr.apr_hash({"threshold.pilot_gate.zero_share_max": 0.3}, Config())
+    assert base != cr.apr_hash({"threshold.pilot_gate.zero_share_max": 0.25}, Config(6))
+
+
 def test_the_pilot_fails_on_a_failed_gate():
     world = _world(returncodes={"ops_pilot_compute_gate.py": 1})
     _through(world, "pilot")
@@ -592,14 +723,20 @@ def test_feature_complete_passes_with_own_and_adopted_units():
 # ---------------------------------------------------------------------------
 
 
-def _ic_units(world: World, owner: str) -> None:
+def _ic_units(world: World, owner: str, status: str = "loaded", reported_key=None) -> None:
+    """Every expected ic_measure unit completed under `owner`, and the run's report listing
+    each with `status` (and the batch key it computed, the completed row's by default)."""
     from services._batch_utils import bulk_load_unit_key
     from services.ic_measure import TARGET_TABLE, job_replace_where, job_writer
 
+    outcomes = []
     for job in ("proposer", "regime_volatility"):
         for tf in ("1h", "1d"):
             key = bulk_load_unit_key(job_writer(job), TARGET_TABLE, tf, job_replace_where(job, tf))
-            world.store.units[key] = [(f"bk-{job}-{tf}", owner)]
+            batch = f"bk-{job}-{tf}"
+            world.store.units[key] = [(batch, owner)]
+            outcomes.append({"unit_key": key, "batch_key": reported_key or batch, "status": status})
+    world.state["report"] = {"outcomes": outcomes, "failures": []}
 
 
 def test_the_caveat_reaches_the_ic_measure_and_canary_summaries_verbatim():
@@ -609,20 +746,61 @@ def test_the_caveat_reaches_the_ic_measure_and_canary_summaries_verbatim():
     ic = world.runner.execute("ic_measure")
     assert ic["caveats"] == [CAVEAT] and ic["adopted"] == []
     argv, cwd = world.commands[-1]
-    assert argv[1:] == ["-m", "services.ic_measure", "--run-id", RUN] and cwd == WORKTREE
+    assert argv[1:5] == ["-m", "services.ic_measure", "--run-id", RUN] and cwd == WORKTREE
+    assert argv[5] == "--report" and argv[6].endswith(f"ic_measure_{RUN}.json")
     world.runner.execute("d19_bound")
     canary = world.runner.execute("canary")
     assert canary["caveats"] == [CAVEAT]
     assert world.commands[-1][0][-2:] == ["--run-id", RUN]
 
 
-def test_ic_measure_adopts_units_its_identities_skipped():
+def test_ic_measure_adopts_exactly_the_units_it_reported_skipped():
     world = _world()
     _through(world, "ic_measure")
-    _ic_units(world, OTHER)
+    _ic_units(world, OTHER, status="skipped")
     summary = world.runner.execute("ic_measure")
     assert len(summary["adopted"]) == 4
     assert {a["adopted_from_run_id"] for a in summary["adopted"]} == {OTHER}
+
+
+@pytest.mark.parametrize(
+    "status, reported_key",
+    [
+        ("loaded", None),  # this run loaded it, then a manual run replaced it under OTHER
+        ("skipped_concurrent", None),  # another writer completed it between check and lock
+        ("skipped", "bk-something-else"),  # the completed row is not the identity it skipped
+    ],
+)
+def test_a_manual_ic_measure_unit_written_mid_window_is_not_adopted(status, reported_key):
+    world = _world()
+    _through(world, "ic_measure")
+    _ic_units(world, OTHER, status=status, reported_key=reported_key)
+    with pytest.raises(cr.StepFailed, match="ic_measure units"):
+        world.runner.execute("ic_measure")
+    assert "adopted" not in world.store.steps["ic_measure"].summary or not (
+        world.store.steps["ic_measure"].summary["adopted"]
+    )
+    assert world.store.adoptions(RUN) == {}
+
+
+def test_ic_measure_fails_on_a_unit_missing_from_its_report():
+    world = _world()
+    _through(world, "ic_measure")
+    _ic_units(world, RUN)
+    world.state["report"]["outcomes"].pop()
+    with pytest.raises(cr.StepFailed, match="no outcome in the ic_measure report"):
+        world.runner.execute("ic_measure")
+
+
+def test_ic_measure_fails_on_a_missing_or_unexpected_lookahead():
+    world = _world()
+    _through(world, "ic_measure")
+    _ic_units(world, RUN)
+    world.store.lookaheads = {"1h": {1: 9, 6: 9}}
+    with pytest.raises(
+        cr.StepFailed, match="1d: no POOLED rows at lookaheads \\[1\\].*1h: unexpected"
+    ):
+        world.runner.execute("ic_measure")
 
 
 def test_ic_measure_fails_on_its_exit_code():

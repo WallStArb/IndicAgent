@@ -15,10 +15,13 @@ projected peak of span k is
 - plus the compressed bytes of every earlier span's rows outside that chunk,
 - plus the 1d rows: uncompressed in chunks not yet compressed, compressed in the rest,
 - plus max_wal_size,
-- plus the largest group spool of span k (its rows times the spool bytes per row).
+- plus two group spools of the largest group of span k (the next group's workers spool while
+  the previous group loads), at the spool bytes per row.
 
 The 1d stage (whole history, before any span) peaks at every 1d row uncompressed plus the WAL and
-its largest group spool. `plan_spans` picks the smallest number of spans of about equal intraday
+two spools of its largest group. Each step's gate adds only its own tf's rows to the growth
+measured since launch (`step_increment`); `footprint_before` is the modelled growth a step starts
+from, so a plan that fits passes every step's gate. `plan_spans` picks the smallest number of spans of about equal intraday
 rows whose largest peak is at or below the limit; `project` re-projects fixed spans (the pilot's
 check with the measured bytes per row).
 
@@ -98,6 +101,13 @@ class RowCounts:
     def chunks(self) -> list[int]:
         return sorted({index for _, index, _ in self.cells})
 
+    def minus(self, stored: RowCounts) -> RowCounts:
+        """The rows still to be written: these counts less the rows already stored (never
+        below zero per cell). Rows on disk at launch are not growth."""
+        return RowCounts(
+            {key: max(0, n - stored.cells.get(key, 0)) for key, n in self.cells.items()}
+        )
+
     def intraday_years(self) -> list[int]:
         """Every calendar year from the first to the last month holding an intraday row."""
         years = [m.year for (tf, _, m), n in self.cells.items() if tf in INTRADAY_TFS and n]
@@ -146,13 +156,6 @@ class Peak:
         )
 
     @property
-    def increment(self) -> float:
-        """What the step adds over the footprint it starts from: its own new rows, the WAL and
-        its spool (the rest is already on disk when it starts)."""
-        new_rows = self.daily_uncompressed if self.step == STAGE_1D else self.intraday
-        return new_rows + self.wal + self.spool
-
-    @property
     def working_set(self) -> float:
         """The peak less its compressed part and the WAL: what check_disk_guard calls
         span_peak_bytes."""
@@ -164,10 +167,25 @@ class Peak:
         return record
 
 
+# Two group spools coexist: the next group's workers write theirs while the previous group loads.
+SPOOLS_IN_FLIGHT = 2
+
+
+def _largest_group_rows(counts: RowCounts, lo: datetime, hi: datetime, tfs: Sequence[str]) -> float:
+    return max(
+        (counts.rows(lo, hi, (tf,), chunk) for tf in tfs for chunk in counts.chunks()),
+        default=0.0,
+    )
+
+
+def _spool_bytes(rows: float, inputs: BudgetInputs) -> float:
+    return SPOOLS_IN_FLIGHT * rows * inputs.spool_bytes_per_row
+
+
 def daily_peak(counts: RowCounts, inputs: BudgetInputs) -> Peak:
     """The 1d stage: every 1d row uncompressed (nothing compresses until the stage ends)."""
     every = (_EPOCH, _FAR_FUTURE)
-    spool = max((counts.rows(*every, (DAILY_TF,), chunk) for chunk in counts.chunks()), default=0.0)
+    spool = _largest_group_rows(counts, *every, (DAILY_TF,))
     return Peak(
         step=STAGE_1D,
         intraday=0.0,
@@ -176,7 +194,7 @@ def daily_peak(counts: RowCounts, inputs: BudgetInputs) -> Peak:
         daily_uncompressed=counts.rows(*every, (DAILY_TF,)) * inputs.bytes_per_row,
         daily_compressed=0.0,
         wal=float(inputs.wal_bytes),
-        spool=spool * inputs.spool_bytes_per_row,
+        spool=_spool_bytes(spool, inputs),
     )
 
 
@@ -186,10 +204,7 @@ def span_peak(spans: Sequence[Span], k: int, counts: RowCounts, inputs: BudgetIn
     b, ratio = inputs.bytes_per_row, inputs.compression_ratio
     open_from = chunk_floor(start, inputs.chunk_interval)
     straddle = counts.rows(open_from, start, INTRADAY_TFS) if k else 0.0
-    spool = max(
-        (counts.rows(start, end, (tf,), chunk) for tf in INTRADAY_TFS for chunk in counts.chunks()),
-        default=0.0,
-    )
+    spool = _largest_group_rows(counts, start, end, INTRADAY_TFS)
     return Peak(
         step=f"s{k + 1}",
         intraday=counts.rows(start, end, INTRADAY_TFS) * b,
@@ -198,7 +213,55 @@ def span_peak(spans: Sequence[Span], k: int, counts: RowCounts, inputs: BudgetIn
         daily_uncompressed=counts.rows(open_from, _FAR_FUTURE, (DAILY_TF,)) * b,
         daily_compressed=counts.rows(_EPOCH, open_from, (DAILY_TF,)) * b / ratio,
         wal=float(inputs.wal_bytes),
-        spool=spool * inputs.spool_bytes_per_row,
+        spool=_spool_bytes(spool, inputs),
+    )
+
+
+def _step_bounds(spans: Sequence[Span], k: int | None, tf: str) -> tuple[datetime, datetime]:
+    if tf == DAILY_TF:
+        return _EPOCH, _FAR_FUTURE
+    if k is None:
+        raise ValueError(f"an intraday step ({tf}) needs its span index")
+    return spans[k]
+
+
+def step_increment(
+    spans: Sequence[Span],
+    k: int | None,
+    tf: str,
+    counts: RowCounts,
+    inputs: BudgetInputs,
+    loaded_rows: float = 0.0,
+) -> float:
+    """What one step adds over the footprint it starts from: its own tf's rows in its span (the
+    whole history for 1d) not yet loaded under the run, the WAL and its two group spools. The
+    span's earlier tfs and every compressed row are already on disk, so the runtime growth holds
+    them; counting them here again would double count."""
+    lo, hi = _step_bounds(spans, k, tf)
+    rows = max(0.0, counts.rows(lo, hi, (tf,)) - loaded_rows)
+    spool = _largest_group_rows(counts, lo, hi, (tf,))
+    return rows * inputs.bytes_per_row + inputs.wal_bytes + _spool_bytes(spool, inputs)
+
+
+def footprint_before(
+    spans: Sequence[Span], k: int | None, tf: str, counts: RowCounts, inputs: BudgetInputs
+) -> float:
+    """The modelled growth since launch when a step starts: the peak's stored terms with only
+    the span's earlier tfs written (no WAL, no spool). footprint_before + step_increment of a
+    step never exceeds its span's peak, so a plan that fits passes every step's gate."""
+    if tf == DAILY_TF:
+        return 0.0
+    assert k is not None
+    peak = span_peak(spans, k, counts, inputs)
+    start, end = spans[k]
+    earlier = INTRADAY_TFS[: INTRADAY_TFS.index(tf)]
+    written = counts.rows(start, end, earlier) * inputs.bytes_per_row
+    return (
+        written
+        + peak.straddle
+        + peak.compressed_rest
+        + peak.daily_uncompressed
+        + peak.daily_compressed
     )
 
 
@@ -213,10 +276,10 @@ def overflowing(peaks: Sequence[Peak], inputs: BudgetInputs) -> list[Peak]:
     return [p for p in peaks if p.total > inputs.limit_bytes]
 
 
-def split_years(counts: RowCounts, n: int) -> list[Span] | None:
-    """n Jan-1 aligned spans of about equal intraday rows covering every intraday year, or None
-    when there are fewer years than n."""
-    years = counts.intraday_years()
+def split_years(counts: RowCounts, n: int, years: Sequence[int] | None = None) -> list[Span] | None:
+    """n Jan-1 aligned spans of about equal intraday rows covering every year in `years`
+    (default: every intraday year of the counts), or None when there are fewer years than n."""
+    years = list(counts.intraday_years() if years is None else years)
     if not years or n < 1 or n > len(years):
         return None
     per_year = [counts.rows(_jan1(y), _jan1(y + 1), INTRADAY_TFS) for y in years]
@@ -251,12 +314,19 @@ class SpanPlanRefused(RuntimeError):
     """No span count fits the disk limit; the message carries the table of every candidate."""
 
 
-def plan_spans(counts: RowCounts, inputs: BudgetInputs) -> SpanPlan:
+def plan_spans(
+    counts: RowCounts, inputs: BudgetInputs, stored: RowCounts | None = None
+) -> SpanPlan:
     """The smallest n whose largest projected peak (1d stage included) is at or below
-    max_disk_fraction times the free bytes at launch."""
+    max_disk_fraction times the free bytes at launch. `stored` holds the rows already in the
+    table (a re-plan or a resume): the spans still cover every intraday year of `counts`, but
+    only the rows still to be written count as growth."""
+    years = counts.intraday_years()
+    if stored is not None:
+        counts = counts.minus(stored)
     tried: list[str] = []
-    for n in range(1, len(counts.intraday_years()) + 1):
-        spans = split_years(counts, n)
+    for n in range(1, len(years) + 1):
+        spans = split_years(counts, n, years)
         if spans is None:
             continue
         peaks = project(spans, counts, inputs)

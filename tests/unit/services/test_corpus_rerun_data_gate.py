@@ -32,6 +32,7 @@ APR = CorpusRerunApr(
     max_missing_1d_session_fraction=0.01,
     min_session_bar_fraction=0.9,
     blocking_timers=(),
+    max_null_fraction=0.05,
 )
 
 

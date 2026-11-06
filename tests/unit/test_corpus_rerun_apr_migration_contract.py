@@ -101,6 +101,7 @@ def test_loader_reads_every_key_and_refuses_an_unseeded_one():
     cfg = ConfigService(database_url="")
     for key, value_type, value, _ in _KEYS:
         cfg._cache[key] = cfg._parse_value(value, value_type)
+    cfg._cache["infra.corpus_rerun.max_null_fraction"] = 0.05  # migration 582
     apr = load_corpus_rerun_apr(cfg)
     assert apr == CorpusRerunApr(
         max_disk_fraction=0.70,
@@ -112,7 +113,21 @@ def test_loader_reads_every_key_and_refuses_an_unseeded_one():
         max_missing_1d_session_fraction=0.01,
         min_session_bar_fraction=0.9,
         blocking_timers=tuple(json.loads(_TIMERS)),
+        max_null_fraction=0.05,
     )
     del cfg._cache["infra.corpus_rerun.compression_ratio"]
     with pytest.raises(KeyError, match="compression_ratio"):
         load_corpus_rerun_apr(cfg)
+
+
+def test_migration_582_seeds_the_null_share_gate_once():
+    code = re.sub(
+        r"--[^\n]*",
+        "",
+        read_source("production", "migrations", "582_corpus_rerun_max_null_fraction.sql"),
+    )
+    flat = " ".join(code.split())
+    assert "('infra.corpus_rerun.max_null_fraction', 'float', '0.05', 0, 1," in flat
+    assert "[conventional]" in flat and "Not an ML learning target" in flat
+    assert "('infra.corpus_rerun.max_null_fraction', '0.05', 1)" in flat
+    assert flat.count("ON CONFLICT (config_key) DO NOTHING") == 2 and "'migration_582'" in flat

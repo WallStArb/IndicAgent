@@ -19,11 +19,13 @@ from services.corpus_rerun_budget import (
     SpanPlanRefused,
     UnitDiskGuard,
     chunk_floor,
+    footprint_before,
     format_peaks,
     overflowing,
     plan_spans,
     project,
     split_years,
+    step_increment,
 )
 
 _DAY = timedelta(days=1)
@@ -118,8 +120,8 @@ def test_the_largest_group_spool_is_one_symbol_chunk_of_one_tf():
     counts = _counts(chunks=2)
     spans = split_years(counts, 10)
     peaks = project(spans, counts, inputs)
-    # one chunk's year of 5m (12,000 rows) at 2 spool bytes per row
-    assert peaks[1].spool == pytest.approx(24_000)
+    # two coexisting spools of one chunk's year of 5m (12,000 rows) at 2 spool bytes per row
+    assert peaks[1].spool == pytest.approx(2 * 24_000)
     assert peaks[1].intraday == pytest.approx(24_000)
 
 
@@ -143,6 +145,70 @@ def test_chunk_floor_is_epoch_aligned_like_timescaledb():
     floor = chunk_floor(_jan1(2020), interval)
     assert floor <= _jan1(2020) < floor + interval
     assert (floor - datetime(1970, 1, 1, tzinfo=UTC)) % interval == timedelta(0)
+
+
+def _steps(spans):
+    yield None, "1d"
+    for k in range(len(spans)):
+        for tf in ("1h", "15m", "5m"):
+            yield k, tf
+
+
+def _mixed_counts() -> RowCounts:
+    """1h, 15m and 5m in the ratio 1:4:12, 1d rows, two symbol chunks."""
+    cells = {}
+    for chunk in (0, 1):
+        for year in _YEARS:
+            for month in range(1, 13):
+                for tf, n in (("1h", 100), ("15m", 400), ("5m", 1200), ("1d", 20)):
+                    cells[(tf, chunk, date(year, month, 1))] = n
+    return RowCounts(cells)
+
+
+def test_every_step_of_a_fitting_plan_fits_its_own_gate():
+    """Walk every step of a plan: the modelled growth it starts from plus its own increment
+    never exceeds its span's peak, so whenever plan_spans says the plan fits, every step's
+    growth + increment gate passes at the plan's own numbers."""
+    counts = _mixed_counts()
+    inputs = _inputs(
+        compression_ratio=6.0,
+        wal_bytes=2_000,
+        stored_bytes_per_spool_byte=0.4,
+        chunk_interval=timedelta(days=360),
+        free_bytes_at_launch=2_000_000,
+        max_disk_fraction=0.3,
+    )
+    plan = plan_spans(counts, inputs)
+    assert len(plan.spans) >= 2
+    peaks = {p.step: p for p in plan.peaks}
+    for k, tf in _steps(plan.spans):
+        peak = peaks["stage_1d" if k is None else f"s{k + 1}"]
+        growth = footprint_before(plan.spans, k, tf, counts, inputs)
+        increment = step_increment(plan.spans, k, tf, counts, inputs)
+        assert growth + increment <= peak.total + 1e-6, (k, tf)
+        assert growth + increment <= plan.limit_bytes
+
+
+def test_the_increment_is_the_upcoming_tf_of_the_span_only():
+    counts = _mixed_counts()
+    inputs = _inputs(compression_ratio=6.0, wal_bytes=0, stored_bytes_per_spool_byte=1e12)
+    spans = split_years(counts, 2)
+    rows_15m = counts.rows(*spans[1], ("15m",))
+    assert step_increment(spans, 1, "15m", counts, inputs) == pytest.approx(rows_15m)
+    # a resumed step's rows already loaded under the run are not growth again
+    half = step_increment(spans, 1, "15m", counts, inputs, loaded_rows=rows_15m / 2)
+    assert half == pytest.approx(rows_15m / 2)
+    assert step_increment(spans, None, "1d", counts, inputs) == pytest.approx(
+        counts.rows(_jan1(1970), _jan1(2100), ("1d",))
+    )
+
+
+def test_rows_already_stored_are_not_growth_but_their_years_stay_in_a_span():
+    stored = RowCounts({k: n for k, n in _counts().cells.items() if k[2].year < 2015})
+    plan = plan_spans(_counts(), _inputs(), stored=stored)
+    assert plan.spans[0][0] == _jan1(2010) and plan.spans[-1][1] == _jan1(2020)
+    # only 2015-2019 is new: fewer spans than the five a fresh table needs
+    assert len(plan.spans) < len(plan_spans(_counts(), _inputs()).spans) == 5
 
 
 def test_split_years_refuses_more_spans_than_years():

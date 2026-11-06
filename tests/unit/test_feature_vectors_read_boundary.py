@@ -89,8 +89,9 @@ _ALLOW_LIST: dict[str, str] = {
         "OPS: scans distinct regime labels for vocabulary drift (no feature values)."
     ),
     "services/corpus_rerun.py": (
-        "OPS: the corpus rerun step runner; feature_vectors' chunk interval and compression "
-        "state, never its values."
+        "OPS: the corpus rerun step runner; feature_vectors' chunk interval, compression state "
+        "and row counts, and a copy of the pilot's rows into a dropped scratch hypertable to "
+        "measure the compression ratio (no value reaches a decision)."
     ),
     "scripts/ops/alpha/ops_broadcast_feature_audit.py": (
         "OPS: broadcast (HTF-constant) feature audit; a data-shape diagnostic, no returns."

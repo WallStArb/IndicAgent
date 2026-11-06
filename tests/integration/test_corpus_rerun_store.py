@@ -8,7 +8,7 @@ append leaves none of them. The adoption query reads only completed steps.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
@@ -115,6 +115,63 @@ def test_measured_merges_and_the_lock_is_exclusive(store):
     store_, run_id = store
     store_.merge_measured(run_id, {"bytes_per_row_max": 1400.0})
     assert store_.load_run(run_id).measured == {"row_counts": [], "bytes_per_row_max": 1400.0}
-    assert store_.try_lock(run_id)
+    assert store_.try_lock()
     with psycopg.connect(TEST_DB_URL, autocommit=True) as other:
-        assert not cr.RunStore(other).try_lock(run_id)
+        assert not cr.RunStore(other).try_lock()  # one corpus rerun at a time, any run id
+
+
+def test_loaded_rows_and_pooled_lookaheads_read_the_real_schema(store):
+    store_, run_id = store
+    lo, hi = datetime(2010, 1, 1, tzinfo=UTC), datetime(2013, 1, 1, tzinfo=UTC)
+    assert store_.loaded_rows(run_id, "5m", lo, hi) == 0
+    assert isinstance(store_.pooled_lookaheads(), dict)
+
+
+def test_the_compression_ratio_is_measured_on_a_scratch_copy(store):
+    """Rows of a test symbol are copied into a scratch hypertable with feature_vectors' own
+    compression settings, compressed and measured; feature_vectors' chunks stay as they were
+    and the scratch table is gone."""
+    from src.intelligence.features.feature_vector_persistence import (
+        feature_vector_row_values,
+        feature_vectors_columns,
+        feature_vectors_numeric_columns,
+    )
+
+    store_, _run_id = store
+    conn = store_.conn
+    symbol = f"ZZ31{uuid.uuid4().hex[:6].upper()}"
+    columns = feature_vectors_columns()
+    width = len(feature_vectors_numeric_columns())
+    base = datetime(2001, 1, 2, tzinfo=UTC)
+    rows = [
+        feature_vector_row_values(
+            symbol, "1d", base + timedelta(days=i), None, None, [float(i % 7)] * width
+        )
+        for i in range(400)
+    ]
+    chunks_before = conn.execute(
+        "SELECT count(*) FILTER (WHERE is_compressed) FROM timescaledb_information.chunks "
+        "WHERE hypertable_name = 'feature_vectors'"
+    ).fetchone()[0]
+    with (
+        conn.cursor() as cur,
+        cur.copy(f"COPY feature_vectors ({', '.join(columns)}) FROM STDIN") as copy,
+    ):
+        for row in rows:
+            copy.write_row(row)
+    try:
+        measured = cr.measure_compression(conn, [symbol], "1d")
+    finally:
+        conn.execute("DELETE FROM feature_vectors WHERE symbol = %s", (symbol,))
+    assert measured["rows"] == 400
+    assert measured["ratio"] and measured["ratio"] > 1
+    assert measured["compressed_bytes"] < measured["uncompressed_bytes"]
+    left = conn.execute(
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'corpus_rerun_scratch'"
+    ).fetchone()[0]
+    assert left == 0
+    chunks_after = conn.execute(
+        "SELECT count(*) FILTER (WHERE is_compressed) FROM timescaledb_information.chunks "
+        "WHERE hypertable_name = 'feature_vectors'"
+    ).fetchone()[0]
+    assert chunks_after == chunks_before

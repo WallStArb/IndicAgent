@@ -232,6 +232,9 @@ def _restrict_timeframes(
     return kept
 
 
+TARGET_TIMEFRAMES_KEY = "feature.factory.target_timeframes"
+
+
 def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     """Load the APR-backed set of timeframes backfill_feature_factory processes.
 
@@ -244,9 +247,7 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     partway through a live IBKR fetch, after some symbols were already stored (CLAUDE.md:
     silent/late failure is worse than a loud one at load time).
     """
-    tfs = _get_list_config(
-        cfg, "feature.factory.target_timeframes", list(_TARGET_TIMEFRAMES_DEFAULT)
-    )
+    tfs = _get_list_config(cfg, TARGET_TIMEFRAMES_KEY, list(_TARGET_TIMEFRAMES_DEFAULT))
     _unknown = [tf for tf in tfs if tf not in _DEPTH_YEARS]
     if _unknown:
         raise AssertionError(
@@ -1630,6 +1631,20 @@ _MAX_WAL_BYTES_SQL = (
 # The filesystem holding the database volume (the compressed write session's own key).
 _DISK_PATH_KEY = "infra.compressed_hypertable_write_session.disk_path"
 _DISK_PATH_DEFAULT = "/"
+
+
+def rebuild_apr_keys() -> tuple[str, ...]:
+    """The APR keys besides the feature config (whose values every unit carries in its
+    apr_snapshot) that shape what a stage plans, guards and compresses; the corpus rerun pins
+    their values (186-31). Throughput keys (workers, block rows, BLAS threads) are not here:
+    they change how fast a unit is computed, never what it holds."""
+    return (
+        TARGET_TIMEFRAMES_KEY,
+        _REBUILD_SYMBOLS_PER_CHUNK_KEY,
+        _REBUILD_MAX_UNIT_ROWS_KEY,
+        _BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY,
+        _DISK_PATH_KEY,
+    )
 
 
 def feature_table_bytes(conn: Any) -> int:
