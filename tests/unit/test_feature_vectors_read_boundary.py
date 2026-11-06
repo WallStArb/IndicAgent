@@ -91,8 +91,10 @@ _ALLOW_LIST: dict[str, str] = {
     "src/observability/corpus_manifest_verifier.py": (
         "OPS: corpus manifest counts per tf (symbols, rows)."
     ),
-    "scripts/ops/corpus/ops_corpus_pipeline_run.sh": "OPS: corpus pipeline progress counts.",
-    "scripts/ops/corpus/ops_pipeline_monitor.sh": "OPS: corpus pipeline monitor counts.",
+    "services/corpus_rerun.py": (
+        "OPS: the corpus rerun step runner; feature_vectors' chunk interval and compression "
+        "state, never its values."
+    ),
     "scripts/ops/alpha/ops_broadcast_feature_audit.py": (
         "OPS: broadcast (HTF-constant) feature audit; a data-shape diagnostic, no returns."
     ),

@@ -7,8 +7,9 @@ Expectation-aware, false-halt-aware assertion over the 5 canary/control predicto
 (concept_registry domain='feature', is_control=true rows; migrations 283/284). Judges exactly
 one run (186-30, todo 593): for every tf in APR feature.factory.target_timeframes, the proposer
 unit of feature_ic_scores (ic_measure's table since migration 575) must have its one completed
-provenance_batch row under --run-id; then every canary cell of that unit is evaluated against
-its control_expectation ('negative_control' | 'positive_control').
+provenance_batch row under --run-id, or adopted by it (the run's adoption list in
+corpus_run_step names that row's batch_key and run, 186-31); then every canary cell of that unit
+is evaluated against its control_expectation ('negative_control' | 'positive_control').
 
 HARD-halt before any evaluation if a tf's proposer unit is missing, has no completed row
 (superseded or never finished), or was completed under another run, or if the unit holds no
@@ -57,7 +58,7 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +67,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 from scipy.stats import binom
 
-from services._batch_utils import bulk_load_unit_key, parse_run_id
+from services._batch_utils import (
+    RUN_ADOPTIONS_SQL,
+    belongs_to_run,
+    bulk_load_unit_key,
+    parse_run_id,
+)
 from services.ic_measure import JOB_PROPOSER, TARGET_TABLE, job_replace_where, job_writer
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
@@ -91,8 +97,11 @@ _TARGET_TIMEFRAMES_KEY = "feature.factory.target_timeframes"
 # NOT NULL selects exactly them; untestable horizons would inflate the negative-control cell
 # count and loosen the Binomial bound.
 _UNIT_PROVENANCE_SQL = (
-    "SELECT status, run_id::text AS run_id FROM provenance_batch WHERE unit_key = $1"
+    "SELECT status, run_id::text AS run_id, batch_key FROM provenance_batch WHERE unit_key = $1"
 )
+# A unit ic_measure skipped because its identity was already completed keeps the older run's
+# row; the run's adoption list (corpus_run_step, 186-31) names it by batch_key and source run.
+_ADOPTIONS_SQL = RUN_ADOPTIONS_SQL.replace("%s", "$1::uuid")
 
 _CANARY_ROWS_SQL = """
     SELECT
@@ -140,14 +149,25 @@ async def target_timeframes(cfg: ConfigService) -> list[str]:
     return value
 
 
-def unit_run_problem(tf: str, rows: list[dict[str, Any]], run_id: str) -> str | None:
+def unit_run_problem(
+    tf: str,
+    rows: list[dict[str, Any]],
+    run_id: str,
+    adoptions: Mapping[str, str | None] | None = None,
+) -> str | None:
     """Why a tf's proposer unit does not belong to `run_id` (None when it does): its provenance
-    rows must hold exactly one completed row, recorded under that run."""
+    rows must hold exactly one completed row, recorded under that run or adopted by it (the
+    run's adoption list names that row's batch_key and run)."""
     completed = [row for row in rows if row["status"] == "completed"]
-    if len(completed) == 1 and completed[0]["run_id"] == run_id:
+    if len(completed) == 1 and belongs_to_run(
+        completed[0]["run_id"], completed[0].get("batch_key", ""), run_id, adoptions or {}
+    ):
         return None
     if len(completed) == 1:
-        return f"tf {tf}: the proposer unit was completed under run {completed[0]['run_id']}"
+        return (
+            f"tf {tf}: the proposer unit was completed under run {completed[0]['run_id']} "
+            "and the run's adoption list does not name that row"
+        )
     if len(completed) > 1:
         return f"tf {tf}: the proposer unit has {len(completed)} completed provenance rows"
     if not rows:
@@ -164,11 +184,12 @@ async def fetch_run_rows(conn: Any, cfg: ConfigService, run_id: str) -> list[dic
     rows: list[dict[str, Any]] = []
     problems: list[str] = []
     async with conn.transaction(isolation="repeatable_read", readonly=True):
+        adoptions = {key: source for key, source in await conn.fetch(_ADOPTIONS_SQL, run_id)}
         for tf in tfs:
             scope = job_replace_where(JOB_PROPOSER, tf)
             unit_key = bulk_load_unit_key(job_writer(JOB_PROPOSER), TARGET_TABLE, tf, scope)
             provenance = [dict(r) for r in await conn.fetch(_UNIT_PROVENANCE_SQL, unit_key)]
-            problem = unit_run_problem(tf, provenance, run_id)
+            problem = unit_run_problem(tf, provenance, run_id, adoptions)
             if problem is None:
                 cells = await conn.fetch(
                     _CANARY_ROWS_SQL, scope["tf"], scope["symbol"], scope["regime_scope"]

@@ -759,9 +759,10 @@ class _FakeGateConn:
     """asyncpg stand-in: provenance rows per unit_key and canary cells per tf; records the
     snapshot and every query's parameters."""
 
-    def __init__(self, provenance: dict, cells: dict):
+    def __init__(self, provenance: dict, cells: dict, adoptions=()):
         self.provenance = provenance
         self.cells = cells
+        self.adoptions = list(adoptions)  # (batch_key, adopted_from_run_id) of completed steps
         self.queried_units: list[str] = []
         self.queried_cells: list[tuple] = []
         self.isolation = None
@@ -779,6 +780,9 @@ class _FakeGateConn:
         return _Tx()
 
     async def fetch(self, sql, *params):
+        if "FROM corpus_run_step" in sql:
+            assert params == (_RUN,) and "s.status = 'completed'" in sql
+            return self.adoptions
         if "FROM provenance_batch" in sql:
             self.queried_units.append(params[0])
             return self.provenance.get(params[0], [])
@@ -802,18 +806,20 @@ def _cells(tf: str) -> list[dict]:
     ]
 
 
-def _gate(tfs, provenance, cells=None):
+def _gate(tfs, provenance, cells=None, adoptions=()):
     from scripts.ops.alpha.ops_canary_integrity_assert import fetch_run_rows
 
-    conn = _FakeGateConn(provenance, cells if cells is not None else {tf: _cells(tf) for tf in tfs})
+    conn = _FakeGateConn(
+        provenance, cells if cells is not None else {tf: _cells(tf) for tf in tfs}, adoptions
+    )
     rows = asyncio.run(fetch_run_rows(conn, _FakeCfg(tfs), _RUN))
     return rows, conn
 
 
-def _done(run_id: str = _RUN) -> list[dict]:
+def _done(run_id: str = _RUN, batch_key: str = "b" * 64) -> list[dict]:
     return [
-        {"status": "superseded", "run_id": _OTHER_RUN},
-        {"status": "completed", "run_id": run_id},
+        {"status": "superseded", "run_id": _OTHER_RUN, "batch_key": "a" * 64},
+        {"status": "completed", "run_id": run_id, "batch_key": batch_key},
     ]
 
 
@@ -840,6 +846,32 @@ class TestCanaryGateJudgesOneRun:
             CanaryIntegrityViolation, match=f"15m.*completed under run {_OTHER_RUN}"
         ):
             _gate(self._TFS, provenance)
+
+    def test_a_second_run_over_identical_inputs_passes_on_its_adoption_list(self) -> None:
+        """Run 2 recomputes nothing: every proposer unit keeps run 1's completed row, and run 2's
+        adoption list names each row's batch_key and run 1 (186-31 amendment)."""
+        keys = {tf: f"{i:x}" * 64 for i, tf in enumerate(self._TFS, start=1)}
+        provenance = {_proposer_unit(tf): _done(_OTHER_RUN, keys[tf]) for tf in self._TFS}
+        adoptions = [(keys[tf], _OTHER_RUN) for tf in self._TFS]
+        rows, _conn = _gate(self._TFS, provenance, adoptions=adoptions)
+        assert sorted({r["tf"] for r in rows}) == sorted(self._TFS)
+
+    def test_a_tampered_adoption_with_another_batch_key_is_refused(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done(_OTHER_RUN, "c" * 64) for tf in self._TFS}
+        adoptions = [("c" * 64, _OTHER_RUN)]
+        provenance[_proposer_unit("5m")] = _done(_OTHER_RUN, "d" * 64)  # not the adopted row
+        with pytest.raises(CanaryIntegrityViolation, match="5m.*adoption list does not name"):
+            _gate(self._TFS, provenance, adoptions=adoptions)
+
+    def test_an_adoption_from_another_source_run_is_refused(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
+
+        provenance = {_proposer_unit(tf): _done(_OTHER_RUN, "c" * 64) for tf in self._TFS}
+        third = "0b9c1d3e-1111-4222-8333-444455556666"
+        with pytest.raises(CanaryIntegrityViolation, match="adoption list does not name"):
+            _gate(self._TFS, provenance, adoptions=[("c" * 64, third)])
 
     def test_a_superseded_unit_with_no_completed_row_is_refused(self) -> None:
         from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation

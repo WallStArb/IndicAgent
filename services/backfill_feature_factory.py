@@ -1886,6 +1886,11 @@ def _stage_context(
     )
 
 
+def symbol_chunks(settings: Settings, db_conn: Any) -> list[tuple[str, ...]]:
+    """The full-universe symbol chunks every stage plans with (chunk 0 is the pilot's)."""
+    return _stage_context(settings, db_conn, None, None).chunks
+
+
 def planned_units(
     settings: Settings, db_conn: Any, horizon: datetime
 ) -> tuple[list[BulkLoadSpec], set[str]]:

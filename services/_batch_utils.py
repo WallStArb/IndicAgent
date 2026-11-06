@@ -333,6 +333,27 @@ def parse_run_id(value: str) -> str:
     return str(uuid.UUID(value))
 
 
+# The units a corpus run adopted (186-31, lead amendment 2026-11-05): a unit skipped because a
+# completed row with its identity already existed keeps that row's older run_id (completed rows
+# are immutable), so the run records it in the completed step's summary as {unit_key, batch_key,
+# adopted_from_run_id}. Every one-run check reads them through this query.
+RUN_ADOPTIONS_SQL = (
+    "SELECT a->>'batch_key', a->>'adopted_from_run_id' FROM corpus_run_step s "
+    "CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.summary->'adopted', '[]'::jsonb)) a "
+    "WHERE s.run_id = %s AND s.status = 'completed'"
+)
+
+
+def belongs_to_run(
+    row_run_id: str | None, batch_key: str, run_id: str, adoptions: Mapping[str, str | None]
+) -> bool:
+    """A completed provenance row counts for `run_id` when it was loaded under it, or when the
+    run adopted exactly this batch_key from exactly the run that row records."""
+    if row_run_id == run_id:
+        return True
+    return batch_key in adoptions and adoptions[batch_key] == row_run_id
+
+
 def bulk_load_unit_key(
     writer: str, target_table: str, tf: str, replace_where: Mapping[str, Any] | None
 ) -> str:
