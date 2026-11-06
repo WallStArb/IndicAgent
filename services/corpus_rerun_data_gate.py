@@ -25,8 +25,9 @@ mid-history fails.
   answers its window only up to them, so it does not count. Request rows from before 581 (no
   ask_id) are not in the view and never count: a pre-581 page claims the rest of its window,
   records no next-page token and is written before the next page is asked. A session with
-  bars inside a completed answer is answer-complete; one with no bars counts only inside an ask
-  that served no bars (no_trades).
+  bars inside a completed answer is answer-complete; one with no bars inside it is no_trades
+  (lead ruling 2026-11-05: each 581 page commits with its bars, so a complete ask has no lost
+  insert, whatever it served on other days).
   ohlcv_load never proves completeness: its requested range is the span of the bars served
   (requested_start = first_bar on every 5m row). Some bars and no evidence is partial, none is
   missing.
@@ -144,25 +145,20 @@ class CompletedAsk:
 
 @dataclass(frozen=True)
 class Answers:
-    """One (symbol, vendor)'s proven answer intervals, merged, [start, end); no_data the subset
-    answered no_data."""
+    """One (symbol, era)'s complete asks, merged, [start, end)."""
 
     starts: tuple[datetime, ...] = ()
     ends: tuple[datetime, ...] = ()
-    no_data: tuple[tuple[datetime, datetime], ...] = ()
 
     def covers(self, session: Session) -> bool:
         i = bisect.bisect_right(self.starts, session.open) - 1
         return i >= 0 and session.close <= self.ends[i]
 
-    def no_data_covers(self, session: Session) -> bool:
-        return any(a <= session.open and session.close <= b for a, b in self.no_data)
-
 
 @dataclass
 class NameYearTally:
     """Session counts of one (symbol, year, era). Before the 5m rows stream in, every session
-    inside an empty-history span counts covered_empty and every other session inside a no_data
+    inside an empty-history span counts covered_empty and every other session inside a complete
     answer counts no_trades (the assumption of no bars); a streamed row replaces that assumption
     with its own class."""
 
@@ -404,25 +400,20 @@ def hold_spans(
 
 
 def merge_answers(asks: Iterable[CompletedAsk]) -> dict[str, Answers]:
-    """Per symbol, the merged windows of its complete asks; the asks that served no bars are the
-    no_data windows."""
-    found: dict[str, list[CompletedAsk]] = defaultdict(list)
+    """Per symbol, the merged windows of its complete asks."""
+    windows: dict[str, list[tuple[datetime, datetime]]] = defaultdict(list)
     for ask in asks:
         if ask.start < ask.end:
-            found[ask.symbol].append(ask)
+            windows[ask.symbol].append((ask.start, ask.end))
     answers: dict[str, Answers] = {}
-    for symbol, symbol_asks in found.items():
+    for symbol, found in windows.items():
         merged: list[tuple[datetime, datetime]] = []
-        for start, end in sorted((a.start, a.end) for a in symbol_asks):
+        for start, end in sorted(found):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
-        answers[symbol] = Answers(
-            tuple(a for a, _ in merged),
-            tuple(b for _, b in merged),
-            tuple(sorted((a.start, a.end) for a in symbol_asks if a.n_bars == 0)),
-        )
+        answers[symbol] = Answers(tuple(a for a, _ in merged), tuple(b for _, b in merged))
     return answers
 
 
@@ -445,7 +436,7 @@ def _zero_bar_class(
     """What a session with no bars counts as: covered_empty, no_trades or (None) missing."""
     if any(s.covers(session.day) for s in spans):
         return COVERED_EMPTY
-    if answers is not None and answers.no_data_covers(session):
+    if answers is not None and answers.covers(session):
         return NO_TRADES
     return None
 
@@ -457,7 +448,7 @@ def session_tallies(
     answers: Mapping[tuple[str, str], Answers],
 ) -> dict[TallyKey, NameYearTally]:
     """Sessions per (symbol, year, era), each session a zero-bar class would cover (inside an
-    empty-history span or a no_data answer) counted as that class until its bars stream in."""
+    empty-history span or a complete ask) counted as that class until its bars stream in."""
     days = [x.day for x in sessions]
     tallies: dict[TallyKey, NameYearTally] = defaultdict(NameYearTally)
     for symbol, name_segments in segments.items():
@@ -471,10 +462,21 @@ def session_tallies(
                     tallies[(symbol, year, seg.era)].sessions += n
             spans = spans_5m.get((symbol, seg.vendor), ())
             vendor_answers = answers.get((symbol, seg.era))
-            if not spans and (vendor_answers is None or not vendor_answers.no_data):
+            if not spans and vendor_answers is None:
                 continue
+            # Only sessions between the first and last evidence date can be covered.
+            lo = min(
+                [s.verified_from for s in spans]
+                + ([vendor_answers.starts[0].date()] if vendor_answers else [])
+            )
+            hi = max(
+                [s.empty_through for s in spans]
+                + ([vendor_answers.ends[-1].date()] if vendor_answers else [])
+            )
             for session in sessions[
-                bisect.bisect_left(days, seg.lo) : bisect.bisect_left(days, seg.hi)
+                bisect.bisect_left(days, max(seg.lo, lo)) : bisect.bisect_left(
+                    days, min(seg.hi, hi + timedelta(days=1))
+                )
             ]:
                 kind = _zero_bar_class(session, spans, vendor_answers)
                 if kind is not None:

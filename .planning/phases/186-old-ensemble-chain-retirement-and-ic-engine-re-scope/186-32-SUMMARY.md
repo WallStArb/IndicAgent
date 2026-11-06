@@ -78,8 +78,9 @@ proves its bars were stored.
 - The gate counts an ask only if it is complete and `has_partial` is false.
 - Legacy request rows (no ask_id) are not in the view, so they never count. That covers every
   row written before 581 and every unpaginated IBKR request.
-- A session with bars inside such an ask is answer-complete. A session with zero bars counts only
-  inside an ask that served no bars; it is reported as no_trades.
+- A session with bars inside such an ask is answer-complete. A session with zero bars inside such
+  an ask is no_trades, whatever bars the ask served on other days. This follows the lead ruling
+  of 2026-11-05: each 581 page commits with its bars, so a complete ask has no lost insert.
 - Withdrawn by the review: request pages without asks. A failed Alpaca page writes no row, so
   the page before it looks like the last page. A request row also does not prove its bars were
   stored (dry runs; loads that failed after the fetch, e.g. PSKY, WBD and QRVO on 2026-10-26).

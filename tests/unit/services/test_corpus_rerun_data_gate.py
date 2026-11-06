@@ -528,7 +528,7 @@ def test_ask_of_another_vendor_does_not_count(monkeypatch):
     assert result.eras["ibkr/named"].partial_sessions == 5
 
 
-def test_merge_joins_touching_windows_and_keeps_empty_asks_as_no_data():
+def test_merge_joins_touching_windows_and_drops_empty_ones():
     start, end = _WEEK
     mid = datetime(2015, 6, 10, tzinfo=UTC)
     merged = gate.merge_answers(
@@ -540,10 +540,9 @@ def test_merge_joins_touching_windows_and_keeps_empty_asks_as_no_data():
     )
     assert set(merged) == {"AAA"}
     assert (merged["AAA"].starts, merged["AAA"].ends) == ((start,), (end,))
-    assert merged["AAA"].no_data == ((mid, end),)
 
 
-def test_zero_bar_session_inside_an_empty_ask_is_no_trades(monkeypatch):
+def test_zero_bar_session_inside_a_complete_ask_is_no_trades(monkeypatch):
     world = _thin_world(_ask(n_bars=0))
     world.drop_5m("AAA", *_THIN)
     result = world.run(monkeypatch)
@@ -552,10 +551,21 @@ def test_zero_bar_session_inside_an_empty_ask_is_no_trades(monkeypatch):
     assert (counts.no_trades, counts.missing_sessions) == (5, 0)
 
 
-def test_zero_bar_session_inside_an_ask_that_served_bars_stays_missing(monkeypatch):
-    """The ask served bars elsewhere in its window and never said no_data for these sessions:
-    no_trades needs the vendor's own empty answer (lead ruling 2026-11-05)."""
-    world = _thin_world(_ask(n_bars=7))
-    world.drop_5m("AAA", *_THIN)
-    result = world.run(monkeypatch)
-    assert result.eras["ibkr/named"].missing_sessions == 5
+_TWO_DAYS = (datetime(2015, 6, 8, tzinfo=UTC), datetime(2015, 6, 10, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(("complete", "day_two"), [(True, "no_trades"), (False, "missing")])
+def test_ask_serving_bars_on_day_one_and_none_on_day_two(monkeypatch, complete, day_two):
+    """Lead ruling 2026-11-05: a 581 page commits with its bars, so a complete ask has no lost
+    insert; its zero-bar day is no_trades whatever it served on other days. An incomplete ask
+    of the same shape proves nothing: day two is missing."""
+    world = Fixture()
+    world.add_name("AAA", date(2015, 1, 2))
+    world.drop_5m("AAA", date(2015, 6, 8), date(2015, 6, 10))
+    world.bars_5m[("AAA", "ibkr", "named", date(2015, 6, 8))] = 5
+    world.asks = [("ibkr", gate.CompletedAsk("AAA", *_TWO_DAYS, 5), complete, False)]
+    counts = world.run(monkeypatch).eras["ibkr/named"]
+    assert counts.answer_complete == (1 if complete else 0)
+    assert counts.partial_sessions == (0 if complete else 1)
+    assert counts.no_trades == (1 if day_two == "no_trades" else 0)
+    assert counts.missing_sessions == (1 if day_two == "missing" else 0)
