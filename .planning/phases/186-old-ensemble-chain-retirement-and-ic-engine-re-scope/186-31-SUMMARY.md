@@ -156,6 +156,22 @@ Plan-only after the fixes (2026-11-06, horizon 2026-11-01, seed ratio): two span
 and [2020, 2027); peaks stage_1d 27.8 GB, s1 416.9 GB, s2 486.7 GB against a 552 GB limit (788 GB
 free); data gate FAIL (13,888 failing name-years).
 
+## Review rounds 2 and 3 (lead, 2026-11-06)
+
+- b89e7e182 (round 2): G6 measured the 57 memoryless columns; stored rows at launch count only
+  for units the run would adopt; the live-run scan matches the real invocation.
+- f0d464116 (round 3, root cause in the registry): every path-dependent kernel behind a
+  feature column declares `memory_anchor` (series_start, session_open, week_open) and a
+  `warmup` derived from its own code; `KernelRegistry.warmup_bars` composes it over the inputs
+  each column reads, and G2 and G6 use it for every column (the memoryless path is gone). A
+  healthy-series test confirms every series-start derivation matches the computed first finite
+  row exactly; the HMM's first label falls on a refit boundary at or after its declaration.
+  `Kernel.object_dependent` comes from each object kernel's nullable fallback group and replaces
+  ABSENCE_EXEMPT_TFS. The pilot screen runs `--null-gate`. `invoked_module` parses CPython
+  options. The rebuild code key moved c1c2e26b to a023598f (registry.py is in every kernel's
+  import closure); feature_vectors is empty, so nothing is renamed. Gate 8,098 tests, 0 failed;
+  repro_frozen bit-identical.
+
 ## Self-Check: PASSED
 
 Files created exist; commits 8d1b35c52, 99df8d04e, 93496fcec and dba33887d are on the branch.
