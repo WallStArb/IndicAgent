@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 // One entry per DAG stage page (design: docs/plans/2026-10-26-dashboard-v35-cockpit-design.md).
 const NAV: { label: string; icon: LucideIcon; href: string }[] = [
-  { label: "Pipeline", icon: Workflow, href: "/" },
+  { label: "Pipeline", icon: Workflow, href: "/pipeline" },
   { label: "Data", icon: Database, href: "/data" },
   { label: "Instruments", icon: ListTree, href: "/instruments" },
   { label: "Concepts", icon: Lightbulb, href: "/concepts" },
@@ -32,7 +32,7 @@ const NAV: { label: string; icon: LucideIcon; href: string }[] = [
 
 /** A page is current on its own path and below it (an instrument's passport is under Instruments). */
 function isCurrent(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 /** Seconds from the API as a poll interval; a missing or non-positive value keeps the default,
@@ -55,6 +55,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )
       .catch(() => {}); // keep the defaults; each page shows its own poll errors
   }, []);
+  // The landing page carries its own nav and scrolls as a whole page.
+  if (pathname === "/") return <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">{children}</div>;
   return (
     <RefreshContext.Provider value={intervals}>
     <div className="h-screen flex flex-col md:flex-row bg-[var(--bg-base)] text-[var(--text-primary)]">
