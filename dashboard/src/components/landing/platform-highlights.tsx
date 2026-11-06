@@ -1,47 +1,4 @@
-const HIGHLIGHTS: { label: string; value: string; desc: string; accent: "cyan" | "amber" }[] = [
-  {
-    label: "Raw capture",
-    value: "Nothing a vendor serves is dropped",
-    desc:
-      "Every vendor answer lands in one raw table, last-wins, with a revision log that records restatements. Restatements are detected, never blocked. Canonical bars are a selection from raw plus a source policy, and a gate proves the selection is a pure function of raw.",
-    accent: "cyan",
-  },
-  {
-    label: "Counted testing",
-    value: "Every look is recorded",
-    desc:
-      "Every backtest goes through the research runner and is counted against its vintage. Iteration is uncapped; the count is what makes the final selection honest. The research ledger was reset on 2026-10-30, so the count starts at zero.",
-    accent: "amber",
-  },
-  {
-    label: "Selection",
-    value: "Romano-Wolf StepM",
-    desc:
-      "A step-down multiple test runs over everything tried on the vintage at family-wise 0.05. Costs never enter a test statistic, but a book is promoted only when its net expectation is positive.",
-    accent: "cyan",
-  },
-  {
-    label: "Executable returns",
-    value: "Market-on-open targets",
-    desc:
-      "Information coefficients use forward returns from open[T+1] to open[T+N+1], the entry and exit a trader can actually get. Close-to-close returns capture overnight gaps nobody can trade and overstate the signal.",
-    accent: "amber",
-  },
-  {
-    label: "Data integrity",
-    value: "Quarantine, flag, never delete",
-    desc:
-      "Scrub rules flag suspect bars and a quarantine list hides them from research while keeping them stored. Nightly reconciliation writes integrity verdicts that rebuilds and promotion read. A coverage ledger records which requests ran, per timeframe and provider.",
-    accent: "cyan",
-  },
-  {
-    label: "Determinism",
-    value: "Bit-exact from the recipe",
-    desc:
-      "A result is a function of the data snapshot hash, the code key, and the spec hash. Frozen verdicts are replayed after every change to the research or statistics code and must come back bit-identical.",
-    accent: "amber",
-  },
-];
+import { guarantees } from "@/lib/copy/landing";
 
 export function PlatformHighlights() {
   return (
@@ -63,7 +20,7 @@ export function PlatformHighlights() {
                 marginBottom: "4px",
               }}
             >
-              Method
+              {guarantees.eyebrow}
             </p>
             <h2
               style={{
@@ -76,7 +33,7 @@ export function PlatformHighlights() {
                 lineHeight: 1,
               }}
             >
-              What makes a result believable
+              {guarantees.title}
             </h2>
           </div>
           <div className="flex-1 h-px mb-1" style={{ background: "var(--border-subtle)" }} />
@@ -86,7 +43,7 @@ export function PlatformHighlights() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px"
           style={{ background: "var(--border-subtle)" }}
         >
-          {HIGHLIGHTS.map(({ label, value, desc, accent }) => (
+          {guarantees.items.map(({ label, value, desc, accent }) => (
             <div
               key={label}
               className="flex flex-col gap-3 p-6"

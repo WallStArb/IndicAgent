@@ -1,13 +1,7 @@
 "use client";
 
+import { hero } from "@/lib/copy/landing";
 import { PipelineAnimation } from "./pipeline-animation";
-
-const FACTS = [
-  { value: "1,529", label: "US equities and ETFs" },
-  { value: "5m to 1d", label: "Bar timeframes" },
-  { value: "From 2000", label: "Daily history, where vendors have it" },
-  { value: "Every look", label: "Counted against the vintage" },
-];
 
 export function HeroSection() {
   return (
@@ -72,7 +66,7 @@ export function HeroSection() {
               color: "var(--accent-cyan)",
             }}
           >
-            SHADOW MODE FIRST
+            {hero.status}
           </span>
           <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
           <span
@@ -85,7 +79,7 @@ export function HeroSection() {
               color: "var(--text-muted)",
             }}
           >
-            ingest · feature · measure · research · book
+            {hero.strip}
           </span>
         </div>
 
@@ -101,7 +95,7 @@ export function HeroSection() {
               lineHeight: 1.4,
             }}
           >
-            Nothing earns capital until it survives a counted test
+            {hero.tagline}
           </span>
           <div className="h-px flex-1 shrink-0" style={{ background: "var(--border-bright)" }} />
         </div>
@@ -119,11 +113,11 @@ export function HeroSection() {
             maxWidth: "600px",
           }}
         >
-          Honest
+          {hero.title[0]}
           <br />
-          <span style={{ color: "var(--accent-cyan)" }}>Edge</span>
+          <span style={{ color: "var(--accent-cyan)" }}>{hero.title[1]}</span>
           <br />
-          Research
+          {hero.title[2]}
         </h1>
 
         {/* Body copy - outcome-first */}
@@ -137,12 +131,12 @@ export function HeroSection() {
             color: "var(--text-secondary)",
           }}
         >
-          IndicAgent is a research machine. It tests hypotheses on features, signals, regimes, and factors quickly, counts every look at the data, and selects with a multiple-testing correction. A book is promoted only with positive net expectation, then confirmed once on forward data nobody has searched. There are no counted results yet; the research ledger was reset on 2026-10-30 and starts clean.
+          {hero.body}
         </p>
 
         {/* Outcome stats */}
         <div className="flex flex-wrap gap-6 sm:gap-8 mt-6 sm:mt-8">
-          {FACTS.map(({ value, label }) => (
+          {hero.facts.map(({ value, label }) => (
             <div key={label} className="flex flex-col gap-0.5">
               <span
                 style={{

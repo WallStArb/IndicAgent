@@ -1,61 +1,4 @@
-const LAYERS = [
-  {
-    layer: "01",
-    name: "Data foundation",
-    subtitle: "Ingest · raw capture · canonical bars",
-    accent: false,
-    tierBadges: ["ingest"] as string[],
-    items: [
-      "IBKR and Alpaca bars, 5m to 1d, for 1,529 US equities and ETFs",
-      "Every vendor answer is stored raw, last-wins, with a revision log",
-      "Canonical bars are a rebuildable selection from raw plus a source policy",
-      "Bad prints are flagged and quarantined, never deleted",
-    ],
-    example: "ohlcv_raw -> market_data_ohlcv -> market_data_ohlcv_tradeable",
-  },
-  {
-    layer: "02",
-    name: "Features and measurement",
-    subtitle: "Feature store · regimes · information coefficient",
-    accent: false,
-    tierBadges: ["feature", "measure"],
-    items: [
-      "Feature vectors per bar, written once by a single writer",
-      "Market regimes labeled with walk-forward fitting",
-      "Information coefficient term structure per feature and horizon",
-      "Targets are executable: market-on-open entry and exit",
-    ],
-    example: "feature_vectors · market_regimes · ic_measure",
-  },
-  {
-    layer: "03",
-    name: "Research machine",
-    subtitle: "Panel · families · guards · combiner · book test",
-    accent: true,
-    tierBadges: ["research"],
-    items: [
-      "A point-in-time panel feeds family tests, guards, a combiner, and a construction rule",
-      "Every look at a vintage is recorded in the research ledger",
-      "Selection uses Romano-Wolf StepM over everything tried on the vintage",
-      "Results are bit-exact reproducible from snapshot, code, and spec hash",
-    ],
-    example: "panel -> target -> families -> guards -> combiner -> book test",
-  },
-  {
-    layer: "04",
-    name: "Frozen books",
-    subtitle: "Promotion · sealed forward shadow",
-    accent: false,
-    tierBadges: ["book"],
-    items: [
-      "Promotion requires positive net expectation after costs",
-      "A frozen book is confirmed once on its own unsearched forward span",
-      "The forward runner records shadow positions; nothing trades yet",
-      "Capital follows proof, never the other way round",
-    ],
-    example: "frozen book -> forward runner -> sealed shadow -> capital",
-  },
-] as const;
+import { layers } from "@/lib/copy/landing";
 
 export function TierShowcase() {
   return (
@@ -69,23 +12,23 @@ export function TierShowcase() {
             className="text-lg font-semibold"
             style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
           >
-            Four layers
+            {layers.title}
           </h2>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            data flows one way, each layer reads only the one below
+            {layers.note}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 border rounded-xl overflow-hidden"
           style={{ borderColor: "var(--border-subtle)" }}
         >
-          {LAYERS.map((layer, i) => (
+          {layers.items.map((layer, i) => (
             <div
               key={layer.layer}
               className="relative flex flex-col gap-0 overflow-hidden"
               style={{
                 background: layer.accent ? "rgba(78,214,200,0.03)" : "var(--surface-card)",
-                borderRight: i < LAYERS.length - 1 ? `1px solid var(--border-subtle)` : undefined,
+                borderRight: i < layers.items.length - 1 ? `1px solid var(--border-subtle)` : undefined,
               }}
             >
               {/* Accent top bar */}
@@ -130,9 +73,9 @@ export function TierShowcase() {
                       Layer {layer.layer}
                     </p>
                     {/* Tier badges */}
-                    {layer.tierBadges.length > 0 && (
+                    {layer.badges.length > 0 && (
                       <div className="flex gap-1">
-                        {layer.tierBadges.map((tid) => (
+                        {layer.badges.map((tid) => (
                           <span
                             key={tid}
                             style={{
