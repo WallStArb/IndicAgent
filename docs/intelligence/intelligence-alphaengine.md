@@ -293,7 +293,7 @@ Phase B: Ensemble
   live) are in `intelligence-alphaengine-methodology.md` — not reproduced here.
 
   Note: this differs slightly from the live nightly corpus pipeline's step order
-  (`scripts/ops/corpus/ops_corpus_pipeline_run.sh`, 8 steps: feature_factory →
+  (the shell orchestrator, deleted in 186-31; 8 steps: feature_factory →
   regime_writer → forward_return_writer → cross_sectional_regime_model → ic_engine →
   ic_shrinkage → ensemble_trainer → alpha_publisher) — that script is the operational
   sequencing; this list is the conceptual build order.

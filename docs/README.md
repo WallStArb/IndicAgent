@@ -135,6 +135,7 @@ Production procedures: deployment, monitoring, troubleshooting. Files carry an `
 | `operations-memory-performance.md` | Memory subsystem performance |
 | `operations-i7-emission-gates.md` | I7 emission gates (stale, v2.x) |
 | `operations-promotion-protocol.md` | Promotion protocol: StepM selection, positive net expectation, one forward confirmation |
+| `corpus-rerun-runbook.md` | The corpus rerun step runner (186-31): launch, resume, disk, refusals, recovery |
 
 ### `development/` — stable — Developer HOW
 

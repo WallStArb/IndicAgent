@@ -1872,7 +1872,7 @@ tier-count/spacing question (todo 208's Step 3, deliberately deferred, not settl
 by this table). The alpha.ic.lookahead.* APR keys retired with the old ic_engine
 stack (phase 186 plan 23). Its one remaining consumer is ops_oos_holdout_eval.py, which
 refuses since migration 575 and goes with todo 554; the IC writer's grid is
-alpha.ic_measure.horizons, which corpus_manifest_verifier.py reads directly."""
+alpha.ic_measure.horizons."""
 
 
 def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:

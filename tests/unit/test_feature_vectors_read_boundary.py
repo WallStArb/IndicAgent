@@ -88,9 +88,6 @@ _ALLOW_LIST: dict[str, str] = {
     "src/config/vocabulary_drift.py": (
         "OPS: scans distinct regime labels for vocabulary drift (no feature values)."
     ),
-    "src/observability/corpus_manifest_verifier.py": (
-        "OPS: corpus manifest counts per tf (symbols, rows)."
-    ),
     "services/corpus_rerun.py": (
         "OPS: the corpus rerun step runner; feature_vectors' chunk interval and compression "
         "state, never its values."

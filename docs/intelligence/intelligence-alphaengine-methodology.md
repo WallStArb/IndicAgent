@@ -328,7 +328,7 @@ Non-overlapping windows ensure IC_t estimates are independent — required for I
 Computed by `scripts/ops/alpha/ops_ensemble_weight_compare.py`'s upstream sibling,
 `scripts/ops/alpha/ops_ic_shrinkage.py` (`src/intelligence/ensemble/shrinkage.py` for the
 pure math) — runs between `ic_engine` and `ensemble_trainer` in the corpus pipeline
-(`scripts/ops/corpus/ops_corpus_pipeline_run.sh` step 6 of 8).
+(step 6 of 8 of the shell orchestrator, deleted in 186-31).
 
 ### The Problem
 

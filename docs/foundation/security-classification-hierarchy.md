@@ -165,8 +165,8 @@ enforced at three points that do run automatically:
    `ClassificationAssignment` and hard-fails without one; there is no skip escape hatch. The row
    is written inside the onboarding transaction.
 3. **Nightly drift audit.** `ClassificationCoverageAuditor` (`python -m
-   src.config.classification_coverage`) runs in `ops_corpus_pipeline_run.sh` beside
-   `VocabularyDriftAuditor`. It reports any active instrument without a current assignment
+   src.config.classification_coverage`) is a by-hand oneshot beside `VocabularyDriftAuditor`
+   (the shell orchestrator that chained both was deleted in 186-31). It reports any active instrument without a current assignment
    (integrity_monitor fact, OTel counter, `logger.error` naming the symbols) and the unclassified
    stratum size per level. It is observability, not a gate.
 

@@ -18,8 +18,8 @@ Cause: `indicagent-nightly-backfill.service` runs
 Features for new bars came from the streaming `FeatureVectorPipeline`, which stopped around
 2026-08-10 (see todo 366 / the IBKR live-ingestion memory). No batch step computes features or
 regimes for bars the nightly job adds. The corpus orchestrator
-(`ops_corpus_pipeline_run.sh` step 1, `backfill_feature_factory.py --compute-only`, then the
-regime writers) does, but only when run by hand.
+(the shell orchestrator then; `services/corpus_rerun.py` since 186-31) does, but only when run
+by hand.
 
 ## Why it matters
 

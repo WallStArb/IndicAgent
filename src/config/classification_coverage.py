@@ -18,8 +18,8 @@ reports the size of the unclassified stratum at every level, so D-08's explicit 
 countable (an ETF assigned at level 2 is legitimately unclassified at levels 3-4).
 
 No numeric threshold exists here (the pass condition is zero uncovered by definition), so
-no APR key applies. Chained as a non-blocking step in
-`scripts/ops/corpus/ops_corpus_pipeline_run.sh`, not a systemd timer.
+no APR key applies. A by-hand oneshot, not a systemd timer (the shell orchestrator that
+chained it was deleted in 186-31).
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def unclassified_counts_by_level(
 
 
 class ClassificationCoverageAuditor(BaseBatch):
-    """Classification coverage drift audit, chained in ops_corpus_pipeline_run.sh."""
+    """Classification coverage drift audit, a by-hand oneshot."""
 
     job_name = _JOB_LABEL
     compute_version = "1.0.0"

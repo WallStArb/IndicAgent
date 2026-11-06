@@ -1500,9 +1500,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         init_otel_providers(service_name=_JOB)
     except OTelInitError as error:
         _logger.warning("ic_measure.otel_init_failed", error=str(error))
-    # The corpus verification gate (ops_corpus_final_verification.py) reads
-    # ic_measure.json -- the same step-manifest contract the deleted ic_engine honored.
-    # A dry run writes no rows and records no manifest: one would claim a completion
+    # ic_measure.json is the step-manifest contract the deleted ic_engine honored (its reader,
+    # the corpus verification gate, was deleted in 186-31; the rerun judges provenance rows by
+    # run id instead). A dry run writes no rows and records no manifest: one would claim a completion
     # that never happened.
     manifest = (
         None if args.dry_run else CorpusManifest("ic_measure", CorpusManifest.DEFAULT_MANIFEST_DIR)

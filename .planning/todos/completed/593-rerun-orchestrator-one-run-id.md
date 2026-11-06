@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+completed: 2026-11-05
 priority: P1
 filed: 2026-11-04
 source: lead (indicagent-4d), from the 575 landing handoff (indicagent-cb)
@@ -82,3 +83,16 @@ Lead ruling 2026-11-05 applied (055e2033d): a thin session inside a completed ve
 (ohlcv_load ranges are served bar spans); Alpaca has request rows from 2026-10-06 only, so
 2016-2026-10 stays bar-judged. Rerun: IBKR era 97 at depth (79 on bars alone), Alpaca 848; 13,785
 failing name-years.
+
+## 186-31 landed (2026-11-05): closed
+
+Done-when met: the three plans are executed and reviewed; the canary takes a run id and refuses
+cells from any other run, counting a unit adopted by the run only when the adoption names that
+row's batch_key and run (tests in tests/unit/test_canary_predictors.py); the dead shell
+orchestrator (`ops_corpus_pipeline_run.sh`, `ops_pipeline_monitor.sh`,
+`ops_corpus_final_verification.py`) and `corpus_manifest_verifier` are deleted. The runner is
+`services/corpus_rerun.py`, the disk budget `services/corpus_rerun_budget.py`, the procedure
+`docs/operations/corpus-rerun-runbook.md`. It launches no compute; it starts when the 584 data
+gate passes. The plan-only run on 2026-11-05 (horizon 2026-11-01): two spans [2006, 2020) and
+[2020, 2027), largest peak 475 GB against a 551 GB limit (787 GB free); the data gate fails.
+Summary: `.planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/186-31-SUMMARY.md`.

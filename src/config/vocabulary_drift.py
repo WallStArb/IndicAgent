@@ -15,8 +15,8 @@ Recent-window length is APR-sourced (`infra.vocabulary_drift.window_days`, migra
 -- never a hardcoded interval literal (CLAUDE.md APR mandate) -- and bound as an asyncpg `$1`
 parameter on every bounded per-namespace query (T-161-02: never a full-hypertable scan).
 
-Not wired into any systemd daemon/timer (D-09) -- chained as a non-blocking step into
-`scripts/ops/corpus/ops_corpus_pipeline_run.sh` after `alpha_publisher` instead.
+Not wired into any systemd daemon/timer (D-09); run by hand (`python -m
+src.config.vocabulary_drift`). The shell orchestrator that chained it was deleted in 186-31.
 """
 
 from __future__ import annotations
@@ -304,8 +304,7 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
 
 
 class VocabularyDriftAuditor(BaseBatch):
-    """Column-backed vocabulary drift audit, run as a chained step in
-    scripts/ops/corpus/ops_corpus_pipeline_run.sh (not a systemd timer, D-09)."""
+    """Column-backed vocabulary drift audit, a by-hand oneshot (not a systemd timer, D-09)."""
 
     job_name = _JOB_LABEL
     compute_version = "1.0.0"

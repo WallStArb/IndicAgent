@@ -21,9 +21,8 @@ reason rather than silently fixed here (out of this test-authoring task's scope)
     alpha-frame-writer and counterfactual-tracker entries were deleted with their modules
     in phase 186 plan 19, and the forward-return-writer and ic-engine entries went with
     their modules in phase 186 plan 23) have no systemd unit at
-    all, live or checked-in -- confirmed via `systemctl list-units --all` (zero hits) and
-    `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s header, which documents these as
-    orchestrated by that shell script instead. PERMANENT, by design.
+    all, live or checked-in -- confirmed via `systemctl list-units --all` (zero hits); the
+    shell orchestrator that once ran them was deleted in 186-31. PERMANENT, by design.
   - `indicagent-feature-vector-pipeline` -- a live, always-on daemon, NOT a oneshot -- IS
     deployed on the box (`systemctl status` shows it loaded+enabled) but had been
     `failed`/start-limit-hit for ~2 days as of this writing, AND its unit file was never

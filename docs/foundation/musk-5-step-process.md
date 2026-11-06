@@ -99,7 +99,7 @@ Acceleration is a multiplier — it amplifies whatever direction you're already 
 - `BaseBatch` Ring 0 base class accelerates iteration on new batch services — but only after the batch pattern was validated through multiple manual implementations
 - `ProcessPoolExecutor` added to `regime_writer` and `ic_engine` (both since retired) for parallelism — only after the underlying algorithms were proven correct
 - `gsd-executor` atomic commits per task — cadence accelerates delivery, but only after `discuss-phase` + `plan-phase` confirm the right work is being done
-- Corpus pipeline `--from-step N` resume flag — accelerates re-runs but only runs validated steps
+- Corpus rerun step runner (`services/corpus_rerun.py`) — a completed step re-invoked is a no-op, so a resume accelerates without a skip flag (the old orchestrator's resume-from-step flag skipped steps silently and was deleted)
 
 ---
 
@@ -114,7 +114,7 @@ Automation is the final force multiplier — it makes a validated, simplified pr
 **Brutal Truth:** Automating an unvalidated process doesn't eliminate the problem — it scales it and makes it invisible.
 
 **IndicAgent Manifestation:**
-- `scripts/ops/corpus/ops_corpus_pipeline_run.sh` was built after each of the 6 pipeline steps was manually verified to produce correct output — automation followed validation, not the reverse
+- The corpus orchestrator was built after each pipeline step was manually verified to produce correct output — automation followed validation, not the reverse (its successor, `services/corpus_rerun.py`, followed the same order in 186-31)
 - systemd services + Prometheus lag monitoring — automation layered on services that were proven correct in manual operation first
 - APR ML learning targets — parameter tuning is automated only after manual calibration proves the parameter matters and the range is sensible
 - `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — the roll process was manually executed and verified before being scheduled as a nightly timer; the timer is currently disabled (verify with `systemctl list-timers` before assuming it fires), a reminder that automation status must be re-checked live, not assumed from this doc

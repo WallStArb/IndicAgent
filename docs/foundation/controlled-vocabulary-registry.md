@@ -105,7 +105,7 @@ The three vocabulary tables are **written only at migration time** — `Vocabula
 
 ## `VocabularyDriftAuditor` — write-adjacent monitoring
 
-`src/config/vocabulary_drift.py` — a `BaseBatch` oneshot, **not on a systemd timer**; chained as a non-blocking step into `scripts/ops/corpus/ops_corpus_pipeline_run.sh` after `alpha_publisher` (line ~418).
+`src/config/vocabulary_drift.py` — a `BaseBatch` oneshot, **not on a systemd timer**; run by hand (the shell orchestrator that chained it after `alpha_publisher` was deleted in 186-31).
 
 For each namespace, it queries the live source column for distinct observed codes over a recent window (`infra.vocabulary_drift.window_days`, APR-sourced, default 30) and diffs against `VocabularyService`'s registered set. Any observed code the registry doesn't know about is a **data-superset drift** — logged as an error, counted via the `vocabulary_drift_unregistered_total` OTel counter, and recorded as an `integrity_monitor` fact (`monitor_type='vocabulary_drift'`).
 
@@ -144,7 +144,7 @@ There is also a standalone **`regime_group` guard** (not a `controlled_vocabular
   `metric_value=0`, despite commodity/fx data existing in every one of those windows; and no
   `vocabulary_drift_*.log` file exists under `logs/corpus_pipeline/` for the most recent full
   pipeline run that reached `alpha_publisher` (2026-08-30), even though the step is chained
-  in right after it (`scripts/ops/corpus/ops_corpus_pipeline_run.sh:418`) — suggesting the
+  in right after it (in the shell orchestrator, deleted in 186-31) — suggesting the
   audit step may not be executing at all in recent runs, not merely mis-scoring. Flagged here
   as a verified observation from this doc refresh; root cause (auditor not running vs.
   silently failing vs. a stale/cached `integrity_monitor` read) needs separate investigation,

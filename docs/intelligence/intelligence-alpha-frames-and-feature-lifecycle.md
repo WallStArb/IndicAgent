@@ -66,8 +66,8 @@ clock, only evidence. `--dry-run` logs the transitions it would make without wri
 - `scripts/ops/alpha/ops_canary_integrity_assert.py` reads
   `concept_registry.is_control`/`control_expectation` joined to `feature_ic_scores` and hard-halts
   the corpus pipeline if a negative-control canary clears significance in the pooled stratum, or
-  the positive control fails to. It writes nothing to the registry and runs in
-  `ops_corpus_pipeline_run.sh` before `feature_lifecycle`.
+  the positive control fails to. It writes nothing to the registry and is the last step of
+  the corpus rerun (`services/corpus_rerun.py --run-id <id>`, 186-31).
 
 ---
 
@@ -84,8 +84,8 @@ authoritative record of what transitioned. Schema (selected): `monitor_type`, `s
 
 ## Invocation
 
-`feature_lifecycle` is step 5 of `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, which is
-operator-invoked; no cron or systemd timer schedules it.
+`feature_lifecycle` is operator-invoked (the shell orchestrator whose step 5 it was is deleted,
+186-31); no cron or systemd timer schedules it.
 
 ## See also
 

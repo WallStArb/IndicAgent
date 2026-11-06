@@ -88,7 +88,7 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 
 ## IC / Alpha Pipeline (Batch — orchestrator-driven, not systemd units)
 
-The v3.0 alpha chain (`FeatureVectorWriter → ic_measure`; the old ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events tail was deleted in 186-19 and the old ic_engine, forward_return_writer and the `forward_returns` table in 186-23, per root `CLAUDE.md`) runs as sequential batch steps invoked by `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04; the `indicagent-ic-measure` oneshot unit is checked in but not deployed).
+The v3.0 alpha chain (`FeatureVectorWriter → ic_measure`; the old ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events tail was deleted in 186-19 and the old ic_engine, forward_return_writer and the `forward_returns` table in 186-23, per root `CLAUDE.md`) runs as sequential batch steps; the corpus rerun drives them through `services/corpus_rerun.py` (186-31; the shell orchestrator is deleted), **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04; the `indicagent-ic-measure` oneshot unit is checked in but not deployed).
 
 | Step | File | Writes To |
 |------|------|-----------|

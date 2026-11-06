@@ -134,14 +134,12 @@ fails partway — the `config_schema` rows land, the `config_state` rows refuse.
 
 ## Corpus Pipeline
 
-**`ops_corpus_pipeline_run.sh --from-step N` silently skips every step below N** —
-a resumed run doesn't re-execute earlier writer steps, so it keeps consuming
-whatever those steps last wrote, however stale. Concretely: `--from-step 5` skips
-step 4 (`cross_sectional_regime_model.py`, sole writer of `market_regimes`) — a
-same-session code fix to that step has zero effect on an already-running
-`--from-step 5+` invocation. Grep the run's own log for `[skipped` markers before
-assuming a live/resumed run reflects a recent upstream fix — don't infer it from
-the `--from-step` value alone.
+**The corpus rerun has no skip flag** (`services/corpus_rerun.py`, 186-31): the deleted shell
+orchestrator's resume-from-step flag silently skipped every earlier step, so a resumed run kept
+consuming whatever those steps last wrote. The step runner refuses a step unless its upstream
+step of the same run is completed, and `--through` re-invokes completed steps as no-ops. A code
+fix mid-run needs a new run: the worktree pins the commit and the pin gate refuses a changed code
+key. Procedure: `docs/operations/corpus-rerun-runbook.md`.
 
 ## Lifecycle Replay
 

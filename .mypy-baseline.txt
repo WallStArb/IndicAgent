@@ -1105,11 +1105,6 @@ src/intelligence/utils/core.py:0: error: Returning Any from function declared
 src/intelligence/weight_updater.py:0: error: Returning Any from function
 src/intelligence/weight_updater.py:0: error: Returning Any from function
 src/observability/corpus_manifest.py:0: error: Returning Any from function
-src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
-src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
-src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
-src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
-src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
 src/observability/log_bridge.py:0: error: Item "None" of "str | None" has no
 src/observability/otel.py:0: error: Argument 3 to "_validate_export" has
 src/observability/otel.py:0: error: Item "None" of "str | None" has no
