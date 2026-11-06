@@ -98,7 +98,8 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   request log is gone, so its 547,938 thin-name partial sessions still fail); 186-31 landed 2026-11-05
   (`services/corpus_rerun.py`, todo 593 closed): span-major step DAG, disk budget and per-unit guard,
   pin gate, pilot re-projection, adoption list, runbook `docs/operations/corpus-rerun-runbook.md`;
-  plan-only today (horizon 2026-11-01): 2 spans, peak 475 GB vs 551 GB limit, data gate FAIL.
+  review round 1's six fixes landed 2026-11-06 (0effdeb5c, migration 582); plan-only (horizon
+  2026-11-01): 2 spans, peak 487 GB vs 552 GB limit at the seed ratio, data gate FAIL.
   It executes only after the 584 data gate. Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
   names, rule d2-v5 rescales them, 13 bars quarantined (7 unconfirmed_split, 6 operator_bad_bar),
   233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the

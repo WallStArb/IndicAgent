@@ -122,6 +122,40 @@ grow with the 534 backfill (about 1.9x pre-2016 intraday), so the real run plans
 - The pilot compute gate should take the run's horizon (`--horizon`) so G4-G5 read exactly the
   run's bars.
 
+## Review round 1 (lead, 2026-11-06): six findings fixed in 0effdeb5c, migration 582 applied live
+
+1. High, disk increment: the pin gate double-counted the span's earlier tfs (about 584 GB vs
+   551 at s2.5m). The increment is now the upcoming step's own tf rows in its span, less what
+   the run already loaded of it, plus the WAL and spools (`step_increment`);
+   `footprint_before + step_increment` never exceeds the span's peak. A runner test walks every
+   step of a two-span plan with the limit at the plan's own largest peak (it fails on the old
+   double count). Rows already stored at launch count as on disk, never as growth.
+2. High, null rate: the column screen's G6 (`--null-gate`, run by feature_complete per tf):
+   post-warmup NULL or non-finite share per (tf, column) on applicable columns at
+   `infra.corpus_rerun.max_null_fraction` (migration 582, 0.05 `[conventional]`), the deleted
+   verifier's absence tiers carried over, worst columns reported, path-dependent columns listed
+   as unmeasured. ic_measure needs POOLED rows at every expected (tf, horizon) and no other.
+3. Medium: two group spools in every peak and increment.
+4. Medium: the pilot copies its 1d and 1h rows into a dropped scratch hypertable with
+   feature_vectors' compression settings, compresses it and stores the smaller ratio as
+   `compression_ratio_measured`; spans are re-projected with it before stage_1d. The 6.0 seed is
+   labelled a preview. Deviation: the lead asked to compress stage_1d chunk 0 itself; compressing a
+   feature_vectors chunk that later 1d units still need would make bulk_load refuse them, so the
+   ratio is measured on a copy (integration-tested on indicagent_test).
+5. Medium: `LIVE_RUN_PROCESS_PATTERN` drops ic_engine, adds ic_measure and corpus_rerun; the
+   process scan excludes the runner and its ancestors (a `timeout`/shell wrapper would
+   self-match). One global corpus rerun lock. ic_measure `--report` lists outcomes with batch
+   keys; a bulk_load skip after the check is `skipped_concurrent`; the runner adopts exactly the
+   reported `skipped` units whose completed row is that batch key.
+6. Low: `apr_hash` covers every key from each gate's own list (`pinned_apr_keys`), recorded in
+   `corpus_run.measured.apr_keys`.
+
+Gate: 8,070 unit tests, 0 failed; integration test_corpus_rerun_store 8 passed.
+
+Plan-only after the fixes (2026-11-06, horizon 2026-11-01, seed ratio): two spans [2006, 2020)
+and [2020, 2027); peaks stage_1d 27.8 GB, s1 416.9 GB, s2 486.7 GB against a 552 GB limit (788 GB
+free); data gate FAIL (13,888 failing name-years).
+
 ## Self-Check: PASSED
 
 Files created exist; commits 8d1b35c52, 99df8d04e, 93496fcec and dba33887d are on the branch.
