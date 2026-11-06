@@ -1,32 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { useRef } from "react";
 import { triangle } from "@/lib/copy/landing";
 import { SectionHeading, pad2 } from "./section-heading";
 
 export function TriangleFunnel() {
   const ref = useRef<HTMLDivElement>(null);
-  const [grown, setGrown] = useState(false);
-
-  // Fill the triangle from its base once it scrolls into view; without observer support it is simply full.
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || typeof IntersectionObserver === "undefined") {
-      setGrown(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setGrown(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.3 },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+  const reduce = useReducedMotion();
+  // The fill follows the scroll position, base to apex; reduced motion shows it finished.
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 80%", "end 40%"] });
+  const grown = useTransform(scrollYProgress, [0, 1], [0.04, 1]);
+  const fill = reduce ? 1 : grown;
 
   return (
     <section className="px-6 py-12 border-t" style={{ borderColor: "var(--border-subtle)" }}>
@@ -44,12 +29,11 @@ export function TriangleFunnel() {
               </linearGradient>
             </defs>
             <g clipPath="url(#landing-triangle)">
-              <rect
+              <motion.rect
                 width="480"
                 height="420"
                 fill="url(#landing-triangle-fill)"
-                className="transition-transform duration-[1600ms] ease-out motion-reduce:transition-none"
-                style={{ transform: `scaleY(${grown ? 1 : 0.04})`, transformOrigin: "50% 100%", transformBox: "fill-box" }}
+                style={{ scaleY: fill, transformOrigin: "50% 100%", transformBox: "fill-box" }}
               />
             </g>
             <polygon points="240,24 456,396 24,396" fill="none" stroke="#4ED6C8" strokeWidth="2" />

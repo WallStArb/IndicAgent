@@ -95,3 +95,12 @@ a:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .attention { animation: none; }
 }
+
+/* Server-rendered reveal state is opacity 0. Show everything, finished, when the
+   visitor asks for reduced motion or has scripting off. */
+@media (prefers-reduced-motion: reduce), (scripting: none) {
+  [style*="opacity:0;"],[style*="opacity: 0;"],[style$="opacity:0"],[style$="opacity: 0"] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

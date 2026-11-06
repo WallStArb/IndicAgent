@@ -35,6 +35,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${outfit.variable} ${jetbrains.variable} ${syne.variable} antialiased`}>
+        <noscript>
+          <style>{`[style*="opacity:0;"],[style*="opacity: 0;"],[style$="opacity:0"],[style$="opacity: 0"]{opacity:1!important;transform:none!important}svg rect[style*="scale"]{transform:none!important}`}</style>
+        </noscript>
         <AppShell>
           {children}
         </AppShell>
