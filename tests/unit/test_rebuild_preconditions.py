@@ -277,6 +277,33 @@ def test_fetch_process_lines_drops_this_process_and_its_ancestors_but_keeps_ever
     assert not check_no_live_run(lines, "").ok  # the other ic_measure is a live writer
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "4242 tail -f /home/bg/dev/indicagent/logs/corpus_rerun.log",
+        "4243 grep -n services.ic_measure docs/operations/corpus-rerun-runbook.md",
+        "4244 bash -c less logs/ic_measure.log",
+        "4245 /venv/bin/python -m pytest tests/unit/services/test_corpus_rerun.py",
+        "4246 vim services/corpus_rerun.py",
+    ],
+)
+def test_a_shell_that_only_mentions_a_writer_is_not_refused(line):
+    assert check_no_live_run([line], "").ok
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "4250 /home/bg/dev/indicagent/.venv/bin/python -m services.corpus_rerun --run-id x",
+        "4251 python3.14 -u -m services.ic_measure --run-id y --report r.json",
+        "4252 /venv/bin/python /wt/services/backfill_feature_factory.py --compute-only",
+    ],
+)
+def test_a_second_runner_or_writer_is_refused(line):
+    failed = check_no_live_run([line], "")
+    assert not failed.ok and line in failed.detail
+
+
 def test_the_live_run_patterns_name_the_current_writers():
     assert {"ic_measure", "corpus_rerun", "backfill_feature_factory"} <= set(
         rp.LIVE_RUN_PROCESS_PATTERN

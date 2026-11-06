@@ -47,7 +47,9 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    .venv/bin/python -m services.corpus_rerun --new-run --plan-only [--horizon YYYY-MM-DD]
    ```
 
-   It prints the row counts per tf, the rows already stored (on disk, so never growth), free
+   It prints the row counts per tf, the stored rows of units the run would adopt (the same
+   identity is already completed, so never growth; rows stored under another identity are
+   replaced and count as growth, their old space freed only by a VACUUM), free
    space, the limit, `max_wal_size`, the chosen spans and each step's projected peak by term
    (span rows, straddling chunk, compressed rest, 1d uncompressed and compressed, WAL, two
    spools of the largest group, since the next group spools while the previous one loads), then
@@ -78,8 +80,10 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    `--step <name>` runs one step. Logs: `/home/bg/dev/indicagent/logs/corpus_rerun.log`; the
    rebuild spool is `logs/rebuild_spool/` there too. One corpus rerun at a time: a second runner
    on any run id exits at once (a global advisory lock), and a live `ic_measure`,
-   `corpus_rerun`, `backfill_feature_factory` or `feature_vector_rebuild` process (other than
-   the runner and the shell or timeout that started it) fails the pin gate.
+   `corpus_rerun`, `backfill_feature_factory` or `feature_vector_rebuild` process (a python
+   process running that module with `-m` or as its script; not the runner and the shell or
+   timeout that started it, and not a `tail` or `grep` that merely names it) fails the pin
+   gate.
 
 Resume after a kill: re-run the same `--through` command. Completed steps are no-ops; the step
 that was running resumes (its completed units are skipped, a killed unit's started row is
@@ -133,8 +137,10 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
   registry declares applicable to the tf, at or below `infra.corpus_rerun.max_null_fraction`.
   The deleted verifier's tiers carry over: `poc_dist_atr` and `va_position` are skipped on 1d
   (no intraday session), and they and `sr_support_dist`/`sr_resist_dist` fail only when entirely
-  NULL (their object may not exist). Columns with no declared memory (the HMM outputs) are listed
-  as unmeasured; G1 covers them. The worst columns are in the screen's report. A revised bar
+  NULL (their object may not exist). Columns with no declared memory (the HMM outputs, adx,
+  hurst, the session and weekly levels) are measured from each name's first finite row, so a
+  hole anywhere after it counts. No applicable column goes unmeasured: one with no measurable row
+  fails. The worst columns are in the screen's report. A revised bar
   renames its unit, so it shows here as missing.
 - `ic_measure` under the run id with `--report`. Every expected unit (default jobs, every tf in
   `alpha.ic_measure.horizons`) must be in the report, with one completed row that is the

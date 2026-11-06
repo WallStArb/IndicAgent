@@ -233,21 +233,29 @@ def null_share_gate(
     min_name_rows: int,
     worst: int = EXAMPLES,
 ) -> dict[str, dict]:
-    """G6 per tf: the NULL or non-finite share of each column's rows past its declared warmup,
-    pooled over the judged names, on the columns applicable to the tf. A column with no declared
-    memory (path dependent: the HMM outputs) has no warmup to measure from and is listed as
-    unmeasured (G1 covers it). Returns, per tf, the failing columns with their shares, the worst
-    columns whatever their verdict, and the unmeasured columns."""
-    post: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
+    """G6 per tf: the NULL or non-finite share of each applicable column, pooled over the
+    judged names. A column with a declared memory is measured over the rows past it; a column
+    without one (path dependent: the HMM outputs, adx, hurst and the session and weekly levels)
+    from each name's first finite row, so a hole anywhere after its warmup counts and a name
+    with no finite row counts every row. No applicable column goes unmeasured: one with judged
+    names but no measurable row fails. Returns, per tf, the failing columns with their reason
+    and the worst shares whatever their verdict."""
+    measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
+    judged_tfs: set[str] = set()
     for tf, _symbol, n, *stats in rows:
         if n < min_name_rows:
             continue
+        judged_tfs.add(tf)
         for column, cell in zip(columns, batched(stats, STATS_PER_COLUMN, strict=True)):
+            _non_null, finite, first_rn, *_rest, finite_post = cell
             mem = memory[column]
-            if mem is None or n <= mem:
-                continue
-            post[(tf, column)][0] += n - mem
-            post[(tf, column)][1] += cell[6]
+            if mem is None:
+                span = n if first_rn is None else n - first_rn + 1
+                measured[(tf, column)][0] += span
+                measured[(tf, column)][1] += finite
+            elif n > mem:
+                measured[(tf, column)][0] += n - mem
+                measured[(tf, column)][1] += finite_post
     out: dict[str, dict] = {}
     for tf in sorted({tf for tf, *_ in rows}):
         shares: dict[str, float] = {}
@@ -255,8 +263,10 @@ def null_share_gate(
         for column in columns:
             if column not in applicable[tf] or tf in ABSENCE_EXEMPT_TFS.get(column, ()):
                 continue
-            total, finite = post.get((tf, column), (0, 0))
+            total, finite = measured.get((tf, column), (0, 0))
             if not total:
+                if tf in judged_tfs:
+                    failing[column] = "cannot be measured: no judged name has a row past its warmup"
                 continue
             share = 1 - finite / total
             shares[column] = round(share, 6)
@@ -269,7 +279,6 @@ def null_share_gate(
             "max_null_fraction": max_null_fraction,
             "failing": failing,
             "worst": dict(sorted(shares.items(), key=lambda kv: -kv[1])[:worst]),
-            "unmeasured": sorted(c for c in columns if memory[c] is None),
         }
     return out
 

@@ -473,14 +473,77 @@ FROM pg_stat_database WHERE datname = current_database()
 """
 
 
-_STORED_COUNTS_SQL = """
+_ANY_COMPLETED_UNIT_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM provenance_batch WHERE target_table = %s "
+    "AND status = 'completed')"
+)
+_COMPLETED_KEYS_SQL = (
+    "SELECT batch_key FROM provenance_batch WHERE batch_key = ANY(%s) AND status = 'completed'"
+)
+# The stored rows of the units a run would adopt, on the planner's (tf, chunk, month) grid.
+_ADOPTABLE_ROWS_SQL = """
+WITH c AS (SELECT * FROM unnest(%s::text[], %s::int[]) AS c(symbol, idx)),
+u AS (SELECT * FROM unnest(%s::text[], %s::int[], %s::timestamptz[], %s::timestamptz[])
+        AS u(tf, idx, lo, hi))
 SELECT m.tf, c.idx, (date_trunc('month', m.bar_ts AT TIME ZONE 'UTC'))::date, count(*)
 FROM feature_vectors m
-JOIN unnest(%s::text[], %s::int[], %s::timestamptz[]) AS c(symbol, idx, floor_ts)
-  ON c.symbol = m.symbol
-WHERE m.tf = ANY(%s) AND m.bar_ts >= c.floor_ts AND m.bar_ts < %s
+JOIN c ON c.symbol = m.symbol
+JOIN u ON u.tf = m.tf AND u.idx = c.idx AND m.bar_ts >= u.lo AND m.bar_ts < u.hi
 GROUP BY 1, 2, 3
 """
+
+
+def adoptable_units(
+    specs: Sequence[Any], completed: set[str], chunks: Sequence[tuple[str, ...]]
+) -> list[tuple[str, int, datetime, datetime]]:
+    """(tf, chunk index, range_start, range_end) of every planned unit whose identity is
+    already completed: the run will skip and adopt exactly these, so only their rows are on disk
+    for good. A unit stored under another identity (another code key, APR or input) is
+    replaced: its new rows are growth, and the old space comes back only after a VACUUM."""
+    index = {tuple(chunk): i for i, chunk in enumerate(chunks)}
+    return [
+        (spec.tf, index[tuple(spec.symbols)], spec.range_start, spec.range_end)
+        for spec in specs
+        if spec.batch_key in completed
+    ]
+
+
+def stored_row_counts(
+    conn: Any,
+    settings: Any,
+    horizon: datetime,
+    chunks: Sequence[tuple[str, ...]],
+    planned: Callable[..., tuple[list[Any], set[str]]] | None = None,
+) -> RowCounts:
+    """The rows already stored that the run would adopt, as RowCounts (not growth). Plans the
+    full scope only when feature_vectors has a completed unit at all."""
+    with conn.cursor() as cur:
+        cur.execute(_ANY_COMPLETED_UNIT_SQL, (_FEATURE_TABLE,))
+        if not cur.fetchone()[0]:
+            return RowCounts({})
+    if planned is None:
+        from services.backfill_feature_factory import planned_units as planned
+    specs, _blind = planned(settings, conn, horizon)
+    with conn.cursor() as cur:
+        cur.execute(_COMPLETED_KEYS_SQL, ([spec.batch_key for spec in specs],))
+        completed = {key for (key,) in cur.fetchall()}
+    units = adoptable_units(specs, completed, chunks)
+    if not units:
+        return RowCounts({})
+    names = [(s, i) for i, chunk in enumerate(chunks) for s in chunk]
+    with conn.cursor() as cur:
+        cur.execute(
+            _ADOPTABLE_ROWS_SQL,
+            (
+                [s for s, _ in names],
+                [i for _, i in names],
+                [u[0] for u in units],
+                [u[1] for u in units],
+                [u[2] for u in units],
+                [u[3] for u in units],
+            ),
+        )
+        return RowCounts({(tf, int(i), month): int(n) for tf, i, month, n in cur.fetchall()})
 
 
 def fetch_row_counts(
@@ -489,18 +552,15 @@ def fetch_row_counts(
     starts: Mapping[str, datetime],
     horizon: datetime,
     timeframes: Sequence[str],
-    *,
-    stored: bool = False,
 ) -> RowCounts:
     """Tradeable bars per (tf, symbol chunk, month) from each name's proven start to the horizon:
-    the rows the rebuild will write, as the planner counts them. With `stored`, the rows
-    feature_vectors already holds on the same grid (on disk at launch, so never growth)."""
+    the rows the rebuild will write, as the planner counts them."""
     from services.backfill_feature_factory import _NO_FLOOR
 
     names = [(s, i) for i, chunk in enumerate(chunks) for s in chunk]
     with conn.cursor() as cur:
         cur.execute(
-            _STORED_COUNTS_SQL if stored else _ROW_COUNTS_SQL,
+            _ROW_COUNTS_SQL,
             (
                 [s for s, _ in names],
                 [i for _, i in names],
@@ -929,8 +989,9 @@ class CorpusRerun:
         )
 
     def _counts(self) -> RowCounts:
-        """The rows the run still had to write at launch: the counts less the rows already
-        stored then (a re-plan over a table holding adoptable units)."""
+        """The rows the run still had to write at launch: the counts less the stored rows of
+        the units it would adopt (stored_row_counts); every other stored row is replaced, so
+        its rewrite is growth."""
         counts = counts_from_record(self.run.measured["row_counts"])
         stored = self.run.measured.get("stored_row_counts")
         return counts.minus(counts_from_record(stored)) if stored else counts
@@ -1461,9 +1522,7 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
     apr = load_corpus_rerun_apr(cfg)
     ctx = factory._stage_context(settings, conn, None, None)
     counts = fetch_row_counts(conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes)
-    stored = fetch_row_counts(
-        conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes, stored=True
-    )
+    stored = stored_row_counts(conn, settings, horizon, ctx.chunks)
     inputs = BudgetInputs(
         free_bytes_at_launch=factory.database_free_bytes(cfg),
         max_disk_fraction=apr.max_disk_fraction,
@@ -1493,7 +1552,7 @@ def _print_plan(plan: Plan) -> None:
     )
     stored = sum(plan.stored.cells.values())
     print(
-        f"rows already stored (not growth) {stored:,}; compression ratio "
+        f"rows of adoptable stored units (not growth) {stored:,}; compression ratio "
         f"{plan.inputs.compression_ratio:g} is the APR seed, a preview only: the pilot measures "
         "the real ratio and re-projects the spans before stage_1d"
     )

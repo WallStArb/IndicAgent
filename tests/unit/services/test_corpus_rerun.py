@@ -841,3 +841,95 @@ def test_logs_and_the_worktree_derive_from_the_main_checkout(monkeypatch, tmp_pa
 def test_the_main_checkout_of_this_checkout_holds_the_git_common_dir():
     root = cr.main_checkout_root()
     assert (root / ".git").exists()
+
+
+# ---------------------------------------------------------------------------
+# Stored rows at launch: only adoptable units are on disk for good (review round 2)
+# ---------------------------------------------------------------------------
+
+
+class _StoredConn:
+    """Answers stored_row_counts' three reads: any completed unit, the completed batch keys,
+    and the adoptable units' stored rows; records the unit arrays it was asked for."""
+
+    def __init__(self, any_completed: bool, completed: set[str], stored_rows: list[tuple]):
+        self.any_completed = any_completed
+        self.completed = completed
+        self.stored_rows = stored_rows
+        self.unit_queries: list[tuple] = []
+
+    def cursor(self):
+        conn = self
+
+        class _Cur:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params):
+                self.sql, self.params = sql, params
+                if "WITH c AS" in sql:
+                    conn.unit_queries.append(params)
+
+            def fetchone(self):
+                return (conn.any_completed,)
+
+            def fetchall(self):
+                if "WITH c AS" in self.sql:
+                    return conn.stored_rows
+                return [(k,) for k in self.params[0] if k in conn.completed]
+
+        return _Cur()
+
+
+def _unit(key: str, tf: str = "5m", year: int = 2010):
+    return SimpleNamespace(
+        batch_key=key,
+        tf=tf,
+        symbols=("AAA", "BBB"),
+        range_start=_jan1(year),
+        range_end=_jan1(year + 1),
+    )
+
+
+CHUNKS = [("AAA", "BBB")]
+
+
+def test_a_new_run_over_a_dead_runs_rows_at_another_code_key_projects_them_as_growth():
+    """feature_vectors holds a dead run's completed units, but this run's code key renames every
+    unit: nothing is adoptable, so the stored rows are not subtracted and the plan counts the
+    whole rewrite as growth."""
+    conn = _StoredConn(True, completed={"old-key"}, stored_rows=[("5m", 0, date(2010, 1, 1), 999)])
+    planned = lambda settings, c, horizon: ([_unit("new-key")], set())  # noqa: E731
+    stored = cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned)
+    assert stored.cells == {} and conn.unit_queries == []
+    counts = RowCounts({("5m", 0, date(2010, m, 1)): 1000 for m in range(1, 13)})
+    inputs = _world().runner._inputs()
+    from services.corpus_rerun_budget import plan_spans
+
+    fresh = plan_spans(counts, inputs)
+    over_dead = plan_spans(counts, inputs, stored=stored)
+    assert [p.total for p in over_dead.peaks] == [p.total for p in fresh.peaks]
+
+
+def test_only_the_rows_of_units_the_run_would_adopt_count_as_stored():
+    rows = [("5m", 0, date(2010, 1, 1), 1000)]
+    conn = _StoredConn(True, completed={"same-key"}, stored_rows=rows)
+    planned = lambda settings, c, horizon: (  # noqa: E731
+        [_unit("same-key"), _unit("renamed", year=2011)],
+        set(),
+    )
+    stored = cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned)
+    assert stored.cells == {("5m", 0, date(2010, 1, 1)): 1000}
+    (params,) = conn.unit_queries
+    assert params[2:] == (["5m"], [0], [_jan1(2010)], [_jan1(2011)])  # the adoptable unit only
+
+
+def test_an_empty_table_plans_nothing_to_find_stored_rows():
+    def planned(*a):
+        raise AssertionError("must not plan the full scope")
+
+    conn = _StoredConn(False, set(), [])
+    assert cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned).cells == {}

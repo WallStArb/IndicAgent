@@ -103,7 +103,7 @@ REQUIRED_DEPENDENCY_MARKERS: frozenset[str] = frozenset(
     }
 )
 
-# Processes whose presence means another writer is live against the tables this rebuild
+# Modules whose running python process (`invoked_module`) means another writer is live against the tables this rebuild
 # writes, or that hold the modules a live-or-resumable run forbids editing (D-32a).
 # ic_engine was deleted in 186-23; ic_measure (its successor) and the corpus rerun runner are the
 # live writers now (186-31).
@@ -302,14 +302,30 @@ def check_disk_guard(
     )
 
 
+def invoked_module(process_line: str) -> str | None:
+    """The module a python process runs (`python [-flags] -m pkg.mod` or `python path/mod.py`),
+    by its last dotted or file-stem name; None for anything else. A shell that only mentions a
+    writer (a `tail -f` of its log, a grep) is not that writer."""
+    tokens = process_line.split()
+    start = next((i for i, t in enumerate(tokens) if Path(t).name.startswith("python")), None)
+    if start is None:
+        return None
+    argv = tokens[start + 1 :]
+    while argv and argv[0].startswith("-") and argv[0] != "-m":
+        argv = argv[1:]
+    if len(argv) >= 2 and argv[0] == "-m":
+        return argv[1].rsplit(".", 1)[-1]
+    if argv and argv[0].endswith(".py"):
+        return Path(argv[0]).stem
+    return None
+
+
 def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str) -> CheckResult:
     """D-32a/D-01: no ic_measure, corpus_rerun, backfill_feature_factory or rebuild process
     may be live, and no resumable run may be indicated (a resumable rebuild forbids edits to
     its import closure and would double-write the units it retakes)."""
     hits = sorted(
-        line
-        for line in process_lines
-        if any(pattern in line for pattern in LIVE_RUN_PROCESS_PATTERN)
+        line for line in process_lines if invoked_module(line) in LIVE_RUN_PROCESS_PATTERN
     )
     if hits:
         return CheckResult("no_live_run", False, f"live writer process(es): {' | '.join(hits[:5])}")

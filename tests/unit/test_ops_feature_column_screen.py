@@ -200,13 +200,54 @@ def test_g6_passes_a_full_column_and_counts_only_rows_past_the_warmup():
     assert gate["failing"] == {} and gate["worst"] == {"x": 0.0}
 
 
-def test_g6_skips_not_applicable_and_unmeasurable_columns():
+def test_g6_skips_not_applicable_columns():
     n, cell = _years(10, 10)
-    rows = [_row("1h", "A", n, cell, cell)]
     gate = _null_gate(
-        rows, columns=("x", "hmm"), memory={"x": 10, "hmm": None}, applicable=frozenset({"hmm"})
+        [_row("1h", "A", n, cell, cell)], columns=("x", "y"), applicable=frozenset({"y"})
     )["1h"]
-    assert gate["failing"] == {} and gate["unmeasured"] == ["hmm"]
+    assert list(gate["failing"]) == ["y"] and "x" not in gate["worst"]
+
+
+def _path_dependent(n: int, first_rn: int | None, finite: int) -> tuple:
+    return (finite, finite, first_rn, -1.0, 1.0, 0, finite)
+
+
+def test_g6_fails_a_40_percent_null_hmm_column():
+    """A path-dependent column (no declared memory) is measured from each name's first finite
+    row: 40% NULL after it fails."""
+    n = 1010
+    cell = _path_dependent(n, first_rn=11, finite=600)  # 1000 rows from row 11, 600 finite
+    rows = [_row("1h", s, n, cell) for s in ("A", "B")]
+    gate = _null_gate(rows, columns=("hmm_regime_prob",), memory={"hmm_regime_prob": None})["1h"]
+    assert list(gate["failing"]) == ["hmm_regime_prob"]
+    assert gate["worst"] == {"hmm_regime_prob": 0.4}
+
+
+def test_g6_fails_a_path_dependent_column_null_in_a_block_inside_its_span():
+    n = 2000
+    cell = _path_dependent(n, first_rn=1, finite=1700)  # finite from row 1, then a 300-row hole
+    gate = _null_gate([_row("5m", "A", n, cell)], columns=("adx",), memory={"adx": None})["5m"]
+    assert "adx" in gate["failing"] and gate["worst"]["adx"] == pytest.approx(0.15)
+    full = _path_dependent(n, first_rn=40, finite=n - 39)
+    assert (
+        _null_gate([_row("5m", "A", n, full)], columns=("adx",), memory={"adx": None})["5m"][
+            "failing"
+        ]
+        == {}
+    )
+
+
+def test_g6_a_path_dependent_column_with_no_finite_row_counts_every_row():
+    n = 500
+    cell = (0, 0, None, None, None, 0, 0)
+    gate = _null_gate([_row("1h", "A", n, cell)], columns=("hurst",), memory={"hurst": None})["1h"]
+    assert gate["worst"] == {"hurst": 1.0} and "hurst" in gate["failing"]
+
+
+def test_g6_an_applicable_column_that_cannot_be_measured_fails():
+    n, cell = _years(1, 0)  # 262 rows, memory 300: no name has a row past the warmup
+    gate = _null_gate([_row("1h", "A", n, cell)], memory={"x": 300})["1h"]
+    assert gate["failing"]["x"].startswith("cannot be measured")
 
 
 def test_g6_absence_columns_fail_only_when_entirely_null_and_skip_their_absent_tfs():
@@ -219,6 +260,23 @@ def test_g6_absence_columns_fail_only_when_entirely_null_and_skip_their_absent_t
     )
     gate = _null_gate([_row("1d", "A", n, empty)], columns=("poc_dist_atr",))["1d"]
     assert gate["failing"] == {} and gate["worst"] == {}
+    # poc_dist_atr has no declared memory: measured from its first finite row, and on an
+    # intraday tf it still fails only when entirely NULL
+    pd = {"poc_dist_atr": None}
+    sparse = _path_dependent(n, first_rn=5, finite=100)
+    none = (0, 0, None, None, None, 0, 0)
+    assert (
+        _null_gate([_row("5m", "A", n, sparse)], columns=("poc_dist_atr",), memory=pd)["5m"][
+            "failing"
+        ]
+        == {}
+    )
+    assert (
+        "poc_dist_atr"
+        in _null_gate([_row("5m", "A", n, none)], columns=("poc_dist_atr",), memory=pd)["5m"][
+            "failing"
+        ]
+    )
 
 
 def test_g6_tiers_name_real_columns_and_the_screen_lists_its_apr_keys():
