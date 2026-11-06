@@ -423,7 +423,11 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
 
 - [x] 186-30 run identity for the corpus rerun (todo 593): migration 578 (corpus_run,
   corpus_run_step, provenance_batch.run_id), the rebuild's run_id, Jan-1 span and chunk_indices,
-  ic_measure and canary --run-id; landed 2026-11-05. 186-31 (step runner) follows
+  ic_measure and canary --run-id; landed 2026-11-05
+
+- [x] 186-31 corpus rerun step runner (todo 593): `services/corpus_rerun.py` span-major DAG under
+  one run id, `services/corpus_rerun_budget.py` span planner and per-unit disk guard, adoption
+  list, runbook; the dead shell orchestrator deleted; landed 2026-11-05
 
 - [x] 186-32 corpus rerun data gate (todo 593): migration 579 (nine infra.corpus_rerun.* keys),
   `run_data_gate` per name-year continuity on the NYSE calendar with the survivorship caveat;
