@@ -44,11 +44,11 @@ export type EdgeStep = {
 };
 
 export const hero = {
-  status: "Agentic quantitative research platform",
+  status: "Shadow mode first",
   strip: "ingest · feature · measure · research · book",
   tagline: "Honest edge research: nothing earns capital until it survives a counted test",
   title: ["Agentic", "Quantitative", "Research Platform"],
-  body: "AI agents design, build, review and operate IndicAgent under the same rules as the code. Independent reviews come before a design is adopted. Every hypothesis on features, signals, regimes and factors is tested fast and counted honestly, with every look at the data counted and selection made under a multiple-testing correction. There are no counted results yet; the research ledger was reset on 2026-10-30 and starts clean.",
+  body: "AI agents design, build, review and operate IndicAgent under the same rules as the code. Independent reviews come before a design is adopted. Every hypothesis on features, signals, regimes and factors is tested fast, every look at the data is counted, and selection is made under a multiple-testing correction. There are no counted results yet; the research ledger was reset on 2026-10-30 and starts clean.",
   loop: "The research loop itself is designed to become agentic: a population of candidate ideas is to be generated, tested on data it has not seen, and selected with no person in the loop, inside the same evidence gates. That loop is being built and is not running.",
   facts: [
     { value: "1,529", label: "US equities and ETFs" },
