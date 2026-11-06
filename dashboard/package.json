@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@radix-ui/react-separator": "^1.2.0",
@@ -32,6 +33,7 @@
     "eslint-config-next": "^16.1.6",
     "puppeteer-core": "^25.16.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }
