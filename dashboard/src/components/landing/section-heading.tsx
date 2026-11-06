@@ -41,7 +41,7 @@ export function SectionHeading({
             {title}
           </h2>
         </div>
-        <Separator className="mb-1 w-auto flex-1" style={{ background: "var(--border-subtle)" }} />
+        <Separator className="mb-1 w-auto flex-1 bg-[var(--border-subtle)]" />
       </div>
       {intro && (
         <p className="mt-4 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
