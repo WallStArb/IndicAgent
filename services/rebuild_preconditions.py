@@ -302,16 +302,26 @@ def check_disk_guard(
     )
 
 
-# CPython options that take a separate argument (`-X importtime`, `-W error`).
-_PYTHON_OPTIONS_WITH_ARG = frozenset("XWQ")
+# CPython's command-line options (python --help, 3.14). Single-letter options that take a value
+# (attached, `-Ximporttime`, or the next token, `-X importtime`), the long options that take a
+# value (`--check-hash-based-pycs always`), and the long options that take none. A long option is
+# matched exactly: `--check-hash-based-pycs` is not `-c`.
+PYTHON_SHORT_OPTIONS_WITH_VALUE = frozenset("XWQ")
+PYTHON_LONG_OPTIONS_WITH_VALUE = frozenset({"--check-hash-based-pycs"})
+PYTHON_LONG_OPTIONS = frozenset(
+    {"--help", "--help-env", "--help-xoptions", "--help-all", "--version"}
+)
+UNPARSED = "<unparsed python argv>"
 
 
 def invoked_module(process_line: str) -> str | None:
     """The module a python process runs, by its last dotted or file-stem name, parsed as CPython
     parses its argv: interpreter options first (bundled single letters like `-um`, `-u -O -B`,
-    `-X opt` and `-W arg` with their argument, attached or separate), then `-m module`, `-c`
-    (no module) or the script path. None for anything else: a shell that only mentions a writer
-    (a `tail -f` of its log, a grep) is not that writer."""
+    the value options in PYTHON_SHORT_OPTIONS_WITH_VALUE with their value attached or separate,
+    long options matched exactly against the tables), then `-m module`, `-c` (no module) or the
+    script path. None for anything else: a shell that only mentions a writer (a `tail -f` of its
+    log, a grep) is not that writer. An unknown long option returns UNPARSED: what runs is not
+    guessed."""
     tokens = process_line.split()
     start = next((i for i, t in enumerate(tokens) if Path(t).name.startswith("python")), None)
     if start is None:
@@ -319,19 +329,28 @@ def invoked_module(process_line: str) -> str | None:
     argv = tokens[start + 1 :]
     i = 0
     while i < len(argv) and argv[i].startswith("-") and argv[i] != "-":
-        if argv[i] == "--":
+        token = argv[i]
+        if token == "--":
             i += 1
             break
-        letters = argv[i][1:]
+        if token.startswith("--"):
+            name = token.split("=", 1)[0]
+            if name in PYTHON_LONG_OPTIONS_WITH_VALUE:
+                i += 1 if "=" in token else 2
+                continue
+            if name in PYTHON_LONG_OPTIONS:
+                return None  # prints and exits: runs nothing
+            return UNPARSED  # not a CPython option: the caller decides loudly
+        letters = token[1:]
         for j, letter in enumerate(letters):
             if letter == "m":
                 rest = letters[j + 1 :] or (argv[i + 1] if i + 1 < len(argv) else "")
                 return rest.rsplit(".", 1)[-1] or None
             if letter == "c":
                 return None
-            if letter in _PYTHON_OPTIONS_WITH_ARG:
+            if letter in PYTHON_SHORT_OPTIONS_WITH_VALUE:
                 if j + 1 == len(letters):
-                    i += 1  # the argument is the next token
+                    i += 1  # the value is the next token
                 break
         i += 1
     if i < len(argv) and argv[i].endswith(".py"):
@@ -343,9 +362,14 @@ def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str)
     """D-32a/D-01: no ic_measure, corpus_rerun, backfill_feature_factory or rebuild process
     may be live, and no resumable run may be indicated (a resumable rebuild forbids edits to
     its import closure and would double-write the units it retakes)."""
-    hits = sorted(
-        line for line in process_lines if invoked_module(line) in LIVE_RUN_PROCESS_PATTERN
-    )
+
+    def live(line: str) -> bool:
+        module = invoked_module(line)
+        if module == UNPARSED:  # loud: a python argv we cannot parse that names a writer
+            return any(pattern in line for pattern in LIVE_RUN_PROCESS_PATTERN)
+        return module in LIVE_RUN_PROCESS_PATTERN
+
+    hits = sorted(line for line in process_lines if live(line))
     if hits:
         return CheckResult("no_live_run", False, f"live writer process(es): {' | '.join(hits[:5])}")
     if resumable_log_evidence:

@@ -303,11 +303,41 @@ def test_a_shell_that_only_mentions_a_writer_is_not_refused(line):
         "4254 python -um services.ic_measure --run-id y",
         "4255 python3 -W error -O -B /wt/services/ic_measure.py",
         "4256 python -Ximporttime -mservices.corpus_rerun --run-id x",
+        "4257 python --check-hash-based-pycs always -m services.ic_measure --run-id y",
+        "4258 python --check-hash-based-pycs=never -m services.corpus_rerun",
+        "4259 python -X importtime -W ignore -u -m services.corpus_rerun",
     ],
 )
 def test_a_second_runner_or_writer_is_refused(line):
     failed = check_no_live_run([line], "")
     assert not failed.ok and line in failed.detail
+
+
+@pytest.mark.parametrize(
+    "argv, module",
+    [
+        ("python -m services.ic_measure", "ic_measure"),
+        ("python -um services.ic_measure", "ic_measure"),
+        ("python -X importtime -m services.corpus_rerun", "corpus_rerun"),
+        ("python -Xdev -m services.corpus_rerun", "corpus_rerun"),
+        ("python --check-hash-based-pycs always -m services.ic_measure", "ic_measure"),
+        ("python --check-hash-based-pycs=default services/ic_measure.py", "ic_measure"),
+        ("python -W error -Q new services/corpus_rerun.py", "corpus_rerun"),
+        ("python -c print(1)", None),
+        ("python -Bc print(1)", None),
+        ("python --version", None),
+        ("python --no-such-option -m services.ic_measure", rp.UNPARSED),
+        ("python", None),
+        ("bash -c tail -f logs/corpus_rerun.log", None),
+    ],
+)
+def test_invoked_module_parses_cpython_options_by_table(argv, module):
+    assert rp.invoked_module(f"4300 {argv}") == module
+
+
+def test_an_unparsable_python_argv_naming_a_writer_refuses_loudly():
+    assert not check_no_live_run(["4301 python --future-flag -m services.ic_measure"], "").ok
+    assert check_no_live_run(["4302 python --future-flag -m http.server"], "").ok
 
 
 def test_the_live_run_patterns_name_the_current_writers():
