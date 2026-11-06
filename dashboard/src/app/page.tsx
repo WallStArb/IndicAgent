@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { cta } from "@/lib/copy/landing";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { HeroSection } from "@/components/landing/hero-section";
+import { AgentsSection } from "@/components/landing/agents-section";
 import { TriangleFunnel } from "@/components/landing/triangle-funnel";
 import { IdeasSection } from "@/components/landing/ideas-section";
 import { EdgeSteps } from "@/components/landing/edge-steps";
@@ -15,6 +16,7 @@ export default function LandingPage() {
     <div className="min-h-screen">
       <LandingNav />
       <HeroSection />
+      <AgentsSection />
       <TriangleFunnel />
       <IdeasSection />
       <EdgeSteps />

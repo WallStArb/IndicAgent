@@ -110,7 +110,7 @@ export function HeroSection() {
             letterSpacing: "-0.03em",
             color: "var(--text-primary)",
             textTransform: "uppercase",
-            maxWidth: "600px",
+            maxWidth: "720px",
           }}
         >
           {hero.title[0]}
@@ -124,7 +124,7 @@ export function HeroSection() {
         <p
           className="mt-6"
           style={{
-            maxWidth: "480px",
+            maxWidth: "560px",
             fontFamily: "var(--font-outfit)",
             fontSize: "clamp(0.875rem, 2vw, 1rem)",
             lineHeight: 1.7,
@@ -132,6 +132,18 @@ export function HeroSection() {
           }}
         >
           {hero.body}
+        </p>
+        <p
+          className="mt-3"
+          style={{
+            maxWidth: "560px",
+            fontFamily: "var(--font-outfit)",
+            fontSize: "clamp(0.8rem, 1.8vw, 0.9rem)",
+            lineHeight: 1.7,
+            color: "var(--text-muted)",
+          }}
+        >
+          {hero.loop}
         </p>
 
         {/* Outcome stats */}

@@ -44,16 +44,29 @@ export type EdgeStep = {
 };
 
 export const hero = {
-  status: "Shadow mode first",
+  status: "Agentic quantitative research platform",
   strip: "ingest · feature · measure · research · book",
-  tagline: "Nothing earns capital until it survives a counted test",
-  title: ["Honest", "Edge", "Research"],
-  body: "IndicAgent is a research machine. It tests hypotheses on features, signals, regimes, and factors quickly, counts every look at the data, and selects with a multiple-testing correction. A book is promoted only with positive net expectation, then confirmed once on forward data nobody has searched. There are no counted results yet; the research ledger was reset on 2026-10-30 and starts clean.",
+  tagline: "Honest edge research: nothing earns capital until it survives a counted test",
+  title: ["Agentic", "Quantitative", "Research Platform"],
+  body: "AI agents design, build, review and operate IndicAgent under the same rules as the code. Independent reviews come before a design is adopted. Every hypothesis on features, signals, regimes and factors is tested fast and counted honestly, with every look at the data counted and selection made under a multiple-testing correction. There are no counted results yet; the research ledger was reset on 2026-10-30 and starts clean.",
+  loop: "The research loop itself is designed to become agentic: a population of candidate ideas is to be generated, tested on data it has not seen, and selected with no person in the loop, inside the same evidence gates. That loop is being built and is not running.",
   facts: [
     { value: "1,529", label: "US equities and ETFs" },
     { value: "5m to 1d", label: "Bar timeframes" },
     { value: "From 2000", label: "Daily history, where vendors have it" },
     { value: "Every look", label: "Counted against the vintage" },
+  ],
+};
+
+export const agents = {
+  eyebrow: "How the agents work",
+  title: "Agents do the work; the gates decide what counts",
+  intro: "The platform is designed, built, reviewed and operated with AI agents working under the same rules as the code.",
+  steps: [
+    { name: "Plan", body: "An agent writes the design and the test before any code exists, and the design states what would make it fail." },
+    { name: "Build", body: "An agent writes the change under the same naming, data and determinism rules as any other code." },
+    { name: "Review", body: "Independent reviews, from more than one model, come before a design is adopted, and every change is reviewed again before it lands." },
+    { name: "Verify", body: "Mechanical gates and a counted test bind the agents. Nothing an agent produces reaches capital without proof." },
   ],
 };
 
