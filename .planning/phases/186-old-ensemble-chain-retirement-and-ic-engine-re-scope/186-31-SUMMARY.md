@@ -172,6 +172,23 @@ free); data gate FAIL (13,888 failing name-years).
   import closure); feature_vectors is empty, so nothing is renamed. Gate 8,098 tests, 0 failed;
   repro_frozen bit-identical.
 
+## Review round 4 (lead, 2026-11-06)
+
+- 2206c2088 (d): CPython options parsed by table, long options exact; an unparsable python
+  argv naming a writer refuses.
+- 0c7fe2a5c (a, b), migration 583 applied live. (a) `Kernel.definition` (first row an output can
+  exist) apart from its memory (seed independence); `definition_warmup` composes definitions,
+  absolute (max) for path-dependent kernels; anchored outputs declare their complete periods;
+  `stored_first_row` (memory where the writer masks, else the definition) is G2/G6's base. The
+  writer already masks every non-path-dependent column inside its memory (no_fill), so only the
+  six non-path-dependent kernels feeding path-dependent ones needed raw definitions (not 80).
+  (b) Per lead ruling: object and event columns use their kernel's own none mask as presence;
+  event kernels and roll_spread (a validity case found by the healthy-series test: NaN on a
+  non-negative covariance, about 40% of 1d rows) now emit it, values unchanged; the writer
+  records per unit {present, nan_present} in provenance_batch.unit_stats; `object_share_gate`
+  judges the share in feature_complete and the pilot. Rebuild code key a023598f -> 901b68ab.
+  Gate 8,123 tests, 0 failed; repro_frozen bit-identical.
+
 ## Self-Check: PASSED
 
 Files created exist; commits 8d1b35c52, 99df8d04e, 93496fcec and dba33887d are on the branch.
