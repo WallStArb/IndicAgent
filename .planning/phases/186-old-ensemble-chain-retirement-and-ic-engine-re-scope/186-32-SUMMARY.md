@@ -37,61 +37,63 @@ compute was launched.
 - 9e7821ca6 feat(186-32): migration 579 seeds the corpus rerun APR, one loader reads it
 - 161fec9c7 feat(186-32): the continuity data gate for the corpus rerun
 - 055e2033d feat(186-32): answer-complete basis in the data gate (lead ruling 2026-11-05)
+- (branch 186-32-ask-view, merged after migration 581 lands) review fixes: complete asks only, real-SQL integration test
 
-## Live dry run (2026-11-05, horizon 2026-11-01, read-only connection, 97 s)
+## Live dry run (2026-11-05 evening, horizon 2026-11-01, read-only, 90 s)
 
-The gate fails. It checked 1,502 names. 10 have no proven start (ACA, ACVA, BZH, CCO, CTVA, KVUE,
-MSGS, PSKY, QRVO, WBD). No name has zero sessions, none has zero 1d sessions, and no name is
-held. 13,785 name-years fail, across 1,392 names. 46,634 tradeable 1d sessions on 607 names
-predate 2000-01-03.
+On the ask rule (below) with no 581 asks recorded yet, the answer-complete basis contributes
+nothing, so this is the bar-judged gate. The run used an empty temporary `ohlcv_ask_current`,
+because 581 is not live yet. The gate fails. It checked 1,502 names. 10 have no proven start
+(ACA, ACVA, BZH, CCO, CTVA, KVUE, MSGS, PSKY, QRVO, WBD), and none is held. 13,934 name-years
+fail, across 1,396 names. 46,634 tradeable 1d sessions on 607 names predate 2000-01-03.
 
-Sessions by basis:
-
-| era (5m pair) | sessions | bar-complete | answer-complete only | no_trades | empty-history | partial | missing |
+| era (5m pair) | sessions | bar-complete | answer-complete | no_trades | empty-history | partial | missing |
 |---|---|---|---|---|---|---|---|
-| ibkr/named (before 2016-01-04) | 3,282,642 | 1,177,437 | 3,644 | 0 | 206 | 370 | 2,100,985 |
-| alpaca/sip_rth (from 2016-01-04) | 3,664,325 | 3,102,647 | 1,498 | 0 | 0 | 547,938 | 12,242 |
+| ibkr/named (before 2016-01-04) | 3,282,642 | 1,180,944 | 0 | 0 | 206 | 4,014 | 2,097,478 |
+| alpaca/sip_rth (from 2016-01-04) | 3,664,325 | 3,102,647 | 0 | 0 | 0 | 549,436 | 12,242 |
 
-Names and name-years:
+| era | names | at depth | partial | none | name-years failing |
+|---|---|---|---|---|---|
+| ibkr/named | 1,135 | 79 | 486 | 570 | 8,956 of 13,359 |
+| alpaca/sip_rth | 1,492 | 848 | 641 | 3 | 4,978 of 14,993 |
 
-| era | names | at depth (all bases) | at depth (bars alone) | partial | none | name-years failing |
-|---|---|---|---|---|---|---|
-| ibkr/named | 1,135 | 97 | 79 | 468 | 570 | 8,809 of 13,359 |
-| alpaca/sip_rth | 1,492 | 848 | 848 | 644 | 0 | 4,976 of 14,993 |
+The two earlier answer rules were withdrawn after review:
 
-"At depth" means a name's uncovered share in that era is within max_missing_session_fraction
-(0.01). "None" means no session in the era is bar-complete or answer-complete.
+- The pre-review page rule cleared 3,644 IBKR and 1,498 Alpaca sessions and moved 18 names to at
+  depth. It is withdrawn because those passes were false.
+- The interim review-fix rule (only intermediate pages count, and the bars must be in raw) cleared
+  163 IBKR sessions and 0 Alpaca sessions.
 
-Todo 534 counted 84 / 410 / 683 (at depth / partial / none) of 1,177 names. Its basis was the
-earliest row against the 1d start. This gate's IBKR-era basis is continuity per session from the
-proven start (1,135 names).
+Todo 534 counted 84 / 410 / 683 (at depth / partial / none) of 1,177 names, measured from the
+earliest row against the 1d start. This gate measures continuity per session from the proven start.
 
-### The answer-complete basis (lead ruling 2026-11-05)
+### Answer-complete basis: complete asks only (lead rulings 2026-11-05)
 
-A thin session counts when it lies inside a completed vendor answer of the era's (vendor, kind).
-On the live data:
+A session also counts as covered when it lies inside a complete ask of the era's coverage
+evidence, read from `ohlcv_ask_current`. That view comes from migration 581, which the todo 596
+worker owns. An ask is complete when it has a terminal page, its pages are gap-free and no page
+failed or timed out. Each page's request row commits together with its bars, so a page row also
+proves its bars were stored.
 
-- **ohlcv_load proves nothing for 5m.** On all 50,226 Alpaca 5m rows (the 521 campaign, the
-  archive backfill and the nightly), requested_start equals first_bar and requested_end equals
-  last_bar: the range is the span of the bars served, not the window asked. The campaign rows are
-  10,000-bar chunks, which tile across any hole, and the campaign's request log
-  (logs/alpaca_depth/) is not on disk. Alpaca 2016-01-04 to 2026-10-05 therefore stays
-  bar-judged, and that span holds almost all of the 547,938 partial sessions. Note that
-  gap_plan.LOAD_COVERAGE_* (read by the planner and the D7 audit) treats an applied Alpaca load as
-  answering every slot of its range; this measurement contradicts that rule. Fixing it is out of
-  this plan's scope (src/intelligence/bars/).
-- **ohlcv_request pages are not completion records.** The Alpaca leaf writes one row per page,
-  each claiming [resume point, window end]. Live example: AAOI on 2026-10-26, page 1 has 2,380
-  bars and claims 10-06 to 10-26, and page 2 resumes at 10-22 22:50. A deadline stop after page 1
-  would leave page 1 overclaiming. The gate proves a page up to the next page's start, and a
-  window's last page only when its run asked again afterwards (the deadline stops every later
-  request) and the window used fewer than infra.alpaca.nightly_max_requests pages. Pages with
-  partial bars, failed or timeout prove nothing.
-- Request evidence is the gap_plan.COVERAGE_EVIDENCE triples: IBKR SMART TRADES (2006 onward,
-  625 names) and the Alpaca nightly's SIP 5Min (from 2026-10-06 only). The 1,498 Alpaca
-  answer-complete sessions are October 2026. IBKR answers move 18 names to at depth.
-- A zero-bar session counts only inside a no_data answer (no_trades). A bars answer with nothing
-  stored could be a lost insert, so it stays missing.
+- The gate counts an ask only if it is complete and `has_partial` is false.
+- Legacy request rows (no ask_id) are not in the view, so they never count. That covers every
+  row written before 581 and every unpaginated IBKR request.
+- A session with bars inside such an ask is answer-complete. A session with zero bars counts only
+  inside an ask that served no bars; it is reported as no_trades.
+- Withdrawn by the review: request pages without asks. A failed Alpaca page writes no row, so
+  the page before it looks like the last page. A request row also does not prove its bars were
+  stored (dry runs; loads that failed after the fetch, e.g. PSKY, WBD and QRVO on 2026-10-26).
+- ohlcv_load never proves completeness. On all 50,226 Alpaca 5m rows, the requested range equals
+  the span of the bars served.
+
+### Notes for the lead and 186-31
+
+- Bar-complete counts IBKR volume-0 raw bars as served slots. IBKR serves a bar with volume 0
+  for a no-trade slot, so these are its own "no trades" answers, consistent with the no-trade
+  ruling. The independent review measured 19,702 sessions on 185 names in 2014 that depend on
+  this.
+- Two jobs belong to 186-31's runner, not this pure module: writing corpus_run.data_gate and the
+  caveat in one transaction, and deduping the caveat on its `code` (caveats are append-only).
 
 ## Deviations from plan
 

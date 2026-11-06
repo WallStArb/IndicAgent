@@ -18,13 +18,15 @@ mid-history fails.
   to close, so half days are shorter: bar-complete), when it lies inside an ohlcv_empty_history
   span of that vendor, or when it lies inside a completed answer of that (vendor, kind)
   (answer-complete, lead ruling 2026-11-05: a thin name's no-trade slots are the vendor's answer,
-  not a hole). A completed answer is an ohlcv_request row of the vendor's coverage evidence
-  (gap_plan.COVERAGE_EVIDENCE) with outcome bars or no_data and no partial bars, whose page is
-  proven: a page followed by the next page of its window proves the span up to that page's start,
-  and a window's last page proves the rest only when its run asked again afterwards (a deadline
-  stops every later request) with fewer pages than the per-window request budget. A session with
-  bars inside a completed answer is answer-complete; one with no bars counts only inside a
-  no_data answer (no_trades), since a bars answer with nothing stored could be a lost insert.
+  not a hole). A completed answer is a complete ask of the vendor's coverage evidence
+  (gap_plan.COVERAGE_EVIDENCE) in the ohlcv_ask_current view (migration 581, todo 596): one row
+  per ask, complete when it has a terminal page, a gap-free page count and no failed or timeout
+  page, each page's request row committed with its bars. An ask that held back partial bars
+  answers its window only up to them, so it does not count. Request rows from before 581 (no
+  ask_id) are not in the view and never count: a pre-581 page claims the rest of its window,
+  records no next-page token and is written before the next page is asked. A session with
+  bars inside a completed answer is answer-complete; one with no bars counts only inside an ask
+  that served no bars (no_trades).
   ohlcv_load never proves completeness: its requested range is the span of the bars served
   (requested_start = first_bar on every 5m row). Some bars and no evidence is partial, none is
   missing.
@@ -57,14 +59,13 @@ from services.corpus_rerun_apr import CorpusRerunApr
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow, primary_pair
-from src.intelligence.bars.gap_plan import ANSWERED_OUTCOMES, COVERAGE_EVIDENCE
+from src.intelligence.bars.gap_plan import COVERAGE_EVIDENCE
 from src.intelligence.bars.vendor_kind import VENDOR_ALPACA, VENDOR_IBKR
 
 _logger = structlog.get_logger(__name__)
 
 TF_5M = "5m"
 TF_1D = "1d"
-NO_DATA_OUTCOME = "no_data"
 _SLOT = timedelta(minutes=5)
 
 # contract_details session_id -> calendar key, as src/core/bar_normalizer.py resolves it (session
@@ -76,9 +77,6 @@ ANSWER_COMPLETE = "answer_complete"
 COVERED_EMPTY = "covered_empty"
 NO_TRADES = "no_trades"
 PARTIAL = "partial"
-# The per-window request budget of the paginating nightly leaf: a window whose pages reached it
-# may have stopped before its last page.
-NIGHTLY_MAX_REQUESTS_KEY = "infra.alpaca.nightly_max_requests"
 
 SURVIVORSHIP_CAVEAT_CODE = "survivorship_pre2016_ibkr_5m"
 SURVIVORSHIP_CAVEAT_SOURCE = "todo 534 owner decision 2026-11-04"
@@ -135,17 +133,13 @@ class EmptySpan:
 
 
 @dataclass(frozen=True)
-class AnswerRow:
-    """One ohlcv_request page of the coverage evidence."""
+class CompletedAsk:
+    """One complete ask of the coverage evidence: it answered [start, end) with n_bars bars."""
 
-    fetch_run_id: str
     symbol: str
-    source: str
-    window_start: datetime
-    window_end: datetime
-    outcome: str
-    clean: bool  # partial_bars null or empty
-    answered_at: datetime
+    start: datetime
+    end: datetime
+    n_bars: int
 
 
 @dataclass(frozen=True)
@@ -409,48 +403,25 @@ def hold_spans(
 # ---------------------------------------------------------------------------
 
 
-def proven_answers(
-    rows: Iterable[AnswerRow], run_last_answer: Mapping[str, datetime], max_pages: int
-) -> dict[tuple[str, str], Answers]:
-    """The answer intervals the request log proves, per (symbol, vendor).
-
-    Rows sharing (fetch_run_id, symbol, source, window_end) are the pages of one window, in
-    window_start order (a paginating leaf records each page from its resume point to the window's
-    end). Page i proves [its start, page i+1's start). The last page proves [its start, the
-    window end) only when the run answered a later request (a deadline stops every later request)
-    and the window used fewer than `max_pages` requests (the per-window budget). A page whose
-    outcome is not bars or no_data, or that served partial bars, proves nothing itself; it still
-    marks where the page before it ended."""
-    windows: dict[tuple[str, str, str, datetime], list[AnswerRow]] = defaultdict(list)
-    for row in rows:
-        windows[(row.fetch_run_id, row.symbol, row.source, row.window_end)].append(row)
-    intervals: dict[tuple[str, str], list[tuple[datetime, datetime, bool]]] = defaultdict(list)
-    for (run, symbol, source, window_end), pages in windows.items():
-        pages.sort(key=lambda r: r.window_start)
-        last = pages[-1]
-        final = len(pages) < max_pages and run_last_answer.get(run, last.answered_at) > max(
-            p.answered_at for p in pages
-        )
-        bounds = [p.window_start for p in pages[1:]] + [window_end if final else None]
-        for page, end in zip(pages, bounds, strict=True):
-            if end is None or not page.clean or page.outcome not in ANSWERED_OUTCOMES:
-                continue
-            if page.window_start < end:
-                intervals[(symbol, source)].append(
-                    (page.window_start, end, page.outcome == NO_DATA_OUTCOME)
-                )
-    answers: dict[tuple[str, str], Answers] = {}
-    for key, found in intervals.items():
+def merge_answers(asks: Iterable[CompletedAsk]) -> dict[str, Answers]:
+    """Per symbol, the merged windows of its complete asks; the asks that served no bars are the
+    no_data windows."""
+    found: dict[str, list[CompletedAsk]] = defaultdict(list)
+    for ask in asks:
+        if ask.start < ask.end:
+            found[ask.symbol].append(ask)
+    answers: dict[str, Answers] = {}
+    for symbol, symbol_asks in found.items():
         merged: list[tuple[datetime, datetime]] = []
-        for start, end, _ in sorted(found):
+        for start, end in sorted((a.start, a.end) for a in symbol_asks):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
-        answers[key] = Answers(
+        answers[symbol] = Answers(
             tuple(a for a, _ in merged),
             tuple(b for _, b in merged),
-            tuple(sorted((a, b) for a, b, no_data in found if no_data)),
+            tuple(sorted((a.start, a.end) for a in symbol_asks if a.n_bars == 0)),
         )
     return answers
 
@@ -499,7 +470,7 @@ def session_tallies(
                 if n:
                     tallies[(symbol, year, seg.era)].sessions += n
             spans = spans_5m.get((symbol, seg.vendor), ())
-            vendor_answers = answers.get((symbol, seg.vendor))
+            vendor_answers = answers.get((symbol, seg.era))
             if not spans and (vendor_answers is None or not vendor_answers.no_data):
                 continue
             for session in sessions[
@@ -528,7 +499,7 @@ def record_session_bars(
         tally = tallies[(symbol, day.year, era)]
         session = sessions_by_day[day]
         spans = spans_5m.get((symbol, vendor), ())
-        vendor_answers = answers.get((symbol, vendor))
+        vendor_answers = answers.get((symbol, era))
         assumed = _zero_bar_class(session, spans, vendor_answers)
         if assumed is not None:
             setattr(tally, assumed, getattr(tally, assumed) - 1)
@@ -738,38 +709,31 @@ GROUP BY r.symbol, c.day
 """
 
 
-# Every page of the vendor's coverage evidence (all outcomes: a failed page still marks where the
-# page before it ended), the run's last answer, and the per-window request budget.
-_ANSWER_ROWS_SQL = """
-SELECT fetch_run_id::text, symbol, source, window_start, window_end, outcome,
-       partial_bars IS NULL OR partial_bars = '[]'::jsonb, answered_at
-FROM ohlcv_request
-WHERE timeframe = %(tf)s AND source = %(source)s AND route = %(route)s
-  AND what_to_show = %(what)s AND symbol = ANY(%(names)s)
-  AND window_start IS NOT NULL AND window_start < %(horizon)s
+# The complete asks of one coverage evidence triple, from ohlcv_ask_current (migration 581): one
+# row per ask with the asked window [ask_start, ask_end), its bars over every page, and complete
+# (a terminal page, no page missing, no failed or timeout page).
+_COMPLETED_ASKS_SQL = """
+SELECT symbol, ask_start, ask_end, n_bars
+FROM ohlcv_ask_current
+WHERE complete AND NOT has_partial
+  AND timeframe = %(tf)s AND source = %(source)s AND route = %(route)s
+  AND what_to_show = %(what)s AND symbol = ANY(%(names)s) AND ask_start < %(horizon)s
 """
-
-_RUN_LAST_ANSWER_SQL = """
-SELECT fetch_run_id::text, max(answered_at) FROM ohlcv_request
-WHERE fetch_run_id = ANY(%s::uuid[]) GROUP BY 1
-"""
-
-_APR_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
 
 
 def fetch_answers(
-    conn: Any, vendors: Iterable[str], names: Sequence[str], horizon: datetime
+    conn: Any, pairs: Iterable[tuple[str, str]], names: Sequence[str], horizon: datetime
 ) -> dict[tuple[str, str], Answers]:
-    """The proven 5m answer intervals of each vendor's coverage evidence triple."""
+    """The completed 5m answers per (symbol, era) of each pair's coverage evidence triple."""
     evidence = {source: (source, route, what) for source, route, what in COVERAGE_EVIDENCE}
-    rows: list[AnswerRow] = []
+    answers: dict[tuple[str, str], Answers] = {}
     with conn.cursor() as cur:
-        for vendor in vendors:
+        for vendor, kind in pairs:
             if vendor not in evidence:
                 continue
             source, route, what = evidence[vendor]
             cur.execute(
-                _ANSWER_ROWS_SQL,
+                _COMPLETED_ASKS_SQL,
                 {
                     "tf": TF_5M,
                     "source": source,
@@ -779,14 +743,11 @@ def fetch_answers(
                     "horizon": horizon,
                 },
             )
-            rows.extend(AnswerRow(*row) for row in cur.fetchall())
-        cur.execute(_RUN_LAST_ANSWER_SQL, (sorted({r.fetch_run_id for r in rows}),))
-        run_last = dict(cur.fetchall())
-        cur.execute(_APR_VALUE_SQL, (NIGHTLY_MAX_REQUESTS_KEY,))
-        budget = cur.fetchone()
-    if budget is None:
-        raise KeyError(f"APR key {NIGHTLY_MAX_REQUESTS_KEY} is not seeded")
-    return proven_answers(rows, run_last, int(budget[0]))
+            era = era_label(vendor, kind)
+            asks = (CompletedAsk(*row) for row in cur.fetchall())
+            for symbol, found in merge_answers(asks).items():
+                answers[(symbol, era)] = found
+    return answers
 
 
 def fetch_policy(conn: Any, timeframe: str) -> list[PolicyRow]:
@@ -924,7 +885,7 @@ def run_data_gate(
     spans_5m, spans_1d = fetch_empty_spans(conn, TF_5M), fetch_empty_spans(conn, TF_1D)
 
     pairs = sorted({(seg.vendor, seg.kind) for segs in segments.values() for seg in segs})
-    answers = fetch_answers(conn, sorted({vendor for vendor, _ in pairs}), names, horizon)
+    answers = fetch_answers(conn, pairs, names, horizon)
     tallies = session_tallies(segments, sessions, spans_5m, answers)
     for tally_key, n in fetch_1d_counts(conn, segments, days, horizon).items():
         tallies[tally_key].with_1d = n

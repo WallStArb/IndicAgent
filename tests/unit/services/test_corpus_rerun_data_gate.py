@@ -76,9 +76,8 @@ class Fixture:
     bars_5m: dict[tuple[str, str, str, date], int] = field(default_factory=dict)
     spans: list[gate.EmptySpan] = field(default_factory=list)
     session_ids: dict[str, str] = field(default_factory=dict)
-    answers: list[gate.AnswerRow] = field(default_factory=list)
-    run_last: dict[str, datetime] = field(default_factory=dict)
-    max_pages: int = 4000
+    # (vendor, ask, complete, has_partial_bars): the rows of ohlcv_ask_current
+    asks: list[tuple[str, gate.CompletedAsk, bool, bool]] = field(default_factory=list)
 
     def add_name(self, symbol: str, start: date, *, full: bool = True) -> None:
         """A name whose every session from start to the horizon has its 1d bar and, when full,
@@ -162,13 +161,21 @@ class Fixture:
                     yield symbol, day, n
 
         monkeypatch.setattr(gate, "iter_5m_session_bars", bars)
-        monkeypatch.setattr(
-            gate,
-            "fetch_answers",
-            lambda conn, vendors, names, horizon: gate.proven_answers(
-                [r for r in self.answers if r.source in vendors], self.run_last, self.max_pages
-            ),
-        )
+
+        def answers(conn, pairs, names, horizon):
+            # The view filter of _COMPLETED_ASKS_SQL (complete, no partial bars), per pair.
+            out = {}
+            for vendor, kind in pairs:
+                asks = [
+                    a
+                    for v, a, complete, partial in self.asks
+                    if v == vendor and complete and not partial
+                ]
+                for symbol, found in gate.merge_answers(asks).items():
+                    out[(symbol, gate.era_label(vendor, kind))] = found
+            return out
+
+        monkeypatch.setattr(gate, "fetch_answers", answers)
         return gate.run_data_gate(None, None, apr, horizon=HORIZON)
 
 
@@ -471,111 +478,84 @@ def test_sql_reads_the_named_sources_and_holds_no_date_or_kind_literal():
 
 # --------------------------------------------------------------------------- completed answers
 
-_THIN_DAYS = (date(2016, 2, 8), date(2016, 2, 13))
-_RUN = "run-1"
+_THIN = (date(2015, 6, 8), date(2015, 6, 13))  # five IBKR-era sessions
+_WEEK = (datetime(2015, 6, 8, tzinfo=UTC), datetime(2015, 6, 13, tzinfo=UTC))
 
 
-def _utc(day: date, hour: int = 0) -> datetime:
-    return datetime.combine(day, datetime.min.time(), tzinfo=UTC) + timedelta(hours=hour)
+def _ask(n_bars: int = 15, *, complete: bool = True, partial: bool = False):
+    return ("ibkr", gate.CompletedAsk("AAA", *_WEEK, n_bars), complete, partial)
 
 
-def _answer(
-    start: datetime,
-    end: datetime,
-    outcome: str = "bars",
-    *,
-    clean: bool = True,
-    run: str = _RUN,
-    at: datetime | None = None,
-    symbol: str = "AAA",
-) -> gate.AnswerRow:
-    return gate.AnswerRow(
-        run, symbol, "alpaca", start, end, outcome, clean, at or datetime(2016, 3, 1, 5, tzinfo=UTC)
-    )
-
-
-def _thin_world(*answers: gate.AnswerRow, later_request: bool = True) -> Fixture:
-    """AAA from 2016-01-04 with five thin sessions (3 bars each) in the week of Feb 8."""
+def _thin_world(*asks) -> Fixture:
+    """AAA from 2015-01-02 with five thin IBKR-era sessions (3 bars each)."""
     world = Fixture()
-    world.add_name("AAA", date(2016, 1, 4))
-    for day in _sessions(*_THIN_DAYS):
-        world.bars_5m[("AAA", "alpaca", "sip_rth", day)] = 3
-    world.answers = list(answers)
-    if later_request:
-        world.run_last = {_RUN: datetime(2016, 3, 1, 6, tzinfo=UTC)}
+    world.add_name("AAA", date(2015, 1, 2))
+    for day in _sessions(*_THIN):
+        world.bars_5m[("AAA", "ibkr", "named", day)] = 3
+    world.asks = list(asks)
     return world
 
 
-_WEEK = (_utc(date(2016, 2, 8)), _utc(date(2016, 2, 13)))
-
-
-def test_thin_session_inside_a_completed_answer_counts(monkeypatch):
-    result = _thin_world(_answer(*_WEEK)).run(monkeypatch)
+def test_thin_session_inside_a_complete_ask_counts(monkeypatch):
+    result = _thin_world(_ask()).run(monkeypatch)
     assert result.ok
-    counts = result.eras["alpaca/sip_rth"]
+    counts = result.eras["ibkr/named"]
     assert (counts.answer_complete, counts.partial_sessions) == (5, 0)
     assert counts.names_at_depth == 1 and counts.names_at_depth_by_bars == 0
 
 
-@pytest.mark.parametrize("outcome", ["failed", "timeout"])
-def test_thin_session_inside_a_failed_or_timeout_answer_does_not_count(monkeypatch, outcome):
-    result = _thin_world(_answer(*_WEEK, outcome)).run(monkeypatch)
+def test_thin_session_inside_an_incomplete_ask_does_not_count(monkeypatch):
+    """No terminal page, a page gap, or a failed or timeout page: the view says incomplete."""
+    result = _thin_world(_ask(complete=False)).run(monkeypatch)
     assert not result.ok
-    assert result.eras["alpaca/sip_rth"].partial_sessions == 5
+    assert result.eras["ibkr/named"].partial_sessions == 5
 
 
-def test_thin_session_with_no_answer_does_not_count(monkeypatch):
+def test_thin_session_with_no_ask_does_not_count(monkeypatch):
     result = _thin_world().run(monkeypatch)
-    assert result.eras["alpaca/sip_rth"].partial_sessions == 5
-    assert result.eras["alpaca/sip_rth"].answer_complete == 0
+    assert result.eras["ibkr/named"].partial_sessions == 5
+    assert result.eras["ibkr/named"].answer_complete == 0
 
 
-def test_answer_with_partial_bars_proves_nothing(monkeypatch):
-    result = _thin_world(_answer(*_WEEK, clean=False)).run(monkeypatch)
-    assert result.eras["alpaca/sip_rth"].partial_sessions == 5
+def test_ask_with_partial_bars_does_not_count(monkeypatch):
+    result = _thin_world(_ask(partial=True)).run(monkeypatch)
+    assert result.eras["ibkr/named"].partial_sessions == 5
 
 
-def test_window_whose_run_asked_nothing_later_is_not_proven(monkeypatch):
-    """A deadline stops the run: the window's last page may not be its final page."""
-    result = _thin_world(_answer(*_WEEK), later_request=False).run(monkeypatch)
-    assert result.eras["alpaca/sip_rth"].partial_sessions == 5
+def test_ask_of_another_vendor_does_not_count(monkeypatch):
+    ask = ("alpaca", gate.CompletedAsk("AAA", *_WEEK, 15), True, False)
+    result = _thin_world(ask).run(monkeypatch)
+    assert result.eras["ibkr/named"].partial_sessions == 5
 
 
-def test_window_that_spent_its_request_budget_is_not_proven(monkeypatch):
-    world = _thin_world(_answer(*_WEEK))
-    world.max_pages = 1
-    assert world.run(monkeypatch).eras["alpaca/sip_rth"].partial_sessions == 5
-
-
-def test_page_proves_only_up_to_the_next_page_start():
-    """Two pages of one window: page 1 proves [start, page 2 start), page 2 the rest only when
-    final."""
+def test_merge_joins_touching_windows_and_keeps_empty_asks_as_no_data():
     start, end = _WEEK
-    resume = _utc(date(2016, 2, 10), 18)
-    pages = [_answer(start, end), _answer(resume, end, at=datetime(2016, 3, 1, 5, 1, tzinfo=UTC))]
-    later = {_RUN: datetime(2016, 3, 1, 6, tzinfo=UTC)}
-    whole = gate.proven_answers(pages, later, 4000)[("AAA", "alpaca")]
-    assert (whole.starts, whole.ends) == ((start,), (end,))
-    cut = gate.proven_answers(pages, {}, 4000)[("AAA", "alpaca")]
-    assert (cut.starts, cut.ends) == ((start,), (resume,))
-    session = gate.Session(
-        date(2016, 2, 11), _utc(date(2016, 2, 11), 14), _utc(date(2016, 2, 11), 21)
+    mid = datetime(2015, 6, 10, tzinfo=UTC)
+    merged = gate.merge_answers(
+        [
+            gate.CompletedAsk("AAA", start, mid, 4),
+            gate.CompletedAsk("AAA", mid, end, 0),
+            gate.CompletedAsk("BBB", end, start, 0),  # empty window: ignored
+        ]
     )
-    assert whole.covers(session) and not cut.covers(session)
+    assert set(merged) == {"AAA"}
+    assert (merged["AAA"].starts, merged["AAA"].ends) == ((start,), (end,))
+    assert merged["AAA"].no_data == ((mid, end),)
 
 
-def test_zero_bar_session_inside_a_no_data_answer_is_no_trades(monkeypatch):
-    world = _thin_world(_answer(*_WEEK, "no_data"))
-    world.drop_5m("AAA", *_THIN_DAYS)
+def test_zero_bar_session_inside_an_empty_ask_is_no_trades(monkeypatch):
+    world = _thin_world(_ask(n_bars=0))
+    world.drop_5m("AAA", *_THIN)
     result = world.run(monkeypatch)
     assert result.ok
-    counts = result.eras["alpaca/sip_rth"]
+    counts = result.eras["ibkr/named"]
     assert (counts.no_trades, counts.missing_sessions) == (5, 0)
 
 
-def test_zero_bar_session_inside_a_bars_answer_stays_missing(monkeypatch):
-    """A bars answer with nothing stored for the session could be a lost insert."""
-    world = _thin_world(_answer(*_WEEK))
-    world.drop_5m("AAA", *_THIN_DAYS)
+def test_zero_bar_session_inside_an_ask_that_served_bars_stays_missing(monkeypatch):
+    """The ask served bars elsewhere in its window and never said no_data for these sessions:
+    no_trades needs the vendor's own empty answer (lead ruling 2026-11-05)."""
+    world = _thin_world(_ask(n_bars=7))
+    world.drop_5m("AAA", *_THIN)
     result = world.run(monkeypatch)
-    assert result.eras["alpaca/sip_rth"].missing_sessions == 5
+    assert result.eras["ibkr/named"].missing_sessions == 5
