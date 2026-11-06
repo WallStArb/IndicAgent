@@ -193,15 +193,15 @@ def test_the_drop_list_is_the_186_22_186_23_set():
 
 
 # ---------------------------------------------------------------------------
-# check_disk_guard (R-09 arithmetic; the margin is the caller's, never a literal here)
+# check_disk_guard (R-09 arithmetic; the reserve is the caller's APR value, never a literal)
 # ---------------------------------------------------------------------------
 
 
-def test_disk_guard_passes_when_free_covers_projected_working_and_margin():
+def test_disk_guard_passes_when_free_covers_projected_span_peak_and_wal():
     result = check_disk_guard(
         projected_compressed_bytes=400 * _GB,
-        largest_chunk_working_set_bytes=100 * _GB,
-        margin_bytes=50 * _GB,
+        span_peak_bytes=100 * _GB,
+        wal_bytes=50 * _GB,
         free_bytes=1000 * _GB,
         reserve_bytes=100 * _GB,
     )
@@ -211,8 +211,8 @@ def test_disk_guard_passes_when_free_covers_projected_working_and_margin():
 def test_disk_guard_passes_at_exact_equality():
     result = check_disk_guard(
         projected_compressed_bytes=500 * _GB,
-        largest_chunk_working_set_bytes=200 * _GB,
-        margin_bytes=100 * _GB,
+        span_peak_bytes=200 * _GB,
+        wal_bytes=100 * _GB,
         free_bytes=900 * _GB,
         reserve_bytes=100 * _GB,
     )
@@ -222,13 +222,20 @@ def test_disk_guard_passes_at_exact_equality():
 def test_disk_guard_fails_with_the_figures_in_gb():
     result = check_disk_guard(
         projected_compressed_bytes=700 * _GB,
-        largest_chunk_working_set_bytes=200 * _GB,
-        margin_bytes=100 * _GB,
+        span_peak_bytes=200 * _GB,
+        wal_bytes=100 * _GB,
         free_bytes=900 * _GB,
         reserve_bytes=100 * _GB,
     )
     assert not result.ok
     assert "700" in result.detail and "200" in result.detail and "900" in result.detail
+    # the span term and the WAL are reported by name (186-31)
+    assert "span peak 200 GB" in result.detail and "wal 100 GB" in result.detail
+
+
+def test_the_retired_regime_writer_is_no_longer_a_live_run_pattern():
+    """Retired in todo 590 and kept one cycle; 186-31 removes it."""
+    assert "regime_writer" not in rp.LIVE_RUN_PROCESS_PATTERN
 
 
 # ---------------------------------------------------------------------------
@@ -396,8 +403,8 @@ def _all_passing_inputs():
         "present_relations": frozenset(),
         "disk": {
             "projected_compressed_bytes": 400 * _GB,
-            "largest_chunk_working_set_bytes": 100 * _GB,
-            "margin_bytes": 50 * _GB,
+            "span_peak_bytes": 100 * _GB,
+            "wal_bytes": 50 * _GB,
             "free_bytes": 1000 * _GB,
             "reserve_bytes": 100 * _GB,
         },

@@ -94,6 +94,8 @@ from services._batch_utils import kernel_code_key as _kernel_code_key
 from services._batch_utils import load_config_service_sync as _load_config_service
 from services._batch_utils import make_worker_pool as _make_worker_pool
 from services._batch_utils import short_lived_conn as _short_lived_conn
+from services.corpus_rerun_apr import load_corpus_rerun_apr
+from services.corpus_rerun_budget import DiskGuardRefused, UnitDiskGuard
 from services.rebuild_preconditions import CoverageRow
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
@@ -1620,12 +1622,62 @@ def _purge_spool_root(root: Path) -> None:
         shutil.rmtree(stale, ignore_errors=True)
 
 
+_TABLE_BYTES_SQL = "SELECT hypertable_size(%s::regclass)"
+_MAX_WAL_BYTES_SQL = (
+    "SELECT setting::bigint * pg_size_bytes('1' || unit) FROM pg_settings "
+    "WHERE name = 'max_wal_size'"
+)
+# The filesystem holding the database volume (the compressed write session's own key).
+_DISK_PATH_KEY = "infra.compressed_hypertable_write_session.disk_path"
+_DISK_PATH_DEFAULT = "/"
+
+
+def feature_table_bytes(conn: Any) -> int:
+    """feature_vectors' stored bytes now (hypertable_size: every chunk, indexes included)."""
+    with conn.cursor() as cur:
+        cur.execute(_TABLE_BYTES_SQL, (_FEATURE_TABLE,))
+        return int(cur.fetchone()[0] or 0)
+
+
+def max_wal_bytes(conn: Any) -> int:
+    """max_wal_size, read live: the WAL the server may hold before a checkpoint."""
+    with conn.cursor() as cur:
+        cur.execute(_MAX_WAL_BYTES_SQL)
+        return int(cur.fetchone()[0])
+
+
+def database_free_bytes(cfg: ConfigService) -> int:
+    """Free bytes of the filesystem holding the database volume, now (statvfs)."""
+    return int(shutil.disk_usage(str(cfg.get_sync(_DISK_PATH_KEY, _DISK_PATH_DEFAULT))).free)
+
+
+def standalone_disk_guard(cfg: ConfigService, conn: Any) -> UnitDiskGuard:
+    """The unit guard of a stage run outside a corpus run: the budget base is the free space at
+    stage start, every limit from the same APR keys the run uses (migration 579)."""
+    apr = load_corpus_rerun_apr(cfg)
+    return UnitDiskGuard(
+        free_bytes_at_launch=database_free_bytes(cfg),
+        max_disk_fraction=apr.max_disk_fraction,
+        reserve_bytes=apr.disk_reserve_bytes,
+        wal_bytes=max_wal_bytes(conn),
+        stored_bytes_per_spool_byte=apr.stored_bytes_per_spool_byte,
+        free_bytes=lambda: database_free_bytes(cfg),
+    )
+
+
+def _spool_bytes(results: Sequence[dict], index: int) -> int:
+    paths = (Path(r["units"][index]["path"]) for r in results)
+    return sum(path.stat().st_size for path in paths if path.exists())
+
+
 def _write_group(
     prepared: _PreparedGroup,
     write_conn: Any,
     max_unit_rows: int,
     summary: dict[str, Any],
     completed_keys: set[str],
+    guard: UnitDiskGuard,
+    table_bytes: Callable[[], int],
 ) -> None:
     """Wait for a group's workers, then load its pending units one by one with bulk_load.
 
@@ -1634,6 +1686,12 @@ def _write_group(
     is its whole symbol chunk, so it cannot complete without every symbol). The spool values
     are real-range clamped upstream (`clamp_to_real_range_array`), so bulk_load is told and
     skips its per-row clamp. Removes the group's spool directory when done, whatever happened.
+
+    Before each COPY the disk guard projects the unit's stored bytes from its spool bytes; a
+    refusal counts the unit failed (reason disk_guard), writes no provenance row (the unit stays
+    pending and resumable) and raises DiskGuardRefused so the stage stops dispatching. After
+    each load the table's size delta over the unit's rows and spool bytes is recorded; the
+    largest stored-per-spool ratio seen tightens the guard from then on.
     """
     group = prepared.plan
     columns = feature_vectors_columns()
@@ -1655,7 +1713,7 @@ def _write_group(
                 units=len(prepared.pending),
             )
             return
-        for unit in prepared.pending:
+        for position, unit in enumerate(prepared.pending):
             declared = sum(r["units"][unit.index]["rows"] for r in results)
             if declared > max_unit_rows:
                 raise ValueError(
@@ -1664,7 +1722,31 @@ def _write_group(
                     f"{len(group.chunk)} symbols) spooled {declared} rows, above "
                     f"{_REBUILD_MAX_UNIT_ROWS_KEY}={max_unit_rows}; refusing before any write"
                 )
+            spool_bytes = _spool_bytes(results, unit.index)
+            try:
+                guard.check(spool_bytes)
+            except DiskGuardRefused as refusal:
+                summary["units_failed"] += 1
+                summary["disk_refused"] = {"batch_key": unit.spec.batch_key, **refusal.detail}
+                summary["failed_units"].append(
+                    {
+                        "batch_key": unit.spec.batch_key,
+                        "tf": group.tf,
+                        "reason": "disk_guard",
+                        **refusal.detail,
+                    }
+                )
+                _logger.error(
+                    "backfill_feature_factory.disk_guard_refused",
+                    batch_key=unit.spec.batch_key[:12],
+                    tf=group.tf,
+                    range_start=unit.spec.range_start.isoformat(),
+                    **refusal.detail,
+                )
+                summary["units_abandoned"] += len(prepared.pending) - position - 1
+                raise
             streams = [read_spool_rows(Path(r["units"][unit.index]["path"])) for r in results]
+            size_before = table_bytes()
             started = time.monotonic()
             try:
                 loaded = _bulk_load(
@@ -1701,6 +1783,15 @@ def _write_group(
             summary["units_loaded"] += 1
             summary["rows_loaded"] += loaded.row_count
             completed_keys.add(unit.spec.batch_key)
+            grown = table_bytes() - size_before
+            if loaded.row_count and spool_bytes:
+                summary["bytes_per_row_max"] = max(
+                    summary["bytes_per_row_max"], grown / loaded.row_count
+                )
+                summary["stored_per_spool_max"] = max(
+                    summary["stored_per_spool_max"], grown / spool_bytes
+                )
+                guard.observe(grown / spool_bytes)
             _logger.info(
                 "backfill_feature_factory.unit_loaded",
                 batch_key=unit.spec.batch_key[:12],
@@ -1750,6 +1841,71 @@ def _chunk_filter(chunk_indices: Sequence[int] | None, n_chunks: int) -> frozens
     return chosen
 
 
+def rebuild_code_key() -> str:
+    """The code key every rebuild unit carries (the registry's kernels for the table's outputs,
+    this module and the row contract), as the stage computes it."""
+    return unit_code_key(default_registry(), list(feature_vectors_output_columns()))
+
+
+@dataclasses.dataclass(frozen=True)
+class _StageContext:
+    """What a stage plans with: one definition shared by the stage and `planned_units`."""
+
+    cfg: ConfigService
+    config: FeatureFactoryConfig
+    all_timeframes: list[str]
+    target_timeframes: list[str]
+    max_unit_rows: int
+    code_key: str
+    apr_snapshot: dict[str, Any]
+    universe: list[str]
+    chunks: list[tuple[str, ...]]
+    starts: dict[str, datetime]
+
+
+def _stage_context(
+    settings: Settings, db_conn: Any, symbols: list[str] | None, timeframes: list[str] | None
+) -> _StageContext:
+    cfg = _load_config_service(db_conn)
+    config = _build_feature_factory_config(cfg)
+    all_timeframes = _get_target_timeframes(cfg)
+    symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
+    contracts = get_active_contracts(settings, dimension="compute_1d")
+    universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
+    return _StageContext(
+        cfg=cfg,
+        config=config,
+        all_timeframes=all_timeframes,
+        target_timeframes=_restrict_timeframes(all_timeframes, timeframes),
+        max_unit_rows=max_unit_rows,
+        code_key=rebuild_code_key(),
+        apr_snapshot=dataclasses.asdict(config),
+        universe=universe,
+        chunks=split_symbol_chunks(universe, symbols_per_chunk),
+        starts=proven_starts(db_conn, universe),
+    )
+
+
+def planned_units(
+    settings: Settings, db_conn: Any, horizon: datetime
+) -> tuple[list[BulkLoadSpec], set[str]]:
+    """Every unit of the full rebuild scope (every universe chunk, every target tf) with the
+    identity a stage would give it now, and the digest-blind symbols; plans only, computes and
+    writes nothing (the corpus rerun's feature_complete check, 186-31)."""
+    ctx = _stage_context(settings, db_conn, None, None)
+    specs: list[BulkLoadSpec] = []
+    blind: set[str] = set()
+    for chunk_index, chunk in enumerate(ctx.chunks):
+        for tf in ctx.all_timeframes:
+            plan = _plan_group(
+                db_conn, chunk_index, chunk, tf, horizon, ctx.code_key, ctx.apr_snapshot, ctx.starts
+            )
+            if plan is not None:
+                specs.extend(unit.spec for unit in plan.units)
+                blind |= plan.blind_symbols
+    return specs, blind
+
+
 def run_rebuild_stage(
     settings: Settings,
     symbols: list[str] | None,
@@ -1762,6 +1918,7 @@ def run_rebuild_stage(
     run_id: str | None = None,
     span: tuple[datetime, datetime] | None = None,
     chunk_indices: Sequence[int] | None = None,
+    disk_guard: UnitDiskGuard | None = None,
 ) -> dict[str, Any]:
     """Rebuild feature_vectors for the compute_eligible_1d universe (D-28, D-32a).
 
@@ -1788,34 +1945,36 @@ def run_rebuild_stage(
     planned and takes its completion from its own provenance row, filtered out or not, so the
     compression bound sees the true state of the whole stage, never an assumed one.
 
-    Returns the stage summary (units total, skipped, loaded, failed and out of scope; rows;
-    digest-blind symbols; the per (tf, year) chunk checklist of the executed scope; compression).
+    `disk_guard` (186-31) is checked before every unit's COPY; without one the stage builds its
+    own from the free space at its start and the corpus rerun APR (`standalone_disk_guard`). A
+    refusal stops the stage dispatching; the groups not yet loaded stay pending (no provenance
+    row) and the stage still compresses what it can, since compression frees space.
+
+    Returns the stage summary (units total, skipped, loaded, failed, abandoned and out of scope;
+    rows; digest-blind symbols; the per (tf, year) chunk checklist of the executed scope; the
+    executed scope's batch keys and the units adopted from another run; the largest measured
+    bytes per row and stored bytes per spool byte; the disk refusal; compression).
     """
     horizon = horizon or default_data_horizon()
     if horizon.tzinfo is None:
         raise ValueError("run_rebuild_stage: horizon must be tz-aware")
     if run_id is not None:
         run_id = parse_run_id(run_id)
-    cfg = _load_config_service(db_conn)
-    config = _build_feature_factory_config(cfg)
-    all_timeframes = _get_target_timeframes(cfg)
-    target_timeframes = _restrict_timeframes(all_timeframes, timeframes)
+    ctx = _stage_context(settings, db_conn, symbols, timeframes)
+    cfg, config, chunks, starts = ctx.cfg, ctx.config, ctx.chunks, ctx.starts
+    all_timeframes, target_timeframes = ctx.all_timeframes, ctx.target_timeframes
+    code_key, apr_snapshot, universe = ctx.code_key, ctx.apr_snapshot, ctx.universe
     in_span = _span_filter(span, target_timeframes)
-    symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
+    max_unit_rows = ctx.max_unit_rows
     block_rows = int(cfg.get_sync(_REBUILD_BLOCK_ROWS_KEY, _REBUILD_BLOCK_ROWS_DEFAULT))
     blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
     registry = default_registry()
     feature_outputs = list(feature_vectors_output_columns())
-    code_key = unit_code_key(registry, feature_outputs)
-    apr_snapshot = dataclasses.asdict(config)
+    guard = disk_guard if disk_guard is not None else standalone_disk_guard(cfg, db_conn)
     spool_root = spool_root or _SPOOL_ROOT_DEFAULT
     _purge_spool_root(spool_root)
 
-    contracts = get_active_contracts(settings, dimension="compute_1d")
-    universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
-    chunks = split_symbol_chunks(universe, symbols_per_chunk)
     executed_chunks = _chunk_filter(chunk_indices, len(chunks))
-    starts = proven_starts(db_conn, universe)
     without_start = sorted(set(universe) - set(starts))
     if without_start:
         _logger.warning(
@@ -1856,6 +2015,14 @@ def run_rebuild_stage(
         "chunks_compressed": 0,
         "compression": "not_run",
         "horizon": horizon.isoformat(),
+        # The executed scope's units by batch key, and those already completed under another
+        # run (adopted: their rows stay, their provenance row keeps its run, 186-31).
+        "scope_batch_keys": [],
+        "adopted": [],
+        "units_abandoned": 0,
+        "disk_refused": None,
+        "bytes_per_row_max": 0.0,
+        "stored_per_spool_max": 0.0,
     }
     blind: set[str] = set()
     planned: dict[tuple[tuple[str, ...], str], list[RebuildUnit]] = {}
@@ -1869,89 +2036,113 @@ def run_rebuild_stage(
         # from the reference ETFs' 1d bars before the horizon, installed per worker by the
         # pool initializer (never pickled into every task submit), and shared by every symbol.
         waiting: _PreparedGroup | None = None
-        for chunk_index, chunk in enumerate(chunks):
-            for tf in target_timeframes:
-                plan = _plan_group(
-                    db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
-                )
-                planned[(chunk, tf)] = [] if plan is None else plan.units
-                if plan is None:
-                    summary["empty_groups"] += 1
-                    continue
-                blind |= plan.blind_symbols
-                chunk_executes = executed_chunks is None or chunk_index in executed_chunks
-                pending: list[RebuildUnit] = []
-                for unit in plan.units:
-                    # Every planned unit takes its completion from its own provenance row before
-                    # any filter applies: `planned`, and so the compression bound, never assumes.
-                    completed = _completed_provenance_batch(db_conn, unit.spec) is not None
-                    if completed:
-                        completed_keys.add(unit.spec.batch_key)
-                    if not (chunk_executes and in_span(unit.spec)):
-                        summary["units_out_of_scope"] += 1
+        load = (guard, lambda: feature_table_bytes(db_conn))
+        try:
+            for chunk_index, chunk in enumerate(chunks):
+                for tf in target_timeframes:
+                    plan = _plan_group(
+                        db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
+                    )
+                    planned[(chunk, tf)] = [] if plan is None else plan.units
+                    if plan is None:
+                        summary["empty_groups"] += 1
                         continue
-                    summary["units_total"] += 1
-                    for year in unit.years:
-                        expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
-                    if completed:
-                        summary["units_skipped"] += 1
-                    else:
-                        spec = dataclasses.replace(unit.spec, run_id=run_id)
-                        pending.append(dataclasses.replace(unit, spec=spec))
-                if not pending:
-                    continue
-                if pool is None:
-                    reference = {
-                        name: _fetch_bars_from_db(db_conn, name, "1d", until=horizon)
-                        for name in (SPY, TLT, SHY, TIP, HYG, LQD)
-                    }
-                    cross_asset_by_date = build_cross_asset_series(
-                        reference[SPY],
-                        reference[TLT],
-                        reference[SHY],
-                        reference[TIP],
-                        reference[HYG],
-                        reference[LQD],
-                        config,
-                    )
-                    pool = _make_worker_pool(
-                        n_workers,
-                        blas_threads_per_worker,
-                        initializer=_rebuild_worker_init,
-                        initargs=(cross_asset_by_date, reference[SPY], reference[TLT]),
-                    )
-                spool_dir = Path(
-                    tempfile.mkdtemp(
-                        prefix=f"{_SPOOL_GROUP_PREFIX}{tf}-{chunk_index:04d}-", dir=spool_root
-                    )
-                )
-                unit_ranges = [
-                    (unit.index, (unit.spec.range_start, unit.spec.range_end)) for unit in pending
-                ]
-                futures = [
-                    pool.submit(
-                        _rebuild_worker,
-                        (
-                            symbol,
-                            tf,
-                            settings.database_url,
+                    blind |= plan.blind_symbols
+                    chunk_executes = executed_chunks is None or chunk_index in executed_chunks
+                    pending: list[RebuildUnit] = []
+                    for unit in plan.units:
+                        # Every planned unit takes its completion from its own provenance row before
+                        # any filter applies: `planned`, and so the compression bound, never assumes.
+                        row = _completed_provenance_batch(db_conn, unit.spec)
+                        completed = row is not None
+                        if completed:
+                            completed_keys.add(unit.spec.batch_key)
+                        if not (chunk_executes and in_span(unit.spec)):
+                            summary["units_out_of_scope"] += 1
+                            continue
+                        summary["units_total"] += 1
+                        summary["scope_batch_keys"].append(unit.spec.batch_key)
+                        owner = (
+                            None if row is None or row.get("run_id") is None else str(row["run_id"])
+                        )
+                        if run_id is not None and completed and owner != run_id:
+                            summary["adopted"].append(
+                                {
+                                    "unit_key": unit.spec.unit_key,
+                                    "batch_key": unit.spec.batch_key,
+                                    "adopted_from_run_id": owner,
+                                }
+                            )
+                        for year in unit.years:
+                            expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
+                        if completed:
+                            summary["units_skipped"] += 1
+                        else:
+                            spec = dataclasses.replace(unit.spec, run_id=run_id)
+                            pending.append(dataclasses.replace(unit, spec=spec))
+                    if not pending:
+                        continue
+                    if pool is None:
+                        reference = {
+                            name: _fetch_bars_from_db(db_conn, name, "1d", until=horizon)
+                            for name in (SPY, TLT, SHY, TIP, HYG, LQD)
+                        }
+                        cross_asset_by_date = build_cross_asset_series(
+                            reference[SPY],
+                            reference[TLT],
+                            reference[SHY],
+                            reference[TIP],
+                            reference[HYG],
+                            reference[LQD],
                             config,
-                            horizon,
-                            unit_ranges,
-                            str(spool_dir),
-                            block_rows,
-                            starts.get(symbol, _NO_FLOOR),
-                        ),
+                        )
+                        pool = _make_worker_pool(
+                            n_workers,
+                            blas_threads_per_worker,
+                            initializer=_rebuild_worker_init,
+                            initargs=(cross_asset_by_date, reference[SPY], reference[TLT]),
+                        )
+                    spool_dir = Path(
+                        tempfile.mkdtemp(
+                            prefix=f"{_SPOOL_GROUP_PREFIX}{tf}-{chunk_index:04d}-", dir=spool_root
+                        )
                     )
-                    for symbol in chunk
-                ]
-                prepared = _PreparedGroup(plan, pending, futures, spool_dir)
-                if waiting is not None:
-                    _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
-                waiting = prepared
-        if waiting is not None:
-            _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
-
+                    unit_ranges = [
+                        (unit.index, (unit.spec.range_start, unit.spec.range_end))
+                        for unit in pending
+                    ]
+                    futures = [
+                        pool.submit(
+                            _rebuild_worker,
+                            (
+                                symbol,
+                                tf,
+                                settings.database_url,
+                                config,
+                                horizon,
+                                unit_ranges,
+                                str(spool_dir),
+                                block_rows,
+                                starts.get(symbol, _NO_FLOOR),
+                            ),
+                        )
+                        for symbol in chunk
+                    ]
+                    previous, waiting = waiting, _PreparedGroup(plan, pending, futures, spool_dir)
+                    if previous is not None:
+                        _write_group(
+                            previous, write_conn, max_unit_rows, summary, completed_keys, *load
+                        )
+            if waiting is not None:
+                last, waiting = waiting, None
+                _write_group(last, write_conn, max_unit_rows, summary, completed_keys, *load)
+        except DiskGuardRefused:
+            # Stop dispatching: the group whose workers are still running is abandoned (its
+            # units have no provenance row and stay pending); compression below still runs.
+            if waiting is not None:
+                for future in waiting.futures:
+                    future.cancel()
+                summary["units_abandoned"] += len(waiting.pending)
         summary["digest_blind_symbols"] = sorted(blind)
         if blind:
             _logger.warning(

@@ -1365,7 +1365,7 @@ class _InlinePool:
 
     def submit(self, _fn, args):
         self.dispatched.append(args[0])
-        return SimpleNamespace(result=lambda: self._worker(args))
+        return SimpleNamespace(result=lambda: self._worker(args), cancel=lambda: False)
 
 
 class _BulkLoadRecorder:
@@ -1409,6 +1409,22 @@ class _FakeWriteConn:
 _HORIZON_YEAR_START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+def _roomy_guard(**overrides):
+    """A unit guard with room for anything (10 TB free, nothing grown) unless overridden."""
+    from services.corpus_rerun_budget import UnitDiskGuard
+
+    values = {
+        "free_bytes_at_launch": 10**13,
+        "max_disk_fraction": 0.7,
+        "reserve_bytes": 50 * 10**9,
+        "wal_bytes": 16 * 10**9,
+        "stored_bytes_per_spool_byte": 0.37,
+        "free_bytes": lambda: 10**13,
+    }
+    values.update(overrides)
+    return UnitDiskGuard(**values)
+
+
 def _run_rebuild_stage(
     monkeypatch,
     tmp_path,
@@ -1426,12 +1442,19 @@ def _run_rebuild_stage(
     run_id=None,
     span=None,
     chunk_indices=None,
+    disk_guard=None,
+    table_bytes=None,
 ):
     """Run run_rebuild_stage over canned group plans, a stub worker pool and a recording
     bulk_load; `compression_bound` returns `bound` and records its scope in `bound_calls`
     (or, with `real_bound`, runs for real over the canned plans and seeded completions).
     Returns (summary, pool, recorder, compress_calls)."""
-    completed = set(completed)
+    # batch key -> the completed provenance row (a bare key set: rows with no run)
+    completed = (
+        dict(completed)
+        if isinstance(completed, dict)
+        else {key: {"status": "completed"} for key in completed}
+    )
     worker = worker if worker is not None else _stub_worker({})
     recorder = bulk_load if bulk_load is not None else _BulkLoadRecorder()
     pool = _InlinePool(worker)
@@ -1458,7 +1481,7 @@ def _run_rebuild_stage(
     monkeypatch.setattr(
         module,
         "_completed_provenance_batch",
-        lambda conn, spec: {"status": "completed"} if spec.batch_key in completed else None,
+        lambda conn, spec: completed.get(spec.batch_key),
     )
     monkeypatch.setattr(module, "_make_worker_pool", lambda n, blas, **kw: pool)
     monkeypatch.setattr(module, "_bulk_load", recorder)
@@ -1478,6 +1501,9 @@ def _run_rebuild_stage(
         return bound
 
     monkeypatch.setattr(module, "compression_bound", _bound)
+    monkeypatch.setattr(
+        module, "feature_table_bytes", table_bytes if table_bytes is not None else lambda c: 0
+    )
     summary = module.run_rebuild_stage(
         settings=SimpleNamespace(database_url="postgresql://fake"),
         symbols=list(symbols) if symbols is not None else None,
@@ -1489,6 +1515,7 @@ def _run_rebuild_stage(
         run_id=run_id,
         span=span,
         chunk_indices=chunk_indices,
+        disk_guard=disk_guard if disk_guard is not None else _roomy_guard(),
     )
     return summary, pool, recorder, compress_calls
 
@@ -1888,6 +1915,141 @@ def test_without_a_run_the_specs_carry_no_run_id(monkeypatch, tmp_path):
     assert recorder.specs and {spec.run_id for spec in recorder.specs} == {None}
 
 
+# ---------------------------------------------------------------------------
+# 186-31: the unit disk guard, the measured ratios, the scope and the adopted units
+# ---------------------------------------------------------------------------
+
+_GUARD_TFS = ("1h", "15m", "1d")
+
+
+def _three_groups() -> tuple[dict, list]:
+    """One unit per group for (chunk 0, 1h), (chunk 0, 15m) and (chunk 0, 1d)."""
+    chunk = ("AAA", "BBB", "CCC")
+    specs = {tf: _unit_spec(*_YEAR, tf, chunk) for tf in _GUARD_TFS}
+    plans = {(0, tf): _group_plan(tf, [spec], chunk) for tf, spec in specs.items()}
+    return plans, [specs[tf] for tf in _GUARD_TFS]
+
+
+def _rows_worker():
+    when = datetime(2020, 3, 1, tzinfo=UTC)
+    return _stub_worker({s: {0: [when, when + timedelta(days=1)]} for s in ("AAA", "BBB", "CCC")})
+
+
+def test_a_unit_past_the_fraction_limit_is_refused_before_any_write_and_resumes_with_room(
+    monkeypatch, tmp_path
+):
+    """Growth since launch 680 GB of a 700 GB limit: a unit projecting more than the 20 GB left
+    (less the WAL) is refused before bulk_load (no provenance row), the stage stops dispatching,
+    the abandoned group's unit stays pending, compression still runs; a resume with room loads
+    every unit."""
+    plans, specs = _three_groups()
+    tight = _roomy_guard(
+        free_bytes_at_launch=10**12,
+        wal_bytes=10 * 10**9,
+        stored_bytes_per_spool_byte=10**7,  # a few KB of spool projects tens of GB
+        free_bytes=lambda: 10**12 - 680 * 10**9,
+    )
+    summary, pool, recorder, compress_calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        worker=_rows_worker(),
+        symbols=None,
+        timeframes=_GUARD_TFS,
+        disk_guard=tight,
+    )
+    assert recorder.load_order == []  # no COPY, so no provenance row for any unit
+    assert len(pool.dispatched) == 6  # the third group was never dispatched
+    assert summary["units_failed"] == 1 and summary["units_abandoned"] == 1
+    refused = summary["failed_units"][0]
+    assert refused["reason"] == "disk_guard" and refused["breached"] == "fraction_limit"
+    assert refused["batch_key"] in {s.batch_key for s in specs}
+    assert summary["disk_refused"]["growth_since_launch_bytes"] == 680 * 10**9
+    assert len(compress_calls) == 1  # the stage's compression still ran
+    assert summary["compression"] == "partial: units pending"
+
+    resumed, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, plans, worker=_rows_worker(), symbols=None, timeframes=_GUARD_TFS
+    )
+    assert sorted(recorder.load_order) == sorted(s.batch_key for s in specs)
+    assert resumed["units_failed"] == 0 and resumed["disk_refused"] is None
+
+
+def test_the_reserve_refuses_a_unit_even_inside_the_fraction_limit(monkeypatch, tmp_path):
+    plans, _specs = _three_groups()
+    low = _roomy_guard(
+        free_bytes_at_launch=10**12,
+        max_disk_fraction=0.9,
+        reserve_bytes=500 * 10**9,
+        free_bytes=lambda: 520 * 10**9,  # 480 GB grown of a 900 GB limit; 20 GB above reserve
+        wal_bytes=16 * 10**9,
+        stored_bytes_per_spool_byte=10**7,
+    )
+    summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, plans, worker=_rows_worker(), timeframes=_GUARD_TFS, disk_guard=low
+    )
+    assert recorder.load_order == [] and summary["disk_refused"]["breached"] == "reserve"
+
+
+def test_each_load_measures_bytes_per_row_and_the_stored_per_spool_ratio(monkeypatch, tmp_path):
+    """The table grows 6 MB per loaded unit (6 rows): 1 MB per row; the largest ratio over the
+    spool bytes reaches the summary and tightens the guard."""
+    plans, _specs = _three_groups()
+    sizes = iter(range(0, 10**9, 3 * 10**6))  # before/after pairs grow by 6 MB per unit
+    guard = _roomy_guard()
+    summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        worker=_rows_worker(),
+        timeframes=_GUARD_TFS,
+        disk_guard=guard,
+        table_bytes=lambda conn: next(sizes) * 2,
+    )
+    assert len(recorder.load_order) == 3
+    assert summary["bytes_per_row_max"] == pytest.approx(10**6)
+    assert summary["stored_per_spool_max"] > 0.37
+    assert guard.stored_bytes_per_spool_byte == summary["stored_per_spool_max"]
+
+
+def test_the_scope_lists_its_units_and_adopts_those_completed_under_another_run(
+    monkeypatch, tmp_path
+):
+    plans, specs = _three_groups()
+    other = "6fa459ea-ee8a-3ca4-894e-db77e160355e"
+    rows = {
+        specs[0].batch_key: {"status": "completed", "run_id": other},
+        specs[1].batch_key: {"status": "completed", "run_id": _RUN},
+    }
+    summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        plans,
+        completed=rows,
+        worker=_rows_worker(),
+        timeframes=_GUARD_TFS,
+        run_id=_RUN,
+    )
+    assert sorted(summary["scope_batch_keys"]) == sorted(s.batch_key for s in specs)
+    assert summary["adopted"] == [
+        {
+            "unit_key": specs[0].unit_key,
+            "batch_key": specs[0].batch_key,
+            "adopted_from_run_id": other,
+        }
+    ]
+    assert recorder.load_order == [specs[2].batch_key]
+
+
+def test_the_budget_module_does_no_io():
+    """The guard module stays pure: no database, filesystem or process call."""
+    import services.corpus_rerun_budget as budget
+
+    source = Path(budget.__file__).read_text()
+    for forbidden in ("psycopg", "import os", "shutil", "subprocess", "open("):
+        assert forbidden not in source, forbidden
+
+
 def test_feature_vectors_is_written_only_through_bulk_load():
     """D-28/D-24: the module holds no raw INSERT/UPDATE/COPY against feature_vectors (source
     grep); every row goes through bulk_load."""
@@ -2232,7 +2394,10 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
         prepared = module._PreparedGroup(
             plan, plan.units, [SimpleNamespace(result=lambda: payload)], spool_dir
         )
-        module._write_group(prepared, _FakeWriteConn(), 10**9, summary, set())
+        summary.update(bytes_per_row_max=0.0, stored_per_spool_max=0.0)
+        module._write_group(
+            prepared, _FakeWriteConn(), 10**9, summary, set(), _roomy_guard(), lambda: 0
+        )
     finally:
         module._bulk_load = real_bulk_load
     assert summary["units_loaded"] == 1 and summary["units_failed"] == 0

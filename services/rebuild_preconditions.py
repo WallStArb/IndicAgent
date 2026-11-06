@@ -1,6 +1,6 @@
 """D-32 rebuild preconditions, checked before the feature_vectors rebuild is launched.
 
-Consumed by 186-26's first task: it calls `fetch_coverage_inputs` (empty-history spans),
+Consumed by the corpus rerun's pin gate (186-31; first by 186-26's first task): it calls `fetch_coverage_inputs` (empty-history spans),
 `fetch_landed_markers`, `fetch_d2_inputs` (1d verdicts), `fetch_bar_verdict_inputs` (intraday
 verdicts) and `fetch_final_landed_markers`, passes the measured inputs (plus the pilot disk
 figures and the owner's margin) to `run_all`, and refuses to launch the rebuild on
@@ -15,9 +15,10 @@ fetch; phase 185 D3's venue-move recovery is not a precondition (recovered histo
 afterwards through content-digest keys and recomputes only affected ranges).
 
 Every check is pure over its measured inputs; the only I/O lives in the thin fetch
-helpers at the bottom, each tested against fakes. The module writes nothing. The disk
-margin is a parameter of `check_disk_guard` supplied by the caller (186-26 states it), per
-the APR-exempt derived-value rule; the module seeds no APR keys.
+helpers at the bottom, each tested against fakes. The module writes nothing. Since 186-31 the
+corpus rerun's pin gate (services/corpus_rerun.py) is the caller: `check_disk_guard` takes the
+next span's projected peak (services/corpus_rerun_budget.py), max_wal_size and the APR reserve
+(infra.corpus_rerun.disk_reserve_bytes); the module seeds no APR keys.
 """
 
 from __future__ import annotations
@@ -103,9 +104,6 @@ REQUIRED_DEPENDENCY_MARKERS: frozenset[str] = frozenset(
 LIVE_RUN_PROCESS_PATTERN = (
     "ic_engine",
     "backfill_feature_factory",
-    # Retired in todo 590; kept one cycle: an older worktree's copy still sees feature_vectors in
-    # its own write-session allow-list and could UPDATE the kernel table during a rebuild.
-    "regime_writer",
     "feature_vector_rebuild",
 )
 
@@ -268,15 +266,16 @@ def check_drops_landed(present_relations: frozenset[str] | set[str]) -> CheckRes
 
 def check_disk_guard(
     projected_compressed_bytes: int,
-    largest_chunk_working_set_bytes: int,
-    margin_bytes: int,
+    span_peak_bytes: int,
+    wal_bytes: int,
     free_bytes: int,
     reserve_bytes: int,
 ) -> CheckResult:
-    """R-09: free minus reserve must cover the projected final compressed size, the largest
-    uncompressed chunk working set, and the caller's stated margin (all measured on the
-    pilot chunk by 186-26). The margin is an argument, never a literal here."""
-    required = projected_compressed_bytes + largest_chunk_working_set_bytes + margin_bytes
+    """R-09: free minus reserve must cover the projected compressed size of what is still to be
+    written, the next span's projected peak less its compressed part (services/
+    corpus_rerun_budget.py, 186-31) and max_wal_size. The reserve is the caller's
+    (infra.corpus_rerun.disk_reserve_bytes), never a literal here."""
+    required = projected_compressed_bytes + span_peak_bytes + wal_bytes
     available = free_bytes - reserve_bytes
     gb = lambda b: f"{b / 1e9:.0f} GB"  # noqa: E731
     if available < required:
@@ -284,20 +283,20 @@ def check_disk_guard(
             "disk_guard",
             False,
             f"free {gb(free_bytes)} minus reserve {gb(reserve_bytes)} = {gb(available)} does not "
-            f"cover projected compressed {gb(projected_compressed_bytes)} + largest chunk working "
-            f"set {gb(largest_chunk_working_set_bytes)} + margin {gb(margin_bytes)} = {gb(required)}",
+            f"cover projected compressed {gb(projected_compressed_bytes)} + span peak "
+            f"{gb(span_peak_bytes)} + wal {gb(wal_bytes)} = {gb(required)}",
         )
     return CheckResult(
         "disk_guard",
         True,
         f"{gb(available)} available covers the {gb(required)} requirement "
-        f"(projected {gb(projected_compressed_bytes)}, working set "
-        f"{gb(largest_chunk_working_set_bytes)}, margin {gb(margin_bytes)})",
+        f"(projected {gb(projected_compressed_bytes)}, span peak {gb(span_peak_bytes)}, "
+        f"wal {gb(wal_bytes)})",
     )
 
 
 def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str) -> CheckResult:
-    """D-32a/D-01: no ic_engine, backfill_feature_factory, regime_writer or rebuild process
+    """D-32a/D-01: no ic_engine, backfill_feature_factory or rebuild process
     may be live, and no resumable run may be indicated (a resumable rebuild forbids edits to
     its import closure and would double-write the units it retakes)."""
     hits = sorted(
@@ -371,8 +370,8 @@ def run_all(
         check_drops_landed(present_relations),
         check_disk_guard(
             projected_compressed_bytes=disk["projected_compressed_bytes"],
-            largest_chunk_working_set_bytes=disk["largest_chunk_working_set_bytes"],
-            margin_bytes=disk["margin_bytes"],
+            span_peak_bytes=disk["span_peak_bytes"],
+            wal_bytes=disk["wal_bytes"],
             free_bytes=disk["free_bytes"],
             reserve_bytes=disk["reserve_bytes"],
         ),
@@ -401,6 +400,13 @@ WHERE timeframe = ANY(%s)
 """
 
 
+def fetch_empty_history_spans(conn: Any, tfs: Sequence[str]) -> list[tuple[str, str, str]]:
+    """The `ohlcv_empty_history` spans of the rebuild's tfs, as check_bar_coverage lists them."""
+    with conn.cursor() as cur:
+        cur.execute(_EMPTY_SPANS_SQL, (list(tfs),))
+        return [(symbol, tf, f"{first}..{last}") for symbol, tf, first, last in cur.fetchall()]
+
+
 def fetch_coverage_inputs(
     conn: Any, tfs: Sequence[str], symbols: Sequence[str]
 ) -> tuple[dict[tuple[str, str], CoverageRow], list[tuple[str, str, str]]]:
@@ -409,17 +415,12 @@ def fetch_coverage_inputs(
     tfs. Read-only; the statement timeout keeps a cold hypertable scan from holding a lock
     longer than the check needs."""
     rows: dict[tuple[str, str], CoverageRow] = {}
-    spans: list[tuple[str, str, str]] = []
     with conn.cursor() as cur:
         cur.execute("SET statement_timeout = '10min'")
         cur.execute(_COVERAGE_SQL, (list(tfs), list(symbols)))
         for symbol, tf, count, first, last in cur.fetchall():
             rows[(symbol, tf)] = CoverageRow(count=int(count), first=first, last=last)
-        cur.execute(_EMPTY_SPANS_SQL, (list(tfs),))
-        spans = [
-            (symbol, tf, f"{first_text}..{last_text}")
-            for symbol, tf, first_text, last_text in cur.fetchall()
-        ]
+        spans = fetch_empty_history_spans(conn, tfs)
         # Session-level setting: restore it so a caller reusing the connection for longer
         # work does not inherit the cap.
         cur.execute("RESET statement_timeout")
