@@ -68,6 +68,9 @@ When both exist, the industry-standard term is the concept; the project-specific
 
 A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. **v2.x definition — the mechanism that produced it has no live consumer as of 2026-07-02** (see CLAUDE.md Architecture). Was produced by I7 plugins, persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer), with a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`. `signal_events` is confirmed empty in production (verified 2026-09-04). The retired v3.0 analog was an `alpha_events` row (also deleted, phase 186); today the closest live concepts are the research layer's `attempt` and `book forecast` (E15), and `signal` itself is retired vocabulary in new code.
 
+**Prose note (2026-11-07):** in new research prose "signal" now means a `predictor`, the
+industry usage; the v2.x meaning above is archived and no new code builds on it.
+
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
 **Banned:** (none)
@@ -1547,13 +1550,15 @@ outcomes; a member without an `input` takes none.
 
 A pure, registered computation from a panel to a continuous score per (row, symbol), using only
 data through its row, with a declared memory and a pre-registered direction. It has no fitted
-parameters. What the research code calls a "signal" is a predictor.
+parameters. What the research code calls a "signal" is a predictor, and "signal" is the accepted
+industry word for it in prose (owner 2026-11-07), so "signal family" means a `family`.
 
-**Not:** a `signal` (the archived v2.x trade hypothesis with entry, direction and exit), an
-`alpha` (a validated edge), or an `alpha score` (the production ensemble's output).
+**Not:** the archived v2.x `signal` (a trade hypothesis with entry, direction and exit, now
+deleted), an `alpha` (a validated edge; there is no "alpha family" until a family survives the
+counted tests), or an `alpha score` (the production ensemble's output).
 **Banned:** (none)
-**Avoid:** "signal" for this concept in new research prose ("signal" is the archived v2.x term and
-"signal source" is banned under `intelligence vector`)
+**Avoid:** "signal source" (banned under `intelligence vector`). Code identifiers stay `predictor`;
+renaming them to `signal` risks moving recorded spec hashes for no gain over the prose alias.
 **Status:** active
 **Code surface:** `SignalSource` in `src/intelligence/research/signals.py`, whose name predates
 this entry and uses a banned term; rename to `Predictor` coordinated with phase 183, which is
