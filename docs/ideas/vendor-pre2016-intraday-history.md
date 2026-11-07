@@ -1,6 +1,6 @@
 # Buying pre-2016 US equity intraday history: vendor memo - Idea
 
-**Status:** Idea, 2026-11-04. A decision memo for the owner, filed by the todo 534 lane at the lead's
+**Status:** Idea, 2026-11-04; Massive purchase approved by the owner 2026-11-07 (todo 600). A decision memo for the owner, filed by the todo 534 lane at the lead's
 request (indicagent-16). Nothing purchased, no signups. Vendor facts come from the vendors' own pages
 on 2026-11-04 and are marked "unverified" where only marketing copy or a third party says so.
 **Author:** Claude (Opus 5.5), session ab, 2026-11-04.

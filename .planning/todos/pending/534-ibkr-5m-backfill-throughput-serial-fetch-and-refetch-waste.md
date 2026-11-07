@@ -84,6 +84,8 @@ recommended, FirstRate second), waiting on the owner.
 
 ## Owner decision 2026-11-04: IBKR only, survivorship bias accepted
 
+Superseded in part 2026-11-07: the owner reversed the no-purchase ruling; see todo 600 (Massive flat files). The IBKR backfill keeps running as the fallback until Massive passes its basis study.
+
 The owner declined buying pre-2016 intraday history (Massive and FirstRate, vendor memo). IBKR stays
 the only pre-2016 5m source, and its completion is the data gate for the corpus rerun (todo 584
 decision 1). IBKR serves only names that trade today and the universe was chosen today, so every

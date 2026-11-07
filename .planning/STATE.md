@@ -49,7 +49,7 @@ pushed (origin/main 5408fd495 or later) unless marked as a worktree.
 
 **Owner rulings in force.** No corpus compute (feature rerun, pilot included) until the data is
 complete (todo 584 decision 2026-11-04; the 186-32 data gate enforces it in code). No versioned
-table names (`_v2`). IBKR only for pre-2016 5m, survivorship caveat on every pre-2016 result.
+table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are admitted (owner 2026-11-07 reversed the 2026-11-04 no-purchase ruling; todo 600); survivorship caveat on every pre-2016 result until then.
 
 **Running now (leave them):**
 - IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the critical path. Coverage
@@ -77,7 +77,7 @@ table names (`_v2`). IBKR only for pre-2016 5m, survivorship caveat on every pre
    (gap_plan, `_d1_gaps`, D7 `_answered_windows_5m`) to complete asks only (`ohlcv_ask_current`),
    delete LOAD_COVERAGE_*, and measure the remaining genuine holes per year.
 3. **Close todo 587** on a full nightly D7 with digest_fresh 0 (fix e384c8425 landed).
-4. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
+4. **Todo 600** (owner 2026-11-07): buy Massive flat files, all symbols and years; needs the S3 key and secret in `.env`, then a real file listing and the basis study. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
    scrub); P2: 598 (nightly logs to journald), 589.
 5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
 
@@ -156,7 +156,7 @@ orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are
   233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the
   2026-11-05 01:13 baseline. The rerun runner (186-30, 186-31, 186-32) is on main, with the lead's
   disk rule (peak at or below 70% of free disk, span count derived, APR headroom guard). Next: the fix
-  batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase); pre-2016 results carry a survivorship caveat (todo 534).
+  batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase; reversed 2026-11-07, todo 600); pre-2016 results carry a survivorship caveat (todo 534).
 
 - **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
   gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the
