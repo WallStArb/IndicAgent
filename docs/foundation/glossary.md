@@ -1129,6 +1129,16 @@ Measurements of what market regime the HMM classifier believes we are in, and wi
 
 ## v3.0 Data Primitives
 
+### `feature group`
+
+A named set of features that share a computation type or use, for example price, volume, liquidity or regime. The code form is the module under `src/intelligence/features/kernels/`. A group carries no hypothesis and is never tested or counted on its own.
+
+**Not:** a `family` (a family is 3 to 8 members sharing one pre-registered mechanism and is the unit we test and count); an `intelligence vector` (an information domain that holds many families); a `FeatureVector` (one row of computed features for a symbol and bar), so do not call a grouping of features a feature vector.
+**Banned:** (none)
+**Status:** active
+
+---
+
 ### `FeatureVector`
 
 The typed struct of measurements produced by FeatureFactory for a single (symbol, tf, bar). One row in `feature_vectors` (the "50 columns" of the original design grew to hundreds; the exact set is the schema's). Contains exactly one value per I1-I4 measurement column — no JSONB, no nesting, no null-means-unknown ambiguity (null means the measurement was not computable for that bar, e.g. insufficient history).
