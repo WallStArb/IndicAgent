@@ -81,6 +81,8 @@ table names (`_v2`). IBKR only for pre-2016 5m, survivorship caveat on every pre
    scrub); P2: 598 (nightly logs to journald), 589.
 5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
 
+**If /tmp was wiped (reboot):** `data/backups/handoff-2026-11-07/` holds the 186-31 round-5 WIP as a patch on 5408fd495 and the re-ask launch scripts; its README says how to restore.
+
 **Working rules learned 2026-11-04..07 (binding):** a worker editing anything a timer or service
 runs (providers, the nightly, bar_derivation, D7, the fetcher, any shared writer, the dashboard)
 works in its own detached worktree off origin/main, never in the shared checkout; nothing
