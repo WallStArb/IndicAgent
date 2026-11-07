@@ -42,6 +42,53 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
+## Session handoff (2026-11-07 12:30Z, lead indicagent-4d; read this first)
+
+The Claude weekly limit is spent; the next session may run on another model. Everything below is
+pushed (origin/main 5408fd495 or later) unless marked as a worktree.
+
+**Owner rulings in force.** No corpus compute (feature rerun, pilot included) until the data is
+complete (todo 584 decision 2026-11-04; the 186-32 data gate enforces it in code). No versioned
+table names (`_v2`). IBKR only for pre-2016 5m, survivorship caveat on every pre-2016 result.
+
+**Running now (leave them):**
+- IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the critical path. Coverage
+  2026-11-06: of 1,177 pre-2016 names, 87 at depth, 491 partial, 599 none; about 8 days left.
+- Alpaca 5m re-ask (todo 596 step 2), session 2: pid 3340765, from worktree
+  `scratchpad/wt596` pinned at ce4ddab57, log `logs/alpaca_reask_596_20261107T1224Z.log`,
+  deadline about 04:10Z 2026-11-08. Session 1 (2026-11-06): 85,527 pages, 0 errors, 12,538 of
+  12,539 asks complete, 1,139 names with all 11 windows complete. If unfinished at the deadline,
+  rerun `scratchpad/launch_reask.sh` from wt596 after the next nightly and D7 (it resumes with
+  --skip-complete). The session-2 auto launcher refused (its 09:00Z D7 cutoff is too early; D7
+  ends about 11:25Z) and was launched by hand.
+  (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
+
+**Next, in order:**
+1. **186-31 round 5** (corpus rerun step runner, review loop): uncommitted work in worktree
+   `scratchpad/wt18631g` (corpus_rerun.py, feature_factory.py and the kernels _primitives,
+   liquidity, price, smc, vp_sr). Finish: event-column presence from knowability (censored rows
+   count present+NaN), invalid input (ATR) counts present+NaN not absent, opening_gap_pct decoupled
+   from the ATR fallback, roll_spread absent only when cov > 0, object_share_gate loops over the
+   APR target tfs; parity goldens regenerated in their own commit; repro_frozen; push. Then an
+   independent review (round 6) until it finds nothing material. Rounds 1-4 landed: 8d1b35c52 to
+   5408fd495, migrations 582 and 583.
+2. **596 step 3** after the re-ask completes: review the basis-change restatements session 1
+   flagged (634,099 changed rows; `ops_restatement_review.py`), then switch the readers
+   (gap_plan, `_d1_gaps`, D7 `_answered_windows_5m`) to complete asks only (`ohlcv_ask_current`),
+   delete LOAD_COVERAGE_*, and measure the remaining genuine holes per year.
+3. **Close todo 587** on a full nightly D7 with digest_fresh 0 (fix e384c8425 landed).
+4. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
+   scrub); P2: 598 (nightly logs to journald), 589.
+5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
+
+**Working rules learned 2026-11-04..07 (binding):** a worker editing anything a timer or service
+runs (providers, the nightly, bar_derivation, D7, the fetcher, any shared writer, the dashboard)
+works in its own detached worktree off origin/main, never in the shared checkout; nothing
+unpushed stays on the shared main; every landing gets an independent review before it counts
+(self-review missed real defects every time); measure a defect class and its base rate before
+naming a rule; judge tests by the summary line or exit code, never a tail; after a dashboard
+package change, `npm ci` in the shared checkout before restarting the service.
+
 ## Current position (2026-11-04, paused by the owner)
 
 Operative plan: `docs/plans/2026-11-03-path-to-first-counted-test.md` (lead: indicagent-16).
