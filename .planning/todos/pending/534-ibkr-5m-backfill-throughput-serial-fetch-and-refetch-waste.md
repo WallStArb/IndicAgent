@@ -79,17 +79,10 @@ lanes give about 1.1M rows/h (8 collapsed to about 132k); the 5m chunk ceiling i
 cap 58 requests per 10 minutes. Coalescing small gap asks is not material (1.9% of server time;
 `gap_cluster_max_days` 90 already merges near holes). No IBKR extended-hours fetch (lead ruling).
 
-Buying the pre-2016 history instead: `docs/ideas/vendor-pre2016-intraday-history.md` (Massive
-recommended, FirstRate second), waiting on the owner.
+The pre-2016 purchase is decided: Massive flat files, todo 600 (memo `docs/ideas/vendor-pre2016-intraday-history.md`).
 
-## Owner decision 2026-11-04: IBKR only, survivorship bias accepted
+## Pre-2016 source: IBKR until Massive is admitted (owner 2026-11-07)
 
-Superseded in part 2026-11-07: the owner reversed the no-purchase ruling; see todo 600 (Massive flat files). The IBKR backfill keeps running as the fallback until Massive passes its basis study.
-
-The owner declined buying pre-2016 intraday history (Massive and FirstRate, vendor memo). IBKR stays
-the only pre-2016 5m source, and its completion is the data gate for the corpus rerun (todo 584
-decision 1). IBKR serves only names that trade today and the universe was chosen today, so every
-result whose sample includes pre-2016 5m carries a survivorship caveat in its record and summary
-card. Coverage at the decision (lead, from `ohlcv_raw` against each name's 1d start): of 1,177
+The owner declined the purchase on 2026-11-04 and reversed that on 2026-11-07 (todo 600). The IBKR backfill keeps running as the fallback and stays the data gate for the corpus rerun (todo 584 decision 1) until Massive passes its basis study. IBKR serves only names that trade today, so every result whose sample includes IBKR pre-2016 5m carries a survivorship caveat in its record and summary card. Coverage at the 2026-11-04 decision (lead, from `ohlcv_raw` against each name's 1d start): of 1,177
 names with 1d before 2016, 84 at depth, 410 partial, 683 none. Fetcher healthy at about 1M bars/h
 after the 2026-11-04 11:45 EST gateway restart race (one failed start, recovered on the 12:00 timer).

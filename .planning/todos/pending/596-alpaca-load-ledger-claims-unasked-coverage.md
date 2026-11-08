@@ -7,6 +7,8 @@ source: lead (indicagent-4d), from the 186-32 data-gate executor's live findings
 
 # The Alpaca 5m load ledger claims coverage nobody asked for; make it truthful, then re-ask
 
+Status 2026-11-08: steps 1 and 2 are done (truthful ledger, migration 581; re-ask complete for all 1,529 names, 21,439 complete asks; a tail pass to 2026-11-06 is running, so the span is one piece from 2016-01-04). Step 3 (restatement review, reader switch, LOAD_COVERAGE_* deletion) is held until the Massive basis study (todo 600) says whether those readers are worth keeping.
+
 ## What (measured 2026-11-05 by the 186-32 executor)
 
 1. `ohlcv_load` for Alpaca 5m (50,226 rows): `requested_start`/`requested_end` equal the first and

@@ -14,8 +14,7 @@ source: lead orchestrator (indicagent-4f), owner sequence 2026-11-01: data -> al
    5m back to its 1d start, or a recorded empty-history answer for the missing span (the vendor
    has none), and Alpaca 5m from 2016 is at its vendor ceiling (already true). Measured from
    `ohlcv_raw` and the fetcher's empty-history records, not inferred. Todo 534 is the lane; the
-   vendor memo (`docs/ideas/vendor-pre2016-intraday-history.md`) is the only lever that shortens
-   it. Fixes keep landing on main meanwhile; the pin moves once, when the gate passes.
+   Massive flat files (todo 600) are the lever that shortens it. Fixes keep landing on main meanwhile; the pin moves once, when the gate passes.
 2. **The 186-26 rows are gone.** Migration 569 (596942155) truncated `feature_vectors_v2`
    (298 GB, uncompressed because `compress_completed_chunks` runs only at a finished run's end)
    and flipped its 1,647 provenance records to `superseded`. Nothing resumes on pin `92e588385`.

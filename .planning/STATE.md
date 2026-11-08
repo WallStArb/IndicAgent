@@ -42,7 +42,7 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Session handoff (2026-11-07 12:30Z, lead indicagent-4d; read this first)
+## Session handoff (2026-11-07 12:30Z, lead indicagent-4d; refined 2026-11-08; read this first)
 
 The Claude weekly limit is spent; the next session may run on another model. Everything below is
 pushed (origin/main 5408fd495 or later) unless marked as a worktree.
@@ -53,14 +53,8 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 
 **Running now (leave them):**
 - IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the critical path. Coverage
-  2026-11-06: of 1,177 pre-2016 names, 87 at depth, 491 partial, 599 none; about 8 days left.
-- Alpaca 5m re-ask (todo 596 step 2), session 2: pid 3340765, from worktree
-  `scratchpad/wt596` pinned at ce4ddab57, log `logs/alpaca_reask_596_20261107T1224Z.log`,
-  deadline about 04:10Z 2026-11-08. Session 1 (2026-11-06): 85,527 pages, 0 errors, 12,538 of
-  12,539 asks complete, 1,139 names with all 11 windows complete. If unfinished at the deadline,
-  rerun `scratchpad/launch_reask.sh` from wt596 after the next nightly and D7 (it resumes with
-  --skip-complete). The session-2 auto launcher refused (its 09:00Z D7 cutoff is too early; D7
-  ends about 11:25Z) and was launched by hand.
+  2026-11-08: 745 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 44 names a day. Fallback once Massive is admitted (todo 600).
+- Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). A tail pass to 2026-11-06 runs from `scratchpad/wt596` (log `logs/alpaca_reask_596_tail_20261108T1405Z.log`); rerun the same command with `--skip-complete` if it did not finish. The re-ask range now runs 2016-01-04 to the last full session, in one piece.
   (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
 
 **Next, in order:**
@@ -72,12 +66,12 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
    APR target tfs; parity goldens regenerated in their own commit; repro_frozen; push. Then an
    independent review (round 6) until it finds nothing material. Rounds 1-4 landed: 8d1b35c52 to
    5408fd495, migrations 582 and 583.
-2. **596 step 3** after the re-ask completes: review the basis-change restatements session 1
+2. **596 step 3 (held until the Massive basis study, over-engineering ruling 2026-11-07)**: review the basis-change restatements session 1
    flagged (634,099 changed rows; `ops_restatement_review.py`), then switch the readers
    (gap_plan, `_d1_gaps`, D7 `_answered_windows_5m`) to complete asks only (`ohlcv_ask_current`),
    delete LOAD_COVERAGE_*, and measure the remaining genuine holes per year.
 3. **Close todo 587** on a full nightly D7 with digest_fresh 0 (fix e384c8425 landed).
-4. **Todo 600** (owner 2026-11-07): buy Massive flat files, all symbols and years; needs the S3 key and secret in `.env`, then a real file listing and the basis study. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
+4. **Todo 600 is the critical path** (owner 2026-11-07: buy Massive flat files, all symbols and years). The S3 key is in `.env` (`MASSIVE_S3_*`) and lists the bucket but downloads 403 on the free plan, so the owner must upgrade the plan; then download one 2010 file, check units and delisted names, run the pilot basis study, and write the deletion list. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
    scrub); P2: 598 (nightly logs to journald), 589.
 5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
 

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P0
 filed: 2026-11-07
 source: owner ruling 2026-11-07 (reverses the 2026-11-04 decision not to buy pre-2016 history)
 ---
