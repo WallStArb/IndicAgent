@@ -34,3 +34,4 @@ No corpus compute until the data is complete (2026-11-04 ruling); the IBKR backf
 - Simplify after admission (owner 2026-11-07, over-engineering concern): with whole-market daily files, completeness is "the file for each trading day exists and parses". If the basis study passes, write a deletion list covering the IBKR pre-2016 leg, the Alpaca ask-ledger readers (596 step 3) and most completeness gates; consider the same files for Alpaca-era history so one vendor and one path remain. Do not extend those systems before the study.
 - Flat files are said to be included in all paid plans (Mar 2024 blog, unconfirmed); check the current plans page.
 
+- Docs move in the same commit as the source-policy switch: the provider matrix in `docs/foundation/canonical-truth-registry.md`, the `bar_source_policy` docs, the survivorship caveat wording, and the landing copy line in `dashboard/src/lib/copy/landing.ts` ("IBKR and Alpaca bars").
