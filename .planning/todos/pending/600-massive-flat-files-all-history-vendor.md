@@ -35,3 +35,4 @@ No corpus compute until the data is complete (2026-11-04 ruling); the IBKR backf
 - Flat files are said to be included in all paid plans (Mar 2024 blog, unconfirmed); check the current plans page.
 
 - Docs move in the same commit as the source-policy switch: the provider matrix in `docs/foundation/canonical-truth-registry.md`, the `bar_source_policy` docs, the survivorship caveat wording, and the landing copy line in `dashboard/src/lib/copy/landing.ts` ("IBKR and Alpaca bars").
+- 2026-11-07/08 check: the account's S3 key (stored in `.env` as `MASSIVE_S3_*`) lists the bucket back to 2003 (a 2010 minute day file is about 13.5 MB, so about 3.4 GB a year) but every download returns 403 NOT_AUTHORIZED, minute and day aggregates, old and recent: the free plan lists only. The purchase is still needed; rerun the download check after upgrading.
