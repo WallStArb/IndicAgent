@@ -43,3 +43,21 @@ No corpus compute until the data is complete (2026-11-04 ruling); the IBKR backf
 2. Storage is not scope. Raw holds every symbol; research and compute scope come from a point-in-time membership table. Compute scales with scope (a 10k-name universe is roughly seven times today's), so widen in stages after the first counted test. Measure one year of raw rows before sizing the full load.
 3. Completeness is a file manifest (day file exists, parses, row count, hash), not an ask ledger. Once Massive is the selected pre-2016 source, the ask-ledger readers, gap_plan for this span and most D7 completeness checks are deletion candidates.
 4. Keep: the raw table design ((vendor, kind), last-wins, revision log), archive of the minute files, 5m aggregated in the leaf, 1m loaded only on demand; `bar_source_policy` names Massive for history and Alpaca nightly stays for recent days (files land about 11:00 ET the next day); raw keeps extended hours and selection cuts RTH explicitly (SIPs go 23/5 on 2026-12-06); prices stay unadjusted with splits from the corporate-action table.
+
+## Refine our layers from what Massive shows (owner 2026-11-08: improve ours where we can)
+
+Correction to the design notes above: the repo already has `listing_venue` (point-in-time exchange spans, migration 408) and `listing_end` (last listed session with reason and evidence, append-only, migration 518). Reuse them; do not coin "listing" for anything else. A symbol change is today "a spelling in `provider_meta`".
+
+In order of value:
+
+1. **Identity in three levels** (glossary entries first, per the naming rule; today no CIK, FIGI, CUSIP or ISIN is stored for any of the 1,529 instruments, and `provider_meta` is nearly empty):
+   - `issuer`: CIK and LEI, the legal entity; survives renames. Company-level data (filings, fundamentals, market cap) hangs here.
+   - `security identifier`: share class FIGI (never changes), CUSIP and ISIN (can change on corporate actions), each dated `[valid_from, valid_to)`, append-only. Bars attach here through the dated ticker map.
+   - ticker history: a dated `ticker_event` table (renames and reuse) replaces the `provider_meta` spelling. Venue stays `listing_venue`.
+   - Sources: Massive ticker details and ticker events (FIGI, share class FIGI, CIK, list date, delisted date); IBKR contract details for CUSIP and ISIN as a free cross-check (not captured today). Store reference responses raw, as served.
+2. **Definition epochs.** A small dated table per vendor and column recording semantic changes (volume units after Massive's 2026-02-23 fractional shares; bid and ask sizes in shares from 2025-11-03; the 23/5 session from 2026-12-06), so features cannot mix definitions silently. The revision log covers restated values, not changed meaning.
+3. **Session calendar as data.** A dated session definition (RTH, 23/5 from 2026-12-06, holidays and early closes) read by selection, instead of rules in code.
+4. **`trade_count`** (Massive `transactions`, Alpaca `n`) as a nullable column on `ohlcv_raw`; feeds scrub rules and liquidity features; kept out of compute until a consumer exists. Alpaca `vw` the same.
+5. **Completeness by file manifest** for Massive: day file exists, parses, row count, hash. Replaces the ask-ledger logic for the spans Massive owns.
+
+Not copied: versioned dataset paths (`_v1`) stay inside the leaf, never in table names.
