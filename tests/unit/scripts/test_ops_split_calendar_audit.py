@@ -250,7 +250,8 @@ class _Cursor:
                 ("threshold.split_continuity.rel_tol", "0.3"),
                 ("threshold.split_calendar.route_sessions", "3"),
             ]
-        self._row = None
+        # _routes_served's per-route observation check: the mock's every route is served.
+        self._row = (True,) if "EXISTS" in sql else None
 
     def fetchall(self):
         return self._rows
@@ -283,6 +284,19 @@ class _Conn:
 
     def __exit__(self, *exc):
         return False
+
+
+class _UndoneRouteConn(_Conn):
+    """A conn whose route-served check finds no observations: apply_rows must refuse."""
+
+    class Cursor(_Cursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "EXISTS" in sql:
+                self._row = (False,)
+
+    def cursor(self):
+        return self.Cursor(self)
 
 
 def _audit_file(tmp_path):
@@ -429,6 +443,9 @@ def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
             ("CME", date(2008, 7, 14)),
             ("OKE", date(2005, 4, 13)),
             ("NEXN", date(2025, 2, 18)),
+            # Todo 592 (2026-11-09): the MVBF doubled bar and the UHAL tenth-scale bar.
+            ("MVBF", date(2014, 4, 2)),
+            ("UHAL", date(2022, 11, 9)),
         ]
     )
 
@@ -451,3 +468,125 @@ def test_a_conflict_caused_by_a_listed_bad_bar_is_not_an_unconfirmed_split(tmp_p
     path = _write(tmp_path / "audit.csv", [cmcsa, {**cmcsa, "symbol": "OKE"}])
     bad = audit.operator_list(_write_bad_bars(tmp_path))
     assert [c["symbol"] for c in audit.unconfirmed_candidates(path, bad)] == ["OKE"]
+
+
+_ROWS_LINE = {
+    "symbol": "FBIZ",
+    "effective_date": "2015-08-18",
+    "factor": "0.5",
+    "unadjusted_routes": "ibkr/smart_trades",
+    "calendar_adjusted_step": "-0.000681",
+    "reason": "vendor anchored the 2015-08-31 2:1 at 2015-08-19",
+    "evidence": "Yahoo adjusted flat across both dates; IBKR steps 2x up at 08-19 (todo 592)",
+}
+
+
+def _write_rows(path, lines):
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=audit.OPERATOR_ROWS_COLUMNS)
+        writer.writeheader()
+        for line in lines:
+            writer.writerow({**_ROWS_LINE, **line})
+    return path
+
+
+def test_operator_rows_become_rows_in_the_tables_orientation(tmp_path):
+    rows = audit.operator_rows(
+        _write_rows(
+            tmp_path / "rows.csv",
+            [
+                {},
+                {
+                    "symbol": "WST",
+                    "effective_date": "2004-09-29",
+                    "factor": "2.0",
+                    "unadjusted_routes": "ibkr/smart_trades;alpaca/sip_rth",
+                    "calendar_adjusted_step": "0.014486",
+                },
+            ],
+        )
+    )
+    assert [(r["symbol"], r["action_type"], r["factor"]) for r in rows] == [
+        ("FBIZ", "reverse_split", 0.5),
+        ("WST", "split", 2.0),
+    ]
+    detail = rows[0]["detail"]
+    assert detail["unadjusted_routes"] == [{"vendor": "ibkr", "kind": "smart_trades"}]
+    assert detail["calendar_adjusted_step"] == -0.000681
+    assert detail["rows_file"] == "rows.csv" and len(detail["rows_sha256"]) == 64
+    assert detail["todo"] == 592 and detail["reason"] and detail["evidence"]
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"evidence": ""},  # every line needs its evidence
+        {"reason": ""},
+        {"factor": "1.0"},  # a factor of 1 is no rescale
+        {"factor": "0"},
+        {"calendar_adjusted_step": "nan"},
+        {"unadjusted_routes": "ibkr/smart_adjusted"},  # no rescalable series
+        {"unadjusted_routes": "ibkr/smart_trades;alpaca/sip_rth;x/y"},
+        {"effective_date": "not-a-date"},
+    ],
+)
+def test_an_unusable_operator_row_raises(tmp_path, edit):
+    with pytest.raises(ValueError):
+        audit.operator_rows(_write_rows(tmp_path / "rows.csv", [edit]))
+
+
+def test_an_operator_row_decided_twice_in_one_file_raises(tmp_path):
+    with pytest.raises(ValueError, match="decided twice"):
+        audit.operator_rows(_write_rows(tmp_path / "rows.csv", [{}, {}]))
+
+
+def test_operator_rows_roll_back_unless_commit(tmp_path, monkeypatch):
+    """The same guard as --apply (lead, todo 587): the default runs the inserts and rolls them
+    back."""
+    conn = _Conn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    assert audit.main(["--apply-rows", str(_write_rows(tmp_path / "rows.csv", [{}]))]) == 0
+    assert (conn.committed, conn.rolled_back) == (0, 1)
+    assert any("INSERT INTO corporate_action" in s for s in conn.statements)
+    conn2 = _Conn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn2)
+    assert (
+        audit.main(["--apply-rows", str(_write_rows(tmp_path / "rows.csv", [{}])), "--commit"]) == 0
+    )
+    assert (conn2.committed, conn2.rolled_back) == (1, 0)
+
+
+def test_apply_rows_skips_a_row_the_name_has_already_decided(tmp_path, monkeypatch):
+    """The existing-row guard is --apply-rows' only double-decide protection (review 2026-11-09):
+    a decided event is skipped, not inserted a second time."""
+
+    class _DecidedCursor(_Cursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "BETWEEN" in sql:  # _EXISTING_SQL: the name has a row near the date
+                self._rows = [("split",)]
+
+    class _DecidedConn(_Conn):
+        def cursor(self):
+            return _DecidedCursor(self)
+
+    conn = _DecidedConn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    assert (
+        audit.main(["--apply-rows", str(_write_rows(tmp_path / "rows.csv", [{}])), "--commit"]) == 0
+    )
+    assert (conn.committed, conn.rolled_back) == (1, 0)
+    assert not any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+def test_apply_rows_refuses_a_route_that_never_served_the_span(tmp_path, monkeypatch):
+    conn = _UndoneRouteConn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    with pytest.raises(ValueError, match="no raw 1d observations"):
+        audit.main(["--apply-rows", str(_write_rows(tmp_path / "rows.csv", [{}])), "--commit"])
+    # The refusal raises while reading, before the transaction: nothing written, nothing committed.
+    assert (conn.committed, conn.rolled_back) == (0, 0)
+    assert not any("INSERT INTO corporate_action" in s for s in conn.statements)

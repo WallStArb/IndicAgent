@@ -34,6 +34,12 @@ Two steps, with the evidence a reviewed, committed file between them:
 --apply CSV [--commit]: re-judge each confirmed line under the current APR and insert it unless
     the name already has any corporate_action row (current, superseded or void) within a week of
     the date; one transaction under bar_derivation_writer. Dry run unless --commit.
+--apply-rows CSV [--commit]: insert the operator rows file (todo 592) as corporate_action rows,
+    same transaction and same existing-row guard. The calendar itself cannot confirm these: the
+    vendor restated its history at its own date or depth (FBIZ, IJR, NVDA, PATK, WST), or the
+    split witness is another raw series rather than Yahoo's calendar (UHAL). Each line carries
+    the measured factor, the rescaled series, the day's real move, and its evidence; the rule
+    (d2-v5) rescales it exactly as a confirmed split. Dry run unless --commit.
 
 effective_date is the last day on the old scale (migration 400's definition).
 """
@@ -50,7 +56,7 @@ import statistics
 import sys
 import time
 from bisect import bisect_left
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -76,6 +82,7 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     RESCALABLE_SERIES,
     VENDOR_ALPACA,
     VENDOR_IBKR,
+    rescale_routes,
 )
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
@@ -400,6 +407,91 @@ def _route(key: str) -> dict[str, str]:
     return {"vendor": vendor, "kind": kind}
 
 
+# The operator rows file's columns (todo 592): every column required, every line its own evidence.
+OPERATOR_ROWS_COLUMNS = (
+    "symbol",
+    "effective_date",
+    "factor",
+    "unadjusted_routes",
+    "calendar_adjusted_step",
+    "reason",
+    "evidence",
+)
+
+
+# The factor plausibility bound (corporate_actions._MAX_SPLIT_TERMS's interface bound): a
+# recorded factor outside it is a hand-edit typo, not a measured vendor scale.
+_OPERATOR_ROWS_MAX_FACTOR = 50.0
+
+
+def operator_rows(path: Path) -> list[dict[str, Any]]:
+    """The operator rows file as corporate_action rows (todo 592): the rows the calendar cannot
+    confirm, measured by hand per the audit's per-series method and decided by the lead.
+
+    factor is the recorded old-scale/new-scale price the daily rule divides by, so a vendor whose
+    series sits at half the correct level records 0.5 (the rule doubles it) and an unadjusted
+    2:1 records 2.0; a measured factor need be no clean ratio (PATK's 2.5 is the vendor's exact
+    scale), so the only bound is the split-ratio interface bound. effective_date is the last day
+    on the old scale of the recorded series (migration 400). unadjusted_routes is the
+    ';'-joined rescalable series the rule rescales on or before it (RESCALABLE_SERIES; at least
+    one, each named once, the rule raises without). calendar_adjusted_step is the day's real
+    move at the effective date (Yahoo's adjusted close, or the witnessing series' own continuous
+    step), what D7 judges the date against. detail carries all of it, the reason, the evidence,
+    and the file's sha256. The symbol is stripped; every rejection names its line."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    rows: list[dict[str, Any]] = []
+    decided: set[tuple[str, date]] = set()
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            empty = [c for c in OPERATOR_ROWS_COLUMNS if not (line.get(c) or "").strip()]
+            if empty:
+                raise ValueError(f"{path.name}: {empty} missing on a line")
+            symbol, day = line["symbol"].strip(), date.fromisoformat(line["effective_date"])
+            where = f"{symbol} {day}"
+            factor = float(line["factor"])
+            if not (
+                math.isfinite(factor)
+                and 1.0 / _OPERATOR_ROWS_MAX_FACTOR <= factor <= _OPERATOR_ROWS_MAX_FACTOR
+                and factor != 1
+            ):
+                raise ValueError(f"{where}: unusable factor {factor!r}")
+            step = float(line["calendar_adjusted_step"])
+            if not math.isfinite(step):
+                raise ValueError(f"{where}: unusable calendar_adjusted_step {step!r}")
+            routes = []
+            for key in line["unadjusted_routes"].split(";"):
+                try:
+                    route = _route(key.strip())
+                except ValueError:
+                    raise ValueError(f"{where}: malformed route {key.strip()!r}") from None
+                # Raises on a series the rule cannot rescale.
+                rescale_routes(route["vendor"], route["kind"])
+                if route in routes:
+                    raise ValueError(f"{where}: {key.strip()} named twice")
+                routes.append(route)
+            if (symbol, day) in decided:
+                raise ValueError(f"{where}: decided twice in {path.name}")
+            decided.add((symbol, day))
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "action_type": "split" if factor > 1 else "reverse_split",
+                    "effective_date": day,
+                    "factor": factor,
+                    "detail": {
+                        "unadjusted_routes": routes,
+                        "calendar_adjusted_step": step,
+                        "reason": line["reason"].strip(),
+                        "evidence": line["evidence"].strip(),
+                        "rows_file": path.name,
+                        "rows_sha256": digest,
+                        "todo": 592,
+                    },
+                }
+            )
+    return rows
+
+
 def confirmed_rows(
     path: Path, params: AuditParams, excluded: Collection[tuple[str, date]] | None = None
 ) -> list[dict[str, Any]]:
@@ -471,10 +563,14 @@ def confirmed_rows(
     return rows
 
 
-def apply(settings: Settings, path: Path, *, commit: bool) -> int:
-    """One transaction: every confirmed row whose event is undecided; rolled back unless commit."""
+def _apply_decided(
+    settings: Settings, build_rows: Callable[[Any], Sequence[dict[str, Any]]], *, commit: bool
+) -> int:
+    """One connection, one transaction: build_rows reads what it needs on the same connection,
+    every decided row whose event is undecided is inserted, and the transaction rolls back
+    unless commit."""
     with psycopg.connect(settings.database_url) as conn:
-        rows = confirmed_rows(path, _apr(conn))
+        rows = build_rows(conn)
         cur = conn.cursor()
         cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
         written = 0
@@ -500,10 +596,58 @@ def apply(settings: Settings, path: Path, *, commit: bool) -> int:
             conn.commit()
         else:
             conn.rollback()
-    print(
-        f"{'wrote' if commit else 'dry run, would write'} {written} of {len(rows)} confirmed rows"
-    )
+    print(f"{'wrote' if commit else 'dry run, would write'} {written} of {len(rows)} decided rows")
     return 0
+
+
+def apply(settings: Settings, path: Path, *, commit: bool) -> int:
+    """One transaction: every confirmed row whose event is undecided; rolled back unless commit."""
+    return _apply_decided(settings, lambda conn: confirmed_rows(path, _apr(conn)), commit=commit)
+
+
+# Unlike --apply's re-judgment, nothing in the file itself proves the named series really carries
+# the span: a route named at the wrong vendor (or a date before either vendor's first bar) would
+# land cleanly and rescale nothing. Every recorded route must have raw observations on or before
+# the effective date, in the series' own session zone.
+_ROUTE_SERVED_SQL = """
+SELECT EXISTS (
+  SELECT 1 FROM ohlcv_raw
+  WHERE symbol = %s AND vendor = %s AND kind = %s AND timeframe = '1d'
+    AND ("timestamp" AT TIME ZONE %s)::date <= %s
+)
+"""
+
+
+def _routes_served(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """rows, after refusing any recorded route with no raw observations on or before its row's
+    effective date (a silent no-op row would leave the span unadjusted)."""
+    with conn.cursor() as cur:
+        for row in rows:
+            for route in row["detail"]["unadjusted_routes"]:
+                cur.execute(
+                    _ROUTE_SERVED_SQL,
+                    (
+                        row["symbol"],
+                        route["vendor"],
+                        route["kind"],
+                        RAW_DAILY_SESSION_ZONE[(route["vendor"], route["kind"])],
+                        row["effective_date"],
+                    ),
+                )
+                if cur.fetchone() != (True,):
+                    raise ValueError(
+                        f"{row['symbol']} {row['effective_date']}: no raw 1d observations of "
+                        f"{route['vendor']}/{route['kind']} on or before it"
+                    )
+    return rows
+
+
+def apply_rows(settings: Settings, path: Path, *, commit: bool) -> int:
+    """One transaction: the operator rows file's rows whose event is undecided (todo 592),
+    every recorded route checked to carry the span; rolled back unless commit."""
+    return _apply_decided(
+        settings, lambda conn: _routes_served(conn, operator_rows(path)), commit=commit
+    )
 
 
 # The loud flag of every calendar split left unconfirmed (lead ruling 2026-11-04): its first
@@ -655,6 +799,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--audit", action="store_true", help="judge the calendar into --out")
     mode.add_argument("--apply", type=Path, metavar="CSV", help="write an audit's confirmed rows")
     mode.add_argument(
+        "--apply-rows",
+        type=Path,
+        metavar="CSV",
+        help="write the operator rows file (todo 592) as calendar_audit rows",
+    )
+    mode.add_argument(
         "--quarantine-unconfirmed",
         type=Path,
         metavar="CSV",
@@ -665,8 +815,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbols", nargs="*", default=None)
     add_write_mode_args(
         parser,
-        dry_run="--apply/--quarantine-unconfirmed: report what would be written (default)",
-        commit="--apply/--quarantine-unconfirmed: write",
+        dry_run="--apply/--apply-rows/--quarantine-unconfirmed: report what would be written "
+        "(default)",
+        commit="--apply/--apply-rows/--quarantine-unconfirmed: write",
     )
     args = parser.parse_args(argv)
     settings = Settings()
@@ -675,6 +826,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--audit needs --out")
         print(audit(settings, args.symbols, args.out))
         return 0
+    if args.apply_rows:
+        return apply_rows(settings, args.apply_rows, commit=args.commit)
     if args.quarantine_unconfirmed:
         return asyncio.run(_quarantine(settings, args.quarantine_unconfirmed, commit=args.commit))
     return apply(settings, args.apply, commit=args.commit)
