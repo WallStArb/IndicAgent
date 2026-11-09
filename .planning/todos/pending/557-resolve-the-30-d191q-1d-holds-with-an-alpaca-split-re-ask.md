@@ -26,7 +26,8 @@ final row exists. Owner 2026-10-28: not worth delaying todo 545; revisit once te
 
 Both vendors' raw bars are kept in `ohlcv_raw`, so nothing is lost by waiting. The re-ask is a new
 fetch and compare path with its own review, and 545 gates daily testing for all 1,529 names.
-Resolve after the Tradier delete and the 1d re-derive, from corporate-action records.
+Resolve from corporate-action records; the stated preconditions (the Tradier delete and the 1d
+re-derive) both landed by 2026-10-30, so the todo is actionable whenever the data lane prioritizes it.
 
 ## Done when
 

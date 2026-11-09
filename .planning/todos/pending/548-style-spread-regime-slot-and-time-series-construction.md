@@ -33,4 +33,5 @@ neither can run through the research runner today:
 ## Done when
 
 Part A's pre-registered variant and Part B's book (if its power check passes) each run as one
-counted attempt through the runner, after plan 191-20's 1d re-derive.
+counted attempt through the runner, after the data-completion gate lifts (the 191-20 1d re-derive
+landed 2026-10-30; corpus compute is gated on todo 600, the 186-32 gate).
