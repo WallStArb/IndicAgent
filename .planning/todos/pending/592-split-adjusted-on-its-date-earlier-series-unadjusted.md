@@ -174,3 +174,24 @@ Held rows, no fix without vendor agreement (lead decides):
 - 587 bad-bar conflicts: NEXN 2025-02-14 x2.0 and OKE 2005-04-12 x1.985 - the sweep's
   junction/unrecorded diagnosis contradicts the landed 587 quarantine of the same event; the
   lead rules whether the rescale row replaces the quarantine.
+
+## Sweep rulings (lead indicagent-d8, 2026-11-10, on 0b's held list)
+
+1. Spin-off suspects with fractional calendar factors (BHP 2.0651, F 1.748, XPO 1.718): NO split
+   rescale. A spin-off's value drop is a distribution, not a split; rescaling would fabricate
+   price continuity across a real value transfer. Recorded as spin_off-suspect rows; they belong
+   to the distribution/dividend layer (todo 516's class), confirmed by Massive corporate events
+   or the 516 design.
+2. INSM (calendar 0.25 vs measured 0.199): hold. Never rescale against a contradicting
+   calendar; a witness decides (Massive).
+3. HSIC, OVV (single tape, no corroboration): hold, the no-witness-no-fix rule.
+4. RCAT x3: todo 454's ultra-thin series class owns it.
+5. TMUS (pre-break span ends 2013-04-30, break 2015-10-27): hold; the hole makes it undecidable
+   until coverage fills.
+6. NEXN x2.0 and OKE-2005 x1.985 vs the 587 quarantines: conditional land - if Yahoo-adjusted
+   corroborates the SUSTAINED factor, land the rescale row and retire the 587 quarantine in the
+   same change (a single-bar quarantine inside a sustained mis-scaled span is incoherent, and
+   the quarantine's no-corporate-action premise is superseded). If tape-only evidence, hold with
+   the others.
+Systemic: rerun `--sweep` after Massive is admitted (393 of the 449 reported are Yahoo-coverage
+holes; the reported mass should shrink materially).
