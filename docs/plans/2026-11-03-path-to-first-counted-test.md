@@ -13,6 +13,13 @@ lift) with three side lanes (data gaps, decisions, preregistration) that must be
 gate they feed. Lead plans, rules and verifies; Sonnet worker sessions execute; one worker per
 shared file set.
 
+## Amendment 2026-11-09 (owner: Massive flat files, todo 600)
+
+- The pre-2016 5m source can now be Massive instead of IBKR. The intraday data gate (todo 534's coverage target) is met by whichever completes first: IBKR coverage, or Massive admitted after its basis study. IBKR stays the running fallback.
+- Task 5: with Massive, pre-2016 5m arrives for all names at once, so the "re-derived incrementally later" case shrinks to names Massive lacks.
+- Task 7: the survivorship statement and the written universe depend on the entity-identity work in todo 600 (issuer, security identifier, ticker events, point-in-time membership). If Massive is admitted, delisted names enter raw and the statement narrows from "survivors only" to what the membership table cannot see.
+- New Task 9 (after the clean-data lift): the discovery sweep over all feature columns, levels 1 to 3, with the look count declared first (`docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md`, todo 601).
+
 ## Global constraints
 
 - One pin move, one rerun: every stored-value change lands before the pin moves; anything found

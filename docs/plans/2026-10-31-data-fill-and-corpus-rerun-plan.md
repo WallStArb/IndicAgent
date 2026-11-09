@@ -37,7 +37,7 @@ constraint on feature depth.
      symbol rows where the vendor serves, recorded refusal where it does not.
    - Stage-2b: the 573-released names build as their own unit on the same pin when stage 2
      drains. No rerun of the 1,252.
-2. **5m pre-2016 campaign (weeks, parallel, not blocking the daily lane).**
+2. **5m pre-2016 campaign (weeks, parallel, not blocking the daily lane).** Update 2026-11-09: Massive flat files (todo 600) may replace this campaign if its basis study passes; IBKR continues as the fallback meanwhile.
    - Decision point 2026-11-01 from the new pacing logs (commit a23af3551): pacing means a
      config fix; the wedge means a bounded todo 538 session (the 2026-10-31 py-spy stack is the
      starting evidence).
