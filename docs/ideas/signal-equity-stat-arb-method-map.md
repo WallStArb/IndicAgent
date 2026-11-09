@@ -31,9 +31,25 @@ Here that maps to S1 (target residualized against market and sector), the resear
 Only 1 (as a residual reversal member with a statistical factor model) and 3 (as a fitted combiner
 member, after E17's memory rule) are testable on the stored data without new inputs. Both would be
 pre-registered family members, counted under E18, and run after the 1d re-derive. 2 waits on a
-fundamentals source; 4 and 5 are closed; 6 is already queued; 7 is out of scope.
+fundamentals source; 4 and 5 wait on the todo 559 pre-registration (reopened 2026-10-28; the frozen
+verdicts stand, the concept is retried on its trading statistic); 6 is already queued; 7 is out of scope.
 
 Feature candidates these methods imply, and the pre-rebuild window for stored columns: `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md` (todo 558).
+
+## Estimator diagnostics for the reopened methods (todo 559)
+
+From a 16-model validation primer the owner pasted 2026-11-09 (source not stated): the checks that
+apply to the todo 559 estimators, as diagnostics the pre-registration states, never gates. The
+frozen verdict's lesson (ledger section 2) holds: the test unit is the family's trading statistic
+through the runner, not a cointegration null.
+
+- Spread health: out-of-sample ADF on the spread and half-life stability across windows. A half-life
+  that drifts is the relationship breaking, which is the member's stated falsification risk, not an
+  admission gate.
+- Kalman health: innovations whiteness (autocorrelated innovations flag mistuned process or
+  observation noise) and out-of-sample residual stationarity.
+- The primer's multiple-testing correction is subsumed by StepM at selection; no per-pair correction
+  is added.
 
 ## External read, checked against the repo (2026-10-28)
 

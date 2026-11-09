@@ -21,6 +21,12 @@ pre-registration exists. Mark the family's members and the universe, and state:
   named separately.
 - Estimators: a static hedge ratio, a Kalman time-varying hedge ratio, and the OU half-life
   (`ln 2 / kappa`) as a holding-horizon filter. Daily bars only, multi-day holds (no hyper-traded forms).
+- Diagnostics, stated in the pre-registration, never gates (the test unit is the trading statistic
+  through the runner; a cointegration null is what the frozen verdict wrongly gated on): out-of-sample
+  ADF on the spread and half-life stability across windows, where a drifting half-life is the stated
+  falsification risk for spread members; Kalman innovations whiteness (autocorrelated innovations
+  flag mistuned process or observation noise) and out-of-sample residual stationarity for the
+  time-varying hedge ratio. Multiple testing is StepM's job at selection, not a per-pair correction.
 - Construction: whether a pair spread fits the runner as a cross-sectional book of spread z-scores or
   needs the time-series book of todo 548 part B (the runner is R1 only today; check before choosing).
 - Counted: every look under E18; costs never enter the statistic, promotion needs positive net
