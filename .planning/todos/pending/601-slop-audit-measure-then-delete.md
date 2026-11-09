@@ -26,3 +26,7 @@ Vulture at 80% confidence finds only 4 items, so dead-code lint is clean; the sl
 ## Gates
 
 Never edit a module a live fingerprinted batch writer imports while its run is live or resumable. Each deletion: `/simplify`, `/review`, `pytest tests/unit/ -n auto`, and `repro_frozen` bit-identical when research or statistics files change. A column drop that touches a compressed hypertable follows the compressed-column migration template and ends with `VACUUM`.
+
+## First measurement, 2026-11-09 (literal-name scan, an upper bound)
+
+Of 311 `feature_vectors` columns, 104 are named in a research, service, measure or script module and 206 (66%) appear only in the kernels and `feature_factory.py` that produce them (examples: `aroon_*`, `cci_*`, `bars_since_*`, `bsl_dist_atr`, `choch_*`, `demand_*`, `breaker_*`). This overcounts unread columns: it misses dynamic reads (the IC measure over all columns, family selection by registry prefix). Next: join against the concept registry and the IC measure's column set, then split the 206 into read generically, read by a family, and truly unread. Do not drop any column on this scan alone.
