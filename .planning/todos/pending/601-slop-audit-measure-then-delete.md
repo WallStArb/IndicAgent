@@ -34,3 +34,13 @@ Of 311 `feature_vectors` columns, 104 are named in a research, service, measure 
 ## Ruling 2026-11-09 (owner): discovery over deletion for feature columns
 
 Columns are deleted only on data-quality grounds: constant, all-NULL, exact duplicates (the todo 564 class), or failing the volume, lookahead or basis checks. Everything else stays and is swept by the `ic_measure` proposer, Renaissance-style: measure IC across all of them, count every look against the vintage, select with StepM, promote only on positive net expectation. The proposer's coverage of all 311 columns is the thing to verify, and the multiple-testing count for a 206-column sweep must be declared before the sweep runs. The 66% figure above is a coverage-of-readers number, not a slop number. Code-side slop (duplicate factories, completeness logic Massive replaces, dead tests) is unchanged.
+
+## What the discovery sweep tests per feature (owner 2026-11-09)
+
+A feature that belongs to no family yet is evaluated three ways, in this order, each counted against the vintage:
+
+1. Alone: IC term structure across horizons (`ic_measure` today).
+2. Conditional on regime: IC split by the stored regimes (segment by regime). A near-zero pooled IC can hide a strong, sign-flipping conditional IC.
+3. Incremental: IC after controlling for existing family members (partial or orthogonalized IC), as a candidate input to the S7 combiner. A feature correlated with an existing member adds nothing whatever its own IC.
+
+Pairwise interactions are tested only for features that pass 1 or 2, or that carry a pre-registered mechanism. About 21,000 pairs among 206 columns would guarantee false positives; test hierarchically, declare the look count before the run, select with StepM. A feature that passes becomes a family member by pre-registration, never by an outcome screen alone (glossary: family).
