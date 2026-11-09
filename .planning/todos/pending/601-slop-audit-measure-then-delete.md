@@ -1,0 +1,28 @@
+---
+status: pending
+priority: P1
+filed: 2026-11-09
+source: owner 2026-11-09 ("clean up slop like Jim Simons would demand"); measured baseline below
+---
+
+# Slop audit: measure the consumer graph, then delete what has no reader
+
+## What
+
+Vulture at 80% confidence finds only 4 items, so dead-code lint is clean; the slop is structural. Baseline measured 2026-11-09:
+
+- `feature_vectors`: 311 stored columns; the number with no consumer is not yet counted.
+- Largest files: `feature_factory.py` 3,922 lines, `services/bar_reconciliation_audit.py` 3,146, `services/backfill_feature_factory.py` 2,424 (a second "feature factory": check for duplicated logic), `research/runner.py` 2,395, `kernels/price.py` 2,378, `providers/ibkr.py` 2,357, `services/_batch_utils.py` 2,241, `services/bar_derivation.py` 2,127.
+- Docs: 468 markdown files (17 in `docs/plans/`, 106 archived). Tests: 524 files.
+
+## Protocol (Musk 5-step, in order: requirements, delete, simplify, accelerate, automate)
+
+1. Consumer graph: for every `feature_vectors` column, find the kernel, family, book or registry row that reads it. No reader means a deletion candidate. Output is a table in `docs/research/` with the count; this also shrinks the corpus rerun.
+2. Compare `backfill_feature_factory` against `feature_factory`; merge or delete the duplicate path.
+3. After the Massive basis study (todo 600): delete the completeness logic it replaces (ask-ledger readers, most of D7 `bar_reconciliation_audit`, gap_plan for Massive spans).
+4. Remove tests in the same commit as the code they cover.
+5. Large-file splits only where step 1 or 2 shows a seam; size alone is not a reason.
+
+## Gates
+
+Never edit a module a live fingerprinted batch writer imports while its run is live or resumable. Each deletion: `/simplify`, `/review`, `pytest tests/unit/ -n auto`, and `repro_frozen` bit-identical when research or statistics files change. A column drop that touches a compressed hypertable follows the compressed-column migration template and ends with `VACUUM`.
