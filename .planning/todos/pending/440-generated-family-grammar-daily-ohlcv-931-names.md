@@ -36,3 +36,7 @@ A daily-clock spec declares `panel.total_return: {suspect_yield: <x>}`. Price-on
 carry every ex-dividend drop as a loss, which biases daily targets and can manufacture
 price-level signals on high-yield names. See `research/dividends.py`; state the suspect_yield
 (0.10 is the value the reference checks used) in the pre-registration.
+
+## Note 2026-11-09
+
+The grammar's primitives come from the data adjacency register (todo 603); its candidates share one look-count budget with the discovery sweep (todo 601).

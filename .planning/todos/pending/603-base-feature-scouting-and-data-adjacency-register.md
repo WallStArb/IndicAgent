@@ -1,0 +1,24 @@
+---
+status: pending
+priority: P1
+filed: 2026-11-09
+source: owner 2026-11-09 (a process that looks at the data we have and adjacent retrievable data, proposes new base features; same thinking for regimes and families)
+---
+
+# Base feature scouting: the data adjacency register, then admission gates
+
+## What
+
+Design: `docs/ideas/base-feature-scouting-and-the-research-ladder.md`. The proposer measures every numeric column that exists; nothing asks what should exist. Build the lowest rung first.
+
+## Steps
+
+1. Data adjacency register (a doc under `docs/reference/` first): one row per field each source serves or could serve (source, field, availability time, history start, retrieval cost, stored yes/no/partial, base features enabled, status). Seed from the Massive file columns and REST endpoints, Alpaca bar and quote fields, IBKR fields, FRED, Yahoo, EDGAR, FINRA; diff against `ohlcv_raw` and stored tables. Verify availability and point-in-time quality for each seed row before capture.
+2. Capture the cheap ones with the Massive onboarding (todo 600): trade count, VWAP, extended hours in raw, dated shares outstanding and market cap, splits, dividends and ticker events.
+3. Admission gate set as code (causality, memory, NaN-not-fill, asset-agnostic, point-in-time, unit-free, coverage floor, feature-to-feature uniqueness; never the target), recorded rejection reasons, registration through `ConceptRegistryService`.
+4. Negative-space log and the per-batch `L` increment in the ledger (shares the budget of todos 440 and 601).
+5. Glossary first (naming rule): `base feature` (composition `base`), `data adjacency register`, `admission gate`, before any code.
+
+## Gates
+
+No IC before admission. Capture carries no look count; every admitted column does. No model admits a feature.
