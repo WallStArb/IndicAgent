@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P0
 filed: 2026-11-04
+closed: 2026-11-09
 source: entity-continuity and split audit (indicagent-ab, read-only, 2026-11-04); design by the desk lead (indicagent-16)
 ---
 
@@ -155,3 +156,13 @@ Resume on the lead's go (historical):
 
 Open questions: a non-Yahoo witness for FBIZ's 2015-08 split; the OKE, PATK, RSPF
 scale breaks at the 2016-01-04 seam (with the other adjusted-on-date cases, todo 592); the CME 2007-07 to 2008-07 hole.
+
+## Closed 2026-11-09 (lead session)
+
+Step 6 verified on the full nightly D7 reports (logs/bar_reconciliation_audit.log*):
+split_continuity 1,529/1,529 passing every night since the landing (0 failing); digest_fresh 0
+failures (1,529/1,529, fix e384c8425 confirmed live); lineage_missing constant at 2 across all
+post-landing nights (2026-11-06 through 11-09), no degradation from the rescale. The 2026-11-09
+06:13Z report is the closing evidence. Still open and moved to their own todos: the nine
+adjusted-on-date cases (592), FBIZ's non-Yahoo split witness, the CME 2007-07 to 2008-07 hole;
+the multi-day-return span across `unconfirmed_split` breaks is recorded above as unsolved.

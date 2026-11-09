@@ -76,7 +76,9 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
    flagged (634,099 changed rows; `ops_restatement_review.py`), then switch the readers
    (gap_plan, `_d1_gaps`, D7 `_answered_windows_5m`) to complete asks only (`ohlcv_ask_current`),
    delete LOAD_COVERAGE_*, and measure the remaining genuine holes per year.
-3. **Close todo 587** on a full nightly D7 with digest_fresh 0 (fix e384c8425 landed).
+3. **Todo 587 CLOSED 2026-11-09**: the full nightly D7 is clean (split_continuity 1,529/1,529,
+   digest_fresh 0 failures, lineage_missing unchanged at 2 across post-landing nights; evidence in
+   the closure note). The 584 pin now waits only on complete data (534/600).
 4. **Todo 600 is the critical path** (owner 2026-11-07: buy Massive flat files, all symbols and years). The S3 key is in `.env` (`MASSIVE_S3_*`) and lists the bucket but downloads 403 on the free plan, so the owner must upgrade the plan; then download one 2010 file, check units and delisted names, run the pilot basis study, and write the deletion list. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
    scrub); P2: 598 (nightly logs to journald), 589.
 5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
