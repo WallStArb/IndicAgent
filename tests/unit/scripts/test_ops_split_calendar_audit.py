@@ -590,3 +590,180 @@ def test_apply_rows_refuses_a_route_that_never_served_the_span(tmp_path, monkeyp
     # The refusal raises while reading, before the transaction: nothing written, nothing committed.
     assert (conn.committed, conn.rolled_back) == (0, 0)
     assert not any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+# ---------------- The lone-break sweep (todo 592) ----------------
+#
+# classify_breaks is pure over the same shapes judge_events takes; each test mirrors one of the
+# ten landed cases' evidence patterns. Breaks arrive as the corpus pass reads them:
+# (date, step, prev vendor, prev kind, vendor, kind).
+
+
+def _brk(day, step, before=("ibkr", "named"), after=("ibkr", "named")):
+    return (day, round(step, 6), *before, *after)
+
+
+def _flat_calendar(days, closes, events=()):
+    """Yahoo priced rows at `closes` (a step never enters the adjusted close) plus events."""
+    return [(d, c, dict(events).get(d, 0.0)) for d, c in zip(days, closes, strict=True)]
+
+
+def test_a_next_session_reversal_is_the_odd_bar_class():
+    days = _DAYS[:8]
+    on = days[4]
+    canonical = [
+        (d, 10.0 if d < on else (20.0 if d == on else 10.0), "ibkr", "named") for d in days
+    ]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [10.0] * 8),
+        raw,
+        [_brk(on, math.log(2.0))],
+        _SESSIONS,
+    )
+    assert event.verdict == "single_bar_reversal"
+    assert event.next_step == pytest.approx(-math.log(2.0), abs=1e-6)
+
+
+def test_a_move_yahoo_adjusted_carries_is_real_and_left_alone():
+    days = _DAYS[:8]
+    on = days[4]
+    canonical = [(d, 10.0 if d < on else 45.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    step = math.log(4.5)
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [10.0] * 4 + [45.0] * 4),
+        raw,
+        [_brk(on, step)],
+        _SESSIONS,
+    )
+    assert event.verdict == "real_move"
+    assert event.yahoo_step == pytest.approx(step, abs=1e-6)
+
+
+def test_a_junction_whose_pre_series_sits_off_scale_takes_a_rescale_row():
+    # IJR: canonical served by ibkr/named at half the correct level, alpaca/sip_rth correct
+    # after the seam; Yahoo adjusted flat at the correct level throughout.
+    days = _DAYS[:12]
+    on = days[6]
+    canonical = [
+        (d, 34.0, "ibkr", "named") if d < on else (d, 68.0, "alpaca", "sip_rth") for d in days
+    ]
+    raw = {
+        ("ibkr", "smart_trades"): [(d, 34.0) for d in days if d < on],
+        ("alpaca", "sip_rth"): [(d, 68.0) for d in days if d >= on],
+    }
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [68.0] * 12),
+        raw,
+        [_brk(on, math.log(2.0), before=("ibkr", "named"), after=("alpaca", "sip_rth"))],
+        _SESSIONS,
+    )
+    assert event.verdict == "junction_rescale"
+    assert event.unadjusted_route == "ibkr/smart_trades"
+    assert event.factor == pytest.approx(0.5, abs=1e-4)
+    assert event.effective_date == days[5]
+
+
+def test_a_junction_whose_post_series_sits_off_scale_is_reported_not_fixed():
+    days = _DAYS[:12]
+    on = days[6]
+    canonical = [
+        (d, 68.0, "ibkr", "named") if d < on else (d, 34.0, "alpaca", "sip_rth") for d in days
+    ]
+    raw = {
+        ("ibkr", "smart_trades"): [(d, 68.0) for d in days if d < on],
+        ("alpaca", "sip_rth"): [(d, 34.0) for d in days if d >= on],
+    }
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [68.0] * 12),
+        raw,
+        [_brk(on, -math.log(2.0), before=("ibkr", "named"), after=("alpaca", "sip_rth"))],
+        _SESSIONS,
+    )
+    assert event.verdict == "reported"
+    assert "POST" in event.evidence
+
+
+def test_a_tape_switching_scale_under_a_calendar_event_is_the_fbiz_class():
+    # FBIZ: the same ibkr series serves both sides but the vendor switched its adjustment at
+    # its own anchor; Yahoo adjusted never moves and its calendar holds the event nearby.
+    days = _DAYS[:12]
+    on = days[6]
+    canonical = [(d, 11.0 if d < on else 22.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    calendar = _flat_calendar(days, [22.0] * 12, events={days[10]: 2.0})
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        calendar,
+        raw,
+        [_brk(on, math.log(2.0))],
+        _SESSIONS,
+    )
+    assert event.verdict == "inseries_rescale"
+    assert event.factor == pytest.approx(0.5, abs=1e-4)
+    assert event.unadjusted_route == "ibkr/smart_trades"
+    assert event.effective_date == days[5]
+
+
+def test_a_tape_scale_switch_with_no_calendar_is_an_unrecorded_reverse_split_on_the_jump_side():
+    # UHAL's 11-10: the raw tape jumps 10x where no calendar record exists; factor < 1 means
+    # reverse_split, measured, never assumed from the direction.
+    days = _DAYS[:12]
+    on = days[6]
+    canonical = [(d, 5.2 if d < on else 52.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [52.0] * 12),
+        raw,
+        [_brk(on, math.log(10.0))],
+        _SESSIONS,
+    )
+    assert event.verdict == "unrecorded_split"
+    assert event.factor == pytest.approx(0.1, abs=1e-4)
+    assert event.factor < 1
+
+
+def test_a_flat_tape_against_a_stepping_canonical_is_reported():
+    days = _DAYS[:12]
+    on = days[6]
+    canonical = [(d, 10.0 if d < on else 20.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, 10.0) for d in days]}
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [20.0] * 12),
+        raw,
+        [_brk(on, math.log(2.0))],
+        _SESSIONS,
+    )
+    assert event.verdict == "reported"
+
+
+def test_a_break_yahoo_cannot_bracket_is_reported():
+    days = _DAYS[:8]
+    on = days[4]
+    canonical = [(d, 10.0 if d < on else 20.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    calendar = [(d, 10.0, 0.0) for d in days[:2]]  # Yahoo ends before the break
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        calendar,
+        raw,
+        [_brk(on, math.log(2.0))],
+        _SESSIONS,
+    )
+    assert event.verdict == "reported"
+    assert event.yahoo_step is None

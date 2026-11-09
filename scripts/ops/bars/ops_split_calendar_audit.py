@@ -40,6 +40,21 @@ Two steps, with the evidence a reviewed, committed file between them:
     split witness is another raw series rather than Yahoo's calendar (UHAL). Each line carries
     the measured factor, the rescaled series, the day's real move, and its evidence; the rule
     (d2-v5) rescales it exactly as a confirmed split. Dry run unless --commit.
+--sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
+    Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
+    most the sweep's name cap steps, so market-wide crash days stay out - classified by the
+    per-series method that decided the ten landed cases: Yahoo's adjusted close is the
+    continuity witness (it carries real moves, never split rescales), and every rescalable raw
+    series is measured on its own across the break. Verdicts: single_bar_reversal (next session
+    reverses the step; the odd bar quarantines via operator_bad_bars.csv), real_move (Yahoo
+    adjusted carries the step; left alone), junction_rescale (canonical switches serving series
+    and the pre series sits off correct by a constant factor; a rescale row), inseries_rescale
+    (the serving tape itself switches scale at the break, a calendar event nearby: the FBIZ
+    class; a rescale row), unrecorded_split (the tape switches scale with no calendar record -
+    the jump side is dominated by unrecorded reverse splits; a rescale row), reported (anything
+    the witnesses do not decide: no fix without vendor agreement). --rows-out writes the
+    operator-rows lines for the three row verdicts; the worker reviews and lands them through
+    --apply-rows.
 
 effective_date is the last day on the old scale (migration 400's definition).
 """
@@ -365,6 +380,16 @@ def _raw_series(conn: Any, symbol: str) -> dict[tuple[str, str], list[tuple[date
     return raw
 
 
+def _fetch_calendar(symbol: str) -> tuple[list[tuple[date, float, float]], str | None]:
+    """Yahoo's daily closes and split events, retried against its rate limit; (calendar, error)."""
+    for attempt in range(_FETCH_ATTEMPTS):
+        calendar, error = asyncio.run(fetch_daily_close_and_splits(symbol))
+        if error is None:
+            return calendar, None
+        time.sleep(_FETCH_RETRY_S * (attempt + 1))
+    return calendar, error
+
+
 def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[str, int]:
     """Read-only: every calendar event of every name into `out`; returns counts per verdict."""
     counts: dict[str, int] = {}
@@ -375,11 +400,7 @@ def audit(settings: Settings, symbols: Sequence[str] | None, out: Path) -> dict[
         writer = csv.DictWriter(fh, fieldnames=[*CalendarEvent.__dataclass_fields__, "error"])
         writer.writeheader()
         for symbol in names:
-            for attempt in range(_FETCH_ATTEMPTS):
-                calendar, error = asyncio.run(fetch_daily_close_and_splits(symbol))
-                if error is None:
-                    break
-                time.sleep(_FETCH_RETRY_S * (attempt + 1))
+            calendar, error = _fetch_calendar(symbol)
             if error is not None:
                 writer.writerow({"symbol": symbol, "verdict": "fetch_error", "error": error})
                 counts["fetch_error"] = counts.get("fetch_error", 0) + 1
@@ -793,10 +814,412 @@ async def _quarantine(settings: Settings, path: Path, *, commit: bool) -> int:
     return 0
 
 
+# ---------------- The lone-break sweep (todo 592: the class emerged) ----------------
+#
+# Definitional cut, measured in the todo's triage: a lone break is a step beyond this size on a
+# day when at most this many names step - crash days move the whole market, scale errors move
+# one name. A break is a scale event when it exceeds Yahoo's adjusted move by the scale
+# tolerance (Yahoo adjusted carries real moves and never split rescales), and a calendar event
+# this close to the break still explains an in-series adjustment switch (FBIZ: vendor anchored
+# 2015-08-31's 2:1 twelve days early). Not tunables; changing one changes the classified
+# corpus, so the sweep CSV records them.
+_SWEEP_BREAK_STEP = 0.4
+_SWEEP_MAX_LONE_NAMES = 20
+_SWEEP_SCALE_TOL = 0.1
+_SWEEP_CALENDAR_WINDOW = 30
+
+# One pass over tradeable 1d: every step with its serving routes, then the days few names step.
+_SWEEP_STEPS_SQL = """
+WITH steps AS (
+    SELECT symbol, ("timestamp" AT TIME ZONE 'UTC')::date AS d, close, vendor, kind,
+           ln(close / lag(close) OVER (PARTITION BY symbol ORDER BY "timestamp")) AS step,
+           lag(vendor) OVER (PARTITION BY symbol ORDER BY "timestamp") AS pv,
+           lag(kind) OVER (PARTITION BY symbol ORDER BY "timestamp") AS pk
+    FROM market_data_ohlcv_tradeable
+    WHERE timeframe = '1d' AND close > 0
+),
+big AS (
+    SELECT * FROM steps WHERE step IS NOT NULL AND abs(step) > %s
+)
+SELECT symbol, d, round(step::numeric, 6), pv, pk, vendor, kind FROM big
+WHERE d IN (SELECT d FROM big GROUP BY d HAVING count(DISTINCT symbol) <= %s)
+ORDER BY symbol, d
+"""
+
+# Verdicts that carry a rescale row (junction_rescale, inseries_rescale, unrecorded_split).
+_SWEEP_ROW_VERDICTS = frozenset({"junction_rescale", "inseries_rescale", "unrecorded_split"})
+
+
+@dataclass(frozen=True)
+class SweepBreak:
+    """One lone canonical break, classified (one line of the sweep CSV)."""
+
+    symbol: str
+    break_date: date
+    step: float
+    verdict: str
+    next_step: float | None = None
+    yahoo_step: float | None = None
+    series_switch: bool = False
+    route_before: str | None = None
+    route_after: str | None = None
+    factor: float | None = None
+    effective_date: date | None = None
+    unadjusted_route: str | None = None
+    nearest_calendar: str | None = None
+    # JSON {"vendor/kind": [median close before, median close after, ln step]}, every rescalable
+    # series with an observation inside the break's span
+    route_steps: str | None = None
+    # JSON {"vendor/kind": [series/Yahoo median before, series/Yahoo median after]} for the
+    # routes on each side of the break
+    k_levels: str | None = None
+    evidence: str | None = None
+
+
+def _median(values: Sequence[float]) -> float | None:
+    return statistics.median(values) if values else None
+
+
+def _series_sides(
+    series: RawSeries, y_close: Mapping[date, float], span: tuple[date, date], day: date, n: int
+) -> tuple[tuple[float | None, float | None], tuple[float | None, float | None]]:
+    """((median own close before, median own/Yahoo before), (after, after)): the series' n
+    sessions nearest the break on each side inside span. A None level marks an empty side."""
+    lo, hi = span
+    own_b, k_b, own_a, k_a = [], [], [], []
+    for d, close in series:
+        if lo <= d < day:
+            own_b.append(close)
+            if d in y_close:
+                k_b.append(close / y_close[d])
+        elif day <= d < hi:
+            own_a.append(close)
+            if d in y_close:
+                k_a.append(close / y_close[d])
+    return (
+        (_median(own_b[-n:]), _median(k_b[-n:])),
+        (_median(own_a[:n]), _median(k_a[:n])),
+    )
+
+
+def _nearest_calendar(
+    calendar: Sequence[tuple[date, float, float]], day: date
+) -> tuple[date, float] | None:
+    """The nearest split event of Yahoo's calendar within the sweep's window, or None."""
+    best: tuple[date, float] | None = None
+    for d, _close, factor in calendar:
+        if (
+            math.isfinite(factor)
+            and factor not in (0.0, 1.0)
+            and abs((d - day).days) <= _SWEEP_CALENDAR_WINDOW
+        ):
+            if best is None or abs(d - day) < abs(best[0] - day):
+                best = (d, factor)
+    return best
+
+
+def classify_breaks(
+    symbol: str,
+    canonical: Sequence[tuple[date, float, str, str]],
+    calendar: Sequence[tuple[date, float, float]],
+    raw: Mapping[tuple[str, str], RawSeries],
+    breaks: Sequence[tuple[date, float, str, str, str, str]],
+    route_sessions: int,
+) -> list[SweepBreak]:
+    """Every lone break of one name, classified by the per-series method. Pure.
+
+    breaks rows are (date, step, prev vendor, prev kind, vendor, kind) as the corpus pass
+    reads them; the span around each break is bounded by the name's neighbouring breaks so a
+    second scale event never enters a median. No fix is decided without a witness: everything
+    the evidence leaves ambiguous is reported."""
+    days = [row[0] for row in canonical]
+    closes = {row[0]: row[1] for row in canonical}
+    priced = [row for row in calendar if math.isfinite(row[1]) and row[1] > 0]
+    y_close = {row[0]: row[1] for row in priced}
+    y_days = [row[0] for row in priced]
+    break_days = [row[0] for row in breaks]
+    out: list[SweepBreak] = []
+    for i, (day, step, pv, pk, vendor, kind) in enumerate(breaks):
+        idx = bisect_left(days, day)
+        next_step = (
+            None
+            if idx + 1 >= len(days)
+            else round(math.log(closes[days[idx + 1]] / closes[day]), 6)
+        )
+        base = dict(next_step=next_step, route_before=f"{pv}/{pk}", route_after=f"{vendor}/{kind}")
+        # (1) The MVBF/UHAL class: the next session reverses the step, so the break bar is a
+        # one-bar scale error whose quarantine is operator_bad_bars.csv.
+        if next_step is not None and abs(step + next_step) <= _SWEEP_SCALE_TOL:
+            out.append(
+                SweepBreak(
+                    symbol,
+                    day,
+                    step,
+                    "single_bar_reversal",
+                    evidence=f"canonical steps {step:+.3f} then {next_step:+.3f} the next session "
+                    f"({days[idx + 1]}): a one-bar scale error, the break bar quarantines",
+                    **base,
+                )
+            )
+            continue
+        # (2) Yahoo's adjusted close is the continuity witness.
+        y = _bracket(y_days, day)
+        yahoo_step = None if y is None else round(math.log(priced[y[1]][1] / priced[y[0]][1]), 6)
+        base["yahoo_step"] = yahoo_step
+        if yahoo_step is None:
+            out.append(
+                SweepBreak(
+                    symbol,
+                    day,
+                    step,
+                    "reported",
+                    evidence="Yahoo's adjusted close cannot be bracketed across the break",
+                    **base,
+                )
+            )
+            continue
+        scale = step - yahoo_step
+        span = (
+            break_days[i - 1] if i else date.min,
+            break_days[i + 1] if i + 1 < len(break_days) else date.max,
+        )
+        measured: dict[str, list[float | None]] = {}
+        k_levels: dict[str, list[float | None]] = {}
+        lo, hi = span
+        for (rv, rk), rows in sorted(raw.items()):
+            if not any(lo <= d < hi for d, _c in rows):
+                continue
+            (own_b, k_b), (own_a, k_a) = _series_sides(rows, y_close, span, day, route_sessions)
+            step_own = None if own_b is None or own_a is None else round(math.log(own_a / own_b), 6)
+            measured[series_key((rv, rk))] = [own_b, own_a, step_own]
+            k_levels[series_key((rv, rk))] = [k_b, k_a]
+        base["route_steps"] = json.dumps(measured, sort_keys=True)
+        base["k_levels"] = json.dumps(k_levels, sort_keys=True)
+        routes_json = "; ".join(f"{k}: {v[0]}/{v[1]} step {v[2]}" for k, v in measured.items())
+        nearest = _nearest_calendar(calendar, day)
+        base["nearest_calendar"] = None if nearest is None else f"{nearest[0]} x{nearest[1]}"
+        # (3) Yahoo adjusted carries the step: a real move, left alone.
+        if abs(scale) <= _SWEEP_SCALE_TOL:
+            out.append(
+                SweepBreak(
+                    symbol,
+                    day,
+                    step,
+                    "real_move",
+                    evidence=f"Yahoo adjusted steps {yahoo_step:+.3f} against canonical "
+                    f"{step:+.3f}: a real move; {routes_json}",
+                    **base,
+                )
+            )
+            continue
+        # (4) A scale event. Which series serves each side decides the class.
+        own_before = _RAW_SERIES_OF.get((pv, pk))
+        own_after = _RAW_SERIES_OF.get((vendor, kind))
+        base["series_switch"] = own_before != own_after
+        if own_before != own_after:
+            # A junction: the two serving series' levels against Yahoo decide which side is off.
+            k_b = (
+                None
+                if own_before is None
+                else k_levels.get(series_key(own_before), [None, None])[0]
+            )
+            k_a = (
+                None if own_after is None else k_levels.get(series_key(own_after), [None, None])[1]
+            )
+            if k_b is None or k_a is None or k_b <= 0 or k_a <= 0:
+                out.append(
+                    _reported(
+                        symbol,
+                        day,
+                        step,
+                        "a serving series has no measured level " "against Yahoo at the junction",
+                        base,
+                    )
+                )
+                continue
+            pre_off, post_ok = (
+                abs(math.log(k_b) + scale) <= _SWEEP_SCALE_TOL,
+                abs(math.log(k_a)) <= _SWEEP_SCALE_TOL,
+            )
+            post_off, pre_ok = (
+                abs(math.log(k_a) - scale) <= _SWEEP_SCALE_TOL,
+                abs(math.log(k_b)) <= _SWEEP_SCALE_TOL,
+            )
+            if pre_off and post_ok and own_before is not None:
+                out.append(
+                    SweepBreak(
+                        symbol,
+                        day,
+                        step,
+                        "junction_rescale",
+                        unadjusted_route=series_key(own_before),
+                        factor=round(k_b, 6),
+                        effective_date=days[idx - 1] if idx else None,
+                        evidence=f"canonical switches {series_key(own_before) if own_before else 'unrouted'} -> "
+                        f"{series_key(own_after) if own_after else 'unrouted'} at the break; the pre series sits at "
+                        f"{k_b:.4g} of Yahoo-adjusted (post {k_a:.4g}); Yahoo steps {yahoo_step:+.3f}; {routes_json}",
+                        **base,
+                    )
+                )
+            elif post_off and pre_ok:
+                out.append(
+                    _reported(
+                        symbol,
+                        day,
+                        step,
+                        "the POST side of the junction is off "
+                        f"scale (pre {k_b:.4g}, post {k_a:.4g} of Yahoo): a prefix rescale cannot "
+                        "express it",
+                        base,
+                    )
+                )
+            else:
+                out.append(
+                    _reported(
+                        symbol,
+                        day,
+                        step,
+                        f"junction levels do not decide "
+                        f"(pre {k_b:.4g}, post {k_a:.4g} of Yahoo)",
+                        base,
+                    )
+                )
+            continue
+        if own_after is None:
+            out.append(
+                _reported(
+                    symbol, day, step, "the serving route is not a rescalable " "series", base
+                )
+            )
+            continue
+        # (5) No switch: the serving tape itself. It either switches scale at the break (the
+        # FBIZ in-series class with a calendar event nearby, else an unrecorded split - the
+        # jump side is dominated by unrecorded reverse splits) or it does not carry the step.
+        step_own = measured.get(series_key(own_after), [None, None, None])[2]
+        if step_own is None:
+            out.append(
+                _reported(
+                    symbol,
+                    day,
+                    step,
+                    "the serving series has no measured level " "on both sides of the break",
+                    base,
+                )
+            )
+            continue
+        if abs(step_own - scale) <= _SWEEP_SCALE_TOL:
+            verdict = "inseries_rescale" if nearest is not None else "unrecorded_split"
+            out.append(
+                SweepBreak(
+                    symbol,
+                    day,
+                    step,
+                    verdict,
+                    unadjusted_route=series_key(own_after),
+                    factor=round(math.exp(-step_own), 6),
+                    effective_date=days[idx - 1] if idx else None,
+                    evidence=f"the serving tape {series_key(own_after)} steps {step_own:+.3f} at the "
+                    f"break while Yahoo adjusted moves {yahoo_step:+.3f}"
+                    + (
+                        f"; calendar event {nearest[0]} x{nearest[1]} nearby"
+                        if nearest
+                        else "; no calendar event within the window"
+                    )
+                    + f"; factor {math.exp(-step_own):.6g}; {routes_json}",
+                    **base,
+                )
+            )
+            continue
+        out.append(
+            _reported(
+                symbol,
+                day,
+                step,
+                f"the serving tape steps {step_own:+.3f} against the canonical scale {scale:+.3f} "
+                "(neither flat nor the break: a witness the method cannot decide)",
+                base,
+            )
+        )
+    return out
+
+
+def _reported(symbol: str, day: date, step: float, why: str, base: Mapping[str, Any]) -> SweepBreak:
+    return SweepBreak(symbol, day, step, "reported", evidence=why, **base)
+
+
+def sweep(
+    settings: Settings, out: Path, rows_out: Path | None, symbols: Sequence[str] | None
+) -> dict[str, int]:
+    """Read-only: every lone break classified into --out, the rescale rows of the row verdicts
+    into --rows-out. Returns verdict counts."""
+    counts: dict[str, int] = {}
+    with psycopg.connect(settings.database_url) as conn:
+        params = _apr(conn)
+        lone: dict[str, list[tuple[date, float, str, str, str, str]]] = {}
+        for symbol, day, step, pv, pk, vendor, kind in conn.execute(
+            _SWEEP_STEPS_SQL, (_SWEEP_BREAK_STEP, _SWEEP_MAX_LONE_NAMES)
+        ):
+            lone.setdefault(symbol, []).append((day, float(step), pv, pk, vendor, kind))
+        names = list(symbols) if symbols is not None else sorted(lone)
+        with (
+            out.open("w", newline="") as fh,
+            (
+                rows_out.open("w", newline="") if rows_out else open("/dev/null", "w", newline="")
+            ) as rfh,
+        ):
+            writer = csv.DictWriter(fh, fieldnames=[*SweepBreak.__dataclass_fields__])
+            writer.writeheader()
+            rows_writer = csv.DictWriter(rfh, fieldnames=OPERATOR_ROWS_COLUMNS)
+            rows_writer.writeheader()
+            for symbol in names:
+                calendar, error = _fetch_calendar(symbol)
+                if error is not None or symbol not in lone:
+                    for day, step, pv, pk, vendor, kind in lone.get(symbol, ()):
+                        event = SweepBreak(
+                            symbol, day, step, "reported", evidence="Yahoo fetch failed"
+                        )
+                        writer.writerow(asdict(event))
+                        counts["reported"] = counts.get("reported", 0) + 1
+                    continue
+                canonical = [
+                    (d, float(c), v, k) for d, c, v, k in conn.execute(_CANONICAL_SQL, (symbol,))
+                ]
+                for event in classify_breaks(
+                    symbol,
+                    canonical,
+                    calendar,
+                    _raw_series(conn, symbol),
+                    lone[symbol],
+                    params.route_sessions,
+                ):
+                    writer.writerow(asdict(event))
+                    counts[event.verdict] = counts.get(event.verdict, 0) + 1
+                    if event.verdict in _SWEEP_ROW_VERDICTS:
+                        rows_writer.writerow(
+                            {
+                                "symbol": event.symbol,
+                                "effective_date": event.effective_date,
+                                "factor": event.factor,
+                                "unadjusted_routes": event.unadjusted_route,
+                                "calendar_adjusted_step": event.yahoo_step,
+                                "reason": f"{event.verdict} (todo 592 sweep; break "
+                                f"{event.break_date} step {event.step:+.3f})",
+                                "evidence": event.evidence,
+                            }
+                        )
+    return counts
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--audit", action="store_true", help="judge the calendar into --out")
+    mode.add_argument(
+        "--sweep",
+        action="store_true",
+        help="classify every lone canonical break into --out (todo 592); "
+        "--rows-out writes the rescale rows of the row verdicts",
+    )
     mode.add_argument("--apply", type=Path, metavar="CSV", help="write an audit's confirmed rows")
     mode.add_argument(
         "--apply-rows",
@@ -811,7 +1234,12 @@ def main(argv: list[str] | None = None) -> int:
         help="quarantine every unconfirmed candidate's first new-scale bar (unconfirmed_split) "
         "and every listed bad bar (operator_bad_bar)",
     )
-    parser.add_argument("--out", type=Path, help="--audit: the CSV to write")
+    parser.add_argument("--out", type=Path, help="--audit/--sweep: the CSV to write")
+    parser.add_argument(
+        "--rows-out",
+        type=Path,
+        help="--sweep: the operator-rows CSV the row verdicts write (optional)",
+    )
     parser.add_argument("--symbols", nargs="*", default=None)
     add_write_mode_args(
         parser,
@@ -821,10 +1249,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     settings = Settings()
-    if args.audit:
+    if args.audit or args.sweep:
         if args.out is None:
-            raise SystemExit("--audit needs --out")
-        print(audit(settings, args.symbols, args.out))
+            raise SystemExit("--audit/--sweep need --out")
+        if args.sweep:
+            print(sweep(settings, args.out, args.rows_out, args.symbols))
+        else:
+            print(audit(settings, args.symbols, args.out))
         return 0
     if args.apply_rows:
         return apply_rows(settings, args.apply_rows, commit=args.commit)
