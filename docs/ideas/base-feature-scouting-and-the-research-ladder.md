@@ -107,15 +107,21 @@ Build order: register (no code beyond a diff script), admission gate spec, then 
 4. Hindsight in model proposals is reduced, not removed: a model has read the literature and the market's history. Disclose it, require a stated mechanism, and confirm only on each book's own unsearched forward span.
 5. Priority. The first counted test is the critical path (`PRIORITIES.md`). This whole lane waits behind it except the register and the gate spec, which are cheap and unblock the Massive capture decisions.
 
-## Counting is a price, not a cap (owner concern 2026-11-09)
+## Counting is a price, not a cap (owner concern 2026-11-09; corrected after reading the evidence framework)
 
-The look count `L` never limits how many ideas are generated, logged or computed. It sets the evidence bar a measured feature must clear (StepM is a threshold that rises with the number and dependence of tests), so more looks make each pass harder, not forbidden. Three levers keep exploration cheap:
+The look count `L` never limits how many ideas are generated, logged or computed. The evidence framework (`docs/plans/2026-09-24-evidence-framework.md`, sections 1 and 3, amended by E18) already separates two stages, and that is the answer:
 
-1. Exploration span versus confirmation span. Explore freely on the discovery span (before `alpha.validation.oos_start`): any method, any number of features, no correction, and nothing there is reported as evidence, only as a hypothesis. Only candidates that go to confirmation are counted, and that set is small and pre-registered. This is the standard way to make ideas unrestricted: spend the evidence budget at confirmation, not at ideation. The discovery span is recorded as spent. (This must be reconciled with E15-E18's rule that every look at the vintage is counted; the clean statement is that a look on the discovery span is exploration, and the counted vintage is the span used for selection. Raise with the owner before relying on it.)
-2. Dependence lowers the price. StepM resamples jointly, so 306 correlated columns cost far fewer than 306 independent tests; a structure analysis (class C) measures the effective number of independent dimensions. Test one representative per correlated cluster first.
-3. Hierarchical gatekeeping. Test a feature group or family as one hypothesis first; test its members only if the group passes. One look can stand in for dozens.
+- The searched vintage [2007 .. cutoff) is a screen. Looks there are counted, and the count sets the screen's bar. The screen is not the error control (informal looks cannot be counted; Bonferroni over registered tests is a lower bound), and its budget renews when the vintage rolls.
+- The unsearched forward span is the confirmation, spent once per book, and it is the only place a p-value means what it says.
 
-Power matters too: with roughly 20 years and thousands of names (more with Massive's full universe), real cross-sectional edges still clear a high bar. A stricter bar costs the marginal ideas, which are the ones we want to lose.
+So many ideas cost a stricter screen, never a blocked idea. The scarce resource is the forward span, because a failed confirmation spends its whole length. The practical constraint on ideation is therefore how many books the forward span can afford to confirm, not how many features we try.
+
+Levers that keep the screen from choking exploration, none of which changes the framework:
+1. Dependence lowers the price. StepM resamples jointly, so 306 correlated columns cost far fewer than 306 independent tests; class C (structure analysis) measures the effective number of dimensions. Test one representative per correlated cluster first.
+2. Hierarchical gatekeeping. Test a feature group or family as one hypothesis first; test members only if it passes.
+3. Power. With about 20 years and thousands of names (more with Massive), real cross-sectional edges clear a high bar; a stricter bar mainly costs marginal ideas.
+
+An option that would be a methodology change (needs an owner ruling and a `methodology-change-ledger.md` entry, not needed now): set the screen's bar by forward-span capacity (take the top K books the span can afford, with a declared false-discovery rate) instead of alpha/M. It makes the screen's price independent of how many ideas were tried.
 
 ## Cadence and ownership
 
