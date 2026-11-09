@@ -58,3 +58,7 @@ Still to verify (unread so far): (2) regime-conditional IC (`measure/regime_disc
 - Both feed the same look count: declare it per sweep (features x regimes x horizons x tfs) before running, and select with StepM. Pure kernels, no I/O, determinism rule applies; edits under `statistics/` or `research/` need `repro_frozen` bit-identical.
 
 Plan for levels 2 and 3: `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md`.
+
+## Generation versus measurement (2026-11-09)
+
+The sweep measures features that exist; it does not invent concepts. Concept generation is todo 440 (`generated_family`, a registered grammar over daily OHLCV, about 5,000 candidates enumerated lazily, one grammar plus selector counts as one attempt) plus owner and idea-doc concepts (`IDEAS.md`, `docs/ideas/`). A new concept needs a registered computation, the UCR `candidate -> shadow_only -> active` lifecycle and a counted verdict. Generated candidates and swept columns draw on one multiple-testing budget: declare both inside the same look count `L`, select with StepM in-fold, and never let the grammar's size dilute the sweep's count unnoticed.
