@@ -2373,6 +2373,58 @@ to every earlier one.
 
 ---
 
+## Data adjacency and admission terms (todo 603)
+
+Rung 0 and rung 1 of the research ladder
+(`docs/ideas/base-feature-scouting-and-the-research-ladder.md`): what data sits adjacent to what we
+store, and how a proposed feature is admitted before anything is measured. The register:
+`docs/reference/data-adjacency-register.md`, diffed against stored columns by
+`scripts/ops/ops_adjacency_diff.py`.
+
+### `base feature`
+
+The lowest-level feature: one number per (symbol, ts) computed from declared inputs, causal, with
+declared memory, NaN where undefined (no fill), asset-agnostic, unit-free (no raw price levels), and
+point-in-time. It carries `concept_registry.metadata->>'composition' = 'base'`, the CVR `composition`
+code meaning computed from a name's own bars or the timestamp. A proposal that passes the
+`admission gate` is registered `candidate`, computed, and measured; each admitted column enters the
+look count `n_looks`. **Not:** an `interaction` feature (built from other features, one rung up),
+and not a learned latent feature (fit walk-forward, discovery class C). **Banned:** (none)
+**Avoid:** "atomic" (a retired tier name; do not revive it)
+**Status:** active as a composition code; the scouting lane (todo 603) adds no code yet
+**Code surface:** `concept_registry.metadata->>'composition'`, CVR namespace `composition`
+(audited by `vocabulary_drift.py`)
+
+### `admission gate`
+
+The mechanical, non-outcome gate set applied before a feature is admitted: causality, declared
+memory, NaN where undefined, asset-agnostic, point-in-time inputs, unit-free, coverage above a
+floor, and feature-to-feature uniqueness. It never sees IC, verdicts or returns; a proposal that
+fails is rejected with a recorded reason (a `concept_registry` row, status `deprecated`, reason
+code in metadata). **Not:** the selection gate (the counted sweep with StepM, which reads
+outcomes; the idea doc's "Two kinds of gate, kept apart"), and not a data-quality gate (bar scrub,
+quarantine). **Banned:** (none)
+**Status:** specified 2026-11-09 (todo 603 step 3), not built; rejections land as registry rows,
+no new table
+**Code surface:** none yet (one pure function on the registration path when built; uniqueness
+reuses `src/intelligence/research/contribution.py`)
+
+### `data adjacency register`
+
+The rung-0 register of what each source serves or could serve next to what we store: one row per
+field (source, field, availability time, history start, retrieval cost, license note, stored
+yes/no/partial, base features it enables, status). Stored at
+`docs/reference/data-adjacency-register.md`; `scripts/ops/ops_adjacency_diff.py` diffs the
+vendor-served fields against `information_schema` columns (read-only, prints the not-stored list).
+The diff is the scouting list; a quarterly pass refreshes the register from vendor schemas.
+**Not:** a vendor catalog copy (a row exists to name the base features a field enables), and not a
+capture plan (capture decisions ride todo 600 and the basis study). **Banned:** (none)
+**Status:** active (seeded 2026-11-09, todo 603 rung 0)
+**Code surface:** `docs/reference/data-adjacency-register.md`,
+`scripts/ops/ops_adjacency_diff.py`
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
