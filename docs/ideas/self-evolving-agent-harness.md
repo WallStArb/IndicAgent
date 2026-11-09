@@ -1,8 +1,13 @@
 # Self-evolving agent harness - Idea
 
-**Status:** Idea, 2026-11-09. Not built, not queued; recorded because its central mechanism (protected competence) names something this repo already practices by hand.
+**Status:** Parked 2026-11-09 by the lead (indicagent-d8), with a revisit trigger; none of the three new parts is adopted. The owner can overrule.
 **Author:** Claude session, 2026-11-09, from the owner's shared description of Rakesh Gohel's self-evolving agent harness framework.
+**Decision:** lead indicagent-d8, 2026-11-09 (section below).
 **Informed by:** Rakesh Gohel's self-evolving agent harness (perception, reasoning, protected competence, observability, self-update); `docs/plans/2026-09-24-evidence-framework.md` (E15-E18); the agentic research loop bullet in `.planning/IDEAS.md` (2026-10-28); `scripts/research/determinism/repro_frozen.py`; `tools/gate.py`.
+
+## Decision (2026-11-09, lead indicagent-d8)
+
+Parked; adopt nothing now. Reasons: the two gates already exist by hand (E15-E18 for quality, `repro_frozen` plus the verify-every-landing loop for regression), as the mapping below records; the three new-if-built parts are infrastructure for failure data that does not exist yet, since the lead-worker fleet is one day old, so trajectory capture would record a sample of nothing and root-cause clustering would overfit noise, the exact risk the 2026-10-28 agentic-loop ruling names; and Musk step 1, the bottleneck is not learning from failures but running enough lanes to have any. Revisit trigger: after a few weeks of fleet operation, if the lead's manual verification loop is the bottleneck, the first build is trajectory capture alone, because diagnosis and clustering are worthless without it.
 
 ## The claim
 
