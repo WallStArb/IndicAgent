@@ -85,3 +85,34 @@ reverse splits - the 587 calendar was forward splits only. The remaining ~1,450 
 tool's per-series cross-check (in-series adjustment switches like FBIZ, unrecorded
 splits/reverse splits, and real single-name crashes, which vendor agreement confirms and leaves
 alone).
+
+## Landed 2026-11-09 (worker session, the nine decided cases)
+
+Mechanism: the audit tool gained `--apply-rows` (operator rows file, todo 592 class; the calendar
+cannot confirm these, so `--apply`'s re-judgment cannot express them):
+`config/corporate_actions/split_rescale_rows_2026_11_09.csv` (6 rows, every line its evidence).
+Quarantines ride the existing `--quarantine-unconfirmed` step with two lines added to
+`config/corporate_actions/operator_bad_bars.csv` (MVBF 2014-04-02, UHAL 2022-11-09); the re-run
+rewrites the 13 existing 587 flags unchanged and adds 2.
+
+Rows (inferred_by calendar_audit, d2-v5 rescales on or before effective_date):
+- FBIZ 2015-08-18 f=0.5 ibkr: pre-08-19 span is exactly half correct (Yahoo/2 at every sampled
+  date back to 2008); vendor anchored the 2015-08-31 2:1 at 08-19.
+- IJR 2017-01-17 f=0.5 ibkr: the whole IBKR span (2016-01-04..2017-01-17) sits at half correct
+  (Alpaca 68.02 vs IBKR 34.01 on 01-17); IBKR restates from 01-18.
+- NVDA 2001-09-14 f=2.0 ibkr: the named plane is 2x too high through 09-14 (Yahoo 0.31567 vs IBKR
+  0.63); composes with the existing 2000-06-26 row (/4 before it, /2 between).
+- PATK 2015-12-31 f=0.4 ibkr: IBKR pre-2016 is uniformly at exactly 1/2.5 of correct (Yahoo x2.5
+  at 2001, 2005, 2010, 2011, 2014); the measured factor is exactly 2.5, not the lead's point
+  estimate 2.5015. The 2000-2010 vs 2012-2015 Tradier/IBKR ratio difference (1.667 vs 2.500) is a
+  Tradier restatement artifact; Tradier serves nothing.
+- WST 2004-09-29 f=2.0 ibkr: IBKR halves at 09-30, one session after the calendar (todo 516
+  offset class); effective_date is 09-29 by migration 400's definition, so the rescale span is
+  [start..09-29] and the fabricated -49% at 09-30 becomes a normal day.
+- UHAL 2022-11-09 f=10.0 alpaca: Alpaca raw is unadjusted 10x over its prefix (528.92 -> 52.02 at
+  11-10, the witness); IBKR is deliberately not named (already adjusted before the split, raw
+  from 11-10), so no served value changes; the row is the recorded fact.
+
+Not expressible finding: none beyond the tool extension above. MVBF takes no calendar row (split
+unconfirmed pending Massive); RJF and MTCH took nothing and re-verified clean (no canonical step
+> 0.35 in 1,200 sessions; their stray IBKR series never serves canonical).
