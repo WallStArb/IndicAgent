@@ -126,3 +126,32 @@ Findings for follow-up, outside this lane:
    references the deleted `ic_engine`).
 3. `gradient_utils._HMM_KEY_MAP` is dead (kernels import only `linear_ramp`,
    `freshness_decay`).
+
+## Status 2026-11-09 (registry reconciliation; worker indicagent-0b, brief d8)
+
+Follow-up to the classification join above; registry-schema drift fixed before the first sweep.
+
+1. days_to_month_end: deprecated through `ops_concept_registry_override`
+   (`ConceptRegistryService.record_transition`, reason `operator_override`);
+   `concept_transition_log` row 580 carries the full reason note. Pre-state backed up
+   (active, enabled, group calendar, migration_284 provenance). Kernel note: `calendar_cycles`
+   still declares the output from `ts_dt` alone and no kernel consumes it - a vestigial
+   declaration, cleanup belongs to the factory lane, not the registry.
+2. high_low_spread, roll_spread: registered as candidates (composition base, group volume,
+   `kernels/liquidity.py`) by migration 585 (data-only idempotent INSERT, no DDL), applied
+   live. The two stored columns sit inside the UCR before the 186-26 rerun populates them
+   and the proposer first sweeps them; data is all-NULL until the rerun.
+3. The 19 registered-but-unstored names, verified against the live kernel registry
+   (`discover_kernels`, 427 outputs): 18 are already deprecated with no kernel (true removed
+   outputs, statuses correct, no action) - amd_distribution_direction,
+   amd_manipulation_detected, amd_phase, asian_session_high_dist_atr,
+   asian_session_low_dist_atr, hmm_vol_prob_elevated, in_london_kz, manip_strength,
+   momentum_rank_z, new_high_flag, new_low_flag, overnight_high_dist_atr,
+   overnight_low_dist_atr, overnight_range_pct, ret_div_1m_5m, sweep_detected,
+   volatility_rank_z, volume_rank_z. The 19th is days_to_month_end (item 1): kernel-only,
+   not a removed output. Nothing dropped; the earlier "kernel-only or removed" question
+   resolves to all-removed except days_to_month_end.
+
+Doc nit found while executing: `ops_concept_registry_override`'s docstring claims free-text
+reasons are not persisted - stale; the CLI passes `--reason` into
+`concept_transition_log.notes`, which exists.
