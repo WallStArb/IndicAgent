@@ -62,3 +62,7 @@ Added in triage: (1) HMM-derived columns (regime labels, `hmm_*`) may not enter 
 ## Unified design adopted 2026-09-26
 
 Adopted unified design (todo 436): the first feature book needs a full feature recompute under provenance batches (existing rows carry no record of the APR values or code that computed them, design section 12.1) and phase 184's B3 alignment; `corpus_family` signs come from training folds and missing members follow the combining rule (section 4.2). The feature books are attempts 5-8, after the price-only attempts.
+
+## Status 2026-11-09 (verified)
+
+The code gap is closed: S0 reads registered `feature_vectors` columns through `src/intelligence/research/feature_inputs.py` (allow-list, vendor check, provenance pin, warmup mask, coverage floor, regime refusal). What remains is the real-data run at all four timeframes, which waits on the data gate (todo 600 or 534) and the corpus rerun. Close this todo on that run, not before.
