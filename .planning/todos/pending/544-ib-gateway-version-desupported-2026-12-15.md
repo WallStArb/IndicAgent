@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-10-27
 source: IBKR warning 2172 in logs/ibkr_history_fetcher.log, 2026-10-27 01:31Z
 owner: 2026-10-27
@@ -20,3 +20,7 @@ IBKR ingestion.
 Move the `ib-gateway` image (production/docker-compose) to a 1050.1+ build before 2026-12-15, in a
 fetcher gap, then re-auth (2FA push) and confirm a fetcher run lands bars. Check the IBC version
 pairing and the API server version (178 today) against ib_async.
+
+## Update 2026-11-09 (product review)
+
+Hard deadline 2026-12-15, five weeks out. Dependency on todo 600: if Massive passes its basis study and replaces the IBKR pre-2016 leg, the gateway is needed only for the remaining IBKR roles (fallback bars, 1d raw deepening), so decide by about 2026-12-01 whether to upgrade the image (needs a 2FA push in a fetcher gap) or let IBKR ingestion lapse deliberately. Alpaca is the execution venue and 2016-forward source, so the cost of lapse is bounded; the risk is an unplanned stop that looks like an outage.
