@@ -41,3 +41,5 @@ verdicts with the note; add `hmm_` to `NON_FEATURE_COLS` (or an explicit allow a
 before any family reads the matrix. Handoff to 186-18: the training-slice gate changes which
 segments are skipped, which bears on todos 289 (1d `regime_volatility` coverage) and 341 (BIL,
 ETHA, IBIT all-NULL); re-measure there.
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The 303/304 benchmark rerun follows the corpus rerun.

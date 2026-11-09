@@ -32,3 +32,4 @@ No stored equivalent: the stored `vwap_dev_sigma` is cumulative from the series 
 ## Done when
 
 No research kernel duplicates a registry concept; `research_kernels` holds this family no longer.
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The import-closure freeze TRANSFERS: land this before the rerun starts (the window between data-complete and rerun-start), never mid-run.

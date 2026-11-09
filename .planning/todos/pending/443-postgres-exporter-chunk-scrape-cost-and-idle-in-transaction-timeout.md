@@ -116,3 +116,5 @@ idle-in-transaction holder was present. First runs deferred 3 h past the manual 
 2026-11-05 15:33Z and 15:48Z). Five chunks (about 5.7 GB) were uncompressed. Job 1065 left with the
 dropped v1 feature_vectors. Still open here: the exporter scrape cost and the idle-in-transaction
 timeout; the rerun plan (186-31) owns the rebuild read pattern.
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). Sequence the timeout cut after the rerun ends (its compute workers legitimately idle in transaction).

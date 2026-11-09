@@ -46,3 +46,5 @@ ex-dividend, MAX, maximum drawdown, downside deviation, idiosyncratic volatility
 
 The candidate list is decided and recorded before 186-26 starts, the three rank_z registry rows are
 retired, and `redundancy_group` is filled from measured correlations.
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The kernels/ fingerprint freeze TRANSFERS: land this before the rerun starts, never mid-run.

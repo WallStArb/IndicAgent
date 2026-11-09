@@ -93,3 +93,5 @@ line untouched and tools/check_glossary.py passing (the 136 above-baseline findi
 decision and disclosure numbers. Link-integrity guard green. The reset follow-ups below still
 await the owner's one-line freeze lift and stay the open item. A separate declutter lane
 (2026-10-31) applies the same hierarchy to the rest of docs/plans and the old archive.
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The reset follow-ups ride the rerun; the owner's freeze lift remains the gate.

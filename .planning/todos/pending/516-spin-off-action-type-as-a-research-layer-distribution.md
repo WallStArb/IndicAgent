@@ -59,3 +59,5 @@ held, ETHA's one current row has a new-scale answer for 2026-10-05).
 
 Before CTVA's hold is released and before the 186-26 rebuild reads CTVA (it reads a frozen series
 today, which freshness_1d names).
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). Gate: before the rerun reads CTVA - same pre-rerun window as the kernel promotions.

@@ -39,3 +39,5 @@ kernel batch applied. The data lane gives the go; the reset itself is owner-appr
 
 No concept is `active` on evidence from before the rebuild; `concept_transition_log` shows the demotion;
 a fresh evaluation run on clean features is what promotes anything next.
+
+2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). This reset runs after the rerun lands the rebuilt table; the owner approval stands.
