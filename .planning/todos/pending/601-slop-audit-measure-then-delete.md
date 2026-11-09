@@ -72,3 +72,57 @@ The look count is `n_looks` (bookkeeping), not `L` (E17 book memory). Counting f
 ## Status 2026-11-09 (updated same day, lead session)
 
 The two drafts exist: ledger entry E21 and the section 11 amendment (both dated 2026-11-09, awaiting owner adoption). Remaining before any real-data sweep: the owner adopts or amends E21, the clean-data rule lifts, and the levels 2/3 kernels land per the plan. Until adoption the interim rule holds (sweep cells are evidence records; no real-data sweep).
+
+## Status 2026-11-09 (classification join; worker indicagent-0b, brief d8)
+
+The 104/206 literal split corrected by the reader-evidence join. Producer set = kernels,
+`feature_factory.py`, `schemas.py` (FeatureVector), `backfill_feature_factory.py`,
+`feature_vector_pipeline`/`feature_vector_writer` (persistence is producer side). Proposer
+verified in code: `ic_measure.feature_names` enumerates every numeric column from
+`information_schema`. Dashboard: 39 tracked TS files scanned, zero column references (signal
+surface deleted, todo 509). Measurement basis: live `information_schema` (311 columns) and
+`concept_registry` 2026-11-09; corpus = tracked code under src/ services/ scripts/ tools/
+dashboard/ config/ plus `research/specs/` and current docs/plans preregs (archive excluded),
+word-boundary scan with every hit verified in context. Scratch scripts not committed.
+
+| class | count | evidence |
+|---|---|---|
+| structural keys | 3 | symbol, tf, bar_ts (read everywhere as keys) |
+| text regime labels, named readers | 2 | regime, regime_volatility: `vocabulary_drift`, `measure/regime_disclosure`, `ops_pilot_compute_gate`, regime golden capture |
+| numeric, read generically | 306 | the proposer, plus the same set covered by generic ops readers: `ops_feature_column_screen` (every column), `ops_broadcast_feature_audit` (registry-active gated set, dynamic SQL), `scripts/research/feature_matrix.py` (caller-supplied lists), `ops_dependence_length_diagnostic` |
+| numeric, named by a current family or spec | 0 | no spec YAML names a stored column (families 1/2/daily-residual read residual returns and slot logic); the 5 names in the daily-residual prereg are section 6 disclosed prior looks plus a family-9 future note, not member inputs |
+| truly unread | 0 | no numeric column lacks the proposer; every column also has at least one generic ops reader. E21 denominator: 306 numeric columns |
+
+The 68 apparent named hits (outside producers and migrations) decompose, with overlap on a few
+columns: 33 comment or docstring examples; 12 excluded by name in research tooling (5 canaries
+and `hmm_duration` in `feature_matrix`, 6 velocity columns in the todo421/445 exclusion set);
+11 name-only registrations (`seed_hmm_recipes` EXPECTED_COLUMNS); 7 same-identifier-different-
+concept (`max_drawdown`, `dividend_yield`, `vix_z`, `vol_ratio`, `rel_volume`, `vol_of_vol`,
+`range_pct_fast`); 5 dead-code mentions (`ic_math.vol_normalized_return` names `atr_z` and
+`true_range_pct`, has no callers and references the deleted `ic_engine`;
+`gradient_utils._HMM_KEY_MAP` names `hmm_prob_*`, no users); 4 source-scan pattern examples
+(`in_lvn`, `opex_flag`, `swing_high_type`, `swing_low_type`); 5 prereg disclosures
+(`ctf_momentum`, `rsi_slow`, `price_percentile_slow`, `stoch_k_slow`, `dist_from_high_slow`).
+The earlier 104-count included producer-side persistence modules (schemas, rebuild writer,
+pipeline), which are writers, not readers.
+
+Registry overlay (323 feature rows: 290 active, 18 deprecated, 15 candidate):
+
+- 18 deprecated concepts: none stored. 15 candidates: all stored (5 canaries plus the
+  market_residual and market-attribute set, todo 603).
+- 19 registered names with no stored column (kernel-only or removed outputs): amd_* (4),
+  asian_session and overnight session distance features (5), days_to_month_end,
+  hmm_vol_prob_elevated, in_london_kz, manip_strength, momentum_rank_z, new_high_flag,
+  new_low_flag, ret_div_1m_5m, sweep_detected, volatility_rank_z, volume_rank_z.
+- 2 stored columns with no registry row: high_low_spread, roll_spread (migration 526 kernels
+  and APR seeds exist, zero data until the 186-26 rerun; the concept rows should land before
+  the proposer first sweeps them).
+
+Findings for follow-up, outside this lane:
+
+1. days_to_month_end: concept active, column removed structurally (todo 115, per
+   `ops_concept_registry_override`'s own usage example); the deprecation flip never ran.
+2. `ic_math.vol_normalized_return` is dead code in `statistics/` (no callers; docstring
+   references the deleted `ic_engine`).
+3. `gradient_utils._HMM_KEY_MAP` is dead (kernels import only `linear_ramp`,
+   `freshness_decay`).
