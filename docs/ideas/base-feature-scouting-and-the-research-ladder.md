@@ -84,33 +84,37 @@ Order of use: C first (cheap, no outcome peeked, and it also finds redundancy an
 
 What none of them can do is invent data. A new quantity from a source we do not hold comes from rung 0 scouting.
 
-## What does the suggesting and discovering (components)
+## What does the suggesting and discovering (components, simplified after review)
 
-Nothing suggests features today: `ic_measure` only measures columns that exist. One scheduled oneshot batch job does the suggesting, one stage per class, writing to one proposals ledger and nothing else (single writer; compute is not persistence). Working name `feature_scout` (concept name, so `FeatureScout`; confirm against the glossary and naming rules before any code).
+Review verdict (2026-11-09): the first draft was an eight-stage job with its own ledger, which is the over-engineering the owner warned against. By the five steps: delete the daemon and the new ledger, keep four small artifacts, build the rest only when the first counted test is done.
 
-| Stage | Component | Class | Exists? |
-|---|---|---|---|
-| 1 | Register scanner: diffs vendor schemas and endpoint lists against stored columns; emits "unused field" rows | rung 0 | no (todo 603) |
-| 2 | Blind proposer: a model reads schemas, register, glossary and the rejected log, never outcomes; emits specs with mechanism statements | A | no; rule ruled 2026-11-09 |
-| 3 | Grammar enumerator over primitives, lazy, never materialized | B | no (todo 440) |
-| 4 | Structure learner: PCA or ICA, clustering, embeddings, state models over the feature panel; pure kernels, runner owns I/O | C | no |
-| 5 | Admission gate checker: causality, memory, NaN-not-fill, point in time, unit-free, coverage, feature-to-feature uniqueness; records every rejection with a reason | gate | no |
-| 6 | Registration: `ConceptRegistryService` sets `candidate`; the feature rebuild computes it; `ic_measure` sweeps it | lifecycle | registry and sweep exist |
-| 7 | Learned-predictor runs inside folds through the research runner; the frozen object is one attempt | D | runner and ledger exist; no learner kernels |
-| 8 | Error-analysis report over book residuals by regime, event, name class and time of day, restricted to the declared discovery span | E | `contribution.py` explains members only |
+Nothing suggests features today: `ic_measure` only measures columns that exist. Four artifacts, no new service and no new table:
 
-Flow: scout stages 1 to 4 -> proposals ledger (single writer, timestamped, counted in `L`) -> stage 5 gates -> stage 6 registers, computes and measures -> counted verdicts feed the ledger. Stages 7 and 8 run on their own span discipline and feed new hypotheses back to stage 2 only as written specs, never as results. Everything is deterministic from the ledger and the recorded model prompt and output (a proposal is a recipe once written).
+1. The data adjacency register (a doc under `docs/reference/`, plus a small script that diffs vendor schemas and endpoint lists against stored columns). Rung 0.
+2. The admission gate: one pure function in the research layer, called on the registration path. Rung 1. Rejections and their reasons are recorded as `concept_registry` rows with a rejected status and reason code; a proposal is a `candidate` row with a proposal timestamp and a mechanism statement. The registry is the proposals ledger; do not build another.
+3. The look count `L`: recorded in the existing research ledger (S6 is the sole writer of `research_run`), declared before each measurement run.
+4. The discovery methods as research-runner jobs, not as a daemon: grammar (todo 440), structure learner (class C), learned predictors (class D), error analysis (class E). Each is a pure kernel with the runner owning I/O, built only when a counted test needs it.
 
-Build order (smallest first): 1 and 5 (no model, no outcome), then 4 (no outcome), then 3, then 2, then 7 and 8.
+Who proposes: the owner, the blind model proposer (rule above), and the grammar. All three write the same kind of `candidate` row. Flow: proposal row -> admission gate -> compute in the rebuild -> `ic_measure` sweep -> counted verdict.
+
+Build order: register (no code beyond a diff script), admission gate spec, then everything else only after the first counted test. Stages that need data or outcomes wait.
+
+## Corrections after review
+
+1. Counting. The first draft said every proposal counts in `L` whether or not computed. That over-counts: StepM corrects for tests actually performed. The rule is: log every proposal (timestamp, spec, mechanism) so blindness is auditable; `L` counts every feature that is measured, and a feature measured and then dropped after seeing a result still counts. A proposal never measured costs nothing in the correction.
+2. Admission statistics need a span. The uniqueness gate (feature-to-feature correlation) uses no target, but computing it on the whole history uses future feature values to decide admission and weakens the claim that the forward span is unsearched. Compute every admission statistic on the discovery span only (before the write-once `alpha.validation.oos_start`), with the thresholds as APR keys.
+3. Learned latent features obey temporal integrity. A PCA, ICA, clustering or embedding fit on the full sample leaks the future into its loadings. Fit on the discovery span, freeze with a content hash, apply causally (a read for t sees only loadings knowable by t), and pre-register the refit schedule, as the HMM walk-forward did (todo 248). Class C is target-free but not time-free.
+4. Hindsight in model proposals is reduced, not removed: a model has read the literature and the market's history. Disclose it, require a stated mechanism, and confirm only on each book's own unsearched forward span.
+5. Priority. The first counted test is the critical path (`PRIORITIES.md`). This whole lane waits behind it except the register and the gate spec, which are cheap and unblock the Massive capture decisions.
 
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.
 - Each admitted batch is one declared `L` increment recorded in the ledger before measurement.
-- A negative-space log records rejected and dead regions (what was tried, reason), so the same region is not rediscovered and recounted unknowingly.
+- Rejected and dead regions are recorded as registry rows with a reason code (what was tried and why it failed), so the same region is not rediscovered and recounted unknowingly; no separate log.
 
 ## Open questions for the owner
 
 1. Session definition: RULED by the owner 2026-11-09: extended-hours bars stay raw only (stored, never selected; canonical 5m stays the 78-slot RTH grid). Later, summary features (pre-market return, range, volume share, after-hours return) are computed from raw in a separate kernel and attach to open-time and daily features; no grid, gate or pin change.
 2. Earnings dates: which source, and is announcement time reliable enough to be knowable-by?
-3. Model proposals: RULED by the owner 2026-11-09, allowed as a blind proposer. (1) It sees schemas, the register, existing features, the glossary and the rejected-proposals log, never IC, verdicts or returns. (2) Every proposal is a spec with a mechanism statement, timestamped in a proposals ledger before any measurement, and counts toward `L` whether or not it is computed. (3) Admission is mechanical; only `ConceptRegistryService` flips a status. (4) Refining a result into neighbours is a separate step under pre-registered rules and its own count, never the model's judgement.
+3. Model proposals: RULED by the owner 2026-11-09, allowed as a blind proposer. (1) It sees schemas, the register, existing features, the glossary and the rejected-proposals log, never IC, verdicts or returns. (2) Every proposal is a spec with a mechanism statement, timestamped in the concept registry before any measurement; it counts toward `L` once measured (refined 2026-11-09: a proposal never measured costs nothing in the correction). (3) Admission is mechanical; only `ConceptRegistryService` flips a status. (4) Refining a result into neighbours is a separate step under pre-registered rules and its own count, never the model's judgement.
