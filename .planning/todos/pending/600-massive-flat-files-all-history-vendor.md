@@ -39,6 +39,24 @@ No corpus compute until the data is complete (2026-11-04 ruling); the IBKR backf
 - Docs move in the same commit as the source-policy switch: the provider matrix in `docs/foundation/canonical-truth-registry.md`, the `bar_source_policy` docs, the survivorship caveat wording, and the landing copy line in `dashboard/src/lib/copy/landing.ts` ("IBKR and Alpaca bars").
 - 2026-11-07/08 check: the account's S3 key (stored in `.env` as `MASSIVE_S3_*`) lists the bucket back to 2003 (a 2010 minute day file is about 13.5 MB, so about 3.4 GB a year) but every download returns 403 NOT_AUTHORIZED, minute and day aggregates, old and recent: the free plan lists only. The purchase is still needed; rerun the download check after upgrading.
 
+## Storage ruling (lead indicagent-d8, 2026-11-09, on the S3/Parquet recommendation, IDEAS 16794a55a)
+
+The recommendation's shape is adopted into this design with two amendments:
+
+1. **Vendor files as-delivered are the keep-everything artifact; admitted eras ingest to
+   `ohlcv_raw` per law 528.** Unchanged from the recommendation.
+2. **The name-partitioned Parquet mirror of canonical is a measured decision at the corpus-rerun
+   pilot, not a default build.** It is a rebuildable read projection (derived data is cache,
+   Timescale stays the sole writer), so it is allowed - but nothing today shows per-name read
+   time is the rerun's bottleneck (the pin waits on data completeness). Decide from the pilot's
+   measured read profile; do not build it on anticipation.
+3. **Offsite object-storage backup of the purchased Massive files and the raw dumps is day-one
+   mandatory, not an option.** The purchase window is one month; once the plan lapses the files
+   are irreplaceable. Budget it into the pilot (about 80 GB compressed, plus growth).
+
+Landing-plan sizing (which eras hot, whether the disk grows) stays in this todo's design, not a
+separate todo.
+
 ## Design implications for the data layer (2026-11-08, decide after the pilot)
 
 1. Entity identity is the one real refactor. Store Massive raw as served, keyed by ticker as of the date; add a point-in-time ticker to entity map that joins at selection, never inside raw. Delisted names need historical instrument rows with entry and exit dates (todo 491's `universe_entry_date` gains an exit date); the onboarding SOP never onboards a dead name today, so this is an owner-approved exception to write down.
