@@ -44,7 +44,9 @@ Seed entries (availability and point-in-time quality unverified; verify before c
 | shares outstanding, market cap (dated) | Massive ticker details | size, turnover, float-style ratios | must be a dated table, not an instrument attribute |
 | splits, dividends, ticker events | Massive REST | cleaner total return, entity map | also cross-checks Yahoo and the 587 split work |
 | short volume, short interest | FINRA direct | crowding, squeeze state | publication date is the availability time, not settlement |
-| earnings dates and time of day | to be located (Yahoo, EDGAR 8-K Item 2.02) | event-window atoms, post-announcement drift | announcement time (before open, after close) is the knowable-by time |
+| earnings dates and time of day | EDGAR 8-K Item 2.02 (acceptance timestamp, free, actual release only); Massive Benzinga partner feed (from 2010-04-30: `date`, `time` EST, `date_status` projected or confirmed, estimates and actuals, `last_updated`; select Benzinga expansion plans; no revision history stated) | event-window features, post-announcement drift | acceptance timestamp or `time` is the knowable-by time; the projected date is not point in time without a stored history of the estimate |
+| dividend declaration, record and pay dates | Massive dividends (all plans; all four dates plus `historical_adjustment_factor`) | declaration-announcement features; our `dividend_events` holds only `ex_date` and `amount` | check Yahoo for the same dates before buying anything |
+| filing index with accession numbers | Massive EDGAR index (filing dates), EDGAR directly | event timing, filing-based features | Massive's income-statement `filing_date` is the latest filing containing the period, not the original, so use EDGAR's own index for original dates |
 | index and volatility series (VIX family, term structure) | Cboe, FRED | regime inputs | macro layer already holds FRED |
 | borrow availability | captured (IBKR, 16:30 ET timer) | already stored; check it is a base feature input | |
 | index rebalances, option expiry calendar | exchange calendars | calendar primitives | calendar kernel exists |

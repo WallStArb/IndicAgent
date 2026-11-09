@@ -26,3 +26,7 @@ No IC before admission. Capture carries no look count; every admitted column doe
 ## Owner ruling 2026-11-09: extended hours
 
 Extended-hours bars (pre-market, after-hours, and the overnight session from 2026-12-06) stay raw only: stored, never selected; canonical 5m stays the RTH grid. Summary features (pre-market return, range, volume share, after-hours return) come later from a separate kernel over raw and attach to open-time and daily features.
+
+## Source findings 2026-11-09 (Massive docs, verified by reading)
+
+Massive has no earnings endpoint in its own stocks section; earnings come from partner feeds (Benzinga from 2010-04-30, `date`, `time` EST, `date_status`, `last_updated`; TMX/Wall Street Horizon corporate events from 2018) on expansion plans, with no before-open or after-close flag and no revision history stated. Its point-in-time handling is thin: income statements have no as-of parameter and `filing_date` is the most recent filing for the period. Ticker events are marked experimental and market holidays are forward-looking only. Our `corporate_action` (effective_date, factor, recorded_at, supersedes) is stronger on point in time than Massive's; our `dividend_events` lacks declaration, record and pay dates, which Massive's dividends endpoint serves on all plans.
