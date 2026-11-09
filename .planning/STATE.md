@@ -53,7 +53,7 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 
 **Running now (leave them):**
 - IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the fallback while todo 600 (Massive) is pending. Coverage
-  2026-11-09: 778 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 33 to 44 names a day. Fallback once Massive is admitted (todo 600).
+  2026-11-09: 778 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 33 to 44 names a day. Fallback once Massive is admitted (todo 600). INCIDENT 2026-11-08/09: the gateway hung at authentication from the 23:59 UTC nightly restart for 23h 43m (2FA-hang class); about 70 timer runs bounced, intake stopped 2026-11-08 23:58 UTC, one day of names lost; manual restart 2026-11-09 23:42 UTC, watcher confirming first intake. Mitigation filed as todo 607 (auto-restart, bounded, alert); superseded if Massive lands first.
 - Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). The tail pass to 2026-11-06 finished 2026-11-08 (0 errors, 0 windows unfinished, 3 restatement-flagged series), so the Alpaca 5m span is one piece from 2016-01-04. Re-ask logs are deleted; the ledger is the record.
   (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
 - Lead-session worker fleet (2026-11-09, lead indicagent-d8; verify every landing): 186-31 round 5

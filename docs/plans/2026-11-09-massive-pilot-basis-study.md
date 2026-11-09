@@ -35,10 +35,20 @@ selected, and only with this rate on record.
 
 ## Step 2: basis study (pre-registered decision rules)
 
+Amended 2026-11-10 (owner ruling 2026-11-09, todo 600): the purchase covers BOTH aggregates at
+full depth - all 1m and all 1d files as far back as the bucket holds (listing shows 2003) - so
+the study gains a 1d arm and the one-vendor consolidation question extends to daily.
+
 Sample: 30 names (10 liquid, 10 mid, 10 thin, including CORT-class thin names), 5 trading days in
 each era: 2007, 2010, 2013, 2015 (IBKR era), 2016-01 (the seam), 2020, 2026 (fractional-share
 era). Include the todo 592 nine (FBIZ, IJR, MTCH, MVBF, NVDA, PATK, RJF, UHAL, WST) and OKE and
 RSPF: Massive is an independent non-Yahoo witness for exactly those open split questions.
+
+The 1d arm: the same days and names, comparing Massive 1d closes against IBKR and Alpaca 1d with
+the same gates below (price, scale-factor, OHLC sanity; volume recorded not gated). Passing the
+1d arm also qualifies Massive 1d as the independent witness for the 592 sweep's held cases (the
+393 Yahoo-coverage holes, the spin-off suspects' confirmation, INSM, HSIC, OVV, TMUS), and the
+sweep reruns `--sweep` with it once admitted.
 
 Compare minute bars after RTH cut (09:30 to 16:00 ET) against IBKR (pre-2016) and Alpaca SIP
 (2016 onward) from `ohlcv_raw`, like-for-like on (symbol, minute):
