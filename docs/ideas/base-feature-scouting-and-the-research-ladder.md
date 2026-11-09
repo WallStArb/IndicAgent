@@ -84,6 +84,25 @@ Order of use: C first (cheap, no outcome peeked, and it also finds redundancy an
 
 What none of them can do is invent data. A new quantity from a source we do not hold comes from rung 0 scouting.
 
+## What does the suggesting and discovering (components)
+
+Nothing suggests features today: `ic_measure` only measures columns that exist. One scheduled oneshot batch job does the suggesting, one stage per class, writing to one proposals ledger and nothing else (single writer; compute is not persistence). Working name `feature_scout` (concept name, so `FeatureScout`; confirm against the glossary and naming rules before any code).
+
+| Stage | Component | Class | Exists? |
+|---|---|---|---|
+| 1 | Register scanner: diffs vendor schemas and endpoint lists against stored columns; emits "unused field" rows | rung 0 | no (todo 603) |
+| 2 | Blind proposer: a model reads schemas, register, glossary and the rejected log, never outcomes; emits specs with mechanism statements | A | no; rule ruled 2026-11-09 |
+| 3 | Grammar enumerator over primitives, lazy, never materialized | B | no (todo 440) |
+| 4 | Structure learner: PCA or ICA, clustering, embeddings, state models over the feature panel; pure kernels, runner owns I/O | C | no |
+| 5 | Admission gate checker: causality, memory, NaN-not-fill, point in time, unit-free, coverage, feature-to-feature uniqueness; records every rejection with a reason | gate | no |
+| 6 | Registration: `ConceptRegistryService` sets `candidate`; the feature rebuild computes it; `ic_measure` sweeps it | lifecycle | registry and sweep exist |
+| 7 | Learned-predictor runs inside folds through the research runner; the frozen object is one attempt | D | runner and ledger exist; no learner kernels |
+| 8 | Error-analysis report over book residuals by regime, event, name class and time of day, restricted to the declared discovery span | E | `contribution.py` explains members only |
+
+Flow: scout stages 1 to 4 -> proposals ledger (single writer, timestamped, counted in `L`) -> stage 5 gates -> stage 6 registers, computes and measures -> counted verdicts feed the ledger. Stages 7 and 8 run on their own span discipline and feed new hypotheses back to stage 2 only as written specs, never as results. Everything is deterministic from the ledger and the recorded model prompt and output (a proposal is a recipe once written).
+
+Build order (smallest first): 1 and 5 (no model, no outcome), then 4 (no outcome), then 3, then 2, then 7 and 8.
+
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.
