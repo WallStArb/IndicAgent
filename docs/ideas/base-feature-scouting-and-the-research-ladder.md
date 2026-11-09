@@ -8,25 +8,25 @@
 
 The proposer measures every numeric column that exists. Nothing asks what columns should exist. Two blind spots follow: data a vendor already serves that we drop (trade count, VWAP, extended hours), and quantities we could compute from data we hold but have not thought of. This is the lowest level of research, so mistakes here are inherited by everything above it.
 
-Terminology: the lowest level is a **base feature** (glossary `composition = base`: computed from a name's own bars or the timestamp). "Atomic" was a retired tier name; do not revive it. An `interaction` feature is built from other features and belongs one rung up.
+Terminology note: the glossary defines `composition = base` as computed from a name's own bars or the timestamp, so features from outside sources (FINRA, FRED, earnings events, dated market cap) fit neither `base` nor `interaction`; widen the `composition` vocabulary (CVR) or add a code for external-source features before todo 603 step 5. The lowest level is a **base feature** (glossary `composition = base`: computed from a name's own bars or the timestamp). "Atomic" was a retired tier name; do not revive it. An `interaction` feature is built from other features and belongs one rung up.
 
 ## The ladder
 
 | Rung | Unit | Where discovery happens | What is counted |
 |---|---|---|---|
 | 0 Data | a field a source serves | scouting the adjacency register | nothing; capture is cheap, no outcome peeked |
-| 1 Base feature | one number per (symbol, ts) from declared inputs, causal, declared memory | grammar over primitives plus scouted fields | each admitted column enters the look count `L` |
-| 2 Predictor and interaction | registered computation of base features | grammar depth 2 (todo 440), owner ideas | in `L` |
+| 1 Base feature | one number per (symbol, ts) from declared inputs, causal, declared memory | grammar over primitives plus scouted fields | each admitted column enters the look count `n_looks` |
+| 2 Predictor and interaction | registered computation of base features | grammar depth 2 (todo 440), owner ideas | in `n_looks` |
 | 3 Family | 3 to 8 members, one pre-registered mechanism | owner and idea docs; never an outcome screen | the family is the tested unit |
-| 4 Regime | a conditioning state built from base features or macro | state definitions are hypotheses (number of states, thresholds) | each definition in `L`; interactions only for pre-registered pairs |
+| 4 Regime | a conditioning state built from base features or macro | state definitions are hypotheses (number of states, thresholds) | each definition in `n_looks`; interactions only for pre-registered pairs |
 | 5 Combiner and book | weights across families, by regime | S7 combiner, construction rule, S8 book test | the book test, once, on its own span |
 
 The same funnel runs at every rung: propose broadly, admit on non-outcome gates, measure in the counted sweep, select with StepM, promote only on positive net expectation.
 
 ## Two kinds of gate, kept apart
 
-1. Admission gates (no outcome peeked): causality, declared memory, NaN where undefined (no fill), asset-agnostic, point-in-time inputs, unit-free (no raw price levels as features), coverage above a floor, and uniqueness (feature-to-feature correlation with existing columns; this never touches the target). A proposal that fails is rejected with a recorded reason. A proposal that passes is registered `candidate`, computed, and measured.
-2. Selection gates (outcome): the counted sweep with StepM over the declared `L`, then family pre-registration and promotion rules.
+1. Admission gates (no outcome peeked): causality, declared memory, NaN where undefined (no fill), asset-agnostic, point-in-time inputs, unit-free (no raw price levels as features), coverage above a floor, and uniqueness (feature-to-feature correlation with existing columns; this never touches the target; reuse `research/contribution.py`'s `uniqueness`, `effective_breadth` and `correlation_clusters`). A proposal that fails is rejected with a recorded reason. A proposal that passes is registered `candidate`, computed, and measured.
+2. Selection gates (outcome): the counted sweep with StepM over the declared `n_looks`, then family pre-registration and promotion rules.
 
 Screening proposals on IC before admission is the overfitting path this separation exists to block. Admission may use redundancy, never return.
 
@@ -74,15 +74,17 @@ Proposals (above) start from ideas. Discovery methods start from data. They diff
 
 | Class | Method | Sees outcomes? | Output | Counting |
 |---|---|---|---|---|
-| A. Mechanism | owner concepts, blind model proposals | no | base feature spec | each admitted column in `L` |
+| A. Mechanism | owner concepts, blind model proposals | no | base feature spec | each admitted column in `n_looks` |
 | B. Combinatorial | registered grammar over primitives (todo 440) | no (selection in-fold) | many candidate predictors | whole grammar plus selector is one attempt |
-| C. Target-free structure | PCA or ICA of the feature panel, clustering of names or features, autoencoder embeddings, HMM-style states, residual factor models | no | latent features, factor loadings, regimes | admission is safe; each kept output enters `L` |
-| D. Target-aware learning | supervised importance (lasso, boosted trees), symbolic regression, convolutional models on raw windows (`docs/ideas/signal-convolutional-raw-window-representation.md`, framed skeptically) | yes, inside training folds only | a fitted predictor, not a base feature | the frozen fitted object is one attempt, tested once on a later span |
+| C. Target-free structure | PCA or ICA of the feature panel, clustering of names or features, autoencoder embeddings, HMM-style states, residual factor models | no | latent features, factor loadings, regimes | admission is safe; each kept output enters `n_looks` |
+| D. Target-aware learning | supervised importance (lasso, boosted trees), symbolic regression, convolutional models on raw windows (`docs/ideas/signal-convolutional-raw-window-representation.md`, framed skeptically) | yes, inside training folds only | a fitted book member (a `predictor` has no fitted parameters), not a base feature | the frozen fitted object is one attempt, tested once on a later span |
 | E. Error analysis | where do existing books lose or leave residual (by regime, event, name class, time of day)? | yes, on a discovery span | new hypotheses for class A | the discovery span is spent; confirmation uses a separate, unsearched span |
 
-Order of use: C first (cheap, no outcome peeked, and it also finds redundancy and the true dimensionality of the 306 columns), then B, then D inside folds, then E under strict span discipline. Class E is the most dangerous because it reads outcomes to write hypotheses: the spans must be split in advance (discovery span, confirmation span, each book's own forward span, confirmed once), the discovery span is recorded as spent, and nothing found there is reported as evidence, only as a hypothesis for A to register and test elsewhere.
+Order of use: C first (cheap, no outcome peeked, and it also finds redundancy and the true dimensionality of the 306 columns), then B, then D inside folds, then E under strict span discipline. Class E is the most dangerous because it reads outcomes to write hypotheses: it reads the searched vintage only, every series it produces joins the selection universe under E18 (counted), and confirmation is each book's own unsearched forward span, spent once. Nothing found there is reported as evidence, only as a hypothesis for class A to register and test.
 
 What none of them can do is invent data. A new quantity from a source we do not hold comes from rung 0 scouting.
+
+Status of the counting mechanism for the feature sweep (review 2026-11-09, a gap not a decision): E18 defines StepM over attempt series (each attempt's E17 per-session D_s in `research_run`). The `ic_measure` sweep writes `feature_ic_scores`, which is not that universe, and `L` already means the E17 book memory in the unified design. Until an E21 ledger entry defines a feature-level selection (unit, storage, sole writer, what joins the universe, how `informed_by` chains the sweep to a family), treat sweep cells as evidence records: a family built from them carries `informed_by` to the sweep, E18's StepM runs over the family's book attempts, and the forward span is the control. `n_looks` is the bookkeeping count of measured features and nothing more. Drafting E21 is the first step before any sweep runs on real data (todo 601).
 
 ## What does the suggesting and discovering (components, simplified after review)
 
@@ -91,8 +93,8 @@ Review verdict (2026-11-09): the first draft was an eight-stage job with its own
 Nothing suggests features today: `ic_measure` only measures columns that exist. Four artifacts, no new service and no new table:
 
 1. The data adjacency register (a doc under `docs/reference/`, plus a small script that diffs vendor schemas and endpoint lists against stored columns). Rung 0.
-2. The admission gate: one pure function in the research layer, called on the registration path. Rung 1. Rejections and their reasons are recorded as `concept_registry` rows with a rejected status and reason code; a proposal is a `candidate` row with a proposal timestamp and a mechanism statement. The registry is the proposals ledger; do not build another.
-3. The look count `L`: recorded in the existing research ledger (S6 is the sole writer of `research_run`), declared before each measurement run.
+2. The admission gate: one pure function in the research layer, called on the registration path. Rung 1. Rejections and their reasons are recorded as `concept_registry` rows with status `deprecated` and a reason code in metadata (the live check allows only candidate, shadow_only, active, deprecated; a new `rejected` status would need a migration, and `UNIQUE (domain, name)` means a rejected name is blocked until renamed); a proposal is a `candidate` row with a proposal timestamp and a mechanism statement. The registry is the proposals ledger; do not build another.
+3. The look count `n_looks`: recorded in the existing research ledger (S6 is the sole writer of `research_run`), declared before each measurement run.
 4. The discovery methods as research-runner jobs, not as a daemon: grammar (todo 440), structure learner (class C), learned predictors (class D), error analysis (class E). Each is a pure kernel with the runner owning I/O, built only when a counted test needs it.
 
 Who proposes: the owner, the blind model proposer (rule above), and the grammar. All three write the same kind of `candidate` row. Flow: proposal row -> admission gate -> compute in the rebuild -> `ic_measure` sweep -> counted verdict.
@@ -101,9 +103,9 @@ Build order: register (no code beyond a diff script), admission gate spec, then 
 
 ## Corrections after review
 
-1. Counting. The first draft said every proposal counts in `L` whether or not computed. That over-counts: StepM corrects for tests actually performed. The rule is: log every proposal (timestamp, spec, mechanism) so blindness is auditable; `L` counts every feature that is measured, and a feature measured and then dropped after seeing a result still counts. A proposal never measured costs nothing in the correction.
+1. Counting. The first draft said every proposal counts in `n_looks` whether or not computed. That over-counts: StepM corrects for tests actually performed. The rule is: log every proposal (timestamp, spec, mechanism) so blindness is auditable; `n_looks` counts every feature that is measured, and a feature measured and then dropped after seeing a result still counts. A proposal never measured costs nothing in the correction.
 2. Admission statistics need a span. The uniqueness gate (feature-to-feature correlation) uses no target, but computing it on the whole history uses future feature values to decide admission and weakens the claim that the forward span is unsearched. Compute every admission statistic on the discovery span only (before the write-once `alpha.validation.oos_start`), with the thresholds as APR keys.
-3. Learned latent features obey temporal integrity. A PCA, ICA, clustering or embedding fit on the full sample leaks the future into its loadings. Fit on the discovery span, freeze with a content hash, apply causally (a read for t sees only loadings knowable by t), and pre-register the refit schedule, as the HMM walk-forward did (todo 248). Class C is target-free but not time-free.
+3. Learned latent features obey temporal integrity. A PCA, ICA, clustering or embedding fit on the full sample leaks the future into its loadings. Fit walk-forward (expanding or rolling windows inside the vintage), freeze each fit with a content hash, and apply it only to rows after its fit window (a read for t sees only loadings knowable by t); a single fit over the whole vintage applied to earlier rows is lookahead. Pre-register the refit schedule, as the HMM walk-forward did (todo 248). Class C is target-free but not time-free.
 4. Hindsight in model proposals is reduced, not removed: a model has read the literature and the market's history. Disclose it, require a stated mechanism, and confirm only on each book's own unsearched forward span.
 5. Priority. The first counted test is the critical path (`PRIORITIES.md`). This whole lane waits behind it except the register and the gate spec, which are cheap and unblock the Massive capture decisions.
 
@@ -123,11 +125,11 @@ Possible refinement worth a research note (not a change now): sequential confirm
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.
-- Each admitted batch is one declared `L` increment recorded in the ledger before measurement.
+- Each admitted batch is one declared `n_looks` increment recorded in the ledger before measurement.
 - Rejected and dead regions are recorded as registry rows with a reason code (what was tried and why it failed), so the same region is not rediscovered and recounted unknowingly; no separate log.
 
 ## Open questions for the owner
 
 1. Session definition: RULED by the owner 2026-11-09: extended-hours bars stay raw only (stored, never selected; canonical 5m stays the 78-slot RTH grid). Later, summary features (pre-market return, range, volume share, after-hours return) are computed from raw in a separate kernel and attach to open-time and daily features; no grid, gate or pin change.
 2. Earnings dates: which source, and is announcement time reliable enough to be knowable-by?
-3. Model proposals: RULED by the owner 2026-11-09, allowed as a blind proposer. (1) It sees schemas, the register, existing features, the glossary and the rejected-proposals log, never IC, verdicts or returns. (2) Every proposal is a spec with a mechanism statement, timestamped in the concept registry before any measurement; it counts toward `L` once measured (refined 2026-11-09: a proposal never measured costs nothing in the correction). (3) Admission is mechanical; only `ConceptRegistryService` flips a status. (4) Refining a result into neighbours is a separate step under pre-registered rules and its own count, never the model's judgement.
+3. Model proposals: RULED by the owner 2026-11-09, allowed as a blind proposer. (1) It sees schemas, the register, existing features, the glossary and the rejected-proposals log, never IC, verdicts or returns. (2) Every proposal is a spec with a mechanism statement, timestamped in the concept registry before any measurement; it counts toward `n_looks` once measured (refined 2026-11-09: a proposal never measured costs nothing in the correction). (3) Admission is mechanical; only `ConceptRegistryService` flips a status. (4) Refining a result into neighbours is a separate step under pre-registered rules and its own count, never the model's judgement.

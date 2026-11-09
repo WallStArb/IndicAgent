@@ -74,7 +74,7 @@ industry usage; the v2.x meaning above is archived and no new code builds on it.
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
 **Banned:** (none)
-**Status:** retired (v2.x mechanism deleted; the v3.0 `alpha_events` chain was deleted in phase 186) — see `attempt` and `book` for the current research-layer equivalents
+**Status:** the v2.x meaning is retired (mechanism deleted; the v3.0 `alpha_events` chain was deleted in phase 186); in new research prose "signal" is an accepted alias of `predictor` — see `attempt` and `book` for the current research-layer equivalents
 
 **Code surface:** `signal_events` table (Phase 128+, archived, 0 rows in production), `SignalTracker`, `SignalWriter` — `indicagent-signal-tracker-compute.service` and `indicagent-signal-writer.service` both `inactive (dead)` (verified 2026-09-04). Legacy: `signal_ledger` monolith (read-only during v2.10 migration, dropped in Phase 130).
 

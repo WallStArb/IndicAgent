@@ -52,7 +52,7 @@ complete (todo 584 decision 2026-11-04; the 186-32 data gate enforces it in code
 table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are admitted (owner 2026-11-07 reversed the 2026-11-04 no-purchase ruling; todo 600); survivorship caveat on every pre-2016 result until then.
 
 **Running now (leave them):**
-- IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the critical path. Coverage
+- IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the fallback while todo 600 (Massive) is pending. Coverage
   2026-11-09: 778 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 33 to 44 names a day. Fallback once Massive is admitted (todo 600).
 - Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). The tail pass to 2026-11-06 finished 2026-11-08 (0 errors, 0 windows unfinished, 3 restatement-flagged series), so the Alpaca 5m span is one piece from 2016-01-04. Re-ask logs are deleted; the ledger is the record.
   (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)

@@ -33,7 +33,7 @@ Of 311 `feature_vectors` columns, 104 are named in a research, service, measure 
 
 ## Ruling 2026-11-09 (owner): discovery over deletion for feature columns
 
-Columns are deleted only on data-quality grounds: constant, all-NULL, exact duplicates (the todo 564 class), or failing the volume, lookahead or basis checks. Everything else stays and is swept by the `ic_measure` proposer, Renaissance-style: measure IC across all of them, count every look against the vintage, select with StepM, promote only on positive net expectation. The proposer's coverage of all 311 columns is the thing to verify, and the multiple-testing count for a 206-column sweep must be declared before the sweep runs. The 66% figure above is a coverage-of-readers number, not a slop number. Code-side slop (duplicate factories, completeness logic Massive replaces, dead tests) is unchanged.
+Columns are deleted only on data-quality grounds: constant, all-NULL, exact duplicates (the todo 564 class), or failing the volume, lookahead or basis checks. Everything else stays and is swept by the `ic_measure` proposer, Renaissance-style: measure IC across all of them, count every look against the vintage, select with StepM, promote only on positive net expectation. The proposer's coverage of all 306 numeric columns is the thing to verify, and the multiple-testing count for a 206-column sweep must be declared before the sweep runs. The 66% figure above is a coverage-of-readers number, not a slop number. Code-side slop (duplicate factories, completeness logic Massive replaces, dead tests) is unchanged.
 
 ## What the discovery sweep tests per feature (owner 2026-11-09)
 
@@ -61,6 +61,10 @@ Plan for levels 2 and 3: `docs/plans/2026-11-09-regime-conditional-and-increment
 
 ## Generation versus measurement (2026-11-09)
 
-The sweep measures features that exist; it does not invent concepts. Concept generation is todo 440 (`generated_family`, a registered grammar over daily OHLCV, about 5,000 candidates enumerated lazily, one grammar plus selector counts as one attempt) plus owner and idea-doc concepts (`IDEAS.md`, `docs/ideas/`). A new concept needs a registered computation, the UCR `candidate -> shadow_only -> active` lifecycle and a counted verdict. Generated candidates and swept columns draw on one multiple-testing budget: declare both inside the same look count `L`, select with StepM in-fold, and never let the grammar's size dilute the sweep's count unnoticed.
+The sweep measures features that exist; it does not invent concepts. Concept generation is todo 440 (`generated_family`, a registered grammar over daily OHLCV, about 5,000 candidates enumerated lazily, one grammar plus selector counts as one attempt) plus owner and idea-doc concepts (`IDEAS.md`, `docs/ideas/`). A new concept needs a registered computation, the UCR `candidate -> shadow_only -> active` lifecycle and a counted verdict. Generated candidates and swept columns draw on one multiple-testing budget: declare both inside the same look count `n_looks`, select with StepM in-fold, and never let the grammar's size dilute the sweep's count unnoticed.
 
 Scouting what should exist (rung 0 and 1): todo 603 and `docs/ideas/base-feature-scouting-and-the-research-ladder.md`.
+
+## Review 2026-11-09 (Opus reviewer)
+
+The look count is `n_looks` (bookkeeping), not `L` (E17 book memory). Counting for feature-level sweeps needs ledger entry E21 before any real-data run (see todo 603 and the idea doc). Level 3 runs in the research runner, not `ic_measure`. The proposer's 306 numeric columns are covered; `refuse_reaching_oos` keeps it inside the vintage.
