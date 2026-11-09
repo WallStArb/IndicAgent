@@ -53,8 +53,8 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 
 **Running now (leave them):**
 - IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the critical path. Coverage
-  2026-11-08: 745 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 44 names a day. Fallback once Massive is admitted (todo 600).
-- Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). A tail pass to 2026-11-06 runs from `scratchpad/wt596` (log `logs/alpaca_reask_596_tail_20261108T1405Z.log`); rerun the same command with `--skip-complete` if it did not finish. The re-ask range now runs 2016-01-04 to the last full session, in one piece.
+  2026-11-09: 778 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 33 to 44 names a day. Fallback once Massive is admitted (todo 600).
+- Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). The tail pass to 2026-11-06 finished 2026-11-08 (0 errors, 0 windows unfinished, 3 restatement-flagged series), so the Alpaca 5m span is one piece from 2016-01-04. Re-ask logs are deleted; the ledger is the record.
   (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
 
 **Next, in order:**
@@ -85,109 +85,14 @@ unpushed stays on the shared main; every landing gets an independent review befo
 naming a rule; judge tests by the summary line or exit code, never a tail; after a dashboard
 package change, `npm ci` in the shared checkout before restarting the service.
 
-## Current position (2026-11-04, paused by the owner)
+## Earlier positions (condensed 2026-11-09)
 
-Operative plan: `docs/plans/2026-11-03-path-to-first-counted-test.md` (lead: indicagent-16).
-All work is paused; nothing is in flight except the IBKR history fetcher timer.
+The 2026-11-01 and 2026-11-04 position write-ups are superseded by the handoff above; the full text is in git at 7d2fcb405 (`git show 7d2fcb405:.planning/STATE.md`). What still holds from them:
 
-- Todo 584: every code item has landed (1-12, 6a-6d, 8b, 3 at K=3 uniform with ledger E20, G4-a
-  exact window sums). The pin waits on todo 587 and the owner's data rulings.
-- Todo 587 (P0): 380 confirmed unadjusted splits over 268 names in canonical 1d. The safe set has
-  landed (migration 567, audit tool, CSV, D7 `split_continuity`). The atomic landing (d2-v5
-  rescale + migration 568 lineage view) is unpushed at tag `wip/587-atomic` (5e3845df2) and waits
-  for the lead's go after the owner's 185-49 ruling.
-- Phase 184: plans 05-10 landed; a feature member runs S0 -> S8 on a synthetic panel. Todo 588
-  closed the admission holes (parts A and B): admitted are feature 1h->1d, feature 15m->1d,
-  rk_high_dist 126 and the 1h+15m book. Part C is 184-12's real-data dry build after 186-27.
-  compare-all was vacuous (empty `research_run`).
-- Next, in order: the owner's decisions below -> 587 atomic landing -> official pilot G1-G5 on a
-  fresh executor -> pin -> 1d rerun -> 186-27 -> 184-12.
-
-Owner decisions added 2026-11-04 (lead recommendation in each source): todo 566 policy classes
-(3a keep and excuse, 3b close 7 rows, 3d keep, 3e keep refused); the clean-data lift for
-price-derived 1d families; admitting the 27 compute_eligible_1d=false names; the entity classes
-(63 early starts plus MTCH, RCAT, GEN); the 185-49 reversal for todo 587's rescale.
-
-## Previous position (2026-11-01 23:20Z)
-
-Owner sequence (2026-11-01): (1) data squared away, (2) every fix that changes a stored value
-landed, then one full feature recompute of the corpus, (3) ensemble research on the result. Lead
-orchestrator: indicagent-4f; devs indicagent-82 and indicagent-dc (93 and b0 are out until
-2026-11-05 23:16Z).
-
-- **Desk 2026-11-06 03:20Z (lead indicagent-4d):** landed: 594 scrub rules (aff4f022c, mig 580;
-  564 bad bars flagged, 0 served), 186-30 run identity (383e987ce, mig 578), 596 step 1 truthful
-  Alpaca ledger (3a8cc0a77, mig 581, view `ohlcv_ask_current`; first live use is the 04:43Z
-  nightly). In flight: 186-32 data gate lands on 581; 596 re-ask of every Alpaca 5m name
-  2016-2026-10 then the reader switch (913,862 sessions are covered today only by load ranges).
-  Pin gates: 534, 594 (done), 596, the 186-32 gate passing. 587 closes on the next full nightly D7.
-
-- **Critical path: todo 584 (corpus rerun fix manifest).** Decision 2026-11-04 (owner): no
-  corpus compute until the data is complete (the 5m coverage target, todo 534; definition in the
-  584 decision). The 186-26 rows on pin `92e588385` were discarded (migration 569, 298 GB freed;
-  provenance `superseded`), so nothing resumes. The swap landed 2026-11-04 (migration 570): one
-  table name, `feature_vectors` (empty, kernel schema; the 89 GB v1 table dropped), the rebuild
-  compresses at every full-universe stage end, the streaming feature writer unit is disabled. Migration 575
-  (2026-11-04) did the same for IC: one table, `feature_ic_scores` (413 schema, empty until
-  186-28's fresh run); the ic_engine-era table and its two views are dropped. Todo 590 (migration 576) deleted the v1 in-place
-  writers: the rebuild is the only writer of `feature_vectors` (CI test plus a `BulkLoadSpec`
-  sole-writer check). Migration 577 dropped the 13 retired columns from the
-  empty table (311 columns, equal to the registry); the integration baseline is 2026-11-05
-  (todo 591). The rerun runner (todo 593): 186-30 run identity landed 2026-11-05 (migration 578:
-  corpus_run, provenance_batch.run_id, rebuild span/chunk filters, ic_measure and canary
-  --run-id); 186-32 landed 2026-11-05 (migration 579 rerun APR, `run_data_gate` read-only; live dry
-  run fails: IBKR era 97 at depth (79 on bars alone) / 468 partial / 570 none of 1,135; Alpaca 2016
-  to 2026-10-05 stays bar-judged since ohlcv_load ranges are served bar spans and the campaign
-  request log is gone, so its 547,938 thin-name partial sessions still fail); 186-31 landed 2026-11-05
-  (`services/corpus_rerun.py`, todo 593 closed): span-major step DAG, disk budget and per-unit guard,
-  pin gate, pilot re-projection, adoption list, runbook `docs/operations/corpus-rerun-runbook.md`;
-  review rounds 1-3 landed 2026-11-06 (0effdeb5c with migration 582, b89e7e182, f0d464116: every
-  column declares its warmup in the registry), round 4 2206c2088 and 0c7fe2a5c (migration 583
-  unit_stats, definitions apart from memory, rebuild code key now 901b68ab); plan-only (horizon
-  2026-11-01): 2 spans, peak 487 GB vs 552 GB limit at the seed ratio, data gate FAIL.
-  It executes only after the 584 data gate. Todo 587 landed 2026-11-05 (f5ebae068): 378 calendar_audit split rows on 266
-  names, rule d2-v5 rescales them, 13 bars quarantined (7 unconfirmed_split, 6 operator_bad_bar),
-  233,512 1d bars re-derived, all digests rewritten; the D7 after-count is being read against the
-  2026-11-05 01:13 baseline. The rerun runner (186-30, 186-31, 186-32) is on main, with the lead's
-  disk rule (peak at or below 70% of free disk, span count derived, APR headroom guard). Next: the fix
-  batch keeps landing on main; when 534 meets the target, the pin moves once, the pilot passes G1-G5, then the rerun, 186-28, 184. Owner 2026-11-04: IBKR only for pre-2016 5m (no vendor purchase; reversed 2026-11-07, todo 600); pre-2016 results carry a survivorship caveat (todo 534).
-
-- **Data (step 1):** phase 191 complete (canonical = selection over `ohlcv_raw`; the selection
-  gate is the standing proof). Pre-2016 IBKR 5m backfill (owner P0, todo 534) is owned by the
-  fetcher timer (never hand-launch). A run now ends on a failed history probe (`1ebcfc9e4`) or on
-  no data taken in for 1800 s, status `stalled` (`857b163e0`); failure modes and procedure in
-  `docs/reference/gotchas.md`. Todo 534 concurrency test concluded 2026-11-02: the owner kept
-  `fetch_concurrency` 4 (about 715,000 rows/h; 3 and 4 lanes equal, 8 stalled) and stopped
-  testing concurrency - numbers and failure modes in the 534 Status section. Coverage target
-  and counts: memory `project_raw_coverage_target`, todo 534.
-
-- **Landed 2026-11-02 (82):** 584 item 10 calendar start 2000 (`ff368fcd4`), item 11 proven start
-  per name closing 532 (`d601a6fd5`, ledger E19; the 1d verdict audit must run once to write
-  `proven_start_1d` before the rebuild reads it), item 5 macro.py half (`aee2404d9`), item 12
-  (`d003eb028`). Open for the 584 implementer: the `_cache_state.py` and `feature_factory.py`/
-  `schemas.py` half of 463 (references in the 82 handoff to 4f).
-
-- **Lanes now (2026-11-02 evening):** lead = indicagent-91 (e1 ended). ea = 584 items 2, 4
-  and 6: item 2 fully landed (kernel_source Panel.tf follow-up `5015cc8e2`), 4a landed, 4b/4c
-  in progress. d6 = 583 deep-data K study (the `--bic` tool change sits in its working tree;
-  gates before any run), then 584 item 9 G4/G5. Tracks B (584 item 8 add-list) and D (todo 522
-  run implementation) briefed, not opened.
-
-- **Todo 522:** the Monday 2026-11-02 open passed without the measured run. `run` is a stub
-  (raises SystemExit at dispatch); the measured protocol must be implemented from the file
-  docstring and the pre-registered instrumentation spec
-  (`docs/plans/2026-11-01-own-flow-slippage-instrumentation.md`), then `check` +
-  `.venv/bin/python scripts/ops/alpaca_paper_lifecycle.py run` after an open (next window
-  Tuesday 2026-11-03 14:30Z). Track D when opened.
-
-- **Research:** no real-data hypothesis tests until the restart conditions below are met. E17
-  battery verdict recorded (todo 547; S1-drift A/B is the owner's); StepM unblocked (561).
-
-- **Universe:** 1,529 active, all intraday scope; 1,502 `compute_eligible_1d`. Features and
-  regimes in the canonical `feature_vectors` are stale since 2026-08-10 until 186-27.
-
-- **Services:** Alpaca nightly timer 04:40 UTC; streaming is dormant (feed down); todo 582 must
-  land before the feed returns.
+- The operative plan is `docs/plans/2026-11-03-path-to-first-counted-test.md`. Todo 584 (corpus rerun fix manifest) has landed every code item; its pin waits on the data gate (186-32), which waits on the data being complete (IBKR 534 or Massive 600).
+- Todo 587 (380 unadjusted splits over 268 names): the safe set landed (migration 567, audit tool, D7 `split_continuity`); the atomic landing waits at tag `wip/587-atomic` and closes on a full nightly D7.
+- One-name tables landed: `feature_vectors` (migration 570), `feature_ic_scores` (575), the v1 in-place writers deleted (576), 13 retired columns dropped (577). The 186-26 rows were discarded (migration 569).
+- Owner decisions still open are listed under "Decisions waiting on the owner" below (todo 566 policy classes, the clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes, the 185-49 reversal for the 587 rescale).
 
 ## Starting a new session
 
