@@ -40,7 +40,7 @@ Seed entries (availability and point-in-time quality unverified; verify before c
 |---|---|---|---|
 | trade count `transactions`, `n` | Massive files, Alpaca bars | activity, average trade size, bar-quality witness | free with bars already pulled; nullable raw column (todo 600) |
 | VWAP `vw` | Alpaca bars | VWAP deviation without our own estimate | check against `vp_sr` kernels |
-| extended-hours bars | Massive files, SIP 23/5 from 2026-12-06 | pre-market range, overnight gap composition | needs an owner ruling on session definition |
+| extended-hours bars | Massive files, SIP 23/5 from 2026-12-06 | pre-market range, overnight gap composition | raw only per the owner's 2026-11-09 ruling; summary features later |
 | shares outstanding, market cap (dated) | Massive ticker details | size, turnover, float-style ratios | must be a dated table, not an instrument attribute |
 | splits, dividends, ticker events | Massive REST | cleaner total return, entity map | also cross-checks Yahoo and the 587 split work |
 | short volume, short interest | FINRA direct | crowding, squeeze state | publication date is the availability time, not settlement |
@@ -74,6 +74,6 @@ Regime-conditional weights are the S7 combiner's job, fit walk-forward. Discover
 
 ## Open questions for the owner
 
-1. Session definition: do extended-hours bars become a first-class session or stay raw-only?
+1. Session definition: RULED by the owner 2026-11-09: extended-hours bars stay raw only (stored, never selected; canonical 5m stays the 78-slot RTH grid). Later, summary features (pre-market return, range, volume share, after-hours return) are computed from raw in a separate kernel and attach to open-time and daily features; no grid, gate or pin change.
 2. Earnings dates: which source, and is announcement time reliable enough to be knowable-by?
 3. Whether base features may be proposed by a model at all inside the sweep, or only by the grammar and by owner concepts.

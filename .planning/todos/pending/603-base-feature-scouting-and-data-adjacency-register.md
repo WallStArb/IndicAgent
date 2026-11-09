@@ -22,3 +22,7 @@ Design: `docs/ideas/base-feature-scouting-and-the-research-ladder.md`. The propo
 ## Gates
 
 No IC before admission. Capture carries no look count; every admitted column does. No model admits a feature.
+
+## Owner ruling 2026-11-09: extended hours
+
+Extended-hours bars (pre-market, after-hours, and the overnight session from 2026-12-06) stay raw only: stored, never selected; canonical 5m stays the RTH grid. Summary features (pre-market return, range, volume share, after-hours return) come later from a separate kernel over raw and attach to open-time and daily features.
