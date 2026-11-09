@@ -38,3 +38,7 @@ A model may propose base features under four rules: it never sees IC, verdicts o
 ## Review 2026-11-09
 
 Simplified after a five-step review: no daemon, no new ledger; four small artifacts (register, admission gate function, `L` in the research ledger, discovery methods as runner jobs built after the first counted test). Admission statistics use the discovery span only; learned latent features are fit on that span, frozen with a hash and applied causally. See the idea doc, 'Corrections after review'.
+
+## Counting is a price, not a cap (2026-11-09)
+
+Ideas are never limited by the look count; the count only sets the evidence bar for measured features. Keep exploration cheap with an exploration span versus a confirmation span, effective-dimension reduction (class C), and hierarchical gatekeeping. The span split needs reconciling with E15-E18 (every look at the vintage is counted) and an owner ruling before use; see the idea doc.

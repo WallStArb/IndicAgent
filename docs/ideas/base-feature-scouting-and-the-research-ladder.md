@@ -107,6 +107,16 @@ Build order: register (no code beyond a diff script), admission gate spec, then 
 4. Hindsight in model proposals is reduced, not removed: a model has read the literature and the market's history. Disclose it, require a stated mechanism, and confirm only on each book's own unsearched forward span.
 5. Priority. The first counted test is the critical path (`PRIORITIES.md`). This whole lane waits behind it except the register and the gate spec, which are cheap and unblock the Massive capture decisions.
 
+## Counting is a price, not a cap (owner concern 2026-11-09)
+
+The look count `L` never limits how many ideas are generated, logged or computed. It sets the evidence bar a measured feature must clear (StepM is a threshold that rises with the number and dependence of tests), so more looks make each pass harder, not forbidden. Three levers keep exploration cheap:
+
+1. Exploration span versus confirmation span. Explore freely on the discovery span (before `alpha.validation.oos_start`): any method, any number of features, no correction, and nothing there is reported as evidence, only as a hypothesis. Only candidates that go to confirmation are counted, and that set is small and pre-registered. This is the standard way to make ideas unrestricted: spend the evidence budget at confirmation, not at ideation. The discovery span is recorded as spent. (This must be reconciled with E15-E18's rule that every look at the vintage is counted; the clean statement is that a look on the discovery span is exploration, and the counted vintage is the span used for selection. Raise with the owner before relying on it.)
+2. Dependence lowers the price. StepM resamples jointly, so 306 correlated columns cost far fewer than 306 independent tests; a structure analysis (class C) measures the effective number of independent dimensions. Test one representative per correlated cluster first.
+3. Hierarchical gatekeeping. Test a feature group or family as one hypothesis first; test its members only if the group passes. One look can stand in for dozens.
+
+Power matters too: with roughly 20 years and thousands of names (more with Massive's full universe), real cross-sectional edges still clear a high bar. A stricter bar costs the marginal ideas, which are the ones we want to lose.
+
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.
