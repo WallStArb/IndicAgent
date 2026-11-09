@@ -57,7 +57,11 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 - Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). The tail pass to 2026-11-06 finished 2026-11-08 (0 errors, 0 windows unfinished, 3 restatement-flagged series), so the Alpaca 5m span is one piece from 2016-01-04. Re-ask logs are deleted; the ledger is the record.
   (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
 
-**Next, in order:**
+**Added 2026-11-09 (end of session, Opus-reviewed):** the discovery lane is designed, not built. Read `docs/ideas/base-feature-scouting-and-the-research-ladder.md` (scouting, the admission-gate versus selection-gate split, classes A to E, E18 counting), todo 603 (register and gates), todo 601 (slop audit reframed as discovery over deletion; proposer already covers all 306 numeric columns) and `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md` (levels 2 and 3). Gaps found by review that block any real-data sweep: draft ledger entry E21 (feature-level selection: unit, storage, sole writer, universe, `informed_by`); amend unified design section 11 before stratifying IC beyond `regime_volatility`; widen the `composition` vocabulary; level 3 runs in the research runner, not `ic_measure`. Owner rulings this session: Massive flat files purchase approved (todo 600, P0); extended hours stay raw only; blind model proposer allowed; discovery over deletion for unread columns; licensing is the owner's job. Dated: 2026-11-12 Tradier decision and old backups (510); 2026-12-01 decide IBKR gateway upgrade versus planned lapse (544, desupported 2026-12-15). The Massive S3 key is in `.env` (`MASSIVE_S3_*`) and lists but cannot download until the plan is upgraded.
+
+**Next, in order** (budget-limited sessions: items 0a and 0b first):
+0a. **Todo 600**: after the owner upgrades the Massive plan, download one 2010 file, check units and delisted names, run the pilot basis study.
+0b. **Draft E21** (feature-level selection ledger entry) and the section 11 amendment; both gate any real-data sweep (todos 601, 603).
 1. **186-31 round 5** (corpus rerun step runner, review loop): uncommitted work in worktree
    `scratchpad/wt18631g` (corpus_rerun.py, feature_factory.py and the kernels _primitives,
    liquidity, price, smc, vp_sr). Finish: event-column presence from knowability (censored rows

@@ -68,3 +68,7 @@ Scouting what should exist (rung 0 and 1): todo 603 and `docs/ideas/base-feature
 ## Review 2026-11-09 (Opus reviewer)
 
 The look count is `n_looks` (bookkeeping), not `L` (E17 book memory). Counting for feature-level sweeps needs ledger entry E21 before any real-data run (see todo 603 and the idea doc). Level 3 runs in the research runner, not `ic_measure`. The proposer's 306 numeric columns are covered; `refuse_reaching_oos` keeps it inside the vintage.
+
+## Status 2026-11-09 (end of session)
+
+Blocked on two drafts before any real-data sweep: ledger entry E21 and the section 11 amendment. First measurement and plans are recorded above. Next session: draft E21 (with todo 603), then the register.
