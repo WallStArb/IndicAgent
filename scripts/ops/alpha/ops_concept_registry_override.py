@@ -19,11 +19,11 @@ forbidden.
 cross-domain registry (concept_registry also carries domain='ensemble_strategy'
 rows), so the domain is never hard-coded into the script itself.
 
-Note on --reason: concept_transition_log.trigger_reason is a CHECK-constrained enum
-with no free-text column -- there's nowhere in the schema to persist an operator's
-free-text justification today (same gap todo 011 closed out noting; see todo 117's
-own writeup). --reason is therefore logged to stdout/structlog for the operator's
-own audit trail, not written to the DB row itself.
+Note on --reason: concept_transition_log.trigger_reason is a CHECK-constrained enum,
+and the free text rides the log row: this script passes --reason into
+record_transition(notes=...), which persists it to concept_transition_log.notes
+(todo 402's column closed the gap todo 011 and todo 117 noted). stdout/structlog
+still echoes it for the operator's immediate audit trail.
 
 Usage:
     python scripts/ops/alpha/ops_concept_registry_override.py \
