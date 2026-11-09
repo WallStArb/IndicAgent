@@ -15,6 +15,8 @@ Docs: https://massive.com/docs/flat-files/stocks/minute-aggregates (S3-compatibl
 
 ## Plan
 
+Runbook (pre-registered decision rules, eras, sample, gates): `docs/plans/2026-11-09-massive-pilot-basis-study.md`. Steps below are the outline it details.
+
 1. Owner buys the plan and supplies the S3 key and secret through `.env`. Confirm file layout, size per file and the `window_start` unit (the docs disagree on seconds versus nanoseconds) from a real listing.
 2. Basis study before admission: about 5 days across different years for about 30 names, against IBKR and Alpaca SIP. The 2016 seam matters most.
 3. Archive the raw files unmodified (permanent raw).
