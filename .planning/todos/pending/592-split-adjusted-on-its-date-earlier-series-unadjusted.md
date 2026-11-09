@@ -135,3 +135,42 @@ unconfirmed pending Massive); RJF and MTCH took nothing and re-verified clean (n
 - Open: the D7 split_continuity confirm rides tonight's 06:00 UTC nightly; the sweep (the
   1,624 lone breaks, triage in this file) is the follow-up lane; MVBF's split stays unconfirmed
   pending a Massive witness.
+
+## Sweep landed 2026-11-10 (worker indicagent-0b, brief d8)
+
+The audit tool gained `--sweep` (commit 14e844081): every lone canonical 1d break (|ln step| >
+0.4 on a day at most 20 names step) classified by the per-series method - Yahoo's adjusted
+close as the continuity witness, every rescalable raw series measured on its own across the
+break. Fresh enumeration after the ten-case landing: 1,389 breaks on 371 names.
+
+| verdict | count | disposition |
+|---|---|---|
+| real_move | 799 | Yahoo adjusted carries the step (two witnesses); left alone |
+| reported | 449 | 393 no Yahoo witness across the break (vendor absence is not a witness; Massive can revisit), 51 a tape that steps neither flat nor the break, 3 junction levels undecided, 2 post-side-off junctions a prefix rescale cannot express |
+| single_bar_reversal | 123 | quarantined as operator_bad_bar (batch 2, commit f544bd8f7); 0 of the 131 listed bars remains in the tradeable view |
+| junction_rescale | 5 | 4 landed (batch 1): ELS 2019-10-15 x0.5, GYRE 2023-01-12 x0.673, OKE 2015-12-31 x2.836, QBTS 2022-08-05 x0.688; NEXN 2025-02-14 x2.0 held (587 bad-bar conflict) |
+| inseries_rescale | 5 | OKE 2012-06-01 x0.504 landed (calendar 2.0 matches the measured factor); BHP, F, INSM, XPO held (below) |
+| unrecorded_split | 8 | GSAT 2021-02-08 x0.610 landed (both tapes step together: ibkr and alpaca 16.05 -> 26.32); HSIC, OVV, TMUS, RCAT x3, OKE-2005 held (below) |
+
+Batch 1 (6 rows, 5 names) applied via `--apply-rows --commit`, re-derived (14,465 rows
+rewritten), junctions verified: every fixed break session now steps at its recorded real move
+(ELS -0.003, GSAT +0.174, GYRE -0.875, OKE +0.019/+0.000, QBTS +0.144); the scale component
+is gone. The whole-history max-step check does not apply here: GYRE's 2023 -0.875 and QBTS's
++0.215 are real same-window moves the rows preserve by design.
+
+Held rows, no fix without vendor agreement (lead decides):
+
+- Spin-off suspects (fractional calendar factor, the 587 exclusion class): BHP 2001-07-12
+  (calendar 2.0651, measured 2.173), F 2000-08-02 (1.748 / 1.704), XPO 2021-07-30
+  (1.718 / 1.627). A spin-off's value drop looks identical to a split on tape + Yahoo flat;
+  these belong to the dividend layer if the calendar confirms them as spin-offs.
+- Factor/calendar mismatch: INSM 2000-07-28 (calendar 0.25, measured 0.199, 28-day anchor gap).
+- Single tape, no ratio corroboration: HSIC 2013-03-12 (1.53x), OVV 2009-12-03 (1.96x, the
+  Encana spin-off era) - unrecorded split and unrecorded-to-Yahoo spin-off are not separable
+  from one tape; needs Massive or a second vendor.
+- Thin-series names (todo 454): RCAT x3.
+- Hole span: TMUS (pre-break span ends 2013-04-30, break 2015-10-27, a 2.5-year hole; the
+  pre-IPO-era data is suspect).
+- 587 bad-bar conflicts: NEXN 2025-02-14 x2.0 and OKE 2005-04-12 x1.985 - the sweep's
+  junction/unrecorded diagnosis contradicts the landed 587 quarantine of the same event; the
+  lead rules whether the rescale row replaces the quarantine.
