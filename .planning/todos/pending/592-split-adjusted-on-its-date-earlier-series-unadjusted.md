@@ -74,3 +74,14 @@ adjustment (rescale via a calendar_audit row naming the series), (b) a single-ba
 Landing order: the nine decided cases first (quarantines and rows through the existing 587
 tooling, corrected CSV), then the sweep as the audit-rule extension (a worker lane; the pin's
 data gate is unaffected - none of this touches 5m coverage).
+
+Sweep triage, measured 2026-11-09 (lead session; read-only): of the 1,624 lone breaks, only 1
+sits within 3 sessions of a recorded `corporate_action` (the recorded calendar explains none of
+this class); 144 are single-bar reversals (next-day step reverses within 0.1 - the MVBF/UHAL
+quarantine class); 22 on 21 names sit at an `ohlcv_raw` series first/last-bar boundary (the
+IJR/PATK fallback-junction class; internal gap-fill boundaries are invisible to this cut and need
+the audit's per-series view); 870 drops versus 754 jumps, and the jump side points at unrecorded
+reverse splits - the 587 calendar was forward splits only. The remaining ~1,450 need the audit
+tool's per-series cross-check (in-series adjustment switches like FBIZ, unrecorded
+splits/reverse splits, and real single-name crashes, which vendor agreement confirms and leaves
+alone).
