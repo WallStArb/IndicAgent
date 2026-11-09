@@ -17,7 +17,7 @@ Vulture at 80% confidence finds only 4 items, so dead-code lint is clean; the sl
 
 ## Protocol (Musk 5-step, in order: requirements, delete, simplify, accelerate, automate)
 
-1. Consumer graph: for every `feature_vectors` column, find the kernel, family, book or registry row that reads it. No reader means a deletion candidate. Output is a table in `docs/research/` with the count; this also shrinks the corpus rerun.
+1. Consumer graph: for every `feature_vectors` column, find the kernel, family, book, IC-measure or registry row that reads it. A column with no reader is NOT a deletion candidate (owner 2026-11-09: no reader does not mean no signal; never drop data that could contain signal). It is an untested hypothesis: route it to the `ic_measure` discovery sweep so it earns a counted verdict or a family. Output is a table in `docs/research/` with the counts per class.
 2. Compare `backfill_feature_factory` against `feature_factory`; merge or delete the duplicate path.
 3. After the Massive basis study (todo 600): delete the completeness logic it replaces (ask-ledger readers, most of D7 `bar_reconciliation_audit`, gap_plan for Massive spans).
 4. Remove tests in the same commit as the code they cover.
@@ -30,3 +30,7 @@ Never edit a module a live fingerprinted batch writer imports while its run is l
 ## First measurement, 2026-11-09 (literal-name scan, an upper bound)
 
 Of 311 `feature_vectors` columns, 104 are named in a research, service, measure or script module and 206 (66%) appear only in the kernels and `feature_factory.py` that produce them (examples: `aroon_*`, `cci_*`, `bars_since_*`, `bsl_dist_atr`, `choch_*`, `demand_*`, `breaker_*`). This overcounts unread columns: it misses dynamic reads (the IC measure over all columns, family selection by registry prefix). Next: join against the concept registry and the IC measure's column set, then split the 206 into read generically, read by a family, and truly unread. Do not drop any column on this scan alone.
+
+## Ruling 2026-11-09 (owner): discovery over deletion for feature columns
+
+Columns are deleted only on data-quality grounds: constant, all-NULL, exact duplicates (the todo 564 class), or failing the volume, lookahead or basis checks. Everything else stays and is swept by the `ic_measure` proposer, Renaissance-style: measure IC across all of them, count every look against the vintage, select with StepM, promote only on positive net expectation. The proposer's coverage of all 311 columns is the thing to verify, and the multiple-testing count for a 206-column sweep must be declared before the sweep runs. The 66% figure above is a coverage-of-readers number, not a slop number. Code-side slop (duplicate factories, completeness logic Massive replaces, dead tests) is unchanged.
