@@ -210,7 +210,7 @@ The layer that transforms raw market data (OHLCV) into measurable features — d
 
 **Current implementation:** `FeatureFactory` (I1-I4 cadence tiers; the "54 features" count is historical)
 **Output:** `FeatureVector` → `feature_vectors` table
-**Rebuilt table:** `feature_vectors` (built as `feature_vectors_v2`, the name since migration 570; 324 columns, PK `symbol, tf, bar_ts`, 1-year chunks) is written only by the rebuild writer through `bulk_load`.
+**Rebuilt table:** `feature_vectors` (built as `feature_vectors_v2`, the name since migration 570; 311 columns (324 before migration 577 dropped 13 retired columns), PK `symbol, tf, bar_ts`, 1-year chunks) is written only by the rebuild writer through `bulk_load`.
 **Not:** synonymous with "Feature Factory" — FeatureFactory is the mechanism; signal processing layer is the generic concept. Other implementations could exist (different feature sets, different computation strategies) without changing what this layer IS.
 
 **Distinction from theory-laden features:** Primitives like `body_ratio` or `overnight_gap_z` encode no market theory. Theory-laden features like `poc_dist_atr` or `sr_support_dist` assume support/resistance has meaning — they may have IC but they are not primitives.
