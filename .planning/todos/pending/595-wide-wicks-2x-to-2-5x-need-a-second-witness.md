@@ -7,6 +7,22 @@ source: lead (indicagent-4d), from the todo 594 robustness grid
 
 # Wide wicks between 2.0x and 2.5x on 1d need a second witness
 
+## Status (measured 2026-11-09, todo 595 lane)
+
+Band enumerated: 60 bars, exact reproduction of the table below. Both witnesses measured and
+neither separates bad prints from real crash days. The day's 5m path contains the 1d extreme
+in exactly one bar on every covered day (34/60), bad prints and real events alike, with the
+same spike shape and overlapping times of day; next-day confirmation has an empty rejection
+arm (no bar of any class revisits its extreme) and a non-separating continuation arm
+(28/29 bad vs 14/15 event trade through the close). The structural cause: canonical 1d,
+canonical 5m and `ohlcv_raw` 5m all come off the same vendor tape, and the fake prints are
+real rows of it. Recommendation in `docs/research/wick-band-2.0-2.5-second-witness.md`: keep
+the `isolated_wick` 2.5 floor, no rule for this band; the 1.75 extension was measured and
+rejected (captures the 3 named bads below the floor but false-flags 4 known event-date
+bars). A real second witness needs a second vendor pre-2016 or sub-5m granularity, neither
+held. Lead decides whether any residual action (for example accepting the 4 known false
+positives to recover 3 named bads) is worth taking; nothing landed.
+
 ## What
 
 Todo 594's `isolated_wick` rule flags a wick of at least 2.5x the body
