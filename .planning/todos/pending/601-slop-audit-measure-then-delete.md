@@ -44,3 +44,9 @@ A feature that belongs to no family yet is evaluated three ways, in this order, 
 3. Incremental: IC after controlling for existing family members (partial or orthogonalized IC), as a candidate input to the S7 combiner. A feature correlated with an existing member adds nothing whatever its own IC.
 
 Pairwise interactions are tested only for features that pass 1 or 2, or that carry a pre-registered mechanism. About 21,000 pairs among 206 columns would guarantee false positives; test hierarchically, declare the look count before the run, select with StepM. A feature that passes becomes a family member by pre-registration, never by an outcome screen alone (glossary: family).
+
+## Verified 2026-11-09: the proposer already sweeps every numeric column
+
+`services/ic_measure.py::feature_names` returns every numeric column of the feature table (types from `information_schema`): the `FeatureVector` fields in order, then every other numeric column sorted, "so a column the rebuild adds is measured, not skipped". `feature_vectors` holds 306 real columns, 4 text and 1 timestamptz, so all 306 numeric columns are measured pooled per feature x timeframe x horizon with Benjamini-Hochberg across the block. Level 1 of the discovery sweep therefore exists; the gap is not coverage.
+
+Still to verify (unread so far): (2) regime-conditional IC (`measure/regime_disclosure.py` may cover disclosure only, not a per-regime IC term structure per feature), and (3) incremental IC against family members (nothing found in `measure/`; S7 combiner lives in `research/combiner.py`). Those two levels, plus the declared look count for a 306-column sweep, are the real work.
