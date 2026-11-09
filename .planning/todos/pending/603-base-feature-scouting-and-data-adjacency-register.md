@@ -41,4 +41,4 @@ Simplified after a five-step review: no daemon, no new ledger; four small artifa
 
 ## Counting is a price, not a cap (2026-11-09)
 
-Ideas are never limited by the look count; the count only sets the evidence bar for measured features. The evidence framework already splits the counted searched vintage (a screen) from the unsearched forward span (the confirmation, spent once), so no new span is needed. Keep the screen cheap with effective-dimension reduction (class C) and hierarchical gatekeeping. A capacity-based screen bar (top K books the forward span can afford) is an optional methodology change; see the idea doc.
+Ideas are never limited by the look count; the count only sets the evidence bar for measured features. E18 already uncaps iteration and controls the selection universe with StepM (every series a person sees is counted; no free uncorrected real-data exploration). Keep the universe small with effective-dimension reduction (class C) and group-then-member testing. Sequential confirmation is a possible research note, not a change; see the idea doc.

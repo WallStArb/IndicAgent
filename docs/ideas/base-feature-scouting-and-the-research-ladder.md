@@ -107,21 +107,18 @@ Build order: register (no code beyond a diff script), admission gate spec, then 
 4. Hindsight in model proposals is reduced, not removed: a model has read the literature and the market's history. Disclose it, require a stated mechanism, and confirm only on each book's own unsearched forward span.
 5. Priority. The first counted test is the critical path (`PRIORITIES.md`). This whole lane waits behind it except the register and the gate spec, which are cheap and unblock the Massive capture decisions.
 
-## Counting is a price, not a cap (owner concern 2026-11-09; corrected after reading the evidence framework)
+## Counting is a price, not a cap (E18 is already this)
 
-The look count `L` never limits how many ideas are generated, logged or computed. The evidence framework (`docs/plans/2026-09-24-evidence-framework.md`, sections 1 and 3, amended by E18) already separates two stages, and that is the answer:
+Methodology ledger E18 (adopted 2026-09-26) replaced E15's M = 30 budget and per-screen Bonferroni bar. The rule in force: iteration is uncapped; every real-vintage series a person can see is recorded with its full return series and joins the selection universe (including `exploration` mode runs, diagnostic refits, and a run that computed a statistic and then failed); there is no bar per attempt; at selection, Romano-Wolf StepM runs over the whole universe at family-wise 0.05 with one joint stationary-bootstrap draw, so correlated attempts cost far fewer than independent ones; the book that spends a forward span is chosen by positive net expectation at a conservative quantile; each forward span is spent once, per book.
 
-- The searched vintage [2007 .. cutoff) is a screen. Looks there are counted, and the count sets the screen's bar. The screen is not the error control (informal looks cannot be counted; Bonferroni over registered tests is a lower bound), and its budget renews when the vintage rolls.
-- The unsearched forward span is the confirmation, spent once per book, and it is the only place a p-value means what it says.
+So the look count never limits how many ideas are generated, logged or computed. It is the size of the selection universe StepM controls over. Consequences for this lane:
+1. There is no free, uncorrected exploration on real vintage data: whatever a person sees joins the universe. Exploration that must stay free uses synthetic data or the null battery; real-data exploration is counted, cheaply, because StepM is joint.
+2. Dependence lowers the price automatically. Class C (structure analysis) shows the effective number of dimensions; test one representative per correlated cluster, and test a group or family before its members, so fewer series enter the universe.
+3. The scarce resource is the forward span (spent once per book). The practical cap on ideation is how many books the spans can confirm, not how many features are tried.
 
-So many ideas cost a stricter screen, never a blocked idea. The scarce resource is the forward span, because a failed confirmation spends its whole length. The practical constraint on ideation is therefore how many books the forward span can afford to confirm, not how many features we try.
+Superseded and withdrawn: the "exploration span versus confirmation span" lever and the "capacity-based screen bar" option I drafted earlier. E18 already uncapped the screen, and the vintage-versus-forward split is E15's section 3, still in force.
 
-Levers that keep the screen from choking exploration, none of which changes the framework:
-1. Dependence lowers the price. StepM resamples jointly, so 306 correlated columns cost far fewer than 306 independent tests; class C (structure analysis) measures the effective number of dimensions. Test one representative per correlated cluster first.
-2. Hierarchical gatekeeping. Test a feature group or family as one hypothesis first; test members only if it passes.
-3. Power. With about 20 years and thousands of names (more with Massive), real cross-sectional edges clear a high bar; a stricter bar mainly costs marginal ideas.
-
-An option that would be a methodology change (needs an owner ruling and a `methodology-change-ledger.md` entry, not needed now): set the screen's bar by forward-span capacity (take the top K books the span can afford, with a declared false-discovery rate) instead of alpha/M. It makes the screen's price independent of how many ideas were tried.
+Possible refinement worth a research note (not a change now): sequential confirmation. A fixed power-dated test date (E18 refuses a date more than 3 years out) wastes calendar time when evidence is strong early or hopeless early. Group-sequential or always-valid (e-value) confirmation on book P&L would allow early stopping in both directions without spending extra alpha. The difficulty is autocorrelated P&L under the E17 HAC statistic; it needs a study, a synthetic power check and a ledger entry before use. This attacks the real bottleneck (forward-span time), which the screen's price does not.
 
 ## Cadence and ownership
 
