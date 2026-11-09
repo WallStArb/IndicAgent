@@ -68,6 +68,22 @@ A regime definition is itself a choice among many (how many states, which input,
 
 Regime-conditional weights are the S7 combiner's job, fit walk-forward. Discovery here is limited on purpose: which families enter a book is pre-registered, weights are fitted, and the book test runs once on its own forward span. More structure than that would spend the evidence budget on the part with the fewest independent observations.
 
+## Discovering features from the data itself
+
+Proposals (above) start from ideas. Discovery methods start from data. They differ in what they may see, so they differ in what they cost in evidence:
+
+| Class | Method | Sees outcomes? | Output | Counting |
+|---|---|---|---|---|
+| A. Mechanism | owner concepts, blind model proposals | no | base feature spec | each admitted column in `L` |
+| B. Combinatorial | registered grammar over primitives (todo 440) | no (selection in-fold) | many candidate predictors | whole grammar plus selector is one attempt |
+| C. Target-free structure | PCA or ICA of the feature panel, clustering of names or features, autoencoder embeddings, HMM-style states, residual factor models | no | latent features, factor loadings, regimes | admission is safe; each kept output enters `L` |
+| D. Target-aware learning | supervised importance (lasso, boosted trees), symbolic regression, convolutional models on raw windows (`docs/ideas/signal-convolutional-raw-window-representation.md`, framed skeptically) | yes, inside training folds only | a fitted predictor, not a base feature | the frozen fitted object is one attempt, tested once on a later span |
+| E. Error analysis | where do existing books lose or leave residual (by regime, event, name class, time of day)? | yes, on a discovery span | new hypotheses for class A | the discovery span is spent; confirmation uses a separate, unsearched span |
+
+Order of use: C first (cheap, no outcome peeked, and it also finds redundancy and the true dimensionality of the 306 columns), then B, then D inside folds, then E under strict span discipline. Class E is the most dangerous because it reads outcomes to write hypotheses: the spans must be split in advance (discovery span, confirmation span, each book's own forward span, confirmed once), the discovery span is recorded as spent, and nothing found there is reported as evidence, only as a hypothesis for A to register and test elsewhere.
+
+What none of them can do is invent data. A new quantity from a source we do not hold comes from rung 0 scouting.
+
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.
@@ -78,4 +94,4 @@ Regime-conditional weights are the S7 combiner's job, fit walk-forward. Discover
 
 1. Session definition: RULED by the owner 2026-11-09: extended-hours bars stay raw only (stored, never selected; canonical 5m stays the 78-slot RTH grid). Later, summary features (pre-market return, range, volume share, after-hours return) are computed from raw in a separate kernel and attach to open-time and daily features; no grid, gate or pin change.
 2. Earnings dates: which source, and is announcement time reliable enough to be knowable-by?
-3. Whether base features may be proposed by a model at all inside the sweep, or only by the grammar and by owner concepts.
+3. Model proposals: RULED by the owner 2026-11-09, allowed as a blind proposer. (1) It sees schemas, the register, existing features, the glossary and the rejected-proposals log, never IC, verdicts or returns. (2) Every proposal is a spec with a mechanism statement, timestamped in a proposals ledger before any measurement, and counts toward `L` whether or not it is computed. (3) Admission is mechanical; only `ConceptRegistryService` flips a status. (4) Refining a result into neighbours is a separate step under pre-registered rules and its own count, never the model's judgement.
