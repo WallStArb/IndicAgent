@@ -121,8 +121,10 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
     ):
         assert column in declared, column
         assert f"_{column}_is_none" in registry.by_output(column).outputs, column
+    # an object column may also hold a measured zero once its object exists (a zero Roll
+    # covariance, a zero opening gap, the gap flag); none other is both
     zero_state = {o for k in registry.kernels for o in k.zero_is_state}
-    assert not declared & zero_state
+    assert declared & zero_state == {"roll_spread", "opening_gap_pct", "gap_filled"}
     for column in ("momentum_z_fast", "adx", "poc_rolling_dist_atr", "prior_session_high_dist_atr"):
         assert column not in declared, column
 
@@ -254,3 +256,30 @@ def test_the_hmm_first_label_falls_on_a_refit_boundary_at_or_after_its_declared_
         assert finite[0] >= declared and (finite[0] - declared) % refit == 0, (column, finite[0])
         judged += 1
     assert judged
+
+
+def test_event_presence_comes_from_knowability_not_the_value():
+    """bars_since_* (review round 5): a row is absent only when its trailing window is fully
+    known and holds no event; a window with an unknown bar is present, so a series whose
+    window is 60% censored by holes is mostly present-and-NaN and fails the share."""
+    from src.intelligence.features.kernels.price import (
+        _bars_since_event_absent,
+        _bars_since_event_series_full,
+    )
+
+    window = 5
+    events = np.zeros(100)
+    events[::10] = 1.0  # an event every 10 rows: rows 5-9 of each block have none in window
+    clean_absent = _bars_since_event_absent(events, window)
+    values = _bars_since_event_series_full(events, window)
+    assert (clean_absent[np.isfinite(values)] == 0).all()  # a value exists: present
+    assert clean_absent[7] == 1.0  # known window, no event: absent
+
+    holes = events.copy()
+    rng = np.random.default_rng(3)
+    holes[rng.random(100) < 0.6] = np.nan  # 60% unknown bars
+    absent = _bars_since_event_absent(holes, window)
+    present = absent == 0
+    nan_present = present & np.isnan(_bars_since_event_series_full(holes, window))
+    assert present.mean() > 0.9  # almost every window holds an unknown bar
+    assert nan_present.sum() / present.sum() > 0.05  # the share gate fails it loudly

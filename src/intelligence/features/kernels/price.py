@@ -688,10 +688,22 @@ def _bars_since_rolling_extreme_series_full(
 
 
 def _bars_since_event_absent(events: np.ndarray, window: int) -> np.ndarray:
-    """1.0 where `_bars_since_event_series_full` has no event to count (no known event in the
-    trailing window, or an unknown row newer than the last one), else 0.0: the column's none mask,
-    its object-presence witness for the corpus gate (186-31). The same rule, in one place."""
-    return np.isnan(_bars_since_event_series_full(events, window)).astype(float)
+    """1.0 where the counter's object is knowably absent: its trailing window (the rows
+    `_bars_since_event_series_full` reads, partial at the series start) is fully known and holds
+    no event. Else 0.0, present: a value should exist, so a row censored by an unknown bar is
+    present and its NaN counts against the column (186-31 review round 5). Presence comes from
+    what is knowable, never from the value. The column's none mask, the corpus gate's witness."""
+    n = len(events)
+    unknown = (~np.isfinite(events)).astype(np.int64)
+    known_event = (np.nan_to_num(events, nan=0.0) > 0.5).astype(np.int64)
+
+    def trailing(counts: np.ndarray) -> np.ndarray:
+        total = np.concatenate([[0], np.cumsum(counts)])
+        rows = np.arange(n)
+        return total[rows + 1] - total[np.maximum(rows + 1 - window, 0)]
+
+    absent = (trailing(unknown) == 0) & (trailing(known_event) == 0)
+    return absent.astype(float)
 
 
 def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray:

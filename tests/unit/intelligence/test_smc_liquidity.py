@@ -373,8 +373,8 @@ def test_pools_fallback_on_invalid_atr():
 
     result = _compute_liquidity_pools(highs, lows, closes, 99.8, 0.0, _make_cfg())
     assert result["pool_count"] == 0.0
-    assert result["bsl_dist_atr"] is None  # no pool level: no distance (todo 584 4b-2 g4)
-    assert result["ssl_dist_atr"] is None
+    # an invalid ATR is not absence (186-31 review round 5): present and unmeasured, NaN
+    assert math.isnan(result["bsl_dist_atr"]) and math.isnan(result["ssl_dist_atr"])
     for key in ("bsl_touches", "ssl_touches", "pool_count", "price_in_premium"):
         assert math.isfinite(result[key])
 

@@ -989,8 +989,8 @@ def test_session_levels_non_constant_batch(session_batch_5m):
 
 def test_session_levels_cold_nullability(cfg):
     """A series shorter than one session (never rolls over, but ATR is warm)
-    must yield None for the prior-session trio, opening_gap_pct, all five
-    weekly fields, and nearest_level_dist_atr on the final bar (D-01)."""
+    must yield None for the prior-session trio, opening_gap_pct, gap_filled, all
+    five weekly fields, and nearest_level_dist_atr on the final bar (D-01)."""
     base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday 9:30 ET, single session
     n = 10
     mids = [100.0 + 0.5 * i for i in range(n)]
@@ -1009,8 +1009,10 @@ def test_session_levels_cold_nullability(cfg):
     results = FeatureFactory.compute_batch(bars_local, "SPY", "5m", cache, cfg)
     fv = results[-1][1]
 
-    assert fv.gap_filled is not None, "gap_filled must be a real 0.0/1.0, not None -- ATR is warm"
+    # no prior session close: no opening gap exists, so gap_filled is absent too (186-31 review
+    # round 5: the gap flag is object dependent, never a fabricated 0.0 before the first gap)
     for field in (
+        "gap_filled",
         "prior_session_high_dist_atr",
         "prior_session_low_dist_atr",
         "prior_session_close_dist_atr",

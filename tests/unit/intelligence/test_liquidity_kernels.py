@@ -138,9 +138,12 @@ def test_roll_spread_bid_ask_bounce_hand_value():
     assert out[4] == pytest.approx(4.0 * a / math.sqrt(3.0), rel=1e-12)
 
 
-def test_roll_spread_non_negative_covariance_is_nan():
-    # flat closes: every change is exactly 0, so the covariance is exactly 0
-    assert np.isnan(_roll_spread_series_full(np.full(8, 100.0), 3)).all()
+def test_roll_spread_zero_covariance_is_a_defined_zero_and_positive_is_nan():
+    # flat closes: every change is exactly 0, the covariance exactly 0, the spread a defined 0.0
+    # (Roll 1984; 186-31 review round 5), never -0.0
+    out = _roll_spread_series_full(np.full(8, 100.0), 3)
+    assert np.isnan(out[:4]).all()  # warmup rows t <= window
+    assert (out[4:] == 0.0).all() and not np.signbit(out[4:]).any()
     # trending returns (positive serial covariance)
     r = np.array([0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06])
     closes = 100.0 * np.exp(np.concatenate([[0.0], np.cumsum(r)]))

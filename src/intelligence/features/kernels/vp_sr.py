@@ -34,6 +34,7 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,
     _is_valid_atr,
+    invalid_input_fallback,
     undefined_on,
     window_start,
 )
@@ -123,11 +124,12 @@ def _derive_session_vp(
     Reads FeatureCache's raw session levels (set by update_session_vp(), called
     once per bar by the caller before compute()/inside compute_batch()'s loop)
     plus the compute-path atr_val -- no raw price level is ever returned or
-    persisted (D-16). Every field falls back to None when its object does not
-    exist or atr_val is unavailable (cold start / degenerate histogram / atr_val
-    invalid per _is_valid_atr, i.e. <= 0 or below
+    persisted (D-16). A field whose object does not exist is None; one whose
+    object exists but whose atr_val is unavailable (cold start / degenerate
+    histogram / atr_val invalid per _is_valid_atr, i.e. <= 0 or below
     config.atr_normalization_min_pct of close_ -- todo 237; D1 rules 1-2, todo
-    584 4b-2 group 4): poc_dist_atr needs a POC, va_position a value area with
+    584 4b-2 group 4, 186-31 review round 5) is NaN, present and unmeasured:
+    poc_dist_atr needs a POC, va_position a value area with
     nonzero width, and price_in_value_area/in_lvn a live histogram (the cache's
     0.0 reset defaults are internal state, read back as None here). Where the
     objects exist, price_in_value_area/in_lvn are already-bounded 0/1 flags and
@@ -140,7 +142,10 @@ def _derive_session_vp(
     val = cache._sess_val
     va_exists = vah is not None and val is not None
 
-    poc_dist_atr: float | None = None if poc is None or not atr_valid else (close_ - poc) / atr_val
+    # an object with an invalid ATR is present and unmeasured (NaN); None only when it is absent
+    poc_dist_atr: float | None = (
+        None if poc is None else (close_ - poc) / atr_val if atr_valid else math.nan
+    )
 
     va_position: float | None
     if not va_exists or (vah - val) == 0:
@@ -149,10 +154,10 @@ def _derive_session_vp(
         va_position = float(np.clip((close_ - val) / (vah - val), 0.0, 1.0))
 
     def _above(level: float | None) -> float | None:
-        return None if level is None or not atr_valid else (level - close_) / atr_val
+        return None if level is None else (level - close_) / atr_val if atr_valid else math.nan
 
     def _below(level: float | None) -> float | None:
-        return None if level is None or not atr_valid else (close_ - level) / atr_val
+        return None if level is None else (close_ - level) / atr_val if atr_valid else math.nan
 
     nearest_hvn_above_dist_atr = _above(cache._sess_hvn_above)
     nearest_hvn_below_dist_atr = _below(cache._sess_hvn_below)
@@ -161,14 +166,16 @@ def _derive_session_vp(
 
     nearest_hvn_dist_atr = (
         None
-        if cache._sess_hvn_nearest is None or not atr_valid
-        else abs(close_ - cache._sess_hvn_nearest) / atr_val
+        if cache._sess_hvn_nearest is None
+        else abs(close_ - cache._sess_hvn_nearest) / atr_val if atr_valid else math.nan
     )
 
     # D-17: va_width_atr == distance_to_vah_atr + distance_to_val_atr exactly
     # -- documented collinearity kept deliberately (both are directly
     # interpretable structural distances in their own right).
-    va_width_atr = None if vah is None or val is None or not atr_valid else (vah - val) / atr_val
+    va_width_atr = (
+        None if vah is None or val is None else (vah - val) / atr_val if atr_valid else math.nan
+    )
     distance_to_vah_atr = _above(vah)
     distance_to_val_atr = _below(val)
 
@@ -176,8 +183,9 @@ def _derive_session_vp(
     in_lvn: float | None = cache._sess_in_lvn if va_exists else None
 
     if poc_price_rolling is None or not atr_valid:
-        poc_rolling_dist_atr: float | None = None
-        poc_session_rolling_divergence_atr: float | None = None
+        unmeasured = None if poc_price_rolling is None else math.nan
+        poc_rolling_dist_atr: float | None = unmeasured
+        poc_session_rolling_divergence_atr: float | None = unmeasured
     else:
         poc_rolling_dist_atr = (close_ - poc_price_rolling) / atr_val
         # D-18: poc_session_rolling_divergence_atr == poc_rolling_dist_atr -
@@ -299,7 +307,7 @@ def _compute_sr_dist_atr(
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return dict(_SR_FALLBACK)
+        return invalid_input_fallback(_SR_FALLBACK)
 
     lookback = _sr_lookback(config, tf)
     h = highs[-lookback:]
@@ -433,7 +441,7 @@ def _compute_swing_structure(
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        result: dict[str, float | None | list[int] | int] = dict(_SWING_FALLBACK)
+        result: dict[str, float | None | list[int] | int] = invalid_input_fallback(_SWING_FALLBACK)
         result["swing_high_price"] = None
         result["swing_low_price"] = None
         result["swing_high_indices"] = []
@@ -566,7 +574,7 @@ def _compute_trend_structure(
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return dict(_TREND_STRUCTURE_FALLBACK)
+        return invalid_input_fallback(_TREND_STRUCTURE_FALLBACK)
 
     swing_highs: list[int] = swing_fields.get("swing_high_indices") or []
     swing_lows: list[int] = swing_fields.get("swing_low_indices") or []
@@ -977,7 +985,7 @@ def _compute_fib_zones(
 
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return dict(_FIB_FALLBACK)
+        return invalid_input_fallback(_FIB_FALLBACK)
 
     levels = [swing_low_price + ratio * swing_range for ratio in _FIB_RATIOS]
     nearest_idx = min(range(len(levels)), key=lambda k: abs(levels[k] - close_))
@@ -1043,16 +1051,16 @@ def _derive_session_levels(
     called once per bar by the caller BEFORE compute()) plus the compute-path
     atr_val -- never recomputes them, and never returns a raw price level
     (D-16). Structured
-    exactly like _derive_session_vp(): an atr_valid guard at the top returning the
-    full fallback, local _above()/_below() closures with the same sign convention
+    like _derive_session_vp(): an ATR-normalized distance is NaN when the ATR is invalid
+    (present, unmeasured) and None when its level does not exist, through local
+    _above()/_below() closures with the same sign convention
     (a level ABOVE close yields a positive distance via (level - close_); a level
     BELOW close yields a positive distance via (close_ - level)), never raises.
 
-    The atr_valid guard also suppresses the two ATR-independent fields
-    (opening_gap_pct, gap_filled): migration 267's COMMENT
-    binds all eleven columns to NULL on ATR <= 0, and letting behaviour diverge
-    from the column documentation is exactly the drift this phase's discipline
-    exists to prevent.
+    The two ATR-independent fields (opening_gap_pct, gap_filled) are computed
+    whatever the ATR (186-31 review round 5, lead 2026-11-06): an ATR failure is not
+    the absence of an opening gap. This supersedes migration 267's COMMENT, which bound
+    all eleven columns to NULL on ATR <= 0.
 
     Weekly pivot/R1/R2/S1/S2 anchor on the PRIOR COMPLETED ISO week's
     high/low/close (cache._prior_wk_high/_low/_close) only -- never the week in
@@ -1068,14 +1076,13 @@ def _derive_session_levels(
     correct "no data yet" reading, not an error state.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return dict(_SESSION_LEVELS_FALLBACK)
 
+    # A level with an invalid ATR is present and unmeasured (NaN); None only when it is absent.
     def _above(level: float | None) -> float | None:
-        return None if level is None else (level - close_) / atr_val
+        return None if level is None else (level - close_) / atr_val if atr_valid else math.nan
 
     def _below(level: float | None) -> float | None:
-        return None if level is None else (close_ - level) / atr_val
+        return None if level is None else (close_ - level) / atr_val if atr_valid else math.nan
 
     psh = cache._sl_prior_session_high
     psl = cache._sl_prior_session_low
@@ -1090,7 +1097,11 @@ def _derive_session_levels(
         None if session_open is None or psc is None or psc <= 0 else (session_open - psc) / psc
     )
 
-    gap_filled = float(cache._sl_gap_filled)
+    # no prior session close (or a non-positive one): no opening gap exists to fill (absent,
+    # never a fabricated 0.0)
+    gap_filled = (
+        None if psc is None or psc <= 0 or session_open is None else float(cache._sl_gap_filled)
+    )
 
     ph = cache._prior_wk_high
     pl = cache._prior_wk_low
@@ -1123,7 +1134,11 @@ def _derive_session_levels(
     nearest_level_dist_atr = (
         None
         if not _candidates
-        else abs(close_ - min(_candidates, key=lambda x: abs(x - close_))) / atr_val
+        else (
+            abs(close_ - min(_candidates, key=lambda x: abs(x - close_))) / atr_val
+            if atr_valid
+            else math.nan
+        )
     )
 
     result: dict[str, float | None] = {
@@ -1382,8 +1397,10 @@ KERNELS = (
         inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
-        # no opening gap (the open equals the prior close) or nothing left to fill
+        # the opening gap needs a prior session close; a zero gap and the filled flag are
+        # measured states once it exists (D1 rule 4)
         object_dependent=frozenset({"opening_gap_pct", "gap_filled"}),
+        zero_is_state=frozenset({"opening_gap_pct", "gap_filled"}),
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,

@@ -146,8 +146,16 @@ class FakeStore:
         return self.reaching
 
     def unit_stats(self, keys):
+        """A key with a test-set entry carries it; otherwise each key is one healthy unit on
+        every target tf (so every expected tf has present rows)."""
         healthy = {"swing_high_dist_atr": {"present": 100, "nan_present": 1}}
-        return [(k, *self.stats.get(k, ("1h", healthy))) for k in keys]
+        rows = []
+        for k in keys:
+            if k in self.stats:
+                rows.append((k, *self.stats[k]))
+            else:
+                rows += [(k, tf, healthy) for tf in ("5m", "15m", "1h", "1d")]
+        return rows
 
     def loaded_rows(self, run_id, tf, lo, hi):
         return self.loaded.get((tf, lo, hi), 0)
@@ -952,9 +960,10 @@ def test_an_empty_table_plans_nothing_to_find_stored_rows():
 _OBJECTS = frozenset({"swing_high_dist_atr", "bars_since_vol_spike_fast"})
 
 
-def _gate(rows, applicable=None):
+def _gate(rows, applicable=None, tfs=None):
     applies = applicable or (lambda tf: _OBJECTS | {"adx"})
-    return cr.object_share_gate(rows, _OBJECTS, applies, 0.05)
+    expected = tfs if tfs is not None else sorted({tf for _key, tf, _stats in rows})
+    return cr.object_share_gate(rows, _OBJECTS, applies, 0.05, expected)
 
 
 def _counted(key, tf, **counts):
@@ -987,8 +996,17 @@ def test_present_zero_on_an_applicable_tf_fails_and_on_another_tf_does_not():
 
 
 def test_a_unit_without_unit_stats_fails():
-    gate = _gate([("k" * 12, "5m", None)])
+    gate = _gate([("k" * 12, "5m", None)], tfs=[])
     assert gate["failing"] and "carries no unit_stats" in gate["failing"][0]
+
+
+def test_an_expected_tf_with_no_unit_at_all_fails_present_zero():
+    rows = [_counted("k1", "5m", swing_high_dist_atr=(50, 0), bars_since_vol_spike_fast=(9, 0))]
+    gate = _gate(rows, tfs=["5m", "15m"])
+    assert sorted(gate["failing"]) == [
+        "tf 15m bars_since_vol_spike_fast: present = 0 on a tf where it applies",
+        "tf 15m swing_high_dist_atr: present = 0 on a tf where it applies",
+    ]
 
 
 def test_feature_complete_and_the_pilot_run_the_object_gate():

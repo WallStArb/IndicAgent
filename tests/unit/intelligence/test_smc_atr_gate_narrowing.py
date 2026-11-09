@@ -7,6 +7,8 @@ valid ATR (1.0) and an invalid one (0.0) on the same bars, every other output mu
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -49,13 +51,25 @@ def _call(name, atr):
 
 @pytest.mark.parametrize("name", sorted(ATR_OUTPUTS))
 def test_invalid_atr_changes_only_the_atr_outputs(name):
+    """An invalid ATR is not absence (186-31 review round 5): an ATR output whose object exists
+    is NaN (present, unmeasured); one whose object does not exist stays None. The other outputs
+    are untouched."""
     valid, invalid = _call(name, 1.0), _call(name, 0.0)
     assert set(valid) == set(invalid)
     for key in valid:
         if key in ATR_OUTPUTS[name]:
-            assert invalid[key] is None
+            if valid[key] is None:
+                assert invalid[key] is None, key
+            else:
+                assert invalid[key] is not None and math.isnan(invalid[key]), key
         else:
             assert invalid[key] == valid[key], key
+
+
+@pytest.mark.parametrize("name", sorted(ATR_OUTPUTS))
+def test_the_fixture_has_an_existing_atr_object(name):
+    """Guard against a vacuous NaN check: some ATR output's object exists on the fixture."""
+    assert any(_call(name, 1.0)[k] is not None for k in ATR_OUTPUTS[name])
 
 
 @pytest.mark.parametrize("name", sorted(ATR_OUTPUTS))

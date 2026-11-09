@@ -461,12 +461,14 @@ def object_share_gate(
     objects: frozenset[str],
     applicable: Callable[[str], frozenset[str]],
     max_null_fraction: float,
+    expected_tfs: Sequence[str],
 ) -> dict[str, Any]:
     """G6 for the object-dependent and event columns (lead ruling 2026-11-06): per (tf, column)
     the NULL share of the rows where the column's own object or validity state is true,
     sum(nan_present) / sum(present) over the units, against max_null_fraction. A column with
     present = 0 across a whole tf on which it applies fails, and so does a unit that carries no
-    unit_stats (its rows cannot be judged). Returns {failing: [...], shares: {tf: {column}}}."""
+    unit_stats (its rows cannot be judged). Every expected tf is judged, so a tf with no unit
+    at all fails present = 0 on its applicable columns. Returns {failing, shares}."""
     sums: dict[str, dict[str, list[int]]] = {}
     failing: list[str] = []
     for batch_key, tf, unit in stats:
@@ -479,7 +481,8 @@ def object_share_gate(
             pair[0] += int(counts["present"])
             pair[1] += int(counts["nan_present"])
     shares: dict[str, dict[str, float]] = {}
-    for tf, per_tf in sorted(sums.items()):
+    for tf in sorted(set(expected_tfs) | set(sums)):
+        per_tf = sums.get(tf, {})
         shares[tf] = {}
         for column in sorted(objects & applicable(tf)):
             present, nan_present = per_tf.get(column, (0, 0))
@@ -1299,7 +1302,9 @@ class CorpusRerun:
         self._merge_measured(measured)
         summary["measured"] = measured
 
-        objects = self._object_gate([*daily["scope_batch_keys"], *hourly["scope_batch_keys"]])
+        objects = self._object_gate(
+            [*daily["scope_batch_keys"], *hourly["scope_batch_keys"]], ["1d", "1h"]
+        )
         summary["gates"]["G6-objects"] = objects
         failed_gates = [name for name, (rc, _) in gates.items() if rc != 0]
         if objects["failing"]:
@@ -1367,7 +1372,7 @@ class CorpusRerun:
         failing = [tf for tf, (rc, _) in screens.items() if rc != 0]
         if failing:
             problems.append(f"column screen (G1-G3, G6 null share) fails on {failing}")
-        objects = self._object_gate(keys)
+        objects = self._object_gate(keys, self.apr_tfs())
         summary["object_share"] = objects
         if objects["failing"]:
             problems.append(f"{len(objects['failing'])} object or event column shares fail")
@@ -1375,13 +1380,14 @@ class CorpusRerun:
             raise StepFailed("feature_complete: " + "; ".join(problems), summary)
         return summary
 
-    def _object_gate(self, batch_keys: Sequence[str]) -> dict[str, Any]:
-        """object_share_gate over these units' provenance unit_stats."""
+    def _object_gate(self, batch_keys: Sequence[str], tfs: Sequence[str]) -> dict[str, Any]:
+        """object_share_gate over these units' unit_stats, judging every tf in `tfs`."""
         return object_share_gate(
             self.store.unit_stats(batch_keys),
             self.deps.object_columns,
             self.deps.applicable,
             self.apr.max_null_fraction,
+            tfs,
         )
 
     def apr_tfs(self) -> list[str]:

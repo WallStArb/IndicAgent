@@ -450,7 +450,8 @@ def test_zones_fallback_on_invalid_atr(cfg):
     result = _compute_supply_demand_zones(opens, highs, lows, closes, close_, 0.0, cfg, 0.0, 0.0)
     assert result["active_demand_zones"] == 0.0
     assert result["active_supply_zones"] == 0.0
-    # no zone exists: its distance/freshness/friction are None (D1 rule 2, todo 584 4b-2 g4)
+    # an invalid ATR is not absence (186-31 review round 5): whether a zone exists cannot be
+    # told, so its distance/freshness/friction are NaN (present, unmeasured), never None
     for key in (
         "demand_dist_atr",
         "supply_dist_atr",
@@ -458,7 +459,7 @@ def test_zones_fallback_on_invalid_atr(cfg):
         "supply_freshness",
         "zone_friction_score",
     ):
-        assert result[key] is None
+        assert result[key] is not None and math.isnan(result[key]), key
 
 
 def test_zones_fallback_on_short_window(cfg):

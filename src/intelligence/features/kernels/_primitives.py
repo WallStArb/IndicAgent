@@ -419,6 +419,15 @@ def none_mask_name(key: str) -> str:
     return f"_{key}_is_none"
 
 
+def invalid_input_fallback(fallback: Mapping[str, Any]) -> dict[str, Any]:
+    """A helper's fallback when an input it needs (the ATR) is invalid, so whether its object
+    exists cannot be told: every nullable key is NaN, not None. None means the object does not
+    exist (the none mask, absent); NaN means a value should exist and could not be measured
+    (present and missing), which the corpus gate counts (186-31). Stored values are the same:
+    both are NULL. Measured-state keys keep their fallback value."""
+    return {key: math.nan if value is None else value for key, value in fallback.items()}
+
+
 def nullable_keys(fallback: Mapping[str, Any]) -> frozenset[str]:
     """Keys a helper may return None for: the keys its fallback dict holds as None."""
     return frozenset(key for key, value in fallback.items() if value is None)

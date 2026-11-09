@@ -5,12 +5,14 @@ The helpers are the ones `feature_factory` used to hold, moved unchanged. A stat
 slices the same causal window the batch loop sliced, `[max(0, i - lookback + 1) : i + 1]`, and
 reads the loop's `atr_val` (the ATR padded series at row i). The zones kernel consumes the FVG
 midpoint and pool premium flag as intermediate outputs, so its declared memory chains through
-theirs. Every helper returns a value for every key and never raises; an object that does not exist,
-or an ATR-normalized distance with no valid ATR, is None.
+theirs. Every helper returns a value for every key and never raises; an object that does not exist is
+None, and an ATR-normalized distance whose object exists but whose ATR is invalid is NaN
+(present, unmeasured; stored NULL either way -- 186-31 review round 5).
 """
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -20,6 +22,7 @@ from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,
     _is_valid_atr,
+    invalid_input_fallback,
     window_start,
 )
 from src.intelligence.utils import find_peaks, find_troughs
@@ -255,10 +258,14 @@ def _compute_order_blocks(
     nearest_overall = min(candidates, key=_dist)
 
     ob_bull_dist_atr: float | None = (
-        float(_dist(nearest_bull) / atr_val) if nearest_bull is not None and atr_valid else None
+        (float(_dist(nearest_bull) / atr_val) if atr_valid else math.nan)
+        if nearest_bull is not None
+        else None
     )
     ob_bear_dist_atr: float | None = (
-        float(_dist(nearest_bear) / atr_val) if nearest_bear is not None and atr_valid else None
+        (float(_dist(nearest_bear) / atr_val) if atr_valid else math.nan)
+        if nearest_bear is not None
+        else None
     )
     ob_strength = float(nearest_overall["strength"])
     ob_mitigated_flag = float(nearest_overall["mitigated"])
@@ -306,7 +313,7 @@ def _compute_order_blocks(
             breaker_block_active = 1.0
         elif breaker_direction < 0.0 and close_ > b_top:
             breaker_block_active = 1.0
-        breaker_dist_atr = float(abs(close_ - b_mid) / atr_val) if atr_valid else None
+        breaker_dist_atr = float(abs(close_ - b_mid) / atr_val) if atr_valid else math.nan
 
     return {
         "ob_bull_dist_atr": ob_bull_dist_atr,
@@ -325,7 +332,8 @@ def _compute_order_blocks(
 
 # D1 rule 2 (todo 584 4b-2 group 4): distance/size of a gap that does not exist are None; the
 # count stays 0.0 and fvg_midpoint keeps its 0.0 in-memory sentinel (zones' soft dependency). With
-# gaps but no valid ATR only the two distances are None; the count and midpoint are computed.
+# gaps but an invalid ATR the two distances are NaN (present, unmeasured); the count and midpoint
+# are computed.
 _FVG_FALLBACK: dict[str, float | None] = {
     "fvg_dist_atr": None,
     "fvg_size_atr": None,
@@ -370,9 +378,9 @@ def _compute_fvg(
 
     Falls back to _FVG_FALLBACK (never raises) when the window has fewer than 3 bars or holds no
     open gap; the fallback's None values mark the no-gap case (D1 rule 2, todo 584 4b-2 group 4).
-    Only the two ATR-normalized distances divide by ATR: with an invalid ATR they are None while
-    the open count and the midpoint (the zones kernel consumes it) are computed as usual (todo
-    584 6d).
+    Only the two ATR-normalized distances divide by ATR: with an invalid ATR and a gap present
+    they are NaN (present, unmeasured) while the open count and the midpoint (the zones kernel
+    consumes it) are computed as usual (todo 584 6d, 186-31 review round 5).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
 
@@ -425,9 +433,9 @@ def _compute_fvg(
     midpoint = (nearest["top"] + nearest["bottom"]) / 2.0
 
     return {
-        "fvg_dist_atr": float(abs(close_ - midpoint) / atr_val) if atr_valid else None,
+        "fvg_dist_atr": float(abs(close_ - midpoint) / atr_val) if atr_valid else math.nan,
         "fvg_size_atr": (
-            float((nearest["top"] - nearest["bottom"]) / atr_val) if atr_valid else None
+            float((nearest["top"] - nearest["bottom"]) / atr_val) if atr_valid else math.nan
         ),
         "fvg_open_count": float(len(candidates)),
         "fvg_midpoint": float(midpoint),
@@ -616,7 +624,7 @@ def _compute_liquidity_pools(
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return dict(_POOL_FALLBACK)
+        return invalid_input_fallback(_POOL_FALLBACK)
 
     lookback = config.smc_liquidity_pools_lookback
     h = highs[-lookback:]
@@ -795,7 +803,7 @@ def _compute_supply_demand_zones(
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return dict(_ZONE_FALLBACK)
+        return invalid_input_fallback(_ZONE_FALLBACK)
 
     lookback = config.smc_zones_lookback
     o = opens[-lookback:]
@@ -968,8 +976,9 @@ def _compute_bos_choch(
     field-by-field raw-price/redundancy audit -- neither is returned here.
 
     Falls back to _BOS_FALLBACK (never raises) when fewer than 2 swing highs/lows exist in-window.
-    Only the two strengths divide by ATR: with an invalid ATR they are None and the directions,
-    the trend and bars_since_last_shift are computed as usual (todo 584 6d).
+    Only the two strengths divide by ATR: with an invalid ATR and a break present they are NaN
+    (present, unmeasured) and the directions, the trend and bars_since_last_shift are computed as
+    usual (todo 584 6d, 186-31 review round 5).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
 
@@ -999,20 +1008,21 @@ def _compute_bos_choch(
     check_from = max(swing_highs[-1], swing_lows[-1]) + 1
 
     bos_direction = 0.0
-    bos_strength: float | None = None  # no break in-window, or no valid ATR -> no strength
+    # no break in-window -> no strength; a break with an invalid ATR is present, unmeasured
+    bos_strength: float | None = None
     shift_idx: int | None = None
     for i in range(check_from, n_bars):
         if c[i] > last_sh_price:
             bos_direction = 1.0
             bos_strength = (
-                float(max(0.0, (float(c[i]) - last_sh_price) / atr_val)) if atr_valid else None
+                float(max(0.0, (float(c[i]) - last_sh_price) / atr_val)) if atr_valid else math.nan
             )
             shift_idx = i
             break
         if c[i] < last_sl_price:
             bos_direction = -1.0
             bos_strength = (
-                float(max(0.0, (last_sl_price - float(c[i])) / atr_val)) if atr_valid else None
+                float(max(0.0, (last_sl_price - float(c[i])) / atr_val)) if atr_valid else math.nan
             )
             shift_idx = i
             break

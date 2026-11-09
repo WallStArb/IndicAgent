@@ -129,11 +129,13 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 
         r[t]   = ln(C[t] / C[t-1])
         cov[t] = sample covariance (ddof 1) of r[j] and r[j-1] over j = t - window + 1 .. t
-        S[t]   = 2 sqrt(-cov[t])   when cov[t] < 0, else NaN
+        S[t]   = 2 sqrt(-cov[t])   when cov[t] <= 0, else NaN
 
-    Roll's model implies a negative serial covariance; a covariance >= 0 has no implied spread,
-    so the value is NaN (missing), never 0 and never a sign-flipped root. This is frequent (about
-    40% of 1d rows after warmup) and informative: see the module docstring's Roll coverage. Using log changes makes
+    Roll's model implies a negative serial covariance; a positive covariance has no implied
+    spread, so the value is NaN (missing), never a sign-flipped root; at exactly 0 the model
+    implies a spread of 0, a measured 0.0 (186-31 review round 5, D1 rule 4). The positive case
+    is frequent (about 40% of 1d rows after warmup) and informative: see the module docstring's
+    Roll coverage. Using log changes makes
     the spread proportional to price rather than in price units.
 
     Output row t reads closes t - window - 1 .. t (declared memory `window + 1`). Rows
@@ -142,8 +144,9 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     cov = _roll_covariance(closes, window)
     out = np.full(len(closes), np.nan)
     with np.errstate(invalid="ignore"):
-        negative = cov < 0.0
-        out[negative] = 2.0 * np.sqrt(-cov[negative])
+        # cov == 0 is a defined zero spread (Roll 1984); a positive covariance implies none
+        defined = cov <= 0.0
+        out[defined] = 2.0 * np.sqrt(np.maximum(-cov[defined], 0.0))  # 0.0, never -0.0
     return out
 
 
@@ -169,11 +172,11 @@ def _roll_covariance(closes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _roll_spread_absent(closes: np.ndarray, window: int) -> np.ndarray:
-    """1.0 where Roll's model implies no spread (a measured serial covariance >= 0), else 0.0:
-    roll_spread's none mask, its validity witness for the corpus gate (186-31). An undefined
-    covariance (a hole) is not absence, so a NaN there counts against the column."""
+    """1.0 where Roll's model implies no spread (a measured serial covariance > 0; at 0 the spread
+    is a defined 0.0), else 0.0: roll_spread's none mask, its validity witness for the corpus
+    gate (186-31). An undefined covariance (a hole) is not absence, so a NaN there counts."""
     with np.errstate(invalid="ignore"):
-        return (_roll_covariance(closes, window) >= 0.0).astype(float)
+        return (_roll_covariance(closes, window) > 0.0).astype(float)
 
 
 def _compute_high_low_spread(x, config):
@@ -206,7 +209,9 @@ KERNELS = (
         ("close",),
         lambda c: c.roll_spread_window + 1,
         _compute_roll_spread,
-        # the spread exists only where the serial covariance is negative (Roll 1984)
+        # the spread exists only where the serial covariance is not positive (Roll 1984); at a
+        # zero covariance it is a measured 0.0 (D1 rule 4)
         object_dependent=frozenset({"roll_spread"}),
+        zero_is_state=frozenset({"roll_spread"}),
     ),
 )
