@@ -37,4 +37,5 @@ pre-registration exists. Mark the family's members and the universe, and state:
 ## Done when
 
 The pre-registration is written under `docs/plans/`, reviewed, and linked from the ledger row; the
-family runs after plan 191-20's 1d re-derive.
+family runs after the data-completion gate lifts (the 191-20 1d re-derive landed 2026-10-30; corpus
+compute is gated on todo 600 data completion, the 186-32 gate).

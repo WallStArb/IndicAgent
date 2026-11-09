@@ -77,11 +77,11 @@ surrounding HMM proposal it arrived in needs rework to fit the design.
 - The prior is poor: regime-conditional persistence 0 of 270 cells, the `bars_since_high` regime gate, per-symbol trend and percentile-rank regimes (todos 303, 304; ledger section 4), earnings-season conditioning 0 of 249 (section 5). Do not redo those constructions.
 - Transitions and confluences are rare and episode-clustered (the `bars_since_high` standout cell was 52 days from a few macro shocks), so measure effective independent episodes first (design D6, E15 step 0) before building a variant.
 - Causality: sector membership must be point in time (the equity breadth label uses today's tag set, a known defect); every state must be available at the decision time.
-- The four existing groups end 2026-08-11 and stay stale until the rebuild. A group must be populated when it is enabled.
+- The four existing groups end 2026-08-11 and stay stale until the post-600 corpus rerun (the 186-26 rebuild was discarded, todo 569). A group must be populated when it is enabled.
 
 ## Sequencing
 
-1. After plan 191-20's 1d re-derive and the 186-26 rebuild, refresh the four macro groups.
+1. The 191-20 1d re-derive landed 2026-10-30 and the 186-26 output was discarded (todo 569); refreshing the four macro groups waits behind the data-completion gate (todo 600) and the corpus rerun.
 2. First variant: one world or participation state with its level and its velocity (two counted looks), after the S7 regime slot exists (todo 548).
 3. Sector states once point-in-time membership is confirmed; confluence last, since it multiplies variants.
 

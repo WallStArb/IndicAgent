@@ -30,7 +30,7 @@ Here that maps to S1 (target residualized against market and sector), the resear
 
 Only 1 (as a residual reversal member with a statistical factor model) and 3 (as a fitted combiner
 member, after E17's memory rule) are testable on the stored data without new inputs. Both would be
-pre-registered family members, counted under E18, and run after the 1d re-derive. 2 waits on a
+pre-registered family members, counted under E18, and run after the data-completion gate lifts (the 191-20 1d re-derive landed 2026-10-30; todo 600). 2 waits on a
 fundamentals source; 4 and 5 wait on the todo 559 pre-registration (reopened 2026-10-28; the frozen
 verdicts stand, the concept is retried on its trading statistic); 6 is already queued; 7 is out of scope.
 

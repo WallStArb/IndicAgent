@@ -33,9 +33,10 @@ Stored prices are split-adjusted, not dividend-adjusted; a spec declaring `panel
 (todo 428, closed 2026-09-26) gets total-return prices. Either way the legs' yields differ by a
 fraction of a percent a year, noise against a quarter-long trend; declare it and the gap is gone.
 
-Canonical 1d is being re-derived under D-191-Q (Alpaca SIP primary from 2016-01-04, IBKR
-fallback, IBKR before; todo 545, plan 191-20). No spread or state value is computed before that
-re-derive lands, because a counted look would read 1d data that is about to change.
+Canonical 1d was re-derived under D-191-Q (Alpaca SIP primary from 2016-01-04, IBKR before;
+todo 545, plan 191-20; landed 2026-10-30). No spread or state value is computed until the
+data-completion gate lifts (todo 600; the 186-32 gate), because a counted look would read a
+corpus that is still being filled.
 
 ## 2. Why this is not a family on the S1 target
 
@@ -165,7 +166,8 @@ Checked against the principles in `docs/foundation/principles.md` before registr
    S7's regime input slot (a causal `[T]` float series whose reach enters `book_memory()`),
    neither a service nor a table; no 187 plan carries the slot yet (todo 548).
 2. Part B's synthetic power check can run any time; it reads no real data. Its real run waits
-   for plan 191-20's 1d re-derive and todo 548's time-series construction.
+   for the data-completion gate (todo 600) and todo 548's time-series construction (the 191-20
+   re-derive has landed).
 3. No writer, `factor_series` table, `FeatureVector` field or CVR regime code until one part
    passes (shadow first).
 
