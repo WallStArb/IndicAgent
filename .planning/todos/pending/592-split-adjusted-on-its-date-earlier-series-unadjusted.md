@@ -116,3 +116,22 @@ Rows (inferred_by calendar_audit, d2-v5 rescales on or before effective_date):
 Not expressible finding: none beyond the tool extension above. MVBF takes no calendar row (split
 unconfirmed pending Massive); RJF and MTCH took nothing and re-verified clean (no canonical step
 > 0.35 in 1,200 sessions; their stray IBKR series never serves canonical).
+
+## Completed 2026-11-09 (lead indicagent-d8, after the worker hit the API limit)
+
+- **MTCH became the tenth case**: the worker found a -1.503 canonical step at the 2016-01-04 seam
+  that the lead's windowed scan missed (the corpus sweep had it). IBKR's series sits at 4.4963x
+  above correct over its whole pre-2016 span (60.05 vs Alpaca/Tradier 13.36/13.55, constant
+  across 2015-12-28..2016-01-08). Row added to split_rescale_rows_2026_11_09.csv and written via
+  `--apply-rows --commit`; re-derived with MVBF and UHAL.
+- **The two quarantines are effective on the consumed surface**: canonical (`market_data_ohlcv`)
+  keeps the flagged row by design; `market_data_ohlcv_tradeable` (what compute reads) excludes
+  it. MVBF 2014-04-02 and UHAL 2022-11-09 are absent from the tradeable view, as are the 587
+  thirteen (verified on FTNT/CMCSA/CDE/CME). The lead's earlier "junctions unchanged" reading
+  was a wrong-surface check against raw canonical plus a race with the worker's in-flight apply.
+- **All junctions verified on the tradeable surface** (max |step| at the junction window,
+  2026-11-09): FBIZ 0.005, IJR 0.013, MTCH 0.023, MVBF 0.030, NVDA 0.038, PATK 0.043, UHAL
+  0.017, WST 0.045. All normal daily moves.
+- Open: the D7 split_continuity confirm rides tonight's 06:00 UTC nightly; the sweep (the
+  1,624 lone breaks, triage in this file) is the follow-up lane; MVBF's split stays unconfirmed
+  pending a Massive witness.
