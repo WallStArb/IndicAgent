@@ -1185,76 +1185,29 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 3991523,
- "regenerated_from": "fc1ecec873ee1b89a5dda63a7384b06a50cf6d56",
- "regeneration_reason": "todo 584 G4-a: rolling mean/std/z-score and bb_pct_b use exact per-window sums (left to right) instead of differences of whole-series prefix sums, whose rounding grew with series length (SPY 5m: up to 3,834 float32 ulps in garman_klass_vol_z)",
+ "fixture_bytes": 3993054,
+ "regenerated_from": "c538da04137c40c64847feaf092e680ad05dd5b9",
+ "regeneration_reason": "186-31 review round 5: presence from knowability. gap_filled on a synthetic row with a gap but a zero opening gap is now a measured 0.0 (zero_is_state) where the golden pinned NaN from the old isnan(series) mask era, and roll_spread at a zero serial covariance is a measured 0.0 instead of NaN; the None-vs-NaN invalid-ATR rule changes stored values nowhere (both NULL), so only the synthetic case's digest moves",
  "changed_columns": {
-  "synthetic|SPY|5m": [],
-  "real|SPY|5m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
+  "synthetic|SPY|5m": [
+   "gap_filled"
   ],
-  "real|SPY|15m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|SPY|1h": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|SPY|1d": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|QQQ|5m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow",
-   "overnight_gap_z"
-  ],
-  "real|QQQ|15m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|QQQ|1h": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|QQQ|1d": [
-   "bb_pct_b_slow",
-   "hv_z_fast"
-  ],
-  "real|TLT|5m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|TLT|15m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|TLT|1h": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow",
-   "vol_asymmetry_z"
-  ],
-  "real|TLT|1d": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|XLE|5m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|XLE|15m": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|XLE|1h": [
-   "bb_pct_b_fast",
-   "bb_pct_b_slow"
-  ],
-  "real|XLE|1d": [
-   "bb_pct_b_slow"
-  ]
+  "real|SPY|5m": [],
+  "real|SPY|15m": [],
+  "real|SPY|1h": [],
+  "real|SPY|1d": [],
+  "real|QQQ|5m": [],
+  "real|QQQ|15m": [],
+  "real|QQQ|1h": [],
+  "real|QQQ|1d": [],
+  "real|TLT|5m": [],
+  "real|TLT|15m": [],
+  "real|TLT|1h": [],
+  "real|TLT|1d": [],
+  "real|XLE|5m": [],
+  "real|XLE|15m": [],
+  "real|XLE|1h": [],
+  "real|XLE|1d": []
  },
  "regeneration_history": [
   {
@@ -2842,6 +2795,79 @@
     "real|XLE|15m": [],
     "real|XLE|1h": [],
     "real|XLE|1d": []
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "fc1ecec873ee1b89a5dda63a7384b06a50cf6d56",
+   "regeneration_reason": "todo 584 G4-a: rolling mean/std/z-score and bb_pct_b use exact per-window sums (left to right) instead of differences of whole-series prefix sums, whose rounding grew with series length (SPY 5m: up to 3,834 float32 ulps in garman_klass_vol_z)",
+   "changed_columns": {
+    "synthetic|SPY|5m": [],
+    "real|SPY|5m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|SPY|15m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|SPY|1h": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|SPY|1d": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|QQQ|5m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow",
+     "overnight_gap_z"
+    ],
+    "real|QQQ|15m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|QQQ|1h": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|QQQ|1d": [
+     "bb_pct_b_slow",
+     "hv_z_fast"
+    ],
+    "real|TLT|5m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|TLT|15m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|TLT|1h": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow",
+     "vol_asymmetry_z"
+    ],
+    "real|TLT|1d": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|XLE|5m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|XLE|15m": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|XLE|1h": [
+     "bb_pct_b_fast",
+     "bb_pct_b_slow"
+    ],
+    "real|XLE|1d": [
+     "bb_pct_b_slow"
+    ]
    },
    "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
   }
