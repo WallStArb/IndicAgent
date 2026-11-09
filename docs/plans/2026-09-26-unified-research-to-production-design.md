@@ -540,6 +540,19 @@ needs the per-symbol x regime grid:
 Regime-stratified IC is kept as disclosure for `regime_volatility` only. The per-symbol x regime
 grid is deleted, which makes todos 385 and 399 moot. Todo 412 (watermark) stays.
 
+Amendment 2026-11-09 (E21 draft, awaiting owner adoption): regime-stratified IC generalizes beyond
+the `regime_volatility` disclosure to any regime group that exists, as a counted selection context
+rather than disclosure only. Conditions: labels come from regime groups that exist and are
+walk-forward rebuilt (per-symbol `regime` and `regime_volatility`; the `market_regimes` groups,
+broadcast to the panel; designs such as quadrant or fragile divergence enter when built), read
+through the refusal gate (`refuse_regime_columns`) so pre-rebuild labels are never stratified on;
+missing labels drop rows (no fill); each state keeps a minimum-observation floor; every stratified
+cell joins the E18 selection universe as a counted attempt under ledger entry E21; the pooled
+`regime_volatility` disclosure output stays bit-identical behind the generic `stratified_ic`
+kernel. Incremental IC against family members (level 3) is a runner evidence job per
+pre-registered family, never `ic_measure`. The purge rule above (target windows end before
+`alpha.validation.oos_start`) applies to every IC row, stratified or pooled.
+
 Targets come from the research kernel (`panel.forward_returns`) on an S0 panel, never from a
 stored table (UD-25, section 14.7). Horizons follow the multi-timeframe design's D1: an intraday
 horizon stays inside one session, and decay beyond a session is measured on the daily clock. The

@@ -25,7 +25,7 @@ stratified_ic(features, feature_names, stack, labels, params, *, present, comple
 - Pure numpy, no I/O. Row masks reuse `label_row_masks`. States with fewer than `params.min_obs` strided pairs are unreliable cells, as in level 1.
 - Regime columns before the walk-forward rebuild are refused (todo 248, `refuse_regime_columns`); a stratified run reads rebuilt labels only. Review 2026-11-09: the regimes that exist are `regime` and `regime_volatility` in `feature_vectors` (per symbol) and the `market_regimes` groups (commodity, equity, fx, rates; market-wide, so a label must broadcast to [n, m]). The quadrant and fragile-divergence states are designs in `docs/ideas/signal-scoped-regime-states.md`, not code. `refuse_regime_columns` lives in `research/feature_inputs.py` and `ic_measure` does not call it; a stratified run must.
 
-Design amendment needed first: unified design section 11 keeps regime-stratified IC "as disclosure for `regime_volatility` only". Stratifying by other regime groups reverses that, so add a design amendment and a methodology ledger entry before building.
+Design amendment drafted 2026-11-09 (section 11, with ledger entry E21, awaiting owner adoption): stratified IC beyond `regime_volatility` is a counted selection context under E21, not disclosure only; building waits on adoption.
 
 ## Level 3: partial IC against family members
 

@@ -46,3 +46,5 @@ Ideas are never limited by the look count; the count only sets the evidence bar 
 ## Review 2026-11-09 (Opus reviewer): open items
 
 Before any real-data sweep: draft ledger entry E21 defining feature-level selection (unit, storage, writer, universe, `informed_by`); keep levels 1 and 2 in `ic_measure` and run level 3 and every learned fit in the research runner as walk-forward evidence jobs; widen the `composition` vocabulary for external-source features; amend unified design section 11 before stratifying beyond `regime_volatility`; reuse `contribution.py`'s `uniqueness`, `effective_breadth` and `correlation_clusters`.
+
+Status 2026-11-09 (lead session): E21 and the section 11 amendment are drafted (both dated 2026-11-09, awaiting owner adoption; interim rule holds until then). Still open here: the `composition` vocabulary widening (step 5) and the register build. Levels placement is as reviewed: 1 and 2 in `ic_measure`, level 3 in the runner.

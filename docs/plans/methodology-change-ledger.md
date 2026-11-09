@@ -1213,3 +1213,55 @@ chosen value is 3 and 3. Nothing in this choice was judged on returns.
 was not predicted. Frozen verdicts are not re-scored.
 
 **Built by:** todo 584 item 3; 583 study.
+
+### E21: 2026-11-09 (DRAFT, awaiting owner adoption): feature-level selection — every measured sweep cell is a counted attempt in the E18 universe
+
+- **Source:** discovery lane (`docs/ideas/base-feature-scouting-and-the-research-ladder.md`,
+  `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md`), gap identified by the review
+  of 2026-11-09; todos 601 and 603. Drafted by the lead; the owner adopts or amends.
+- **The gap.** E18's selection universe is per-session attempt series in `research_run` /
+  `research_run_series`; the sweep (`ic_measure`) writes `feature_ic_scores`, a summary table with
+  no series and no per-run provenance. A family built from sweep winners inherits the sweep's
+  selection pressure, and nothing corrects it: the cells are invisible to StepM. The interim rule
+  (2026-11-09) treats sweep cells as evidence records with `informed_by` chains and `n_looks` as
+  bookkeeping. This entry replaces that interim rule with a real one.
+- **The rule.**
+  1. **Unit: the measured cell.** Level 1: (feature, timeframe, horizon). Level 2: (feature,
+     regime group, state, timeframe, horizon). Level 3: (candidate, family, timeframe, horizon),
+     in the runner. A proposal never measured costs nothing (blindness is auditable from the
+     registry timestamp); a cell measured and then dropped after a result still counts.
+  2. **Attempt series: per-session pooled cross-sectional IC.** Each cell's series is its pooled
+     per-session IC over the vintage (dates, finite values only), the same per-session granularity
+     as E17's D_s, on the common date calendar. StepM runs over these exactly as over book
+     attempts: one joint stationary-bootstrap draw, per-series studentization. BH-FDR within the
+     sweep block stays a display statistic.
+  3. **Storage and sole writer.** Every measured cell is recorded as one `research_run` attempt
+     (kind `evidence`, mode `real`, `concept_id` the feature's concept row, `run_group` the batch,
+     the spec pinning the cell definition including its coordinates) with its series in
+     `research_run_series`, written only through S6. `feature_ic_scores` stays the summary and
+     monitoring layer; it is never the selection universe. `select_books.py` already includes
+     `evidence` runs, so the universe gains the cells with no new table, no new writer and no
+     change to the correction. Mode `real` also imports E18's no-silent-repeat discipline: the
+     unique (spec_hash, concept_id) constraint refuses re-measuring the same cell silently.
+  4. **Forward span.** A cell's target windows end strictly before `alpha.validation.oos_start`
+     and its recorded series stops at that bound; the sweep never reads the forward span
+     (section 11's purge rule, generalized to every IC row).
+  5. **`informed_by`.** A family or member registration prompted by sweep evidence names the
+     prompting cell's run; `run_group` recovers the whole batch. The cells stay in the universe
+     forever: the family's book attempts are additional attempts, not replacements. The correction
+     covers the feature-level cherry-pick; the book test still covers construction and promotion.
+  6. **`n_looks`.** Declared in the ledger before each measurement batch and equal to the cells
+     the batch measures across all levels. Universe bookkeeping, never a cap (E18's
+     counting-is-a-price doctrine); correlated cells cost little under the joint draw.
+- **Admission unchanged.** Admission gates stay outcome-free and their statistics are computed on
+  the discovery span only (scouting doc, corrections 1 and 2). E21 changes counting, not
+  admission.
+- **Disclosed gaps, inherited from E18.** Step-down assumes a fixed model set while `informed_by`
+  chains are adaptive; the forward confirmation covers it. Re-evaluation of existing cells on an
+  extended vintage is not built (the same open item E18 records).
+- **Volume gate.** The first sweep batch is a measured pilot: row count and series bytes of a full
+  sweep (order 10<sup>4</sup> runs) are measured on one block before any full-corpus sweep runs.
+- **Pre-registered?** Yes, by construction: no real-data sweep has run (the owner's clean-data
+  rule, 2026-10-30), so this entry is written before any result it could be reacting to.
+- **Built by:** todos 601 (levels 2 and 3) and 603 (register and gates). Until adopted and built,
+  the interim rule above holds and no real-data sweep runs.

@@ -69,6 +69,6 @@ Scouting what should exist (rung 0 and 1): todo 603 and `docs/ideas/base-feature
 
 The look count is `n_looks` (bookkeeping), not `L` (E17 book memory). Counting for feature-level sweeps needs ledger entry E21 before any real-data run (see todo 603 and the idea doc). Level 3 runs in the research runner, not `ic_measure`. The proposer's 306 numeric columns are covered; `refuse_reaching_oos` keeps it inside the vintage.
 
-## Status 2026-11-09 (end of session)
+## Status 2026-11-09 (updated same day, lead session)
 
-Blocked on two drafts before any real-data sweep: ledger entry E21 and the section 11 amendment. First measurement and plans are recorded above. Next session: draft E21 (with todo 603), then the register.
+The two drafts exist: ledger entry E21 and the section 11 amendment (both dated 2026-11-09, awaiting owner adoption). Remaining before any real-data sweep: the owner adopts or amends E21, the clean-data rule lifts, and the levels 2/3 kernels land per the plan. Until adoption the interim rule holds (sweep cells are evidence records; no real-data sweep).
