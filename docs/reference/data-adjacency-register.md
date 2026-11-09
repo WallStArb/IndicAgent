@@ -139,10 +139,25 @@ Output: a per-source table of servable versus stored counts, plus the not-stored
 mapping and this doc must move together; `tests/unit/test_ops_adjacency_diff.py` asserts every
 script field appears in a table row here.
 
-## Proposal (draft, not adopted): widen the `composition` vocabulary
+## Composition vocabulary: adopted by the lead, 2026-11-09 (amended to one code)
 
-Status: a proposal for the lead to rule on at review. Nothing here is a migration; the CVR rows
-below do not exist yet.
+The worker proposal below suggested two codes. The lead adopted it amended: **one code,
+`external`** (migration 584, applied 2026-11-09). Two reasons, recorded for the same-region rule:
+
+1. **Name collision.** `calendar` already names a legacy `concept_registry` feature_group
+   (`calendar primitive`'s **Not** note, todo 116) and `calendar primitive` itself is composition
+   `base` (timestamp alone). One word, one meaning (glossary rule).
+2. **The split was unsound.** A published calendar is an external observation with a publication
+   date; reading the 2015 option-expiry calendar in a 2015 backtest requires the calendar
+   published before that date. "Deterministic time" does not exempt it from availability-time
+   discipline, so the admission gate checks `external` uniformly and no weaker category is seeded.
+
+Adopted definition (migration 584): `external` = a feature computed from a dated external-source
+observation joined to the name; every input carries its availability time. Existing `base` and
+`interaction` rows are unchanged; nothing recomputes. `vocabulary_drift.py` reads the namespace,
+so no audit change.
+
+<details><summary>The original two-code proposal (superseded, kept for the record)</summary>
 
 **Problem.** `composition` has exactly two codes (verified against `controlled_vocabulary`,
 2026-11-09): `base` (computed from a name's own bars or the timestamp) and `interaction` (built
@@ -152,28 +167,10 @@ computed from data that is not the name's bars and not another feature. Forcing 
 silently redefines the code; forcing them into `interaction` corrupts the grammar-depth contract
 (todo 440).
 
-**Proposed codes** (CVR namespace `composition`, one migration inserting into
-`controlled_vocabulary`, plus glossary updates in the same change):
+The proposed second code `calendar` (computed from the timestamp and a published calendar) is
+folded into `external` by the ruling above.
 
-- `external`: computed from a dated external-source observation joined to the name
-  (FINRA short volume, earnings events, macro series, dated market cap). The date and source of
-  every input observation is recorded, so temporal integrity (a read for t sees only facts
-  knowable by t) holds by availability time, not bar time.
-- `calendar`: computed from the timestamp and a published calendar (index rebalances, option
-  expiry, session boundaries). Separated from `external` because it needs no join and no
-  availability-time discipline beyond the calendar publication itself; today's calendar-kernel
-  features would reclassify here without changing values.
-
-**Where they land.** CVR via `VocabularyService` reads (cached at init); the composition audit
-(`vocabulary_drift.py`) picks the new codes up from the namespace, no audit-code change; the
-glossary `base feature` entry and the idea doc's terminology note gain the two codes. Existing
-`base` and `interaction` rows are untouched; nothing recomputes.
-
-**Why two codes, not one.** Collapsing them loses the distinction between features whose inputs
-have an availability time a vendor controls (external, the FINRA publication-date class) and
-features derived from deterministic time (calendar, always knowable in advance). The admission
-gate's point-in-time check differs between the two, so the code a feature carries should say
-which check applies.
+</details>
 
 ## Open items carried from the seed
 

@@ -2386,7 +2386,10 @@ store, and how a proposed feature is admitted before anything is measured. The r
 The lowest-level feature: one number per (symbol, ts) computed from declared inputs, causal, with
 declared memory, NaN where undefined (no fill), asset-agnostic, unit-free (no raw price levels), and
 point-in-time. It carries `concept_registry.metadata->>'composition' = 'base'`, the CVR `composition`
-code meaning computed from a name's own bars or the timestamp. A proposal that passes the
+code meaning computed from a name's own bars or the timestamp. The namespace also carries
+`interaction` (built from other features) and `external` (a dated external-source observation joined
+to the name; every input carries its availability time, published calendars included - migration
+584). A proposal that passes the
 `admission gate` is registered `candidate`, computed, and measured; each admitted column enters the
 look count `n_looks`. **Not:** an `interaction` feature (built from other features, one rung up),
 and not a learned latent feature (fit walk-forward, discovery class C). **Banned:** (none)
