@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-24
 source: per-feature coverage scan of feature_vectors at the 2025-12-24 window (Phase 179 pre-freeze check)
@@ -55,3 +55,7 @@ side is done: migration 425 (`feature_vectors_v2`) dropped the three rank_z colu
 Registry side is not: `momentum_rank_z`, `volume_rank_z` and `volatility_rank_z` are
 still `active` in concept_registry (checked live 2026-10-31), which is also todo 558's
 step 2.
+
+## Closed 2026-11-09
+
+Obsolete: the rank_z columns were dropped (migration 425) and the rebuild recomputes the velocity features; the registry cleanup is todo 558.

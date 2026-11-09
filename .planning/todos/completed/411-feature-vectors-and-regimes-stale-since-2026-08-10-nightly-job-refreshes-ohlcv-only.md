@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-24
 source: user question on holdout freshness, verified live 2026-09-24
@@ -70,3 +70,7 @@ Not closable yet: the canonical tables are still stale. `feature_vectors` max ba
 `market_data_ohlcv_tradeable` max 2026-10-30. The rebuild table `feature_vectors_v2`
 holds 1,314 names to 2026-09-30 (186-26 stages 1/1b); the name swap (186-27) has not
 run and the staleness complaint stands until it does.
+
+## Closed 2026-11-09
+
+Obsolete: migration 570 replaced `feature_vectors` with an empty kernel-schema table rebuilt by `services/corpus_rerun.py`; the nightly job it describes is gone.

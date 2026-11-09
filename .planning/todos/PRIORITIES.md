@@ -143,9 +143,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 
 | Todo | Why now |
 |---|---|
-| [411](pending/411-feature-vectors-and-regimes-stale-since-2026-08-10-nightly-job-refreshes-ohlcv-only.md) | Closed by 186-27 (the rebuild replaces the in-place refresh; design 14.2). The stale v1 `feature_vectors` was dropped 2026-11-04 (migration 570); the name now holds the empty kernel table, filled by the 584 rerun once data is complete. Closes when that rerun lands (`market_regimes`, stale since 2026-08-14, is a separate writer). |
-| [426](pending/426-compressed-write-session-decompresses-whole-feature-vectors-exceeds-disk.md) | Step 1 (headroom guard, migration 362) and native-DML writes landed; the rebuild removes the need for decompress-all, and since migration 570 (2026-11-04) the old table is gone; `regime_writer` (no unit installed) still targets the v1 column contract. Step 2's scope question is now whether any in-place UPDATE writer survives the rerun; see todo 589 for the unit-scoped rewrite path. |
-| [421](pending/421-feature-vectors-partial-coverage-velocity-and-never-computed-rank-z.md) | Removed at the source by the rebuild: the rank_z trio was dropped in 186-24 (migration 425), and the rebuild recomputes velocity for every symbol. Close after 186-26 with the per-feature coverage check (S0 floor, todo 435). Verified 2026-10-31: rebuild mid-flight (stage 2), and the three rank_z concept_registry rows are still `active` (todo 558 step 2). |
 
 ## P2: Real value, not urgent
 
@@ -238,7 +235,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 | Todo | Why now |
 |---|---|
 | [108](pending/108-hmm-multi-seed-restart-best-likelihood.md) | Each walk-forward HMM segment fits one seed with a same-seed doubled-`n_iter` retry (`_walk_forward_hmm_full`; the single-fit `n_restarts` path was deleted in 186-13). Multi-seed best-likelihood is a robustness gap, not a proven bug. |
-| [226](pending/226-regime-writer-n-iter-convergence-headroom-check.md) | Check whether the HMM `n_iter=200` cap is oversized; step 1 instrumentation is in, a small sample showed the retry at 400 firing on 2 of 15 cells. Analyze the distribution on the 186-26 rebuild run. |
 
 **Process and tooling**
 
@@ -246,7 +242,6 @@ rebuild runs. Neither the research runner (`scripts/research/run_spec.py`) nor t
 |---|---|
 | [394](pending/394-todo-number-uniqueness-not-ci-enforced-duplicate-389.md) | New 2026-09-23, found closing todo 388. Two files shared todo number 389 for a day (concurrent sessions picking "next free" independently) and one PRIORITIES.md row displayed `[391]` while linking `pending/389-...` -- `test_todo_priorities_link_integrity.py` passed both times because it checks link-target existence only, not number uniqueness or label-file agreement. Fix: extend the guard with (1) no duplicate leading numbers across pending/+completed/+deferred/ (numbers must never be reused after closure either) and (2) display number == target filename number. Same drift-class extension pattern as the guard's own todo-305 origin. |
 | [383](pending/383-gsd-sdk-state-and-gap-checker-hardcoded-field-path-assumptions.md) | GSD tooling, not project code: `gsd-sdk query state.planned-phase` string-matches field labels this STATE.md never uses (a silent no-op every run), and `gap-checker.cjs` hardcodes bare `CONTEXT.md`. |
-| [284](pending/284-gsd-review-agy-stdin-invocation-broken.md) | GSD tooling: `review.md` documents `agy -p -` (stdin), which the installed `agy` does not read, and the empty-output check does not catch the greeting it returns. Pass the prompt as an argument. |
 | [309](pending/309-vulture-baseline-cleanup-backlog.md) | 1136 pre-existing vulture findings are frozen in `tools/vulture_whitelist.py`; CI blocks new dead code. Triage the whitelist (real dead code mixed with dataclass and Pydantic false positives). |
 | [321](pending/321-feature-factory-config-test-fixture-consolidation.md) | No shared `FeatureFactoryConfig` test builder: 15+ files hand-type the ~95-kwarg literal. Fails loud when forgotten; worth doing before the next field-adding plan. |
 | [324](pending/324-gradient-vocabulary-naming-check-unenforced.md) | naming-system.md section 7's gradient-scale vocabulary has no enforcement. Settled on a CVR `gradient_scale` namespace (D-07); needs `VocabularyDriftAuditor`'s `has_live_source` distinction designed first. Unblocked (`vocabulary_access.py` exists). |

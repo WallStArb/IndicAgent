@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-25
 source: pre-flight check before todo 421's 1d refresh (performance-investigation SOP: measure first)
@@ -63,3 +63,7 @@ Not closable yet: the "closed by 186-27" framing in PRIORITIES is ahead of reali
 the ops scripts) still need decompress-all and are still refused by the headroom guard
 (migration 362) rather than served. Step 2's scope question resolves when 186-27
 retires the old table.
+
+## Closed 2026-11-09
+
+Obsolete: the 88 GB old `feature_vectors` and `regime_writer.py`'s in-place UPDATE path are gone (migration 570); the headroom guard (migration 362) is in.

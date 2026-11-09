@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-08-02
 source: throughput brainstorm following todo 216's BLAS thread-cap fix -- todo 216 found
@@ -89,3 +89,7 @@ headroom is actually confirmed.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Fold into the 248 refit: settle the `n_iter` cap from the logged `monitor_.iter` distribution before the refit.
+
+## Closed 2026-11-09
+
+Obsolete: `regime_writer.py` is deleted; the HMM now lives in `src/intelligence/features/kernels/_hmm.py`, which takes `hmm_n_iter` from APR (`feature.hmm.n_iter`) and retries once at double `n_iter`.

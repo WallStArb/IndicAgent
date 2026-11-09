@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-08-09
 source: found while running /gsd-review 172 --agy (Phase 172 cross-AI plan review)
@@ -67,3 +67,7 @@ chat response ("How can I help you today?"), not an error, so the skill's existi
 
 This is GSD tooling (`~/.claude/get-shit-done/`), not IndicAgent repo code — no `src/`,
 `services/`, or test changes apply here.
+
+## Closed 2026-11-09
+
+Dropped: GSD tooling in `~/.claude`, not repo code; the workaround (pass the prompt as a literal argument) is recorded in the global CLAUDE.md.
