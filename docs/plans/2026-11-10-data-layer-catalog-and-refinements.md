@@ -72,6 +72,29 @@ Facts verified 2026-11-10:
 - `ohlcv_provider_head` (read by `vendor_arbitration.py` and the fetch queue) and `ohlcv_empty_history` (read by `gap_plan.py`, `integrity_checks.py`, `corpus_rerun_data_gate.py`, `rebuild_preconditions.py`) are IBKR-specific; they go with the IBKR pre-2016 leg in the post-admission deletion list (todo 600, open item 4, Opus-reviewed before anything runs).
 - `instrument_annotations` is not a candidate (R1 table above).
 
+## 5a. Measured size of the REST reference capture (2026-11-10 probes)
+
+Read-only probes against the live API; a total is an extrapolation where marked.
+
+| Dataset | Measured | Estimated total (raw JSON) |
+|---|---|---|
+| Ticker list, stocks: 13,241 active plus 23,628 delisted (the list carries `cik`, `composite_figi`, `share_class_figi` and `delisted_utc` on each row) | 10.7 MB, 38 pages | 11 MB |
+| Ticker overview, per ticker (AAPL 1.8 KB) | one sample | about 66 MB for 37k |
+| Splits (back to 1978-10-25; has `historical_adjustment_factor`) | 28,005 records, 6.3 MB, all pages | 6 MB |
+| Dividends (back to 2000-08-15; record, pay and ex dates, no declaration date seen) | 600,000 records and 205 MB when the probe hit its 120-page cap | probably 0.3 to 0.6 GB; not yet fully paged |
+| IPOs | 1,000 records, 372 KB | a few MB |
+| Ticker events (AAPL 236 B) | one sample | about 10 MB |
+| Short interest (from 2017-12-29, every two weeks) | AAPL 212 records, 26 KB | about 0.2 to 0.4 GB |
+| Short volume (daily; AAPL starts 2024-02-06) | AAPL 693 records, 316 KB | about 2 to 3 GB |
+| Financials: income, balance sheet, cash flow (AAPL from 2009; income 143 KB, balance 96 KB) | AAPL about 0.34 MB for three | about 1 to 2 GB |
+| Float | 174 B per ticker | about 6 MB |
+| News (from 2016-06-22; 2024-06-03 had 800 articles, 956 KB; two 2012 and 2018 sample days were empty) | one day | about 1 to 3 GB |
+| Filings (EDGAR index, 8-K, 10-K sections, Form 4, 13F) | not probed | unknown; size one month first |
+
+Total: about 5 to 10 GB of raw JSON, 1 to 3 GB gzipped, against 647 GB free. Rate limits are not stated in the docs; about 100k requests in all, so a few hours at modest concurrency.
+
+How it is saved: `data/massive/reference/<endpoint>/<captured_at>/` holding each response body byte for byte (gzip-compressed losslessly), plus a manifest line per response (endpoint, normalized parameters with the key stripped, page index, HTTP status, Date header, bytes, sha256, fetched_at). A re-capture writes a new dated directory and never overwrites. The same manifest-verify and copy to the second machine as the flat files. The capture tool does not exist yet; it is modeled on `massive_download.py` and is the first build item.
+
 ## 6. Before the plan lapses
 
 | Item | Action | Cost | By |
