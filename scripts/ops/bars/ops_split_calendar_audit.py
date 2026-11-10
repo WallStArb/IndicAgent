@@ -40,6 +40,16 @@ Two steps, with the evidence a reviewed, committed file between them:
     split witness is another raw series rather than Yahoo's calendar (UHAL). Each line carries
     the measured factor, the rescaled series, the day's real move, and its evidence; the rule
     (d2-v5) rescales it exactly as a confirmed split. Dry run unless --commit.
+--apply-massive CSV [--commit]: insert the proposed rows file of ops_massive_split_audit.py
+    (todo 600, admission step 4: Massive splits missing from corporate_action, each confirmed by
+    the vendor's own unadjusted tape) as corporate_action rows, inferred_by massive_reference,
+    recorded_at the capture's serve time (the announcement-time rule: a reference-derived row is
+    knowable from its capture, never from its effective date). Every line is re-judged (a
+    recognised split ratio under the current APR, the orientation, status proposed) and every
+    cited reference_raw page must exist with that serve time; same transaction and existing-row
+    guard as --apply. --commit is refused until the consumers read the code (MASSIVE_REFERENCE_
+    CONSUMERS_READY): the daily rule treats a split it does not know as a stale-scale split, so a
+    row for a split the incumbent series already adjust for would quarantine their history.
 --sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
     Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
     most the sweep's name cap steps, so market-wide crash days stay out - classified by the
@@ -73,7 +83,7 @@ import time
 from bisect import bisect_left
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +98,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
     SplitRatioRule,
     judge_calendar_split,
+    recognised_split_ratio,
     scale_step,
 )
 from src.intelligence.bars.daily_rule import (  # noqa: E402
@@ -116,7 +127,7 @@ _MAX_DAYS_AFTER = 5
 _MAX_DAYS_BEFORE = 7
 # Any row of the name within this many days, current, superseded or void, means the event is
 # already decided (an overlap or seam row a session apart, an operator's void): never a second row.
-_SAME_EVENT_DAYS = 7
+SAME_EVENT_DAYS = 7
 # A read-only audit's patience with Yahoo's rate limit; a name still failing is a fetch_error line.
 _FETCH_ATTEMPTS = 3
 _FETCH_RETRY_S = 5.0
@@ -155,6 +166,28 @@ INSERT INTO corporate_action
     (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids, detail)
 VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 """
+
+
+# A Massive-reference row (todo 600): recorded_at is the capture's serve time, never now().
+_INSERT_MASSIVE_SQL = """
+INSERT INTO corporate_action
+    (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids, detail,
+     recorded_at)
+VALUES (%s, %s, %s, %s, 'massive_reference', '{}'::uuid[], %s::jsonb, %s::timestamptz)
+"""
+_REFERENCE_SERVED_SQL = """
+SELECT reference_raw_id::text, served_at FROM reference_raw
+WHERE vendor = 'massive' AND endpoint = ANY(%s) AND reference_raw_id = ANY(%s::uuid[])
+"""
+# The splits families a massive_reference row may cite (reference_raw.endpoint).
+MASSIVE_SPLITS_ENDPOINTS = ("/v3/reference/splits", "splits")
+# The consumers of corporate_action_current must know massive_reference before a row lands: the
+# daily rule (services/bar_derivation.split_record) reads every split that is not calendar_audit
+# as a stale-scale split, so an incumbent observation fetched before the row's recorded_at and
+# dated on or before its effective date would go stale (admission design section 5, the daily
+# rule version bump; D7 split_continuity and the selection rescale read it too). The commit that
+# teaches them flips this, with its own review.
+MASSIVE_REFERENCE_CONSUMERS_READY = False
 
 
 # One raw series of a name: (session date, close) in date order.
@@ -585,31 +618,36 @@ def confirmed_rows(
 
 
 def _apply_decided(
-    settings: Settings, build_rows: Callable[[Any], Sequence[dict[str, Any]]], *, commit: bool
+    settings: Settings,
+    build_rows: Callable[[Any], Sequence[dict[str, Any]]],
+    *,
+    commit: bool,
+    insert_sql: str = _INSERT_SQL,
 ) -> int:
     """One connection, one transaction: build_rows reads what it needs on the same connection,
     every decided row whose event is undecided is inserted, and the transaction rolls back
-    unless commit."""
+    unless commit. A row carrying recorded_at passes it as the insert's last parameter."""
     with psycopg.connect(settings.database_url) as conn:
         rows = build_rows(conn)
         cur = conn.cursor()
         cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
         written = 0
         for row in rows:
-            day, window = row["effective_date"], _SAME_EVENT_DAYS
+            day, window = row["effective_date"], SAME_EVENT_DAYS
             cur.execute(_EXISTING_SQL, (row["symbol"], day, window, day, window))
             existing = cur.fetchall()
             if existing:
                 print(f"skipped {row['symbol']} {day} x{row['factor']}: decided by {existing}")
                 continue
             cur.execute(
-                _INSERT_SQL,
+                insert_sql,
                 (
                     row["symbol"],
                     row["action_type"],
                     day,
                     row["factor"],
                     json.dumps(row["detail"], sort_keys=True),
+                    *((row["recorded_at"],) if "recorded_at" in row else ()),
                 ),
             )
             written += 1
@@ -668,6 +706,134 @@ def apply_rows(settings: Settings, path: Path, *, commit: bool) -> int:
     every recorded route checked to carry the span; rolled back unless commit."""
     return _apply_decided(
         settings, lambda conn: _routes_served(conn, operator_rows(path)), commit=commit
+    )
+
+
+# The proposed rows file's columns (todo 600), owned here so the audit that writes the file and
+# this writer that reads it never drift; the optional ones may be empty (a v3-only event has no
+# bulk ticker or adjustment type, and guard_skip is informational).
+PROPOSED_COLUMNS = (
+    "symbol",
+    "action_type",
+    "effective_date",
+    "factor",
+    "recorded_at",
+    "event_id",
+    "execution_date",
+    "bulk_ticker",
+    "v3_ticker",
+    "adjustment_type",
+    "families",
+    "attribution",
+    "reference_raw_ids",
+    "tape",
+    "tape_level_step",
+    "status",
+    "guard_skip",
+)
+_PROPOSED_OPTIONAL = frozenset({"bulk_ticker", "v3_ticker", "adjustment_type", "guard_skip"})
+MASSIVE_ROWS_COLUMNS = tuple(c for c in PROPOSED_COLUMNS if c not in _PROPOSED_OPTIONAL)
+
+
+def massive_rows(path: Path, rule: SplitRatioRule) -> list[dict[str, Any]]:
+    """The proposed rows file of ops_massive_split_audit.py as corporate_action rows (todo 600).
+
+    Each line is re-judged: status proposed and the tape reading tape_step (the audit's gate), a
+    factor that is a recognised split ratio under the current APR (a spin-off adjustment or a
+    stock dividend the vendor serves as a split never lands), the action type its orientation,
+    the effective date before the execution date, a timezone-aware recorded_at, and at least one
+    cited reference page. One row per (symbol, effective date). detail carries the event, its
+    witnesses, and the file's sha256. Every rejection names its line."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    rows: list[dict[str, Any]] = []
+    decided: set[tuple[str, date]] = set()
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            empty = [c for c in MASSIVE_ROWS_COLUMNS if not (line.get(c) or "").strip()]
+            if empty:
+                raise ValueError(f"{path.name}: {empty} missing on a line")
+            symbol, day = line["symbol"].strip(), date.fromisoformat(line["effective_date"])
+            where = f"{symbol} {day}"
+            if line["status"] != "proposed" or line["tape"] != "tape_step":
+                raise ValueError(f"{where}: {line['status']}/{line['tape']} is not a proposed row")
+            factor = float(line["factor"])
+            ratio = recognised_split_ratio(factor, rule) if math.isfinite(factor) else None
+            if ratio is None or not math.isclose(ratio, factor, rel_tol=1e-9):
+                raise ValueError(f"{where}: factor {factor!r} is no recognised split ratio")
+            kind = "split" if factor > 1 else "reverse_split"
+            if line["action_type"] != kind:
+                raise ValueError(f"{where}: {line['action_type']} for factor {factor}")
+            execution = date.fromisoformat(line["execution_date"])
+            if not day < execution:
+                raise ValueError(f"{where}: effective date not before execution {execution}")
+            recorded_at = datetime.fromisoformat(line["recorded_at"])
+            if recorded_at.tzinfo is None:
+                raise ValueError(f"{where}: recorded_at {line['recorded_at']!r} has no zone")
+            if (symbol, day) in decided:
+                raise ValueError(f"{where}: proposed twice in {path.name}")
+            decided.add((symbol, day))
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "action_type": kind,
+                    "effective_date": day,
+                    "factor": ratio,
+                    "recorded_at": recorded_at,
+                    "detail": {
+                        "event_id": line["event_id"],
+                        "execution_date": execution.isoformat(),
+                        "attribution": line["attribution"],
+                        "bulk_ticker": line.get("bulk_ticker") or None,
+                        "v3_ticker": line.get("v3_ticker") or None,
+                        "adjustment_type": line.get("adjustment_type") or None,
+                        "families": line["families"].split(","),
+                        "reference_raw_ids": line["reference_raw_ids"].split(";"),
+                        "tape": line["tape"],
+                        "tape_level_step": float(line["tape_level_step"]),
+                        # Not rows_file: that key marks a todo 592 operator row.
+                        "proposed_file": path.name,
+                        "proposed_sha256": digest,
+                        "todo": 600,
+                    },
+                }
+            )
+    return rows
+
+
+def _references_served(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """rows, after refusing any row whose cited Massive splits pages are not all stored, or whose
+    recorded_at is not the latest serve time among them (lineage: the row traces to its pages)."""
+    cited = sorted({i for row in rows for i in row["detail"]["reference_raw_ids"]})
+    with conn.cursor() as cur:
+        cur.execute(_REFERENCE_SERVED_SQL, (list(MASSIVE_SPLITS_ENDPOINTS), cited))
+        served = dict(cur.fetchall())
+    for row in rows:
+        ids = row["detail"]["reference_raw_ids"]
+        missing = [i for i in ids if i not in served]
+        if missing:
+            raise ValueError(f"{row['symbol']} {row['effective_date']}: pages {missing} not stored")
+        if max(served[i] for i in ids) != row["recorded_at"]:
+            raise ValueError(
+                f"{row['symbol']} {row['effective_date']}: recorded_at {row['recorded_at']} is "
+                "not the cited pages' serve time"
+            )
+    return rows
+
+
+def apply_massive(settings: Settings, path: Path, *, commit: bool) -> int:
+    """One transaction: the proposed Massive rows whose event is undecided (todo 600), each
+    re-judged and its pages checked; rolled back unless commit, and commit refused until the
+    consumers read massive_reference (MASSIVE_REFERENCE_CONSUMERS_READY)."""
+    if commit and not MASSIVE_REFERENCE_CONSUMERS_READY:
+        raise SystemExit(
+            "--apply-massive --commit is refused: the daily rule, D7 and selection do not read "
+            "massive_reference yet (admission design section 5); dry run only"
+        )
+    return _apply_decided(
+        settings,
+        lambda conn: _references_served(conn, massive_rows(path, _apr(conn).rule)),
+        commit=commit,
+        insert_sql=_INSERT_MASSIVE_SQL,
     )
 
 
@@ -1228,6 +1394,12 @@ def main(argv: list[str] | None = None) -> int:
         help="write the operator rows file (todo 592) as calendar_audit rows",
     )
     mode.add_argument(
+        "--apply-massive",
+        type=Path,
+        metavar="CSV",
+        help="write ops_massive_split_audit's proposed rows as massive_reference rows (todo 600)",
+    )
+    mode.add_argument(
         "--quarantine-unconfirmed",
         type=Path,
         metavar="CSV",
@@ -1243,9 +1415,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbols", nargs="*", default=None)
     add_write_mode_args(
         parser,
-        dry_run="--apply/--apply-rows/--quarantine-unconfirmed: report what would be written "
-        "(default)",
-        commit="--apply/--apply-rows/--quarantine-unconfirmed: write",
+        dry_run="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: report what "
+        "would be written (default)",
+        commit="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: write",
     )
     args = parser.parse_args(argv)
     settings = Settings()
@@ -1259,6 +1431,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.apply_rows:
         return apply_rows(settings, args.apply_rows, commit=args.commit)
+    if args.apply_massive:
+        return apply_massive(settings, args.apply_massive, commit=args.commit)
     if args.quarantine_unconfirmed:
         return asyncio.run(_quarantine(settings, args.quarantine_unconfirmed, commit=args.commit))
     return apply(settings, args.apply, commit=args.commit)

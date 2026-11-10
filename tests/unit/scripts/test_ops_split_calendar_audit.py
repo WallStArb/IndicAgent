@@ -776,3 +776,117 @@ def test_a_break_yahoo_cannot_bracket_is_reported():
     )
     assert event.verdict == "reported"
     assert event.yahoo_step is None
+
+
+# ---------------- --apply-massive (todo 600, admission step 4) ----------------
+
+_SERVED = datetime(2026, 11, 10, 16, 43, 40, 310597, tzinfo=UTC)
+_MASSIVE_LINE = {
+    "symbol": "NVDA",
+    "action_type": "split",
+    "effective_date": "2024-06-07",
+    "factor": "10.0",
+    "recorded_at": _SERVED.isoformat(),
+    "event_id": "E1",
+    "execution_date": "2024-06-10",
+    "attribution": "span",
+    "bulk_ticker": "NVDA",
+    "v3_ticker": "NVDA",
+    "adjustment_type": "forward_split",
+    "families": "bulk,v3",
+    "reference_raw_ids": "00000000-0000-0000-0000-000000000001",
+    "tape": "tape_step",
+    "tape_level_step": "-2.194",
+    "status": "proposed",
+    "guard_skip": "",
+}
+
+
+def _massive_file(tmp_path, *edits):
+    path = tmp_path / "proposed_rows.csv"
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(audit.PROPOSED_COLUMNS))
+        writer.writeheader()
+        for edit in edits or ({},):
+            writer.writerow({**_MASSIVE_LINE, **edit})
+    return path
+
+
+def test_a_proposed_massive_line_becomes_a_reference_row_with_its_capture_time(tmp_path):
+    (row,) = audit.massive_rows(_massive_file(tmp_path), _RULE)
+    assert (row["symbol"], row["action_type"], row["effective_date"], row["factor"]) == (
+        "NVDA",
+        "split",
+        date(2024, 6, 7),
+        10.0,
+    )
+    # The announcement-time rule: knowable from the capture, never from the effective date.
+    assert row["recorded_at"] == _SERVED
+    assert row["detail"]["reference_raw_ids"] == ["00000000-0000-0000-0000-000000000001"]
+    assert row["detail"]["todo"] == 600 and len(row["detail"]["proposed_sha256"]) == 64
+    assert "rows_file" not in row["detail"]  # the key that marks a 592 operator row
+    (reverse,) = audit.massive_rows(
+        _massive_file(tmp_path, {"factor": "0.1", "action_type": "reverse_split"}), _RULE
+    )
+    assert reverse["action_type"] == "reverse_split"
+
+
+@pytest.mark.parametrize(
+    "edit, match",
+    [
+        ({"status": "not_a_split_ratio"}, "not a proposed row"),
+        ({"tape": "tape_flat"}, "not a proposed row"),
+        ({"factor": "1.391"}, "no recognised split ratio"),  # YUM 2016: a spin-off adjustment
+        ({"action_type": "reverse_split"}, "reverse_split for factor"),
+        ({"execution_date": "2024-06-07"}, "not before execution"),
+        ({"recorded_at": "2026-11-10T16:43:40"}, "has no zone"),
+        ({"reference_raw_ids": ""}, "missing"),
+    ],
+)
+def test_a_massive_line_the_audit_would_not_propose_is_refused(tmp_path, edit, match):
+    with pytest.raises(ValueError, match=match):
+        audit.massive_rows(_massive_file(tmp_path, edit), _RULE)
+
+
+def test_a_massive_line_proposed_twice_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="proposed twice"):
+        audit.massive_rows(_massive_file(tmp_path, {}, {}), _RULE)
+
+
+class _ServedCursor(_Cursor):
+    served: list = []
+
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        if "FROM reference_raw" in sql:
+            self._rows = list(self.served)
+
+
+class _ServedConn(_Conn):
+    def __init__(self, served):
+        super().__init__()
+        self.served = served
+
+    def cursor(self):
+        cur = _ServedCursor(self)
+        cur.served = self.served
+        return cur
+
+
+def test_apply_massive_checks_lineage_inserts_and_never_commits(tmp_path, monkeypatch):
+    path = _massive_file(tmp_path)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    conn = _ServedConn([("00000000-0000-0000-0000-000000000001", _SERVED)])
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(path)]) == 0
+    assert (conn.committed, conn.rolled_back) == (0, 1)
+    inserts = [s for s in conn.statements if "INSERT INTO corporate_action" in s]
+    assert inserts and all("'massive_reference'" in s and "recorded_at" in s for s in inserts)
+    # The consumers do not read massive_reference yet: --commit is refused before any write.
+    with pytest.raises(SystemExit, match="refused"):
+        audit.main(["--apply-massive", str(path), "--commit"])
+    # A cited page not stored, or a serve time that is not the row's, refuses the batch.
+    for served in ([], [("00000000-0000-0000-0000-000000000001", _SERVED - timedelta(1))]):
+        monkeypatch.setattr(audit.psycopg, "connect", lambda *a, s=served, **k: _ServedConn(s))
+        with pytest.raises(ValueError, match="not stored|serve time"):
+            audit.main(["--apply-massive", str(path)])

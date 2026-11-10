@@ -2514,6 +2514,36 @@ minute rows under `sip_flat_agg` at 1d and `sip_flat` stays archived only. **Not
 **Code surface:** `controlled_vocabulary` namespace `bar_kind` and `BAR_KINDS` in
 `src/intelligence/bars/vendor_kind.py` once admitted
 
+### `split reconciliation`
+
+The admission step 4 gate (design section 5) that partitions every Massive splits event of an
+active instrument and every `corporate_action_current` split row into one outcome: agree,
+date_offset, ratio_disagree, massive_only, ours_only, vendor_correction (a todo 592 operator row
+that rescales an incumbent series and records no split), announced (execution after the capture)
+or before_archive. Events are attributed through identity spans and the list date, never a
+vendor ticker label alone, and duplicate vendor ids of one split collapse first. A massive_only
+event whose factor is a recognised split ratio and whose own unadjusted tape steps by it becomes a
+proposed `massive_reference` row with `recorded_at` = the capture's serve time. **Not:** the
+`level seam` scan (tape steps no record explains) or the D7 `split_continuity` check.
+**Banned:** (none)
+**Status:** active 2026-11-10 (todo 600 step 4; writes nothing, the writer is
+`ops_split_calendar_audit.py --apply-massive`)
+**Code surface:** `src/intelligence/bars/split_reconciliation.py`,
+`scripts/ops/bars/ops_massive_split_audit.py`
+
+### `level seam`
+
+A step between adjacent observations of an unadjusted vendor series judged by level over the spans
+either side (medians bounded by the neighbouring junctions), never by the junction step alone (the
+todo 592 rule). Classified explained (a recorded split's factor reads it), identity_suspect (the
+ticker string may have changed hands: a recorded identity break or a long presence gap),
+thin_halted, or unexplained (with the simplest recognised split ratio it reads as, and the
+adjusted incumbent's reading at the same junction). A one-bar print is no seam. **Not:** a `seam`
+of the overlap split detector (`seams.find_seams`, two fetches of one vendor) or a source seam
+between vendors in canonical. **Banned:** (none)
+**Status:** active 2026-11-10 (todo 600 step 4)
+**Code surface:** `src/intelligence/bars/level_seams.py`
+
 ### `survivorship` (universe)
 
 The property that a stored universe holds only the names that survived to today, so a backtest over
