@@ -2,9 +2,9 @@
 
 Author: session indicagent-22, 2026-11-10, at the lead's assignment (indicagent-d8), for todo 600's admission
 Status: ruled by the lead (indicagent-d8, 2026-11-10; section 11), after an adversarial review (Opus subagent) whose findings are folded in. This is the admission-day execution plan. Design only: no code, no DB writes, no migrations until the owner's admission verdict.
-Informed by: `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md`, `docs/plans/2026-11-09-massive-pilot-basis-study.md`, `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, `docs/foundation/canonical-truth-registry.md`, `src/intelligence/bars/{vendor_kind,vendor_ingress,selection,daily_rule,integrity_checks}.py`, `services/{bar_load,ohlcv_ingress_contract}.py`, `scripts/ops/bars/{ops_source_policy,ops_bar_load}.py`, the downloader `scripts/infrastructure/massive/massive_download.py`, read-only schema and data queries (2026-11-10).
+Informed by: `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md`, `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, `docs/foundation/canonical-truth-registry.md`, `src/intelligence/bars/{vendor_kind,vendor_ingress,selection,daily_rule,integrity_checks}.py`, `services/{bar_load,ohlcv_ingress_contract}.py`, `scripts/ops/bars/{ops_source_policy,ops_bar_load}.py`, the downloader `scripts/infrastructure/massive/massive_download.py`, read-only schema and data queries (2026-11-10).
 
-Applies only after the pilot verdict is "admit" or "admit with named caveats". Nothing here touches the downloader, the pilot comparison scripts or `data/massive/`.
+Runs on the owner's admission call (bundled with the law 528 amendment, section 11). Nothing here touches the downloader or `data/massive/`.
 
 ## 1. Scope
 
@@ -16,7 +16,7 @@ Todo 600's admission: vendor and kind codes in `ohlcv_raw`, the reader and 5m ag
 - `ohlcv_raw.symbol` has a foreign key to `instruments(symbol)` (1,551 rows, 1,529 active). 338 of 341 raw chunks are compressed.
 - Every stored price is split-adjusted (onboarding SOP, "Price-only bars"; Alpaca kinds by definition). Massive files are unadjusted. The daily rule already rescales unadjusted series from `corporate_action_current` (`daily_rule.py` d2-v5 path), so a corporate-action input to selection has precedent for 1d; 5m selection has none.
 - IBKR pre-2016 5m holds zero-volume bars (89,165 of 732,880 in a four-name sample); Massive has no row for a bucket without trades.
-- Alpaca SIP is Polygon's feed, the same upstream as Massive. From 2016 Massive agreeing with Alpaca is expected, not independent evidence (flag for the pilot runbook).
+- Alpaca SIP is Polygon's feed, the same upstream as Massive. From 2016 Massive agreeing with Alpaca is expected, not independent evidence (section 8a).
 - The downloader (committed 07c70a806) records key, size, sha256 and `downloaded_at` in its manifest and skips a file whose size matches. The vendor's LastModified and ETag per key are captured out of band in `data/massive/manifest/servetimes_*.jsonl`.
 
 ## 3. Vendor and kinds
@@ -28,7 +28,7 @@ CVR `bar_vendor` code `massive` (who served the bar; Alpaca-via-Polygon stays `a
 | `sip_flat_agg` | Massive minute aggregates cut to the NYSE regular session and aggregated to 5m by our reader (section 4); unadjusted | 5m |
 | `sip_flat` | Massive day aggregate as served; unadjusted | 1d |
 
-Both are session-bound kinds: `sip_flat_agg` joins `SESSION_BOUND_KINDS` in `selection.py`, whose `partition_session` already drops off-grid stamps. No new session-cut mechanism. The 1d kind is confirmed by the pilot's 1d arm: if Massive day bars differ from the regular-hours aggregate of its minute bars on any of open, high, low, close or volume beyond the pilot tolerance (extended-hours trades are the likely cause), 1d is instead built from the regular-hours minute rows under kind `sip_flat_agg` at 1d, and the served day file stays archived only.
+Both are session-bound kinds: `sip_flat_agg` joins `SESSION_BOUND_KINDS` in `selection.py`, whose `partition_session` already drops off-grid stamps. No new session-cut mechanism. The 1d kind is settled by the day-against-minute check (section 8a): if Massive day bars differ from the regular-hours aggregate of its minute bars on close on more than 1 percent of names in any era (extended-hours trades are the likely cause), 1d is instead built from the regular-hours minute rows under kind `sip_flat_agg` at 1d, and the served day file stays archived only.
 
 The `_agg` kind amends the unified design's "raw holds what the vendor served only": a reader may store an aggregate of a finer served timeframe under a kind that says so. Todo 600's storage ruling already decided this (5m aggregated by us, 1m loaded only on demand); the amendment text goes into the unified design in the same commit.
 
@@ -79,7 +79,7 @@ Mapping evidence (stage 1, current names only):
 3. Check price continuity against incumbent bars at each span edge, by level over the span, not by the junction step (the 592 rule).
 4. A span without that evidence is a gap: the name keeps the incumbent for the span and goes on a list for the owner. Rows outside spans, and tickers with no instrument, stay in the archive only; the manifest counts them per day.
 
-Stage 1 deepens and cross-checks the history of current names. It does not remove survivorship, because the universe is still current names. The caveat lifts only at stage 2 (historical instrument rows for dead names, a point-in-time membership table, the key rule for reused tickers, an owner-approved SOP exception). The caveat wording moves in the step 7a commit and says this, citing the presence rate the pilot measured (runbook A8).
+Stage 1 deepens and cross-checks the history of current names. It does not remove survivorship, because the universe is still current names. The caveat lifts only at stage 2 (historical instrument rows for dead names, a point-in-time membership table, the key rule for reused tickers, an owner-approved SOP exception). The caveat wording moves in the step 7a commit and says this, citing the presence rate measured under section 8a.
 
 Glossary entries first: `issuer` (CIK, LEI), `security identifier` (share-class FIGI, CUSIP, ISIN, dated, append-only), `ticker_event` (dated span of a ticker string on a security). Reuse `listing_venue` and `listing_end`. Massive and IBKR reference responses are stored raw as served (vendor, endpoint, key, as-of date, body, served_at; last-wins with revision).
 
@@ -91,13 +91,13 @@ A small append-only dated table per vendor and column recording a change of mean
 
 Current defaults (2026-11-10): 5m `ibkr` [1990-01-01, 2016-01-04), `alpaca` with `ibkr` fallback from 2016-01-04; 1d the same; 15m and 1h `derived`; 1m `ibkr`; 4h closed. Append-only table, EXCLUDE on overlap among unretired rows, no vendor CHECK.
 
-0. Preconditions: pilot verdict recorded; downloader serve-time changes in and the full archive verified against the manifest; offsite backup done; glossary entries landed; the IBKR 5m backfill timer stopped; fetcher timers quiet during canonical rewrites.
+0. Preconditions: the owner's admission call recorded; downloader serve-time changes in and the full archive verified against the manifest; offsite backup done; glossary entries landed; the IBKR 5m backfill timer stopped; fetcher timers quiet during canonical rewrites.
 1. Migration: CVR codes, the APR key, the `inferred_by` CHECK, definition-epoch, identity and reference tables. Applied live and committed together.
 2. Code, each its own plan with /simplify, /review and the unit suite: the reader; the vendor and kind maps of section 3; the session-bound kind; the canonical-kind map; the 5m rescale in selection and in `ops_selection_gate --compare`; the `split_horizon_fresh` D7 check; the mapping retract path; `--valid-to` on `ops_source_policy --reselect-only`.
 3. Reference load (Massive and IBKR) and ticker spans. Gate: every instrument has a span or is on the gap list.
 4. Split reconciliation and seam detection (section 5). Gate: no unexplained difference.
 5. Raw load, per year, newest first, 5m then 1d. The load engine runs selection on every chunk, and while Massive is unranked every Massive-only slot reports as unselected (status UNSELECTED, not APPLIED). Gate per year: unselected equals the Massive-only on-grid slots counted from the manifest; row balance (traded minutes in, bars out, unmapped excluded and counted); `ops_selection_gate --compare` unchanged.
-6. Full-scale basis gates over loaded raw: the pilot's price, scale-factor and OHLC gates per name-year for every mapped name. A name outside a gate is listed and keeps its incumbent.
+6. Load checks over loaded raw (section 8a), for every mapped name. A name outside a check is listed and keeps its incumbent for that span; a systemic failure stops the switch.
 7. Policy, through `ops_source_policy --plan` (it already retires and re-tiles defaults) then `--reselect-only` per year:
    a. 5m before 2016-01-04: Massive primary with no fallback. The default IBKR fallback would undo the switch: selection judges a vendor complete against every slot any ranked vendor holds, and IBKR's zero-volume bars in buckets Massive correctly lacks would make Massive incomplete and hand whole sessions to IBKR. Names and spans on the gap list keep IBKR through symbol rows. Missing is NaN.
    b. 1d before 2016-01-04: the same shape, after the daily-rule version bump. The 1d plan must name all 95 live IBKR 1d symbol rows, pin the two default ids and carry the raw fingerprint, as `--plan` requires.
@@ -106,6 +106,30 @@ Current defaults (2026-11-10): 5m `ibkr` [1990-01-01, 2016-01-04), `alpaca` with
 9. The corpus rerun stays behind the data-complete gate (186-32); admission does not open it.
 
 Raw IBKR pre-2016 rows stay permanent; only selection changes.
+
+## 8a. Load checks
+
+Owner 2026-11-10: Massive is used regardless, so there is no separate pilot and no admit or
+refuse verdict. The checks below replace the pilot basis study (archived, `docs/plans/archive/2026-11-09-massive-pilot-basis-study.md`). They decide how each name and span is loaded, never whether Massive is used. Massive is the yardstick: a disagreement with IBKR or Alpaca is an incumbent defect when a third witness agrees (Massive's own continuity across eras, an exchange-official close, a filing-dated split), and unresolved otherwise. From 2016-01-04 Alpaca agreement carries no weight on units, session or scale (same upstream); IBKR is the independent arm. Survivorship is measured and disclosed (presence by era, the names missing), never a gate.
+
+Two outcomes, nothing in between: a name or span outside a check keeps its incumbent through a symbol row and goes on the gap list; a systemic failure (units, session offset, internal consistency) stops step 7 until fixed.
+
+| Check | Rule | Outside it |
+|---|---|---|
+| Identity | Ticker-as-of map for the compared names, evidence not from price (FIGI, ticker events, IBKR contract details, filings), frozen and hashed before comparison. Known corrections: MTCH is `IACI` in Massive's 2010 files, RSPF is `RYF`, QQQ is `QQQQ`. A pair with daily return correlation under 0.9 over the era is identity-unresolved, never a scale finding. | gap list |
+| Adjustment factor | Never fitted from the compared series. Source: the corporate-action list frozen and hashed before comparison (Massive's splits endpoint, captured under todo 600 and reconciled per section 5, labelled non-independent). Name-eras pre-classified: no action, splits only, non-split adjustment. Price and scale checks apply to the first two; the third (IBKR `smart_trades` carries non-split adjustments no split table reproduces, 103 of 286 factor-off names in the 2010-03 probe) is a convention difference. | listed |
+| Price agreement (5m and 1d) | A bar agrees when abs(Massive / factor - incumbent) is at most half the incumbent's stored price increment plus 1 bp (IBKR stores adjusted prices at cent precision: NVDA's 2010 close of 0.46 carries about 108 bp of rounding). At least 99 percent of matched bars agree per name-era and 99.5 percent vendor-wide. Disagreements classified: rounding, last-print eligibility, scale, time shift, other (above 0.5 percent vendor-wide: investigate before any switch). | name: gap list; vendor-wide: stop |
+| Scale factor (the 587 class) | Per name-year, median log close ratio within 10 bp of 0 after the factor. | listed with factor and actions in window |
+| 5m comparison | Window start, after the RTH cut, traded buckets only (incumbent volume above 0). Zero-volume incumbent bars and incumbent traded buckets Massive lacks are counted and listed, never assumed no-trade. | listed |
+| Day file against minute file | Per era, day O, H, L, C, V against the RTH and the all-hours aggregate of the same day's minutes (2003-09-10: close differs from the RTH aggregate on 1,976 of 7,716 names, volume on 4,273). If close mismatches on more than 1 percent of names in any era, 1d is built from RTH minutes (section 3) and the served day file stays archived only. | systemic: decides the 1d kind |
+| 1d census | Every held name, every session, all of O, H, L, C against incumbent 1d (the day files are about 1 GB), plus the ten sessions either side of each todo 592 disputed date (592 names and OKE). | gap list |
+| Volume bands | Per era and per listing exchange, median IBKR/Massive ratio in 0.8 to 1.25 (measured p50 0.943, p1 0.537, p99 1.572); at most 2 percent of names outside 0.5 to 2.0. Name-level basis differences inside the bands stay labelled data (todo 518). | systemic: stop (units) |
+| Record sanity | High at or above max(open, close) and low at or below min(open, close) on 99.9 percent of bars; price strictly positive, volume at or above zero, (ticker, window_start) unique, on minute and day files. | systemic: stop |
+| Session | No systematic offset against the NYSE grid, early closes and the post-DST days included (a seeded draw of days, seed recorded, at least one early close and one post-DST day per era). | systemic: stop |
+| Publish lag, manifest | Time each of the last 20 sessions' files first appeared (LastModified in `data/massive/manifest/servetimes_*.jsonl`) as lag after the 16:00 ET close; every NYSE session in the archive range has both files, parsing, with row count and sha256 (5,829 of 5,829 per dataset on 2026-11-10). | informational (feeds the nightly-update decision) |
+| Survivorship | Delisted names (from `listing_end` and a hand-list): bars run through the last exchange session with a last price consistent with the delisting event; OTC afterlife is out of coverage. Presence by era and the missing names recorded. | disclosed in the caveat text |
+
+The pilot had computed (not finalised) result tables before it was stopped: `logs/massive_pilot/` (price, scale, volume, survivorship and witness files). They are inputs a check run may reuse after confirming they were computed under the rules above; they are not a verdict.
 
 ## 9. Documents that move with step 7a
 
@@ -120,7 +144,7 @@ Raw IBKR pre-2016 rows stay permanent; only selection changes.
 - Root `CLAUDE.md` (pipeline line and raw-capture bullet), `src/providers/CLAUDE.md`.
 - `dashboard/src/lib/copy/landing.ts` line 692 and any test that pins it.
 - `indicagent-ibkr-history-fetcher.timer` disabled, with its unit docs.
-- Planning: todo 600 to completed; 534, 544 and 607 resolved per their rulings; `PRIORITIES.md` rows; `STATE.md`; the pilot runbook status.
+- Planning: todo 600 to completed; 534, 544 and 607 resolved per their rulings; `PRIORITIES.md` rows; `STATE.md`.
 
 Every reference to a moved or deleted path is repaired in the same commit (CI-enforced).
 
@@ -149,8 +173,8 @@ Every reference to a moved or deleted path is repaired in the same commit (CI-en
 4. **Done out of band**: LastModified and ETag for all 11,658 keys are captured in
    data/massive/manifest/servetimes_*.jsonl (2026-11-10, while the plan is live); the
    downloader integration (inventory fields, ETag-based re-fetch) is in flight with the builder.
-5. **Adopted into the pilot**: the 1d arm compares full OHLCV, not close only; and the 2016+
+5. **Adopted** (now in section 8a): the 1d arm compares full OHLCV, not close only; and the 2016+
    Alpaca agreement is same-upstream corroboration (Alpaca SIP is the same Polygon feed), not
    independent evidence - the verdict weights the pre-2016 IBKR arm and the internal OHLC
-   consistency accordingly. Routed to the running pilot.
+   consistency accordingly.
 6. Deferred to stage 2, as drafted.

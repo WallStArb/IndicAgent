@@ -55,8 +55,8 @@ Massive."** All 592 sweep follow-ups parked (the GSAT/NEXN/OKE D7 red rows are k
 until the Massive-era rerun); todo 607 (gateway watcher) is parked as expected-superseded; the
 IBKR 5m backfill timer keeps running as free fallback insurance until admission and stops then;
 the 534 coverage number is no longer the gating metric for data-complete. The single critical
-path is the Massive plan upgrade -> pilot basis study (runbook pre-registered, both aggregates)
--> admission -> sweep rerun with Massive as witness -> pre-rerun window -> corpus rerun.
+path is the Massive download -> load checks and admission (design section 8a, both aggregates;
+the separate pilot was dropped 2026-11-10) -> sweep rerun with Massive as witness -> pre-rerun window -> corpus rerun.
 
 The Claude weekly limit is spent; the next session may run on another model. Everything below is
 pushed (origin/main 5408fd495 or later) unless marked as a worktree.
@@ -87,7 +87,7 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 **Added 2026-11-09 (end of session, Opus-reviewed):** the discovery lane is designed, not built. Read `docs/ideas/base-feature-scouting-and-the-research-ladder.md` (scouting, the admission-gate versus selection-gate split, classes A to E, E18 counting), todo 603 (register and gates), todo 601 (slop audit reframed as discovery over deletion; proposer already covers all 306 numeric columns) and `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md` (levels 2 and 3). Gaps found by review that block any real-data sweep: draft ledger entry E21 (feature-level selection: unit, storage, sole writer, universe, `informed_by`); amend unified design section 11 before stratifying IC beyond `regime_volatility`; widen the `composition` vocabulary; level 3 runs in the research runner, not `ic_measure`. E21 and the section 11 amendment were drafted 2026-11-09 (lead session, awaiting owner adoption; interim rule holds until then); the `composition` widening is still open (todo 603 step 5). Owner rulings this session: Massive flat files purchase approved (todo 600, P0); extended hours stay raw only; blind model proposer allowed; discovery over deletion for unread columns; licensing is the owner's job. Dated: 2026-11-12 Tradier decision and old backups (510); 2026-12-01 decide IBKR gateway upgrade versus planned lapse (544, desupported 2026-12-15). The Massive S3 key is in `.env` (`MASSIVE_S3_*`) and lists but cannot download until the plan is upgraded.
 
 **Next, in order** (budget-limited sessions: items 0a and 0b first):
-0a. **Todo 600**: after the owner upgrades the Massive plan, download one 2010 file, check units and delisted names, run the pilot basis study.
+0a. **Todo 600**: after the owner upgrades the Massive plan, download one 2010 file, check units and delisted names, run the load checks (admission design section 8a).
 0b. **DONE 2026-11-09**: E21 (feature-level selection: the measured cell is a counted attempt in
     the E18 universe) and the section 11 amendment (stratified IC beyond `regime_volatility` under
     E21) are drafted, awaiting owner adoption; both gate any real-data sweep (todos 601, 603).
@@ -106,7 +106,7 @@ table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are
 3. **Todo 587 CLOSED 2026-11-09**: the full nightly D7 is clean (split_continuity 1,529/1,529,
    digest_fresh 0 failures, lineage_missing unchanged at 2 across post-landing nights; evidence in
    the closure note). The 584 pin now waits only on complete data (534/600).
-4. **Todo 600 is the critical path** (owner 2026-11-07: buy Massive flat files, all symbols and years). The S3 key is in `.env` (`MASSIVE_S3_*`) and lists the bucket but downloads 403 on the free plan, so the owner must upgrade the plan; then download one 2010 file, check units and delisted names, run the pilot basis study, and write the deletion list. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
+4. **Todo 600 is the critical path** (owner 2026-11-07: buy Massive flat files, all symbols and years). The S3 key is in `.env` (`MASSIVE_S3_*`) and lists the bucket but downloads 403 on the free plan, so the owner must upgrade the plan; then download one 2010 file, check units and delisted names, run the load checks (admission design section 8a), and write the deletion list. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
    scrub); P2: 598 (nightly logs to journald), 589.
 5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
 

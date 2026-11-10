@@ -5,8 +5,8 @@ scouting pass; rows change only with a verified source finding or a capture deci
 **Author:** Claude worker session, 2026-11-09, executing todo 603 step 1.
 **Informed by:** `docs/ideas/base-feature-scouting-and-the-research-ladder.md` (rung 0 and the
 seed table), todo 603 ("Source findings 2026-11-09", verified by reading Massive docs, and the
-owner rulings), `docs/plans/2026-11-09-massive-pilot-basis-study.md` (the Massive fields the
-pilot measures), `docs/foundation/glossary.md` (`data adjacency register`, `base feature`,
+owner rulings), `docs/plans/2026-11-10-massive-admission-db-design.md` (the Massive fields the
+load checks measure), `docs/foundation/glossary.md` (`data adjacency register`, `base feature`,
 `admission gate`).
 
 ## Purpose
@@ -39,9 +39,9 @@ property of a row, not of a source.
 
 ### Massive flat files (`us_stocks_sip/minute_aggs_v1`)
 
-Admission pending the pilot basis study (`docs/plans/2026-11-09-massive-pilot-basis-study.md`);
-nothing below is captured today. Column units, timestamp timezone and price scale are measured in
-step 0 of that plan, not taken from docs.
+Admission pending the owner's call (`docs/plans/2026-11-10-massive-admission-db-design.md`);
+the files are downloaded, nothing below is loaded yet. Column units, timestamp timezone and price scale
+were measured from the files (archived step 0: nanosecond `window_start`, `.csv.gz`), not taken from docs.
 
 | Field | Availability time | History start | Retrieval cost | License note | Stored | Base features enabled | Status |
 |---|---|---|---|---|---|---|---|

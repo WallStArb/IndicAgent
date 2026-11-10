@@ -24,8 +24,9 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
   in `data/massive/manifest/servetimes_*.jsonl`.
 - Full download running: `scripts/infrastructure/massive/massive_download.py` (07c70a806),
   into `data/massive/files/`, logging to `logs/massive_download_full.log`.
-- Pilot basis study running under the amended runbook:
-  `docs/plans/2026-11-09-massive-pilot-basis-study.md` (amendment 2026-11-10, A1-A12).
+- No separate pilot (owner 2026-11-10: Massive is used regardless). The checks that decide how names
+  and spans load are section 8a of the admission design; the old runbook is archived
+  (`docs/plans/archive/2026-11-09-massive-pilot-basis-study.md`).
 - Admission design, ruled by the lead: `docs/plans/2026-11-10-massive-admission-db-design.md`.
   It is the admission-day execution plan, covering the vendor and kinds, the reader, the 5m
   rescale, the ticker map, the policy switch, and the docs that move with it.
@@ -33,7 +34,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 ## Rulings in force
 
 - Massive is the yardstick (owner 2026-11-10). Disagreements count as incumbent defects only
-  when a third witness agrees (runbook A4). The gates stay symmetric and pre-registered.
+  when a third witness agrees (design section 8a).
 - Survivorship is measured and disclosed, never a gate (owner 2026-11-10: "there's no better
   option - its the best choice regardless if 70% or 100%").
 - Raw is a mapped projection: the archived files are the as-served, ticker-keyed record, and
@@ -55,7 +56,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 1. Offsite object-storage backup of the files and the raw dumps: mandatory before the plan
    lapses, since the files cannot be replaced afterwards. Waits on the owner's choice of
    destination.
-2. Pilot verdict, then the owner's admission call (bundled with the law 528 amendment).
+2. The owner's admission call (bundled with the law 528 amendment); no verdict step.
 3. Admission execution per the design doc, section 8.
 4. Deletion list after admission (owner 2026-11-07, strengthened 2026-11-10; Opus review
    before anything runs). Candidates: the IBKR pre-2016 leg (the 534 campaign and its fetcher
