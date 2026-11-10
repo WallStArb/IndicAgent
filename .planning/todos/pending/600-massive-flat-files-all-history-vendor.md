@@ -19,11 +19,12 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 - Plan purchased; the paid S3 key is in `.env` as `MASSIVE_S3_*` (the dashboard
   `MASSIVE_API_KEY` is separate).
-- Inventory: 5,829 trading days per dataset, minute 86.8 GB and day 1.0 GB. It matches the NYSE
+- Inventory: 5,829 trading days per dataset, minute 86.8 GB and day 1.0 GB, matching the NYSE
   calendar with no missing or extra days. Serve times (LastModified, ETag) for every key are
   in `data/massive/manifest/servetimes_*.jsonl`.
-- Full download running: `scripts/infrastructure/massive/massive_download.py` (07c70a806),
-  into `data/massive/files/`, logging to `logs/massive_download_full.log`.
+- Full download complete 2026-11-10: all 11,658 files (82 GiB) in `data/massive/files/`, manifest
+  records for every inventory key, `--verify` re-hashed all of them with 0 defects. Downloader:
+  `scripts/infrastructure/massive/massive_download.py` (credentials on stdin since 15719adb0).
 - No separate pilot (owner 2026-11-10: Massive is used regardless). The checks that decide how names
   and spans load are section 8a of the admission design; the old runbook is archived
   (`docs/plans/archive/2026-11-09-massive-pilot-basis-study.md`).
