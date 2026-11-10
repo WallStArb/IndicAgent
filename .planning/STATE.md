@@ -50,6 +50,14 @@ autonomously; the owner keeps purchases (the Massive plan upgrade) and methodolo
 adoption). The 5-hour API windows can kill workers mid-lane; lanes land from worktrees so a dead
 agent's WIP survives and a relaunch continues it.
 
+**Owner directive 2026-11-10 (12:20Z): stop polishing the IBKR/Alpaca-era data - "we will get
+Massive."** All 592 sweep follow-ups parked (the GSAT/NEXN/OKE D7 red rows are known-accepted
+until the Massive-era rerun); todo 607 (gateway watcher) is parked as expected-superseded; the
+IBKR 5m backfill timer keeps running as free fallback insurance until admission and stops then;
+the 534 coverage number is no longer the gating metric for data-complete. The single critical
+path is the Massive plan upgrade -> pilot basis study (runbook pre-registered, both aggregates)
+-> admission -> sweep rerun with Massive as witness -> pre-rerun window -> corpus rerun.
+
 The Claude weekly limit is spent; the next session may run on another model. Everything below is
 pushed (origin/main 5408fd495 or later) unless marked as a worktree.
 
