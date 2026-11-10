@@ -44,6 +44,12 @@ bullets with current facts.
 
 ## Session handoff (2026-11-07 12:30Z, lead indicagent-4d; refined 2026-11-08; read this first)
 
+**Sprint control (owner directive 2026-11-10 ~04:45Z, relayed via indicagent-5f):** the lead
+session (indicagent-d8) drives prioritization, sequencing, worker dispatch and verification
+autonomously; the owner keeps purchases (the Massive plan upgrade) and methodology rulings (E21
+adoption). The 5-hour API windows can kill workers mid-lane; lanes land from worktrees so a dead
+agent's WIP survives and a relaunch continues it.
+
 The Claude weekly limit is spent; the next session may run on another model. Everything below is
 pushed (origin/main 5408fd495 or later) unless marked as a worktree.
 
