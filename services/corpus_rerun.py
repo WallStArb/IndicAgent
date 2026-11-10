@@ -862,9 +862,11 @@ _SELF_COMPLETED = object()  # a handler that completed its own step (data_gate's
 
 class CorpusRerun:
     # The pilot's tf scope, one declaration for the staging calls, the column screen, the
-    # unit list, the compression measures and the G6 expected_tfs (round 8: every site derives
-    # from this tuple; ordered - the daily-stage tf first, the hour-unit tf second).
+    # unit list, the compression measures and the G6 expected_tfs (round 8). Unpacked by
+    # name below so a reorder cannot silently swap the daily stage and the hour probe
+    # (round 9).
     PILOT_TFS = ("1d", "1h")
+    PILOT_DAILY_TF, PILOT_HOURLY_TF = PILOT_TFS
 
     def __init__(self, run: CorpusRun, store: RunStore, deps: Deps, apr: CorpusRerunApr):
         self.run = run
@@ -1222,7 +1224,7 @@ class CorpusRerun:
         d = self.deps
         load_before = d.db_load()
         t0 = d.monotonic()
-        daily = self._stage(timeframes=[self.PILOT_TFS[0]], chunk_indices=[0])
+        daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=[0])
         t1 = d.monotonic()
         span_start, span_end = self.run.spans[0]
         hourly: dict[str, Any] | None = None
@@ -1231,7 +1233,7 @@ class CorpusRerun:
             # The first Jan-1 aligned year of span 1 holding a 1h unit of chunk 0; s1.1h later
             # skips it as completed.
             bounds = (datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC))
-            hourly = self._stage(timeframes=[self.PILOT_TFS[1]], span=bounds, chunk_indices=[0])
+            hourly = self._stage(timeframes=[self.PILOT_HOURLY_TF], span=bounds, chunk_indices=[0])
             if hourly["units_total"]:
                 break
             year += 1

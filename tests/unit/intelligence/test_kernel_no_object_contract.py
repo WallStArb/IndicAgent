@@ -35,7 +35,6 @@ from src.intelligence.features.contract.registry import (
     default_registry,
 )
 from src.intelligence.features.kernels.regime import HmmConfig
-from tests.unit.intelligence.helpers import ATR_GATED_COUNT_COLUMNS
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
 
@@ -129,10 +128,7 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
     # detection ran and is pinned against the helpers directly in the smc and
     # support-resistance primitive tests.
     atr_gated = {
-        (kernel.name, column)
-        for kernel in registry.kernels
-        for column in kernel.zero_is_state
-        if column in ATR_GATED_COUNT_COLUMNS
+        (kernel.name, column) for kernel in registry.kernels for column in kernel.atr_gated_state
     }
 
     offenders_missing = []  # finite outside zero_is_state: a fabricated measurement
