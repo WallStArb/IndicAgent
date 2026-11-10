@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import json
 import subprocess
 from pathlib import Path
 
@@ -163,10 +164,82 @@ class TestListAndInventory:
             md.list_prefix(cfg, "minute_aggs_v1", runner=runner)
 
     def test_inventory_roundtrip(self, tmp_path, entry):
-        entry = md.KeyEntry(entry.key, entry.dataset, entry.date, size=777)
+        entry = md.KeyEntry(
+            entry.key,
+            entry.dataset,
+            entry.date,
+            size=777,
+            etag="abc",
+            last_modified="2026-03-30T15:50:44.799Z",
+        )
         path = tmp_path / "inventory.jsonl"
         md.write_inventory(path, [entry])
         assert md.load_inventory(path) == [entry]
+
+
+class TestServeFields:
+    def test_listing_captures_normalized_etag_and_last_modified(self, cfg):
+        runner = make_listing_runner(
+            {None: ([("us_stocks_sip/minute_aggs_v1/2003/09/2003-09-10.csv.gz", 100)], None)}
+        )
+        (listed,) = md.list_prefix(cfg, "minute_aggs_v1", runner=runner)
+        assert listed.etag == "x"
+        assert listed.last_modified == "2026-03-30T15:50:44.799Z"
+
+    def test_old_inventory_loads_with_empty_etag(self, tmp_path, entry):
+        path = tmp_path / "inventory.jsonl"
+        path.write_text(
+            json.dumps({"key": entry.key, "dataset": entry.dataset, "date": entry.date, "size": 5})
+            + "\n"
+        )
+        assert md.load_inventory(path)[0].etag == ""
+
+    def test_normalize_etag_handles_escaped_and_plain_quotes(self):
+        assert md.normalize_etag("&quot;abc&quot;") == "abc"
+        assert md.normalize_etag('"abc"') == "abc"
+        assert md.normalize_etag("abc") == "abc"
+
+
+def servetimes_line(key: str, etag: str, size: int) -> str:
+    return f"{key}\t2026-03-30T15:50:44.799Z\t&quot;{etag}&quot;\t{size}\n"
+
+
+class TestMigration:
+    def record(self, entry, size=10, **extra):
+        return {"key": entry.key, "bytes": size, "sha256": "s" * 64, **extra}
+
+    def test_join_enriches_and_skips_records_that_have_an_etag(self, entry):
+        served = {entry.key: {"etag": "e1", "last_modified": "t", "size": 10}}
+        (done,) = md.join_servetimes([self.record(entry)], served)
+        assert (done["etag"], done["last_modified"]) == ("e1", "t")
+        assert done["sha256"] == "s" * 64
+        assert md.join_servetimes([self.record(entry, etag="e0")], served) == []
+
+    def test_join_fails_loudly(self, entry):
+        ok = {"etag": "e1", "last_modified": "t", "size": 10}
+        with pytest.raises(md.ManifestJoinError, match="not in servetimes"):
+            md.join_servetimes([self.record(entry)], {})
+        with pytest.raises(md.ManifestJoinError, match="size"):
+            md.join_servetimes([self.record(entry)], {entry.key: {**ok, "size": 11}})
+        with pytest.raises(md.ManifestJoinError, match="ETag is empty"):
+            md.join_servetimes([self.record(entry)], {entry.key: {**ok, "etag": ""}})
+
+    def test_migrate_appends_and_is_idempotent(self, tmp_path, entry):
+        manifest = tmp_path / md.MANIFEST_NAME
+        md.append_manifest(manifest, self.record(entry))
+        (tmp_path / "servetimes_minute_aggs_v1.jsonl").write_text(
+            servetimes_line(entry.key, "e1", 10)
+        )
+        assert md.migrate_manifest(manifest, tmp_path) == 1
+        assert md.load_manifest(manifest)[entry.key]["etag"] == "e1"
+        assert len(manifest.read_text().splitlines()) == 2  # original kept, enriched appended
+        assert md.migrate_manifest(manifest, tmp_path) == 0
+
+    def test_duplicate_servetimes_key_raises(self, tmp_path, entry):
+        for name in ("servetimes_a.jsonl", "servetimes_b.jsonl"):
+            (tmp_path / name).write_text(servetimes_line(entry.key, "e1", 10))
+        with pytest.raises(md.ManifestJoinError, match="twice"):
+            md.load_servetimes(tmp_path)
 
 
 class TestManifestResume:
@@ -174,33 +247,51 @@ class TestManifestResume:
         files_root = tmp_path / "files"
         dest = entry.local_path(files_root)
         size = make_csv_gz(dest, ["SPY,1,2,3,4,1,0,1"])
-        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=size)
-        index = {listed.key: {"key": listed.key}}
+        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=size, etag="e1")
+        index = {listed.key: {"key": listed.key, "etag": "e1"}}
         todo, skipped = md.plan_downloads([listed], index, files_root)
         assert todo == []
         assert skipped == 1
+
+    def test_redownload_on_etag_change_with_equal_size(self, tmp_path, entry):
+        files_root = tmp_path / "files"
+        size = make_csv_gz(entry.local_path(files_root), ["SPY,1,2,3,4,1,0,1"])
+        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=size, etag="e2")
+        index = {listed.key: {"key": listed.key, "etag": "e1"}}
+        todo, skipped = md.plan_downloads([listed], index, files_root)
+        assert todo == [listed]
+        assert skipped == 0
+
+    def test_missing_etag_raises_on_either_side(self, tmp_path, entry):
+        with_etag = md.KeyEntry(entry.key, entry.dataset, entry.date, size=1, etag="e1")
+        with pytest.raises(md.MissingServeFieldsError, match="refresh-inventory"):
+            md.plan_downloads([entry], {}, tmp_path)
+        with pytest.raises(md.MissingServeFieldsError, match="migrate-manifest"):
+            md.plan_downloads([with_etag], {entry.key: {"key": entry.key}}, tmp_path)
 
     def test_redownload_on_size_mismatch(self, tmp_path, entry):
         files_root = tmp_path / "files"
         dest = entry.local_path(files_root)
         make_csv_gz(dest, ["SPY,1,2,3,4,1,0,1"])
-        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=999999)
-        index = {entry.key: {"key": entry.key}}
+        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=999999, etag="e1")
+        index = {entry.key: {"key": entry.key, "etag": "e1"}}
         todo, skipped = md.plan_downloads([listed], index, files_root)
         assert todo == [listed]
         assert skipped == 0
 
     def test_redownload_when_file_missing(self, tmp_path, entry):
+        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=1, etag="e1")
         todo, skipped = md.plan_downloads(
-            [entry], {entry.key: {"key": entry.key}}, tmp_path / "files"
+            [listed], {entry.key: {"key": entry.key, "etag": "e1"}}, tmp_path / "files"
         )
-        assert todo == [entry]
+        assert todo == [listed]
         assert skipped == 0
 
     def test_redownload_without_manifest_record(self, tmp_path, entry):
         # Interrupted before the manifest record: the file on disk is not trusted.
-        todo, skipped = md.plan_downloads([entry], {}, tmp_path / "files")
-        assert todo == [entry]
+        listed = md.KeyEntry(entry.key, entry.dataset, entry.date, size=1, etag="e1")
+        todo, skipped = md.plan_downloads([listed], {}, tmp_path / "files")
+        assert todo == [listed]
         assert skipped == 0
 
     def test_manifest_roundtrip_last_wins(self, tmp_path):
@@ -306,6 +397,100 @@ class TestDownloadOne:
         assert calls == []
 
 
+class TestSupersession:
+    def restate(
+        self, tmp_path, cfg, old_payload, new_payload, old_etag="aaaaaaaa11", new_etag="bbbbbbbb22"
+    ):
+        files_root = tmp_path / "data" / "files"
+        old = entry_for(size=len(old_payload))
+        old = md.KeyEntry(old.key, old.dataset, old.date, old.size, etag=old_etag)
+        fresh_free = lambda _root: 1 << 40  # noqa: E731
+        previous = md.download_one(
+            old,
+            files_root,
+            cfg,
+            0,
+            fetch_fn=writing_fetch({old.key: old_payload}),
+            disk_free_fn=fresh_free,
+        )
+        new = md.KeyEntry(old.key, old.dataset, old.date, len(new_payload), etag=new_etag)
+        record = md.download_one(
+            new,
+            files_root,
+            cfg,
+            0,
+            fetch_fn=writing_fetch({new.key: new_payload}),
+            disk_free_fn=fresh_free,
+            previous=previous,
+        )
+        return files_root, new, previous, record
+
+    def test_etag_change_archives_old_bytes_and_records_supersession(self, tmp_path, cfg):
+        old = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        new = gz_bytes(["SPY,9,9,9,9,9,0,9"])
+        files_root, entry, previous, record = self.restate(tmp_path, cfg, old, new)
+        assert entry.local_path(files_root).read_bytes() == new
+        block = record["supersedes"]
+        archive = files_root.parent / block["path"]
+        assert archive.read_bytes() == old
+        assert archive.name.endswith(".csv.gz.superseded-aaaaaaaa")
+        assert archive.parent.parts[-3:] == ("minute_aggs_v1", "2003", "09")
+        assert files_root not in archive.parents  # outside files/, a loader never sees it
+        assert block["etag"] == "aaaaaaaa11"
+        assert block["sha256"] == previous["sha256"] != record["sha256"]
+        assert record["etag"] == "bbbbbbbb22"
+
+    def test_same_etag_redownload_is_repair_not_supersession(self, tmp_path, cfg):
+        payload = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        files_root, entry, _prev, record = self.restate(
+            tmp_path, cfg, payload, payload, old_etag="same", new_etag="same"
+        )
+        assert "supersedes" not in record
+        assert not (files_root.parent / md.SUPERSEDED_DIR).exists()
+
+    def test_existing_archive_is_never_overwritten(self, tmp_path, cfg):
+        old = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        new = gz_bytes(["SPY,9,9,9,9,9,0,9"])
+        files_root = tmp_path / "data" / "files"
+        e_old = entry_for(size=len(old))
+        e_old = md.KeyEntry(e_old.key, e_old.dataset, e_old.date, e_old.size, etag="aaaaaaaa11")
+        free = lambda _root: 1 << 40  # noqa: E731
+        prev = md.download_one(e_old, files_root, cfg, 0, writing_fetch({e_old.key: old}), free)
+        e_new = md.KeyEntry(e_old.key, e_old.dataset, e_old.date, len(new), etag="bbbbbbbb22")
+        block = md.supersession(prev, e_new, files_root)
+        archive = files_root.parent / block["path"]
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(b"precious")
+        with pytest.raises(RuntimeError, match="refusing to overwrite"):
+            md.download_one(
+                e_new, files_root, cfg, 0, writing_fetch({e_new.key: new}), free, previous=prev
+            )
+        assert archive.read_bytes() == b"precious"
+        assert e_old.local_path(files_root).read_bytes() == old
+
+
+class TestSupersessionResume:
+    def test_rerun_after_kill_between_archive_and_manifest_append(self, tmp_path, cfg):
+        old = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        new = gz_bytes(["SPY,9,9,9,9,9,0,9"])
+        files_root = tmp_path / "data" / "files"
+        free = lambda _root: 1 << 40  # noqa: E731
+        e_old = entry_for(size=len(old), etag="aaaaaaaa11")
+        prev = md.download_one(e_old, files_root, cfg, 0, writing_fetch({e_old.key: old}), free)
+        e_new = entry_for(size=len(new), etag="bbbbbbbb22")
+        first = md.download_one(
+            e_new, files_root, cfg, 0, writing_fetch({e_new.key: new}), free, previous=prev
+        )
+        # the kill: new file and archive are on disk, the manifest still holds `prev`
+        again = md.download_one(
+            e_new, files_root, cfg, 0, writing_fetch({e_new.key: new}), free, previous=prev
+        )
+        assert again["supersedes"] == first["supersedes"]
+        assert e_new.local_path(files_root).read_bytes() == new
+        archive = files_root.parent / again["supersedes"]["path"]
+        assert archive.read_bytes() == old
+
+
 class TestFloorLaw:
     def test_one_predicate_serves_preflight_and_per_file(self):
         floor = 100
@@ -334,10 +519,12 @@ def gz_bytes(rows: list[str]) -> bytes:
     return buf.getvalue()
 
 
-def entry_for(date: str = "2003-09-10", dataset: str = "minute_aggs_v1", size: int = 0):
+def entry_for(
+    date: str = "2003-09-10", dataset: str = "minute_aggs_v1", size: int = 0, etag: str = "e1"
+):
     year, month, _ = date.split("-")
     key = f"us_stocks_sip/{dataset}/{year}/{month}/{date}.csv.gz"
-    return md.KeyEntry(key=key, dataset=dataset, date=date, size=size)
+    return md.KeyEntry(key=key, dataset=dataset, date=date, size=size, etag=etag)
 
 
 def writing_fetch(payloads: dict[str, bytes]):
@@ -359,6 +546,9 @@ def run_args(tmp_path: Path, min_free_gb: int = 1) -> argparse.Namespace:
         inventory_only=False,
         refresh_inventory=False,
         verify=False,
+        restat=False,
+        drift_report=None,
+        migrate_manifest=False,
         concurrency=2,
         min_free_gb=min_free_gb,
     )
@@ -415,3 +605,111 @@ class TestRun:
         verify_args = run_args(tmp_path)
         verify_args.verify = True
         assert md.run(verify_args, cfg=cfg) == 1
+
+    def test_etag_change_redownloads_supersedes_and_resumes(self, tmp_path, cfg):
+        old = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        new = gz_bytes(["SPY,9,9,9,9,9,0,9"])
+        inventory = tmp_path / "m" / md.INVENTORY_NAME
+        e_old = entry_for(size=len(old), etag="aaaaaaaa11")
+        md.write_inventory(inventory, [e_old])
+        args = run_args(tmp_path)
+        assert md.run(args, cfg=cfg, fetch_fn=writing_fetch({e_old.key: old})) == 0
+        e_new = entry_for(size=len(new), etag="bbbbbbbb22")
+        md.write_inventory(inventory, [e_new])
+        assert md.run(args, cfg=cfg, fetch_fn=writing_fetch({e_new.key: new})) == 0
+        record = md.load_manifest(tmp_path / "m" / md.MANIFEST_NAME)[e_new.key]
+        assert record["etag"] == "bbbbbbbb22"
+        assert record["supersedes"]["etag"] == "aaaaaaaa11"
+        assert (tmp_path / "data" / record["supersedes"]["path"]).read_bytes() == old
+        assert md.run(args, cfg=cfg, fetch_fn=writing_fetch({})) == 0  # now idle
+
+    def test_stale_inventory_refuses_without_downloading(self, tmp_path, cfg):
+        payload = gz_bytes(["SPY,1,2,3,4,1,0,1"])
+        e1 = entry_for(size=len(payload), etag="")
+        md.write_inventory(tmp_path / "m" / md.INVENTORY_NAME, [e1])
+        assert md.run(run_args(tmp_path), cfg=cfg, fetch_fn=writing_fetch({})) == 1
+
+    def test_migrate_manifest_mode(self, tmp_path, cfg):
+        e1 = entry_for(size=10)
+        manifest_dir = tmp_path / "m"
+        md.append_manifest(manifest_dir / md.MANIFEST_NAME, {"key": e1.key, "bytes": 10})
+        args = run_args(tmp_path)
+        args.migrate_manifest = True
+        (manifest_dir / "servetimes_x.jsonl").write_text(servetimes_line(e1.key, "e1", 11))
+        assert md.run(args, cfg=cfg) == 1  # size mismatch fails loudly, nothing appended
+        assert "etag" not in md.load_manifest(manifest_dir / md.MANIFEST_NAME)[e1.key]
+        (manifest_dir / "servetimes_x.jsonl").write_text(servetimes_line(e1.key, "e1", 10))
+        assert md.run(args, cfg=cfg) == 0
+        assert md.load_manifest(manifest_dir / md.MANIFEST_NAME)[e1.key]["etag"] == "e1"
+
+
+class TestRestat:
+    def seed(self, tmp_path, etag="e1", size=10):
+        e1 = entry_for(size=size, etag=etag)
+        manifest = tmp_path / "m" / md.MANIFEST_NAME
+        md.append_manifest(manifest, {"key": e1.key, "bytes": 10, "etag": "e1"})
+        return e1
+
+    def listing(self, key, size, etag):
+        # the shared fake serves etag "x"; build a one-off runner with the etag asked for
+        xml = LIST_XML_TEMPLATE.format(
+            contents=contents_xml([(key, size)]).replace("&quot;x&quot;", f"&quot;{etag}&quot;"),
+            count=1,
+            token="",
+        )
+
+        def runner(args):
+            body = (
+                xml
+                if "day_aggs_v1" not in args[-1]
+                else LIST_XML_TEMPLATE.format(contents="", count=0, token="")
+            )
+            return subprocess.CompletedProcess(args, 0, body.encode(), b"")
+
+        return runner
+
+    def restat_args(self, tmp_path):
+        args = run_args(tmp_path)
+        args.restat = True
+        args.drift_report = tmp_path / "drift.json"
+        return args
+
+    def test_clean_restat_writes_empty_report_exit_0(self, tmp_path, cfg):
+        e1 = self.seed(tmp_path)
+        runner = self.listing(e1.key, 10, "e1")
+        assert md.run(self.restat_args(tmp_path), cfg=cfg, list_runner=runner) == 0
+        assert json.loads((tmp_path / "drift.json").read_text()) == []
+
+    def test_etag_drift_with_equal_size_exits_1(self, tmp_path, cfg):
+        e1 = self.seed(tmp_path)
+        runner = self.listing(e1.key, 10, "e2")
+        assert md.run(self.restat_args(tmp_path), cfg=cfg, list_runner=runner) == 1
+        (row,) = json.loads((tmp_path / "drift.json").read_text())
+        assert row["key"] == e1.key
+        assert row["changed"] == ["etag"]
+        assert row["manifest"]["etag"] == "e1"
+        assert row["listed"]["etag"] == "e2"
+
+    def test_size_drift_and_vanished_key(self, tmp_path, cfg):
+        e1 = self.seed(tmp_path)
+        drift = md.restat_drift(
+            md.load_manifest(tmp_path / "m" / md.MANIFEST_NAME),
+            [md.KeyEntry(e1.key, e1.dataset, e1.date, size=11, etag="e1")],
+        )
+        assert drift[0]["changed"] == ["size"]
+        gone = md.restat_drift(md.load_manifest(tmp_path / "m" / md.MANIFEST_NAME), [])
+        assert gone[0]["changed"] == ["missing"]
+        assert gone[0]["listed"] is None
+
+    def test_new_vendor_key_is_not_drift(self, tmp_path):
+        e1 = self.seed(tmp_path)
+        newer = entry_for(date="2003-09-11", size=5, etag="n1")
+        listed = [e1, newer]
+        assert md.restat_drift(md.load_manifest(tmp_path / "m" / md.MANIFEST_NAME), listed) == []
+
+    def test_restat_refuses_etagless_manifest(self, tmp_path, cfg):
+        e1 = entry_for(size=10)
+        md.append_manifest(tmp_path / "m" / md.MANIFEST_NAME, {"key": e1.key, "bytes": 10})
+        runner = self.listing(e1.key, 10, "e1")
+        assert md.run(self.restat_args(tmp_path), cfg=cfg, list_runner=runner) == 1
+        assert not (tmp_path / "drift.json").exists()
