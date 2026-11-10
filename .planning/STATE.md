@@ -42,75 +42,70 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Session handoff (2026-11-07 12:30Z, lead indicagent-4d; refined 2026-11-08; read this first)
+## Session handoff (2026-11-10 ~20:30Z, lead indicagent-d8; sprint control per owner; read this first)
 
-**Sprint control (owner directive 2026-11-10 ~04:45Z, relayed via indicagent-5f):** the lead
-session (indicagent-d8) drives prioritization, sequencing, worker dispatch and verification
-autonomously; the owner keeps purchases (the Massive plan upgrade) and methodology rulings (E21
-adoption). The 5-hour API windows can kill workers mid-lane; lanes land from worktrees so a dead
-agent's WIP survives and a relaunch continues it.
+**Position: Massive is acquired, verified and admission-ready.** The archive holds all 11,658
+files (both aggregates, 2003-09-10 to 2026-11-09, 82 GB; full `--verify` 11,658 records 0
+defects, 2026-11-10). Serve times + ETags captured for every key with zero drift on re-stat.
+Reference captures landed (splits complete - the AAPL/NVDA calendar gap is fixed in the
+material; dividends, ticker events for all 36,869 tickers, reference sets) with a local 530 MB
+tar (`data/backups/massive-reference-2026-11-10/`). The admission design
+(`docs/plans/2026-11-10-massive-admission-db-design.md`) is ruled, Opus-refined
+(`2026-11-10-massive-admission-refinement-review.md`, folded as 65e287edd) and execution-ready.
+Offsite backup is DEFERRED by the owner (f55ff8ceb). **Admission execution starts on the
+owner's go**; the mechanical preconditions (stop the IBKR timer, glossary entries, the step-8
+sequence) are part of the run.
 
-**Owner directive 2026-11-10 (12:20Z): stop polishing the IBKR/Alpaca-era data - "we will get
-Massive."** All 592 sweep follow-ups parked (the GSAT/NEXN/OKE D7 red rows are known-accepted
-until the Massive-era rerun); todo 607 (gateway watcher) is parked as expected-superseded; the
-IBKR 5m backfill timer keeps running as free fallback insurance until admission and stops then;
-the 534 coverage number is no longer the gating metric for data-complete. The single critical
-path is the Massive download -> load checks and admission (design section 8a, both aggregates;
-the separate pilot was dropped 2026-11-10) -> sweep rerun with Massive as witness -> pre-rerun window -> corpus rerun.
+**Owner rulings in force (2026-11-10):** Massive is used regardless - no admit/refuse verdict;
+the pilot became the design's section 8a LOAD CHECKS (a name outside a check keeps its
+incumbent; systemic failure stops the switch). Massive is the YARDSTICK: disagreements are
+prima facie incumbent defects, but an incumbent-defect call needs a third witness (pre-2016
+IBKR is the independent arm; Alpaca post-2016 is the same Polygon feed, non-independent).
+Survivorship is measured and disclosed, never a gate. Pre-2016 5m: Massive primary, NO IBKR
+fallback. Mapping option A: files are the as-served record, raw is a retractable mapped
+projection (the law 528 amendment rides the admission ruling). Step 7: canonical's derived rows
+drop and ALL timeframes rebuild from raw in one pass (post-2016 must reproduce byte-exact, plus
+the 2016 seam witness and the NVDA 2024 rescale canary). IBKR 5m raw deletion is
+reversible-first (export, then delete after the rebuild proves itself; the 592-class witness
+argument). Stop polishing IBKR/Alpaca-era data. No corpus compute until the data gate passes
+(the 584 pin now waits on admission execution, not IBKR coverage).
 
-The Claude weekly limit is spent; the next session may run on another model. Everything below is
-pushed (origin/main 5408fd495 or later) unless marked as a worktree.
+**Earlier rulings still in force:** E15-E18 evidence rules; E21 + the section 11 amendment
+drafted 2026-11-09, awaiting owner adoption (interim rule holds; gates the discovery sweep, not
+admission); extended hours raw only; blind model proposer allowed; no versioned table names.
 
-**Owner rulings in force.** No corpus compute (feature rerun, pilot included) until the data is
-complete (todo 584 decision 2026-11-04; the 186-32 data gate enforces it in code). No versioned
-table names (`_v2`). IBKR is the pre-2016 5m source until Massive flat files are admitted (owner 2026-11-07 reversed the 2026-11-04 no-purchase ruling; todo 600); survivorship caveat on every pre-2016 result until then.
+**Running now (leave them):** the IBKR 5m backfill timer (free insurance until admission, then
+STOPPED per the deletion path; todo 607's watcher is parked as expected-superseded); the
+nightly timers (Alpaca 04:40Z, derivation 05:20/05:45Z, audit 06:00Z). No fleet agents in
+flight; the lead (indicagent-d8) dispatches as needed with verify-every-landing.
 
-**Running now (leave them):**
-- IBKR 5m backfill (todo 534): the fetcher timer, about 1M bars/h on 5m, the fallback while todo 600 (Massive) is pending. Coverage
-  2026-11-09: 778 of 1,177 pre-2016 names have some IBKR 5m before 2016 (partial included); about 33 to 44 names a day. Fallback once Massive is admitted (todo 600). INCIDENT 2026-11-08/09: the gateway hung at authentication from the 23:59 UTC nightly restart for 23h 43m (2FA-hang class); about 70 timer runs bounced, intake stopped 2026-11-08 23:58 UTC, one day of names lost; manual restart 2026-11-09 23:42 UTC, watcher confirming first intake. Mitigation filed as todo 607 (auto-restart, bounded, alert); superseded if Massive lands first.
-- Alpaca 5m re-ask (todo 596 step 2): done 2026-11-07 (session 2 exit 0; 21,439 complete asks, all 1,529 names, one 2025 ask incomplete). The tail pass to 2026-11-06 finished 2026-11-08 (0 errors, 0 windows unfinished, 3 restatement-flagged series), so the Alpaca 5m span is one piece from 2016-01-04. Re-ask logs are deleted; the ledger is the record.
-  (`scratchpad` = /tmp/claude-1000/-home-bg-dev-indicagent/0181d5e1-b9b4-41a8-af66-428041394e69/scratchpad)
-- Lead-session worker fleet (2026-11-09, lead indicagent-d8; verify every landing): **186-31
-  CONVERGED 2026-11-10** - round 5 landed (c538da041 + goldens), then five review rounds to
-  convergence: round 6 found 2 material defects (fixed, d3f2ba825 + goldens 3570d0f50), rounds
-  7-10 found zero material (cleanups only, all landed: 589a6016f, e57035749, 60ed3aaf2,
-  59f49cb46; suite 8,153 green). The corpus rerun step runner is done pending the data gate;
-  the pre-rerun window items (todos 551/552/558/516) land after data completes.
-  592 COMPLETE (ten named cases + the sweep: 1,389 breaks classified, 134 fixed, six rulings
-  issued, 393 undecidable await Massive as witness; rerun --sweep after admission).
-  595 landed (no same-tape witness; keep the 2.5 floor), 602 landed and closed, 601
-  classification landed, 606/607 filed, 574/510 Tradier deletion runbook ready (executes
-  2026-11-12), 603 register + migration 584 landed, 587 CLOSED. Open follow-ups: 0b's registry
-  reconciliation residue (calendar_cycles vestigial declaration flagged for the factory lane),
-  the Massive pilot (owner plan upgrade), E21 adoption.
+**Done this stretch (2026-11-09/10, one line each):** 186-31 CONVERGED (5 review rounds; suite
+8,153). 592 complete then parked (10 named cases fixed and junction-verified; sweep: 1,389
+breaks classified, 134 fixed, rulings issued; follow-ups parked pending Massive as witness -
+GSAT/NEXN/OKE D7 red rows are KNOWN-ACCEPTED). 587 closed (clean D7). 603 register + migration
+584 (`external` composition code). 602 doc-number guard, closed. 601 classification (306
+columns, all proposer-swept). 606 filed. 595 closed (no same-tape witness; keep the 2.5 floor).
+574/510 Tradier deletion runbook ready - EXECUTES 2026-11-12. Massive acquisition: purchase,
+both keys regenerated, downloader built and fixed (07c70a806, 15719adb0), full archive verified,
+serves captured, references captured, design refined.
 
-**Added 2026-11-09 (end of session, Opus-reviewed):** the discovery lane is designed, not built. Read `docs/ideas/base-feature-scouting-and-the-research-ladder.md` (scouting, the admission-gate versus selection-gate split, classes A to E, E18 counting), todo 603 (register and gates), todo 601 (slop audit reframed as discovery over deletion; proposer already covers all 306 numeric columns) and `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md` (levels 2 and 3). Gaps found by review that block any real-data sweep: draft ledger entry E21 (feature-level selection: unit, storage, sole writer, universe, `informed_by`); amend unified design section 11 before stratifying IC beyond `regime_volatility`; widen the `composition` vocabulary; level 3 runs in the research runner, not `ic_measure`. E21 and the section 11 amendment were drafted 2026-11-09 (lead session, awaiting owner adoption; interim rule holds until then); the `composition` widening is still open (todo 603 step 5). Owner rulings this session: Massive flat files purchase approved (todo 600, P0); extended hours stay raw only; blind model proposer allowed; discovery over deletion for unread columns; licensing is the owner's job. Dated: 2026-11-12 Tradier decision and old backups (510); 2026-12-01 decide IBKR gateway upgrade versus planned lapse (544, desupported 2026-12-15). The Massive S3 key is in `.env` (`MASSIVE_S3_*`) and lists but cannot download until the plan is upgraded.
+**Next, in order:**
+1. Owner GO on admission -> execute the design's step sequence (section 8: migration, code
+   plans, reference load, split reconciliation, per-year loads newest-first, policy, one-pass
+   rebuild with the seam witness and canary; glossary entries first).
+2. On the day: stop the IBKR fetcher timer; the deletion list lands AFTER the rebuild proves
+   itself (Opus-reviewed, IBKR 5m reversible-first).
+3. After loads: rerun `ops_split_calendar_audit --sweep` with Massive as witness (592 parked
+   cases + the 393 Yahoo holes + OKE/NEXN/INSM/TMUS adjudications).
+4. Then the pre-rerun window (todos 551/552/558/516) and the corpus rerun per
+   `docs/operations/corpus-rerun-runbook.md` (the G6 hole-density named decision is recorded
+   there).
+5. Owner's other item: E21 adoption (one word; unblocks the discovery lane's real-data sweep).
+6. Dated: 2026-11-12 Tradier deletion (574/510); 2026-12-01 IBKR gateway lapse decision (544;
+   resolves to lapse unless a retained role is measured).
 
-**Next, in order** (budget-limited sessions: items 0a and 0b first):
-0a. **Todo 600**: after the owner upgrades the Massive plan, download one 2010 file, check units and delisted names, run the load checks (admission design section 8a).
-0b. **DONE 2026-11-09**: E21 (feature-level selection: the measured cell is a counted attempt in
-    the E18 universe) and the section 11 amendment (stratified IC beyond `regime_volatility` under
-    E21) are drafted, awaiting owner adoption; both gate any real-data sweep (todos 601, 603).
-1. **186-31 round 5** (corpus rerun step runner, review loop): uncommitted work in worktree
-   `scratchpad/wt18631g` (corpus_rerun.py, feature_factory.py and the kernels _primitives,
-   liquidity, price, smc, vp_sr). Finish: event-column presence from knowability (censored rows
-   count present+NaN), invalid input (ATR) counts present+NaN not absent, opening_gap_pct decoupled
-   from the ATR fallback, roll_spread absent only when cov > 0, object_share_gate loops over the
-   APR target tfs; parity goldens regenerated in their own commit; repro_frozen; push. Then an
-   independent review (round 6) until it finds nothing material. Rounds 1-4 landed: 8d1b35c52 to
-   5408fd495, migrations 582 and 583.
-2. **596 step 3 (held until the Massive basis study, over-engineering ruling 2026-11-07)**: review the basis-change restatements session 1
-   flagged (634,099 changed rows; `ops_restatement_review.py`), then switch the readers
-   (gap_plan, `_d1_gaps`, D7 `_answered_windows_5m`) to complete asks only (`ohlcv_ask_current`),
-   delete LOAD_COVERAGE_*, and measure the remaining genuine holes per year.
-3. **Todo 587 CLOSED 2026-11-09**: the full nightly D7 is clean (split_continuity 1,529/1,529,
-   digest_fresh 0 failures, lineage_missing unchanged at 2 across post-landing nights; evidence in
-   the closure note). The 584 pin now waits only on complete data (534/600).
-4. **Todo 600 is the critical path** (owner 2026-11-07: buy Massive flat files, all symbols and years). The S3 key is in `.env` (`MASSIVE_S3_*`) and lists the bucket but downloads 403 on the free plan, so the owner must upgrade the plan; then download one 2010 file, check units and delisted names, run the load checks (admission design section 8a), and write the deletion list. Do not extend the 596 ask-ledger readers or IBKR pre-2016 hardening before the study. P1 queue: 592 (adjusted-on-date splits), 595 (2.0-2.5x wick band), 597 (nightly intraday
-   scrub); P2: 598 (nightly logs to journald), 589.
-5. When the data gate passes: `services/corpus_rerun.py` per `docs/operations/corpus-rerun-runbook.md`.
-
-**If /tmp was wiped (reboot):** `data/backups/handoff-2026-11-07/` holds the 186-31 round-5 WIP as a patch on 5408fd495 and the re-ask launch scripts; its README says how to restore.
+**If /tmp was wiped (reboot):** nothing load-bearing lives in /tmp now (all lanes landed); the
+worktree list is `git worktree list`, prune clears stale entries.
 
 **Working rules learned 2026-11-04..07 (binding):** a worker editing anything a timer or service
 runs (providers, the nightly, bar_derivation, D7, the fetcher, any shared writer, the dashboard)
