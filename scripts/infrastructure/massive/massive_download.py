@@ -44,7 +44,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import atexit
 import gzip
 import hashlib
 import json
@@ -53,7 +52,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -177,35 +175,24 @@ def parse_list_xml(xml_text: str) -> tuple[list[tuple[str, int]], str | None]:
     return entries, token
 
 
+_AUTH_STDIN: bytes | None = None
+
+
 def curl_run(args: list[str]) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(args, capture_output=True, check=False)
-
-
-_AUTH_CONFIG_PATH: Path | None = None
-
-
-def auth_config_file(cfg: S3Config) -> Path:
-    """A 0600 curl config file carrying the credentials, created once per process.
-
-    The secret must never sit in argv: /proc/<pid>/cmdline is readable by any
-    local process for the life of every curl, and a full run holds curls alive
-    for hours.
-    """
-    global _AUTH_CONFIG_PATH
-    if _AUTH_CONFIG_PATH is None:
-        handle = tempfile.NamedTemporaryFile(
-            "w", prefix="massive-curl-", suffix=".cfg", delete=False
-        )
-        handle.write(f'user = "{cfg.access_key_id}:{cfg.secret_access_key}"\n')
-        handle.close()
-        os.chmod(handle.name, 0o600)
-        atexit.register(os.unlink, handle.name)
-        _AUTH_CONFIG_PATH = Path(handle.name)
-    return _AUTH_CONFIG_PATH
+    """Run curl; the credentials, when the args ask for ``-K -``, go in on stdin."""
+    return subprocess.run(args, capture_output=True, check=False, input=_AUTH_STDIN)
 
 
 def curl_base_args(cfg: S3Config) -> list[str]:
-    """The shared SigV4 transport prefix; call sites append URL and mode flags."""
+    """The shared SigV4 transport prefix; call sites append URL and mode flags.
+
+    The secret never sits in argv (/proc/<pid>/cmdline is readable by any local process
+    for the life of every curl) and never in a file: a temp config is deleted by a /tmp
+    cleanup mid-run (every transfer then fails) and leaks when a kill skips atexit. It is
+    held in memory and handed to each curl on stdin through ``-K -``.
+    """
+    global _AUTH_STDIN
+    _AUTH_STDIN = f'user = "{cfg.access_key_id}:{cfg.secret_access_key}"\n'.encode()
     return [
         "curl",
         "--fail",
@@ -214,7 +201,7 @@ def curl_base_args(cfg: S3Config) -> list[str]:
         "--aws-sigv4",
         "aws:amz:us-east-1:s3",
         "-K",
-        str(auth_config_file(cfg)),
+        "-",
     ]
 
 

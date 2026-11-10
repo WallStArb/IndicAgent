@@ -108,6 +108,27 @@ def fake_fetch_factory(content: bytes):
     return fetch
 
 
+class TestCredentialHandling:
+    def test_secret_in_neither_argv_nor_a_file(self, cfg):
+        args = md.curl_base_args(cfg)
+        assert cfg.secret_access_key not in " ".join(args)
+        assert args[-2:] == ["-K", "-"]
+        assert md._AUTH_STDIN is not None
+        assert cfg.secret_access_key.encode() in md._AUTH_STDIN
+
+    def test_curl_run_passes_credentials_on_stdin(self, cfg, monkeypatch):
+        seen: dict = {}
+
+        def fake_run(args, **kwargs):
+            seen["args"], seen["input"] = args, kwargs.get("input")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+        monkeypatch.setattr(md.subprocess, "run", fake_run)
+        args = md.curl_base_args(cfg)
+        md.curl_run(args)
+        assert seen["input"] == f'user = "{cfg.access_key_id}:{cfg.secret_access_key}"\n'.encode()
+
+
 class TestParseKey:
     def test_accepts_real_layout(self):
         entry = md.parse_key("us_stocks_sip/minute_aggs_v1/2003/09/2003-09-10.csv.gz")
