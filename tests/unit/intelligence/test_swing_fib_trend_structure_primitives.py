@@ -27,6 +27,7 @@ from src.intelligence.feature_factory import (
     _compute_fib_zones,
     _compute_swing_momentum,
     _compute_swing_structure,
+    _compute_trend_structure,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.schemas import FeatureVector
@@ -432,12 +433,15 @@ def test_swing_detector_partial_nullability(cfg):
 
 
 # ---------------------------------------------------------------------------
-# (e) Zero ATR -- all 13 fields None
+# (e) No confirmed pivots -- all 13 fields None (the no-object case)
 # ---------------------------------------------------------------------------
 
 
-def test_swing_trend_zero_atr_all_none(cfg):
-    """A flat-price series (ATR == 0) must yield None for all 13 fields."""
+def test_swing_trend_flat_series_all_none(cfg):
+    """A flat-price series has no confirmed pivots (find_peaks needs one strict
+    inequality): all 13 swing/trend fields are None -- the no-object case (D-01),
+    not an ATR state. ATR == 0 vs a valid ATR reads the same, because swing
+    detection never touches the ATR (186-31 review round 6)."""
     base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
     n = 60
     bars = [
@@ -455,7 +459,72 @@ def test_swing_trend_zero_atr_all_none(cfg):
     fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
 
     for field in _SWING_FIELDS + _TREND_FIELDS:
-        assert getattr(fv, field) is None, f"{field} is not None on zero-ATR flat series"
+        assert getattr(fv, field) is None, f"{field} is not None on a flat (pivotless) series"
+
+
+def _random_walk_arrays(n=400, seed=5):
+    """A swinging close/high/low triple with confirmed pivots, for direct helper calls."""
+    rng = np.random.default_rng(seed)
+    close = 100.0 * np.cumprod(1.0 + rng.normal(0.0, 0.01, n))
+    open_ = np.concatenate(([close[0]], close[:-1]))
+    spread = np.abs(rng.normal(0.0, 0.004, n)) * close
+    high = np.maximum(open_, close) + spread
+    low = np.minimum(open_, close) - spread
+    return high, low, float(close[-1])
+
+
+def test_invalid_atr_keeps_the_swing_trend_fib_geometry_measured(cfg):
+    """An invalid ATR is not absence (186-31 review round 5), and the swing/trend/fib
+    geometry never touches it (round 6): with ATR == 0 against 1.0 on the same bars, swing
+    detection, types, pattern and ages, direction, leg count, integrity, price position,
+    duration, the fib ratio and the discount-zone flag are all unchanged, while the two swing
+    distances, trend_strength, nearest_fib_dist_atr and fib_cluster_strength are NaN (present,
+    unmeasured) where their object exists."""
+    high, low, close_ = _random_walk_arrays()
+
+    valid = _compute_swing_structure(high, low, close_, 1.0, cfg)
+    invalid = _compute_swing_structure(high, low, close_, 0.0, cfg)
+    assert (
+        valid["swing_high_price"] is not None and valid["swing_low_price"] is not None
+    ), "fixture guard: the random walk must hold confirmed swings"
+    assert (
+        valid["swing_high_type"] is not None and valid["swing_pattern"] is not None
+    ), "fixture guard: types and pattern must be measurable"
+    for key in (
+        "swing_high_price",
+        "swing_low_price",
+        "swing_high_indices",
+        "swing_low_indices",
+        "n_bars",
+        "swing_high_type",
+        "swing_low_type",
+        "swing_pattern",
+        "swing_high_age_bars",
+        "swing_low_age_bars",
+    ):
+        assert invalid[key] == valid[key], key
+    assert math.isnan(invalid["swing_high_dist_atr"]) and math.isnan(invalid["swing_low_dist_atr"])
+    assert valid["swing_high_dist_atr"] is not None and valid["swing_low_dist_atr"] is not None
+
+    trend_valid = _compute_trend_structure(high, low, close_, 1.0, valid, cfg)
+    trend_invalid = _compute_trend_structure(high, low, close_, 0.0, valid, cfg)
+    assert trend_valid["trend_strength"] is not None, "fixture guard: strength must be measurable"
+    for key in (
+        "trend_direction",
+        "trend_leg_count",
+        "structure_integrity",
+        "price_position",
+        "trend_duration_bars",
+    ):
+        assert trend_invalid[key] == trend_valid[key], key
+    assert math.isnan(trend_invalid["trend_strength"])
+
+    fib_valid = _compute_fib_zones(close_, 1.0, valid, cfg)
+    fib_invalid = _compute_fib_zones(close_, 0.0, valid, cfg)
+    for key in ("nearest_fib_ratio", "in_fib_discount_zone"):
+        assert fib_invalid[key] == fib_valid[key], key
+    for key in ("nearest_fib_dist_atr", "fib_cluster_strength"):
+        assert math.isnan(fib_invalid[key]), key
 
 
 # ---------------------------------------------------------------------------
@@ -755,8 +824,9 @@ def test_fib_dist_in_atr_units(cfg):
 
 
 def test_fib_nullability_on_degenerate_swing(cfg):
-    """A flat-price series (no confirmed pivots, ATR == 0) must yield all 4
-    fib fields None."""
+    """A flat-price series has no confirmed pivots, so no swing prices exist and
+    all 4 fib fields are None -- the no-object case (there is no fib object to
+    measure), not an ATR state."""
     base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
     n = 60
     bars_local = [

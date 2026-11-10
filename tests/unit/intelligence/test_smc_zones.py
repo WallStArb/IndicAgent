@@ -448,16 +448,18 @@ def test_zones_no_raw_price_fields_on_feature_vector(cfg):
 def test_zones_fallback_on_invalid_atr(cfg):
     opens, highs, lows, closes, close_ = _demand_array_fixture()
     result = _compute_supply_demand_zones(opens, highs, lows, closes, close_, 0.0, cfg, 0.0, 0.0)
-    assert result["active_demand_zones"] == 0.0
-    assert result["active_supply_zones"] == 0.0
-    # an invalid ATR is not absence (186-31 review round 5): whether a zone exists cannot be
-    # told, so its distance/freshness/friction are NaN (present, unmeasured), never None
+    # an invalid ATR is not absence (186-31 review round 5), and not a measured empty set
+    # either (round 6): every zone threshold scales by atr_val, so the whole scan is
+    # unmeasurable -- distances/freshness/friction AND the zone counts are NaN (present,
+    # unmeasured), never None or 0.0
     for key in (
         "demand_dist_atr",
         "supply_dist_atr",
         "demand_freshness",
         "supply_freshness",
         "zone_friction_score",
+        "active_demand_zones",
+        "active_supply_zones",
     ):
         assert result[key] is not None and math.isnan(result[key]), key
 

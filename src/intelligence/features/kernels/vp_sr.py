@@ -217,7 +217,9 @@ def _derive_session_vp(
 # ---------------------------------------------------------------------------
 
 # D1 rule 2 (todo 584 4b-2 group 4): a side's distance/strength/age are None when that side
-# has no qualifying cluster; the level count stays 0.0 (a count over the observed window).
+# has no qualifying cluster; the level count stays 0.0 (a count over the observed window --
+# D1 rule 4 applies only where the detection ran; the invalid-ATR path NaNs it, see
+# _compute_sr_dist_atr).
 _SR_FALLBACK: dict[str, float | None] = {
     "sr_support_dist": None,
     "sr_resist_dist": None,
@@ -298,16 +300,23 @@ def _compute_sr_dist_atr(
     resistance_age_bars/support_age_bars/sr_level_count come from the SAME
     cluster objects, at effectively zero extra cost (D-19).
 
-    Falls back to None for any side/field when atr_val is invalid per
-    _is_valid_atr (<= 0 or below config.atr_normalization_min_pct of close_
-    -- todo 237), the window has insufficient bars for find_peaks/
-    find_troughs, or no qualifying pivot cluster exists on that side (D1
-    rule 2, todo 584 4b-2 group 4: the distance/strength/age of a level
-    that does not exist is undefined) -- never raises.
+    The two missing-data paths differ. An invalid atr_val (per _is_valid_atr,
+    <= 0 or below config.atr_normalization_min_pct of close_ -- todo 237)
+    makes the clustering itself unmeasurable (the tolerance is
+    atr_val * config.sr_cluster_atr_mult): every output is NaN, present and
+    unmeasured, INCLUDING sr_level_count, which is not a measured empty set
+    there -- D1 rule 4 holds only where the detection ran (186-31 review
+    round 6). A window too short for find_peaks/find_troughs or a side with
+    no qualifying pivot cluster is the measured no-object case (D1 rule 2,
+    todo 584 4b-2 group 4: the distance/strength/age of a level that does
+    not exist is undefined -- None, and sr_level_count the measured 0.0).
+    Never raises.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return invalid_input_fallback(_SR_FALLBACK)
+        # sr_level_count NaN too: the cluster tolerance is atr_val * mult, so the clustering
+        # itself never ran (see the docstring).
+        return invalid_input_fallback(_SR_FALLBACK, nan_state_keys=frozenset({"sr_level_count"}))
 
     lookback = _sr_lookback(config, tf)
     h = highs[-lookback:]
@@ -435,19 +444,16 @@ def _compute_swing_structure(
     threaded into _build_feature_vector (D-02/D-16: a raw price and a raw
     bar index are equally invalid as persisted columns).
 
-    Falls back to _SWING_FALLBACK (all-None) for the 7 FeatureVector fields
-    (with empty indices/zero n_bars) when atr_val is invalid or the window
-    is too short for find_peaks/find_troughs -- never raises.
+    Falls back to _SWING_FALLBACK (all-None, with empty indices) only when
+    the window is too short for find_peaks/find_troughs -- the no-object
+    case (D-01). Only swing_high_dist_atr/swing_low_dist_atr divide by the
+    ATR: a swing that exists under an invalid ATR is present and unmeasured
+    (NaN distance, 186-31 review round 6) while its type/pattern/age and the
+    whole shared pivot pass are ATR-independent and computed as usual, so
+    _compute_trend_structure/_compute_fib_zones still receive real pivots.
+    Never raises.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        result: dict[str, float | None | list[int] | int] = invalid_input_fallback(_SWING_FALLBACK)
-        result["swing_high_price"] = None
-        result["swing_low_price"] = None
-        result["swing_high_indices"] = []
-        result["swing_low_indices"] = []
-        result["n_bars"] = 0
-        return result
 
     h = highs[-config.swing_lookback_bars :]
     lo = lows[-config.swing_lookback_bars :]
@@ -467,11 +473,17 @@ def _compute_swing_structure(
     swing_high_price: float | None = float(h[peaks[-1]]) if peaks else None
     swing_low_price: float | None = float(lo[troughs[-1]]) if troughs else None
 
-    swing_high_dist_atr = (
-        (swing_high_price - close_) / atr_val if swing_high_price is not None else None
+    # A swing that exists is present under an invalid ATR too: its distance is NaN (present,
+    # unmeasured, 186-31 review round 6); None only when the swing does not exist.
+    swing_high_dist_atr: float | None = (
+        None
+        if swing_high_price is None
+        else (swing_high_price - close_) / atr_val if atr_valid else math.nan
     )
-    swing_low_dist_atr = (
-        (close_ - swing_low_price) / atr_val if swing_low_price is not None else None
+    swing_low_dist_atr: float | None = (
+        None
+        if swing_low_price is None
+        else (close_ - swing_low_price) / atr_val if atr_valid else math.nan
     )
     swing_high_age_bars = float(n_bars - 1 - peaks[-1]) if peaks else None
     swing_low_age_bars = float(n_bars - 1 - troughs[-1]) if troughs else None
@@ -560,10 +572,13 @@ def _compute_trend_structure(
     ({"trend_direction": 0.0, ..., "price_position": 0.5, ...}) when fewer
     than 2 confirmed swing highs/lows exist is a fake-but-numeric "no
     signal" -- replaced here with _TREND_STRUCTURE_FALLBACK (all-None).
-    atr_val<=0 also returns the all-None fallback: the archived plugin
-    silently skipped ATR normalization and returned a half-normalized
-    strength instead, which is not comparable across symbols/tf and is
-    removed rather than carried forward.
+    Only trend_strength is ATR-normalized (the strength scaled by
+    price_range / atr_val and the divisor): with an invalid ATR it is NaN,
+    present and unmeasured (186-31 review round 6). The normalization itself
+    is kept -- the archived plugin silently skipped it and returned a
+    half-normalized strength, which is not comparable across symbols/tf;
+    direction/leg_count/integrity/price_position/duration are
+    ATR-independent geometry and are computed under an invalid ATR too.
 
     price_range/atr_strength_divisor are APR-backed
     (config.trend_structure_range_lookback_bars /
@@ -573,8 +588,6 @@ def _compute_trend_structure(
     Never raises.
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return invalid_input_fallback(_TREND_STRUCTURE_FALLBACK)
 
     swing_highs: list[int] = swing_fields.get("swing_high_indices") or []
     swing_lows: list[int] = swing_fields.get("swing_low_indices") or []
@@ -613,12 +626,20 @@ def _compute_trend_structure(
         leg_count = 0.0
 
     strength = max(bullish_legs, bearish_legs) / total_legs if total_legs > 0 else 0.0
-    range_lookback = config.trend_structure_range_lookback_bars
-    price_range = float(np.max(h[-range_lookback:]) - np.min(lo[-range_lookback:]))
-    strength = min(
-        1.0,
-        strength * (price_range / atr_val) / config.trend_structure_atr_strength_divisor,
-    )
+    # The one ATR-normalized output of this helper: unmeasurable (NaN) under an invalid ATR.
+    trend_strength: float | None
+    if atr_valid:
+        range_lookback = config.trend_structure_range_lookback_bars
+        price_range = float(np.max(h[-range_lookback:]) - np.min(lo[-range_lookback:]))
+        trend_strength = round(
+            min(
+                1.0,
+                strength * (price_range / atr_val) / config.trend_structure_atr_strength_divisor,
+            ),
+            4,
+        )
+    else:
+        trend_strength = math.nan
 
     overlap_count = 0
     all_swings = sorted(
@@ -652,7 +673,7 @@ def _compute_trend_structure(
 
     return {
         "trend_direction": direction,
-        "trend_strength": round(strength, 4),
+        "trend_strength": trend_strength,
         "trend_leg_count": leg_count,
         "structure_integrity": round(integrity, 4),
         "price_position": round(position, 4) if position is not None else None,
@@ -965,9 +986,15 @@ def _compute_fib_zones(
     raw OHLCV arrays.
 
     Returns _FIB_FALLBACK (all-None) when either swing price is missing or
-    non-finite, when the swing range is non-positive, or when atr_val is
-    missing/non-finite/non-positive -- matching migration 267's COMMENT.
-    Never raises.
+    non-finite or the swing range is non-positive -- there is no fib object
+    to measure (migration 267's COMMENT). The two paths for the ATR differ
+    (186-31 review round 6): nearest_fib_ratio/in_fib_discount_zone are pure
+    swing-range geometry and are computed whatever the ATR, while
+    nearest_fib_dist_atr divides by it and fib_cluster_strength's cluster
+    threshold is atr_val / divisor, so an invalid ATR leaves those two NaN,
+    present and unmeasured. (The blanket invalid-ATR branch this replaces
+    was unreachable while _compute_swing_structure gated its whole swing
+    pass on the same ATR.) Never raises.
     """
     swing_high_price = swing_fields.get("swing_high_price")
     swing_low_price = swing_fields.get("swing_low_price")
@@ -984,27 +1011,32 @@ def _compute_fib_zones(
         return dict(_FIB_FALLBACK)
 
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
-    if not atr_valid:
-        return invalid_input_fallback(_FIB_FALLBACK)
 
     levels = [swing_low_price + ratio * swing_range for ratio in _FIB_RATIOS]
     nearest_idx = min(range(len(levels)), key=lambda k: abs(levels[k] - close_))
     nearest_fib_ratio = float(_FIB_RATIOS[nearest_idx])
-    nearest_fib_dist_atr = abs(close_ - levels[nearest_idx]) / atr_val
+    # ATR-dependent: the fib levels exist, so an invalid ATR is NaN (present, unmeasured).
+    nearest_fib_dist_atr: float | None = (
+        abs(close_ - levels[nearest_idx]) / atr_val if atr_valid else math.nan
+    )
     discount_lo = levels[_FIB_DISCOUNT_LO_IDX]
     discount_hi = levels[_FIB_DISCOUNT_HI_IDX]
     # gradient-exempt: zone-membership flag, not a score
     in_fib_discount_zone = 1.0 if discount_lo <= close_ <= discount_hi else 0.0  # gradient-exempt
 
-    threshold = atr_val / config.fib_cluster_atr_divisor
-    cluster_count = sum(
-        1
-        for i in range(len(levels))
-        for j in range(i + 1, len(levels))
-        if abs(levels[i] - levels[j]) < threshold
-    )
-    max_pairs = len(levels) * (len(levels) - 1) / 2
-    fib_cluster_strength = cluster_count / max_pairs if max_pairs > 0 else 0.0
+    fib_cluster_strength: float | None
+    if atr_valid:
+        threshold = atr_val / config.fib_cluster_atr_divisor
+        cluster_count = sum(
+            1
+            for i in range(len(levels))
+            for j in range(i + 1, len(levels))
+            if abs(levels[i] - levels[j]) < threshold
+        )
+        max_pairs = len(levels) * (len(levels) - 1) / 2
+        fib_cluster_strength = cluster_count / max_pairs if max_pairs > 0 else 0.0
+    else:
+        fib_cluster_strength = math.nan
 
     return {
         "nearest_fib_ratio": nearest_fib_ratio,
@@ -1370,8 +1402,10 @@ KERNELS = (
         inputs=("high", "low", "close", "volume", ATR_RAW_PADDED, "tf"),
         memory=lambda config: _sr_max_lookback(config) - 1,
         compute=_compute_support_resistance,
-        # sr_level_count stays 0.0 when no level exists (a measured empty set);
-        # D1 rule 4, todo 584 4c. Every other output is NaN there (group 4).
+        # sr_level_count stays 0.0 where the detection ran and found no level (a measured
+        # empty set; D1 rule 4, todo 584 4c) and NaN on an invalid ATR, whose tolerance
+        # makes the clustering itself unmeasurable (see invalid_input_fallback's
+        # nan_state_keys). Every other output is NaN/None there (group 4).
         zero_is_state=frozenset({"sr_level_count"}),
         object_dependent=SR.nullable,  # no qualifying level cluster in the window
     ),

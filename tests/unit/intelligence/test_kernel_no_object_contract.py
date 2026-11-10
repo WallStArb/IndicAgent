@@ -35,6 +35,7 @@ from src.intelligence.features.contract.registry import (
     default_registry,
 )
 from src.intelligence.features.kernels.regime import HmmConfig
+from tests.unit.intelligence.helpers import ATR_GATED_COUNT_COLUMNS
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
 
@@ -121,6 +122,18 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
     registry, config, flat, short = flat_and_short
     out = flat if scenario == "flat" else short
     owner = {o: k for k in registry.kernels for o in k.outputs}
+    # Detection-threshold counts of ATR-gated kernels (186-31 review round 6): the flat
+    # fixture's bars hold ATR == 0 on every row, so a detection tolerance of atr_val * mult
+    # is unmeasurable and these zero_is_state columns read all-NaN here -- the correct
+    # reading, not a broken declaration. Their measured-0.0 contract holds wherever the
+    # detection ran and is pinned against the helpers directly in the smc and
+    # support-resistance primitive tests.
+    atr_gated = {
+        (kernel.name, column)
+        for kernel in registry.kernels
+        for column in kernel.zero_is_state
+        if column in ATR_GATED_COUNT_COLUMNS
+    }
 
     offenders_missing = []  # finite outside zero_is_state: a fabricated measurement
     offenders_bad_state = []  # inside zero_is_state but not a measured state
@@ -129,7 +142,7 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
         values = np.asarray(out[column], dtype=float)
         stored = _warmup_slice(registry, config, kernel, values)
         checked += 1
-        if column in kernel.zero_is_state:
+        if column in kernel.zero_is_state and (kernel.name, column) not in atr_gated:
             if np.isinf(stored).any():
                 offenders_bad_state.append((column, kernel.name, "inf"))
             elif (

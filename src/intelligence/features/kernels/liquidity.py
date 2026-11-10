@@ -9,7 +9,8 @@ caller hands them tradeable bars only (`market_data_ohlcv_tradeable`, volume > 0
 synthetic-fill or carry-forward placeholder bar reaches them, because a placeholder's flat
 high == low == previous close would read as a zero-spread bar). A value the definition leaves
 undefined is NaN (no_fill): a window holding an unusable bar, rows inside the declared memory,
-and the Roll estimate whenever the serial covariance is not negative.
+and the Roll estimate whenever the serial covariance is positive (at exactly 0 the spread is a
+defined 0.0, D1 rule 4).
 
 Windows are counted in bars at every timeframe. One APR key per estimator serves 5m, 15m, 1h
 and 1d alike; the window rationale (21 = a month of daily estimates, 252 = a year of daily
@@ -25,8 +26,8 @@ returns) holds only on 1d. Consequences a reader must carry:
 
 Roll coverage. `roll_spread` is NaN on a large share of rows after warmup: on canonical 1d about
 40% (per-name median 0.41, p95 0.63 over 145 names), and about 15% even on a simulated series
-with a clean 1% spread. The missingness is informative, not random: a non-negative serial
-covariance is what trending regimes produce, so the NaN rows select on the return process.
+with a clean 1% spread. The missingness is informative, not random: a positive serial
+covariance is what trending regimes produce, so the absent rows select on the return process.
 Research must never treat a missing `roll_spread` as missing at random (no listwise deletion or
 imputation without conditioning on it).
 
@@ -124,8 +125,8 @@ def _high_low_spread_series_full(
     return out
 
 
-def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """Roll (1984) implied spread from the serial covariance of log close changes.
+def _roll_spread_output(closes: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarray]:
+    """Roll (1984) implied spread and its absence mask from ONE serial-covariance pass.
 
         r[t]   = ln(C[t] / C[t-1])
         cov[t] = sample covariance (ddof 1) of r[j] and r[j-1] over j = t - window + 1 .. t
@@ -138,6 +139,10 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     Roll coverage. Using log changes makes
     the spread proportional to price rather than in price units.
 
+    The mask is exactly the value column's absence witness derived from the same covariance:
+    1.0 where cov > 0 (no implied spread), 0.0 elsewhere, including a NaN covariance -- a hole
+    is not absence, the NaN value is its own witness for the corpus gate (186-31).
+
     Output row t reads closes t - window - 1 .. t (declared memory `window + 1`). Rows
     t <= window are NaN. A window holding a non-positive close is NaN.
     """
@@ -147,7 +152,8 @@ def _roll_spread_series_full(closes: np.ndarray, window: int) -> np.ndarray:
         # cov == 0 is a defined zero spread (Roll 1984); a positive covariance implies none
         defined = cov <= 0.0
         out[defined] = 2.0 * np.sqrt(np.maximum(-cov[defined], 0.0))  # 0.0, never -0.0
-    return out
+        absent = (cov > 0.0).astype(float)
+    return out, absent
 
 
 def _roll_covariance(closes: np.ndarray, window: int) -> np.ndarray:
@@ -171,14 +177,6 @@ def _roll_covariance(closes: np.ndarray, window: int) -> np.ndarray:
     return cov_rows
 
 
-def _roll_spread_absent(closes: np.ndarray, window: int) -> np.ndarray:
-    """1.0 where Roll's model implies no spread (a measured serial covariance > 0; at 0 the spread
-    is a defined 0.0), else 0.0: roll_spread's none mask, its validity witness for the corpus
-    gate (186-31). An undefined covariance (a hole) is not absence, so a NaN there counts."""
-    with np.errstate(invalid="ignore"):
-        return (_roll_covariance(closes, window) > 0.0).astype(float)
-
-
 def _compute_high_low_spread(x, config):
     return {
         "high_low_spread": _high_low_spread_series_full(
@@ -188,10 +186,8 @@ def _compute_high_low_spread(x, config):
 
 
 def _compute_roll_spread(x, config):
-    return {
-        "roll_spread": _roll_spread_series_full(x["close"], config.roll_spread_window),
-        none_mask_name("roll_spread"): _roll_spread_absent(x["close"], config.roll_spread_window),
-    }
+    value, absent = _roll_spread_output(x["close"], config.roll_spread_window)
+    return {"roll_spread": value, none_mask_name("roll_spread"): absent}
 
 
 KERNELS = (

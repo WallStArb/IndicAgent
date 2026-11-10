@@ -155,8 +155,10 @@ def _compute_order_blocks(
     Falls back to _OB_FALLBACK (never raises) when the window has too few bars to run the
     impulse scan; per-side distances are also None when that side has no candidate (D1 rule 2,
     todo 584 4b-2 group 4: the distance/strength of an object that does not exist is undefined,
-    never a fabricated 0.0). Only the three distances divide by ATR: with an invalid ATR they
-    are None and the strength, mitigation and breaker flags are computed as usual (todo 584 6d).
+    never a fabricated 0.0). Only the three distances divide by ATR: with an invalid ATR a
+    distance whose object exists is NaN (present, unmeasured) and one whose object does not
+    exist stays None; the strength, mitigation and breaker flags are computed as usual
+    (todo 584 6d, 186-31 review round 5).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
 
@@ -457,7 +459,9 @@ _SWEEP_FALLBACK: dict[str, float | None] = {
 }
 
 # D1 rule 2 (todo 584 4b-2 group 4): a side's distance is None when that side has no pool
-# level; touches and the count stay 0.0, and price_in_premium keeps its in-memory sentinel.
+# level; touches and the count stay 0.0 there (the detection ran), and price_in_premium keeps
+# its in-memory sentinel. The invalid-ATR path NaNs the touch/count columns too (see
+# invalid_input_fallback's nan_state_keys).
 _POOL_FALLBACK: dict[str, float | None] = {
     "bsl_dist_atr": None,
     "ssl_dist_atr": None,
@@ -618,13 +622,22 @@ def _compute_liquidity_pools(
     significance_weights dict), then nearest by distance -- matches
     liquidity_pools.py's own _nearest() tie-break rule exactly.
 
-    Falls back to _POOL_FALLBACK (never raises) when atr_val is invalid or the window is too
-    short for swing detection; a side with no candidate level reads None distance (D1 rule 2,
-    todo 584 4b-2 group 4).
+    Falls back to _POOL_FALLBACK (never raises); a side with no candidate level reads None
+    distance (D1 rule 2, todo 584 4b-2 group 4). The two paths differ: a too-short window is
+    the measured no-object case (find_peaks/find_troughs cannot return a level there, so the
+    distances are None and the touch/count columns are the measured 0.0), while an invalid ATR
+    makes the equal-level clustering itself unmeasurable (its tolerance is atr_val * mult), so
+    the distances AND the touch/count columns are NaN, present and unmeasured -- not a measured
+    empty set (186-31 review round 6).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return invalid_input_fallback(_POOL_FALLBACK)
+        # counts NaN too: the equal-level tolerance is atr_val * mult, so the detection itself
+        # never ran (see _POOL_FALLBACK). price_in_premium keeps its 0.0 in-memory sentinel
+        # (the zones kernel's soft dependency, unread on a gated row).
+        return invalid_input_fallback(
+            _POOL_FALLBACK, nan_state_keys=frozenset({"pool_count", "bsl_touches", "ssl_touches"})
+        )
 
     lookback = config.smc_liquidity_pools_lookback
     h = highs[-lookback:]
@@ -736,7 +749,8 @@ def _pool_touches_for(lvl_type: str) -> float:
 
 # D1 rule 2 (todo 584 4b-2 group 4): a side's distance/freshness are None when that side has
 # no active zone; the counts stay 0.0 and the friction score is None only when neither side
-# has one (it is measured from whichever side exists).
+# has one (it is measured from whichever side exists). The invalid-ATR path NaNs the counts
+# too (see invalid_input_fallback's nan_state_keys).
 _ZONE_FALLBACK: dict[str, float | None] = {
     "demand_dist_atr": None,
     "supply_dist_atr": None,
@@ -797,13 +811,20 @@ def _compute_supply_demand_zones(
     in_demand_zone/in_supply_zone/nearest_*_high/low never leave this
     function (raw-price + redundant-strength-copy audit, 164-RESEARCH.md).
 
-    Falls back to _ZONE_FALLBACK (never raises) when atr_val is invalid or the window is too
-    short to run the base+impulse scan; per-side fields are None when that side has no active
-    zone (D1 rule 2, todo 584 4b-2 group 4).
+    Falls back to _ZONE_FALLBACK (never raises); per-side fields are None when that side has no
+    active zone (D1 rule 2, todo 584 4b-2 group 4). The two paths differ: a too-short window is
+    the measured no-zone case (no zone can exist, so the counts are the measured 0.0), while an
+    invalid ATR makes the base+impulse scan itself unmeasurable (every threshold scales by
+    atr_val), so the distances/freshness/friction AND the zone counts are NaN, present and
+    unmeasured -- not a measured empty set (186-31 review round 6).
     """
     atr_valid = _is_valid_atr(atr_val, close_, config.atr_normalization_min_pct)
     if not atr_valid:
-        return invalid_input_fallback(_ZONE_FALLBACK)
+        # counts NaN too: every zone threshold scales by atr_val, so the scan itself never
+        # ran (see _ZONE_FALLBACK).
+        return invalid_input_fallback(
+            _ZONE_FALLBACK, nan_state_keys=frozenset({"active_demand_zones", "active_supply_zones"})
+        )
 
     lookback = config.smc_zones_lookback
     o = opens[-lookback:]
@@ -1190,7 +1211,10 @@ def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()
 KERNELS = (
     # zero_is_state per kernel: the 0.0 entries of each fallback dict (an event flag,
     # a count, or a direction where 0 = neutral/no break is a measured state); D1 rule 4,
-    # todo 584 4c. Every other output is NaN there (D1 rule 2, group 4).
+    # todo 584 4c. Every other output is NaN there (D1 rule 2, group 4). Exception
+    # (186-31 review round 6): the liquidity_pools and supply_demand_zones counts whose
+    # detection tolerance scales by atr_val read NaN on an invalid ATR (see
+    # invalid_input_fallback's nan_state_keys), so the no-object registry test exempts them.
     _stateless(
         "order_blocks",
         OB,

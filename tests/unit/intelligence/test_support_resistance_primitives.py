@@ -24,6 +24,7 @@ from tests.unit.intelligence.live_parity import (
     batch_last,
     live_last,
 )
+from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _random_walk_arrays
 
 # ---------------------------------------------------------------------------
 # Shared fixtures — single NY session, ~140 1m bars with a clear cyclical
@@ -350,5 +351,41 @@ def test_sr_d19_fields_non_constant(bars, cfg):
         finite_vals = _finite(raw)
         assert len(finite_vals) > 1
         assert all(v >= 0.0 for v in finite_vals), f"{field} has a negative value"
-    # the level count is always a measurement over the observed window (0.0 = no clusters)
-    assert all(fv.sr_level_count is not None for _, fv in results)
+    # the level count is a measurement over the observed window wherever the detection ran
+    # (0.0 = no clusters); rows whose ATR is invalid cannot cluster at all, so they read
+    # None/NaN there, present and unmeasured (186-31 review round 6)
+    assert sum(fv.sr_level_count is not None for _, fv in results) > 1
+
+
+# ---------------------------------------------------------------------------
+# (e) Invalid ATR -- the count is not a measured empty set (round 6)
+# ---------------------------------------------------------------------------
+
+
+def test_sr_invalid_atr_is_nan_not_measured_empty(cfg):
+    """The cluster tolerance is atr_val * sr_cluster_atr_mult, so an invalid ATR makes the
+    whole detection unmeasurable: every output including sr_level_count is NaN (present,
+    unmeasured), not the measured 0.0/None the no-cluster and short-window paths return
+    (186-31 review round 6)."""
+    from src.intelligence.feature_factory import _compute_sr_dist_atr
+
+    # the seeded swing fixture is shared with the swing/trend primitive tests (same walk,
+    # same guard expectations); this test adds only the volume series S/R reads
+    high, low, close_ = _random_walk_arrays(n=200)
+    volume = np.random.default_rng(5).uniform(1e5, 2e5, 200)
+
+    valid = _compute_sr_dist_atr(high, low, close_, 1.0, volume, "5m", cfg)
+    invalid = _compute_sr_dist_atr(high, low, close_, 0.0, volume, "5m", cfg)
+    assert valid["sr_level_count"] > 0.0, "fixture guard: the walk must form clusters"
+    assert math.isnan(invalid["sr_level_count"])
+    # whether a cluster exists cannot be told without the tolerance, so every nullable key is
+    # NaN (the landed invalid_input_fallback convention), not None and not its valid-ATR value
+    for key in (
+        "sr_support_dist",
+        "sr_resist_dist",
+        "resistance_strength",
+        "support_strength",
+        "resistance_age_bars",
+        "support_age_bars",
+    ):
+        assert math.isnan(invalid[key]), key

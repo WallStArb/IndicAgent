@@ -419,13 +419,22 @@ def none_mask_name(key: str) -> str:
     return f"_{key}_is_none"
 
 
-def invalid_input_fallback(fallback: Mapping[str, Any]) -> dict[str, Any]:
+def invalid_input_fallback(
+    fallback: Mapping[str, Any], nan_state_keys: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """A helper's fallback when an input it needs (the ATR) is invalid, so whether its object
     exists cannot be told: every nullable key is NaN, not None. None means the object does not
     exist (the none mask, absent); NaN means a value should exist and could not be measured
     (present and missing), which the corpus gate counts (186-31). Stored values are the same:
-    both are NULL. Measured-state keys keep their fallback value."""
-    return {key: math.nan if value is None else value for key, value in fallback.items()}
+    both are NULL. Measured-state keys keep their fallback value -- except the keys named in
+    `nan_state_keys`: detection-threshold counts whose tolerance scales by the ATR (186-31
+    review round 6). D1 rule 4 (a 0.0 count is a measured empty set) holds only where the
+    detection ran, and an invalid ATR makes those detections unmeasurable, so their counts
+    are NaN like everything else, not a measured empty set."""
+    return {
+        key: math.nan if value is None or key in nan_state_keys else value
+        for key, value in fallback.items()
+    }
 
 
 def nullable_keys(fallback: Mapping[str, Any]) -> frozenset[str]:

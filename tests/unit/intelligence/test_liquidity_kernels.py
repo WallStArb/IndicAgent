@@ -16,10 +16,14 @@ from src.intelligence.features.contract.causality_probe import causality_probe, 
 from src.intelligence.features.contract.registry import default_registry, feature_memory_bars
 from src.intelligence.features.kernels.liquidity import (
     _high_low_spread_series_full,
-    _roll_spread_series_full,
+    _roll_spread_output,
 )
 
 _K = 3.0 - 2.0 * math.sqrt(2.0)
+
+
+def _roll(closes, window):
+    return _roll_spread_output(np.array(closes, float), window)[0]
 
 
 def _cs_pair(h0: float, l0: float, h1: float, l1: float) -> float:
@@ -133,7 +137,7 @@ def test_roll_spread_bid_ask_bounce_hand_value():
     (2a/3, -4a/3, 2a/3) give products summing to -24a^2/9, so cov = -4a^2/3 (ddof 1) and
     S = 2 sqrt(4a^2/3) = 4a / sqrt(3)."""
     a = math.log(1.01)
-    out = _roll_spread_series_full(np.array([100.0, 101.0, 100.0, 101.0, 100.0]), 3)
+    out = _roll([100.0, 101.0, 100.0, 101.0, 100.0], 3)
     assert np.isnan(out[:4]).all()
     assert out[4] == pytest.approx(4.0 * a / math.sqrt(3.0), rel=1e-12)
 
@@ -141,18 +145,18 @@ def test_roll_spread_bid_ask_bounce_hand_value():
 def test_roll_spread_zero_covariance_is_a_defined_zero_and_positive_is_nan():
     # flat closes: every change is exactly 0, the covariance exactly 0, the spread a defined 0.0
     # (Roll 1984; 186-31 review round 5), never -0.0
-    out = _roll_spread_series_full(np.full(8, 100.0), 3)
+    out = _roll(np.full(8, 100.0), 3)
     assert np.isnan(out[:4]).all()  # warmup rows t <= window
     assert (out[4:] == 0.0).all() and not np.signbit(out[4:]).any()
     # trending returns (positive serial covariance)
     r = np.array([0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06])
     closes = 100.0 * np.exp(np.concatenate([[0.0], np.cumsum(r)]))
-    assert np.isnan(_roll_spread_series_full(closes, 3)).all()
+    assert np.isnan(_roll(closes, 3)).all()
 
 
 def test_roll_spread_zero_close_window_is_nan():
     closes = np.array([100.0, 101.0, 100.0, 0.0, 100.0, 101.0, 100.0, 101.0, 100.0, 101.0])
-    out = _roll_spread_series_full(closes, 3)
+    out = _roll(closes, 3)
     # row t reads closes t - 4 .. t: rows 4..7 hold close 3 (rows < 4 are warmup); rows 8 and 9
     # read a clean bounce again
     assert np.isnan(out[:8]).all()
@@ -162,7 +166,7 @@ def test_roll_spread_zero_close_window_is_nan():
 
 def test_roll_spread_refuses_a_window_below_two():
     with pytest.raises(ValueError):
-        _roll_spread_series_full(np.ones(10), 1)
+        _roll_spread_output(np.ones(10), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +226,14 @@ def test_declared_memory_values():
 def test_outputs_are_finite_or_nan_on_clean_bars():
     inputs = _bars(400)
     hl = _high_low_spread_series_full(inputs["high"], inputs["low"], inputs["close"], 21)
-    roll = _roll_spread_series_full(inputs["close"], 60)
+    roll, absent = _roll_spread_output(inputs["close"], 60)
     assert np.isfinite(hl[21:]).all() and np.isnan(hl[:21]).all()
     assert (hl[21:] >= 0.0).all()
     assert not np.isinf(roll).any() and np.isnan(roll[:61]).all()
     finite = roll[np.isfinite(roll)]
     assert (finite > 0.0).all()
+    # the mask leaves ONE covariance pass: 1.0 exactly on the cov > 0 rows (absent), 0.0 on
+    # every measured spread and on the warmup holes (a hole is not absence)
+    assert (absent[:61] == 0.0).all()
+    assert (absent[np.isfinite(roll)] == 0.0).all()
+    assert (absent[61:][np.isnan(roll[61:])] == 1.0).all()

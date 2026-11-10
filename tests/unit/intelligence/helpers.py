@@ -54,3 +54,18 @@ def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period:
     for val in tr[1:]:
         atr = alpha * float(val) + (1.0 - alpha) * atr
     return atr
+
+
+# Counts whose detection tolerance scales by atr_val (the S/R cluster mult, the pool
+# equal-level mult, the zone thresholds): on an invalid ATR the detection never runs, so the
+# count is NaN (present, unmeasured), not a measured empty set (186-31 review round 6).
+# Single source for both no-object contract tests; the compute side names the same keys in
+# invalid_input_fallback's nan_state_keys.
+ATR_GATED_COUNT_COLUMNS = (
+    "sr_level_count",
+    "bsl_touches",
+    "ssl_touches",
+    "pool_count",
+    "active_demand_zones",
+    "active_supply_zones",
+)

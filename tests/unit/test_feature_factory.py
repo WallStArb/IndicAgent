@@ -41,6 +41,7 @@ from src.intelligence.features.kernels.price import (
 )
 from src.intelligence.features.kernels.volume import _informed_flow
 from src.intelligence.schemas import FeatureVector
+from tests.unit.intelligence.helpers import ATR_GATED_COUNT_COLUMNS
 
 # Derived, not hardcoded -- a literal dev-machine path here means these tests
 # can never pass on a CI runner (checkout lands at a different absolute path).
@@ -1262,25 +1263,27 @@ _NO_OBJECT_COLUMNS = (
 # flags/counts/directions whose 0.0 is a measured state on the same flat series (the
 # zero_is_state class, declared in 4c)
 _ZERO_STATE_COLUMNS = (
-    "sr_level_count",
     "ob_mitigated_flag",
     "breaker_block_active",
     "fvg_open_count",
-    "bsl_touches",
-    "ssl_touches",
-    "pool_count",
-    "active_demand_zones",
-    "active_supply_zones",
     "bos_direction",
     "choch_direction",
     "smc_trend_direction",
 )
 
+# The ATR-gated counts come from the shared single source (tests.unit.intelligence.helpers):
+# on this flat fixture ATR == 0 on every row, so their tolerance-scaled detection never runs
+# and the counts read NaN, persisted as None (186-31 review round 6) -- not a measured empty
+# set. The registry-wide contract test carries the same exemption derived from the same
+# constant.
+
 
 def test_no_object_columns_are_none_on_flat_series() -> None:
     """todo 584 4b-2 group 4 (rule 2): the distance/strength/age/position of an SMC/VP/SR
     object that does not exist is None on a flat series, never a fabricated 0.0/0.5; the
-    flags, counts and direction fields stay the measured 0.0."""
+    flags and direction fields stay the measured 0.0, while the six ATR-gated counts read
+    None because the flat fixture's ATR == 0 leaves their detection unmeasurable
+    (186-31 review round 6)."""
     bars = [
         {
             "ts": datetime(2026, 1, 2, 9, 30, i, tzinfo=UTC),
@@ -1297,6 +1300,11 @@ def test_no_object_columns_are_none_on_flat_series() -> None:
         assert getattr(fv, name) is None, f"{name} must be None with no object in window"
     for name in _ZERO_STATE_COLUMNS:
         assert getattr(fv, name) == 0.0, f"{name} keeps its measured 0.0 on a flat series"
+    for name in ATR_GATED_COUNT_COLUMNS:
+        assert getattr(fv, name) is None, (
+            f"{name} is None on a flat series: its detection tolerance is unmeasurable at "
+            "ATR == 0 (186-31 review round 6)"
+        )
     assert fv.bars_since_52w_high == 0.0
 
 
