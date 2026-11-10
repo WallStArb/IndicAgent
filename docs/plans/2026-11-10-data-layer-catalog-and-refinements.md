@@ -36,7 +36,7 @@ Groups: tickers (all tickers with a point-in-time `date` parameter and `active=f
 
 ### 3.3 Other flat-file datasets in the bucket
 
-`us_stocks_sip/trades_v1` and `quotes_v1` (readable on our plan: a ranged GET returned 206; June 2024 days are about 1.5 GB and 4.8 GB compressed, so full history is several TB against 647 GB free), `us_options_opra`, `us_futures_*`, `us_indices`, `global_crypto`, `global_forex`. Not sampled beyond the listing.
+Entitlement checked 2026-11-10 with a small ranged GET on one 2024-06 file per dataset. Readable (206): `us_stocks_sip/trades_v1` (4.1 TB, 2003-09-10 to date, about 1.5 GB a day recently) and `us_stocks_sip/quotes_v1` (15 TB, about 4.8 GB a day recently). Not entitled (403, separate subscriptions): every `us_options_opra` dataset (day, minute, trades, quotes), `us_indices`, `us_futures_*`, `global_forex` and `global_crypto`. Against 647 GB free, stock trades and quotes can only be taken by stream and reduce: download a day, compute a compact per-name feature set, keep the features, discard the file. At the measured 48 MB/s that is about a day for trades and 3.6 days for quotes, so time is not the limit; the limit is that the raw ticks cannot be recovered after the plan lapses, so the reduction list needs a written spec and a stronger-model review before any run.
 
 ## 4. Refinements
 
@@ -58,7 +58,7 @@ R7. Already planned, see todo 600 refinement items 2 to 4 and admission design s
 
 R8. Reference features, decided per field after R1 lands and only when a base feature would read it (data adjacency register discipline): short interest, short volume, float, IPOs, parsed 8-K and Form 4 text. Each needs its availability time read from a real response before any feature uses it. Fundamentals: the register rejects income statements only (`filing_date` is the latest filing, not the original); balance sheet, cash flow, ratios and float are unverified, not rejected, and float is likely current-only.
 
-R9. Tick data: no full capture. Sample sizing only (one month of trades and quotes for a few dozen names, measured compressed size) so a spread and liquidity decision after the first counted test is informed. Quotes are about 3 times trades.
+R9. Tick data (stock trades and quotes only; nothing else is entitled): stream and reduce under a written reduction spec (section 3.3), not stored raw. Candidate features: trade count, VWAP, signed volume by the tick rule, odd-lot share, large-print counts, time-weighted quoted spread, depth and imbalance, per name-day and per name-5m. The spec and its Opus review come first; this is the one irreversible loss if the plan lapses without it.
 
 Skipped, with reason: technical indicators (derivable from bars), snapshots and last-trade calls (live-only), REST bars (the flat files are the as-served archive), market holidays (forward-only), news sizing (no consumer exists), options, futures, crypto and forex flat files (outside the equity scope).
 
@@ -77,7 +77,7 @@ Facts verified 2026-11-10:
 | Reference set: tickers (monthly, change points, `active=false`), ticker overview per span, ticker events, splits, dividends (with `historical_adjustment_factor`), IPOs, related tickers | capture to disk, as served (R1) | small | well before 2026-12-10 |
 | Short interest, short volume, float, exchanges, condition codes | capture to disk | small | before lapse |
 | Filings (EDGAR index, 8-K, Form 4) | size one month, then decide (EDGAR direct stays the clean source for original dates) | unknown | decision by 2026-12-01 |
-| Trades and quotes | sample sizing only (R9) | measure | decision by 2026-12-01 |
+| Trades and quotes | reduction spec, review, then stream and reduce (R9) | about 4 days of transfer | spec by 2026-11-20, run before lapse |
 | Offsite copy of the flat files | owner's second machine, pending setup | 82 GiB | before lapse |
 
 ## 7. Open questions
@@ -85,4 +85,4 @@ Facts verified 2026-11-10:
 1. R1: confirm disk capture now and the typed projection later, against building the JSONB landing table before a consumer exists.
 2. R4: is stage 2 (dead names in the universe) wanted before the first counted test, or capture-only for now.
 3. R8: which reference features (short interest, float, filings) justify more than a raw capture, given no consumer exists yet.
-4. R9: is the tick-data sample worth the disk before the first counted test.
+4. R9: approve writing the reduction spec now (the only way to keep the tick-data value), and who reviews it.
