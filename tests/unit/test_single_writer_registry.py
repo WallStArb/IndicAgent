@@ -150,9 +150,10 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         ),
         Writer(
             "scripts/ops/bars/ops_split_calendar_audit.py",
-            _segment("inferred_by", "calendar_audit"),
+            _segment("inferred_by", "calendar_audit", "massive_reference"),
             "splits canonical 1d carries unadjusted, confirmed from the external split calendar "
-            "(migration 567, todo 587)",
+            "(migration 567, todo 587); Massive splits missing from corporate_action, confirmed "
+            "by the vendor's own tape (migration 586, todo 600 step 4)",
         ),
     ),
     # Held names (migration 461, plan 185-51): record_hold and release_hold only.
@@ -197,10 +198,23 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     # identity tables until the admission loaders register here as their one writer;
     # definition_epoch is written by migrations only, for good.
     "reference_raw": (
-        Writer("services/reference_raw_writer.py", reason="Massive reference captures (todo 600)"),
+        Writer(
+            "services/reference_raw_writer.py",
+            reason="reference captures: Massive, IBKR, OpenFIGI (todo 600)",
+        ),
     ),
-    "security_identifier": (),
-    "ticker_event": (),
+    "security_identifier": (
+        Writer(
+            "services/ticker_entity_map_writer.py",
+            reason="ticker-entity map stage 1 (todo 600 step 3b)",
+        ),
+    ),
+    "ticker_event": (
+        Writer(
+            "services/ticker_entity_map_writer.py",
+            reason="ticker-entity map stage 1 (todo 600 step 3b)",
+        ),
+    ),
     "definition_epoch": (),
 }
 

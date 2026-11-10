@@ -13,9 +13,11 @@ Two capture layouts exist, told apart by the manifest's name:
   trailing page token removed (the page is its own column), ``page`` is the file's page number
   plus one (``page0000`` is page 1; a single-file capture is page 1), ``served_at`` is
   ``captured_at``, which is at or after the true answer.
-- ``manifest/YYYYMMDD.jsonl`` (``DATED``): the canonical layout. Lines carry ``endpoint`` as the
+- ``manifest/YYYYMMDD.jsonl`` (``DATED``): the canonical layout, shared by every vendor's
+  capture (the IBKR and OpenFIGI identity captures use it too). Lines carry ``endpoint`` as the
   capture's label, ``key``, ``page``, ``date`` (the HTTP Date header), ``fetched_at`` and ``path``
-  (gzip; the hash is over the decompressed bytes, which are the bytes served).
+  (gzip; the hash is over the decompressed bytes, which are the bytes served). ``status`` is
+  null for a non-HTTP answer (an IBKR socket reply, migration 587).
 
 ``as_of`` is the ``date`` query parameter of the URL (an overview of a delisted ticker is asked
 as of a date); NULL means the vendor's state at ``served_at``.
@@ -33,7 +35,6 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-VENDOR = "massive"
 LEGACY = "legacy"
 DATED = "dated"
 LEGACY_MANIFEST_NAME = "capture_log.jsonl"
@@ -41,6 +42,7 @@ _DATED_MANIFEST = re.compile(r"^\d{8}\.jsonl$")
 _LEGACY_PAGE_TOKEN = re.compile(r"\s*page\s*\d+$")
 _LEGACY_FILE_PAGE = re.compile(r"page(\d+)\.json$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_VENDOR_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class ReferenceCaptureError(ValueError):
@@ -57,13 +59,24 @@ class ReferenceCapture:
     page: int
     as_of: date | None
     url: str
-    http_status: int
+    http_status: int | None  # None: a non-HTTP answer (migration 587)
     served_at: datetime
     manifest_path: str  # repo-relative
     manifest_line: int  # 1-based physical line
     file_path: str  # repo-relative
     file_sha256: str
     file_bytes: int
+
+
+def vendor_of_root(reference_root: Path) -> str:
+    """The vendor a reference root holds answers from: ``data/<vendor>/reference``.
+
+    The directory is the label, so a root cannot be loaded under another vendor's name.
+    """
+    vendor = reference_root.parent.name
+    if reference_root.name != "reference" or not _VENDOR_CODE.match(vendor):
+        raise ReferenceCaptureError(f"{reference_root}: not a data/<vendor>/reference root")
+    return vendor
 
 
 def manifest_layout(manifest: Path) -> str:
@@ -135,7 +148,7 @@ def parse_manifest_line(
             page=page,
             as_of=_as_of(url),
             url=url,
-            http_status=int(entry["status"]),
+            http_status=None if entry["status"] is None else int(entry["status"]),
             served_at=_served_at(entry, layout),
             manifest_path=manifest.relative_to(repo_root).as_posix(),
             manifest_line=line_number,

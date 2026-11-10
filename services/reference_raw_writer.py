@@ -1,6 +1,10 @@
 """Reference raw writer: the one writer of ``reference_raw`` (admission design section 6, step 3).
 
-Ingests every vendor reference capture manifest under ``data/massive/reference`` once: one row
+Ingests every reference capture manifest under the reference roots once. A root is
+``data/<vendor>/reference`` and its directory names the vendor of every row, which must be a CVR
+``reference_vendor`` code (migration 587; an unknown root refuses the run). By default every
+``data/*/reference`` root is loaded: Massive's, and the IBKR and OpenFIGI identity captures of
+step 3b (``scripts/infrastructure/reference_identity_capture.py``). One row
 per manifest line, lineage = manifest path + line + file path + the file's sha256 (verified
 against the file's bytes, a mismatch fails the run). Bodies are loaded as the exact text served
 and parsed by jsonb in the database; HTTP 404 NOT_FOUND answers are rows like any other.
@@ -11,7 +15,8 @@ manifest's; any unique conflict on a line that was not present is an anomaly and
 A run without --apply does everything inside the transaction and rolls it back.
 
     .venv/bin/python -m services.reference_raw_writer                    # rolled-back rehearsal
-    .venv/bin/python -m services.reference_raw_writer --apply            # load
+    .venv/bin/python -m services.reference_raw_writer --apply            # load every root
+    .venv/bin/python -m services.reference_raw_writer --reference-root data/ibkr/reference --apply
 """
 
 from __future__ import annotations
@@ -26,21 +31,21 @@ from pathlib import Path
 import asyncpg
 
 from src.config.settings import Settings
+from src.config.vocabulary_service import VocabularyService
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.massive_reference import (
-    VENDOR,
     ReferenceCapture,
     discover_manifests,
     manifest_layout,
     parse_manifest_line,
     read_body,
+    vendor_of_root,
 )
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
 
 _JOB = "reference-raw-writer"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_ROOT = _REPO_ROOT / "data" / "massive" / "reference"
 # Rows per INSERT. A body can reach a few hundred KB; this bounds one statement's memory.
 _CHUNK = 200
 _ROWS_TOTAL = counter(
@@ -101,13 +106,24 @@ class ReferenceRawWriter(BaseBatch):
     job_name = _JOB
     compute_version = "1.0.0"
 
-    def __init__(self, db_dsn: str, reference_root: Path, apply: bool, max_rows: int | None):
+    def __init__(
+        self,
+        db_dsn: str,
+        roots: list[Path],
+        apply: bool,
+        max_rows: int | None,
+        *,
+        named: bool = False,
+    ):
         super().__init__(db_dsn)
-        self._root = reference_root
+        self._roots = {root: vendor_of_root(root) for root in roots}
+        self._named = named  # roots named by the operator: an empty one refuses the run
         self._apply = apply
         self._max_rows = max_rows
 
-    async def _load_manifest(self, conn: asyncpg.Connection, manifest: Path) -> Counter:
+    async def _load_manifest(
+        self, conn: asyncpg.Connection, manifest: Path, vendor: str
+    ) -> Counter:
         layout = manifest_layout(manifest)
         manifest_path = manifest.relative_to(_REPO_ROOT).as_posix()
         present = {
@@ -122,7 +138,7 @@ class ReferenceRawWriter(BaseBatch):
             if not pending:
                 return
             columns = await asyncio.to_thread(_build_chunk, pending)
-            inserted = await conn.fetch(_INSERT_SQL, VENDOR, *columns)
+            inserted = await conn.fetch(_INSERT_SQL, vendor, *columns)
             if len(inserted) != len(pending):
                 raise RuntimeError(
                     f"{manifest_path}: {len(pending) - len(inserted)} lines of a chunk starting "
@@ -157,6 +173,7 @@ class ReferenceRawWriter(BaseBatch):
         self.logger.info(
             "reference_raw_writer.manifest_done",
             manifest=manifest_path,
+            vendor=vendor,
             layout=layout,
             lines=seen,
             inserted=outcome["inserted"],
@@ -170,15 +187,28 @@ class ReferenceRawWriter(BaseBatch):
         return outcome
 
     async def execute(self, pool: asyncpg.Pool) -> None:
-        manifests = discover_manifests(self._root)
+        manifests = []
+        for root, vendor in self._roots.items():
+            found = discover_manifests(root)
+            if not found:
+                if self._named:
+                    raise FileNotFoundError(f"no reference manifests under {root}")
+                # A capture that failed before its first answer leaves a root with no manifest.
+                self.logger.warning("reference_raw_writer.root_without_manifest", root=str(root))
+            manifests += [(manifest, vendor) for manifest in found]
         if not manifests:
-            raise FileNotFoundError(f"no reference manifests under {self._root}")
+            raise FileNotFoundError(f"no reference manifests under {sorted(map(str, self._roots))}")
+        vocabulary = VocabularyService(self._db_dsn, pool=pool)
+        await vocabulary.initialize()
+        unknown = set(self._roots.values()) - set(vocabulary.active_codes("reference_vendor"))
+        if unknown:
+            raise ValueError(f"not CVR reference_vendor codes: {sorted(unknown)}")
         started = time.monotonic()
         async with pool.acquire() as conn:
-            for manifest in manifests:
+            for manifest, vendor in manifests:
                 try:
                     async with conn.transaction():
-                        await self._load_manifest(conn, manifest)
+                        await self._load_manifest(conn, manifest, vendor)
                         if not self._apply:
                             raise _Rehearsal
                 except _Rehearsal:
@@ -200,10 +230,13 @@ class _Rehearsal(Exception):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Load Massive reference captures into reference_raw"
+    parser = argparse.ArgumentParser(description="Load reference captures into reference_raw")
+    parser.add_argument(
+        "--reference-root",
+        type=Path,
+        action="append",
+        help="a data/<vendor>/reference root (repeatable); default: every one under data/",
     )
-    parser.add_argument("--reference-root", type=Path, default=_DEFAULT_ROOT)
     parser.add_argument("--apply", action="store_true", help="commit; default rolls back")
     parser.add_argument(
         "--max-rows", type=int, default=None, help="rehearsal only: first N lines per manifest"
@@ -217,7 +250,14 @@ def main() -> None:
         pass
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    writer = ReferenceRawWriter(db_dsn, args.reference_root.resolve(), args.apply, args.max_rows)
+    roots = args.reference_root or sorted((_REPO_ROOT / "data").glob("*/reference"))
+    writer = ReferenceRawWriter(
+        db_dsn,
+        [r.resolve() for r in roots],
+        args.apply,
+        args.max_rows,
+        named=bool(args.reference_root),
+    )
     asyncio.run(writer.run())
 
 

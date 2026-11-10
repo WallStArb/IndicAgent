@@ -20,7 +20,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -2355,3 +2355,116 @@ class IBKRProvider:
                 "resolve_instrument futures lookup failed", extra={"query": query, "error": str(e)}
             )
         return None
+
+
+# ---------------------------------------------------------------------------
+# Read-only contract identity capture (todo 600 admission step 3b)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ContractDetailsAnswer:
+    """IBKR's answer to one Stock(SMART, USD) contract-details ask, as a JSON-ready body.
+
+    ``body`` = ``{"status", "request", "results", "errors"}``: status ``OK`` (one or more
+    details), ``NOT_FOUND`` (Error 200 and no details) or ``ERROR`` (timeout, another error);
+    ``results`` is every ContractDetails field as served (``secIdList`` carries the ISIN);
+    a non-finite float is spelled as a string (jsonb has no NaN). ``answered_at`` is when the
+    answer arrived: IBKR sends no serve time, and this one is at or after the true answer.
+    """
+
+    ibkr_symbol: str
+    body: dict
+    answered_at: datetime
+
+
+def _json_ready(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_ready(item) for item in value]
+    return value
+
+
+async def iter_stock_contract_details(
+    ibkr_symbols: list[str],
+    *,
+    host: str,
+    port: int,
+    client_id: int,
+    pause_s: float,
+    connect_timeout_s: float,
+    in_use_wait_s: float,
+) -> AsyncIterator[ContractDetailsAnswer]:
+    """Ask IBKR for each symbol's Stock(SMART, USD) contract details, one at a time.
+
+    A plain read-only session: no clientId rotation and no gateway restart path (a restart
+    drops every session and needs the owner's 2FA). Error 326 (clientId in use) or a failed
+    connect raises; nothing is retried. Error 326 arrives within about half a second of the
+    handshake, so the connect waits ``in_use_wait_s`` for it. Only errors IBKR attributes to the
+    asked contract enter its answer (a late error of an earlier ask stays out). Each answer is
+    yielded as it arrives, so a caller can persist it before the next ask.
+    """
+    if not 0 <= client_id <= _MAX_CLIENT_ID:
+        raise ValueError(f"IBKR client id {client_id} is outside [0, {_MAX_CLIENT_ID}]")
+    if len(set(ibkr_symbols)) != len(ibkr_symbols):
+        raise ValueError("iter_stock_contract_details: duplicate symbols in the ask")
+    ib = IB()
+    errors: list[dict] = []
+    in_use = False
+    asked: Any = None
+
+    def on_error(req_id: int, code: int, text: str, contract: Any) -> None:
+        nonlocal in_use
+        in_use = in_use or code == 326
+        if asked is not None and contract == asked:
+            errors.append({"req_id": req_id, "code": code, "text": text})
+
+    ib.errorEvent += on_error
+    try:
+        await ib.connectAsync(
+            host=host,
+            port=port,
+            clientId=client_id,
+            timeout=connect_timeout_s,
+            readonly=True,
+        )
+        await asyncio.sleep(in_use_wait_s)
+        if in_use or not ib.isConnected():
+            raise ConnectionError(f"IBKR clientId {client_id}: connect failed or id in use")
+        for ibkr_symbol in ibkr_symbols:
+            errors.clear()
+            contract = asked = Stock(symbol=ibkr_symbol, exchange="SMART", currency="USD")
+            request = {
+                "symbol": ibkr_symbol,
+                "secType": "STK",
+                "exchange": "SMART",
+                "currency": "USD",
+            }
+            try:
+                details = await asyncio.wait_for(
+                    ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
+                )
+                timed_out = False
+            except TimeoutError:
+                details, timed_out = [], True
+            if details:
+                status = "OK"
+            elif not timed_out and any(e["code"] == _IB_ERR_NO_SECURITY_DEFINITION for e in errors):
+                status = "NOT_FOUND"
+            else:
+                status = "ERROR"
+            body = {
+                "status": status,
+                "request": request,
+                "results": [_json_ready(asdict(d)) for d in details],
+                "errors": list(errors) + ([{"code": "timeout"}] if timed_out else []),
+            }
+            yield ContractDetailsAnswer(ibkr_symbol, body, datetime.now(UTC))
+            await asyncio.sleep(pause_s)
+    finally:
+        ib.errorEvent -= on_error
+        if ib.isConnected():
+            ib.disconnect()

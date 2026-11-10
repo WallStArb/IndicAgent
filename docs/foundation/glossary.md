@@ -2433,7 +2433,7 @@ capture plan (capture decisions ride todo 600 and the basis study). **Banned:** 
 
 Vocabulary for admitting the Massive flat-file archive as a bar vendor
 (`docs/plans/2026-11-10-massive-admission-db-design.md`, sections 3, 5, 6, 7 and 11). Design
-status: none of these has code yet; each entry names the plan section that builds it.
+status: each entry names its own status and the plan section that builds it.
 
 ### `issuer`
 
@@ -2455,8 +2455,8 @@ ticker-to-entity map, cross-checked through ISIN; CUSIP and ISIN change on some 
 which is why each row is dated. The composite FIGI is not interchangeable with the share-class
 FIGI. **Not:** a ticker (a spelling that can be reused by another company), a vendor symbol in
 `provider_meta`, or an `issuer` identifier. **Banned:** (none)
-**Status:** specified 2026-11-10 (admission design section 6), not built
-**Code surface:** none yet
+**Status:** active 2026-11-10 (migration 586; stage 1 rows written by the `ticker-entity map`)
+**Code surface:** `security_identifier` table, `services/ticker_entity_map_writer.py`
 
 ### `ticker_event`
 
@@ -2468,8 +2468,23 @@ ticker-to-entity map is built from; a ticker reused by a different company (EXE,
 It reuses the `listing_venue` span grammar (non-overlapping, append-only, a correction supersedes)
 and `listing_end` for the final span's close. **Not:** a `listing venue` move (the exchange
 changed, the ticker did not), a `listing end`, or a corporate action. **Banned:** (none)
-**Status:** specified 2026-11-10 (admission design section 6), not built
-**Code surface:** none yet
+**Status:** active 2026-11-10 (migration 586; stage 1 rows written by the `ticker-entity map`)
+**Code surface:** `ticker_event` table, `services/ticker_entity_map_writer.py`
+
+### `ticker-entity map`
+
+The rule set that turns reference answers into `security identifier` rows, `ticker_event` spans
+and a gap list (admission design section 6, step 3b). Stage 1 covers current names: today's
+identity is anchored outside Massive (IBKR's ISIN, mapped to FIGIs by OpenFIGI) and must equal
+the FIGIs Massive serves for the same ticker; history comes from FIGI-grouping Massive's events
+answers. Every instrument is mapped (it has a span) or is on the gap list with a reason; a span
+the evidence does not support is a listed gap, never a guess. CIK never decides. One pure
+function, so the same answers give the same rows and the same digest. **Not:** the load-time
+price checks (design section 8a), which judge a mapped span afterwards, or stage 2 (dead names).
+**Banned:** (none)
+**Status:** active 2026-11-10 (stage 1)
+**Code surface:** `src/intelligence/bars/ticker_entity_map.py`,
+`services/ticker_entity_map_writer.py`, `scripts/infrastructure/reference_identity_capture.py`
 
 ### `definition epoch`
 

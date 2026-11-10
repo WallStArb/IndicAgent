@@ -96,6 +96,11 @@ _ALLOW_LIST: dict[str, str] = {
         "qualifies candidate contracts on the concrete leaf during manifest runs; "
         "moves only if a protocol-level qualification seam is ever justified."
     ),
+    "scripts/infrastructure/reference_identity_capture.py": (
+        "PERMANENT: the identity capture (todo 600 step 3b) asks IBKR contract details "
+        "for the ISIN through the leaf's read-only, restart-free session; reference "
+        "data, not history, so no protocol seam applies."
+    ),
     "scripts/infrastructure/universe_expansion_onboard_manifest.py": (
         "PERMANENT (out of phase 190 scope): the onboarding manifest tool's dry run "
         "qualifies contracts on the concrete IBKR leaf (docs/foundation/"

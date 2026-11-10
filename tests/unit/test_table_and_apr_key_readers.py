@@ -141,8 +141,6 @@ _KEEP_TABLES: dict[str, str] = {
     # Massive admission schema (migration 586, todo 600): step 1 lands the tables before the
     # code that reads them. Each entry fails as stale the moment its reader lands, so the
     # admission step that adds the reader removes the entry in the same commit.
-    "security_identifier": "migration 586 (todo 600); read by the step 3 ticker map build",
-    "ticker_event": "migration 586 (todo 600); read by the step 2 Massive reader and retract path",
     "definition_epoch": "migration 586 (todo 600); read by the step 2 Massive reader",
 }
 

@@ -16,6 +16,7 @@ from src.intelligence.bars.massive_reference import (
     manifest_layout,
     parse_manifest_line,
     read_body,
+    vendor_of_root,
 )
 
 LEGACY_LINE = (
@@ -144,3 +145,26 @@ def test_discover_manifests_orders_legacy_then_dated(tmp_path):
         "20261110.jsonl",
         "20261111.jsonl",
     ]
+
+
+def test_vendor_comes_from_the_root_directory():
+    assert vendor_of_root(Path("data/massive/reference")) == "massive"
+    assert vendor_of_root(Path("/x/data/ibkr/reference")) == "ibkr"
+    for bad in ("data/massive/manifest", "data/Massive/reference", "reference"):
+        with pytest.raises(ReferenceCaptureError):
+            vendor_of_root(Path(bad))
+
+
+def test_non_http_answer_has_no_status(tmp_path):
+    manifest = tmp_path / "data" / "ibkr" / "reference" / "manifest" / "20261110.jsonl"
+    manifest.parent.mkdir(parents=True)
+    line = (
+        '{"endpoint": "contract_details", "key": "BRK.B", "page": 1, "url": '
+        '"ibkr://reqContractDetails?symbol=BRK%20B", "status": null, "date": null, "bytes": 2, '
+        '"sha256": "' + "b" * 64 + '", "path": "contract_details/20261110/BRK.B.json.gz", '
+        '"fetched_at": "2026-11-10T18:37:39.205738Z"}'
+    )
+    capture = parse_manifest_line(line, manifest, 1, repo_root=tmp_path)
+    assert capture.http_status is None
+    assert capture.request_key == "BRK.B"
+    assert capture.served_at.isoformat() == "2026-11-10T18:37:39.205738+00:00"
