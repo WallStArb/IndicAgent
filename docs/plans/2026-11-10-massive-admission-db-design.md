@@ -98,10 +98,16 @@ Current defaults (2026-11-10): 5m `ibkr` [1990-01-01, 2016-01-04), `alpaca` with
 4. Split reconciliation and seam detection (section 5). Gate: no unexplained difference.
 5. Raw load, per year, newest first, 5m then 1d. The load engine runs selection on every chunk, and while Massive is unranked every Massive-only slot reports as unselected (status UNSELECTED, not APPLIED). Gate per year: unselected equals the Massive-only on-grid slots counted from the manifest; row balance (traded minutes in, bars out, unmapped excluded and counted); `ops_selection_gate --compare` unchanged.
 6. Load checks over loaded raw (section 8a), for every mapped name. A name outside a check is listed and keeps its incumbent for that span; a systemic failure stops the switch.
-7. Policy, through `ops_source_policy --plan` (it already retires and re-tiles defaults) then `--reselect-only` per year:
+7. Canonical rebuild (owner 2026-11-10: start the compute bars fresh at admission, not before). Canonical `market_data_ohlcv` is a pure function of raw plus policy, so it is a rebuildable cache; `ohlcv_raw` is never touched. A drop and one-pass rebuild replaces per-year incremental reselects, because the derived 15m and 1h bars were built from IBKR's zero-volume constituents and a partial rebuild would leave a mix of old and new derivations. Nothing is dropped before admission: the D7 bar audits, split detection and the dividend writer read canonical bars, and clearing early saves nothing until Massive is loaded. Sequence:
+   - Summary card first (derived data is dropped only after its card exists): row counts and content digests per timeframe and vendor, plus the derived-bar rows to be dropped. The scrub flags and the regime tables go on the deletion list; that list gets an Opus review before anything runs, since deletions are the irreversible kind.
+   - Policy, through `ops_source_policy --plan` (it already retires and re-tiles defaults), applied once for all spans below.
+   - Drop the derived canonical rows and rebuild every timeframe from raw in one pass.
+   - Checks: from 2016-01-04 raw is unchanged, so the rebuild must reproduce the old canonical bars exactly (`ops_selection_gate --compare`); that tests the whole rebuild path before it is trusted. Pre-2016 changes by design. D7 on a sample, then all names.
+
+   The policy content, per span:
    a. 5m before 2016-01-04: Massive primary with no fallback. The default IBKR fallback would undo the switch: selection judges a vendor complete against every slot any ranked vendor holds, and IBKR's zero-volume bars in buckets Massive correctly lacks would make Massive incomplete and hand whole sessions to IBKR. Names and spans on the gap list keep IBKR through symbol rows. Missing is NaN.
    b. 1d before 2016-01-04: the same shape, after the daily-rule version bump. The 1d plan must name all 95 live IBKR 1d symbol rows, pin the two default ids and carry the raw fingerprint, as `--plan` requires.
-   c. Re-derive the 15m and 1h grid over the changed span.
+   c. 15m and 1h: derived from the rebuilt 5m in the same pass.
 8. Docs move in the step 7a commit (section 9). After each step: `ops_selection_gate --compare` on the changed series, D7 on a sample then all names; `repro_frozen` only if research or statistics code moved (it should not).
 9. The corpus rerun stays behind the data-complete gate (186-32); admission does not open it.
 
