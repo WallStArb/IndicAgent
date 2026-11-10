@@ -981,6 +981,7 @@ The corruption of the ML training set caused by systematically excluding certain
 
 **Banned:** (none)
 **Status:** Layer 1 fixed Phase 123; Layer 2 addressed Phase 127-130.
+**See also:** `survivorship` (universe) for the universe-composition meaning, which is a different concept.
 
 ---
 
@@ -2296,7 +2297,7 @@ The CVR namespace of what a vendor served, within one vendor: `named`, `venue` a
 `venue_nyse`, `venue_arca`, `venue_island`, `venue_amex`, `venue_bats`, `continuous`,
 `official`, `generic`, `smart_trades`, `smart_adjusted`, `consolidated`, `sip_rth` (Alpaca SIP,
 regular hours, split-adjusted), `5m_grid`, `fallback`, and `iex_rth` (Alpaca feed=iex, kept in
-raw and never selected: IEX prints are a few percent of consolidated volume). A raw kind is what the vendor served, so `fallback` is a canonical-only kind: a
+raw and never selected: IEX prints are a few percent of consolidated volume); the `massive` vendor's `sip_flat_agg`, `sip_flat` and canonical-only `sip_flat_adj` are defined under Massive admission terms). A raw kind is what the vendor served, so `fallback` is a canonical-only kind: a
 selection outcome the daily rule assigns, never written to `ohlcv_raw`. Its `sort_order` is the
 within-vendor selection precedence. **Not:** a timeframe or a vendor.
 **Status:** active (migration 472)
@@ -2425,6 +2426,94 @@ capture plan (capture decisions ride todo 600 and the basis study). **Banned:** 
 **Status:** active (seeded 2026-11-09, todo 603 rung 0)
 **Code surface:** `docs/reference/data-adjacency-register.md`,
 `scripts/ops/ops_adjacency_diff.py`
+
+---
+
+## Massive admission terms (todo 600)
+
+Vocabulary for admitting the Massive flat-file archive as a bar vendor
+(`docs/plans/2026-11-10-massive-admission-db-design.md`, sections 3, 5, 6, 7 and 11). Design
+status: none of these has code yet; each entry names the plan section that builds it.
+
+### `issuer`
+
+The legal entity that issues securities, identified by its CIK (SEC Central Index Key) and,
+where known, its LEI (Legal Entity Identifier). One issuer can have several securities (share
+classes), so an issuer identifier never decides which security a ticker string meant: CIK alone
+maps BRK.A and BRK.B, BF.A and BF.B, and the other held dual-class names to the same entity.
+**Not:** a security (one issuer, many securities), an `instrument` row, or a classification node.
+**Banned:** (none)
+**Status:** specified 2026-11-10 (admission design section 6), not built
+**Code surface:** none yet (the admission design places it beside `security identifier`)
+
+### `security identifier`
+
+A dated external identifier of one security: share-class FIGI, CUSIP or ISIN, stored with
+`[valid_from, valid_to)` validity and append-only (a correction closes the old row and inserts a
+new one, the `listing_venue` pattern). The share-class FIGI is the matching key for the
+ticker-to-entity map, cross-checked through ISIN; CUSIP and ISIN change on some corporate actions,
+which is why each row is dated. The composite FIGI is not interchangeable with the share-class
+FIGI. **Not:** a ticker (a spelling that can be reused by another company), a vendor symbol in
+`provider_meta`, or an `issuer` identifier. **Banned:** (none)
+**Status:** specified 2026-11-10 (admission design section 6), not built
+**Code surface:** none yet
+
+### `ticker_event`
+
+A dated span of one ticker string on one security: the ticker, the `security identifier` it
+resolves to, `[valid_from, valid_to)`, and the evidence for the span. It is the unit the
+ticker-to-entity map is built from; a ticker reused by a different company (EXE, DOW) is two
+`ticker_event` spans with different security identifiers, and a Massive file row is loaded into
+`ohlcv_raw` only inside an evidenced span, with the `ticker_event` id recorded in the load detail.
+It reuses the `listing_venue` span grammar (non-overlapping, append-only, a correction supersedes)
+and `listing_end` for the final span's close. **Not:** a `listing venue` move (the exchange
+changed, the ticker did not), a `listing end`, or a corporate action. **Banned:** (none)
+**Status:** specified 2026-11-10 (admission design section 6), not built
+**Code surface:** none yet
+
+### `definition epoch`
+
+An append-only dated record, per vendor and column, of a change in what the column means: Massive
+volume fractional from 2026-02-23 (rounded per bucket), the 23/5 SIP session from 2026-12-06 (the
+regular-hours cut is unchanged). The loader tags rows with the epoch they fall in, and feature code
+that must not mix definitions reads it. It records a change in meaning, never a data correction:
+a restated value is a `revision`. **Not:** a `revision` (the vendor changing its answer for a
+slot), a `bar_source_policy` row (which source is selected), or a methodology change (the
+`methodology-change-ledger.md` records our own rule changes). **Banned:** (none)
+**Status:** specified 2026-11-10 (admission design section 7), not built; lands with admission
+**Code surface:** none yet
+
+### `sip_flat_agg`, `sip_flat`, `sip_flat_adj`
+
+The `bar_kind` codes of the `massive` vendor. `sip_flat_agg` is the Massive minute aggregate cut
+to the NYSE regular session and aggregated to 5m by our reader, unadjusted; it is an aggregate of a
+finer served timeframe stored under a kind that says so (the `_agg` suffix), and a session-bound
+kind. `sip_flat` is the Massive day aggregate as served, unadjusted, 1d. `sip_flat_adj` is the
+canonical-only kind of a Massive-sourced canonical row: canonical is split-adjusted, so the row
+carries adjusted prices under a kind that never says unadjusted, mapped back to the raw kind
+through `_CANONICAL_KIND_FOR_RAW`; like `fallback`, it is never written to `ohlcv_raw`. If the
+day-against-minute check fails (admission design section 8a), 1d is built from regular-hours
+minute rows under `sip_flat_agg` at 1d and `sip_flat` stays archived only. **Not:** `sip_rth`
+(Alpaca SIP, split-adjusted, a different vendor and basis) or a timeframe. **Banned:** (none)
+**Status:** specified 2026-11-10 (admission design sections 3 and 5), not yet in CVR
+**Code surface:** `controlled_vocabulary` namespace `bar_kind` and `BAR_KINDS` in
+`src/intelligence/bars/vendor_kind.py` once admitted
+
+### `survivorship` (universe)
+
+The property that a stored universe holds only the names that survived to today, so a backtest over
+it omits every delisted, merged and acquired name. It is a property of the universe, not of the
+depth of any one name's history: a vendor that deepens the history of current names (the Massive
+stage 1 load) leaves survivorship unchanged, because the universe is still current names. It lifts
+only when dead names are present as instruments with point-in-time membership, a key rule for
+reused tickers and an owner-approved onboarding-SOP exception (stage 2). Survivorship is measured
+and disclosed (presence by era, the names missing), never a gate. **Not:** `history depth` (how far
+back a present name's bars reach), `survivorship bias` (signal corpus) in its retired ML sense, or
+the `listing end` record, which marks a name's last session and keeps it in the universe.
+**Banned:** (none)
+**Status:** active as a disclosure rule; the caveat wording moves with the admission step 7a commit
+**Code surface:** caveat strings in `services/corpus_rerun_data_gate.py` and
+`services/corpus_rerun.py` (the owner of the wording), `docs/foundation/instrument-onboarding-sop.md`
 
 ---
 
