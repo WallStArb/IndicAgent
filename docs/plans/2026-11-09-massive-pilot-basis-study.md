@@ -212,9 +212,15 @@ Probe: LEH, BSC, MER, WB, WM and CFC are present on 2008-03-03; GM and LEH are a
 2009-06-15 (OTC trading is not on the SIP).
 
 Rule. A delisted name passes when its bars run through its last exchange session and its last
-price is consistent with the delisting event (acquisition price, bankruptcy collapse). Step 1
-passes at a presence rate of at least 95 percent. Trading after an OTC move is stated as out of
-coverage, not counted as missing.
+price is consistent with the delisting event (acquisition price, bankruptcy collapse). Trading
+after an OTC move is stated as out of coverage, not counted as missing.
+
+Survivorship is measured and disclosed, never a gate (owner 2026-11-10: "there's no better option
+- it's the best choice regardless if 70% or 100%"). Every alternative (IBKR, Alpaca) holds no
+delisted names at all, so any presence rate improves on the incumbents. Step 1 reports the
+presence rate, its era breakdown, and the list of names that fail. The caveat lifts per name and
+span: a name that passes is survivorship-clean for its covered span; the residual caveat on
+pre-2016 results names the measured rate and the missing names.
 
 ### A9. Volume bands per era and listing exchange
 
@@ -234,7 +240,7 @@ basis differences inside these bands stay labelled data (todo 518).
 | Internal consistency (A5) | era | 1 percent rule | 1d built from RTH minutes; refuse only if RTH minutes also fail A2 |
 | Price agreement (A2) | name-era and vendor | 99 / 99.5 percent | vendor miss: refuse; name-era miss with a third witness: caveat, that name's incumbent span listed as defect; without one: unresolved |
 | Unresolved (A4) | name-era | at most 2 percent | above: refuse |
-| Survivorship (A8) | delisted sample | at least 95 percent | below: admit with caveat that survivorship does not lift |
+| Survivorship (A8) | delisted sample | none (measured, disclosed) | never affects the verdict; the rate and failing names go into the caveat text |
 | OHLC and record sanity (A11) | bar | 99.9 percent; zero duplicates | refuse |
 | Publish lag, manifest (A12) | file | recorded | informational; feeds the nightly decision |
 
