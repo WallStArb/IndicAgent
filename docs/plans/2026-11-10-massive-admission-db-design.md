@@ -17,7 +17,7 @@ Todo 600 steps 3 to 6: vendor and kind codes in `ohlcv_raw`, the reader and 5m a
 - Every stored price is split-adjusted (onboarding SOP, "Price-only bars"; Alpaca kinds by definition). Massive files are unadjusted. The daily rule already rescales unadjusted series from `corporate_action_current` (`daily_rule.py` d2-v5 path), so a corporate-action input to selection has precedent for 1d; 5m selection has none.
 - IBKR pre-2016 5m holds zero-volume bars (89,165 of 732,880 in a four-name sample); Massive has no row for a bucket without trades.
 - Alpaca SIP is Polygon's feed, the same upstream as Massive. From 2016 Massive agreeing with Alpaca is expected, not independent evidence (flag for the pilot runbook).
-- The downloader records key, size, sha256 and `downloaded_at`, but not the file's LastModified or ETag, and skips a file whose size matches. It is not committed yet.
+- The downloader (committed 07c70a806) records key, size, sha256 and `downloaded_at` in its manifest and skips a file whose size matches. The vendor's LastModified and ETag per key are captured out of band in `data/massive/manifest/servetimes_*.jsonl`.
 
 ## 3. Vendor and kinds
 
@@ -48,7 +48,7 @@ No `history_leaf("massive")`: the fetch stage is the downloader plus its manifes
 
 `VendorIngress`: the Massive row's `read_artifacts(dir, symbols)` reads a day range and filters to mapped symbols. One ingress call loads one day file group, so `answered_at` is per file, not per symbol.
 
-Serve time and restatement. Raw is last-wins by serve time, so every row needs the vendor's serve time, not our download time. Downloader changes, required before the full run is trusted as raw (handed to the downloader review, not done here): record each object's LastModified and ETag in the inventory and manifest; re-fetch when the ETag changes, not only when the size changes; keep the superseded file beside the new one (archive as delivered). `answered_at` is LastModified. `ops_bar_load` checks `answered_at` against the Alpaca lag key, which a years-old file fails; the Massive row uses `infra.massive.artifact_max_answer_lag_days` instead, and the check becomes "LastModified is after the file's trading day", since a historical file is legitimately served years later.
+Serve time and restatement. Raw is last-wins by serve time, so every row needs the vendor's serve time, not our download time. LastModified and ETag per key are in `data/massive/manifest/servetimes_*.jsonl`; `answered_at` is LastModified from there. Still open in the downloader: re-fetch when the ETag changes, not only when the size changes, and keep the superseded file beside the new one (archive as delivered). `ops_bar_load` checks `answered_at` against the Alpaca lag key, which a years-old file fails; the Massive row uses `infra.massive.artifact_max_answer_lag_days` instead, and the check becomes "LastModified is after the file's trading day", since a historical file is legitimately served years later.
 
 Lineage: each `ohlcv_load` row records the file key, ETag and sha256 in its detail, so a bar traces to the exact file bytes.
 
