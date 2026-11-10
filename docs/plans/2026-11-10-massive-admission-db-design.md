@@ -133,11 +133,24 @@ Every reference to a moved or deleted path is repaired in the same commit (CI-en
 - `no_fill`: traded minutes only; no bar for an empty bucket; no IBKR fallback filling Massive sessions.
 - `temporal_integrity`: raw serve time is the vendor's LastModified, never our download time.
 
-## 11. Open questions for the lead
+## 11. Open questions - RULED by the lead (indicagent-d8, 2026-11-10)
 
-1. Mapping: option A (projection with retract path, a dated law 528 amendment) or B (ticker-keyed raw, selection joins the map). A recommended. Owner approval needed for either.
-2. Confirm 5m pre-2016 Massive primary with no default fallback, IBKR only through gap-list symbol rows.
-3. Confirm the 5m rescale in selection with the late-split reselect and the `split_horizon_fresh` D7 check (section 5), the largest contract change.
-4. Route the downloader serve-time changes (LastModified, ETag, re-fetch on ETag change) into the downloader review as a pre-launch requirement.
-5. Pilot runbook: the 1d arm should compare all of OHLCV, and the 2016 seam's Alpaca comparison is not independent of Massive.
-6. Stage 2 key rule for reused tickers: needed before stage 2 only.
+1. Mapping: **option A** (projection with a retract path; the archive files are the as-served
+   record). Same outcome as B with less mechanism; a wrong identity premise must be retractable,
+   not permanent. The dated law 528 amendment (a load whose identity premise was wrong is
+   retractable by load id, logged) is an owner ruling - the lead bundles it with the admission
+   verdict.
+2. **Confirmed**: 5m pre-2016 Massive primary with NO default fallback; IBKR serves only through
+   gap-list symbol rows. Completeness is judged per vendor on real slots; a union-of-vendors
+   slot set punishes the vendor that correctly has no bar (the zero-volume-bar analysis stands).
+3. **Confirmed**: the 5m rescale in selection, with the late-split reselect trigger and the
+   `split_horizon_fresh` D7 check. It is the largest contract change and keeps its per-plan
+   review discipline; the alternative (adjusting at load) would violate raw-as-served.
+4. **Done out of band**: LastModified and ETag for all 11,658 keys are captured in
+   data/massive/manifest/servetimes_*.jsonl (2026-11-10, while the plan is live); the
+   downloader integration (inventory fields, ETag-based re-fetch) is in flight with the builder.
+5. **Adopted into the pilot**: the 1d arm compares full OHLCV, not close only; and the 2016+
+   Alpaca agreement is same-upstream corroboration (Alpaca SIP is the same Polygon feed), not
+   independent evidence - the verdict weights the pre-2016 IBKR arm and the internal OHLC
+   consistency accordingly. Routed to the running pilot.
+6. Deferred to stage 2, as drafted.
