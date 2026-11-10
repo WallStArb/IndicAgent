@@ -61,7 +61,7 @@ NEVER_SELECTED_KINDS = frozenset({"smart_adjusted", "iex_rth"})
 # sip_rth and iex_rth are the same vendor-aggregate class, one per feed: the feed changes the
 # volume basis, never the session shape, so both are session-bound.
 RTH_GRID_STEP_MINUTES: dict[str, int] = {"5m": 5}
-SESSION_BOUND_KINDS = frozenset({"sip_rth", "iex_rth"})
+SESSION_BOUND_KINDS = frozenset({"sip_rth", "iex_rth", "sip_flat_agg"})
 SESSION_TZ = ZoneInfo("America/New_York")
 
 

@@ -26,15 +26,17 @@ _EXPECTED = {
     "ibkr_fallback": ("ibkr", "fallback"),
     "alpaca": ("alpaca", "sip_rth"),
     "derived_5m": ("derived", "5m_grid"),
+    "massive": ("massive", "sip_flat_agg"),
+    "massive_day": ("massive", "sip_flat"),
 }
 
 
-def test_label_map_is_exactly_the_specified_nine():
+def test_label_map_is_exactly_the_specified_eleven():
     assert LABEL_TO_VENDOR_KIND == _EXPECTED
 
 
 def test_every_label_constant_is_mapped_and_none_else():
-    """Tripwire: the map is exactly the nine label constants, no more, no fewer (plan 13
+    """Tripwire: the map is exactly the eleven label constants, no more, no fewer (plan 13
     replaced the LABEL_VENDOR cross-check, which was deleted with the label column)."""
     from src.core import bar_normalizer
 
@@ -47,6 +49,8 @@ def test_every_label_constant_is_mapped_and_none_else():
         sources.SOURCE_IBKR_FALLBACK,
         sources.SOURCE_ALPACA,
         sources.SOURCE_DERIVED_5M,
+        sources.SOURCE_MASSIVE,
+        sources.SOURCE_MASSIVE_DAY,
     }
     assert set(LABEL_TO_VENDOR_KIND) == constants
     assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"
@@ -140,7 +144,7 @@ def test_canonical_kind_for_raw():
 
 
 def test_vocabularies_cover_every_mapped_pair():
-    assert BAR_VENDORS == ("ibkr", "alpaca", "tradier", "derived")
+    assert BAR_VENDORS == ("ibkr", "alpaca", "tradier", "derived", "massive")
     for vendor, kind in LABEL_TO_VENDOR_KIND.values():
         assert vendor in BAR_VENDORS
         assert kind in BAR_KINDS
@@ -183,3 +187,48 @@ def test_apr_venue_fallback_seed_is_a_subset_of_venue_routes():
     seed = re.search(r"\('infra\.ibkr\.venue_fallback\.exchanges', '(\[[^']*\])'", text)
     assert seed is not None
     assert set(json.loads(seed.group(1))) <= set(VENUE_ROUTES)
+
+
+def test_massive_vendor_kind_maps_are_complete():
+    from src.intelligence.bars.selection import SESSION_BOUND_KINDS
+    from src.intelligence.bars.vendor_kind import (
+        VENDOR_SERVED_KINDS,
+        VOLUME_BASIS_CONSOLIDATED,
+        canonical_kind_for_raw,
+        label_to_vendor_kind,
+        raw_kind_for_canonical,
+        volume_basis,
+    )
+
+    assert label_to_vendor_kind("massive") == ("massive", "sip_flat_agg")
+    assert label_to_vendor_kind("massive_day") == ("massive", "sip_flat")
+    assert VENDOR_SERVED_KINDS["massive"] == {"sip_flat_agg", "sip_flat"}
+    assert "massive" in BAR_VENDORS and {"sip_flat_agg", "sip_flat", "sip_flat_adj"} <= set(
+        BAR_KINDS
+    )
+    assert "sip_flat_agg" in SESSION_BOUND_KINDS and "sip_flat" not in SESSION_BOUND_KINDS
+    # canonical never reuses a raw name that says unadjusted, and the raw join maps back by timeframe
+    assert canonical_kind_for_raw("massive", "sip_flat_agg") == "sip_flat_adj"
+    assert canonical_kind_for_raw("massive", "sip_flat") == "sip_flat_adj"
+    assert raw_kind_for_canonical("massive", "sip_flat_adj", "5m") == "sip_flat_agg"
+    assert raw_kind_for_canonical("massive", "sip_flat_adj", "1d") == "sip_flat"
+    assert raw_kind_for_canonical("alpaca", "sip_rth", "5m") == "sip_rth"
+    with pytest.raises(ValueError, match="no raw kind"):
+        raw_kind_for_canonical("massive", "sip_flat_adj", "15m")
+    assert volume_basis("massive", "sip_flat_adj") == VOLUME_BASIS_CONSOLIDATED
+
+
+def test_massive_ingress_row():
+    from src.intelligence.bars.vendor_ingress import vendor_ingress
+
+    row = vendor_ingress("massive", "5m")
+    assert row.kind == "sip_flat_agg" and row.artifact_dir.name == "minute_aggs_v1"
+    with pytest.raises(NotImplementedError):
+        row.answered_at(row.artifact_dir, "AAPL")
+
+
+def test_reconciliation_5m_join_maps_canonical_kind_back_to_raw():
+    from services.bar_reconciliation_audit import _SELECT_5M_SQL
+
+    assert "THEN 'sip_flat_agg' ELSE m.kind END" in _SELECT_5M_SQL
+    assert "r.kind = m.kind" not in _SELECT_5M_SQL

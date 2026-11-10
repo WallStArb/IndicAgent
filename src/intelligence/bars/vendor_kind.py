@@ -39,11 +39,21 @@ from src.intelligence.bars.sources import (
     SOURCE_ALPACA,
     SOURCE_DERIVED_5M,
     SOURCE_IBKR_FALLBACK,
+    SOURCE_MASSIVE,
+    SOURCE_MASSIVE_DAY,
 )
 
 VENDOR_IBKR = "ibkr"
 VENDOR_ALPACA = "alpaca"
 VENDOR_DERIVED = "derived"
+VENDOR_MASSIVE = "massive"
+
+# Massive raw kinds (both unadjusted, as served) and the one canonical kind their selected rows
+# carry: canonical holds split-adjusted prices, so it never reuses a raw name that says otherwise
+# (design section 5).
+KIND_MASSIVE_5M = "sip_flat_agg"
+KIND_MASSIVE_1D = "sip_flat"
+KIND_MASSIVE_CANONICAL = "sip_flat_adj"
 
 LABEL_TO_VENDOR_KIND: dict[str, tuple[str, str]] = {
     SOURCE_IBKR_NAMED: (VENDOR_IBKR, "named"),
@@ -54,6 +64,8 @@ LABEL_TO_VENDOR_KIND: dict[str, tuple[str, str]] = {
     SOURCE_IBKR_FALLBACK: (VENDOR_IBKR, "fallback"),
     SOURCE_ALPACA: (VENDOR_ALPACA, "sip_rth"),
     SOURCE_DERIVED_5M: (VENDOR_DERIVED, "5m_grid"),
+    SOURCE_MASSIVE: (VENDOR_MASSIVE, KIND_MASSIVE_5M),
+    SOURCE_MASSIVE_DAY: (VENDOR_MASSIVE, KIND_MASSIVE_1D),
 }
 
 VENDOR_KIND_TO_LABEL: dict[tuple[str, str], str] = {
@@ -101,6 +113,7 @@ def alpaca_kind_for_feed(feed: str, adjustment: str) -> str:
 # the label map already owns, so neither is listed.
 VENDOR_SERVED_KINDS: dict[str, frozenset[str]] = {
     VENDOR_ALPACA: frozenset(ALPACA_FEED_KINDS.values()),
+    VENDOR_MASSIVE: frozenset({KIND_MASSIVE_5M, KIND_MASSIVE_1D}),
 }
 
 
@@ -114,7 +127,13 @@ def pair_token(vendor: str, kind: str) -> str:
 
 # The CVR bar_vendor codes as migration 472 seeded them. The retired vendor's code stays as
 # history (retired 2026-10-28; the retired policy rows name it), so it is a literal, not a constant.
-BAR_VENDORS: tuple[str, ...] = (VENDOR_IBKR, VENDOR_ALPACA, "tradier", VENDOR_DERIVED)
+BAR_VENDORS: tuple[str, ...] = (
+    VENDOR_IBKR,
+    VENDOR_ALPACA,
+    "tradier",
+    VENDOR_DERIVED,
+    VENDOR_MASSIVE,
+)
 
 # kind -> one-line description, in within-vendor selection precedence order (the migration seeds
 # sort_order from this order: named lowest, then venue, continuous, official, generic).
@@ -131,6 +150,9 @@ BAR_KINDS: dict[str, str] = {
     "sip_rth": "Alpaca SIP aggregate over the regular trading hours window",
     "iex_rth": "Alpaca IEX aggregate over the regular trading hours window",
     "5m_grid": "15m or 1h bar derived from 5m on the session-anchored grid",
+    KIND_MASSIVE_5M: "Massive minute aggregates cut to the NYSE regular session, aggregated to 5m",
+    KIND_MASSIVE_1D: "Massive day aggregate as served (unadjusted)",
+    KIND_MASSIVE_CANONICAL: "canonical Massive bar: the raw bar rescaled to the split-adjusted basis",
 }
 
 # One raw kind per IBKR listing-venue route (migration 476). A route is part of the source's
@@ -148,7 +170,14 @@ _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
     # D-191-Q: Alpaca SIP is the 1d primary from 2016-01-04 and keeps its raw kind, as canonical
     # 5m carries it; iex_rth is never canonical.
     (VENDOR_ALPACA, "sip_rth"): "sip_rth",
+    (VENDOR_MASSIVE, KIND_MASSIVE_5M): KIND_MASSIVE_CANONICAL,
+    (VENDOR_MASSIVE, KIND_MASSIVE_1D): KIND_MASSIVE_CANONICAL,
 }
+
+# The raw kind a canonical Massive bar came from, by timeframe: the inverse of the entries above,
+# which is many-to-one. Every join from canonical back to raw on kind goes through
+# `raw_kind_for_canonical`, never `r.kind = m.kind` (that join silently misses Massive rows).
+_MASSIVE_RAW_KIND_BY_TIMEFRAME: dict[str, str] = {"5m": KIND_MASSIVE_5M, "1d": KIND_MASSIVE_1D}
 
 _ROUTE_SMART = "SMART"
 _ROUTE_LEGACY_IMPORT = "LEGACY_IMPORT"
@@ -235,6 +264,21 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
         raise ValueError(f"({vendor!r}, {kind!r}) has no canonical 1d kind") from None
 
 
+def raw_kind_for_canonical(vendor: str, kind: str, timeframe: str) -> str:
+    """The raw kind of the row a canonical (vendor, kind, timeframe) bar was selected from.
+
+    Identity for every pair whose canonical kind is its raw kind; a canonical Massive bar
+    (`sip_flat_adj`) maps back to `sip_flat_agg` at 5m and `sip_flat` at 1d. Raises when a
+    canonical Massive bar has a timeframe with no raw kind.
+    """
+    if (vendor, kind) != (VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL):
+        return kind
+    try:
+        return _MASSIVE_RAW_KIND_BY_TIMEFRAME[timeframe]
+    except KeyError:
+        raise ValueError(f"canonical massive bar has no raw kind at {timeframe!r}") from None
+
+
 # ---------------------------------------------------------------------------
 # Volume basis (todo 555): what a canonical bar's volume counts. Vendors count volume differently
 # (IBKR SMART volume is about 0.41 to 0.91 of consolidated on 1d, 0.38 to 0.95 on 5m), so a
@@ -252,6 +296,8 @@ _N_VOLUME_BASES = 4
 
 VOLUME_BASIS_BY_VENDOR_KIND: dict[tuple[str, str], int] = {
     (VENDOR_ALPACA, "sip_rth"): VOLUME_BASIS_CONSOLIDATED,
+    # Massive is the SIP (every venue's prints), like Alpaca; the canonical kind is the one read.
+    (VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL): VOLUME_BASIS_CONSOLIDATED,
     (VENDOR_IBKR, "named"): VOLUME_BASIS_SMART,
     (VENDOR_IBKR, "smart_trades"): VOLUME_BASIS_SMART,
     # A fallback 1d bar equals its raw smart_trades row (migration 543); only venue is NULLed by

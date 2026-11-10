@@ -142,7 +142,13 @@ from src.intelligence.bars.sources import (
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
 )
-from src.intelligence.bars.vendor_kind import DERIVED_PAIR, VENDOR_IBKR
+from src.intelligence.bars.vendor_kind import (
+    DERIVED_PAIR,
+    KIND_MASSIVE_CANONICAL,
+    VENDOR_IBKR,
+    VENDOR_MASSIVE,
+    raw_kind_for_canonical,
+)
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -1408,13 +1414,15 @@ _FIVE_MINUTES = timedelta(minutes=5)
 # needs: only an ibkr-sourced 5m bar is comparable with the IBKR archive (D-191-P made post-2016
 # 5m Alpaca SIP), and a raw row's served_at dates the evidence against the archive's own (D7,
 # todo 524). The join key is the selection's own (vendor, kind, timestamp) raw row.
-_SELECT_5M_SQL = """
+_MASSIVE_RAW_5M = raw_kind_for_canonical(VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL, "5m")
+_SELECT_5M_SQL = f"""
 SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor,
        r.served_at
 FROM market_data_ohlcv_tradeable m
 LEFT JOIN ohlcv_raw r
   ON r.symbol = m.symbol AND r.timeframe = m.timeframe
- AND r.vendor = m.vendor AND r.kind = m.kind AND r."timestamp" = m."timestamp"
+ AND r.vendor = m.vendor AND r."timestamp" = m."timestamp"
+ AND r.kind = CASE WHEN m.kind = '{KIND_MASSIVE_CANONICAL}' THEN '{_MASSIVE_RAW_5M}' ELSE m.kind END
 WHERE m.symbol = $1 AND m.timeframe = '5m'
 ORDER BY m."timestamp"
 """

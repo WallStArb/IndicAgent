@@ -81,10 +81,17 @@ def _seed_codes(sql: str, namespace: str) -> list[str]:
 
 def test_cvr_seeds_equal_the_vendor_kind_module():
     sql = _sql()
-    assert tuple(_seed_codes(sql, "bar_vendor")) == BAR_VENDORS
+    # massive joined with the admission migration, so 472 seeds every vendor but it
+    assert tuple(_seed_codes(sql, "bar_vendor")) == tuple(v for v in BAR_VENDORS if v != "massive")
     # 472 seeded the original eleven kinds; iex_rth joined later (migration 511, the alpaca
     # iex feed), so it is the one BAR_KINDS entry 472 does not carry.
-    assert tuple(_seed_codes(sql, "bar_kind")) == tuple(k for k in BAR_KINDS if k != "iex_rth")
+    later = {
+        "iex_rth",
+        "sip_flat_agg",
+        "sip_flat",
+        "sip_flat_adj",
+    }  # 511 and the admission migration
+    assert tuple(_seed_codes(sql, "bar_kind")) == tuple(k for k in BAR_KINDS if k not in later)
     assert "ON CONFLICT (namespace, code) DO NOTHING" in sql
 
 
@@ -100,7 +107,9 @@ def test_revision_mapping_values_equal_the_vendor_kind_module():
         for label, vendor, kind in re.findall(r"\('([^']+)', '([^']+)', '([^']+)'\)", block)
     )
     # Migration 472 is history: it still maps the retired vendor's label, which the module dropped.
-    assert pairs == {**LABEL_TO_VENDOR_KIND, "tradier": ("tradier", "consolidated")}
+    later_labels = {"massive", "massive_day"}  # the admission migration, not the 472 mapping
+    expected = {k: v for k, v in LABEL_TO_VENDOR_KIND.items() if k not in later_labels}
+    assert pairs == {**expected, "tradier": ("tradier", "consolidated")}
 
 
 def test_revision_gains_nullable_columns_and_admits_raw():

@@ -24,6 +24,7 @@ CANONICAL_PAIRS = {
     ("ibkr", "smart_trades"): VOLUME_BASIS_SMART,
     ("ibkr", "fallback"): VOLUME_BASIS_SMART,
     ("ibkr", "venue"): VOLUME_BASIS_NONE,
+    ("massive", "sip_flat_adj"): VOLUME_BASIS_CONSOLIDATED,  # admission, design section 5
 }
 
 
@@ -92,4 +93,12 @@ def test_a_new_source_label_forces_a_basis_decision():
         for pair in LABEL_TO_VENDOR_KIND.values()
         if pair not in VOLUME_BASIS_BY_VENDOR_KIND and pair != DERIVED_PAIR
     }
-    assert unmapped == {("ibkr", "continuous"), ("ibkr", "official"), ("ibkr", "generic")}
+    # Massive's two raw kinds are never canonical either: its selected rows carry sip_flat_adj,
+    # which is the mapped pair.
+    assert unmapped == {
+        ("ibkr", "continuous"),
+        ("ibkr", "official"),
+        ("ibkr", "generic"),
+        ("massive", "sip_flat_agg"),
+        ("massive", "sip_flat"),
+    }

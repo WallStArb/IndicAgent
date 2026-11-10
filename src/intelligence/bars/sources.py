@@ -44,6 +44,16 @@ DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"
 SOURCE_ALPACA = "alpaca"
 ROUTE_ALPACA = "ALPACA"
 
+# Massive flat files (design docs/plans/2026-11-10-massive-admission-db-design.md section 3): one
+# label per served basis, because a label maps to exactly one (vendor, kind). SOURCE_MASSIVE is
+# also the vendor name, as SOURCE_ALPACA is, and labels the minute aggregates cut to the NYSE
+# regular session and aggregated to 5m by our reader; SOURCE_MASSIVE_DAY labels the served day
+# aggregate. Both are unadjusted. ROUTE_MASSIVE is the route evidence of a massive observation, as
+# ROUTE_ALPACA is alpaca's.
+SOURCE_MASSIVE = "massive"
+SOURCE_MASSIVE_DAY = "massive_day"
+ROUTE_MASSIVE = "MASSIVE"
+
 # An IBKR SMART TRADES 1d bar the daily rule admitted where the policy's primary source has
 # none: a head before the primary's first bar, or an interior hole within the basis tolerance
 # (plan 185-36, migration 446).

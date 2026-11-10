@@ -40,8 +40,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.intelligence.bars.sources import SOURCE_ALPACA
-from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
+from src.intelligence.bars.massive_flat import read_minute_file
+from src.intelligence.bars.sources import SOURCE_ALPACA, SOURCE_MASSIVE
+from src.intelligence.bars.vendor_kind import (
+    ALPACA_RAW_ADJUSTMENT,
+    KIND_MASSIVE_5M,
+    alpaca_kind_for_feed,
+)
 
 #: Vendor stamp floors by timeframe vocabulary (a statistic definition of
 #: the grid, not an APR tunable).
@@ -148,8 +153,39 @@ ALPACA_5M = VendorIngress(
     kind=alpaca_kind_for_feed("sip", ALPACA_RAW_ADJUSTMENT),
 )
 
+
+def _read_massive_5m(
+    artifact_dir: Path, symbols: list[str] | None = None
+) -> dict[str, pd.DataFrame]:
+    """Massive minute day files under ``artifact_dir`` (any ``YYYY/MM`` nesting) -> canonical 5m
+    frames, one per symbol across every file found, cut to the regular session by
+    ``massive_flat``. ``symbols`` restricts the read so a subset run holds only its own frames."""
+    parts: dict[str, list[pd.DataFrame]] = {}
+    for path in sorted(artifact_dir.rglob("*.csv.gz")):
+        for symbol, frame in read_minute_file(path).frames(symbols).items():
+            parts.setdefault(symbol, []).append(frame)
+    return {symbol: pd.concat(frames, ignore_index=True) for symbol, frames in parts.items()}
+
+
+def _massive_5m_answered_at(artifact_dir: Path, symbol: str) -> datetime:
+    """Seam: the vendor's LastModified from ``data/massive/manifest/servetimes_*.jsonl``, joined
+    to the downloader manifest on ETag (design section 4). The pure join lands with the
+    downloader's serve-time change; until then a load must fail loudly, never guess a time."""
+    raise NotImplementedError("massive serve-time join not landed (design section 4)")
+
+
+MASSIVE_5M = VendorIngress(
+    source=SOURCE_MASSIVE,
+    timeframe="5m",
+    artifact_dir=Path("data/massive/files/minute_aggs_v1"),
+    read_artifacts=_read_massive_5m,
+    answered_at=_massive_5m_answered_at,
+    kind=KIND_MASSIVE_5M,
+)
+
 _INGRESSES: dict[tuple[str, str], VendorIngress] = {
     (ALPACA_5M.source, ALPACA_5M.timeframe): ALPACA_5M,
+    (MASSIVE_5M.source, MASSIVE_5M.timeframe): MASSIVE_5M,
 }
 
 

@@ -34,6 +34,7 @@ carry volume 0 when its summed fractional volume rounds below one share.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
@@ -80,8 +81,9 @@ class FlatBars:
     def __len__(self) -> int:
         return len(self.t_ns)
 
-    def frames(self) -> dict[str, pd.DataFrame]:
-        """Per-ticker canonical ``t, o, h, l, c, v`` frames (the ``VendorIngress`` contract)."""
+    def frames(self, symbols: Collection[str] | None = None) -> dict[str, pd.DataFrame]:
+        """Per-ticker canonical ``t, o, h, l, c, v`` frames (the ``VendorIngress`` contract),
+        restricted to ``symbols`` when given."""
         out: dict[str, pd.DataFrame] = {}
         if len(self) == 0:
             return out
@@ -89,7 +91,10 @@ class FlatBars:
         ends = np.r_[starts[1:], len(self)]
         stamps = pd.to_datetime(self.t_ns, unit="ns", utc=True)
         for start, end in zip(starts, ends, strict=True):
-            out[str(self.tickers[self.ticker_index[start]])] = pd.DataFrame(
+            name = str(self.tickers[self.ticker_index[start]])
+            if symbols is not None and name not in symbols:
+                continue
+            out[name] = pd.DataFrame(
                 {
                     "t": stamps[start:end],
                     "o": self.open[start:end],
