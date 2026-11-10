@@ -432,22 +432,31 @@ def test_a_listed_bad_bar_that_is_not_stored_refuses_the_quarantine(tmp_path, mo
 
 
 def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
-    # FXY 2008-09-24 (a 10x high) left the list when the isolated_wick scrub rule took the
-    # class over (todo 594): one mechanism per class.
+    # The list changes only through review. Structure, not a frozen literal: every bar's
+    # evidence cites the todo that reviewed it, no (symbol, date) appears twice, the pinned
+    # core from 587 and 592 is always present, and the count matches the reviewed-batch
+    # constant (bump it in the same review commit that adds bars; the 592 sweep's 123
+    # single-bar-reversal quarantines took it to 131 on 2026-11-10).
+    import re
+
     bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
-    assert sorted(bad) == sorted(
-        [
-            ("FTNT", date(2014, 1, 10)),
-            ("CMCSA", date(2017, 2, 17)),
-            ("CDE", date(2008, 11, 18)),
-            ("CME", date(2008, 7, 14)),
-            ("OKE", date(2005, 4, 13)),
-            ("NEXN", date(2025, 2, 18)),
-            # Todo 592 (2026-11-09): the MVBF doubled bar and the UHAL tenth-scale bar.
-            ("MVBF", date(2014, 4, 2)),
-            ("UHAL", date(2022, 11, 9)),
-        ]
-    )
+    pinned_core = {
+        ("FTNT", date(2014, 1, 10)),
+        ("CMCSA", date(2017, 2, 17)),
+        ("CDE", date(2008, 11, 18)),
+        ("CME", date(2008, 7, 14)),
+        ("OKE", date(2005, 4, 13)),
+        ("NEXN", date(2025, 2, 18)),
+        ("MVBF", date(2014, 4, 2)),
+        ("UHAL", date(2022, 11, 9)),
+    }
+    assert pinned_core <= set(bad)
+    assert len(bad) == len(set(bad)), "duplicate (symbol, date) in the bad-bars list"
+    assert len(bad) == 131, "bump the reviewed count in the same review commit"
+    rows = audit.OPERATOR_BAD_BARS.read_text().splitlines()[1:]
+    assert len(rows) == 131
+    uncited = [row.split(",")[0] for row in rows if not re.search(r"todo \d{3}", row)]
+    assert not uncited, f"bars with no todo citation in their evidence: {uncited}"
 
 
 def _write_bad_bars(tmp_path):
