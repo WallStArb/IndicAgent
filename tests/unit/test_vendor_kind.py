@@ -223,8 +223,6 @@ def test_massive_ingress_row():
 
     row = vendor_ingress("massive", "5m")
     assert row.kind == "sip_flat_agg" and row.artifact_dir.name == "minute_aggs_v1"
-    with pytest.raises(NotImplementedError):
-        row.answered_at(row.artifact_dir, "AAPL")
 
 
 def test_reconciliation_5m_join_maps_canonical_kind_back_to_raw():

@@ -85,7 +85,8 @@ def main() -> int:
             # the artifact's recorded fetch time: an old artifact never overwrites a newer serve
             answered_at = ingress.answered_at(artifact_dir, symbol)
             try:
-                check_answered_at(answered_at, frame, max_lag=max_lag, where=symbol)
+                if ingress.check_lag:
+                    check_answered_at(answered_at, frame, max_lag=max_lag, where=symbol)
             except ValueError as error:
                 print(f"{symbol}: refused: {error}", flush=True)
                 refused.append(symbol)

@@ -31,6 +31,7 @@ bound, is refused, so a re-stamped old artifact cannot pass as a fresh serve.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,10 +41,16 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.intelligence.bars.massive_flat import read_minute_file
+from src.intelligence.bars.massive_flat import (
+    file_trading_date,
+    read_day_file,
+    read_minute_file,
+    session_bounds_ns,
+)
 from src.intelligence.bars.sources import SOURCE_ALPACA, SOURCE_MASSIVE
 from src.intelligence.bars.vendor_kind import (
     ALPACA_RAW_ADJUSTMENT,
+    KIND_MASSIVE_1D,
     KIND_MASSIVE_5M,
     alpaca_kind_for_feed,
 )
@@ -73,6 +80,9 @@ class VendorIngress:
     read_artifacts: Callable[[Path, list[str] | None], dict[str, pd.DataFrame]]
     answered_at: Callable[[Path, str], datetime]
     kind: str
+    # False for a vendor whose answer time is checked inside ``answered_at`` itself (Massive: the
+    # manifest record), so the loader skips the Alpaca-shaped lag bound (``check_answered_at``).
+    check_lag: bool = True
 
 
 def _read_alpaca_5m(
@@ -154,38 +164,99 @@ ALPACA_5M = VendorIngress(
 )
 
 
-def _read_massive_5m(
-    artifact_dir: Path, symbols: list[str] | None = None
-) -> dict[str, pd.DataFrame]:
-    """Massive minute day files under ``artifact_dir`` (any ``YYYY/MM`` nesting) -> canonical 5m
-    frames, one per symbol across every file found, cut to the regular session by
-    ``massive_flat``. ``symbols`` restricts the read so a subset run holds only its own frames."""
-    parts: dict[str, list[pd.DataFrame]] = {}
-    for path in sorted(artifact_dir.rglob("*.csv.gz")):
-        for symbol, frame in read_minute_file(path).frames(symbols).items():
-            parts.setdefault(symbol, []).append(frame)
-    return {symbol: pd.concat(frames, ignore_index=True) for symbol, frames in parts.items()}
+#: The downloader's manifest (one JSON record per download; the latest record of a key is its
+#: current state) and the files root its ``path`` field is relative to.
+MASSIVE_MANIFEST = Path("data/massive/manifest/manifest.jsonl")
+MASSIVE_FILES_ROOT = Path("data/massive/files")
 
 
-def _massive_5m_answered_at(artifact_dir: Path, symbol: str) -> datetime:
-    """Seam: the vendor's LastModified from ``data/massive/manifest/servetimes_*.jsonl``, joined
-    to the downloader manifest on ETag (design section 4). The pure join lands with the
-    downloader's serve-time change; until then a load must fail loudly, never guess a time."""
-    raise NotImplementedError("massive serve-time join not landed (design section 4)")
+def massive_day_file(artifact: Path) -> Path:
+    """The one day file a Massive ingress call loads. Serve time is per file, not per symbol, so
+    a call never spans files: a directory is accepted only when it holds exactly one."""
+    if artifact.is_file():
+        return artifact
+    files = sorted(artifact.rglob("*.csv.gz"))
+    if len(files) != 1:
+        raise ValueError(
+            f"{artifact}: a massive load takes one day file per call, found {len(files)}"
+        )
+    return files[0]
+
+
+def manifest_record(day_file: Path, manifest: Path = MASSIVE_MANIFEST) -> dict:
+    """The latest manifest record of a day file, matched on its ``dataset/YYYY/MM/name`` path;
+    ValueError when the manifest has none. The file bytes are not re-hashed here."""
+    wanted = "/".join(day_file.parts[-4:])
+    found: dict | None = None
+    with manifest.open() as handle:
+        for line in handle:
+            record = json.loads(line)
+            if record["path"] == wanted:
+                found = record
+    if found is None:
+        raise ValueError(f"{day_file}: no manifest record for {wanted}")
+    return found
+
+
+def massive_answered_at(artifact: Path, symbol: str, manifest: Path = MASSIVE_MANIFEST) -> datetime:
+    """When the vendor served a day file: the manifest record's LastModified (UTC).
+
+    Fails loudly, never guesses: the record needs an etag and a last_modified, LastModified must
+    be after the file's NYSE session close (a file cannot be complete before its day ends) and at
+    or before the download. A historical file is legitimately served years after its day, so
+    there is no lag bound. ``symbol`` is unused: the answer time belongs to the file."""
+    day_file = massive_day_file(artifact)
+    record = manifest_record(day_file, manifest)
+    if not record.get("etag") or not record.get("last_modified"):
+        raise ValueError(f"{day_file}: manifest record has no etag or last_modified")
+    served = datetime.fromisoformat(record["last_modified"].replace("Z", "+00:00")).astimezone(UTC)
+    downloaded = datetime.fromisoformat(record["downloaded_at"]).astimezone(UTC)
+    _open_ns, close_ns = session_bounds_ns(file_trading_date(day_file))
+    if served <= datetime.fromtimestamp(close_ns / 1_000_000_000, UTC):
+        raise ValueError(f"{day_file}: LastModified {served.isoformat()} is not after the session")
+    if served > downloaded:
+        raise ValueError(
+            f"{day_file}: LastModified {served.isoformat()} is after the download "
+            f"{downloaded.isoformat()}"
+        )
+    return served
+
+
+def _read_massive_5m(artifact: Path, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    """One Massive minute day file -> canonical 5m frames per symbol, cut to the regular session
+    by ``massive_flat``. ``symbols`` restricts the read to a subset run's own names."""
+    return read_minute_file(massive_day_file(artifact)).frames(symbols)
+
+
+def _read_massive_1d(artifact: Path, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    """One Massive day aggregate file as served (unadjusted) -> canonical 1d frames."""
+    return read_day_file(massive_day_file(artifact)).frames(symbols)
 
 
 MASSIVE_5M = VendorIngress(
     source=SOURCE_MASSIVE,
     timeframe="5m",
-    artifact_dir=Path("data/massive/files/minute_aggs_v1"),
+    artifact_dir=MASSIVE_FILES_ROOT / "minute_aggs_v1",
     read_artifacts=_read_massive_5m,
-    answered_at=_massive_5m_answered_at,
+    answered_at=massive_answered_at,
     kind=KIND_MASSIVE_5M,
+    check_lag=False,
+)
+
+MASSIVE_1D = VendorIngress(
+    source=SOURCE_MASSIVE,
+    timeframe="1d",
+    artifact_dir=MASSIVE_FILES_ROOT / "day_aggs_v1",
+    read_artifacts=_read_massive_1d,
+    answered_at=massive_answered_at,
+    kind=KIND_MASSIVE_1D,
+    check_lag=False,
 )
 
 _INGRESSES: dict[tuple[str, str], VendorIngress] = {
     (ALPACA_5M.source, ALPACA_5M.timeframe): ALPACA_5M,
     (MASSIVE_5M.source, MASSIVE_5M.timeframe): MASSIVE_5M,
+    (MASSIVE_1D.source, MASSIVE_1D.timeframe): MASSIVE_1D,
 }
 
 
