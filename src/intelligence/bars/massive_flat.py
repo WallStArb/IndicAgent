@@ -20,14 +20,24 @@ Minute reader, in this order (design section 4):
 5. ``transactions`` is not loaded.
 
 Prices are as served (unadjusted); the adjustment basis is a selection concern (section 5).
+
+Loud failures (a file is never silently emptied): a file with rows but no in-session minute, a
+row outside the 04:00 to 20:00 ET (inclusive) extended-hours window of its trading date (a mis-dated file),
+a duplicate (ticker, window_start), a null, or a volume past 6 decimals.
+
+Definitions worth knowing: the session open is floored to the 5m grid by ``nyse_sessions`` (the
+delayed 09:32 open of 2006-12-27 cuts at 09:30 and the first bar is the first trade); the last
+bucket of an irregular close (15:56 on 2005-06-01) holds only the in-session minutes; a bar can
+carry volume 0 when its summed fractional volume rounds below one share.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -46,6 +56,7 @@ _FLOAT_REL_TOL = 4e-16
 #: Columns read from a minute or day file (``transactions`` is deliberately absent).
 _PRICE_COLUMNS = ("open", "high", "low", "close")
 _READ_COLUMNS = ("ticker", "volume", *_PRICE_COLUMNS, "window_start")
+_SESSION_TZ = ZoneInfo("America/New_York")
 _FILE_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})\.csv\.gz$")
 
 
@@ -158,6 +169,8 @@ def aggregate_minutes_to_5m(
     Inputs may arrive in any order and are sorted here. ``(ticker, window_start)`` must be unique.
     """
     in_session = (window_start_ns >= session_open_ns) & (window_start_ns < session_close_ns)
+    if len(window_start_ns) and not in_session.any():
+        raise ValueError("rows but no in-session minute: a mis-dated or non-session file")
     traded = in_session & (volume_micro > 0)
     n_untraded = int(np.count_nonzero(in_session & ~traded))
     keep = np.flatnonzero(traded)
@@ -199,6 +212,17 @@ def session_bounds_ns(trading_date: date) -> tuple[int, int]:
     return int(open_dt.timestamp()) * 1_000_000_000, int(close_dt.timestamp()) * 1_000_000_000
 
 
+def extended_bounds_ns(trading_date: date) -> tuple[int, int]:
+    """UTC nanoseconds of the first and last minute starts an extended-hours file can hold: 04:00
+    and 20:00 ET, both inclusive (the archive has late prints stamped exactly 20:00 ET)."""
+
+    def at(hour: int) -> int:
+        stamp = datetime.combine(trading_date, time(hour), tzinfo=_SESSION_TZ)
+        return int(stamp.timestamp()) * 1_000_000_000
+
+    return at(4), at(20)
+
+
 def file_trading_date(path: Path) -> date:
     """The trading date a ``YYYY-MM-DD.csv.gz`` flat file is named for."""
     match = _FILE_DATE.search(path.name)
@@ -214,10 +238,14 @@ def read_minute_file(path: Path, trading_date: date | None = None) -> FlatBars:
     table = _read_table(path)
     names, codes = _codes(table)
     open_ns, close_ns = session_bounds_ns(day)
+    first_ns, last_ns = extended_bounds_ns(day)
+    stamps = table["window_start"].to_numpy()
+    if len(stamps) and (stamps.min() < first_ns or stamps.max() > last_ns):
+        raise ValueError(f"{path}: rows outside the 04:00 to 20:00 ET window of {day}")
     return aggregate_minutes_to_5m(
         names,
         codes,
-        table["window_start"].to_numpy(),
+        stamps,
         table["open"].to_numpy(),
         table["high"].to_numpy(),
         table["low"].to_numpy(),
@@ -229,9 +257,9 @@ def read_minute_file(path: Path, trading_date: date | None = None) -> FlatBars:
 
 
 def read_day_file(path: Path) -> FlatBars:
-    """One ``day_aggs_v1`` file as served (unadjusted, ``window_start`` as served, one row per
-    ticker). Volume stays exactly as served, rounded half to even to an integer by the same rule
-    as the minute reader; nothing is cut or aggregated."""
+    """One ``day_aggs_v1`` file as served except volume, rounded half to even to whole shares by
+    the same rule as the minute reader (the archived file keeps the served float). Unadjusted,
+    ``window_start`` as served, one row per ticker; nothing is cut or aggregated."""
     path = Path(path)
     table = _read_table(path)
     names, codes = _codes(table)

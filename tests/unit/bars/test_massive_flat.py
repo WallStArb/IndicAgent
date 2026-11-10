@@ -123,8 +123,27 @@ class TestDefinitions:
         assert str(frame["t"].dt.tz) == "UTC"
         assert frame["t"].iloc[0].isoformat() == "2024-06-11T13:30:00+00:00"
 
-    def test_empty_session_gives_no_bars(self):
-        assert len(_minutes([("A", -5, 1, 1, 1, 1, 1)])) == 0
+    def test_rows_with_no_in_session_minute_raise(self):
+        with pytest.raises(ValueError, match="no in-session minute"):
+            _minutes([("A", -5, 1, 1, 1, 1, 1)])
+
+    def test_session_of_only_untraded_minutes_gives_no_bars(self):
+        bars = _minutes([("A", 0, 1, 1, 1, 1, 0)])
+        assert (len(bars), bars.n_untraded_rows) == (0, 1)
+
+    def test_extended_window_is_04_to_20_et(self):
+        first, last = mf.extended_bounds_ns(date(2024, 6, 11))
+        assert str(np.datetime64(first, "ns")) == "2024-06-11T08:00:00.000000000"
+        assert str(np.datetime64(last, "ns")) == "2024-06-12T00:00:00.000000000"
+
+    def test_mis_dated_file_raises(self, tmp_path):
+        src = ROOT / "minute_aggs_v1" / "2024/06/2024-06-11.csv.gz"
+        if not src.exists():
+            pytest.skip("minute file not in this checkout")
+        wrong = tmp_path / "2024-06-12.csv.gz"
+        wrong.write_bytes(src.read_bytes())
+        with pytest.raises(ValueError, match="outside the 04:00 to 20:00 ET window"):
+            mf.read_minute_file(wrong)
 
     def test_session_bounds_regular_early_and_irregular_close(self):
         def hm(day, which):
