@@ -1249,7 +1249,9 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _POOL_LOOKBACK,
         _compute_pools_columns,
-        zero_is_state=frozenset({"bsl_touches", "pool_count", "ssl_touches"}),
+        # the two sets coincide (round 8): every count is 0.0-measured where detection ran
+        # and NaN when its ATR-scaled tolerance could not run
+        zero_is_state=_POOLS_ATR_GATED_STATE,
         atr_gated_state=_POOLS_ATR_GATED_STATE,
     ),
     _stateless(
@@ -1258,7 +1260,7 @@ KERNELS = (
         ("open", "high", "low", "close", ATR_RAW_PADDED, _FVG_MIDPOINT, _PRICE_IN_PREMIUM),
         _ZONE_LOOKBACK,
         _compute_zones_columns,
-        zero_is_state=frozenset({"active_demand_zones", "active_supply_zones"}),
+        zero_is_state=_ZONES_ATR_GATED_STATE,
         atr_gated_state=_ZONES_ATR_GATED_STATE,
     ),
     _stateless(

@@ -95,7 +95,7 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
 Named decision before the rerun (round 7 review, 2026-11-10): the event columns'
 none-mask counts every hole-censored row present-and-NaN (the ruled knowability intent), so G6's
 null share for `bars_since_extreme_move_*` absorbs the corpus's hole density. On hole-dense
-pre-2016 IBKR 5m spans that share can exceed `alpha.max_null_fraction` and fail `feature_complete`
+pre-2016 IBKR 5m spans that share can exceed `infra.corpus_rerun.max_null_fraction` and fail `feature_complete`
 loudly - the design, not a defect. The pilot measures the actual failure volume on real units
 before the full stages run; if hole-era names fail in numbers, the answer is a per-era floor
 amendment through the methodology ledger, never a mask change.

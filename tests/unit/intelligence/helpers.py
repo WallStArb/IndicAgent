@@ -5,8 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.intelligence.features.contract.registry import discover_kernels
-
 
 def make_ohlcv(close: np.ndarray, volume: np.ndarray | None = None) -> pd.DataFrame:
     """Build OHLCV DataFrame from close array with synthetic high/low/open."""
@@ -63,6 +61,9 @@ def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period:
 # count is NaN (present, unmeasured), not a measured empty set (186-31 review round 6).
 # Derived from the registry's atr_gated_state declarations (the single source, round 7); the
 # compute side names the same keys in invalid_input_fallback's nan_state_keys.
+# default_registry() (lru_cached) keeps the test constant the same instance production uses.
+from src.intelligence.features.contract.registry import default_registry
+
 ATR_GATED_COUNT_COLUMNS = frozenset().union(
-    *(kernel.atr_gated_state for kernel in discover_kernels().kernels)
+    *(kernel.atr_gated_state for kernel in default_registry().kernels)
 )

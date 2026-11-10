@@ -308,6 +308,13 @@ class KernelRegistry:
                         f"kernel {_where(kernel)} declares {field_name} {sorted(stray)}, which "
                         "are not among its outputs"
                     )
+            ungated = kernel.atr_gated_state - kernel.zero_is_state
+            if ungated:
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} declares atr_gated_state {sorted(ungated)} outside "
+                    "zero_is_state (the contract tests' exemption and the G3 fill audit's skip "
+                    "both key on zero_is_state membership)"
+                )
             if kernel.path_dependent and not kernel.path_dependent_reason.strip():
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} is path_dependent without a path_dependent_reason"

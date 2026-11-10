@@ -1409,8 +1409,9 @@ KERNELS = (
         # sr_level_count stays 0.0 where the detection ran and found no level (a measured
         # empty set; D1 rule 4, todo 584 4c) and NaN on an invalid ATR, whose tolerance
         # makes the clustering itself unmeasurable (see invalid_input_fallback's
-        # nan_state_keys). Every other output is NaN/None there (group 4).
-        zero_is_state=frozenset({"sr_level_count"}),
+        # nan_state_keys); the sets coincide (round 8). Every other output is NaN/None
+        # there (group 4).
+        zero_is_state=_SR_ATR_GATED_STATE,
         atr_gated_state=_SR_ATR_GATED_STATE,
         object_dependent=SR.nullable,  # no qualifying level cluster in the window
     ),
