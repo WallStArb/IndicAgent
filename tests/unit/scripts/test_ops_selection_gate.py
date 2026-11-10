@@ -441,3 +441,20 @@ def test_the_unreviewed_flags_are_read_over_the_whole_table():
     ((sql, params),) = cur.sql
     assert "reviewed_at IS NULL" in sql and "symbol =" not in sql
     assert set(params[0]) == {"price_ratio", "volume_ratio", "time_shift"}
+
+
+def test_selected_rows_rescales_an_unadjusted_massive_winner_like_the_writer():
+    from src.intelligence.bars.split_rescale import SplitFactor
+
+    stamp = datetime(2024, 6, 7, 19, 55, tzinfo=UTC)  # last old-scale 5m bar of a 10:1 split
+    policy = PolicyRow("5m", None, date(2020, 1, 1), None, "massive", None)
+    bar = Candidate(
+        stamp, "NVDA", "5m", "massive", "sip_flat_agg", 1200.0, 1210.0, 1190.0, 1205.0, 1000
+    )
+    kinds = {**KIND_ORDER, "sip_flat_agg": 20}
+    rows, _ = gate.selected_rows(
+        [bar], [policy], kinds, splits=[SplitFactor(date(2024, 6, 7), 10.0)]
+    )
+    assert rows[stamp] == (("massive", "sip_flat_adj"), (120.0, 121.0, 119.0, 120.5, 10000))
+    unscaled, _ = gate.selected_rows([bar], [policy], kinds)  # no split row: kind still canonical
+    assert unscaled[stamp] == (("massive", "sip_flat_adj"), (1200.0, 1210.0, 1190.0, 1205.0, 1000))

@@ -40,8 +40,8 @@ same identity it held in ohlcv_raw.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import structlog
@@ -55,6 +55,12 @@ from src.intelligence.bars.selection import (
     session_date,
 )
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
+from src.intelligence.bars.split_rescale import (
+    SplitRow,
+    canonicalize_winners,
+    needs_canonicalization,
+    splits_known_at,
+)
 from src.intelligence.bars.vendor_kind import BAR_VENDORS
 
 DIRECT_TIMEFRAMES = frozenset({"1m", "5m", "4h"}) - DERIVATION_OWNED_TIMEFRAMES
@@ -79,6 +85,19 @@ _READ_RAW_SQL = (
     'AND "timestamp" < %s'
 )
 _ONE_US = timedelta(microseconds=1)
+
+# Every split a series has ever had; the pure `splits_known_at` applies the horizon, so the rule
+# lives in one place (the gate shares both).
+_READ_SPLITS_SQL = (
+    "SELECT effective_date, factor, recorded_at FROM corporate_action_current "
+    "WHERE symbol = %s AND action_type IN ('split', 'reverse_split')"
+)
+
+
+def read_split_rows(cur: Any, symbol: str) -> list[SplitRow]:
+    cur.execute(_READ_SPLITS_SQL, (symbol,))
+    return [SplitRow(*row) for row in cur.fetchall()]
+
 
 logger = structlog.get_logger(__name__)
 
@@ -117,6 +136,8 @@ class SelectionResult:
     sessions_incomplete: int = 0  # sessions no ranked vendor held whole
     dropped: int = 0  # slots left out by the session rule (canonical rows retracted)
     excluded: int = 0  # slots holding only never-selected kinds (reported, not a failure)
+    # the split horizon this run applied; callers record it. Metadata, not part of equality.
+    horizon: datetime | None = field(default=None, compare=False)
 
 
 def _canonical_row(c: Candidate) -> tuple:
@@ -155,12 +176,18 @@ def select_and_write(
     kind_order: Mapping[str, int],
     batch_rows: int,
     exclude: frozenset[datetime] | set[datetime] = frozenset(),
+    horizon: datetime | None = None,
 ) -> SelectionResult:
     """Select the canonical rows of the whole sessions [start, end) touches for `symbols` from
     ohlcv_raw and write them (module docstring). `exclude` names stamps left exactly as they
     are (a repair's slots awaiting a re-serve): neither written nor retracted. `policy_rows`
     None reads each series' policy under its selection lock (the ingress path: a cached policy
     could predate a --reselect that committed while this caller waited for the lock).
+
+    `horizon` pins the splits an unadjusted Massive winner is rescaled by (recorded by then and
+    executed by its date; `splits_known_at`). It is resolved once at call start (default now) and
+    returned in the result, so a caller records it and `ops_selection_gate --compare --horizon`
+    replays the same factors.
 
     Raises ValueError for a timeframe other than 1m, 5m or 4h and LookupError when a held slot
     has no policy row (nothing for that symbol is written before the raise).
@@ -172,6 +199,7 @@ def select_and_write(
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
+    horizon = horizon if horizon is not None else datetime.now(UTC)  # resolved once per call
     n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = n_excluded = 0
     n_fallback = n_incomplete = n_dropped = 0
     start, end = session_window(start, end)
@@ -214,6 +242,9 @@ def select_and_write(
                 cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, vendors))
                 n_dropped += cur.rowcount
             winners = [w for w in outcome.winners if w.timestamp not in exclude]
+            if needs_canonicalization(winners):
+                splits = splits_known_at(read_split_rows(cur, symbol), horizon)
+                winners = canonicalize_winners(winners, {symbol: splits})
             if not winners:
                 continue
             cur.execute(_READ_CANONICAL_SQL, (symbol, timeframe, start, end))
@@ -247,6 +278,7 @@ def select_and_write(
         n_incomplete,
         n_dropped,
         n_excluded,
+        horizon,
     )
 
 

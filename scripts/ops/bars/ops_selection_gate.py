@@ -72,7 +72,11 @@ sys.path.insert(0, str(project_root))
 
 import psycopg  # noqa: E402
 
-from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
+from services.bar_selection import (  # noqa: E402
+    DIRECT_TIMEFRAMES,
+    read_split_rows,
+    select_and_write,
+)
 from services.ohlcv_ingress_contract import read_unreviewed_basis  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
@@ -82,9 +86,16 @@ from src.intelligence.bars.selection import (  # noqa: E402
     select_slots,
     session_date,
 )
+from src.intelligence.bars.split_rescale import (  # noqa: E402
+    SplitFactor,
+    canonicalize_winners,
+    needs_canonicalization,
+    splits_known_at,
+)
 from src.intelligence.bars.vendor_kind import (  # noqa: E402
     LABEL_TO_VENDOR_KIND,
     VENDOR_DERIVED,
+    VENDOR_MASSIVE,
 )
 
 _LOG_DIR = project_root / "logs"
@@ -229,16 +240,23 @@ def selected_rows(
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
     choices_out: list[ChoiceRecord] | None = None,
+    splits: Sequence[SplitFactor] = (),
 ) -> tuple[dict[datetime, Row], dict[str, int]]:
     """The rows the live writer would write: winners with a volume (a NULL-volume winner is
     skipped and counted, as bar_selection does), one vendor per session. `choices_out` receives
-    the session choices as the rows bar_session_choice must hold."""
+    the session choices as the rows bar_session_choice must hold. An unadjusted Massive winner
+    is rescaled by `splits` (the series' splits known at the run's horizon) into the canonical
+    sip_flat_adj row, exactly as the writer does; the series is one symbol."""
     outcome = select_slots(candidates, policy_rows, kind_order)
+    winners = outcome.winners
+    if needs_canonicalization(winners):
+        symbols = {w.symbol for w in winners}
+        winners = canonicalize_winners(winners, {symbol: splits for symbol in symbols})
     if choices_out is not None:
         choices_out.extend(choice_record(c) for c in outcome.choices)
     rows: dict[datetime, Row] = {}
     skipped = 0
-    for w in outcome.winners:
+    for w in winners:
         if w.volume is None:
             skipped += 1
             continue
@@ -878,6 +896,7 @@ def candidate_policy(paths: Sequence[str]) -> list[PolicyRow]:
 
 def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     diffs: list[SeriesDiff] = []
+    horizon = args.horizon or datetime.now(UTC)  # resolved once; --horizon replays a run
     with conn.cursor() as cur:
         introspect_target(cur, args.target)
         policy = read_policy(cur) + candidate_policy(args.with_spans)
@@ -894,6 +913,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
         "with_spans": list(args.with_spans),
         "n_symbols": len(symbols),
         "started": _stamp(),
+        "horizon": horizon.isoformat(),
     }
     for n, symbol in enumerate(symbols, 1):
         for timeframe in args.timeframes:
@@ -903,11 +923,18 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates and not unmapped:
                     continue
+                splits = (
+                    splits_known_at(read_split_rows(cur, symbol), horizon)
+                    if any(c.vendor == VENDOR_MASSIVE for c in candidates)
+                    else []
+                )
                 cur.execute(_CHOICES_SQL, (symbol, timeframe))
                 recorded = [tuple(r) for r in cur.fetchall()]
             conn.rollback()
             expected: list[ChoiceRecord] = []
-            selected, counts = selected_rows(candidates, policy, kind_order, choices_out=expected)
+            selected, counts = selected_rows(
+                candidates, policy, kind_order, choices_out=expected, splits=splits
+            )
             diff = compare_series(
                 symbol,
                 timeframe,
@@ -1221,6 +1248,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--apply", action="store_true", help="--apply-spans: write (default dry run)"
+    )
+    parser.add_argument(
+        "--horizon",
+        type=datetime.fromisoformat,
+        default=None,
+        help="--compare: the split horizon (timezone-aware ISO time) to replay; default now",
     )
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--idempotence-names", type=int, default=25)

@@ -4,7 +4,8 @@ Design: docs/plans/2026-11-10-massive-admission-db-design.md section 5. Raw stor
 served; canonical holds split-adjusted prices, so selection rescales a Massive winner by the
 recorded splits and gives it the canonical kind `sip_flat_adj`. Pure Ring 1: arrays and
 dataclasses in, the same out, no database. Which split rows are passed (the `recorded_at` horizon,
-the announcement-time rule) is the caller's contract; this module only applies the arithmetic.
+the announcement-time rule) is the caller's contract (`splits_known_at`); this module applies the
+arithmetic.
 
 The arithmetic is the daily rule's (d2-v5 `split_scale`, and the lineage view it must stay
 bit-exact with): a split's `effective_date` is the last session on the old scale, so every bar
@@ -19,9 +20,9 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, datetime
 
-from src.intelligence.bars.selection import Candidate, session_date
+from src.intelligence.bars.selection import SESSION_TZ, Candidate, session_date
 from src.intelligence.bars.vendor_kind import (
     KIND_MASSIVE_1D,
     KIND_MASSIVE_5M,
@@ -42,6 +43,37 @@ class SplitFactor:
 
     effective_date: date
     factor: float
+
+
+@dataclass(frozen=True)
+class SplitRow:
+    """A corporate_action_current split row as read: the factor and when it was recorded."""
+
+    effective_date: date
+    factor: float
+    recorded_at: datetime
+
+
+def splits_known_at(rows: Iterable[SplitRow], horizon: datetime) -> list[SplitFactor]:
+    """The splits a selection run pinned at `horizon` may apply. A row counts when it was
+    recorded by the horizon (the corporate_action table is append-only, so the same horizon
+    always selects the same rows) and its effective_date is not after the horizon's New York
+    date: a split not yet executed at the horizon must not rescale history, because the real
+    prices at the horizon are still pre-split. No declaration date exists in the data, so a
+    rebuild is an as-of-horizon snapshot (design section 5, limitation)."""
+    if horizon.tzinfo is None:
+        raise ValueError("horizon must be timezone-aware")
+    last_executed = horizon.astimezone(SESSION_TZ).date()
+    return [
+        SplitFactor(row.effective_date, row.factor)
+        for row in rows
+        if row.recorded_at <= horizon and row.effective_date <= last_executed
+    ]
+
+
+def needs_canonicalization(winners: Iterable[Candidate]) -> bool:
+    """True when any winner is an unadjusted Massive row (so the splits must be read)."""
+    return any((c.vendor, c.kind) in _UNADJUSTED_RAW_KINDS for c in winners)
 
 
 def scales_for_sessions(days: Iterable[date], splits: Sequence[SplitFactor]) -> dict[date, float]:

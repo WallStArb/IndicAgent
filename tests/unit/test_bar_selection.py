@@ -108,8 +108,8 @@ def test_lower_ranked_arrival_changes_nothing():
 
 
 class FakeCursor:
-    def __init__(self, raw, canonical):
-        self.raw, self.canonical = raw, canonical
+    def __init__(self, raw, canonical, splits=()):
+        self.raw, self.canonical, self.splits = raw, canonical, list(splits)
         self.executed: list[tuple[str, list]] = []
         self._result: list[tuple] = []
 
@@ -137,6 +137,8 @@ class FakeCursor:
                 )
                 for c in self.raw
             ]
+        elif "FROM corporate_action_current" in sql:
+            self._result = self.splits
         elif "FROM market_data_ohlcv" in sql:
             self._result = self.canonical
         else:
@@ -147,8 +149,8 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, raw, canonical=()):
-        self.cur = FakeCursor(raw, list(canonical))
+    def __init__(self, raw, canonical=(), splits=()):
+        self.cur = FakeCursor(raw, list(canonical), splits)
 
     def cursor(self):
         return self.cur
@@ -505,3 +507,81 @@ def test_a_fallback_by_absence_records_zero_primary_slots():
     ibkr = [_slot(i, "ibkr") for i in range(70)]
     (choice,) = select_slots(alpaca + ibkr, [DEFAULT], KIND_ORDER).choices
     assert choice.fallback and choice.n_primary_grid_slots == 70
+
+
+# --- Massive: unadjusted raw becomes the split-adjusted canonical row ---------------------------
+
+MASSIVE_POLICY = PolicyRow("5m", None, date(2020, 1, 1), None, "massive", None)
+MASSIVE_KINDS = {**KIND_ORDER, "sip_flat_agg": 20}
+# 2024-06-07 15:55 ET: the last 5m bar on the old scale of an NVDA-style 10:1 split
+OLD_BAR = datetime(2024, 6, 7, 19, 55, tzinfo=UTC)
+SPLIT_ROW = (date(2024, 6, 7), 10.0, datetime(2024, 6, 10, 12, 0, tzinfo=UTC))
+
+
+def _massive_conn(splits):
+    bar = Candidate(
+        OLD_BAR, "NVDA", "5m", "massive", "sip_flat_agg", 1200.0, 1210.0, 1190.0, 1205.0, 1000
+    )
+    return FakeConn([bar], splits=splits)
+
+
+def _written(conn):
+    inserts = [p for sql, p in conn.cur.executed if sql.startswith("INSERT INTO market_data_ohlcv")]
+    return inserts[0] if inserts else None
+
+
+def _massive_run(conn, horizon):
+    return select_and_write(
+        conn,
+        symbols=["NVDA"],
+        timeframe="5m",
+        start=OLD_BAR - timedelta(days=1),
+        end=OLD_BAR + timedelta(days=1),
+        policy_rows=[MASSIVE_POLICY],
+        kind_order=MASSIVE_KINDS,
+        batch_rows=1000,
+        horizon=horizon,
+    )
+
+
+def test_massive_winner_is_written_rescaled_with_the_canonical_kind():
+    conn = _massive_conn([SPLIT_ROW])
+    result = _massive_run(conn, datetime(2024, 7, 1, tzinfo=UTC))
+    # (timestamp, symbol, tf, open, high, low, close, volume, vendor, kind)
+    assert _written(conn)[3:] == [120.0, 121.0, 119.0, 120.5, 10000, "massive", "sip_flat_adj"]
+    assert result.horizon == datetime(2024, 7, 1, tzinfo=UTC)
+
+
+def test_horizon_selects_the_factors_and_the_same_horizon_is_bit_identical():
+    before_record = datetime(2024, 6, 9, tzinfo=UTC)  # the split row is recorded 2024-06-10
+    after_record = datetime(2024, 7, 1, tzinfo=UTC)
+    unscaled = _massive_conn([SPLIT_ROW])
+    _massive_run(unscaled, before_record)
+    scaled_a, scaled_b = _massive_conn([SPLIT_ROW]), _massive_conn([SPLIT_ROW])
+    _massive_run(scaled_a, after_record)
+    _massive_run(scaled_b, after_record)
+    assert _written(unscaled)[3:7] == [1200.0, 1210.0, 1190.0, 1205.0]
+    assert _written(scaled_a)[3:7] == [120.0, 121.0, 119.0, 120.5]
+    assert _written(scaled_a) == _written(scaled_b)
+
+
+def test_an_unexecuted_split_does_not_rescale_history():
+    future = (date(2027, 1, 13), 10.0, datetime(2026, 11, 1, tzinfo=UTC))
+    conn = _massive_conn([future])
+    _massive_run(conn, datetime(2026, 11, 10, tzinfo=UTC))
+    assert _written(conn)[3:7] == [1200.0, 1210.0, 1190.0, 1205.0]
+
+
+def test_massive_winner_with_no_split_rows_passes_through_unscaled_but_canonical_kind():
+    # Ordering dependency (design section 5): this is only correct once the split reconciliation
+    # has recorded every split of the name. Step 4's gate runs before the policy switch; nothing
+    # here can tell a missing split from no split, and must not pretend to.
+    conn = _massive_conn([])
+    _massive_run(conn, datetime(2024, 7, 1, tzinfo=UTC))
+    assert _written(conn)[3:] == [1200.0, 1210.0, 1190.0, 1205.0, 1000, "massive", "sip_flat_adj"]
+
+
+def test_splits_are_read_only_when_a_massive_winner_exists():
+    conn = FakeConn([_cand("ibkr", "named")])
+    _run(conn)
+    assert not any("corporate_action_current" in sql for sql, _ in conn.cur.executed)
