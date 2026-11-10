@@ -77,6 +77,9 @@ class FlatBars:
     close: np.ndarray
     volume: np.ndarray
     n_untraded_rows: int = 0
+    # in-session traded minute rows per ticker (aligned with ``tickers``; empty for a day file),
+    # so a loader can balance minutes in against bars out per instrument
+    traded_minutes: np.ndarray | None = None
 
     def __len__(self) -> int:
         return len(self.t_ns)
@@ -179,6 +182,7 @@ def aggregate_minutes_to_5m(
     traded = in_session & (volume_micro > 0)
     n_untraded = int(np.count_nonzero(in_session & ~traded))
     keep = np.flatnonzero(traded)
+    traded_minutes = np.bincount(ticker_index[keep], minlength=len(tickers))
     code, stamp = ticker_index[keep], window_start_ns[keep]
     order = np.lexsort((stamp, code))
     keep, code, stamp = keep[order], code[order], stamp[order]
@@ -191,7 +195,16 @@ def aggregate_minutes_to_5m(
     if len(keep) == 0:
         empty = np.empty(0)
         return FlatBars(
-            tickers, code, bucket, empty, empty, empty, empty, empty.astype(np.int64), n_untraded
+            tickers,
+            code,
+            bucket,
+            empty,
+            empty,
+            empty,
+            empty,
+            empty.astype(np.int64),
+            n_untraded,
+            traded_minutes,
         )
     starts = np.flatnonzero(np.r_[True, (code[1:] != code[:-1]) | (bucket[1:] != bucket[:-1])])
     last = np.r_[starts[1:], len(keep)] - 1
@@ -205,6 +218,7 @@ def aggregate_minutes_to_5m(
         close=close[last],
         volume=round_half_even_microshares(np.add.reduceat(volume_micro, starts)),
         n_untraded_rows=n_untraded,
+        traded_minutes=traded_minutes,
     )
 
 
