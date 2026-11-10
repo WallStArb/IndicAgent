@@ -31,7 +31,7 @@ a sibling session), todo 600, `docs/plans/2026-11-10-massive-admission-db-design
 | Endpoint | Observed | Verdict |
 |---|---|---|
 | `/v3/reference/tickers` | 200, paginated, cik/composite_figi/share_class_figi per row | entitled |
-| `/v3/reference/tickers/{ticker}` | 200 (AAPL sample captured) | entitled |
+| `/v3/reference/tickers/{ticker}` | 200; AAPL sample captured, then swept across all 36,869 tickers (overview, sibling session). The body carries cik, composite and share-class FIGI, sic_code, sic_description, share_class_shares_outstanding, ticker_root, round_lot, primary_exchange | entitled |
 | `/v3/reference/tickers/types` | 200, 25 rows | entitled |
 | `/v3/reference/tickers/events` (bulk) | 404 | not served; per-ticker `/vX/reference/tickers/{t}/events` is 200 and the sibling session swept all 36,869 tickers (13,829 with events) |
 | `/v1/marketstatus/now` | 200 | entitled (the `/v3/reference/marketstatus` path from Polygon docs is 404) |
@@ -93,7 +93,32 @@ all 36,869 tickers. The entity-map raw material todo 600 needs is therefore alre
    ported Polygon client needs that adapter.
 3. Events exist only per ticker; there is no bulk event listing. The universe sweep is the
    only way to refresh the entity map, which makes the month window matter for it.
-4. No locales, SIC codes, last quote, or full-market snapshot. Classification joins stay with
-   our own SCH; there is no Massive substitute for them.
+4. No locales, last quote, or full-market snapshot, and the `/v3/reference/sic` directory is
+   404. SIC codes themselves are served per ticker: the overview sweep carries `sic_code` and
+   `sic_description` on every row, including delisted names, which SCH cannot cover. Massive
+   SIC is a cross-check witness against SCH, never a replacement; classification joins stay
+   with our own SCH.
 5. AAPL details carry `last_updated_utc: null` and the list response carries a real timestamp;
    availability time may need to come from the capture moment itself for details rows.
+
+## Amendment 2026-11-10 (refinement review d386cac3a)
+
+Corrections from `docs/plans/2026-11-10-massive-admission-refinement-review.md`, recorded
+against what was captured:
+
+- Dividends: neither captured family carries a declaration date or the
+  `historical_adjustment_factor` the adjacency register's Massive dividends row claims; the
+  v3 family has `dividend_type`, the bulk family `distribution_type`, both have ex, record
+  and pay dates. The register row's adjustment-factor claim is corrected to match what was
+  served at the quarterly pass. The bulk family includes non-US tickers and currencies
+  (sample: ticker `6866`, JPY); the reference load filters by venue or currency (rule
+  recorded in the admission design, step 3).
+- Float and ratios are snapshot-only: one row per ticker across sampled files, float with
+  `effective_date`, ratios dated 2026-11-09. No served history; a panel can only be built by
+  recapture cadence. The adjacency register gains its float, short-interest, short-volume,
+  ratios and overview rows at the quarterly pass, seeded from the captured schemas, not from
+  memory.
+- Capture layout: the dated directory + `manifest/YYYYMMDD.jsonl` layout is canonical for any
+  future capture; the undated `capture_log.jsonl` + `pageNNNN.json` layout collides on a
+  second run. The manifest line's sha256 carries into reference-row lineage (admission
+  design, sections 6 and 10).
