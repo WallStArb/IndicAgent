@@ -861,12 +861,14 @@ _SELF_COMPLETED = object()  # a handler that completed its own step (data_gate's
 
 
 class CorpusRerun:
-    # The pilot's tf scope, one declaration for the staging calls, the column screen, the
-    # unit list, the compression measures and the G6 expected_tfs (round 8). Unpacked by
-    # name below so a reorder cannot silently swap the daily stage and the hour probe
-    # (round 9).
-    PILOT_TFS = ("1d", "1h")
-    PILOT_DAILY_TF, PILOT_HOURLY_TF = PILOT_TFS
+    # The pilot's tf scope. The scalars are the source of truth (round 10): a scope change
+    # or a test override touches them, and PILOT_TFS derives for the set-semantics consumers
+    # (column screen, unit list, compression measures, G6 expected_tfs). The staging reads
+    # the named scalars, so no tuple order can silently swap the daily stage and the hour
+    # probe.
+    PILOT_DAILY_TF = "1d"
+    PILOT_HOURLY_TF = "1h"
+    PILOT_TFS = (PILOT_DAILY_TF, PILOT_HOURLY_TF)
 
     def __init__(self, run: CorpusRun, store: RunStore, deps: Deps, apr: CorpusRerunApr):
         self.run = run

@@ -127,10 +127,6 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
     # reading, not a broken declaration. Their measured-0.0 contract holds wherever the
     # detection ran and is pinned against the helpers directly in the smc and
     # support-resistance primitive tests.
-    atr_gated = {
-        (kernel.name, column) for kernel in registry.kernels for column in kernel.atr_gated_state
-    }
-
     offenders_missing = []  # finite outside zero_is_state: a fabricated measurement
     offenders_bad_state = []  # inside zero_is_state but not a measured state
     checked = 0
@@ -138,7 +134,7 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
         values = np.asarray(out[column], dtype=float)
         stored = _warmup_slice(registry, config, kernel, values)
         checked += 1
-        if column in kernel.zero_is_state and (kernel.name, column) not in atr_gated:
+        if column in kernel.zero_is_state and column not in kernel.atr_gated_state:
             if np.isinf(stored).any():
                 offenders_bad_state.append((column, kernel.name, "inf"))
             elif (
