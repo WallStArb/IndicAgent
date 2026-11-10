@@ -54,9 +54,11 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 ## Open
 
-1. Offsite object-storage backup of the files and the raw dumps: mandatory before the plan
-   lapses, since the files cannot be replaced afterwards. Waits on the owner's choice of
-   destination.
+1. Backup of the files and the raw dumps, mandatory before the plan lapses (the files cannot be
+   replaced afterwards). Destination (owner 2026-11-10): the owner's second machine (HX370, 64 GB,
+   2 TB), pending setup. Until it is up the archive has one copy. Shape when it is: copy
+   `data/massive/files/` and `data/massive/manifest/` with checksums, then run the downloader's
+   `--verify` against the copy (manifest sha256 is the proof), keep the copy read-only.
 2. The owner's admission call (bundled with the law 528 amendment); no verdict step.
 3. Admission execution per the design doc, section 8.
 4. Deletion list after admission (owner 2026-11-07, strengthened 2026-11-10; Opus review
