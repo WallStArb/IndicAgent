@@ -75,6 +75,7 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `timeframe` | 6 | `market_data_ohlcv_tradeable.timeframe` |
 | `asset_class` | 3 | `instruments.contract_details->>'asset_class'` |
 | `tier` | 3 | `concept_registry.metadata->>'tier'` (`domain='feature'`) |
+| `reference_vendor` | 3 | `reference_raw.vendor` (`massive`, `ibkr`, `openfigi`; migration 587, checked by `services/reference_raw_writer.py` at load) |
 
 Archived-SLA namespaces (`signal_outcome`, `entry_type`, `signal_status`, `session_type`) were explicitly deferred at build time — not seeded, since the tables they'd govern are themselves archived (v2.x, no live consumer).
 
