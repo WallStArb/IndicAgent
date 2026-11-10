@@ -652,7 +652,7 @@ class TestCurlFetchParsing:
     def test_write_out_block_is_parsed_and_the_last_retry_block_wins(self):
         out = b'"aaa"\nMon, 01 Jan 2026 00:00:00 GMT\n"bbb"\nTue, 02 Jan 2026 00:00:00 GMT\n'
         served = md.parse_write_out(out)
-        assert served == md.Served("bbb", "Tue, 02 Jan 2026 00:00:00 GMT")
+        assert served == md.Served("bbb", "2026-01-02T00:00:00Z")
 
     def test_missing_headers_come_back_empty(self):
         assert md.parse_write_out(b"") == md.Served("", "")
@@ -662,11 +662,13 @@ class TestCurlFetchParsing:
 
         def fake_run(args, **kwargs):
             seen["args"] = args
-            return subprocess.CompletedProcess(args, 0, b'"abc"\n2026-03-30T15:50:44.799Z\n', b"")
+            return subprocess.CompletedProcess(
+                args, 0, b'"abc"\nMon, 30 Mar 2026 15:50:44 GMT\n', b""
+            )
 
         monkeypatch.setattr(md.subprocess, "run", fake_run)
         served = md.curl_fetch(cfg, entry_for(), tmp_path / "x.part")
-        assert served == md.Served("abc", "2026-03-30T15:50:44.799Z")
+        assert served == md.Served("abc", "2026-03-30T15:50:44Z")
         assert "--write-out" in seen["args"]
         assert "%header{etag}" in seen["args"][seen["args"].index("--write-out") + 1]
 

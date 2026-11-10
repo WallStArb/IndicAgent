@@ -106,6 +106,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -744,13 +745,22 @@ def gzip_rows(path: Path) -> int:
 WRITE_OUT = "%header{etag}\\n%header{last-modified}\\n"
 
 
+def _http_date_to_iso(value: str) -> str:
+    """The response's HTTP date as the ISO form listing, servetimes and migrated records
+    use, so one manifest holds one format. Empty stays empty (refused later)."""
+    value = value.strip()
+    if not value:
+        return ""
+    return format_iso_ts(parsedate_to_datetime(value).astimezone(UTC))
+
+
 def parse_write_out(stdout: bytes) -> Served:
     """The last two lines of curl's write-out (``--retry`` can print one block per
     attempt; the final block belongs to the transfer that produced the file)."""
     lines = stdout.decode(errors="replace").splitlines()[-2:]
     if len(lines) != 2:
         return Served(etag="", last_modified="")
-    return Served(etag=normalize_etag(lines[0]), last_modified=lines[1].strip())
+    return Served(etag=normalize_etag(lines[0]), last_modified=_http_date_to_iso(lines[1]))
 
 
 def curl_fetch(cfg: S3Config, entry: KeyEntry, dest: Path) -> Served:
