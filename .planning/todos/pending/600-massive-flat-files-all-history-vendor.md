@@ -9,76 +9,64 @@ source: owner ruling 2026-11-07 (reverses the 2026-11-04 decision not to buy pre
 
 ## What
 
-Owner 2026-11-07: "no reason not to have it and use it". Buy the Massive Stocks Advanced plan for one month, download every minute-aggregate flat file (`us_stocks_sip/minute_aggs_v1`, 2003 to present, all symbols, about 80 GB compressed, unadjusted consolidated SIP), and keep all of it. This removes the survivorship caveat for pre-2016 5m and replaces the IBKR bottleneck (about 4 names an hour).
+Owner 2026-11-07: "no reason not to have it and use it". Buy one month of the Massive Stocks
+Advanced plan and keep every flat file. Owner 2026-11-09 sets the scope: both SIP aggregates
+(`us_stocks_sip/minute_aggs_v1`, `us_stocks_sip/day_aggs_v1`) at full depth (2003-09-10) to
+the present day. The files are unadjusted consolidated SIP. They replace the IBKR pre-2016
+bottleneck (about 4 names an hour) and, for the first time, bring in delisted names.
 
-Docs: https://massive.com/docs/flat-files/stocks/minute-aggregates (S3-compatible `files.massive.com`, bucket `flatfiles`, separate S3 key and secret from the dashboard; the `MASSIVE_API_KEY` in `.env` is a free plan and does not open these).
+## State (2026-11-10)
 
-## Plan
+- Plan purchased; the paid S3 key is in `.env` as `MASSIVE_S3_*` (the dashboard
+  `MASSIVE_API_KEY` is separate).
+- Inventory: 5,829 trading days per dataset, minute 86.8 GB and day 1.0 GB. It matches the NYSE
+  calendar with no missing or extra days. Serve times (LastModified, ETag) for every key are
+  in `data/massive/manifest/servetimes_*.jsonl`.
+- Full download running: `scripts/infrastructure/massive/massive_download.py` (07c70a806),
+  into `data/massive/files/`, logging to `logs/massive_download_full.log`.
+- Pilot basis study running under the amended runbook:
+  `docs/plans/2026-11-09-massive-pilot-basis-study.md` (amendment 2026-11-10, A1-A12).
+- Admission design, ruled by the lead: `docs/plans/2026-11-10-massive-admission-db-design.md`.
+  It is the admission-day execution plan, covering the vendor and kinds, the reader, the 5m
+  rescale, the ticker map, the policy switch, and the docs that move with it.
 
-Runbook (pre-registered decision rules, eras, sample, gates): `docs/plans/2026-11-09-massive-pilot-basis-study.md`. Steps below are the outline it details.
+## Rulings in force
 
-1. Owner buys the plan and supplies the S3 key and secret through `.env`. Confirm file layout, size per file and the `window_start` unit (the docs disagree on seconds versus nanoseconds) from a real listing.
-2. Basis study before admission: about 5 days across different years for about 30 names, against IBKR and Alpaca SIP. The 2016 seam matters most.
-3. Archive the raw files unmodified (permanent raw).
-4. Onboard as a vendor per the capture law (528): one `history_leaf`, one `VendorIngress` row, APR seeds. Aggregate 1m to 5m with traded bars only and no fills; load all symbols into `ohlcv_raw` under the new vendor. Load 1m only if a hypothesis needs it, after measuring compressed size on one month.
-5. Ticker to instrument mapping for renamed, reused and delisted symbols, point in time. Research scope still comes from point-in-time universe rules under the onboarding SOP, never from screening on history or returns.
-6. Update `bar_source_policy` so pre-2016 5m selects Massive; IBKR stays as fallback. The survivorship caveat lifts only for spans where Massive is selected.
+- Massive is the yardstick (owner 2026-11-10). Disagreements count as incumbent defects only
+  when a third witness agrees (runbook A4). The gates stay symmetric and pre-registered.
+- Survivorship is measured and disclosed, never a gate (owner 2026-11-10: "there's no better
+  option - its the best choice regardless if 70% or 100%").
+- Raw is a mapped projection: the archived files are the as-served, ticker-keyed record, and
+  a Massive load whose identity premise was wrong can be retracted by load id. This is a law
+  528 amendment that the owner rules on together with the admission verdict.
+- Pre-2016 5m: Massive primary with no default IBKR fallback; IBKR serves only the gap-list
+  names, through symbol rows.
+- Canonical stays split-adjusted: selection rescales Massive rows from `corporate_action_current`,
+  pinned by a recorded-at horizon. Massive's splits endpoint, captured by a parallel lane,
+  is the reconciliation input.
+- Storage (lead 2026-11-09): the vendor files as delivered are the keep-everything artifact;
+  1m loads into raw only if a hypothesis needs it. A Parquet mirror of canonical is a measured
+  decision at the corpus-rerun pilot, not a default build.
+- No corpus compute until the data is complete (2026-11-04). The IBKR 5m backfill runs until
+  admission and stops then.
 
-## Constraints
+## Open
 
-No corpus compute until the data is complete (2026-11-04 ruling); the IBKR backfill keeps running until Massive is admitted. Disk: 715 GB free, database 79 GB (checked 2026-11-07).
-
-## Notes added 2026-11-07
-
-- Recent files: since 2026-02-23 the SIPs report up to six decimal places for share sizes, so `volume` can be fractional in new files (our column is bigint; decide round or a separate column). From 2026-12-06 the SIPs run 23 hours a day, five days a week; canonical 5m stays RTH-only, so cut rows by session.
-- Massive advertises point-in-time ticker details (2021 blog); check its reference endpoints for the ticker-reuse mapping (AKTS, CART, EXE, DOW).
-- Survivorship is inferred, not stated: test that known delisted tickers appear in a 2010 file during the basis study.
-- Simplify after admission (owner 2026-11-07, over-engineering concern; strengthened 2026-11-10 by the owner after the both-aggregates, present-day scope rulings): with whole-market files, completeness is "the file for each trading day exists and parses". If the basis study passes, write a deletion list covering: the IBKR pre-2016 leg (todo 534 campaign and its fetcher lane), the Alpaca ask-ledger readers (596 step 3), most completeness gates, and the per-era source matrix in `bar_source_policy` (one vendor for all eras if the study supports it, D-191-Q's per-era rules collapse to one rule). If IBKR retains no data role after admission, the gateway itself simplifies away: the ib-gateway container, todo 607's mitigation, and the 544 upgrade-versus-lapse decision (2026-12-01, gateway desupported 2026-12-15) all resolve to lapse. The nightly-update consolidation stays a separate measured decision (publish lag, ongoing-access economics; Alpaca nightly is the incumbent). Discipline unchanged: delete mechanism, never data - raw rows already captured stay permanent under law 528, and the deletion list lands only after the basis study passes. Do not extend those systems before the study.
-- Flat files are said to be included in all paid plans (Mar 2024 blog, unconfirmed); check the current plans page.
-
-- Docs move in the same commit as the source-policy switch: the provider matrix in `docs/foundation/canonical-truth-registry.md`, the `bar_source_policy` docs, the survivorship caveat wording, and the landing copy line in `dashboard/src/lib/copy/landing.ts` ("IBKR and Alpaca bars").
-- 2026-11-07/08 check: the account's S3 key (stored in `.env` as `MASSIVE_S3_*`) lists the bucket back to 2003 (a 2010 minute day file is about 13.5 MB, so about 3.4 GB a year) but every download returns 403 NOT_AUTHORIZED, minute and day aggregates, old and recent: the free plan lists only. The purchase is still needed; rerun the download check after upgrading.
-- Owner 2026-11-09: the purchase scope is both aggregates, full depth and to present day: all 1m and all 1d files from the bucket's start (listing shows 2003) to the current day, not minute only and not history only. The 1d files add the pre-2016 daily source option beside IBKR, extend the one-vendor consolidation question (note above) to daily, and enter the basis study compared against IBKR and Alpaca 1d. Reaching to present day also puts the nightly update path in the consolidation question: measure flat-file publish lag in the pilot (how soon the previous day's file appears); Alpaca nightly stays the incumbent until that is decided.
-
-## Storage ruling (lead indicagent-d8, 2026-11-09, on the S3/Parquet recommendation, IDEAS 16794a55a)
-
-The recommendation's shape is adopted into this design with two amendments:
-
-1. **Vendor files as-delivered are the keep-everything artifact; admitted eras ingest to
-   `ohlcv_raw` per law 528.** Unchanged from the recommendation.
-2. **The name-partitioned Parquet mirror of canonical is a measured decision at the corpus-rerun
-   pilot, not a default build.** It is a rebuildable read projection (derived data is cache,
-   Timescale stays the sole writer), so it is allowed - but nothing today shows per-name read
-   time is the rerun's bottleneck (the pin waits on data completeness). Decide from the pilot's
-   measured read profile; do not build it on anticipation.
-3. **Offsite object-storage backup of the purchased Massive files and the raw dumps is day-one
-   mandatory, not an option.** The purchase window is one month; once the plan lapses the files
-   are irreplaceable. Budget it into the pilot (about 80 GB compressed, plus growth).
-
-Landing-plan sizing (which eras hot, whether the disk grows) stays in this todo's design, not a
-separate todo.
-
-## Design implications for the data layer (2026-11-08, decide after the pilot)
-
-1. Entity identity is the one real refactor. Store Massive raw as served, keyed by ticker as of the date; add a point-in-time ticker to entity map that joins at selection, never inside raw. Delisted names need historical instrument rows with entry and exit dates (todo 491's `universe_entry_date` gains an exit date); the onboarding SOP never onboards a dead name today, so this is an owner-approved exception to write down.
-2. Storage is not scope. Raw holds every symbol; research and compute scope come from a point-in-time membership table. Compute scales with scope (a 10k-name universe is roughly seven times today's), so widen in stages after the first counted test. Measure one year of raw rows before sizing the full load.
-3. Completeness is a file manifest (day file exists, parses, row count, hash), not an ask ledger. Once Massive is the selected pre-2016 source, the ask-ledger readers, gap_plan for this span and most D7 completeness checks are deletion candidates.
-4. Keep: the raw table design ((vendor, kind), last-wins, revision log), archive of the minute files, 5m aggregated in the leaf, 1m loaded only on demand; `bar_source_policy` names Massive for history and Alpaca nightly stays for recent days (files land about 11:00 ET the next day); raw keeps extended hours and selection cuts RTH explicitly (SIPs go 23/5 on 2026-12-06); prices stay unadjusted with splits from the corporate-action table.
-
-## Refine our layers from what Massive shows (owner 2026-11-08: improve ours where we can)
-
-Correction to the design notes above: the repo already has `listing_venue` (point-in-time exchange spans, migration 408) and `listing_end` (last listed session with reason and evidence, append-only, migration 518). Reuse them; do not coin "listing" for anything else. A symbol change is today "a spelling in `provider_meta`".
-
-In order of value:
-
-1. **Identity in three levels** (glossary entries first, per the naming rule; today no CIK, FIGI, CUSIP or ISIN is stored for any of the 1,529 instruments, and `provider_meta` is nearly empty):
-   - `issuer`: CIK and LEI, the legal entity; survives renames. Company-level data (filings, fundamentals, market cap) hangs here.
-   - `security identifier`: share class FIGI (never changes), CUSIP and ISIN (can change on corporate actions), each dated `[valid_from, valid_to)`, append-only. Bars attach here through the dated ticker map.
-   - ticker history: a dated `ticker_event` table (renames and reuse) replaces the `provider_meta` spelling. Venue stays `listing_venue`.
-   - Sources: Massive ticker details and ticker events (FIGI, share class FIGI, CIK, list date, delisted date); IBKR contract details for CUSIP and ISIN as a free cross-check (not captured today). Store reference responses raw, as served.
-2. **Definition epochs.** A small dated table per vendor and column recording semantic changes (volume units after Massive's 2026-02-23 fractional shares; bid and ask sizes in shares from 2025-11-03; the 23/5 session from 2026-12-06), so features cannot mix definitions silently. The revision log covers restated values, not changed meaning.
-3. **Session calendar as data.** A dated session definition (RTH, 23/5 from 2026-12-06, holidays and early closes) read by selection, instead of rules in code.
-4. **`trade_count`** (Massive `transactions`, Alpaca `n`) as a nullable column on `ohlcv_raw`; feeds scrub rules and liquidity features; kept out of compute until a consumer exists. Alpaca `vw` the same.
-5. **Completeness by file manifest** for Massive: day file exists, parses, row count, hash. Replaces the ask-ledger logic for the spans Massive owns.
-
-Not copied: versioned dataset paths (`_v1`) stay inside the leaf, never in table names.
+1. Offsite object-storage backup of the files and the raw dumps: mandatory before the plan
+   lapses, since the files cannot be replaced afterwards. Waits on the owner's choice of
+   destination.
+2. Pilot verdict, then the owner's admission call (bundled with the law 528 amendment).
+3. Admission execution per the design doc, section 8.
+4. Deletion list after admission (owner 2026-11-07, strengthened 2026-11-10; Opus review
+   before anything runs). Candidates: the IBKR pre-2016 leg (the 534 campaign and its fetcher
+   lane), the 596 ask-ledger readers, the completeness gates the file manifest replaces, the
+   per-era `bar_source_policy` matrix if one vendor suffices, and the IBKR gateway itself (the
+   container, the 607 mitigation, the 544 upgrade decision) if IBKR keeps no data role.
+   Delete mechanism, never data.
+5. Measured decisions, later: consolidating the nightly update onto Massive (publish lag from
+   runbook A12; Alpaca nightly is the incumbent); post-2016 consolidation onto one vendor;
+   stage 2 universe (dead names, point-in-time membership, the key rule for reused tickers).
+6. Layer refinements not covered by the design doc: session calendar as data (RTH, the 23/5
+   SIP session from 2026-12-06, holidays and early closes, read by selection); `trade_count`
+   (Massive `transactions`, Alpaca `n`) and Alpaca `vw` as nullable raw columns, kept out of
+   compute until a consumer exists.

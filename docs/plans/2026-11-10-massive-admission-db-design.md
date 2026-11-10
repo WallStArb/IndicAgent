@@ -1,14 +1,14 @@
 # Massive admission: database-side onboarding design
 
-Author: session indicagent-22, 2026-11-10, at the lead's assignment (indicagent-d8), for todo 600 steps 3 to 6
-Status: draft for lead review, revised once after an adversarial review (Opus subagent, 2026-11-10; 2 blockers and 7 material findings, all folded in below). Design only: no code, no DB writes, no migrations. Becomes the admission-day execution plan once the lead rules on section 11.
-Informed by: `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md`, `docs/plans/2026-11-09-massive-pilot-basis-study.md`, `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, `docs/foundation/canonical-truth-registry.md`, `src/intelligence/bars/{vendor_kind,vendor_ingress,selection,daily_rule,integrity_checks}.py`, `services/{bar_load,ohlcv_ingress_contract}.py`, `scripts/ops/bars/{ops_source_policy,ops_bar_load}.py`, the uncommitted downloader in `.scratch-wt-massive-dl`, read-only schema and data queries (2026-11-10).
+Author: session indicagent-22, 2026-11-10, at the lead's assignment (indicagent-d8), for todo 600's admission
+Status: ruled by the lead (indicagent-d8, 2026-11-10; section 11), after an adversarial review (Opus subagent) whose findings are folded in. This is the admission-day execution plan. Design only: no code, no DB writes, no migrations until the owner's admission verdict.
+Informed by: `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md`, `docs/plans/2026-11-09-massive-pilot-basis-study.md`, `docs/plans/2026-10-12-unified-raw-bar-table-design.md`, `docs/foundation/canonical-truth-registry.md`, `src/intelligence/bars/{vendor_kind,vendor_ingress,selection,daily_rule,integrity_checks}.py`, `services/{bar_load,ohlcv_ingress_contract}.py`, `scripts/ops/bars/{ops_source_policy,ops_bar_load}.py`, the downloader `scripts/infrastructure/massive/massive_download.py`, read-only schema and data queries (2026-11-10).
 
 Applies only after the pilot verdict is "admit" or "admit with named caveats". Nothing here touches the downloader, the pilot comparison scripts or `data/massive/`.
 
 ## 1. Scope
 
-Todo 600 steps 3 to 6: vendor and kind codes in `ohlcv_raw`, the reader and 5m aggregation, the adjustment basis, the ticker to entity map, the `bar_source_policy` switch, and the documents that move with it. Out of scope: offsite backup (waits on the owner's destination), the post-admission deletion list (its own doc, Opus-reviewed before anything executes), and post-2016 consolidation onto one vendor (a later measured decision).
+Todo 600's admission: vendor and kind codes in `ohlcv_raw`, the reader and 5m aggregation, the adjustment basis, the ticker to entity map, the `bar_source_policy` switch, and the documents that move with it. Out of scope: offsite backup (waits on the owner's destination), the post-admission deletion list (its own doc, Opus-reviewed before anything executes), and post-2016 consolidation onto one vendor (a later measured decision).
 
 ## 2. Facts that shape the design
 
@@ -30,7 +30,7 @@ CVR `bar_vendor` code `massive` (who served the bar; Alpaca-via-Polygon stays `a
 
 Both are session-bound kinds: `sip_flat_agg` joins `SESSION_BOUND_KINDS` in `selection.py`, whose `partition_session` already drops off-grid stamps. No new session-cut mechanism. The 1d kind is confirmed by the pilot's 1d arm: if Massive day bars differ from the regular-hours aggregate of its minute bars on any of open, high, low, close or volume beyond the pilot tolerance (extended-hours trades are the likely cause), 1d is instead built from the regular-hours minute rows under kind `sip_flat_agg` at 1d, and the served day file stays archived only.
 
-The `_agg` kind amends the unified design's "raw holds what the vendor served only": a reader may store an aggregate of a finer served timeframe under a kind that says so. Todo 600 already decided this (step 4: aggregate 1m to 5m in the leaf, 1m loaded only on demand); the amendment text goes into the unified design in the same commit.
+The `_agg` kind amends the unified design's "raw holds what the vendor served only": a reader may store an aggregate of a finer served timeframe under a kind that says so. Todo 600's storage ruling already decided this (5m aggregated by us, 1m loaded only on demand); the amendment text goes into the unified design in the same commit.
 
 Code that must name the new vendor and kinds before any load (each read raises on an unmapped pair today): `LABEL_TO_VENDOR_KIND`, `VENDOR_SERVED_KINDS`, `BAR_KINDS` (`vendor_kind.py`); the source label and route (`sources.py`); `VOLUME_BASIS_BY_VENDOR_KIND`; `RAW_DAILY_SERIES` and `RAW_DAILY_SESSION_ZONE` (daily rule); the canonical-kind map (section 5).
 
@@ -79,7 +79,7 @@ Mapping evidence (stage 1, current names only):
 3. Check price continuity against incumbent bars at each span edge, by level over the span, not by the junction step (the 592 rule).
 4. A span without that evidence is a gap: the name keeps the incumbent for the span and goes on a list for the owner. Rows outside spans, and tickers with no instrument, stay in the archive only; the manifest counts them per day.
 
-Stage 1 deepens and cross-checks the history of current names. It does not remove survivorship, because the universe is still current names. The caveat lifts only at stage 2 (historical instrument rows for dead names, a point-in-time membership table, the key rule for reused tickers, an owner-approved SOP exception). The caveat wording moves in the step 5a commit and says this.
+Stage 1 deepens and cross-checks the history of current names. It does not remove survivorship, because the universe is still current names. The caveat lifts only at stage 2 (historical instrument rows for dead names, a point-in-time membership table, the key rule for reused tickers, an owner-approved SOP exception). The caveat wording moves in the step 7a commit and says this, citing the presence rate the pilot measured (runbook A8).
 
 Glossary entries first: `issuer` (CIK, LEI), `security identifier` (share-class FIGI, CUSIP, ISIN, dated, append-only), `ticker_event` (dated span of a ticker string on a security). Reuse `listing_venue` and `listing_end`. Massive and IBKR reference responses are stored raw as served (vendor, endpoint, key, as-of date, body, served_at; last-wins with revision).
 

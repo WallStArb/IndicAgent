@@ -1,23 +1,17 @@
 # Massive flat files: pilot basis study and admission gates
 
-**Status:** Plan (runbook), 2026-11-09. Executes under todo 600 the moment the owner's plan
-upgrade lands (the S3 key lists but downloads 403 today, re-verified 2026-11-09).
-**Author:** Claude session indicagent-d8, 2026-11-09.
-**Informed by:** todo 600 and its design notes, `docs/ideas/base-feature-scouting-and-the-research-ladder.md`
-(rung 0), todo 587 (the unadjusted-split class this study must detect), todo 518 (volume basis is
-labelled, not gated), `docs/foundation/canonical-truth-registry.md` (the provider matrix it would
-extend), vendor docs read 2026-11-09 (todo 603 "Source findings").
+**Status:** Running (pilot agent), under the 2026-11-10 amendment (A1-A12), which governs every
+gate. Executes under todo 600.
+**Author:** Claude session indicagent-d8, 2026-11-09; amendment by session indicagent-22,
+2026-11-10, approved by the lead.
+**Informed by:** todo 600, todo 587 (the unadjusted-split class this study must detect), todo 518
+(volume basis is labelled, not gated), `docs/foundation/canonical-truth-registry.md`,
+`docs/plans/2026-11-10-massive-admission-db-design.md`.
 
-## Preconditions
+## Constraints
 
-1. Plan upgraded: a ranged GET on `us_stocks_sip/minute_aggs_v1/2010/01/2010-01-04.csv.gz`
-   (`.csv.gz` as measured in step 0; corrected by the 2026-11-10 amendment)
-   returns 200 (probe command verified working: curl `--aws-sigv4 aws:amz:us-east-1:s3` against
-   `files.massive.com/flatfiles/...` with the `MASSIVE_S3_*` keys from `.env`).
-2. Disk: 715 GB free at last check; the pilot needs under 2 GB, the full archive about 80 GB.
-3. The IBKR 5m backfill (534) keeps running until admission; no corpus compute (owner 2026-11-04).
-4. Downloaded files are untrusted input: store under `data/massive/pilot/`, parse with explicit
-   paths, never run an interpreter from inside the download directory.
+No corpus compute (owner 2026-11-04). Downloaded files are untrusted input: parse them by explicit
+path and never run an interpreter from inside the download directory.
 
 ## Step 0: layout probe (one file) - MEASURED 2026-11-10
 
@@ -40,44 +34,33 @@ Write further measured facts into this section before any comparison runs.
 ## Step 1: survivorship (the reason this vendor is bought)
 
 From `listing_end` plus a hand-list of tickers listed in 2010 and delisted since, sample at least
-30 delisted-in-window names; a name passes if it appears in the 2010 files with bars. Report the
-presence rate. The survivorship caveat on pre-2016 results lifts only for spans where Massive is
-selected, and only with this rate on record.
+30 delisted-in-window names. The pass rule and its reporting are in A8; survivorship never gates
+the verdict.
 
 ## Step 2: basis study (pre-registered decision rules)
 
-Amended 2026-11-10 (owner ruling 2026-11-09, todo 600): the purchase covers BOTH aggregates at
-full depth - all 1m and all 1d files as far back as the bucket holds (listing shows 2003) - so
-the study gains a 1d arm and the one-vendor consolidation question extends to daily.
+Both aggregates are in scope (owner 2026-11-09), so the study has a 5m arm and a 1d arm.
 
-Sample: 30 names (10 liquid, 10 mid, 10 thin, including CORT-class thin names), 5 trading days in
+Sample (intraday arm; the 1d arm is a census, A7): 30 names (10 liquid, 10 mid, 10 thin, including CORT-class thin names), 5 trading days in
 each era: 2007, 2010, 2013, 2015 (IBKR era), 2016-01 (the seam), 2020, 2026 (fractional-share
 era). Include the todo 592 nine (FBIZ, IJR, MTCH, MVBF, NVDA, PATK, RJF, UHAL, WST) and OKE and
 RSPF: Massive is an independent non-Yahoo witness for exactly those open split questions.
 
-The 1d arm: the same days and names, comparing Massive 1d closes against IBKR and Alpaca 1d with
-the same gates below (price, scale-factor, OHLC sanity; volume recorded not gated). Passing the
-1d arm also qualifies Massive 1d as the independent witness for the 592 sweep's held cases (the
-393 Yahoo-coverage holes, the spin-off suspects' confirmation, INSM, HSIC, OVV, TMUS), and the
-sweep reruns `--sweep` with it once admitted.
+Passing the 1d arm also qualifies Massive 1d as the independent witness for the 592 sweep's held
+cases (the 393 Yahoo-coverage holes, the spin-off suspects' confirmation, INSM, HSIC, OVV, TMUS),
+and the sweep reruns `--sweep` with it once admitted.
 
-Compare minute bars after RTH cut (09:30 to 16:00 ET) against IBKR (pre-2016) and Alpaca SIP
-(2016 onward) from `ohlcv_raw`, like-for-like on (symbol, minute):
+Gates that still stand from the original text:
+- Scale-factor (the 587 class): per name-year, the median log close ratio is within 10 bp of 0
+  after alignment by the A1 factor. Any name outside is investigated and listed with its factor
+  and the corporate actions in window.
+- OHLC sanity: high at or above max(open, close), low at or below min(open, close) on at least
+  99.9 percent of bars; violations listed (A11 adds the record checks).
+- Seam rule: the same tolerances hold on both sides of 2016-01-04.
 
-- **Price gates (admission):** per name-day, median |close diff| / close at or under 1 bp; p99 at
-  or under 10 bp; at least 99 percent of RTH minutes matched both directions on normal sessions;
-  unmatched minutes counted and listed, never assumed no-trade (the gate-by-evidence rule).
-- **Scale-factor gate (the 587 class):** per name-year, the median log close ratio within 10 bp
-  of 0 after corporate-action alignment. Any name outside is investigated, listed with its factor
-  and the corporate actions in window; it does not silently pass.
-- **OHLC sanity:** high at or above max(open, close), low at or below min(open, close) on at
-  least 99.9 percent of bars; violations listed.
-- **Volume, recorded not gated:** ratio distributions per vendor pair (IBKR and Massive, Alpaca
-  and Massive), per name and vendor-wide. A vendor-wide median ratio outside 0.5 to 2.0 gates
-  (units error, for example lots versus shares); name-level basis differences are labelled data
-  (todo 518 pattern), not refusals.
-- **Seam rule:** the same tolerances hold on both sides of 2016-01-04; that continuity is the
-  point of admission.
+Replaced by the amendment: the price gates (per name-day median at or under 1 bp and p99 at or
+under 10 bp, 99 percent of RTH minutes matched) by A2 and A6; the vendor-wide volume median
+(0.5 to 2.0) by A9. The original text is in git (b371b84c9).
 
 ## Interpretation ruling (owner, 2026-11-10): Massive is the yardstick
 
@@ -265,17 +248,13 @@ counts and sha256 (the 2026-11-10 inventory check found 5,829 of 5,829 per datas
 ## Step 3: verdict and what follows
 
 Write the evidence tables under `logs/massive_pilot/`, one summary in this doc, and a
-recommendation to the owner: admit, admit with caveats (named, per gate), or refuse. Admission
-then runs todo 600 steps 3 to 6 (archive raw unmodified, vendor onboarding under the capture law,
-ticker-to-entity map, `bar_source_policy` switch with the docs move in the same commit). If
-admitted, draft the deletion list (IBKR pre-2016 leg, the 596 ask-ledger readers, the completeness
-gates the file manifest replaces) for the owner's call, per the 2026-11-07 simplify ruling.
-
-Record before sizing the full load: one full year of raw row counts (the design note's measure
-first, widen in stages).
+recommendation to the owner: admit, admit with caveats, or refuse, mapped from the gate outcomes
+by the A10 table. Admission then runs section 8 of the admission design. If admitted, the deletion
+list (todo 600, open item 4) is drafted for the owner's call. Before sizing the full load, record
+one full year of raw row counts.
 
 ## Handling
 
-Downloads via curl SigV4 (verified) or awscli if present; no boto3 in the venv. Raw files archived
-unmodified the day they are downloaded (permanent raw). Every comparison script lives under
-`scripts/ops/`, reads by explicit path, and writes only under `data/` or `logs/`.
+Files come from the downloader (`scripts/infrastructure/massive/massive_download.py`) into
+`data/massive/files/`, archived as delivered. Every comparison script lives under `scripts/ops/`,
+reads by explicit path, and writes only under `data/` or `logs/`.
