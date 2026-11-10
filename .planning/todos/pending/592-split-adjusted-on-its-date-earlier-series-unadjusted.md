@@ -195,3 +195,13 @@ Held rows, no fix without vendor agreement (lead decides):
    the others.
 Systemic: rerun `--sweep` after Massive is admitted (393 of the 449 reported are Yahoo-coverage
 holes; the reported mass should shrink materially).
+
+## Parked 2026-11-10 (owner directive: "stop wasting time on that data, we will get Massive")
+
+The sweep follow-ups (GSAT's D7 diagnosis, NEXN/OKE ruling 6, the 393 Yahoo-hole holds) are
+PARKED pending Massive admission: every remaining case is a pre-2016 or replaceable-era span
+that Massive's independent files either fix outright or witness, so further IBKR/Alpaca-era
+polishing is wasted motion. The three D7 split_continuity red rows (GSAT, NEXN, OKE|1d) are
+KNOWN-ACCEPTED until the Massive-era sweep rerun resolves them; do not chase them. The landed
+fixes stay (done, verified, no ongoing cost). Resume point: after admission, rerun
+ops_split_calendar_audit --sweep with Massive as witness per the ruling above.
