@@ -205,3 +205,14 @@ polishing is wasted motion. The three D7 split_continuity red rows (GSAT, NEXN, 
 KNOWN-ACCEPTED until the Massive-era sweep rerun resolves them; do not chase them. The landed
 fixes stay (done, verified, no ongoing cost). Resume point: after admission, rerun
 ops_split_calendar_audit --sweep with Massive as witness per the ruling above.
+
+Tool gaps found in the 2026-11-10 incident (session indicagent-0b; fix before the rerun):
+
+1. Post-apply verification must check span LEVELS, not only junction steps: the voided
+   2015-12-31 OKE row was step-flat at both junctions while every span sat at the wrong level
+   (a level check - span median vs a local reference - catches it; see the three void rows'
+   detail for the composition math).
+2. `--apply-rows` cannot land a corrected row over a voided one (the 7-day existing-row guard
+   counts voided rows as deciding); corrections need the void-via-supersedes chain, which
+   today means a direct insert under bar_derivation_writer. The tool deserves a
+   `--supersede` path.
