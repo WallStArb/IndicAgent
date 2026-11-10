@@ -34,6 +34,7 @@ services/bar_selection.py's).
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections import defaultdict
 from collections.abc import Mapping
@@ -180,6 +181,15 @@ def read_detector_params(cur: Any) -> DetectorParams:
 
 def _utc_date(ts: datetime) -> date:
     return ts.astimezone(UTC).date()
+
+
+def _lineage_note(lineage: Mapping[str, Any] | None, horizon: datetime) -> str | None:
+    """The load-detail note a loader's lineage becomes: sorted JSON with the selection horizon
+    added (a lineage that already names a horizon is overwritten: the contract's is the one the
+    canonical rows were rescaled by). None without a lineage."""
+    if lineage is None:
+        return None
+    return "lineage: " + json.dumps({**lineage, "horizon": horizon.isoformat()}, sort_keys=True)
 
 
 def _record_load(
@@ -380,6 +390,7 @@ def apply_raw_contract(
     request_id: uuid.UUID,
     answered_at: datetime,
     params: RawContractParams | None = None,
+    lineage: Mapping[str, Any] | None = None,
 ) -> IngressResult:
     """Record one chunk of vendor answers in ohlcv_raw last-wins by serve time, then select
     canonical rows. `answered_at` is when the vendor answered the chunk (module docstring).
@@ -393,9 +404,16 @@ def apply_raw_contract(
     write stands). Direct timeframes (1m, 5m, 4h) are then selected over the span touched.
 
     A cross-vendor difference is never a revision: the vendors are different keys in ohlcv_raw.
+
+    `lineage` (a loader's flat record of what the rows came from: file key, ETag, sha256, ...)
+    is written into every load row's detail as one `lineage: {json}` note with the selection
+    `horizon` added: the horizon is resolved here once, before the load rows, and handed to the
+    selection, so the recorded value is the one the canonical rows were rescaled by.
     """
     if not rows:
         return IngressResult(0, 0, 0, 0, 0)
+    horizon = datetime.now(UTC)
+    lineage_note = _lineage_note(lineage, horizon)
     with conn.cursor() as cur:
         params = params or read_raw_params(cur)
 
@@ -441,7 +459,7 @@ def apply_raw_contract(
             n_superseded=delta.superseded,
         )
         load_id = uuid.uuid4()
-        notes = []
+        notes = [] if lineage_note is None else [lineage_note]
         if restatement.flagged:
             notes.append(f"restatement flagged: {restatement.detail()}")
         if delta.superseded:
@@ -504,6 +522,7 @@ def apply_raw_contract(
             policy_rows=None,
             kind_order=params.kind_order,
             batch_rows=params.write.batch_rows,
+            horizon=horizon,
         )
         selected += result.new + result.changed
         # A NULL-volume winner is skipped by the writer and leaves the slot's previous canonical

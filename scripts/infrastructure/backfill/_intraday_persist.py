@@ -43,6 +43,7 @@ Discipline the caller owes:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -98,6 +99,7 @@ def persist_chunk_atomically(
     answered_at: datetime | None = None,
     params: RawContractParams | None = None,
     refresh_1d_provider: str | None = None,
+    lineage: Mapping[str, Any] | None = None,
 ) -> PersistResult:
     """Commit one fetched chunk's raw rows, its request rows and (when `coverage` is given) its
     ohlcv_coverage update together.
@@ -108,7 +110,8 @@ def persist_chunk_atomically(
     pre-read settings (a loader reads them once, the fetcher lets each chunk read them).
     `refresh_1d_provider` names the vendor whose 1d bounds are recomputed for the chunk's symbols
     in the same transaction (a daily answer moves no CoverageDelta; a run killed at the service
-    time limit never reaches an end-of-run refresh).
+    time limit never reaches an end-of-run refresh). `lineage` is a loader's record of the source
+    of the rows (see `apply_raw_contract`); the fetcher passes none.
     `answered_at` is when the vendor answered the chunk, the served_at of its raw rows and the
     serve time last-wins orders by (fourth review of plan 191-07, finding 1); by default the
     answering request row's answered_at. A chunk with raw rows and neither raises before any
@@ -147,6 +150,8 @@ def persist_chunk_atomically(
                 request_id=request_id or _answering_request_id(request_rows),
                 answered_at=answered_at,
                 params=params,
+                # only a loader names a lineage; the fetcher's call stays exactly as it was
+                **({} if lineage is None else {"lineage": lineage}),
             )
         with conn.cursor() as cur:
             if request_rows:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -152,6 +154,7 @@ def load_frame(
     on_chunk=None,
     kind: str | None = None,
     request_rows: list[tuple] | None = None,
+    lineage: Mapping[str, Any] | None = None,
 ) -> LoadResult:
     """Offer one vendor frame to ohlcv_raw in chunks, one transaction per chunk; a dry run
     (`write` False) plans nothing beyond the offered count and writes no ledger row.
@@ -168,7 +171,8 @@ def load_frame(
     series (labeled with the vendor); a raw-only capture passes False. A 1d series is not widened
     chunk by chunk: its bounds are recomputed after the load (refresh_1d_bounds), because only the
     kinds that cover a session count and a vendor may restate a history.
-    Rerunning is idempotent: an unchanged row writes nothing.
+    Rerunning is idempotent: an unchanged row writes nothing. `lineage` is written into the load
+    row's detail (a loader's record of the source file, ticker event and definitions).
     """
     if not write:
         return LoadResult(n_offered=len(frame))
@@ -207,6 +211,7 @@ def load_frame(
                 if coverage and timeframe != "1d"
                 else None
             ),
+            lineage=lineage,
         )
         result = result.plus(persisted.ingress)
         if on_chunk:
@@ -231,6 +236,7 @@ def load_series(
     chunk_rows: int = CHUNK_ROWS,
     on_chunk=None,
     request_rows: list[tuple] | None = None,
+    lineage: Mapping[str, Any] | None = None,
 ) -> LoadResult:
     """Load one symbol's frame under a policy; a dry run plans only the offered count. The
     frame must carry a tz-aware UTC `t` column plus the OHLCV columns, and a write the vendor's
@@ -250,4 +256,5 @@ def load_series(
         on_chunk=on_chunk,
         kind=policy.kind,
         request_rows=request_rows,
+        lineage=lineage,
     )

@@ -443,3 +443,20 @@ def test_a_failed_window_does_not_abandon_the_symbols_other_windows(monkeypatch)
     summary, _, calls = _night(monkeypatch, answers, windows=[w1, w2])
     assert summary["errors"] == 2  # both 5m windows failed and were each counted
     assert [tf for tf, *_ in calls] == ["1d", "1d"]  # the 1d windows were still asked
+
+
+def test_lineage_note_carries_the_loader_lineage_and_the_selection_horizon():
+    import json
+    from datetime import UTC, datetime
+
+    from services.ohlcv_ingress_contract import _lineage_note
+
+    horizon = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+    assert _lineage_note(None, horizon) is None
+    note = _lineage_note({"etag": "abc", "horizon": "stale", "sha256": "ff"}, horizon)
+    assert note.startswith("lineage: ")
+    assert json.loads(note[len("lineage: ") :]) == {
+        "etag": "abc",
+        "horizon": "2026-11-10T12:00:00+00:00",
+        "sha256": "ff",
+    }
