@@ -24,3 +24,12 @@ pairing and the API server version (178 today) against ib_async.
 ## Update 2026-11-09 (product review)
 
 Hard deadline 2026-12-15, five weeks out. Dependency on todo 600: if Massive passes its basis study and replaces the IBKR pre-2016 leg, the gateway is needed only for the remaining IBKR roles (fallback bars, 1d raw deepening), so decide by about 2026-12-01 whether to upgrade the image (needs a 2FA push in a fetcher gap) or let IBKR ingestion lapse deliberately. Alpaca is the execution venue and 2016-forward source, so the cost of lapse is bounded; the risk is an unplanned stop that looks like an outage.
+
+## Ruling strengthened 2026-11-10 (owner, via 5f; commit 9cb07df07)
+
+After a passing Massive basis study the deletion list covers the whole IBKR data role: the
+pre-2016 leg and its fetcher lane, the gateway container, todo 607's mitigation, and THIS todo
+all resolve to lapse. The only open path to "upgrade the image" is a retained IBKR data role
+(fallback bars, 1d deepening) the post-admission consolidation explicitly measures. Sequence
+consequence: the Massive purchase and pilot should land well before 2026-12-01 so lapse is a
+deliberate ruling, not a forced scramble against the 2026-12-15 desupport.
