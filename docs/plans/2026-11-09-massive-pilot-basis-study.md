@@ -78,6 +78,17 @@ Compare minute bars after RTH cut (09:30 to 16:00 ET) against IBKR (pre-2016) an
 - **Seam rule:** the same tolerances hold on both sides of 2016-01-04; that continuity is the
   point of admission.
 
+## Interpretation ruling (owner, 2026-11-10): Massive is the yardstick
+
+The gates stay symmetric (agreement measures with pre-registered tolerances; nothing is re-tuned
+after seeing data). What changes is the burden of proof: where Massive and IBKR/Alpaca disagree
+beyond a gate, the finding is recorded as a suspected INCUMBENT defect (span-level error of the
+592 class - our incumbents are proven carriers of wrong adjustment bases and mis-anchored
+splits), not a Massive failure. Post-admission, integrity checks and the sweep adjudicate
+against Massive as the reference standard. One limit, stated: paid does not mean infallible - a
+units, session-boundary or scale error on Massive's own side is still possible, and the verdict
+must say so plainly if the evidence points there.
+
 ## Step 3: verdict and what follows
 
 Write the evidence tables under `logs/massive_pilot/`, one summary in this doc, and a
