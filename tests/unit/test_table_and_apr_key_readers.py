@@ -138,6 +138,13 @@ _KEEP_TABLES: dict[str, str] = {
         "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "
         "reader is owed"
     ),
+    # Massive admission schema (migration 586, todo 600): step 1 lands the tables before the
+    # code that reads them. Each entry fails as stale the moment its reader lands, so the
+    # admission step that adds the reader removes the entry in the same commit.
+    "reference_raw": "migration 586 (todo 600); read by the step 3 reference load",
+    "security_identifier": "migration 586 (todo 600); read by the step 3 ticker map build",
+    "ticker_event": "migration 586 (todo 600); read by the step 2 Massive reader and retract path",
+    "definition_epoch": "migration 586 (todo 600); read by the step 2 Massive reader",
 }
 
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its

@@ -36,7 +36,7 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 _FILE_GLOBS = ("*.py", "*.sh", "*.sql")
 _CANONICAL_TABLE = re.compile(
     r"^(?:ohlcv_|bar_|market_data_|canonical_bar_|corporate_action|listing_venue|dividend_|"
-    r"integrity_monitor)"
+    r"integrity_monitor|reference_raw|security_identifier|ticker_event|definition_epoch)"
 )
 
 
@@ -193,6 +193,13 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     "dividend_date_dispute": (
         Writer("services/dividend_event_writer.py", reason="dividend date disagreements"),
     ),
+    # Massive admission schema (migration 586, todo 600). Nothing may write the reference and
+    # identity tables until the admission reference loader (step 3) registers here as their one
+    # writer; definition_epoch is written by migrations only, for good.
+    "reference_raw": (),
+    "security_identifier": (),
+    "ticker_event": (),
+    "definition_epoch": (),
 }
 
 
@@ -413,3 +420,7 @@ def test_canonical_table_rule_matches_the_data_layer_names():
     assert _canonical_tables(
         ["ohlcv_load", "bar_source_policy", "market_data_ohlcv", "feature_vectors", "instruments"]
     ) == {"ohlcv_load", "bar_source_policy", "market_data_ohlcv"}
+    assert _canonical_tables(["reference_raw", "ticker_event", "issuer"]) == {
+        "reference_raw",
+        "ticker_event",
+    }
