@@ -206,3 +206,12 @@ Amendment 2026-11-10 (refinement review d386cac3a): `lineage` additionally carri
    independent evidence - the verdict weights the pre-2016 IBKR arm and the internal OHLC
    consistency accordingly.
 6. Deferred to stage 2, as drafted.
+
+### Amendment 2026-11-10 (owner): offsite backup deferred
+
+The step-0 precondition "offsite backup done" is DEFERRED by the owner (2026-11-10: "we aren't
+backing up data yet"). The current protection state: the full 82 GB archive and the 530 MB
+reference tar live locally; serve times and ETags are captured with zero drift; and the vendor
+re-serves during the plan month. Offsite copy lands when the owner names a destination; it is
+not a blocker for admission execution. The local reference tar
+(data/backups/massive-reference-2026-11-10/reference.tar.gz) stands as captured.
