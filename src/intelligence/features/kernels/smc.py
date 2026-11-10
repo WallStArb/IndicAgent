@@ -470,6 +470,10 @@ _POOL_FALLBACK: dict[str, float | None] = {
     "pool_count": 0.0,
     "price_in_premium": 0.0,
 }
+# Counts whose detection tolerance scales by atr_val (the equal-level mult): NaN on an
+# invalid ATR (present, unmeasured), never a measured empty set (186-31 round 6). The single
+# declaration the registry field and the nan_state_keys call site both read (round 7).
+_POOLS_ATR_GATED_STATE = frozenset({"bsl_touches", "ssl_touches", "pool_count"})
 
 # price_in_premium is an in-memory-only intermediate for the supply/demand zones, handled like
 # fvg_midpoint above.
@@ -635,9 +639,7 @@ def _compute_liquidity_pools(
         # counts NaN too: the equal-level tolerance is atr_val * mult, so the detection itself
         # never ran (see _POOL_FALLBACK). price_in_premium keeps its 0.0 in-memory sentinel
         # (the zones kernel's soft dependency, unread on a gated row).
-        return invalid_input_fallback(
-            _POOL_FALLBACK, nan_state_keys=frozenset({"pool_count", "bsl_touches", "ssl_touches"})
-        )
+        return invalid_input_fallback(_POOL_FALLBACK, nan_state_keys=_POOLS_ATR_GATED_STATE)
 
     lookback = config.smc_liquidity_pools_lookback
     h = highs[-lookback:]
@@ -760,6 +762,8 @@ _ZONE_FALLBACK: dict[str, float | None] = {
     "active_supply_zones": 0.0,
     "zone_friction_score": None,
 }
+# Same class as _POOLS_ATR_GATED_STATE: the zone thresholds scale by atr_val (round 7).
+_ZONES_ATR_GATED_STATE = frozenset({"active_demand_zones", "active_supply_zones"})
 
 # D1 rule 2 (todo 584 4b-2 group 4): the strength of a break that never fired and a
 # right-censored bars-since count are None; the direction fields stay 0.0 (0 = no break /
@@ -822,9 +826,7 @@ def _compute_supply_demand_zones(
     if not atr_valid:
         # counts NaN too: every zone threshold scales by atr_val, so the scan itself never
         # ran (see _ZONE_FALLBACK).
-        return invalid_input_fallback(
-            _ZONE_FALLBACK, nan_state_keys=frozenset({"active_demand_zones", "active_supply_zones"})
-        )
+        return invalid_input_fallback(_ZONE_FALLBACK, nan_state_keys=_ZONES_ATR_GATED_STATE)
 
     lookback = config.smc_zones_lookback
     o = opens[-lookback:]
@@ -1195,7 +1197,9 @@ def _compute_bos_columns(x, config):
     return BOS.columns(len(closes), row)
 
 
-def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()):
+def _stateless(
+    name, group, inputs, lookback, compute, zero_is_state=frozenset(), atr_gated_state=frozenset()
+):
     return Kernel(
         name=name,
         outputs=group.outputs,
@@ -1203,6 +1207,7 @@ def _stateless(name, group, inputs, lookback, compute, zero_is_state=frozenset()
         memory=lambda config: lookback(config) - 1,
         compute=compute,
         zero_is_state=zero_is_state,
+        atr_gated_state=atr_gated_state,
         # every None in the group's fallback dict is an object that does not exist (module doc)
         object_dependent=(group.nullable & frozenset(group.outputs)) - zero_is_state,
     )
@@ -1245,6 +1250,7 @@ KERNELS = (
         _POOL_LOOKBACK,
         _compute_pools_columns,
         zero_is_state=frozenset({"bsl_touches", "pool_count", "ssl_touches"}),
+        atr_gated_state=_POOLS_ATR_GATED_STATE,
     ),
     _stateless(
         "supply_demand_zones",
@@ -1253,6 +1259,7 @@ KERNELS = (
         _ZONE_LOOKBACK,
         _compute_zones_columns,
         zero_is_state=frozenset({"active_demand_zones", "active_supply_zones"}),
+        atr_gated_state=_ZONES_ATR_GATED_STATE,
     ),
     _stateless(
         "bos_choch",

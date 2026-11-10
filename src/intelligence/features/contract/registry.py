@@ -174,6 +174,11 @@ class Kernel:
     # object or validity state is false. The rebuild writer counts, per unit, the rows where it is
     # 0 (present) and of those the NaN ones; the corpus gate's G6 judges that share (186-31).
     object_dependent: frozenset[str] = frozenset()
+    # zero_is_state outputs whose detection tolerance itself scales by an invalid input (the
+    # ATR), so on that invalid row the count is NaN (present, unmeasured), never a measured
+    # empty set (186-31 review round 6). The single declaration the contract tests and the
+    # kernels' `invalid_input_fallback(nan_state_keys=...)` both read.
+    atr_gated_state: frozenset[str] = frozenset()
 
 
 class Alignment(enum.Enum):
@@ -291,7 +296,12 @@ class KernelRegistry:
                     f"kernel {_where(kernel)} declares object_dependent {sorted(unmasked)} without "
                     "their none masks (the per-row presence the rebuild writer counts)"
                 )
-            for field_name in ("not_applicable", "zero_is_state", "object_dependent"):
+            for field_name in (
+                "not_applicable",
+                "zero_is_state",
+                "object_dependent",
+                "atr_gated_state",
+            ):
                 stray = set(getattr(kernel, field_name)) - set(kernel.outputs)
                 if stray:
                     raise KernelRegistryError(

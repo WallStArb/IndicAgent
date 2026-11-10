@@ -695,7 +695,7 @@ def _bars_since_event_absent(events: np.ndarray, window: int) -> np.ndarray:
     what is knowable, never from the value. The column's none mask, the corpus gate's witness."""
     n = len(events)
     unknown = (~np.isfinite(events)).astype(np.int64)
-    known_event = (np.nan_to_num(events, nan=0.0) > 0.5).astype(np.int64)
+    known_event = (events > 0.5).astype(np.int64)  # NaN compares False, as the counter reads it
 
     def trailing(counts: np.ndarray) -> np.ndarray:
         total = np.concatenate([[0], np.cumsum(counts)])

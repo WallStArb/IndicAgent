@@ -861,6 +861,11 @@ _SELF_COMPLETED = object()  # a handler that completed its own step (data_gate's
 
 
 class CorpusRerun:
+    # The pilot's tf scope, one declaration for the column screen, the unit list, the
+    # compression measures and the G6 expected_tfs (round 7: a tf missed in one of the four
+    # would leave it unjudged by the gate, silently).
+    PILOT_TFS = ("1d", "1h")
+
     def __init__(self, run: CorpusRun, store: RunStore, deps: Deps, apr: CorpusRerunApr):
         self.run = run
         self.store = store
@@ -1249,10 +1254,11 @@ class CorpusRerun:
 
         chunk0 = d.symbol_chunks()[0]
         # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
-        screen = [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", "1d", "--tf", "1h"]
+        screen = [d.python, str(COLUMN_SCREEN), "--null-gate"]
+        screen += [arg for tf in self.PILOT_TFS for arg in ("--tf", tf)]
         for symbol in chunk0:
             screen += ["--symbol", symbol]
-        units = [f"{s}:{tf}" for tf in ("1d", "1h") for s in chunk0]
+        units = [f"{s}:{tf}" for tf in self.PILOT_TFS for s in chunk0]
         gates = {
             "G1-G3": d.run_command(screen, d.worktree),
             "G4-G5": d.run_command(
@@ -1286,7 +1292,7 @@ class CorpusRerun:
         # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
         # plan-only preview's fallback); the smaller of the 1d and 1h ratios is the conservative
         # one for every later projection.
-        compression = {tf: d.measure_compression(chunk0, tf) for tf in ("1d", "1h")}
+        compression = {tf: d.measure_compression(chunk0, tf) for tf in self.PILOT_TFS}
         measured["pilot_compression"] = compression
         ratios = [c["ratio"] for c in compression.values() if c.get("ratio")]
         if len(ratios) != len(compression):
@@ -1303,7 +1309,7 @@ class CorpusRerun:
         summary["measured"] = measured
 
         objects = self._object_gate(
-            [*daily["scope_batch_keys"], *hourly["scope_batch_keys"]], ["1d", "1h"]
+            [*daily["scope_batch_keys"], *hourly["scope_batch_keys"]], list(self.PILOT_TFS)
         )
         summary["gates"]["G6-objects"] = objects
         failed_gates = [name for name, (rc, _) in gates.items() if rc != 0]

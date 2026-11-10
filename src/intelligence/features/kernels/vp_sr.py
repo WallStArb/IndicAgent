@@ -229,6 +229,10 @@ _SR_FALLBACK: dict[str, float | None] = {
     "support_age_bars": None,
     "sr_level_count": 0.0,
 }
+# The count whose detection tolerance scales by atr_val (the cluster mult): NaN on an
+# invalid ATR (present, unmeasured), never a measured empty set (186-31 round 6). The
+# single declaration the registry field and the nan_state_keys call site both read (round 7).
+_SR_ATR_GATED_STATE = frozenset({"sr_level_count"})
 
 
 def _finalize_cluster(
@@ -316,7 +320,7 @@ def _compute_sr_dist_atr(
     if not atr_valid:
         # sr_level_count NaN too: the cluster tolerance is atr_val * mult, so the clustering
         # itself never ran (see the docstring).
-        return invalid_input_fallback(_SR_FALLBACK, nan_state_keys=frozenset({"sr_level_count"}))
+        return invalid_input_fallback(_SR_FALLBACK, nan_state_keys=_SR_ATR_GATED_STATE)
 
     lookback = _sr_lookback(config, tf)
     h = highs[-lookback:]
@@ -1407,6 +1411,7 @@ KERNELS = (
         # makes the clustering itself unmeasurable (see invalid_input_fallback's
         # nan_state_keys). Every other output is NaN/None there (group 4).
         zero_is_state=frozenset({"sr_level_count"}),
+        atr_gated_state=_SR_ATR_GATED_STATE,
         object_dependent=SR.nullable,  # no qualifying level cluster in the window
     ),
     Kernel(
