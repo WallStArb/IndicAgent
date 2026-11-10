@@ -18,13 +18,23 @@ extend), vendor docs read 2026-11-09 (todo 603 "Source findings").
 4. Downloaded files are untrusted input: store under `data/massive/pilot/`, parse with explicit
    paths, never run an interpreter from inside the download directory.
 
-## Step 0: layout probe (one file)
+## Step 0: layout probe (one file) - MEASURED 2026-11-10
 
-Download one 2010 day file. Record, from measurement not docs: file name and compression; CSV
-columns; `window_start` unit (docs disagree, seconds versus nanoseconds); timestamp timezone
-(align against the 09:30 ET open); price scale; volume units; `transactions` presence; rows per
-symbol for a full RTH session (expect 390 minute bars) versus extended rows; symbol casing.
-Write the measured facts into this doc's evidence section before any comparison runs.
+Access opened 2026-11-10 (owner plan upgrade + regenerated S3 key in `.env`; the old free-plan
+key kept listing-only). Measured facts, from the file not the docs:
+
+- Key layout: `us_stocks_sip/minute_aggs_v1/<YYYY>/<MM>/<YYYY-MM-DD>.csv.gz` - gzip, NOT
+  `.csv.zip` as the docs say. Day-aggs parallel: `us_stocks_sip/day_aggs_v1/...csv.gz`.
+- Columns: `ticker,volume,open,close,high,low,window_start,transactions`.
+- `window_start` is NANOSECONDS (1262614800000000000 = 2010-01-04 14:20 UTC = 09:20 ET); the
+  docs' seconds-versus-nanoseconds disagreement resolves to nanoseconds.
+- Extended hours are included (first bars pre-open); RTH cut is our job at read.
+- `transactions` (trade count) present, free with the bars.
+- One 2010 day file: 12.4 MB compressed, 66.8 MB raw, 1,217,549 rows (all symbols, full day).
+- Volume units and price scale: integer share counts and plain dollar prices in 2010 (the
+  fractional-share era starts 2026-02-23; the 2026-era file measures that when sampled).
+
+Write further measured facts into this section before any comparison runs.
 
 ## Step 1: survivorship (the reason this vendor is bought)
 
