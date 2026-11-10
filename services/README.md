@@ -27,6 +27,7 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 | `bar_reconciliation_audit.py` | D7: integrity findings and the `bar_integrity` verdicts promotion reads |
 | `listing_venue_writer.py` | D6 listing venue spans |
 | `dividend_event_writer.py` | Dividend events (Yahoo) |
+| `reference_raw_writer.py` | The one writer of `reference_raw`: Massive reference capture manifests, one row per line, sha256-verified (todo 600) |
 
 The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`)
 run by `indicagent-ibkr-history-fetcher.timer`; the Alpaca capture is

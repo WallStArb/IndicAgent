@@ -194,9 +194,11 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         Writer("services/dividend_event_writer.py", reason="dividend date disagreements"),
     ),
     # Massive admission schema (migration 586, todo 600). Nothing may write the reference and
-    # identity tables until the admission reference loader (step 3) registers here as their one
-    # writer; definition_epoch is written by migrations only, for good.
-    "reference_raw": (),
+    # identity tables until the admission loaders register here as their one writer;
+    # definition_epoch is written by migrations only, for good.
+    "reference_raw": (
+        Writer("services/reference_raw_writer.py", reason="Massive reference captures (todo 600)"),
+    ),
     "security_identifier": (),
     "ticker_event": (),
     "definition_epoch": (),
