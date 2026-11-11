@@ -378,3 +378,31 @@ def test_the_stored_read_is_bounded_per_calendar_year():
         [[stamps[0]], stamps[0], stamps[0]],
         [[stamps[1]], stamps[1], stamps[1]],
     ]
+
+
+def test_each_row_carries_its_own_serve_time_when_it_has_one():
+    NEWER = ANSWERED + timedelta(minutes=30)
+    # a batched loader: row 0 was answered earlier than the stored value, row 1 later; the call's
+    # answered_at is only the fallback for a row with none
+    conn = FakeConn(
+        [
+            _stored(_row(0), close=10.0, served_at=ANSWERED),
+            _stored(_row(1), close=10.0, served_at=ANSWERED),
+        ]
+    )
+    rows = [
+        _row(0, close=12.0, answered_at=EARLIER),  # older than stored: superseded
+        _row(1, close=12.0, answered_at=NEWER),  # newer: replaces
+        _row(2, answered_at=EARLIER),  # new: stored with its own serve time
+        _row(3),  # no row time: the call's
+    ]
+    (delta,) = _write(conn, rows)
+    assert (delta.new, delta.changed, delta.superseded) == (2, 1, 1)
+    flat = [value for _, params in conn.sql("INSERT INTO ohlcv_raw") for value in params]
+    served = flat[10::13]  # 13 values per raw row, served_at is the 11th
+    assert sorted(served) == sorted([EARLIER, ANSWERED, NEWER])  # new rows, then the replacement
+
+
+def test_a_row_serve_time_in_the_future_raises():
+    with pytest.raises(ValueError, match="future"):
+        _write(FakeConn(), [_row(0, answered_at=NOW + timedelta(days=2))])

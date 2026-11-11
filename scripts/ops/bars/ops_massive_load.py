@@ -11,7 +11,7 @@ gate checks (docs/plans/2026-11-10-massive-admission-db-design.md):
   (instrument, slot) no incumbent vendor holds in ohlcv_raw. While Massive is unranked each one
   reports UNSELECTED, so the live load's unselected count must equal this number.
 
-`--apply` writes through the shared load engine (``load_series``), one day file per call, each
+`--apply` writes through the shared load engine (``load_frame``, the raw capture; 1d is derivation-owned and fenced out of ``load_series``), one day file per call, each
 with its lineage (file key, ETag, sha256, the ticker_event used, untraded rows, the volume
 definition epoch; the selection horizon is added by the contract). No real load has been run:
 the lead rules on the first year after the gates.
@@ -28,16 +28,17 @@ import json
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import psycopg
 import pyarrow.csv as pacsv
 
-from services.bar_load import LoadPolicy, load_series
+from services.bar_load import LoadResult, load_frame
 from services.ohlcv_ingress_contract import read_raw_params
 from src.config.settings import get_settings
 from src.intelligence.bars.massive_flat import FlatBars, file_trading_date
@@ -223,9 +224,12 @@ def _slot_of(timeframe: str, day: date):
     return lambda _t_ns: day
 
 
-def year_files(timeframe: str, year: int, root: Path = MASSIVE_FILES_ROOT) -> list[Path]:
+def year_files(
+    timeframe: str, year: int, root: Path = MASSIVE_FILES_ROOT, month: int | None = None
+) -> list[Path]:
     dataset = "minute_aggs_v1" if timeframe == "5m" else "day_aggs_v1"
-    return sorted((root / dataset / f"{year}").rglob("*.csv.gz"), reverse=True)  # newest first
+    folder = root / dataset / f"{year}" / ("" if month is None else f"{month:02d}")
+    return sorted(folder.rglob("*.csv.gz"), reverse=True)  # newest first
 
 
 def verdict_table(verdicts: list[SpanVerdict]) -> dict[str, int]:
@@ -267,8 +271,9 @@ def run(args: argparse.Namespace) -> int:
             verdicts[year] = year_verdicts
             t0 = time.monotonic()
             slots = IncumbentSlots(conn, args.timeframe)
+            batch, loaded = MonthBatch(), LoadResult()
             reports[year] = []
-            for path in year_files(args.timeframe, year):
+            for path in year_files(args.timeframe, year, month=args.month):
                 day = file_trading_date(path)
                 bars = _read(args.timeframe, path)
                 mapping = tickers_on(loadable, day)
@@ -276,7 +281,14 @@ def run(args: argparse.Namespace) -> int:
                     account_day(day, bars, mapping, slots.of(day), _slot_of(args.timeframe, day))
                 )
                 if args.apply:
-                    _apply(conn, ingress, path, day, bars, mapping)
+                    if batch.month != (day.year, day.month):
+                        loaded = _flush(conn, ingress, batch, loaded)
+                        batch.month = (day.year, day.month)
+                    with conn.cursor() as cur:
+                        batch.add(day, path, bars, mapping, volume_epoch_id(cur, day))
+            if args.apply:
+                loaded = _flush(conn, ingress, batch, loaded)
+                print(f"{year} {args.timeframe} load: {loaded}", flush=True)
             _print_year(args.timeframe, year, reports[year], time.monotonic() - t0)
         _write_report(args, reports, verdicts)
     finally:
@@ -290,40 +302,74 @@ def _read(timeframe: str, path: Path) -> FlatBars:
     return read_minute_file(path) if timeframe == "5m" else read_day_file(path)
 
 
-def _apply(conn, ingress, path: Path, day: date, bars: FlatBars, mapping) -> None:
-    """Write one day file's mapped frames through the load engine, each with its lineage."""
-    record = manifest_record(path)
-    answered_at = massive_answered_at(path, "")
-    policy = LoadPolicy(
-        vendor=ingress.source,
-        timeframe=ingress.timeframe,
-        caller=f"massive-{ingress.timeframe}-load",
-        kind=ingress.kind,
-    )
+class MonthBatch:
+    """One calendar month of day files, collected per instrument and written as ONE load per
+    symbol: the per-file call was 3 ms of database round trips a symbol-day (316 rows/s). Every
+    row keeps its own file's serve time (the frame's `answered_at` column); the load row's
+    lineage lists each file (date, ETag, sha256, LastModified)."""
+
+    def __init__(self) -> None:
+        self.month: tuple[int, int] | None = None
+        self.frames: dict[str, list[pd.DataFrame]] = {}
+        self.files: dict[str, list[list[str]]] = {}
+        self.spans: dict[str, dict[str, str]] = {}  # symbol -> ticker_event_id -> ticker
+        self.epochs: dict[str, set[str | None]] = {}
+        self.untraded = 0
+
+    def add(self, day: date, path: Path, bars: FlatBars, mapping, epoch: str | None) -> None:
+        record = manifest_record(path)
+        answered_at = massive_answered_at(path, "")
+        self.untraded += bars.n_untraded_rows
+        entry = [day.isoformat(), record["etag"], record["sha256"], record["last_modified"]]
+        for ticker, frame in bars.frames(list(mapping)).items():
+            span = mapping[ticker]
+            self.frames.setdefault(span.symbol, []).append(frame.assign(answered_at=answered_at))
+            self.files.setdefault(span.symbol, []).append(entry)
+            self.spans.setdefault(span.symbol, {})[span.ticker_event_id] = ticker
+            self.epochs.setdefault(span.symbol, set()).add(epoch)
+
+    def flush(self, conn, ingress, params) -> LoadResult:
+        total = LoadResult()
+        for symbol, frames in self.frames.items():
+            frame = pd.concat(frames, ignore_index=True).sort_values("t", ignore_index=True)
+            result = load_frame(
+                conn,
+                symbol,
+                frame,
+                vendor=ingress.source,
+                timeframe=ingress.timeframe,
+                caller=f"massive-{ingress.timeframe}-load",
+                kind=ingress.kind,
+                coverage=False,  # raw-only capture: Massive is not a fetcher source
+                params=params,
+                write=True,
+                answered_at=frame["answered_at"].max().to_pydatetime(),
+                lineage={
+                    "files": self.files[symbol],  # [date, etag, sha256, last_modified]
+                    "ticker_events": self.spans[symbol],
+                    "definition_epoch_ids": sorted(map(str, self.epochs[symbol])),
+                    "n_untraded_rows_all_files": self.untraded,
+                },
+            )
+            total = _sum(total, result)
+        return total
+
+
+def _flush(conn, ingress, batch: MonthBatch, loaded: LoadResult) -> LoadResult:
+    """Write the collected month (one load per symbol) and empty the batch."""
+    if not batch.frames:
+        return loaded
     with conn.cursor() as cur:
         params = read_raw_params(cur)
-        epoch = volume_epoch_id(cur, day)
-    frames = ingress.read_artifacts(path, list(mapping))
-    for ticker, frame in frames.items():
-        span = mapping[ticker]
-        load_series(
-            conn,
-            policy,
-            span.symbol,
-            frame,
-            params=params,
-            write=True,
-            answered_at=answered_at,
-            lineage={
-                "file_key": record["key"],
-                "etag": record["etag"],
-                "sha256": record["sha256"],
-                "ticker_event_id": span.ticker_event_id,
-                "ticker": ticker,
-                "n_untraded_rows": bars.n_untraded_rows,
-                "definition_epoch_id": epoch,
-            },
-        )
+    result = _sum(loaded, batch.flush(conn, ingress, params))
+    batch.frames, batch.files, batch.spans, batch.epochs, batch.untraded = {}, {}, {}, {}, 0
+    return result
+
+
+def _sum(total: LoadResult, result: LoadResult) -> LoadResult:
+    return LoadResult(
+        **{f.name: getattr(total, f.name) + getattr(result, f.name) for f in fields(LoadResult)}
+    )
 
 
 def _print_year(timeframe: str, year: int, days: list[DayReport], seconds: float) -> None:
@@ -400,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeframe", required=True, choices=["5m", "1d"])
     parser.add_argument("--years", required=True, nargs="+", type=int, help="newest first")
     parser.add_argument("--gap-list", type=Path, default=None, help="default: newest identity map")
+    parser.add_argument("--month", type=int, default=None, choices=range(1, 13), help="one month")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--apply", action="store_true", help="write; default is a dry run")
     args = parser.parse_args(argv)

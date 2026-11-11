@@ -155,7 +155,9 @@ _REVISION_ROW = "(" + ",".join(["%s"] * len(_REVISION_COLUMNS)) + ")"
 
 @dataclass(frozen=True)
 class RawRow:
-    """One vendor-served bar. Volume is an integer or None (missing is None, never NaN)."""
+    """One vendor-served bar. Volume is an integer or None (missing is None, never NaN).
+    `answered_at` is the bar's own serve time when it differs from the call's (a loader batching
+    many day files into one call: each file has its own LastModified); None takes the call's."""
 
     timestamp: datetime
     symbol: str
@@ -167,6 +169,7 @@ class RawRow:
     low: float
     close: float
     volume: int | None = None
+    answered_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +235,8 @@ def _validate_row(
         raise ValueError(
             f"future bar refused: {where} is later than now plus {FUTURE_TOLERANCE_KEY}"
         )
+    if row.answered_at is not None:
+        _check_answered_at(row.answered_at, latest_allowed)
     for name in ("open", "high", "low", "close"):
         value = getattr(row, name)
         if (
@@ -373,7 +378,7 @@ def _classify_series(
     superseded: dict[datetime, tuple] = {}
     for ts, (new, old) in sorted(delta.changed.items()):
         stored_at = served[ts]
-        if stored_at is None or answered_at >= stored_at:
+        if stored_at is None or (keyed[ts].answered_at or answered_at) >= stored_at:
             replaced[ts] = old[:5]
         else:
             superseded[ts] = new[:5]
@@ -447,11 +452,15 @@ def write_raw(
             # digest rule token); historical rows keep their labels.
             token = pair_token(vendor, kind)
             new_rows += [
-                _raw_params(keyed[ts], answered_at, request_id, load_id)
+                _raw_params(keyed[ts], keyed[ts].answered_at or answered_at, request_id, load_id)
                 for ts in found.delta.new_timestamps
             ]
             for ts, old in found.replaced.items():
-                changed_rows.append(_raw_params(keyed[ts], answered_at, request_id, load_id))
+                changed_rows.append(
+                    _raw_params(
+                        keyed[ts], keyed[ts].answered_at or answered_at, request_id, load_id
+                    )
+                )
                 revisions.append(
                     (load_id, symbol, timeframe, ts, *old, token, vendor, kind)
                     + (found.old_request[ts], _ORIGIN)

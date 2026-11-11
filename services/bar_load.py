@@ -119,6 +119,10 @@ def frame_to_raw_rows(
     else:
         kind = label_kind
     stamps = frame["t"].dt.to_pydatetime()
+    # an optional per-row serve time (a batched loader's per-file LastModified), else the call's
+    served = (
+        frame["answered_at"].dt.to_pydatetime() if "answered_at" in frame else [None] * len(frame)
+    )
     return [
         RawRow(
             timestamp=ts,
@@ -131,9 +135,10 @@ def frame_to_raw_rows(
             low=float(low),
             close=float(c),
             volume=int(v),
+            answered_at=at,
         )
-        for ts, o, h, low, c, v in zip(
-            stamps, frame["o"], frame["h"], frame["l"], frame["c"], frame["v"], strict=True
+        for ts, o, h, low, c, v, at in zip(
+            stamps, frame["o"], frame["h"], frame["l"], frame["c"], frame["v"], served, strict=True
         )
     ]
 
