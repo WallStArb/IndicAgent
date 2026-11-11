@@ -826,9 +826,13 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     write_csv(out / "attribution_excluded.csv", excl_rows, _fields(excl_rows))
 
     # (4) Proposed rows and the review list.
-    guard = defaultdict(list)  # the writer's existing-row guard reads every row, current or not
-    for _aid, sym, kind, eff, _fac, by, _vc, _current in ref.actions:
-        guard[sym].append((eff, kind, by))
+    # The writer's existing-row guard on its massive_reference path: every row, current or not,
+    # except one that is no market split (an incumbent route correction never blocks the
+    # market's split; lead ruling 2026-11-11).
+    guard = defaultdict(list)
+    for _aid, sym, kind, eff, _fac, by, rows_file, _current in ref.actions:
+        if is_market_split(by, operator_rows_file=rows_file):
+            guard[sym].append((eff, kind, by))
     spin_offs = operator_list(SPIN_OFF_EXCLUSIONS)
     proposed, review = [], []
     for m, row in member_rows:

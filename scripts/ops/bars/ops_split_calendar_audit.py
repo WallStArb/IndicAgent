@@ -98,6 +98,7 @@ from src.intelligence.bars.corporate_actions import (  # noqa: E402
     MASSIVE_REFERENCE_SOURCE,
     SPLIT_SOURCES,
     SplitRatioRule,
+    is_market_split,
     judge_calendar_split,
     recognised_split_ratio,
     scale_step,
@@ -159,7 +160,7 @@ _RAW_SERIES_OF = {
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
-SELECT action_type, effective_date, factor, inferred_by FROM corporate_action
+SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file' FROM corporate_action
 WHERE symbol = %s AND effective_date BETWEEN %s::date - %s AND %s::date + %s
 """
 _INSERT_SQL = """
@@ -623,10 +624,16 @@ def _apply_decided(
     *,
     commit: bool,
     insert_sql: str = _INSERT_SQL,
+    market_splits_only: bool = False,
 ) -> int:
     """One connection, one transaction: build_rows reads what it needs on the same connection,
     every decided row whose event is undecided is inserted, and the transaction rolls back
-    unless commit. A row carrying recorded_at passes it as the insert's last parameter."""
+    unless commit. A row carrying recorded_at passes it as the insert's last parameter.
+
+    market_splits_only (the massive_reference path, lead ruling 2026-11-11): an existing row
+    that is no market split (corporate_actions.is_market_split: a todo 592 operator row that
+    corrects one incumbent route) decides nothing about the market's split, so it never blocks
+    one; any other row, current, superseded or void, still does."""
     with psycopg.connect(settings.database_url) as conn:
         rows = build_rows(conn)
         cur = conn.cursor()
@@ -635,7 +642,11 @@ def _apply_decided(
         for row in rows:
             day, window = row["effective_date"], SAME_EVENT_DAYS
             cur.execute(_EXISTING_SQL, (row["symbol"], day, window, day, window))
-            existing = cur.fetchall()
+            existing = [
+                e
+                for e in cur.fetchall()
+                if not market_splits_only or is_market_split(e[3], operator_rows_file=e[4])
+            ]
             if existing:
                 print(f"skipped {row['symbol']} {day} x{row['factor']}: decided by {existing}")
                 continue
@@ -849,6 +860,7 @@ def apply_massive(settings: Settings, path: Path, *, commit: bool) -> int:
         lambda conn: _references_served(conn, massive_rows(path, _apr(conn).rule)),
         commit=commit,
         insert_sql=_INSERT_MASSIVE_SQL,
+        market_splits_only=True,
     )
 
 

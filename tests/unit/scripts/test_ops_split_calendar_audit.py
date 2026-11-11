@@ -912,3 +912,76 @@ def test_apply_massive_checks_lineage_inserts_and_never_commits(tmp_path, monkey
         monkeypatch.setattr(audit.psycopg, "connect", lambda *a, s=served, **k: _ServedConn(s))
         with pytest.raises(ValueError, match="not stored|serve time"):
             audit.main(["--apply-massive", str(path)])
+
+
+# The five Massive splits the writer's guard held (lead ruling 2026-11-11): each sits within
+# SAME_EVENT_DAYS of a todo 592 operator row that corrects one incumbent route.
+# (symbol, effective, execution, factor, the operator row's (effective, factor, action type))
+_GUARD_CASES = [
+    ("ELS", "2019-10-15", "2019-10-16", 2.0, (date(2019, 10, 15), 0.500018, "reverse_split")),
+    ("IJR", "2017-01-18", "2017-01-19", 2.0, (date(2017, 1, 17), 0.5, "reverse_split")),
+    ("OKE", "2012-06-01", "2012-06-04", 2.0, (date(2012, 6, 1), 0.504145, "reverse_split")),
+    ("UHAL", "2022-11-09", "2022-11-10", 10.0, (date(2022, 11, 9), 10.0, "split")),
+    ("WST", "2004-09-29", "2004-09-30", 2.0, (date(2004, 9, 29), 2.0, "split")),
+]
+
+
+class _GuardCursor(_ServedCursor):
+    existing: list = []
+
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        if "FROM corporate_action\n" in sql:
+            self._rows = [e for e in self.existing if e[0] == params[0]]
+            self._rows = [e[1:] for e in self._rows]
+
+
+class _GuardConn(_ServedConn):
+    def __init__(self, served, existing):
+        super().__init__(served)
+        self.existing = existing
+
+    def cursor(self):
+        cur = _GuardCursor(self)
+        cur.served, cur.existing = self.served, self.existing
+        return cur
+
+
+def _guard_file(tmp_path):
+    lines = [
+        {
+            "symbol": s,
+            "effective_date": eff,
+            "execution_date": exe,
+            "factor": str(f),
+            "action_type": "split",
+        }
+        for s, eff, exe, f, _row in _GUARD_CASES
+    ]
+    return _massive_file(tmp_path, *lines)
+
+
+def _inserted(conn):
+    return [s for s in conn.statements if "INSERT INTO corporate_action" in s]
+
+
+def test_an_incumbent_route_correction_never_blocks_the_markets_split(tmp_path, monkeypatch):
+    path = _guard_file(tmp_path)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    served = [("00000000-0000-0000-0000-000000000001", _SERVED)]
+    # Each operator row as _EXISTING_SQL returns it: (action_type, effective, factor,
+    # inferred_by, detail ? 'rows_file'), keyed by symbol for the fake.
+    corrections = [
+        (s, kind, eff, factor, "calendar_audit", True)
+        for s, _e, _x, _f, (eff, factor, kind) in _GUARD_CASES
+    ]
+    conn = _GuardConn(served, corrections)
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(path)]) == 0
+    assert len(_inserted(conn)) == 5
+    # A market split already recorded at the same event still decides it.
+    decided = [(s, kind, eff, f, "nightly_overlap", False) for s, kind, eff, f, *_ in corrections]
+    conn = _GuardConn(served, decided)
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(path)]) == 0
+    assert _inserted(conn) == []
