@@ -56,6 +56,11 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
         "bar_source_policy and fixture rows in ohlcv_request/ohlcv_raw/ohlcv_load inside a "
         "transaction the fixture always aborts; nothing persists"
     ),
+    "test_canonical_bar_lineage_massive_migration_contract.py": (
+        "marker (pytest.mark.live_db): migration 588's view SELECT runs against TEMP shadows of "
+        "market_data_ohlcv, corporate_action_current, ohlcv_raw, ohlcv_load and "
+        "bar_content_digest inside a transaction the fixture always aborts; nothing persists"
+    ),
     "core/test_resource_lease.py": (
         "read-only: takes advisory-lease locks and reads pg_stat_activity (locks and session "
         "state are not writes)"
