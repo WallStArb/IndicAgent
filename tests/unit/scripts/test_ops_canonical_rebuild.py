@@ -9,10 +9,13 @@ import pytest
 from scripts.ops.bars.ops_canonical_rebuild import (
     State,
     chunk_windows,
+    from_violations,
     grid_misaligned,
+    has_written,
     lineage_gate,
     main,
     read_card_lineage,
+    result_violation,
     session_bounds,
     source_shortfalls,
 )
@@ -65,14 +68,18 @@ def test_state_round_trips_and_resumes(tmp_path):
     state = State(path)
     state.data["horizon"] = "2026-11-12T00:00:00+00:00"
     assert not state.done("5m", "2003-07-14")
-    assert state.inflight("5m|2003-07-14") == {"last": None, "totals": {}}
+    assert state.inflight("5m|2003-07-14") == {"last": None, "pending": None, "totals": {}}
     entry = state.inflight("5m|2003-07-14")
     entry["last"], entry["totals"]["new"] = "AAPL", 7
     state.finish("5m", "2003-04-15")
     again = State(path)
     assert again.horizon == datetime(2026, 11, 12, tzinfo=UTC)
     assert again.done("5m", "2003-04-15")
-    assert again.inflight("5m|2003-07-14") == {"last": "AAPL", "totals": {"new": 7}}
+    assert again.inflight("5m|2003-07-14") == {
+        "last": "AAPL",
+        "pending": None,
+        "totals": {"new": 7},
+    }
     again.finish("5m", "2003-07-14")
     assert State(path).data["inflight"] == {}
 
@@ -129,3 +136,56 @@ def test_the_card_lineage_names_come_from_card_json(tmp_path):
 def test_preflight_requires_the_card():
     with pytest.raises(SystemExit):
         main(["--preflight", "--state", "/nonexistent/state.json"])
+
+
+# --- rebuild guards (review 2026-11-11, finding 3) --------------------------------------------
+
+
+class _Result:
+    def __init__(self, new=0, changed=0, unchanged=0, dropped=0):
+        self.new, self.changed, self.unchanged, self.dropped = new, changed, unchanged, dropped
+
+
+def test_an_empty_target_takes_only_new_rows():
+    assert result_violation(_Result(new=500), "AAPL", None) is None
+    assert result_violation(_Result(changed=1), "AAPL", None) == "AAPL: changed 1, dropped 0"
+    assert result_violation(_Result(dropped=2), "AAPL", None) == "AAPL: changed 0, dropped 2"
+    assert result_violation(_Result(new=3, unchanged=1), "AAPL", None) == "AAPL: unchanged 1"
+
+
+def test_only_the_symbol_a_crash_left_pending_may_find_its_rows_already_there():
+    assert result_violation(_Result(unchanged=40), "AAPL", "AAPL") is None
+    assert result_violation(_Result(unchanged=40), "MSFT", "AAPL") == "MSFT: unchanged 40"
+    assert result_violation(_Result(changed=1), "AAPL", "AAPL") is not None
+
+
+def test_from_must_not_skip_any_timeframes_first_raw_bar():
+    first = {"5m": "2003-09-10T13:30:00+00:00", "1m": "2026-03-23T13:30:00+00:00", "4h": None}
+    assert from_violations(date(2003, 9, 1), first, ["5m", "1m"]) == []
+    assert from_violations(date(2003, 9, 1), first, ["4h"]) == []
+    assert from_violations(date(2004, 1, 1), first, ["5m", "1m"]) == [
+        "5m: first raw bar 2003-09-10T13:30:00+00:00 is before --from 2004-01-01"
+    ]
+
+
+def test_has_written_reads_done_and_inflight_windows():
+    assert not has_written({"done": {}, "inflight": {}})
+    assert not has_written({"done": {"5m": []}, "inflight": {}})
+    assert has_written({"done": {"5m": ["2003-07-14"]}, "inflight": {}})
+    assert has_written({"done": {}, "inflight": {"5m|2003-07-14": {"last": "A"}}})
+
+
+def test_reset_refuses_once_a_window_was_written(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text('{"horizon": "2026-11-12T00:00:00+00:00", "done": {"5m": ["2003-07-14"]}}')
+    argv = ["--preflight", "--state", str(path), "--card", str(tmp_path), "--reset"]
+    assert main(argv) == 2
+
+
+def test_resume_refuses_when_the_quiet_list_is_not_quiet(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    path.write_text('{"horizon": "2026-11-12T00:00:00+00:00", "preflight_failures": []}')
+    monkeypatch.setattr(
+        "scripts.ops.bars.ops_canonical_rebuild.quiet_failures", lambda: ["units not quiet: x"]
+    )
+    assert main(["--rebuild", "--state", str(path), "--from", "2003-09-01"]) == 2

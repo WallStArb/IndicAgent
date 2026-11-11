@@ -27,9 +27,12 @@ and the split horizon, so it is rebuilt by the one canonical writer (services.ba
                      midnight chunk edge, so a window touches one chunk), one commit per symbol,
                      the run's one horizon for every call; then, once every timeframe of the run
                      has filled the window, compress its chunk (one invocation for 5m and 1m).
-                     Per window totals go to the JSONL report. A window whose selection replaced
-                     a stored row (`changed`) stops the run: the target was not empty. Rerunning
-                     the same command resumes after the last committed symbol.
+                     Per window totals go to the JSONL report. It refuses a non-empty table on a
+                     fresh state, a --from after a timeframe's first raw bar, and a quiet list
+                     that is not quiet (re-checked on every resume); a selection that replaced,
+                     found equal or retracted a stored row stops the run (the target was not
+                     empty). Rerunning the same command resumes after the last committed
+                     symbol. --reset refuses once any window was written.
 --finish             reschedule the compression policy job the preflight unscheduled, run it to
                      recompress partial chunks (the daily and grid stages write into compressed
                      chunks after this), ANALYZE, and check the compression settings and grid
@@ -108,6 +111,8 @@ SELECT extract(epoch FROM range_start)::bigint, extract(epoch FROM range_end)::b
 FROM timescaledb_information.chunks WHERE hypertable_name = %s ORDER BY range_start
 """
 _CANONICAL_TF_SQL = f"SELECT timeframe, count(*) FROM {TABLE} GROUP BY 1"
+_ANY_ROW_SQL = f"SELECT EXISTS (SELECT 1 FROM {TABLE})"
+_RAW_FIRST_SQL = 'SELECT min("timestamp") FROM ohlcv_raw WHERE timeframe = %s'
 _RAW_TF_SQL = "SELECT count(*) FROM ohlcv_raw WHERE timeframe = %s"
 _OTHER_SESSIONS_SQL = f"""
 SELECT count(*) FROM pg_stat_activity
@@ -208,6 +213,34 @@ def read_card_lineage(card: Path) -> list[str]:
     return list(meta.get("red_lineage", {}).get("exported_symbols", []))
 
 
+def result_violation(result: Any, symbol: str, pending: str | None) -> str | None:
+    """Why one symbol's selection into an empty target is wrong, or None. After TRUNCATE every
+    winner is new: a replaced (`changed`), already-equal (`unchanged`) or retracted (`dropped`)
+    row means the target was not empty. The one exception is the symbol a crash left pending
+    (committed before its state was saved): its rows are already there, unchanged."""
+    if result.changed or result.dropped:
+        return f"{symbol}: changed {result.changed}, dropped {result.dropped}"
+    if result.unchanged and symbol != pending:
+        return f"{symbol}: unchanged {result.unchanged}"
+    return None
+
+
+def from_violations(start: date, raw_first: Mapping[str, str | None], timeframes: Iterable[str]):
+    """Timeframes whose first raw bar (recorded by the preflight) is before --from: their earlier
+    windows would never be rebuilt."""
+    out = []
+    for tf in timeframes:
+        first = raw_first.get(tf)
+        if first is not None and datetime.fromisoformat(first).date() < start:
+            out.append(f"{tf}: first raw bar {first} is before --from {start}")
+    return out
+
+
+def has_written(state_data: Mapping[str, Any]) -> bool:
+    """Whether a rebuild already wrote under this state (a window done or in flight)."""
+    return any(state_data.get("done", {}).values()) or bool(state_data.get("inflight"))
+
+
 def add_totals(into: dict[str, int], result: Any) -> None:
     for key in _TOTAL_KEYS:
         into[key] = into.get(key, 0) + int(getattr(result, key))
@@ -237,8 +270,9 @@ class State:
         return window in self.data["done"].get(timeframe, [])
 
     def inflight(self, key: str) -> dict[str, Any]:
-        """The window's resume entry: {"last": symbol or None, "totals": {...}}."""
-        return self.data["inflight"].setdefault(key, {"last": None, "totals": {}})
+        """The window's resume entry: {"last": committed symbol, "pending": the symbol being
+        committed (set before its commit), "totals": {...}}."""
+        return self.data["inflight"].setdefault(key, {"last": None, "pending": None, "totals": {}})
 
     def finish(self, timeframe: str, window: str) -> None:
         self.data["done"].setdefault(timeframe, []).append(window)
@@ -277,13 +311,22 @@ def _running(pattern: str) -> list[str]:
     ]
 
 
-def run_preflight(args: argparse.Namespace) -> int:
-    failures: list[str] = []
-    busy = [u for u in QUIET_UNITS if _unit_active(u)]
-    if busy:
+def quiet_failures() -> list[str]:
+    """The quiet list (QUIET_UNITS, QUIET_PROCESSES): what is still running."""
+    failures = []
+    if busy := [u for u in QUIET_UNITS if _unit_active(u)]:
         failures.append(f"units not quiet: {busy}")
     if procs := sorted({line for pattern in QUIET_PROCESSES for line in _running(pattern)}):
         failures.append(f"processes not quiet: {procs}")
+    return failures
+
+
+def run_preflight(args: argparse.Namespace) -> int:
+    state = State(args.state)
+    if args.reset and has_written(state.data):
+        print("refused: --reset would re-pin the horizon of a rebuild that already wrote windows")
+        return 2
+    failures = quiet_failures()
     refusal = disk_headroom_refusal()
     if refusal:
         failures.append(f"disk: {refusal}")
@@ -306,6 +349,11 @@ def run_preflight(args: argparse.Namespace) -> int:
             cur.execute(_RAW_TF_SQL, (tf,))
             raw[tf] = int(cur.fetchone()[0])
         failures += source_shortfalls(canonical, raw)
+        raw_first = {}
+        for tf in sorted(DIRECT_TIMEFRAMES):
+            cur.execute(_RAW_FIRST_SQL, (tf,))
+            first = cur.fetchone()[0]
+            raw_first[tf] = first.isoformat() if first else None
         cur.execute(_FUTURE_SPLITS_SQL)
         if future := cur.fetchall():
             failures.append(f"splits not executed yet (1d and 5m would disagree): {future[:10]}")
@@ -316,7 +364,6 @@ def run_preflight(args: argparse.Namespace) -> int:
         if n_other := int(cur.fetchone()[0]):
             failures.append(f"{n_other} other session(s) are running a statement on {TABLE}")
         conn.rollback()
-    state = State(args.state)
     if "horizon" in state.data and not args.reset:
         horizon = state.data["horizon"]
     else:
@@ -329,6 +376,7 @@ def run_preflight(args: argparse.Namespace) -> int:
             "compression_job": [int(v) for v in jobs[0]] if len(jobs) == 1 else None,
             "canonical_rows_before": canonical,
             "raw_rows": raw,
+            "raw_first": raw_first,
             "red_lineage": {v: dispositions.get(v) for v in red},
             "preflight_at": datetime.now(UTC).isoformat(),
             "preflight_failures": failures,
@@ -349,6 +397,11 @@ def run_rebuild(args: argparse.Namespace) -> int:
     if "horizon" not in state.data or state.data.get("preflight_failures"):
         print("refused: no clean --preflight recorded in the state file")
         return 2
+    if refusals := quiet_failures() + from_violations(
+        args.start, state.data.get("raw_first", {}), args.timeframes
+    ):
+        print("refused: " + "; ".join(refusals))
+        return 2
     horizon = state.horizon
     now = datetime.now(UTC)
     windows = chunk_windows(state.data["interval_s"], args.start, now)
@@ -357,6 +410,10 @@ def run_rebuild(args: argparse.Namespace) -> int:
     with psycopg.connect(_dsn()) as conn:
         with conn.cursor() as cur:
             params = read_raw_params(cur)
+            cur.execute(_ANY_ROW_SQL)
+            if cur.fetchone()[0] and not has_written(state.data):
+                print(f"refused: {TABLE} is not empty and no window of this state was written")
+                return 2
             cur.execute(_SYMBOLS_SQL)
             # Python order: resume skips `symbol <= last` in this same order (a collation that
             # sorts punctuation differently would otherwise skip a name silently)
@@ -372,7 +429,7 @@ def run_rebuild(args: argparse.Namespace) -> int:
                     print(f"STOP before {timeframe} {key}: disk {refusal}")
                     return 2
                 entry = state.inflight(f"{timeframe}|{key}")
-                last, totals = entry["last"], entry["totals"]
+                last, pending, totals = entry["last"], entry.get("pending"), entry["totals"]
                 started = datetime.now(UTC)
                 for symbol in symbols:
                     if last is not None and symbol <= last:
@@ -388,16 +445,15 @@ def run_rebuild(args: argparse.Namespace) -> int:
                         batch_rows=params.write.batch_rows,
                         horizon=horizon,
                     )
-                    if result.changed:
+                    if why := result_violation(result, symbol, pending):
                         conn.rollback()
-                        print(
-                            f"STOP {timeframe} {key} {symbol}: {result.changed} stored rows "
-                            "replaced; the target is not empty"
-                        )
+                        print(f"STOP {timeframe} {key}: {why}; the target was not empty")
                         return 1
+                    entry["pending"] = symbol
+                    state.save()
                     conn.commit()
                     add_totals(totals, result)
-                    entry["last"] = symbol
+                    entry["last"], entry["pending"] = symbol, None
                     state.save()
                 line = {
                     "timeframe": timeframe,
