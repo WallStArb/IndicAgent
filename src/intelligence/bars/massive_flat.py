@@ -22,7 +22,8 @@ Minute reader, in this order (design section 4):
 Prices are as served (unadjusted); the adjustment basis is a selection concern (section 5).
 
 Loud failures (a file is never silently emptied): a file with rows but no in-session minute, a
-row outside the 04:00 to 20:00 ET (inclusive) extended-hours window of its trading date (a mis-dated file),
+row outside the New York calendar day of its trading date (a mis-dated file; the archive holds
+stamps a minute before 04:00 and exactly 20:00 ET, so the guard is the day, not the session hours),
 a duplicate (ticker, window_start), a null, or a volume past 6 decimals.
 
 Definitions worth knowing: the session open is floored to the 5m grid by ``nyse_sessions`` (the
@@ -36,7 +37,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -232,14 +233,14 @@ def session_bounds_ns(trading_date: date) -> tuple[int, int]:
 
 
 def extended_bounds_ns(trading_date: date) -> tuple[int, int]:
-    """UTC nanoseconds of the first and last minute starts an extended-hours file can hold: 04:00
-    and 20:00 ET, both inclusive (the archive has late prints stamped exactly 20:00 ET)."""
+    """UTC nanoseconds of the first and last minute starts the New York calendar day of a file can
+    hold (00:00 to 23:59 ET). Anything outside is a mis-dated file; the regular-session cut
+    happens afterwards and drops pre- and post-market stamps."""
 
-    def at(hour: int) -> int:
-        stamp = datetime.combine(trading_date, time(hour), tzinfo=_SESSION_TZ)
-        return int(stamp.timestamp()) * 1_000_000_000
+    def at(day: date) -> int:
+        return int(datetime.combine(day, time(0), tzinfo=_SESSION_TZ).timestamp()) * 1_000_000_000
 
-    return at(4), at(20)
+    return at(trading_date), at(trading_date + timedelta(days=1)) - 60 * 1_000_000_000
 
 
 def file_trading_date(path: Path) -> date:
@@ -260,7 +261,7 @@ def read_minute_file(path: Path, trading_date: date | None = None) -> FlatBars:
     first_ns, last_ns = extended_bounds_ns(day)
     stamps = table["window_start"].to_numpy()
     if len(stamps) and (stamps.min() < first_ns or stamps.max() > last_ns):
-        raise ValueError(f"{path}: rows outside the 04:00 to 20:00 ET window of {day}")
+        raise ValueError(f"{path}: rows outside the New York calendar day {day}")
     return aggregate_minutes_to_5m(
         names,
         codes,

@@ -131,10 +131,10 @@ class TestDefinitions:
         bars = _minutes([("A", 0, 1, 1, 1, 1, 0)])
         assert (len(bars), bars.n_untraded_rows) == (0, 1)
 
-    def test_extended_window_is_04_to_20_et(self):
+    def test_file_window_is_the_new_york_calendar_day(self):
         first, last = mf.extended_bounds_ns(date(2024, 6, 11))
-        assert str(np.datetime64(first, "ns")) == "2024-06-11T08:00:00.000000000"
-        assert str(np.datetime64(last, "ns")) == "2024-06-12T00:00:00.000000000"
+        assert str(np.datetime64(first, "ns")) == "2024-06-11T04:00:00.000000000"
+        assert str(np.datetime64(last, "ns")) == "2024-06-12T03:59:00.000000000"
 
     def test_mis_dated_file_raises(self, tmp_path):
         src = ROOT / "minute_aggs_v1" / "2024/06/2024-06-11.csv.gz"
@@ -142,7 +142,7 @@ class TestDefinitions:
             pytest.skip("minute file not in this checkout")
         wrong = tmp_path / "2024-06-12.csv.gz"
         wrong.write_bytes(src.read_bytes())
-        with pytest.raises(ValueError, match="outside the 04:00 to 20:00 ET window"):
+        with pytest.raises(ValueError, match="outside the New York calendar day"):
             mf.read_minute_file(wrong)
 
     def test_session_bounds_regular_early_and_irregular_close(self):

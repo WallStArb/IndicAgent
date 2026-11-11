@@ -88,7 +88,8 @@ def account_day(
     `incumbent` holds (symbol, slot) of every incumbent raw row of the day; `slot_of(t_ns)` maps
     a bar stamp to the slot key (a UTC stamp for 5m, a session date for 1d)."""
     names = bars.tickers[bars.ticker_index]
-    mapped_mask = np.isin(names, list(mapping)) if mapping else np.zeros(len(names), dtype=bool)
+    in_map = np.array([str(t) in mapping for t in bars.tickers], dtype=bool)
+    mapped_mask = in_map[bars.ticker_index]  # per-ticker lookup, then a gather: no per-row strings
     report = DayReport(day, file_tickers=len(bars.tickers))
     report.mapped_tickers = len({str(n) for n in names[mapped_mask]})
     report.unmapped_tickers = len(bars.tickers) - report.mapped_tickers
@@ -97,8 +98,6 @@ def account_day(
     report.untraded_rows = bars.n_untraded_rows
     if bars.traded_minutes is not None:
         report.traded_minutes_in = int(bars.traded_minutes.sum())
-        mapped_names = set(mapping)
-        in_map = np.array([str(t) in mapped_names for t in bars.tickers], dtype=bool)
         report.traded_minutes_mapped = int(bars.traded_minutes[in_map].sum())
     report.unmapped_sample = sorted({str(n) for n in names[~mapped_mask]})[:5]
     for name, t_ns in zip(names[mapped_mask], bars.t_ns[mapped_mask], strict=True):
