@@ -44,6 +44,15 @@ commit the caller's transaction (amendment 2026-10-13 to plan 191-02).
 
 All validation runs before any SQL: CVR vendor and kind codes, canonical-only labels, placeholder
 sources, finite values, required lineage ids and answer time, the future-timestamp guard.
+
+Bulk path (docs/plans/2026-11-11-bulk-raw-load-path-design.md, sections 4 and 5): `RawBatch` is
+the columnar carrier of one (timeframe, vendor, kind) family, validated, deduplicated and cut into
+series-chunks by `build_raw_batch` with the same refusals as the row path. `stage_and_classify`
+COPYs it into a session temp table, takes the same series locks and classifies every row against
+the stored rows in ONE join (same rules as `classify` plus the serve-time split);
+`write_classified` then writes revisions, new rows and replacements set-based from the stage, and
+checks each rowcount against the classification. The contract writes the ohlcv_load rows between
+the two calls, exactly as it does between `preview_series` and `write_raw`.
 """
 
 from __future__ import annotations
@@ -57,6 +66,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from typing import Any
+
+import numpy as np
+import pandas as pd
 
 from src.config.config_service import ConfigService
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
@@ -508,3 +520,500 @@ def read_stored_closes(
         return {
             row[0]: row[4] for row in _read_stored(cur, symbol, timeframe, vendor, kind, timestamps)
         }
+
+
+# --------------------------------------------------------------------------------------
+# Columnar bulk path (bulk raw load path design, sections 4 and 5)
+# --------------------------------------------------------------------------------------
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_US_PER_S = 1_000_000
+
+# Row classes of the bulk classification (the CASE in _CLASSIFY_SQL).
+CLS_NEW, CLS_UNCHANGED, CLS_REPLACE, CLS_SUPERSEDED = 0, 1, 2, 3
+_N_CLASSES = 4
+
+
+def us_to_datetime(us: int) -> datetime:
+    """UTC microseconds since the epoch as a tz-aware datetime (exact integer arithmetic)."""
+    return _EPOCH + timedelta(microseconds=int(us))
+
+
+def datetime_to_us(ts: datetime) -> int:
+    """A tz-aware datetime as UTC microseconds since the epoch (exact)."""
+    delta = ts - _EPOCH
+    return (delta.days * 86_400 + delta.seconds) * _US_PER_S + delta.microseconds
+
+
+@dataclass(frozen=True, eq=False)
+class RawBatch:
+    """Vendor-served bars of ONE (timeframe, vendor, kind) family as parallel arrays, validated,
+    deduplicated and ordered by (symbol, timestamp); built only by `build_raw_batch`.
+
+    `load_key` numbers the series-chunks (one symbol's rows in stamp order, cut every
+    `chunk_rows`): each gets one ohlcv_load row. Rows of one key are contiguous and keys ascend.
+    `n_offered[k]` counts the input rows of key k before identical repeats collapsed."""
+
+    timeframe: str
+    vendor: str
+    kind: str
+    symbols: np.ndarray  # object (str), per row
+    ts_us: np.ndarray  # int64, UTC microseconds
+    open: np.ndarray  # float64
+    high: np.ndarray
+    low: np.ndarray
+    close: np.ndarray
+    volume: np.ndarray  # int64 (0 where volume_null)
+    volume_null: np.ndarray  # bool: missing volume is None, never 0
+    served_us: np.ndarray  # int64, the row's own answer time
+    load_key: np.ndarray  # int64, nondecreasing from 0
+    n_offered: np.ndarray  # int64 per load key
+
+    def __len__(self) -> int:
+        return len(self.ts_us)
+
+    @property
+    def n_keys(self) -> int:
+        return len(self.n_offered)
+
+    def key_bounds(self) -> np.ndarray:
+        """Row offsets of each key: key k holds rows [bounds[k], bounds[k + 1])."""
+        bounds: np.ndarray = np.searchsorted(self.load_key, np.arange(self.n_keys + 1))
+        return bounds
+
+    def keys(self, first: int, stop: int) -> RawBatch:
+        """The sub-batch of keys [first, stop), renumbered from 0 (whole series-chunks only)."""
+        bounds = self.key_bounds()
+        rows = slice(int(bounds[first]), int(bounds[stop]))
+        return RawBatch(
+            self.timeframe,
+            self.vendor,
+            self.kind,
+            self.symbols[rows],
+            self.ts_us[rows],
+            self.open[rows],
+            self.high[rows],
+            self.low[rows],
+            self.close[rows],
+            self.volume[rows],
+            self.volume_null[rows],
+            self.served_us[rows],
+            self.load_key[rows] - first,
+            self.n_offered[first:stop],
+        )
+
+    def volumes(self) -> list[int | None]:
+        """Volume per row as Python ints, None where missing."""
+        return self.rows_volumes(0, len(self))
+
+    def rows_volumes(self, start: int, stop: int) -> list[int | None]:
+        """Volume of rows [start, stop) as Python ints, None where missing."""
+        out: list[int | None] = list(self.volume[start:stop].tolist())
+        for i in np.flatnonzero(self.volume_null[start:stop]).tolist():
+            out[i] = None
+        return out
+
+
+def _where(symbol: str, timeframe: str, ts_us: int) -> str:
+    return f"{symbol} {timeframe} {us_to_datetime(ts_us)!r}"
+
+
+def _validate_batch(
+    *,
+    timeframe: str,
+    vendor: str,
+    kind: str,
+    symbols: np.ndarray,
+    ts_us: np.ndarray,
+    prices: dict[str, np.ndarray],
+    volume: np.ndarray,
+    volume_null: np.ndarray,
+    served_us: np.ndarray,
+    vendor_codes: Collection[str],
+    kind_codes: Collection[str],
+    latest_us: int,
+) -> None:
+    """`_validate_row` over arrays: the same checks in the same order, raising the same message
+    for the first offending row in input order (the row path validates row by row)."""
+    if len(ts_us) == 0:
+        return
+    where = _where(str(symbols[0]), timeframe, int(ts_us[0]))
+    if SOURCE_SYNTHETIC_FILL in (vendor, kind):
+        raise ValueError(f"ohlcv_raw refuses placeholder bars (synthetic_fill): {where}")
+    if vendor == VENDOR_DERIVED:
+        raise ValueError(
+            f"ohlcv_raw stores what vendors served; vendor 'derived' is canonical only: {where}"
+        )
+    if kind in CANONICAL_ONLY_KINDS:
+        raise ValueError(f"kind {kind!r} is canonical only, never served by a vendor: {where}")
+    if vendor not in vendor_codes:
+        raise ValueError(f"vendor {vendor!r} is not a CVR bar_vendor code: {where}")
+    if kind not in kind_codes:
+        raise ValueError(f"kind {kind!r} is not a CVR bar_kind code: {where}")
+    # (offending mask, message for row i at `where` w), in _validate_row's order
+    checks: list[tuple[np.ndarray, Any]] = [
+        (
+            ts_us > latest_us,
+            lambda i, w: f"future bar refused: {w} is later than now plus {FUTURE_TOLERANCE_KEY}",
+        ),
+        (
+            served_us > latest_us,
+            lambda i, w: (
+                f"answered_at {us_to_datetime(int(served_us[i]))!r} is in the future (clock error)"
+            ),
+        ),
+    ]
+    for name, values in prices.items():
+        checks.append(
+            (
+                ~np.isfinite(values),
+                lambda i, w, name=name, values=values: (
+                    f"non-finite or non-numeric {name} {float(values[i])!r}: {w}"
+                ),
+            )
+        )
+    checks.append(
+        (
+            ~volume_null & (volume < 0),
+            lambda i, w: (
+                f"volume must be a non-negative integer or None, got {int(volume[i])!r}: {w}"
+            ),
+        )
+    )
+    bad = np.logical_or.reduce([mask for mask, _ in checks])
+    if not bad.any():
+        return
+    first = int(np.argmax(bad))
+    for mask, message in checks:
+        if mask[first]:
+            raise ValueError(message(first, _where(str(symbols[first]), timeframe, ts_us[first])))
+
+
+def build_raw_batch(
+    *,
+    timeframe: str,
+    vendor: str,
+    kind: str,
+    symbols: np.ndarray,
+    ts_us: np.ndarray,
+    open: np.ndarray,  # noqa: A002 - the column's name
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    served_us: np.ndarray,
+    vendor_codes: Collection[str],
+    kind_codes: Collection[str],
+    future_tolerance_s: int,
+    chunk_rows: int,
+    volume_null: np.ndarray | None = None,
+    now: datetime | None = None,
+) -> RawBatch:
+    """Validate, deduplicate, order and cut one family's offered rows into a `RawBatch`.
+
+    The row path's refusals (`_validate_row`, `_group_by_series`): a key offered twice with
+    different values raises with the same message and count; identical repeats collapse, the
+    last occurrence in input order kept. Rows are then ordered by (symbol, timestamp) and each
+    symbol's rows cut into series-chunks of at most `chunk_rows` (`load_frame`'s chunking)."""
+    if chunk_rows < 1:
+        raise ValueError(f"chunk_rows must be >= 1, got {chunk_rows}")
+    symbols = np.asarray(symbols, dtype=object)
+    n = len(symbols)
+    stamps = offered_stamps = np.asarray(ts_us, dtype=np.int64)
+    o, h, lo, c = (np.asarray(a, dtype=np.float64) for a in (open, high, low, close))
+    served = np.asarray(served_us, dtype=np.int64)
+    null = np.zeros(n, dtype=bool) if volume_null is None else np.asarray(volume_null, dtype=bool)
+    vol = np.where(null, 0, np.asarray(volume, dtype=np.int64))
+    if any(len(a) != n for a in (stamps, o, h, lo, c, vol, null, served)):
+        raise ValueError("build_raw_batch: column lengths differ")
+    _validate_batch(
+        timeframe=timeframe,
+        vendor=vendor,
+        kind=kind,
+        symbols=symbols,
+        ts_us=stamps,
+        prices={"open": o, "high": h, "low": lo, "close": c},
+        volume=vol,
+        volume_null=null,
+        served_us=served,
+        vendor_codes=vendor_codes,
+        kind_codes=kind_codes,
+        latest_us=datetime_to_us(now or datetime.now(UTC)) + future_tolerance_s * _US_PER_S,
+    )
+    code, names = pd.factorize(symbols, sort=True)  # sorted names; faster than np.unique on str
+    if (code < 0).any():  # factorize codes a missing symbol -1, which would index the last name
+        raise ValueError(f"symbol missing on {int((code < 0).sum())} offered row(s)")
+    order = np.lexsort((np.arange(n), stamps, code))  # by (symbol, stamp), input order on ties
+    code, stamps = code[order], stamps[order]
+    o, h, lo, c = (a[order] for a in (o, h, lo, c))
+    vol, null, served = vol[order], null[order], served[order]
+    repeat = (code[1:] == code[:-1]) & (stamps[1:] == stamps[:-1])
+    differs = repeat & (
+        (o[1:] != o[:-1])
+        | (h[1:] != h[:-1])
+        | (lo[1:] != lo[:-1])
+        | (c[1:] != c[:-1])
+        | (vol[1:] != vol[:-1])
+        | (null[1:] != null[:-1])
+    )
+    if differs.any():
+        later = np.sort(order[1:][differs])  # each contradicting row, in input order
+        shown = ", ".join(
+            f"{symbols[i]} {timeframe} {vendor}/{kind} {us_to_datetime(offered_stamps[i])!r}"
+            for i in later[:5].tolist()
+        )
+        raise ValueError(
+            f"chunk offers {len(later)} key(s) twice with different values "
+            f"(first: {shown}); a vendor answer contradicting itself is not collapsed silently"
+        )
+    # (the [:n] slices make an empty offer an empty batch)
+    keep = np.r_[~repeat, True][:n]  # the last occurrence of each key
+    kept_of = (np.cumsum(np.r_[True, ~repeat]) - 1)[:n]  # each sorted input row's kept row
+    code, stamps = code[keep], stamps[keep]
+    o, h, lo, c = (a[keep] for a in (o, h, lo, c))
+    vol, null, served = vol[keep], null[keep], served[keep]
+    position = np.arange(len(code))
+    symbol_start = np.r_[True, code[1:] != code[:-1]]
+    symbol_first = np.maximum.accumulate(np.where(symbol_start, position, 0))
+    cut = symbol_start | ((position - symbol_first) % chunk_rows == 0)
+    load_key = np.cumsum(cut) - 1
+    n_offered = np.bincount(load_key[kept_of], minlength=int(cut.sum())).astype(np.int64)
+    return RawBatch(
+        timeframe,
+        vendor,
+        kind,
+        names[code],
+        stamps,
+        o,
+        h,
+        lo,
+        c,
+        vol,
+        null,
+        served,
+        load_key.astype(np.int64),
+        n_offered,
+    )
+
+
+# Session temp tables of the bulk path (design section 5), created inside the bar-writer role's
+# context so later transactions under the role can use them. ON COMMIT DELETE ROWS empties them
+# at every commit; a rollback of the creating transaction drops them and the next call recreates
+# them. Stamps are staged as `timestamp` holding UTC and converted with AT TIME ZONE 'UTC'.
+_STAGE_DDL = (
+    "CREATE TEMP TABLE IF NOT EXISTS ohlcv_raw_stage (ord integer NOT NULL, "
+    "load_key integer NOT NULL, ts_utc timestamp NOT NULL, symbol text NOT NULL, "
+    "open float8 NOT NULL, high float8 NOT NULL, low float8 NOT NULL, close float8 NOT NULL, "
+    "volume bigint, served_utc timestamp NOT NULL) ON COMMIT DELETE ROWS",
+    "CREATE TEMP TABLE IF NOT EXISTS ohlcv_raw_stage_class (ord integer NOT NULL, "
+    "cls smallint NOT NULL, old_open float8, old_high float8, old_low float8, old_close float8, "
+    "old_volume bigint, old_request_id uuid) ON COMMIT DELETE ROWS",
+    # a second batch inside one transaction starts from an empty stage
+    "DELETE FROM ohlcv_raw_stage",
+    "DELETE FROM ohlcv_raw_stage_class",
+)
+_COPY_STAGE_SQL = (
+    "COPY ohlcv_raw_stage (ord, load_key, ts_utc, symbol, open, high, low, close, volume, "
+    "served_utc) FROM STDIN (FORMAT BINARY)"
+)
+_STAGE_TYPES = [
+    "int4",
+    "int4",
+    "timestamp",
+    "text",
+    "float8",
+    "float8",
+    "float8",
+    "float8",
+    "int8",
+    "timestamp",
+]
+# One read of the stored rows: the subquery filters every segment-by column (symbol, timeframe,
+# vendor) plus kind and a constant time range, so only these series' segments of the chunks the
+# range touches are decompressed. Run unprepared so lo/hi exclude chunks at plan time. The CASE
+# is `classify` (exact equality, volume NULL equals NULL) plus the serve-time split.
+_CLASSIFY_SQL = (
+    "INSERT INTO ohlcv_raw_stage_class "
+    f"SELECT s.ord, CASE WHEN r.ts IS NULL THEN {CLS_NEW} "
+    "WHEN (s.open, s.high, s.low, s.close) = (r.open, r.high, r.low, r.close) "
+    f"AND s.volume IS NOT DISTINCT FROM r.volume THEN {CLS_UNCHANGED} "
+    "WHEN r.served_at IS NULL OR (s.served_utc AT TIME ZONE 'UTC') >= r.served_at "
+    f"THEN {CLS_REPLACE} ELSE {CLS_SUPERSEDED} END, "
+    "r.open, r.high, r.low, r.close, r.volume, r.request_id "
+    "FROM ohlcv_raw_stage s LEFT JOIN ("
+    'SELECT "timestamp" AS ts, symbol, open, high, low, close, volume, served_at, request_id '
+    "FROM ohlcv_raw WHERE timeframe = %(tf)s AND vendor = %(vendor)s AND kind = %(kind)s "
+    'AND symbol = ANY(%(symbols)s) AND "timestamp" >= %(lo)s AND "timestamp" <= %(hi)s) r '
+    "ON r.symbol = s.symbol AND r.ts = (s.ts_utc AT TIME ZONE 'UTC')"
+)
+_READ_CLASSES_SQL = "SELECT array_agg(cls ORDER BY ord) FROM ohlcv_raw_stage_class"
+_READ_REPLACED_SQL = (
+    "SELECT ord, old_open, old_high, old_low, old_close, old_volume FROM ohlcv_raw_stage_class "
+    f"WHERE cls = {CLS_REPLACE} ORDER BY ord"
+)
+_STAGE_JOIN = "FROM ohlcv_raw_stage s JOIN ohlcv_raw_stage_class c USING (ord) "
+_KEY_LOAD = "(%(load_ids)s::uuid[])[s.load_key + 1]"
+_KEY_REQUEST = "(%(request_ids)s::uuid[])[s.load_key + 1]"
+
+
+def _replaced_or_offered(column: str) -> str:
+    return f"CASE c.cls WHEN {CLS_REPLACE} THEN c.old_{column} ELSE s.{column} END"
+
+
+# Old values first, as write_raw: a replaced row logs the stored values under the stored row's
+# request (origin raw), a superseded offer logs the offered values under this load's request.
+_BULK_REVISION_SQL = (
+    f"INSERT INTO ohlcv_revision ({', '.join(_REVISION_COLUMNS)}) "
+    f"SELECT {_KEY_LOAD}, s.symbol, %(tf)s, s.ts_utc AT TIME ZONE 'UTC', "
+    + ", ".join(_replaced_or_offered(c) for c in ("open", "high", "low", "close", "volume"))
+    + ", %(token)s, %(vendor)s, %(kind)s, "
+    f"CASE c.cls WHEN {CLS_REPLACE} THEN c.old_request_id ELSE {_KEY_REQUEST} END, "
+    f"CASE c.cls WHEN {CLS_REPLACE} THEN %(origin_raw)s ELSE %(origin_superseded)s END "
+    + _STAGE_JOIN
+    + f"WHERE c.cls IN ({CLS_REPLACE}, {CLS_SUPERSEDED})"
+)
+_BULK_RAW_INSERT = (
+    f"INSERT INTO ohlcv_raw ({', '.join(_RAW_COLUMNS)}) "
+    "SELECT s.ts_utc AT TIME ZONE 'UTC', s.symbol, %(tf)s, %(vendor)s, %(kind)s, "
+    "s.open, s.high, s.low, s.close, s.volume, s.served_utc AT TIME ZONE 'UTC', "
+    f"{_KEY_REQUEST}, {_KEY_LOAD} "
+    + _STAGE_JOIN
+    + "WHERE c.cls = {cls} ORDER BY s.symbol, s.ts_utc"
+)
+# New rows are a plain INSERT (a racing insert fails loudly on the primary key); replacements
+# carry the row path's serve-time guard.
+_BULK_NEW_SQL = _BULK_RAW_INSERT.format(cls=CLS_NEW)
+_BULK_REPLACE_SQL = _BULK_RAW_INSERT.format(cls=CLS_REPLACE) + _UPSERT_TAIL
+
+
+@dataclass(frozen=True, eq=False)
+class Classified:
+    """A staged batch classified against the stored rows (the classes stay server-side in the
+    session temp tables until `write_classified`). `cls` is each row's class; `replaced_old` the
+    stored (open, high, low, close, volume) of each replaced row by row index; `counts[k, cls]`
+    the rows of key k in each class."""
+
+    batch: RawBatch
+    cls: np.ndarray
+    replaced_old: dict[int, tuple]
+    counts: np.ndarray  # shape (n_keys, 4), columns indexed by the CLS_* codes
+
+
+def _stage(cur: Any, batch: RawBatch) -> None:
+    for statement in _STAGE_DDL:
+        cur.execute(statement)
+    columns = (
+        range(len(batch)),
+        batch.load_key.tolist(),
+        batch.ts_us.astype("datetime64[us]").tolist(),  # naive UTC, staged as timestamp
+        batch.symbols.tolist(),
+        batch.open.tolist(),
+        batch.high.tolist(),
+        batch.low.tolist(),
+        batch.close.tolist(),
+        batch.volumes(),
+        batch.served_us.astype("datetime64[us]").tolist(),
+    )
+    with cur.copy(_COPY_STAGE_SQL) as copy:
+        copy.set_types(_STAGE_TYPES)
+        for row in zip(*columns, strict=True):
+            copy.write_row(row)
+
+
+def batch_symbols(batch: RawBatch) -> list[str]:
+    """The batch's symbols, sorted (rows are ordered by symbol, so each key's first row)."""
+    return sorted(set(batch.symbols[batch.key_bounds()[:-1]].tolist()))
+
+
+def lock_series(cur: Any, batch: RawBatch) -> None:
+    """The row path's series lock (statement, key and sorted order) for every series of the
+    batch; timeframe, vendor and kind are constant in a batch."""
+    cur.executemany(
+        _LOCK_SERIES_SQL,
+        [("|".join((s, batch.timeframe, batch.vendor, batch.kind)),) for s in batch_symbols(batch)],
+    )
+
+
+def classify_params(batch: RawBatch) -> dict[str, Any]:
+    """The parameters of `_CLASSIFY_SQL`: the family, the symbols and the constant time range."""
+    return {
+        "tf": batch.timeframe,
+        "vendor": batch.vendor,
+        "kind": batch.kind,
+        "symbols": batch_symbols(batch),
+        "lo": us_to_datetime(batch.ts_us.min()),
+        "hi": us_to_datetime(batch.ts_us.max()),
+    }
+
+
+def write_params(
+    batch: RawBatch, load_ids: list[uuid.UUID], request_ids: list[uuid.UUID]
+) -> dict[str, Any]:
+    """The parameters of the bulk revision and raw statements."""
+    return {
+        "tf": batch.timeframe,
+        "vendor": batch.vendor,
+        "kind": batch.kind,
+        "token": pair_token(batch.vendor, batch.kind),
+        "load_ids": load_ids,
+        "request_ids": request_ids,
+        "origin_raw": _ORIGIN,
+        "origin_superseded": ORIGIN_SUPERSEDED,
+    }
+
+
+def stage_and_classify(cur: Any, batch: RawBatch) -> Classified:
+    """Stage `batch`, lock its series and classify every row against the stored rows in one join
+    (module docstring). Runs on the caller's cursor and transaction under the bar-writer role and
+    writes nothing outside the session temp tables."""
+    if len(batch) == 0:
+        raise ValueError("stage_and_classify: empty batch")
+    _stage(cur, batch)
+    lock_series(cur, batch)
+    cur.execute(_CLASSIFY_SQL, classify_params(batch), prepare=False)
+    cur.execute(_READ_CLASSES_SQL)
+    (classes,) = cur.fetchone()
+    cls = np.asarray(classes or [], dtype=np.int64)
+    if len(cls) != len(batch):
+        raise RuntimeError(f"classification returned {len(cls)} rows for {len(batch)} staged")
+    replaced_old: dict[int, tuple] = {}
+    if (cls == CLS_REPLACE).any():
+        cur.execute(_READ_REPLACED_SQL)
+        replaced_old = {row[0]: tuple(row[1:]) for row in cur.fetchall()}
+    counts = np.bincount(
+        batch.load_key * _N_CLASSES + cls, minlength=batch.n_keys * _N_CLASSES
+    ).reshape(batch.n_keys, _N_CLASSES)
+    return Classified(batch, cls, replaced_old, counts)
+
+
+def write_classified(
+    cur: Any,
+    classified: Classified,
+    *,
+    load_ids: list[uuid.UUID],
+    request_ids: list[uuid.UUID],
+) -> None:
+    """Write a classified batch from the stage: revisions first, then new rows, then the guarded
+    replacements, one statement each. `load_ids[k]` and `request_ids[k]` belong to key k; the
+    ohlcv_load rows must exist already (foreign key). Every rowcount must equal the
+    classification: a shortfall means the stored rows moved under the series lock (a writer that
+    bypassed it) and raises, rolling back the caller's transaction."""
+    batch = classified.batch
+    if len(load_ids) != batch.n_keys or len(request_ids) != batch.n_keys:
+        raise ValueError(f"need {batch.n_keys} load and request ids, one per series-chunk")
+    n_new, _, n_replace, n_superseded = classified.counts.sum(axis=0).tolist()
+    params = write_params(batch, load_ids, request_ids)
+    for sql, expected, what in (
+        (_BULK_REVISION_SQL, n_replace + n_superseded, "revision"),
+        (_BULK_NEW_SQL, n_new, "new raw"),
+        (_BULK_REPLACE_SQL, n_replace, "replacing raw"),
+    ):
+        if not expected:
+            continue
+        cur.execute(sql, params)
+        if cur.rowcount != expected:
+            raise RuntimeError(
+                f"bulk raw write: {cur.rowcount} {what} rows written, {expected} classified "
+                f"({batch.timeframe} {batch.vendor}/{batch.kind}); the stored rows moved under "
+                "the series lock"
+            )

@@ -1,7 +1,7 @@
 # Bulk raw load path: set-based classification for the Massive load
 
 Author: design subagent for the lead, 2026-11-11 (todo 600, admission step 5)
-Status: proposed design, not built. No code, migration or load has run under it.
+Status: build steps 1 to 4 built 2026-11-11 (section 14); step 5 (rerouting the fetcher, nightly and Tradier restore) not started. No real load has run under it yet.
 Informed by: commit 6f2e0eba7, `scripts/ops/bars/ops_massive_load.py`, `services/bar_load.py`, `services/ohlcv_ingress_contract.py`, `services/ohlcv_raw_writer.py`, `services/bar_selection.py`, `src/intelligence/bars/selection.py`, `scripts/ops/bars/ops_selection_gate.py`, `scripts/infrastructure/backfill/_intraday_persist.py`, `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 4, 8 step 5, 8b), `logs/massive_apply_5m_2024_06.log` and `logs/massive_5m_2024_06_size_pre.txt`, read-only schema queries and read-only timings (2026-11-11).
 
 ## 1. Problem and measured baseline
@@ -254,3 +254,20 @@ Every step is built in a scratch worktree off `origin/main`. Each step lands onl
 - The deferral proof assumes canonical equals the selection of raw before each year. The before-year compare checks this, so the gate fails loudly where the current path would repair silently.
 - Rerouting the fetcher and nightly (step 5) touches the nightly Alpaca capture. It lands only after its replay digests match, and outside the 04:40 UTC nightly window.
 - The ArchiveIndex diagnosis is a likely explanation, not a measurement, and it is confirmed by tracemalloc before the fix.
+
+## 14. Build record 2026-11-11 (steps 1 to 4)
+
+Built as designed, with these departures:
+
+- The harness is `scripts/ops/bars/ops_raw_bulk_equivalence.py`, not a `tests/integration` file: the integration conftest rebuilds `indicagent_test` for every session, and the proof must run against the live database. Everything it does runs in transactions that always roll back. The SQL edge cases (signed zero, NULL volume on either side, a stored NULL `served_at`, an equal serve time, a one-ulp change, a stored row moved under the lock) are pinned against the row path on TEMP shadows in `tests/unit/services/test_ohlcv_raw_bulk_live.py`.
+- BRK.B is on the identity gap list and has no Massive rows, so AXON (served as AAXN before its rename) is the forced mapped-name symbol.
+- Series-chunks are cut over unique bars; `load_frame` cuts over offered rows. The two differ only for an offer that repeats a key, which Massive never does. The chunk-splitting scenario offers the identical-repeat series without its repeats.
+- A rerun logs an offer older than the stored answer as superseded again, as the row path does, so the idempotence criterion is "the second run inserts and replaces nothing and logs only superseded revisions", not zero revisions.
+- The deferral decision reads the policy under the batch's selection locks (`lock_selections`), as `select_and_write` does, so a `--reselect` that ranks Massive cannot slip between the check and the commit.
+- `incumbent_slots` leaves never-selected kinds (`iex_rth`) out: a slot only they hold becomes unselected once Massive lands, so it is Massive-only for the gate.
+- The ArchiveIndex cause was confirmed first: tracemalloc measured 1.07 MB per cached session, 6.2 GB for 5,829 sessions. With the bitset the June 2024 dry run peaks at 1.42 GB RSS and its day reports equal the stored dry-run JSON field for field.
+- The year-start disk check is the free-space floor from the existing APR keys (`infra.compressed_hypertable_write_session.disk_path`, `.min_free_after_fraction`); a refusal stops before the year and still writes the report of the years already loaded.
+
+Equivalence, June 2024 5m, 40 symbols, seed 20261111 (`logs/raw_bulk_equivalence_2024-06.json`): `ohlcv_raw`, `ohlcv_revision`, `ohlcv_load` and `ohlcv_restatement_flag` bit-identical between the paths at `chunk_rows` 10,000 and 1,000; LoadResult counts equal; canonical and `bar_session_choice` untouched by both; the row path's `n_unselected` (0) equals the windowed `--compare` count after the bulk path (0; June 2024 has no Massive-only slot, so this check is exercised only by the unit tests); the second bulk run inserts and replaces nothing; the contradicting repeat raises the same `ValueError` on both paths. Wall time for the 52,000 offered rows: row path 4.1 s, bulk path 0.67 s.
+
+Measured rates (53,477 rows offered as new, rolled back): server INSERT 44.8k rows/s (EXPLAIN ANALYZE, 1,193 ms) while the 2024 sweep was writing, 60.5k rows/s with it idle; classification join 48 ms; binary COPY stage 0.07 s; bulk path end to end 41.7k rows/s (55.2k idle) without the file read. The section 9 ladder is not needed. Projected for a 1.8M-row month: about 12 s reading, 2 s staging and classifying, 40 s inserting, so about 55 to 60 s, roughly 30k rows/s and 5 h for 2003-2025.

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 from datetime import UTC, date, datetime
 
 import numpy as np
+import pytest
 
 from scripts.ops.bars import ops_massive_load as loader
 from src.intelligence.bars.massive_flat import FlatBars
@@ -40,15 +42,15 @@ def _mapping():
     }
 
 
-def _slot(t_ns):
-    return datetime.fromtimestamp(t_ns / 1_000_000_000, UTC)
+def _held(*pairs: tuple[str, int]) -> loader.DaySlots:
+    return loader.DaySlots(
+        np.array([p[0] for p in pairs], dtype=object),
+        np.array([p[1] // 1000 for p in pairs], dtype=np.int64),
+    )
 
 
 def test_day_balance_counts_mapped_unmapped_and_massive_only_slots():
-    incumbent = {
-        ("AAA", datetime.fromtimestamp(T0 / 1_000_000_000, UTC))
-    }  # held for AAA's first bar
-    report = loader.account_day(DAY, _bars(), _mapping(), incumbent, _slot)
+    report = loader.account_day(DAY, _bars(), _mapping(), _held(("AAA", T0)), "5m")
     assert (report.bars_out, report.bars_unmapped) == (3, 1)
     assert (report.mapped_tickers, report.unmapped_tickers) == (2, 1)
     assert (report.traded_minutes_in, report.traded_minutes_mapped) == (15, 13)
@@ -59,43 +61,217 @@ def test_day_balance_counts_mapped_unmapped_and_massive_only_slots():
 
 
 def test_instrument_symbol_not_the_file_ticker_keys_the_incumbent_slot():
-    incumbent = {("BBX", datetime.fromtimestamp(T0 / 1_000_000_000, UTC))}
-    report = loader.account_day(DAY, _bars(), _mapping(), incumbent, _slot)
+    report = loader.account_day(DAY, _bars(), _mapping(), _held(("BBX", T0)), "5m")
     assert report.massive_only == 2  # AAA x2 unheld; BBX held
 
 
 def test_an_empty_mapping_excludes_every_bar():
-    report = loader.account_day(DAY, _bars(), {}, set(), _slot)
+    report = loader.account_day(DAY, _bars(), {}, loader.DaySlots.empty(), "5m")
     assert (report.bars_out, report.bars_unmapped, report.massive_only) == (0, 4, 0)
 
 
-def test_years_must_be_newest_first(capsys):
-    import pytest
+def test_a_1d_session_is_held_by_any_incumbent_row_of_the_symbol():
+    held = loader.DaySlots(np.array(["AAA"], dtype=object), np.zeros(1, dtype=np.int64))
+    report = loader.account_day(DAY, _bars(), _mapping(), held, "1d")
+    assert report.massive_only == 1  # BBX unheld; both AAA bars share the one session slot
 
+
+def _reference_account(bars, mapping, incumbent: set, slot_of) -> tuple:
+    """The per-row loop account_day replaced (commit 93fdde51c), kept as the parity oracle."""
+    names = bars.tickers[bars.ticker_index]
+    in_map = np.array([str(t) in mapping for t in bars.tickers], dtype=bool)
+    mapped = in_map[bars.ticker_index]
+    massive_only = sum(
+        (mapping[str(n)].symbol, slot_of(int(t))) not in incumbent
+        for n, t in zip(names[mapped], bars.t_ns[mapped], strict=True)
+    )
+    return (
+        len({str(n) for n in names[mapped]}),
+        int(mapped.sum()),
+        massive_only,
+        sorted({str(n) for n in names[~mapped]})[:5],
+    )
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("timeframe", ["5m", "1d"])
+def test_vectorized_accounting_matches_the_per_row_loop(seed, timeframe):
+    rng = np.random.default_rng(seed)
+    tickers = np.array([f"T{i:02d}" for i in range(12)])
+    n = int(rng.integers(0, 60))
+    index = np.sort(rng.integers(0, len(tickers), n)).astype(np.int32)
+    t_ns = T0 + rng.integers(0, 78, n).astype(np.int64) * STEP
+    bars = FlatBars(tickers, index, t_ns, *(np.zeros(n),) * 4, np.zeros(n, dtype=np.int64))
+    symbols = [f"S{i % 5}" for i in range(len(tickers))]  # several tickers share a symbol
+    mapping = {
+        str(t): TickerSpan(f"e{i}", symbols[i], str(t), date(2003, 1, 1), None)
+        for i, t in enumerate(tickers)
+        if rng.random() < 0.7
+    }
+    held_pairs = {
+        (f"S{rng.integers(0, 7)}", int(T0 + rng.integers(0, 78) * STEP))
+        for _ in range(int(rng.integers(0, 40)))
+    }
+    if timeframe == "5m":
+        incumbent = {(s, datetime.fromtimestamp(t / 1e9, UTC)) for s, t in held_pairs}
+        slot_of = lambda t: datetime.fromtimestamp(t / 1e9, UTC)  # noqa: E731
+        held = _held(*held_pairs)
+    else:
+        incumbent = {(s, DAY) for s, _ in held_pairs}
+        slot_of = lambda _t: DAY  # noqa: E731
+        held = loader.DaySlots(
+            np.array([s for s, _ in held_pairs], dtype=object), np.zeros(len(held_pairs), np.int64)
+        )
+    report = loader.account_day(DAY, bars, mapping, held, timeframe)
+    assert (
+        report.mapped_tickers,
+        report.bars_out,
+        report.massive_only,
+        report.unmapped_sample,
+    ) == _reference_account(bars, mapping, incumbent, slot_of)
+
+
+def test_years_must_be_newest_first(capsys):
     with pytest.raises(SystemExit):
         loader.main(["--timeframe", "5m", "--years", "2023", "2024"])
 
 
 class _Cur:
     def __init__(self, rows):
-        self.rows = rows
+        self.rows, self.params = rows, None
 
-    def execute(self, *_args):
-        pass
+    def execute(self, _sql, params=None):
+        self.params = params
 
     def fetchall(self):
         return self.rows
 
 
+def _us(ts: datetime) -> int:
+    return int(ts.timestamp()) * 1_000_000
+
+
 def test_incumbent_slots_group_a_month_query_by_session_date():
     a = datetime(2024, 6, 3, 13, 30, tzinfo=UTC)
     b = datetime(2024, 6, 4, 13, 30, tzinfo=UTC)
-    got = loader.incumbent_slots(_Cur([("X", a), ("Y", a), ("X", b)]), "5m", DAY, DAY)
-    assert got == {a.date(): {("X", a), ("Y", a)}, b.date(): {("X", b)}}
+    got = loader.incumbent_slots(
+        _Cur([("X", _us(a)), ("Y", _us(a)), ("X", _us(b))]), "5m", DAY, DAY
+    )
+    assert sorted(got) == [a.date(), b.date()]
+    assert list(got[a.date()].symbols) == ["X", "Y"]
+    assert list(got[a.date()].keys) == [_us(a), _us(a)]
+    assert list(got[b.date()].symbols) == ["X"]
     one_day = loader.incumbent_slots(
         _Cur([("X", date(2024, 6, 2)), ("X", date(2024, 6, 3))]),
         "1d",
         date(2024, 6, 3),
         date(2024, 6, 3),
     )
-    assert one_day == {date(2024, 6, 3): {("X", date(2024, 6, 3))}}
+    assert list(one_day) == [date(2024, 6, 3)]
+    assert list(one_day[date(2024, 6, 3)].symbols) == ["X"]
+    assert list(one_day[date(2024, 6, 3)].keys) == [0]
+
+
+def test_never_selected_kinds_hold_no_incumbent_slot():
+    """A slot only iex_rth holds is excluded before a Massive load and unselected after it, so it
+    counts as Massive-only, as the gate's windowed --compare counts it."""
+    for timeframe in ("5m", "1d"):
+        cur = _Cur([])
+        loader.incumbent_slots(cur, timeframe, DAY, DAY)
+        assert sorted(loader.NEVER_SELECTED_KINDS) in cur.params
+
+
+def test_a_month_without_a_mapped_bar_writes_nothing():
+    batch = loader.MonthBatch()
+    batch.parts.append(tuple(np.empty(0) for _ in range(8)))
+    fresh, total = loader._flush(None, None, batch, loader.LoadResult(n_offered=3))
+    assert total == loader.LoadResult(n_offered=3) and fresh.parts == []
+
+
+def test_pairs_in_never_matches_an_unknown_code_and_packs_exactly():
+    codes = np.array([0, 1, -1, 1], dtype=np.int64)
+    keys = np.array([5, 5, 5, 6], dtype=np.int64)
+    held = loader.pairs_in(codes, keys, np.array([1, 0]), np.array([6, 5]))
+    assert held.tolist() == [True, False, False, True]
+
+
+def _day_file(root, day: date, tickers: list[str]) -> None:
+    folder = root / "day_aggs_v1" / f"{day.year}" / f"{day.month:02d}"
+    folder.mkdir(parents=True, exist_ok=True)
+    body = "ticker,volume,open,close,high,low,window_start,transactions\n" + "".join(
+        f"{t},1,1,1,1,1,0,1\n" for t in tickers
+    )
+    with gzip.open(folder / f"{day.isoformat()}.csv.gz", "wt") as handle:
+        handle.write(body)
+
+
+def test_archive_index_bitsets_answer_like_the_ticker_sets(tmp_path):
+    served = {
+        date(2024, 6, 3): ["AAA", "BBB"],
+        date(2024, 6, 4): ["BBB", "CCC", "DDD"],
+        date(2024, 6, 5): [],
+    }
+    for day, tickers in served.items():
+        _day_file(tmp_path, day, tickers)
+    index = loader.ArchiveIndex(tmp_path)
+    assert index.sessions == sorted(served)
+    assert index.present_on(date(2024, 6, 3)) is index.present_on(date(2024, 6, 3))
+    for day, tickers in served.items():
+        present = index.present_on(day)
+        assert set(present) == set(tickers) and len(present) == len(tickers)
+        for ticker in ("AAA", "BBB", "CCC", "DDD", "EEE", 7):
+            assert (ticker in present) == (ticker in tickers)
+    # a session read before later tickers got ids still answers for them
+    assert "DDD" not in index.present_on(date(2024, 6, 3))
+
+
+def test_disk_refusal_names_the_floor():
+    assert loader.disk_refusal(20, 100, 0.10) is None
+    assert "under the 10%" in loader.disk_refusal(9, 100, 0.10)
+
+
+def _batch_inputs(rows_per_symbol: dict[str, int], day: int = 0) -> FlatBars:
+    tickers = np.array(sorted(rows_per_symbol))
+    index = np.repeat(np.arange(len(tickers)), [rows_per_symbol[t] for t in tickers]).astype(
+        np.int32
+    )
+    start = T0 + day * 86_400 * 10**9
+    t_ns = np.concatenate([start + np.arange(rows_per_symbol[t]) * STEP for t in tickers])
+    n = len(index)
+    prices = np.full(n, 10.0)
+    return FlatBars(tickers, index, t_ns, prices, prices, prices, prices, np.ones(n, np.int64))
+
+
+def test_month_batch_builds_one_raw_batch_with_per_file_serve_time(monkeypatch):
+    first, second = (datetime(2024, 6, d, 22, tzinfo=UTC) for d in (3, 4))
+    served = {"f3": first, "f4": second}
+    monkeypatch.setattr(
+        loader,
+        "manifest_record",
+        lambda path: {"etag": "e", "sha256": "s", "last_modified": str(path)},
+    )
+    monkeypatch.setattr(loader, "massive_answered_at", lambda path, _symbol: served[str(path)])
+    mapping = _mapping()
+    batch = loader.MonthBatch()
+    batch.add(date(2024, 6, 3), "f3", _batch_inputs({"AAA": 3, "BBB": 2, "CCC": 1}), mapping, None)
+    batch.add(date(2024, 6, 4), "f4", _batch_inputs({"AAA": 1}, day=1), mapping, "epoch1")
+
+    class _Ingress:
+        source, timeframe, kind = "massive", "5m", "sip_flat_agg"
+
+    class _Write:
+        future_tolerance_s = 3600
+        batch_rows = 50_000
+
+    class _Params:
+        vendor_codes, kind_codes, write = {"massive"}, {"sip_flat_agg"}, _Write()
+
+    raw = batch.raw_batch(_Ingress(), _Params())
+    assert raw.symbols.tolist() == ["AAA"] * 4 + ["BBX"] * 2  # CCC unmapped, BBB as BBX
+    expected_served = [first, first, first, second, first, first]
+    assert raw.served_us.tolist() == [loader.datetime_to_us(t) for t in expected_served]
+    lineage = batch.lineage()
+    assert sorted(lineage) == ["AAA", "BBX"]
+    assert [f[0] for f in lineage["AAA"]["files"]] == ["2024-06-03", "2024-06-04"]
+    assert lineage["AAA"]["definition_epoch_ids"] == ["None", "epoch1"]
+    assert lineage["BBX"]["ticker_events"] == {"e2": "BBB"}

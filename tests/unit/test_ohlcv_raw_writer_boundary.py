@@ -32,6 +32,13 @@ _ALLOW_LIST: dict[str, str] = {
         "write_raw classifies by the same (vendor, kind) key, inserts new rows, replaces "
         "changed rows last-wins and logs the old values to ohlcv_revision."
     ),
+    "scripts/ops/bars/ops_raw_bulk_equivalence.py": (
+        "PERMANENT test harness, never a writer: the bulk path's equivalence proof (bulk raw "
+        "load path design, section 10) deletes the sampled new-group series' month of Massive "
+        "rows inside a transaction it always rolls back (force_rollback), so both load paths "
+        "insert them; nothing it does persists. All raw rows either path writes go through "
+        "services/ohlcv_raw_writer.py."
+    ),
     "scripts/ops/bars/ops_tradier_delete.py": (
         "TEMPORARY retire: todo 574 (Tradier source-scoped deletion, owner exception "
         "2026-10-12). DELETE FROM ohlcv_raw where vendor tradier and timeframe 1d only, in "

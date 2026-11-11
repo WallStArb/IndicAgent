@@ -81,6 +81,7 @@ from services.ohlcv_ingress_contract import read_unreviewed_basis  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.bars.selection import (  # noqa: E402
+    SESSION_TZ,
     Candidate,
     PolicyRow,
     select_slots,
@@ -279,7 +280,7 @@ ChoiceRecord = (
 _CHOICES_SQL = (
     "SELECT session_date, vendor, complete, n_slots, n_vendor_slots, n_grid_slots, "
     "n_vendor_grid_slots, n_primary_grid_slots FROM bar_session_choice "
-    "WHERE symbol = %s AND timeframe = %s"
+    "WHERE symbol = %s AND timeframe = %s AND session_date >= %s AND session_date < %s"
 )
 
 
@@ -681,16 +682,34 @@ def count_unreviewed_basis(cur: Any) -> list[dict[str, Any]]:
 # Database edges
 # --------------------------------------------------------------------------------------
 
+# Every series read is bounded by a [start, end) window of whole NYSE sessions (`--start/--end`;
+# all time by default). Selection takes each session whole, so a session-cut window selects
+# exactly what the whole series selects inside it.
+Window = tuple[datetime, datetime]
+ALL_TIME: Window = (datetime(1800, 1, 1, tzinfo=UTC), datetime(2200, 1, 1, tzinfo=UTC))
+_IN_WINDOW = ' AND "timestamp" >= %s AND "timestamp" < %s'
 _RAW_SQL = (
     'SELECT "timestamp", symbol, timeframe, vendor, kind, open, high, low, close, volume '
-    "FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s"
+    "FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s" + _IN_WINDOW
 )
 _POLICY_SQL = (
     "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
     "FROM bar_source_policy_current"
 )
 _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE namespace = 'bar_kind'"
-_UNMAPPED_SQL = "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = %s"
+_UNMAPPED_SQL = (
+    "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = %s"
+    + _IN_WINDOW
+)
+
+
+def compare_bounds(start: date | None, end: date | None) -> Window:
+    """[start, end) as whole NYSE sessions: America/New_York midnight of the session date
+    `start` to midnight of `end` (exclusive); an open side reaches all time."""
+    return (
+        ALL_TIME[0] if start is None else datetime.combine(start, datetime.min.time(), SESSION_TZ),
+        ALL_TIME[1] if end is None else datetime.combine(end, datetime.min.time(), SESSION_TZ),
+    )
 
 
 def vendor_labels() -> dict[str, VK]:
@@ -715,16 +734,20 @@ def introspect_target(cur: Any, target: str) -> None:
         raise SystemExit(f"target {target!r} has no (vendor, kind) columns")
 
 
-def read_canonical(cur: Any, target: str, symbol: str, timeframe: str) -> dict[datetime, Row]:
+def read_canonical(
+    cur: Any, target: str, symbol: str, timeframe: str, window: Window = ALL_TIME
+) -> dict[datetime, Row]:
     cur.execute(
         f'SELECT "timestamp", vendor, kind, open, high, low, close, volume FROM {target} '
-        "WHERE symbol = %s AND timeframe = %s AND vendor <> %s",
-        (symbol, timeframe, VENDOR_DERIVED),
+        "WHERE symbol = %s AND timeframe = %s AND vendor <> %s" + _IN_WINDOW,
+        (symbol, timeframe, VENDOR_DERIVED, *window),
     )
     return {r[0]: ((r[1], r[2]), tuple(r[3:8])) for r in cur.fetchall()}
 
 
-def count_unmapped(cur: Any, target: str, symbol: str, timeframe: str) -> int:
+def count_unmapped(
+    cur: Any, target: str, symbol: str, timeframe: str, window: Window = ALL_TIME
+) -> int:
     """Canonical rows the gate never compares, counted so they fail the verdict instead of
     vanishing: (vendor, kind) are NOT NULL columns, so the old NULL/unmapped-label residue is
     structurally gone and what remains is a derived vendor row in a direct timeframe (1m, 5m,
@@ -732,12 +755,14 @@ def count_unmapped(cur: Any, target: str, symbol: str, timeframe: str) -> int:
     ground and is not counted."""
     if timeframe not in DIRECT_TIMEFRAMES:
         return 0
-    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe, VENDOR_DERIVED))
+    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe, VENDOR_DERIVED, *window))
     return int(cur.fetchone()[0])
 
 
-def read_candidates(cur: Any, symbol: str, timeframe: str) -> list[Candidate]:
-    cur.execute(_RAW_SQL, (symbol, timeframe))
+def read_candidates(
+    cur: Any, symbol: str, timeframe: str, window: Window = ALL_TIME
+) -> list[Candidate]:
+    cur.execute(_RAW_SQL, (symbol, timeframe, *window))
     return [Candidate(*row) for row in cur.fetchall()]
 
 
@@ -894,6 +919,45 @@ def candidate_policy(paths: Sequence[str]) -> list[PolicyRow]:
     return rows
 
 
+def compare_window(
+    cur: Any,
+    target: str,
+    symbol: str,
+    timeframe: str,
+    window: Window,
+    *,
+    policy: Sequence[PolicyRow],
+    kind_order: Mapping[str, int],
+    horizon: datetime,
+    sample_limit: int = 20,
+) -> SeriesDiff | None:
+    """One series compared inside `window` (reads only, on the caller's cursor and transaction);
+    None when the window holds no canonical row, raw candidate or unmapped row."""
+    canonical = read_canonical(cur, target, symbol, timeframe, window)
+    unmapped = count_unmapped(cur, target, symbol, timeframe, window)
+    candidates = read_candidates(cur, symbol, timeframe, window)
+    if not canonical and not candidates and not unmapped:
+        return None
+    splits = (
+        splits_known_at(read_split_rows(cur, symbol), horizon)
+        if any(c.vendor == VENDOR_MASSIVE for c in candidates)
+        else []
+    )
+    sessions = tuple(session_date(edge) for edge in window)
+    cur.execute(_CHOICES_SQL, (symbol, timeframe, *sessions))
+    recorded = [tuple(r) for r in cur.fetchall()]
+    expected: list[ChoiceRecord] = []
+    selected, counts = selected_rows(
+        candidates, policy, kind_order, choices_out=expected, splits=splits
+    )
+    diff = compare_series(
+        symbol, timeframe, canonical, selected, sample_limit=sample_limit, counts=counts
+    )
+    diff.unmapped_canonical = unmapped
+    diff.session_choices_unrecorded = unrecorded_choices(expected, recorded)
+    return diff
+
+
 def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     diffs: list[SeriesDiff] = []
     horizon = args.horizon or datetime.now(UTC)  # resolved once; --horizon replays a run
@@ -915,37 +979,25 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
         "started": _stamp(),
         "horizon": horizon.isoformat(),
     }
+    window = compare_bounds(args.start, args.end)
+    meta["window"] = [window[0].isoformat(), window[1].isoformat()]
     for n, symbol in enumerate(symbols, 1):
         for timeframe in args.timeframes:
             with conn.cursor() as cur:
-                canonical = read_canonical(cur, args.target, symbol, timeframe)
-                unmapped = count_unmapped(cur, args.target, symbol, timeframe)
-                candidates = read_candidates(cur, symbol, timeframe)
-                if not canonical and not candidates and not unmapped:
-                    continue
-                splits = (
-                    splits_known_at(read_split_rows(cur, symbol), horizon)
-                    if any(c.vendor == VENDOR_MASSIVE for c in candidates)
-                    else []
+                diff = compare_window(
+                    cur,
+                    args.target,
+                    symbol,
+                    timeframe,
+                    window,
+                    policy=policy,
+                    kind_order=kind_order,
+                    horizon=horizon,
+                    sample_limit=args.sample_limit,
                 )
-                cur.execute(_CHOICES_SQL, (symbol, timeframe))
-                recorded = [tuple(r) for r in cur.fetchall()]
             conn.rollback()
-            expected: list[ChoiceRecord] = []
-            selected, counts = selected_rows(
-                candidates, policy, kind_order, choices_out=expected, splits=splits
-            )
-            diff = compare_series(
-                symbol,
-                timeframe,
-                canonical,
-                selected,
-                sample_limit=args.sample_limit,
-                counts=counts,
-            )
-            diff.unmapped_canonical = unmapped
-            diff.session_choices_unrecorded = unrecorded_choices(expected, recorded)
-            diffs.append(diff)
+            if diff is not None:
+                diffs.append(diff)
         if n % 25 == 0 or n == len(symbols):
             print(
                 f"[{datetime.now(UTC):%H:%M:%S}] compare {n}/{len(symbols)} ({symbol}) "
@@ -1255,6 +1307,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="--compare: the split horizon (timezone-aware ISO time) to replay; default now",
     )
+    parser.add_argument(
+        "--start",
+        type=date.fromisoformat,
+        default=None,
+        help="--compare: first NYSE session date of the window (inclusive); default all time",
+    )
+    parser.add_argument(
+        "--end",
+        type=date.fromisoformat,
+        default=None,
+        help="--compare: session date the window stops before (exclusive); default all time",
+    )
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--idempotence-names", type=int, default=25)
     parser.add_argument(
@@ -1266,6 +1330,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--idempotence-timeframe", default="5m", choices=sorted(DIRECT_TIMEFRAMES))
     args = parser.parse_args(argv)
+    if (args.start or args.end) and not args.compare:
+        parser.error("--start/--end bound --compare only")
+    if args.start and args.end and args.start >= args.end:
+        parser.error("--start must be before --end")
     bad = sorted(set(args.timeframes) - DIRECT_TIMEFRAMES)
     if bad:
         parser.error(
