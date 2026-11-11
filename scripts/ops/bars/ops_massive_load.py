@@ -29,7 +29,7 @@ import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -166,28 +166,56 @@ class ArchiveIndex:
         return self._cache[day]
 
 
-def _incumbent_slots(cur: Any, timeframe: str, day: date) -> set[tuple[str, Any]]:
-    """(symbol, slot) of every incumbent raw row of the session: the 5m stamp, or the 1d session
-    date (IBKR stamps 1d at 00:00 UTC, Alpaca at midnight New York)."""
+def incumbent_slots(
+    cur: Any, timeframe: str, first: date, last: date
+) -> dict[date, set[tuple[str, Any]]]:
+    """(symbol, slot) of every incumbent raw row of the sessions first..last (inclusive), by
+    session date: the 5m stamp (UTC date), or the 1d session date (IBKR stamps 1d at 00:00 UTC,
+    Alpaca at midnight New York). One query per range."""
+    slots: dict[date, set[tuple[str, Any]]] = {}
     if timeframe == "5m":
         cur.execute(
             "SELECT symbol, \"timestamp\" FROM ohlcv_raw WHERE timeframe = '5m' "
             'AND vendor = ANY(%s) AND "timestamp" >= %s AND "timestamp" < %s',
             (
                 list(_INCUMBENT_VENDORS),
-                datetime.combine(day, datetime.min.time(), UTC),
-                datetime.combine(day, datetime.max.time(), UTC),
+                datetime.combine(first, datetime.min.time(), UTC),
+                datetime.combine(last + timedelta(days=1), datetime.min.time(), UTC),
             ),
         )
-        return {(s, t) for s, t in cur.fetchall()}
+        for symbol, stamp in cur.fetchall():
+            slots.setdefault(stamp.astimezone(UTC).date(), set()).add((symbol, stamp))
+        return slots
     cur.execute(
         "SELECT symbol, CASE WHEN vendor = 'alpaca' THEN (\"timestamp\" AT TIME ZONE "
         "'America/New_York')::date ELSE (\"timestamp\" AT TIME ZONE 'UTC')::date END "
         "FROM ohlcv_raw WHERE timeframe = '1d' AND vendor = ANY(%s) "
         'AND "timestamp" >= %s::date - 1 AND "timestamp" < %s::date + 2',
-        (list(_INCUMBENT_VENDORS), day, day),
+        (list(_INCUMBENT_VENDORS), first, last),
     )
-    return {(s, d) for s, d in cur.fetchall() if d == day}
+    for symbol, session in cur.fetchall():
+        if first <= session <= last:
+            slots.setdefault(session, set()).add((symbol, session))
+    return slots
+
+
+class IncumbentSlots:
+    """Incumbent slots by session, fetched one calendar month at a time (the per-day query was the
+    dry run's cost: 853 s a year)."""
+
+    def __init__(self, conn: Any, timeframe: str) -> None:
+        self._conn, self._timeframe = conn, timeframe
+        self._month: tuple[int, int] | None = None
+        self._slots: dict[date, set[tuple[str, Any]]] = {}
+
+    def of(self, day: date) -> set[tuple[str, Any]]:
+        if self._month != (day.year, day.month):
+            first = day.replace(day=1)
+            last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            with self._conn.cursor() as cur:
+                self._slots = incumbent_slots(cur, self._timeframe, first, last)
+            self._month = (day.year, day.month)
+        return self._slots.get(day, set())
 
 
 def _slot_of(timeframe: str, day: date):
@@ -202,7 +230,10 @@ def year_files(timeframe: str, year: int, root: Path = MASSIVE_FILES_ROOT) -> li
 
 
 def verdict_table(verdicts: list[SpanVerdict]) -> dict[str, int]:
-    counts = Counter("loaded" if v.loadable else v.reason for v in verdicts)
+    counts = Counter(
+        "loaded" if v.reason is None else f"trimmed:{v.reason}" if v.loadable else v.reason
+        for v in verdicts
+    )
     return dict(sorted(counts.items()))
 
 
@@ -223,7 +254,7 @@ def run(args: argparse.Namespace) -> int:
             return 2
         index = ArchiveIndex()
         reports: dict[int, list[DayReport]] = {}
-        verdicts: list[SpanVerdict] = []
+        verdicts: dict[int, list[SpanVerdict]] = {}
         for year in args.years:
             window = (date(year, 1, 1), date(year, 12, 31))
             year_verdicts = [
@@ -232,19 +263,18 @@ def run(args: argparse.Namespace) -> int:
                 if s.valid_to is None or s.valid_to > window[0]
                 if s.valid_from <= window[1]
             ]
-            loadable = [v.span for v in year_verdicts if v.loadable]
+            loadable = [v.trimmed for v in year_verdicts if v.trimmed is not None]
             print(f"{year} spans: {verdict_table(year_verdicts)}", flush=True)
-            verdicts = year_verdicts
+            verdicts[year] = year_verdicts
             t0 = time.monotonic()
+            slots = IncumbentSlots(conn, args.timeframe)
             reports[year] = []
             for path in year_files(args.timeframe, year):
                 day = file_trading_date(path)
                 bars = _read(args.timeframe, path)
                 mapping = tickers_on(loadable, day)
-                with conn.cursor() as cur:
-                    incumbent = _incumbent_slots(cur, args.timeframe, day)
                 reports[year].append(
-                    account_day(day, bars, mapping, incumbent, _slot_of(args.timeframe, day))
+                    account_day(day, bars, mapping, slots.of(day), _slot_of(args.timeframe, day))
                 )
                 if args.apply:
                     _apply(conn, ingress, path, day, bars, mapping)
@@ -310,7 +340,26 @@ def _print_year(timeframe: str, year: int, days: list[DayReport], seconds: float
     )
 
 
-def _write_report(args, reports: dict[int, list[DayReport]], verdicts: list[SpanVerdict]) -> None:
+def _trimmed_entry(v: SpanVerdict, window: tuple[date, date]) -> dict[str, Any]:
+    """One span that failed an edge: what was loaded and the gap days inside the year (the
+    incumbent keeps them)."""
+    iso = lambda d: None if d is None else d.isoformat()  # noqa: E731
+    trimmed = v.trimmed
+    return {
+        "symbol": v.span.symbol,
+        "ticker": v.span.ticker,
+        "reason": v.reason,
+        "valid_from": iso(v.span.valid_from),
+        "valid_to": iso(v.span.valid_to),
+        "loaded_from": trimmed and iso(trimmed.valid_from),
+        "loaded_to": trimmed and iso(trimmed.valid_to),
+        "gap_days": [d.isoformat() for d in v.trimmed_days if window[0] <= d <= window[1]],
+    }
+
+
+def _write_report(
+    args, reports: dict[int, list[DayReport]], verdicts: dict[int, list[SpanVerdict]]
+) -> None:
     out = (
         args.out
         or _LOG_DIR / f"massive_load_dryrun_{args.timeframe}_{'-'.join(map(str, args.years))}.json"
@@ -319,28 +368,24 @@ def _write_report(args, reports: dict[int, list[DayReport]], verdicts: list[Span
         "timeframe": args.timeframe,
         "years": args.years,
         "apply": args.apply,
-        "spans": verdict_table(verdicts),
-        "span_failures": [
-            {
-                "symbol": v.span.symbol,
-                "ticker": v.span.ticker,
-                "reason": v.reason,
-                "valid_from": v.span.valid_from.isoformat(),
-                "valid_to": None if v.span.valid_to is None else v.span.valid_to.isoformat(),
-            }
-            for v in verdicts
-            if not v.loadable
-        ],
-        "span_presence": [
-            {
-                "symbol": v.span.symbol,
-                "ticker": v.span.ticker,
-                "sessions": v.n_window_sessions,
-                "present": v.n_window_present,
-            }
-            for v in verdicts
-            if v.loadable
-        ],
+        "spans": {str(y): verdict_table(v) for y, v in verdicts.items()},
+        "trimmed_spans": {
+            str(y): [_trimmed_entry(v, (date(y, 1, 1), date(y, 12, 31))) for v in vs if v.reason]
+            for y, vs in verdicts.items()
+        },
+        "span_presence": {
+            str(y): [
+                {
+                    "symbol": v.span.symbol,
+                    "ticker": v.span.ticker,
+                    "sessions": v.n_window_sessions,
+                    "present": v.n_window_present,
+                }
+                for v in vs
+                if v.loadable
+            ]
+            for y, vs in verdicts.items()
+        },
         "days": {
             str(year): [d.__dict__ | {"day": d.day.isoformat()} for d in days]
             for year, days in reports.items()

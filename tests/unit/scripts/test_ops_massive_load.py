@@ -74,3 +74,28 @@ def test_years_must_be_newest_first(capsys):
 
     with pytest.raises(SystemExit):
         loader.main(["--timeframe", "5m", "--years", "2023", "2024"])
+
+
+class _Cur:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, *_args):
+        pass
+
+    def fetchall(self):
+        return self.rows
+
+
+def test_incumbent_slots_group_a_month_query_by_session_date():
+    a = datetime(2024, 6, 3, 13, 30, tzinfo=UTC)
+    b = datetime(2024, 6, 4, 13, 30, tzinfo=UTC)
+    got = loader.incumbent_slots(_Cur([("X", a), ("Y", a), ("X", b)]), "5m", DAY, DAY)
+    assert got == {a.date(): {("X", a), ("Y", a)}, b.date(): {("X", b)}}
+    one_day = loader.incumbent_slots(
+        _Cur([("X", date(2024, 6, 2)), ("X", date(2024, 6, 3))]),
+        "1d",
+        date(2024, 6, 3),
+        date(2024, 6, 3),
+    )
+    assert one_day == {date(2024, 6, 3): {("X", date(2024, 6, 3))}}
