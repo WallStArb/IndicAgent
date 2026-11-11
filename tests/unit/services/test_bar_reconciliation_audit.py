@@ -2443,3 +2443,11 @@ def test_a_name_without_massive_bars_passes_split_horizon_fresh_with_zero_metric
     run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
     verdict = _verdict(run, "AAA|5m", "split_horizon_fresh")
     assert verdict[5] is True and verdict[3] == 0.0
+
+
+def test_a_massive_bar_left_under_its_raw_kind_fails_split_horizon_fresh():
+    _, rows = _intraday_series()
+    raw_kind = [{**r, "vendor": "massive", "kind": "sip_flat_agg"} for r in rows]
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name(raw_kind)}))
+    verdict = _verdict(run, "AAA|5m", "split_horizon_fresh")
+    assert verdict[5] is False and verdict[3] == float(len(rows))

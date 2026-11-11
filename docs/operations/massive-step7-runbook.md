@@ -325,7 +325,7 @@ D6. Docs (design section 9, the step 7a commit) land after D1 to D4 pass.
 
 ## Part E: stage 2 (after the 2016 to 2025 load checks pass)
 
-Stage 2 repeats Parts B to D with the stage 2 plans and a new state file (`$OUT/rebuild_state_stage2.json`, so the horizon is pinned afresh), as a second TRUNCATE and full rebuild, not a per-year reselect. Every 2016+ 5m row changes vendor; reselecting them in place would upsert about 270M rows into compressed chunks (decompress, then recompress), the bloat class the TRUNCATE path avoids, and the full rebuild gives stage 2 its own mechanical proof: the pre-2016 canonical stage 1 built must come back byte for byte.
+Before stage 2, rerun from Part A: A5 (serve-time re-stat, zero drift), A9 (a fresh `policy_before_<tf>.json` snapshot of the stage 1 policy: stage 2's rollback restores stage 1, not the pre-switch policy) and A10 (the quiet list, stopped again). Stage 2 repeats Parts B to D with the stage 2 plans and a new state file (`$OUT/rebuild_state_stage2.json`, so the horizon is pinned afresh), as a second TRUNCATE and full rebuild, not a per-year reselect. Every 2016+ 5m row changes vendor; reselecting them in place would upsert about 270M rows into compressed chunks (decompress, then recompress), the bloat class the TRUNCATE path avoids, and the full rebuild gives stage 2 its own mechanical proof: the pre-2016 canonical stage 1 built must come back byte for byte.
 
 ```bash
 for tf in 5m 1d; do
@@ -347,7 +347,7 @@ Open decisions for stage 2 (the lead's):
 
 ## Estimates
 
-Measured inputs (2026-11-10 and 11): canonical 597.4M rows, 21 GB on disk, 90 GB before compression (6.3x to 7.2x per chunk); post-2016 rows 5m 273.5M, 15m 95.2M, 1h 26.2M, 1d 3.8M; pre-2016 5m 128.3M (IBKR). Massive 5m 2023: 23.2M rows (36.7k rows/s raw load). Card digest 0.75M rows/s. Selection gate compare 83k rows/s (330 s per 27M-row 5m year). Grid writer 16.7k rows/s (73.1M new rows in 72.8 min, 2026-10-11). Daily stage over every name 8.5 min with no writes.
+Measured inputs (2026-11-10 and 11): canonical 597.4M rows, 21 GB on disk, 90 GB before compression (6.3x to 7.2x per chunk); post-2016 rows 5m 273.5M, 15m 95.2M, 1h 26.2M, 1d 3.8M; pre-2016 5m 128.3M (IBKR). Massive 5m 2023: 23.2M rows (36.7k rows/s raw load); the 9b sweep measured 33k to 36k new rows/s on the bulk path, so a 5m year loads in about 12 minutes. Card digest 0.75M rows/s. Selection gate compare 83k rows/s (330 s per 27M-row 5m year). Grid writer 16.7k rows/s (73.1M new rows in 72.8 min, 2026-10-11). Daily stage over every name 8.5 min with no writes.
 
 Rebuilt 5m: about 273.5M (2016+, unchanged) plus about 200M to 250M pre-2016 Massive (2023's 23.2M a year falling with the name count in earlier years), so about 470M to 520M rows. The 5m write rate through `select_and_write` into fresh chunks is not measured (its multi-row INSERT has never run on an empty target at scale); 20k to 40k rows/s is the range from the raw path's measured server INSERT (44.8k rows/s) and the grid writer (16.7k).
 

@@ -1573,6 +1573,7 @@ class _FiveMinute:
     served: np.ndarray  # float64 epoch seconds per bar, NaN when the raw row has no served_at
     massive: np.ndarray  # bool per bar: a rescaled Massive bar (canonical kind sip_flat_adj)
     raw_close: np.ndarray  # the joined raw row's close, NaN when it has none
+    massive_vendor: np.ndarray  # bool per bar: vendor massive, whatever its kind
 
     @classmethod
     def from_rows(
@@ -1607,6 +1608,7 @@ class _FiveMinute:
                 [np.nan if r.get("raw_close") is None else r["raw_close"] for r in kept],
                 dtype=np.float64,
             ),
+            np.array([r["vendor"] == VENDOR_MASSIVE for r in kept], dtype=bool),
         )
 
 
@@ -1870,7 +1872,9 @@ def judge_name_intraday(
         verdicts.append(_IntradayVerdict(tf, "stray_vendor_rows", n == 0, float(n), 0.0))
 
     started = perf_counter()
-    stale = split_horizon_stale(five.ts, five.close, five.raw_close, five.massive, inputs.splits)
+    stale = split_horizon_stale(
+        five.ts, five.close, five.raw_close, five.massive, inputs.splits, five.massive_vendor
+    )
     verdicts.append(
         _IntradayVerdict(GRID_SOURCE_TF, CHECK_SPLIT_HORIZON_FRESH, stale == 0, float(stale), 0.0)
     )
@@ -2942,7 +2946,7 @@ class BarReconciliationAudit(BaseBatch):
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
         splits: list[SplitFactor] = []
-        if five.massive.any():
+        if five.massive.any() or five.massive_vendor.any():
             rows = [
                 SplitRow(
                     r["effective_date"],

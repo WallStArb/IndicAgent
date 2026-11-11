@@ -66,3 +66,18 @@ def test_the_check_replays_selection_arithmetic_bit_for_bit():
 def test_no_massive_bar_means_nothing_to_judge():
     ts, close, raw, massive = _arrays([_OLD], [1.0], [2.0], [False])
     assert split_horizon_stale(ts, close, raw, massive, _NVDA) == 0
+
+
+def test_a_massive_bar_under_a_raw_kind_or_the_adjusted_kind_under_another_vendor_counts():
+    # bar 0: vendor massive, kind sip_flat_agg in canonical (unadjusted: never rescaled);
+    # bar 1: kind sip_flat_adj, vendor alpaca (a misrouted identity); bar 2: correct
+    ts, close, raw, massive = _arrays(
+        [_OLD, _NEW, _NEW], [1205.0, 121.5, 121.5], [1205.0, 121.5, 121.5], [False, True, True]
+    )
+    vendor_massive = np.array([True, False, True])
+    assert split_horizon_stale(ts, close, raw, massive, _NVDA, vendor_massive) == 2
+    assert split_horizon_stale(ts, close, raw, massive, _NVDA) == 0
+    only_raw_kind = np.array([True, False, False])
+    assert (
+        split_horizon_stale(ts[:1], close[:1], raw[:1], massive[:1], _NVDA, only_raw_kind[:1]) == 1
+    )

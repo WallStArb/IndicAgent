@@ -24,7 +24,7 @@ Live symbol rows are named explicitly (ops_source_policy requires it for 1d, and
 implicit plan would retire every symbol row unread). Stage 1 keeps every live row (the 2016+ rows
 are outside its change; --plan refuses a kept row that overlaps a new row of its name). Stage 2
 retires each: `replaced` when its name gets new rows, else `superseded_by_default` (IBKR leaves
-selection). The 1d plan pins the two live default ids and
+selection). The 1d plan pins every live default id it retires (three after stage 1) and
 carries the raw fingerprint through the latest end of any symbol row, as --plan requires.
 
 Rollback (runbook A9 and every abort rule after C2): --snapshot writes a timeframe's live rows

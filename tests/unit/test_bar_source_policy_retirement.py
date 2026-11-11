@@ -440,6 +440,19 @@ async def test_a_kept_row_whose_stated_dates_are_not_the_live_ones_refuses_the_p
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
+async def test_a_named_row_under_another_symbol_refuses_the_plan(temp_policy_1d):
+    from scripts.ops.bars.ops_source_policy import apply_plan
+
+    conn = temp_policy_1d
+    retire = [{**_PLAN_1D["retire_symbol_rows"][1], "symbol": "WDC"}]  # OKE's id named WDC
+    wrong = {**_PLAN_1D, "retire_symbol_rows": [_PLAN_1D["retire_symbol_rows"][0], *retire]}
+    with pytest.raises(ValueError, match="live it is 'OKE'"):
+        await apply_plan(conn, parse_plan(wrong), apply=True)
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
+@pytest.mark.asyncio
 async def test_a_1d_dry_run_leaves_the_policy_untouched(temp_policy_1d):
     from scripts.ops.bars.ops_source_policy import apply_plan
 

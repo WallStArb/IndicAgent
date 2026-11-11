@@ -274,7 +274,7 @@ SELECT count(*) FILTER (WHERE symbol IS NOT NULL), count(*) FILTER (WHERE symbol
 FROM bar_source_policy_current WHERE timeframe = $1
 """
 _LIVE_SYMBOL_IDS_SQL = """
-SELECT policy_id::text AS policy_id, valid_from, valid_to FROM bar_source_policy_current
+SELECT policy_id::text AS policy_id, symbol, valid_from, valid_to FROM bar_source_policy_current
 WHERE timeframe = $1 AND symbol IS NOT NULL
 """
 DISPOSITIONS = ("replaced", "superseded_by_default")
@@ -569,6 +569,15 @@ async def _retire_named_symbol_rows(conn: Any, plan: PolicyPlan) -> int:
     live = {r["policy_id"] for r in rows}
     named = {r["policy_id"] for r in (*plan.retire_symbol_rows, *plan.keep_symbol_rows)}
     spans = {r["policy_id"]: (r["valid_from"], r["valid_to"]) for r in rows}
+    symbols = {r["policy_id"]: r["symbol"] for r in rows}
+    for named_row in (*plan.retire_symbol_rows, *plan.keep_symbol_rows):
+        # a plan that names a live id under another symbol was built on another table state
+        live_symbol = symbols.get(named_row["policy_id"])
+        if live_symbol is not None and named_row.get("symbol") != live_symbol:
+            raise ValueError(
+                f"symbol row {named_row['policy_id']} is named {named_row.get('symbol')!r} "
+                f"in the plan, live it is {live_symbol!r}"
+            )
     for kept in plan.keep_symbol_rows:
         # parse_plan judged overlap on the dates the plan states; they must be the live ones
         stated = (

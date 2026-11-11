@@ -832,6 +832,7 @@ def split_horizon_stale(
     raw_close: np.ndarray,
     massive: np.ndarray,
     splits: Sequence[SplitFactor],
+    vendor_massive: np.ndarray | None = None,
 ) -> int:
     """How many canonical Massive 5m bars do not carry the splits known now (split_horizon_fresh,
     admission design section 5, late splits). Selection rescales a raw Massive bar by the splits
@@ -840,10 +841,14 @@ def split_horizon_stale(
     (split_rescale.scales_for_sessions over the caller's splits_known_at(rows, now)) and counts
     bars whose canonical close is not exactly raw close / scale, so it needs no record of the
     horizon each selection ran at. A Massive bar whose raw row is missing (raw_close NaN) counts:
-    a canonical bar with no raw source is the louder defect. Pure; arrays aligned per bar."""
+    a canonical bar with no raw source is the louder defect. With `vendor_massive` (the bar's
+    vendor is massive), a bar whose vendor and canonical kind disagree counts too: a Massive bar
+    under a raw kind is unadjusted in canonical, and the adjusted kind under another vendor is a
+    misrouted identity. Pure; arrays aligned per bar."""
+    misrouted = 0 if vendor_massive is None else int(np.count_nonzero(vendor_massive != massive))
     idx = np.flatnonzero(massive)
     if not idx.size:
-        return 0
+        return misrouted
     midnights = (
         pd.to_datetime(ts_seconds[idx], unit="s", utc=True).tz_convert(SESSION_TZ).normalize()
     )
@@ -852,7 +857,7 @@ def split_horizon_stale(
     scales = scales_for_sessions(days, splits)
     scale = np.array([scales[d] for d in days], dtype=np.float64)[inverse]
     expected = raw_close[idx] / scale
-    return int(np.count_nonzero(expected != close[idx]))  # NaN counts
+    return misrouted + int(np.count_nonzero(expected != close[idx]))  # NaN counts
 
 
 def digest_scope(
