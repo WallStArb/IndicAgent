@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import NamedTuple, Protocol
 
 import numpy as np
+import pandas as pd
 
 from src.intelligence.bars.corporate_actions import split_continuity
 from src.intelligence.bars.daily_rule import (
@@ -33,6 +34,8 @@ from src.intelligence.bars.daily_rule import (
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
+from src.intelligence.bars.selection import SESSION_TZ
+from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions
 from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH
 from src.intelligence.bars.vendor_basis import BasisRun, find_basis_runs
 from src.intelligence.bars.write_contract import BarValues, classify
@@ -256,7 +259,7 @@ class NameReport1d:
 _SPLIT_BRACKET_MAX_DAYS = 7
 
 
-def _run_products(factors: Sequence[float]) -> list[float]:
+def run_products(factors: Sequence[float]) -> list[float]:
     """The product of every contiguous run of factors (in the given order, multiplied left to
     right), runs whose product is 1 left out: the scales a partial restatement can leave."""
     products = []
@@ -349,7 +352,7 @@ def split_discontinuities(
             continue
         step = math.log(tradeable[after][1] / tradeable[after - 1][1]) - real_move.get(day, 0.0)
         later = [split.factor for split in ordered if split.effective_date >= day]
-        for product in _run_products(later):
+        for product in run_products(later):
             state = split_continuity(step, product, rel_tol)
             if state != "continuous":
                 found.append((day, state))
@@ -613,6 +616,7 @@ def judge_name_1d(
 # ---------------------------------------------------------------------------
 
 TIMEFRAME_5M = "5m"
+CHECK_SPLIT_HORIZON_FRESH = "split_horizon_fresh"
 # Checks one name with 5m bars is judged on, in report order (identifiers, not tunables).
 CHECKS_INTRADAY = (
     "slot_coverage",
@@ -620,6 +624,7 @@ CHECKS_INTRADAY = (
     "grid_parity",
     "stray_vendor_rows",
     "coverage_cache",
+    CHECK_SPLIT_HORIZON_FRESH,
 )
 # Written when a run recomputed every digest month of every name, so the next run can tell when
 # the last full sweep happened. Informational: it never fails.
@@ -819,6 +824,35 @@ def rebucket_5m(
         )
         for i in np.flatnonzero(full)
     }
+
+
+def split_horizon_stale(
+    ts_seconds: np.ndarray,
+    close: np.ndarray,
+    raw_close: np.ndarray,
+    massive: np.ndarray,
+    splits: Sequence[SplitFactor],
+) -> int:
+    """How many canonical Massive 5m bars do not carry the splits known now (split_horizon_fresh,
+    admission design section 5, late splits). Selection rescales a raw Massive bar by the splits
+    known at its pinned horizon; a split recorded or executed after that horizon leaves the bar on
+    a stale scale until the name is reselected. The check replays selection's own arithmetic
+    (split_rescale.scales_for_sessions over the caller's splits_known_at(rows, now)) and counts
+    bars whose canonical close is not exactly raw close / scale, so it needs no record of the
+    horizon each selection ran at. A Massive bar whose raw row is missing (raw_close NaN) counts:
+    a canonical bar with no raw source is the louder defect. Pure; arrays aligned per bar."""
+    idx = np.flatnonzero(massive)
+    if not idx.size:
+        return 0
+    midnights = (
+        pd.to_datetime(ts_seconds[idx], unit="s", utc=True).tz_convert(SESSION_TZ).normalize()
+    )
+    _, first, inverse = np.unique(midnights.asi8, return_index=True, return_inverse=True)
+    days = [midnights[i].date() for i in first]
+    scales = scales_for_sessions(days, splits)
+    scale = np.array([scales[d] for d in days], dtype=np.float64)[inverse]
+    expected = raw_close[idx] / scale
+    return int(np.count_nonzero(expected != close[idx]))  # NaN counts
 
 
 def digest_scope(

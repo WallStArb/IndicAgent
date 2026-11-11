@@ -1011,6 +1011,8 @@ class _IntradayConn:
                 for tf, by_month in data["digests"].items()
                 for start, digest in by_month.items()
             ]
+        if sql == audit._SELECT_SPLIT_ROWS_SQL:
+            return data.get("splits", [])
         return []  # flags
 
     async def fetchval(self, sql, *args):
@@ -1085,6 +1087,7 @@ def test_an_agreeing_name_passes_every_intraday_check_and_gets_the_whole_row_set
         ("AAA|15m", "stray_vendor_rows"),
         ("AAA|1h", "stray_vendor_rows"),
         ("AAA|5m", "coverage_cache"),
+        ("AAA|5m", "split_horizon_fresh"),
     }
     assert {f[0] for f in run.facts} == {"bar_integrity"}
     assert all(f[5] for f in run.facts) and run.failing_by_check == {}
@@ -2395,3 +2398,48 @@ def test_isolated_wick_loader_judges_candidates_with_the_scrub_rule(monkeypatch)
     judged = asyncio.run(audit.BarReconciliationAudit._isolated_wick(_Conn()))
     assert judged.result == audit.CheckResult(2, ("GS|5m=1", "SPY|1d=1"))
     assert judged.n_judged == 3
+
+
+# ---------------------------------------------------------------------------
+# split_horizon_fresh (todo 600, admission design section 5: late splits)
+# ---------------------------------------------------------------------------
+
+
+def _massive_name(split_recorded_at):
+    """A name whose 5m bars are rescaled Massive rows selected before a 2:1 split on the last
+    session (2025-06-03) was recorded; `split_recorded_at` dates the split row."""
+    _, rows = _intraday_series()
+    massive = [
+        {**r, "vendor": "massive", "kind": "sip_flat_adj", "raw_close": r["close"]} for r in rows
+    ]
+    name = _agreeing_name(massive)
+    name["splits"] = [
+        {
+            "effective_date": _I_DAYS[-1],
+            "factor": 2.0,
+            "recorded_at": split_recorded_at,
+            "inferred_by": "massive_reference",
+            "rows_file": False,
+        }
+    ]
+    return name
+
+
+def test_a_split_recorded_after_the_selection_fails_split_horizon_fresh():
+    # canonical holds raw / 1.0; the split known at the run start makes it raw / 2.0
+    run = _intraday(_IntradayConn({"AAA": _massive_name(datetime(2025, 6, 3, 22, tzinfo=UTC))}))
+    verdict = _verdict(run, "AAA|5m", "split_horizon_fresh")
+    assert verdict[5] is False
+    assert verdict[3] == float(len(_intraday_series()[1]))  # every bar is on or before the split
+    assert run.failing_by_check["split_horizon_fresh"] == 1
+
+
+def test_a_split_recorded_after_the_run_start_is_not_yet_known_and_passes():
+    run = _intraday(_IntradayConn({"AAA": _massive_name(_I_NOW + timedelta(hours=1))}))
+    assert _verdict(run, "AAA|5m", "split_horizon_fresh")[5] is True
+
+
+def test_a_name_without_massive_bars_passes_split_horizon_fresh_with_zero_metric():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
+    verdict = _verdict(run, "AAA|5m", "split_horizon_fresh")
+    assert verdict[5] is True and verdict[3] == 0.0

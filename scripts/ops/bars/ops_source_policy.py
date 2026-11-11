@@ -274,7 +274,7 @@ SELECT count(*) FILTER (WHERE symbol IS NOT NULL), count(*) FILTER (WHERE symbol
 FROM bar_source_policy_current WHERE timeframe = $1
 """
 _LIVE_SYMBOL_IDS_SQL = """
-SELECT policy_id::text AS policy_id FROM bar_source_policy_current
+SELECT policy_id::text AS policy_id, valid_from, valid_to FROM bar_source_policy_current
 WHERE timeframe = $1 AND symbol IS NOT NULL
 """
 DISPOSITIONS = ("replaced", "superseded_by_default")
@@ -399,11 +399,27 @@ def _parse_symbol_lists(
     for row in keep:
         if not row.get("reason"):
             raise ValueError(f"{row['symbol']}: a kept row needs its reason")
-        if row["symbol"] in new_symbols:
+        if row["symbol"] in new_symbols and _kept_overlaps(row, symbol_rows):
             raise ValueError(
-                f"{row['symbol']}: a kept row and new symbol rows of one name would overlap"
+                f"{row['symbol']}: a kept row and new symbol rows of one name would overlap "
+                "(a kept row beside new rows must state its valid_from and valid_to)"
             )
     return retire, keep
+
+
+def _kept_overlaps(kept: dict[str, Any], symbol_rows: Sequence[dict[str, Any]]) -> bool:
+    """Whether a kept row may overlap a new row of its name: True when its span is not stated
+    (nothing proves it disjoint) or it intersects one, [valid_from, valid_to) both sides."""
+    if not kept.get("valid_from"):
+        return True
+    start = _parse_date(kept["valid_from"])
+    end = _parse_date(kept["valid_to"]) if kept.get("valid_to") else None
+    return any(
+        r["symbol"] == kept["symbol"]
+        and (end is None or r["valid_from"] < end)
+        and (r["valid_to"] is None or start < r["valid_to"])
+        for r in symbol_rows
+    )
 
 
 def _covers(row: dict[str, Any], start: date, end: date) -> bool:
@@ -499,9 +515,11 @@ def parse_plan(raw: dict[str, Any]) -> PolicyPlan:
     default_ids = raw.get("retire_default_ids")
     fingerprint = raw.get("raw_fingerprint")
     if raw["timeframe"] in EXPLICIT_TIMEFRAMES:
-        if retire_defaults and (not default_ids or len(set(default_ids)) != 2):
+        # Every live default it retires, by id; the apply checks the set against the live
+        # defaults under the table lock (D-191-Q had 2; the Massive stage 1 plan leaves 3).
+        if retire_defaults and (not default_ids or len(set(default_ids)) != len(default_ids)):
             raise ValueError(
-                "a 1d plan pins exactly the 2 live default policy_ids it retires "
+                "a 1d plan pins every live default policy_id it retires, once each "
                 "(retire_default_ids)"
             )
         if not isinstance(fingerprint, dict) or not fingerprint.get("series"):
@@ -547,8 +565,25 @@ async def _retire_named_symbol_rows(conn: Any, plan: PolicyPlan) -> int:
     """Retire exactly the rows the plan names; refuse when a live row is unnamed or a named row
     is not live (the plan was built on another state of the table)."""
     assert plan.retire_symbol_rows is not None
-    live = {r["policy_id"] for r in await conn.fetch(_LIVE_SYMBOL_IDS_SQL, plan.timeframe)}
+    rows = await conn.fetch(_LIVE_SYMBOL_IDS_SQL, plan.timeframe)
+    live = {r["policy_id"] for r in rows}
     named = {r["policy_id"] for r in (*plan.retire_symbol_rows, *plan.keep_symbol_rows)}
+    spans = {r["policy_id"]: (r["valid_from"], r["valid_to"]) for r in rows}
+    for kept in plan.keep_symbol_rows:
+        # parse_plan judged overlap on the dates the plan states; they must be the live ones
+        stated = (
+            _parse_date(kept["valid_from"]) if kept.get("valid_from") else None,
+            _parse_date(kept["valid_to"]) if kept.get("valid_to") else None,
+        )
+        if (
+            kept["policy_id"] in spans
+            and kept.get("valid_from")
+            and stated != spans[kept["policy_id"]]
+        ):
+            raise ValueError(
+                f"kept row {kept['policy_id']} ({kept['symbol']}) states {stated}, "
+                f"live is {spans[kept['policy_id']]}"
+            )
     if live - named:
         raise ValueError(
             f"{plan.timeframe}: {len(live - named)} live symbol row(s) not named by the plan: "

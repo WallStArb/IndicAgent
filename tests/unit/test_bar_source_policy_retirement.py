@@ -283,7 +283,8 @@ def test_a_1d_plan_parses_with_retired_defaults_and_explicit_dispositions():
             "kept",
         ),
         ({"symbol_rows": [{**_PLAN_1D["symbol_rows"][0], "evidence": {}}]}, "evidence"),
-        ({"retire_default_ids": [_ID_DT]}, "default"),
+        ({"retire_default_ids": []}, "default"),
+        ({"retire_default_ids": [_ID_DT, _ID_DT]}, "default"),
         ({"raw_fingerprint": None}, "fingerprint"),
         (
             {
@@ -419,6 +420,21 @@ async def test_a_live_symbol_row_the_plan_does_not_name_refuses_the_whole_plan(t
     with pytest.raises(ValueError, match="not named"):
         await apply_plan(conn, parse_plan(unnamed), apply=True)
     assert await conn.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
+@pytest.mark.live_db
+@pytest.mark.asyncio
+async def test_a_kept_row_whose_stated_dates_are_not_the_live_ones_refuses_the_plan(
+    temp_policy_1d,
+):
+    from scripts.ops.bars.ops_source_policy import apply_plan
+
+    conn = temp_policy_1d
+    keep = [{**_PLAN_1D["keep_symbol_rows"][0], "valid_from": "2016-01-04"}]
+    stale = {**_PLAN_1D, "keep_symbol_rows": keep, "hold": _PLAN_1D["hold"][:1]}
+    with pytest.raises(ValueError, match="live is"):
+        await apply_plan(conn, parse_plan(stale), apply=True)
 
 
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")

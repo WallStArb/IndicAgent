@@ -96,6 +96,7 @@ from src.core.bar_accumulator import _TF_MINUTES
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.market_calendar import get_market_calendar
 from src.core.models import AssetClass
+from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
@@ -113,6 +114,7 @@ from src.intelligence.bars.gap_plan import (
 )
 from src.intelligence.bars.integrity_checks import (
     CHECK_FRESHNESS_1D,
+    CHECK_SPLIT_HORIZON_FRESH,
     CHECKS_1D,
     CHECKS_INTRADAY,
     INFO_DIGEST_FULL_SWEEP,
@@ -130,6 +132,7 @@ from src.intelligence.bars.integrity_checks import (
     judge_name_1d,
     rebucket_5m,
     slot_coverage_by_year,
+    split_horizon_stale,
     superseded_archive_buckets,
 )
 from src.intelligence.bars.restatement import BASIS_SIGNATURES
@@ -142,6 +145,7 @@ from src.intelligence.bars.sources import (
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
 )
+from src.intelligence.bars.split_rescale import SplitFactor, SplitRow, splits_known_at
 from src.intelligence.bars.vendor_kind import (
     DERIVED_PAIR,
     KIND_MASSIVE_CANONICAL,
@@ -1416,8 +1420,8 @@ _FIVE_MINUTES = timedelta(minutes=5)
 # todo 524). The join key is the selection's own (vendor, kind, timestamp) raw row.
 _MASSIVE_RAW_5M = raw_kind_for_canonical(VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL, "5m")
 _SELECT_5M_SQL = f"""
-SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor,
-       r.served_at
+SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor, m.kind,
+       r.served_at, r.close AS raw_close
 FROM market_data_ohlcv_tradeable m
 LEFT JOIN ohlcv_raw r
   ON r.symbol = m.symbol AND r.timeframe = m.timeframe
@@ -1430,6 +1434,13 @@ ORDER BY m."timestamp"
 # Any kind counts: the canonical 5m holds only (ibkr, named) and (alpaca, sip_rth) today, and an
 # ibkr fallback 5m would still be IBKR's own trades aggregate, so the vendor decides, not the kind.
 _PARITY_VENDOR = VENDOR_IBKR
+# Every split row of a name, as selection reads them (services/bar_selection.read_split_rows):
+# split_horizon_fresh replays selection's rescale with the splits known at the run start.
+_SELECT_SPLIT_ROWS_SQL = """
+SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' AS rows_file
+FROM corporate_action_current
+WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
+"""
 _INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
 _WRITER_ROLE = "bar_derivation_writer"
 
@@ -1560,6 +1571,8 @@ class _FiveMinute:
     rules: list[tuple[str, ...]]
     ibkr: np.ndarray  # bool per bar: the bar was served by the archive's own vendor
     served: np.ndarray  # float64 epoch seconds per bar, NaN when the raw row has no served_at
+    massive: np.ndarray  # bool per bar: a rescaled Massive bar (canonical kind sip_flat_adj)
+    raw_close: np.ndarray  # the joined raw row's close, NaN when it has none
 
     @classmethod
     def from_rows(
@@ -1589,6 +1602,11 @@ class _FiveMinute:
             [tuple(sorted(rules_by_ts.get(int(t), ()))) for t in ts],
             np.array([r["vendor"] == _PARITY_VENDOR for r in kept], dtype=bool),
             np.array(served, dtype=np.float64),
+            np.array([r.get("kind") == KIND_MASSIVE_CANONICAL for r in kept], dtype=bool),
+            np.array(
+                [np.nan if r.get("raw_close") is None else r["raw_close"] for r in kept],
+                dtype=np.float64,
+            ),
         )
 
 
@@ -1612,6 +1630,9 @@ class _IntradayInputs:
     stray: Mapping[str, int]
     # The recorded last session (listing_end_current); None while listed.
     listing_end: date | None = None
+    # The market splits known at the run start (split_rescale.splits_known_at); read only for a
+    # name holding Massive 5m bars.
+    splits: Sequence[SplitFactor] = ()
 
 
 class _IntradayVerdict(NamedTuple):
@@ -1735,8 +1756,9 @@ def judge_name_intraday(
     *,
     timings: dict[str, float] | None = None,
 ) -> list[_IntradayVerdict]:
-    """The slot_coverage, digest_fresh, grid_parity and stray_vendor_rows verdicts of one name
-    (coverage_cache needs the fetcher lock and is judged for all names at once). Pure.
+    """The slot_coverage, digest_fresh, grid_parity, stray_vendor_rows and split_horizon_fresh
+    verdicts of one name (coverage_cache needs the fetcher lock and is judged for all names at
+    once). Pure.
 
     grid_parity is a vendor cross-check (digest_fresh already proves the derivation): it compares
     only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count
@@ -1846,6 +1868,13 @@ def judge_name_intraday(
     for tf in sorted(GRID_TIMEFRAMES):
         n = inputs.stray.get(tf, 0)
         verdicts.append(_IntradayVerdict(tf, "stray_vendor_rows", n == 0, float(n), 0.0))
+
+    started = perf_counter()
+    stale = split_horizon_stale(five.ts, five.close, five.raw_close, five.massive, inputs.splits)
+    verdicts.append(
+        _IntradayVerdict(GRID_SOURCE_TF, CHECK_SPLIT_HORIZON_FRESH, stale == 0, float(stale), 0.0)
+    )
+    timed(CHECK_SPLIT_HORIZON_FRESH, started)
     return verdicts
 
 
@@ -2839,6 +2868,7 @@ class BarReconciliationAudit(BaseBatch):
                 listing_end=listing_end.get(symbol),
                 match_s=integ.load_match_s,
                 recorded=recorded.get(symbol, {}),
+                horizon=run_start,
             )
             for v in judge_name_intraday(
                 inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
@@ -2906,10 +2936,23 @@ class BarReconciliationAudit(BaseBatch):
         listing_end: date | None = None,
         match_s: float,
         recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]] | None = None,
+        horizon: datetime,
     ) -> _IntradayInputs:
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
+        splits: list[SplitFactor] = []
+        if five.massive.any():
+            rows = [
+                SplitRow(
+                    r["effective_date"],
+                    r["factor"],
+                    r["recorded_at"],
+                    is_market_split(r["inferred_by"], operator_rows_file=r["rows_file"]),
+                )
+                for r in await conn.fetch(_SELECT_SPLIT_ROWS_SQL, symbol)
+            ]
+            splits = splits_known_at(rows, horizon)
         answered = await _answered_windows_5m(conn, symbol, match_s)
         archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
         archive_served: dict[str, dict[datetime, datetime | None]] = defaultdict(dict)
@@ -2939,6 +2982,7 @@ class BarReconciliationAudit(BaseBatch):
             scope=scope,
             stray=stray,
             listing_end=listing_end,
+            splits=splits,
         )
 
     @staticmethod

@@ -48,7 +48,12 @@ def test_required_checks_match_the_design():
         "alpaca_basis_run",
         "split_continuity",
     }
-    assert REQUIRED_CHECKS["5m"] == {"slot_coverage", "digest_fresh", "coverage_cache"}
+    assert REQUIRED_CHECKS["5m"] == {
+        "slot_coverage",
+        "digest_fresh",
+        "coverage_cache",
+        "split_horizon_fresh",
+    }
     assert REQUIRED_CHECKS["15m"] == REQUIRED_CHECKS["1h"] == {"digest_fresh", "grid_parity"}
     assert REBUILD_ONLY_CHECKS == {
         "1d": {"freshness_1d"},
