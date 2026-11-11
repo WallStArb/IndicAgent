@@ -14,17 +14,13 @@ The step 4 audit (`scripts/ops/bars/ops_massive_split_audit.py`, outputs under
 `massive_reference` rows (applied under the lead's ruling) and held five classes for review. Each
 item below names its evidence file. Nothing here is acted on until ruled.
 
-1. **Writer-guard collisions (5)**, `review_rows.csv` status `writer_guard`: a Massive split the
-   tape confirms sits within the corporate_action writer's 7-day window of a todo 592 operator row
-   that corrects one incumbent route. Since d2-v6 an operator row is never a market split
-   (`corporate_actions.is_market_split`), so selection and the daily rule do not rescale Massive by
-   it, and the market's split needs its own row:
-   ELS 2019-10-15 x2, IJR 2017-01-18 x2, OKE 2012-06-01 x2, UHAL 2022-11-09 x10, WST 2004-09-29 x2.
-   WST and OKE are pre-2016, where Massive becomes primary: **their Massive bars would carry an
-   unadjusted step until these rows land, so they are a precondition of the step 5 raw load for
-   those two names** (ELS, IJR, UHAL are Alpaca-era, Massive unserved by policy). Recommended fix:
-   the writer's existing-row guard skips rows that are not market splits when it decides a
-   `massive_reference` row (same table of meanings), then `--apply-massive` lands the five.
+1. **Writer-guard collisions (5): RESOLVED 2026-11-11** (lead ruling: take the recommendation).
+   The writer's 7-day existing-row guard, on its `massive_reference` path only, now ignores rows
+   that are no market split (`corporate_actions.is_market_split`: a todo 592 operator row that
+   corrects one incumbent route), so it no longer blocks the market's split; any other row,
+   current, superseded or void, still decides. The five rows landed: ELS 2019-10-15 x2,
+   IJR 2017-01-18 x2, OKE 2012-06-01 x2, UHAL 2022-11-09 x10, WST 2004-09-29 x2 (WST and OKE
+   gated the step 5 load for those names).
 2. **Canonical-flat seam candidates (130)**, `seams_active.csv` rows with `seam_class`
    unexplained and `incumbent` `incumbent_flat`: Massive's unadjusted tape steps by a recognised
    ratio where adjusted canonical stays flat, and no record holds a split. Real splits (FTI
@@ -42,7 +38,9 @@ item below names its evidence file. Nothing here is acted on until ruled.
    identity_suspect: string reuse inside an instrument's head span (LIN 2018, TFC 2019, MTCH 2015,
    DOC/PEAK 2019, TPR 2017, GL 2019, RTX 2020 and others; gaps of hundreds of sessions before a
    level step). Input for the ticker-entity map (step 3b), never a missing split.
-5. **Canonical defects the applied rows make visible (3)**: before the apply, D7
+5. **Canonical defects the applied rows make visible (3): KNOWN-ACCEPTED until the step 7
+   rebuild** (lead ruling 2026-11-11: Massive primary replaces them; no action, do not chase the
+   D7 split_continuity reds): before the apply, D7
    `split_continuity` was dry-run per name with and without the proposed rows (read-only). Three
    names turn red, each a real canonical scale error the market's split exposes, not a row
    error: CENT 2007-02-05 (canonical steps +1.05 at 2007-02-06, its earlier span at 1/3 of
@@ -70,7 +68,7 @@ item below names its evidence file. Nothing here is acted on until ruled.
 - GSAT 2021-02-08 x0.609687 (`calendar_audit`, batch b1): voided under the lead's ruling; Massive
   shows a real squeeze (1.23 -> 2.08 on 10x volume, 2021-02-08 to 02-09), not a split.
 
-## Before step 7 (Massive canonical 1d)
+## Before step 7 (Massive canonical 1d): ordered ahead of the step 7 rebuild (lead ruling 2026-11-11)
 
 - `canonical_bar_lineage` (migration 568) divides raw by calendar_audit factors only; a Massive
   canonical 1d row (`sip_flat_adj`) needs the market-split product of d2-v6 in the view, or it
