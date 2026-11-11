@@ -8,7 +8,7 @@ Runs on the owner's admission call (bundled with the law 528 amendment, section 
 
 ## 1. Scope
 
-Todo 600's admission: vendor and kind codes in `ohlcv_raw`, the reader and 5m aggregation, the adjustment basis, the ticker to entity map, the `bar_source_policy` switch, and the documents that move with it. Out of scope: offsite backup (waits on the owner's destination), the post-admission deletion list (its own doc, Opus-reviewed before anything executes), and post-2016 consolidation onto one vendor (a later measured decision).
+Todo 600's admission: vendor and kind codes in `ohlcv_raw`, the reader and 5m aggregation, the adjustment basis, the ticker to entity map, the `bar_source_policy` switch, and the documents that move with it. Out of scope: offsite backup (waits on the owner's destination), the post-admission deletion list (its own doc, Opus-reviewed before anything executes), and post-2016 consolidation onto one vendor (pulled forward, see the section 8 amendment of 2026-11-11).
 
 ## 2. Facts that shape the design
 
@@ -127,6 +127,14 @@ Current defaults (2026-11-10): 5m `ibkr` [1990-01-01, 2016-01-04), `alpaca` with
 9. The corpus rerun stays behind the data-complete gate (186-32); admission does not open it.
 
 Raw IBKR pre-2016 rows stay permanent; only selection changes.
+
+## 8b. Amendment 2026-11-11 (lead indicagent-32): Massive as the single source for the whole archive span
+
+Decision: Massive becomes primary for 5m and 1d over the entire archive span (2003-09-10 to the archive end, 2026-11-09), not only before 2016-01-04. Reasons: one adjustment path (raw is as served and unadjusted, and our corporate-action rescale is the only adjuster, while Alpaca is adjusted as served at capture time and can carry capture-epoch seams inside one span); no IBKR zero-volume bars or cent-rounded prices; and Alpaca SIP is the same Polygon tape, so it adds no independent evidence. The plan is one month, so the archive ends at the lapse: Alpaca's nightly capture stays primary for days after the archive end, and the Massive-to-Alpaca seam sits at that date, not at 2016.
+
+Two policy stages, in this order, so the byte-exact check keeps testing the rebuild mechanics:
+1. Stage 1 is step 7 exactly as written: Massive primary before 2016-01-04, post-2016 canonical reproduced byte for byte from unchanged Alpaca and IBKR raw.
+2. Stage 2 is its own `ops_source_policy --plan` after the 2016 to 2025 loads and their section 8a load checks pass: Massive primary from 2016-01-04 to the archive end, Alpaca after it and as fallback only for gap-list names, IBKR retired from selection. It gets a reselect and a `--compare` report per year (expected differences are the Alpaca capture-epoch seams and rounding, classified under 8a), and the seam at the archive end is witnessed by level continuity like the 2016 seam.
 
 ## 8a. Load checks
 
