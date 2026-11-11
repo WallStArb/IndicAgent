@@ -10,7 +10,9 @@ from scripts.ops.bars.ops_canonical_rebuild import (
     State,
     chunk_windows,
     grid_misaligned,
+    lineage_gate,
     main,
+    read_card_lineage,
     session_bounds,
     source_shortfalls,
 )
@@ -98,3 +100,32 @@ def test_cli_refuses_a_derived_timeframe_and_a_naive_horizon(tmp_path):
         main(["--preflight", "--state", str(tmp_path / "s"), "--horizon", "2026-11-12T00:00:00"])
     with pytest.raises(SystemExit):
         main(["--rebuild", "--state", str(tmp_path / "s")])
+
+
+# --- the lineage gate before the TRUNCATE (review 2026-11-11, finding 1) ----------------------
+
+_RED = ["CTVA|1d|canonical_recompute", "CTVA|1d|lineage_missing", "SCCO|1d|lineage_missing"]
+
+
+def test_every_red_lineage_verdict_needs_a_disposition_and_an_export():
+    dispositions = {v: "expected D1 difference: raw cannot rebuild" for v in _RED}
+    assert lineage_gate(_RED, dispositions, ["CTVA", "SCCO"]) == []
+    assert lineage_gate([], {}, []) == []
+    failures = lineage_gate(_RED, {_RED[0]: "x", _RED[1]: ""}, ["CTVA"])
+    assert "red 1d verdict with no disposition: CTVA|1d|lineage_missing" in failures
+    assert "red 1d verdict with no disposition: SCCO|1d|lineage_missing" in failures
+    assert "red 1d lineage names missing from the card's export: ['SCCO']" in failures
+
+
+def test_the_card_lineage_names_come_from_card_json(tmp_path):
+    (tmp_path / "card.json").write_text(
+        '{"red_lineage": {"verdicts": [], "exported_symbols": ["CTVA", "SCCO"], "rows": 9}}'
+    )
+    assert read_card_lineage(tmp_path) == ["CTVA", "SCCO"]
+    (tmp_path / "card.json").write_text("{}")
+    assert read_card_lineage(tmp_path) == []
+
+
+def test_preflight_requires_the_card():
+    with pytest.raises(SystemExit):
+        main(["--preflight", "--state", "/nonexistent/state.json"])

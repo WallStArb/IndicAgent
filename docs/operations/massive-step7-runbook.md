@@ -115,9 +115,25 @@ B1. Summary card (derived data is dropped only after its card exists):
 $PY -m scripts.ops.bars.ops_canonical_summary_card --card "$OUT/card_before"
 sha256sum "$OUT"/card_before/* > "$OUT/card_before.sha256"
 ```
+The card also writes, mandatorily, `export_1d_red_lineage.csv.gz`: every column of the canonical 1d rows of each name whose latest 1d `lineage_missing` or `canonical_recompute` verdict is red, the rows raw cannot rebuild and the TRUNCATE would otherwise lose without a trace (on 2026-11-11: CTVA, 1,848 lineage-missing and 1,877 recompute-drifted bars; SCCO, 4,145 and 4,268; 6,231 canonical 1d rows exported in the read-only smoke run). `card.json` lists the red verdicts and the exported names.
 Measured: about 0.75M rows/s on a 5m month (2.7 s for one month of every name), so about 15 minutes for the 597M canonical rows. Gate: the card's totals per timeframe match the 2026-11-11 inventory to within what the nightlies added since (5m 401.8M, 15m 139.8M, 1h 38.5M, 1d 7.57M, 1m 9.78M, 4h 0). Abort: a timeframe missing or off by more than recent nightlies explain.
 
-B2. Optional forensic pre-image of canonical (recommended; the card localizes a difference to a symbol-month, this holds the old rows): `ops_table_backup --dump --table market_data_ohlcv:timestamp:timestamptz` to `data/backups/canonical-pre-step7-<date>`, then `--verify`. About 1 to 1.5 hours and 25 to 35 GB (estimate from 21 GB on disk, 90 GB uncompressed).
+B2. Pre-image, mandatory. Two parts:
+
+- The red lineage export written by B1 (above). Gate: `card.json` `red_lineage.exported_symbols` covers every name in `red_lineage.verdicts`, and its row count is nonzero for each.
+- A disposition per red verdict, written before C3 to `$OUT/lineage_dispositions.json` (`{"SYMBOL|1d|check": "disposition"}`). The C3 preflight refuses while any red verdict lacks one. Pre-classified on 2026-11-11, both as expected D1 differences:
+
+```json
+{
+  "CTVA|1d|lineage_missing": "expected D1 difference: canonical 1d rows with no raw lineage (todo 592 era); the rebuild serves what raw holds, the old rows survive in export_1d_red_lineage.csv.gz",
+  "CTVA|1d|canonical_recompute": "expected D1 difference: canonical differs from d2 over raw; the rebuild makes it equal by construction",
+  "SCCO|1d|lineage_missing": "expected D1 difference: as CTVA",
+  "SCCO|1d|canonical_recompute": "expected D1 difference: as CTVA"
+}
+```
+A new red name found by B1 that is not on this list gets its own written disposition (and a look at why raw cannot rebuild it) before C3, never a copy of these lines.
+
+Optional on top: a whole-table pre-image (`ops_table_backup --dump --table market_data_ohlcv:timestamp:timestamptz` to `data/backups/canonical-pre-step7-<date>`, then `--verify`; about 1 to 1.5 hours and 25 to 35 GB), which holds the old rows for any symbol-month D1 flags.
 
 B3. Old canonical equals the selection of raw under the old policy, every direct timeframe:
 
@@ -180,9 +196,10 @@ Gate: each dry run prints counts equal to the plan (defaults retired 2 or 3, ins
 C3. Preflight, immediately before the TRUNCATE (hard abort, design amendment of F4):
 
 ```bash
-$PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json"
+$PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json" \
+  --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
 ```
-It checks: no foreign key references `market_data_ohlcv` (none on 2026-11-11); every canonical timeframe has a raw source (1m: raw IBKR 1m equals canonical 1m exactly, 9,775,958 on 2026-11-10; 4h holds none); the chunk grid is the epoch-aligned 90-day grid (true for all 114 chunks on 2026-11-11); no split row dated after today (none on 2026-11-11; see risk 18); one compression policy job (1078, `compress_after` 30 days); the quiet units and processes; disk headroom from the APR floor. It records the compression settings (segment by symbol, timeframe; order by timestamp) and pins the split horizon (now, or `--horizon`). Gate: `PREFLIGHT OK`.
+It checks: the lineage gate (every latest red 1d `lineage_missing` and `canonical_recompute` verdict has a written disposition and its name's canonical 1d rows are in the card's export); no foreign key references `market_data_ohlcv` (none on 2026-11-11); every canonical timeframe has a raw source (1m: raw IBKR 1m equals canonical 1m exactly, 9,775,958 on 2026-11-10; 4h holds none); the chunk grid is the epoch-aligned 90-day grid (true for all 114 chunks on 2026-11-11); no split row dated after today (none on 2026-11-11; see risk 18); one compression policy job (1078, `compress_after` 30 days); the quiet units and processes; disk headroom from the APR floor. It records the compression settings (segment by symbol, timeframe; order by timestamp) and pins the split horizon (now, or `--horizon`). Gate: `PREFLIGHT OK`.
 Abort: any failure. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
 
 C4. TRUNCATE (seconds; frees the 21 GB the table holds):
@@ -228,11 +245,12 @@ D1. Byte-exact from 2016 (proves the whole rebuild path: chunk alignment, the wr
 
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_summary_card --card "$OUT/card_after"
-$PY -m scripts.ops.bars.ops_canonical_summary_card --compare "$OUT/card_before" "$OUT/card_after" --from 2016-01-01 --out "$OUT/compare_card_2016.json"
+$PY -m scripts.ops.bars.ops_canonical_summary_card --compare "$OUT/card_before" "$OUT/card_after" --from 2016-01-01 \
+  --expected 1d:CTVA 1d:SCCO --out "$OUT/compare_card_2016.json"
 $PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m 1m --out "$OUT/compare_after.json"
 ```
-`--from 2016-01-01` equals the 2016-01-04 seam here: 2016-01-01 is a holiday and the 2nd and 3rd a weekend, so no bar of any timeframe falls in between. Gate: the card compare exits 0 (every 2016+ group of every timeframe identical in count and digest), and the selection gate meets the B3 criteria. The 1d and grid stages are covered only by the card; the selection gate covers 5m and 1m.
-Abort and rollback: any difference. The card's report names the symbol-months; B2's pre-image, if taken, shows the rows. Raw is untouched, so rollback is a policy plan that restores `policy_before.csv` (retire the stage 1 rows by id, re-insert the old defaults and symbol rows; not built, written by hand from the snapshot) followed by C3 to C8 again. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
+`--from 2016-01-01` equals the 2016-01-04 seam here: 2016-01-01 is a holiday and the 2nd and 3rd a weekend, so no bar of any timeframe falls in between. Gate: the card compare exits 0 (every 2016+ group of every timeframe identical in count and digest, except the B2-dispositioned names passed as `--expected`, whose 1d differences are listed apart in `expected_differences` and read against the export), and the selection gate meets the B3 criteria. The 1d and grid stages are covered only by the card; the selection gate covers 5m and 1m.
+Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is a policy plan that restores `policy_before.csv` (retire the stage 1 rows by id, re-insert the old defaults and symbol rows; not built, written by hand from the snapshot) followed by C3 to C8 again. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
 
 D2. Seam witness at 2016-01-04 (F2 (a)), level over the span, both timeframes:
 

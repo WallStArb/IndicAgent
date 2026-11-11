@@ -11,10 +11,17 @@ against where ops_selection_gate does not reach (1d, 15m, 1h are derivation-owne
                  epoch microseconds, float8send of open, high, low, close, volume or 'null'),
                  plus card.json: per (timeframe, vendor, kind) totals, the derived-row inventory
                  (DERIVED_COUNTS: what the deletion list may drop) and each file's sha256.
---compare BEFORE AFTER --from YYYY-MM-01 [--to YYYY-MM-01]
+                 Mandatory beside it: a physical export (every column, COPY CSV) of the
+                 canonical 1d rows of every name whose latest 1d lineage_missing or
+                 canonical_recompute verdict is red. Raw cannot rebuild those rows, so the
+                 TRUNCATE loses them; the export is their only pre-image (CTVA and SCCO on
+                 2026-11-11). card.json lists the red verdicts and the exported names.
+--compare BEFORE AFTER --from YYYY-MM-01 [--to YYYY-MM-01] [--expected TF:SYMBOL ...]
                  file-only. Every (timeframe, symbol, vendor, kind, month) group inside
                  [from, to) must match in count and digest; exit 0 when identical, 1 otherwise,
-                 with every differing group listed in the report (never a sample).
+                 with every differing group listed in the report (never a sample). A
+                 difference on an --expected (timeframe, symbol), the pre-classified red
+                 lineage names, is reported apart and does not fail the compare.
 
 Only SELECT statements run (statement_timeout off for this session, one connection, one
 timeframe at a time so the server's hash aggregate stays small).
@@ -75,6 +82,40 @@ DERIVED_COUNTS: Mapping[str, str] = {
     ),
     "market_regimes": "SELECT count(*) FROM market_regimes",
 }
+# The 1d verdicts that say raw cannot rebuild a name's canonical rows (D7, design section 6).
+LINEAGE_CHECKS = ("lineage_missing", "canonical_recompute")
+_RED_LINEAGE_SQL = """
+SELECT subject, metric_name FROM (
+  SELECT DISTINCT ON (subject, metric_name) subject, metric_name, passed
+  FROM integrity_monitor
+  WHERE monitor_type = 'bar_integrity' AND metric_name = ANY(%s) AND subject LIKE '%%|1d'
+  ORDER BY subject, metric_name, evaluated_at DESC, passed ASC
+) latest WHERE NOT passed ORDER BY 1, 2
+"""
+RED_EXPORT = "export_1d_red_lineage.csv.gz"
+_EXPORT_SQL = (
+    "COPY (SELECT * FROM market_data_ohlcv WHERE timeframe = '1d' AND symbol = ANY({}) "
+    'ORDER BY symbol, "timestamp") TO STDOUT WITH (FORMAT csv, HEADER)'
+)
+
+
+def red_lineage(cur: Any) -> list[str]:
+    """`SYMBOL|1d|check` of every latest red 1d lineage verdict."""
+    cur.execute(_RED_LINEAGE_SQL, (list(LINEAGE_CHECKS),))
+    return [f"{subject}|{check}" for subject, check in cur.fetchall()]
+
+
+def export_red_lineage(cur: Any, path: Path, symbols: list[str]) -> tuple[int, str]:
+    """COPY the named symbols' canonical 1d rows to a gzip CSV; (rows, sha256)."""
+    sql = _EXPORT_SQL.format("ARRAY[" + ",".join(["%s"] * len(symbols)) + "]::text[]")
+    raw = bytearray()
+    with cur.copy(sql, symbols) as copy:
+        for block in copy:
+            raw += block
+    payload = gzip.compress(bytes(raw), mtime=0)
+    path.write_bytes(payload)
+    lines = bytes(raw).count(b"\n")
+    return max(lines - 1, 0), hashlib.sha256(payload).hexdigest()
 
 
 def card_rows(cur: Any, timeframe: str) -> list[dict[str, Any]]:
@@ -116,9 +157,11 @@ def compare_cards(
     after: Iterable[Mapping[str, Any]],
     start: str,
     end: str | None,
+    expected: Iterable[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     """Every group with start <= month < end: identical count and digest, or listed. A group on
-    one side only is a difference (a vendor or kind change moves the key)."""
+    one side only is a difference (a vendor or kind change moves the key). Differences on an
+    `expected` (timeframe, symbol) are listed apart and not counted."""
 
     def window(rows: Iterable[Mapping[str, Any]]) -> dict[tuple, tuple[int, str]]:
         return {
@@ -131,11 +174,13 @@ def compare_cards(
         }
 
     b, a = window(before), window(after)
-    differences = [
+    allowed = set(expected)
+    found = [
         {"key": list(key), "before": b.get(key), "after": a.get(key)}
         for key in sorted(b.keys() | a.keys())
         if b.get(key) != a.get(key)
     ]
+    differences = [d for d in found if (d["key"][0], d["key"][1]) not in allowed]
     by_tf = dict(Counter(d["key"][0] for d in differences))
     return {
         "window": [start, end],
@@ -146,6 +191,7 @@ def compare_cards(
         "n_differences": len(differences),
         "differences_by_timeframe": by_tf,
         "differences": differences,
+        "expected_differences": [d for d in found if (d["key"][0], d["key"][1]) in allowed],
     }
 
 
@@ -173,6 +219,13 @@ def run_card(out_dir: Path, timeframes: Iterable[str]) -> int:
         for label, sql in DERIVED_COUNTS.items():
             cur.execute(sql)
             meta["derived"][label] = [[str(v) for v in row] for row in cur.fetchall()]
+        red = red_lineage(cur)
+        names = sorted({subject.split("|", 1)[0] for subject in red})
+        n_rows, digest = export_red_lineage(cur, out_dir / RED_EXPORT, names) if names else (0, "")
+        meta["red_lineage"] = {"verdicts": red, "exported_symbols": names, "rows": n_rows}
+        if names:
+            meta["files"][RED_EXPORT] = digest
+        print(f"red 1d lineage verdicts: {red}; exported {n_rows} canonical 1d rows", flush=True)
         conn.rollback()
     meta["totals"] = totals(all_rows)
     meta["finished"] = datetime.now(UTC).isoformat()
@@ -190,16 +243,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from", dest="start", type=_month_start, default=None)
     parser.add_argument("--to", dest="end", type=_month_start, default=None)
     parser.add_argument("--out", type=Path, default=None, help="--compare: report path")
+    parser.add_argument(
+        "--expected",
+        nargs="*",
+        default=[],
+        metavar="TF:SYMBOL",
+        help="--compare: pre-classified differences (the dispositioned red lineage names)",
+    )
     args = parser.parse_args(argv)
     if args.card:
         return run_card(args.card, args.timeframes)
     if args.start is None:
         parser.error("--compare needs --from")
     before, after = (read_card(d) for d in args.compare)
-    report = compare_cards(before, after, args.start, args.end)
+    expected = [tuple(item.split(":", 1)) for item in args.expected]
+    report = compare_cards(before, after, args.start, args.end, expected)
     out = args.out or args.compare[1] / f"compare_{args.start}.json"
     out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    summary = {k: v for k, v in report.items() if k != "differences"}
+    summary = {k: v for k, v in report.items() if k not in ("differences", "expected_differences")}
+    summary["n_expected_differences"] = len(report["expected_differences"])
     print(json.dumps(summary, indent=2, sort_keys=True))
     print(f"report: {out}")
     return 0 if report["n_differences"] == 0 else 1

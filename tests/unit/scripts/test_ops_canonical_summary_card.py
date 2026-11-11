@@ -84,3 +84,15 @@ def test_window_bounds_must_be_month_starts():
     assert _month_start("2016-01-01") == "2016-01-01"
     with pytest.raises(argparse.ArgumentTypeError):
         _month_start("2016-01-04")
+
+
+def test_expected_differences_are_reported_apart_and_do_not_fail():
+    before = [_row("2019-05-01", tf="1d", symbol="CTVA"), _row("2019-05-01", tf="1d")]
+    after = [
+        _row("2019-05-01", tf="1d", symbol="CTVA", digest="x"),
+        _row("2019-05-01", tf="1d", digest="y"),
+    ]
+    report = compare_cards(before, after, "2016-01-01", None, expected=[("1d", "CTVA")])
+    assert report["n_differences"] == 1
+    assert [d["key"][1] for d in report["expected_differences"]] == ["CTVA"]
+    assert [d["key"][1] for d in report["differences"]] == ["AAA"]

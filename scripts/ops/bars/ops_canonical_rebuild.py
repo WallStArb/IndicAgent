@@ -14,7 +14,10 @@ and the split horizon, so it is rebuilt by the one canonical writer (services.ba
                      no split row is dated after today (d2-v6 would rescale 1d by it, selection
                      would not rescale 5m); the compression settings and the quiet list
                      (QUIET_UNITS and QUIET_PROCESSES inactive, no other session touching
-                     canonical). A clean preflight unschedules the table's compression policy
+                     canonical); and the lineage gate: every latest red 1d lineage_missing or
+                     canonical_recompute verdict (canonical rows raw cannot rebuild) has a
+                     disposition in --dispositions and its rows are in the --card directory's
+                     physical export (ops_canonical_summary_card). A clean preflight unschedules the table's compression policy
                      job (a window must not be compressed mid-fill). It writes the state file
                      the rebuild resumes
                      from, with the pinned horizon and the settings to re-check after.
@@ -49,6 +52,7 @@ sys.path.insert(0, str(project_root))
 
 import psycopg  # noqa: E402
 
+from scripts.ops.bars.ops_canonical_summary_card import red_lineage  # noqa: E402
 from scripts.ops.bars.ops_massive_load import disk_headroom_refusal  # noqa: E402
 from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
@@ -185,6 +189,25 @@ def source_shortfalls(canonical: Mapping[str, int], raw: Mapping[str, int]) -> l
     return out
 
 
+def lineage_gate(
+    red: Sequence[str], dispositions: Mapping[str, str], exported: Iterable[str]
+) -> list[str]:
+    """Failures of the lineage gate: a red `SYMBOL|1d|check` verdict with no written disposition,
+    or a red name whose canonical 1d rows the card did not export (the TRUNCATE would lose them
+    with no pre-image)."""
+    failures = [f"red 1d verdict with no disposition: {v}" for v in red if not dispositions.get(v)]
+    missing = sorted({v.split("|", 1)[0] for v in red} - set(exported))
+    if missing:
+        failures.append(f"red 1d lineage names missing from the card's export: {missing}")
+    return failures
+
+
+def read_card_lineage(card: Path) -> list[str]:
+    """The names whose canonical 1d rows the card exported (card.json, red_lineage)."""
+    meta = json.loads((card / "card.json").read_text())
+    return list(meta.get("red_lineage", {}).get("exported_symbols", []))
+
+
 def add_totals(into: dict[str, int], result: Any) -> None:
     for key in _TOTAL_KEYS:
         into[key] = into.get(key, 0) + int(getattr(result, key))
@@ -286,6 +309,9 @@ def run_preflight(args: argparse.Namespace) -> int:
         cur.execute(_FUTURE_SPLITS_SQL)
         if future := cur.fetchall():
             failures.append(f"splits not executed yet (1d and 5m would disagree): {future[:10]}")
+        red = red_lineage(cur)
+        dispositions = json.loads(args.dispositions.read_text()) if args.dispositions else {}
+        failures += lineage_gate(red, dispositions, read_card_lineage(args.card))
         cur.execute(_OTHER_SESSIONS_SQL)
         if n_other := int(cur.fetchone()[0]):
             failures.append(f"{n_other} other session(s) are running a statement on {TABLE}")
@@ -303,6 +329,7 @@ def run_preflight(args: argparse.Namespace) -> int:
             "compression_job": [int(v) for v in jobs[0]] if len(jobs) == 1 else None,
             "canonical_rows_before": canonical,
             "raw_rows": raw,
+            "red_lineage": {v: dispositions.get(v) for v in red},
             "preflight_at": datetime.now(UTC).isoformat(),
             "preflight_failures": failures,
         }
@@ -426,6 +453,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="--preflight: the split horizon to pin (timezone-aware ISO); default now",
     )
     parser.add_argument("--reset", action="store_true", help="--preflight: re-pin the horizon")
+    parser.add_argument(
+        "--card", type=Path, default=None, help="--preflight: the before-card directory (B1)"
+    )
+    parser.add_argument(
+        "--dispositions",
+        type=Path,
+        default=None,
+        help="--preflight: JSON {'SYMBOL|1d|check': 'disposition'} for every red lineage verdict",
+    )
     parser.add_argument("--timeframes", nargs="+", default=["5m", "1m"])
     parser.add_argument(
         "--from",
@@ -440,6 +476,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.horizon is not None and args.horizon.tzinfo is None:
         parser.error("--horizon must be timezone-aware")
     if args.preflight:
+        if args.card is None:
+            parser.error("--preflight needs --card (the before-card and its 1d export)")
         return run_preflight(args)
     if args.rebuild:
         if args.start is None:
