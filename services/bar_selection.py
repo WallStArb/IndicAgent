@@ -109,6 +109,19 @@ def read_split_rows(cur: Any, symbol: str) -> list[SplitRow]:
 logger = structlog.get_logger(__name__)
 
 
+def selection_lock_key(symbol: str, timeframe: str) -> str:
+    """The transaction-scoped advisory lock key of one (symbol, timeframe)'s selection."""
+    return f"bar_selection|{symbol}|{timeframe}"
+
+
+def lock_selections(cur: Any, symbols: Sequence[str], timeframe: str) -> None:
+    """Take the selection locks of `symbols` in sorted order (select_and_write's order), so a
+    policy read after them sees any --reselect that committed holding one."""
+    cur.executemany(
+        _LOCK_SQL, [(selection_lock_key(symbol, timeframe),) for symbol in sorted(set(symbols))]
+    )
+
+
 def session_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
     """[start, end) widened to whole NYSE session dates: America/New_York midnight of start's
     session date to the midnight after the session date of the last instant before `end`."""
@@ -213,7 +226,7 @@ def select_and_write(
     vendors = sorted(BAR_VENDORS)
     with conn.cursor() as cur:
         for symbol in sorted(set(symbols)):
-            cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
+            cur.execute(_LOCK_SQL, (selection_lock_key(symbol, timeframe),))
             series_policy = policy_rows
             if series_policy is None:
                 cur.execute(_POLICY_SQL, (timeframe, symbol))

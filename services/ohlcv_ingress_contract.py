@@ -44,12 +44,21 @@ from typing import Any
 
 import structlog
 
-from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write
+from services.bar_selection import DIRECT_TIMEFRAMES, lock_selections, select_and_write
 from services.ohlcv_raw_writer import (
+    CLS_REPLACE,
+    CLS_SUPERSEDED,
+    CLS_UNCHANGED,
+    Classified,
+    RawBatch,
     RawDelta,
     RawRow,
     RawWriteParams,
+    batch_symbols,
     preview_series,
+    stage_and_classify,
+    us_to_datetime,
+    write_classified,
     write_raw,
 )
 from src.intelligence.bars.restatement import (
@@ -183,13 +192,50 @@ def _utc_date(ts: datetime) -> date:
     return ts.astimezone(UTC).date()
 
 
-def _lineage_note(lineage: Mapping[str, Any] | None, horizon: datetime) -> str | None:
+# The lineage note's selection field when selection was deferred (bulk path, vendor unranked).
+SELECTION_DEFERRED = "deferred_unranked"
+
+
+def _lineage_note(lineage: Mapping[str, Any] | None, horizon: datetime | None) -> str | None:
     """The load-detail note a loader's lineage becomes: sorted JSON with the selection horizon
     added (a lineage that already names a horizon is overwritten: the contract's is the one the
-    canonical rows were rescaled by). None without a lineage."""
+    canonical rows were rescaled by). A deferred selection (`horizon` None) records
+    `"horizon": null, "selection": "deferred_unranked"`: no selection ran, so no horizon is
+    claimed. None without a lineage."""
     if lineage is None:
         return None
-    return "lineage: " + json.dumps({**lineage, "horizon": horizon.isoformat()}, sort_keys=True)
+    added = (
+        {"horizon": None, "selection": SELECTION_DEFERRED}
+        if horizon is None
+        else {"horizon": horizon.isoformat()}
+    )
+    return "lineage: " + json.dumps({**lineage, **added}, sort_keys=True)
+
+
+def _load_params(
+    load: SeriesLoad, *, outcome: str, detail: str | None, load_id: uuid.UUID
+) -> tuple:
+    return (
+        load_id,
+        load.symbol,
+        load.timeframe,
+        load.source,
+        load.first_bar,
+        load.last_bar,
+        outcome,
+        load.n_bars,
+        load.n_new,
+        load.n_changed,
+        load.first_bar,
+        load.last_bar,
+        detail,
+        load.caller,
+        load.destination,
+        load.n_unchanged,
+        0,
+        0,
+        load.n_superseded,
+    )
 
 
 def _record_load(
@@ -201,28 +247,36 @@ def _record_load(
     load_id: uuid.UUID,
 ) -> None:
     cur.execute(
-        _INSERT_LOAD_SQL,
-        (
-            load_id,
-            load.symbol,
-            load.timeframe,
-            load.source,
-            load.first_bar,
-            load.last_bar,
-            outcome,
-            load.n_bars,
-            load.n_new,
-            load.n_changed,
-            load.first_bar,
-            load.last_bar,
-            detail,
-            load.caller,
-            load.destination,
-            load.n_unchanged,
-            0,
-            0,
-            load.n_superseded,
-        ),
+        _INSERT_LOAD_SQL, _load_params(load, outcome=outcome, detail=detail, load_id=load_id)
+    )
+
+
+def _load_detail(
+    lineage_note: str | None, restatement: Restatement, n_superseded: int
+) -> str | None:
+    """The ohlcv_load detail: the lineage note, the restatement flag and the superseded count."""
+    notes = [] if lineage_note is None else [lineage_note]
+    if restatement.flagged:
+        notes.append(f"restatement flagged: {restatement.detail()}")
+    if n_superseded:
+        notes.append(f"{n_superseded} offers older than the stored answer superseded")
+    return "; ".join(notes) or None
+
+
+def _record_flagged(cur: Any, flag: FlaggedSeries) -> None:
+    """Record, count and log one series the restatement detector flagged (written all the same)."""
+    series = (flag.symbol, flag.timeframe, flag.vendor, flag.kind)
+    record_flag(cur, flag.load_id, series, flag.restatement)
+    for signature in flag.restatement.signatures:
+        RESTATEMENT_FLAGS.add(1, {"vendor": flag.vendor, "signature": signature})
+    logger.warning(
+        "ingress.restatement_flagged",
+        symbol=flag.symbol,
+        timeframe=flag.timeframe,
+        vendor=flag.vendor,
+        kind=flag.kind,
+        load_id=str(flag.load_id),
+        detail=flag.restatement.detail(),
     )
 
 
@@ -283,6 +337,9 @@ class IngressResult:
     n_superseded: int = 0
     # slots whose only candidates are never-selected kinds (iex_rth): reported, never a failure
     n_excluded: int = 0
+    # series-chunks whose selection was deferred (bulk path, vendor ranked in no policy row of
+    # the timeframe): unselected slots are then counted by ops_selection_gate --compare
+    n_selection_deferred: int = 0
 
     @property
     def n_basis_flagged(self) -> int:
@@ -459,12 +516,7 @@ def apply_raw_contract(
             n_superseded=delta.superseded,
         )
         load_id = uuid.uuid4()
-        notes = [] if lineage_note is None else [lineage_note]
-        if restatement.flagged:
-            notes.append(f"restatement flagged: {restatement.detail()}")
-        if delta.superseded:
-            notes.append(f"{delta.superseded} offers older than the stored answer superseded")
-        detail = "; ".join(notes) or None
+        detail = _load_detail(lineage_note, restatement, delta.superseded)
         with conn.cursor() as cur:
             _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
         (written,) = write_raw(
@@ -486,20 +538,10 @@ def apply_raw_contract(
                 f"{found} vs {previewed}"
             )
         if restatement.flagged:
+            flag = FlaggedSeries(symbol, timeframe, vendor, kind, load_id, restatement)
             with conn.cursor() as cur:
-                record_flag(cur, load_id, (symbol, timeframe, vendor, kind), restatement)
-            for signature in restatement.signatures:
-                RESTATEMENT_FLAGS.add(1, {"vendor": vendor, "signature": signature})
-            logger.warning(
-                "ingress.restatement_flagged",
-                symbol=symbol,
-                timeframe=timeframe,
-                vendor=vendor,
-                kind=kind,
-                load_id=str(load_id),
-                detail=restatement.detail(),
-            )
-            flagged.append(FlaggedSeries(symbol, timeframe, vendor, kind, load_id, restatement))
+                _record_flagged(cur, flag)
+            flagged.append(flag)
         n_new += delta.new
         n_changed += delta.changed
         n_unchanged += delta.unchanged
@@ -507,16 +549,46 @@ def apply_raw_contract(
         new_timestamps.extend(delta.new_timestamps)
         spans[(symbol, timeframe)].extend(stamps)
 
+    selected, unselected, excluded = _select(
+        conn,
+        {
+            key: (min(stamps), max(stamps))
+            for key, stamps in spans.items()
+            if key[1] in DIRECT_TIMEFRAMES
+        },
+        params,
+        horizon,
+    )
+    return IngressResult(
+        n_offered=len(rows),
+        n_new=n_new,
+        n_changed=n_changed,
+        n_unchanged=n_unchanged,
+        selected_slots=selected,
+        new_timestamps=tuple(sorted(new_timestamps)),
+        n_unselected=unselected,
+        flagged=tuple(flagged),
+        n_superseded=n_superseded,
+        n_excluded=excluded,
+    )
+
+
+def _select(
+    conn: Any,
+    spans: Mapping[tuple[str, str], tuple[datetime, datetime]],
+    params: RawContractParams,
+    horizon: datetime,
+) -> tuple[int, int, int]:
+    """Select canonical rows over each (symbol, timeframe)'s touched span [first, last]; returns
+    (selected slots, unselected slots, excluded slots)."""
     selected = unselected = excluded = 0
-    for (symbol, timeframe), stamps in sorted(spans.items()):
-        if timeframe not in DIRECT_TIMEFRAMES:
-            continue
+    for (symbol, timeframe), (first, last) in sorted(spans.items()):
         result = select_and_write(
             conn,
             symbols=[symbol],
             timeframe=timeframe,
-            start=min(stamps),
-            end=max(stamps) + timedelta(microseconds=1),
+            start=first,
+            end=last + timedelta(microseconds=1),
             # read under the series' selection lock, never the chunk's cached copy: a policy
             # --reselect commits holding that lock (second review of 191-07, low item)
             policy_rows=None,
@@ -530,15 +602,167 @@ def apply_raw_contract(
         # with the unselected slots (191-07 review, low finding).
         unselected += result.unselected + result.skipped_null_volume
         excluded += result.excluded
+    return selected, unselected, excluded
+
+
+# --------------------------------------------------------------------------------------
+# Bulk path (docs/plans/2026-11-11-bulk-raw-load-path-design.md, sections 5 and 6)
+# --------------------------------------------------------------------------------------
+
+# Whether any open policy row of the timeframe ranks the vendor (the bar-writer role holds
+# SELECT on the view). Only a ranked vendor's rows can win, retract or move a session choice.
+_VENDOR_RANKED_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM bar_source_policy_current WHERE timeframe = %s "
+    "AND %s IN (primary_source, fallback_source))"
+)
+
+
+def vendor_is_ranked(cur: Any, timeframe: str, vendor: str) -> bool:
+    cur.execute(_VENDOR_RANKED_SQL, (timeframe, vendor))
+    return bool(cur.fetchone()[0])
+
+
+def _batch_restatement(
+    classified: Classified, start: int, stop: int, params: DetectorParams
+) -> Restatement:
+    """The detector over one series-chunk with exactly the row path's inputs (`_stored_at_offer`):
+    offered is every non-superseded row, stored the offered values of the unchanged rows plus the
+    old values of the replaced ones. A chunk with no replaced row cannot flag (share 0, no
+    changed bar; `apply_raw_contract_batch` requires signature_min_bars >= 1), so it gets the
+    detector's answer without building the dictionaries."""
+    batch = classified.batch
+    classes = classified.cls[start:stop]
+    n_unchanged = int((classes == CLS_UNCHANGED).sum())
+    if not (classes == CLS_REPLACE).any():
+        return Restatement(n_unchanged, 0, 0.0, (), None, None, None)
+    volumes = batch.rows_volumes(start, stop)
+    offered: dict[datetime, tuple] = {}
+    stored: dict[datetime, tuple] = {}
+    for i, cls in enumerate(classes.tolist(), start):
+        if cls == CLS_SUPERSEDED:
+            continue
+        ts = us_to_datetime(batch.ts_us[i])
+        values = (
+            float(batch.open[i]),
+            float(batch.high[i]),
+            float(batch.low[i]),
+            float(batch.close[i]),
+            volumes[i - start],
+        )
+        offered[ts] = values
+        if cls == CLS_UNCHANGED:
+            stored[ts] = values
+        elif cls == CLS_REPLACE:
+            stored[ts] = classified.replaced_old[i]
+    return detect(offered, stored, _BAR.get(batch.timeframe, timedelta(minutes=5)), params)
+
+
+def apply_raw_contract_batch(
+    conn: Any,
+    batch: RawBatch,
+    *,
+    caller: str,
+    params: RawContractParams,
+    lineage_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
+    request_ids: list[uuid.UUID] | None = None,
+) -> IngressResult:
+    """`apply_raw_contract` for one `RawBatch`, set-based, in the caller's transaction under the
+    bar-writer role: one ohlcv_load row per series-chunk with the same counts, outcome and detail,
+    the same revisions, raw rows, restatement flags and, for a ranked vendor, the same selection.
+
+    Selection is deferred when the batch's vendor is ranked in no policy row of a direct
+    timeframe: an unranked vendor's rows can neither win a slot nor retract or move a canonical
+    row when canonical equals the selection of raw, so the only output selection could have is
+    the unselected count, which ops_selection_gate --compare measures instead (design section
+    6). `n_selection_deferred` then counts the series-chunks and the lineage note records
+    `"horizon": null, "selection": "deferred_unranked"`.
+
+    `lineage_by_symbol` names each symbol's lineage (every symbol of the batch when given);
+    `request_ids` one request id per series-chunk (fresh ids by default). `new_timestamps` is
+    left empty: the bulk path has no coverage ledger to feed."""
+    if len(batch) == 0:
+        return IngressResult(0, 0, 0, 0, 0)
+    if params.detector.signature_min_bars < 1:
+        raise ValueError("the bulk contract needs restatement_signature_min_bars >= 1")
+    request_ids = request_ids or [uuid.uuid4() for _ in range(batch.n_keys)]
+    load_ids = [uuid.uuid4() for _ in range(batch.n_keys)]
+    bounds = batch.key_bounds().tolist()
+    direct = batch.timeframe in DIRECT_TIMEFRAMES
+    flagged: list[FlaggedSeries] = []
+    with conn.cursor() as cur:
+        classified = stage_and_classify(cur, batch)  # takes the series locks
+        if direct:
+            # the policy is read under the selection locks, as select_and_write reads it: a
+            # --reselect that ranks this vendor either committed first (seen here, so the batch
+            # is selected) or waits for this commit and then selects these rows itself
+            lock_selections(cur, batch_symbols(batch), batch.timeframe)
+        deferred = direct and not vendor_is_ranked(cur, batch.timeframe, batch.vendor)
+        horizon = None if deferred else datetime.now(UTC)
+        notes: dict[str, str | None] = {}
+        load_rows: list[tuple] = []
+        for key, (start, stop) in enumerate(zip(bounds[:-1], bounds[1:], strict=True)):
+            symbol = str(batch.symbols[start])
+            if symbol not in notes:
+                lineage = None if lineage_by_symbol is None else lineage_by_symbol[symbol]
+                notes[symbol] = _lineage_note(lineage, horizon)
+            n_new, n_unchanged, n_changed, n_superseded = classified.counts[key].tolist()
+            restatement = _batch_restatement(classified, start, stop, params.detector)
+            load = SeriesLoad(
+                symbol=symbol,
+                timeframe=batch.timeframe,
+                destination=DESTINATION_RAW,
+                caller=caller,
+                source=batch.vendor,
+                n_bars=stop - start,
+                n_stored=n_unchanged + n_changed + n_superseded,
+                n_new=n_new,
+                n_changed=n_changed,
+                n_unchanged=n_unchanged,
+                first_bar=us_to_datetime(batch.ts_us[start]).date(),
+                last_bar=us_to_datetime(batch.ts_us[stop - 1]).date(),
+                n_superseded=n_superseded,
+            )
+            detail = _load_detail(notes[symbol], restatement, n_superseded)
+            load_rows.append(
+                _load_params(load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_ids[key])
+            )
+            if restatement.flagged:
+                flagged.append(
+                    FlaggedSeries(
+                        symbol,
+                        batch.timeframe,
+                        batch.vendor,
+                        batch.kind,
+                        load_ids[key],
+                        restatement,
+                    )
+                )
+        # the load rows carry the counts before the revisions reference them (foreign key)
+        cur.executemany(_INSERT_LOAD_SQL, load_rows)
+        write_classified(cur, classified, load_ids=load_ids, request_ids=request_ids)
+        for flag in flagged:
+            _record_flagged(cur, flag)
+    selected = unselected = excluded = 0
+    if direct and not deferred:
+        # rows are ordered by (symbol, stamp): a symbol's span runs from its first key's first
+        # row to its last key's last row
+        spans: dict[tuple[str, str], tuple[datetime, datetime]] = {}
+        for start, stop in zip(bounds[:-1], bounds[1:], strict=True):
+            series = (str(batch.symbols[start]), batch.timeframe)
+            first = spans[series][0] if series in spans else us_to_datetime(batch.ts_us[start])
+            spans[series] = (first, us_to_datetime(batch.ts_us[stop - 1]))
+        assert horizon is not None  # None exactly when deferred
+        selected, unselected, excluded = _select(conn, spans, params, horizon)
+    n_new, n_unchanged, n_changed, n_superseded = classified.counts.sum(axis=0).tolist()
     return IngressResult(
-        n_offered=len(rows),
+        n_offered=int(batch.n_offered.sum()),
         n_new=n_new,
         n_changed=n_changed,
         n_unchanged=n_unchanged,
         selected_slots=selected,
-        new_timestamps=tuple(sorted(new_timestamps)),
         n_unselected=unselected,
         flagged=tuple(flagged),
         n_superseded=n_superseded,
         n_excluded=excluded,
+        n_selection_deferred=batch.n_keys if deferred else 0,
     )

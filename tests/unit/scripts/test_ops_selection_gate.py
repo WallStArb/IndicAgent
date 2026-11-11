@@ -357,7 +357,7 @@ def test_derived_vendor_rows_in_a_direct_timeframe_are_counted_not_skipped():
 
     cur = _CountCur([])
     assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "5m") == 2
-    assert cur.params == ("SPY", "5m", gate.VENDOR_DERIVED)
+    assert cur.params == ("SPY", "5m", gate.VENDOR_DERIVED, *gate.ALL_TIME)
     # a derived timeframe is the derivation's own ground: no query, zero by construction
     assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "15m") == 0
     assert cur.params[1] == "5m"  # the second call never executed
@@ -458,3 +458,62 @@ def test_selected_rows_rescales_an_unadjusted_massive_winner_like_the_writer():
     assert rows[stamp] == (("massive", "sip_flat_adj"), (120.0, 121.0, 119.0, 120.5, 10000))
     unscaled, _ = gate.selected_rows([bar], [policy], kinds)  # no split row: kind still canonical
     assert unscaled[stamp] == (("massive", "sip_flat_adj"), (1200.0, 1210.0, 1190.0, 1205.0, 1000))
+
+
+# --- the --start/--end window (bulk raw load path design, section 6) --------------------------
+
+
+def test_the_compare_window_is_cut_at_new_york_midnights():
+    lo, hi = gate.compare_bounds(date(2024, 6, 1), date(2024, 7, 1))
+    assert (lo, hi) == (datetime(2024, 6, 1, 4, tzinfo=UTC), datetime(2024, 7, 1, 4, tzinfo=UTC))
+    assert gate.compare_bounds(None, None) == gate.ALL_TIME
+
+
+class _WindowCur(_Cur):
+    def __init__(self):
+        super().__init__([])
+        self.calls = []
+
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        self.calls.append((sql, params))
+
+    def fetchone(self):
+        return (0,)
+
+    def fetchall(self):
+        return self.rows if "FROM ohlcv_raw" in self.sql else []
+
+
+def test_every_read_of_a_windowed_compare_is_bounded_by_the_window():
+    window = gate.compare_bounds(date(2024, 6, 1), date(2024, 7, 1))
+    cur = _WindowCur()
+    cur.rows = [(DAY1, "SPY", "5m", "ibkr", "named", 9.0, 11.0, 8.5, 10.0, 100)]
+    gate.compare_window(
+        cur,
+        "market_data_ohlcv",
+        "SPY",
+        "5m",
+        window,
+        policy=[PolicyRow("5m", None, date(1990, 1, 1), None, "ibkr", None)],
+        kind_order={"named": 1},
+        horizon=DAY1,
+    )
+    assert any("bar_session_choice" in sql for sql, _ in cur.calls)
+    for sql, params in cur.calls:
+        if "bar_session_choice" in sql:
+            assert params[-2:] == (date(2024, 6, 1), date(2024, 7, 1))
+        elif "corporate_action" not in sql:
+            assert '"timestamp" >= %s AND "timestamp" < %s' in sql and params[-2:] == window
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--idempotence", "--start", "2024-06-01"],
+        ["--compare", "--start", "2024-07-01", "--end", "2024-06-01"],
+    ],
+)
+def test_start_and_end_bound_a_compare_only(argv):
+    with pytest.raises(SystemExit):
+        gate.main(argv)

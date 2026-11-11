@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
+import psycopg
 
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_coverage_writer import DESTINATION_RAW as COVERAGE_DESTINATION_RAW
 from services.ohlcv_coverage_writer import CoverageDelta, refresh_1d_bounds
-from services.ohlcv_ingress_contract import IngressResult, RawContractParams
-from services.ohlcv_raw_writer import RawRow
+from services.ohlcv_ingress_contract import (
+    IngressResult,
+    RawContractParams,
+    apply_raw_contract_batch,
+)
+from services.ohlcv_raw_writer import RawBatch, RawRow, build_raw_batch, datetime_to_us
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import (
     VENDOR_ALPACA,
@@ -64,6 +70,9 @@ class LoadResult:
     n_basis_flagged: int = 0  # of those, flagged with a basis-change signature: run is partial
     n_superseded: int = 0  # offers older than the stored answer: logged, raw unchanged
     n_excluded: int = 0  # slots holding only never-selected kinds: reported, not a failure
+    # series-chunks loaded with selection deferred (vendor unranked; bulk path): n_unselected
+    # is then not measured by the load but by ops_selection_gate --compare
+    n_selection_deferred: int = 0
 
     def plus(self, ingress: IngressResult | None) -> LoadResult:
         if ingress is None:
@@ -78,23 +87,60 @@ class LoadResult:
             self.n_basis_flagged + ingress.n_basis_flagged,
             self.n_superseded + ingress.n_superseded,
             self.n_excluded + ingress.n_excluded,
+            self.n_selection_deferred + ingress.n_selection_deferred,
         )
 
 
-def load_status(*, apply: bool, unselected: int = 0, basis_flagged: int = 0) -> str:
+RAW_ONLY = (
+    "RAW-ONLY (selection deferred: vendor unranked; unselected is counted by "
+    "ops_selection_gate --compare)"
+)
+
+
+def load_status(
+    *, apply: bool, unselected: int = 0, basis_flagged: int = 0, selection_deferred: int = 0
+) -> str:
     """The run's status word: APPLIED only when no landed slot lacks a canonical winner (an
     unselected slot means the policy ranks no vendor that holds it: the rows are in raw,
-    canonical has nothing there) and no series carries a basis-change flag. Restatements are
-    written last-wins and flagged, never held (D-191-N); a share-only flag is informational, a
-    basis-change flag (a common price or volume multiple, a time shift) makes the run partial
-    until ops_restatement_review.py marks it reviewed (fourth review of 191-07, finding 2)."""
+    canonical has nothing there), no series carries a basis-change flag and selection ran.
+    Restatements are written last-wins and flagged, never held (D-191-N); a share-only flag is
+    informational, a basis-change flag (a common price or volume multiple, a time shift) makes the
+    run partial until ops_restatement_review.py marks it reviewed (fourth review of 191-07,
+    finding 2). A load whose selection was deferred (vendor unranked) is RAW-ONLY, never APPLIED
+    or UNSELECTED: its unselected count of 0 is unmeasured, not clean, and the selection gate's
+    --compare measures it (bulk raw load path design, section 6)."""
     if not apply:
         return "PLANNED"
     if unselected:
         return "UNSELECTED (landed in raw, no canonical winner, see bar_source_policy)"
+    words = []
     if basis_flagged:
-        return "PARTIAL (basis-change restatement flagged, review with ops_restatement_review.py)"
-    return "APPLIED"
+        words.append(
+            "PARTIAL (basis-change restatement flagged, review with ops_restatement_review.py)"
+        )
+    if selection_deferred:
+        words.append(RAW_ONLY)
+    return "; ".join(words) or "APPLIED"
+
+
+def resolve_kind(vendor: str, kind: str | None) -> str:
+    """The kind a vendor's rows are written under: the vendor's label-map kind
+    (`label_to_vendor_kind`) unless an explicit kind is passed, which must be one the vendor
+    serves (`VENDOR_SERVED_KINDS`). Alpaca rows always need the explicit, feed-derived kind."""
+    served_vendor, label_kind = label_to_vendor_kind(vendor)
+    if served_vendor != vendor:
+        raise ValueError(f"vendor {vendor!r} maps to {served_vendor!r}")
+    if kind is None and vendor == VENDOR_ALPACA:
+        raise ValueError(
+            "alpaca rows need an explicit kind from alpaca_kind_for_feed: the kind names a "
+            "split-adjusted basis the label default cannot vouch for (D-191-A)"
+        )
+    if kind is None:
+        return label_kind
+    served = VENDOR_SERVED_KINDS.get(vendor)
+    if served is None or kind not in served:
+        raise ValueError(f"vendor {vendor!r} does not serve kind {kind!r}")
+    return kind
 
 
 def frame_to_raw_rows(
@@ -104,20 +150,7 @@ def frame_to_raw_rows(
     (`label_to_vendor_kind`: alpaca -> sip_rth) unless an explicit kind is passed, which must be
     one the vendor serves (`VENDOR_SERVED_KINDS`; the nightly's feed-derived iex_rth). Every row
     is kept; nothing is dropped."""
-    served_vendor, label_kind = label_to_vendor_kind(vendor)
-    if served_vendor != vendor:
-        raise ValueError(f"vendor {vendor!r} maps to {served_vendor!r}")
-    if kind is None and vendor == VENDOR_ALPACA:
-        raise ValueError(
-            "alpaca rows need an explicit kind from alpaca_kind_for_feed: the kind names a "
-            "split-adjusted basis the label default cannot vouch for (D-191-A)"
-        )
-    if kind is not None:
-        served = VENDOR_SERVED_KINDS.get(vendor)
-        if served is None or kind not in served:
-            raise ValueError(f"vendor {vendor!r} does not serve kind {kind!r}")
-    else:
-        kind = label_kind
+    kind = resolve_kind(vendor, kind)
     stamps = frame["t"].dt.to_pydatetime()
     # an optional per-row serve time (a batched loader's per-file LastModified), else the call's
     served = (
@@ -263,3 +296,150 @@ def load_series(
         request_rows=request_rows,
         lineage=lineage,
     )
+
+
+# --------------------------------------------------------------------------------------
+# Bulk path (docs/plans/2026-11-11-bulk-raw-load-path-design.md): a loader's whole month as one
+# RawBatch, written in transactions of whole series-chunks
+# --------------------------------------------------------------------------------------
+
+
+def _utc_ns(stamps: pd.Series, what: str) -> np.ndarray:
+    """A tz-aware stamp column as UTC nanoseconds; a naive column is refused."""
+    if stamps.dt.tz is None:
+        raise ValueError(f"naive {what} refused (UTC required)")
+    out: np.ndarray = (
+        stamps.dt.tz_convert(UTC).dt.tz_localize(None).to_numpy("datetime64[ns]").view(np.int64)
+    )
+    return out
+
+
+def ns_to_us(t_ns: np.ndarray, what: str = "timestamp") -> np.ndarray:
+    """Nanoseconds as microseconds. Raw stores microseconds, so a stamp with a nanosecond part is
+    refused (the row path's `to_pydatetime` drops it silently; the bulk path is stricter)."""
+    t_ns = np.asarray(t_ns, dtype=np.int64)
+    if (t_ns % 1000).any():
+        raise ValueError(f"{what} with a nanosecond part refused: raw stores microseconds")
+    us: np.ndarray = t_ns // 1000
+    return us
+
+
+def whole_volume(volume: np.ndarray) -> np.ndarray:
+    """Served volume as int64 by the row path's `int(v)` (truncation); a non-finite volume raises
+    as `int(nan)` does."""
+    volume = np.asarray(volume)
+    if volume.dtype.kind == "f" and not np.isfinite(volume).all():
+        raise ValueError("cannot convert a non-finite volume to an integer")
+    out: np.ndarray = volume.astype(np.int64)
+    return out
+
+
+def frame_to_raw_batch(
+    frames: Mapping[str, pd.DataFrame],
+    *,
+    vendor: str,
+    timeframe: str,
+    params: RawContractParams,
+    kind: str | None = None,
+    answered_at: datetime | None = None,
+    chunk_rows: int | None = None,
+    now: datetime | None = None,
+) -> RawBatch:
+    """The columnar twin of `frame_to_raw_rows` over many symbols' frames (columns t, o, h, l,
+    c, v and an optional per-row `answered_at`, else the call's `answered_at`): the same kind
+    resolution and volume truncation, validated and cut into series-chunks by `build_raw_batch`."""
+    kind = resolve_kind(vendor, kind)
+    frames = {symbol: frame for symbol, frame in frames.items() if len(frame)}
+    if not frames:
+        raise ValueError("frame_to_raw_batch: no rows offered")
+    symbols = np.concatenate([np.full(len(f), s, dtype=object) for s, f in frames.items()])
+    frame = pd.concat(frames.values(), ignore_index=True)
+    if "answered_at" in frame:
+        if frame["answered_at"].isna().any():
+            raise ValueError(
+                "frame_to_raw_batch: some rows have no answered_at (every frame carries a per-row "
+                "serve time, or none does and the call's answered_at applies)"
+            )
+        served = ns_to_us(_utc_ns(frame["answered_at"], "answered_at"), "answered_at")
+    elif answered_at is None or answered_at.tzinfo is None:
+        raise ValueError("frame_to_raw_batch needs the vendor's tz-aware answer time")
+    else:
+        served = np.full(len(frame), datetime_to_us(answered_at), dtype=np.int64)
+    return build_raw_batch(
+        timeframe=timeframe,
+        vendor=vendor,
+        kind=kind,
+        symbols=symbols,
+        ts_us=ns_to_us(_utc_ns(frame["t"], "timestamp")),
+        open=frame["o"].to_numpy(np.float64),
+        high=frame["h"].to_numpy(np.float64),
+        low=frame["l"].to_numpy(np.float64),
+        close=frame["c"].to_numpy(np.float64),
+        volume=whole_volume(frame["v"].to_numpy()),
+        served_us=served,
+        vendor_codes=params.vendor_codes,
+        kind_codes=params.kind_codes,
+        future_tolerance_s=params.write.future_tolerance_s,
+        # a series-chunk must fit one packed transaction (APR copy_batch_rows)
+        chunk_rows=chunk_rows or min(CHUNK_ROWS, params.write.batch_rows),
+        now=now,
+    )
+
+
+def pack_series_chunks(sizes: np.ndarray, max_rows: int) -> list[tuple[int, int]]:
+    """Consecutive key ranges [first, stop) of at most `max_rows` rows each, never splitting a
+    series-chunk (one key is one ohlcv_load row and lands whole or not at all)."""
+    if len(sizes) and int(np.max(sizes)) > max_rows:
+        raise ValueError(f"a series-chunk of {int(np.max(sizes))} rows exceeds {max_rows}")
+    groups: list[tuple[int, int]] = []
+    first = rows = 0
+    for key, size in enumerate(np.asarray(sizes).tolist()):
+        if rows + size > max_rows:
+            groups.append((first, key))
+            first, rows = key, 0
+        rows += size
+    if len(sizes):
+        groups.append((first, len(sizes)))
+    return groups
+
+
+def load_batch(
+    conn: Any,
+    batch: RawBatch,
+    *,
+    caller: str,
+    params: RawContractParams,
+    lineage_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
+    request_ids: list | None = None,
+    max_rows: int | None = None,
+    on_group: Callable[[int, int], None] | None = None,
+) -> LoadResult:
+    """Write a `RawBatch` to ohlcv_raw through the bulk contract, one transaction per packed group
+    of whole series-chunks of at most `max_rows` rows (default the APR
+    infra.ohlcv_observation.copy_batch_rows), under `persist_chunk_atomically`'s rules: an idle
+    connection, the bar-writer role set locally, everything of a group committed together. Raw
+    only: no request rows, no coverage. Rerunning is the resume: committed groups classify as
+    unchanged. `on_group(rows_done, rows_total)` reports progress after each commit."""
+    groups = pack_series_chunks(np.diff(batch.key_bounds()), max_rows or params.write.batch_rows)
+    result = LoadResult()
+    done = 0
+    for first, stop in groups:
+        group = batch.keys(first, stop)
+        if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+            raise RuntimeError("load_batch requires an idle connection (SET LOCAL ROLE)")
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            ingress = apply_raw_contract_batch(
+                conn,
+                group,
+                caller=caller,
+                params=params,
+                lineage_by_symbol=lineage_by_symbol,
+                request_ids=None if request_ids is None else list(request_ids[first:stop]),
+            )
+        result = result.plus(ingress)
+        done += len(group)
+        if on_group:
+            on_group(done, len(batch))
+    return result

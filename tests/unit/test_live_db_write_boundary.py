@@ -61,6 +61,11 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
         "market_data_ohlcv, corporate_action_current, ohlcv_raw, ohlcv_load and "
         "bar_content_digest inside a transaction the fixture always aborts; nothing persists"
     ),
+    "services/test_ohlcv_raw_bulk_live.py": (
+        "marker (pytest.mark.live_db): the bulk raw path's classification and write SQL runs "
+        "against TEMP shadows of ohlcv_raw and ohlcv_revision (and its own session temp stage) "
+        "inside a transaction the fixture always rolls back; nothing persists"
+    ),
     "core/test_resource_lease.py": (
         "read-only: takes advisory-lease locks and reads pg_stat_activity (locks and session "
         "state are not writes)"

@@ -57,6 +57,11 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: the read-only truncated-bar scan reports whether canonical holds a candidate "
         "bar (a reselect promotes a truncated raw bar), zero-volume rows included (191-07)."
     ),
+    "scripts/ops/bars/ops_raw_bulk_equivalence.py": (
+        "PERMANENT: the bulk raw path's equivalence proof (bulk raw load path design, section "
+        "10) digests every canonical row of the sampled series, zero-volume bars included, to "
+        "prove neither load path moved canonical; the tradeable view would hide rows."
+    ),
     "scripts/ops/bars/ops_selection_gate.py": (
         "PERMANENT: standing proof that canonical is a pure function of raw plus policy (191-07). "
         "It compares every canonical vendor row, zero-volume provider bars included, with the "
