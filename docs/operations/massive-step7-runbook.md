@@ -90,10 +90,29 @@ $PY -m scripts.ops.db.ops_table_backup --verify --backup-dir data/backups/ibkr-5
 ```
 Gate: `--verify` exit 0 (live recount and sha256 per year slice).
 
-A9. Snapshot the live policy (rollback input):
+A9. Snapshot the live policy (the rollback input; every abort rule after C2 restores from it):
 
 ```bash
-$PSQL -c "\copy (SELECT * FROM bar_source_policy_current ORDER BY timeframe, symbol NULLS FIRST, valid_from) TO '$OUT/policy_before.csv' CSV HEADER"
+for tf in 5m 1d; do
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --snapshot --timeframe $tf --out "$OUT/policy_before_$tf.json"
+done
+```
+Gate: a restore plan built from it right now is a no-op (2 defaults retired and re-inserted, every symbol row kept, none inserted; read-only check 2026-11-11: 5m 2 rows, 1d 97 rows, 95 kept):
+
+```bash
+for tf in 5m 1d; do
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_noop_$tf.json"
+done
+```
+
+Restore procedure, named R below (any abort after C2 applied a plan):
+
+```bash
+for tf in 5m 1d; do
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_$tf.json"
+  $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json"            # dry run
+  $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json" --apply
+done
 ```
 
 A10. Quiesce (design step 0 and F14). Stop, and keep stopped until Part D passes:
@@ -183,7 +202,14 @@ done
 ```
 Read-only dry build on 2026-11-11 (current gap list): 5m 3 defaults, 580 IBKR symbol rows on 580 names; 1d 3 defaults, the same 580 rows, the 95 live 2016+ IBKR rows kept, none retired. Both validated by `parse_plan`. Gate: the counts are explained by the gap list, and a reviewer reads the plan's defaults block. 580 of 1,551 names keep IBKR for some pre-2016 span (473 `before_first_event` spans); that share is the identity map's, and the lead should accept it explicitly.
 
-C2. Dry run, then apply, in one sitting, 5m first:
+C2. Preflight first, then dry run and apply, in one sitting, 5m first. The preflight runs here as well as at C3, so a precondition that fails (a quiet unit, the lineage gate, the 1m source, a future split) stops step 7 before the policy has moved:
+
+```bash
+$PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json" \
+  --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
+```
+Abort (nothing applied yet): any failure; fix it and rerun.
+
 
 ```bash
 $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_stage1_5m.json"           # dry run, rolled back
@@ -200,7 +226,7 @@ $PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_
   --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
 ```
 It checks: the lineage gate (every latest red 1d `lineage_missing` and `canonical_recompute` verdict has a written disposition and its name's canonical 1d rows are in the card's export); no foreign key references `market_data_ohlcv` (none on 2026-11-11); every canonical timeframe has a raw source (1m: raw IBKR 1m equals canonical 1m exactly, 9,775,958 on 2026-11-10; 4h holds none); the chunk grid is the epoch-aligned 90-day grid (true for all 114 chunks on 2026-11-11); no split row dated after today (none on 2026-11-11; see risk 18); one compression policy job (1078, `compress_after` 30 days); the quiet units and processes; disk headroom from the APR floor. It records the compression settings (segment by symbol, timeframe; order by timestamp) and pins the split horizon (now, or `--horizon`). Gate: `PREFLIGHT OK`.
-Abort: any failure. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
+Abort: any failure. Restore the policy (R, A9) before anything else: the stage 1 rows are live and nothing may select under them while canonical is the old one. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
 
 C4. TRUNCATE (seconds; frees the 21 GB the table holds):
 
@@ -250,7 +276,7 @@ $PY -m scripts.ops.bars.ops_canonical_summary_card --compare "$OUT/card_before" 
 $PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m 1m --out "$OUT/compare_after.json"
 ```
 `--from 2016-01-01` equals the 2016-01-04 seam here: 2016-01-01 is a holiday and the 2nd and 3rd a weekend, so no bar of any timeframe falls in between. Gate: the card compare exits 0 (every 2016+ group of every timeframe identical in count and digest, except the B2-dispositioned names passed as `--expected`, whose 1d differences are listed apart in `expected_differences` and read against the export), and the selection gate meets the B3 criteria. The 1d and grid stages are covered only by the card; the selection gate covers 5m and 1m.
-Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is a policy plan that restores `policy_before.csv` (retire the stage 1 rows by id, re-insert the old defaults and symbol rows; not built, written by hand from the snapshot) followed by C3 to C8 again. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
+Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is R (A9: the restore plans built from `policy_before_<tf>.json`) followed by C3 to C8 again. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
 
 D2. Seam witness at 2016-01-04 (F2 (a)), level over the span, both timeframes:
 
@@ -363,7 +389,6 @@ Each row: what can fail silently, how it is caught, and the abort or rollback. R
 ## Not built (named)
 
 - A target-table parameter for `select_and_write` and both derivation stages, needed only by the new-table-and-swap fallback (C3).
-- A reverse plan from `policy_before.csv` for rollback (D1); written by hand if needed.
 - The reselect trigger on a split write (design section 5); `split_horizon_fresh` is the hold meanwhile.
 - A `--symbols` filter on D7 (D4 reads a sample out of the full run instead).
 - d2-v6's executed-by-horizon filter for Massive 1d (risk 18); the C3 guard holds until it exists.

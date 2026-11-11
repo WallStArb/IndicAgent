@@ -10,8 +10,11 @@ from scripts.ops.bars.ops_massive_policy_plan import (
     GapRow,
     LiveRow,
     build_plan,
+    build_restore_plan,
     incumbent_rows,
     read_gap_list,
+    read_snapshot,
+    snapshot_rows,
     through_needed,
 )
 from scripts.ops.bars.ops_source_policy import parse_plan
@@ -163,3 +166,84 @@ def test_read_gap_list_parses_both_scopes(tmp_path):
         GapRow("A", "instrument", "event_chain_head_mismatch", None, None),
         GapRow("AAL", "span", "before_first_event", date(2003, 9, 10), date(2013, 12, 9)),
     ]
+
+
+# --- the reverse plan (rollback; review 2026-11-11, finding 2) ---------------------------------
+
+
+def _stage1_live(stage1_plan):
+    """The live policy after the stage 1 apply, with new ids."""
+    rows = [
+        LiveRow(
+            f"s1-d{i}",
+            None,
+            date.fromisoformat(d["valid_from"]),
+            date.fromisoformat(d["valid_to"]) if d["valid_to"] else None,
+            d["primary"],
+            d.get("fallback"),
+            "stage 1",
+            {},
+        )
+        for i, d in enumerate(stage1_plan["defaults"])
+    ]
+    rows += [
+        LiveRow(
+            f"s1-r{i}",
+            r["symbol"],
+            date.fromisoformat(r["valid_from"]),
+            date.fromisoformat(r["valid_to"]),
+            r["primary"],
+            None,
+            "stage 1",
+            r["evidence"],
+        )
+        for i, r in enumerate(stage1_plan["symbol_rows"])
+    ]
+    return rows
+
+
+def test_restore_puts_the_pre_switch_policy_back_and_round_trips_the_snapshot():
+    before = [*_defaults(), _ibkr_row("BHP", date(2016, 1, 4), date(2022, 6, 2), "p-bhp")]
+    snapshot = read_snapshot(snapshot_rows(before))
+    assert snapshot == before
+    stage1 = _plan(1, "1d", before)
+    live = [*_stage1_live(stage1), before[2]]  # BHP was kept by stage 1
+    plan = build_restore_plan(timeframe="1d", snapshot=snapshot, live=live, source="snap.json")
+    plan["raw_fingerprint"] = _FP
+    parsed = parse_plan(plan)
+    assert [
+        (d["valid_from"], d["valid_to"], d["primary"], d["fallback"]) for d in plan["defaults"]
+    ] == [
+        ("1990-01-01", "2016-01-04", "ibkr", None),
+        ("2016-01-04", None, "alpaca", "ibkr"),
+    ]
+    assert plan["seam"] == "2016-01-04"
+    assert plan["retire_default_ids"] == ["s1-d0", "s1-d1", "s1-d2"]
+    assert [k["policy_id"] for k in plan["keep_symbol_rows"]] == ["p-bhp"]
+    assert {r["disposition"] for r in plan["retire_symbol_rows"]} == {"superseded_by_default"}
+    assert len(plan["retire_symbol_rows"]) == len(stage1["symbol_rows"])
+    assert plan["symbol_rows"] == [] and parsed.symbol_rows == ()
+
+
+def test_restore_reinserts_a_snapshot_row_the_switch_retired():
+    before = [*_defaults(), _ibkr_row("BHP", date(2016, 1, 4), date(2022, 6, 2), "p-bhp")]
+    live = _stage1_live(_plan(1, "5m", _defaults()))  # BHP's row gone (stage 2 shape)
+    plan = build_restore_plan(timeframe="5m", snapshot=before, live=live, source="s")
+    parse_plan(plan)
+    bhp = [r for r in plan["symbol_rows"] if r["symbol"] == "BHP"]
+    assert bhp == [
+        {
+            "symbol": "BHP",
+            "valid_from": "2016-01-04",
+            "valid_to": "2022-06-02",
+            "primary": "ibkr",
+            "fallback": None,
+            "evidence": {"class": "alpaca_differs", "restored_from": "p-bhp"},
+        }
+    ]
+
+
+def test_restore_refuses_a_snapshot_without_an_open_default():
+    closed = [LiveRow("d", None, date(1990, 1, 1), date(2016, 1, 4), "ibkr", None, "x", {})]
+    with pytest.raises(ValueError, match="open-ended default"):
+        build_restore_plan(timeframe="5m", snapshot=closed, live=_defaults(), source="s")

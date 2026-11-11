@@ -26,6 +26,10 @@ are outside its change; --plan refuses a kept row that overlaps a new row of its
 retires each: `replaced` when its name gets new rows, else `superseded_by_default` (IBKR leaves
 selection). The 1d plan pins the two live default ids and
 carries the raw fingerprint through the latest end of any symbol row, as --plan requires.
+
+Rollback (runbook A9 and every abort rule after C2): --snapshot writes a timeframe's live rows
+to JSON before the switch; --restore SNAPSHOT builds the plan that puts the policy back (the
+snapshot's defaults, its symbol rows kept or re-inserted, the switch's rows retired).
 """
 
 from __future__ import annotations
@@ -238,6 +242,104 @@ def build_plan(
     return plan
 
 
+def snapshot_rows(live: Sequence[LiveRow]) -> list[dict[str, Any]]:
+    """The live rows of a timeframe as JSON (the rollback input, taken before any switch)."""
+    return [
+        {
+            "policy_id": r.policy_id,
+            "symbol": r.symbol,
+            "valid_from": r.valid_from.isoformat(),
+            "valid_to": _iso(r.valid_to),
+            "primary": r.primary,
+            "fallback": r.fallback,
+            "reason": r.reason,
+            "evidence": r.evidence,
+        }
+        for r in live
+    ]
+
+
+def read_snapshot(rows: Sequence[Mapping[str, Any]]) -> list[LiveRow]:
+    return [
+        LiveRow(
+            r["policy_id"],
+            r["symbol"],
+            date.fromisoformat(r["valid_from"]),
+            date.fromisoformat(r["valid_to"]) if r["valid_to"] else None,
+            r["primary"],
+            r["fallback"],
+            r["reason"],
+            r["evidence"],
+        )
+        for r in rows
+    ]
+
+
+def build_restore_plan(
+    *, timeframe: str, snapshot: Sequence[LiveRow], live: Sequence[LiveRow], source: str
+) -> dict[str, Any]:
+    """The reverse plan (step 7 rollback): the policy back to a pre-switch snapshot. Every live
+    default is retired and the snapshot's defaults re-inserted; a live symbol row still in the
+    snapshot is kept, a snapshot row no longer live is re-inserted with its own evidence, and every
+    other live symbol row (the switch's) is retired. Without the 1d raw fingerprint, as
+    build_plan."""
+    defaults = sorted((r for r in snapshot if r.symbol is None), key=lambda r: r.valid_from)
+    if not defaults or defaults[-1].valid_to is not None:
+        raise ValueError("the snapshot holds no open-ended default; it is not a policy snapshot")
+    if not any(r.symbol is None for r in live):
+        raise ValueError("the live policy holds no default to retire")
+    snapshot_ids = {r.policy_id for r in snapshot}
+    live_ids = {r.policy_id for r in live}
+    new_rows = [
+        {
+            "symbol": r.symbol,
+            "valid_from": r.valid_from.isoformat(),
+            "valid_to": _iso(r.valid_to),
+            "primary": r.primary,
+            "fallback": r.fallback,
+            "evidence": {**r.evidence, "restored_from": r.policy_id},
+        }
+        for r in snapshot
+        if r.symbol is not None and r.policy_id not in live_ids
+    ]
+    new_symbols = {r["symbol"] for r in new_rows}
+    keep, retire = [], []
+    for row in (r for r in live if r.symbol is not None):
+        if row.policy_id in snapshot_ids:
+            keep.append(
+                {
+                    "policy_id": row.policy_id,
+                    "symbol": row.symbol,
+                    "reason": "unchanged since the pre-switch snapshot",
+                    "valid_from": row.valid_from.isoformat(),
+                    "valid_to": _iso(row.valid_to),
+                }
+            )
+        else:
+            disposition = "replaced" if row.symbol in new_symbols else "superseded_by_default"
+            retire.append(_retired(row, disposition, 0))
+    return {
+        "timeframe": timeframe,
+        "seam": defaults[-1].valid_from.isoformat(),
+        "reason": "restore the pre-switch policy (Massive step 7 rollback)",
+        "evidence": {"restore_of": source, "runbook": "docs/operations/massive-step7-runbook.md"},
+        "retire_defaults": True,
+        "retire_default_ids": sorted(r.policy_id for r in live if r.symbol is None),
+        "defaults": [
+            {
+                "valid_from": r.valid_from.isoformat(),
+                "valid_to": _iso(r.valid_to),
+                "primary": r.primary,
+                "fallback": r.fallback,
+            }
+            for r in defaults
+        ],
+        "symbol_rows": sorted(new_rows, key=lambda r: (r["symbol"], r["valid_from"])),
+        "retire_symbol_rows": retire,
+        "keep_symbol_rows": keep,
+    }
+
+
 def through_needed(plan: Mapping[str, Any]) -> date:
     """The latest end of any new symbol row: the 1d raw fingerprint must reach it (parse_plan)."""
     ends = [r["valid_to"] for r in plan["symbol_rows"] if r["valid_to"]]
@@ -282,32 +384,45 @@ async def _read_live(conn: Any, timeframe: str) -> list[LiveRow]:
 
 
 async def _main(args: argparse.Namespace) -> int:
-    gap_path = Path(args.gap_list)
-    gap_list = {"path": str(gap_path), "sha256": file_digest(gap_path)}
     settings = Settings()
     conn = await asyncpg.connect(
         settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     )
+    out = Path(args.out)
     try:
         live = await _read_live(conn, args.timeframe)
-        plan = build_plan(
-            stage=args.stage,
-            timeframe=args.timeframe,
-            live=live,
-            gaps=read_gap_list(gap_path),
-            gap_list=gap_list,
-            archive_end=date.fromisoformat(args.archive_end),
-        )
+        if args.snapshot:
+            out.write_text(json.dumps(snapshot_rows(live), indent=2, sort_keys=True) + "\n")
+            print(f"snapshot {args.timeframe}: {len(live)} live rows; wrote {out}")
+            return 0
+        if args.restore:
+            source = Path(args.restore)
+            plan = build_restore_plan(
+                timeframe=args.timeframe,
+                snapshot=read_snapshot(json.loads(source.read_text())),
+                live=live,
+                source=f"{source} (sha256 {file_digest(source)})",
+            )
+        else:
+            gap_path = Path(args.gap_list)
+            plan = build_plan(
+                stage=args.stage,
+                timeframe=args.timeframe,
+                live=live,
+                gaps=read_gap_list(gap_path),
+                gap_list={"path": str(gap_path), "sha256": file_digest(gap_path)},
+                archive_end=date.fromisoformat(args.archive_end),
+            )
         if args.timeframe == "1d":
             plan["raw_fingerprint"] = await read_raw_fingerprint(conn, through_needed(plan))
     finally:
         await conn.close()
     parse_plan(plan)  # the writer's own validation, before anyone reviews the file
-    out = Path(args.out)
     out.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
     rows = plan["symbol_rows"]
     print(
-        f"stage {args.stage} {args.timeframe}: {len(plan['defaults'])} defaults, "
+        f"{'restore' if args.restore else f'stage {args.stage}'} {args.timeframe}: "
+        f"{len(plan['defaults'])} defaults, "
         f"{len(rows)} symbol rows on {len({r['symbol'] for r in rows})} names "
         f"({sum(r['primary'] == 'ibkr' for r in rows)} ibkr, "
         f"{sum(r['primary'] == 'alpaca' for r in rows)} alpaca), "
@@ -319,16 +434,23 @@ async def _main(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--stage", type=int, choices=STAGES, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--stage", type=int, choices=STAGES, help="build the stage's switch plan")
+    mode.add_argument(
+        "--snapshot", action="store_true", help="write the live rows (rollback input)"
+    )
+    mode.add_argument("--restore", metavar="SNAPSHOT", help="build the plan back to a snapshot")
     parser.add_argument("--timeframe", choices=TIMEFRAMES, required=True)
     parser.add_argument(
         "--gap-list",
-        required=True,
-        help="the identity map's gap_list.csv the load sweep used (pin it; never 'newest')",
+        help="--stage: the identity map's gap_list.csv the load sweep used (pin it; never 'newest')",
     )
     parser.add_argument("--archive-end", default=ARCHIVE_END.isoformat())
     parser.add_argument("--out", required=True)
-    return asyncio.run(_main(parser.parse_args(argv)))
+    args = parser.parse_args(argv)
+    if args.stage and not args.gap_list:
+        parser.error("--stage needs --gap-list")
+    return asyncio.run(_main(args))
 
 
 if __name__ == "__main__":
