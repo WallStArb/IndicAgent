@@ -96,8 +96,9 @@ def _obs(day: date, close: float, *, route: str = "ALPACA", volume: int | None =
     }
 
 
-_1D_VENDORS = ("alpaca", "ibkr")
-_1D_KINDS = ("fallback", "named", "sip_rth", "venue")
+# sources.CANONICAL_1D_SOURCES' arrays; d2-v6 adds Massive's canonical (massive, sip_flat_adj).
+_1D_VENDORS = ("alpaca", "ibkr", "massive")
+_1D_KINDS = ("fallback", "named", "sip_flat_adj", "sip_rth", "venue")
 
 
 def _row(
@@ -445,6 +446,9 @@ def _restated_fixture() -> FakeConn:
         "recorded_at": datetime(2026, 10, 8, tzinfo=UTC),
         "factor": 2.0,
         "evidence_request_ids": [],
+        # _SELECT_DAILY_SPLITS_SQL's row: a split the nightly overlap detected (the stale class).
+        "inferred_by": "nightly_overlap",
+        "operator_rows_file": False,
     }
     return FakeConn(
         observations={"TEST": obs},
@@ -468,7 +472,7 @@ def test_apply_records_restated_dates_in_the_load_detail():
     _run(conn)
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
-    assert detail["rule_version"] == "d2-v5" and len(detail["restated"]) == 7
+    assert detail["rule_version"] == "d2-v6" and len(detail["restated"]) == 7
     assert {(r["vendor"], r["kind"]) for r in conn.stored["TEST"].values()} == {
         ("ibkr", "fallback")
     }
@@ -604,7 +608,7 @@ def test_open_batch_gets_rule_d2v4_and_the_integrity_and_scrub_keys(monkeypatch)
 
     monkeypatch.setattr(bar_derivation_module, "open_batch", fake_open)
     _run(conn)
-    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v5"
+    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v6"
     keys = set(seen["apr_snapshot"])
     assert "threshold.bar_integrity.fallback_basis_tolerance_bp" in keys
     assert "threshold.bar_integrity.max_revision_ratio" in keys
@@ -837,6 +841,7 @@ def test_daily_read_takes_the_raw_d2v4_series_and_excludes_test_callers():
         ("tradier", "consolidated"),
         ("ibkr", "smart_trades"),
         ("alpaca", "sip_rth"),
+        ("massive", "sip_flat"),  # d2-v6: Massive's served day bar, unadjusted
     }
     flat = " ".join(sql.split())
     assert "FROM ohlcv_raw r" in flat and "ohlcv_observation" not in flat
@@ -1065,7 +1070,7 @@ def test_a_zero_volume_alpaca_bar_never_reaches_canonical():
     assert result["zero_volume"] == 1
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
-    assert detail["rule_version"] == "d2-v5"
+    assert detail["rule_version"] == "d2-v6"
     assert detail["zero_volume"] == [_D3.isoformat()]
 
 

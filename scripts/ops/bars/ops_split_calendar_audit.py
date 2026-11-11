@@ -47,9 +47,8 @@ Two steps, with the evidence a reviewed, committed file between them:
     knowable from its capture, never from its effective date). Every line is re-judged (a
     recognised split ratio under the current APR, the orientation, status proposed) and every
     cited reference_raw page must exist with that serve time; same transaction and existing-row
-    guard as --apply. --commit is refused until the consumers read the code (MASSIVE_REFERENCE_
-    CONSUMERS_READY): the daily rule treats a split it does not know as a stale-scale split, so a
-    row for a split the incumbent series already adjust for would quarantine their history.
+    guard as --apply. --commit is refused unless the consumers know the code
+    (MASSIVE_REFERENCE_CONSUMERS_READY, from corporate_actions.SPLIT_SOURCES; d2-v6 reads it).
 --sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
     Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
     most the sweep's name cap steps, so market-wide crash days stay out - classified by the
@@ -96,6 +95,8 @@ from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa:
 from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_apr  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
+    MASSIVE_REFERENCE_SOURCE,
+    SPLIT_SOURCES,
     SplitRatioRule,
     judge_calendar_split,
     recognised_split_ratio,
@@ -181,13 +182,12 @@ WHERE vendor = 'massive' AND endpoint = ANY(%s) AND reference_raw_id = ANY(%s::u
 """
 # The splits families a massive_reference row may cite (reference_raw.endpoint).
 MASSIVE_SPLITS_ENDPOINTS = ("/v3/reference/splits", "splits")
-# The consumers of corporate_action_current must know massive_reference before a row lands: the
-# daily rule (services/bar_derivation.split_record) reads every split that is not calendar_audit
-# as a stale-scale split, so an incumbent observation fetched before the row's recorded_at and
-# dated on or before its effective date would go stale (admission design section 5, the daily
-# rule version bump; D7 split_continuity and the selection rescale read it too). The commit that
-# teaches them flips this, with its own review.
-MASSIVE_REFERENCE_CONSUMERS_READY = False
+# The consumers of corporate_action_current must know massive_reference before a row lands
+# (before d2-v6 the daily rule read every split that was not calendar_audit as a stale-scale
+# split and would have quarantined the incumbents' pre-split history). They read one table of
+# meanings, corporate_actions.SPLIT_SOURCES (the daily read and selection raise on a code outside
+# it), so the writer derives its gate from the same table instead of a hand-flipped switch.
+MASSIVE_REFERENCE_CONSUMERS_READY = MASSIVE_REFERENCE_SOURCE in SPLIT_SOURCES
 
 
 # One raw series of a name: (session date, close) in date order.
@@ -735,16 +735,22 @@ _PROPOSED_OPTIONAL = frozenset({"bulk_ticker", "v3_ticker", "adjustment_type", "
 MASSIVE_ROWS_COLUMNS = tuple(c for c in PROPOSED_COLUMNS if c not in _PROPOSED_OPTIONAL)
 
 
-def massive_rows(path: Path, rule: SplitRatioRule) -> list[dict[str, Any]]:
+def massive_rows(
+    path: Path, rule: SplitRatioRule, excluded: Collection[tuple[str, date]] | None = None
+) -> list[dict[str, Any]]:
     """The proposed rows file of ops_massive_split_audit.py as corporate_action rows (todo 600).
 
     Each line is re-judged: status proposed and the tape reading tape_step (the audit's gate), a
     factor that is a recognised split ratio under the current APR (a spin-off adjustment or a
     stock dividend the vendor serves as a split never lands), the action type its orientation,
     the effective date before the execution date, a timezone-aware recorded_at, and at least one
-    cited reference page. One row per (symbol, effective date). detail carries the event, its
-    witnesses, and the file's sha256. Every rejection names its line."""
+    cited reference page, and no operator-listed spin-off within SAME_EVENT_DAYS of the execution
+    date (the vendor serves SNX's 2020-12-01 Concentrix spin-off as a 2:1 split; a spin-off is a
+    distribution, never a split row). One row per (symbol, effective date). detail carries the
+    event, its witnesses, and the file's sha256. Every rejection names its line."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if excluded is None:
+        excluded = operator_list(SPIN_OFF_EXCLUSIONS)
     rows: list[dict[str, Any]] = []
     decided: set[tuple[str, date]] = set()
     with path.open() as fh:
@@ -766,6 +772,8 @@ def massive_rows(path: Path, rule: SplitRatioRule) -> list[dict[str, Any]]:
             execution = date.fromisoformat(line["execution_date"])
             if not day < execution:
                 raise ValueError(f"{where}: effective date not before execution {execution}")
+            if listed_spin_off(symbol, execution, excluded):
+                raise ValueError(f"{where}: an operator-listed spin-off, never a split row")
             recorded_at = datetime.fromisoformat(line["recorded_at"])
             if recorded_at.tzinfo is None:
                 raise ValueError(f"{where}: recorded_at {line['recorded_at']!r} has no zone")
@@ -800,6 +808,13 @@ def massive_rows(path: Path, rule: SplitRatioRule) -> list[dict[str, Any]]:
     return rows
 
 
+def listed_spin_off(symbol: str, day: date, excluded: Collection[tuple[str, date]]) -> bool:
+    """Whether the operator's spin-off list names the symbol within SAME_EVENT_DAYS of the day."""
+    return any(
+        s == symbol and abs((listed - day).days) <= SAME_EVENT_DAYS for s, listed in excluded
+    )
+
+
 def _references_served(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """rows, after refusing any row whose cited Massive splits pages are not all stored, or whose
     recorded_at is not the latest serve time among them (lineage: the row traces to its pages)."""
@@ -826,8 +841,8 @@ def apply_massive(settings: Settings, path: Path, *, commit: bool) -> int:
     consumers read massive_reference (MASSIVE_REFERENCE_CONSUMERS_READY)."""
     if commit and not MASSIVE_REFERENCE_CONSUMERS_READY:
         raise SystemExit(
-            "--apply-massive --commit is refused: the daily rule, D7 and selection do not read "
-            "massive_reference yet (admission design section 5); dry run only"
+            "--apply-massive --commit is refused: massive_reference is not in "
+            "corporate_actions.SPLIT_SOURCES, so its consumers would not read it; dry run only"
         )
     return _apply_decided(
         settings,

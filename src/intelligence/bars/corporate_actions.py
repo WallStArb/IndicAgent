@@ -197,6 +197,36 @@ def split_continuity(canonical_step: float, factor: float, rel_tol: float) -> Sp
     return "continuous"
 
 
+# What each corporate_action.inferred_by code says (the one definition; the daily rule, selection
+# and the split writers read it, and an unknown code raises, so a row a consumer does not know
+# can never be read under a guessed meaning):
+# - a restatement split was detected because a vendor restated an adjusted history (the seam
+#   audit, the nightly overlap, a Tradier refetch, an operator correction of one of those): it
+#   stales the incumbent observations fetched before it (D-21);
+# - a calendar_audit row names the incumbent routes it rescales (todo 587);
+# - a massive_reference row is the vendor reference's record of a market split (todo 600 step
+#   4): the incumbents are adjusted for it as served, so it neither stales nor rescales them.
+RESTATEMENT_SOURCES = frozenset({"seam_audit", "nightly_overlap", "tradier_refetch", "operator"})
+CALENDAR_AUDIT_SOURCE = "calendar_audit"
+MASSIVE_REFERENCE_SOURCE = "massive_reference"
+SPLIT_SOURCES = RESTATEMENT_SOURCES | {CALENDAR_AUDIT_SOURCE, MASSIVE_REFERENCE_SOURCE}
+
+
+def is_market_split(inferred_by: str, *, operator_rows_file: bool) -> bool:
+    """Whether a corporate_action split row records the market's split, the factor an
+    unadjusted (as-served) series is divided by (selection's Massive rescale, the daily rule's
+    Massive route).
+
+    Every row is a market split except a calendar_audit row written from a todo 592 operator
+    rows file (detail.rows_file): that row rescales one incumbent's mis-scaled route (PATK x0.4,
+    IJR x0.5, MTCH x4.4963 correct IBKR's own adjustment errors), a fact about the vendor, never
+    about the market, even when its factor equals the split's (UHAL 2022-11-09 x10: the market's
+    split then needs its own row). An inferred_by no consumer knows raises."""
+    if inferred_by not in SPLIT_SOURCES:
+        raise ValueError(f"corporate_action inferred_by {inferred_by!r} has no known meaning")
+    return not (inferred_by == CALENDAR_AUDIT_SOURCE and operator_rows_file)
+
+
 @dataclass(frozen=True)
 class DisputedDate:
     """One dividend reported by both sources with disagreeing ex-dates.

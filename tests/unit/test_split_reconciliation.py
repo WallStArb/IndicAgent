@@ -223,18 +223,13 @@ def test_a_proposal_needs_a_split_ratio_and_the_tape():
         proposal_status(ReconciledSplit("X", "agree"), "tape_step", RULE)
 
 
-def test_an_operator_row_pairs_as_a_split_only_when_the_vendor_corroborates_its_ratio():
-    # UHAL 2022-11-09 x10 (a 592 operator row) is the real 10:1; PATK x0.4 corrects IBKR only.
-    own = [
-        (_split("E1", date(2022, 11, 10), 10.0), "UHAL", "span"),
-        (_split("E2", date(2017, 12, 11), 1.5), "PATK", "span"),
-    ]
-    recorded = [
-        _ours("UHAL", date(2022, 11, 9), 10.0, correction=True, aid="u"),
-        _ours("PATK", date(2015, 12, 31), 0.4, correction=True, aid="p"),
-    ]
+def test_an_operator_row_is_never_the_markets_split_even_at_its_ratio():
+    # UHAL 2022-11-09 x10 rescales IBKR's route at the split's own ratio; selection never rescales
+    # Massive by it, so the vendor's event stays massive_only and needs its own row.
+    own = [(_split("E1", date(2022, 11, 10), 10.0), "UHAL", "span")]
+    recorded = [_ours("UHAL", date(2022, 11, 9), 10.0, correction=True, aid="u")]
     out = {(m.symbol, m.outcome) for m in reconcile(own, recorded, PARAMS)}
-    assert out == {("UHAL", "agree"), ("PATK", "massive_only"), ("PATK", "vendor_correction")}
+    assert out == {("UHAL", "massive_only"), ("UHAL", "vendor_correction")}
 
 
 def test_an_announcement_is_judged_against_its_own_pages_serve_date():

@@ -59,6 +59,14 @@ class SplitRecord:
     # it (a reverse split on a spin-off day, EXPE 2011-12-21, is continuous yet drops 48%). The
     # rule never reads it.
     calendar_adjusted_step: float = 0.0
+    # d2-v6 (todo 600 step 4; corporate_actions.RESTATEMENT_SOURCES and is_market_split): stales
+    # is True only for a split detected from a vendor's restated history, the one kind whose
+    # recording makes earlier-fetched incumbent observations stale (a massive_reference row
+    # records a split the incumbents already carry adjusted); market_fact is False only for an
+    # incumbent route correction (a todo 592 operator row), which never rescales the unadjusted
+    # Massive route.
+    stales: bool = True
+    market_fact: bool = True
 
 
 @dataclass(frozen=True)

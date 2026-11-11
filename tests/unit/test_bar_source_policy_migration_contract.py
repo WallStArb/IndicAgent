@@ -166,5 +166,6 @@ def test_sources_export_the_canonical_1d_pairs():
         ("ibkr", "venue"),
         ("ibkr", "fallback"),
         ("alpaca", "sip_rth"),
+        ("massive", "sip_flat_adj"),  # d2-v6 (todo 600): Massive's split-adjusted day bar
     )
     assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"

@@ -71,10 +71,16 @@ from scripts.ops.bars.ops_split_calendar_audit import (  # noqa: E402
     PROPOSED_COLUMNS,
     REL_TOL_KEY,
     SAME_EVENT_DAYS,
+    SPIN_OFF_EXCLUSIONS,
+    listed_spin_off,
+    operator_list,
 )
 from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_apr  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
-from src.intelligence.bars.corporate_actions import recognised_split_ratio  # noqa: E402
+from src.intelligence.bars.corporate_actions import (  # noqa: E402
+    is_market_split,
+    recognised_split_ratio,
+)
 from src.intelligence.bars.level_seams import (  # noqa: E402
     SEAM_CLASSES,
     RecordedFactor,
@@ -180,7 +186,7 @@ WHERE r.vendor = 'massive' AND r.endpoint = 'tickers_delisted' AND x ? 'delisted
 """
 _ACTIONS_SQL = """
 SELECT action_id::text, symbol, action_type, effective_date, factor, inferred_by,
-       inferred_by = 'calendar_audit' AND detail ? 'rows_file' AS vendor_correction, current
+       detail ? 'rows_file' AS operator_rows_file, current
 FROM (
     SELECT c.*, EXISTS (SELECT 1 FROM corporate_action_current k
                         WHERE k.action_id = c.action_id) AS current
@@ -719,9 +725,12 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         symbol, how = hit
         (own if how in OWN_ATTRIBUTIONS else excluded).append((split, symbol, how))
     own, duplicates = collapse_vendor_duplicates(own, SAME_EVENT_DAYS)
+    # The market-split meaning selection and the daily rule apply (corporate_actions).
     recorded = [
-        RecordedSplit(aid, sym, eff, float(fac), by, bool(vc))
-        for aid, sym, kind, eff, fac, by, vc, current in ref.actions
+        RecordedSplit(
+            aid, sym, eff, float(fac), by, not is_market_split(by, operator_rows_file=rows_file)
+        )
+        for aid, sym, kind, eff, fac, by, rows_file, current in ref.actions
         if current and kind != "void" and sym in ref.active
     ]
     calendar = sorted(nyse_sessions(date(1970, 1, 2), max(capture_date, sessions[-1])))
@@ -820,6 +829,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     guard = defaultdict(list)  # the writer's existing-row guard reads every row, current or not
     for _aid, sym, kind, eff, _fac, by, _vc, _current in ref.actions:
         guard[sym].append((eff, kind, by))
+    spin_offs = operator_list(SPIN_OFF_EXCLUSIONS)
     proposed, review = [], []
     for m, row in member_rows:
         if m.outcome != "massive_only":
@@ -833,7 +843,10 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         ]
         line["guard_skip"] = ";".join(f"{e}:{k}:{b}" for e, k, b in near)
         status = proposal_status(m, row["tape"], params.ratio_rule)
-        if status == "proposed" and near:
+        if status == "proposed" and listed_spin_off(m.symbol, m.vendor.execution_date, spin_offs):
+            # The vendor serves some spin-offs as splits (SNX 2020-12-01, Concentrix).
+            status = "excluded_spin_off"
+        elif status == "proposed" and near:
             # The writer's existing-row guard would skip it: a lead ruling, never a silent skip.
             status = "writer_guard"
         line["status"] = status

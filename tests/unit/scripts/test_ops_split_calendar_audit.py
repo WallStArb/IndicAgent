@@ -848,6 +848,21 @@ def test_a_massive_line_the_audit_would_not_propose_is_refused(tmp_path, edit, m
         audit.massive_rows(_massive_file(tmp_path, edit), _RULE)
 
 
+def test_an_operator_listed_spin_off_never_becomes_a_reference_row(tmp_path):
+    # The vendor serves SNX's 2020-12-01 Concentrix spin-off as a 2:1 split.
+    snx = {
+        "symbol": "SNX",
+        "effective_date": "2020-11-30",
+        "execution_date": "2020-12-01",
+        "factor": "2.0",
+    }
+    listed = {("SNX", date(2020, 12, 1))}
+    with pytest.raises(ValueError, match="spin-off"):
+        audit.massive_rows(_massive_file(tmp_path, snx), _RULE, listed)
+    # The shipped list names it.
+    assert ("SNX", date(2020, 12, 1)) in audit.operator_list(audit.SPIN_OFF_EXCLUSIONS)
+
+
 def test_a_massive_line_proposed_twice_is_refused(tmp_path):
     with pytest.raises(ValueError, match="proposed twice"):
         audit.massive_rows(_massive_file(tmp_path, {}, {}), _RULE)
@@ -882,7 +897,14 @@ def test_apply_massive_checks_lineage_inserts_and_never_commits(tmp_path, monkey
     assert (conn.committed, conn.rolled_back) == (0, 1)
     inserts = [s for s in conn.statements if "INSERT INTO corporate_action" in s]
     assert inserts and all("'massive_reference'" in s and "recorded_at" in s for s in inserts)
-    # The consumers do not read massive_reference yet: --commit is refused before any write.
+    # The consumers read massive_reference (d2-v6), so --commit writes; the gate is derived from
+    # the one table of split meanings, and a code outside it refuses before any write.
+    assert audit.MASSIVE_REFERENCE_CONSUMERS_READY
+    committed = _ServedConn([("00000000-0000-0000-0000-000000000001", _SERVED)])
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: committed)
+    assert audit.main(["--apply-massive", str(path), "--commit"]) == 0
+    assert (committed.committed, committed.rolled_back) == (1, 0)
+    monkeypatch.setattr(audit, "MASSIVE_REFERENCE_CONSUMERS_READY", False)
     with pytest.raises(SystemExit, match="refused"):
         audit.main(["--apply-massive", str(path), "--commit"])
     # A cited page not stored, or a serve time that is not the row's, refuses the batch.

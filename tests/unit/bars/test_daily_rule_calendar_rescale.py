@@ -208,6 +208,7 @@ def test_a_calendar_row_without_a_finite_calendar_step_raises_in_the_loader():
         "inferred_by": "calendar_audit",
         "unadjusted_routes": [{"vendor": "ibkr", "kind": "smart_trades"}],
         "calendar_adjusted_step": 0.01,
+        "operator_rows_file": False,  # _SELECT_DAILY_SPLITS_SQL's column since d2-v6
     }
     assert split_record(row).calendar_adjusted_step == 0.01
     for bad in (None, float("nan")):

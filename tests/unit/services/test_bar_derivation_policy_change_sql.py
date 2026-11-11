@@ -59,7 +59,7 @@ _SHADOW_DDL = """
 CREATE TEMP TABLE ohlcv_load (
     symbol text, timeframe text, source text, outcome text, caller text, loaded_at timestamptz,
     batch_id int);
-CREATE TEMP TABLE corporate_action (symbol text, recorded_at timestamptz);
+CREATE TEMP TABLE corporate_action (symbol text, recorded_at timestamptz, inferred_by text);
 CREATE TEMP TABLE corporate_action_current (symbol text, recorded_at timestamptz);
 CREATE TEMP TABLE bar_derivation_batch (
     batch_id int, stage text, status text, started_at timestamptz, finished_at timestamptz);
@@ -270,6 +270,21 @@ async def test_a_venue_or_test_caller_row_is_no_daily_input(conn):
         _T0,
     )
     assert not (await _probe(conn, "VEN"))["has_obs"]
+
+
+async def test_a_reference_split_recorded_after_the_load_never_waives(conn):
+    # todo 600: a massive_reference row records a market split the incumbent carries adjusted as
+    # served; it licenses no vendor revision. Any other split recorded after the load does.
+    await conn.execute(
+        "INSERT INTO corporate_action VALUES ('TEST', $1, 'massive_reference')",
+        _LOAD + timedelta(minutes=5),
+    )
+    assert not await _waived(conn)
+    await conn.execute(
+        "INSERT INTO corporate_action VALUES ('TEST', $1, 'nightly_overlap')",
+        _LOAD + timedelta(minutes=6),
+    )
+    assert await _waived(conn)
 
 
 async def test_a_symbol_with_no_applied_load_is_due(conn):

@@ -222,10 +222,12 @@ _PARITY_ELIGIBLE_SQL = (
 )
 # A corporate action recorded after the series' last applied ingress load before this run:
 # the stored rows have not been reconciled with it, so the escalation re-fetch may rewrite them.
-# A void row (migration 461) retracts an action and never licenses a rewrite.
+# A void row (migration 461) retracts an action and never licenses a rewrite, and neither does a
+# massive_reference row (todo 600): the vendor reference records a market split the incumbent
+# carries adjusted as served, so it says nothing about the incumbent's stored rows.
 _WAIVER_SQL = (
     "SELECT EXISTS (SELECT 1 FROM corporate_action c WHERE c.symbol = $1 "
-    "AND c.action_type <> 'void' AND c.recorded_at > "
+    "AND c.action_type <> 'void' AND c.inferred_by <> 'massive_reference' AND c.recorded_at > "
     "COALESCE((SELECT max(l.loaded_at) FROM ohlcv_load l WHERE l.symbol = $1 "
     "AND l.timeframe = $2 AND l.source = 'ibkr' AND l.outcome = 'applied' "
     "AND l.loaded_at < $3), '-infinity'::timestamptz))"

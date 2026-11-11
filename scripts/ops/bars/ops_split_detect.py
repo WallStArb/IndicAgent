@@ -64,7 +64,11 @@ import structlog
 from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
 from services import bar_hold
 from services.split_detection import DetectedSplit, detect_overlap_splits
-from src.intelligence.bars.corporate_actions import SplitRatioRule, recognised_split_ratio
+from src.intelligence.bars.corporate_actions import (
+    MASSIVE_REFERENCE_SOURCE,
+    SplitRatioRule,
+    recognised_split_ratio,
+)
 
 _logger = structlog.get_logger(__name__)
 
@@ -124,7 +128,7 @@ VALUES ($1::uuid, $2, $3, $4, $5, 'operator', $6::uuid[], $7::text::jsonb, $8::u
 """
 
 _CURRENT_ROWS_SQL = """
-SELECT action_id::text AS action_id, symbol, action_type, effective_date, factor
+SELECT action_id::text AS action_id, symbol, action_type, effective_date, factor, inferred_by
 FROM corporate_action_current
 WHERE action_id = ANY($1::uuid[])
 """
@@ -315,6 +319,12 @@ async def supersede(
     symbols = {r["symbol"] for r in rows}
     if len(symbols) != 1:
         raise ValueError(f"--supersede takes rows of one symbol, got {sorted(symbols)}")
+    # An operator row stales the incumbents (corporate_actions.RESTATEMENT_SOURCES); a reference
+    # row records a market split they carry adjusted, so replacing it here would change its
+    # meaning. It is corrected by --void and a new --apply-massive line (todo 600).
+    reference = [r["action_id"] for r in rows if r.get("inferred_by") == MASSIVE_REFERENCE_SOURCE]
+    if reference:
+        raise ValueError(f"--supersede cannot replace massive_reference rows {reference}")
     (symbol,) = symbols
     found = {
         r["request_id"] for r in await conn.fetch(_EVIDENCE_SQL, symbol, list(evidence_request_ids))
@@ -366,6 +376,9 @@ async def hold_rescale(
     from D1 against the canonical bars). One transaction; the plan, written when apply."""
     _need_reason(reason)
     (row,) = await _current_rows(conn, [action_id])
+    if row.get("inferred_by") == MASSIVE_REFERENCE_SOURCE:
+        # A reference row records a market split, never a vendor rescale to hold (todo 600).
+        raise ValueError(f"--hold-rescale cannot take massive_reference row {action_id}")
     last = row["effective_date"]
     ratios = await bar_hold.vendor_rescale_ratios(
         conn, row["symbol"], None, last, rel_tol=split_rule.rel_tol

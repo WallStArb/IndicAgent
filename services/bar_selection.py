@@ -46,6 +46,7 @@ from typing import Any
 
 import structlog
 
+from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.selection import (
     SESSION_TZ,
     Candidate,
@@ -89,14 +90,20 @@ _ONE_US = timedelta(microseconds=1)
 # Every split a series has ever had; the pure `splits_known_at` applies the horizon, so the rule
 # lives in one place (the gate shares both).
 _READ_SPLITS_SQL = (
-    "SELECT effective_date, factor, recorded_at FROM corporate_action_current "
+    "SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' "
+    "FROM corporate_action_current "
     "WHERE symbol = %s AND action_type IN ('split', 'reverse_split')"
 )
 
 
 def read_split_rows(cur: Any, symbol: str) -> list[SplitRow]:
+    """Every split row of the symbol, each marked market split or incumbent route correction
+    (corporate_actions.is_market_split, which raises on an inferred_by it does not know)."""
     cur.execute(_READ_SPLITS_SQL, (symbol,))
-    return [SplitRow(*row) for row in cur.fetchall()]
+    return [
+        SplitRow(day, factor, recorded_at, is_market_split(by, operator_rows_file=rows_file))
+        for day, factor, recorded_at, by, rows_file in cur.fetchall()
+    ]
 
 
 logger = structlog.get_logger(__name__)

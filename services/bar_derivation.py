@@ -95,6 +95,7 @@ from services.bar_hold import held as read_held
 from services.bar_scrub import FlagRow, scrub_symbols, write_flags
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
+from src.intelligence.bars.corporate_actions import RESTATEMENT_SOURCES, is_market_split
 from src.intelligence.bars.daily_rule import (
     CALENDAR_AUDIT,
     FLAG_FALLBACK_SEAM,
@@ -441,7 +442,8 @@ _SELECT_DAILY_SPLITS_SQL = """
 SELECT effective_date, recorded_at, factor,
        COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids,
        inferred_by, detail->'unadjusted_routes' AS unadjusted_routes,
-       (detail->>'calendar_adjusted_step')::float8 AS calendar_adjusted_step
+       (detail->>'calendar_adjusted_step')::float8 AS calendar_adjusted_step,
+       detail ? 'rows_file' AS operator_rows_file
 FROM corporate_action_current
 WHERE symbol = $1
 ORDER BY effective_date
@@ -470,8 +472,12 @@ def split_rescale_routes(inferred_by: str, unadjusted_routes: Any) -> frozenset[
 def split_record(r: Mapping[str, Any]) -> SplitRecord:
     """One _SELECT_DAILY_SPLITS_SQL row as the rule's SplitRecord. A calendar_audit row without a
     finite calendar_adjusted_step raises: D7 would otherwise judge its date against a real move
-    of 0 and could pass a double adjustment or fail a spin-off day silently."""
-    routes = split_rescale_routes(r.get("inferred_by"), r.get("unadjusted_routes"))
+    of 0 and could pass a double adjustment or fail a spin-off day silently. An inferred_by the
+    rule does not know raises (corporate_actions.is_market_split): read under a guessed meaning,
+    a new code would stale or rescale history silently (d2-v6)."""
+    inferred_by = r["inferred_by"]
+    market_fact = is_market_split(inferred_by, operator_rows_file=bool(r["operator_rows_file"]))
+    routes = split_rescale_routes(inferred_by, r.get("unadjusted_routes"))
     step = r.get("calendar_adjusted_step")
     if routes and (step is None or not math.isfinite(step)):
         raise ValueError(
@@ -484,6 +490,8 @@ def split_record(r: Mapping[str, Any]) -> SplitRecord:
         evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
         rescale_routes=routes,
         calendar_adjusted_step=step if routes else 0.0,
+        stales=inferred_by in RESTATEMENT_SOURCES,
+        market_fact=market_fact,
     )
 
 
@@ -592,7 +600,8 @@ _SELECT_REVISION_WAIVER_SQL = f"""
 WITH {_LAST_DAILY_LOAD_CTE}
 SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
-               WHERE c.symbol = $1 AND c.recorded_at > l.at)
+               WHERE c.symbol = $1 AND c.recorded_at > l.at
+                 AND c.inferred_by <> 'massive_reference')
     OR EXISTS (SELECT 1 FROM bar_source_policy_changes p, last_load l
                WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
                  AND {_POLICY_CHANGED_AT.format(p='p')} > l.at)

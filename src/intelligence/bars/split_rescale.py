@@ -47,11 +47,14 @@ class SplitFactor:
 
 @dataclass(frozen=True)
 class SplitRow:
-    """A corporate_action_current split row as read: the factor and when it was recorded."""
+    """A corporate_action_current split row as read: the factor, when it was recorded, and
+    whether it records the market's split (corporate_actions.is_market_split): an incumbent
+    route correction (a todo 592 operator row) never rescales an unadjusted series."""
 
     effective_date: date
     factor: float
     recorded_at: datetime
+    market_fact: bool
 
 
 def splits_known_at(rows: Iterable[SplitRow], horizon: datetime) -> list[SplitFactor]:
@@ -59,15 +62,18 @@ def splits_known_at(rows: Iterable[SplitRow], horizon: datetime) -> list[SplitFa
     recorded by the horizon (the corporate_action table is append-only, so the same horizon
     always selects the same rows) and its effective_date is not after the horizon's New York
     date: a split not yet executed at the horizon must not rescale history, because the real
-    prices at the horizon are still pre-split. No declaration date exists in the data, so a
-    rebuild is an as-of-horizon snapshot (design section 5, limitation)."""
+    prices at the horizon are still pre-split. Only market splits count: raw Massive is served
+    unadjusted, so the factor is the market's split, and a row correcting one incumbent's
+    mis-scaled route (PATK x0.4 fixes IBKR) would rescale a series that never carried the error.
+    No declaration date exists in the data, so a rebuild is an as-of-horizon snapshot (design
+    section 5, limitation)."""
     if horizon.tzinfo is None:
         raise ValueError("horizon must be timezone-aware")
     last_executed = horizon.astimezone(SESSION_TZ).date()
     return [
         SplitFactor(row.effective_date, row.factor)
         for row in rows
-        if row.recorded_at <= horizon and row.effective_date <= last_executed
+        if row.market_fact and row.recorded_at <= horizon and row.effective_date <= last_executed
     ]
 
 

@@ -46,9 +46,9 @@ row):
 - ``ratio_disagree``: the same event at a different ratio (dated or not).
 - ``massive_only``: a vendor split with no recorded row: the proposal candidates.
 - ``ours_only``: a recorded split fact with no vendor event.
-- ``vendor_correction``: a recorded row that rescales an incumbent's mis-scaled series (the todo
-  592 operator rows file) and that no vendor event of the same ratio corroborates as a split; it
-  is never compared as one.
+- ``vendor_correction``: a recorded row that rescales an incumbent's mis-scaled route and records
+  no market split (corporate_actions.is_market_split: a todo 592 operator row); it is never
+  compared as one, and a vendor event at its date stays massive_only.
 - ``announced``: a vendor split whose execution date is after the serve date of the pages that
   served it: an announcement whose
   old scale has not ended (the announcement-time rule, design section 5 amendment). Listed, never
@@ -339,7 +339,7 @@ class RecordedSplit:
     effective_date: date  # last session on the old scale
     factor: float
     inferred_by: str
-    vendor_correction: bool  # a 592 operator row: rescales an incumbent series
+    vendor_correction: bool  # not corporate_actions.is_market_split: rescales one incumbent
 
 
 @dataclass(frozen=True)
@@ -405,16 +405,13 @@ def reconcile(
             continue
         effective = vendor_effective_date(split.execution_date, params.sessions)
         open_vendor.setdefault(symbol, []).append((split, how, effective))
-    # A 592 operator row rescales an incumbent series; it records a split only when a vendor event
-    # of the same ratio stands within the window (UHAL 2022-11-09 x10, WST 2004-09-29 x2). Such a
-    # row pairs as a split fact; any other stays vendor_correction and is never compared.
+    # A vendor correction (corporate_actions.is_market_split: a todo 592 operator row) rescales
+    # one incumbent's route and is no market fact, even at the split's own ratio (UHAL
+    # 2022-11-09 x10): selection and the daily rule never rescale Massive by it, so the market's
+    # split stays massive_only and needs its own row.
     facts: dict[str, list[RecordedSplit]] = {}
     for row in recorded:
-        if row.vendor_correction and not any(
-            abs((row.effective_date - eff).days) <= params.same_event_days
-            and _ratio_agrees(row.factor, split.factor, params.ratio_rel_tol)
-            for split, _how, eff in open_vendor.get(row.symbol, [])
-        ):
+        if row.vendor_correction:
             out.append(ReconciledSplit(row.symbol, "vendor_correction", ours=row))
         else:
             facts.setdefault(row.symbol, []).append(row)

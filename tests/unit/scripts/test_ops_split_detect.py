@@ -489,3 +489,16 @@ def test_void_alone_inserts_one_void_row():
     asyncio.run(ops.void(conn, action_id=_B, reason="duplicate", apply=True))
     ((_, args),) = conn.inserts("corporate_action")
     assert args[2] == "void" and args[7] == _B
+
+
+def test_supersede_refuses_a_massive_reference_row():
+    # An operator row stales the incumbents; a reference row records a market split they carry
+    # adjusted (todo 600), so it is corrected by a void and a new --apply-massive line instead.
+    rows = {k: dict(v) for k, v in _ROWS.items()}
+    rows[_A]["inferred_by"] = "massive_reference"
+    conn = OpsConn(current=rows)
+    with pytest.raises(ValueError, match="massive_reference"):
+        _supersede(conn, apply=True)
+    with pytest.raises(ValueError, match="massive_reference"):
+        asyncio.run(ops.hold_rescale(conn, action_id=_A, reason="r", split_rule=_RULE, apply=True))
+    assert conn.executed == []

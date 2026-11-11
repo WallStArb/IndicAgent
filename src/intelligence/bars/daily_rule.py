@@ -1,8 +1,9 @@
-"""The unified canonical 1d rule d2-v5 (phase 185 plans 36 and 52; data layer integrity design
+"""The unified canonical 1d rule d2-v6 (phase 185 plans 36 and 52; data layer integrity design
 sections 2 and 4 and its Amendment 2026-10-07,
 docs/plans/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
 docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3; d2-v5 is todo 587's
-calendar split rescale, Scale below).
+calendar split rescale, Scale below; d2-v6 is todo 600's Massive route and split sources,
+Massive below).
 
 One pure function, derive_daily, replaces both D2's d2-v1 rule and the Tradier loader's inline rule
 (tradier-v1): D1 observations of both vendors, the bar_source_policy rows and the current
@@ -92,6 +93,21 @@ the product of every such split's factor (multiplied in effective-date order, on
 its volume multiplied by it, rounded floor(x + 0.5). Each series is measured on its own
 observations, never assumed from another's: a route the row does not name keeps its scale.
 
+Split sources (d2-v6, corporate_actions.SPLIT_SOURCES): a split row's inferred_by fixes what it
+does. Only a restatement split (seam audit, nightly overlap, Tradier refetch, operator) stales;
+a calendar_audit split rescales its named routes; a massive_reference split, the vendor
+reference's record of a market split the incumbents already carry adjusted, does neither to an
+incumbent observation. The daily read refuses a code it does not know (bar_derivation.split_record),
+so a row inserted by hand under a new code fails loudly instead of being read as a stale split.
+
+Massive (d2-v6, todo 600, admission design section 5): Massive's served day bar (massive,
+sip_flat) is route MASSIVE, stamped at midnight New York (window_start). It is served unadjusted,
+so it is never stale; every observation dated on or before a market split's effective_date is
+divided by the product of every such split's factor (the calendar rescale's arithmetic, the
+selection rescale's set: corporate_actions.is_market_split, never an incumbent route correction).
+A Massive primary serves as (massive, sip_flat_adj), the canonical kind that never says
+unadjusted, and names no fallback (ruling 2: IBKR serves only through gap-list symbol rows).
+
 Basis: the ratio of IBKR's current-scale close to Tradier's close on the current scale. Where
 Tradier has only stale observations, its latest stale close divided by the factors of the splits
 that make it stale (corporate_action.factor = old-scale price / new-scale price) is that
@@ -131,11 +147,12 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from src.intelligence.bars.corporate_actions import CALENDAR_AUDIT_SOURCE
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
 from src.intelligence.bars.sources import ROUTE_ALPACA
 from src.intelligence.bars.vendor_basis import BP
 
-RULE_VERSION = "d2-v5"
+RULE_VERSION = "d2-v6"
 
 TIMEFRAME = "1d"
 ROUTE_SMART = "SMART"
@@ -144,6 +161,8 @@ ROUTE_TRADIER = "TRADIER"  # policy data of the closed pre-D row; sources.py no 
 VENDOR_TRADIER = "tradier"
 VENDOR_IBKR = "ibkr"
 VENDOR_ALPACA = "alpaca"
+VENDOR_MASSIVE = "massive"
+ROUTE_MASSIVE = "MASSIVE"
 
 FLAG_FALLBACK_SEAM = "fallback_seam"
 FLAG_PRE_SPLIT = "pre_split_unrefetched"
@@ -162,6 +181,7 @@ PRIMARY_PAIR = {
     VENDOR_TRADIER: ("tradier", "consolidated"),
     VENDOR_IBKR: ("ibkr", "named"),
     VENDOR_ALPACA: ("alpaca", "sip_rth"),
+    VENDOR_MASSIVE: ("massive", "sip_flat_adj"),
 }
 FALLBACK_PAIR = ("ibkr", "fallback")
 # The one fallback each primary may name; IBKR, the contract-keyed vendor, names none.
@@ -174,22 +194,25 @@ RAW_DAILY_SERIES: tuple[tuple[str, str], ...] = (
     (VENDOR_TRADIER, "consolidated"),
     (VENDOR_IBKR, "smart_trades"),
     (VENDOR_ALPACA, "sip_rth"),
+    (VENDOR_MASSIVE, "sip_flat"),
 )
 # The zone whose calendar date of a series' 1d stamp is the NYSE session date: IBKR and Tradier
-# stamp 00:00 UTC, Alpaca midnight New York. An identifier of each vendor's convention, not a
+# stamp 00:00 UTC, Alpaca and Massive (its window_start) midnight New York. An identifier of each vendor's convention, not a
 # tunable; the daily read dates rows with it, so canonical keeps one row per session.
 RAW_DAILY_SESSION_ZONE: dict[tuple[str, str], str] = {
     (VENDOR_TRADIER, "consolidated"): "UTC",
     (VENDOR_IBKR, "smart_trades"): "UTC",
     (VENDOR_ALPACA, "sip_rth"): "America/New_York",
+    (VENDOR_MASSIVE, "sip_flat"): "America/New_York",
 }
 _ROUTE_VENDOR = {
     ROUTE_TRADIER: VENDOR_TRADIER,
     ROUTE_SMART: VENDOR_IBKR,
     ROUTE_LEGACY: VENDOR_IBKR,
     ROUTE_ALPACA: VENDOR_ALPACA,
+    ROUTE_MASSIVE: VENDOR_MASSIVE,
 }
-_VENDORS = (VENDOR_TRADIER, VENDOR_IBKR, VENDOR_ALPACA)
+_VENDORS = (VENDOR_TRADIER, VENDOR_IBKR, VENDOR_ALPACA, VENDOR_MASSIVE)
 
 
 @dataclass(frozen=True)
@@ -274,6 +297,8 @@ def observation_from_raw(
         route = ROUTE_LEGACY if legacy else ROUTE_SMART
     elif (vendor, kind) == (VENDOR_ALPACA, "sip_rth"):
         route = ROUTE_ALPACA
+    elif (vendor, kind) == (VENDOR_MASSIVE, "sip_flat"):
+        route = ROUTE_MASSIVE
     else:
         raise ValueError(f"raw ({vendor!r}, {kind!r}) is not a d2-v4 input series")
     return Observation(
@@ -342,8 +367,12 @@ def _epoch(dt: datetime) -> float:
 
 
 def _stale_for(obs: Observation, split: SplitRecord) -> bool:
-    if split.rescale_routes:
-        return False  # a calendar_audit split rescales its routes and stales no one (todo 587)
+    if obs.route == ROUTE_MASSIVE:
+        return False  # served unadjusted: rescaled by every market split, never stale (d2-v6)
+    if split.rescale_routes or not split.stales:
+        # a calendar_audit split rescales its routes and stales no one (todo 587); a
+        # massive_reference split is one the incumbents carry adjusted as served (d2-v6)
+        return False
     if obs.bar_date > split.effective_date:
         return (
             False  # effective_date is the last day on the old scale (migration 400): its bar is old
@@ -393,8 +422,9 @@ def _basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None
 
 
 # corporate_action.inferred_by of a split recovered from the external calendar (migration 567):
-# the one kind of split the rule applies as a rescale (todo 587).
-CALENDAR_AUDIT = "calendar_audit"
+# the one kind of split the rule applies as a route rescale (todo 587); the one definition is
+# corporate_actions' table of split sources.
+CALENDAR_AUDIT = CALENDAR_AUDIT_SOURCE
 
 
 # The raw 1d series a calendar_audit split can record unadjusted (its detail.unadjusted_routes,
@@ -416,13 +446,21 @@ def rescale_routes(vendor: str, kind: str) -> frozenset[str]:
         raise ValueError(f"raw ({vendor!r}, {kind!r}) is no rescalable 1d series") from None
 
 
+def _rescales(obs: Observation, split: SplitRecord) -> bool:
+    """Whether a split divides the observation's route: every market split divides the
+    unadjusted Massive route (d2-v6); a calendar_audit split divides the routes it names."""
+    if obs.route == ROUTE_MASSIVE:
+        return split.market_fact
+    return obs.route in split.rescale_routes
+
+
 def _rescale_factors(obs: Observation, splits: Sequence[SplitRecord]) -> list[float]:
     """The factors of the rescale splits over the observation's route dated on or after its bar
     (effective_date is the last day on the old scale), in effective-date order (todo 587)."""
     return [
         split.factor
         for split in sorted(splits, key=lambda s: s.effective_date)
-        if obs.route in split.rescale_routes and obs.bar_date <= split.effective_date
+        if _rescales(obs, split) and obs.bar_date <= split.effective_date
     ]
 
 
@@ -700,7 +738,7 @@ def derive_daily(
     basis_window_sessions: int,
     basis_tolerance_bp: float,
 ) -> DailyV2Result:
-    """The canonical 1d bars of one symbol under d2-v5 (module docstring)."""
+    """The canonical 1d bars of one symbol under d2-v6 (module docstring)."""
     if basis_window_sessions < 1:
         raise ValueError("basis_window_sessions must be at least 1")
     screened = _screen(observations, splits)
@@ -711,7 +749,12 @@ def derive_daily(
         )
         for vendor in FALLBACK_FOR
     }
-    axis = sorted(set().union(*(days[vendor] for vendor in _VENDORS)))
+    # The session axis is the dates any vendor answered, Massive only once a policy row names it
+    # (d2-v6): raw Massive lands before the policy switch, and its sessions are no unserved
+    # sessions of an incumbent primary. Every other vendor's dates stay on the axis, so a date no
+    # policy row covers still fails loudly in resolve_policy.
+    massive_named = any(r.primary_source == VENDOR_MASSIVE for r in policy_rows)
+    axis = sorted(set().union(*(days[v] for v in _VENDORS if v != VENDOR_MASSIVE or massive_named)))
     era_start = alpaca_era_start(policy_rows)
 
     bars: list[CanonicalBar] = []

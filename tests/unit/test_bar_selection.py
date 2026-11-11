@@ -515,7 +515,14 @@ MASSIVE_POLICY = PolicyRow("5m", None, date(2020, 1, 1), None, "massive", None)
 MASSIVE_KINDS = {**KIND_ORDER, "sip_flat_agg": 20}
 # 2024-06-07 15:55 ET: the last 5m bar on the old scale of an NVDA-style 10:1 split
 OLD_BAR = datetime(2024, 6, 7, 19, 55, tzinfo=UTC)
-SPLIT_ROW = (date(2024, 6, 7), 10.0, datetime(2024, 6, 10, 12, 0, tzinfo=UTC))
+# (effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file'): _READ_SPLITS_SQL's row
+SPLIT_ROW = (
+    date(2024, 6, 7),
+    10.0,
+    datetime(2024, 6, 10, 12, 0, tzinfo=UTC),
+    "massive_reference",
+    False,
+)
 
 
 def _massive_conn(splits):
@@ -566,7 +573,13 @@ def test_horizon_selects_the_factors_and_the_same_horizon_is_bit_identical():
 
 
 def test_an_unexecuted_split_does_not_rescale_history():
-    future = (date(2027, 1, 13), 10.0, datetime(2026, 11, 1, tzinfo=UTC))
+    future = (
+        date(2027, 1, 13),
+        10.0,
+        datetime(2026, 11, 1, tzinfo=UTC),
+        "massive_reference",
+        False,
+    )
     conn = _massive_conn([future])
     _massive_run(conn, datetime(2026, 11, 10, tzinfo=UTC))
     assert _written(conn)[3:7] == [1200.0, 1210.0, 1190.0, 1205.0]
@@ -579,6 +592,40 @@ def test_massive_winner_with_no_split_rows_passes_through_unscaled_but_canonical
     conn = _massive_conn([])
     _massive_run(conn, datetime(2024, 7, 1, tzinfo=UTC))
     assert _written(conn)[3:] == [1200.0, 1210.0, 1190.0, 1205.0, 1000, "massive", "sip_flat_adj"]
+
+
+# The todo 592 operator rows that correct one incumbent's own mis-scaled route (a calendar_audit
+# row written from an operator rows file): IBKR's PATK sits at 1/2.5 of correct before 2016, its
+# IJR was adjusted twice for the 2017 2:1, its MTCH (IAC era) sits 4.4963x high. Raw Massive is
+# served unadjusted and never carried those errors, so none may rescale it.
+INCUMBENT_CORRECTIONS = [
+    (date(2015, 12, 31), 0.4, datetime(2026, 11, 9, tzinfo=UTC), "calendar_audit", True),  # PATK
+    (date(2017, 1, 17), 0.5, datetime(2026, 11, 9, tzinfo=UTC), "calendar_audit", True),  # IJR
+    (date(2015, 12, 31), 4.4963, datetime(2026, 11, 9, tzinfo=UTC), "calendar_audit", True),  # MTCH
+]
+
+
+@pytest.mark.parametrize("correction", INCUMBENT_CORRECTIONS, ids=["PATK", "IJR", "MTCH"])
+def test_an_incumbent_route_correction_never_rescales_a_massive_winner(correction):
+    # Dated after the bar and recorded before the horizon, a correction would divide it; only the
+    # market's split may, so the discriminator alone keeps it out.
+    dated = (date(2024, 6, 10), correction[1], datetime(2024, 6, 11, tzinfo=UTC), *correction[3:])
+    conn = _massive_conn([dated, SPLIT_ROW])
+    _massive_run(conn, datetime(2024, 7, 1, tzinfo=UTC))
+    assert _written(conn)[3:8] == [120.0, 121.0, 119.0, 120.5, 10000]
+
+
+def test_a_calendar_split_confirmed_by_the_external_calendar_is_a_market_split():
+    calendar = (date(2024, 6, 7), 10.0, datetime(2024, 6, 10, tzinfo=UTC), "calendar_audit", False)
+    conn = _massive_conn([calendar])
+    _massive_run(conn, datetime(2024, 7, 1, tzinfo=UTC))
+    assert _written(conn)[3:7] == [120.0, 121.0, 119.0, 120.5]
+
+
+def test_a_split_row_of_unknown_meaning_refuses_the_selection():
+    unknown = (date(2024, 6, 7), 10.0, datetime(2024, 6, 10, tzinfo=UTC), "new_source", False)
+    with pytest.raises(ValueError, match="no known meaning"):
+        _massive_run(_massive_conn([unknown]), datetime(2024, 7, 1, tzinfo=UTC))
 
 
 def test_splits_are_read_only_when_a_massive_winner_exists():
