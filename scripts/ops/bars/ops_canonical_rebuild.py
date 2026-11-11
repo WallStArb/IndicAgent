@@ -120,8 +120,8 @@ _RAW_TF_SQL = 'SELECT count(*), min("timestamp") FROM ohlcv_raw WHERE timeframe 
 # table (stage 1 windows beside restored-policy windows), so the state pins this digest.
 # Whole rows, not ids: --close changes valid_to on a live id in place.
 _POLICY_IDS_SQL = """
-SELECT concat_ws('|', policy_id, timeframe, symbol, valid_from, valid_to, primary_source,
-                 fallback_source)
+SELECT concat_ws('|', policy_id, timeframe, coalesce(symbol, ''), valid_from,
+                 coalesce(valid_to::text, ''), primary_source, coalesce(fallback_source, ''))
 FROM bar_source_policy_current ORDER BY 1
 """
 _OTHER_SESSIONS_SQL = f"""
@@ -379,8 +379,12 @@ def run_preflight(args: argparse.Namespace) -> int:
             cur.execute(_RAW_TF_SQL, (tf,))
             n, first = cur.fetchone()
             raw[tf], raw_first[tf] = int(n), first.isoformat() if first else None
-        resuming = has_written(state.data)
-        if not resuming:  # a partly rebuilt table is no measure of what raw can rebuild
+        # After the TRUNCATE (a window written, or an empty table under a state that recorded the
+        # full one) the table measures nothing: keep the pre-TRUNCATE record and its policy.
+        resuming = has_written(state.data) or (
+            not canonical and bool(state.data.get("canonical_rows_before"))
+        )
+        if not resuming:
             failures += source_shortfalls(canonical, raw)
         policy = read_policy_digest(cur)
         if resuming and policy != state.data.get("policy_digest"):

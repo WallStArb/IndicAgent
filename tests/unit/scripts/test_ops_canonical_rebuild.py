@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, time
 
 import pytest
@@ -249,6 +250,7 @@ def test_abort_looks_the_job_up_when_the_state_has_none(tmp_path, monkeypatch):
 
 def test_policy_digest_is_order_free_and_moves_with_any_field():
     live = ["id1|5m||2003-09-10|2016-01-04|massive|", "id2|5m||2016-01-04||alpaca|ibkr"]
+    # (coalesce writes the empty fields, so a NULL never shifts a neighbour into its place)
     assert policy_digest(live[::-1]) == policy_digest(live)
     closed = [live[0], "id2|5m||2016-01-04|2026-11-10|alpaca|ibkr"]  # --close keeps the id
     assert policy_digest(closed) != policy_digest(live)
@@ -262,3 +264,54 @@ def test_rebuild_refuses_after_an_abort_until_a_new_preflight(tmp_path, monkeypa
     )
     monkeypatch.setattr("scripts.ops.bars.ops_canonical_rebuild.quiet_failures", lambda: [])
     assert main(["--rebuild", "--state", str(path), "--from", "2003-09-01"]) == 2
+
+
+def test_a_preflight_after_the_truncate_keeps_the_pre_truncate_record(tmp_path, monkeypatch):
+    """Round 3: an --abort (or a stop before the first window) after C4 needs a new preflight on
+    an empty table; it must not overwrite the counts it would then be judged against."""
+    from scripts.ops.bars import ops_canonical_rebuild as rebuild
+
+    path = tmp_path / "state.json"
+    before = {"5m": 400, "1m": 9}
+    path.write_text(
+        json.dumps(
+            {
+                "horizon": "2026-11-12T00:00:00+00:00",
+                "canonical_rows_before": before,
+                "raw_rows": {"5m": 900, "1m": 9},
+                "raw_first": {"5m": "2003-09-10T13:30:00+00:00"},
+                "policy_digest": "p1",
+            }
+        )
+    )
+    (tmp_path / "card.json").write_text("{}")
+    monkeypatch.setattr(rebuild, "quiet_failures", lambda: [])
+    monkeypatch.setattr(rebuild, "disk_headroom_refusal", lambda: None)
+    monkeypatch.setattr(rebuild, "read_layout", lambda cur: (7776000, [], []))
+    monkeypatch.setattr(rebuild, "compression_job", lambda cur: ([1078, 2592000], None))
+    monkeypatch.setattr(rebuild, "red_lineage", lambda cur: [])
+    monkeypatch.setattr(rebuild, "read_policy_digest", lambda cur: "p2")
+
+    class Cur(_Cur):
+        def fetchone(self):
+            sql = self.log[-1][0]
+            if sql == rebuild._RAW_TF_SQL:
+                return (0, None)
+            return (0,)
+
+        def fetchall(self):
+            return []  # empty canonical, no FK, no future split
+
+    class Conn(_Conn):
+        def cursor(self):
+            return Cur(self.log, self.jobs)
+
+        def rollback(self):
+            pass
+
+    monkeypatch.setattr(rebuild.psycopg, "connect", lambda *a, **k: Conn([], []))
+    monkeypatch.setattr(rebuild, "_dsn", lambda: "x")
+    assert main(["--preflight", "--state", str(path), "--card", str(tmp_path)]) == 1
+    state = State(path)
+    assert state.data["canonical_rows_before"] == before
+    assert any("live policy differs" in f for f in state.data["preflight_failures"])
