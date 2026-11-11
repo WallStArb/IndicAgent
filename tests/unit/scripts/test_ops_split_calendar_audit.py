@@ -651,7 +651,7 @@ def test_a_move_yahoo_adjusted_carries_is_real_and_left_alone():
         _SESSIONS,
     )
     assert event.verdict == "real_move"
-    assert event.yahoo_step == pytest.approx(step, abs=1e-6)
+    assert event.witness_step == pytest.approx(step, abs=1e-6)
 
 
 def test_a_junction_whose_pre_series_sits_off_scale_takes_a_rescale_row():
@@ -775,7 +775,7 @@ def test_a_break_yahoo_cannot_bracket_is_reported():
         _SESSIONS,
     )
     assert event.verdict == "reported"
-    assert event.yahoo_step is None
+    assert event.witness_step is None
 
 
 # ---------------- --apply-massive (todo 600, admission step 4) ----------------
@@ -985,3 +985,66 @@ def test_an_incumbent_route_correction_never_blocks_the_markets_split(tmp_path, 
     monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
     assert audit.main(["--apply-massive", str(path)]) == 0
     assert _inserted(conn) == []
+
+
+# ---------------- the Massive witness (todo 608 before step 7) ----------------
+
+
+def test_the_massive_witness_is_the_route_canonical_serves_with_its_split_events():
+    from src.intelligence.bars.split_rescale import SplitFactor
+
+    days = [date(2024, 6, 5), date(2024, 6, 6), date(2024, 6, 7), date(2024, 6, 10)]
+    closes = list(zip(days, [1200.0, 1210.0, 1205.0, 121.0], strict=True))
+    # NVDA's 10:1: last old-scale session 2024-06-07, the new scale from 2024-06-10.
+    witness = audit.massive_witness(closes, [SplitFactor(date(2024, 6, 7), 10.0)])
+    assert witness == [
+        (date(2024, 6, 5), 120.0, 0.0),
+        (date(2024, 6, 6), 121.0, 0.0),
+        (date(2024, 6, 7), 120.5, 0.0),
+        (date(2024, 6, 10), 121.0, 10.0),
+    ]
+    assert audit.massive_witness(closes, []) == [(d, c, 0.0) for d, c in closes]
+
+
+def test_a_break_the_massive_witness_carries_is_a_real_move_in_its_name():
+    days = _DAYS[:8]
+    on = days[4]
+    canonical = [(d, 10.0 if d < on else 45.0, "ibkr", "named") for d in days]
+    raw = {("ibkr", "smart_trades"): [(d, c) for d, c, _, _ in canonical]}
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [10.0] * 4 + [45.0] * 4),
+        raw,
+        [_brk(on, math.log(4.5))],
+        _SESSIONS,
+        witness="Massive",
+    )
+    assert event.verdict == "real_move"
+    assert event.evidence.startswith("Massive adjusted steps")
+
+
+def test_a_massive_served_break_is_reported_never_an_operator_rescale_row():
+    # Its remedy is a market split row (ops_massive_split_audit), since an operator row never
+    # rescales Massive (corporate_actions.is_market_split).
+    days = _DAYS[:10]
+    on = days[5]
+    canonical = [(d, 10.0 if d < on else 5.0, "massive", "sip_flat_adj") for d in days]
+    (event,) = audit.classify_breaks(
+        "X",
+        canonical,
+        _flat_calendar(days, [10.0] * 10),
+        {},
+        [_brk(on, -math.log(2.0), *[("massive", "sip_flat_adj")] * 2)],
+        _SESSIONS,
+        witness="Massive",
+    )
+    assert event.verdict == "reported" and event.unadjusted_route is None
+
+
+def test_a_split_ending_before_the_first_massive_bar_is_no_event():
+    from src.intelligence.bars.split_rescale import SplitFactor
+
+    closes = [(date(2024, 1, 2), 50.0), (date(2024, 1, 3), 51.0)]
+    witness = audit.massive_witness(closes, [SplitFactor(date(2023, 6, 1), 2.0)])
+    assert [f for _d, _c, f in witness] == [0.0, 0.0]

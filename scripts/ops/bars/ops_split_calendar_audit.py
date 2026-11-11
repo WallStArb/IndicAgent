@@ -79,7 +79,7 @@ import math
 import statistics
 import sys
 import time
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -93,6 +93,7 @@ import psycopg  # noqa: E402
 
 from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_apr  # noqa: E402
+from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
     MASSIVE_REFERENCE_SOURCE,
@@ -112,6 +113,7 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     VENDOR_IBKR,
     rescale_routes,
 )
+from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions  # noqa: E402
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
@@ -152,6 +154,9 @@ ORDER BY bar_date
 """
 _RESCALABLE = sorted(RESCALABLE_SERIES)
 # The raw series each canonical (vendor, kind) is served from (canonical_bar_lineage's mapping).
+# A Massive-served canonical bar (massive, sip_flat_adj) has no entry: its remedy is never an
+# operator rescale row (corporate_actions.is_market_split: such a row never rescales Massive)
+# but a market split row from ops_massive_split_audit, so the sweep reports its breaks.
 _RAW_SERIES_OF = {
     PRIMARY_PAIR[VENDOR_IBKR]: (VENDOR_IBKR, "smart_trades"),
     FALLBACK_PAIR: (VENDOR_IBKR, "smart_trades"),
@@ -189,6 +194,18 @@ MASSIVE_SPLITS_ENDPOINTS = ("/v3/reference/splits", "splits")
 # meanings, corporate_actions.SPLIT_SOURCES (the daily read and selection raise on a code outside
 # it), so the writer derives its gate from the same table instead of a hand-flipped switch.
 MASSIVE_REFERENCE_CONSUMERS_READY = MASSIVE_REFERENCE_SOURCE in SPLIT_SOURCES
+
+
+# Raw Massive day bars, session-dated in New York (window_start is midnight New York), the load's
+# test callers left out (the lineage view's rule, migration 588).
+_MASSIVE_RAW_SQL = """
+SELECT (r."timestamp" AT TIME ZONE 'America/New_York')::date AS d, r.close
+FROM ohlcv_raw r
+JOIN ohlcv_load l ON l.load_id = r.load_id
+WHERE r.symbol = %s AND r.timeframe = '1d' AND r.vendor = 'massive' AND r.kind = 'sip_flat'
+  AND r.close > 0 AND l.caller NOT LIKE 'test-%%'
+ORDER BY 1
+"""
 
 
 # One raw series of a name: (session date, close) in date order.
@@ -412,6 +429,36 @@ def _raw_series(conn: Any, symbol: str) -> dict[tuple[str, str], list[tuple[date
     ):
         raw.setdefault((vendor, kind), []).append((day, float(close)))
     return raw
+
+
+def massive_witness(
+    closes: Sequence[tuple[date, float]], splits: Sequence[SplitFactor]
+) -> list[tuple[date, float, float]]:
+    """Massive's route as a continuity witness in the Yahoo calendar's shape: (session date,
+    close on today's scale, the factor of a market split whose new scale starts that session,
+    else 0). Prices divide by split_rescale.scales_for_sessions, selection's arithmetic over the
+    market splits (corporate_actions.is_market_split), so the witness is the series canonical
+    serves from Massive. Pure."""
+    days = [d for d, _c in closes]
+    scales = scales_for_sessions(days, splits)
+    first_new: dict[date, float] = {}
+    for split in splits:
+        i = bisect_right(days, split.effective_date)
+        # A split whose old scale ends before the first Massive bar has no event in the series.
+        if 0 < i < len(days):
+            first_new[days[i]] = first_new.get(days[i], 1.0) * split.factor
+    return [(d, c / scales[d], first_new.get(d, 0.0)) for d, c in closes]
+
+
+def _massive_calendar(conn: Any, symbol: str) -> tuple[list[tuple[date, float, float]], str | None]:
+    """The Massive route of one name from raw (massive, sip_flat) and its market splits."""
+    closes = [(d, float(c)) for d, c in conn.execute(_MASSIVE_RAW_SQL, (symbol,))]
+    if not closes:
+        return [], "no Massive day bars in ohlcv_raw"
+    with conn.cursor() as cur:
+        rows = read_split_rows(cur, symbol)
+    splits = [SplitFactor(r.effective_date, r.factor) for r in rows if r.market_fact]
+    return massive_witness(closes, splits), None
 
 
 def _fetch_calendar(symbol: str) -> tuple[list[tuple[date, float, float]], str | None]:
@@ -1052,7 +1099,7 @@ class SweepBreak:
     step: float
     verdict: str
     next_step: float | None = None
-    yahoo_step: float | None = None
+    witness_step: float | None = None
     series_switch: bool = False
     route_before: str | None = None
     route_after: str | None = None
@@ -1118,13 +1165,16 @@ def classify_breaks(
     raw: Mapping[tuple[str, str], RawSeries],
     breaks: Sequence[tuple[date, float, str, str, str, str]],
     route_sessions: int,
+    witness: str = "Yahoo",
 ) -> list[SweepBreak]:
     """Every lone break of one name, classified by the per-series method. Pure.
 
     breaks rows are (date, step, prev vendor, prev kind, vendor, kind) as the corpus pass
     reads them; the span around each break is bounded by the name's neighbouring breaks so a
     second scale event never enters a median. No fix is decided without a witness: everything
-    the evidence leaves ambiguous is reported."""
+    the evidence leaves ambiguous is reported. calendar is the continuity witness's split-adjusted
+    closes and split events (Yahoo's, or Massive's own route, massive_witness); witness names it
+    in the evidence."""
     days = [row[0] for row in canonical]
     closes = {row[0]: row[1] for row in canonical}
     priced = [row for row in calendar if math.isfinite(row[1]) and row[1] > 0]
@@ -1157,21 +1207,21 @@ def classify_breaks(
             continue
         # (2) Yahoo's adjusted close is the continuity witness.
         y = _bracket(y_days, day)
-        yahoo_step = None if y is None else round(math.log(priced[y[1]][1] / priced[y[0]][1]), 6)
-        base["yahoo_step"] = yahoo_step
-        if yahoo_step is None:
+        witness_step = None if y is None else round(math.log(priced[y[1]][1] / priced[y[0]][1]), 6)
+        base["witness_step"] = witness_step
+        if witness_step is None:
             out.append(
                 SweepBreak(
                     symbol,
                     day,
                     step,
                     "reported",
-                    evidence="Yahoo's adjusted close cannot be bracketed across the break",
+                    evidence=f"{witness}'s adjusted close cannot be bracketed across the break",
                     **base,
                 )
             )
             continue
-        scale = step - yahoo_step
+        scale = step - witness_step
         span = (
             break_days[i - 1] if i else date.min,
             break_days[i + 1] if i + 1 < len(break_days) else date.max,
@@ -1199,7 +1249,7 @@ def classify_breaks(
                     day,
                     step,
                     "real_move",
-                    evidence=f"Yahoo adjusted steps {yahoo_step:+.3f} against canonical "
+                    evidence=f"{witness} adjusted steps {witness_step:+.3f} against canonical "
                     f"{step:+.3f}: a real move; {routes_json}",
                     **base,
                 )
@@ -1225,7 +1275,7 @@ def classify_breaks(
                         symbol,
                         day,
                         step,
-                        "a serving series has no measured level " "against Yahoo at the junction",
+                        f"a serving series has no measured level against {witness} at the junction",
                         base,
                     )
                 )
@@ -1250,7 +1300,7 @@ def classify_breaks(
                         effective_date=days[idx - 1] if idx else None,
                         evidence=f"canonical switches {series_key(own_before) if own_before else 'unrouted'} -> "
                         f"{series_key(own_after) if own_after else 'unrouted'} at the break; the pre series sits at "
-                        f"{k_b:.4g} of Yahoo-adjusted (post {k_a:.4g}); Yahoo steps {yahoo_step:+.3f}; {routes_json}",
+                        f"{k_b:.4g} of {witness}-adjusted (post {k_a:.4g}); {witness} steps {witness_step:+.3f}; {routes_json}",
                         **base,
                     )
                 )
@@ -1261,7 +1311,7 @@ def classify_breaks(
                         day,
                         step,
                         "the POST side of the junction is off "
-                        f"scale (pre {k_b:.4g}, post {k_a:.4g} of Yahoo): a prefix rescale cannot "
+                        f"scale (pre {k_b:.4g}, post {k_a:.4g} of {witness}): a prefix rescale cannot "
                         "express it",
                         base,
                     )
@@ -1273,7 +1323,7 @@ def classify_breaks(
                         day,
                         step,
                         f"junction levels do not decide "
-                        f"(pre {k_b:.4g}, post {k_a:.4g} of Yahoo)",
+                        f"(pre {k_b:.4g}, post {k_a:.4g} of {witness})",
                         base,
                     )
                 )
@@ -1312,7 +1362,7 @@ def classify_breaks(
                     factor=round(math.exp(-step_own), 6),
                     effective_date=days[idx - 1] if idx else None,
                     evidence=f"the serving tape {series_key(own_after)} steps {step_own:+.3f} at the "
-                    f"break while Yahoo adjusted moves {yahoo_step:+.3f}"
+                    f"break while {witness} adjusted moves {witness_step:+.3f}"
                     + (
                         f"; calendar event {nearest[0]} x{nearest[1]} nearby"
                         if nearest
@@ -1340,11 +1390,25 @@ def _reported(symbol: str, day: date, step: float, why: str, base: Mapping[str, 
     return SweepBreak(symbol, day, step, "reported", evidence=why, **base)
 
 
+# The continuity witnesses: option name -> the label the evidence carries.
+WITNESSES = {"yahoo": "Yahoo", "massive": "Massive"}
+
+
 def sweep(
-    settings: Settings, out: Path, rows_out: Path | None, symbols: Sequence[str] | None
+    settings: Settings,
+    out: Path,
+    rows_out: Path | None,
+    symbols: Sequence[str] | None,
+    witness: str = "yahoo",
 ) -> dict[str, int]:
     """Read-only: every lone break classified into --out, the rescale rows of the row verdicts
-    into --rows-out. Returns verdict counts."""
+    into --rows-out. Returns verdict counts. witness picks the continuity witness: Yahoo's
+    adjusted close, or Massive's route (todo 600: raw Massive day bars on today's scale, which
+    cover what ohlcv_raw holds). Every rescalable raw series and the Massive route are measured
+    on their own either way."""
+    if witness not in WITNESSES:
+        raise ValueError(f"unknown witness {witness!r}")
+    label = WITNESSES[witness]
     counts: dict[str, int] = {}
     with psycopg.connect(settings.database_url) as conn:
         params = _apr(conn)
@@ -1365,11 +1429,17 @@ def sweep(
             rows_writer = csv.DictWriter(rfh, fieldnames=OPERATOR_ROWS_COLUMNS)
             rows_writer.writeheader()
             for symbol in names:
-                calendar, error = _fetch_calendar(symbol)
-                if error is not None or symbol not in lone:
+                if symbol not in lone:
+                    continue
+                calendar, error = (
+                    _massive_calendar(conn, symbol)
+                    if witness == "massive"
+                    else _fetch_calendar(symbol)
+                )
+                if error is not None:
                     for day, step, pv, pk, vendor, kind in lone.get(symbol, ()):
                         event = SweepBreak(
-                            symbol, day, step, "reported", evidence="Yahoo fetch failed"
+                            symbol, day, step, "reported", evidence=f"{label} witness: {error}"
                         )
                         writer.writerow(asdict(event))
                         counts["reported"] = counts.get("reported", 0) + 1
@@ -1384,6 +1454,7 @@ def sweep(
                     _raw_series(conn, symbol),
                     lone[symbol],
                     params.route_sessions,
+                    witness=label,
                 ):
                     writer.writerow(asdict(event))
                     counts[event.verdict] = counts.get(event.verdict, 0) + 1
@@ -1394,7 +1465,7 @@ def sweep(
                                 "effective_date": event.effective_date,
                                 "factor": event.factor,
                                 "unadjusted_routes": event.unadjusted_route,
-                                "calendar_adjusted_step": event.yahoo_step,
+                                "calendar_adjusted_step": event.witness_step,
                                 "reason": f"{event.verdict} (todo 592 sweep; break "
                                 f"{event.break_date} step {event.step:+.3f})",
                                 "evidence": event.evidence,
@@ -1440,6 +1511,12 @@ def main(argv: list[str] | None = None) -> int:
         help="--sweep: the operator-rows CSV the row verdicts write (optional)",
     )
     parser.add_argument("--symbols", nargs="*", default=None)
+    parser.add_argument(
+        "--witness",
+        choices=sorted(WITNESSES),
+        default="yahoo",
+        help="--sweep: the continuity witness, Yahoo's adjusted close or Massive's route",
+    )
     add_write_mode_args(
         parser,
         dry_run="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: report what "
@@ -1452,7 +1529,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.out is None:
             raise SystemExit("--audit/--sweep need --out")
         if args.sweep:
-            print(sweep(settings, args.out, args.rows_out, args.symbols))
+            print(sweep(settings, args.out, args.rows_out, args.symbols, args.witness))
         else:
             print(audit(settings, args.symbols, args.out))
         return 0

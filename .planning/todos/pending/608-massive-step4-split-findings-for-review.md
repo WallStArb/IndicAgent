@@ -68,16 +68,24 @@ item below names its evidence file. Nothing here is acted on until ruled.
 - GSAT 2021-02-08 x0.609687 (`calendar_audit`, batch b1): voided under the lead's ruling; Massive
   shows a real squeeze (1.23 -> 2.08 on 10x volume, 2021-02-08 to 02-09), not a split.
 
-## Before step 7 (Massive canonical 1d): ordered ahead of the step 7 rebuild (lead ruling 2026-11-11)
+## Before step 7 (Massive canonical 1d): DONE 2026-11-11
 
-- `canonical_bar_lineage` (migration 568) divides raw by calendar_audit factors only; a Massive
-  canonical 1d row (`sip_flat_adj`) needs the market-split product of d2-v6 in the view, or it
-  reads lineage_missing.
+- `canonical_bar_lineage` follows Massive canonical 1d: migration 588 (commit 76f2a8f92) maps
+  `(massive, sip_flat_adj)` to raw `(massive, sip_flat)` on the New York session date and divides
+  by the d2-v6 market-split product; every other pair keeps migration 568's product (lineage
+  unchanged on the sampled names after the live apply).
+- The lone-break sweep takes Massive's route as its continuity witness:
+  `ops_split_calendar_audit --sweep --witness massive` (raw Massive day bars divided by the market
+  splits, selection's arithmetic). A Massive-served break is reported, never an operator rescale
+  row (its remedy is a market split row). First run 2026-11-11 (read-only,
+  `data/scratch/massive-split-audit/sweep_massive_2026_11_11.csv`): 1,180 lone breaks on 367
+  names; 38 witnessed as real moves (all 2024, the only year of raw Massive 1d then), 925 outside
+  the raw span, 217 on names with no raw Massive yet (OKE, NEXN, GSAT among them).
+  **Rerun it after 9b's 1d load covers every year**; it is the todo 592 resume point (the parked
+  cases, the Yahoo holes, OKE/NEXN/INSM/TMUS). The archive-based witness in
+  `data/massive_split_audit/2026-11-10/canonical_witness.csv` already covers them meanwhile.
 - `(massive, sip_flat_agg)` at 1d is not a d2-v6 input series; add it only if the day-against-
   minute check (design 8a) rules the RTH aggregate the 1d kind.
-- `ops_split_calendar_audit._RAW_SERIES_OF` has no Massive entry, so its `--sweep` reports a
-  Massive-served break as not rescalable; add `(massive, sip_flat_adj) -> (massive, sip_flat)`
-  with the d2-v6 market-split rescale before the post-admission sweep rerun (todo 592 ruling).
 
 ## Before the next reference recapture (future splits)
 
