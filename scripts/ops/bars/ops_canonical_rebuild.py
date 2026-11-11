@@ -33,6 +33,8 @@ and the split horizon, so it is rebuilt by the one canonical writer (services.ba
                      found equal or retracted a stored row stops the run (the target was not
                      empty). Rerunning the same command resumes after the last committed
                      symbol. --reset refuses once any window was written.
+--abort              reschedule the compression policy job the preflight unscheduled; every abort
+                     path after a clean preflight runs it (the runbook names it in each rule).
 --finish             reschedule the compression policy job the preflight unscheduled, run it to
                      recompress partial chunks (the daily and grid stages write into compressed
                      chunks after this), ANALYZE, and check the compression settings and grid
@@ -477,6 +479,28 @@ def run_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_abort(args: argparse.Namespace) -> int:
+    """Reschedule the compression policy job the preflight unscheduled; the step every abort rule
+    of the runbook names after a clean preflight. The job is the state's, or looked up when the
+    state never recorded one; the rebuild's state and rows are left as they are (resume stays
+    possible after a new preflight)."""
+    state = State(args.state)
+    with psycopg.connect(_dsn(), autocommit=True) as conn, conn.cursor() as cur:
+        job = (state.data.get("compression_job") or [None])[0]
+        if job is None:
+            cur.execute(_JOB_SQL)
+            jobs = cur.fetchall()
+            if len(jobs) != 1:
+                print(f"ABORT FAIL: {len(jobs)} compression policy jobs on {TABLE}, not 1")
+                return 1
+            job = int(jobs[0][0])
+        cur.execute(_SCHEDULE_SQL, (job, True))
+    state.data["aborted_at"] = datetime.now(UTC).isoformat()
+    state.save()
+    print(f"ABORT: compression job {job} rescheduled")
+    return 0
+
+
 def run_finish(args: argparse.Namespace) -> int:
     state = State(args.state)
     with psycopg.connect(_dsn(), autocommit=True) as conn, conn.cursor() as cur:
@@ -501,6 +525,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode.add_argument("--preflight", action="store_true")
     mode.add_argument("--rebuild", action="store_true")
     mode.add_argument("--finish", action="store_true")
+    mode.add_argument(
+        "--abort", action="store_true", help="reschedule the compression job (every abort path)"
+    )
     parser.add_argument("--state", type=Path, required=True, help="the resume record (JSON)")
     parser.add_argument(
         "--horizon",
@@ -539,6 +566,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.start is None:
             parser.error("--rebuild needs --from")
         return run_rebuild(args)
+    if args.abort:
+        return run_abort(args)
     return run_finish(args)
 
 

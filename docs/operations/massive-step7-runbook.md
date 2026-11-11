@@ -208,7 +208,14 @@ C2. Preflight first, then dry run and apply, in one sitting, 5m first. The prefl
 $PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json" \
   --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
 ```
-Abort (nothing applied yet): any failure; fix it and rerun.
+Abort (nothing applied yet): any failure; fix it and rerun. If you stop here instead, run K.
+
+K, the abort step: a clean preflight unschedules compression job 1078 so no chunk is compressed mid-fill; every abort path from here on ends with
+
+```bash
+$PY -m scripts.ops.bars.ops_canonical_rebuild --abort --state "$OUT/rebuild_state.json"
+```
+which reschedules it (it looks the job up when the state never recorded one). Leaving it unscheduled stops compression of every chunk, raw's peers included, until someone notices.
 
 
 ```bash
@@ -226,7 +233,7 @@ $PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_
   --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
 ```
 It checks: the lineage gate (every latest red 1d `lineage_missing` and `canonical_recompute` verdict has a written disposition and its name's canonical 1d rows are in the card's export); no foreign key references `market_data_ohlcv` (none on 2026-11-11); every canonical timeframe has a raw source (1m: raw IBKR 1m equals canonical 1m exactly, 9,775,958 on 2026-11-10; 4h holds none); the chunk grid is the epoch-aligned 90-day grid (true for all 114 chunks on 2026-11-11); no split row dated after today (none on 2026-11-11; see risk 18); one compression policy job (1078, `compress_after` 30 days); the quiet units and processes; disk headroom from the APR floor. It records the compression settings (segment by symbol, timeframe; order by timestamp) and pins the split horizon (now, or `--horizon`). Gate: `PREFLIGHT OK`.
-Abort: any failure. Restore the policy (R, A9) before anything else: the stage 1 rows are live and nothing may select under them while canonical is the old one. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
+Abort: any failure. Restore the policy (R, A9) and run K before anything else: the stage 1 rows are live and nothing may select under them while canonical is the old one. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
 
 C4. TRUNCATE (seconds; frees the 21 GB the table holds):
 
@@ -234,7 +241,7 @@ C4. TRUNCATE (seconds; frees the 21 GB the table holds):
 $PSQL -c "SET lock_timeout = '30s'; TRUNCATE market_data_ohlcv;"
 $PSQL -c "SELECT count(*) FROM market_data_ohlcv;"   # 0
 ```
-Abort: a lock timeout means something still reads or writes canonical; find it (`pg_stat_activity`), stop it, rerun C3.
+Abort: a lock timeout means something still reads or writes canonical; find it (`pg_stat_activity`), stop it, rerun C3. If step 7 stops here instead: R, then K.
 
 C5. Rebuild the direct timeframes, oldest window first, one horizon:
 
@@ -243,28 +250,28 @@ $PY -m scripts.ops.bars.ops_canonical_rebuild --rebuild --state "$OUT/rebuild_st
 ```
 One invocation for both timeframes: a window's chunk is compressed only after every timeframe of the run has filled it, so a second run would insert into compressed chunks (decompression and bloat). `--from` is the first raw 5m bar (check `SELECT min("timestamp") FROM ohlcv_raw WHERE timeframe = '5m'`; Massive starts 2003-09-10, IBKR 5m 2006, raw 1m 2026-03-23). Each 90-day chunk window: every instrument through `select_and_write` per timeframe (one commit per symbol), then the chunk compressed if it is older than the policy's 30 days. The preflight unscheduled the policy job (1078) so it cannot compress a chunk mid-fill; C8 reschedules it. One JSON line per window in `rebuild_state.jsonl`: new, unselected (slots only an unranked vendor holds, mostly IBKR pre-2016 zero-volume buckets: missing is NaN), off_grid, skipped_null_volume, sessions_fallback, seconds.
 Guards the driver enforces itself: it refuses to start when `market_data_ohlcv` holds any row and this state file has written no window, when `--from` is after any requested timeframe's first raw bar (recorded by the preflight), or when the quiet list is not quiet (re-checked on every resume); it stops when a symbol's selection replaced, found equal or retracted a stored row (`changed`, `unchanged` or `dropped` above 0; the one symbol a crash left between its commit and the state save may find its own rows). `--preflight --reset` refuses once any window was written, so a resumed rebuild keeps its one horizon.
-Gate per window: `changed == unchanged == dropped == 0`. Projection rule: after the first three full-size windows (2006 on), multiply their mean seconds by the windows left; if the projection passes 12 hours, stop after the current window and decide (continue overnight, or build a COPY-based canonical writer as its own plan). Resume: rerun the same command; it skips completed windows and symbols.
+Gate per window: `changed == unchanged == dropped == 0`. Projection rule: after the first three full-size windows (2006 on), multiply their mean seconds by the windows left; if the projection passes 12 hours, stop after the current window and decide (continue overnight, or build a COPY-based canonical writer as its own plan). Abort (a driver STOP, or the decision not to continue): R, then K; canonical stays partial and the quiet list stays stopped until a rebuild completes under some policy. Resume: rerun the same command; it skips completed windows and symbols.
 
 C6. 1d, from raw under the new policy (d2-v6 serves Massive as `sip_flat_adj`), the whole universe, not `--changed-only`:
 
 ```bash
 $PY -m services.bar_derivation --stage daily --apply --report "$OUT/daily_rebuild.tsv"
 ```
-Gate: the batch completes with zero failed symbols; `refused`, `unserved_primary` and `zero_volume` counts are read and explained (a Massive-only session under an IBKR symbol row is unserved by design).
+Abort (failed symbols that a rerun does not clear): R, then K. Gate: the batch completes with zero failed symbols; `refused`, `unserved_primary` and `zero_volume` counts are read and explained (a Massive-only session under an IBKR symbol row is unserved by design).
 
 C7. 15m and 1h from the rebuilt 5m, the whole universe:
 
 ```bash
 $PY -m services.bar_derivation --stage grid --apply
 ```
-Gate: zero failed symbols.
+Gate: zero failed symbols. Abort: R, then K.
 
 C8. Finish: reschedule and run the compression policy job (it recompresses the chunks C6 and C7 wrote into), ANALYZE, the storage shape against the preflight record:
 
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_rebuild --finish --state "$OUT/rebuild_state.json"
 ```
-Gate: `FINISH OK`.
+Gate: `FINISH OK` (it reschedules the job itself). Abort: a storage-shape drift is fixed in place (settings, recompress); values are unaffected.
 
 ## Part D: checks (stage 1)
 
@@ -277,7 +284,7 @@ $PY -m scripts.ops.bars.ops_canonical_summary_card --compare "$OUT/card_before" 
 $PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m 1m --out "$OUT/compare_after.json"
 ```
 `--from 2016-01-01` equals the 2016-01-04 seam here: 2016-01-01 is a holiday and the 2nd and 3rd a weekend, so no bar of any timeframe falls in between. Gate: the card compare exits 0 (every 2016+ group of every timeframe identical in count and digest, except the B2-dispositioned names passed as `--expected`, whose 1d differences are listed apart in `expected_differences` and read against the export), and the selection gate meets the B3 criteria. The 1d and grid stages are covered only by the card; the selection gate covers 5m and 1m.
-Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is R (A9: the restore plans built from `policy_before_<tf>.json`) followed by C3 to C8 again. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
+Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is R (A9: the restore plans built from `policy_before_<tf>.json`) followed by C2's preflight, C3 to C8 again under a fresh state file; between the decision and that rerun, K. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
 
 D2. Seam witness at 2016-01-04 (F2 (a)), level over the span, both timeframes:
 
@@ -303,7 +310,7 @@ $PY -m scripts.ops.bars.ops_seam_witness --seam 2024-06-10 --timeframe 5m --symb
 # against IBKR's own adjusted series, an independent arm
 $PY -m scripts.ops.bars.ops_seam_witness --seam 2007-09-12 --timeframe 1d --symbols NVDA --incoming raw:ibkr/smart_trades --out "$OUT/canary_nvda_2007.csv"
 ```
-Gate: `canonical_matches_massive` on both. A `reconciled_split` here is a rescale defect, not an epoch seam: stop.
+Gate: `canonical_matches_massive` on both. A `reconciled_split` here is a rescale defect, not an epoch seam: stop (R, then K, then the rescale fix and a full rerun).
 
 D4. D7, sample then all. D7 has no symbol filter; run it once and read a named sample first (NVDA, AAPL, SPY, BRK.B, A, AAL, CENT, RJF, OKE, WST, UHAL, SNEX, ES), then the universe:
 
@@ -383,9 +390,9 @@ Each row: what can fail silently, how it is caught, and the abort or rollback. R
 | 14 | A reused ticker loaded under the wrong instrument (identity) | step 3 map; A2 identity check; D2 `unexplained` rows | the mapping retract path (law 528 amendment) by load id, then rebuild the name |
 | 15 | Stage 2 retires IBKR and futures/fx lose canonical after the archive end | Part E open decision | decide before building the stage 2 plan |
 | 16 | The 5m rebuild runs far longer than estimated and leaves canonical partial for a day | C5 projection rule after three windows | resume is safe; consumers stay stopped until D passes |
-| 17 | A disk floor is crossed mid-rebuild (derived inserts plus WAL) | the driver checks the APR floor before every window; C3 | stop, free space, resume |
+| 17 | A disk floor is crossed mid-rebuild (derived inserts plus WAL) | the driver checks the APR floor before every window; C3 | stop, free space, resume (K if the stop is long) |
 | 18 | A split recorded before it executes (a future reference recapture lists them; the 2026-11-10 capture held one to 2027-01-13) divides Massive 1d history at once under d2-v6, which has no executed-by-horizon filter, while selection leaves 5m unscaled until it executes: 1d and 5m sit on different scales, and D7 `canonical_recompute` replays the same rule so it stays green | C3 refuses while any such row exists | align d2-v6 with `splits_known_at` (a rule version bump, its own plan) before any recapture applies future rows |
-| 19 | The compression policy job or the compression auditor compresses a chunk the rebuild is still filling | C3 unschedules job 1078 and refuses while the auditor runs; the driver compresses a window only after every timeframe | C8 reschedules; a chunk compressed early only costs recompression |
+| 19 | The compression policy job or the compression auditor compresses a chunk the rebuild is still filling | C3 unschedules job 1078 and refuses while the auditor runs; the driver compresses a window only after every timeframe | C8 reschedules, and K on every abort path; a chunk compressed early only costs recompression |
 
 ## Not built (named)
 

@@ -189,3 +189,55 @@ def test_resume_refuses_when_the_quiet_list_is_not_quiet(tmp_path, monkeypatch):
         "scripts.ops.bars.ops_canonical_rebuild.quiet_failures", lambda: ["units not quiet: x"]
     )
     assert main(["--rebuild", "--state", str(path), "--from", "2003-09-01"]) == 2
+
+
+# --- the compression job comes back on every abort path (review 2026-11-11, finding 4) -------
+
+
+class _Cur:
+    def __init__(self, log, jobs):
+        self.log, self.jobs = log, jobs
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.log.append((sql, params))
+
+    def fetchall(self):
+        return self.jobs
+
+
+class _Conn(_Cur):
+    def cursor(self):
+        return _Cur(self.log, self.jobs)
+
+
+def _fake_connect(log, jobs=()):
+    return lambda *a, **k: _Conn(log, list(jobs))
+
+
+def test_abort_reschedules_the_recorded_job(tmp_path, monkeypatch):
+    from scripts.ops.bars import ops_canonical_rebuild as rebuild
+
+    log: list = []
+    monkeypatch.setattr(rebuild.psycopg, "connect", _fake_connect(log))
+    monkeypatch.setattr(rebuild, "_dsn", lambda: "x")
+    path = tmp_path / "state.json"
+    path.write_text('{"compression_job": [1078, 2592000]}')
+    assert main(["--abort", "--state", str(path)]) == 0
+    assert (rebuild._SCHEDULE_SQL, (1078, True)) in log
+    assert "aborted_at" in State(path).data
+
+
+def test_abort_looks_the_job_up_when_the_state_has_none(tmp_path, monkeypatch):
+    from scripts.ops.bars import ops_canonical_rebuild as rebuild
+
+    log: list = []
+    monkeypatch.setattr(rebuild.psycopg, "connect", _fake_connect(log, [(1078, 2592000)]))
+    monkeypatch.setattr(rebuild, "_dsn", lambda: "x")
+    assert main(["--abort", "--state", str(tmp_path / "none.json")]) == 0
+    assert (rebuild._SCHEDULE_SQL, (1078, True)) in log
