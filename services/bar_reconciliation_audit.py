@@ -2946,7 +2946,7 @@ class BarReconciliationAudit(BaseBatch):
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
         splits: list[SplitFactor] = []
-        if five.massive.any() or five.massive_vendor.any():
+        if five.massive.any():  # the vendor/kind mismatch count needs no split
             rows = [
                 SplitRow(
                     r["effective_date"],

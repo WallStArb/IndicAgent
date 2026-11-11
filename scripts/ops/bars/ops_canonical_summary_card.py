@@ -48,6 +48,7 @@ sys.path.insert(0, str(project_root))
 import psycopg  # noqa: E402
 
 from src.config.settings import get_settings  # noqa: E402
+from src.intelligence.bars.verdict_gate import MONITOR_TYPE, REQUIRED_CHECKS  # noqa: E402
 
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
 _FIELDS = ("timeframe", "symbol", "vendor", "kind", "month", "n", "digest")
@@ -84,11 +85,14 @@ DERIVED_COUNTS: Mapping[str, str] = {
 }
 # The 1d verdicts that say raw cannot rebuild a name's canonical rows (D7, design section 6).
 LINEAGE_CHECKS = ("lineage_missing", "canonical_recompute")
-_RED_LINEAGE_SQL = """
+assert set(LINEAGE_CHECKS) <= REQUIRED_CHECKS["1d"]
+# The latest verdict per (subject, check), ties to the failing row: verdict_gate's
+# LATEST_VERDICTS_SQL rule, over every 1d subject instead of a named list.
+_RED_LINEAGE_SQL = f"""
 SELECT subject, metric_name FROM (
   SELECT DISTINCT ON (subject, metric_name) subject, metric_name, passed
   FROM integrity_monitor
-  WHERE monitor_type = 'bar_integrity' AND metric_name = ANY(%s) AND subject LIKE '%%|1d'
+  WHERE monitor_type = '{MONITOR_TYPE}' AND metric_name = ANY(%s) AND subject LIKE '%%|1d'
   ORDER BY subject, metric_name, evaluated_at DESC, passed ASC
 ) latest WHERE NOT passed ORDER BY 1, 2
 """

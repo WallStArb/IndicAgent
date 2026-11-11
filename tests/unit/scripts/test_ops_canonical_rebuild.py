@@ -14,6 +14,7 @@ from scripts.ops.bars.ops_canonical_rebuild import (
     has_written,
     lineage_gate,
     main,
+    policy_digest,
     read_card_lineage,
     result_violation,
     session_bounds,
@@ -241,3 +242,21 @@ def test_abort_looks_the_job_up_when_the_state_has_none(tmp_path, monkeypatch):
     monkeypatch.setattr(rebuild, "_dsn", lambda: "x")
     assert main(["--abort", "--state", str(tmp_path / "none.json")]) == 0
     assert (rebuild._SCHEDULE_SQL, (1078, True)) in log
+
+
+# --- review round 2: no resume after an abort or under another policy --------------------------
+
+
+def test_policy_digest_is_order_free_and_moves_with_any_id():
+    assert policy_digest(["b", "a"]) == policy_digest(["a", "b"])
+    assert policy_digest(["a", "b"]) != policy_digest(["a", "c"])
+
+
+def test_rebuild_refuses_after_an_abort_until_a_new_preflight(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    path.write_text(
+        '{"horizon": "2026-11-12T00:00:00+00:00", "preflight_failures": [],'
+        ' "preflight_at": "2026-11-12T01:00:00+00:00", "aborted_at": "2026-11-12T02:00:00+00:00"}'
+    )
+    monkeypatch.setattr("scripts.ops.bars.ops_canonical_rebuild.quiet_failures", lambda: [])
+    assert main(["--rebuild", "--state", str(path), "--from", "2003-09-01"]) == 2

@@ -44,6 +44,7 @@ and the split horizon, so it is rebuilt by the one canonical writer (services.ba
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -114,8 +115,10 @@ FROM timescaledb_information.chunks WHERE hypertable_name = %s ORDER BY range_st
 """
 _CANONICAL_TF_SQL = f"SELECT timeframe, count(*) FROM {TABLE} GROUP BY 1"
 _ANY_ROW_SQL = f"SELECT EXISTS (SELECT 1 FROM {TABLE})"
-_RAW_FIRST_SQL = 'SELECT min("timestamp") FROM ohlcv_raw WHERE timeframe = %s'
-_RAW_TF_SQL = "SELECT count(*) FROM ohlcv_raw WHERE timeframe = %s"
+_RAW_TF_SQL = 'SELECT count(*), min("timestamp") FROM ohlcv_raw WHERE timeframe = %s'
+# Every live policy row: a rebuild resumed under another policy would mix two selections in one
+# table (stage 1 windows beside restored-policy windows), so the state pins this digest.
+_POLICY_IDS_SQL = "SELECT policy_id::text FROM bar_source_policy_current ORDER BY 1"
 _OTHER_SESSIONS_SQL = f"""
 SELECT count(*) FROM pg_stat_activity
 WHERE pid <> pg_backend_pid() AND state <> 'idle' AND query ILIKE '%%{TABLE}%%'
@@ -282,6 +285,26 @@ class State:
         self.save()
 
 
+def compression_job(cur: Any) -> tuple[list[int] | None, str | None]:
+    """([job_id, compress_after seconds], None) of TABLE's one compression policy job, or
+    (None, why) when there is not exactly one."""
+    cur.execute(_JOB_SQL)
+    jobs = cur.fetchall()
+    if len(jobs) != 1:
+        return None, f"{len(jobs)} compression policy jobs on {TABLE}, not 1"
+    return [int(v) for v in jobs[0]], None
+
+
+def policy_digest(policy_ids: Iterable[str]) -> str:
+    """The digest of a set of live policy_ids (order-free)."""
+    return hashlib.sha256("\n".join(sorted(policy_ids)).encode()).hexdigest()
+
+
+def read_policy_digest(cur: Any) -> str:
+    cur.execute(_POLICY_IDS_SQL)
+    return policy_digest(r[0] for r in cur.fetchall())
+
+
 def read_layout(cur: Any) -> tuple[int, list[tuple[int, int]], list[list[Any]]]:
     """(chunk interval seconds, chunks off the epoch grid, compression settings) of TABLE."""
     cur.execute(_INTERVAL_SQL, (TABLE,))
@@ -340,22 +363,23 @@ def run_preflight(args: argparse.Namespace) -> int:
         interval_s, misaligned, compression = read_layout(cur)
         if misaligned:
             failures.append(f"chunks off the epoch grid: {misaligned[:5]}")
-        cur.execute(_JOB_SQL)
-        jobs = cur.fetchall()
-        if len(jobs) != 1:
-            failures.append(f"{len(jobs)} compression policy jobs on {TABLE}, not 1")
+        job, why = compression_job(cur)
+        if why:
+            failures.append(why)
         cur.execute(_CANONICAL_TF_SQL)
         canonical = {tf: int(n) for tf, n in cur.fetchall()}
-        raw = {}
-        for tf in canonical:
+        raw, raw_first = {}, {}
+        for tf in sorted(set(canonical) | DIRECT_TIMEFRAMES):
             cur.execute(_RAW_TF_SQL, (tf,))
-            raw[tf] = int(cur.fetchone()[0])
+            n, first = cur.fetchone()
+            raw[tf], raw_first[tf] = int(n), first.isoformat() if first else None
         failures += source_shortfalls(canonical, raw)
-        raw_first = {}
-        for tf in sorted(DIRECT_TIMEFRAMES):
-            cur.execute(_RAW_FIRST_SQL, (tf,))
-            first = cur.fetchone()[0]
-            raw_first[tf] = first.isoformat() if first else None
+        policy = read_policy_digest(cur)
+        if has_written(state.data) and policy != state.data.get("policy_digest"):
+            failures.append(
+                "the live policy differs from the one this state's windows were selected under; "
+                "start a fresh state file (after a TRUNCATE) instead of resuming"
+            )
         cur.execute(_FUTURE_SPLITS_SQL)
         if future := cur.fetchall():
             failures.append(f"splits not executed yet (1d and 5m would disagree): {future[:10]}")
@@ -375,7 +399,8 @@ def run_preflight(args: argparse.Namespace) -> int:
             "horizon": horizon,
             "interval_s": interval_s,
             "compression": compression,
-            "compression_job": [int(v) for v in jobs[0]] if len(jobs) == 1 else None,
+            "compression_job": job,
+            "policy_digest": policy,
             "canonical_rows_before": canonical,
             "raw_rows": raw,
             "raw_first": raw_first,
@@ -399,6 +424,9 @@ def run_rebuild(args: argparse.Namespace) -> int:
     if "horizon" not in state.data or state.data.get("preflight_failures"):
         print("refused: no clean --preflight recorded in the state file")
         return 2
+    if state.data.get("aborted_at", "") > state.data.get("preflight_at", ""):
+        print("refused: --abort rescheduled the compression job since the last preflight; rerun it")
+        return 2
     if refusals := quiet_failures() + from_violations(
         args.start, state.data.get("raw_first", {}), args.timeframes
     ):
@@ -415,6 +443,9 @@ def run_rebuild(args: argparse.Namespace) -> int:
             cur.execute(_ANY_ROW_SQL)
             if cur.fetchone()[0] and not has_written(state.data):
                 print(f"refused: {TABLE} is not empty and no window of this state was written")
+                return 2
+            if read_policy_digest(cur) != state.data.get("policy_digest"):
+                print("refused: the live policy is not the one the preflight recorded; rerun it")
                 return 2
             cur.execute(_SYMBOLS_SQL)
             # Python order: resume skips `symbol <= last` in this same order (a collation that
@@ -486,14 +517,13 @@ def run_abort(args: argparse.Namespace) -> int:
     possible after a new preflight)."""
     state = State(args.state)
     with psycopg.connect(_dsn(), autocommit=True) as conn, conn.cursor() as cur:
-        job = (state.data.get("compression_job") or [None])[0]
-        if job is None:
-            cur.execute(_JOB_SQL)
-            jobs = cur.fetchall()
-            if len(jobs) != 1:
-                print(f"ABORT FAIL: {len(jobs)} compression policy jobs on {TABLE}, not 1")
+        recorded = state.data.get("compression_job")
+        if recorded is None:
+            recorded, why = compression_job(cur)
+            if why:
+                print(f"ABORT FAIL: {why}")
                 return 1
-            job = int(jobs[0][0])
+        job = recorded[0]
         cur.execute(_SCHEDULE_SQL, (job, True))
     state.data["aborted_at"] = datetime.now(UTC).isoformat()
     state.save()
