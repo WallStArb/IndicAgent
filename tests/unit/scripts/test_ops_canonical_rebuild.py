@@ -247,9 +247,11 @@ def test_abort_looks_the_job_up_when_the_state_has_none(tmp_path, monkeypatch):
 # --- review round 2: no resume after an abort or under another policy --------------------------
 
 
-def test_policy_digest_is_order_free_and_moves_with_any_id():
-    assert policy_digest(["b", "a"]) == policy_digest(["a", "b"])
-    assert policy_digest(["a", "b"]) != policy_digest(["a", "c"])
+def test_policy_digest_is_order_free_and_moves_with_any_field():
+    live = ["id1|5m||2003-09-10|2016-01-04|massive|", "id2|5m||2016-01-04||alpaca|ibkr"]
+    assert policy_digest(live[::-1]) == policy_digest(live)
+    closed = [live[0], "id2|5m||2016-01-04|2026-11-10|alpaca|ibkr"]  # --close keeps the id
+    assert policy_digest(closed) != policy_digest(live)
 
 
 def test_rebuild_refuses_after_an_abort_until_a_new_preflight(tmp_path, monkeypatch):

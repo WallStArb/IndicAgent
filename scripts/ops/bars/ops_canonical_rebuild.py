@@ -118,7 +118,12 @@ _ANY_ROW_SQL = f"SELECT EXISTS (SELECT 1 FROM {TABLE})"
 _RAW_TF_SQL = 'SELECT count(*), min("timestamp") FROM ohlcv_raw WHERE timeframe = %s'
 # Every live policy row: a rebuild resumed under another policy would mix two selections in one
 # table (stage 1 windows beside restored-policy windows), so the state pins this digest.
-_POLICY_IDS_SQL = "SELECT policy_id::text FROM bar_source_policy_current ORDER BY 1"
+# Whole rows, not ids: --close changes valid_to on a live id in place.
+_POLICY_IDS_SQL = """
+SELECT concat_ws('|', policy_id, timeframe, symbol, valid_from, valid_to, primary_source,
+                 fallback_source)
+FROM bar_source_policy_current ORDER BY 1
+"""
 _OTHER_SESSIONS_SQL = f"""
 SELECT count(*) FROM pg_stat_activity
 WHERE pid <> pg_backend_pid() AND state <> 'idle' AND query ILIKE '%%{TABLE}%%'
@@ -295,9 +300,10 @@ def compression_job(cur: Any) -> tuple[list[int] | None, str | None]:
     return [int(v) for v in jobs[0]], None
 
 
-def policy_digest(policy_ids: Iterable[str]) -> str:
-    """The digest of a set of live policy_ids (order-free)."""
-    return hashlib.sha256("\n".join(sorted(policy_ids)).encode()).hexdigest()
+def policy_digest(rows: Iterable[str]) -> str:
+    """The digest of the live policy rows, each `id|timeframe|symbol|from|to|primary|fallback`
+    (order-free)."""
+    return hashlib.sha256("\n".join(sorted(rows)).encode()).hexdigest()
 
 
 def read_policy_digest(cur: Any) -> str:
@@ -373,9 +379,11 @@ def run_preflight(args: argparse.Namespace) -> int:
             cur.execute(_RAW_TF_SQL, (tf,))
             n, first = cur.fetchone()
             raw[tf], raw_first[tf] = int(n), first.isoformat() if first else None
-        failures += source_shortfalls(canonical, raw)
+        resuming = has_written(state.data)
+        if not resuming:  # a partly rebuilt table is no measure of what raw can rebuild
+            failures += source_shortfalls(canonical, raw)
         policy = read_policy_digest(cur)
-        if has_written(state.data) and policy != state.data.get("policy_digest"):
+        if resuming and policy != state.data.get("policy_digest"):
             failures.append(
                 "the live policy differs from the one this state's windows were selected under; "
                 "start a fresh state file (after a TRUNCATE) instead of resuming"
@@ -401,9 +409,12 @@ def run_preflight(args: argparse.Namespace) -> int:
             "compression": compression,
             "compression_job": job,
             "policy_digest": policy,
-            "canonical_rows_before": canonical,
-            "raw_rows": raw,
-            "raw_first": raw_first,
+            # the pre-TRUNCATE record survives a resume's preflight
+            "canonical_rows_before": (
+                state.data.get("canonical_rows_before", canonical) if resuming else canonical
+            ),
+            "raw_rows": state.data.get("raw_rows", raw) if resuming else raw,
+            "raw_first": state.data.get("raw_first", raw_first) if resuming else raw_first,
             "red_lineage": {v: dispositions.get(v) for v in red},
             "preflight_at": datetime.now(UTC).isoformat(),
             "preflight_failures": failures,
