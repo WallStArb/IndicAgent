@@ -62,6 +62,10 @@ _ALLOW_LIST: dict[str, str] = {
         "10) digests every canonical row of the sampled series, zero-volume bars included, to "
         "prove neither load path moved canonical; the tradeable view would hide rows."
     ),
+    "scripts/ops/bars/ops_canonical_summary_card.py": (
+        "todo 600 step 7: the pre-drop card counts and digests every canonical row, "
+        "placeholders included, so the rebuild is compared row for row"
+    ),
     "scripts/ops/bars/ops_selection_gate.py": (
         "PERMANENT: standing proof that canonical is a pure function of raw plus policy (191-07). "
         "It compares every canonical vendor row, zero-volume provider bars included, with the "
