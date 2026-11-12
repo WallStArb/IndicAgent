@@ -2,7 +2,7 @@ FROM timescale/timescaledb:latest-pg18
 
 USER root
 
-RUN apk add --no-cache --virtual .build-deps git build-base clang19 llvm19 postgresql18-dev \
+RUN apk add --no-cache --virtual .build-deps git build-base clang21 llvm21 postgresql18-dev \
     && git clone --branch v0.8.7 https://github.com/pgvector/pgvector.git /tmp/pgvector \
     && cd /tmp/pgvector && make && make install \
     && rm -rf /tmp/pgvector \
