@@ -77,4 +77,12 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 ## Progress 2026-11-11 (session 9ffac575)
 
-Raw loads 2024 to 2016 done through the bulk path (02f14f247), RAW-ONLY with selection deferred. Per year: 1d and 5m loaded all new, windowed compare 0 real differences before and after, canonical unchanged, unselected delta equal to the dry-run Massive-only count (2023 33, 2022 57,444, 2021 63,603, 2020 1, 2019 4,677, 2018 22, 2017 3, 2016 2,369), disk 626 GB free after. Rate 33-37k new rows/s. Spans trim to the first and last present session; gap days are reported in `logs/massive_apply_*` and the dry-run reports. Outstanding: 2015 to 2003 raw loads, then the owner's GO for step 7 (tooling landed at 1561842d7).
+Raw loads 2024 to 2016 done through the bulk path (02f14f247), RAW-ONLY with selection deferred. Per year: 1d and 5m loaded all new, windowed compare 0 real differences before and after, canonical unchanged, unselected delta equal to the dry-run Massive-only count (2023 33, 2022 57,444, 2021 63,603, 2020 1, 2019 4,677, 2018 22, 2017 3, 2016 2,369), disk 626 GB free after. Rate 33-37k new rows/s. Spans trim to the first and last present session; gap days are reported in `logs/massive_apply_*` and the dry-run reports. 
+## Progress 2026-11-12
+
+Raw loads 2026, 2025 and 2015 to 2003 done (sweep DONE 2026-11-11 23:44Z), same gate per year: compare 0
+real differences, canonical unchanged, unselected delta equal to the dry-run count (2015 5m 4,610,064;
+2014 4,108,883; 2013 3,609,520; 2012 3,260,535; 2011 2,998,233; 2010 2,794,286; 2009 2,547,327; 2008
+2,446,678; 2007 2,174,258; 2006 8,553,383; 2005 10,500,813; 2004 9,738,529; 2003 2,837,988; 2026 56; 2025 39).
+All 1d and 5m years 2026 to 2003 are now in raw (403.3M Massive rows), 617 GB disk free. Outstanding: the
+section 8a load checks, then step 7 on the lead's call (tooling landed at 1561842d7).

@@ -64,7 +64,7 @@ runs. STATE.md holds current position; PRIORITIES.md holds the lane order and th
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | Complete (plans 01-25, 2026-10-31). Residual: the restore toolchain and backup removal are todo 574, on or after 2026-11-12 (integration-test residue 572 closed 2026-11-01) |
-| 1b | 192 Massive flat files and entity identity (to be created with /gsd-phase when the plan is upgraded; todo 600) | One bulk vendor for all symbols from 2003 (minute aggregates, unadjusted SIP): the flat-file leaf, the pilot basis study and the file manifest; identity, definition-epoch and session-calendar tables only as the pilot proves each need (todo 600) | Plan upgraded and archive verified 2026-11-10; raw loads 2016-2024 done and gated 2026-11-11 (2015-2003 pending); step 7 tooling landed (1561842d7); waits on the owner's GO |
+| 1b | 192 Massive flat files and entity identity (to be created with /gsd-phase when the plan is upgraded; todo 600) | One bulk vendor for all symbols from 2003 (minute aggregates, unadjusted SIP): the flat-file leaf, the pilot basis study and the file manifest; identity, definition-epoch and session-calendar tables only as the pilot proves each need (todo 600) | Plan upgraded and archive verified 2026-11-10; every raw load 2026 to 2003 done and gated 2026-11-11 (403.3M Massive rows, compare 0 real differences, canonical unchanged); step 7 tooling landed (1561842d7); admission executes on the lead's call (the section 8a load checks, then step 7) |
 | 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2 and 186-28 remain; 186-26 stage 1/1b 1d done 2026-10-30 (5,424,063 rows), stage 2 intraday paused 2026-11-01 at 650/1,252 symbols pending todo 584's stored-value fixes (the corpus is recomputed once at the new pin); 186-27 swap landed 2026-11-04 on the empty table (migration 570, one name `feature_vectors`); the rerun waits on complete data, which is now Massive admission execution (todo 600: archive acquired and verified 2026-11-10; the 186-31 step runner converged; on admission day the canonical one-pass rebuild per the admission design replaces the rerun's data step, then the rerun runs at the new pin) |
 | 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Plans 01-10 landed 2026-11-04 (a feature member runs S0->S8 on a synthetic panel; admission per todo 588: feature 1h/15m->1d, rk_high_dist 126, the 1h+15m book); 11 open; 12 (dry S0 on real data) waits on 186-27; 13-14 on todo 482 |
 | 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-11 landed, and 15 Task 2 (`PanelSpec.fields`, which with 09 and 10 unblocks 184's wiring); 12 next, then 13-15. E17 daily statistic landed 2026-10-30 (todo 547); the Step B v2 battery passed 2026-10-31, so StepM selection is unblocked; the owner holds the S1-drift option A/B decision. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
@@ -94,33 +94,7 @@ One line each; full detail in `.planning/milestones/v3.4-ROADMAP.md`.
 
 ### Phase 183: Research layer: runner, ledger, combiner, book test
 
-**Goal:** No real-data research number exists outside a recorded, reproducible run. Build
-steps 4-6 of `docs/plans/2026-09-25-alpha-research-architecture.md` on the package already on
-main (`src/intelligence/research/`: panel, snapshot, signals, evaluate, factors, guards): (4) a
-runner that refuses a real-data run unless the candidate spec is committed and unrun, writes a
-`started` ledger row before computing, runs S3 guards and `require_testable`, and records spec,
-snapshot and code hashes; (5) the S6 ledger writer, sole writer of
-`concept_registry(domain='construction')` evidence records and the vintage budget (M = 30,
-evidence framework E15); (6) the S7 walk-forward ridge combiner over every registered family
-member and the S8 book test (joint whole-session shift of the signal stack, combiner refit per
-shift), budget-charged. Family 1's first real-data run waits for (4) and (5).
-**Requirements**: D-01 through D-29 (D-26 to D-29: E16 adoption)
-**Depends on:** none (steps 1-3 on main)
-**Plans:** 10 plans in 5 waves
-
-Plans:
-
-- [x] 183-01-PLAN.md - R1 rank-vol-neutral construction and R2 session scoring (wave 1)
-- [x] 183-02-PLAN.md - migration 366 research_run ledger, APR budget keys, ledger.py sole writer (wave 1)
-- [x] 183-03-PLAN.md - spec schema and canonical hash, git provenance refusals (wave 1)
-- [x] 183-04-PLAN.md - S7 walk-forward ridge and exact power-decision primitives (wave 1)
-- [x] 183-05-PLAN.md - family 1 members P1-P4, array guard probes (wave 1)
-- [x] 183-06-PLAN.md - S8 book test with per-shift combiner refit (wave 2; refit null superseded by 183-11)
-- [x] 183-07-PLAN.md - runner evidence mode, evidence records, CLI, family 1 spec (wave 2)
-- [x] 183-08-PLAN.md - residual-space synthetic generator and exact power estimator (wave 3)
-- [x] 183-09-PLAN.md - runner book mode, book v1 spec, full-size synthetic dry run (wave 4)
-- [x] 183-10-PLAN.md - first real-data run: family 1 evidence, then book v1 (wave 5; evidence completed, book v1 refused uncharged; summary 02b021ae3)
-- [x] 183-11 (no PLAN.md; owner decision executed inline) - E16 adopted and built: HAC timing t decides, shift null diagnostic, power through the same statistic (183-11-SUMMARY.md)
+**Status:** complete (11 plans). The runner refuses a real-data run unless the spec is committed and unrun, writes a `started` ledger row first and records spec, snapshot and code hashes; the S6 ledger is the sole writer of research evidence and the vintage budget (M = 30 until phase 187 replaces it); the S7 walk-forward ridge combiner and S8 book test are built. E16 adopted (HAC timing t decides; 183-11). First real-data run: family 1 evidence completed, book v1 refused uncharged. Full plan list and requirements: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
 ### Phase 184: Multi-timeframe research inputs
 
@@ -173,188 +147,7 @@ Plans:
 
 ### Phase 185: Daily data foundation
 
-**Goal:** Every daily bar research reads traces to raw IBKR observations and a versioned
-derivation rule, and no data defect reaches a verdict unmeasured. Build stages D0-D7 of
-`docs/plans/2026-09-26-daily-data-foundation.md` (accepted 2026-09-26): D0 bound each verdict's
-exposure to venue truncation and missing dividends (the survivorship bound was retired by the
-owner 2026-10-09, todo 514); D1 an append-only 1d
-observation store (every route and request type); D2 derived 1d bars written to
-`market_data_ohlcv` by the derivation alone; D3 venue-move recovery for 1d and intraday (todo
-433), stored only after a listing-venue validation study passes; D4 empty history recorded only
-when every route answers "no data"; D5 splits detected from re-fetch overlaps and dividends from
-ADJUSTED_LAST against TRADES, point in time, as the independent check on Yahoo's dividends; D6 listing-venue history; D7 daily reconciliation of
-SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday. D8 (forward
-survivorship capture) was descoped by the owner 2026-09-26.
-IBKR-only: no new data sources (owner, 2026-09-26), except Yahoo's dividend history kept as
-reference data (todo 428); the vendor stage stays gated. Revision 2
-(2026-09-26, aligned with the unified design): D0 becomes data-quality labels on every attempt
-(old verdicts are summary cards, not re-run); D2a scrubbing inside the derivation (flag, never
-delete; rules validated on known answers; one historical batch pass folding todos 155, 347, 052);
-revisions propagate through content-digest keys; daily
-attempts 3, 3b and 4 wait on the minimum data bar (seam audit, scrubbing pass, moved names,
-total returns, survivorship bound). D2a reuses the existing price-sanity classifier as one scrubbing
-rule; D2a and D7 are the price-integrity layer (no existing service checks historical price
-correctness). Order: the
-1d re-run for the 384 late-starting names, the D3 study, the seam audit and the D2a pass, none of
-which needs D1. D2a's known-answer set includes the 2026-09-26 1d dry run (45 unflagged corrupt
-bars; the classifier's cross-symbol corroboration clears Flash Crash stub prints). D2a closes the onboarding
-SOP's second gap (scrubbing in the chain).
-UD-25 (unified design 14.7, todo 446): D2 also derives 15m and 1h bars from 5m on
-session-anchored edges (stored 1h drops the 09:30-10:00 half hour on 39 names, SPY included),
-landing before phase 186's `feature_vectors` rebuild; D2a takes over `forward_return_writer`'s
-suspect, corroboration and gap flags as flags on bars.
-**Requirements**: TBD
-**Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
-through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
-Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 28/45 plans executed (27 to 35 close the 2026-10-06 verification gaps; 31, 33 and 35 amended and 36 to 45 added by the data layer integrity design, `docs/plans/2026-10-06-data-layer-integrity-design.md`, owner-approved 2026-10-06)
-
-Plans:
-
-**Wave 1**
-
-- [x] 185-01-PLAN.md - known-answer fixtures, test scaffolding, write-rate and role measurements (wave 1)
-- [x] 185-02-PLAN.md - D1 observation store, roles, COPY writer (wave 1)
-- [x] 185-03-PLAN.md - provider request records and venue observations (wave 1)
-- [x] 185-04-PLAN.md - bar_quality_flag, quarantine view, scrub APR, batch helper (wave 1)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 185-05-PLAN.md - D2a pure scrub rules on known answers (wave 2)
-- [x] 185-06-PLAN.md - session grid aggregation and bar content digest (wave 2)
-- [x] 185-07-PLAN.md - seams, splits, disputed dates, D3 study pre-registration (wave 2)
-- [x] 185-08-PLAN.md - D0 label arithmetic and survivorship APR (wave 2)
-- [x] 185-09-PLAN.md - D1 capture in the backfill; IBKR history-stream lease replacing the nightly skip; chain cut-over (wave 2)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
-- [x] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
-- [x] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
-- [x] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
-
-**Wave 4** *(185-15 blocked on Wave 3 completion; 185-12 gated only on 09-11, its `depends_on`: 13 and 14 may run in parallel, D-15 needs neither)*
-
-- [x] 185-12-PLAN.md - D2b live rewrite, write-path switch, single archive writer, 186 precondition (wave 4)
-- [x] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 185-16-PLAN.md - D-28 data bar check, D0 read helper, S0 hand-off (wave 5)
-- [x] 185-17-PLAN.md - D2 1d derivation rule and stage, dry run (wave 5)
-- [x] 185-21-PLAN.md - D5 IBKR dividend route from D1, date disputes (wave 5)
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [x] 185-18-PLAN.md - D2 sole 1d writer and historical apply (wave 6)
-
-**Wave 7** *(blocked on Wave 6 completion)*
-
-- [x] 185-19-PLAN.md - D3 rebase and D4 from recorded answers, 1d (wave 7)
-
-**Wave 8** *(blocked on Wave 7 completion)*
-
-- [x] 185-20-PLAN.md - intraday verify-only, empty history, gated recovery (wave 8)
-- [x] 185-22-PLAN.md - D5 nightly overlap split detection (wave 8)
-
-**Wave 9** *(blocked on Wave 8 completion)*
-
-- [x] 185-23-PLAN.md - D7 nightly reconciliation audit (wave 9)
-
-**Wave 10** *(blocked on Wave 9 completion)*
-
-- [x] 185-25-PLAN.md - rebuild market_data_ohlcv from real rows, drop the synthetic fill (wave 10)
-
-**Wave 11** *(blocked on Wave 10 completion)*
-
-- [x] 185-26-PLAN.md - nightly Tradier 1d leg and the Tradier-owned skip (wave 11)
-
-**Wave 12** *(blocked on Wave 11 completion)*
-
-- [x] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 12)
-
-**Gap closure and data layer integrity** *(185-VERIFICATION.md and the 2026-10-06 data layer integrity design; waves 13 to 24)*
-
-Exit notes: success criterion 8 (reopened ideas re-evaluated on canonical bars) is an obligation on
-the first reopened idea, not a 185 deliverable (owner, 2026-10-06). D0's S0 application
-(`185-S0-HANDOFF.md`) belongs to the phase 183 research lane through the todo 185-29 files, ranked
-in front of daily attempts 3, 3b and 4; D-04 stays unmet at close and re-verification records an
-explicit override for it. The design replaces the second 1d writer with one rule (d2-v2) and one
-writer, makes lineage a view, and gates promotion and the phase 186 rebuild on computed verdicts.
-Cross-phase order (owner re-sequencing 2026-10-07: pipeline squared away and clutter cleaned before
-the new data): 185-44, 189-07, 185-28, 185-31, 185-32/34/36, 185-38 (cutover), 185-33, 185-39, 185-29,
-185-40, 185-41, 189-08, 185-37, 185-35, 185-42, 185-45, 185-43, then 189-10 (one-time IBKR 1d fetch
-for the 473 never-asked names, 5m pilot and launch), 189-09, 189-11 after the 5m backfill. Phase 186's
-rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-marker check from
-185-41).
-
-**Wave 13**
-
-- [x] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, new-and-changed-only writes to D1 and market_data_ohlcv, scrub and digests in the loader, lineage/digest writer boundary (wave 13)
-- [x] 185-44-PLAN.md - complexity baseline census; CI guards for TEMPORARY and pending-retirement expiry, single_writer registry, reader-less tables and APR keys (wave 13, runs first)
-
-**Wave 14** *(blocked on Wave 13 completion)*
-
-- [x] 185-28-PLAN.md - IBKR-only venue view, 7 IBKR-sourced late names re-asked, 6 contradicted empty-history rows reconciled (wave 14)
-- [x] 185-30-PLAN.md - lineage for 1,266 Tradier-owned names, digests for every canonical 1d name, 31 untraced IBKR bars re-asked, replaced 1d legacy flags retired (wave 14)
-- [x] 185-31-PLAN.md - amended: ohlcv_load/ohlcv_revision for every writer (migration 443), pure write contract with a min-stored floor, grid stage compare-and-write, todo 490's 7 symbols derived (wave 14)
-
-**Wave 15** *(blocked on Wave 14 completion)*
-
-- [x] 185-32-PLAN.md - alignment sweep: fill paths removed or fenced, no-synthetic DB guard and AST CI test, provider matrix (wave 15)
-- [x] 185-34-PLAN.md - D-28 gate conditions 1, 3 and 4 source-aware (wave 15)
-- [x] 185-36-PLAN.md - bar_source_policy (migration 446), pure daily rule d2-v2 on known cases, daily stage on d2-v2 measured in dry run (wave 15)
-
-**Wave 16** *(blocked on Wave 15 completion)*
-
-- [x] 185-38-PLAN.md - cutover: Tradier loader writes D1 only, lineage view (migration 447), all names re-derived under d2-v2, digests rewritten at d2-v2, restore proof, VACUUM FULL of D1 (wave 16)
-
-**Wave 17** *(blocked on Wave 16 completion)*
-
-- [x] 185-33-PLAN.md - amended: computed verdict report, 1d checks (migration 449) (wave 17)
-- [x] 185-39-PLAN.md - write contract for IBKR ingress and D1, request digests, archive contract, CI scan against first-write-wins (migration 448) (wave 17)
-
-**Wave 18** *(blocked on Wave 17 completion)*
-
-- [x] 185-29-PLAN.md - D0 label inputs name the rules and carry policy and verdict as-of; S0 hand-off todo with snapshot pinning; owner answers and orchestrator calls recorded apart (wave 18)
-- [x] 185-40-PLAN.md - verdict report, intraday checks (migration 450) (wave 18)
-
-**Wave 19** *(blocked on Wave 18 completion)*
-
-- [x] 185-41-PLAN.md - gates on verdicts: promotion, check_d2_landed, check_bar_coverage and the cleanup landed marker (186 note), live D2 test, alert rules (wave 19)
-
-**Wave 20** *(blocked on Wave 19 completion)*
-
-- [x] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37) ; NOTE: amend to the two-lane design first (todo 503)
-- [x] 185-37-PLAN.md - vendor adjustment-basis study, pre-registered rule, exception policy rows (wave 20)
-
-**Wave 21** *(blocked on Wave 20 completion)*
-
-- [x] 185-35-PLAN.md - replaced: first fired Tradier and D7 timer runs verified (nightly stays off), ETHA confirmed, closing checks, todo 490 closed (wave 21)
-
-**Wave 22** *(blocked on Wave 21 and on 189-08; runs before any bulk IBKR pull)*
-
-- [x] 185-42-PLAN.md - cleanup, code: fill path, d2-v1, first-write-wins in the rebuild writer, one-off scripts, orphaned keys marked for retirement (wave 22)
-
-**Wave 23** *(blocked on Wave 22 completion)*
-
-- [x] 185-45-PLAN.md - dormant v2.x and AI stack archived then removed: ollama and its volume, langfuse, unused tempo volume, I1-I7 code, units and tables; Redpanda by a pre-registered rule (wave 23)
-
-**Wave 24** *(blocked on Wave 23 completion)*
-
-- [x] 185-43-PLAN.md - cleanup, DB, docs and housekeeping: backfill_status and swap tables dropped, retired APR keys (migration 452), phase archive, old logs, memory, docs and todos, exit criteria against the 185-44 baseline (wave 24)
-
-**Wave 25** *(blocked on Wave 24; runs between 189-10 Task 1b, the one-time IBKR 1d fetch, and 189-10 Task 2, the 5m pilot; see the 185-46 amendment to 189-10)*
-
-- [x] 185-47-PLAN.md - 1d primary moves to IBKR from date D: per-name class B and C policy rows, dated default migration (456), dry run against the pre-registered criteria, apply, D7 verdict comparison, wiring check (wave 25)
-
-**Wave 26** *(blocked on Wave 25 completion)*
-
-- [x] 185-48-PLAN.md - Tradier loader, units, provider and APR keys retired (migration 457); docs, design amendment and residual todos (wave 26)
-- [x] 185-49-PLAN.md - stale Tradier heads: 38 head rows, 3 closures, 14 names to todo 512 (todo 508; plan of record docs/research/stale-tradier-heads-policy.md)
-- [x] 185-50-PLAN.md - policy closures stamped (closed_at, migration 460); the revision waiver and the changed-only probe see a close; FTV, IP, STE re-derived
-- [x] 185-51-PLAN.md - split recognition rule (APR), hold list (bar_hold, migration 461), CTVA held, ETHA split row superseded (todo 515)
-- [x] 185-52-PLAN.md - d2-v3: after a split the daily rule serves the other vendor's current-scale answer instead of quarantining pre-D Tradier history (todo 517)
+**Status:** complete (53 plans, waves 1-26). Built stages D0-D7 of `docs/plans/2026-09-26-daily-data-foundation.md`: data-quality labels, an append-only 1d observation store, derived 1d bars written by the derivation alone, venue-move recovery (todo 433), empty history recorded only when every route answers "no data", splits and dividends detected point in time, listing-venue history (D6) and daily reconciliation (D7). D8 (forward survivorship capture) was descoped 2026-09-26 and the survivorship bound retired 2026-10-09 (todo 514). The Tradier-primary 1d path became IBKR-primary (185-47) and was then deleted by phase 191; the v2.x AI stack was removed (185-45). Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
@@ -641,108 +434,21 @@ set, append-only positions with revision alarms, positions parity with research;
 (impact, borrow constraint, capacity curve, implementation shortfall); `portfolio_state`, sizing
 and risk limits (re-scoped phases 156-157); challenger protocol with a paired test.
 **Requirements**: TBD
-**Depends on:** a candidate book in the selection set; todo 438's borrow snapshots running before
-any forward span starts.
+**Depends on:** a candidate book in the selection set; todo 438's borrow snapshots (running daily since 2026-10-31).
 **Plans:** 0 plans
 
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 188 to break down)
 
-### Phase 189: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts
+### Phase 189: IBKR history fetch consolidation
 
-**Goal:** Exactly one process fetches IBKR history: a timeframe- and dimension-agnostic oneshot fetcher ranks work from an atomically maintained `ohlcv_coverage` ledger (migration 432) with a deterministic SLA-banded priority queue, holds a fail-fast advisory lock shared by every IBKR history tool, and replaces the nightly timer, lane scripts and two-tier lease.
-**Requirements**: none (infra phase; decisions CD-01..CD-14 from 189-CONTEXT.md)
-**Depends on:** None
-**Plans:** 11 plans (07 to 09 amended and 10 to 11 added by the 2026-10-06 data layer integrity design)
+**Status:** functionally done (plans 01-10; cutover executed 2026-10-06). One oneshot fetcher ranks work from the atomically maintained `ohlcv_coverage` ledger (migration 432) through a deterministic priority queue and holds the advisory lock every IBKR history tool shares; the nightly and lane scripts are deleted. Plan 189-11 (5m backfill completion) is superseded: the 534 campaign stopped gating on 2026-11-10 when Massive became the data-complete path (todo 600), and the IBKR leg falls to the deletion list after admission. Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
-Plans:
+### Phase 190: Provider history plane unification
 
-- [x] 189-01-PLAN.md - migration 430 ohlcv_coverage + APR keys + bootstrap; coverage writer; atomic three-way persist
-- [x] 189-02-PLAN.md - pure priority queue over the ledger; fetcher advisory lock
-- [x] 189-03-PLAN.md - per-(symbol, timeframe) item fetch with stall bound, retries, atomic coverage persistence
-- [x] 189-04-PLAN.md - IbkrHistoryFetcher oneshot, systemd units, service registry, read-only dry-run gate
-- [x] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
-- [x] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
-- [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
-- [x] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
-- [x] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10) ; CLOSED 2026-10-31: the cited todos verified in completed/ (488, 387, 455, 484; 452 superseded by the 189-06 cutover)
-- [x] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered c ; CLOSED 2026-10-31: 189-10-TASK1/TASK2-SUMMARY.md on diskriterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth 5m backfill as a completeness campaign; paused 2026-10-10 for the Alpaca all-names load, timer restarts after and the fetcher timer was re-enabled, todo 523 record)
-- [ ] 189-11-PLAN.md - (2026-10-28: the pre-2016 5m backfill runs near continuously at concurrency 4, todo 534 P0; about 9,200 name-years left of 1,279 names) 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed (amended 2026-10-09: absorbs todo 526 - per-TF provider floors and expected-domain planning, the planner root fix; head verification across all names incl. the 163 head-gap names; the all-names 5m scope per the owner ruling, registry promotion wave sequenced after data exists; Alpaca 521 coordination: phase 2 canonical all-names load RUNNING 2026-10-10 (chunk fixes landed) while the 5m backfill is paused; todo 526 still open)
+**Status:** complete (7 plans; cutover 2026-10-10, parity PASS). One multi-provider fetcher (`ohlcv_history_fetcher`) with a provider dimension on queue items, per-provider heads and quarantine (todo 526, closed), leaves in `src/providers/<vendor>.py` behind one protocol, and a two-tier ledger. Design: `docs/plans/2026-10-09-provider-history-plane-unification-design.md`. Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
-### Phase 190: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
+### Phase 191: Unified raw bar table
 
-**Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m backfill kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
-**Requirements**: TBD (design-derived: P190-conformance, P190-boundary, P190-migration, P190-ledger, P190-writers, P190-queue, P190-fetcher, P190-parity, P190-lock)
-**Depends on:** Phase 189
-**Plans:** 7/7 plans executed (2026-10-10: 190-06 cutover landed — 465 + conflict-target flip at CUT_TS 11:59:48Z, parity PASS, unified fetcher verified by two clean runs; 190-07 wrap-up landed — glossary, gotchas, 526 closed, Alpaca downstream note updated for the T4 leaf. The backfill restart is held by the owner's pull freeze.)
-
-Plans:
-**Wave 1**
-
-- [x] 190-01-PLAN.md — HistoryProvider protocol, verdict/budget/page types, IBKR leaf conformance, import-boundary fence
-- [x] 190-02-PLAN.md — Two-tier ledger migrations (464 additive, 465 breaking at cutover), provider-parameterized coverage writer, parity-before capture
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 190-03-PLAN.md — Per-provider planner: ProviderPlan, per-provider ledger reads and floors (todo 526), policy read gate
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 190-04-PLAN.md — Fetcher generalization: provider registry, vendor-blind loop, overlay split, item-mechanics seam
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 190-05-PLAN.md — Rename to ohlcv_history_fetcher / OHLCVHistoryFetcher with external-identity freeze
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [ ] 190-06-PLAN.md — Cutover: parity gate, backfill kill-and-resume under the unified fetcher (blocking owner checkpoint)
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [x] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note ; CLOSED 2026-10-31: 190-07-SUMMARY.md on disk, todo 526 in completed/
-
-### Phase 191: Unified raw bar table (todo 533; design: docs/plans/2026-10-12-unified-raw-bar-table-design.md)
-
-**Goal:** One raw table (`ohlcv_raw`) for every vendor and timeframe, last-wins with a revision log; canonical `market_data_ohlcv` becomes a rebuildable selection by policy carrying vendor and kind; `ohlcv_observation` and `ohlcv_intraday_raw_archive` are deleted; vendors are CVR data; Tradier retired.
-**Requirements**:
-- R-191-01: schema, CVR vocabularies bar_vendor and bar_kind, revision extension, glossary (design doc step 3, schema half)
-- R-191-02: raw writer behind the raw-first ingress contract with same-vendor revision classification and selection (step 3, writer half)
-- R-191-03: raw backfill from canonical, archive and observation with an R6-style balance check (step 4)
-- R-191-04: fetcher and Alpaca loader switch to the raw writer; the fetch-ledger sink moves to ohlcv_request_writer (steps 3 and 6, writers)
-- R-191-05: selection rebuild gate, canonical from raw equals today's canonical row for row (step 5)
-- R-191-06: reader cutover from the two old stores to raw, in order: fetcher-side, daily rule, D7 and views, evidence readers, scripts (step 6)
-- R-191-07: canonical `source` split into vendor and kind via the v2 swap and the reader tail (step 7)
-- R-191-08: drop the two old stores with a verified backup, VACUUM, restore the parity lane (step 8)
-- R-191-09: close, R6 and D7 green, repro_frozen, old canonical dropped, bookkeeping, todo 530 (step 9)
-- R-191-10: Tradier retirement, residue and fallback proof, gated deletion, code deletion, todo 533 (step 10)
-**Depends on:** Phase 190
-**Plans:** 16/25 plans executed
-
-Plans:
-- [x] 191-01-PLAN.md - schema (ohlcv_raw, CVR bar_vendor/bar_kind, revision extension, widened checks), vendor_kind module, glossary, decision record D-191-A to H (R-191-01)
-- [x] 191-02-PLAN.md - new writers as additive modules: raw writer with future-timestamp guard, pure selection plus canonical selection writer, request writer, CI guards (R-191-02, R-191-04)
-- [x] 191-03-PLAN.md - bulk raw backfill from canonical, archive and observation with balance check, compression policy (R-191-03)
-- [x] 191-04-PLAN.md - open the cutover window (stop fetcher, readers and canonical writers; per-unit clearance), delta backfill, revision key migration and reconstruction, raw-first contract entry point beside the old one (R-191-02)
-- [x] 191-05-PLAN.md - fetch path writers switch, old contract entry point removed, boundary tests they break (R-191-04)
-- [x] 191-06-PLAN.md - fetcher-side readers: coverage ledger and gap planner over raw (R-191-06)
-- [x] 191-07-PLAN.md - selection rebuild gate (canonical equals selection from raw), Alpaca policy spans, fetcher resumes (R-191-05)
-- [x] 191-08-PLAN.md - daily rule and grid stage read raw; 1d equivalence check; conservative pairing rule (R-191-06)
-- [x] 191-09-PLAN.md - canonical_bar_lineage and ohlcv_venue_head over raw first, then D7 and bar auditor; D7 and auditor units resume last (R-191-06)
-- [x] 191-10-PLAN.md - evidence readers: split detection, listing venue, bar hold, dividend writer, nightly (R-191-06)
-- [x] 191-11-PLAN.md - ops and research scripts, ObservationSink script writers, R6 over raw, final inventory, window closed (R-191-06)
-- [x] 191-12-PLAN.md - canonical v2 table (vendor, kind): shell migration, copy-with-map build, equality and gate proof, window two (R-191-07)
-- [x] 191-13-PLAN.md - code switch to vendor and kind: library, services, fetcher-imported scripts, standing gate, equivalence check, API route (R-191-07)
-- [x] 191-14-PLAN.md - swap names, recreate four views, VACUUM, post-check, units resumed, repro_frozen (R-191-07)
-- [x] 191-15-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
-- [x] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
-- [x] 191-17-PLAN.md - close (time-gated: 24 hours and one 06:00 UTC D7 run after the swap): R6 and D7 green, repro_frozen, drop old canonical, delete one-shots, retire keys, docs (R-191-09)
-- [x] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
-- [x] 191-19-PLAN.md - Tradier residue measurement and fallback-path proof, no rule or policy change (Tasks 1 and 2 done 2026-10-28: readiness green, 191-TRADIER-RESIDUE.md; SUMMARY with plan 20) (R-191-10)
-- [x] 191-20-PLAN.md - Tradier deletion behind an owner checkpoint: COPY backup, one-symbol trial, guarded deletes, dated CLAUDE.md exception, re-derive, repro_frozen (Task 1 owner approved 2026-10-28; Task 2 tooling built and reviewed; paused before the D-191-Q policy apply, runbook in todo 545) (R-191-10) Run 2026-10-28/29: policy applied, Tradier deleted and verified, 1d re-derived; D7 passes for 1,273 of 1,502 names, 229 named holds (todo 545).
-- [x] 191-21-PLAN.md - Tradier code deletion, library part 1 (sources, vendor_kind, derivation, corporate_ ; CLOSED 2026-10-31: 191-21-SUMMARY.md on diskactions) and digest baseline (R-191-10)
-- [x] 191-22-PLAN.md - Tradier code deletion, library part 2 (integrity_checks, source_admission, vendor_b ; CLOSED 2026-10-31: 191-22-SUMMARY.md on diskasis, fixtures; daily_rule untouched) (R-191-10)
-- [x] 191-23-PLAN.md - Tradier code deletion, services (R-191-10) ; CLOSED 2026-10-31: 191-23-SUMMARY.md on disk
-- [ ] 191-24-PLAN.md - Tradier code deletion, fetcher-imported scripts and integration tests (R-191-10)
-- [ ] 191-25-PLAN.md - Tradier ops and research scripts, guards and key retirement, sweep, todo 533 closes (R-191-10)
+**Status:** complete (25 plans, 2026-10-31; todo 533, design `docs/plans/2026-10-12-unified-raw-bar-table-design.md`). One raw table `ohlcv_raw` for every vendor and timeframe, last-wins with a revision log; canonical `market_data_ohlcv` is a rebuildable selection by policy carrying vendor and kind; the two old stores are dropped; Tradier is retired and its code deleted. Residual: the restore toolchain and backups go under todo 574 (due 2026-11-12). Phase 192 (Massive) builds on this layer. Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.

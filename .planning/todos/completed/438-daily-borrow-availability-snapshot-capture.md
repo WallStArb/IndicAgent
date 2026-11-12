@@ -1,4 +1,10 @@
-
+---
+status: closed
+closed: 2026-11-12
+priority: P1
+filed: 2026-09-26
+source: phase 185 D8 descoped; borrow availability is live-only at IBKR
+---
 
 ## Phase 185 revision 2 (2026-09-26)
 
@@ -29,3 +35,7 @@ counter, generated-column docstring truth); full unit suite green except concurr
 in-flight files (93's 538 watchdog tests, b0's unlinked 574). Done-when complete once the
 first full-universe timer run lands (1,529 names, about 10 minutes) and a missed day is
 auditable from `job_completed_total{job="borrow-availability-capture"}`.
+
+## Closure 2026-11-12
+
+The daily capture is running: `indicagent-borrow-capture.timer` (16:30 ET) wrote 1,529 symbols per day on 2026-11-02..06, 10 and 11 (about 1,512 with a shortable-shares answer; the 2026-11-07..09 gap is the gateway 2FA wedge, todo 607). Missed days are auditable from `job_completed_total{job="borrow-availability-capture"}`.

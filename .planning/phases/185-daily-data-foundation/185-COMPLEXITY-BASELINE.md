@@ -587,7 +587,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md
 - .planning/todos/pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md
 - .planning/todos/pending/437-first-cut-cost-model-commission-and-spread.md
-- .planning/todos/pending/438-daily-borrow-availability-snapshot-capture.md
+- .planning/todos/completed/438-daily-borrow-availability-snapshot-capture.md
 - .planning/todos/pending/439-forward-span-integrity-write-once-oos-start-and-ic-purge.md
 - .planning/todos/pending/440-generated-family-grammar-daily-ohlcv-931-names.md
 - .planning/todos/pending/441-price-only-daily-families-931-names-prereg.md
