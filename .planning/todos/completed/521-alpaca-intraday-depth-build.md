@@ -1,8 +1,9 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-10-09
 source: Alpaca integration pilot (docs/plans/archive/2026-10-09-alpaca-integration-pilot.md, executed 2026-10-09)
+closed: 2026-11-12
 ---
 
 # Alpaca intraday depth build: leaf, admission, and the 2016-forward 5m/1m backfill
@@ -78,3 +79,7 @@ Existing boundary tests pass unchanged (`SOURCE_ALPACA` in the bars sources
 registry, no edits to admission or verdict-gate logic beyond the policy row);
 the 22 pilot names' 5m basis at or above the C3 level on all 22 after the
 diagnoses; volume convention verified by the H1 rule on stored rows.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

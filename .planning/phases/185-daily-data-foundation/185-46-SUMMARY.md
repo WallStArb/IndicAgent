@@ -19,7 +19,7 @@ key-files:
     - tests/unit/scripts/test_swap_1d_primary_measure.py
     - production/migrations/455_bar_freshness_1d_apr.sql
     - tests/unit/test_bar_freshness_apr_migration_contract.py
-    - .planning/todos/pending/505-nightly-update-lane-exceeds-r4-measure-5m-pacing-ceiling.md
+    - .planning/todos/completed/505-nightly-update-lane-exceeds-r4-measure-5m-pacing-ceiling.md
   modified:
     - src/intelligence/bars/integrity_checks.py
     - src/intelligence/bars/verdict_gate.py

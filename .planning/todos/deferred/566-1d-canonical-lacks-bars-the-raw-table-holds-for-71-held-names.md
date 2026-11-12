@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P1
 filed: 2026-10-29
 source: data lane, 1d session_coverage recount (191-SESSION-COVERAGE-FIX.md)
@@ -140,3 +140,7 @@ canonical holds 15), which is the silent-wrong-answer surface this todo exists t
   `default_scopes` unchanged), then re-derive them with `bar_derivation --stage daily --symbols ...`
   and read their D7 rows. Eligibility promotion stays the owner's decision (todo 491).
 - Group 3: waiting on the owner (the arbitration-lane refusals); no action here.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-11-05
 source: lead (indicagent-4d), from the todo 594 landing (aff4f022c)
 ---

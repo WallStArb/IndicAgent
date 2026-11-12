@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P0
+priority: P1
 filed: 2026-09-26
 source: 2026-09-26 backlog triage, owner decision
 ---

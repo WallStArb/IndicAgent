@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P0
 filed: 2026-11-05
 source: lead (indicagent-4d), from the 186-32 data-gate executor's live findings
@@ -53,3 +53,7 @@ Truth first, then evidence, then re-ask (raw-capture law 528: every answer store
 The ledger is truthful, gap_plan reads only completed answers, the re-ask is recorded, and the
 data gate's Alpaca era reports thin sessions as answer-complete on evidence (or as named holes).
 Gates the 584 pin with 534 and 594.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

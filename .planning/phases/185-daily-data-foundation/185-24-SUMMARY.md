@@ -23,7 +23,7 @@ key-files:
     - docs/foundation/instrument-onboarding-sop.md
     - docs/operations/operations-database.md
     - .planning/todos/PRIORITIES.md
-    - .planning/todos/pending/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md
+    - .planning/todos/deferred/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md
     - tools/glossary_baseline.json
 decisions:
   - "Former listing venue chosen by nearest-to-official-close wins first, volume second (not volume alone): measured on the moved names, max venue volume hands most post-2008 ranges to BATS, which listed none of them"

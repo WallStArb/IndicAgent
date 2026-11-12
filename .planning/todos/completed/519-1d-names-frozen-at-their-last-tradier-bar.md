@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-10-08
 source: plan 185-48 (residual risk of the 1d primary swap; 185-47 Apply results, 189-10 1D fetch record item 5)
 owner: owner decision per name, then the onboarding SOP or ops_source_policy.py
+closed: 2026-11-12
 ---
 
 # Four 1d names frozen at their last Tradier bar: PSKY, WBD, QRVO, MOD
@@ -139,3 +140,7 @@ the SKYD first-fetch confirmation, the listing_end rows for BZH and ACA (and MSG
 check), and MOD's class C hold. Todo 574 holds the restore toolchain (including
 `source_admission.py`, this todo's evidence judge if a re-ask ever needs it) until
 2026-11-12.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

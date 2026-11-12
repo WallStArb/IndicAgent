@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P0
 filed: 2026-10-29
 source: data lane diagnosis of the 186-26 intraday D-32 gate
@@ -55,3 +55,7 @@ the running 186-26 rebuild's kernel_code_key import closure (verified:
 services/backfill_feature_factory.py imports scripts.infrastructure.backfill._history_fetch
 which imports src.providers), so any edit discards every completed rebuild cell. Do not touch
 it until the rebuild finishes.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

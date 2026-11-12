@@ -23,7 +23,7 @@ key-files:
     - tests/unit/test_retire_tradier_apr_migration_contract.py
     - .planning/todos/pending/517-tradier-history-before-d-after-a-split.md
     - .planning/todos/pending/518-1d-volume-basis-change-at-d-for-research.md
-    - .planning/todos/pending/519-1d-names-frozen-at-their-last-tradier-bar.md
+    - .planning/todos/completed/519-1d-names-frozen-at-their-last-tradier-bar.md
   modified:
     - src/intelligence/bars/sources.py
     - src/intelligence/bars/daily_rule.py

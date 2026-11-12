@@ -584,7 +584,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/429-integration-conftest-replay-broken-since-322.md
 - .planning/todos/pending/430-terminology-enforcement-curate-then-ratchet.md
 - .planning/todos/pending/431-stratified-sourcing-onboarding-holds-one-transaction-across-ibkr-calls.md
-- .planning/todos/pending/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md
+- .planning/todos/deferred/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md
 - .planning/todos/pending/435-wire-feature-vectors-into-research-panel-all-timeframes.md
 - .planning/todos/pending/437-first-cut-cost-model-commission-and-spread.md
 - .planning/todos/completed/438-daily-borrow-availability-snapshot-capture.md
@@ -596,7 +596,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/444-onboarding-tooling-classification-mapper-pair-column-orchestrator.md
 - .planning/todos/pending/448-research-lane-dependencies-for-phases-186-187.md
 - .planning/todos/completed/449-intraday-5m-backfill-for-the-698-names-without-it.md
-- .planning/todos/pending/453-ibkr-backfill-concurrency-probe-then-pipelined-persistence.md
+- .planning/todos/completed/453-ibkr-backfill-concurrency-probe-then-pipelined-persistence.md
 - .planning/todos/pending/454-ultra-thin-traded-series-treatment.md
 - .planning/todos/pending/455-drop-1m-from-nightly-backfill-defaults.md
 - .planning/todos/pending/456-todo445-rerun-zero-commission-and-longer-horizons.md
@@ -632,7 +632,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/494-unit-tests-can-spawn-live-writers-ci-guard.md
 - .planning/todos/pending/495-integration-baseline-regen-after-phase-185.md
 - .planning/todos/pending/496-two-live-db-integration-tests-red-since-185-12-and-186-23.md
-- .planning/todos/pending/497-186-27-sets-the-intraday-recovery-unlock-keys.md
+- .planning/todos/deferred/497-186-27-sets-the-intraday-recovery-unlock-keys.md
 - .planning/todos/pending/498-otel-collector-drops-every-job-labelled-metric.md
 
 ### docs_stale_status (10)

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-09-26
 source: adopted unified design (todo 436), sections 4.4, 7.3 and 9; E18
 ---

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P1
 filed: 2026-10-13
 source: independent review of phase 191 plans 01-03 (fresh-context Claude reviewer; AGY and Codex out of quota)
@@ -400,3 +400,7 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     kept, which would also have settled CLBK by evidence instead of the frozen hold. Fix in
     `src/providers/ibkr.py` error mapping when no fetch is running; add the message text to
     error_text for every failed outcome.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

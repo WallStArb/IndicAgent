@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P0
 filed: 2026-10-12
 source: 5m backfill throughput check, 2026-10-12 (ohlcv_request, fetcher log)
 owner: phase 189 fetcher
+closed: 2026-11-12
 ---
 
 # The 5m backfill runs about 2 symbols an hour; serial fetch and refetch waste are the cause
@@ -86,3 +87,7 @@ The pre-2016 purchase is decided: Massive flat files, todo 600 (memo `docs/ideas
 The owner declined the purchase on 2026-11-04 and reversed that on 2026-11-07 (todo 600). The IBKR backfill keeps running as the fallback and stays the data gate for the corpus rerun (todo 584 decision 1) until Massive passes its basis study. IBKR serves only names that trade today, so every result whose sample includes IBKR pre-2016 5m carries a survivorship caveat in its record and summary card. Coverage at the 2026-11-04 decision (lead, from `ohlcv_raw` against each name's 1d start): of 1,177
 names with 1d before 2016, 84 at depth, 410 partial, 683 none. Fetcher healthy at about 1M bars/h
 after the 2026-11-04 11:45 EST gateway restart race (one failed start, recovered on the 12:00 timer).
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

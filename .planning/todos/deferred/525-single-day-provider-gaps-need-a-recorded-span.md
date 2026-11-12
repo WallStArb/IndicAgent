@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P2
 filed: 2026-10-09
 source: 189-10 Task 2 pilot C8 result (b3e46fa4f); DBMF 2019-10-16, 2021-01-08, 2021-11-04
@@ -24,3 +24,7 @@ apply.
 
 The 3 DBMF days carry a recorded 5m span; C8's slot coverage for DBMF passes or its shortfall is
 explained per the registered rule; the mechanism is general (not DBMF-special-cased).
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-10-09
 source: Alpaca integration pilot, Workstream B (docs/plans/archive/2026-10-09-alpaca-integration-pilot.md)
 ---

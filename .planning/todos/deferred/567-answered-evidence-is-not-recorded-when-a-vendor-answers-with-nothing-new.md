@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P1
 filed: 2026-10-30
 source: data lane, intraday slot_coverage recount (53 names still below 0.995 after the calendar and listing_end fixes)
@@ -45,3 +45,7 @@ Fixing it rides with the next bar-derivation touch (its read joins `ohlcv_raw` p
 same gap_plan evidence read replaces it). Fix 3 landed 2026-10-31 (migration 546, applied live: BZH 2026-10-19 and ACVA 2026-10-15,
 Form 25-NSE accessions in the evidence jsonb); their empty tails now read answered and
 freshness_1d judges them up to the recorded session.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

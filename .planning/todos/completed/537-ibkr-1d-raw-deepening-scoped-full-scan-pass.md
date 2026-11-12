@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-10-16
 source: ohlcv_raw depth measurement 2026-10-16; todo 535 item 42 remainder; phase 191 plan 20 precondition
 owner: data
+closed: 2026-11-12
 ---
 
 # IBKR 1d raw deepening: one scoped full-scan pass of the fetcher
@@ -32,3 +33,7 @@ two deepens the plane in roughly 2 days of interleaved stream time.
 
 The cohort query in the runbook is stable across two passes with no bars fetched, R6 and D7 stay
 clean, the selection gate exits 0, and the basis follow-up scan has run.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

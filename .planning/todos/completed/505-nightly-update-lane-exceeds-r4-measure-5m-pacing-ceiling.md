@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-10-07
 source: 185-46 Task 2, rule R4 of docs/research/1d-primary-swap-evidence.md
 owner: phase 189 fetcher (189-10)
+closed: 2026-11-12
 ---
 
 # The nightly update lane exceeds R4's 120 minutes; measure the 5m pacing ceiling
@@ -47,3 +48,7 @@ Before 189-10 Task 2's pilot criterion is judged (its extrapolation deducts this
 ## Owner decision 2026-10-08 (relayed by the research-ledger session indicagent-6a; confirm in the 185 session before acting on live data)
 
 Decision: do not loosen the pre-registered 120 minute bound after seeing it fail. Keep 120 for the daily lane. Put the 5m drain on its own lane and pre-register that lane's bound from the 189-10 Task 2 pilot's measured pacing, dated before the numbers are read.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-11-01
 source: owner question 2026-11-01 ("why aren't batch and real-time sharing infrastructure, a bar is a bar"); coordinator code check
 ---

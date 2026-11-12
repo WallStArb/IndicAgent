@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P2
 filed: 2026-10-28
 source: review of todo 545 for the data lane; owner chose to defer (2026-10-28)
@@ -33,3 +33,7 @@ re-derive) both landed by 2026-10-30, so the todo is actionable whenever the dat
 
 Each of the 30 spans has a final policy row or a recorded reason it stays empty; the plan JSON
 is kept in a tracked location (545 review finding).
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

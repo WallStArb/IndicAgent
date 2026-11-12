@@ -94,7 +94,7 @@ daily attempts 3, 3b and 4 come first because research waits on them.
 - `docs/plans/2026-09-26-unified-research-to-production-design.md` - sections 3.3 (provenance batches, content digests), 10.2 (summary cards), 12.2 (delisting sensitivity), 14.5 (per-writer roles), 14.7 (UD-25, targets from bars, `forward_return_writer` deletion), 16 (sequence)
 
 ### Todos owned or folded
-- `.planning/todos/pending/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md` (P0)
+- `.planning/todos/deferred/433-ibkr-daily-history-truncated-at-primary-listing-venue-change.md` (P0)
 - `.planning/todos/pending/446-stored-1h-bars-drop-first-half-hour-on-39-symbols.md`
 - `.planning/todos/pending/155-price-sanity-status-historical-backfill.md`
 - `.planning/todos/pending/347-price-sanity-index-column-order-mismatch-bar-auditor-query.md`

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P2
 filed: 2026-10-10
 source: owner directive 2026-10-10 ("run simplify on 185, 187-190"); four-agent simplify over the load-bearing 185/189 code; findings in docs/plans/archive/2026-10-10-simplify-findings-185-189.md
@@ -52,3 +52,7 @@ Item 1, the `_d1_gaps` copies: done. The 5m, 15m, 1h and 1d answered-window SQL 
 ## Disposition (phase 191 plan 18, 2026-10-22)
 
 Item 1 is consolidated as far as phase 191 took it (the `_d1_gaps` copy, above); the answered-window copies in `bar_derivation`, `bar_reconciliation_audit`, `bar_auditor` and `_empty_history`, and item 2's 5m shaper dedup, are the explicit deferral D-191-H (design doc "D-191-H: explicit deferrals"; planner decision, owner acknowledgement pending). Still open after phase 191, unchanged: the service-side answered-window copies (item 1 remainder), items 2 (5m shaper), 3 (month-digest), 4 (check-name contract), 5 (timeframe-bucket tables), 6 (D7 per-name round trips), 7 (fetcher APR loader family), 8 (midnight aggregator fallback) and 9 (small items). None is claimed done.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

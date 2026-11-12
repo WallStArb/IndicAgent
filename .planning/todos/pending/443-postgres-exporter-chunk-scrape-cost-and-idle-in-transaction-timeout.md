@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-09-26
 source: Postgres best-practices audit of the live database, 2026-09-26 (read-only)
 ---

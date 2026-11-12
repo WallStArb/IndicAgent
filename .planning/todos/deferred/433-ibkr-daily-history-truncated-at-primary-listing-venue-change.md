@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P0
 filed: 2026-09-26
 source: 2026-09-26 universe expansion 1d backfill
@@ -145,3 +145,6 @@ Stays pending: 1d is done, intraday storage is gated on phase 186.
 - **Item 4 of Next** (head-timestamp "Query failed" on 112 names) was not checked separately;
   the head re-run asked every late name directly, so it no longer blocks anything.
 
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.

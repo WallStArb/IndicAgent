@@ -1,8 +1,9 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-27
 source: session 2026-09-27 (todo 449 HTF lane monitoring): measured the rate cap as non-binding for heavy TFs; the parallel-lane "one stream" finding was a confounded test
+closed: 2026-11-12
 ---
 
 # IBKR backfill throughput: concurrency probe, then pipelined persistence
@@ -61,3 +62,7 @@ Two levers remain, in order:
 - `src/providers/CLAUDE.md` chunk table and rate-limit notes.
 - Session evidence 2026-09-27: request-cadence arithmetic from
   `logs/backfill_ops/intraday_htf/htf_all_attempt1.log`, py-spy dump of the lane process.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

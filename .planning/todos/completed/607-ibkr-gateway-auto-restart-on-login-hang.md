@@ -1,8 +1,9 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-11-10
 source: 2026-11-09 gateway wedge (5f session report): wedged at authentication from the 2026-11-08 23:59 UTC nightly restart until a manual restart 2026-11-09 23:42 UTC; about 70 timer runs bounced, coverage frozen at 778 of 1,177 for the day; todo 395's 2FA-hang class
+closed: 2026-11-12
 ---
 
 # IBKR gateway auto-restart on a login hang after the nightly restart
@@ -33,3 +34,7 @@ tests. Land in a fetcher gap, in a worktree.
 The watcher confirming the 2026-11-09 23:42 restart's first intake is the immediate verification
 (the lead checks the fetcher log at the next session). This mitigation matters until Massive
 admission (todo 600) retires the IBKR leg; if Massive lands first, close this as superseded.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

@@ -1,3 +1,8 @@
+---
+status: closed
+closed: 2026-11-12
+---
+
 # 585: The liveness probe after an unknown-contract qualify reads a live session as lost and ends the run
 
 **Filed:** 2026-11-04 (session ab, todo 534 lane) · **Priority:** P1 (lead 2026-11-04: ahead of the vendor memo) · **Status:** core fix landed 2026-11-04; step 1 (why the probe misses) open
@@ -40,3 +45,7 @@ pattern until later runs, whose probe answered, charged it as plain errors. LXP 
 Open: step 1, why reqCurrentTime missed on a live session. A qualify timeout under load could still
 end a run the same way; a measured probe miss rate (or one retry after spacing, as history_alive
 does) decides the fix. LXP itself (step 3) is still to confirm through the onboarding SOP.
+
+## Closure 2026-11-12
+
+Closed 2026-11-12 (lead): superseded by Massive (todo 600). The data-complete gate is Massive admission, the IBKR fetcher timer is disabled, and the IBKR leg joins todo 600's deletion list once step 7 proves itself (owner 2026-11-10: stop polishing IBKR/Alpaca-era data).

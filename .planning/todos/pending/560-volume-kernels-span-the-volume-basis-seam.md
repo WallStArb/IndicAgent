@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-10-28
 source: scope guard of the todo 555 change
 ---

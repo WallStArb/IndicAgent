@@ -1,5 +1,5 @@
 ---
-status: pending
+status: deferred
 priority: P1
 filed: 2026-10-06
 source: 185 session, 185-20 close-out
@@ -21,3 +21,7 @@ minutes per late name (measured), so do it only when recovery is actually wanted
 ## Fix
 
 Add both writes to the rerun's close-out and its verification, with config_history reasons.
+
+## Deferred 2026-11-12
+
+Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.
