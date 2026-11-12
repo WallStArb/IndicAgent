@@ -1,0 +1,9 @@
+[Unit]
+Description=IndicAgent permanent-data mirror pulled from ubuntu1 (data_mirror.sh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+ExecStart=/home/bg/standby/data_mirror.sh

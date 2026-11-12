@@ -151,3 +151,15 @@ Executed from OLD over SSH, owner approving. Deviations from the plan above:
 - OLD's units are disabled and its Postgres and gateway containers set to `restart=no`; OLD's Postgres volume is intact for rollback until the soak ends.
 - Network identity: NEW took the old address `192.168.68.60` and OLD moved to `192.168.68.65`, both as fixed addresses in netplan (OLD first, then NEW, each with a rollback script). Router reservations for the two MAC addresses (NEW `38:05:25:30:cb:a3`, OLD `c8:ff:bf:0d:1a:d6`) are still worth adding so the DHCP pool never hands those addresses out. `.61` belongs to another device.
 - Cloudflare tunnel (`cloudflared`, remotely managed ingress) and remote SSH through `ssh.indicagent.com` now run from NEW; OLD's tunnel is disabled.
+
+## Phase 5 record (2026-11-12)
+
+`ubuntu2` was reformatted the same day (soak dropped by the owner: still building, not production). Units and scripts: `production/standby/`.
+
+- Standby: slot `ubuntu2_standby`, base backup 92.8 GB in about 6 minutes, streaming with zero replay lag. Settings scaled to 29 GB (`shared_buffers` 7GB, `work_mem` 128MB); `max_connections` and `max_locks_per_transaction` equal the primary's.
+- Backup: `pg_receivewal` archive (slot `ubuntu2_archive`) plus weekly base backup (first one 40 GB gzip, verified).
+- Restore drill passed: first base backup plus WAL recovered to LSN `204D/E90F2000` in a scratch container; 10 of 10 table counts equal the primary's at that point. Duration 497 s (extract 465 s, recovery 11 s).
+- Mirror: `~/dev` pulled daily (87 GB first run). The pull key on `ubuntu1` allows only read-only rsync of `/home/bg/dev`; a write and a shell login were both refused.
+- `pg_receivewal` writes mode 600 files, so a restore container running as another uid cannot read them; `restore_drill.sh` makes the archive readable first, and a real restore must do the same.
+- Open: off-site copy (owner decision), Cloudflare tunnel for `ubuntu2`, alerting on a failed timer, replacing the backup section of `operations-disaster-recovery.md`.
+

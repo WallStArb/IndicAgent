@@ -1,0 +1,9 @@
+[Unit]
+Description=IndicAgent PostgreSQL base backup, verify and prune (pg_base_backup.sh)
+After=network-online.target indicagent-pg-wal-archive.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+ExecStart=/home/bg/standby/pg_base_backup.sh

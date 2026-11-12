@@ -1,0 +1,17 @@
+[Unit]
+Description=IndicAgent PostgreSQL WAL archive (pg_receivewal from ubuntu1, slot ubuntu2_archive)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=bg
+# Continuous WAL archive for point-in-time restore. Needs ~/.pgpass for the replicator role
+# (db "replication"). The slot is created on first start and keeps the primary from recycling
+# WAL this host has not received; the primary caps retention with max_slot_wal_keep_size.
+ExecStartPre=/usr/bin/pg_receivewal -h 192.168.68.60 -U replicator -D /home/bg/backup/wal -S ubuntu2_archive --create-slot --if-not-exists --no-password
+ExecStart=/usr/bin/pg_receivewal -h 192.168.68.60 -U replicator -D /home/bg/backup/wal -S ubuntu2_archive --compress=gzip:1 --no-password
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
