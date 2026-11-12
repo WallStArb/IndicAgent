@@ -149,3 +149,5 @@ Executed from OLD over SSH, owner approving. Deviations from the plan above:
 - The IB Gateway first-prompt 2FA expired before approval; a container restart sent a fresh prompt and the probe then reported authenticated.
 - The dashboard needed `npm ci` before first start; NEW also needed the Node install.
 - OLD's units are disabled and its Postgres and gateway containers set to `restart=no`; OLD's Postgres volume is intact for rollback until the soak ends.
+- Network identity: NEW took the old address `192.168.68.60` and OLD moved to `192.168.68.65`, both as fixed addresses in netplan (OLD first, then NEW, each with a rollback script). Router reservations for the two MAC addresses (NEW `38:05:25:30:cb:a3`, OLD `c8:ff:bf:0d:1a:d6`) are still worth adding so the DHCP pool never hands those addresses out. `.61` belongs to another device.
+- Cloudflare tunnel (`cloudflared`, remotely managed ingress) and remote SSH through `ssh.indicagent.com` now run from NEW; OLD's tunnel is disabled.

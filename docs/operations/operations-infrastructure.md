@@ -14,7 +14,8 @@ Infrastructure operations: systemd supervision, Docker containers, deployment pr
 
 ## Architecture
 
-IndicAgent runs on a single server (`192.168.68.60`, DHCP-assigned — was `.53` until the
+IndicAgent runs on a single server (`192.168.68.60`, a fixed address set in netplan since the
+2026-11-12 move to the new server; the previous server, now idle at `192.168.68.65`, was `.53` until the
 2026-09-23 power outage) with:
 
 - **Services:** systemd-managed daemons (27 services) + oneshot timers (12)
