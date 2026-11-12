@@ -132,3 +132,21 @@ def test_sub_period_masks_partition_inclusive():
         [False, True, True, False],
         [False, False, False, True],
     ]
+
+
+def test_skew_and_excess_kurtosis_pin_the_scipy_1_17_bits():
+    """The expected values were produced by scipy 1.17.1's skew and kurtosis; scipy 1.18 moves
+    their last bits, so the frozen verdicts depend on this form and not on the scipy version."""
+    from src.intelligence.research.evaluate import _skew_and_excess_kurtosis
+
+    x = np.random.default_rng(3).standard_t(5, 50)
+    skew, excess_kurtosis = _skew_and_excess_kurtosis(x)
+    assert skew == -0.10170971343680367
+    assert excess_kurtosis == 0.33141190345521476
+
+
+def test_skew_and_excess_kurtosis_are_nan_for_a_constant_sample():
+    from src.intelligence.research.evaluate import _skew_and_excess_kurtosis
+
+    skew, excess_kurtosis = _skew_and_excess_kurtosis(np.full(20, 0.25))
+    assert np.isnan(skew) and np.isnan(excess_kurtosis)

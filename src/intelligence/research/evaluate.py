@@ -28,7 +28,6 @@ from concurrent.futures import Executor
 from typing import Protocol
 
 import numpy as np
-from scipy.stats import kurtosis, skew
 
 from src.intelligence.research.portfolio import (
     DAILY_EMBARGO,
@@ -132,11 +131,32 @@ def annualized_sharpe(
     return float(np.mean(x)) / sd * np.sqrt(periods_per_year)
 
 
+def _skew_and_excess_kurtosis(x: np.ndarray) -> tuple[float, float]:
+    """Biased skew and excess kurtosis, NaN for a (near) constant sample.
+
+    The moments multiply the demeaned values out (d*d*d, (d*d)*(d*d)) instead of calling
+    scipy.stats.skew / kurtosis: scipy 1.18 changed to d**3 and d**4, which moves the last bit of
+    every frozen verdict's shape diagnostics, while this form reproduces scipy 1.17 exactly and
+    does not depend on the scipy version.
+    """
+    mean = np.mean(x)
+    deviation = x - mean
+    squared = deviation * deviation
+    m2 = np.mean(squared)
+    if not m2 > (np.finfo(m2.dtype).eps * mean) ** 2:
+        return float("nan"), float("nan")
+    return (
+        float(np.mean(squared * deviation) / m2**1.5),
+        float(np.mean(squared * squared) / m2**2.0 - 3.0),
+    )
+
+
 def shape_diagnostics(r: np.ndarray, periods_per_year: int = SESSIONS_PER_YEAR) -> dict[str, float]:
     """Return-shape measures over the finite per-row returns: annualized Sortino (downside
     deviation over all rows, NaN with no losing row), max drawdown of the cumulative log-wealth
     path from 0, skew, excess kurtosis, and the share of positive rows."""
     x = r[np.isfinite(r)]
+    skew, excess_kurtosis = _skew_and_excess_kurtosis(x)
     downside = float(np.sqrt(np.mean(np.minimum(x, 0.0) ** 2)))
     wealth = np.concatenate([[0.0], np.cumsum(x)])
     return {
@@ -146,8 +166,8 @@ def shape_diagnostics(r: np.ndarray, periods_per_year: int = SESSIONS_PER_YEAR) 
             else float("nan")
         ),
         "max_drawdown": float(np.max(np.maximum.accumulate(wealth) - wealth)),
-        "skew": float(skew(x)),
-        "excess_kurtosis": float(kurtosis(x)),
+        "skew": skew,
+        "excess_kurtosis": excess_kurtosis,
         "hit_rate": float(np.mean(x > 0)),
     }
 
