@@ -209,9 +209,8 @@ Backup before an irreversible drop: plain tables take `pg_dump -Fc` (todo 571's 
 compressed hypertables and row-slice archives take `scripts/ops/db/ops_table_backup.py`
 (COPY to per-year gzip CSV under `data/backups/`, one REPEATABLE READ transaction, `--verify`
 compares manifest, live recount and file rows, `--where` for a row-slice archive such as todo
-512's per-name dump; APR `infra.table_backup.disk_margin`). It succeeds
-`scripts/ops/bars/ops_old_store_backup.py`, which retires with the Tradier backups on
-2026-11-12 (todo 574); the 191-17 precedent still holds that a small table's drop migration and
+512's per-name dump; APR `infra.table_backup.disk_margin`). It succeeded
+`ops_old_store_backup.py` (deleted 2026-11-12, todo 574); the 191-17 precedent still holds that a small table's drop migration and
 the phase summaries are themselves a sufficient record. The phase 191 cutover tooling (`ops_raw_cutover_window.py` window
 open/resume/record procedure, precedents 191-12, 191-14, 191-16, plus the one-shot swap tools
 `ops_canonical_vendor_kind_swap.py`, `ops_d2_raw_equivalence.py` and the legacy re-stamp

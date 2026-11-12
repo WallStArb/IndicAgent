@@ -72,17 +72,6 @@ _ALLOW_LIST: dict[str, str] = {
         "selection of ohlcv_raw; the tradeable view's volume > 0 filter would hide the very rows "
         "the proof must equal."
     ),
-    "scripts/ops/bars/ops_tradier_residue.py": (
-        "TEMPORARY retire: todo 574 (Tradier retirement record script). Removal gated on the "
-        "2026-11-12 backup retention date."
-    ),
-    "scripts/ops/bars/ops_tradier_delete.py": (
-        "TEMPORARY retire: todo 574 (Tradier source-scoped deletion, owner exception "
-        "2026-10-12): counts, backs up and deletes the stored vendor tradier rows, "
-        "zero-volume bars included; the tradeable view would hide some of the rows the "
-        "backup and the delete must cover exactly. Removal gated on the 2026-11-12 backup "
-        "retention date."
-    ),
     "scripts/ops/bars/ops_data_bar_check.py": (
         "PERMANENT (plan 185-34): the D-28 gate judges each known-answer key by its stored row "
         "(source and the pre-381 price_sanity_status), keyed by the 87 fixed keys only; the "

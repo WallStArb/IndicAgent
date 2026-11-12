@@ -41,8 +41,6 @@ _TABLES = {
     for table in ("ohlcv_load", "ohlcv_revision")
 }
 
-_TRADIER_DELETE = "scripts/ops/bars/ops_tradier_delete.py"
-_TRADIER_RESTORE = "scripts/ops/bars/ops_tradier_restore.py"
 _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
@@ -88,22 +86,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "superseded; migration 485) under the load row its caller inserted. "
             "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
             "the revision origin, not a caller.",
-        ),
-        _TRADIER_DELETE: (
-            frozenset({"vendor:tradier"}),
-            frozenset({"delete:tradier-retirement"}),
-            "TEMPORARY retire: todo 574. DELETE FROM ohlcv_revision where vendor tradier only "
-            "(old Tradier values under any load), in symbol batches after the COPY backup; "
-            "ohlcv_load rows are lineage and are never deleted (plan 191-20, owner exception "
-            "2026-10-12, amended 2026-10-27). Removal gated on the 2026-11-12 backup retention "
-            "date.",
-        ),
-        _TRADIER_RESTORE: (
-            frozenset({"vendor:tradier"}),
-            frozenset({"insert:tradier-retirement"}),
-            "TEMPORARY retire: todo 574. Restores the backup's revision rows as lineage "
-            "(INSERT only, the rollback half of the deletion; never an ohlcv_load row). "
-            "Removal gated on the 2026-11-12 backup retention date.",
         ),
     },
 }

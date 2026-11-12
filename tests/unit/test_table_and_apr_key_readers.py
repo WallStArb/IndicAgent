@@ -149,14 +149,7 @@ _KEEP_TABLES: dict[str, str] = {
 # market_data_ohlcv_old (dropped by migration 501) and the five infra.canonical_swap.* keys
 # (retired by migration 502) were retired by plan 191-17, which deleted
 # ops_canonical_vendor_kind_swap.py, their only reader.
-_PENDING_RETIREMENT: dict[str, str] = {
-    "infra.old_store_backup.disk_margin": (
-        "retire: todo 574. Read only by scripts/ops/bars/ops_old_store_backup.py, which "
-        "stays until the backup retention date 2026-11-12; the script, data/backups/191/ "
-        "and this key retire together in todo 574's one pass (moved here from its original "
-        "retire: 191-25 anchor when todo 574 took over the retention-date removal)"
-    ),
-}
+_PENDING_RETIREMENT: dict[str, str] = {}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:

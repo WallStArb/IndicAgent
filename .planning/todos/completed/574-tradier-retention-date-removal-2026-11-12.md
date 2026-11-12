@@ -1,5 +1,6 @@
 ---
-status: pending
+status: closed
+closed: 2026-11-12
 priority: P2
 filed: 2026-10-31
 source: plan 191-25 execution; the retention gate the key readers recorded when plan 191-18 landed
@@ -220,3 +221,7 @@ gone from the key-reader test. What actually remains:
    `6d6c9e534`).
 5. `data/backups/{191,185-38,185-43}` absent; the disk table in STATE.md updated.
 6. Both todos (574, 510) closed and moved to `completed/` with closure notes.
+
+## Closure 2026-11-12
+
+Owner 2026-11-12: Tradier history is not needed (Massive covers 2003 onward, IBKR 1d reaches 1998); the 2026-11-01 KEEP ruling is superseded. Done: code tagged `archive/tradier-2026-11`, then `ops_tradier_delete/residue/residue_gate/restore`, `ops_old_store_backup`, `source_admission` and their tests deleted, with the allow-list and `_PENDING_RETIREMENT` rows; migration 589 deleted the vendor's `ohlcv_raw` (7,140,397), `ohlcv_revision` (155,350) and `ohlcv_coverage` (1,529) rows, left the tombstone in the CVR `bar_vendor` description, and retired `infra.old_store_backup.disk_margin`; `data/backups/191/` removed (it also held the dropped old stores' dumps; the 191-16 drop migration and summaries are their record). `ohlcv_load`/`ohlcv_request` lineage rows and three retired policy rows stay. Open follow-up: `daily_rule.py`, `vendor_arbitration.py` and `ops_d191q_arbitration.py` still carry D-191-Q Tradier logic; they are imported by live derivation code, so they retire with step 7's policy rework (todo 600).
