@@ -11,6 +11,19 @@ source: owner 2026-11-12 ("30,000++ securities from Massive, 1,500 on IBKR"); to
 
 The archive holds 30,000+ tickers over 2003-2026; our canonical universe is 1,529 current names (stage 1 only deepens their history, it does not remove survivorship or add breadth). Breadth (more independent bets) and a survivorship-free sample are the two largest levers on finding significant edge, and the archive is already paid for and verified. Measured 2026-11-12 on the day files: a typical session carries about 10,500 tickers in 2024 and 7,800 in 2008 and 2015; names with close x volume above $1M a day number about 4,900 (2024) and 4,500 (2015), above $10M about 2,600 and 2,300, above $100M about 800 and 600. So the investable set is a few thousand names a day, not 30,000; the rest is warrants, units, preferreds, ETNs and micro-caps.
 
+## Measured 2026-11-12 (the proposed rule on the 50.2M day-file rows, 36,735 tickers, month-end membership)
+
+Rule: month-end t, 60-session median of close x volume at or above the floor, close at or above $1, at least 60 sessions. Matched to our 1,529 by ticker symbol (a reused ticker can match falsely), no security-type filter yet (a plain-ticker proxy, letters only and at most 5 characters, barely moves the counts).
+
+| Floor | Distinct names ever in | Already ours | NEW | Members per month-end (median, min, max) |
+|---|---|---|---|---|
+| $1M | 16,045 | 1,525 | 14,520 | 4,154 (2,947 to 6,041) |
+| $5M | 10,231 | 1,481 | 8,750 | 2,616 (1,588 to 4,169) |
+| $10M (proposed) | 8,003 | 1,448 | 6,555 | 2,026 (1,033 to 3,454) |
+| $25M | 5,525 | 1,355 | 4,170 | 1,313 (571 to 2,539) |
+
+At the proposed $10M floor about 6,555 securities are new (dead and merged names, and names that were never on our list), about 2,000 are members at any month-end, and 1,448 of our 1,529 qualify. Owner 2026-11-12 agreed with this sizing; the floor itself is preregistered before any look. Ongoing capture for the new names after the Massive plan lapses is Alpaca (same upstream, nightly SIP); Massive plus Alpaca covers history and the forward feed.
+
 ## Ruling (lead 2026-11-12)
 
 1. Raw is permanent and complete at 1d: load the 1d day files for every ticker in the archive into `ohlcv_raw` (about 50M rows, trivial). 5m is NOT loaded for all names (billions of rows); it follows the tier below.
