@@ -1,0 +1,244 @@
+"""Massive load checks, systemic half: pure math on synthetic fixtures (design 8a, stages A and B)."""
+
+from __future__ import annotations
+
+from datetime import UTC, date, datetime, timedelta
+
+import numpy as np
+import pytest
+
+from src.intelligence.bars import massive_load_checks as lc
+
+MIN = 60 * 1_000_000_000
+
+
+def _sanity(o, h, low, c, v, code=None, ws=None):
+    n = len(o)
+    code = np.zeros(n, dtype=np.int64) if code is None else np.asarray(code)
+    ws = np.arange(n, dtype=np.int64) if ws is None else np.asarray(ws)
+    return lc.record_sanity(code, ws, *(np.asarray(a, dtype=float) for a in (o, h, low, c, v)))
+
+
+def test_sanity_clean_file_is_ok() -> None:
+    counts = _sanity([10, 11], [12, 12], [9, 10], [11, 11.5], [100, 0])
+    assert counts.n_rows == 2 and lc.sanity_verdict(counts) == "ok"
+
+
+def test_sanity_counts_each_violation() -> None:
+    counts = _sanity(
+        [10, 10, -1, 10, 10],
+        [9, 12, 5, 12, 12],  # row 0: high below open
+        [9, 9, 4, 9, 9],
+        [10, 11, 4.5, 11, 11],
+        [1, 1, 1, -5, 1],
+        code=[0, 0, 0, 0, 0],
+        ws=[0, 1, 2, 3, 3],  # row 4 duplicates the key of row 3
+    )
+    assert counts.n_ohlc_inconsistent >= 1
+    assert counts.n_nonpositive_price == 1
+    assert counts.n_negative_volume == 1
+    assert counts.n_duplicate_keys == 1
+    assert lc.sanity_verdict(counts) == "stop"
+
+
+def test_sanity_inconsistency_share_threshold() -> None:
+    n = 2000
+    o = np.full(n, 10.0)
+    h = np.full(n, 11.0)
+    low = np.full(n, 9.0)
+    h[:2] = 9.5  # 2 of 2000 bars: 99.9 percent consistent holds exactly
+    ok = _sanity(o, h, low, o, np.ones(n))
+    assert lc.sanity_verdict(ok) == "ok"
+    h[:3] = 9.5  # 3 of 2000: below 99.9 percent
+    assert lc.sanity_verdict(_sanity(o, h, low, o, np.ones(n))) == "stop"
+
+
+def test_sanity_nan_price_is_not_positive() -> None:
+    counts = _sanity([np.nan], [np.nan], [np.nan], [np.nan], [1])
+    assert counts.n_nonpositive_price == 1
+
+
+def test_sanity_vacuous_inputs_raise() -> None:
+    with pytest.raises(lc.VacuousCheckError):
+        _sanity([], [], [], [], [])
+    with pytest.raises(lc.VacuousCheckError):
+        lc.sanity_verdict(lc.SanityCounts(0, 0, 0, 0, 0))
+
+
+def test_dst_transitions_and_post_dst_sessions() -> None:
+    assert lc.dst_transition_sessions(date(2024, 1, 1), date(2024, 12, 31)) == [
+        date(2024, 3, 10),
+        date(2024, 11, 3),
+    ]
+    sessions = [
+        date(2024, 3, 8),
+        date(2024, 3, 11),
+        date(2024, 3, 12),
+        date(2024, 11, 1),
+        date(2024, 11, 4),
+    ]
+    assert lc.post_dst_sessions(sessions) == [date(2024, 3, 11), date(2024, 11, 4)]
+
+
+def test_early_close_detection_uses_session_length() -> None:
+    open_ = datetime(2024, 11, 29, 14, 30, tzinfo=UTC)
+    bounds = {
+        date(2024, 11, 28): (open_, open_ + timedelta(hours=6, minutes=30)),
+        date(2024, 11, 29): (open_, open_ + timedelta(hours=3, minutes=30)),
+    }
+    assert lc.early_close_sessions(bounds) == [date(2024, 11, 29)]
+
+
+def test_seeded_draw_is_deterministic_and_forces_early_close_and_post_dst() -> None:
+    sessions = [date(2010, 1, 4) + timedelta(days=i) for i in range(0, 360)]
+    early, dst = [date(2010, 11, 26)], [date(2010, 3, 15)]
+    a = lc.seeded_session_draw(sessions, per_era=3, seed=7, early_closes=early, post_dst=dst)
+    b = lc.seeded_session_draw(sessions, per_era=3, seed=7, early_closes=early, post_dst=dst)
+    c = lc.seeded_session_draw(sessions, per_era=3, seed=8, early_closes=early, post_dst=dst)
+    assert a == b and a != c
+    assert set(early) & set(a) and set(dst) & set(a)
+    assert a == sorted(set(a))
+
+
+def test_peak_offset_finds_shifted_open() -> None:
+    open_ns = 1_000_000 * MIN
+    stamps = open_ns + np.arange(-10, 10) * MIN
+    volume = np.ones(20)
+    volume[10] = 50.0  # the minute at offset 0
+    assert lc.volume_peak_offset_minutes(stamps, volume, open_ns) == 0
+    # a one-hour shift (a DST slip) puts the same peak at an offset of -60 minutes: outside the window
+    shifted = stamps + 60 * MIN
+    with pytest.raises(lc.VacuousCheckError):
+        lc.volume_peak_offset_minutes(shifted - 120 * MIN, volume, open_ns)
+    shifted_in = stamps + 20 * MIN
+    assert lc.volume_peak_offset_minutes(shifted_in, volume, open_ns) == 20
+
+
+def test_session_day_result_and_era_verdict() -> None:
+    open_ns, close_ns = 0, 390 * MIN
+    stamps = np.array([0, 389, 390]) * MIN
+    good = lc.session_day_result(
+        date(2010, 3, 15), stamps, np.array([9.0, 9.0, 1.0]), open_ns, close_ns
+    )
+    assert good.open_offset_min == 0 and good.close_offset_min == -1 and good.passed
+    # the closing peak stamped on the close minute is the early-close convention: still passes
+    on_close = lc.session_day_result(
+        date(2010, 3, 16), stamps, np.array([9.0, 1.0, 9.0]), open_ns, close_ns
+    )
+    assert on_close.passed
+    bad = lc.SessionDayResult(date(2010, 3, 17), 2010, 60, -1)
+    verdict = lc.session_verdict_by_era([good, on_close, bad])
+    assert verdict[2010]["verdict"] == "ok" and verdict[2010]["failing_days"] == ["2010-03-17"]
+    shifted = [lc.SessionDayResult(date(2010, 3, d), 2010, 60, 60) for d in (1, 2, 3)]
+    assert lc.session_verdict_by_era(shifted)[2010]["verdict"] == "stop"
+    with pytest.raises(lc.VacuousCheckError):
+        lc.session_verdict_by_era([])
+
+
+def test_publish_lag_requires_tz() -> None:
+    close = datetime(2026, 11, 6, 21, 0, tzinfo=UTC)
+    assert lc.publish_lag_hours(close + timedelta(hours=2, minutes=30), close) == 2.5
+    with pytest.raises(ValueError):
+        lc.publish_lag_hours(datetime(2026, 11, 6, 23), close)
+
+
+def test_manifest_completeness_lists_missing_and_malformed() -> None:
+    days = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+    good = {"sha256": "a" * 64, "rows": 5, "gzip_ok": True}
+    manifest = {
+        "minute": {days[0]: good, days[1]: good, days[2]: good},
+        "day": {days[0]: good, days[2]: {**good, "sha256": "short"}},
+    }
+    out = lc.manifest_completeness(days, manifest)
+    assert out["minute"]["complete"] is True
+    assert out["day"]["missing"] == ["2024-01-03"] and out["day"]["malformed"] == ["2024-01-04"]
+    assert out["day"]["complete"] is False
+    with pytest.raises(lc.VacuousCheckError):
+        lc.manifest_completeness([], manifest)
+
+
+def test_survivorship_readings() -> None:
+    end = date(2026, 11, 9)
+    r = lc.survivorship_reading
+    assert r(None, None, None, end) == "absent"
+    assert r(date(2010, 1, 4), date(2026, 11, 9), None, end) == "present_active"
+    assert r(date(2010, 1, 4), date(2020, 5, 1), None, end) == "no_listing_end_ended"
+    assert r(date(2010, 1, 4), date(2020, 5, 1), date(2020, 5, 1), end) == "ends_at_listing_end"
+    assert r(date(2010, 1, 4), date(2019, 1, 1), date(2020, 5, 1), end) == "ends_before"
+    assert r(date(2010, 1, 4), date(2021, 1, 1), date(2020, 5, 1), end) == "ends_after"
+
+
+def _file(rows):
+    """rows: (ticker, ts_min, o, h, l, c, v)"""
+    names = np.array(sorted({r[0] for r in rows}))
+    code = np.array([int(np.searchsorted(names, r[0])) for r in rows])
+    cols = [np.array([r[i] for r in rows], dtype=float) for i in range(1, 7)]
+    return names, code, cols
+
+
+def test_aggregate_by_ticker_rth_vs_all_hours() -> None:
+    rows = [
+        ("A", 0, 10, 11, 9, 10.5, 100),  # pre-market
+        ("A", 5, 10.5, 12, 10, 11, 200),  # regular
+        ("A", 6, 11, 13, 10.5, 12, 300),  # regular
+        ("A", 9, 12, 12.5, 11.5, 12.2, 50),  # post
+        ("B", 5, 20, 21, 19, 20.5, 10),
+    ]
+    names, code, (ts, o, h, low, c, v) = _file(rows)
+    rth = lc.aggregate_by_ticker(names, code, ts, o, h, low, c, v, (ts >= 5) & (ts < 8))
+    allh = lc.aggregate_by_ticker(names, code, ts, o, h, low, c, v, np.ones(len(ts), bool))
+    assert (rth.open[0], rth.high[0], rth.low[0], rth.close[0], rth.volume[0]) == (
+        10.5,
+        13,
+        10,
+        12,
+        500,
+    )
+    assert (allh.open[0], allh.close[0], allh.volume[0]) == (10, 12.2, 650)
+    only_b = lc.aggregate_by_ticker(names, code, ts, o, h, low, c, v, ts == 5)
+    assert not np.isnan(only_b.close[1])
+    none = lc.aggregate_by_ticker(names, code, ts, o, h, low, c, v, ts == 99)
+    assert np.isnan(none.close).all()
+
+
+def test_compare_day_to_minutes_counts_and_day_only() -> None:
+    names, code, (ts, o, h, low, c, v) = _file(
+        [("A", 5, 10, 12, 9, 11, 100), ("B", 5, 20, 21, 19, 20, 10)]
+    )
+    agg = lc.aggregate_by_ticker(names, code, ts, o, h, low, c, v, np.ones(2, bool))
+    day = {
+        "A": (10, 12, 9, 11.5, 100),  # close differs
+        "B": (20, 21, 19, 20, 10),
+        "C": (1, 1, 1, 1, 1),  # no minute rows: counted day-only, never matched
+    }
+    counts = lc.compare_day_to_minutes(day, agg)
+    assert counts.n_names == 2 and counts.n_day_only == 1
+    assert counts.mismatch_close == 1 and counts.mismatch_open == 0 and counts.mismatch_volume == 0
+    with pytest.raises(lc.VacuousCheckError):
+        lc.compare_day_to_minutes({}, agg)
+
+
+def test_day_vs_minute_decision_threshold_and_vacuous_era() -> None:
+    ok = lc.DayVsMinuteCounts(1000, 0, 0, 0, 0, 10, 0)  # exactly 1 percent: not more than
+    bad = lc.DayVsMinuteCounts(1000, 0, 0, 0, 0, 11, 0)
+    assert lc.day_vs_minute_verdict({2010: ok})["decision"] == "served"
+    out = lc.day_vs_minute_verdict({2010: ok, 2011: bad})
+    assert out["decision"] == "rth_minutes" and out["eras_over_limit"] == [2011]
+    with pytest.raises(lc.VacuousCheckError):
+        lc.day_vs_minute_verdict({2010: lc.DayVsMinuteCounts(0, 5, 0, 0, 0, 0, 0)})
+
+
+def test_volume_bands() -> None:
+    names = {f"S{i}": 1.0 for i in range(100)}
+    rows = lc.volume_bands({(2010, "XNYS"): names})
+    assert rows[0].verdict == "ok" and rows[0].median_ratio == 1.0
+    wide = dict(names)
+    for i in range(3):  # 3 percent outside 0.5..2.0
+        wide[f"S{i}"] = 3.0
+    assert lc.volume_bands({(2010, "XNYS"): wide})[0].verdict == "stop"
+    shifted = {f"S{i}": 1.4 for i in range(100)}  # median outside 0.8..1.25
+    assert lc.volume_bands({(2010, "XNAS"): shifted})[0].verdict == "stop"
+    with pytest.raises(lc.VacuousCheckError):
+        lc.volume_bands({(2010, "XNYS"): {}})
+    with pytest.raises(lc.VacuousCheckError):
+        lc.volume_bands({(2010, "XNYS"): {"A": 0.0, "B": float("nan")}})
