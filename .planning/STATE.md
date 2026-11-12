@@ -105,6 +105,8 @@ serves captured, references captured, design refined.
 
 **Universe (lead 2026-11-12):** the archive holds 30,000+ tickers against 1,529 on IBKR; todo 609 builds the stage 2 point-in-time liquidity-rule universe (survivorship-free, 1d for all, 5m for the top tier) after step 7 and the 8a checks. It is the biggest lever on breadth after the data gate.
 
+**In flight at the 2026-11-12 handoff (lead):** the 8a load-check runner is on origin branch `worktree-agent-a982cb955333e9a38` (stage A to C at 9153cf54a, a45bf01b0, f338f2817; the revision round at b8e7c94fd: owned-row sanity, volume step rule, return-based agreement on RTH-built 1d, deterministic freeze, ledger witnesses, era-specific stops). Not yet independently reviewed, not on main; the worker's final report and full-archive rerun may not have completed. Resume: re-run `ops_massive_load_checks` from that branch, read `logs/massive_load_checks/summary.json`, get an independent Opus review, land it, then decide todo 610 and step 7. Worktree branch `worktree-agent-ab7c70218b95aaf58` is also pushed (older, unmerged).
+
 **Next, in order:**
 1. Execute the rest of the design's step sequence on the lead's call (section 8: the 8a load checks,
    policy, one-pass rebuild with the seam witness and canary; migration, code, reference load, split
