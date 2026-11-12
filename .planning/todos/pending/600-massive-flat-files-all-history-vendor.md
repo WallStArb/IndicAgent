@@ -100,3 +100,11 @@ Lead rulings (2026-11-12): (1) the stops on record sanity, volume and price agre
 ## Owner 2026-11-12: the IBKR 5m backfill is ended permanently
 
 The campaign will never reach the universe Massive covers (36,735 tickers against 1,529) and costs weeks of throttled requests for a weaker source, so it does not resume: `indicagent-ibkr-history-fetcher.timer` stays disabled (since 2026-11-10; the last run ended 2026-11-11 with 688 items deferred). The stored rows (224.7M, 1,529 names, partial pre-2016) remain a spot-check witness only. The fetcher lane, its ask-ledger and coverage machinery and the timer unit go on the deletion list after step 7, with the Opus review.
+
+## Ruling 2026-11-12 (lead, after the owner's challenge): delete the IBKR 5m raw rows after three gates
+
+Supersedes the "keep" ruling above. Once the 8a spot check has run and its results are archived, Massive is the source of truth and a witness we will never complete (no more fetching) is not worth carrying. Delete `ohlcv_raw` rows of vendor ibkr, timeframe 5m (224.7M rows; the 1m rows, 9.8M, follow the same rule) and their `ohlcv_revision` and `ohlcv_coverage` lineage, as an excluded-source deletion with a tombstone (vendor, reason, date, todo, row counts), the shape of migration 589. Order, because IBKR rows still feed selection until the policy switch:
+1. The 8a runner's final results are landed and archived as records (flags register, era tables, the disagreement ledger), so the spot check outlives its data.
+2. The split and wick sweeps with Massive as witness (todos 608, 592, 595) are done, since they use IBKR as the independent arm.
+3. Step 7 stage 2 is proven (IBKR retired from 5m selection, byte-exact reproduction and the seam witnesses pass), so no canonical row depends on an IBKR raw row.
+Then: a gzip export to `data/backups/` first (one file per year, manifest sha256, cheap insurance), then the migration, then `ops_selection_gate --compare` to show canonical unchanged. The 1d IBKR raw rows are NOT in this deletion (they are the 1d fallback and witness for 1998 to 2003 and gap names) and get their own decision at the deletion-list review.
