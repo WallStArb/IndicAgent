@@ -52,7 +52,18 @@ material; dividends, ticker events for all 36,869 tickers, reference sets) with 
 tar (`data/backups/massive-reference-2026-11-10/`). The admission design
 (`docs/plans/2026-11-10-massive-admission-db-design.md`) is ruled, Opus-refined
 (`2026-11-10-massive-admission-refinement-review.md`, folded as 65e287edd) and execution-ready.
-Offsite backup is DEFERRED by the owner (f55ff8ceb). **Admission execution starts on the
+Offsite backup is DEFERRED by the owner (f55ff8ceb).
+
+**Update 2026-11-11 (session 9ffac575):** raw loads 2024 down to 2016 are DONE (RAW-ONLY, selection
+deferred while Massive is unranked; bulk path 02f14f247). Each year passed its gate: windowed
+`ops_selection_gate --compare` 0 real differences before and after, canonical counts unchanged,
+unselected delta equal to the loader's expected Massive-only count; 5m 17.7M to 23.9M rows a year
+at 33-37k new rows/s, 1d 244k to 333k. Not yet loaded: 2015 back to 2003 (raw only; Massive-only
+unselected slots there are expected nonzero and must match the dry run: 2015 5m 4,610,064, 1d 1,216).
+Step 7 tooling landed (1561842d7, prepared, not executed). Driver and per-year statuses:
+`logs/massive_sweep/` (uncommitted scratch). Next gate: the owner's GO.
+
+**Admission execution starts on the
 owner's go**; the mechanical preconditions (stop the IBKR timer, glossary entries, the step-8
 sequence) are part of the run.
 

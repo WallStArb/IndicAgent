@@ -74,3 +74,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
    SIP session from 2026-12-06, holidays and early closes, read by selection); `trade_count`
    (Massive `transactions`, Alpaca `n`) and Alpaca `vw` as nullable raw columns, kept out of
    compute until a consumer exists.
+
+## Progress 2026-11-11 (session 9ffac575)
+
+Raw loads 2024 to 2016 done through the bulk path (02f14f247), RAW-ONLY with selection deferred. Per year: 1d and 5m loaded all new, windowed compare 0 real differences before and after, canonical unchanged, unselected delta equal to the dry-run Massive-only count (2023 33, 2022 57,444, 2021 63,603, 2020 1, 2019 4,677, 2018 22, 2017 3, 2016 2,369), disk 626 GB free after. Rate 33-37k new rows/s. Spans trim to the first and last present session; gap days are reported in `logs/massive_apply_*` and the dry-run reports. Outstanding: 2015 to 2003 raw loads, then the owner's GO for step 7 (tooling landed at 1561842d7).
