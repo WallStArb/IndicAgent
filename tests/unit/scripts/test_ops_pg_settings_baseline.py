@@ -47,7 +47,7 @@ def test_parse_compose_command_settings_real_file():
     assert settings["shared_buffers"] == "14GB"
     assert settings["work_mem"] == "256MB"
     assert settings["max_connections"] == "200"
-    assert settings["__shm_size"] == "13g"
+    assert settings["__shm_size"] == "26g"
 
 
 def test_parse_compose_command_settings_without_dash_c_pairs_returns_empty():
