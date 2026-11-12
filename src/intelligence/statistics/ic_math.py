@@ -24,7 +24,7 @@ import warnings
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 from scipy.stats import median_abs_deviation, norm, rankdata
@@ -40,6 +40,17 @@ _Z95 = 1.959963985  # norm.ppf(0.975) — 95% two-tailed critical value
 # orders below any real statistical discrepancy -- a numerical-noise guard, not a
 # tunable (APR-exempt, same reasoning as compute_ic_vectorized's degenerate-std guard).
 _CI_BOUNDARY_TOL = 1e-6
+
+
+def rank_float64(a: np.ndarray, **kwargs: Any) -> np.ndarray:
+    """``scipy.stats.rankdata`` with the input and the ranks in float64.
+
+    scipy 1.18 returns float32 ranks for float32 input (1.17 returned float64), which moves
+    every downstream rank IC in the last bits and loses integer ranks above 2**24. Casting the
+    input first makes the ranks float64 and bit-identical on both versions; float32 -> float64 is
+    exact, so ordering and ties are unchanged.
+    """
+    return rankdata(np.asarray(a, dtype=np.float64), **kwargs)
 
 
 def _arctanh_clip(x: np.ndarray | float) -> np.ndarray | float:
@@ -303,8 +314,8 @@ def _circular_block_bootstrap_ic(
         return (starts[:, None] + offsets).ravel()[:n] % n
 
     def _resample_ic(idx: np.ndarray) -> np.ndarray:
-        ranks_X_boot = rankdata(X_raw[idx], axis=0)
-        ranks_Y_boot = rankdata(Y_raw[idx])
+        ranks_X_boot = rank_float64(X_raw[idx], axis=0)
+        ranks_Y_boot = rank_float64(Y_raw[idx])
         return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
 
     if max_workers <= 1:
@@ -453,8 +464,8 @@ def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     Returns:
         ic_vector: Shape [n_features] -- Spearman IC per feature.
     """
-    ranks_X = rankdata(X, axis=0)
-    ranks_y = rankdata(y)
+    ranks_X = rank_float64(X, axis=0)
+    ranks_y = rank_float64(y)
     return _vectorized_ic(ranks_X, ranks_y)
 
 
@@ -745,9 +756,9 @@ def partial_spearman_ic(
     if n < k + 4:
         return float("nan"), float("nan"), n
 
-    ranks_x = rankdata(x)
-    ranks_y = rankdata(y)
-    ranks_controls = rankdata(controls, axis=0)
+    ranks_x = rank_float64(x)
+    ranks_y = rank_float64(y)
+    ranks_controls = rank_float64(controls, axis=0)
 
     # Center the data for numerical stability (removes need for explicit intercept)
     ranks_x_c = ranks_x - ranks_x.mean()
@@ -864,8 +875,8 @@ def magnitude_conditional_ic(
         mask = col_valid & (abs_X[:, j] >= thresholds[j])
         if mask.sum() < 2:
             continue
-        rx = rankdata(col_x[mask]).reshape(-1, 1)
-        ry = rankdata(y_raw[mask])
+        rx = rank_float64(col_x[mask]).reshape(-1, 1)
+        ry = rank_float64(y_raw[mask])
         out[j] = _vectorized_ic(rx, ry)[0]
     return out
 
@@ -1111,8 +1122,8 @@ def _compute_ic_rolling_metrics(
         wy = Y_aligned[start:end]
         if len(wx) < 2:
             continue
-        rx = rankdata(wx, axis=0)
-        ry = rankdata(wy)
+        rx = rank_float64(wx, axis=0)
+        ry = rank_float64(wy)
         window_ics_list.append(_vectorized_ic(rx, ry))
 
     n_windows = len(window_ics_list)

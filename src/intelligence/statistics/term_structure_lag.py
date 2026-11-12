@@ -26,8 +26,8 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.stats import rankdata
 
+from src.intelligence.statistics.ic_math import rank_float64
 from src.intelligence.statistics.panel_null import shift_panel
 
 # Definitions, not tunables (APR-exempt, RESEARCH A2): the daily curve's reach in sessions and
@@ -63,7 +63,7 @@ class LagTermStructure:
 def _row_ranks(x: np.ndarray) -> np.ndarray:
     """[n, m] average ranks per row over the row's finite cells, NaN elsewhere."""
     x = np.where(np.isfinite(x), x, np.nan)
-    return rankdata(x, axis=1, nan_policy="omit")
+    return rank_float64(x, axis=1, nan_policy="omit")
 
 
 def _check(
