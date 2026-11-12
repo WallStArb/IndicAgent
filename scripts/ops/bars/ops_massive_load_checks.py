@@ -51,7 +51,13 @@ import structlog  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.intelligence.bars import massive_load_checks as lc  # noqa: E402
+from src.intelligence.bars.daily_rule import raw_session_date  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
+from src.intelligence.bars.split_rescale import (  # noqa: E402
+    SplitFactor,
+    SplitRow,
+    splits_known_at,
+)
 
 setup_service_logging("logs/massive_load_checks.log")
 logger = structlog.get_logger("massive_load_checks")
@@ -251,6 +257,40 @@ def draw_days(cfg: Config, archive: Archive, sessions: list[date]) -> list[date]
     )
 
 
+NONPOSITIVE_EXAMPLE_CAP = 50  # rows listed per era in the report; the counts are exact
+
+
+def nonpositive_examples(
+    day: date, raw: RawFile, open_ns: int, close_ns: int
+) -> list[dict[str, Any]]:
+    """Minute rows with a non-positive or missing price, listed with whether they sit inside the
+    regular session (a disclosure aid; the verdict rests on the exact counts)."""
+    ok = (raw.open > 0) & (raw.high > 0) & (raw.low > 0) & (raw.close > 0)
+    out = []
+    for i in np.flatnonzero(~ok)[:NONPOSITIVE_EXAMPLE_CAP]:
+        out.append(
+            {
+                "day": day.isoformat(),
+                "ticker": str(raw.tickers[raw.code[i]]),
+                "window_start_ns": int(raw.window_start[i]),
+                "open": float(raw.open[i]),
+                "high": float(raw.high[i]),
+                "low": float(raw.low[i]),
+                "close": float(raw.close[i]),
+                "volume": float(raw.volume[i]),
+                "in_rth": bool(open_ns <= raw.window_start[i] < close_ns),
+            }
+        )
+    return out
+
+
+def blank_ticker_nonpositive(raw: RawFile) -> int:
+    """Rows with an empty ticker string and a non-positive price (junk rows no instrument owns)."""
+    ok = (raw.open > 0) & (raw.high > 0) & (raw.low > 0) & (raw.close > 0)
+    blank = np.isin(raw.code, np.flatnonzero(raw.tickers == ""))
+    return int(np.count_nonzero(blank & ~ok))
+
+
 def run_record_sanity_and_session(
     cfg: Config, archive: Archive, sessions: list[date], drawn: list[date], era: int
 ) -> None:
@@ -271,6 +311,8 @@ def run_record_sanity_and_session(
         time.sleep(cfg.throttle_s)
     minute_counts: lc.SanityCounts | None = None
     session_rows: list[lc.SessionDayResult] = []
+    examples: list[dict[str, Any]] = []
+    blank_nonpositive = 0
     era_days = [d for d in drawn if lc.era_of(d) == era]
     bounds = nyse_sessions(era_days[0], era_days[-1]) if era_days else {}
     for day in era_days:
@@ -279,6 +321,12 @@ def run_record_sanity_and_session(
         counts = sanity_of(raw)
         minute_counts = counts if minute_counts is None else minute_counts + counts
         open_dt, close_dt = bounds[day]
+        blank_nonpositive += blank_ticker_nonpositive(raw)
+        examples.extend(
+            nonpositive_examples(
+                day, raw, int(open_dt.timestamp()) * _NS, int(close_dt.timestamp()) * _NS
+            )
+        )
         session_rows.append(
             lc.session_day_result(
                 day,
@@ -301,6 +349,8 @@ def run_record_sanity_and_session(
                 "n_files": n_day_files,
                 "verdict": lc.sanity_verdict(day_counts),
             },
+            "nonpositive_examples": examples[:NONPOSITIVE_EXAMPLE_CAP],
+            "blank_ticker_nonpositive_rows": blank_nonpositive,
             "minute_files": {
                 **asdict(minute_counts),
                 "n_files": len(era_days),
@@ -438,12 +488,311 @@ def assemble_stage_a(cfg: Config) -> dict[str, Any]:
         ],
         ["day", "era", "open_offset_min", "close_offset_min", "passed"],
     )
+    examples = [
+        {"era": era, **row}
+        for era, part in sorted(sanity.items())
+        for row in part.get("nonpositive_examples", [])
+    ]
+    write_csv(
+        cfg.out / "stageA_nonpositive_examples.csv",
+        examples,
+        [
+            "era",
+            "day",
+            "ticker",
+            "window_start_ns",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "in_rth",
+        ],
+    )
     by_era = lc.session_verdict_by_era(results)
     write_json(cfg.out / "stageA_session_verdict.json", by_era)
+    blank = sum(p.get("blank_ticker_nonpositive_rows", 0) for p in sanity.values())
+    nonpositive = sum(r["n_nonpositive_price"] for r in san_rows)
     return {
+        "record_sanity_nonpositive_rows": nonpositive,
+        "record_sanity_nonpositive_blank_ticker_rows": blank,
+        "record_sanity_nonpositive_named_rows": nonpositive - blank,
         "record_sanity": "stop" if any(r["verdict"] == "stop" for r in san_rows) else "ok",
         "session": "stop" if any(v["verdict"] == "stop" for v in by_era.values()) else "ok",
         "eras_with_parts": sorted(sanity),
+    }
+
+
+# --------------------------------------------------------------------------- frozen inputs
+#: The corporate-action list and the ticker-as-of map are frozen and hashed BEFORE any comparison
+#: that uses them (design 8a, identity and adjustment factor): the files below are written once,
+#: their sha256 recorded in frozen/frozen.json, and every later run reads the files, never the
+#: database tables again. A frozen file whose hash no longer matches its record stops the run.
+_CA_SQL = """
+SELECT symbol, effective_date, factor, recorded_at, inferred_by, (detail ? 'rows_file')
+FROM corporate_action_current WHERE action_type IN ('split', 'reverse_split')
+ORDER BY symbol, effective_date, recorded_at, action_id
+"""
+_SPAN_SQL = """
+SELECT symbol, ticker, valid_from, valid_to FROM ticker_event_current
+ORDER BY symbol, valid_from, ticker
+"""
+_CA_FIELDS = [
+    "symbol",
+    "effective_date",
+    "factor",
+    "recorded_at",
+    "inferred_by",
+    "rows_file",
+    "market_fact",
+]
+_SPAN_FIELDS = ["symbol", "ticker", "valid_from", "valid_to"]
+
+
+def freeze_inputs(cfg: Config, conn: psycopg.Connection) -> dict[str, Any]:
+    """Write (once) and verify the frozen corporate-action list and ticker-as-of map."""
+    from src.intelligence.bars.corporate_actions import is_market_split  # noqa: PLC0415
+
+    fdir = cfg.out / "frozen"
+    record_path = fdir / "frozen.json"
+    ca_path, span_path = fdir / "corporate_actions.csv", fdir / "ticker_spans.csv"
+    if record_path.exists():
+        record = json.loads(record_path.read_text())
+        for path in (ca_path, span_path):
+            if sha256_file(path) != record["sha256"][path.name]:
+                raise RuntimeError(f"frozen input {path} no longer matches its recorded hash")
+        return dict(record)
+    with conn.cursor() as cur:
+        cur.execute(_CA_SQL)
+        ca_rows = [
+            {
+                "symbol": s,
+                "effective_date": d,
+                "factor": repr(f),
+                "recorded_at": r.isoformat(),
+                "inferred_by": by,
+                "rows_file": rf,
+                "market_fact": is_market_split(by, operator_rows_file=rf),
+            }
+            for s, d, f, r, by, rf in cur.fetchall()
+        ]
+        cur.execute(_SPAN_SQL)
+        span_rows = [
+            {"symbol": s, "ticker": t, "valid_from": a, "valid_to": b}
+            for s, t, a, b in cur.fetchall()
+        ]
+    if not ca_rows or not span_rows:
+        raise lc.VacuousCheckError("freeze_inputs: no corporate action or no ticker span row")
+    write_csv(ca_path, ca_rows, _CA_FIELDS)
+    write_csv(span_path, span_rows, _SPAN_FIELDS)
+    record = {
+        "frozen_at": datetime.now(UTC).isoformat(),
+        "sha256": {ca_path.name: sha256_file(ca_path), span_path.name: sha256_file(span_path)},
+        "n_corporate_actions": len(ca_rows),
+        "n_ticker_spans": len(span_rows),
+    }
+    write_json(record_path, record)
+    logger.info("inputs_frozen", **record)
+    return record
+
+
+def load_frozen_splits(cfg: Config) -> dict[str, list[SplitFactor]]:
+    """Market splits per symbol from the frozen file (the horizon is the freeze time)."""
+    record = json.loads((cfg.out / "frozen" / "frozen.json").read_text())
+    horizon = datetime.fromisoformat(record["frozen_at"])
+    rows: dict[str, list[SplitRow]] = {}
+    with (cfg.out / "frozen" / "corporate_actions.csv").open() as handle:
+        for row in csv.DictReader(handle):
+            rows.setdefault(row["symbol"], []).append(
+                SplitRow(
+                    date.fromisoformat(row["effective_date"]),
+                    float(row["factor"]),
+                    datetime.fromisoformat(row["recorded_at"]),
+                    row["market_fact"] == "True",
+                )
+            )
+    return {s: splits_known_at(r, horizon) for s, r in rows.items()}
+
+
+# ------------------------------------------------------------- stage B: day against minute
+def day_file_by_ticker(raw: RawFile) -> dict[str, tuple[float, float, float, float, float]]:
+    return {
+        str(t): (float(o), float(h), float(low), float(c), float(v))
+        for t, o, h, low, c, v in zip(
+            raw.tickers[raw.code], raw.open, raw.high, raw.low, raw.close, raw.volume, strict=True
+        )
+    }
+
+
+def run_day_vs_minute(cfg: Config, archive: Archive, drawn: list[date], era: int) -> None:
+    key = sample_key(cfg)
+    if load_part(cfg, "day_vs_minute", era, key):
+        return
+    era_days = [d for d in drawn if lc.era_of(d) == era]
+    if not era_days:
+        raise lc.VacuousCheckError(f"day_vs_minute: era {era} has no drawn day")
+    bounds = nyse_sessions(era_days[0], era_days[-1])
+    rows: list[dict[str, Any]] = []
+    for day in era_days:
+        wait_out_nightly_window()
+        minute = read_raw_file(day_path(cfg.data_dir, MINUTE, day))
+        day_raw = read_raw_file(day_path(cfg.data_dir, DAY, day))
+        open_dt, close_dt = bounds[day]
+        rth = (minute.window_start >= int(open_dt.timestamp()) * _NS) & (
+            minute.window_start < int(close_dt.timestamp()) * _NS
+        )
+        day_rows = day_file_by_ticker(day_raw)
+        for basis, mask in (("rth", rth), ("all_hours", np.ones(len(rth), dtype=bool))):
+            agg = lc.aggregate_by_ticker(
+                minute.tickers,
+                minute.code,
+                minute.window_start,
+                minute.open,
+                minute.high,
+                minute.low,
+                minute.close,
+                minute.volume,
+                mask,
+            )
+            counts = lc.compare_day_to_minutes(day_rows, agg)
+            rows.append({"day": day.isoformat(), "basis": basis, **asdict(counts)})
+        time.sleep(cfg.throttle_s)
+    write_json(part_path(cfg, "day_vs_minute", era), {"key": key, "era": era, "rows": rows})
+    logger.info("era_scanned", check="day_vs_minute", era=era, days=len(era_days))
+
+
+def assemble_day_vs_minute(cfg: Config) -> dict[str, Any]:
+    parts = all_parts(cfg, "day_vs_minute")
+    if not parts:
+        raise lc.VacuousCheckError("assemble_day_vs_minute: no era part saved")
+    count_fields = [f for f in lc.DayVsMinuteCounts.__dataclass_fields__]
+    csv_rows: list[dict[str, Any]] = []
+    totals: dict[tuple[int, str], lc.DayVsMinuteCounts] = {}
+    for era, part in sorted(parts.items()):
+        for row in part["rows"]:
+            counts = lc.DayVsMinuteCounts(**{f: row[f] for f in count_fields})
+            k = (era, row["basis"])
+            totals[k] = totals[k] + counts if k in totals else counts
+    for (era, basis), counts in sorted(totals.items()):
+        csv_rows.append(
+            {
+                "era": era,
+                "basis": basis,
+                **asdict(counts),
+                "close_mismatch_share": counts.mismatch_close / counts.n_names,
+            }
+        )
+    write_csv(
+        cfg.out / "stageB_day_vs_minute.csv",
+        csv_rows,
+        ["era", "basis", *count_fields, "close_mismatch_share"],
+    )
+    verdict = lc.day_vs_minute_verdict({e: c for (e, b), c in totals.items() if b == "rth"})
+    write_json(cfg.out / "stageB_day_vs_minute_verdict.json", verdict)
+    return verdict
+
+
+# -------------------------------------------------------------------- stage B: volume bands
+_VOL_SQL = """
+SELECT symbol, "timestamp", volume FROM ohlcv_raw
+WHERE timeframe = '1d' AND vendor = %s AND kind = %s AND volume > 0
+  AND "timestamp" >= %s AND "timestamp" < %s
+ORDER BY symbol, "timestamp"
+"""
+_EXCHANGE_SQL = """
+SELECT replace(request_key, '@active', ''), body->'results'->>'primary_exchange'
+FROM reference_raw WHERE vendor = 'massive' AND endpoint = 'overview'
+  AND request_key LIKE '%%@active'
+"""
+UNKNOWN_EXCHANGE = "UNKNOWN"
+
+
+def run_volume_bands(
+    cfg: Config, conn: psycopg.Connection, splits: dict[str, list[SplitFactor]], era: int
+) -> None:
+    """Per name-era median of IBKR (smart_trades) over Massive (sip_flat) 1d volume, the Massive
+    volume carried to IBKR's split-adjusted basis by the FROZEN splits. Only sessions where both
+    traded count; a name with none is counted unmatched, never assumed."""
+    key = sample_key(cfg)
+    if load_part(cfg, "volume_bands", era, key):
+        return
+    start, end = datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC)
+    series: dict[str, dict[str, dict[date, float]]] = {"ibkr": {}, "massive": {}}
+    with conn.cursor() as cur:
+        for vendor, kind in (("ibkr", "smart_trades"), ("massive", "sip_flat")):
+            cur.execute(_VOL_SQL, (vendor, kind, start, end))
+            for symbol, stamp, volume in cur.fetchall():
+                day = raw_session_date(vendor, kind, stamp)
+                series[vendor].setdefault(symbol, {})[day] = float(volume)
+        cur.execute(_EXCHANGE_SQL)
+        exchange = {s: (e or UNKNOWN_EXCHANGE) for s, e in cur.fetchall()}
+    ratios: dict[str, dict[str, float]] = {}
+    unmatched: list[str] = []
+    for symbol, massive in sorted(series["massive"].items()):
+        ibkr = series["ibkr"].get(symbol, {})
+        common = sorted(set(massive) & set(ibkr))
+        if not common:
+            unmatched.append(symbol)
+            continue
+        days = np.array(common, dtype="datetime64[D]")
+        scale = lc.split_scale_for_days(days, splits.get(symbol, []))
+        ratio = np.array([ibkr[d] for d in common]) / (
+            np.array([massive[d] for d in common]) * scale
+        )
+        ratios.setdefault(exchange.get(symbol, UNKNOWN_EXCHANGE), {})[symbol] = float(
+            np.median(ratio)
+        )
+    if not ratios:
+        raise lc.VacuousCheckError(f"volume_bands: era {era} matched no name")
+    write_json(
+        part_path(cfg, "volume_bands", era),
+        {
+            "key": key,
+            "era": era,
+            "ratios": ratios,
+            "unmatched": unmatched,
+            "n_massive_names": len(series["massive"]),
+        },
+    )
+    logger.info("era_scanned", check="volume_bands", era=era, names=sum(map(len, ratios.values())))
+
+
+def assemble_volume_bands(cfg: Config) -> dict[str, Any]:
+    parts = all_parts(cfg, "volume_bands")
+    if not parts:
+        raise lc.VacuousCheckError("assemble_volume_bands: no era part saved")
+    cells = {(era, ex): r for era, part in parts.items() for ex, r in part["ratios"].items()}
+    rows = lc.volume_bands(cells)
+    write_csv(
+        cfg.out / "stageB_volume_bands.csv",
+        [asdict(r) for r in rows],
+        list(lc.VolumeBandRow.__dataclass_fields__),
+    )
+    unmatched = {era: len(p["unmatched"]) for era, p in sorted(parts.items())}
+    write_json(cfg.out / "stageB_volume_unmatched.json", unmatched)
+    return {
+        "volume_bands": "stop" if any(r.verdict == "stop" for r in rows) else "ok",
+        "n_cells": len(rows),
+        "cells_stop": [[r.era, r.exchange] for r in rows if r.verdict == "stop"],
+    }
+
+
+def run_stage_b(cfg: Config, archive: Archive, conn: psycopg.Connection) -> dict[str, Any]:
+    sessions = archive_sessions(archive)
+    drawn = draw_days(cfg, archive, sessions)
+    freeze_inputs(cfg, conn)
+    splits = load_frozen_splits(cfg)
+    for era in cfg.eras:
+        run_day_vs_minute(cfg, archive, drawn, era)
+        run_volume_bands(cfg, conn, splits, era)
+    verdict = assemble_day_vs_minute(cfg)
+    vol = assemble_volume_bands(cfg)
+    return {
+        "day_vs_minute_1d_kind": verdict["decision"],
+        "day_vs_minute_eras_over_limit": verdict["eras_over_limit"],
+        "volume_bands": vol["volume_bands"],
+        "volume_cells": vol["n_cells"],
+        "volume_cells_stop": vol["cells_stop"],
     }
 
 
@@ -465,7 +814,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--stages", default="A", help="comma list of stages")
+    parser.add_argument("--stages", default="A,B", help="comma list of A, B")
     parser.add_argument("--eras", default="2003-2026", help="e.g. 2010 or 2003-2026")
     parser.add_argument("--days-per-era", type=int, default=6, help="seeded minute-file draw")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -495,6 +844,8 @@ def main(argv: list[str] | None = None) -> int:
         conn.read_only = True
         if "A" in stages:
             summary["stage_a"] = run_stage_a(cfg, archive, conn)
+        if "B" in stages:
+            summary["stage_b"] = run_stage_b(cfg, archive, conn)
     systemic = {
         f"{stage}.{k}": v
         for stage in ("stage_a", "stage_b")
