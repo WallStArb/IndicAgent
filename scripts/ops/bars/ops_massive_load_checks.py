@@ -29,16 +29,20 @@ import argparse
 import csv
 import hashlib
 import json
+import math
+import random
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.csv as pacsv
 
@@ -51,6 +55,7 @@ import structlog  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.intelligence.bars import massive_load_checks as lc  # noqa: E402
+from src.intelligence.bars import massive_name_checks as nc  # noqa: E402
 from src.intelligence.bars.daily_rule import raw_session_date  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.split_rescale import (  # noqa: E402
@@ -796,6 +801,547 @@ def run_stage_b(cfg: Config, archive: Archive, conn: psycopg.Connection) -> dict
     }
 
 
+# -------------------------------------------------------------------------- stage C: name level
+#: Arms. IBKR is the independent arm and judges; Alpaca (from 2016-01-04) is reported as
+#: corroboration only: same upstream as Massive, so it never passes, fails or stops anything.
+ARM_KINDS = {
+    ("1d", "massive"): "sip_flat",
+    ("1d", "ibkr"): "smart_trades",
+    ("1d", "alpaca"): "sip_rth",
+    ("5m", "massive"): "sip_flat_agg",
+    ("5m", "ibkr"): "named",
+    ("5m", "alpaca"): "sip_rth",
+}
+ALPACA_FIRST_DAY = date(2016, 1, 4)
+UNMATCHED_LIST_CAP = 20  # listed incumbent bars per (name, era, kind); the counts are exact
+NAME_BATCH = 50
+_BARS_SQL = """
+SELECT symbol, "timestamp", open, high, low, close, volume, served_at FROM ohlcv_raw
+WHERE timeframe = %s AND vendor = %s AND kind = %s AND symbol = ANY(%s)
+  AND "timestamp" >= %s AND "timestamp" < %s
+ORDER BY symbol, "timestamp"
+"""
+_NY_ZONE = "America/New_York"
+
+
+@dataclass(frozen=True)
+class Bars:
+    t_ns: np.ndarray
+    key: np.ndarray  # session date (datetime64[D]) in the series' own stamp zone
+    ohlc: tuple[np.ndarray, ...]
+    volume: np.ndarray
+    served_min: date | None
+    served_max: date | None
+
+
+def _session_keys(t_ns: np.ndarray, zone: str) -> np.ndarray:
+    index = pd.DatetimeIndex(t_ns.astype("datetime64[ns]"), tz="UTC").tz_convert(zone)
+    return index.tz_localize(None).normalize().values.astype("datetime64[D]")
+
+
+def fetch_bars(
+    conn: psycopg.Connection,
+    timeframe: str,
+    vendor: str,
+    names: list[str],
+    start: datetime,
+    end: datetime,
+) -> dict[str, Bars]:
+    """Raw bars of one (timeframe, vendor) for several names over [start, end), per name."""
+    kind = ARM_KINDS[(timeframe, vendor)]
+    with conn.cursor() as cur:
+        cur.execute(_BARS_SQL, (timeframe, vendor, kind, names, start, end))
+        rows = cur.fetchall()
+    if not rows:
+        return {}
+    df = pd.DataFrame.from_records(
+        rows, columns=["symbol", "ts", "open", "high", "low", "close", "volume", "served_at"]
+    )
+    t_all = (
+        df["ts"].dt.tz_convert("UTC").dt.tz_localize(None).astype("datetime64[ns]").astype("int64")
+    ).to_numpy()
+    zone = "UTC" if (timeframe, vendor) == ("1d", "ibkr") else _NY_ZONE
+    keys_all = _session_keys(t_all, zone)
+    out: dict[str, Bars] = {}
+    for symbol, idx in df.groupby("symbol", sort=False).indices.items():
+        sub = df.iloc[idx]
+        served = sub["served_at"].dropna()
+        out[str(symbol)] = Bars(
+            t_all[idx],
+            keys_all[idx],
+            tuple(sub[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close")),
+            sub["volume"].fillna(0).to_numpy(dtype=float),
+            served.min().date() if len(served) else None,
+            served.max().date() if len(served) else None,
+        )
+    return out
+
+
+def rth_mask(t_ns: np.ndarray, sessions: dict[date, tuple[datetime, datetime]]) -> np.ndarray:
+    """True for stamps inside the NYSE regular session [open, close) of their New York date."""
+    days = sorted(sessions)
+    sk = np.array(days, dtype="datetime64[D]")
+    open_ns = np.array([int(sessions[d][0].timestamp()) * _NS for d in days], dtype=np.int64)
+    close_ns = np.array([int(sessions[d][1].timestamp()) * _NS for d in days], dtype=np.int64)
+    keys = _session_keys(t_ns, _NY_ZONE)
+    pos = np.minimum(np.searchsorted(sk, keys), len(sk) - 1)
+    valid = sk[pos] == keys
+    mask: np.ndarray = valid & (t_ns >= open_ns[pos]) & (t_ns < close_ns[pos])
+    return mask
+
+
+def last_bucket_mask(
+    t_ns: np.ndarray, sessions: dict[date, tuple[datetime, datetime]]
+) -> np.ndarray:
+    """True for the final 5m bucket of each stamp's session (its start is the close minus 5 min)."""
+    days = sorted(sessions)
+    sk = np.array(days, dtype="datetime64[D]")
+    close_ns = np.array([int(sessions[d][1].timestamp()) * _NS for d in days], dtype=np.int64)
+    keys = _session_keys(t_ns, _NY_ZONE)
+    pos = np.minimum(np.searchsorted(sk, keys), len(sk) - 1)
+    mask: np.ndarray = (sk[pos] == keys) & (t_ns >= close_ns[pos] - 300 * _NS)
+    return mask
+
+
+@dataclass(frozen=True)
+class ArmResult:
+    n_matched: int
+    n_agree: int
+    n_agree_all: int
+    classes: dict[str, int]
+    median_log_ratio: float
+    correlation: float
+    n_incumbent_zero_volume: int
+    n_incumbent_traded_missing: int
+    missing_listed: list[str]
+
+
+def compare_arm(
+    timeframe: str,
+    arm: str,
+    massive: Bars,
+    inc: Bars,
+    splits: list[SplitFactor],
+    sessions: dict[date, tuple[datetime, datetime]],
+) -> ArmResult | None:
+    """Massive against one incumbent arm for one name-era. None when the arm holds no bar."""
+    if len(inc.t_ns) == 0:
+        return None
+    five = timeframe == "5m"
+    keep = rth_mask(inc.t_ns, sessions) if five else np.ones(len(inc.t_ns), dtype=bool)
+    zero_volume = int(np.count_nonzero(keep & ~(inc.volume > 0)))
+    keep &= inc.volume > 0  # traded buckets only
+    join_inc = inc.t_ns if five else inc.key.astype("int64")
+    join_m = massive.t_ns if five else massive.key.astype("int64")
+    order = np.argsort(join_m, kind="stable")
+    pos = np.searchsorted(join_m[order], join_inc)
+    pos = np.minimum(pos, len(join_m) - 1)
+    hit = (join_m[order][pos] == join_inc) & keep
+    midx = order[pos][hit]
+    missing = np.flatnonzero(keep & ~hit)
+    listed = [
+        str(np.datetime64(int(inc.t_ns[i]), "ns")) if five else str(inc.key[i])
+        for i in missing[:UNMATCHED_LIST_CAP]
+    ]
+    if not hit.any():
+        return ArmResult(0, 0, 0, {}, math.nan, math.nan, zero_volume, len(missing), listed)
+    inc_ohlc = tuple(a[hit] for a in inc.ohlc)
+    m_ohlc = tuple(a[midx] for a in massive.ohlc)
+    day_keys = massive.key[midx]
+    scale = lc.split_scale_for_days(day_keys, splits)
+
+    def neighbour(shift: int) -> tuple[np.ndarray, ...]:
+        j = midx + shift
+        ok = (j >= 0) & (j < len(massive.t_ns))
+        j = np.clip(j, 0, len(massive.t_ns) - 1)
+        return tuple(np.where(ok, a[j], np.nan) for a in massive.ohlc)
+
+    increment = nc.INCUMBENT_INCREMENT[arm]
+    counts = nc.price_agreement(
+        m_ohlc,
+        scale,
+        inc_ohlc,
+        increment,
+        massive_prev_raw=neighbour(-1),
+        massive_next_raw=neighbour(1),  # type: ignore[arg-type]
+        last_bucket=last_bucket_mask(inc.t_ns[hit], sessions) if five else None,
+    )
+    median_log = nc.scale_check(m_ohlc[3], scale, inc_ohlc[3])
+    corr = nc.identity_correlation(m_ohlc[3] / scale, inc_ohlc[3]) if not five else math.nan
+    return ArmResult(
+        counts.n_matched,
+        counts.n_agree,
+        counts.n_agree_all,
+        counts.n_class,
+        median_log,
+        corr,
+        zero_volume,
+        len(missing),
+        listed,
+    )
+
+
+def judge_name_era(
+    results: dict[str, ArmResult | None], preclass: str, listed_in_era: bool
+) -> tuple[str, str]:
+    """(outcome, reason) of one name-era from the IBKR arm; Alpaca never judges."""
+    if not listed_in_era:
+        return nc.OUTCOME_GAP, "not_listed_in_era"
+    if preclass == nc.ERA_NON_SPLIT:
+        return nc.OUTCOME_GAP, "non_split_adjustment_convention"
+    r1, r5 = results.get("1d"), results.get("5m")
+    judged = [r for r in (r1, r5) if r is not None and r.n_matched > 0]
+    if not judged:
+        return nc.OUTCOME_GAP, "no_incumbent_overlap"
+    if r1 is not None and r1.n_matched > 0 and not nc.identity_resolved(r1.correlation):
+        return nc.OUTCOME_GAP, "identity_unresolved"
+    for label, r in (("1d", r1), ("5m", r5)):
+        if r is None or r.n_matched == 0:
+            continue
+        counts = nc.AgreementCounts(r.n_matched, r.n_agree, r.n_agree_all, r.classes)
+        if not nc.name_era_agreement_ok(counts):
+            return nc.OUTCOME_GAP, f"price_agreement_{label}"
+        if not nc.scale_ok(r.median_log_ratio):
+            return nc.OUTCOME_GAP, f"scale_factor_{label}"
+    return nc.OUTCOME_PASS, ""
+
+
+def run_name_era_batch(
+    cfg: Config,
+    conn: psycopg.Connection,
+    names: list[str],
+    era: int,
+    splits: dict[str, list[SplitFactor]],
+    non_split: set[str],
+) -> dict[str, dict[str, Any]]:
+    """All checks of one batch of names for one era; returns per-name detail rows."""
+    sessions = nyse_sessions(date(era, 1, 1), date(era, 12, 31))
+    data: dict[tuple[str, str], dict[str, Bars]] = {}
+    start, end = datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC)
+    for timeframe in ("1d", "5m"):
+        arms = ["massive", "ibkr"] + (["alpaca"] if era >= ALPACA_FIRST_DAY.year else [])
+        for arm in arms:
+            data[(timeframe, arm)] = fetch_bars(conn, timeframe, arm, names, start, end)
+    out: dict[str, dict[str, Any]] = {}
+    for name in names:
+        wait_out_nightly_window()
+        listed = name in data[("1d", "massive")] or name in data[("5m", "massive")]
+        sp = splits.get(name, [])
+        in_window = [s for s in sp if date(era, 1, 1) <= s.effective_date <= date(era, 12, 31)]
+        preclass = nc.preclassify_name_era(len(in_window), name in non_split)
+        results: dict[str, dict[str, ArmResult | None]] = {"ibkr": {}, "alpaca": {}}
+        if listed:
+            for timeframe in ("1d", "5m"):
+                massive = data[(timeframe, "massive")].get(name)
+                for arm in results:
+                    inc = data.get((timeframe, arm), {}).get(name)
+                    if massive is None or inc is None:
+                        results[arm][timeframe] = None
+                        continue
+                    results[arm][timeframe] = compare_arm(
+                        timeframe, arm, massive, inc, sp, sessions
+                    )
+        outcome, reason = judge_name_era(results["ibkr"], preclass, listed)
+        alp = data.get(("1d", "alpaca"), {}).get(name)
+        seam = bool(alp) and nc.alpaca_epoch_seam_possible(
+            alp.served_min, alp.served_max, [s.effective_date for s in in_window]
+        )
+        out[name] = {
+            "outcome": outcome,
+            "reason": reason,
+            "preclass": preclass,
+            "alpaca_epoch_seam_possible": seam,
+            "splits_in_window": [f"{x.effective_date}:{x.factor}" for x in in_window],
+            "arms": {
+                a: {tf: (asdict(r) if r else None) for tf, r in rs.items()}
+                for a, rs in results.items()
+            },
+        }
+    return out
+
+
+def run_disputed_windows(
+    cfg: Config, conn: psycopg.Connection, disputed_csv: Path, splits: dict[str, list[SplitFactor]]
+) -> dict[str, Any]:
+    """1d census at the disputed dates: ten sessions either side of each (symbol, date) of the
+    supplied file (the todo 592 witness rows), Massive against the IBKR arm."""
+    cases: list[tuple[str, date]] = []
+    with disputed_csv.open() as handle:
+        for row in csv.DictReader(handle):
+            try:
+                cases.append((row["symbol"], date.fromisoformat(row["date"])))
+            except (KeyError, ValueError):
+                continue
+    rows: list[dict[str, Any]] = []
+    for symbol, day in sorted(set(cases)):
+        wait_out_nightly_window()
+        start = datetime.combine(day - timedelta(days=40), dtime(0), tzinfo=UTC)
+        end = datetime.combine(day + timedelta(days=40), dtime(0), tzinfo=UTC)
+        massive = fetch_bars(conn, "1d", "massive", [symbol], start, end).get(symbol)
+        inc = fetch_bars(conn, "1d", "ibkr", [symbol], start, end).get(symbol)
+        row: dict[str, Any] = {
+            "symbol": symbol,
+            "date": day.isoformat(),
+            "matched": 0,
+            "agree": 0,
+            "share": "",
+            "median_log_ratio": "",
+            "note": "",
+        }
+        if massive is None or inc is None:
+            row["note"] = "no_massive_bars" if massive is None else "no_incumbent_bars"
+            rows.append(row)
+            continue
+        window = set(nc.dispute_window_sessions([d.astype(object) for d in massive.key], day))
+        keep = np.array([d.astype(object) in window for d in inc.key])
+        trimmed = Bars(
+            inc.t_ns[keep],
+            inc.key[keep],
+            tuple(a[keep] for a in inc.ohlc),
+            inc.volume[keep],
+            None,
+            None,
+        )
+        result = compare_arm("1d", "ibkr", massive, trimmed, splits.get(symbol, []), {})
+        if result is None or result.n_matched == 0:
+            row["note"] = "no_overlap_in_window"
+        else:
+            row.update(
+                matched=result.n_matched,
+                agree=result.n_agree,
+                share=result.n_agree / result.n_matched,
+                median_log_ratio=result.median_log_ratio,
+            )
+        rows.append(row)
+    write_csv(
+        cfg.out / "stageC_disputed_windows.csv",
+        rows,
+        ["symbol", "date", "matched", "agree", "share", "median_log_ratio", "note"],
+    )
+    judged = [r for r in rows if r["matched"]]
+    return {
+        "disputed_cases": len(rows),
+        "disputed_cases_with_overlap": len(judged),
+        "disputed_cases_disagreeing": sum(1 for r in judged if r["share"] < nc.NAME_ERA_AGREE_MIN),
+    }
+
+
+def _arm_counts(detail: dict[str, Any], arm: str, timeframe: str) -> nc.AgreementCounts | None:
+    r = detail["arms"][arm].get(timeframe)
+    if not r or r["n_matched"] == 0:
+        return None
+    return nc.AgreementCounts(r["n_matched"], r["n_agree"], r["n_agree_all"], r["classes"])
+
+
+def run_stage_c(
+    cfg: Config,
+    conn: psycopg.Connection,
+    max_names: int | None,
+    non_split_csv: Path | None,
+    disputed_csv: Path | None,
+) -> dict[str, Any]:
+    freeze_inputs(cfg, conn)
+    splits = load_frozen_splits(cfg)
+    with (cfg.out / "frozen" / "ticker_spans.csv").open() as handle:
+        mapped = sorted({row["symbol"] for row in csv.DictReader(handle)})
+    names = mapped
+    if max_names is not None:
+        names = sorted(random.Random(cfg.seed).sample(mapped, min(max_names, len(mapped))))
+    non_split: set[str] = set()
+    if non_split_csv is not None:
+        with non_split_csv.open() as handle:
+            non_split = {row["symbol"] for row in csv.DictReader(handle)}
+    key = {**sample_key(cfg), "max_names": max_names, "n_names": len(names)}
+    for era in cfg.eras:
+        if load_part(cfg, "name_checks", era, key):
+            continue
+        t0 = time.monotonic()
+        detail: dict[str, dict[str, Any]] = {}
+        for i in range(0, len(names), NAME_BATCH):
+            detail.update(
+                run_name_era_batch(cfg, conn, names[i : i + NAME_BATCH], era, splits, non_split)
+            )
+            time.sleep(cfg.throttle_s)
+        write_json(part_path(cfg, "name_checks", era), {"key": key, "era": era, "names": detail})
+        logger.info(
+            "era_scanned",
+            check="name_checks",
+            era=era,
+            names=len(detail),
+            seconds=round(time.monotonic() - t0, 1),
+        )
+    summary = assemble_stage_c(cfg, mapped, names, key)
+    summary["non_split_adjustment_list"] = "supplied" if non_split_csv else "not supplied"
+    summary["disputed_windows"] = (
+        run_disputed_windows(cfg, conn, disputed_csv, splits) if disputed_csv else "not supplied"
+    )
+    return summary
+
+
+def assemble_stage_c(
+    cfg: Config, mapped: list[str], names: list[str], key: dict[str, Any]
+) -> dict[str, Any]:
+    parts = {e: p for e, p in all_parts(cfg, "name_checks").items() if p["key"] == key}
+    rows: list[dict[str, Any]] = []
+    vendor_by_era: dict[int, dict[str, Any]] = {}
+    stop_eras: list[int] = []
+    classes_total: Counter[str] = Counter()
+    ledger: list[dict[str, Any]] = []
+    scale_rows: list[dict[str, Any]] = []
+    outcomes: dict[tuple[str, int], tuple[str, str]] = {}
+    unmatched_rows: list[dict[str, Any]] = []
+    for era, part in sorted(parts.items()):
+        by_tf: dict[str, list[nc.AgreementCounts]] = {"1d": [], "5m": []}
+        by_tf_clean: dict[str, list[nc.AgreementCounts]] = {"1d": [], "5m": []}
+        for name, d in sorted(part["names"].items()):
+            outcomes[(name, era)] = (d["outcome"], d["reason"])
+            row = {
+                "name": name,
+                "era": era,
+                "outcome": d["outcome"],
+                "reason": d["reason"],
+                "preclass": d["preclass"],
+                "alpaca_epoch_seam_possible": d["alpaca_epoch_seam_possible"],
+            }
+            for arm in ("ibkr", "alpaca"):
+                for tf in ("1d", "5m"):
+                    r = d["arms"][arm].get(tf)
+                    p = f"{arm}_{tf}"
+                    row[f"{p}_matched"] = r["n_matched"] if r else 0
+                    row[f"{p}_agree"] = r["n_agree"] if r else 0
+                    row[f"{p}_agree_all_ohlc"] = r["n_agree_all"] if r else 0
+                    row[f"{p}_median_log_ratio"] = r["median_log_ratio"] if r else ""
+                    row[f"{p}_zero_volume_incumbent"] = r["n_incumbent_zero_volume"] if r else 0
+                    row[f"{p}_incumbent_traded_missing"] = (
+                        r["n_incumbent_traded_missing"] if r else 0
+                    )
+                    if r:
+                        for item in r["missing_listed"]:
+                            unmatched_rows.append(
+                                {"name": name, "era": era, "arm": arm, "timeframe": tf, "bar": item}
+                            )
+            rows.append(row)
+            # vendor-wide counts: IBKR arm only, name-eras whose price check applies
+            if d["reason"] not in (
+                "identity_unresolved",
+                "non_split_adjustment_convention",
+                "not_listed_in_era",
+            ):
+                for tf in ("1d", "5m"):
+                    c = _arm_counts(d, "ibkr", tf)
+                    if c:
+                        by_tf[tf].append(c)
+                        classes_total.update(c.n_class)
+                        r = d["arms"]["ibkr"][tf]
+                        if nc.scale_ok(r["median_log_ratio"]):
+                            by_tf_clean[tf].append(c)
+                        else:
+                            scale_rows.append(
+                                {
+                                    "name": name,
+                                    "era": era,
+                                    "timeframe": tf,
+                                    "median_log_ratio": r["median_log_ratio"],
+                                    "implied_factor": math.exp(r["median_log_ratio"]),
+                                    "frozen_splits_in_window": ";".join(d["splits_in_window"]),
+                                    "preclass": d["preclass"],
+                                }
+                            )
+            if d["outcome"] == nc.OUTCOME_GAP and d["reason"].startswith(
+                ("price_agreement", "scale_factor")
+            ):
+                ledger.append(
+                    {
+                        "name": name,
+                        "span": str(era),
+                        "claimed_defect": d["reason"],
+                        "witnesses": "ibkr arm only; no third witness recorded",
+                        "verdict": nc.VERDICT_UNRESOLVED,
+                        "deciding_session_id": "",
+                    }
+                )
+        vendor_by_era[era] = {}
+        for tf, cs in by_tf.items():
+            if cs:
+                w = nc.vendor_wide(cs)
+                vendor_by_era[era][tf] = asdict(w)
+                if by_tf_clean[tf]:
+                    # sensitivity only: the verdict above counts every judged name-era
+                    vendor_by_era[era][f"{tf}_excluding_scale_failures"] = asdict(
+                        nc.vendor_wide(by_tf_clean[tf])
+                    )
+                if w.verdict == "stop":
+                    stop_eras.append(era)
+            else:
+                vendor_by_era[era][tf] = None
+    write_csv(cfg.out / "stageC_name_era_checks.csv", rows, list(rows[0]) if rows else ["name"])
+    write_csv(
+        cfg.out / "stageC_scale_factor.csv",
+        scale_rows,
+        [
+            "name",
+            "era",
+            "timeframe",
+            "median_log_ratio",
+            "implied_factor",
+            "frozen_splits_in_window",
+            "preclass",
+        ],
+    )
+    write_csv(
+        cfg.out / "stageC_unmatched_incumbent_bars.csv",
+        unmatched_rows,
+        ["name", "era", "arm", "timeframe", "bar"],
+    )
+    write_csv(
+        cfg.out / "stageC_disagreement_ledger.csv",
+        ledger,
+        ["name", "span", "claimed_defect", "witnesses", "verdict", "deciding_session_id"],
+    )
+    write_json(cfg.out / "stageC_vendor_wide.json", vendor_by_era)
+    expected = [(n, e) for n in mapped for e in cfg.eras]
+    closed = nc.close_partition(expected, outcomes, stop_eras=sorted(set(stop_eras)))
+    gap_additions = sorted(
+        {f"{n}|{e}|{r}" for (n, e), (o, r) in outcomes.items() if o == nc.OUTCOME_GAP}
+    )
+    write_json(cfg.out / "stageC_gap_list_additions.json", gap_additions)
+    summary: dict[str, Any] = {
+        "names_judged": len(names),
+        "mapped_names": len(mapped),
+        "eras": sorted(parts),
+        "vendor_wide_stop_eras": sorted(set(stop_eras)),
+        "vendor_wide_other_share_investigate_eras": sorted(
+            e for e, v in vendor_by_era.items() for x in v.values() if x and x["investigate"]
+        ),
+        "disagreement_classes_total": dict(classes_total),
+        "ledger_rows": len(ledger),
+        "scale_failure_name_era_timeframes": len(scale_rows),
+        "gap_list_cell_count": len(gap_additions),
+        "vendor_wide_agreement": "stop" if stop_eras else "ok",
+    }
+    if isinstance(closed, nc.PartialRun):
+        summary["partition"] = {
+            "status": "partial",
+            "n_expected": closed.n_expected,
+            "n_judged": closed.n_judged,
+        }
+    else:
+        summary["partition"] = {
+            "status": "complete",
+            "n_mapped_cells": closed.n_mapped_cells,
+            "counts": closed.counts,
+        }
+        write_json(
+            cfg.out / "stageC_partition.json",
+            {
+                "counts": closed.counts,
+                "n_mapped_cells": closed.n_mapped_cells,
+                "cells": [[n, e, o, r] for (n, e), (o, r) in sorted(closed.cells.items())],
+            },
+        )
+    return summary
+
+
 # ------------------------------------------------------------------------------------- driver
 def run_stage_a(cfg: Config, archive: Archive, conn: psycopg.Connection) -> dict[str, Any]:
     sessions = archive_sessions(archive)
@@ -814,12 +1360,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--stages", default="A,B", help="comma list of A, B")
+    parser.add_argument("--stages", default="A,B", help="comma list of A, B, C")
     parser.add_argument("--eras", default="2003-2026", help="e.g. 2010 or 2003-2026")
     parser.add_argument("--days-per-era", type=int, default=6, help="seeded minute-file draw")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--throttle-s", type=float, default=0.0)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--max-names", type=int, default=None, help="stage C: seeded name sample")
+    parser.add_argument(
+        "--non-split-csv",
+        type=Path,
+        default=None,
+        help="stage C: symbol column, the non-split adjustment name list",
+    )
+    parser.add_argument(
+        "--disputed-csv",
+        type=Path,
+        default=None,
+        help="stage C: symbol,date rows (the todo 592 witness cases)",
+    )
     args = parser.parse_args(argv)
     cfg = Config(
         args.out,
@@ -846,15 +1405,28 @@ def main(argv: list[str] | None = None) -> int:
             summary["stage_a"] = run_stage_a(cfg, archive, conn)
         if "B" in stages:
             summary["stage_b"] = run_stage_b(cfg, archive, conn)
+        if "C" in stages:
+            summary["stage_c"] = run_stage_c(
+                cfg, conn, args.max_names, args.non_split_csv, args.disputed_csv
+            )
     systemic = {
         f"{stage}.{k}": v
-        for stage in ("stage_a", "stage_b")
+        for stage in ("stage_a", "stage_b", "stage_c")
         for k, v in summary.get(stage, {}).items()
         if v in ("stop", "ok")
     }
     summary["systemic_verdicts"] = systemic
-    summary["status"] = "partial"  # stage C (name-level partition) not run: never a result table
-    summary["partition"] = None
+    # complete only when every stage ran over every era and the partition closed over the whole
+    # mapped universe; anything less is partial and carries no partition table
+    partition = summary.get("stage_c", {}).get("partition")
+    full = (
+        stages >= {"A", "B", "C"}
+        and cfg.eras == tuple(range(2003, 2027))
+        and isinstance(partition, dict)
+        and partition.get("status") == "complete"
+    )
+    summary["status"] = "complete" if full else "partial"
+    summary["partition"] = partition if full else None
     write_json(cfg.out / "summary.json", summary)
     logger.info("summary_written", status=summary["status"], systemic=systemic)
     print(json.dumps({"status": summary["status"], "systemic_verdicts": systemic}, indent=2))
