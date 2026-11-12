@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile.timescaledb
     container_name: timescaledb
     restart: unless-stopped
-    shm_size: '13g'
+    shm_size: '26g'
     logging:
       driver: json-file
       options:
@@ -34,8 +34,8 @@ services:
       "-c", "max_locks_per_transaction=16384",
       "-c", "wal_buffers=8192",
       "-c", "log_min_duration_statement=1000",
-      "-c", "shared_buffers=7GB",
-      "-c", "work_mem=128MB"
+      "-c", "shared_buffers=14GB",
+      "-c", "work_mem=256MB"
     ]
     environment:
       - POSTGRES_USER=postgres

@@ -44,8 +44,8 @@ def _write_compose(tmp_path: Path, text: str) -> Path:
 def test_parse_compose_command_settings_real_file():
     settings = parse_compose_command_settings(_REAL_COMPOSE)
     # D-38 retune (29f507735): 25% of MemTotal and the work_mem/shm_size budget in the compose
-    assert settings["shared_buffers"] == "7GB"
-    assert settings["work_mem"] == "128MB"
+    assert settings["shared_buffers"] == "14GB"
+    assert settings["work_mem"] == "256MB"
     assert settings["max_connections"] == "200"
     assert settings["__shm_size"] == "13g"
 

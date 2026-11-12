@@ -246,9 +246,9 @@ reappear as drift. Current values, applied 2026-10-11 (commit 29f507735):
 
 | Setting | Value | Formula and inputs |
 |---|---|---|
-| `shared_buffers` | 7GB | 25% of MemTotal (29.47 GiB, `/proc/meminfo`), rounded down to a whole GB. Headroom check: MemAvailable 20.4 GiB + current 3 GB > 7 + 4 GB. |
-| `work_mem` | 128MB | Largest power of two with `work_mem x hash_mem_multiplier (2) x (max_parallel_workers_per_gather (12) + 1) x peak active backends (3, 60 s sample)` under the bound MemTotal 29.47 - shared_buffers 7 - other containers ~8.2 GiB (redpanda at its 6 GiB limit) - 4 GiB host reserve = 10.3 GiB; 78 x 128MB = 9.75 GiB. Spill evidence: 1,151 GB in 68,243 temp files under the old 8 MB. |
-| `shm_size` | 13g | `work_mem 128MB x 2 x 13 x 4` concurrent parallel queries = 13,312 MB, rounded up. A tmpfs cap, not a reservation. Was 512m, which the measured spill (7,392 kB disk in one hash) could overflow. |
+| `shared_buffers` | 14GB | 25% of MemTotal (59.44 GiB on the new server since 2026-11-12, `/proc/meminfo`), rounded down to a whole GB. Was 7GB on the 29.47 GiB server. |
+| `work_mem` | 256MB | Largest power of two with `work_mem x hash_mem_multiplier (2) x (max_parallel_workers_per_gather (12) + 1) x peak active backends (3, 60 s sample)` under the bound MemTotal 59.44 - shared_buffers 14 - other containers ~8.2 GiB (redpanda at its 6 GiB limit) - 4 GiB host reserve = 33.2 GiB; 78 x 256MB = 19.5 GiB. (128MB on the 29.47 GiB server: 10.3 GiB bound.) Spill evidence: 1,151 GB in 68,243 temp files under the old 8 MB. |
+| `shm_size` | 26g | `work_mem 256MB x 2 x 13 x 4` concurrent parallel queries = 26,624 MB, rounded up (13g at work_mem 128MB). A tmpfs cap, not a reservation. Was 512m, which the measured spill (7,392 kB disk in one hash) could overflow. |
 | unchanged | — | `maintenance_work_mem` 2GB, `effective_cache_size` 17GB, `max_connections` 200, `max_locks_per_transaction` 16384, `wal_buffers` 8192, `log_min_duration_statement` 1000ms, `max_parallel_workers` 24, `max_parallel_workers_per_gather` 12, `hash_mem_multiplier` 2, `dynamic_shared_memory_type` posix. |
 
 R-12 cause, for the record: the container created 2026-06-22 carried
