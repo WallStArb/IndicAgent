@@ -103,6 +103,8 @@ serves captured, references captured, design refined.
 
 **Todo triage 2026-11-12 (lead):** pending 105 -> 86. Closed as superseded by Massive: 453, 505, 521, 534, 537, 581, 585, 519, 607. Deferred behind step 7 (gate: step 7 proves the rebuild, then todo 600's deletion-list review): 433, 497, 525, 527, 535, 557, 565, 566, 567, 596. P0 is now only 584, 588, 600. Unblocked now: 608, 592, 595 (the split and wick sweeps with Massive as witness).
 
+**Universe (lead 2026-11-12):** the archive holds 30,000+ tickers against 1,529 on IBKR; todo 609 builds the stage 2 point-in-time liquidity-rule universe (survivorship-free, 1d for all, 5m for the top tier) after step 7 and the 8a checks. It is the biggest lever on breadth after the data gate.
+
 **Next, in order:**
 1. Execute the rest of the design's step sequence on the lead's call (section 8: the 8a load checks,
    policy, one-pass rebuild with the seam witness and canary; migration, code, reference load, split
