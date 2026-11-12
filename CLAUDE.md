@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.8
+Version: 5.63.9
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -55,7 +55,7 @@ Before committing, `git fetch` and read `git status -sb`; if main is ahead and b
 - **IBKR:** all ib_async in `src/providers/ibkr.py` only; Gateway is the `ib-gateway` container on `127.0.0.1:7497`. Every IBKR history fetch goes through `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` (provider registry; external identities keep the ibkr name) under `FetcherLock`; Alpaca capture is `scripts/ops/bars/ops_bar_nightly.py` (raw only, through the load engine). Backfill, gateway 2FA and venue gotchas: `docs/reference/gotchas.md`.
 - **Instrument onboarding:** `docs/foundation/instrument-onboarding-sop.md`. Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name.
 - **Key modules:** `src/core/stream_keys.py` (all topic keys) · `src/core/database_manager.py` · `src/core/service_utils.py` (`setup_service_logging()`, `format_iso_ts()`, `parse_iso_ts()`, `min_bars_for_tf()`).
-- **Server:** Claude Code runs ON this machine (`192.168.68.60`); never SSH; runtime configs use `localhost`. Docker: `cd production && docker compose up -d`; keep the log caps. More: `docs/operations/operations-infrastructure.md`.
+- **Server:** Claude Code runs ON this machine (`192.168.68.67`, hostname `ubuntu1`, since the 2026-11-12 cutover; the old server `.60` is idle and awaits reformat as standby and backup); never SSH to this host; runtime configs use `localhost`. Docker: `cd production && docker compose up -d`; keep the log caps. More: `docs/operations/operations-infrastructure.md`.
 
 ## Adaptive Parameter Registry (APR)
 

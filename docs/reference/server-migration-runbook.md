@@ -1,7 +1,7 @@
 # Server migration runbook
 
 **Version:** 1.0
-**Status:** design (written 2026-11-11 from an inventory of the current server; no step has been rehearsed yet)
+**Status:** cutover done 2026-11-12 (Phases 0-3 executed; Phase 4 soak running; Phase 5 pending). Deviations are in the Cutover record below.
 **Last Updated:** 2026-11-11
 
 Moves the platform from the current server (call it OLD: 24 threads, 29 GB RAM, 914 GB disk) to a new mini PC (call it NEW: Ryzen AI 9 HX 370, 64 GB RAM, 2 TB NVMe), then turns OLD into the backup and read-only research box. Written by a Claude Code session at the owner's request. Treat every command as unverified until the first run, and correct this doc where reality differs.
@@ -138,3 +138,14 @@ OLD runs research against its local standby and returns results to NEW. It never
 - Decide the `ssfi-timescaledb` sibling project (Phase 0, item 4).
 - Update `CLAUDE.md` ("Claude Code runs ON this machine", the IP `192.168.68.60`) and memory after cutover; record the cutover date and any deviations here.
 - `docs/operations/operations-disaster-recovery.md` is stale (v2.x tables); replace its backup section with Phase 5 once the restore drill passes.
+
+## Cutover record (2026-11-12)
+
+Executed from OLD over SSH, owner approving. Deviations from the plan above:
+
+- Owner decision: NEW runs the latest of everything; on any mismatch OLD is upgraded, never NEW downgraded. The Postgres image was built on NEW from `latest-pg18` (PG 18.6, TimescaleDB 2.32.0, pgvector 0.8.7, llvm21 build deps) instead of copying OLD's image. A newer-minor standby replayed OLD's PG 18.4 / TimescaleDB 2.27.1 stream without trouble; the extension catalogs were updated with `ALTER EXTENSION` after promotion.
+- Python: `uv.lock` covers only the dev group; the runtime set is `requirements.txt`. NEW's venv is built from it at the newest versions. scipy 1.18 changed three outputs, fixed in code and gated: `rank_float64` (float32 ranks), local skew and kurtosis in `research/evaluate.py` (d**3 and d**4 moments), regime goldens regenerated with a flip report (no label flips). `repro_frozen` is bit-identical on the new stack.
+- The base backup took about six minutes for 88 GB; promotion was at LSN 204D/D84100E8 after OLD's clean shutdown (checkpoint 204D/D8410070). Counts matched the baseline in `data/scratch/migration-baseline/`.
+- The IB Gateway first-prompt 2FA expired before approval; a container restart sent a fresh prompt and the probe then reported authenticated.
+- The dashboard needed `npm ci` before first start; NEW also needed the Node install.
+- OLD's units are disabled and its Postgres and gateway containers set to `restart=no`; OLD's Postgres volume is intact for rollback until the soak ends.
