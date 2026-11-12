@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
@@ -228,20 +229,99 @@ def test_day_vs_minute_decision_threshold_and_vacuous_era() -> None:
         lc.day_vs_minute_verdict({2010: lc.DayVsMinuteCounts(0, 5, 0, 0, 0, 0, 0)})
 
 
-def test_volume_bands() -> None:
-    names = {f"S{i}": 1.0 for i in range(100)}
-    rows = lc.volume_bands({(2010, "XNYS"): names})
-    assert rows[0].verdict == "ok" and rows[0].median_ratio == 1.0
-    wide = dict(names)
-    for i in range(3):  # 3 percent outside 0.5..2.0
-        wide[f"S{i}"] = 3.0
-    assert lc.volume_bands({(2010, "XNYS"): wide})[0].verdict == "stop"
-    shifted = {f"S{i}": 1.4 for i in range(100)}  # median outside 0.8..1.25
-    assert lc.volume_bands({(2010, "XNAS"): shifted})[0].verdict == "stop"
+def _cells(medians: dict[tuple[int, str], float], n: int = 50):
+    return {k: {f"S{i}": v for i in range(n)} for k, v in medians.items()}
+
+
+def test_volume_bands_smooth_drift_is_a_data_note_not_a_stop() -> None:
+    # 1.0 in 2003 to 0.5 in 2025 over 22 eras: each step is far below ln(1.5)
+    eras = range(2003, 2026)
+    ratio = {(e, "XNYS"): 1.0 * (0.5 ** ((e - 2003) / 22)) for e in eras}
+    rows = lc.volume_bands(_cells(ratio))
+    assert all(r.verdict == "ok" for r in rows)
+    assert rows[0].note == "" and rows[-1].note == "drift_outside_design_band"
+    assert math.isnan(rows[0].step_log) and rows[1].step_log < 0
+
+
+def test_volume_bands_stops_on_a_step_or_an_absolute_miss() -> None:
+    near = lc.volume_bands(_cells({(2010, "XNAS"): 1.0, (2011, "XNAS"): 1.45}))
+    assert near[1].verdict == "ok"  # ln(1.45) is below ln(1.5)
+    big = lc.volume_bands(_cells({(2010, "XNAS"): 1.0, (2011, "XNAS"): 1.6}))
+    assert big[1].verdict == "stop" and big[0].verdict == "ok"
+    out = lc.volume_bands(_cells({(2010, "XNAS"): 0.2}))
+    assert out[0].verdict == "stop"  # outside [0.25, 4.0]
+    out = lc.volume_bands(_cells({(2010, "XNAS"): 5.0}))
+    assert out[0].verdict == "stop"
+    # a step is judged within one exchange only
+    mixed = lc.volume_bands(_cells({(2010, "XNAS"): 1.0, (2011, "XNYS"): 1.6}))
+    assert [r.verdict for r in mixed] == ["ok", "ok"]
     with pytest.raises(lc.VacuousCheckError):
         lc.volume_bands({(2010, "XNYS"): {}})
     with pytest.raises(lc.VacuousCheckError):
         lc.volume_bands({(2010, "XNYS"): {"A": 0.0, "B": float("nan")}})
+
+
+def test_sanity_unowned_rows_are_listed_apart_and_never_stop() -> None:
+    n = 100
+    o = np.full(n, 10.0)
+    h = np.full(n, 11.0)
+    low = np.full(n, 9.0)
+    owned = np.ones(n, dtype=bool)
+    o[:5] = h[:5] = low[:5] = 0.0  # five zero rows with no ticker
+    owned[:5] = False
+    counts = lc.record_sanity(
+        np.arange(n), np.arange(n, dtype=np.int64), o, h, low, o.copy(), np.ones(n), owned
+    )
+    assert counts.n_rows == 95 and counts.n_unowned_rows == 5 and counts.n_unowned_defective == 5
+    assert counts.n_nonpositive_price == 0 and lc.sanity_verdict(counts) == "ok"
+    with pytest.raises(lc.VacuousCheckError):
+        lc.record_sanity(
+            np.arange(3),
+            np.arange(3),
+            o[:3],
+            h[:3],
+            low[:3],
+            o[:3],
+            np.ones(3),
+            np.zeros(3, dtype=bool),
+        )
+
+
+def test_sanity_single_named_defect_is_not_systematic() -> None:
+    n = 100_000
+    o = np.full(n, 10.0)
+    low = np.full(n, 9.0)
+    low[7] = 0.0  # one named-instrument bar with a zero low: a gap-list item, not a stop
+    counts = lc.record_sanity(
+        np.arange(n), np.arange(n, dtype=np.int64), o, np.full(n, 11.0), low, o.copy(), np.ones(n)
+    )
+    assert counts.n_nonpositive_price == 1 and lc.sanity_verdict(counts) == "ok"
+
+
+def test_clean_vendor_passes_every_systemic_check() -> None:
+    """Calibration: a vendor with clean rows, an exact day file, a flat volume ratio passes."""
+    n = 500
+    ts = np.arange(n, dtype=np.int64)
+    px = np.linspace(20, 30, n)
+    counts = lc.record_sanity(
+        np.zeros(n, dtype=np.int64), ts, px, px + 1, px - 1, px, np.full(n, 100.0)
+    )
+    assert lc.sanity_verdict(counts) == "ok"
+    open_ns, close_ns = 0, 390 * MIN
+    stamps = np.array([0, 100, 389]) * MIN
+    day = lc.session_day_result(
+        date(2010, 3, 15), stamps, np.array([9.0, 1.0, 9.0]), open_ns, close_ns
+    )
+    assert lc.session_verdict_by_era([day])[2010]["verdict"] == "ok"
+    names, code, (t, o2, h2, l2, c2, v2) = _file(
+        [("A", 1, 10, 12, 9, 11, 5), ("A", 2, 11, 13, 10, 12, 7)]
+    )
+    agg = lc.aggregate_by_ticker(names, code, t, o2, h2, l2, c2, v2, np.ones(2, bool))
+    dvm = lc.compare_day_to_minutes({"A": (10, 13, 9, 12, 12)}, agg)
+    assert dvm.mismatch_close == 0
+    assert lc.day_vs_minute_verdict({2010: dvm})["decision"] == "served"
+    ratios = {(e, "XNYS"): {f"S{i}": 0.95 for i in range(30)} for e in (2010, 2011, 2012)}
+    assert all(r.verdict == "ok" for r in lc.volume_bands(ratios))
 
 
 def test_split_scale_matches_scales_for_sessions() -> None:

@@ -78,7 +78,7 @@ def test_frozen_splits_load_from_the_frozen_file_only(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     frozen = tmp_path / "frozen"
     frozen.mkdir()
-    (frozen / "frozen.json").write_text(json.dumps({"frozen_at": "2026-11-12T12:00:00+00:00"}))
+    (frozen / "frozen_at.txt").write_text("2026-11-12T12:00:00+00:00\n")
     (frozen / "corporate_actions.csv").write_text(
         "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact\n"
         "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
@@ -88,3 +88,60 @@ def test_frozen_splits_load_from_the_frozen_file_only(tmp_path: Path) -> None:
     splits = runner.load_frozen_splits(cfg)
     # the operator route correction and the not-yet-executed split never rescale
     assert [(s.effective_date, s.factor) for s in splits["AAPL"]] == [(date(2014, 6, 6), 7.0)]
+
+
+class _FakeCursor:
+    def __init__(self, tables: dict[str, list[tuple]]) -> None:
+        self._tables = tables
+        self._rows: list[tuple] = []
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: object = None) -> None:
+        self._rows = self._tables["ca" if "corporate_action_current" in sql else "span"]
+
+    def fetchall(self) -> list[tuple]:
+        return self._rows
+
+
+class _FakeConn:
+    def __init__(self) -> None:
+        recorded = datetime(2026, 10, 1, tzinfo=UTC)
+        self.tables = {
+            "ca": [("AAPL", date(2014, 6, 6), 7.0, recorded, "massive_reference", False)],
+            "span": [("AAPL", "AAPL", date(2003, 9, 10), None)],
+        }
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self.tables)
+
+
+def test_freeze_is_byte_identical_across_runs_and_keeps_the_timestamp_beside(
+    tmp_path: Path,
+) -> None:
+    """R5: the freeze time lives beside the hashed content, so two freezes of one state agree."""
+    first, second = tmp_path / "a", tmp_path / "b"
+    for out in (first, second):
+        runner.freeze_inputs(_cfg(out), _FakeConn())
+    names = ("frozen.json", "corporate_actions.csv", "ticker_spans.csv")
+    for name in names:
+        assert (first / "frozen" / name).read_bytes() == (second / "frozen" / name).read_bytes()
+    assert "frozen_at" not in (first / "frozen" / "frozen.json").read_text()
+    assert (first / "frozen" / "frozen_at.txt").exists()
+    # a reload verifies the recorded hashes and never touches the database again
+    again = runner.freeze_inputs(_cfg(first), None)  # type: ignore[arg-type]
+    assert again["n_corporate_actions"] == 1
+    (first / "frozen" / "corporate_actions.csv").write_text("tampered")
+    with pytest.raises(RuntimeError):
+        runner.freeze_inputs(_cfg(first), None)  # type: ignore[arg-type]
+
+
+def test_non_split_csv_reads_symbol_with_optional_era(tmp_path: Path) -> None:
+    path = tmp_path / "ns.csv"
+    path.write_text("symbol,era\nBDX,2010\nEXC,\n")
+    assert runner.read_non_split_csv(path) == {("BDX", 2010), ("EXC", None)}
+    assert runner.read_non_split_csv(None) == set()

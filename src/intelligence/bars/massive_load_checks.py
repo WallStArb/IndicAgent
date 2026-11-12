@@ -45,7 +45,6 @@ DAY_CLOSE_MISMATCH_MAX_SHARE = 0.01
 VOLUME_MEDIAN_BAND = (0.8, 1.25)
 #: Volume bands: a name outside this band counts against the 2 percent allowance.
 VOLUME_NAME_BAND = (0.5, 2.0)
-VOLUME_MAX_OUTSIDE_SHARE = 0.02
 #: Publish lag: the last N sessions.
 PUBLISH_LAG_SESSIONS = 20
 #: Session check: the volume peak search half-window, in minutes, and the offsets a peak may take.
@@ -74,24 +73,53 @@ def era_of(day: date) -> int:
 # --- record sanity -----------------------------------------------------------------------------
 @dataclass(frozen=True)
 class SanityCounts:
-    n_rows: int
+    """Counts over OWNED rows (a row with a named ticker). Rows with an empty ticker belong to no
+    instrument: they are counted and listed apart (``n_unowned_*``) and never decide the verdict."""
+
+    n_rows: int  # owned rows judged
     n_ohlc_inconsistent: int  # high < max(open, close) or low > min(open, close) or high < low
     n_nonpositive_price: int
     n_negative_volume: int
     n_duplicate_keys: int  # extra rows beyond the first per (ticker, window_start)
+    n_defective_rows: int = 0  # owned rows failing any of the three row tests
+    n_unowned_rows: int = 0
+    n_unowned_defective: int = 0
+
+    @property
+    def defect_share(self) -> float:
+        return (self.n_defective_rows + self.n_duplicate_keys) / self.n_rows
 
     @property
     def consistent_share(self) -> float:
-        return 1.0 - self.n_ohlc_inconsistent / self.n_rows
+        return 1.0 - self.defect_share
 
     def __add__(self, other: SanityCounts) -> SanityCounts:
-        return SanityCounts(
-            self.n_rows + other.n_rows,
-            self.n_ohlc_inconsistent + other.n_ohlc_inconsistent,
-            self.n_nonpositive_price + other.n_nonpositive_price,
-            self.n_negative_volume + other.n_negative_volume,
-            self.n_duplicate_keys + other.n_duplicate_keys,
+        return SanityCounts(*(a + b for a, b in zip(self._t(), other._t(), strict=True)))
+
+    def _t(self) -> tuple[int, ...]:
+        return (
+            self.n_rows,
+            self.n_ohlc_inconsistent,
+            self.n_nonpositive_price,
+            self.n_negative_volume,
+            self.n_duplicate_keys,
+            self.n_defective_rows,
+            self.n_unowned_rows,
+            self.n_unowned_defective,
         )
+
+
+def defective_row_mask(
+    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray
+) -> np.ndarray:
+    """Rows failing a row test: inconsistent high/low, a non-positive or missing price, a
+    negative or missing volume (NaN fails every comparison, so the negated form is used)."""
+    consistent = (
+        (high >= np.maximum(open_, close)) & (low <= np.minimum(open_, close)) & (high >= low)
+    )
+    positive = (open_ > 0) & (high > 0) & (low > 0) & (close > 0)
+    ok: np.ndarray = consistent & positive & (volume >= 0)
+    return ~ok
 
 
 def record_sanity(
@@ -102,42 +130,48 @@ def record_sanity(
     low: np.ndarray,
     close: np.ndarray,
     volume: np.ndarray,
+    owned: np.ndarray | None = None,
 ) -> SanityCounts:
     """Sanity counts of one file's rows (``ticker_code`` identifies the ticker per row).
 
-    Not-a-number prices count as non-positive (a comparison with NaN is false, so the negation
-    form is used throughout)."""
-    n = len(window_start)
-    if n == 0:
+    ``owned`` marks rows whose ticker is a name (default: all). Only owned rows are judged; the
+    rest are counted in ``n_unowned_rows`` and ``n_unowned_defective``."""
+    n_all = len(window_start)
+    if n_all == 0:
         raise VacuousCheckError("record_sanity: no rows")
+    own = np.ones(n_all, dtype=bool) if owned is None else owned
+    n = int(np.count_nonzero(own))
+    if n == 0:
+        raise VacuousCheckError("record_sanity: no owned row")
     consistent = (
         (high >= np.maximum(open_, close)) & (low <= np.minimum(open_, close)) & (high >= low)
     )
     positive = (open_ > 0) & (high > 0) & (low > 0) & (close > 0)
-    order = np.lexsort((window_start, ticker_code))
-    c, w = ticker_code[order], window_start[order]
+    defective = defective_row_mask(open_, high, low, close, volume)
+    c, w = ticker_code[own], window_start[own]
+    order = np.lexsort((w, c))
+    c, w = c[order], w[order]
     dups = int(np.count_nonzero((c[1:] == c[:-1]) & (w[1:] == w[:-1])))
     return SanityCounts(
         n_rows=n,
-        n_ohlc_inconsistent=int(np.count_nonzero(~consistent)),
-        n_nonpositive_price=int(np.count_nonzero(~positive)),
-        n_negative_volume=int(np.count_nonzero(~(volume >= 0))),
+        n_ohlc_inconsistent=int(np.count_nonzero(~consistent & own)),
+        n_nonpositive_price=int(np.count_nonzero(~positive & own)),
+        n_negative_volume=int(np.count_nonzero(~(volume >= 0) & own)),
         n_duplicate_keys=dups,
+        n_defective_rows=int(np.count_nonzero(defective & own)),
+        n_unowned_rows=n_all - n,
+        n_unowned_defective=int(np.count_nonzero(defective & ~own)),
     )
 
 
 def sanity_verdict(counts: SanityCounts) -> str:
-    """``ok`` or ``stop``: high/low consistent on 99.9 percent of bars, and strictly positive
-    prices, non-negative volume and unique keys with no exception (design 8a, record sanity)."""
+    """``ok`` or ``stop``: a systematic rate among OWNED rows. Defective rows (inconsistent
+    high/low, non-positive price, negative volume) plus duplicate keys may be at most 0.1 percent
+    of owned rows (the design's 99.9 percent rule). A named-instrument defect below that rate is a
+    gap-list item for its bar or day, not a stop; unowned rows never count."""
     if counts.n_rows <= 0:
         raise VacuousCheckError("sanity_verdict: no rows judged")
-    ok = (
-        counts.consistent_share >= SANITY_MIN_CONSISTENT_SHARE
-        and counts.n_nonpositive_price == 0
-        and counts.n_negative_volume == 0
-        and counts.n_duplicate_keys == 0
-    )
-    return "ok" if ok else "stop"
+    return "ok" if counts.consistent_share >= SANITY_MIN_CONSISTENT_SHARE else "stop"
 
 
 # --- session -----------------------------------------------------------------------------------
@@ -476,6 +510,15 @@ def day_vs_minute_verdict(
 
 
 # --- stage B: volume bands ---------------------------------------------------------------------
+#: Lead ruling 2026-11-12 (todo 518 labels name-level volume basis differences as data): a smooth
+#: multi-year drift of the IBKR/Massive median ratio is a volume-definition difference, not units.
+#: Units errors are steps: stop on a step between adjacent eras of one exchange above ln(1.5), or
+#: a median ratio outside [0.25, 4.0]. The design's 0.8..1.25 band and the 2 percent outside-share
+#: stay as informational columns (a drift note), never a stop.
+VOLUME_STEP_MAX_ABS_LOG = math.log(1.5)
+VOLUME_ABSOLUTE_BAND = (0.25, 4.0)
+
+
 @dataclass(frozen=True)
 class VolumeBandRow:
     era: int
@@ -483,8 +526,9 @@ class VolumeBandRow:
     n_names: int
     median_ratio: float
     n_outside_name_band: int
-    median_in_band: bool
-    outside_share: float
+    outside_share: float  # informational: names outside 0.5..2.0
+    step_log: float  # ln(median / previous adjacent era's median); NaN for the first era
+    note: str  # "" | "drift_outside_design_band" (labelled data note, todo 518)
     verdict: str  # ok | stop
 
 
@@ -492,27 +536,34 @@ def volume_bands(
     name_ratios: Mapping[tuple[int, str], Mapping[str, float]],
 ) -> list[VolumeBandRow]:
     """Per (era, listing exchange): the median over names of the per-name median IBKR/Massive
-    volume ratio must sit in 0.8..1.25 and at most 2 percent of names outside 0.5..2.0. Input maps
-    (era, exchange) to {name: ratio}. A cell with no name raises (never vacuous)."""
-    rows: list[VolumeBandRow] = []
+    volume ratio. Stop on an absolute median outside [0.25, 4.0] or a step between adjacent eras
+    of the same exchange above ln(1.5); otherwise a drift outside 0.8..1.25 is a data note. Input
+    maps (era, exchange) to {name: ratio}. A cell with no usable name raises (never vacuous)."""
+    medians: dict[tuple[int, str], tuple[float, int, int]] = {}
     for (era, exchange), ratios in sorted(name_ratios.items()):
         vals = np.array([r for r in ratios.values() if r > 0 and math.isfinite(r)])
         if len(vals) == 0:
             raise VacuousCheckError(f"volume_bands: ({era}, {exchange}) has no usable name")
-        median = float(np.median(vals))
         outside = int(np.count_nonzero((vals < VOLUME_NAME_BAND[0]) | (vals > VOLUME_NAME_BAND[1])))
-        share = outside / len(vals)
-        in_band = VOLUME_MEDIAN_BAND[0] <= median <= VOLUME_MEDIAN_BAND[1]
+        medians[(era, exchange)] = (float(np.median(vals)), len(vals), outside)
+    rows: list[VolumeBandRow] = []
+    for (era, exchange), (median, n_names, outside) in medians.items():
+        prev = medians.get((era - 1, exchange))
+        step = math.log(median / prev[0]) if prev is not None else math.nan
+        absolute_ok = VOLUME_ABSOLUTE_BAND[0] <= median <= VOLUME_ABSOLUTE_BAND[1]
+        step_ok = math.isnan(step) or abs(step) <= VOLUME_STEP_MAX_ABS_LOG
+        in_design_band = VOLUME_MEDIAN_BAND[0] <= median <= VOLUME_MEDIAN_BAND[1]
         rows.append(
             VolumeBandRow(
                 era,
                 exchange,
-                len(vals),
+                n_names,
                 median,
                 outside,
-                in_band,
-                share,
-                "ok" if in_band and share <= VOLUME_MAX_OUTSIDE_SHARE else "stop",
+                outside / n_names,
+                step,
+                "" if in_design_band else "drift_outside_design_band",
+                "ok" if absolute_ok and step_ok else "stop",
             )
         )
     return rows

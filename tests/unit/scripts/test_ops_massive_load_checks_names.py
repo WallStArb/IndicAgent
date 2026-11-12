@@ -80,8 +80,27 @@ def test_compare_arm_with_no_overlap_reports_zero_not_a_pass() -> None:
     assert outcome == (nc.OUTCOME_GAP, "no_incumbent_overlap")
 
 
-def _arm(matched: int, agree: int, median: float, corr: float) -> runner.ArmResult:
-    return runner.ArmResult(matched, agree, agree, {}, median, corr, 0, 0, [])
+def _arm(
+    matched: int, agree: int, median: float, corr: float, *, ret: float = 1.0, cls: str = ""
+) -> runner.ArmResult:
+    pairs = matched - 1
+    return runner.ArmResult(
+        matched,
+        agree,
+        agree,
+        {},
+        median,
+        corr,
+        0,
+        0,
+        [],
+        pairs,
+        int(pairs * ret),
+        matched,
+        matched,
+        0.0,
+        cls,
+    )
 
 
 def test_judge_name_era_outcomes() -> None:
@@ -95,9 +114,63 @@ def test_judge_name_era_outcomes() -> None:
     assert runner.judge_name_era({"1d": unresolved}, nc.ERA_NO_ACTION, True)[1] == (
         "identity_unresolved"
     )
-    low = _arm(250, 240, 0.0, 0.99)  # 96 percent
+    low = _arm(250, 250, 0.0, 0.99, ret=0.96)  # returns agree on 96 percent
     assert runner.judge_name_era({"1d": low}, nc.ERA_NO_ACTION, True)[1] == "price_agreement_1d"
-    off = _arm(250, 250, 0.01, 0.99)
-    assert runner.judge_name_era({"1d": good, "5m": off}, nc.ERA_NO_ACTION, True)[1] == (
-        "scale_factor_5m"
+
+
+def test_judge_name_era_level_classes() -> None:
+    # a constant level factor with agreeing returns passes, listed in the scale listing
+    adj = _arm(250, 0, 0.25, 0.99, cls=nc.SCALE_ADJUSTMENT_LEVEL)
+    assert runner.judge_name_era({"1d": adj}, nc.ERA_NO_ACTION, True) == (
+        nc.OUTCOME_PASS,
+        "adjustment_level_listed",
+    )
+    drift = _arm(250, 100, 0.0, 0.99, cls=nc.SCALE_LEVEL_DRIFT)
+    assert runner.judge_name_era({"5m": drift}, nc.ERA_NO_ACTION, True)[1] == "level_drift_listed"
+    # a stable offset that reads as a split ratio is a candidate missing split: gap list
+    split = _arm(250, 0, 0.6931, 0.99, cls=nc.SCALE_SPLIT_LIKE)
+    assert runner.judge_name_era({"1d": split}, nc.ERA_NO_ACTION, True) == (
+        nc.OUTCOME_GAP,
+        "scale_factor_split_like_1d",
+    )
+
+
+def test_rth_1d_is_built_from_the_regular_session_5m_bars() -> None:
+    days = _days(2)
+    keys = np.repeat(np.array(days, dtype="datetime64[D]"), 3)
+    t = np.arange(6, dtype=np.int64)
+    o = np.array([10.0, 11, 12, 20, 21, 22])
+    bars = runner.Bars(t, keys, (o, o + 1, o - 1, o + 0.5), np.ones(6), None, None)
+    built = runner.rth_1d_from_5m(bars)
+    assert len(built.t_ns) == 2 and built.ohlc[0].tolist() == [10.0, 20.0]
+    assert built.ohlc[1].tolist() == [13.0, 23.0] and built.ohlc[3].tolist() == [12.5, 22.5]
+    assert built.volume.tolist() == [3.0, 3.0]
+
+
+def test_clean_vendor_passes_the_name_level_run_end_to_end() -> None:
+    """Calibration: Massive equal to the incumbent on both arms is a pass with full agreement."""
+    days = _days(60)
+    rng = np.random.default_rng(5)
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 60)))
+    inc = _daily(days, close)
+    massive = _daily(days, close)
+    result = runner.compare_arm("1d", "ibkr", massive, inc, [], {})
+    assert result is not None and result.n_matched == 60 and result.scale_class == ""
+    assert result.n_ret_pairs == 59 and result.n_ret_agree == 59
+    assert runner.judge_name_era({"1d": result}, nc.ERA_NO_ACTION, True) == (nc.OUTCOME_PASS, "")
+
+
+def test_level_factor_incumbent_passes_on_returns_and_is_listed() -> None:
+    """R3: an incumbent carrying a constant non-split factor agrees on returns, fails on level."""
+    days = _days(80)
+    rng = np.random.default_rng(6)
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 80)))
+    massive = _daily(days, close)
+    inc = _daily(days, close / 1.28)
+    result = runner.compare_arm("1d", "ibkr", massive, inc, [], {})
+    assert result is not None
+    assert result.n_agree == 0 and result.n_ret_agree == result.n_ret_pairs == 79
+    assert result.scale_class == nc.SCALE_ADJUSTMENT_LEVEL
+    assert runner.judge_name_era({"1d": result}, nc.ERA_NO_ACTION, True)[1] == (
+        "adjustment_level_listed"
     )
