@@ -42,9 +42,9 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Session handoff (2026-11-10 ~20:30Z, lead indicagent-d8; sprint control per owner; read this first)
+## Session handoff (2026-11-11 evening, lead indicagent-32; read this first)
 
-**Position: Massive is acquired, verified and admission-ready.** The archive holds all 11,658
+**Position: Massive is acquired and verified, and admission is EXECUTING on the lead's call (the owner delegated sequencing and go/no-go on 2026-11-11; no admission GO is pending).** The archive holds all 11,658
 files (both aggregates, 2003-09-10 to 2026-11-09, 82 GB; full `--verify` 11,658 records 0
 defects, 2026-11-10). Serve times + ETags captured for every key with zero drift on re-stat.
 Reference captures landed (splits complete - the AAPL/NVDA calendar gap is fixed in the
@@ -61,11 +61,15 @@ unselected delta equal to the loader's expected Massive-only count; 5m 17.7M to 
 at 33-37k new rows/s, 1d 244k to 333k. Not yet loaded: 2015 back to 2003 (raw only; Massive-only
 unselected slots there are expected nonzero and must match the dry run: 2015 5m 4,610,064, 1d 1,216).
 Step 7 tooling landed (1561842d7, prepared, not executed). Driver and per-year statuses:
-`logs/massive_sweep/` (uncommitted scratch). Next gate: the owner's GO.
+`logs/massive_sweep/` (uncommitted scratch). Also landed 2026-11-10/11: migrations 586, 587, 588; the reader, vendor and
+kind maps; reference_raw loaded (332,294 Massive rows, 1,529 IBKR ISIN answers, 1,519 OpenFIGI);
+identity map applied (4,555 security identifiers, 1,515 spans, 1,395 instruments mapped, the rest on a
+gap list); 501 massive_reference split rows applied (GSAT retired, SNX spin-off excluded), daily rule d2-v6;
+design section 8b (Massive primary over the whole archive span in two policy stages). Next gate: the raw
+loads for 2026, 2025 and 2015 to 2003 (running), the section 8a load checks, then step 7 stage 1 per
+`docs/operations/massive-step7-runbook.md` (16 to 22 h, Alpaca nightly stopped for the window).
 
-**Admission execution starts on the
-owner's go**; the mechanical preconditions (stop the IBKR timer, glossary entries, the step-8
-sequence) are part of the run.
+The IBKR fetcher timer was disabled 2026-11-10; glossary entries landed.
 
 **Owner rulings in force (2026-11-10):** Massive is used regardless - no admit/refuse verdict;
 the pilot became the design's section 8a LOAD CHECKS (a name outside a check keeps its
@@ -101,7 +105,7 @@ both keys regenerated, downloader built and fixed (07c70a806, 15719adb0), full a
 serves captured, references captured, design refined.
 
 **Next, in order:**
-1. Owner GO on admission -> execute the design's step sequence (section 8: migration, code
+1. Execute the design's step sequence on the lead's call (section 8: migration, code
    plans, reference load, split reconciliation, per-year loads newest-first, policy, one-pass
    rebuild with the seam witness and canary; glossary entries first).
 2. On the day: stop the IBKR fetcher timer; the deletion list lands AFTER the rebuild proves
