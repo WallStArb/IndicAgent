@@ -79,9 +79,8 @@ Survivorship is measured and disclosed, never a gate. Pre-2016 5m: Massive prima
 fallback. Mapping option A: files are the as-served record, raw is a retractable mapped
 projection (the law 528 amendment rides the admission ruling). Step 7: canonical's derived rows
 drop and ALL timeframes rebuild from raw in one pass (post-2016 must reproduce byte-exact, plus
-the 2016 seam witness and the NVDA 2024 rescale canary). IBKR 5m raw deletion is
-reversible-first (export, then delete after the rebuild proves itself; the 592-class witness
-argument). Stop polishing IBKR/Alpaca-era data. No corpus compute until the data gate passes
+the 2016 seam witness and the NVDA 2024 rescale canary). IBKR 5m raw is KEPT (lead ruling 2026-11-12: the only
+independent witness to Massive, near-zero cost; the fetch lane and ask-ledger machinery are what get deleted; revisit after step 7 and the 592 adjudications, export-first if ever). Stop polishing IBKR/Alpaca-era data. No corpus compute until the data gate passes
 (the 584 pin now waits on admission execution, not IBKR coverage).
 
 **Earlier rulings still in force:** E15-E18 evidence rules; E21 + the section 11 amendment

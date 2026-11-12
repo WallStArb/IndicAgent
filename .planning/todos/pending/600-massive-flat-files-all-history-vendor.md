@@ -86,3 +86,7 @@ real differences, canonical unchanged, unselected delta equal to the dry-run cou
 2,446,678; 2007 2,174,258; 2006 8,553,383; 2005 10,500,813; 2004 9,738,529; 2003 2,837,988; 2026 56; 2025 39).
 All 1d and 5m years 2026 to 2003 are now in raw (403.3M Massive rows), 617 GB disk free. Outstanding: the
 section 8a load checks, then step 7 on the lead's call (tooling landed at 1561842d7).
+
+## Ruling 2026-11-12 (lead): keep the IBKR 5m raw rows
+
+The deletion list in Open item 4 does NOT include `ohlcv_raw` rows of vendor ibkr (5m 224.7M rows 2006-06 to 2026-11, 1m 9.8M). They are the only independent witness to Massive: Alpaca shares Massive's upstream (Polygon SIP) in every year, so a Massive defect is invisible to it, and pre-2016 Massive stands alone. The incumbent-defect rule (third witness) and the 8a and 592-class adjudications need it. Keeping costs about nothing (37 GB raw table, disk 29 percent used) and, once step 7 switches policy, the rows are never selected. What does go: the IBKR 5m fetch lane, the ask-ledger and coverage machinery that only chases it, and the timers (item 4's other candidates). Revisit after step 7, the 8a checks and the 592 adjudications; if the rows were never used as a witness, export to a cold gzip archive first and delete only under disk pressure. This narrows the owner's 2026-11-10 reversible-first deletion note; nothing is deleted before the rebuild proves itself either way.
