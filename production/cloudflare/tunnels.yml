@@ -1,0 +1,24 @@
+# Source of truth for Cloudflare Tunnel ingress. Both tunnels are remotely managed: cloudflared
+# on each server runs from a connector token and ignores any local config file. Apply with
+#   .venv/bin/python scripts/ops/cloudflare/apply_tunnel_ingress.py [--dry-run] [tunnel ...]
+# Naming: tunnel name = hostname; SSH names are ssh1/ssh2 (laptop aliases ia1/ia2); web names
+# (grafana, api, dash, ...) are services, not machines.
+account_id: fc3d1a6d35b1b0c4013edae5f194c8a5
+tunnels:
+  ubuntu1:
+    id: abcb8d19-f3dd-4897-8091-d090a8facb94
+    ingress:
+      - {hostname: grafana.indicagent.com, service: "http://localhost:3001"}
+      - {hostname: alert.indicagent.com, service: "http://localhost:9093"}
+      - {hostname: prom.indicagent.com, service: "http://localhost:9090"}
+      - {hostname: api.indicagent.com, service: "http://localhost:8000"}
+      - {hostname: indicagent.com, service: "http://localhost:3000"}
+      - {hostname: www.indicagent.com, service: "http://localhost:3000"}
+      - {hostname: dash.indicagent.com, service: "http://localhost:3000"}
+      - {hostname: ssh1.indicagent.com, service: "ssh://localhost:22"}
+      - {service: "http_status:404"}
+  ubuntu2:
+    id: ade02e25-90b4-42c0-84e0-dc9f883574bb
+    ingress:
+      - {hostname: ssh2.indicagent.com, service: "ssh://localhost:22"}
+      - {service: "http_status:404"}

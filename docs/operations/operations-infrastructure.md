@@ -10,6 +10,17 @@
 
 Infrastructure operations: systemd supervision, Docker containers, deployment procedures, and server management for IndicAgent.
 
+## Remote access (Cloudflare tunnels)
+
+Two servers, two remotely managed tunnels named after the hostnames. Each server runs `cloudflared` from its own connector token, so ubuntu2 stays reachable when ubuntu1 is down.
+
+| Server | Role | LAN | Tunnel | SSH hostname | Laptop alias |
+|---|---|---|---|---|---|
+| ubuntu1 | primary | 192.168.68.60 | ubuntu1 (`abcb8d19-...`) | ssh1.indicagent.com | ia1 |
+| ubuntu2 | standby and backup | 192.168.68.65 | ubuntu2 (`ade02e25-...`) | ssh2.indicagent.com | ia2 |
+
+Ingress rules live in Cloudflare, not in `/etc/cloudflared/config.yml` (ignored for a remotely managed tunnel; ubuntu1's unit still passes it for the tunnel ID). The repo file `production/cloudflare/tunnels.yml` is the source of truth; push it with `scripts/ops/cloudflare/apply_tunnel_ingress.py` (token with Cloudflare Tunnel Edit in `~/.cloudflare/api_token`). Do not edit rules in the dashboard by hand, or the next apply overwrites them. Web hostnames (grafana, api, dash) are services and keep their names. Laptop `~/.ssh/config`: `Host ia1` / `HostName ssh1.indicagent.com` / `ProxyCommand cloudflared access ssh --hostname %h`, and the same for `ia2` with `ssh2`. On a promotion, update the roles line in `CLAUDE.md` and this table.
+
 ---
 
 ## Architecture
