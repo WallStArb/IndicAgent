@@ -34,8 +34,12 @@
   "capture_commit": "ec3d8a814933595814c13239665da407ddc192da",
   "captured_utc": "2026-09-30T04:57:29.369308+00:00",
   "changed_cases": {
-    "LQD/1d/volatility": {
+    "LQD/1d/trend": {
       "columns_changed_rows_total_and_outside_flipped": [
+        [
+          1,
+          1
+        ],
         [
           0,
           0
@@ -64,25 +68,29 @@
       "flipped_segments": [],
       "rows_gained_label": 0,
       "rows_lost_label": 0,
-      "rows_written_now": 4438
+      "rows_written_now": 252
     },
-    "SPY/1d/volatility": {
+    "SPY/1d/trend": {
       "columns_changed_rows_total_and_outside_flipped": [
         [
-          0,
-          0
+          2,
+          2
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          3
         ],
         [
           0,
           0
         ],
         [
-          0,
-          0
-        ],
-        [
-          0,
-          0
+          2,
+          2
         ],
         [
           0,
@@ -96,25 +104,29 @@
       "flipped_segments": [],
       "rows_gained_label": 0,
       "rows_lost_label": 0,
-      "rows_written_now": 4465
+      "rows_written_now": 4545
     },
-    "SPY/1h/volatility": {
+    "SPY/1h/trend": {
       "columns_changed_rows_total_and_outside_flipped": [
         [
-          0,
-          0
+          234,
+          234
         ],
         [
-          0,
-          0
+          231,
+          231
         ],
         [
-          0,
-          0
+          261,
+          261
         ],
         [
-          0,
-          0
+          15,
+          15
+        ],
+        [
+          174,
+          174
         ],
         [
           0,
@@ -128,71 +140,7 @@
       "flipped_segments": [],
       "rows_gained_label": 0,
       "rows_lost_label": 0,
-      "rows_written_now": 27835
-    },
-    "TLT/1d/volatility": {
-      "columns_changed_rows_total_and_outside_flipped": [
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ]
-      ],
-      "flipped_segments": [],
-      "rows_gained_label": 0,
-      "rows_lost_label": 0,
-      "rows_written_now": 2050
-    },
-    "synthetic/volatility": {
-      "columns_changed_rows_total_and_outside_flipped": [
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ],
-        [
-          0,
-          0
-        ]
-      ],
-      "flipped_segments": [],
-      "rows_gained_label": 0,
-      "rows_lost_label": 0,
-      "rows_written_now": 600
+      "rows_written_now": 27915
     }
   },
   "family_labels": {
@@ -209,7 +157,7 @@
       "turbulent"
     ]
   },
-  "regenerated_from": "078251241fbf71a8d9e30435dea3b94698133153",
+  "regenerated_from": "bbc4001f38ce8d35596d24fefb889fdf2b01b35e",
   "regeneration_history": [
     {
       "changed_cases": {
@@ -1408,20 +1356,186 @@
       },
       "regenerated_from": "5c1c4c7c54a207fa1fddb23c3b63cd3314030d83",
       "regeneration_reason": "todo 478: volatility family seeds 250/250/3 -> 60/60/2 (stage-1 arm E, stage-2 intraday non-regression PASS; migration 433)"
+    },
+    {
+      "changed_cases": {
+        "LQD/1d/volatility": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 4438
+        },
+        "SPY/1d/volatility": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 4465
+        },
+        "SPY/1h/volatility": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 27835
+        },
+        "TLT/1d/volatility": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 2050
+        },
+        "synthetic/volatility": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 600
+        }
+      },
+      "regenerated_from": "078251241fbf71a8d9e30435dea3b94698133153",
+      "regeneration_reason": "todo 584 item 3: the volatility family stores no middle-state probability (hmm_vol_prob_elevated retired, D6): its numeric block has six columns; trend state count unchanged in the snapshot (the live value moves 5 to 3 in migration 566 and the golden snapshot keeps its own K)"
     }
   ],
-  "regeneration_reason": "todo 584 item 3: the volatility family stores no middle-state probability (hmm_vol_prob_elevated retired, D6): its numeric block has six columns; trend state count unchanged in the snapshot (the live value moves 5 to 3 in migration 566 and the golden snapshot keeps its own K)",
+  "regeneration_reason": "scipy 1.17.1 to 1.18.1 (numpy 2.4.2 to 2.4.6, pandas 3.0.1 to 3.1.1, scikit-learn 1.9.0 to 1.9.1) on the new server: hmmlearn posteriors move by at most 5e-13, parameters by at most 2e-15",
   "runtime_seconds": {
-    "LQD/1d/trend": 14.72,
-    "LQD/1d/volatility": 0.81,
-    "SPY/1d/trend": 9.1,
-    "SPY/1d/volatility": 0.58,
-    "SPY/1h/trend": 86.8,
-    "SPY/1h/volatility": 4.93,
-    "TLT/1d/trend": 2.61,
-    "TLT/1d/volatility": 0.18,
-    "synthetic/trend": 1.16,
-    "synthetic/volatility": 0.34
+    "LQD/1d/trend": 5.84,
+    "LQD/1d/volatility": 0.33,
+    "SPY/1d/trend": 6.93,
+    "SPY/1d/volatility": 0.38,
+    "SPY/1h/trend": 33.39,
+    "SPY/1h/volatility": 1.97,
+    "TLT/1d/trend": 1.56,
+    "TLT/1d/volatility": 0.08,
+    "synthetic/trend": 0.54,
+    "synthetic/volatility": 0.16
   },
   "sample": [
     [
