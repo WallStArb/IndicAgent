@@ -242,3 +242,20 @@ def test_volume_bands() -> None:
         lc.volume_bands({(2010, "XNYS"): {}})
     with pytest.raises(lc.VacuousCheckError):
         lc.volume_bands({(2010, "XNYS"): {"A": 0.0, "B": float("nan")}})
+
+
+def test_split_scale_matches_scales_for_sessions() -> None:
+    from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions
+
+    splits = [SplitFactor(date(2014, 6, 6), 7.0), SplitFactor(date(2020, 8, 28), 4.0)]
+    days = [
+        date(2014, 6, 5),
+        date(2014, 6, 6),
+        date(2014, 6, 9),
+        date(2020, 8, 28),
+        date(2021, 1, 4),
+    ]
+    want = scales_for_sessions(days, splits)
+    got = lc.split_scale_for_days(np.array(days, dtype="datetime64[D]"), splits)
+    assert got.tolist() == [want[d] for d in days]
+    assert got.tolist() == [28.0, 28.0, 4.0, 4.0, 1.0]

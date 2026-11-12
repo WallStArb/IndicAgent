@@ -72,3 +72,19 @@ def test_draw_days_without_held_sessions_is_vacuous(tmp_path: Path) -> None:
     )
     with pytest.raises(lc.VacuousCheckError):
         runner.draw_days(_cfg(tmp_path), archive, [date(2010, 1, 4)])
+
+
+def test_frozen_splits_load_from_the_frozen_file_only(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    frozen = tmp_path / "frozen"
+    frozen.mkdir()
+    (frozen / "frozen.json").write_text(json.dumps({"frozen_at": "2026-11-12T12:00:00+00:00"}))
+    (frozen / "corporate_actions.csv").write_text(
+        "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact\n"
+        "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
+        "AAPL,2020-08-28,4.0,2026-10-01T00:00:00+00:00,calendar_audit,True,False\n"
+        "AAPL,2030-01-01,2.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
+    )
+    splits = runner.load_frozen_splits(cfg)
+    # the operator route correction and the not-yet-executed split never rescale
+    assert [(s.effective_date, s.factor) for s in splits["AAPL"]] == [(date(2014, 6, 6), 7.0)]
