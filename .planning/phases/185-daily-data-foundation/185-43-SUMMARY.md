@@ -19,7 +19,7 @@ key-files:
     - production/migrations/459_drop_backfill_status_retire_superseded_apr.sql
     - tests/unit/test_backfill_status_retirement_migration_contract.py
     - .planning/phases/185-daily-data-foundation/185-COMPLEXITY-EXIT.md
-    - .planning/todos/pending/510-delete-185-38-185-43-185-45-backups-after-2026-11-06.md
+    - .planning/todos/completed/510-delete-185-38-185-43-185-45-backups-after-2026-11-06.md
     - .planning/todos/pending/511-island-head-rule-owner-decision.md
   modified:
     - src/config/instrument_onboarding.py

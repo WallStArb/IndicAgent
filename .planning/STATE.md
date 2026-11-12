@@ -88,8 +88,7 @@ argument). Stop polishing IBKR/Alpaca-era data. No corpus compute until the data
 drafted 2026-11-09, awaiting owner adoption (interim rule holds; gates the discovery sweep, not
 admission); extended hours raw only; blind model proposer allowed; no versioned table names.
 
-**Running now (leave them):** the IBKR 5m backfill timer (free insurance until admission, then
-STOPPED per the deletion path; todo 607's watcher is parked as expected-superseded); the
+**Running now (leave them):** the IBKR fetcher timer is DISABLED (2026-11-10; todo 607's watcher is parked as expected-superseded); the
 nightly timers (Alpaca 04:40Z, derivation 05:20/05:45Z, audit 06:00Z). No fleet agents in
 flight; the lead (indicagent-d8) dispatches as needed with verify-every-landing.
 
@@ -99,7 +98,7 @@ breaks classified, 134 fixed, rulings issued; follow-ups parked pending Massive 
 GSAT/NEXN/OKE D7 red rows are KNOWN-ACCEPTED). 587 closed (clean D7). 603 register + migration
 584 (`external` composition code). 602 doc-number guard, closed. 601 classification (306
 columns, all proposer-swept). 606 filed. 595 closed (no same-tape witness; keep the 2.5 floor).
-574/510 Tradier deletion runbook ready - EXECUTES 2026-11-12. Massive acquisition: purchase,
+574 Tradier removal and 510 backup deletion DONE 2026-11-12 (migration 589, code at tag archive/tradier-2026-11). Massive acquisition: purchase,
 both keys regenerated, downloader built and fixed (07c70a806, 15719adb0), full archive verified,
 serves captured, references captured, design refined.
 
@@ -115,7 +114,7 @@ serves captured, references captured, design refined.
    `docs/operations/corpus-rerun-runbook.md` (the G6 hole-density named decision is recorded
    there).
 5. Owner's other item: E21 adoption (one word; unblocks the discovery lane's real-data sweep).
-6. Dated: 2026-11-12 Tradier deletion (574/510); 2026-12-01 IBKR gateway lapse decision (544;
+6. Dated: 2026-12-01 IBKR gateway lapse decision (544;
    resolves to lapse unless a retained role is measured).
 
 **If /tmp was wiped (reboot):** nothing load-bearing lives in /tmp now (all lanes landed); the
