@@ -122,42 +122,6 @@
       "gridPos": {
         "h": 5,
         "w": 8,
-        "x": 0,
-        "y": 7
-      },
-      "id": 11,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(provider_bars_produced_total{agent=\"ibkr_provider_agent\"}[1m]) * 60",
-          "refId": "A",
-          "legendFormat": "1m bars/min"
-        }
-      ],
-      "title": "Bars/min (1m)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
         "x": 8,
         "y": 7
       },

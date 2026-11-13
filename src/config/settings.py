@@ -73,9 +73,6 @@ class Settings(BaseSettings):
         validation_alias="KAFKA_BOOTSTRAP_SERVERS",
     )
 
-    # IBKR
-    ib_client_id: int = Field(default=35, validation_alias="IB_CLIENT_ID")
-
     # Alpaca market-data leaf (todo 521/T4): credentials from .env, pacing
     # fallback for the APR key infra.alpaca.rate_limit_max_requests (the real
     # value loads fresh at capture startup per the APR rule).

@@ -141,42 +141,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 0,
-        "y": 6
-      },
-      "id": 11,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(provider_bars_produced_total{agent=\"ibkr_provider_agent\"}[1m])",
-          "refId": "A",
-          "legendFormat": "bars/s"
-        }
-      ],
-      "title": "Bars Produced Rate (IBKR Provider)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
           "unit": "s",
           "color": {
             "mode": "thresholds"
@@ -353,7 +317,7 @@
           "legendFormat": "{{ agent_id }}"
         }
       ],
-      "title": "Consumer Lag — All Writers",
+      "title": "Consumer Lag \u2014 All Writers",
       "type": "timeseries"
     },
     {

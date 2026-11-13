@@ -65,63 +65,6 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history.** `generate_session_slots()` expects a full extended-hours session from day one, but real IBKR extended-hours coverage ramps up over a symbol's first year (or the first days of a timeframe's retention window). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)`; if so it is benign ramp-up, not a connection-drop artifact.
 
-## IBKR history fetcher: how a run stops taking in data (2026-11-02)
-
-DISABLED since 2026-11-10 and on the step-7 Part F deletion list (owner ruling 2026-11-13: IBKR
-removed entirely). Kept as the procedure of record for any remaining fetcher lane work.
-
-Four distinct failure modes, each with its own signature; the run must end on all of them so the
-15-minute timer (`indicagent-ibkr-history-fetcher.timer`) gets its turn.
-
-- **Dead session** (socket up, session dead): `reqCurrentTime` and `is_connected()` read healthy
-  while history requests time out. A failed history request now ends the run only when
-  `IBKRProvider.history_alive` (one 1d bar of `infra.ibkr.history_probe_symbol`, timeout
-  `infra.ibkr.history_probe_timeout_s`, migration 554) also fails; that raises
-  `ProviderSessionLost` (`src/providers/base.py`, `GatewayLost` is a subclass) and the run ends
-  `gateway_lost`, flushed. A probe that answers does not prove the farm serves deep 5m chunks.
-- **Slow intraday farm, fast daily path:** the SPY 1d probe answers in 0.1 s while 5m requests
-  take 30 s to forever. Items time out and retry, each stall check ticks the old progress counter,
-  and the run looks alive for hours. The intake watchdog catches it: no data taken in (rows a
-  persisted chunk wrote, or an item ending ok/no_data) for `infra.backfill.intake_stall_exit_s`
-  (migration 556, seed 1800 s, floor 900 s) cancels the workers, flushes and exits
-  `stalled`. The status file and run summary carry `n_gateway_lost` and `n_stalled`; items ended
-  `gateway_lost` are not charged, so `n_items` is 0 for such a run.
-- **Sunday HMDS maintenance, 22:00 to 23:59 ET:** 2-day 5m windows took 7 to 54 s and 30-day
-  windows never answered. Outside the window the same grid answered in 0.1 s, 0.2 to 12 s and 24 to
-  54 s for 2, 30 and 150 days. Do not read that window as a fetcher fault.
-- **Cancel-storm backlog (hypothesis, measured evidence in todo 534):** with 8 lanes the outer
-  timeout (`infra.ibkr.historical_request_timeout_sec`, 240 s since 2026-10-13, not the 90 s module
-  constant: the APR value is overlaid at start) cancelled 150-day requests the farm was still
-  computing, 62 outer timeouts in 45 minutes, and the intraday queue stayed full: even a single
-  150-day request alone returned nothing for 16 idle minutes. Concurrency 3 with the timeout
-  unchanged is the test (`infra.backfill.fetch_concurrency`, todo 534, started 12:06:24Z).
-
-Procedures. The timer owns the campaign; never hand-launch the fetcher (a process outside systemd
-holds the advisory lock with no `RuntimeMaxSec` or watchdog, and every timer run bounces off it).
-To restart under the timer, `kill <MainPID>` of the unit (`systemctl show -p MainPID`); the next
-run starts at the timer's next firing and reads APR then, so a changed APR value needs the kill.
-Probe the farm with plain `ib_async`, `clientId` 47 (<= 50), `readonly=True`, never
-`IBKRProvider.connect` with an id above 50. Probes compete with a running fetcher: for a clean
-latency measurement stop the unit first and finish inside the timer gap.
-
-## Fetcher external-identity freeze (phase 190)
-
-The code renamed to `ohlcv_history_fetcher.py` / `OHLCVHistoryFetcher`, but these external
-identities kept the ibkr name on purpose: `FETCHER_LOCK_NAME` ("ibkr_history_fetcher",
-sha256-keyed advisory lock shared by
-ops_intraday_venue_recovery, the rate-limit probe, classification sourcing, the onboard
-manifest), the JOB label `ibkr-history-fetcher`, `LOCK_HELD_MESSAGE`,
-`logs/ibkr_history_fetcher_status.json` (read by the D7 audit in
-`services/bar_reconciliation_audit.py`), and the `indicagent-ibkr-history-fetcher.*` systemd
-units. Renaming any of them means moving every consumer in one commit.
-
-**Live-service schema migration pattern (phase 190's worked example):** additive migration
-applied immediately (old in-memory code keeps working), breaking PK swaps applied in the same
-shell breath as the code deploy, with the fetcher stopped; the back-to-back dry-run parity
-TSVs (`.planning/phases/190-*/parity-*.tsv`) are the correctness bar. After a refactor-window
-cutover, run `--reset-failures` once to clear code-churn error statuses (artifacts, not
-vendor failures).
-
 ## Columnstore (compressed) hypertables
 
 **`ALTER TABLE ... DISABLE/ENABLE TRIGGER` fails on a columnstore hypertable** ("operation
@@ -244,15 +187,10 @@ seed file carries it (`seed_config_*.sql`), and a migration numbered below the c
 reserved 404 to 408) never reaches the test database. Check this before trusting a green integration run
 (todo 495).
 
-## Moved from CLAUDE.md (5.60.0 trim): backfill and IBKR
+## Moved from CLAUDE.md (5.60.0 trim): backfill
 
-- Historical backfill: `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` is the only IBKR history CLI (the `ibkr_history_fetcher.py` shim was deleted at the 190-06 cutover) (default `--client-id 40`; provider uses 35; IDs stay <= `_MAX_CLIENT_ID=50` in `ibkr.py`). Every IBKR history caller takes the fail-fast `FetcherLock` (`scripts/infrastructure/backfill/_fetcher_lock.py`, CI: `test_ibkr_history_lock_boundary.py`): one fetch at a time, and a second one exits with `LOCK_HELD_MESSAGE` instead of waiting. The ibkr_history_stream lease was retired in plan 189-08.
-- The todo 449 lane scripts, chain and retry loop under `logs/backfill_ops/` were deleted in plan 189-07; the IBKR history fetcher (`indicagent-ibkr-history-fetcher`) replaces them, and a name's repeated failures live in `ohlcv_coverage.consecutive_failures`, not a quarantine file.
-- IBKR history starts at a stock's last listing-venue move: SMART-routed requests (1d and intraday) serve nothing before it (AMD 2015, PEP 2017, TLT 2016); the same contract routed to the old venue (`NYSE`, `ARCA`, `ISLAND`=Nasdaq, `AMEX`, `BATS`) serves it with venue-only volume. Error 162 "Query failed" marks it. `ohlcv_empty_history` rows written before todo 433's fix may be false.
-- Lane pauses are usually pacing, not hangs: the in-process limiter (58 req/10 min shared) logs nothing while a request waits for budget; the fetcher unit's systemd WatchdogSec is the backstop (todo 485 adds a wait log line). Before calling the gateway down, probe a known-good symbol on a spare client ID (e.g. 41): a name-specific hang (HOOD 2026-10-01) looks identical in the fetcher log.
-- Gateway 2FA hang: login state lives in `docker logs ib-gateway` ("Second Factor Authentication" = waiting on human Keychain approval; "Login has completed" = authed). `docker restart ib-gateway` re-sends the push; IBKR's server-side rate limit survives the restart (~5 min wait), then IBC's fresh login fires a new push. The nightly 23:59 UTC restart can re-trigger it (todo 395).
-- Clock surfaces differ: host `uptime`/`journalctl` print EDT; Postgres and container logs are UTC; IBC's gateway log lines are container-local. Correlate with `date -u` before computing elapsed times.
-- Timers: `systemctl list-timers | grep indicagent`. The D7 audit (`indicagent-bar-reconciliation-audit.timer`, 02:00 EDT), the Yahoo dividend writer and the regime coverage auditor fire; the IBKR history fetcher timer is enabled (every 15 minutes after the last run ends; the queue decides what runs, and a run takes the FetcherLock or exits `lock_held`); `indicagent-alpaca-nightly.timer` (04:40 UTC, `scripts/ops/bars/ops_bar_nightly.py`, the SIP window ends 20 minutes back, APR `infra.alpaca.sip_recent_lag_minutes`) and `indicagent-bar-derivation-grid.timer` (05:45 UTC, the 15m/1h grid) fire; the Tradier daily units are deleted (185-48); `indicagent-roll-batch.timer` is disabled (`scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`). Docker logging caps (`max-size/max-file`) must stay (TimescaleDB grew a 29GB log without them).
+- Clock surfaces differ: host `uptime`/`journalctl` print EDT; Postgres and container logs are UTC. Correlate with `date -u` before computing elapsed times.
+- Timers: `systemctl list-timers | grep indicagent`. The D7 audit (`indicagent-bar-reconciliation-audit.timer`, 02:00 EDT), the Yahoo dividend writer and the regime coverage auditor fire.
 
 ## Moved from CLAUDE.md (5.60.0 trim): data and code patterns
 
