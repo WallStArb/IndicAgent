@@ -114,7 +114,7 @@ class _FakeConn:
     def __init__(self) -> None:
         recorded = datetime(2026, 10, 1, tzinfo=UTC)
         self.tables = {
-            "ca": [("AAPL", date(2014, 6, 6), 7.0, recorded, "massive_reference", False)],
+            "ca": [("AAPL", date(2014, 6, 6), 7.0, recorded, "massive_reference", False, None)],
             "span": [("AAPL", "AAPL", date(2003, 9, 10), None)],
         }
 
@@ -183,7 +183,7 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5b")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_json(runner.part_path(cfg, "volume_bands", 2010), {"key": base})
     assert runner.load_part(cfg, "volume_bands", 2010, base) is not None

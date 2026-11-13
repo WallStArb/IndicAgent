@@ -53,6 +53,11 @@ LAST_PRINT_CAP_QUANTILE = 0.99
 LAST_PRINT_BIN = 1e-4  # log units per histogram bin
 LAST_PRINT_MAX_BIN = 2000
 SHARED_FACTOR_BIN = 0.005  # log units
+IDENTITY_MIN_RETURNS = 20  # returns the identity correlation needs after the split-sized ones
+IDENTITY_SPLIT_LOG_RETURN = math.log(
+    1.5
+)  # a return this large on either arm is a split, not identity
+STABLE_CONSTANT_MAX_LEVEL_SHARE = 0.5  # close level agreement under this: the offset is constant
 SCALE_LEVEL_TOL = 0.001  # 10 bp on the median log close ratio
 IDENTITY_MIN_CORRELATION = 0.9
 DISPUTE_WINDOW_SESSIONS = 10
@@ -191,6 +196,7 @@ def classify_disagreements(
     massive_next_adj: Ohlc | None,
     increment: float,
     name_median_log_ratio: float,
+    stable_offset: bool,
     last_bucket: np.ndarray | None = None,
 ) -> np.ndarray:
     """A class label per matched bar (object array; '' where the bar agrees).
@@ -202,9 +208,9 @@ def classify_disagreements(
     (round 5 rule 3, rounding first): rounding (within 1.5 increments plus 1 bp on every field),
     time_shift (all four fields agree with the previous or the next Massive bar), last_print (the
     Massive close lies inside the incumbent bar's high-low range, and open, high and low agree, or
-    the bar is the session's last bucket with the open agreeing), scale (the name's median log
-    ratio is outside the scale tolerance and this bar's close ratio sits within 0.5 percent of it),
-    else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
+    the bar is the session's last bucket with the open agreeing), scale (the name carries a stable
+    constant level offset of any size, ``stable_offset``, and this bar's close ratio sits within
+    0.5 percent of the name's median), else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
     absolute log close difference) is applied at assembly, see ``AgreementCounts.lp_hist``."""
     n = len(incumbent[0])
     labels = np.full(n, "", dtype=object)
@@ -235,10 +241,9 @@ def classify_disagreements(
     last_print = ohl & close_in_range
     with np.errstate(divide="ignore", invalid="ignore"):
         bar_log = np.log(massive_adj[3] / incumbent[3])
-    name_off = abs(name_median_log_ratio) > SCALE_LEVEL_TOL
     scale = (
-        name_off & (np.abs(bar_log - name_median_log_ratio) <= SCALE_CLASS_BAR_TOL)
-        if name_off
+        np.abs(bar_log - name_median_log_ratio) <= SCALE_CLASS_BAR_TOL
+        if stable_offset
         else np.zeros(n, dtype=bool)
     )
     pending = ~agree
@@ -297,9 +302,14 @@ def price_agreement(
     prev = tuple(m / scale for m in massive_prev_raw) if massive_prev_raw is not None else None
     nxt = tuple(m / scale for m in massive_next_raw) if massive_next_raw is not None else None
     with np.errstate(divide="ignore", invalid="ignore"):
-        median_log = float(np.nanmedian(np.log(adj[3] / incumbent[3])))
+        log_ratio = np.log(adj[3] / incumbent[3])
+    median_log = float(np.nanmedian(log_ratio))
+    q1, q3 = np.nanpercentile(log_ratio, [25, 75])
+    stable = bool(
+        fields[3].mean() < STABLE_CONSTANT_MAX_LEVEL_SHARE and q3 - q1 <= STABLE_LEVEL_IQR
+    )
     labels = classify_disagreements(
-        adj, incumbent, prev, nxt, increment, median_log, last_bucket  # type: ignore[arg-type]
+        adj, incumbent, prev, nxt, increment, median_log, stable, last_bucket  # type: ignore[arg-type]
     )
     disagree = ~fields[3]
     classes = Counter(str(x) for x in labels[disagree])
@@ -357,22 +367,34 @@ class EraCounters:
     flagged_share: float
     level_class_share: float
     shared_factor_share: float
+    #: names with a detector whose identity correlation failed, over those and the judged names: a
+    #: systemic price corruption decorrelates the pair and hides behind identity_unresolved
+    identity_unresolved_share: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
         return {
             "flagged_share": self.flagged_share,
             "level_class_share": self.level_class_share,
             "shared_factor_share": self.shared_factor_share,
+            "identity_unresolved_share": self.identity_unresolved_share,
         }
 
 
-COUNTER_NAMES = ("flagged_share", "level_class_share", "shared_factor_share")
+COUNTER_NAMES = (
+    "flagged_share",
+    "level_class_share",
+    "shared_factor_share",
+    "identity_unresolved_share",
+)
 
 
-def era_counters(names: Sequence[NameFacts]) -> EraCounters:
+def era_counters(names: Sequence[NameFacts], n_identity_unresolved: int = 0) -> EraCounters:
     n = len(names)
+    unresolved_share = (
+        n_identity_unresolved / (n + n_identity_unresolved) if n or n_identity_unresolved else 0.0
+    )
     if n == 0:
-        return EraCounters(0, math.nan, math.nan, math.nan)
+        return EraCounters(0, math.nan, math.nan, math.nan, unresolved_share)
     bins = Counter(
         round(f.median_log_ratio / SHARED_FACTOR_BIN)
         for f in names
@@ -383,6 +405,7 @@ def era_counters(names: Sequence[NameFacts]) -> EraCounters:
         sum(f.flagged for f in names) / n,
         sum(bool(f.level_class) for f in names) / n,
         (max(bins.values()) / n) if bins else 0.0,
+        unresolved_share,
     )
 
 
@@ -433,6 +456,7 @@ class EraVerdict:
     counters: EraCounters
     thresholds: dict[str, float]
     class_mix: dict[str, int]
+    calibration: str = ""  # the eras that calibrated the thresholds and the cap, or "self"
 
 
 def judge_era(
@@ -440,6 +464,7 @@ def judge_era(
     names: Sequence[NameFacts],
     thresholds: Mapping[str, float],
     cap_bin: int,
+    n_identity_unresolved: int = 0,
 ) -> EraVerdict:
     """The verdict of one era and timeframe (round 5 rules 2 to 5).
 
@@ -449,10 +474,16 @@ def judge_era(
     (rule 5, data driven) and ``ok_convention`` for 5m (rule 4, fully explained by size-capped
     classes); else ``ok``. No judged name is ``no_detector``, an explicit row, never a silent
     skip and never a pass. A stop outranks unresolved."""
-    counters = era_counters(names)
+    counters = era_counters(names, n_identity_unresolved)
     if not names:
+        reasons = [
+            f"{key}>{thresholds[key]:.4f}"
+            for key in COUNTER_NAMES
+            if counters.as_dict()[key] > thresholds[key]
+        ]
         return EraVerdict(
-            timeframe, ERA_NO_DETECTOR, ("no_judged_names",), 0, 0, 0, math.nan, math.nan, 0, (),
+            timeframe, ERA_STOP if reasons else ERA_NO_DETECTOR,
+            tuple(reasons) or ("no_judged_names",), 0, 0, 0, math.nan, math.nan, 0, (),
             counters, dict(thresholds), {},
         )  # fmt: skip
     total = names[0].counts
@@ -556,14 +587,14 @@ def level_dispersion(
 def scale_class(
     median_log_ratio: float, dispersion: float, level_share: float, ret_share: float
 ) -> str:
-    """Level classification of a name-year (lead ruling 2026-11-12, R3c).
+    """Level classification of a name-year (lead ruling 2026-11-12, R3c; stability test 2026-11-13).
 
-    ``split_like_level``: a stable nonzero constant (median beyond 10 bp, dispersion within
-    ``STABLE_LEVEL_IQR``) that reads as a split ratio: a candidate split missing from the frozen
-    table. ``adjustment_level``: a stable nonzero constant that does not: an incumbent non-split
+    A stable constant offset of ANY size (close level agreement under half of the bars, dispersion
+    within ``STABLE_LEVEL_IQR``): ``split_like_level`` when it reads as a split ratio, a candidate
+    split missing from the frozen table; ``adjustment_level`` otherwise, an incumbent non-split
     adjustment. ``level_drift``: a level disagreement under 99 percent while the returns agree at
     99 percent or better and the offset is not a stable constant. Anything else: empty."""
-    if abs(median_log_ratio) > SCALE_LEVEL_TOL and dispersion <= STABLE_LEVEL_IQR:
+    if level_share < STABLE_CONSTANT_MAX_LEVEL_SHARE and dispersion <= STABLE_LEVEL_IQR:
         if split_like_ratio(math.exp(abs(median_log_ratio))) is not None:
             return SCALE_SPLIT_LIKE
         return SCALE_ADJUSTMENT_LEVEL
@@ -577,16 +608,29 @@ def scale_class(
 
 
 # --- identity ----------------------------------------------------------------------------------
-def identity_correlation(massive_close_adj: np.ndarray, incumbent_close: np.ndarray) -> float:
-    """Correlation of daily log returns of two aligned adjusted close series. Needs at least 3
-    aligned closes (two returns) and non-constant returns, else the identity is unresolved (NaN)."""
-    if len(massive_close_adj) < 3:
-        return math.nan
-    a = np.diff(np.log(massive_close_adj))
-    b = np.diff(np.log(incumbent_close))
-    if np.std(a) == 0 or np.std(b) == 0:
+def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
+    """Correlation of two aligned log-return series after dropping the split-sized returns (an
+    absolute log return above ln 1.5 on either arm: a split is a scale event, never an identity
+    one). NaN when fewer than ``IDENTITY_MIN_RETURNS`` returns remain or a series is constant."""
+    keep = (
+        np.isfinite(returns_a)
+        & np.isfinite(returns_b)
+        & (np.abs(returns_a) <= IDENTITY_SPLIT_LOG_RETURN)
+        & (np.abs(returns_b) <= IDENTITY_SPLIT_LOG_RETURN)
+    )
+    a, b = returns_a[keep], returns_b[keep]
+    if len(a) < IDENTITY_MIN_RETURNS or np.std(a) == 0 or np.std(b) == 0:
         return math.nan
     return float(np.corrcoef(a, b)[0, 1])
+
+
+def identity_correlation(massive_close_adj: np.ndarray, incumbent_close: np.ndarray) -> float:
+    """Correlation of daily log returns of two aligned adjusted close series (consecutive matched
+    sessions), see ``return_correlation``."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return return_correlation(
+            np.diff(np.log(massive_close_adj)), np.diff(np.log(incumbent_close))
+        )
 
 
 def identity_resolved(correlation: float) -> bool:

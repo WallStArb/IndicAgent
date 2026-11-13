@@ -205,3 +205,150 @@ def test_level_factor_incumbent_passes_on_returns_and_is_listed() -> None:
     assert result.n_agree == 0 and result.n_ret_agree == result.n_ret_pairs == 149
     assert result.scale_class == nc.SCALE_ADJUSTMENT_LEVEL
     assert _outcome(_judge({"1d": result}))[1] == "adjustment_level_listed"
+
+
+# ---- round 5 review fixes ---------------------------------------------------------------------
+def test_the_gap_list_is_built_from_every_named_defect_not_the_capped_listing() -> None:
+    named = [{"ticker": f"T{i}", "day": "2010-03-01"} for i in range(runner.DEFECT_LIST_CAP + 100)]
+    assert len(runner.gap_keys_of(named)) == runner.DEFECT_LIST_CAP + 100
+
+
+def test_the_calendar_audit_rescales_the_ibkr_1d_series_before_the_comparison() -> None:
+    """Rule 7: the audit names IBKR's smart_trades unadjusted over a 2:1 split; Massive (divided by
+    the market split) agrees with the incumbent only once the incumbent is rescaled too."""
+    days = _days(150)
+    rng = np.random.default_rng(8)
+    adjusted = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 150)))
+    effective = days[74]  # the last session on the old scale
+    split = [SplitFactor(effective, 2.0)]
+    raw_massive = _daily(days, adjusted * np.where(np.array(days) <= effective, 2.0, 1.0))
+    unadjusted_ibkr = _daily(days, adjusted * np.where(np.array(days) <= effective, 2.0, 1.0))
+    before = runner.compare_arm("1d", "ibkr", raw_massive, unadjusted_ibkr, split, {})
+    assert before is not None and before.n_ret_agree < before.n_ret_pairs  # IBKR's recorded defect
+    fixed = runner.rescaled_bars(unadjusted_ibkr, split)
+    after = runner.compare_arm("1d", "ibkr", raw_massive, fixed, split, {})
+    assert after is not None and after.n_agree == 150 and after.n_ret_agree == after.n_ret_pairs
+
+
+def test_frozen_loads_the_calendar_audit_rescales_and_the_spans(tmp_path) -> None:
+    import json
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    frozen = Path(tmp_path) / "frozen"
+    frozen.mkdir()
+    (frozen / "frozen.json").write_text(
+        json.dumps({"sha256": {}, "horizon": "2026-11-12T12:00:00+00:00"})
+    )
+    header = "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact,unadjusted_routes\n"
+    (frozen / "corporate_actions.csv").write_text(
+        header
+        + "EAT,2001-01-16,1.5,2026-10-01T00:00:00+00:00,calendar_audit,False,True,ibkr/smart_trades\n"
+        + "PATK,2012-05-01,0.4,2026-10-01T00:00:00+00:00,calendar_audit,True,False,ibkr/smart_trades\n"
+        + "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True,\n"
+    )
+    (frozen / "ticker_spans.csv").write_text(
+        "symbol,ticker,valid_from,valid_to\nEAT,EAT,2003-09-10,\nOLD,OLD,2003-09-10,2009-06-30\n"
+    )
+    out = runner.load_frozen(cfg)
+    assert [(s.effective_date.year, s.factor) for s in out.ibkr_rescales["PATK"]] == [(2012, 0.4)]
+    assert "AAPL" not in out.ibkr_rescales  # a massive_reference split names no incumbent route
+    assert [s.factor for s in out.splits["AAPL"]] == [7.0] and out.splits["PATK"] == []
+    assert out.span_listed("EAT", 2020) and out.span_listed("OLD", 2009)
+    assert not out.span_listed("OLD", 2010) and not out.span_listed("ZZZ", 2010)
+
+
+def test_a_massive_hole_is_flagged_never_not_listed_and_never_stop_exempt() -> None:
+    outcome = runner.judged_timeframes({}, nc.ERA_NO_ACTION, True, massive_hole=True)
+    assert outcome == (nc.OUTCOME_FLAGGED, "massive_hole", ())
+    assert nc.OUTCOME_FLAGGED not in nc.STOP_EXEMPT_OUTCOMES
+
+
+def test_identity_ignores_split_sized_returns_and_falls_back_to_the_5m_returns() -> None:
+    rng = np.random.default_rng(3)
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 150)))
+    inc = close.copy()
+    massive = close.copy()
+    massive[75:] *= 2.0  # a split missing from the frozen table: one |ln 2| return on one arm
+    assert nc.identity_resolved(nc.identity_correlation(massive, inc))
+    assert np.isnan(nc.identity_correlation(close[:15], close[:15]))  # under 20 returns
+    # thin daily identity, good 5m identity: judged on the 5m returns
+    thin_1d = _arm(30, 30, 0.0, float("nan"))
+    good_5m = _arm(250, 250, 0.0, 0.99)
+    assert runner.judged_timeframes({"1d": thin_1d, "5m": good_5m}, nc.ERA_NO_ACTION, True)[0] == ""
+    both_thin = _arm(30, 30, 0.0, float("nan"))
+    assert runner.judged_timeframes({"1d": thin_1d, "5m": both_thin}, nc.ERA_NO_ACTION, True)[
+        :2
+    ] == (
+        nc.OUTCOME_UNRESOLVED,
+        "identity_unresolved",
+    )
+
+
+def test_daily_session_dates_use_the_one_definition() -> None:
+    from datetime import UTC, datetime
+
+    class Cursor:
+        def __init__(self, stamp: datetime) -> None:
+            self.stamp = stamp
+
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def execute(self, sql: str, params: object = None) -> None:
+            return None
+
+        def fetchall(self) -> list[tuple]:
+            return [("A", self.stamp, 1.0, 1.0, 1.0, 1.0, 5, None)]
+
+    class Conn:
+        def __init__(self, stamp: datetime) -> None:
+            self.stamp = stamp
+
+        def cursor(self) -> Cursor:
+            return Cursor(self.stamp)
+
+    start, end = datetime(2010, 1, 1, tzinfo=UTC), datetime(2011, 1, 1, tzinfo=UTC)
+    ibkr = runner.fetch_bars(
+        Conn(datetime(2010, 3, 1, tzinfo=UTC)), "1d", "ibkr", ["A"], start, end
+    )
+    assert str(ibkr["A"].key[0]) == "2010-03-01"  # 00:00 UTC stamp: the UTC date
+    stamp = datetime(2010, 3, 1, 5, tzinfo=UTC)  # midnight New York
+    massive = runner.fetch_bars(Conn(stamp), "1d", "massive", ["A"], start, end)
+    assert str(massive["A"].key[0]) == "2010-03-01"
+
+
+def test_the_raw_fingerprint_is_scoped_per_series_and_moves_on_a_restatement() -> None:
+    fp = {"massive|sip_flat|1d": "10|2026-01-01|0", "ibkr|named|5m": "99|x|0"}
+    assert runner.scoped_fingerprint(fp, [("massive", "sip_flat", "1d")]) == {
+        "massive|sip_flat|1d": "10|2026-01-01|0"
+    }
+    restated = {"massive|sip_flat|1d": "10|2026-02-01|3", "ibkr|named|5m": "99|x|0"}
+    assert runner.scoped_fingerprint(
+        restated, runner.VOLUME_SERIES[1:]
+    ) != runner.scoped_fingerprint(
+        fp, runner.VOLUME_SERIES[1:]
+    )  # same row count, different served stamp and revision count
+
+
+def test_the_live_fingerprint_and_exchange_map_are_deterministic() -> None:
+    import pytest
+
+    try:
+        conn = runner.connect_read_only()
+    except Exception as error:
+        pytest.skip(f"database unavailable: {error}")
+    with conn:
+        first = runner.raw_fingerprints(conn, [2010, 2011])
+        assert first == runner.raw_fingerprints(conn, [2010, 2011])
+        assert set(first) == {2010, 2011}
+        try:
+            with conn.cursor() as cur:
+                cur.execute(runner._EXCHANGE_SQL)
+                rows = cur.fetchall()
+        except Exception as error:  # the test database carries no reference_raw
+            pytest.skip(f"reference_raw unavailable: {error}")
+        assert len(rows) == len({s for s, _ in rows})  # one capture per ticker
