@@ -1,11 +1,14 @@
 ---
-status: deferred
+status: closed
 priority: P0
 filed: 2026-09-26
+closed: 2026-11-13
 source: 2026-09-26 universe expansion 1d backfill
 ---
 
 # IBKR daily history starts at a name's last primary-listing venue change
+
+**Closed 2026-11-13:** superseded by the IBKR removal (owner 2026-11-13): the defect class leaves with the vendor.
 
 ## What
 

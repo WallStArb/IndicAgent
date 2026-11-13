@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-09-01
+closed: 2026-11-13
 source: starting statistical_factor_residual Stage 3 -- universe fetch returned 0/231
   symbols with complete daily history, traced to a live corpus data gap
 ---
@@ -24,6 +25,8 @@ new bars since 2026-08-12" state described below is no longer current; treat the
 numbers in this section as historical evidence of the original incident, not live status.
 
 # Live ingestion consumer chain never restarted after todo 306/363's gateway fix
+
+**Closed 2026-11-13:** superseded: the ib-gateway is deleted in step 7 Part F and the dormant streaming block does not route through it.
 
 ## What
 

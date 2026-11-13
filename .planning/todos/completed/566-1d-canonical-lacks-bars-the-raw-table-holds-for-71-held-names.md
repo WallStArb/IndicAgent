@@ -1,11 +1,14 @@
 ---
-status: deferred
+status: closed
 priority: P1
 filed: 2026-10-29
+closed: 2026-11-13
 source: data lane, 1d session_coverage recount (191-SESSION-COVERAGE-FIX.md)
 ---
 
 # The canonical 1d series lacks bars the raw table holds, for 71 held names
+
+**Closed 2026-11-13:** superseded by the switch: the held IBKR 1d spans are the A11 identity class; the witness placed 183 spans (loaded from Massive 2026-11-13) and the rest are accepted losses per the ruling.
 
 After the answered-session fix (191-SESSION-COVERAGE-FIX.md), 110 of the 207 scored names still fail
 `session_coverage`. For 71 of them the only remaining cause is the same one: sessions where

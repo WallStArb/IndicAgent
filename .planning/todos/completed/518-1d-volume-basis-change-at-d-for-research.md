@@ -1,12 +1,15 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-10-08
+closed: 2026-11-13
 source: plan 185-48 (residual risk of the 1d primary swap; 185-46 review amendment item 2, docs/research/1d-primary-swap-evidence.md "Volume basis (R5)")
 owner: the research lane (phase 183 session), with todo 501
 ---
 
 # Canonical 1d volume changes basis at D = 2026-10-07 for every name
+
+**Closed 2026-11-13:** superseded by step 7: the D = 2026-10-07 basis seam arbitrated the IBKR/Tradier era, which the switch removes entirely; canonical 1d becomes Massive to the archive end then Alpaca, and the archive-end seam is carried by the switch policy rows and the B4/D1 gates.
 
 ## What
 

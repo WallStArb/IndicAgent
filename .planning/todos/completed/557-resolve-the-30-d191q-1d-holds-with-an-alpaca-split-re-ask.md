@@ -1,11 +1,14 @@
 ---
-status: deferred
+status: closed
 priority: P2
 filed: 2026-10-28
+closed: 2026-11-13
 source: review of todo 545 for the data lane; owner chose to defer (2026-10-28)
 ---
 
 # Resolve the 30 D-191-Q daily holds (Alpaca split re-ask and corporate-action judge)
+
+**Closed 2026-11-13:** superseded by step 7: D-191-Q retires and the one-pass rebuild re-derives 1d from Massive under d2-v6; splits are precondition A3 with Massive as witness.
 
 ## What
 

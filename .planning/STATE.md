@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-11-04T11:42:49.735Z"
+last_updated: "2026-11-13T21:10:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 3
@@ -42,7 +42,7 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
-## Session handoff (2026-11-12, lead indicagent-32; read this first)
+## Session handoff (standing; lead indicagent-2c; read this first)
 
 **Position: Massive is acquired and verified, all raw loads are done, and admission is EXECUTING on the lead's call (the owner delegated sequencing and go/no-go on 2026-11-11; no admission GO is pending).** The archive holds all 11,658
 files (both aggregates, 2003-09-10 to 2026-11-09, 82 GB; full `--verify` 11,658 records 0
@@ -83,42 +83,32 @@ the 2016 seam witness and the NVDA 2024 rescale canary). IBKR 5m raw is KEPT (le
 independent witness to Massive, near-zero cost; the fetch lane and ask-ledger machinery are what get deleted; revisit after step 7 and the 592 adjudications, export-first if ever). Stop polishing IBKR/Alpaca-era data. No corpus compute until the data gate passes
 (the 584 pin now waits on admission execution, not IBKR coverage).
 
-**Earlier rulings still in force:** E15-E18 evidence rules; E21 + the section 11 amendment
-drafted 2026-11-09, awaiting owner adoption (interim rule holds; gates the discovery sweep, not
-admission); extended hours raw only; blind model proposer allowed; no versioned table names.
+**Earlier rulings still in force:** E15-E18 evidence rules; E21 ADOPTED 2026-11-13 (8fc33b744), the
+section 11 amendment stays drafted; extended hours raw only; blind model proposer allowed; no
+versioned table names.
 
 **Running now (leave them):** the IBKR fetcher timer is DISABLED (2026-11-10; todo 607's watcher is parked as expected-superseded); the
 nightly timers (Alpaca 04:40Z, derivation 05:20/05:45Z, audit 06:00Z). No fleet agents in
-flight; the lead (indicagent-d8) dispatches as needed with verify-every-landing.
-
-**Done this stretch (2026-11-09/10, one line each):** 186-31 CONVERGED (5 review rounds; suite
-8,153). 592 complete then parked (10 named cases fixed and junction-verified; sweep: 1,389
-breaks classified, 134 fixed, rulings issued; follow-ups parked pending Massive as witness -
-GSAT/NEXN/OKE D7 red rows are KNOWN-ACCEPTED). 587 closed (clean D7). 603 register + migration
-584 (`external` composition code). 602 doc-number guard, closed. 601 classification (306
-columns, all proposer-swept). 606 filed. 595 closed (no same-tape witness; keep the 2.5 floor).
-574 Tradier removal and 510 backup deletion DONE 2026-11-12 (migration 589, code at tag archive/tradier-2026-11). Massive acquisition: purchase,
-both keys regenerated, downloader built and fixed (07c70a806, 15719adb0), full archive verified,
-serves captured, references captured, design refined.
+flight; the lead dispatches workers as needed with verify-every-landing.
 
 **Todo triage 2026-11-12 (lead):** pending 105 -> 86. Closed as superseded by Massive: 453, 505, 521, 534, 537, 581, 585, 519, 607. Deferred behind step 7 (gate: step 7 proves the rebuild, then todo 600's deletion-list review): 433, 497, 525, 527, 535, 557, 565, 566, 567, 596. P0 is now only 584, 588, 600. Unblocked now: 608. 592 and 595 closed 2026-11-13 as superseded by the IBKR removal; the split sweep lives on as step 7 precondition A3.
 
 **Universe (lead 2026-11-12):** the archive holds 30,000+ tickers against 1,529 on IBKR; todo 609 builds the stage 2 point-in-time liquidity-rule universe (survivorship-free, 1d for all, 5m for the top tier) after step 7 and the 8a checks. It is the biggest lever on breadth after the data gate.
 
-**In flight 2026-11-13 (lead indicagent-d0, Opus; worker indicagent-1d):** OWNER RULING: IBKR is removed entirely (todo 600, b1dc82321). Canonical becomes Massive [1990-01-01, 2026-11-10 archive end; Massive holds nothing before 2003-09-10, so earlier slots leave) then Alpaca, no fallback, no IBKR anywhere; 1m and 4h leave canonical; gap-list spans after 2016 keep Alpaca symbol rows; IBKR raw is exported, restore-verified, then deleted only after step 7 proves itself (runbook Part F). Branch `step7-no-ibkr` holds the plan, `ops_massive_switch_delta` (expected delta, lost-slot classifier, `--verify` for D1) and the one-stage runbook. Losses are classified: predecessor_history (SPAC shells, merged-away predecessors under today's ticker) and vendor_has_no_bar accepted and listed; the identity witness (design 8c, rule 8d10bd030; the stopping-rule override is recorded there) placed 183 gap spans, applied to the map 2026-11-13 (`--amend`, code bbe134dd6; map dir data/ticker_entity_map/20261113_595bb68f6772; ticker_event_current 1,698). In flight: the Massive raw load for the placed spans (raw only, bracketed by an all-time `ops_selection_gate --compare`, about 10 h from 15:14 UTC), then the 1d and 5m delta rerun, then step 7. The 8a runner and the per-era plan builder are NOT landed (tags archive/massive-8a-load-checks, archive/step7-plan-8a-input); their r5j/r5k outputs are the admission record. E21 ADOPTED (8fc33b744). Pre-registered gate constants are exempt from APR (1c0c66889). ubuntu2 is the streaming standby and backup.
+**Owner ruling 2026-11-13 (then-lead indicagent-d0):** IBKR is removed entirely (todo 600, b1dc82321). Canonical becomes Massive [1990-01-01, 2026-11-10 archive end; Massive holds nothing before 2003-09-10, so earlier slots leave) then Alpaca, no fallback, no IBKR anywhere; 1m and 4h leave canonical; gap-list spans after 2016 keep Alpaca symbol rows; IBKR raw is exported, restore-verified, then deleted only after step 7 proves itself (runbook Part F). Branch `step7-no-ibkr` holds the plan, `ops_massive_switch_delta` (expected delta, lost-slot classifier, `--verify` for D1) and the one-stage runbook. Losses are classified: predecessor_history (SPAC shells, merged-away predecessors under today's ticker) and vendor_has_no_bar accepted and listed; the identity witness (design 8c, rule 8d10bd030; the stopping-rule override is recorded there) placed 183 gap spans, applied to the map 2026-11-13 (`--amend`, code bbe134dd6; map dir data/ticker_entity_map/20261113_595bb68f6772; ticker_event_current 1,698). In flight: the Massive raw load for the placed spans (raw only, bracketed by an all-time `ops_selection_gate --compare`, about 10 h from 15:14 UTC), then the 1d and 5m delta rerun, then step 7. The 8a runner and the per-era plan builder are NOT landed (tags archive/massive-8a-load-checks, archive/step7-plan-8a-input); their r5j/r5k outputs are the admission record. E21 ADOPTED (8fc33b744). Pre-registered gate constants are exempt from APR (1c0c66889). ubuntu2 is the streaming standby and backup.
 
 **Update 2026-11-13 evening (lead indicagent-2c, owner mandate; worker indicagent-6e):** the 15:14Z placed-span chain was killed with its session 1h45m in, still inside the read-only compare_pre (950/1551 instruments, real=0 throughout; the driver had no setsid, so background tasks die with the session). Nothing was written: loads are strictly sequential behind the compare, and the 1d 2010 dry run was `apply: false` (scratch dir kept as the record). The map amendment DID land (183 ticker_event rows, map dir data/ticker_entity_map/20261113_595bb68f6772). Now: the identical chain relaunched detached (setsid, on-disk status, evidence mirrored to logs/massive_step7_placed_load/), then the A11 close-out witness re-run on the new gap list (gate: zero placed spans left). In parallel 6e builds A8's d2-v6 switch-plan unit test (the runbook's named hard blocker); a d2-v6 defect stops for the lead's ruling. Then the 1d/5m delta rerun (B4, read-only, after the nightlies), then step 7 on the runbook's gates.
 
 **Next, in order:**
 1. Tonight 2026-11-13: the placed-span load chain detached + A11 witness re-run; A8's test lands for review. Tomorrow: the 1d and 5m delta rerun (B4) after the nightlies. Then step 7 per the one-stage runbook on `step7-no-ibkr` (land the branch first; run after a nightly; D1 = `ops_massive_switch_delta --verify`), then Part F (IBKR export, restore check, delete, code and gateway retirement), then todo 609 (point-in-time universe from Massive's securities).
-2. On the day: stop the IBKR fetcher timer; the deletion list lands AFTER the rebuild proves
-   itself (Opus-reviewed, IBKR 5m reversible-first).
-3. After loads: rerun `ops_split_calendar_audit --sweep` with Massive as witness (592 parked
-   cases + the 393 Yahoo holes + OKE/NEXN/INSM/TMUS adjudications).
+2. On the day: the quiet list stops per runbook A10; the IBKR deletion (Part F: export,
+   restore-verify, then delete, code and gateway retirement) lands only after the rebuild proves itself.
+3. After loads: run step 7 precondition A3, `ops_split_calendar_audit --sweep` with Massive as
+   witness (the parked split classes, the 393 Yahoo holes, OKE/NEXN/INSM/TMUS).
 4. Then the pre-rerun window (todos 551/552/558/516) and the corpus rerun per
    `docs/operations/corpus-rerun-runbook.md` (the G6 hole-density named decision is recorded
    there).
-5. E21 ADOPTED 2026-11-13 (lead, owner delegated). The discovery sweep still waits on the clean-data gate and the E21 volume pilot.
+5. E21 ADOPTED 2026-11-13. The discovery sweep waits on the data gate (186-32) and the E21 volume pilot.
 
 **If /tmp was wiped (reboot):** nothing load-bearing lives in /tmp now (all lanes landed); the
 worktree list is `git worktree list`, prune clears stale entries.
@@ -135,10 +125,8 @@ package change, `npm ci` in the shared checkout before restarting the service.
 
 The 2026-11-01 and 2026-11-04 position write-ups are superseded by the handoff above; the full text is in git at 7d2fcb405 (`git show 7d2fcb405:.planning/STATE.md`). What still holds from them:
 
-- The operative plan is `docs/plans/2026-11-03-path-to-first-counted-test.md`. Todo 584 (corpus rerun fix manifest) has landed every code item; its pin waits on the data gate (186-32), which waits on the data being complete (IBKR 534 or Massive 600).
-- Todo 587 (380 unadjusted splits over 268 names): the safe set landed (migration 567, audit tool, D7 `split_continuity`); the atomic landing waits at tag `wip/587-atomic` and closes on a full nightly D7.
-- One-name tables landed: `feature_vectors` (migration 570), `feature_ic_scores` (575), the v1 in-place writers deleted (576), 13 retired columns dropped (577). The 186-26 rows were discarded (migration 569).
-- Owner decisions still open are listed under "Decisions waiting on the owner" below (todo 566 policy classes, the clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes, the 185-49 reversal for the 587 rescale).
+- The operative plan is `docs/plans/2026-11-03-path-to-first-counted-test.md`. Todo 584 (corpus rerun fix manifest) has landed every code item; its pin waits on the data gate (186-32), which waits on Massive admission (todo 600).
+- Owner decisions still open are listed under "Decisions waiting on the owner" below (the clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes, the 185-49 reversal for the 587 rescale).
 
 ## Starting a new session
 
@@ -150,67 +138,11 @@ imports.
 
 ## Decisions waiting on the owner
 
-- RESET DONE 2026-10-30 (migration 544): the research ledger is empty (54 `research_run` and 22 `research_run_series`
-  rows deleted, backup in `data/backups/reset-2026-10-30/`; real-data result files moved to `files/` there; panel
-  snapshot caches deleted). Not reset, owner call with the data lane: the concept layer (306 `active` concept
-  statuses and 590 `concept_evaluation` rows from the old feature corpus; `feature_factory` reads the statuses, so
-  reset approved by the owner 2026-10-30 to run after the 186-26 rebuild, through `ConceptRegistryService`: todo 571), and the frozen sections of
-  `docs/research/construction-verdict-ledger.md` (todo 568). `.planning/gate_look_log.jsonl` stays: it records looks
-  at the forward span, and deleting rows does not un-see data.  the research-lane items below): no hypothesis tests on real data until
-  the data and features are clean and complete; earlier family results (family 2's run of 2026-10-29,
-  family 1) were made on incomplete data and an unsettled universe and are not evidence; start the testing
-  program from scratch later. Statistics infrastructure (E17 daily statistic, StepM attestation) stays,
-  since it is certified on synthetic data. Restart conditions: (1) 186-26 complete on all timeframes,
-  including the 229 D7-hold names and the 16 recent listings, with todo 564's kernel batch (hma_slope_z,
-  dead columns, calendar start 2000, config field rename, delete list for the NULL-volume code) applied
-  once before the intraday stage; (2) phase 191 plans 22 and 23 and the 71 held-name 1d gaps (todo 566);
-  (3) a fixed, written universe; (4) the vintage question: whether a fresh vintage starts so earlier looks
-  do not count against the new StepM universe (owner call, E18).
-
-- Research lane (2026-10-30): the E17 daily statistic landed (`d2f3ff0b1`, flat-top kernel plus influence
-  series; todo 547) and cut the daily battery from 40+ size failures to 3 marginal ones (gaussian
-  `reversal_5_skip1` 71 of 1,000 against 67; the two momentum members in s1_hostile, S1 drift). Decide: certify
-  the reversal members and book now and hold the rest, or hold the family until S1's drift is decided. The
-  StepM attestation is complete (Step B v2 passed), so `select_books.py` is unblocked. Todo 562 (multi-family
-  power plant) also waits on the owner.
-
-- Research lane: (1) approve the E17 amendment for todo 547 (a horizon-tied lag, L + c (h - 1) for
-  daily targets with h > 5, c = 3 to certify); (2) decide the multi-family power plant (todo 562)
-  before the `generated_family` grammar; (3) enable the research-ledger render timer (`sudo systemctl
-  enable --now indicagent-research-ledger-render.timer`) once local main is reconciled, or let the
-  job commit from a scratch worktree off origin/main and push that one file; (4) todo 561: after the
-  3,000-simulation diagnostic, a new pre-registered step B or a written call on the `s1_hostile` cell.
-
-- Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
-  537 item 2 basis restore). This is the only open owner call (the research restart was decided 2026-10-27; for E17 v2 the owner chose on 2026-10-28 to rerun step A cluster-robust before building fixed-b). The tooling is
-  built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
-  migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
-  run live. D-191-Q (owner 2026-10-27, todo 545): canonical 1d becomes Alpaca
-  SIP primary from 2016 with IBKR fallback, IBKR before; the Alpaca 1d backfill, a full Alpaca vs
-  Tradier comparison, daily rule d2-v4 and the policy rows land before Task 3's re-derive.
-  Simplify pass 2026-10-27: every ohlcv_load row stays (lineage,
-  like ohlcv_request), so only value rows go and the IBKR revision rows under Tradier loads stay
-  by construction; the design doc carries the amendment. Task 3 must stop every
-  1d consumer, not only the fetcher and bar_derivation, from the first batch to the 1d re-derive.
-
-D-191-P done 2026-10-27 (migration 520 retirement, ba03e9ff7; plan file
-`data/policy_plans/2026-10-26-d191p-5m-alpaca-primary.json`): live 5m policy is two defaults, IBKR
-before 2016-01-04 and Alpaca then IBKR from it; 1,641 symbol rows retired. 267 names reselected
-(44.5M bars changed) and their grid re-derived in full; the other 1,261 names had their stale
-session-choice records rewritten by record-only shards (0 bar changes). Every name's 15m/1h grid
-is current through 2026-10-26 (`indicagent-bar-derivation-grid`, 05:45 UTC, --changed-only, now
-follows the Alpaca nightly; writing derivation runs serialize on a stage lock, e48ddbfb6). Final
-5m selection gate exit 0: 1,529/1,529 series clean, n_canonical == n_selected == 311,503,335,
-session_choices_unrecorded 0 (`logs/selection_gate_20261027T072705Z.json`). The research lane
-(5b) was told 2026-10-27 about 08:28Z; the 5m snapshot and 186-26 are no longer held on D-191-P. 5b fires the family 2 run on a one-line notice from the data lane when plan 20's 1d re-derive lands; the notice lists, among family 2's 187-name US-session universe, every name with a pending span, a frozen hold or a D-191-Q arbitration hold.
-
-Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
-Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
-is Alpaca SIP primary from 2016-01-04, IBKR fallback, IBKR alone before (policy rows plus a
-reselect after the Alpaca catch-up, before 186-26); todo 519 listing_end table and PSKY to SKYD;
-family 2 gets one evidence run after 191-25 (moved to plan 20's re-derive 2026-10-27); todo 509 deletes the v2.x dashboard signal surface and
-the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations: this lane takes
-518 and up (515-517 reserved by the research lane).
+- Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members (S1 drift), or hold the family. E17 landed (`d2f3ff0b1`, flat-top kernel plus influence series); the daily battery went from 40+ size failures to 3 marginal ones; the StepM attestation passed and `select_books.py` is unblocked; B3 power still open.
+- Todo 562: the multi-family power plant, decided before the `generated_family` grammar.
+- Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
+- Still open owner calls: the clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes, the 185-49 reversal for the 587 rescale.
+- Concept-layer reset (todo 571, owner-approved) runs after the 186-26 rebuild and 564's batch. The 2026-10-30 research reset is done (migration 544; `.planning/gate_look_log.jsonl` kept: deleting rows does not un-see looks at the forward span); its restart conditions are superseded by the Massive admission path. Statistics infrastructure (E17, StepM) stays, certified on synthetic data.
 
 ## Open items that are not verdicts
 
@@ -250,9 +182,9 @@ are removed on schedule and nothing protected is removed by accident. Everything
 
 | Path | Size | Delete when | Why it is kept until then |
 |---|---|---|---|
-| `data/backups/191` | 3.2 GB | when the owner closes the Tradier work (plan 191-20 done 2026-10-29; D7 holds, todo 545, still open) | backup taken before the irreversible Tradier bar delete |
+| `data/backups/191` | 3.2 GB | now (Tradier work closed 2026-11-12, todo 574); delete on the next housekeeping pass | backup taken before the irreversible Tradier bar delete |
 | `data/backups/185-38` | 142 MB | unknown: find its phase's retention rule first | an earlier phase's drop backup |
-| `data/backups/worktree-salvage-20261029` | 1 MB | about 2026-11-12 | patches and a bundle from the removed 5b-t3, prev3 and shared-checkout work; the shared checkout was stale, its commits are on origin under other hashes |
+| `data/backups/worktree-salvage-20261029` | 1 MB | past due (2026-11-12); delete on the next housekeeping pass | patches and a bundle from the removed 5b-t3, prev3 and shared-checkout work; the commits are on origin under other hashes |
 
 Never delete: `logs/phase181` and `logs/phase179` (`repro_frozen` replays the frozen verdicts from
 them), `logs/research/snapshots` and the step A and B evidence under `logs/research/` (`compare-all`
@@ -275,47 +207,15 @@ sessions' uncommitted files, then remove it; `git worktree prune` clears entries
 - `ON CONFLICT` for partial indexes on TimescaleDB: column list plus WHERE clause, not
   `ON CONSTRAINT`.
 
-- Phase 190 batch history surface (190-01): `HistoryProvider` protocol + HistoryRequest /
-  FetchBudget / NoDataVerdict / HistoryPage live in `src/providers/base.py`; DataProvider is
-  byte-identical. `IBKRProvider.fetch_ohlcv` returns one caller-driven window plus resume
-  point; `adjustment='split'` raises loudly on IBKR (ADJUSTED_LAST is now-anchored). Services/
-  scripts/src cannot import a concrete provider leaf outside `src/providers/`
-  (tests/unit/test_provider_leaf_boundary.py; at 190-04 the three fetcher-family entries
-  stayed, now owned by the registry's ibkr entry rather than a factory seam).
-
-- Phase 190 generalized fetcher (190-04): `_PROVIDER_REGISTRY` in the fetcher maps provider
-  name to leaf factory + item-fetch hook + overlay loader; the loop dispatches strictly
-  through `entry.fetch` per item's provider (an entry failure is that item's error outcome,
-  never an IBKR fallback), budgets come from per-provider ProviderPlan (stall bound, retries,
-  inter-item pause), and the dry-run TSV carries the provider column (190-06 parity delta 1).
-  Adding a vendor is one registry entry plus a leaf module; multi-plane queueing (one run,
-  several providers' candidates) is still future work.
-
-- Phase 190 code-identity rename (190-05): the fetcher is `ohlcv_history_fetcher` /
-  `OHLCVHistoryFetcher` in code and tests; every external identity stayed byte-identical
-  under FROZEN (phase 190 decision) comments (FETCHER_LOCK_NAME, LOCK_HELD_MESSAGE, JOB,
-  status-file path, unit filenames). A compatibility shim at the old
-  ibkr_history_fetcher.py path keeps the live unit runnable until 190-06 installs the
-  updated unit and deletes it. The log file does not move: BaseBatch derives it from the
-  frozen JOB, so logs/ibkr_history_fetcher.log stays.
-
-- Phase 190 two-tier ledger foundation (190-02): migration 464 applied live (ohlcv_coverage.provider,
-  ohlcv_provider_head.timeframe nullable; ibkr label is the authoring fetch plane of a stored-state
-  row, never a vendor provenance claim). Migration 465 (PK swaps + measured floor seeds) is committed
-  UN-APPLIED: 190-06 applies it with the fetcher stopped, in the same shell breath as flipping the
-  coverage writer's ON CONFLICT to (symbol, timeframe, provider); the boundary test and the
-  conftest _COMMITTED_BUT_UNAPPLIED={465} entry pin that discipline until then.
-
-- Phase 190 per-provider planner (190-03): `_fetch_queue.py` is provider-parameterized with
-  ProviderPlan + load_provider_plan reading infra.<provider>.* under the split contract
-  (planner inputs raise, leaf-native rate-limit window keeps its logged fallback); the queue's
-  candidates, due reasons and visited checks are (provider, symbol, timeframe) triples that
-  still accept the legacy pairs, so the unmodified fetcher kept draining through every commit
-  boundary (back-to-back dry-run TSVs identical). The bar_source_policy gate authorizes
-  primary-OR-fallback (derived rows and no-row pairs fall back to the default plane), which
-  keeps the two open tradier-primary 1d rows with the ibkr fallback (MOD, QRVO) fetching via
-  IBKR; 190-04 passes the plans and triples the fetcher side, and 190-06 activates
-  record_head_per_tf when 465 applies.
+- Phase 190 provider planes (190-01..06): the `HistoryProvider` protocol and HistoryRequest /
+  FetchBudget / NoDataVerdict / HistoryPage live in `src/providers/base.py`; the fetcher is
+  `ohlcv_history_fetcher` / `OHLCVHistoryFetcher` with a `_PROVIDER_REGISTRY` (provider name ->
+  leaf factory + item-fetch hook; adding a vendor is one registry entry plus a leaf module);
+  two-tier coverage ledger (`ohlcv_coverage.provider`, `ohlcv_provider_head`, migrations 464
+  and 465 applied); per-provider ProviderPlan budgets from `infra.<provider>.*`; scripts, src
+  and services cannot import a concrete provider leaf outside `src/providers/`
+  (test_provider_leaf_boundary). The IBKR registry entry and fetch lane go in the step 7 Part F
+  deletion list.
 
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").
