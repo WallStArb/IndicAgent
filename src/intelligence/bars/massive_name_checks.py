@@ -58,9 +58,7 @@ LAST_PRINT_MAX_BIN = 2000
 SHARED_FACTOR_BIN = 0.005  # log units
 MIN_JUDGED_NAMES = 20  # judged names an (era, timeframe) needs for counters and verdicts
 IDENTITY_MIN_RETURNS = 20  # returns the identity correlation needs after the split-sized ones
-IDENTITY_SPLIT_LOG_RETURN = math.log(
-    1.5
-)  # a return this large on either arm is a split, not identity
+IDENTITY_SPLIT_LOG_RETURN = math.log(1.5)  # a return this large on either arm is a split
 STABLE_CONSTANT_MAX_LEVEL_SHARE = 0.5  # close level agreement under this: the offset is constant
 SCALE_LEVEL_TOL = 0.001  # 10 bp on the median log close ratio
 IDENTITY_MIN_CORRELATION = 0.9
@@ -180,6 +178,12 @@ def _tau(price: np.ndarray, increment: float) -> np.ndarray:
     return out
 
 
+def _positive(price: np.ndarray) -> np.ndarray:
+    """Finite and strictly positive: a price a log return or a relative tolerance can use."""
+    out: np.ndarray = np.isfinite(price) & (price > 0)
+    return out
+
+
 def return_agreement(
     massive_adj: Ohlc,
     incumbent: Ohlc,
@@ -204,20 +208,18 @@ def return_agreement(
         consec = (massive_pos[1:] - massive_pos[:-1] == 1) & (
             incumbent_pos[1:] - incumbent_pos[:-1] == 1
         )
+        # a non-positive or non-finite price disagrees: the validity masks are ANDed into every
+        # result, since a zero incumbent price gives an infinite tolerance that passes anything
+        close_ok = _positive(mc) & _positive(ic)
+        usable_open = _positive(massive_adj[0]) & _positive(incumbent[0])
         r_m = np.log(mc[1:] / mc[:-1])
         r_i = np.log(ic[1:] / ic[:-1])
         tol = _tau(ic[1:], increment) / ic[1:] + _tau(ic[:-1], increment) / ic[:-1]
-        pair_ok = np.abs(r_m - r_i) <= tol
+        pair_ok = close_ok[1:] & close_ok[:-1] & (np.abs(r_m - r_i) <= tol)
         i_m = np.log(mc / massive_adj[0])
         i_i = np.log(ic / incumbent[0])
         itol = _tau(ic, increment) / ic + _tau(incumbent[0], increment) / incumbent[0]
-        bar_ok = np.abs(i_m - i_i) <= itol
-        usable_open = (
-            np.isfinite(massive_adj[0])
-            & np.isfinite(incumbent[0])
-            & (massive_adj[0] > 0)
-            & (incumbent[0] > 0)
-        )
+        bar_ok = usable_open & close_ok & (np.abs(i_m - i_i) <= itol)
     return (
         int(np.count_nonzero(consec)),
         int(np.count_nonzero(consec & pair_ok)),
@@ -255,13 +257,15 @@ def classify_disagreements(
     ``massive_prev_adj`` / ``massive_next_adj`` the same series one bar earlier / later in Massive's
     own order (NaN where absent), for the time-shift reading; ``last_bucket`` flags the final
     bucket of a session (the closing auction and late prints land there). Order of reading
-    (round 5 rule 3, rounding first): rounding (within 1.5 increments plus 1 bp on every field),
-    scale (the name carries a stable constant level offset, ``stable_offset``, and this bar's close
-    ratio sits within 0.5 percent of the name's median: it explains its bars before any look-alike
-    class), time_shift (all four fields agree with the previous or the next Massive bar),
-    last_print (the Massive close lies inside the incumbent bar's high-low range, and open, high
-    and low agree, or the bar is the session's last bucket with the open agreeing), else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
-    absolute log close difference) is applied at assembly, see ``AgreementCounts.lp_hist``."""
+    (design 8a, ninth review amendment): the name-level explanations first, scale (this bar's
+    close ratio sits within 0.5 percent of a stable offset, a split-sized break level or a drift
+    name's local level) then close_definition; then rounding first among the bar-level classes
+    (within 1.5 increments plus 1 bp on every field), time_shift (all four fields agree with the
+    previous or the next Massive bar), last_print (the Massive close lies inside the incumbent
+    bar's high-low range, and open, high and low agree, or the bar is the session's last bucket
+    with the open agreeing), else other. last_print is a CANDIDATE here: its size cap (the
+    reference period's p99 of the absolute log close difference) is applied at assembly, see
+    ``AgreementCounts.lp_hist``."""
     n = len(incumbent[0])
     labels = np.full(n, "", dtype=object)
 
@@ -842,10 +846,17 @@ SCALE_SPLIT_LIKE = "split_like_level"
 SCALE_LEVEL_DRIFT = "level_drift"
 
 
+def _split_match[T: (float, np.ndarray)](factor: T, ratio: float) -> T:
+    """A level factor (a float or an array) reads as ``ratio`` within ``SPLIT_LIKE_TOL``: the one
+    split-ratio test both the scale classes and the identity drop use (builtin ``abs`` keeps the
+    scalar path off numpy)."""
+    return abs(factor / ratio - 1.0) <= SPLIT_LIKE_TOL  # type: ignore[return-value]
+
+
 def split_like_ratio(factor: float) -> float | None:
     """The split ratio a level factor reads as (within 0.5 percent), else None."""
     for ratio in SPLIT_LIKE_RATIOS:
-        if abs(factor / ratio - 1.0) <= SPLIT_LIKE_TOL:
+        if _split_match(factor, ratio):
             return ratio
     return None
 
@@ -883,17 +894,37 @@ def scale_class(
 
 
 # --- identity ----------------------------------------------------------------------------------
+def split_sized_return(returns: np.ndarray) -> np.ndarray:
+    """Per log return: split-sized, i.e. its absolute value exceeds ln 1.5 or its factor
+    exp(|r|) matches a ``SPLIT_LIKE_RATIOS`` entry within ``SPLIT_LIKE_TOL`` (the
+    ``split_like_ratio`` test, vectorised). NaN is not split-sized."""
+    a = np.abs(returns)
+    with np.errstate(over="ignore"):
+        factor = np.exp(a)
+    sized: np.ndarray = a > IDENTITY_SPLIT_LOG_RETURN
+    for ratio in _RATIOS_BELOW_IDENTITY_CUT:
+        sized |= _split_match(factor, ratio)
+    return sized
+
+
+#: The ratios whose ``SPLIT_LIKE_TOL`` band reaches below ln 1.5 (4/3, and the lower edge of 1.5):
+#: every other ratio's band lies wholly above the cut, so testing it again is dead work.
+_RATIOS_BELOW_IDENTITY_CUT = tuple(
+    r for r in SPLIT_LIKE_RATIOS if math.log(r * (1 - SPLIT_LIKE_TOL)) <= IDENTITY_SPLIT_LOG_RETURN
+)
+
+
 def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
-    """Correlation of two aligned log-return series after dropping the split-sized returns (an
-    absolute log return above ln 1.5 on either arm: a split is a scale event, never an identity
-    one). NaN when fewer than ``IDENTITY_MIN_RETURNS`` returns remain (thin); a constant series
-    with enough returns correlates at 0 (decorrelated) unless both arms are flat and identical
-    (agreement)."""
+    """Correlation of two aligned log-return series after dropping the split-sized returns
+    (``split_sized_return`` on either arm: a split is a scale event, never an identity one, so a
+    missing split reaches ``split_like_level`` and the ledger). NaN when fewer than
+    ``IDENTITY_MIN_RETURNS`` returns remain (thin); a constant series with enough returns
+    correlates at 0 (decorrelated) unless both arms are flat and identical (agreement)."""
     keep = (
         np.isfinite(returns_a)
         & np.isfinite(returns_b)
-        & (np.abs(returns_a) <= IDENTITY_SPLIT_LOG_RETURN)
-        & (np.abs(returns_b) <= IDENTITY_SPLIT_LOG_RETURN)
+        & ~split_sized_return(returns_a)
+        & ~split_sized_return(returns_b)
     )
     a, b = returns_a[keep], returns_b[keep]
     if len(a) < IDENTITY_MIN_RETURNS:

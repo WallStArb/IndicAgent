@@ -300,7 +300,7 @@ def all_parts(
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5j"
+LOGIC_VERSION = "2026-11-13-r5k"
 
 
 _RAW_FINGERPRINT_SQL = """

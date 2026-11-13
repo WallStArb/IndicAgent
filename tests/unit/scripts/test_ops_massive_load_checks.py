@@ -183,7 +183,7 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5j")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5k")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_part(cfg, "volume_bands", 2010, {"key": base})
     assert runner.part_current(cfg, "volume_bands", 2010, base)

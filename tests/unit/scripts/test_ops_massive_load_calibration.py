@@ -405,15 +405,17 @@ def _outcomes(tmp_path) -> dict[tuple[str, int], tuple[str, str]]:
     return {(n, e): (o, r) for n, e, o, r in cells}
 
 
-def test_a_missing_in_era_split_is_flagged_and_reaches_the_ledger(tmp_path) -> None:
-    """A 2:1 split missing from the frozen table on Mar 1: bars before it sit at twice the
+@pytest.mark.parametrize("ratio", [2.0, 4 / 3])
+def test_a_missing_in_era_split_is_flagged_and_reaches_the_ledger(tmp_path, ratio: float) -> None:
+    """A split missing from the frozen table on Mar 1: bars before it sit at ``ratio`` times the
     incumbent. It is a level break of split size, so the name-era is flagged and in the ledger,
-    not passed as drift. A benign small drift still passes, listed."""
+    not passed as drift. A 4:3 split's day return (ln 4/3, under ln 1.5) is split-sized too, so
+    it never reads as identity_decorrelated. A benign small drift still passes, listed."""
     names = _clean_names(2010, 150, seed=70)
     rng = np.random.default_rng(71)
     broken = _name_series(rng)
     before = np.array([d < date(2010, 3, 1) for d in DAYS])
-    missing = tuple(np.where(before, a * 2.0, a) for a in broken)
+    missing = tuple(np.where(before, a * ratio, a) for a in broken)
     names["BROKEN"] = _detail(missing, broken)  # type: ignore[arg-type]
     drifting = _name_series(rng)
     ramp = 1 + np.linspace(0.0, 0.003, N_BARS)

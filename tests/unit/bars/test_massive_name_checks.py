@@ -225,6 +225,34 @@ def test_clean_vendor_passes_every_name_level_check() -> None:
     assert isinstance(part, nc.Partition) and part.counts["pass"] == 1 and part.counts["stop"] == 0
 
 
+def test_a_4_to_3_split_return_is_split_sized_on_either_arm() -> None:
+    """ln 4/3 sits under ln 1.5 but matches a split ratio: dropped like a 2:1 return, so one
+    missing 4:3 split cannot decorrelate an otherwise identical pair."""
+    returns = np.array([-math.log(4 / 3), math.log(4 / 3), -math.log(2.0), 0.02, 0.25, np.nan])
+    assert nc.split_sized_return(returns).tolist() == [True, True, True, False, False, False]
+    rng = np.random.default_rng(31)
+    a = rng.normal(0, 0.005, 60)
+    b = a.copy()
+    b[30] = -math.log(4 / 3)  # the incumbent is adjusted, Massive raw drops by 4:3 on the day
+    assert nc.identity_resolved(nc.return_correlation(b, a))
+
+
+def test_non_positive_prices_disagree_and_intrabar_agreement_stays_within_its_base() -> None:
+    """A zero incumbent price gives an infinite tolerance; it must disagree, not pass."""
+    n = 50
+    close = np.linspace(20.0, 21.0, n)
+    inc = _ohlc(close)
+    pos = np.arange(n)
+    for bad in (0.0, -1.0, np.nan, np.inf):
+        broken = tuple(a.copy() for a in inc)
+        broken[0][10] = bad  # an unusable open: out of the intrabar base, never agreeing
+        broken[3][20] = bad  # an unusable close: both of its pairs and its bar disagree
+        pairs, ok, bars, bar_ok = nc.return_agreement(_ohlc(close), broken, pos, pos, 0.01)
+        assert (pairs, ok) == (n - 1, n - 3)
+        assert (bars, bar_ok) == (n - 1, n - 2)
+        assert bar_ok <= bars
+
+
 def test_identity_correlation() -> None:
     rng = np.random.default_rng(3)
     a = 20 * np.exp(np.cumsum(rng.normal(0, 0.01, 60)))
