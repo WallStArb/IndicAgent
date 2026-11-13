@@ -13,6 +13,12 @@ lift) with three side lanes (data gaps, decisions, preregistration) that must be
 gate they feed. Lead plans, rules and verifies; Sonnet worker sessions execute; one worker per
 shared file set.
 
+## Amendment 2026-11-13, later (lead, owner delegated: "you decide, we need to find alpha")
+
+- IBKR is removed (todo 600 owner ruling): canonical is Massive through the archive end, then Alpaca. The 1d source split by era in the amendment below no longer applies.
+- ONE corpus rerun, not two: step 7 -> 1d day files for every ticker the map places (stage 2 universe, preregistration adopted and frozen 2026-11-13, about 4,150 members a day) -> one 1d feature rerun over the whole universe -> the 584 pin. 5m reruns on the current names plus the top liquidity tier once its cost estimate is recorded. Rerunning on the 1,529 first would compute a corpus that the universe load replaces within days.
+- Research-side critical item: todo 586 (the E17 statistic oversizes for persistent predictors, so only three routes are admitted and slow features such as momentum, value and volatility are refused). A persistence-robust statistic is being designed now on synthetic data (design note first, repro_frozen bit-identical, ledger entry with owner approval), so the first counted tests can cover persistent features.
+
 ## Amendment 2026-11-13 (lead: 8a verdict, E21 adopted)
 
 - Order from here: the 8a runner lands -> the policy plan builder reads the 8a partition per (era, timeframe) -> step 7 stage 1 -> data gate 186-32 -> the 584 pin and one corpus rerun -> 186-28 fresh IC run -> the E21 sweep pilot (the volume gate: one block measured before any full sweep) -> the first counted test.
