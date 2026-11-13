@@ -79,7 +79,6 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 | HMM Training | `indicagent-hmm-training` | `services/hmm_training_agent.py` | Monthly Baum-Welch retraining |
 | Feature Validation | `indicagent-feature-validation` | `services/feature_validation_agent.py` | Daily IC/p-value decisions |
 | Memory Batch | `indicagent-memory-batch` | `scripts/ops/memory/ops_batch_agent_memory.py` | Nightly 21:00 |
-| IBKR History Fetcher | `indicagent-ibkr-history-fetcher` | `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` | `.timer` `enabled`, 15 min after each run ends (the queue decides what runs) |
 | Alpaca Nightly | `indicagent-alpaca-nightly` | `scripts/ops/bars/ops_bar_nightly.py --vendor alpaca --apply` | `.timer` `enabled`, daily 04:40 UTC |
 | Bar Derivation Daily | `indicagent-bar-derivation-daily` | `services/bar_derivation.py --stage daily --changed-only --apply` | `.timer` `enabled`, daily 05:20 UTC (after the Alpaca nightly; before the grid and the audit) |
 | Bar Derivation Grid | `indicagent-bar-derivation-grid` | `services/bar_derivation.py --stage grid --changed-only --apply` | `.timer` `enabled`, daily 05:45 UTC (after the Alpaca nightly) |

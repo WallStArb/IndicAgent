@@ -68,12 +68,6 @@ cd production && docker compose up -d prometheus grafana
 ```bash
 systemctl list-timers | grep indicagent   # alpaca-nightly 04:40 UTC, grid 05:45 UTC, D7 06:00 UTC; the IBKR fetcher timer is disabled (2026-11-10, lane deletion-listed)
 
-# IBKR history (one at a time under FetcherLock; dry run first)
-# DISABLED since 2026-11-10 and slated for deletion in step 7 Part F; the canonical path is
-# Massive raw loads plus the Alpaca nightly (see docs/operations/massive-step7-runbook.md)
-.venv/bin/python -u scripts/infrastructure/backfill/ohlcv_history_fetcher.py --dry-run \
-    --dimension backfill --timeframes 1d --symbols AAPL,MSFT --full-scan --client-id 41
-
 # Alpaca SIP capture (dry run still asks the vendor; add --apply to write)
 .venv/bin/python -m scripts.ops.bars.ops_bar_nightly --vendor alpaca --symbols AAPL MSFT --days 5
 

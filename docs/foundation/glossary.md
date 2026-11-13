@@ -2164,22 +2164,11 @@ that sense of "drain" is a different concept and keeps its name (`indicagent-dlq
 
 ### `ohlcv_history_fetcher` / `OHLCVHistoryFetcher`
 
-The unified multi-provider OHLCV history fetcher: one BaseBatch oneshot process
-(`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`), one ledger-ranked queue, one
-writer connection, one advisory-lock singleton; backfill/gap_fill/update/parity are lanes
-(priorities) inside the loop, and each vendor is a `ProviderEntry` in the fetcher's registry
-whose `leaf_factory` builds a `HistoryProvider` leaf. **Not:** the retired per-campaign
-scripts it replaced (one fetch CLI per vendor), and not the nightly capture runner
-(`ops_bar_nightly`, the T4 tail-capture shell; its lanes join this loop when the Alpaca
-ProviderEntry lands). **Banned:** naming any new fetch path after one vendor.
-**Status:** active (phase 190 cutover, 2026-10-10); the parity lane as a separate store-path
-retired 2026-10-17 with plan 191-16 (parity rows are ordinary `ohlcv_raw` rows keyed by
-vendor; the lane survives only as the fetcher's sampling priority)
-**Code surface:** `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`; external
-identities intentionally keep the ibkr name (`FETCHER_LOCK_NAME`, JOB label
-`ibkr-history-fetcher`, `indicagent-ibkr-history-fetcher.*` units,
-`logs/ibkr_history_fetcher_status.json`) — renaming any of them means moving every consumer
-in one commit.
+**Retired 2026-11-13** with the IBKR removal (the fetcher drove only the IBKR leaf; the code,
+its units and its APR keys are deleted, git history holds them). **Not:** the nightly capture
+runner (`ops_bar_nightly`), which is the live capture path. **Banned:** reviving it as a
+vendor-specific fetch path; a new vendor is one `history_leaf` entry plus a capture runner lane.
+**Status:** retired (owner 2026-11-13)
 
 ### `HistoryProvider`
 

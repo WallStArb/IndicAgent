@@ -101,11 +101,15 @@ snapshot.
 
 ## Stages
 
-> **Transition annotation, 2026-11-13:** the IBKR sourcing path below is disabled and
-> deletion-listed (owner ruling: IBKR removed entirely; step 7 Part F is the removal
-> procedure, `docs/operations/massive-step7-runbook.md`). Until a post-step-7 onboarding path
-> is written against Massive/Alpaca, treat the IBKR-specific stages as the historical
-> procedure and source history from the raw loads instead.
+> **Transition annotation, 2026-11-13:** the IBKR tools this SOP names are deleted, not just
+> disabled: the manifest onboarder (`universe_expansion_onboard_manifest.py`), the classification
+> sourcing script, the history fetcher, the identity capture and the `ib-gateway` container
+> (git history holds them; step 7 Part F is the data removal,
+> `docs/operations/massive-step7-runbook.md`). `onboard_instrument()` and its qualifier
+> Protocol stay in `src/config/instrument_onboarding.py`. The qualify, classify and fetch stages
+> below are the historical procedure; the replacement is written against the Massive identity map
+> and the raw loads under todo 609 (Stage 2 universe), and nothing onboards a name until it
+> lands.
 
 Run every command from the main checkout (`/home/bg/dev/indicagent`). IBKR must be up:
 `docker ps | grep ib-gateway`, and remember the weekly 2FA logout (todo 395). IBKR client IDs:
