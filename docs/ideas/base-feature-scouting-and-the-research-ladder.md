@@ -84,7 +84,7 @@ Order of use: C first (cheap, no outcome peeked, and it also finds redundancy an
 
 What none of them can do is invent data. A new quantity from a source we do not hold comes from rung 0 scouting.
 
-Status of the counting mechanism for the feature sweep: E21 (drafted 2026-11-09, awaiting owner adoption) defines it — the measured cell is the unit, its per-session pooled IC is the attempt series, storage is `research_run`/`research_run_series` through S6 (sole writer), every measured cell joins the E18 selection universe, and `informed_by` chains a family to the prompting cell's run. Until the owner adopts E21 and todo 601 builds it, the interim rule holds: sweep cells are evidence records, E18's StepM runs over the family's book attempts, and the forward span is the control. `n_looks` is the bookkeeping count of measured features and nothing more. No real-data sweep runs before adoption (todos 601, 603).
+Status of the counting mechanism for the feature sweep: E21 (adopted 2026-11-13) defines it — the measured cell is the unit, its per-session pooled IC is the attempt series, storage is `research_run`/`research_run_series` through S6 (sole writer), every measured cell joins the E18 selection universe, and `informed_by` chains a family to the prompting cell's run. Until the owner adopts E21 and todo 601 builds it, the interim rule holds: sweep cells are evidence records, E18's StepM runs over the family's book attempts, and the forward span is the control. `n_looks` is the bookkeeping count of measured features and nothing more. No real-data sweep runs before adoption (todos 601, 603).
 
 ## What does the suggesting and discovering (components, simplified after review)
 

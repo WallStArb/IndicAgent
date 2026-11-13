@@ -118,7 +118,7 @@ serves captured, references captured, design refined.
 4. Then the pre-rerun window (todos 551/552/558/516) and the corpus rerun per
    `docs/operations/corpus-rerun-runbook.md` (the G6 hole-density named decision is recorded
    there).
-5. Owner's other item: E21 adoption (one word; unblocks the discovery lane's real-data sweep).
+5. E21 ADOPTED 2026-11-13 (lead, owner delegated). The discovery sweep still waits on the clean-data gate and the E21 volume pilot.
 6. Dated: 2026-12-01 IBKR gateway lapse decision (544;
    resolves to lapse unless a retained role is measured).
 

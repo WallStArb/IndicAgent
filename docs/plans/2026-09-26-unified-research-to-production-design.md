@@ -540,7 +540,7 @@ needs the per-symbol x regime grid:
 Regime-stratified IC is kept as disclosure for `regime_volatility` only. The per-symbol x regime
 grid is deleted, which makes todos 385 and 399 moot. Todo 412 (watermark) stays.
 
-Amendment 2026-11-09 (E21 draft, awaiting owner adoption): regime-stratified IC generalizes beyond
+Amendment 2026-11-09 (adopted 2026-11-13 with E21): regime-stratified IC generalizes beyond
 the `regime_volatility` disclosure to any regime group that exists, as a counted selection context
 rather than disclosure only. Conditions: labels come from regime groups that exist and are
 walk-forward rebuilt (per-symbol `regime` and `regime_volatility`; the `market_regimes` groups,

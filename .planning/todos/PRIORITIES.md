@@ -51,7 +51,7 @@ not IBKR coverage.
 | Build (phase 186, 25/29) | 186-17 Task 2 in a fetcher gap; 186-26 rerun waits on the data gate (rows discarded 2026-11-04, migration 569); 186-27 landed (migration 570); 186-28 after the rerun, tf set from 471 |
 | Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table; 13-14 on todo 482; admission holes are todo 588 |
 | Research core (phase 187) | Selection core plans 08-15; governance (16-18) after the first feature family; E17 v2 battery (todos 547, 586) before StepM selection and the book rule |
-| Testing | Waits on the clean-data rule and E21 adoption (the owner's one word): family 2, daily price-only families 441 + 423, then 440; feature and regime families after the rebuild and 184 |
+| Testing | Waits on the clean-data rule (E21 adopted 2026-11-13): family 2, daily price-only families 441 + 423, then 440; feature and regime families after the rebuild and 184 |
 | Quick, independent | 544 (gateway upgrade or planned lapse, decide by 2026-12-01, deadline 2026-12-15), 443 |
 
 ## P0: Gates the data gate or the first counted test
@@ -95,7 +95,7 @@ not IBKR coverage.
 | [544](pending/544-ib-gateway-version-desupported-2026-12-15.md) | New 2026-10-27, raised to P1 2026-11-09 (deadline 2026-12-15; decide upgrade versus planned lapse by 2026-12-01, tied to todo 600). IBKR warning 2172: gateway 1045.1 is desupported on 2026-12-15 (minimum 1050.1); after that, API logins may fail and IBKR ingestion stops. Upgrade the image in a fetcher gap, re-auth, verify a run. Why now: a hard external date. |
 | [439](pending/439-forward-span-integrity-write-once-oos-start-and-ic-purge.md) | Parts 1 and 3 done 2026-10-26: `oos_start` is write-once (migration 506) and the 7 forward-span looks are disclosed in the ledger. Part 2 (purge IC targets crossing it) lands with phase 186 (186-20, 186-28). |
 
-**Research: counted tests wait on the clean-data rule and E21 adoption; the order after them is 547/586, 441 + 423, 440, then the feature and regime families**
+**Research: counted tests wait on the clean-data rule (E21 adopted 2026-11-13); the order after them is 547/586, 441 + 423, 440, then the feature and regime families**
 
 | Todo | Why now |
 |---|---|

@@ -1214,7 +1214,7 @@ was not predicted. Frozen verdicts are not re-scored.
 
 **Built by:** todo 584 item 3; 583 study.
 
-### E21: 2026-11-09 (DRAFT, awaiting owner adoption): feature-level selection — every measured sweep cell is a counted attempt in the E18 universe
+### E21: 2026-11-09 (ADOPTED 2026-11-13): feature-level selection — every measured sweep cell is a counted attempt in the E18 universe
 
 - **Source:** discovery lane (`docs/ideas/base-feature-scouting-and-the-research-ladder.md`,
   `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md`), gap identified by the review
@@ -1265,3 +1265,11 @@ was not predicted. Frozen verdicts are not re-scored.
   rule, 2026-10-30), so this entry is written before any result it could be reacting to.
 - **Built by:** todos 601 (levels 2 and 3) and 603 (register and gates). Until adopted and built,
   the interim rule above holds and no real-data sweep runs.
+- **Adoption (2026-11-13).** The owner delegated the call to the lead's judgement against the project
+  principles; the lead adopts the rule as written, with the section 11 amendment of the unified design.
+  Reasons: it counts every look (the cell is the unit, a dropped cell still counts); it reuses
+  `research_run`, `research_run_series`, S6 and `select_books.py`, so it adds no table, writer or
+  correction (delete and simplify before build); and it was written before any real-data sweep, so
+  nothing in it reacts to a result. The volume gate stands: no full-corpus sweep before the measured
+  pilot. The clean-data rule (owner 2026-10-30) still gates the first sweep; adoption removes only the
+  counting-rule blocker.

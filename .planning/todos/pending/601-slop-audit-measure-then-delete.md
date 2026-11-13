@@ -71,7 +71,7 @@ The look count is `n_looks` (bookkeeping), not `L` (E17 book memory). Counting f
 
 ## Status 2026-11-09 (updated same day, lead session)
 
-The two drafts exist: ledger entry E21 and the section 11 amendment (both dated 2026-11-09, awaiting owner adoption). Remaining before any real-data sweep: the owner adopts or amends E21, the clean-data rule lifts, and the levels 2/3 kernels land per the plan. Until adoption the interim rule holds (sweep cells are evidence records; no real-data sweep).
+The two drafts exist: ledger entry E21 and the section 11 amendment (both dated 2026-11-09, ADOPTED 2026-11-13). Remaining before any real-data sweep: the owner adopts or amends E21, the clean-data rule lifts, and the levels 2/3 kernels land per the plan. Until adoption the interim rule holds (sweep cells are evidence records; no real-data sweep).
 
 ## Status 2026-11-09 (classification join; worker indicagent-0b, brief d8)
 
