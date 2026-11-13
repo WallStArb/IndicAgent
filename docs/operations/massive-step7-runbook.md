@@ -24,8 +24,11 @@ What leaves canonical, accepted by ruling (2026-11-13), each listed in the evide
 - canonical 1m (9,775,958 IBKR rows, 2026-03-23 to 2026-10-01; nothing in research reads 1m, Massive's minute files stay on disk as the archive);
 - gap-list spans before 2016-01-04 that the identity witness (A11) does not place, and IBKR slots inside gap spans from 2016-01-04 (the gap rows carry no fallback);
 - `predecessor_history`: bars an incumbent served under today's ticker before the security existed (SPAC shells, merged-away predecessors; 34 names on 1d, 53 on 5m, every lost session before both the name's first map span and its list_date);
-- `vendor_has_no_bar`: sessions where the incumbent had a traded bar and Massive's own file under the map's ticker has no row (1d: 2,341 slots on 138 names, 0.04 percent of the span; missing stays missing);
+- `vendor_has_no_bar`: sessions or 5m buckets where the incumbent had a traded bar and Massive's own file under the map's ticker has no trade (1d: 2,341 slots on 138 names, 0.04 percent of the span; 5m: IBKR 35,728 bars on 646 names, Alpaca 4,416 on 462; missing stays missing; zero load holes, i.e. no case where Massive's file holds the trade and raw lacks it);
+- `outside_session`: IBKR 5m bars stamped outside the NYSE regular session (5m: 24,044 bars on 574 names); canonical 5m is session-bound and extended hours stay in raw only (standing ruling);
 - zero-volume IBKR placeholders (the tradeable view drops them anyway).
+
+The lists behind these counts (1d and 5m, one row per name-session or bar with its cause) are B4's `switch_losses.csv` and the day-file and minute-file checks of its `unexplained` rows; they go into the step 7 evidence and the data adjacency register.
 
 ## Tools
 
