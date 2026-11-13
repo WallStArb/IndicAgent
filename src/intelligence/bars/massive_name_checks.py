@@ -298,6 +298,8 @@ def price_agreement(
     last_bucket: np.ndarray | None = None,
     massive_pos: np.ndarray | None = None,
     incumbent_pos: np.ndarray | None = None,
+    massive_prev_scale: np.ndarray | None = None,
+    massive_next_scale: np.ndarray | None = None,
 ) -> AgreementCounts:
     """Level and (when positions are given) return agreement of matched bars (arrays aligned bar
     for bar). Raises when nothing matched."""
@@ -309,8 +311,11 @@ def price_agreement(
     ]
     all_agree = fields[0] & fields[1] & fields[2] & fields[3]
     adj = tuple(m / scale for m in massive_raw)
-    prev = tuple(m / scale for m in massive_prev_raw) if massive_prev_raw is not None else None
-    nxt = tuple(m / scale for m in massive_next_raw) if massive_next_raw is not None else None
+    # each neighbour bar is divided by its OWN split scale (a split can fall between two bars)
+    prev_scale = scale if massive_prev_scale is None else massive_prev_scale
+    next_scale = scale if massive_next_scale is None else massive_next_scale
+    prev = tuple(m / prev_scale for m in massive_prev_raw) if massive_prev_raw is not None else None
+    nxt = tuple(m / next_scale for m in massive_next_raw) if massive_next_raw is not None else None
     with np.errstate(divide="ignore", invalid="ignore"):
         log_ratio = np.log(adj[3] / incumbent[3])
     median_log, iqr = _median_iqr(log_ratio)
@@ -406,7 +411,13 @@ COUNTER_NAMES = (
 )
 
 
-def era_counters(names: Sequence[NameFacts], n_identity_unresolved: int = 0) -> EraCounters:
+def era_counters(
+    names: Sequence[NameFacts], n_identity_unresolved: int = 0, cap_bin: int = 0
+) -> EraCounters:
+    """The rule 2 counters. A name's return-agreement failure counts toward ``flagged_share`` only
+    when its disagreement is UNEXPLAINED (more than 0.5 percent of its pairs fall outside the
+    declared conventions at ``cap_bin``), so the counter measures what the stop rule measures and a
+    close-convention era reaches ``unresolved`` instead of stopping."""
     n = len(names)
     unresolved_share = (
         n_identity_unresolved / (n + n_identity_unresolved) if n or n_identity_unresolved else 0.0
@@ -420,11 +431,15 @@ def era_counters(names: Sequence[NameFacts], n_identity_unresolved: int = 0) -> 
     )
     return EraCounters(
         n,
-        sum(f.flagged for f in names) / n,
+        sum(f.flagged and _unexplained(f, cap_bin) for f in names) / n,
         sum(bool(f.level_class) for f in names) / n,
         (max(bins.values()) / n) if bins else 0.0,
         unresolved_share,
     )
+
+
+def _unexplained(f: NameFacts, cap_bin: int) -> bool:
+    return f.counts.unexplained(cap_bin) > OTHER_INVESTIGATE_MAX_SHARE * f.counts.n_matched
 
 
 def counter_thresholds(reference: Iterable[EraCounters]) -> dict[str, float]:
@@ -492,7 +507,7 @@ def judge_era(
     (rule 5, data driven) and ``ok_convention`` for 5m (rule 4, fully explained by size-capped
     classes); else ``ok``. No judged name is ``no_detector``, an explicit row, never a silent
     skip and never a pass. A stop outranks unresolved."""
-    counters = era_counters(names, n_identity_unresolved)
+    counters = era_counters(names, n_identity_unresolved, cap_bin)
     thin = len(names) < MIN_JUDGED_NAMES
     if thin:
         # too few judged names for the counters, the residual and empty_clean_set; only a
@@ -566,6 +581,19 @@ def is_stable_offset(level_share: float, dispersion: float) -> bool:
     """The one predicate of a stable constant level offset, of any size: most bars sit out of
     tolerance (level agreement under half) while the per-bar log ratio barely moves."""
     return level_share < STABLE_CONSTANT_MAX_LEVEL_SHARE and dispersion <= STABLE_LEVEL_IQR
+
+
+def counts_as_systemic(scale_class_: str, median_log_ratio: float, break_step: float) -> bool:
+    """Whether a name-era's level class feeds the era counters (the one materiality rule): a stable
+    offset only when it exceeds the scale tolerance (a 5 bp offset is listed, not systemic);
+    ``level_drift`` and an in-era level break always, since their median can sit near zero."""
+    if not scale_class_:
+        return False
+    return (
+        scale_class_ == SCALE_LEVEL_DRIFT
+        or math.isfinite(break_step)
+        or abs(median_log_ratio) > SCALE_LEVEL_TOL
+    )
 
 
 def level_break_step(log_ratio: np.ndarray) -> tuple[float, float]:
@@ -667,7 +695,8 @@ def scale_class(
 def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
     """Correlation of two aligned log-return series after dropping the split-sized returns (an
     absolute log return above ln 1.5 on either arm: a split is a scale event, never an identity
-    one). NaN when fewer than ``IDENTITY_MIN_RETURNS`` returns remain or a series is constant."""
+    one). NaN when fewer than ``IDENTITY_MIN_RETURNS`` returns remain (thin); a constant series
+    with enough returns correlates at 0 (decorrelated)."""
     keep = (
         np.isfinite(returns_a)
         & np.isfinite(returns_b)
@@ -675,8 +704,10 @@ def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
         & (np.abs(returns_b) <= IDENTITY_SPLIT_LOG_RETURN)
     )
     a, b = returns_a[keep], returns_b[keep]
-    if len(a) < IDENTITY_MIN_RETURNS or np.std(a) == 0 or np.std(b) == 0:
-        return math.nan
+    if len(a) < IDENTITY_MIN_RETURNS:
+        return math.nan  # thin: the only way an identity correlation is missing
+    if np.std(a) == 0 or np.std(b) == 0:
+        return 0.0  # a degenerate (flat, stale) series is a disagreement, not missing evidence
     return float(np.corrcoef(a, b)[0, 1])
 
 

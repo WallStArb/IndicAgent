@@ -146,7 +146,24 @@ def record_sanity(
     volume: np.ndarray,
     owned: np.ndarray | None = None,
 ) -> SanityCounts:
-    """Sanity counts of one file's rows (``ticker_code`` identifies the ticker per row).
+    """Sanity counts of one file's rows; see ``record_sanity_with_mask``."""
+    return record_sanity_with_mask(
+        ticker_code, window_start, open_, high, low, close, volume, owned
+    )[0]
+
+
+def record_sanity_with_mask(
+    ticker_code: np.ndarray,
+    window_start: np.ndarray,
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    owned: np.ndarray | None = None,
+) -> tuple[SanityCounts, np.ndarray]:
+    """Sanity counts of one file's rows (``ticker_code`` identifies the ticker per row) and the
+    defective-row mask they were counted from, so a caller listing the defects reuses it.
 
     ``owned`` marks rows whose ticker is a name (default: all). Only owned rows are judged; the
     rest are counted in ``n_unowned_rows`` and ``n_unowned_defective``."""
@@ -163,7 +180,7 @@ def record_sanity(
     order = np.lexsort((w, c))
     c, w = c[order], w[order]
     dups = int(np.count_nonzero((c[1:] == c[:-1]) & (w[1:] == w[:-1])))
-    return SanityCounts(
+    counts = SanityCounts(
         n_rows=n,
         n_ohlc_inconsistent=int(np.count_nonzero(~consistent & own)),
         n_nonpositive_price=int(np.count_nonzero(~positive & own)),
@@ -173,6 +190,7 @@ def record_sanity(
         n_unowned_rows=n_all - n,
         n_unowned_defective=int(np.count_nonzero(defective & ~own)),
     )
+    return counts, defective
 
 
 def sanity_verdict(counts: SanityCounts) -> str:

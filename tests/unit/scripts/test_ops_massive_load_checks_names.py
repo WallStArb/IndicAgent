@@ -210,8 +210,23 @@ def test_level_factor_incumbent_passes_on_returns_and_is_listed() -> None:
 
 # ---- round 5 review fixes ---------------------------------------------------------------------
 def test_the_gap_list_is_built_from_every_named_defect_not_the_capped_listing() -> None:
-    named = [{"ticker": f"T{i}", "day": "2010-03-01"} for i in range(runner.DEFECT_LIST_CAP + 100)]
-    assert len(runner.gap_keys_of(named)) == runner.DEFECT_LIST_CAP + 100
+    n = runner.DEFECT_LIST_CAP + 100
+    tickers = np.array([f"T{i}" for i in range(n)])
+    raw = runner.RawFile(
+        tickers,
+        np.arange(n),
+        np.arange(n, dtype=np.int64),
+        np.full(n, 10.0),
+        np.full(n, 9.0),  # high under open: every row defective
+        np.full(n, 8.0),
+        np.full(n, 10.0),
+        np.full(n, 1.0),
+    )
+    scan = runner.sanity_of(raw)
+    log = runner.DefectLog()
+    log.add(date(2010, 3, 1), raw, scan, 0, 0, "day")
+    assert len(log.gap) == n and log.n_named == n  # every bar keyed and counted
+    assert len(log.named) == runner.DEFECT_LIST_CAP  # only the first rows kept as dicts
 
 
 def test_the_calendar_audit_rescales_the_ibkr_1d_series_before_the_comparison() -> None:
@@ -310,6 +325,9 @@ def test_daily_session_dates_use_the_one_definition() -> None:
         def execute(self, sql: str, params: object = None) -> None:
             return None
 
+        def stream(self, sql: str, params: object = None):
+            return iter(self.fetchall())
+
         def fetchall(self) -> list[tuple]:
             return [("A", self.stamp, 1.0, 1.0, 1.0, 1.0, 5, None)]
 
@@ -407,6 +425,9 @@ def test_every_heavy_read_waits_out_the_nightly_window(monkeypatch: pytest.Monke
         def execute(self, sql: str, params: object = None) -> None:
             return None
 
+        def stream(self, sql: str, params: object = None):
+            return iter(self.fetchall())
+
         def fetchall(self) -> list[tuple]:
             return []
 
@@ -431,13 +452,81 @@ def test_a_thin_era_is_not_the_close_convention() -> None:
     assert runner._close_convention_unresolved(convention)
 
 
-def test_a_name_part_carries_the_fingerprints_of_the_later_eras_its_tapes_read() -> None:
+def test_a_name_part_carries_the_fingerprints_of_the_years_its_tapes_read() -> None:
     def fp(count: int) -> dict[str, str]:
         return {"massive|sip_flat|1d": f"{count}|x|0", "ibkr|named|1h": "9|y|0"}
 
     base = {"seed": 1}
-    before = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5)})
-    after = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(6)})  # a 2020 reload
+    years = {2010: [2020]}
+    before = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5), 2021: fp(7)}, years)
+    after = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(6), 2021: fp(7)}, years)
     assert before[2010]["tape_fingerprints"] == {"2020": {"massive|sip_flat|1d": "5|x|0"}}
-    assert before[2010] != after[2010]  # the 2010 part is invalidated by a later-era change
+    assert before[2010] != after[2010]  # a reload of a year the tapes read invalidates the part
+    unrelated = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5), 2021: fp(8)}, years)
+    assert unrelated[2010] == before[2010]  # a year no tape reads (2021, the current year) does not
     assert "ibkr|named|1h" not in str(before[2010])  # only the series stage C reads
+
+
+def test_alpaca_never_decides_a_massive_hole() -> None:
+    traded = runner.Bars(
+        np.array([1], dtype=np.int64),
+        np.array(["2010-03-01"], dtype="datetime64[D]"),
+        (np.ones(1),) * 4,
+        np.array([5.0]),
+        None,
+        None,
+    )
+    assert runner.ibkr_traded({("1d", "ibkr"): {"A": traded}}, "A")
+    assert not runner.ibkr_traded({("1d", "alpaca"): {"A": traded}}, "A")
+
+
+def test_the_dispute_window_is_the_session_calendar_centred_on_the_date() -> None:
+    window = runner.dispute_window(date(2010, 3, 16))
+    assert len(window) == 21 and window[10] == date(2010, 3, 16)
+    assert window == sorted(window) and all(d.weekday() < 5 for d in window)
+    saturday = runner.dispute_window(date(2010, 3, 20))  # not a session: the next one centres
+    assert saturday[10] == date(2010, 3, 22)
+
+
+def test_a_reuse_check_reads_the_sidecar_not_the_part(tmp_path) -> None:
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    key = {"seed": 1, "tape_fingerprints": {"2020": {"a": "1"}}}
+    runner.write_part(cfg, "name_checks", 2010, {"key": key, "names": {}})
+    runner.part_path(cfg, "name_checks", 2010).write_text("not json")  # never parsed
+    assert runner.part_current(cfg, "name_checks", 2010, key)
+    assert not runner.part_current(cfg, "name_checks", 2010, {**key, "seed": 2})
+    runner.key_path(cfg, "name_checks", 2010).unlink()  # a part without its key is not reused
+    assert not runner.part_current(cfg, "name_checks", 2010, key)
+
+
+def test_fetch_bars_streams_one_name_at_a_time() -> None:
+    from datetime import UTC, datetime
+
+    consumed: list[int] = []
+
+    def rows():
+        for i, name in enumerate(["A", "A", "B", "B", "C"]):
+            consumed.append(i)
+            yield (name, datetime(2010, 3, 1 + i, tzinfo=UTC), 1.0, 1.0, 1.0, 1.0, 5, None)
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def stream(self, sql: str, params: object = None):
+            return rows()
+
+    class Conn:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+    start, end = datetime(2010, 1, 1, tzinfo=UTC), datetime(2011, 1, 1, tzinfo=UTC)
+    out = runner.fetch_bars(Conn(), "1d", "ibkr", ["A", "B", "C"], start, end)  # type: ignore[arg-type]
+    assert (
+        sorted(out) == ["A", "B", "C"] and len(out["A"].t_ns) == 2 and consumed == [0, 1, 2, 3, 4]
+    )

@@ -234,17 +234,21 @@ def owned_rows(raw: RawFile) -> np.ndarray:
     return owned
 
 
-def sanity_of(raw: RawFile) -> lc.SanityCounts:
-    return lc.record_sanity(
-        raw.code,
-        raw.window_start,
-        raw.open,
-        raw.high,
-        raw.low,
-        raw.close,
-        raw.volume,
-        owned_rows(raw),
+@dataclass(frozen=True)
+class SanityScan:
+    """One file's sanity counts with the masks they were counted from (reused to list defects)."""
+
+    counts: lc.SanityCounts
+    defective: np.ndarray
+    owned: np.ndarray
+
+
+def sanity_of(raw: RawFile) -> SanityScan:
+    owned = owned_rows(raw)
+    counts, defective = lc.record_sanity_with_mask(
+        raw.code, raw.window_start, raw.open, raw.high, raw.low, raw.close, raw.volume, owned
     )
+    return SanityScan(counts, defective, owned)
 
 
 # ---------------------------------------------------------------------------------- part store
@@ -252,13 +256,31 @@ def part_path(cfg: Config, check: str, era: int) -> Path:
     return cfg.out / "parts" / f"{check}__{era}.json"
 
 
+def key_path(cfg: Config, check: str, era: int) -> Path:
+    return cfg.out / "parts" / f"{check}__{era}.key.json"
+
+
+def write_part(cfg: Config, check: str, era: int, payload: dict[str, Any]) -> None:
+    """Write a part and, beside it, its key: a reuse check reads the small sidecar, never the
+    part. The sidecar lands last, so a part without its key is never reused."""
+    write_json(part_path(cfg, check, era), payload)
+    write_json(key_path(cfg, check, era), payload["key"])
+
+
+def part_current(cfg: Config, check: str, era: int, key: Mapping[str, object]) -> bool:
+    """Whether a saved part was computed under this key (the sidecar only)."""
+    sidecar = key_path(cfg, check, era)
+    if cfg.force or not sidecar.exists() or not part_path(cfg, check, era).exists():
+        return False
+    return bool(json.loads(sidecar.read_text()) == json.loads(json.dumps(key)))
+
+
 def load_part(cfg: Config, check: str, era: int, key: dict[str, object]) -> dict[str, Any] | None:
-    """A saved part computed under the same sampling key, else None (recompute)."""
-    path = part_path(cfg, check, era)
-    if cfg.force or not path.exists():
+    """A saved part computed under the same key, else None (recompute)."""
+    if not part_current(cfg, check, era, key):
         return None
-    part: dict[str, Any] = json.loads(path.read_text())
-    return part if part.get("key") == key else None
+    part: dict[str, Any] = json.loads(part_path(cfg, check, era).read_text())
+    return part
 
 
 def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
@@ -271,7 +293,7 @@ def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5f"
+LOGIC_VERSION = "2026-11-13-r5g"
 
 
 _RAW_FINGERPRINT_SQL = """
@@ -384,32 +406,48 @@ DEFECT_LIST_CAP = 500  # defective rows listed per era and file kind; the counts
 UNOWNED_LIST_CAP = 50
 
 
-def gap_keys_of(named: list[dict[str, Any]]) -> list[str]:
-    """One gap-list key per (ticker, day) of every named defective bar, never capped."""
-    return sorted({f"{r['ticker']}|{r['day']}|defective_bar" for r in named})
+@dataclass
+class DefectLog:
+    """Defects of one era: the gap-list keys of EVERY named defective bar (a set), the first
+    ``DEFECT_LIST_CAP`` named rows and ``UNOWNED_LIST_CAP`` unowned rows as dicts for the report.
+    Rows beyond the caps are counted and keyed, never materialized."""
 
+    gap: set[str] = field(default_factory=set)
+    named: list[dict[str, Any]] = field(default_factory=list)
+    unowned: list[dict[str, Any]] = field(default_factory=list)
+    n_named: int = 0
 
-def defect_rows(day: date, raw: RawFile, open_ns: int, close_ns: int) -> tuple[list, list]:
-    """(owned defective rows, unowned rows with a defect), listed for the report. An owned defect
-    is a gap-list item for its bar; an unowned row belongs to no instrument and is listed only."""
-    bad = lc.defective_row_mask(raw.open, raw.high, raw.low, raw.close, raw.volume)
-    own = owned_rows(raw)
-    named: list[dict[str, Any]] = []
-    unowned: list[dict[str, Any]] = []
-    for i in np.flatnonzero(bad):
-        row = {
-            "day": day.isoformat(),
-            "ticker": str(raw.tickers[raw.code[i]]),
-            "window_start_ns": int(raw.window_start[i]),
-            "open": float(raw.open[i]),
-            "high": float(raw.high[i]),
-            "low": float(raw.low[i]),
-            "close": float(raw.close[i]),
-            "volume": float(raw.volume[i]),
-            "in_rth": bool(open_ns <= raw.window_start[i] < close_ns),
-        }
-        (named if own[i] else unowned).append(row)
-    return named, unowned
+    def add(
+        self, day: date, raw: RawFile, scan: SanityScan, open_ns: int, close_ns: int, file_kind: str
+    ) -> None:
+        """An owned defect is a gap-list item for its bar; an unowned row belongs to no
+        instrument and is listed only."""
+        bad = np.flatnonzero(scan.defective)
+        owned_idx, unowned_idx = bad[scan.owned[bad]], bad[~scan.owned[bad]]
+        self.n_named += len(owned_idx)
+        self.gap.update(
+            f"{raw.tickers[code]}|{day.isoformat()}|defective_bar"
+            for code in np.unique(raw.code[owned_idx])
+        )
+        for idx, rows, cap in (
+            (owned_idx, self.named, DEFECT_LIST_CAP),
+            (unowned_idx, self.unowned, UNOWNED_LIST_CAP),
+        ):
+            for i in idx[: max(0, cap - len(rows))]:
+                rows.append(
+                    {
+                        "day": day.isoformat(),
+                        "ticker": str(raw.tickers[raw.code[i]]),
+                        "window_start_ns": int(raw.window_start[i]),
+                        "open": float(raw.open[i]),
+                        "high": float(raw.high[i]),
+                        "low": float(raw.low[i]),
+                        "close": float(raw.close[i]),
+                        "volume": float(raw.volume[i]),
+                        "in_rth": bool(open_ns <= raw.window_start[i] < close_ns),
+                        "file_kind": file_kind,
+                    }
+                )
 
 
 def run_record_sanity_and_session(
@@ -418,23 +456,19 @@ def run_record_sanity_and_session(
     """Stage A scans of one era: day-file sanity over EVERY day file of the era, minute-file
     sanity and the session offset over the era's drawn days."""
     key = sample_key(cfg, archive.inputs)
-    if all(load_part(cfg, c, era, key) for c in ("record_sanity", "session")):
+    if all(part_current(cfg, c, era, key) for c in ("record_sanity", "session")):
         logger.info("era_reused", check="stage_a_scans", era=era)
         return
     t0 = time.monotonic()
     day_counts: lc.SanityCounts | None = None
     n_day_files = 0
-    named: list[dict[str, Any]] = []
-    unowned: list[dict[str, Any]] = []
+    log = DefectLog()
     for day in (d for d in sessions if lc.era_of(d) == era and d in archive.manifest[DAY]):
         wait_out_nightly_window()
         raw = read_raw_file(day_path(cfg.data_dir, DAY, day))
-        counts = sanity_of(raw)
-        day_counts = counts if day_counts is None else day_counts + counts
-        if counts.n_defective_rows or counts.n_unowned_defective:
-            n, u = defect_rows(day, raw, 0, 0)
-            named.extend({**r, "file_kind": "day"} for r in n)
-            unowned.extend({**r, "file_kind": "day"} for r in u)
+        scan = sanity_of(raw)
+        day_counts = scan.counts if day_counts is None else day_counts + scan.counts
+        log.add(day, raw, scan, 0, 0, "day")
         n_day_files += 1
         time.sleep(cfg.throttle_s)
     minute_counts: lc.SanityCounts | None = None
@@ -444,22 +478,21 @@ def run_record_sanity_and_session(
     for day in era_days:
         wait_out_nightly_window()
         raw = read_raw_file(day_path(cfg.data_dir, MINUTE, day))
-        counts = sanity_of(raw)
-        minute_counts = counts if minute_counts is None else minute_counts + counts
+        scan = sanity_of(raw)
+        minute_counts = scan.counts if minute_counts is None else minute_counts + scan.counts
         open_dt, close_dt = bounds[day]
         open_ns, close_ns = int(open_dt.timestamp()) * _NS, int(close_dt.timestamp()) * _NS
-        if counts.n_defective_rows or counts.n_unowned_defective:
-            n, u = defect_rows(day, raw, open_ns, close_ns)
-            named.extend({**r, "file_kind": "minute"} for r in n)
-            unowned.extend({**r, "file_kind": "minute"} for r in u)
+        log.add(day, raw, scan, open_ns, close_ns, "minute")
         session_rows.append(
             lc.session_day_result(day, raw.window_start, raw.volume, open_ns, close_ns)
         )
         time.sleep(cfg.throttle_s)
     if day_counts is None or minute_counts is None:
         raise lc.VacuousCheckError(f"era {era}: no day file or no drawn minute file scanned")
-    write_json(
-        part_path(cfg, "record_sanity", era),
+    write_part(
+        cfg,
+        "record_sanity",
+        era,
         {
             "key": key,
             "era": era,
@@ -473,15 +506,17 @@ def run_record_sanity_and_session(
                 "n_files": len(era_days),
                 "verdict": lc.sanity_verdict(minute_counts),
             },
-            "named_defects": named[:DEFECT_LIST_CAP],  # the displayed listing only
-            "n_named_defects": len(named),
+            "named_defects": log.named,  # the displayed listing only (capped)
+            "n_named_defects": log.n_named,
             # the gap list is built from every named defect, never from the capped listing
-            "named_gap_keys": gap_keys_of(named),
-            "unowned_rows": unowned[:UNOWNED_LIST_CAP],
+            "named_gap_keys": sorted(log.gap),
+            "unowned_rows": log.unowned,
         },
     )
-    write_json(
-        part_path(cfg, "session", era),
+    write_part(
+        cfg,
+        "session",
+        era,
         {
             "key": key,
             "era": era,
@@ -850,7 +885,7 @@ def day_file_by_ticker(raw: RawFile) -> dict[str, tuple[float, float, float, flo
 
 def run_day_vs_minute(cfg: Config, archive: Archive, drawn: list[date], era: int) -> None:
     key = sample_key(cfg, archive.inputs)
-    if load_part(cfg, "day_vs_minute", era, key):
+    if part_current(cfg, "day_vs_minute", era, key):
         return
     era_days = [d for d in drawn if lc.era_of(d) == era]
     if not era_days:
@@ -881,7 +916,7 @@ def run_day_vs_minute(cfg: Config, archive: Archive, drawn: list[date], era: int
             counts = lc.compare_day_to_minutes(day_rows, agg)
             rows.append({"day": day.isoformat(), "basis": basis, **asdict(counts)})
         time.sleep(cfg.throttle_s)
-    write_json(part_path(cfg, "day_vs_minute", era), {"key": key, "era": era, "rows": rows})
+    write_part(cfg, "day_vs_minute", era, {"key": key, "era": era, "rows": rows})
     logger.info("era_scanned", check="day_vs_minute", era=era, days=len(era_days))
 
 
@@ -969,7 +1004,7 @@ def run_volume_bands(
         "frozen": frozen_hashes(cfg),
         "exchange_map_sha256": exchange.sha256,
     }
-    if load_part(cfg, "volume_bands", era, key):
+    if part_current(cfg, "volume_bands", era, key):
         return
     start, end = datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC)
     series: dict[str, dict[str, dict[date, float]]] = {"ibkr": {}, "massive": {}}
@@ -997,8 +1032,10 @@ def run_volume_bands(
         )
     if not ratios:
         raise lc.VacuousCheckError(f"volume_bands: era {era} matched no name")
-    write_json(
-        part_path(cfg, "volume_bands", era),
+    write_part(
+        cfg,
+        "volume_bands",
+        era,
         {
             "key": key,
             "era": era,
@@ -1113,6 +1150,26 @@ def _session_keys(t_ns: np.ndarray, zone: str) -> np.ndarray:
     return index.tz_localize(None).normalize().values.astype("datetime64[D]")
 
 
+def _bars_of(rows: list[tuple], timeframe: str, vendor: str, kind: str) -> Bars:
+    """One name's rows (time-ordered) as arrays."""
+    df = pd.DataFrame.from_records(
+        rows, columns=["symbol", "ts", "open", "high", "low", "close", "volume", "served_at"]
+    )
+    t_ns = (
+        df["ts"].dt.tz_convert("UTC").dt.tz_localize(None).astype("datetime64[ns]").astype("int64")
+    ).to_numpy()
+    zone = RAW_DAILY_SESSION_ZONE[(vendor, kind)] if timeframe == "1d" else _NY_ZONE
+    served = df["served_at"].dropna()
+    return Bars(
+        t_ns,
+        _session_keys(t_ns, zone),
+        tuple(df[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close")),
+        df["volume"].to_numpy(dtype=float, na_value=np.nan),  # NaN stays unknown, not zero
+        served.min().date() if len(served) else None,
+        served.max().date() if len(served) else None,
+    )
+
+
 def fetch_bars(
     conn: psycopg.Connection,
     timeframe: str,
@@ -1121,34 +1178,21 @@ def fetch_bars(
     start: datetime,
     end: datetime,
 ) -> dict[str, Bars]:
-    """Raw bars of one (timeframe, vendor) for several names over [start, end), per name."""
+    """Raw bars of one (timeframe, vendor) for several names over [start, end), per name. The
+    rows are streamed (ordered by symbol) and converted to arrays one name at a time, so the
+    Python-object footprint is one name's rows, never the batch's."""
     kind = ARM_KINDS[(timeframe, vendor)]
     wait_out_nightly_window()
-    with conn.cursor() as cur:
-        cur.execute(_BARS_SQL, (timeframe, vendor, kind, names, start, end))
-        rows = cur.fetchall()
-    if not rows:
-        return {}
-    df = pd.DataFrame.from_records(
-        rows, columns=["symbol", "ts", "open", "high", "low", "close", "volume", "served_at"]
-    )
-    t_all = (
-        df["ts"].dt.tz_convert("UTC").dt.tz_localize(None).astype("datetime64[ns]").astype("int64")
-    ).to_numpy()
-    zone = RAW_DAILY_SESSION_ZONE[(vendor, kind)] if timeframe == "1d" else _NY_ZONE
-    keys_all = _session_keys(t_all, zone)
     out: dict[str, Bars] = {}
-    for symbol, idx in df.groupby("symbol", sort=False).indices.items():
-        sub = df.iloc[idx]
-        served = sub["served_at"].dropna()
-        out[str(symbol)] = Bars(
-            t_all[idx],
-            keys_all[idx],
-            tuple(sub[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close")),
-            sub["volume"].to_numpy(dtype=float, na_value=np.nan),  # NaN stays unknown, not zero
-            served.min().date() if len(served) else None,
-            served.max().date() if len(served) else None,
-        )
+    pending: list[tuple] = []
+    with conn.cursor() as cur:
+        for row in cur.stream(_BARS_SQL, (timeframe, vendor, kind, names, start, end)):
+            if pending and row[0] != pending[0][0]:
+                out[str(pending[0][0])] = _bars_of(pending, timeframe, vendor, kind)
+                pending = []
+            pending.append(row)
+    if pending:
+        out[str(pending[0][0])] = _bars_of(pending, timeframe, vendor, kind)
     return out
 
 
@@ -1256,11 +1300,16 @@ def compare_arm(
     m_ohlc = tuple(a[midx] for a in massive.ohlc)
     scale = lc.split_scale_for_days(massive.key[midx], splits)
 
-    def neighbour(shift: int) -> tuple[np.ndarray, ...]:
+    def neighbour(shift: int) -> tuple[tuple[np.ndarray, ...], np.ndarray]:
+        """The neighbour bar (NaN where absent) and the split scale of its OWN session."""
         j = midx + shift
         ok = (j >= 0) & (j < len(massive.t_ns))
         j = np.clip(j, 0, len(massive.t_ns) - 1)
-        return tuple(np.where(ok, a[j], np.nan) for a in massive.ohlc)
+        own_scale = lc.split_scale_for_days(massive.key[j], splits)
+        return tuple(np.where(ok, a[j], np.nan) for a in massive.ohlc), own_scale
+
+    prev_bar, prev_scale = neighbour(-1)
+    next_bar, next_scale = neighbour(1)
 
     rank = np.cumsum(keep) - 1  # each kept incumbent bar's position in the filtered series
     counts = nc.price_agreement(
@@ -1268,8 +1317,10 @@ def compare_arm(
         scale,
         inc_ohlc,
         nc.INCUMBENT_INCREMENT[arm],
-        massive_prev_raw=neighbour(-1),
-        massive_next_raw=neighbour(1),  # type: ignore[arg-type]
+        massive_prev_raw=prev_bar,
+        massive_next_raw=next_bar,  # type: ignore[arg-type]
+        massive_prev_scale=prev_scale,
+        massive_next_scale=next_scale,
         last_bucket=last_bucket_mask(inc.t_ns[hit], sessions) if five else None,
         massive_pos=midx,
         incumbent_pos=rank[hit],
@@ -1415,6 +1466,11 @@ def _has_traded(bars: Bars | None) -> bool:
     return bars is not None and bool(np.any(bars.volume > 0))
 
 
+def ibkr_traded(data: Mapping[tuple[str, str], Mapping[str, Bars]], name: str) -> bool:
+    """IBKR evidence only: Alpaca (the same upstream as Massive) never decides an outcome."""
+    return any(_has_traded(data.get((tf, "ibkr"), {}).get(name)) for tf in ("1d", "5m"))
+
+
 def run_name_era_batch(
     cfg: Config,
     conn: psycopg.Connection,
@@ -1449,12 +1505,7 @@ def run_name_era_batch(
         span_listed = frozen.span_listed(name, era)
         listed = span_listed or massive_rows
         # the frozen span lists the name and an incumbent traded, yet Massive holds nothing: a hole
-        incumbent_traded = any(
-            _has_traded(data.get((tf, arm), {}).get(name))
-            for tf in ("1d", "5m")
-            for arm in ("ibkr", "alpaca")
-        )
-        massive_hole = span_listed and not massive_rows and incumbent_traded
+        massive_hole = span_listed and not massive_rows and ibkr_traded(data, name)
         sp = frozen.splits.get(name, [])
         ibkr_rescale = frozen.ibkr_rescales.get(name, [])
         in_window = [s for s in sp if date(era, 1, 1) <= s.effective_date <= date(era, 12, 31)]
@@ -1508,6 +1559,12 @@ def run_name_era_batch(
     return out
 
 
+def dispute_window(day: date) -> list[date]:
+    """The ten NYSE sessions either side of a disputed date and its own session."""
+    calendar = sorted(nyse_sessions(day - timedelta(days=40), day + timedelta(days=40)))
+    return nc.dispute_window_sessions(calendar, day)
+
+
 def run_disputed_windows(
     cfg: Config, conn: psycopg.Connection, disputed_csv: Path, frozen: Frozen
 ) -> dict[str, Any]:
@@ -1545,7 +1602,9 @@ def run_disputed_windows(
             row["note"] = "no_massive_bars" if massive is None else "no_incumbent_bars"
             rows.append(row)
             continue
-        window = set(nc.dispute_window_sessions([d.astype(object) for d in massive.key], day))
+        # the window is the NYSE session calendar centred on the disputed date, never Massive's
+        # own dates (a hole in Massive must not shift or shrink it)
+        window = set(dispute_window(day))
         keep = np.array([d.astype(object) in window for d in inc.key])
         trimmed = Bars(
             inc.t_ns[keep],
@@ -1702,19 +1761,21 @@ STAGE_C_SERIES = tuple(sorted((vendor, kind, tf) for (tf, vendor), kind in ARM_K
 
 
 def stage_c_keys(
-    eras: Iterable[int], base_key: Mapping[str, Any], fingerprints: Mapping[int, Mapping[str, str]]
+    eras: Iterable[int],
+    base_key: Mapping[str, Any],
+    fingerprints: Mapping[int, Mapping[str, str]],
+    tape_years: Mapping[int, Iterable[int]],
 ) -> dict[int, dict[str, Any]]:
-    """The identity of each era's name part. The part stores tapes for splits of LATER eras too, so
-    it carries the fingerprints of the eras those tapes read (Massive 1d, from the splits' own
-    years), not only its own era's."""
+    """The identity of each era's name part. The part stores tapes for splits of other eras too,
+    so it carries the fingerprints of exactly the years those tapes read (Massive 1d), besides its
+    own era's series."""
     return {
         era: {
             **base_key,
             "raw_fingerprint": scoped_fingerprint(fingerprints[era], STAGE_C_SERIES),
             "tape_fingerprints": {
                 str(year): scoped_fingerprint(fingerprints[year], TAPE_SERIES)
-                for year in sorted(fingerprints)
-                if year > era
+                for year in sorted(set(tape_years.get(era, ())))
             },
         }
         for era in eras
@@ -1752,9 +1813,29 @@ def run_stage_c(
         "non_split_sha256": _rows_sha256(non_split),
         "frozen": frozen_hashes(cfg),
     }
-    keys = stage_c_keys(cfg.eras, base_key, fingerprints)
+    # the years each era's part reads tapes from: the splits it stores (session windows reach 10
+    # days either side of the effective date); never the current year
+    tape_years = {
+        era: sorted(
+            {
+                y
+                for n in names
+                for sp in frozen.splits.get(n, [])
+                if sp.effective_date >= date(era, 1, 1)
+                for y in (
+                    (sp.effective_date - timedelta(days=10)).year,
+                    sp.effective_date.year,
+                    (sp.effective_date + timedelta(days=10)).year,
+                )
+            }
+        )
+        for era in cfg.eras
+    }
+    missing = sorted({y for ys in tape_years.values() for y in ys} - set(fingerprints))
+    fingerprints = {**fingerprints, **raw_fingerprints(conn, missing, TAPE_SERIES)}
+    keys = stage_c_keys(cfg.eras, base_key, fingerprints, tape_years)
     for era in cfg.eras:
-        if load_part(cfg, "name_checks", era, keys[era]):
+        if part_current(cfg, "name_checks", era, keys[era]):
             continue
         t0 = time.monotonic()
         detail: dict[str, dict[str, Any]] = {}
@@ -1763,9 +1844,7 @@ def run_stage_c(
                 run_name_era_batch(cfg, conn, names[i : i + NAME_BATCH], era, frozen, non_split)
             )
             time.sleep(cfg.throttle_s)
-        write_json(
-            part_path(cfg, "name_checks", era), {"key": keys[era], "era": era, "names": detail}
-        )
+        write_part(cfg, "name_checks", era, {"key": keys[era], "era": era, "names": detail})
         logger.info(
             "era_scanned",
             check="name_checks",
@@ -1794,13 +1873,9 @@ def _name_facts(
         name,
         r.counts(),
         flagged=not nc.name_era_agreement_ok(r.counts()),
-        # a stable offset within 10 bp is listed, not systemic; level_drift and a level break
-        # (a median that can sit near zero) always count
         level_class=(
             r.scale_class
-            if r.scale_class == nc.SCALE_LEVEL_DRIFT
-            or math.isfinite(r.break_step)
-            or abs(r.median_log_ratio) > nc.SCALE_LEVEL_TOL
+            if nc.counts_as_systemic(r.scale_class, r.median_log_ratio, r.break_step)
             else ""
         ),
         median_log_ratio=r.median_log_ratio,
@@ -1815,30 +1890,37 @@ def era_verdicts(
     """Verdicts of every (era, timeframe), calibrated on the reference eras present in the run
     (rules 1 to 3). A reference era is calibrated on the OTHER reference eras: against its own
     counters the 3x rule could never fire (a defect in 2014 to 2026 would raise its own bar). A
-    run with no other reference era uses the floor and the pooled cap of its own eras."""
+    run with no other reference era uses the floor and the pooled cap of its own eras. Only rows
+    with enough judged names calibrate. The reference counters are measured with the cap of the
+    era under test (their flagged share counts unexplained disagreement only)."""
     out: dict[tuple[int, str], nc.EraVerdict] = {}
+    unres = unresolved or {}
     ref_eras = [e for e in eras if e in nc.REFERENCE_ERAS]
     for tf in ("1d", "5m"):
-        counters = {
-            e: nc.era_counters(judged.get((e, tf), []), (unresolved or {}).get((e, tf), 0))
-            for e in eras
-        }
-        hists = {e: [f.counts.lp_hist for f in judged.get((e, tf), [])] for e in eras}
+        hist = {e: _pooled_hist(judged.get((e, tf), [])) for e in eras}
         for era in eras:
-            # only rows with enough judged names calibrate: a thin reference era raises nothing
             ref = [
                 e
                 for e in ref_eras
                 if e != era and len(judged.get((e, tf), [])) >= nc.MIN_JUDGED_NAMES
             ]
-            thresholds = nc.counter_thresholds(counters[e] for e in ref)
-            cap = nc.last_print_cap_bin(h for e in (ref or eras) for h in hists[e])
-            verdict = nc.judge_era(
-                tf, judged.get((era, tf), []), thresholds, cap, (unresolved or {}).get((era, tf), 0)
+            cap = nc.last_print_cap_bin(hist[e] for e in (ref or eras))
+            thresholds = nc.counter_thresholds(
+                nc.era_counters(judged.get((e, tf), []), unres.get((e, tf), 0), cap) for e in ref
             )
-            calibration = ",".join(map(str, ref)) if ref else "self"
-            out[(era, tf)] = replace(verdict, calibration=calibration)
+            verdict = nc.judge_era(
+                tf, judged.get((era, tf), []), thresholds, cap, unres.get((era, tf), 0)
+            )
+            out[(era, tf)] = replace(verdict, calibration=",".join(map(str, ref)) or "self")
     return out
+
+
+def _pooled_hist(names: list[nc.NameFacts]) -> Counter[int]:
+    """The last_print candidate histogram of an era's judged names, summed once."""
+    total: Counter[int] = Counter()
+    for f in names:
+        total.update(f.counts.lp_hist)
+    return total
 
 
 def _close_convention_unresolved(verdict: nc.EraVerdict) -> bool:
@@ -2190,11 +2272,7 @@ def main(argv: list[str] | None = None) -> int:
             read |= set(VOLUME_SERIES)
         if "C" in stages:
             read |= set(STAGE_C_SERIES)
-        # stage C parts also carry the later eras their split tapes read (up to the current year)
-        fp_eras = set(cfg.eras)
-        if "C" in stages:
-            fp_eras |= set(range(min(cfg.eras), datetime.now(UTC).year + 1))
-        fingerprints = raw_fingerprints(conn, fp_eras, read) if read else {}
+        fingerprints = raw_fingerprints(conn, cfg.eras, read) if read else {}
         if "A" in stages:
             summary["stage_a"] = run_stage_a(cfg, archive, conn)
         if "B" in stages:

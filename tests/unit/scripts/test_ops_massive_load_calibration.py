@@ -293,10 +293,7 @@ def _write_run(tmp_path, injected_era: int | None) -> tuple[runner.Config, dict]
             massive = _x100(series, rng, i) if era == injected_era and i < 10 else series
             names[f"N{i}"] = _detail(massive, series)
         keys[era] = {"era": era}
-        runner.write_json(
-            runner.part_path(cfg, "name_checks", era),
-            {"key": keys[era], "era": era, "names": names},
-        )
+        runner.write_part(cfg, "name_checks", era, {"key": keys[era], "era": era, "names": names})
     return cfg, keys
 
 
@@ -384,10 +381,7 @@ def _write_parts(tmp_path, details_by_era: dict[int, dict[str, dict]]):
     keys = {}
     for era, names in details_by_era.items():
         keys[era] = {"era": era}
-        runner.write_json(
-            runner.part_path(cfg, "name_checks", era),
-            {"key": keys[era], "era": era, "names": names},
-        )
+        runner.write_part(cfg, "name_checks", era, {"key": keys[era], "era": era, "names": names})
     return cfg, keys
 
 
@@ -477,3 +471,54 @@ def test_a_1d_unresolved_era_never_flags_carriers_through_1d(tmp_path) -> None:
     out = _outcomes(tmp_path)
     assert summary["unresolved_1d_eras"] == [2010]
     assert all(out[(f"N{i}", 2010)][0] == nc.OUTCOME_PASS for i in range(30))
+
+
+def _flat_stale(m: Series, rng: np.random.Generator, i: int) -> Series:
+    return tuple(np.full(N_BARS, 25.0) for _ in m)  # type: ignore[return-value]
+
+
+def test_200_flat_stale_massive_series_stop_the_era(reference: dict[int, Era]) -> None:
+    """A degenerate series (zero variance on one arm while the other varies) is a disagreement:
+    decorrelated, never thin."""
+    target = _era(TARGET_ERA, 1000, seed=88, injected=200, inject=_flat_stale, natural_defects=3)
+    assert target.thin == 0 and target.unresolved == 200
+    verdict = _judge(target, reference)
+    assert verdict.verdict == nc.ERA_STOP
+    assert any(r.startswith("identity_unresolved_share") for r in verdict.reasons)
+
+
+def test_a_close_convention_era_is_unresolved_for_1d_while_5m_is_judged_alone() -> None:
+    """The reference eras carry almost no convention residual, the target carries a capped
+    last_print convention on most 1d names. The names fail the return test, but their
+    disagreement is explained, so the flagged counter stays low: 1d is unresolved (close
+    convention), 5m is ok, and the era does not stop."""
+    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.004) for e in REFERENCE}
+    ref_5m = {e: _era(e, 300, seed=e + 100) for e in REFERENCE}
+    one_d = _era(TARGET_ERA, 1000, seed=87, convention_share=0.30)
+    five_m = _era(TARGET_ERA, 1000, seed=86)
+    judged = {(e, "1d"): r.facts for e, r in ref_1d.items()}
+    judged |= {(e, "5m"): r.facts for e, r in ref_5m.items()}
+    judged[(TARGET_ERA, "1d")], judged[(TARGET_ERA, "5m")] = one_d.facts, five_m.facts
+    out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])
+    assert sum(f.flagged for f in one_d.facts) > 100  # the names do fail the return test
+    assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_UNRESOLVED
+    assert "close_convention" in out[(TARGET_ERA, "1d")].reasons
+    assert out[(TARGET_ERA, "5m")].verdict == nc.ERA_OK
+    assert runner._close_convention_unresolved(out[(TARGET_ERA, "1d")])
+
+
+def test_the_same_era_with_a_real_defect_still_stops() -> None:
+    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.004) for e in REFERENCE}
+    target = _era(
+        TARGET_ERA,
+        1000,
+        seed=85,
+        convention_share=0.30,
+        injected=200,
+        inject=_close_5pct_off,
+    )
+    judged = {(e, "1d"): r.facts for e, r in ref_1d.items()}
+    judged[(TARGET_ERA, "1d")] = target.facts
+    unresolved = {(TARGET_ERA, "1d"): target.unresolved} | {(e, "1d"): 0 for e in REFERENCE}
+    out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE], unresolved)
+    assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_STOP

@@ -390,3 +390,40 @@ def test_a_missing_split_has_the_same_witness_whether_it_falls_mid_era_or_covers
             "s",
         )
         assert row.verdict == "incumbent_defect"
+
+
+def test_each_neighbour_bar_is_divided_by_its_own_split_scale() -> None:
+    """A 2:1 split falls between two bars: the incumbent's bar 10 equals Massive's previous bar
+    once that bar is divided by ITS scale (2.0), not the matched bar's (1.0)."""
+    n = 50
+    close = np.cumsum(np.ones(n)) + 20
+    massive_adj = _ohlc(close)
+    inc = tuple(a.copy() for a in massive_adj)
+    prev_adj = _ohlc(np.roll(close, 1))
+    for k in range(4):
+        inc[k][10] = prev_adj[k][10]  # the incumbent's bar 10 is Massive's previous bar
+    scale = np.ones(n)
+    prev_scale = np.full(n, 2.0)  # the previous bar sits on the pre-split scale
+    prev_raw = tuple(a * 2.0 for a in prev_adj)
+    own = nc.price_agreement(
+        massive_adj, scale, inc, 0.01, massive_prev_raw=prev_raw, massive_prev_scale=prev_scale
+    )
+    wrong = nc.price_agreement(massive_adj, scale, inc, 0.01, massive_prev_raw=prev_raw)
+    assert own.n_class == {"time_shift": 1}
+    assert wrong.n_class == {"other": 1}  # dividing by the matched bar's scale mislabels it
+
+
+def test_a_degenerate_series_is_decorrelated_and_thin_comes_from_the_return_count_only() -> None:
+    rng = np.random.default_rng(1)
+    varying = rng.normal(0, 0.01, 100)
+    assert nc.return_correlation(np.zeros(100), varying) == 0.0
+    assert not nc.identity_resolved(nc.return_correlation(np.zeros(100), varying))
+    assert math.isnan(nc.return_correlation(np.zeros(10), varying[:10]))  # under 20 returns: thin
+
+
+def test_one_materiality_rule_decides_which_level_classes_are_systemic() -> None:
+    assert not nc.counts_as_systemic(nc.SCALE_ADJUSTMENT_LEVEL, 0.0005, math.nan)  # 5 bp: listed
+    assert nc.counts_as_systemic(nc.SCALE_ADJUSTMENT_LEVEL, 0.5, math.nan)
+    assert nc.counts_as_systemic(nc.SCALE_LEVEL_DRIFT, 0.0, math.nan)
+    assert nc.counts_as_systemic(nc.SCALE_SPLIT_LIKE, 0.0, -0.69)  # a break with a near-zero median
+    assert not nc.counts_as_systemic("", 5.0, math.nan)
