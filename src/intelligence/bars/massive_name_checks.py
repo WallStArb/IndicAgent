@@ -226,6 +226,18 @@ def return_agreement(
     )
 
 
+def _rolling_median(values: np.ndarray, window: int) -> np.ndarray:
+    """Centred rolling median (edge-padded, NaN ignored): the local level of a drifting ratio."""
+    if len(values) == 0:
+        return values
+    half = window // 2
+    padded = np.pad(values, half, mode="edge")
+    view = np.lib.stride_tricks.sliding_window_view(padded, 2 * half + 1)
+    with np.errstate(all="ignore"):
+        out: np.ndarray = np.nanmedian(view, axis=1)
+    return out
+
+
 def classify_disagreements(
     massive_adj: Ohlc,
     incumbent: Ohlc,
@@ -281,7 +293,11 @@ def classify_disagreements(
         bar_log = np.log(massive_adj[3] / incumbent[3])
     # a stable offset (one centre), a split-sized level break (the levels before and after it) or
     # a level drift (every disagreeing bar) is the scale class that level_class_share measures
-    scale = np.full(n, scale_all, dtype=bool)
+    scale = np.zeros(n, dtype=bool)
+    if (
+        scale_all
+    ):  # a drift name: within tolerance of the LOCAL drift level, larger errors stay other
+        scale |= np.abs(bar_log - _rolling_median(bar_log, DRIFT_WINDOW)) <= SCALE_CLASS_BAR_TOL
     for centre in scale_centers:
         scale |= np.abs(bar_log - centre) <= SCALE_CLASS_BAR_TOL
     # the incumbent close is Massive's last regular-hours trade (its definition of the close)
@@ -807,6 +823,7 @@ def level_break_step(log_ratio: np.ndarray) -> tuple[float, float]:
 STABLE_LEVEL_IQR = 0.005
 WITNESS_REL_TOL = 2e-4  # median-relative close match of the definition witness (2 bp)
 DEFINITION_MARGIN = 0.25  # last-trade match share must exceed the day-file share by this
+DRIFT_WINDOW = 21  # bars of the rolling median that defines a drift name's local level
 WITNESS_TOL = 0.01  # relative match of a residual to a split product (frozen-list witness)
 TAPE_WITNESS_TOL = 0.02  # relative match of Massive's tape step to the recorded split factor
 WITNESS_MAX_SPLITS = 16  # subsets of the frozen splits are enumerated up to this many

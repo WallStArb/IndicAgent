@@ -747,13 +747,21 @@ def test_the_same_data_without_a_witness_counts_the_definition_bars_as_other() -
     assert folded.counts.n_class == {"other": 6, "rounding": 4}  # each bar's own fallback
 
 
-def test_bars_of_a_level_drift_name_get_the_scale_label() -> None:
+def test_bars_of_a_level_drift_name_are_scale_only_near_the_local_drift_level() -> None:
     n = 100
     close = np.linspace(20, 30, n)
-    inc = _name_ohlc(close)
-    labels = nc.classify_disagreements(_name_ohlc(close * 1.003), inc, None, None, 0.0001, [], True)
-    assert set(labels) == {"scale"}  # every disagreeing bar of a drift name is the scale class
-    none = nc.classify_disagreements(_name_ohlc(close * 1.003), inc, None, None, 0.0001, [], False)
+    drift = 1 + np.linspace(0.0, 0.01, n)  # a 1 percent drift across the era
+    big = np.zeros(n, dtype=bool)
+    big[[20, 50, 80]] = True  # a few 20 percent bars
+    massive = close * drift * np.where(big, 1.2, 1.0)
+    labels = nc.classify_disagreements(
+        _name_ohlc(massive), _name_ohlc(close), None, None, 0.0001, [], True
+    )
+    assert set(labels[~big]) - {""} == {"scale"}  # an agreeing bar carries no label
+    assert set(labels[big]) == {"other"}  # larger errors stay other
+    none = nc.classify_disagreements(
+        _name_ohlc(close * 1.003), _name_ohlc(close), None, None, 0.0001, [], False
+    )
     assert set(none) == {"other"}
 
 

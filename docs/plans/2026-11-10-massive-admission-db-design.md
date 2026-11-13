@@ -224,6 +224,7 @@ Amendment 2026-11-13 (third review, lead rulings): the thresholds of the admissi
 | `SPLIT_LIKE_TOL` | 0.005 | [conventional] | a level factor within this (relative) of a split ratio reads as split-like |
 | `STABLE_LEVEL_IQR` | 0.005 (log) | [conventional] | interquartile range of the per-bar log close ratio at or under this is stable (one predicate, with the level-agreement test, for the stable constant offset) |
 | `STEP_MIN_SEGMENT_SHARE`, `STEP_MIN_SEGMENT_BARS` | 0.05, 5 | [conventional] | the shorter side of a level break holds at least this share of the era's bars and this many bars |
+| `DRIFT_WINDOW` | 21 bars | [conventional] | rolling-median window of the local level of a `level_drift` name: its disagreeing bars are `scale` only within `SCALE_CLASS_BAR_TOL` of it, larger errors stay `other` |
 | `STEP_GRID`, `STEP_MAX_POINTS` | 64, 2000 | [implementation] | candidate break points per name-era, and the stride-thinned series length (bounds cost, not the verdict) |
 | `WITNESS_TOL` | 0.01 (relative) | [conventional] | a residual matches a frozen split product within this |
 | `TAPE_WITNESS_TOL` | 0.02 (relative) | [conventional] | Massive's tape step matches the recorded split factor within this |
