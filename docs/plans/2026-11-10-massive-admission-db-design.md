@@ -183,6 +183,27 @@ Amendment 2026-11-12 (lead, round 5, after the independent review of the 8a runn
 7. Part keys include the frozen-file hash, a raw fingerprint (per-era row counts) and the non-split CSV hash; the run uses a commit per batch (no hours-long transaction); IBKR series that the split calendar audit names as unadjusted are rescaled before comparison so Massive is not flagged for IBKR's recorded defect.
 8. The raw spec rule (vendor-wide agreement at least 99.5 percent else stop) is superseded by these rules because the incumbent's close convention makes a benign vendor fail it (the gate could not pass benignly); the agreement figure is still reported per era.
 
+## 8c. Amendment 2026-11-13 (lead ruling after the no-IBKR switch measurement): identity witness for gap-list spans
+
+Declared before the pass is built or run. The owner removed IBKR (todo 600, ruling 2026-11-13) and canonical becomes Massive for every date it has. A gap-list span (the identity map could not place the name in Massive's files) has no source before 2016-01-04 under that policy: 640,734 1d slots on 373 names, mostly `before_first_event`. Before step 7 runs and before IBKR raw is deleted (runbook Part F), one read-only pass asks, per span, whether Massive's files hold the same security under a candidate ticker. IBKR's stored raw is used ONCE here as evidence, before its deletion; it is never a source of canonical. A placed span enters the identity map as a dated amendment through the map's own writer, never a hand edit, and the gap list shrinks before step 7.
+
+- Scope: every gap-list row of the pinned map (scope `span` or `instrument`), clipped to [2003-09-10, archive end). Rows with reason `asset_class_outside_vendor` are out of scope (no Massive kind serves them).
+- Candidate tickers per span: the name's own symbol, every ticker of its `ticker_event_current` rows, and every ticker in the gap row's `detail` (the events chain or the first event). Each candidate is tested on its own; Massive's 1d day files (`day_aggs_v1`) are read for that ticker over the span.
+- Witness series: IBKR's stored 1d raw (`ibkr`/`smart_trades`) of the same instrument, as served (split-adjusted by IBKR).
+- Level basis: Massive's close divided by the cumulative split scale of the session (`split_rescale.scales_for_sessions` over `splits_known_at(read_split_rows(symbol), now)`, the frozen market splits selection itself applies).
+- Return agreement (the 8a tolerance): consecutive matched sessions (consecutive in both series); a pair agrees when `|ln(cM_t / cM_t-1) - ln(cI_t / cI_t-1)| <= tau(cI_t) / cI_t + tau(cI_t-1) / cI_t-1`, `tau(p) = 0.005 + 1e-4 * p` (half IBKR's cent increment plus 1 bp). Prices are split-rescaled first, so a split day compares like any other day.
+- Level: the per-session log ratio `ln(cM_adjusted / cI)` over the matched sessions has an interquartile range at most 50 bp and a median within 1 percent of zero (the frozen splits explain the level; a stable offset beyond 1 percent is an unexplained adjustment and does not place).
+- Decision per (span, candidate): `placed` when at least 100 consecutive pairs exist, at least 99 percent of them agree, and the level test holds. Otherwise `thin` (fewer than 100 pairs, 5m is then read the same way on 5m bars before the span stays a gap), `returns_disagree`, or `level_unexplained`. A span is placed by exactly one candidate; two placing candidates is `ambiguous` and stays a gap. Every other decision stays a gap.
+- Output: `identity_witness_placed.csv` (symbol, span, candidate ticker, matched sessions, pairs, agreeing pairs, return share, level median, level IQR, splits applied, decision) and a per-decision summary. The map amendment consumes only `placed` rows.
+
+| Constant | Value | Provenance | Meaning |
+|---|---|---|---|
+| `WITNESS_MIN_PAIRS` | 100 | [lead ruling 2026-11-13] | consecutive matched return pairs a placement needs |
+| `WITNESS_RETURN_SHARE` | 0.99 | [lead ruling 2026-11-13, the 8a name-era bar] | share of pairs that agree |
+| `WITNESS_INCREMENT` | 0.01 | [conventional] | IBKR's stored price increment (cent) |
+| `WITNESS_LEVEL_IQR` | 0.005 (log) | [8a STABLE_LEVEL_IQR] | the level is stable |
+| `WITNESS_LEVEL_TOL` | 0.01 (log) | [8a WITNESS_TOL] | the frozen splits explain the level |
+
 ## 9. Documents that move with step 7a
 
 - `docs/foundation/canonical-truth-registry.md`: the Bar source policy row, the Roles paragraph, the provider count, the provider matrix (Massive 5m and 1d rows; IBKR loses "primary before 2016"), the canonical 1d row, the corporate-actions row (new input and `inferred_by` code).
