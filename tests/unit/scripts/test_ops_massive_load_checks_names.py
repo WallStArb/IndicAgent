@@ -748,3 +748,22 @@ def test_an_identity_thin_cell_is_exempt_from_price_stops_but_not_from_systemic_
         runner.apply_timeframe_stops(outcomes, tfs, {(2010, "1d"): "s"}, {})[("T", 2010)][0]
         == "stop"
     )
+
+
+def test_the_census_day_file_leaves_out_unowned_rows_and_duplicated_tickers() -> None:
+    raw = runner.RawFile(
+        np.array(["A", "B", ""]),
+        np.array([0, 0, 1, 2]),  # A twice (duplicate key), B once, one unowned row
+        np.array([5, 5, 5, 5], dtype=np.int64),
+        np.full(4, 10.0), np.full(4, 11.0), np.full(4, 9.0), np.full(4, 10.0), np.full(4, 1.0),
+    )  # fmt: skip
+    assert set(runner.day_file_by_ticker(raw)) == {"B"}
+    scan = runner.sanity_of(raw)
+    assert scan.duplicate.tolist() == [False, True, False, False]  # the one mask, reused
+
+
+def test_witness_not_independent_overrides_only_an_incumbent_convicting_verdict() -> None:
+    sources = {"2020-06-01": "massive_reference"}
+    # a residual of 1 (no frozen witness at all) stays unresolved on its own, never relabelled
+    none = runner.ledger_row("A", 2010, "1d", "c", 0.0, ["2020-06-01:3.0"], {}, "s", sources)
+    assert none["decided_by"] != "witness_not_independent"

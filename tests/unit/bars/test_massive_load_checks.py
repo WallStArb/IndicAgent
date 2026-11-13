@@ -270,7 +270,7 @@ def test_sanity_unowned_rows_are_listed_apart_and_never_stop() -> None:
     owned = np.ones(n, dtype=bool)
     o[:5] = h[:5] = low[:5] = 0.0  # five zero rows with no ticker
     owned[:5] = False
-    counts, defective = lc.record_sanity(
+    counts, defective, _dup = lc.record_sanity(
         np.arange(n), np.arange(n, dtype=np.int64), o, h, low, o.copy(), np.ones(n), owned
     )
     assert defective[:5].all() and not defective[5:].any()  # the mask the counts came from
@@ -294,7 +294,7 @@ def test_sanity_single_named_defect_is_not_systematic() -> None:
     o = np.full(n, 10.0)
     low = np.full(n, 9.0)
     low[7] = 0.0  # one named-instrument bar with a zero low: a gap-list item, not a stop
-    counts, _ = lc.record_sanity(
+    counts, _, _ = lc.record_sanity(
         np.arange(n), np.arange(n, dtype=np.int64), o, np.full(n, 11.0), low, o.copy(), np.ones(n)
     )
     assert counts.n_nonpositive_price == 1 and lc.sanity_verdict(counts) == "ok"
@@ -305,7 +305,7 @@ def test_clean_vendor_passes_every_systemic_check() -> None:
     n = 500
     ts = np.arange(n, dtype=np.int64)
     px = np.linspace(20, 30, n)
-    counts, _ = lc.record_sanity(
+    counts, _, _ = lc.record_sanity(
         np.zeros(n, dtype=np.int64), ts, px, px + 1, px - 1, px, np.full(n, 100.0)
     )
     assert lc.sanity_verdict(counts) == "ok"

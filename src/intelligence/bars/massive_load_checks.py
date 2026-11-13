@@ -133,9 +133,10 @@ def record_sanity(
     close: np.ndarray,
     volume: np.ndarray,
     owned: np.ndarray | None = None,
-) -> tuple[SanityCounts, np.ndarray]:
-    """Sanity counts of one file's rows (``ticker_code`` identifies the ticker per row) and the
-    defective-row mask they were counted from, so a caller listing the defects reuses it.
+) -> tuple[SanityCounts, np.ndarray, np.ndarray]:
+    """Sanity counts of one file's rows (``ticker_code`` identifies the ticker per row), the
+    defective-row mask and the duplicate-row mask they were counted from (an owned row repeating
+    an earlier (ticker, window_start)), so a caller listing them reuses both.
 
     ``owned`` marks rows whose ticker is a name (default: all). Only owned rows are judged; the
     rest are counted in ``n_unowned_rows`` and ``n_unowned_defective``."""
@@ -148,10 +149,14 @@ def record_sanity(
         raise VacuousCheckError("record_sanity: no owned row")
     consistent, positive, volume_ok = row_test_masks(open_, high, low, close, volume)
     defective = ~(consistent & positive & volume_ok)
-    c, w = ticker_code[own], window_start[own]
-    order = np.lexsort((w, c))
-    c, w = c[order], w[order]
-    dups = int(np.count_nonzero((c[1:] == c[:-1]) & (w[1:] == w[:-1])))
+    idx = np.flatnonzero(own)
+    ordered = idx[np.lexsort((window_start[idx], ticker_code[idx]))]
+    same = (ticker_code[ordered][1:] == ticker_code[ordered][:-1]) & (
+        window_start[ordered][1:] == window_start[ordered][:-1]
+    )
+    duplicate = np.zeros(n_all, dtype=bool)
+    duplicate[ordered[1:][same]] = True
+    dups = int(np.count_nonzero(same))
     counts = SanityCounts(
         n_rows=n,
         n_ohlc_inconsistent=int(np.count_nonzero(~consistent & own)),
@@ -162,7 +167,7 @@ def record_sanity(
         n_unowned_rows=n_all - n,
         n_unowned_defective=int(np.count_nonzero(defective & ~own)),
     )
-    return counts, defective
+    return counts, defective, duplicate
 
 
 def sanity_verdict(counts: SanityCounts) -> str:

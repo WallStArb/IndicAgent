@@ -247,17 +247,9 @@ class SanityScan:
 
 def sanity_of(raw: RawFile) -> SanityScan:
     owned = owned_rows(raw)
-    counts, defective = lc.record_sanity(
+    counts, defective, dup = lc.record_sanity(
         raw.code, raw.window_start, raw.open, raw.high, raw.low, raw.close, raw.volume, owned
     )
-    dup = np.zeros(len(owned), dtype=bool)
-    idx = np.flatnonzero(owned)
-    order = np.lexsort((raw.window_start[idx], raw.code[idx]))
-    ordered = idx[order]
-    same = (raw.code[ordered][1:] == raw.code[ordered][:-1]) & (
-        raw.window_start[ordered][1:] == raw.window_start[ordered][:-1]
-    )
-    dup[ordered[1:][same]] = True
     return SanityScan(counts, defective, owned, dup)
 
 
@@ -943,12 +935,19 @@ def rescaled_bars(bars: Bars, scale: np.ndarray) -> Bars:
 
 # ------------------------------------------------------------- stage B: day against minute
 def day_file_by_ticker(raw: RawFile) -> dict[str, tuple[float, float, float, float, float]]:
+    """The day file's rows for the census, as stage A reads them: unowned rows (no ticker) and
+    every row of a duplicated (ticker, window_start) key are left out (they are gap-list items of
+    stage A, never census rows)."""
+    keep = owned_rows(raw) & ~sanity_of(raw).duplicate
+    duplicated = {int(c) for c in raw.code[sanity_of(raw).duplicate]}
     return {
-        str(t): (float(o), float(h), float(low), float(c), float(v))
-        for t, o, h, low, c, v in zip(
-            raw.tickers[raw.code], raw.open, raw.high, raw.low, raw.close, raw.volume, strict=True
+        str(raw.tickers[c]): (float(o), float(h), float(low), float(cl), float(v))
+        for c, o, h, low, cl, v in zip(
+            raw.code[keep], raw.open[keep], raw.high[keep], raw.low[keep], raw.close[keep],
+            raw.volume[keep], strict=True,
         )
-    }
+        if int(c) not in duplicated
+    }  # fmt: skip
 
 
 def run_day_vs_minute(cfg: Config, archive: Archive, drawn: list[date], era: int) -> None:
@@ -1649,8 +1648,8 @@ def run_name_era_batch(
         span_listed = frozen.span_listed(name, era)
         listed = span_listed or massive_rows
         # the frozen span lists the name and an incumbent traded, yet Massive holds nothing: a hole
-        witness = trade_witness(data, name)
-        massive_hole = span_listed and not massive_rows and bool(witness)
+        hole_witness = trade_witness(data, name)
+        massive_hole = span_listed and not massive_rows and bool(hole_witness)
         sp = frozen.splits.get(name, [])
         ibkr_rescale = frozen.ibkr_rescales.get(name, [])
         in_window = [s for s in sp if date(era, 1, 1) <= s.effective_date <= date(era, 12, 31)]
@@ -1667,12 +1666,12 @@ def run_name_era_batch(
                         continue
                     if arm == "ibkr" and tf == "1d" and ibkr_rescale:
                         inc = rescaled_bars(inc, frozen.ibkr_scale(name, inc.key))  # rule 7
-                    witness = (
+                    last_trade = (
                         last_rth_closes(m5, sessions)
                         if (tf, arm) == ("1d", "ibkr") and m5 is not None
                         else None
                     )
-                    results[arm][tf] = compare_arm(tf, arm, massive, inc, sp, sessions, witness)
+                    results[arm][tf] = compare_arm(tf, arm, massive, inc, sp, sessions, last_trade)
         alp = data.get(("1d", "alpaca"), {}).get(name)
         seam = bool(alp) and nc.alpaca_epoch_seam_possible(
             alp.served_min, alp.served_max, [s.effective_date for s in in_window]
@@ -1680,7 +1679,7 @@ def run_name_era_batch(
         out[name] = {
             "listed": listed,
             "massive_hole": massive_hole,
-            "hole_witness": witness if massive_hole else "",
+            "hole_witness": hole_witness if massive_hole else "",
             "ibkr_rescales": [
                 f"{x.effective_date}:{x.factor}"
                 for x in ibkr_rescale
@@ -1816,8 +1815,7 @@ def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[tuple[int
     """(era, timeframe) pairs a systemic verdict of stages A and B stops, with their reasons, from
     the result files of this run; empty when those stages did not run. A file that does not carry
     the current provenance (rule version, archive inputs, the frozen record for stage B, every
-    requested era) is refused, never read. A file in the earlier per-era layout (a plain reason
-    list) counts for both timeframes."""
+    requested era) is refused, never read."""
     stops: dict[tuple[int, str], list[str]] = {}
     for name, with_frozen in (("stageA_systemic.json", False), ("stageB_systemic.json", True)):
         path = cfg.out / name
@@ -1832,8 +1830,6 @@ def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[tuple[int
         if stale:
             raise RuntimeError(f"{path} was computed under other {stale}: rerun its stage")
         for era, by_tf in record["stop_eras"].items():
-            if isinstance(by_tf, list):
-                by_tf = {tf: by_tf for tf in TIMEFRAMES}
             for tf, reasons in by_tf.items():
                 stops.setdefault((int(era), tf), []).extend(reasons)
     return {k: "+".join(sorted(set(r))) for k, r in stops.items()}
@@ -1939,8 +1935,6 @@ def ledger_row(
     if frozen is not None:
         witnesses.append(frozen)
         cited_sources = {(sources or {}).get(day, "") for day in frozen.splits}
-        if frozen.supports != "incumbent" and cited_sources == {"massive_reference"}:
-            override = "witness_not_independent"  # Massive cannot witness against the incumbent
         cited = next(
             ((e, f) for e, f in window if frozen.citation.endswith(f"split {e} x{f}")), None
         )
@@ -1954,6 +1948,14 @@ def ledger_row(
         name, f"{era}/{tf}", claimed, witnesses, nc.DISPUTE_MASSIVE_VS_IBKR, session_id,
         incumbent_rescaled,
     )  # fmt: skip
+    # Massive cannot witness against the incumbent with its own data: this overrides only a
+    # verdict that convicts the incumbent
+    if (
+        row.verdict == nc.VERDICT_INCUMBENT_DEFECT
+        and frozen is not None
+        and {(sources or {}).get(day, "") for day in frozen.splits} == {"massive_reference"}
+    ):
+        override = override or "witness_not_independent"
     verdict, decided_by = (
         (nc.VERDICT_UNRESOLVED, override) if override else (row.verdict, row.decided_by)
     )
