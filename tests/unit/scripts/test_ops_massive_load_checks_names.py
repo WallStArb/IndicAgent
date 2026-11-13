@@ -719,3 +719,32 @@ def test_stage_c_refuses_a_part_computed_under_another_key(tmp_path) -> None:
     runner.write_part(cfg, "name_checks", 2010, {"key": {"seed": 1}, "era": 2010, "names": {}})
     with pytest.raises(RuntimeError, match="another key"):
         runner.assemble_stage_c(cfg, ["A"], [], {2010: {"seed": 2}}, "s", {}, {})
+
+
+def test_a_cell_judged_on_5m_alone_in_a_1d_unresolved_era_is_reached_by_a_5m_stop_only() -> None:
+    good = _arm(250, 250, 0.0, 0.99)
+    j = _judge({"1d": good, "5m": good}, unresolved=True)
+    assert j.judged == ("5m",)
+    outcomes = {("A", 2010): (j.outcome, j.reason)}
+    tfs = {("A", 2010): j.judged}
+    assert (
+        runner.apply_timeframe_stops(outcomes, tfs, {}, {(2010, "1d"): "x"})[("A", 2010)][0]
+        == "pass"
+    )
+    assert (
+        runner.apply_timeframe_stops(outcomes, tfs, {}, {(2010, "5m"): "y"})[("A", 2010)][0]
+        == "stop"
+    )
+
+
+def test_an_identity_thin_cell_is_exempt_from_price_stops_but_not_from_systemic_ones() -> None:
+    outcomes = {("T", 2010): ("unresolved", "identity_thin")}
+    tfs = {("T", 2010): ("1d",)}
+    assert (
+        runner.apply_timeframe_stops(outcomes, tfs, {}, {(2010, "1d"): "p"})[("T", 2010)][0]
+        == "unresolved"
+    )
+    assert (
+        runner.apply_timeframe_stops(outcomes, tfs, {(2010, "1d"): "s"}, {})[("T", 2010)][0]
+        == "stop"
+    )

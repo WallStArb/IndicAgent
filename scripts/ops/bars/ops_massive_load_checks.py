@@ -1583,22 +1583,21 @@ def judge_name_era(
     if outcome:
         return NameJudgement(outcome, reason, ())
     listed = ""
-    used = 0
-    for tf in usable:
+    # only the timeframes the verdict actually rests on: a cell judged on 5m alone in a
+    # 1d-unresolved era is reached by a 5m stop, never by a 1d one
+    used = tuple(tf for tf in usable if not (tf == "1d" and one_d_unresolved))
+    for tf in used:
         r = results[tf]
         assert r is not None
-        if tf == "1d" and one_d_unresolved:
-            continue
-        used += 1
         if not nc.name_era_agreement_ok(r.counts()):
-            return NameJudgement(nc.OUTCOME_FLAGGED, f"price_agreement_{tf}", usable)
+            return NameJudgement(nc.OUTCOME_FLAGGED, f"price_agreement_{tf}", used)
         if r.scale_class == nc.SCALE_SPLIT_LIKE:
-            return NameJudgement(nc.OUTCOME_FLAGGED, f"scale_factor_split_like_{tf}", usable)
+            return NameJudgement(nc.OUTCOME_FLAGGED, f"scale_factor_split_like_{tf}", used)
         if r.scale_class:
             listed = f"{r.scale_class}_listed"
     if not used:
         return NameJudgement(nc.OUTCOME_UNRESOLVED, "close_convention_1d", usable)
-    return NameJudgement(nc.OUTCOME_PASS, listed, usable)
+    return NameJudgement(nc.OUTCOME_PASS, listed, used)
 
 
 def _has_traded(bars: Bars | None) -> bool:
@@ -1851,8 +1850,9 @@ def apply_timeframe_stops(
     timeframes is stopped; a cell Massive loads nothing for (not listed, unmapped) never stops."""
     out: dict[tuple[str, int], tuple[str, str]] = {}
     never = (nc.OUTCOME_NOT_LISTED, nc.OUTCOME_UNMAPPED)
-    detector_less = (nc.OUTCOME_NO_DETECTOR,)
     for (name, era), (outcome, reason) in outcomes.items():
+        # no price detector judged the cell: no_detector, and an identity_thin unresolved
+        detector_less = outcome == nc.OUTCOME_NO_DETECTOR or reason == "identity_thin"
         tfs = cell_timeframes.get((name, era)) or TIMEFRAMES
         why: list[str] = []
         for tf in tfs:
@@ -1860,7 +1860,7 @@ def apply_timeframe_stops(
                 break
             if (era, tf) in systemic:
                 why.append(f"{tf}:{systemic[(era, tf)]}")
-            elif (era, tf) in price and outcome not in detector_less:
+            elif (era, tf) in price and not detector_less:
                 why.append(f"{tf}:{price[(era, tf)]}")
         if outcome not in never and len(why) == len(tfs):
             out[(name, era)] = (nc.OUTCOME_STOP, "systemic_stop:" + "+".join(why))
@@ -2326,7 +2326,10 @@ def assemble_stage_c(
                             for b in r["missing_listed"]
                         )
             rows.append(row)
-            for tf in j.judged:
+            usable_tfs = judged_timeframes(
+                arm_results[(name, era)], d["preclass"], d["listed"], d["massive_hole"]
+            ).usable
+            for tf in usable_tfs:  # the detail rows cover every usable timeframe, judged or not
                 r = d["arms"]["ibkr"][tf]
                 classes_total.update(r["classes"])
                 cls = r["scale_class"]
