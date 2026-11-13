@@ -28,7 +28,7 @@ def _daily(days: list[date], close: np.ndarray) -> runner.Bars:
 
 
 def _days(n: int) -> list[date]:
-    return sorted(nyse_sessions(date(2010, 3, 1), date(2010, 6, 30)))[:n]
+    return sorted(nyse_sessions(date(2010, 1, 1), date(2010, 12, 31)))[:n]
 
 
 def test_rth_mask_cuts_outside_session() -> None:
@@ -76,8 +76,8 @@ def test_compare_arm_with_no_overlap_reports_zero_not_a_pass() -> None:
         "1d", "ibkr", _daily(days[:5], close[:5]), _daily(days[5:], close[5:]), [], {}
     )
     assert result is not None and result.n_matched == 0
-    outcome = runner.judge_name_era({"1d": result, "5m": None}, nc.ERA_NO_ACTION, True)
-    assert outcome == (nc.OUTCOME_GAP, "no_incumbent_overlap")
+    outcome = _judge({"1d": result, "5m": None})
+    assert (outcome.outcome, outcome.reason) == (nc.OUTCOME_NO_DETECTOR, "no_detector")
 
 
 def _arm(
@@ -103,74 +103,105 @@ def _arm(
     )
 
 
+def _judge(
+    results: dict, preclass: str = nc.ERA_NO_ACTION, listed: bool = True, unresolved: bool = False
+) -> runner.NameJudgement:
+    return runner.judge_name_era(results, preclass, listed, one_d_unresolved=unresolved)
+
+
+def _outcome(judgement: runner.NameJudgement) -> tuple[str, str]:
+    return judgement.outcome, judgement.reason
+
+
 def test_judge_name_era_outcomes() -> None:
     good = _arm(250, 250, 0.0, 0.99)
-    assert runner.judge_name_era({"1d": good}, nc.ERA_NO_ACTION, True) == (nc.OUTCOME_PASS, "")
-    assert runner.judge_name_era({"1d": good}, nc.ERA_NO_ACTION, False)[1] == "not_listed_in_era"
-    assert runner.judge_name_era({"1d": good}, nc.ERA_NON_SPLIT, True)[1] == (
-        "non_split_adjustment_convention"
+    assert _outcome(_judge({"1d": good})) == (nc.OUTCOME_PASS, "")
+    assert _outcome(_judge({"1d": good}, listed=False)) == (
+        nc.OUTCOME_NOT_LISTED,
+        "not_listed_in_era",
+    )
+    assert _outcome(_judge({"1d": good}, nc.ERA_NON_SPLIT)) == (
+        nc.OUTCOME_NO_DETECTOR,
+        "non_split_adjustment_convention",
     )
     unresolved = _arm(250, 250, 0.0, 0.5)
-    assert runner.judge_name_era({"1d": unresolved}, nc.ERA_NO_ACTION, True)[1] == (
-        "identity_unresolved"
-    )
+    assert _outcome(_judge({"1d": unresolved})) == (nc.OUTCOME_UNRESOLVED, "identity_unresolved")
     low = _arm(250, 250, 0.0, 0.99, ret=0.96)  # returns agree on 96 percent
-    assert runner.judge_name_era({"1d": low}, nc.ERA_NO_ACTION, True)[1] == "price_agreement_1d"
+    assert _outcome(_judge({"1d": low})) == (nc.OUTCOME_FLAGGED, "price_agreement_1d")
+
+
+def test_name_era_below_the_minimum_pair_count_has_no_detector() -> None:
+    few = _arm(nc.NAME_ERA_MIN_PAIRS, nc.NAME_ERA_MIN_PAIRS, 0.0, 0.99, ret=0.0)  # 99 pairs
+    assert _outcome(_judge({"1d": few})) == (nc.OUTCOME_NO_DETECTOR, "no_detector")
+    enough = _arm(nc.NAME_ERA_MIN_PAIRS + 1, 1, 0.0, 0.99, ret=0.5)  # 100 pairs, half wrong
+    assert _outcome(_judge({"1d": enough}))[0] == nc.OUTCOME_FLAGGED
+
+
+def test_an_unresolved_1d_era_judges_the_cell_on_5m_alone() -> None:
+    bad_1d = _arm(250, 250, 0.0, 0.99, ret=0.9)
+    good_5m = _arm(250, 250, 0.0, 0.99)
+    assert _outcome(_judge({"1d": bad_1d, "5m": good_5m})) == (
+        nc.OUTCOME_FLAGGED,
+        "price_agreement_1d",
+    )
+    assert _outcome(_judge({"1d": bad_1d, "5m": good_5m}, unresolved=True)) == (
+        nc.OUTCOME_PASS,
+        "",
+    )
+    assert _outcome(_judge({"1d": bad_1d}, unresolved=True)) == (
+        nc.OUTCOME_UNRESOLVED,
+        "close_convention_1d",
+    )
 
 
 def test_judge_name_era_level_classes() -> None:
     # a constant level factor with agreeing returns passes, listed in the scale listing
     adj = _arm(250, 0, 0.25, 0.99, cls=nc.SCALE_ADJUSTMENT_LEVEL)
-    assert runner.judge_name_era({"1d": adj}, nc.ERA_NO_ACTION, True) == (
-        nc.OUTCOME_PASS,
-        "adjustment_level_listed",
-    )
+    assert _outcome(_judge({"1d": adj})) == (nc.OUTCOME_PASS, "adjustment_level_listed")
     drift = _arm(250, 100, 0.0, 0.99, cls=nc.SCALE_LEVEL_DRIFT)
-    assert runner.judge_name_era({"5m": drift}, nc.ERA_NO_ACTION, True)[1] == "level_drift_listed"
-    # a stable offset that reads as a split ratio is a candidate missing split: gap list
+    assert _outcome(_judge({"5m": drift}))[1] == "level_drift_listed"
+    # a stable offset that reads as a split ratio is a candidate missing split: flagged
     split = _arm(250, 0, 0.6931, 0.99, cls=nc.SCALE_SPLIT_LIKE)
-    assert runner.judge_name_era({"1d": split}, nc.ERA_NO_ACTION, True) == (
-        nc.OUTCOME_GAP,
+    assert _outcome(_judge({"1d": split})) == (
+        nc.OUTCOME_FLAGGED,
         "scale_factor_split_like_1d",
     )
 
 
-def test_rth_1d_is_built_from_the_regular_session_5m_bars() -> None:
-    days = _days(2)
-    keys = np.repeat(np.array(days, dtype="datetime64[D]"), 3)
-    t = np.arange(6, dtype=np.int64)
-    o = np.array([10.0, 11, 12, 20, 21, 22])
-    bars = runner.Bars(t, keys, (o, o + 1, o - 1, o + 0.5), np.ones(6), None, None)
-    built = runner.rth_1d_from_5m(bars)
-    assert len(built.t_ns) == 2 and built.ohlc[0].tolist() == [10.0, 20.0]
-    assert built.ohlc[1].tolist() == [13.0, 23.0] and built.ohlc[3].tolist() == [12.5, 22.5]
-    assert built.volume.tolist() == [3.0, 3.0]
+def test_a_null_incumbent_volume_is_unknown_not_zero() -> None:
+    days = _days(10)
+    close = np.linspace(20, 21, 10)
+    inc = _daily(days, close)
+    volume = inc.volume.copy()
+    volume[3] = np.nan
+    inc = runner.Bars(inc.t_ns, inc.key, inc.ohlc, volume, None, None)
+    result = runner.compare_arm("1d", "ibkr", _daily(days, close), inc, [], {})
+    assert result is not None and result.n_matched == 9
+    assert result.n_incumbent_unknown_volume == 1 and result.n_incumbent_zero_volume == 0
 
 
 def test_clean_vendor_passes_the_name_level_run_end_to_end() -> None:
     """Calibration: Massive equal to the incumbent on both arms is a pass with full agreement."""
-    days = _days(60)
+    days = _days(150)
     rng = np.random.default_rng(5)
-    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 60)))
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 150)))
     inc = _daily(days, close)
     massive = _daily(days, close)
     result = runner.compare_arm("1d", "ibkr", massive, inc, [], {})
-    assert result is not None and result.n_matched == 60 and result.scale_class == ""
-    assert result.n_ret_pairs == 59 and result.n_ret_agree == 59
-    assert runner.judge_name_era({"1d": result}, nc.ERA_NO_ACTION, True) == (nc.OUTCOME_PASS, "")
+    assert result is not None and result.n_matched == 150 and result.scale_class == ""
+    assert result.n_ret_pairs == 149 and result.n_ret_agree == 149
+    assert _outcome(_judge({"1d": result})) == (nc.OUTCOME_PASS, "")
 
 
 def test_level_factor_incumbent_passes_on_returns_and_is_listed() -> None:
     """R3: an incumbent carrying a constant non-split factor agrees on returns, fails on level."""
-    days = _days(80)
+    days = _days(150)
     rng = np.random.default_rng(6)
-    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 80)))
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, 150)))
     massive = _daily(days, close)
     inc = _daily(days, close / 1.28)
     result = runner.compare_arm("1d", "ibkr", massive, inc, [], {})
     assert result is not None
-    assert result.n_agree == 0 and result.n_ret_agree == result.n_ret_pairs == 79
+    assert result.n_agree == 0 and result.n_ret_agree == result.n_ret_pairs == 149
     assert result.scale_class == nc.SCALE_ADJUSTMENT_LEVEL
-    assert runner.judge_name_era({"1d": result}, nc.ERA_NO_ACTION, True)[1] == (
-        "adjustment_level_listed"
-    )
+    assert _outcome(_judge({"1d": result}))[1] == "adjustment_level_listed"

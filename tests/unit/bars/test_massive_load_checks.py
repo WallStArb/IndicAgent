@@ -224,7 +224,8 @@ def test_day_vs_minute_decision_threshold_and_vacuous_era() -> None:
     bad = lc.DayVsMinuteCounts(1000, 0, 0, 0, 0, 11, 0)
     assert lc.day_vs_minute_verdict({2010: ok})["decision"] == "served"
     out = lc.day_vs_minute_verdict({2010: ok, 2011: bad})
-    assert out["decision"] == "rth_minutes" and out["eras_over_limit"] == [2011]
+    # the eras over the limit are reported, but the 1d kind is always the served day file
+    assert out["decision"] == "served" and out["eras_over_limit"] == [2011]
     with pytest.raises(lc.VacuousCheckError):
         lc.day_vs_minute_verdict({2010: lc.DayVsMinuteCounts(0, 5, 0, 0, 0, 0, 0)})
 
@@ -339,3 +340,21 @@ def test_split_scale_matches_scales_for_sessions() -> None:
     got = lc.split_scale_for_days(np.array(days, dtype="datetime64[D]"), splits)
     assert got.tolist() == [want[d] for d in days]
     assert got.tolist() == [28.0, 28.0, 4.0, 4.0, 1.0]
+
+
+def test_volume_bands_thin_cells_are_listed_and_never_judged() -> None:
+    thin = {(2010, "XNYS"): {f"S{i}": 1.0 for i in range(30)}, (2011, "XNYS"): {"A": 9.0, "B": 9.0}}
+    rows = lc.volume_bands(thin)
+    assert [r.verdict for r in rows] == ["ok", "thin"] and rows[1].note == "thin"
+    with pytest.raises(lc.VacuousCheckError):
+        lc.volume_bands({(2010, "XNYS"): {"A": 1.0, "B": 1.0}})  # no cell reaches the minimum
+
+
+def test_volume_step_compares_across_a_missing_era_and_flags_it() -> None:
+    rows = lc.volume_bands(_cells({(2010, "XNAS"): 1.0, (2013, "XNAS"): 1.6}))
+    assert rows[1].verdict == "stop" and rows[1].note == "step_across_gap"
+    # a thin era between two judged ones is skipped, and the step still compares the judged pair
+    cells = _cells({(2010, "XNAS"): 1.0, (2012, "XNAS"): 1.6})
+    cells[(2011, "XNAS")] = {"A": 1.0}
+    out = lc.volume_bands(cells)
+    assert [r.verdict for r in out] == ["ok", "thin", "stop"]

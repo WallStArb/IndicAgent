@@ -78,7 +78,9 @@ def test_frozen_splits_load_from_the_frozen_file_only(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     frozen = tmp_path / "frozen"
     frozen.mkdir()
-    (frozen / "frozen_at.txt").write_text("2026-11-12T12:00:00+00:00\n")
+    (frozen / "frozen.json").write_text(
+        json.dumps({"sha256": {}, "horizon": "2026-11-12T12:00:00+00:00"})
+    )
     (frozen / "corporate_actions.csv").write_text(
         "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact\n"
         "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
@@ -120,28 +122,84 @@ class _FakeConn:
         return _FakeCursor(self.tables)
 
 
-def test_freeze_is_byte_identical_across_runs_and_keeps_the_timestamp_beside(
+def test_freeze_writes_identical_inputs_and_hashes_the_horizon_in_the_record(
     tmp_path: Path,
 ) -> None:
-    """R5: the freeze time lives beside the hashed content, so two freezes of one state agree."""
+    """Round 5 finding 7: two freezes of one state write identical CSVs and hashes; the splits
+    horizon (the freeze time) lives inside the frozen record that part keys carry, with the
+    unhashed frozen_at.txt as a note only."""
     first, second = tmp_path / "a", tmp_path / "b"
     for out in (first, second):
         runner.freeze_inputs(_cfg(out), _FakeConn())
-    names = ("frozen.json", "corporate_actions.csv", "ticker_spans.csv")
-    for name in names:
+    for name in ("corporate_actions.csv", "ticker_spans.csv"):
         assert (first / "frozen" / name).read_bytes() == (second / "frozen" / name).read_bytes()
-    assert "frozen_at" not in (first / "frozen" / "frozen.json").read_text()
-    assert (first / "frozen" / "frozen_at.txt").exists()
+    record = json.loads((first / "frozen" / "frozen.json").read_text())
+    assert record["sha256"] == json.loads((second / "frozen" / "frozen.json").read_text())["sha256"]
+    assert (first / "frozen" / "frozen_at.txt").read_text().strip() == record["horizon"]
+    assert runner.frozen_hashes(_cfg(first))["horizon"] == record["horizon"]
     # a reload verifies the recorded hashes and never touches the database again
     again = runner.freeze_inputs(_cfg(first), None)  # type: ignore[arg-type]
     assert again["n_corporate_actions"] == 1
+    # the horizon read for the splits is the recorded one, never the unhashed note
+    (first / "frozen" / "frozen_at.txt").write_text("1999-01-01T00:00:00+00:00\n")
+    assert runner.frozen_hashes(_cfg(first))["horizon"] == record["horizon"]
     (first / "frozen" / "corporate_actions.csv").write_text("tampered")
     with pytest.raises(RuntimeError):
         runner.freeze_inputs(_cfg(first), None)  # type: ignore[arg-type]
 
 
-def test_non_split_csv_reads_symbol_with_optional_era(tmp_path: Path) -> None:
-    path = tmp_path / "ns.csv"
-    path.write_text("symbol,era\nBDX,2010\nEXC,\n")
-    assert runner.read_non_split_csv(path) == {("BDX", 2010), ("EXC", None)}
-    assert runner.read_non_split_csv(None) == set()
+def test_a_frozen_record_without_a_horizon_is_refused(tmp_path: Path) -> None:
+    runner.freeze_inputs(_cfg(tmp_path), _FakeConn())
+    path = tmp_path / "frozen" / "frozen.json"
+    record = json.loads(path.read_text())
+    del record["horizon"]
+    path.write_text(json.dumps(record))
+    with pytest.raises(RuntimeError, match="horizon"):
+        runner.freeze_inputs(_cfg(tmp_path), None)  # type: ignore[arg-type]
+
+
+def test_the_runner_session_is_read_only_on_the_server() -> None:
+    """Round 5 finding 6: psycopg ignores conn.read_only in autocommit mode, so the runner sets
+    the server-side default; a write must be refused by the database itself."""
+    try:
+        conn = runner.connect_read_only()
+    except Exception as error:  # no database in this environment
+        pytest.skip(f"database unavailable: {error}")
+    with conn:
+        assert conn.execute("SHOW transaction_read_only").fetchone() == ("on",)
+        with pytest.raises(Exception, match="read-only"):
+            conn.execute("CREATE TEMP TABLE load_check_write_probe (i int)")
+
+
+def test_the_runner_source_issues_no_write_statement() -> None:
+    import re
+
+    source = Path(runner.__file__).read_text()
+    assert not re.search(
+        r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|TRUNCATE|DROP\s)", source
+    )
+
+
+def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
+    assert runner.LOGIC_VERSION.endswith("r5")  # no round 4 part is ever reused
+    assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
+    runner.write_json(runner.part_path(cfg, "volume_bands", 2010), {"key": base})
+    assert runner.load_part(cfg, "volume_bands", 2010, base) is not None
+    reloaded = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 11})
+    assert runner.load_part(cfg, "volume_bands", 2010, reloaded) is None  # raw rows changed
+    changed = runner.sample_key(cfg, {"manifest.jsonl": "bb"}, {"massive|sip_flat|1d": 10})
+    assert runner.load_part(cfg, "volume_bands", 2010, changed) is None  # archive changed
+
+
+def test_malformed_disputed_rows_fail_the_run(tmp_path: Path) -> None:
+    path = tmp_path / "disputed.csv"
+    path.write_text("symbol,date\nAAPL,2010-03-01\nMSFT,not-a-date\n,\n")
+    with pytest.raises(ValueError, match="2 malformed"):
+        runner.run_disputed_windows(_cfg(tmp_path), None, path, {})  # type: ignore[arg-type]
+
+
+def test_a_ledger_row_without_a_median_writes_no_witness_and_no_fabricated_zero() -> None:
+    row = runner.ledger_row(None, "A", 2010, "1d", "price_agreement_1d", None, [], "s")  # type: ignore[arg-type]
+    assert row["verdict"] == "unresolved" and row["witnesses"] == "none available"

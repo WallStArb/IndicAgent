@@ -492,10 +492,10 @@ def compare_day_to_minutes(
 def day_vs_minute_verdict(
     rth_by_era: Mapping[int, DayVsMinuteCounts],
 ) -> dict[str, object]:
-    """Section 3 / 8a: if the day file's close differs from the RTH minute aggregate on more than
-    1 percent of names in any era, 1d is built from RTH minutes (``rth_minutes``); otherwise the
-    served day file is the 1d kind (``served``). Per-era shares are returned. An era with no
-    matched name raises."""
+    """Section 8a (amendment 2026-11-12): the share of names whose day-file close differs from the
+    RTH minute aggregate is reported per era, and the eras over 1 percent are listed, but the 1d
+    kind is always the served day file (``served``): the day close is the official consolidated
+    close, which no minute aggregate reproduces. An era with no matched name raises."""
     shares: dict[int, float] = {}
     for era, counts in sorted(rth_by_era.items()):
         if counts.n_names <= 0:
@@ -505,7 +505,7 @@ def day_vs_minute_verdict(
     return {
         "close_mismatch_share_by_era": shares,
         "eras_over_limit": failing,
-        "decision": "rth_minutes" if failing else "served",
+        "decision": "served",
     }
 
 
@@ -517,6 +517,9 @@ def day_vs_minute_verdict(
 #: stay as informational columns (a drift note), never a stop.
 VOLUME_STEP_MAX_ABS_LOG = math.log(1.5)
 VOLUME_ABSOLUTE_BAND = (0.25, 4.0)
+#: Design 8a amendment 2026-11-13: a (era, exchange) cell below this many names is listed as
+#: ``thin`` and judged by nothing (a handful of names cannot tell a units step from noise).
+VOLUME_MIN_CELL_NAMES = 20
 
 
 @dataclass(frozen=True)
@@ -527,18 +530,21 @@ class VolumeBandRow:
     median_ratio: float
     n_outside_name_band: int
     outside_share: float  # informational: names outside 0.5..2.0
-    step_log: float  # ln(median / previous adjacent era's median); NaN for the first era
-    note: str  # "" | "drift_outside_design_band" (labelled data note, todo 518)
-    verdict: str  # ok | stop
+    step_log: float  # ln(median / last earlier judged era's median); NaN for the first judged era
+    note: str  # "" | "drift_outside_design_band" | "step_across_gap" | "thin" (labelled data notes)
+    verdict: str  # ok | stop | thin
 
 
 def volume_bands(
     name_ratios: Mapping[tuple[int, str], Mapping[str, float]],
 ) -> list[VolumeBandRow]:
     """Per (era, listing exchange): the median over names of the per-name median IBKR/Massive
-    volume ratio. Stop on an absolute median outside [0.25, 4.0] or a step between adjacent eras
-    of the same exchange above ln(1.5); otherwise a drift outside 0.8..1.25 is a data note. Input
-    maps (era, exchange) to {name: ratio}. A cell with no usable name raises (never vacuous)."""
+    volume ratio. Stop on an absolute median outside [0.25, 4.0] or a step above ln(1.5) against
+    the last earlier era of the same exchange that holds a judged cell (a gap between them is
+    flagged ``step_across_gap``, never skipped); otherwise a drift outside 0.8..1.25 is a data
+    note. A cell under ``VOLUME_MIN_CELL_NAMES`` is ``thin``. Input maps (era, exchange) to
+    {name: ratio}. A cell with no usable name raises (never vacuous), and so does a run in which
+    no cell is judged."""
     medians: dict[tuple[int, str], tuple[float, int, int]] = {}
     for (era, exchange), ratios in sorted(name_ratios.items()):
         vals = np.array([r for r in ratios.values() if r > 0 and math.isfinite(r)])
@@ -547,25 +553,29 @@ def volume_bands(
         outside = int(np.count_nonzero((vals < VOLUME_NAME_BAND[0]) | (vals > VOLUME_NAME_BAND[1])))
         medians[(era, exchange)] = (float(np.median(vals)), len(vals), outside)
     rows: list[VolumeBandRow] = []
+    last_judged: dict[str, tuple[int, float]] = {}
     for (era, exchange), (median, n_names, outside) in medians.items():
-        prev = medians.get((era - 1, exchange))
-        step = math.log(median / prev[0]) if prev is not None else math.nan
+        if n_names < VOLUME_MIN_CELL_NAMES:
+            rows.append(
+                VolumeBandRow(era, exchange, n_names, median, outside, outside / n_names, math.nan, "thin", "thin")
+            )  # fmt: skip
+            continue
+        prev = last_judged.get(exchange)
+        step = math.log(median / prev[1]) if prev is not None else math.nan
+        gap = prev is not None and prev[0] != era - 1
         absolute_ok = VOLUME_ABSOLUTE_BAND[0] <= median <= VOLUME_ABSOLUTE_BAND[1]
         step_ok = math.isnan(step) or abs(step) <= VOLUME_STEP_MAX_ABS_LOG
         in_design_band = VOLUME_MEDIAN_BAND[0] <= median <= VOLUME_MEDIAN_BAND[1]
+        note = "step_across_gap" if gap else "" if in_design_band else "drift_outside_design_band"
         rows.append(
             VolumeBandRow(
-                era,
-                exchange,
-                n_names,
-                median,
-                outside,
-                outside / n_names,
-                step,
-                "" if in_design_band else "drift_outside_design_band",
+                era, exchange, n_names, median, outside, outside / n_names, step, note,
                 "ok" if absolute_ok and step_ok else "stop",
             )
-        )
+        )  # fmt: skip
+        last_judged[exchange] = (era, median)
+    if all(r.verdict == "thin" for r in rows):
+        raise VacuousCheckError("volume_bands: no cell reaches the minimum name count")
     return rows
 
 

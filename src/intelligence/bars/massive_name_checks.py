@@ -16,7 +16,7 @@ Rules quoted from the design table (spec constants, not tunables):
 - Scale factor (587 class): per name-year, median log close ratio within 10 bp of 0.
 - Identity: a pair whose daily return correlation is under 0.9 is identity-unresolved, never a
   scale finding.
-- Universe closure: every (name, era) cell carries exactly one outcome in pass | gap_list | stop;
+- Universe closure: every (name, era) cell carries exactly one outcome (``OUTCOMES``);
   the bucket counts sum to the mapped total; a partial run is a ``PartialRun``, never a table.
 - Disagreement ledger: precedence filing-dated corporate action, then exchange-official close, then
   Massive's continuity across eras; a 2016+ Alpaca reading corroborates and never outranks.
@@ -43,6 +43,16 @@ HALF_INCREMENT = 0.5
 NAME_ERA_AGREE_MIN = 0.99
 VENDOR_AGREE_MIN = 0.995
 OTHER_INVESTIGATE_MAX_SHARE = 0.005
+#: Round 5 constants (design 8a, amendments 2026-11-12 rules 1 to 8 and 2026-11-13).
+NAME_ERA_MIN_PAIRS = 100  # consecutive matched pairs the 99 percent name-era test needs
+REFERENCE_ERAS = range(2014, 2027)
+COUNTER_REFERENCE_MULTIPLE = 3.0
+COUNTER_FLOOR_SHARE = 0.02
+OTHER_CONCENTRATION_MAX_NAMES = 50
+LAST_PRINT_CAP_QUANTILE = 0.99
+LAST_PRINT_BIN = 1e-4  # log units per histogram bin
+LAST_PRINT_MAX_BIN = 2000
+SHARED_FACTOR_BIN = 0.005  # log units
 SCALE_LEVEL_TOL = 0.001  # 10 bp on the median log close ratio
 IDENTITY_MIN_CORRELATION = 0.9
 DISPUTE_WINDOW_SESSIONS = 10
@@ -81,6 +91,15 @@ class AgreementCounts:
     n_ret_agree: int = 0  # pairs whose bar-to-bar log close return agrees
     n_intra: int = 0  # matched bars with a usable open
     n_intra_agree: int = 0  # bars whose intrabar log(close / open) agrees
+    #: last_print candidates by absolute log close difference bin (``LAST_PRINT_BIN`` wide); the
+    #: cap of rule 3 is applied at assembly, once the reference period's p99 is known
+    lp_hist: dict[int, int] = field(default_factory=dict)
+
+    def unexplained(self, cap_bin: int) -> int:
+        """Disagreeing bars no size-capped convention explains: ``other`` plus the last_print
+        candidates beyond the cap."""
+        beyond = sum(n for b, n in self.lp_hist.items() if b > cap_bin)
+        return self.n_class.get(CLASS_OTHER, 0) + beyond
 
     @property
     def share(self) -> float:
@@ -98,6 +117,8 @@ class AgreementCounts:
     def __add__(self, other: AgreementCounts) -> AgreementCounts:
         merged = Counter(self.n_class)
         merged.update(other.n_class)
+        hist = Counter(self.lp_hist)
+        hist.update(other.lp_hist)
         return AgreementCounts(
             self.n_matched + other.n_matched,
             self.n_agree + other.n_agree,
@@ -107,6 +128,7 @@ class AgreementCounts:
             self.n_ret_agree + other.n_ret_agree,
             self.n_intra + other.n_intra,
             self.n_intra_agree + other.n_intra_agree,
+            dict(hist),
         )
 
 
@@ -162,30 +184,6 @@ def return_agreement(
     )
 
 
-def aggregate_bars_to_sessions(
-    t_ns: np.ndarray, session_key: np.ndarray, ohlc: Ohlc, volume: np.ndarray
-) -> tuple[np.ndarray, Ohlc, np.ndarray, np.ndarray]:
-    """RTH bars (time-ordered) to one bar per session: open of the first bar, max high, min low,
-    close of the last bar, summed volume (design section 3, the RTH-built 1d). Returns
-    (session keys, ohlc, volume, first bar time). Empty input returns empty arrays."""
-    if len(t_ns) == 0:
-        e = np.empty(0)
-        return session_key[:0], (e, e, e, e), e, t_ns[:0]
-    starts = np.flatnonzero(np.r_[True, session_key[1:] != session_key[:-1]])
-    last = np.r_[starts[1:], len(t_ns)] - 1
-    return (
-        session_key[starts],
-        (
-            ohlc[0][starts],
-            np.maximum.reduceat(ohlc[1], starts),
-            np.minimum.reduceat(ohlc[2], starts),
-            ohlc[3][last],
-        ),
-        np.add.reduceat(volume, starts),
-        t_ns[starts],
-    )
-
-
 def classify_disagreements(
     massive_adj: Ohlc,
     incumbent: Ohlc,
@@ -200,12 +198,14 @@ def classify_disagreements(
     ``massive_adj`` is the factor-adjusted Massive series aligned with the incumbent;
     ``massive_prev_adj`` / ``massive_next_adj`` the same series one bar earlier / later in Massive's
     own order (NaN where absent), for the time-shift reading; ``last_bucket`` flags the final
-    bucket of a session (the closing auction and late prints land there). Order of reading:
-    time_shift (all four fields agree with the previous or the next Massive bar), last_print (open,
-    high and low agree and the close does not, or the bar is the session's last bucket: last-print
-    eligibility differs between SIP and a vendor's own filter), rounding (within 1.5 increments
-    plus 1 bp on every field), scale (the name's median log ratio is outside the scale tolerance
-    and this bar's close ratio sits within 0.5 percent of it), else other."""
+    bucket of a session (the closing auction and late prints land there). Order of reading
+    (round 5 rule 3, rounding first): rounding (within 1.5 increments plus 1 bp on every field),
+    time_shift (all four fields agree with the previous or the next Massive bar), last_print (the
+    Massive close lies inside the incumbent bar's high-low range, and open, high and low agree, or
+    the bar is the session's last bucket with the open agreeing), scale (the name's median log
+    ratio is outside the scale tolerance and this bar's close ratio sits within 0.5 percent of it),
+    else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
+    absolute log close difference) is applied at assembly, see ``AgreementCounts.lp_hist``."""
     n = len(incumbent[0])
     labels = np.full(n, "", dtype=object)
 
@@ -215,17 +215,24 @@ def classify_disagreements(
             ok &= np.abs(x - y) <= slack + PRICE_REL_TOL * np.abs(y)
         return ok
 
-    agree = within(massive_adj, incumbent, HALF_INCREMENT * increment)
+    half = HALF_INCREMENT * increment
+    agree = within(massive_adj, incumbent, half)
     rounding = within(massive_adj, incumbent, ROUNDING_INCREMENTS * increment)
     shift = np.zeros(n, dtype=bool)
     for other in (massive_prev_adj, massive_next_adj):
         if other is not None:
-            shift |= within(other, incumbent, HALF_INCREMENT * increment)
-    ohl = np.ones(n, dtype=bool)
-    for k in range(3):
-        ohl &= np.abs(
-            massive_adj[k] - incumbent[k]
-        ) <= HALF_INCREMENT * increment + PRICE_REL_TOL * np.abs(incumbent[k])
+            shift |= within(other, incumbent, half)
+    field_ok = [
+        np.abs(massive_adj[k] - incumbent[k]) <= _tau(incumbent[k], increment) for k in range(3)
+    ]
+    ohl = field_ok[0] & field_ok[1] & field_ok[2]
+    if last_bucket is not None:
+        # the last bucket may carry an extra print in high or low; the open must still agree
+        ohl = ohl | (last_bucket & field_ok[0])
+    close_in_range = (massive_adj[3] >= incumbent[2] - _tau(incumbent[2], increment)) & (
+        massive_adj[3] <= incumbent[1] + _tau(incumbent[1], increment)
+    )
+    last_print = ohl & close_in_range
     with np.errstate(divide="ignore", invalid="ignore"):
         bar_log = np.log(massive_adj[3] / incumbent[3])
     name_off = abs(name_median_log_ratio) > SCALE_LEVEL_TOL
@@ -234,17 +241,11 @@ def classify_disagreements(
         if name_off
         else np.zeros(n, dtype=bool)
     )
-    if last_bucket is not None:
-        # the last bucket may carry an extra print in high or low; the open must still agree
-        open_agrees = np.abs(massive_adj[0] - incumbent[0]) <= HALF_INCREMENT * increment + (
-            PRICE_REL_TOL * np.abs(incumbent[0])
-        )
-        ohl = ohl | (last_bucket & open_agrees)
     pending = ~agree
     for label, mask in (
-        (CLASS_TIME_SHIFT, shift),
-        (CLASS_LAST_PRINT, ohl),
         (CLASS_ROUNDING, rounding),
+        (CLASS_TIME_SHIFT, shift),
+        (CLASS_LAST_PRINT, last_print),
         (CLASS_SCALE, scale),
     ):
         take = pending & mask
@@ -252,6 +253,23 @@ def classify_disagreements(
         pending &= ~take
     labels[pending] = CLASS_OTHER
     return labels
+
+
+def last_print_histogram(
+    labels: np.ndarray, massive_close: np.ndarray, incumbent_close: np.ndarray
+) -> dict[int, int]:
+    """Bin counts of the absolute log close difference of the last_print-labelled bars."""
+    sel = labels == CLASS_LAST_PRINT
+    if not sel.any():
+        return {}
+    with np.errstate(divide="ignore", invalid="ignore"):
+        diff = np.abs(np.log(massive_close[sel] / incumbent_close[sel]))
+    bins = np.minimum(
+        np.nan_to_num(diff, nan=LAST_PRINT_MAX_BIN * LAST_PRINT_BIN, posinf=1.0) / LAST_PRINT_BIN,
+        LAST_PRINT_MAX_BIN,
+    ).astype(np.int64)
+    values, counts = np.unique(bins, return_counts=True)
+    return {int(v): int(c) for v, c in zip(values, counts, strict=True)}
 
 
 def price_agreement(
@@ -283,73 +301,201 @@ def price_agreement(
     labels = classify_disagreements(
         adj, incumbent, prev, nxt, increment, median_log, last_bucket  # type: ignore[arg-type]
     )
-    classes = Counter(str(x) for x in labels[~fields[3]])
+    disagree = ~fields[3]
+    classes = Counter(str(x) for x in labels[disagree])
+    hist = last_print_histogram(np.where(disagree, labels, ""), adj[3], incumbent[3])
     pairs = pair_ok = bars = bar_ok = 0
     if massive_pos is not None and incumbent_pos is not None:
         pairs, pair_ok, bars, bar_ok = return_agreement(
             adj, incumbent, massive_pos, incumbent_pos, increment  # type: ignore[arg-type]
         )
     return AgreementCounts(
-        n, int(fields[3].sum()), int(all_agree.sum()), dict(classes), pairs, pair_ok, bars, bar_ok
+        n,
+        int(fields[3].sum()),
+        int(all_agree.sum()),
+        dict(classes),
+        pairs,
+        pair_ok,
+        bars,
+        bar_ok,
+        hist,
     )
 
 
 def name_era_agreement_ok(counts: AgreementCounts) -> bool:
-    """99 percent per name-era, on the return-based measure when the name-era has a consecutive
-    pair, else on the level measure."""
-    if counts.n_matched <= 0:
-        raise VacuousCheckError("name_era_agreement_ok: no matched bar")
-    share = counts.ret_share if counts.n_ret_pairs else counts.share
-    return share >= NAME_ERA_AGREE_MIN
+    """99 percent of consecutive pairs per name-era on the return-based measure (a constant level
+    factor cannot move it). Needs ``NAME_ERA_MIN_PAIRS`` pairs: fewer is no detector, which the
+    caller must test first (``has_detector``); here it raises, never passes."""
+    if not has_detector(counts):
+        raise VacuousCheckError(
+            f"name_era_agreement_ok: {counts.n_ret_pairs} pairs, need {NAME_ERA_MIN_PAIRS}"
+        )
+    return counts.ret_share >= NAME_ERA_AGREE_MIN
+
+
+def has_detector(counts: AgreementCounts) -> bool:
+    return counts.n_ret_pairs >= NAME_ERA_MIN_PAIRS
+
+
+# --- era verdicts (round 5, design 8a rules 1 to 5) ---------------------------------------------
+@dataclass(frozen=True)
+class NameFacts:
+    """One judged name-era of one timeframe (it has a detector and a resolved identity)."""
+
+    name: str
+    counts: AgreementCounts
+    flagged: bool  # fails the 99 percent return test
+    level_class: str  # "" or a scale class
+    median_log_ratio: float
 
 
 @dataclass(frozen=True)
-class VendorWide:
+class EraCounters:
+    """The era-level counters of rule 2 over the judged names of one timeframe."""
+
+    n_judged: int
+    flagged_share: float
+    level_class_share: float
+    shared_factor_share: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "flagged_share": self.flagged_share,
+            "level_class_share": self.level_class_share,
+            "shared_factor_share": self.shared_factor_share,
+        }
+
+
+COUNTER_NAMES = ("flagged_share", "level_class_share", "shared_factor_share")
+
+
+def era_counters(names: Sequence[NameFacts]) -> EraCounters:
+    n = len(names)
+    if n == 0:
+        return EraCounters(0, math.nan, math.nan, math.nan)
+    bins = Counter(
+        round(f.median_log_ratio / SHARED_FACTOR_BIN)
+        for f in names
+        if math.isfinite(f.median_log_ratio) and abs(f.median_log_ratio) > SCALE_LEVEL_TOL
+    )
+    return EraCounters(
+        n,
+        sum(f.flagged for f in names) / n,
+        sum(bool(f.level_class) for f in names) / n,
+        (max(bins.values()) / n) if bins else 0.0,
+    )
+
+
+def counter_thresholds(reference: Iterable[EraCounters]) -> dict[str, float]:
+    """Per counter: the larger of 3 times its maximum over the reference eras and 2 percent."""
+    refs = [c for c in reference if c.n_judged > 0]
+    out: dict[str, float] = {}
+    for name in COUNTER_NAMES:
+        top = max((c.as_dict()[name] for c in refs), default=0.0)
+        out[name] = max(COUNTER_REFERENCE_MULTIPLE * top, COUNTER_FLOOR_SHARE)
+    return out
+
+
+def last_print_cap_bin(reference_hists: Iterable[Mapping[int, int]]) -> int:
+    """The bin holding the p99 of the last_print candidates' absolute log close difference over
+    the reference period (0 when the reference holds none: nothing beyond a rounding-sized
+    difference is then explained)."""
+    total: Counter[int] = Counter()
+    for hist in reference_hists:
+        total.update(hist)
+    n = sum(total.values())
+    if n == 0:
+        return 0
+    running = 0
+    for b in sorted(total):
+        running += total[b]
+        if running >= LAST_PRINT_CAP_QUANTILE * n:
+            return b
+    return max(total)
+
+
+ERA_OK, ERA_OK_CONVENTION, ERA_UNRESOLVED = "ok", "ok_convention", "unresolved"
+ERA_STOP, ERA_NO_DETECTOR = "stop", "no_detector"
+
+
+@dataclass(frozen=True)
+class EraVerdict:
+    timeframe: str
+    verdict: str  # ok | ok_convention | unresolved | stop | no_detector
+    reasons: tuple[str, ...]
+    n_judged: int
     n_matched: int
     n_ret_pairs: int
-    ret_residual_share: float  # 1 - return agreement, over every judged name-era
-    level_share: float  # level agreement after adjustment-level name-eras are set aside
-    level_n_matched: int
-    other_share: float
+    return_residual: float
+    other_share: float  # unexplained pairs over ALL matched pairs: the one basis
+    n_other_carriers: int
+    other_concentration: tuple[str, ...]  # carrier names flagged when at most 50 carry the excess
+    counters: EraCounters
+    thresholds: dict[str, float]
     class_mix: dict[str, int]
-    verdict: str  # ok | stop
-    investigate: bool  # reclassified level agreement under 99.5 percent, or 'other' above 0.5
 
 
-def vendor_wide(
-    counts: Iterable[AgreementCounts], level_clean: Iterable[AgreementCounts] = ()
-) -> VendorWide:
-    """Vendor-wide verdict of one era and timeframe (lead ruling 2026-11-12).
+def judge_era(
+    timeframe: str,
+    names: Sequence[NameFacts],
+    thresholds: Mapping[str, float],
+    cap_bin: int,
+) -> EraVerdict:
+    """The verdict of one era and timeframe (round 5 rules 2 to 5).
 
-    ``counts`` are every judged name-era; ``level_clean`` those not set aside as adjustment-level
-    or level-drift classes (a constant factor no split table reproduces confounds the level
-    comparison, never the return comparison). Stop only when the residual disagreement on the
-    return-based measure exceeds 0.5 percent over ``counts``; otherwise ``investigate`` flags a
-    reclassified level agreement under 99.5 percent or an ``other`` share above 0.5 percent, with
-    the class mix. Raises when no consecutive pair exists."""
-    total: AgreementCounts | None = None
-    for c in counts:
-        total = c if total is None else total + c
-    if total is None or total.n_matched <= 0 or total.n_ret_pairs <= 0:
-        raise VacuousCheckError("vendor_wide: no matched consecutive bar pair in any name-era")
-    clean: AgreementCounts | None = None
-    for c in level_clean:
-        clean = c if clean is None else clean + c
-    level_share = clean.share if clean is not None and clean.n_matched else math.nan
-    other = (clean or total).n_class.get(CLASS_OTHER, 0) / max((clean or total).n_matched, 1)
-    residual = 1.0 - total.ret_share
-    return VendorWide(
-        total.n_matched,
-        total.n_ret_pairs,
-        residual,
-        level_share,
-        clean.n_matched if clean is not None else 0,
-        other,
-        dict((clean or total).n_class),
-        "stop" if residual > OTHER_INVESTIGATE_MAX_SHARE else "ok",
-        (not math.isnan(level_share) and level_share < VENDOR_AGREE_MIN)
-        or other > OTHER_INVESTIGATE_MAX_SHARE,
-    )
+    ``stop``: any rule 2 counter above its threshold, or unexplained ``other`` above 0.5 percent of
+    all matched pairs that more than 50 names carry (or that remains above 0.5 percent without
+    the carriers). Otherwise a raw return residual above 0.5 percent is ``unresolved`` for 1d
+    (rule 5, data driven) and ``ok_convention`` for 5m (rule 4, fully explained by size-capped
+    classes); else ``ok``. No judged name is ``no_detector``, an explicit row, never a silent
+    skip and never a pass. A stop outranks unresolved."""
+    counters = era_counters(names)
+    if not names:
+        return EraVerdict(
+            timeframe, ERA_NO_DETECTOR, ("no_judged_names",), 0, 0, 0, math.nan, math.nan, 0, (),
+            counters, dict(thresholds), {},
+        )  # fmt: skip
+    total = names[0].counts
+    for f in names[1:]:
+        total = total + f.counts
+    residual = 1.0 - total.ret_share if total.n_ret_pairs else math.nan
+    unexplained = total.unexplained(cap_bin)
+    other_share = unexplained / total.n_matched
+    carrier_facts = [
+        f
+        for f in names
+        if f.counts.unexplained(cap_bin) > OTHER_INVESTIGATE_MAX_SHARE * f.counts.n_matched
+    ]
+    carriers = tuple(sorted(f.name for f in carrier_facts))
+    reasons: list[str] = [
+        f"{key}>{thresholds[key]:.4f}"
+        for key in COUNTER_NAMES
+        if counters.as_dict()[key] > thresholds[key]
+    ]
+    concentration: tuple[str, ...] = ()
+    if other_share > OTHER_INVESTIGATE_MAX_SHARE:
+        rest = total.n_matched - sum(f.counts.n_matched for f in carrier_facts)
+        rest_other = unexplained - sum(f.counts.unexplained(cap_bin) for f in carrier_facts)
+        if len(carriers) <= OTHER_CONCENTRATION_MAX_NAMES and (
+            rest > 0 and rest_other / rest <= OTHER_INVESTIGATE_MAX_SHARE
+        ):
+            concentration = carriers
+        else:
+            reasons.append("unexplained_other")
+    if all(f.level_class for f in names):
+        reasons.append("empty_clean_set")
+    if reasons:
+        verdict = ERA_STOP
+    elif residual > OTHER_INVESTIGATE_MAX_SHARE:
+        verdict = ERA_UNRESOLVED if timeframe == "1d" else ERA_OK_CONVENTION
+        reasons.append("return_residual_explained" if timeframe != "1d" else "close_convention")
+    else:
+        verdict = ERA_OK
+    mix = dict(total.n_class)
+    return EraVerdict(
+        timeframe, verdict, tuple(reasons), counters.n_judged, total.n_matched, total.n_ret_pairs,
+        residual, other_share, len(carriers), concentration, counters, dict(thresholds), mix,
+    )  # fmt: skip
 
 
 # --- scale factor ------------------------------------------------------------------------------
@@ -472,8 +618,23 @@ def alpaca_epoch_seam_possible(
 
 
 # --- universe closure --------------------------------------------------------------------------
-OUTCOME_PASS, OUTCOME_GAP, OUTCOME_STOP = "pass", "gap_list", "stop"
-OUTCOMES = (OUTCOME_PASS, OUTCOME_GAP, OUTCOME_STOP)
+#: Round 5 rule 6: outcomes are separated. ``flagged`` is a data defect, ``unresolved`` waits for a
+#: witness, ``no_detector`` has no incumbent overlap to judge (a missing detector is not a failure),
+#: ``unmapped`` is an active instrument with no Massive rows, ``stop`` is a systemic failure.
+OUTCOME_PASS, OUTCOME_FLAGGED, OUTCOME_UNRESOLVED = "pass", "flagged", "unresolved"
+OUTCOME_NO_DETECTOR, OUTCOME_NOT_LISTED = "no_detector", "not_listed_in_era"
+OUTCOME_UNMAPPED, OUTCOME_STOP = "unmapped", "stop"
+OUTCOMES = (
+    OUTCOME_PASS,
+    OUTCOME_FLAGGED,
+    OUTCOME_UNRESOLVED,
+    OUTCOME_NO_DETECTOR,
+    OUTCOME_NOT_LISTED,
+    OUTCOME_UNMAPPED,
+    OUTCOME_STOP,
+)
+#: Outcomes an era stop does not reach: no Massive bar is loaded for them, or no detector speaks.
+STOP_EXEMPT_OUTCOMES = (OUTCOME_NOT_LISTED, OUTCOME_NO_DETECTOR, OUTCOME_UNMAPPED)
 
 
 @dataclass(frozen=True)
@@ -496,14 +657,13 @@ def close_partition(
     expected: Iterable[tuple[str, int]],
     outcomes: Mapping[tuple[str, int], tuple[str, str]],
     stop_eras: Mapping[int, str] | Iterable[int] = (),
-    exempt_reasons: Collection[str] = ("not_listed_in_era",),
+    exempt_outcomes: Collection[str] = STOP_EXEMPT_OUTCOMES,
 ) -> Partition | PartialRun:
     """The complete partition of the expected (name, era) cells, or a ``PartialRun``.
 
     A cell in a ``stop_eras`` era carries ``stop`` (a systemic failure stops step 7 for the era;
     the mapping gives the reason, ``systemic_stop:<reason>``) whatever its own outcome, except a
-    cell whose reason is in ``exempt_reasons`` (a name not yet listed in the era loads nothing, so
-    no systemic failure reaches it). An outcome outside ``OUTCOMES``, or a cell judged but not
+    cell whose outcome is in ``exempt_outcomes`` (nothing loads for it, or no detector judged it). An outcome outside ``OUTCOMES``, or a cell judged but not
     expected, raises (a wrong partition is a bug, not a result)."""
     cells = list(dict.fromkeys(expected))
     if not cells:
@@ -523,7 +683,7 @@ def close_partition(
         outcome, reason = outcomes[cell]
         if outcome not in OUTCOMES:
             raise ValueError(f"cell {cell}: outcome {outcome!r} is not one of {OUTCOMES}")
-        if cell[1] in stops and reason not in exempt_reasons:
+        if cell[1] in stops and outcome not in exempt_outcomes:
             final[cell] = (OUTCOME_STOP, f"systemic_stop:{stops[cell[1]]}")
         else:
             final[cell] = (outcome, reason)

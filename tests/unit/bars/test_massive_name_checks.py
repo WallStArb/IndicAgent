@@ -44,11 +44,12 @@ def test_price_agreement_counts_and_classes() -> None:
         massive[1][i] = massive[1][i] + 0.012
         massive[2][i] = massive[2][i] + 0.012
     for i in range(4, 6):
-        massive[3][i] = close[i] + 0.5
+        massive[3][i] = close[i] + 0.1  # inside the incumbent's high-low range
     counts = nc.price_agreement(tuple(massive), np.ones(n), inc, 0.01)
     assert counts.n_matched == n and counts.n_agree == n - 6
     assert counts.n_class == {"rounding": 4, "last_print": 2}
-    assert not nc.name_era_agreement_ok(counts)  # 194/200 = 97 percent
+    assert not nc.has_detector(counts)  # no consecutive pair: no detector, never a pass
+    assert sum(counts.lp_hist.values()) == 2  # the two last_print candidates, binned by size
 
 
 def test_price_agreement_time_shift_class() -> None:
@@ -79,43 +80,7 @@ def test_vacuous_inputs_raise() -> None:
     with pytest.raises(VacuousCheckError):
         nc.name_era_agreement_ok(nc.AgreementCounts(0, 0, 0))
     with pytest.raises(VacuousCheckError):
-        nc.vendor_wide([])
-    with pytest.raises(VacuousCheckError):
         nc.scale_check(empty, empty, empty)
-
-
-def _counts(n: int, ret_agree_share: float, level_share: float, cls=None) -> nc.AgreementCounts:
-    pairs = n - 1
-    return nc.AgreementCounts(
-        n,
-        int(n * level_share),
-        int(n * level_share),
-        cls or {},
-        pairs,
-        int(pairs * ret_agree_share),
-        n,
-        n,
-    )
-
-
-def test_vendor_wide_stops_only_on_return_residual() -> None:
-    clean = _counts(10_000, 0.9999, 0.999)
-    out = nc.vendor_wide([clean], [clean])
-    assert out.verdict == "ok" and not out.investigate
-    # level agreement low but returns agree: ok, investigate printed with the class mix
-    level_low = _counts(10_000, 0.9999, 0.95, {"last_print": 400, "other": 100})
-    out = nc.vendor_wide([level_low], [level_low])
-    assert (
-        out.verdict == "ok"
-        and out.investigate
-        and out.class_mix == {"last_print": 400, "other": 100}
-    )
-    bad = _counts(10_000, 0.99, 0.99)
-    assert nc.vendor_wide([bad], [bad]).verdict == "stop"  # residual 1 percent > 0.5
-    with pytest.raises(VacuousCheckError):
-        nc.vendor_wide([])
-    with pytest.raises(VacuousCheckError):
-        nc.vendor_wide([nc.AgreementCounts(5, 5, 5)])  # matched bars but no consecutive pair
 
 
 def test_return_agreement_is_invariant_to_a_constant_level_factor() -> None:
@@ -150,21 +115,6 @@ def test_return_agreement_detects_a_real_return_difference_and_skips_gaps() -> N
     inc_pos[10:] += 1
     pairs, _, _, _ = nc.return_agreement(inc, inc, pos, inc_pos, 0.01)
     assert pairs == n - 2
-
-
-def test_aggregate_bars_to_sessions() -> None:
-    t = np.arange(6, dtype=np.int64)
-    key = np.array([1, 1, 1, 2, 2, 2])
-    o = np.array([10.0, 11, 12, 20, 21, 22])
-    h = o + 1
-    low = o - 1
-    c = o + 0.5
-    k, (so, sh, sl, sc), sv, st = nc.aggregate_bars_to_sessions(t, key, (o, h, low, c), np.ones(6))
-    assert k.tolist() == [1, 2] and so.tolist() == [10, 20] and sh.tolist() == [13, 23]
-    assert sl.tolist() == [9, 19] and sc.tolist() == [12.5, 22.5] and sv.tolist() == [3, 3]
-    assert st.tolist() == [0, 3]
-    empty = nc.aggregate_bars_to_sessions(t[:0], key[:0], (o[:0],) * 4, o[:0])
-    assert len(empty[0]) == 0
 
 
 def test_scale_class() -> None:
@@ -254,9 +204,10 @@ def test_clean_vendor_passes_every_name_level_check() -> None:
         nc.scale_class(median, nc.level_dispersion(massive[3], np.ones(n), inc[3]), 1.0, 1.0) == ""
     )
     assert nc.identity_resolved(nc.identity_correlation(massive[3], inc[3]))
-    assert nc.vendor_wide([counts], [counts]).verdict == "ok"
+    facts = [nc.NameFacts("A", counts, False, "", 0.0)]
+    assert nc.judge_era("5m", facts, nc.counter_thresholds([]), 0).verdict == "ok"
     part = nc.close_partition([("A", 2010)], {("A", 2010): ("pass", "")}, stop_eras={})
-    assert isinstance(part, nc.Partition) and part.counts == {"pass": 1, "gap_list": 0, "stop": 0}
+    assert isinstance(part, nc.Partition) and part.counts["pass"] == 1 and part.counts["stop"] == 0
 
 
 def test_scale_check_uses_given_factor() -> None:
@@ -290,17 +241,19 @@ def test_preclassification_and_alpaca_epoch_seam() -> None:
 def test_partition_closes_and_sums() -> None:
     cells = [("A", 2010), ("B", 2010), ("A", 2011)]
     out = {c: ("pass", "") for c in cells}
-    out[("B", 2010)] = ("gap_list", "price_agreement")
+    out[("B", 2010)] = ("flagged", "price_agreement")
     part = nc.close_partition(cells, out)
     assert isinstance(part, nc.Partition)
-    assert part.counts == {"pass": 2, "gap_list": 1, "stop": 0} and part.n_mapped_cells == 3
+    assert part.counts["pass"] == 2 and part.counts["flagged"] == 1 and part.n_mapped_cells == 3
     stopped = nc.close_partition(cells, out, stop_eras={2011: "return_residual"})
     assert isinstance(stopped, nc.Partition) and stopped.counts["stop"] == 1
     assert stopped.cells[("A", 2011)] == ("stop", "systemic_stop:return_residual")
-    out[("B", 2010)] = ("gap_list", "not_listed_in_era")
-    exempt = nc.close_partition(cells, out, stop_eras={2010: "volume_step"})
+    out[("B", 2010)] = ("not_listed_in_era", "not_listed_in_era")
+    out[("C", 2010)] = ("no_detector", "no_detector")
+    exempt = nc.close_partition([*cells, ("C", 2010)], out, stop_eras={2010: "volume_step"})
     assert isinstance(exempt, nc.Partition)
-    assert exempt.cells[("B", 2010)] == ("gap_list", "not_listed_in_era")  # loads nothing
+    assert exempt.cells[("B", 2010)][0] == "not_listed_in_era"  # loads nothing
+    assert exempt.cells[("C", 2010)][0] == "no_detector"  # no detector speaks
     assert exempt.cells[("A", 2010)][0] == "stop"
     assert sum(stopped.counts.values()) == stopped.n_mapped_cells
 
