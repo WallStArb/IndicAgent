@@ -79,11 +79,50 @@ def test_massive_serves_to_the_archive_end_then_alpaca_with_no_fallback(timefram
 def test_the_plan_leaves_no_ibkr_row_live(timeframe):
     plan = _plan(timeframe)
     assert ibkr_rows(plan) == []
-    assert plan["symbol_rows"] == [] and plan["keep_symbol_rows"] == []
+    assert plan["keep_symbol_rows"] == []
     assert plan["retire_default_ids"] == ["d-new", "d-old"]
     assert [(r["policy_id"], r["disposition"]) for r in plan["retire_symbol_rows"]] == [
         ("p-bhp", "superseded_by_default")
     ]
+
+
+@pytest.mark.parametrize("timeframe", ["5m", "1d"])
+def test_gap_spans_keep_alpaca_from_2016_to_the_archive_end_and_are_gaps_before(timeframe):
+    gaps = [
+        *_GAPS,
+        GapRow("LATE", "span", "before_first_event", date(2003, 9, 10), date(2019, 5, 1)),
+        GapRow("LATE", "span", "ticker_claimed_by_other_security", date(2018, 1, 1), None),
+        GapRow("BHP", "span", "x", date(2020, 1, 1), date(2021, 1, 1)),
+    ]
+    plan = build_plan(
+        timeframe=timeframe,
+        live=_live(),
+        gaps=gaps,
+        gap_list=_GAP,
+        archive_end=_END,
+        manifest=_MANIFEST,
+    )
+    rows = [
+        (r["symbol"], r["valid_from"], r["valid_to"], r["primary"], r["fallback"])
+        for r in plan["symbol_rows"]
+    ]
+    assert rows == [
+        ("A", "2016-01-04", "2026-11-10", "alpaca", None),
+        ("BHP", "2020-01-01", "2021-01-01", "alpaca", None),
+        ("LATE", "2016-01-04", "2026-11-10", "alpaca", None),  # merged across its two spans
+    ]  # AAL's span ends 2013: a gap, no row
+    assert [(r["policy_id"], r["disposition"]) for r in plan["retire_symbol_rows"]] == [
+        ("p-bhp", "replaced")
+    ]
+    if timeframe == "1d":
+        plan["raw_fingerprint"] = _FP
+        assert through_needed(plan) == _END
+    parse_plan(plan)
+    assert ibkr_rows(plan) == []
+
+
+def test_1m_and_4h_get_no_gap_rows():
+    assert _plan("1m")["symbol_rows"] == []
 
 
 def test_ibkr_rows_finds_a_primary_or_a_fallback():
@@ -104,15 +143,10 @@ def test_1m_and_4h_get_one_massive_default_that_serves_nothing(timeframe):
     assert plan["seam"] == "1990-01-01" and plan["retire_default_ids"] == ["d"]
 
 
-def test_the_gap_list_is_evidence_only():
+def test_the_gap_list_is_pinned_in_the_evidence():
     plan = _plan("1d")
     assert plan["evidence"]["gap_list"] == _GAP
-    assert [g["symbol"] for g in plan["evidence"]["gap_spans"]] == ["AAL", "A"]
     assert "before 2003-09-10" in plan["evidence"]["coverage"]
-
-
-def test_through_needed_is_the_seam_with_no_symbol_row():
-    assert through_needed(_plan("1d")) == _END
 
 
 def test_derived_timeframes_and_an_empty_policy_refuse():

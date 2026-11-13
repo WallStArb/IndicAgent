@@ -22,9 +22,11 @@ the pre-2003 span uncovered would crash the rebuild, where this one keeps select
 coverage hole. 15m and 1h are derived and keep their policy.
 
 Every live default of the timeframe is retired by id and every live symbol row (the D-191-Q IBKR
-rows) is retired as ``superseded_by_default``: the plan leaves no IBKR row live. The identity gap
-list adds no symbol row: its spans become gaps (no incumbent serves them), recorded in the
-evidence with the list's path and sha256.
+rows) is retired: the plan leaves no IBKR row live. The identity gap list (spans Massive cannot
+place) gives Alpaca symbol rows over each span clipped to [2016-01-04, archive end), no fallback
+(lead ruling 2026-11-13, ``gap_rows``): those names keep exactly what Alpaca serves today. Before
+2016-01-04 a gap span is a gap (no source). The list is pinned by path and sha256 in the
+evidence.
 
 Rollback (runbook A9 and every abort rule after C2): --snapshot writes a timeframe's live rows
 to JSON before the switch; --restore SNAPSHOT builds the plan that puts the policy back (the
@@ -54,6 +56,7 @@ from scripts.ops.bars.ops_source_policy import parse_plan, read_raw_fingerprint 
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
+from src.intelligence.bars.vendor_arbitration import SEAM as ALPACA_FIRST_DAY  # noqa: E402
 
 FAR_PAST = date(1990, 1, 1)
 MASSIVE, ALPACA, IBKR = "massive", "alpaca", "ibkr"
@@ -135,6 +138,41 @@ def defaults_for(timeframe: str, archive_end: date) -> list[dict[str, Any]]:
     ]
 
 
+def gap_rows(
+    gaps: Sequence[GapRow], archive_end: date, gap_list: Mapping[str, str]
+) -> list[dict[str, Any]]:
+    """Alpaca symbol rows over the gap-list spans clipped to [2016-01-04, archive end), a name's
+    spans merged; none before Alpaca's first day (module docstring)."""
+    by_symbol: dict[str, list[tuple[date, date]]] = {}
+    reasons: dict[str, set[str]] = {}
+    for g in gaps:
+        start = max(g.valid_from or ALPACA_FIRST_DAY, ALPACA_FIRST_DAY)
+        stop = min(g.valid_to or archive_end, archive_end)
+        if start < stop:
+            by_symbol.setdefault(g.symbol, []).append((start, stop))
+            reasons.setdefault(g.symbol, set()).add(g.reason)
+    rows: list[dict[str, Any]] = []
+    for symbol in sorted(by_symbol):
+        merged: list[tuple[date, date]] = []
+        for start, stop in sorted(by_symbol[symbol]):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], stop))
+            else:
+                merged.append((start, stop))
+        rows += [
+            {
+                "symbol": symbol,
+                "valid_from": a.isoformat(),
+                "valid_to": b.isoformat(),
+                "primary": ALPACA,
+                "fallback": None,
+                "evidence": {"gap_list": dict(gap_list), "gap_reasons": sorted(reasons[symbol])},
+            }
+            for a, b in merged
+        ]
+    return rows
+
+
 def build_plan(
     *,
     timeframe: str,
@@ -145,8 +183,10 @@ def build_plan(
     manifest: Mapping[str, str],
 ) -> dict[str, Any]:
     """The plan JSON for one timeframe, without the 1d raw fingerprint (the caller adds it through
-    ``through_needed``, the seam: the plan has no symbol row)."""
+    ``through_needed``: the latest gap row end)."""
     new_defaults = defaults_for(timeframe, archive_end)
+    new_rows = gap_rows(gaps, archive_end, gap_list) if timeframe in HANDOVER_TIMEFRAMES else []
+    new_symbols = {r["symbol"] for r in new_rows}
     defaults = [r for r in live if r.symbol is None]
     if not defaults:
         raise ValueError(f"{timeframe}: no live default to retire")
@@ -164,16 +204,10 @@ def build_plan(
             "slots select nothing and leave canonical by construction"
         ),
         "gap_list": dict(gap_list),
-        "gap_spans": [
-            {
-                "symbol": g.symbol,
-                "scope": g.scope,
-                "reason": g.reason,
-                "valid_from": _iso(g.valid_from),
-                "valid_to": _iso(g.valid_to),
-            }
-            for g in gaps
-        ],
+        "gap_rule": (
+            "gap-list spans: Alpaca symbol rows over [2016-01-04, archive end), no fallback; "
+            "before 2016-01-04 a gap (lead ruling 2026-11-13)"
+        ),
     }
     return {
         "timeframe": timeframe,
@@ -183,9 +217,11 @@ def build_plan(
         "retire_defaults": True,
         "retire_default_ids": sorted(r.policy_id for r in defaults),
         "defaults": new_defaults,
-        "symbol_rows": [],
+        "symbol_rows": new_rows,
         "retire_symbol_rows": [
-            _retired(r, "superseded_by_default") for r in live if r.symbol is not None
+            _retired(r, "replaced" if r.symbol in new_symbols else "superseded_by_default")
+            for r in live
+            if r.symbol is not None
         ],
         "keep_symbol_rows": [],
     }
