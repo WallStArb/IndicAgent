@@ -183,7 +183,7 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5d")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5e")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_json(runner.part_path(cfg, "volume_bands", 2010), {"key": base})
     assert runner.load_part(cfg, "volume_bands", 2010, base) is not None
@@ -201,7 +201,7 @@ def test_malformed_disputed_rows_fail_the_run(tmp_path: Path) -> None:
 
 
 def test_a_ledger_row_without_a_median_writes_no_witness_and_no_fabricated_zero() -> None:
-    row = runner.ledger_row(None, "A", 2010, "1d", "price_agreement_1d", None, [], "s")  # type: ignore[arg-type]
+    row = runner.ledger_row("A", 2010, "1d", "price_agreement_1d", None, [], {}, "s")
     assert row["verdict"] == "unresolved" and row["witnesses"] == "none available"
 
 
@@ -275,3 +275,42 @@ def test_stage_c_refuses_stage_a_and_b_files_without_the_current_provenance(
     path.write_text(json.dumps(record))
     with pytest.raises(RuntimeError, match="logic"):
         runner.systemic_stop_eras(cfg, inputs)
+
+
+def test_the_session_id_is_required() -> None:
+    with pytest.raises(SystemExit):
+        runner.main(["--stages", "A"])
+
+
+def test_split_tapes_come_from_one_batch_query() -> None:
+    from datetime import UTC, datetime
+
+    calls: list[tuple] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def execute(self, sql: str, params: object = None) -> None:
+            calls.append((sql, params))
+
+        def fetchall(self) -> list[tuple]:
+            eff = date(2020, 8, 28)
+            return [
+                ("AAPL", eff, datetime(2020, 8, 28, 4, tzinfo=UTC), 500.0),
+                ("AAPL", eff, datetime(2020, 8, 31, 4, tzinfo=UTC), 129.0),
+                ("MSFT", date(2020, 1, 2), datetime(2020, 1, 3, 5, tzinfo=UTC), 10.0),
+            ]
+
+    class Conn:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+    out = runner.fetch_split_tapes(
+        Conn(), [("AAPL", date(2020, 8, 28)), ("MSFT", date(2020, 1, 2))]  # type: ignore[arg-type]
+    )
+    assert len(calls) == 1  # one query for every (name, split) of the batch
+    assert out == {("AAPL", date(2020, 8, 28)): [500.0, 129.0]}  # MSFT has no 'before' side

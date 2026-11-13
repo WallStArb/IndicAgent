@@ -333,3 +333,38 @@ def test_dispute_window() -> None:
     assert nc.dispute_window_sessions(sessions, date(2021, 1, 1)) == []
     edge = nc.dispute_window_sessions(sessions, date(2020, 1, 3))
     assert edge[0] == sessions[0]
+
+
+def test_the_frozen_witness_offers_every_split_that_explains_the_cumulative_scale() -> None:
+    # an incumbent missing a 2020 3:1 split: Massive divided by it sits at 1/3 of the incumbent
+    later = [("2020-06-01", 3.0)]
+    w = nc.frozen_split_witness(1 / 3, later)
+    assert w is not None and w.supports == "massive" and "2020-06-01" in w.citation
+    # an incumbent missing two splits: the cumulative product from the earliest explains it
+    two = [("2018-03-01", 2.0), ("2020-06-01", 3.0)]
+    product = nc.frozen_split_witness(1 / 6, two)
+    assert product is not None and product.supports == "massive"
+    assert "splits from 2018-03-01" in product.citation
+    assert nc.frozen_split_witness(1.37, two) is None  # never invented
+
+
+def test_price_agreement_returns_one_set_of_level_statistics() -> None:
+    n = 150
+    close = np.linspace(20, 30, n)
+    inc = _ohlc(close)
+    counts = nc.price_agreement(_ohlc(close * 1.05), np.ones(n), inc, 0.01)
+    assert counts.stable_offset and abs(counts.median_log - math.log(1.05)) < 1e-9
+    assert counts.iqr <= nc.STABLE_LEVEL_IQR and math.isnan(counts.break_step)
+    clean = nc.price_agreement(_ohlc(close), np.ones(n), inc, 0.01)
+    assert not clean.stable_offset and math.isnan(clean.break_step)
+
+
+def test_a_level_break_that_reads_as_a_split_is_split_like_and_a_small_drift_is_not() -> None:
+    n = 150
+    step = np.where(np.arange(n) < 40, math.log(2.0), 0.0)  # a missing 2:1 split, 27 percent in
+    assert nc.level_break_step(step) == pytest.approx(-math.log(2.0))
+    assert nc.scale_class(0.0, 0.0, 0.7, 0.995, nc.level_break_step(step)) == nc.SCALE_SPLIT_LIKE
+    drift = np.linspace(0.0, 0.003, n)  # 30 bp over the era, no step
+    assert math.isnan(nc.level_break_step(drift))
+    assert nc.scale_class(0.0015, 0.0015, 0.8, 0.995) == nc.SCALE_LEVEL_DRIFT
+    assert math.isnan(nc.level_break_step(np.where(np.arange(n) < 2, 0.69, 0.0)))  # under 5 percent

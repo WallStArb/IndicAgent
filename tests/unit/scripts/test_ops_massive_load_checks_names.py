@@ -367,10 +367,10 @@ def test_identity_is_judged_per_timeframe_and_counts_only_with_a_detector() -> N
     good_5m = _arm(250, 250, 0.0, 0.99)
     gate = runner.judged_timeframes({"1d": bad_1d, "5m": good_5m}, nc.ERA_NO_ACTION, True)
     assert gate.outcome == "" and gate.usable == ("5m",) and gate.decorrelated == ("1d",)
-    # decorrelated but under the pair minimum: unresolved as a cell, never counted
+    # decorrelated but under the pair minimum: no detector speaks, so not identity_decorrelated
     few_bad = _arm(30, 30, 0.0, 0.5)
     gate = runner.judged_timeframes({"1d": few_bad}, nc.ERA_NO_ACTION, True)
-    assert gate.reason == "identity_decorrelated" and gate.decorrelated == ()
+    assert gate.reason == "no_detector" and gate.decorrelated == ()
 
 
 def test_the_ibkr_volume_rescale_is_the_factor_stage_c_divides_prices_by() -> None:

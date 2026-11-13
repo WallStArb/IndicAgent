@@ -274,6 +274,8 @@ def _detail(massive: Series, incumbent: Series) -> dict:
         "alpaca_epoch_seam_possible": False,
         "probable_ibkr_non_split_adjustment": False,
         "splits_in_window": [],
+        "splits_after_era": [],
+        "split_tapes": {},
         "arms": {"ibkr": res, "alpaca": {}},
     }
 
@@ -300,7 +302,7 @@ def _write_run(tmp_path, injected_era: int | None) -> tuple[runner.Config, dict]
 
 def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, None)
-    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
+    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
     assert summary["partition"]["status"] == "complete"
     counts = summary["partition"]["counts"]
     assert counts["pass"] == 120 and counts["unmapped"] == 3 and counts["stop"] == 0
@@ -310,7 +312,7 @@ def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path
 
 def test_stage_c_assembly_stops_the_injected_era_and_only_that_era(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, 2010)  # 10 of 40 names: x100 on all fields
-    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
+    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
     counts = summary["partition"]["counts"]
     assert set(summary["stop_eras_all_sources"]) == {"2010"}
     assert counts["stop"] == 40 and counts["pass"] == 80 and counts["unmapped"] == 3
@@ -371,3 +373,91 @@ def test_200_thin_names_never_stop_an_era_but_200_decorrelated_names_do(
     stopped = _judge(decorrelated, reference)
     assert stopped.verdict == nc.ERA_STOP
     assert any(r.startswith("identity_unresolved_share") for r in stopped.reasons)
+
+
+def _write_parts(tmp_path, details_by_era: dict[int, dict[str, dict]]):
+    from pathlib import Path
+
+    cfg = runner.Config(
+        Path(tmp_path), Path(tmp_path), 1, 6, tuple(sorted(details_by_era)), False, 0.0
+    )
+    keys = {}
+    for era, names in details_by_era.items():
+        keys[era] = {"era": era}
+        runner.write_json(
+            runner.part_path(cfg, "name_checks", era),
+            {"key": keys[era], "era": era, "names": names},
+        )
+    return cfg, keys
+
+
+def _clean_names(era: int, n: int, seed: int) -> dict[str, dict]:
+    rng = np.random.default_rng(seed)
+    out = {}
+    for i in range(n):
+        series = _name_series(rng)
+        out[f"N{i}"] = _detail(series, series)
+    return out
+
+
+def _outcomes(tmp_path) -> dict[tuple[str, int], tuple[str, str]]:
+    import json
+
+    cells = json.loads((tmp_path / "stageC_partition.json").read_text())["cells"]
+    return {(n, e): (o, r) for n, e, o, r in cells}
+
+
+def test_a_missing_in_era_split_is_flagged_and_reaches_the_ledger(tmp_path) -> None:
+    """A 2:1 split missing from the frozen table on Mar 1: bars before it sit at twice the
+    incumbent. It is a level break of split size, so the name-era is flagged and in the ledger,
+    not passed as drift. A benign small drift still passes, listed."""
+    names = _clean_names(2010, 150, seed=70)
+    rng = np.random.default_rng(71)
+    broken = _name_series(rng)
+    before = np.array([d < date(2010, 3, 1) for d in DAYS])
+    missing = tuple(np.where(before, a * 2.0, a) for a in broken)
+    names["BROKEN"] = _detail(missing, broken)  # type: ignore[arg-type]
+    drifting = _name_series(rng)
+    ramp = 1 + np.linspace(0.0, 0.003, N_BARS)
+    names["DRIFT"] = _detail(tuple(a * ramp for a in drifting), drifting)  # type: ignore[arg-type]
+    cfg, keys = _write_parts(tmp_path, {2010: names})
+    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    out = _outcomes(tmp_path)
+    assert out[("BROKEN", 2010)] == (nc.OUTCOME_FLAGGED, "scale_factor_split_like_1d")
+    assert out[("DRIFT", 2010)][0] == nc.OUTCOME_PASS and out[("DRIFT", 2010)][1].endswith(
+        "_listed"
+    )
+    ledger = (tmp_path / "stageC_disagreement_ledger.csv").read_text()
+    assert "BROKEN" in ledger and "level_class:split_like_level" in ledger
+
+
+def test_other_concentration_carriers_are_flagged_not_passed(tmp_path) -> None:
+    names = _clean_names(2010, 200, seed=72)
+    for i in range(30):  # 8 percent of each carrier's bars unexplained: 1.2 percent overall
+        detail = names[f"N{i}"]
+        for tf in ("1d", "5m"):
+            detail["arms"]["ibkr"][tf]["classes"] = {"other": 12}
+    cfg, keys = _write_parts(tmp_path, {2010: names})
+    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    out = _outcomes(tmp_path)
+    assert all(
+        out[(f"N{i}", 2010)] == (nc.OUTCOME_FLAGGED, "other_concentration") for i in range(30)
+    )
+    assert out[("N100", 2010)][0] == nc.OUTCOME_PASS
+    assert (
+        "N0|2010|other_concentration" in (tmp_path / "stageC_gap_list_additions.json").read_text()
+    )
+
+
+def test_a_thin_reference_era_does_not_raise_the_thresholds(
+    reference: dict[int, Era],
+) -> None:
+    thin_facts = _era(2013, 5, seed=60, natural_defects=5).facts  # every name flagged, 5 judged
+    judged = {(e, "5m"): r.facts for e, r in reference.items()}
+    base = runner.era_verdicts(dict(judged), [TARGET_ERA, *reference], None)[(TARGET_ERA, "5m")]
+    judged[(2014, "5m")] = thin_facts  # replace a reference era by a thin one with a high counter
+    thin = runner.era_verdicts(judged, [TARGET_ERA, *reference], None)[(TARGET_ERA, "5m")]
+    assert thin.thresholds["flagged_share"] <= base.thresholds["flagged_share"] or (
+        thin.thresholds["flagged_share"] == nc.COUNTER_FLOOR_SHARE
+    )
+    assert "2014" not in thin.calibration.split(",")

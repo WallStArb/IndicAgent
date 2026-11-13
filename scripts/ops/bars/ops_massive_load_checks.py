@@ -271,7 +271,7 @@ def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5d"
+LOGIC_VERSION = "2026-11-13-r5e"
 
 
 _RAW_FINGERPRINT_SQL = """
@@ -1183,6 +1183,7 @@ class ArmResult:
     dispersion: float = math.nan
     scale_class: str = ""
     n_incumbent_unknown_volume: int = 0  # incumbent bars with a NULL volume: unknown, not zero
+    break_step: float = math.nan  # step of an in-era level break that reads as a split
     lp_hist: dict[str, int] = field(default_factory=dict)  # last_print candidates by size bin
 
     def counts(self) -> nc.AgreementCounts:
@@ -1259,8 +1260,6 @@ def compare_arm(
         massive_pos=midx,
         incumbent_pos=rank[hit],
     )
-    median_log = nc.scale_check(m_ohlc[3], scale, inc_ohlc[3])
-    dispersion = nc.level_dispersion(m_ohlc[3], scale, inc_ohlc[3])
     adj_close = m_ohlc[3] / scale
     if five:  # bar-to-bar returns of consecutive matched bars (same rule as the daily one)
         consec = (midx[1:] - midx[:-1] == 1) & (rank[hit][1:] - rank[hit][:-1] == 1)
@@ -1276,7 +1275,7 @@ def compare_arm(
         counts.n_agree,
         counts.n_agree_all,
         counts.n_class,
-        median_log,
+        counts.median_log,
         corr,
         zero_volume,
         len(missing),
@@ -1285,10 +1284,13 @@ def compare_arm(
         counts.n_ret_agree,
         counts.n_intra,
         counts.n_intra_agree,
-        dispersion,
-        nc.scale_class(median_log, dispersion, counts.share, counts.ret_share),
-        unknown_volume,
-        {str(b): n for b, n in counts.lp_hist.items()},
+        counts.iqr,
+        nc.scale_class(
+            counts.median_log, counts.iqr, counts.share, counts.ret_share, counts.break_step
+        ),
+        n_incumbent_unknown_volume=unknown_volume,
+        break_step=counts.break_step,
+        lp_hist={str(b): n for b, n in counts.lp_hist.items()},
     )
 
 
@@ -1347,7 +1349,7 @@ def judged_timeframes(
     )
     if usable:
         return NameGate("", "", usable, decorrelated)
-    if "decorrelated" in states.values():
+    if decorrelated:  # a DETECTOR timeframe disagrees; otherwise thin or no detector below
         return NameGate(nc.OUTCOME_UNRESOLVED, "identity_decorrelated", (), decorrelated)
     if "thin" in states.values():
         return NameGate(nc.OUTCOME_UNRESOLVED, "identity_thin", (), ())
@@ -1414,6 +1416,15 @@ def run_name_era_batch(
         arms = ["massive", "ibkr"] + (["alpaca"] if era >= ALPACA_FIRST_DAY.year else [])
         for arm in arms:
             data[(timeframe, arm)] = fetch_bars(conn, timeframe, arm, names, start, end)
+    # every frozen split on or after the era's first session explains the era's cumulative scale;
+    # the split tapes for all of them come in one query per batch and are stored in the part
+    first_session = date(era, 1, 1)
+    after = {
+        n: [s for s in frozen.splits.get(n, []) if s.effective_date >= first_session] for n in names
+    }
+    tapes = fetch_split_tapes(
+        conn, [(n, s.effective_date) for n, splits in after.items() for s in splits]
+    )
     out: dict[str, dict[str, Any]] = {}
     for name in names:
         wait_out_nightly_window()
@@ -1470,6 +1481,12 @@ def run_name_era_batch(
                 for c in ibkr_classes.values()
             ),
             "splits_in_window": [f"{x.effective_date}:{x.factor}" for x in in_window],
+            "splits_after_era": [f"{x.effective_date}:{x.factor}" for x in after[name]],
+            "split_tapes": {
+                x.effective_date.isoformat(): tapes[(name, x.effective_date)]
+                for x in after[name]
+                if (name, x.effective_date) in tapes
+            },
             "arms": {
                 a: {tf: (asdict(r) if r else None) for tf, r in rs.items()}
                 for a, rs in results.items()
@@ -1531,8 +1548,8 @@ def run_disputed_windows(
         else:
             row.update(
                 matched=result.n_matched,
-                agree=result.n_agree,
-                share=result.n_agree / result.n_matched,
+                agree=result.n_agree_all,  # the census reads open, high, low and close
+                share=result.n_agree_all / result.n_matched,
                 median_log_ratio=result.median_log_ratio,
             )
         rows.append(row)
@@ -1589,54 +1606,66 @@ def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[int, str]
     return {e: "+".join(sorted(set(r))) for e, r in stops.items()}
 
 
-_TAPE_SQL = """
-SELECT "timestamp", close FROM ohlcv_raw
-WHERE symbol = %s AND timeframe = '1d' AND vendor = 'massive' AND kind = 'sip_flat'
-  AND "timestamp" >= %s AND "timestamp" < %s ORDER BY "timestamp"
+_TAPES_SQL = """
+SELECT t.symbol, t.eff, o."timestamp", o.close
+FROM unnest(%s::text[], %s::date[]) AS t(symbol, eff)
+JOIN ohlcv_raw o ON o.symbol = t.symbol AND o.timeframe = '1d' AND o.vendor = 'massive'
+ AND o.kind = 'sip_flat'
+ AND o."timestamp" >= ((t.eff - 10)::timestamp AT TIME ZONE 'UTC')
+ AND o."timestamp" < ((t.eff + 10)::timestamp AT TIME ZONE 'UTC')
+ORDER BY t.symbol, t.eff, o."timestamp"
 """
 
 
-def massive_split_tape(
-    conn: psycopg.Connection, symbol: str, effective: date
-) -> tuple[float, float] | None:
-    """Massive's raw (unadjusted) close on the last session on or before a split's effective date
-    and on the first session after it; None when either side is absent."""
-    start = datetime.combine(effective - timedelta(days=10), dtime(0), tzinfo=UTC)
-    end = datetime.combine(effective + timedelta(days=10), dtime(0), tzinfo=UTC)
+def fetch_split_tapes(
+    conn: psycopg.Connection, pairs: list[tuple[str, date]]
+) -> dict[tuple[str, date], list[float]]:
+    """Massive's raw (unadjusted) close on the last session on or before each split's effective
+    date and on the first session after it, for every (symbol, effective date), in ONE query.
+    A pair with either side absent is missing from the result."""
+    if not pairs:
+        return {}
     with conn.cursor() as cur:
-        cur.execute(_TAPE_SQL, (symbol, start, end))
-        rows = [(raw_session_date("massive", "sip_flat", t), float(c)) for t, c in cur.fetchall()]
-    before = [c for d, c in rows if d <= effective]
-    after = [c for d, c in rows if d > effective]
-    return (before[-1], after[0]) if before and after else None
+        cur.execute(_TAPES_SQL, ([p[0] for p in pairs], [p[1] for p in pairs]))
+        rows = cur.fetchall()
+    closes: dict[tuple[str, date], list[tuple[date, float]]] = {}
+    for symbol, effective, stamp, close in rows:
+        closes.setdefault((symbol, effective), []).append(
+            (raw_session_date("massive", "sip_flat", stamp), float(close))
+        )
+    out: dict[tuple[str, date], list[float]] = {}
+    for (symbol, effective), series in closes.items():
+        before = [c for d, c in series if d <= effective]
+        after = [c for d, c in series if d > effective]
+        if before and after:
+            out[(symbol, effective)] = [before[-1], after[0]]
+    return out
 
 
 def ledger_row(
-    conn: psycopg.Connection,
     name: str,
     era: int,
     tf: str,
     claimed: str,
-    median_log: float | None,
-    splits: list[str],
+    level_log: float | None,
+    splits_after: list[str],
+    tapes: Mapping[str, list[float]],
     session_id: str,
 ) -> dict[str, Any]:
     """One disagreement-ledger row with the two witnesses available without new data: the frozen
-    corporate-action list, and Massive's own tape step at the recorded split's date. A case with
+    corporate-action list (every split that explains the era's cumulative scale), and Massive's
+    own tape step at the cited split's date (``tapes`` comes from the name part). A case with
     neither stays unresolved; no witness is invented."""
-    window = [(s.split(":")[0], float(s.split(":")[1])) for s in splits]
+    window = [(s.split(":")[0], float(s.split(":")[1])) for s in splits_after]
     witnesses: list[nc.Witness] = []
-    frozen = None if median_log is None else nc.frozen_split_witness(math.exp(median_log), window)
+    frozen = None if level_log is None else nc.frozen_split_witness(math.exp(level_log), window)
     if frozen is not None:
         witnesses.append(frozen)
-        effective, factor = next(
-            (e, f)
-            for e, f in window
-            if frozen.citation.endswith(f"{e} x{f}")  # the split the witness cites
+        cited = next(
+            ((e, f) for e, f in window if frozen.citation.endswith(f"split {e} x{f}")), None
         )
-        tape = massive_split_tape(conn, name, date.fromisoformat(effective))
-        if tape is not None:
-            tw = nc.massive_tape_witness(tape[0], tape[1], factor, effective)
+        if cited is not None and cited[0] in tapes:  # a single split's tape; a product has none
+            tw = nc.massive_tape_witness(*tapes[cited[0]], cited[1], cited[0])
             if tw is not None:
                 witnesses.append(tw)
     row = nc.ledger_verdict(
@@ -1715,7 +1744,7 @@ def run_stage_c(
             names=len(detail),
             seconds=round(time.monotonic() - t0, 1),
         )
-    summary = assemble_stage_c(cfg, conn, mapped, unmapped, keys, session_id, archive_inputs)
+    summary = assemble_stage_c(cfg, mapped, unmapped, keys, session_id, archive_inputs)
     summary["non_split_adjustment_list"] = (
         f"supplied ({len(non_split)} rows)" if non_split_csv else "not supplied"
     )
@@ -1736,10 +1765,13 @@ def _name_facts(
         name,
         r.counts(),
         flagged=not nc.name_era_agreement_ok(r.counts()),
-        # a stable offset within 10 bp is listed, not systemic; level_drift always counts
+        # a stable offset within 10 bp is listed, not systemic; level_drift and a level break
+        # (a median that can sit near zero) always count
         level_class=(
             r.scale_class
-            if r.scale_class == nc.SCALE_LEVEL_DRIFT or abs(r.median_log_ratio) > nc.SCALE_LEVEL_TOL
+            if r.scale_class == nc.SCALE_LEVEL_DRIFT
+            or math.isfinite(r.break_step)
+            or abs(r.median_log_ratio) > nc.SCALE_LEVEL_TOL
             else ""
         ),
         median_log_ratio=r.median_log_ratio,
@@ -1764,7 +1796,12 @@ def era_verdicts(
         }
         hists = {e: [f.counts.lp_hist for f in judged.get((e, tf), [])] for e in eras}
         for era in eras:
-            ref = [e for e in ref_eras if e != era]
+            # only rows with enough judged names calibrate: a thin reference era raises nothing
+            ref = [
+                e
+                for e in ref_eras
+                if e != era and len(judged.get((e, tf), [])) >= nc.MIN_JUDGED_NAMES
+            ]
             thresholds = nc.counter_thresholds(counters[e] for e in ref)
             cap = nc.last_print_cap_bin(h for e in (ref or eras) for h in hists[e])
             verdict = nc.judge_era(
@@ -1777,7 +1814,6 @@ def era_verdicts(
 
 def assemble_stage_c(
     cfg: Config,
-    conn: psycopg.Connection,
     mapped: list[str],
     unmapped: list[str],
     keys: dict[int, dict[str, Any]],
@@ -1808,6 +1844,9 @@ def assemble_stage_c(
     ledger: list[dict[str, Any]] = []
     outcomes: dict[tuple[str, int], tuple[str, str]] = {}
     classes_total: Counter[str] = Counter()
+    carriers: dict[int, set[str]] = {}
+    for (era, _), v in verdicts.items():
+        carriers.setdefault(era, set()).update(v.other_concentration)
     for era in eras:
         one_d_unresolved = verdicts[(era, "1d")].verdict == nc.ERA_UNRESOLVED
         for name, d in sorted(parts[era]["names"].items()):
@@ -1818,6 +1857,9 @@ def assemble_stage_c(
                 one_d_unresolved=one_d_unresolved,
                 massive_hole=d["massive_hole"],
             )
+            if j.outcome == nc.OUTCOME_PASS and name in carriers.get(era, ()):
+                # rule 4, second half: a carrier of concentrated unexplained pairs is flagged
+                j = NameJudgement(nc.OUTCOME_FLAGGED, "other_concentration", j.judged)
             outcomes[(name, era)] = (j.outcome, j.reason)
             row: dict[str, Any] = {
                 "name": name,
@@ -1874,10 +1916,12 @@ def assemble_stage_c(
                         "frozen_splits_in_window": ";".join(d["splits_in_window"]),
                     }
                 )
+                step = r["break_step"]
                 ledger.append(
                     ledger_row(
-                        conn, name, era, tf, f"level_class:{cls}", r["median_log_ratio"],
-                        d["splits_in_window"], session_id,
+                        name, era, tf, f"level_class:{cls}",
+                        step if math.isfinite(step) else r["median_log_ratio"],
+                        d["splits_after_era"], d["split_tapes"], session_id,
                     )
                 )  # fmt: skip
             if j.outcome == nc.OUTCOME_FLAGGED and j.reason.startswith("price_agreement"):
@@ -1885,8 +1929,8 @@ def assemble_stage_c(
                 r = d["arms"]["ibkr"].get(tf)
                 ledger.append(
                     ledger_row(
-                        conn, name, era, tf, j.reason, r["median_log_ratio"] if r else None,
-                        d["splits_in_window"], session_id,
+                        name, era, tf, j.reason, r["median_log_ratio"] if r else None,
+                        d["splits_after_era"], d["split_tapes"], session_id,
                     )
                 )  # fmt: skip
             if d["probable_ibkr_non_split_adjustment"]:
@@ -2064,7 +2108,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
         "--session-id",
-        default="agent-a982cb955333e9a38",
+        required=True,
         help="stage C: the deciding session recorded on decided ledger rows",
     )
     parser.add_argument("--max-names", type=int, default=None, help="stage C: seeded name sample")
@@ -2156,7 +2200,7 @@ SQL_STATEMENTS: dict[str, tuple[str, tuple[Any, ...]]] = {
     "_EXCHANGE_SQL": (_EXCHANGE_SQL, ()),
     "_VOL_SQL": (_VOL_SQL, ("ibkr", "smart_trades", _PROBE_START, _PROBE_END)),
     "_BARS_SQL": (_BARS_SQL, ("1d", "massive", "sip_flat", ["A"], _PROBE_START, _PROBE_END)),
-    "_TAPE_SQL": (_TAPE_SQL, ("A", _PROBE_START, _PROBE_END)),
+    "_TAPES_SQL": (_TAPES_SQL, (["A"], [date(2010, 3, 1)])),
     "_RAW_FINGERPRINT_SQL": (_RAW_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END)),
     "_REVISION_FINGERPRINT_SQL": (_REVISION_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END)),
 }
