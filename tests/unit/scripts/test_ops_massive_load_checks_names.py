@@ -638,3 +638,14 @@ def test_a_part_write_removes_the_old_key_first_and_a_stale_part_is_refused(
     assert set(runner.all_parts(cfg, "session", key)) == {2010}
     with pytest.raises(RuntimeError, match="another key"):  # the second check: the embedded key
         runner.all_parts(cfg, "session", {**key, "seed": 9})
+
+
+def test_volume_band_parts_are_checked_against_their_per_era_key(tmp_path) -> None:
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    key = {"seed": 1, "exchange_map_sha256": "a"}
+    runner.write_part(cfg, "volume_bands", 2010, {"key": key})
+    assert set(runner.all_parts(cfg, "volume_bands", keys={2010: key})) == {2010}
+    with pytest.raises(RuntimeError, match="another key"):
+        runner.all_parts(cfg, "volume_bands", keys={2010: {**key, "exchange_map_sha256": "b"}})

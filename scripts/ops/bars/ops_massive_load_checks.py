@@ -277,16 +277,21 @@ def part_current(cfg: Config, check: str, era: int, key: Mapping[str, object]) -
 
 
 def all_parts(
-    cfg: Config, check: str, key: Mapping[str, object] | None = None
+    cfg: Config,
+    check: str,
+    key: Mapping[str, object] | None = None,
+    keys: Mapping[int, Mapping[str, object]] | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """The saved parts of the requested eras. With ``key`` (one key for every era) the key embedded
-    in each part is compared too, besides the sidecar a reuse check reads."""
+    """The saved parts of the requested eras. With ``key`` (one key for every era) or ``keys``
+    (one per era) the key embedded in each part is compared too, besides the sidecar a reuse
+    check reads."""
     out: dict[int, dict[str, Any]] = {}
     for era in cfg.eras:
         path = part_path(cfg, check, era)
         if path.exists():
             part = json.loads(path.read_text())
-            if key is not None and part.get("key") != json.loads(json.dumps(key)):
+            expected = key if key is not None else (keys or {}).get(era)
+            if expected is not None and part.get("key") != json.loads(json.dumps(expected)):
                 raise RuntimeError(f"{path} was computed under another key: rerun its stage")
             out[era] = part
     return out
@@ -996,6 +1001,17 @@ def load_exchange_map(conn: psycopg.Connection) -> ExchangeMap:
     return ExchangeMap(by_symbol, _rows_sha256(by_symbol.items()))
 
 
+def volume_key(
+    cfg: Config, fingerprint: Mapping[str, str], exchange: ExchangeMap
+) -> dict[str, object]:
+    """The identity of one era's volume-band part."""
+    return {
+        **sample_key(cfg, raw=scoped_fingerprint(fingerprint, VOLUME_SERIES)),
+        "frozen": frozen_hashes(cfg),
+        "exchange_map_sha256": exchange.sha256,
+    }
+
+
 def run_volume_bands(
     cfg: Config,
     conn: psycopg.Connection,
@@ -1008,11 +1024,7 @@ def run_volume_bands(
     volume carried to IBKR's split-adjusted basis by the FROZEN splits and the IBKR volume carried
     by the calendar-audit rescale of the same series (rule 7, the factor stage C divides IBKR
     prices by). Only sessions where both traded count; a name with none is counted unmatched."""
-    key = {
-        **sample_key(cfg, raw=scoped_fingerprint(fingerprint, VOLUME_SERIES)),
-        "frozen": frozen_hashes(cfg),
-        "exchange_map_sha256": exchange.sha256,
-    }
+    key = volume_key(cfg, fingerprint, exchange)
     if part_current(cfg, "volume_bands", era, key):
         return
     start, end = datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC)
@@ -1056,8 +1068,10 @@ def run_volume_bands(
     logger.info("era_scanned", check="volume_bands", era=era, names=sum(map(len, ratios.values())))
 
 
-def assemble_volume_bands(cfg: Config, inputs: Mapping[str, str]) -> dict[str, Any]:
-    parts = all_parts(cfg, "volume_bands")
+def assemble_volume_bands(
+    cfg: Config, inputs: Mapping[str, str], keys: Mapping[int, Mapping[str, object]]
+) -> dict[str, Any]:
+    parts = all_parts(cfg, "volume_bands", keys=keys)
     if not parts:
         raise lc.VacuousCheckError("assemble_volume_bands: no era part saved")
     cells = {(era, ex): r for era, part in parts.items() for ex, r in part["ratios"].items()}
@@ -1111,7 +1125,8 @@ def run_stage_b(
         run_day_vs_minute(cfg, archive, drawn, era)
         run_volume_bands(cfg, conn, frozen, era, fingerprints[era], exchange)
     verdict = assemble_day_vs_minute(cfg, archive.inputs)
-    vol = assemble_volume_bands(cfg, archive.inputs)
+    keys = {era: volume_key(cfg, fingerprints[era], exchange) for era in cfg.eras}
+    vol = assemble_volume_bands(cfg, archive.inputs, keys)
     return {
         "day_vs_minute_1d_kind": verdict["decision"],
         "day_vs_minute_eras_over_limit": verdict["eras_over_limit"],

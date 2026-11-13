@@ -531,7 +531,8 @@ def judge_era(
 
     ``stop``: any rule 2 counter above its threshold, or unexplained ``other`` above 0.5 percent of
     all matched pairs that more than 50 names carry (or that remains above 0.5 percent without
-    the carriers). Otherwise a raw return residual above 0.5 percent is ``unresolved`` for 1d
+    the carriers). Otherwise a raw return residual above 0.5 percent (on 1d also a capped
+    last_print share above the reference rate) is ``unresolved`` for 1d
     (rule 5, data driven) and ``ok_convention`` for 5m (rule 4, fully explained by size-capped
     classes); else ``ok``. No judged name is ``no_detector``, an explicit row, never a silent
     skip and never a pass. A stop outranks unresolved."""
@@ -567,10 +568,16 @@ def judge_era(
         if f.counts.unexplained(cap_bin) > OTHER_INVESTIGATE_MAX_SHARE * f.counts.n_matched
     ]
     carriers = tuple(sorted(f.name for f in carrier_facts))
+    over = [key for key in COUNTER_NAMES if counters.as_dict()[key] > thresholds[key]]
+    # on 1d a capped last_print above the reference rate is a which-side-is-right question (the
+    # day-file close is the official auction print): it needs a third witness, so it is the close
+    # convention (unresolved), not a stop. A real close defect lands beyond the cap as ``other``
+    # and a date shift trips time_shift_share, both of which still stop.
+    convention = timeframe == "1d" and "last_print_share" in over
     reasons: list[str] = [
         f"{key}>{thresholds[key]:.4f}"
-        for key in COUNTER_NAMES
-        if counters.as_dict()[key] > thresholds[key]
+        for key in over
+        if not (convention and key == "last_print_share")
     ]
     concentration: tuple[str, ...] = ()
     if other_share > OTHER_INVESTIGATE_MAX_SHARE:
@@ -586,7 +593,7 @@ def judge_era(
         reasons.append("empty_clean_set")
     if reasons:
         verdict = ERA_STOP
-    elif residual > OTHER_INVESTIGATE_MAX_SHARE:
+    elif convention or residual > OTHER_INVESTIGATE_MAX_SHARE:
         verdict = ERA_UNRESOLVED if timeframe == "1d" else ERA_OK_CONVENTION
         reasons.append("return_residual_explained" if timeframe != "1d" else "close_convention")
     else:

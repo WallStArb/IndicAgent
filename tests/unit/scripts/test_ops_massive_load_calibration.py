@@ -508,17 +508,42 @@ def test_a_close_convention_at_the_reference_rate_is_unresolved_for_1d_5m_alone(
     assert runner._close_convention_unresolved(out[(TARGET_ERA, "1d")])
 
 
-def test_a_convention_far_above_the_reference_rate_stops_through_its_class_counter() -> None:
-    """Explained means explained at the reference rate: the same convention where the reference
-    eras hold almost none is a systemic change and stops the era (last_print counter)."""
-    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.004) for e in REFERENCE}
-    target = _era(TARGET_ERA, 1000, seed=84, convention_share=0.30)
-    judged = {(e, "1d"): r.facts for e, r in ref_1d.items()}
-    judged[(TARGET_ERA, "1d")] = target.facts
-    out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])
-    assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_STOP
-    counters = tuple(f"{name}>" for name in nc.EXPLAINED_COUNTERS)
-    assert any(r.startswith(counters) for r in out[(TARGET_ERA, "1d")].reasons)
+def _last_print_facts(n_names: int, hit_share: float, bars: int) -> list[nc.NameFacts]:
+    """Names where ``bars`` of 150 are a capped last_print (a 20 bp close difference) on
+    ``hit_share`` of the names."""
+    out = []
+    for i in range(n_names):
+        k = bars if i < n_names * hit_share else 0
+        counts = nc.AgreementCounts(
+            150,
+            150 - k,
+            150 - k,
+            {"last_print": k} if k else {},
+            149,
+            149 - 2 * k,
+            150,
+            150,
+            {20: k} if k else {},
+        )
+        out.append(nc.NameFacts(f"L{i}", counts, 149 - 2 * k < 0.99 * 149, "", 0.0))
+    return out
+
+
+def test_a_capped_last_print_above_the_reference_rate_is_unresolved_on_1d_and_stops_on_5m() -> None:
+    """Which-side-is-right on the 1d close needs a third witness: 1d is unresolved (close
+    convention), never a stop; on 5m the same counter still stops."""
+    ref = {e: _last_print_facts(300, 0.05, 1) for e in REFERENCE}
+    target = _last_print_facts(1000, 0.6, 5)
+    for tf, verdict in (("1d", nc.ERA_UNRESOLVED), ("5m", nc.ERA_STOP)):
+        judged = {(e, tf): f for e, f in ref.items()} | {(TARGET_ERA, tf): target}
+        out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])[(TARGET_ERA, tf)]
+        assert out.verdict == verdict, (tf, out)
+        assert out.counters.last_print_share > out.thresholds["last_print_share"]
+    one_d = runner.era_verdicts(
+        {(e, "1d"): f for e, f in ref.items()} | {(TARGET_ERA, "1d"): target},
+        [TARGET_ERA, *REFERENCE],
+    )[(TARGET_ERA, "1d")]
+    assert "close_convention" in one_d.reasons
 
 
 def test_a_whole_era_one_session_shift_on_the_1d_file_stops() -> None:
