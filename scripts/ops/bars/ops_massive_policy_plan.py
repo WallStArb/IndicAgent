@@ -63,7 +63,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,7 @@ import asyncpg  # noqa: E402
 
 from scripts.ops.bars.ops_source_policy import parse_plan, read_raw_fingerprint  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 from src.intelligence.bars.vendor_arbitration import SEAM as ALPACA_SEAM  # noqa: E402
 
@@ -134,7 +135,7 @@ MASSIVE, INCUMBENT = "massive", "incumbent"
 STOP = "stop"
 CLOSE_DEFINITION = "close_definition_witnessed"
 LOAD_CHECK_FILES = ("summary.json", "stageC_stop_eras.json", "stageC_era_tables.csv")
-DEFAULT_MANIFEST = Path("data/massive/manifest/manifest.jsonl")
+DEFAULT_MANIFEST = project_root / "data/massive/manifest/manifest.jsonl"
 #: (timeframe or "*", verdict, reason or "*") -> the source of that (era, timeframe). First match
 #: wins, the most specific rows first; an unlisted combination refuses. Declared in the runbook
 #: (A2 amendment 2026-11-13). `unresolved` 1d: a witnessed close definition takes Massive (one
@@ -150,8 +151,10 @@ VERDICT_SOURCE: tuple[tuple[str, str, str, str], ...] = (
     ("*", "ok_convention", "*", MASSIVE),
     ("*", "no_detector", "*", MASSIVE),
 )
-#: The raw kind of each incumbent arm (the 8a runner's ARM_KINDS): the ``--incoming`` series of a
-#: seam witness at the archive start or end, where Massive has no reference on one side.
+#: The raw kind of each incumbent arm, a copy of the 8a runner's ``ARM_KINDS`` (on
+#: massive-8a-load-checks until it lands; ``vendor_kind`` has no raw-arm table: its 1d IBKR kind
+#: is ``named``, the arm is ``smart_trades``): the ``--incoming`` series of a seam witness at the
+#: archive start or end, where Massive has no reference on one side.
 INCUMBENT_KIND = {
     ("1d", "ibkr"): "smart_trades",
     ("1d", "alpaca"): "sip_rth",
@@ -161,9 +164,11 @@ INCUMBENT_KIND = {
 
 
 def source_of(timeframe: str, verdict: str, reasons: Sequence[str]) -> str:
-    """The source table lookup (``VERDICT_SOURCE``)."""
+    """The source table lookup (``VERDICT_SOURCE``). A rule naming a reason matches only a row
+    whose reasons are exactly that one: a second reason beside a benign one refuses."""
     for tf, v, reason, source in VERDICT_SOURCE:
-        if tf in ("*", timeframe) and v == verdict and (reason == "*" or reason in reasons):
+        exact = reason == "*" or list(reasons) == [reason]
+        if tf in ("*", timeframe) and v == verdict and exact:
             return source
     raise ValueError(f"no source rule for {timeframe} verdict {verdict!r} reasons {list(reasons)}")
 
@@ -220,10 +225,19 @@ def read_load_checks(
     if (summary.get("inputs") or {}).get("manifest.jsonl") != manifest_sha:
         raise ValueError(f"{out_dir}: the run hashed another manifest than {manifest}")
     last_day = manifest_last_day(manifest_bytes)
-    if archive_end <= last_day:
+    first_after = min(nyse_sessions(last_day + timedelta(days=1), last_day + timedelta(days=15)))
+    if archive_end != first_after:
         raise ValueError(
-            f"archive end {archive_end} is not after the manifest's last day {last_day}"
+            f"archive end {archive_end} is not the first session {first_after} after the "
+            f"manifest's last day {last_day}"
         )
+    systemic = sorted(
+        k
+        for k, v in (summary.get("systemic_verdicts") or {}).items()
+        if v == STOP and k.startswith(("stage_a.", "stage_b."))
+    )
+    if systemic:
+        raise ValueError(f"{out_dir}: stage A or B systemic stop {systemic}: abort (runbook A2)")
     want = tuple(range(ARCHIVE_FIRST_ERA, last_day.year + 1))
     stage_c = summary.get("stage_c") or {}
     if tuple(summary.get("eras", ())) != want or tuple(stage_c.get("eras", ())) != want:
@@ -294,6 +308,8 @@ def era_spans(
             continue
         src = checks.source[(era, timeframe)]
         src = MASSIVE if src == MASSIVE else _incumbent_primary(start)
+        if src != MASSIVE and start < ALPACA_SEAM < stop:
+            raise ValueError(f"era {era} straddles the Alpaca seam: its incumbent is ambiguous")
         if merged and merged[-1][2] == src and merged[-1][1] == start:
             merged[-1] = (merged[-1][0], stop, src)
         else:
@@ -375,6 +391,8 @@ def defaults_for(
     ]
     rows = [*head, *middle]
     if stage == 2:
+        if middle[-1]["primary"] == "alpaca":  # a stopped last era runs on into the open tail
+            return [*rows[:-1], {**middle[-1], "valid_to": None}]
         return [*rows, {"valid_from": end.isoformat(), "valid_to": None, "primary": "alpaca"}]
     open_rows = [r for r in live_defaults if r.valid_to is None]
     if len(open_rows) != 1 or open_rows[0].valid_from != ALPACA_SEAM:
@@ -679,10 +697,10 @@ async def _main(args: argparse.Namespace) -> int:
         await conn.close()
     parse_plan(plan)  # the writer's own validation, before anyone reviews the file
     out.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
-    if plan.get("seam_edges"):  # the Part D seam witness list, one row per span edge
+    if not args.restore:  # the Part D seam witness list, one row per span edge, always rewritten
         edges = out.with_suffix(".seams.csv")
-        with edges.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, SEAM_EDGE_FIELDS)
+        with edges.open("w", newline="") as handle:  # \n: the runbook loop reads it with `read`
+            writer = csv.DictWriter(handle, SEAM_EDGE_FIELDS, lineterminator="\n")
             writer.writeheader()
             writer.writerows(plan["seam_edges"])
         print(f"seam edges for ops_seam_witness: {len(plan['seam_edges'])}; wrote {edges}")

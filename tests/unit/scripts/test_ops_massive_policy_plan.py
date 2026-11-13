@@ -420,7 +420,11 @@ def test_the_source_table_maps_unresolved_close_definition_to_massive_and_the_re
     assert s("5m", "no_detector", ["no_judged_names"]) == "massive"
     assert s("5m", "unresolved", ["thin_era"]) == "massive"
     assert s("5m", "ok_convention", []) == "massive"
-    for verdict, reasons in (("unresolved", ["something_new"]), ("stop", ["x"])):
+    for verdict, reasons in (
+        ("unresolved", ["something_new"]),
+        ("stop", ["x"]),
+        ("unresolved", ["thin_era", "price_level"]),  # a benign reason never hides another
+    ):
         with pytest.raises(ValueError, match="no source rule"):
             s("5m", verdict, reasons)  # a stop is the stop set's, never the table's
 
@@ -485,8 +489,9 @@ def test_the_eras_come_from_the_manifest_the_run_hashed(tmp_path):
     with pytest.raises(ValueError, match="another manifest"):
         mod.read_load_checks(out, manifest)
     out, manifest = _out_dir(tmp_path)
-    with pytest.raises(ValueError, match="not after the manifest's last day"):
-        mod.read_load_checks(out, manifest, date(2026, 11, 9))
+    for wrong in (date(2026, 11, 9), date(2026, 12, 1)):  # before it, or past Massive's data
+        with pytest.raises(ValueError, match="not the first session"):
+            mod.read_load_checks(out, manifest, wrong)
     assert mod.manifest_last_day(
         "".join(json.dumps(r) + "\n" for r in MANIFEST_LINES).encode()
     ) == date(2026, 11, 9)
@@ -527,7 +532,14 @@ def test_an_unknown_timeframe_key_or_an_era_outside_the_archive_refuses(tmp_path
 
 @pytest.mark.parametrize(
     "stops",
-    [[], [(2003, "1d")], [(e, "1d") for e in range(2008, 2014)], [(2015, "1d")], [(2016, "1d")]],
+    [
+        [],
+        [(2003, "1d")],
+        [(e, "1d") for e in range(2008, 2014)],
+        [(2015, "1d")],
+        [(2016, "1d")],
+        [(2026, "1d")],
+    ],
 )
 @pytest.mark.parametrize("stage", [1, 2])
 def test_the_default_count_follows_from_the_seam_edges(tmp_path, stage, stops):
@@ -536,3 +548,21 @@ def test_the_default_count_follows_from_the_seam_edges(tmp_path, stage, stops):
     head_stopped = (2003, "1d") in stops
     assert len(plan["defaults"]) == len(plan["seam_edges"]) + 1 + head_stopped
     parse_plan({**plan, "raw_fingerprint": _FP})
+
+
+def test_stage2_a_stopped_last_era_runs_on_into_the_open_alpaca_tail(tmp_path):
+    plan = _plan_with(tmp_path, "1d", stage=2, stops=[(2026, "1d")])
+    assert _spans(plan)[1:] == [
+        ("2003-09-10", "2026-01-01", "massive"),
+        ("2026-01-01", None, "alpaca"),
+    ]
+    assert _edges(plan)[-1] == ("2026-01-01", "massive", "alpaca", "canonical")
+
+
+def test_a_stage_a_or_b_systemic_stop_refuses_the_plan(tmp_path):
+    out, manifest = _out_dir(tmp_path)
+    summary = json.loads((out / "summary.json").read_text())
+    summary["systemic_verdicts"] = {"stage_c.price": "stop", "stage_a.units": "stop"}
+    (out / "summary.json").write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match=r"systemic stop \['stage_a.units'\]"):
+        mod.read_load_checks(out, manifest)
