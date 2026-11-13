@@ -6,7 +6,7 @@ Domain code: pure functions over arrays, state at the edges. Ring rule, naming a
 
 | Package | What it is |
 |---|---|
-| `bars/` | Pure bar-integrity modules (scrub rules, seam detection, the daily rule (`daily_rule.py`, d2-v4 in code; stored canonical 1d is d2-v3), canonical selection from `ohlcv_raw`, verdict gate, D0 labels, gap planning, session grids, the vendor-ingress seam). |
+| `bars/` | Pure bar-integrity modules (scrub rules, seam detection, the daily rule (`daily_rule.py`, d2-v6 in code; the stored 1d body predates it until the step 7 rebuild), canonical selection from `ohlcv_raw`, verdict gate, D0 labels, gap planning, session grids, the vendor-ingress seam). |
 | `research/` | The research DAG (S0 snapshot to S8 book test), runner, panel kernel (`panel.forward_returns`), spec. Edits here require `repro_frozen` to report bit-identical. |
 | `statistics/` | Test statistics, StepM and the shared numeric kernels. Same `repro_frozen` rule. |
 | `measure/` | The fresh IC engine's three jobs as pure functions: proposer, IC term structure, member monitoring. |

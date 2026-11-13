@@ -60,7 +60,7 @@ Per-timeframe limits: `infra.ibkr.rate_limit_max_requests_by_tf` (migration 375,
 2. Backfill: `ohlcv_history_fetcher.py --dimension backfill --timeframes 1d --symbols <list>` (the only IBKR history CLI; it takes FetcherLock, and named symbols are asked even when current).
 3. Promote: `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit` (reads the bar_integrity verdict gate since plan 185-41; see the onboarding SOP).
 
-**Listing-venue moves (todo 433):** SMART history starts at a stock's last primary-venue move. The same conId routed to `NYSE`/`ARCA`/`ISLAND`/`AMEX`/`BATS` serves earlier years with venue-only volume; only the listing venue's closes are official (it carries the most volume). Error 162 "Query failed" is the marker, logged as `ibkr.hist_query_failed`.
+**Listing-venue moves (todo 433, closed 2026-11-13 as superseded by the IBKR removal; matters only if an IBKR backfill runs before Part F):** SMART history starts at a stock's last primary-venue move. The same conId routed to `NYSE`/`ARCA`/`ISLAND`/`AMEX`/`BATS` serves earlier years with venue-only volume; only the listing venue's closes are official (it carries the most volume). Error 162 "Query failed" is the marker, logged as `ibkr.hist_query_failed`.
 
 ### Troubleshooting
 - **IB Gateway connection refused**: IB Gateway runs locally via Docker (`ib-gateway` container, `localhost:7497`). If connection fails, check the container is running (`docker ps | grep ib-gateway`) and that the API is enabled inside the gateway UI (VNC on `:5900`).
