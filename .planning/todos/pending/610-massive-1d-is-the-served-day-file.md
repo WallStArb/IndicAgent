@@ -21,6 +21,21 @@ Consequence: no new 1d build; step 7 uses the loaded day-file 1d raw rows; this 
 
 In 2003 to 2007 the day file disagrees with IBKR 1d at 44 to 50 percent on returns while the RTH-built 1d agrees at 94 to 96 percent in 2006 and 2007, so either IBKR's early close convention or Polygon's early day close differs. It needs a third witness (an exchange-official close source) before those eras feed a daily test; the 8a runner reports them as unresolved, never pass or stop, and they do not block 2008 onward. Until settled, daily tests that cross the 2007/2008 seam must not read cross-era returns from the pre-2008 span.
 
+## Measured 2026-11-13 (lead, after the r5h 8a run): the pre-2008 dispute is a close definition
+
+120 seeded names per year, share of days where IBKR smart_trades 1d close equals (within 2 bp of the name's median log ratio) the Massive day-file close, and where it equals the close of Massive's last regular-hours 5m bar (15:55 ET, `sip_flat_agg`):
+
+| Year | IBKR = day-file close | IBKR = last RTH 5m close | day file = last RTH 5m |
+|---|---|---|---|
+| 2006 | 0.307 | 0.808 | 0.338 |
+| 2010 | 0.903 | 0.336 | 0.350 |
+| 2013 | 0.937 | 0.448 | 0.475 |
+| 2018 | 0.987 | 0.591 | 0.598 |
+
+Before about 2008 IBKR's daily close is the last regular-hours trade; from about 2008 it is the official close, which the Massive day file carries in every era. Massive's minute files (a separate product) witness IBKR's early print. Opens agree at the same rate across eras (2006: 82 percent within 2 bp, against 83 to 93 percent in 2010 to 2020), so the dispute is the close field only. IBKR `venue_*` 1d bars are not a usable witness (a per-venue aggregate; they disagree with both sides even in 2018).
+
+Lead ruling 2026-11-13: 2004 to 2007 1d is a close-definition difference, not a defect on either side. The served 1d keeps one definition across the whole span (the official close of the day file); taking IBKR before 2008 would put a definition seam at 2008. The 8a runner gets a definition-witness test (declared in the design doc before code, disclosed as written after the r5h results). 2008 to 2013 is separate: a 6 to 10 percent residual the last-trade convention does not explain; its 1d stop stands until diagnosed.
+
 ## Gates
 
 Per-era close-convention table in the 8a runner (informational); the 2003 to 2007 eras reported as unresolved with the candidate witnesses named; a decision recorded here before any daily test reads 2003 to 2007.
