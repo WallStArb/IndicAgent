@@ -311,45 +311,13 @@ D5. Restart the quiet list (A10, reversed; the compression auditor too), the Alp
 
 D6. Docs (design section 9, the step 7a commit) land after D1 to D4 pass, with B4's accepted-loss lists in the evidence and the data adjacency register.
 
-## Part F: IBKR raw export, verify, delete; IBKR retired (after Part D passes)
+## Part F: IBKR raw delete; IBKR retired (after Part D passes)
 
-Written, not executed. The order is the owner's: step 7's checks pass, then export and restore-verify, then delete, then retire code, gateway and docs. Raw stays in the database until here as the rollback. IBKR raw held 365.4M rows on 2026-11-13 (5m 224.7M, 15m 94.0M, 1h 25.4M, 1m 9.78M, 1d 11.48M across smart_trades, smart_adjusted and five venue kinds), plus its `ohlcv_revision` rows (1d 4.51M, 5m 78k, 15m, 1h and 4h a few thousand).
+Written, not executed. The order is the owner's: step 7's checks pass, then delete, then retire code, gateway and docs. Raw stays in the database until here as the rollback. IBKR raw held 365.4M rows on 2026-11-13 (5m 224.7M, 15m 94.0M, 1h 25.4M, 1m 9.78M, 1d 11.48M across smart_trades, smart_adjusted and five venue kinds), plus its `ohlcv_revision` rows (1d 4.51M, 5m 78k, 15m, 1h and 4h a few thousand).
 
-F1. Export, one compressed dump per table slice, under one directory:
+F1, F2 (dropped). Owner ruling 2026-11-13: IBKR raw is not worth keeping, so there is no export, restore check or dump retention. The delete below is the only step, and it waits for Part D because the D1 card, the B4 expected counts, the A11 witness and the seam canaries read IBKR raw as evidence.
 
-```bash
-BK=data/backups/ibkr-raw-2026-11
-RET_UNTIL=$(date -d "+30 days" +%F)   # recorded in the manifest; required by --dump
-$PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
-  --table 'ohlcv_raw:timestamp:timestamptz' --where "vendor = 'ibkr'" --retention-until "$RET_UNTIL"
-$PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
-  --table 'ohlcv_revision:timestamp:timestamptz' --where "vendor = 'ibkr'" --retention-until "$RET_UNTIL"
-$PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
-  --table 'ohlcv_raw:timestamp:timestamptz' --where "vendor = 'ibkr'"
-$PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
-  --table 'ohlcv_revision:timestamp:timestamptz' --where "vendor = 'ibkr'"
-```
-Gate: both `--verify` runs exit 0 (live recount and sha256 per year slice). The dump refuses below its disk margin.
-
-F2. Restore into a scratch schema and compare, per (kind, timeframe), the row count and a content digest of the restored rows against the live rows:
-
-```bash
-$PSQL -c "CREATE SCHEMA ibkr_restore_check; CREATE TABLE ibkr_restore_check.ohlcv_raw (LIKE public.ohlcv_raw);"
-for f in "$BK"/ohlcv_raw_*.csv.gz; do
-  zcat "$f" | $PSQL -c "\copy ibkr_restore_check.ohlcv_raw FROM STDIN WITH (FORMAT csv, HEADER true)"
-done
-DIGEST="SELECT kind, timeframe, count(*), sum(('x' || left(md5(concat_ws('|', symbol,
-  (extract(epoch FROM \"timestamp\") * 1000000)::bigint, float8send(open), float8send(high),
-  float8send(low), float8send(close), coalesce(volume::text, 'null'))), 15))::bit(60)::bigint)
-  FROM %s WHERE vendor = 'ibkr' GROUP BY 1, 2 ORDER BY 1, 2"
-$PSQL -At -c "$(printf "$DIGEST" public.ohlcv_raw)" > "$OUT/ibkr_live_digest.txt"
-$PSQL -At -c "$(printf "$DIGEST" ibkr_restore_check.ohlcv_raw)" > "$OUT/ibkr_restored_digest.txt"
-diff "$OUT/ibkr_live_digest.txt" "$OUT/ibkr_restored_digest.txt"
-```
-The same for `ohlcv_revision` (its own scratch table and digest over its columns). Gate: `diff` prints nothing for both tables. Then `DROP SCHEMA ibkr_restore_check CASCADE`.
-Abort: any difference; the dump is not trusted, nothing is deleted.
-
-F3. Delete IBKR raw. `ohlcv_raw` is a compressed hypertable: a row-level DELETE decompresses chunks and leaves bloat, so the delete is its own reviewed migration (decompress the affected chunks, DELETE `WHERE vendor = 'ibkr'`, recompress, and end with a bare `VACUUM ohlcv_raw;`, the CLAUDE.md rule from the migration 312 incident; template `docs/foundation/timescaledb-compressed-column-migration.md`), plus `DELETE FROM ohlcv_revision WHERE vendor = 'ibkr'`. The raw last-wins law (528) keeps every vendor answer; this deletion is the owner's explicit exception, recorded with the dump's manifest sha256 in the migration's comment and in the methodology change ledger. Gate: `SELECT count(*) FROM ohlcv_raw WHERE vendor = 'ibkr'` returns 0, the D1 card recomputed after the delete equals `card_after` (canonical does not change), and `ops_selection_gate --compare` still meets the B3 criteria.
+F3. Delete IBKR raw (no export). `ohlcv_raw` is a compressed hypertable: a row-level DELETE decompresses chunks and leaves bloat, so the delete is its own reviewed migration (decompress the affected chunks, DELETE `WHERE vendor = 'ibkr'`, recompress, and end with a bare `VACUUM ohlcv_raw;`, the CLAUDE.md rule from the migration 312 incident; template `docs/foundation/timescaledb-compressed-column-migration.md`), plus `DELETE FROM ohlcv_revision WHERE vendor = 'ibkr'`. The raw last-wins law (528) keeps every vendor answer; this deletion is the owner's explicit exception, recorded with the dump's manifest sha256 in the migration's comment and in the methodology change ledger. Gate: `SELECT count(*) FROM ohlcv_raw WHERE vendor = 'ibkr'` returns 0, the D1 card recomputed after the delete equals `card_after` (canonical does not change), and `ops_selection_gate --compare` still meets the B3 criteria.
 
 F4. Removal list (each its own reviewed commit, after F3; a repo-wide grep before deleting any shared helper):
 
@@ -376,7 +344,6 @@ Measured inputs (2026-11-10 to 13): canonical 5m 415.7M rows, 1d 7.27M, 1m 9.78M
 | C7 grid | 2.5 to 3.5 h | 140M to 180M rows at the measured 16.7k rows/s |
 | C8 finish | 30 to 60 min | unmeasured |
 | D card, verify, compare, witness, D7 | 2.5 to 3 h | measured compare rate; D7 unmeasured |
-| F1 to F2 export and restore check | 4 to 8 h | 365M rows, unmeasured |
 
 Step 7 end to end: about 14 to 20 hours of wall time, 10 to 14 of them with canonical empty or partial. Start it in a morning so the paused nightlies are the only scheduled losses. Disk: TRUNCATE frees about 21 GB; budget 80 GB of headroom for the rebuild and the F1 dump's own files (estimate 30 to 50 GB).
 
@@ -399,9 +366,8 @@ Each row: what can fail silently, how it is caught, and the abort or rollback. R
 | 11 | d2-v6 misreads the moved `alpaca_era_start` or a no-fallback gap row | A8 unit test | fix the rule before step 7 |
 | 12 | The byte-exact gap-row check passes with the Massive code paths broken | D3 canary, A6 unit canaries, D7 `split_horizon_fresh` | stop; fix the rescale path, rerun C5 to D |
 | 13 | An order-independent card digest collides | counts compared beside the digest; the selection gate compares 5m rows exactly | none practical |
-| 14 | The IBKR dump is incomplete or corrupt and raw is deleted | F1 `--verify`, F2 restore and per-(kind, timeframe) digest compare before F3 | nothing is deleted until F2 passes |
 | 15 | The 5m rebuild runs far longer than estimated | C5 projection rule | resume is safe; consumers stay stopped until D passes |
-| 16 | A disk floor is crossed mid-rebuild or mid-dump | the driver's APR floor; the dump's disk margin | stop, free space, resume |
+| 16 | A disk floor is crossed mid-rebuild | the driver's APR floor | stop, free space, resume |
 | 17 | A split recorded before it executes divides Massive 1d at once under d2-v6 while 5m waits | C3 refuses while any such row exists | align d2-v6 with `splits_known_at` before any recapture applies future rows |
 | 18 | The compression job compresses a chunk the rebuild is still filling | C3 unschedules job 1078; the driver compresses a window only after it is filled | C8 reschedules, and K on every abort path |
 
