@@ -269,7 +269,7 @@ the job with status `failure`. Change the list through `config_state` with a `co
 systemctl list-units --all | grep indicagent
 
 # Single service status
-systemctl status indicagent-intelligence-pipeline
+systemctl status indicagent-feature-vector-pipeline
 
 # Start/stop/restart
 sudo systemctl start indicagent-<service>
@@ -579,10 +579,10 @@ journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar em
 journalctl -u indicagent-provider-merger --since "2 minutes ago" | grep "routed"
 
 # 3. Check pipeline processing
-journalctl -u indicagent-intelligence-pipeline --since "2 minutes ago" | grep "bars processed"
+journalctl -u indicagent-feature-vector-pipeline --since "2 minutes ago" | grep "bars processed"
 
 # 4. Check writer persisting
-journalctl -u indicagent-feature-writer --since "2 minutes ago" | grep "batch written"
+journalctl -u indicagent-feature-vector-writer --since "2 minutes ago" | grep "batch written"
 ```
 
 ### High Consumer Lag
