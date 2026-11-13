@@ -326,6 +326,7 @@ COPILOT.md
 .planning/agent-history.json
 .planning/HANDOFF.json
 .planning/.continue-here*.md
+.planning/tmp/
 .worktrees/
 
 # Playwright MCP working directory (screenshots, YAMLs, console logs)
