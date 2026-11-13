@@ -44,7 +44,7 @@ Step 7 and the 8a checks pass first (stage 1 is the data gate; this does not jum
 
 ## Preregistration draft (2026-11-13)
 
-`docs/plans/2026-11-13-stage2-universe-preregistration.md` (DRAFT until the owner adopts it). Owner 2026-11-13: "we will expand the universe". Changes from the ruling above: identity is Massive's entity map only (IBKR removed), and the rule values are research-design constants in the preregistration and the spec hash, not APR keys.
+`docs/plans/2026-11-13-stage2-universe-preregistration.md` (ADOPTED by the owner 2026-11-13: $1M in, $0.5M out, about 4,150 members a day; stocks, ADRs and ETFs; core panel 90 percent). Owner 2026-11-13: "we will expand the universe". Changes from the ruling above: identity is Massive's entity map only (IBKR removed), and the rule values are research-design constants in the preregistration and the spec hash, not APR keys.
 
 ## Next step
 

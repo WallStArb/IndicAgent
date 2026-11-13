@@ -3,7 +3,7 @@
 Author: lead session indicagent-d0, 2026-11-13
 Informed by: todo 609 (sizing measured 2026-11-12 on 50.2M day-file rows, owner agreed), owner ruling 2026-11-13 (IBKR removed; Massive is the identity and price source), `docs/plans/2026-11-10-massive-admission-db-design.md` sections 8b and 11, evidence rules E15 to E18 and E21.
 
-Status: DRAFT, frozen on owner adoption. Nothing below may change after any return-based look at the universe; a change after adoption is a dated amendment, counted as a design choice under E18.
+Status: ADOPTED by the owner 2026-11-13 (floor $1M in and $0.5M out; types common stock, ADR and ETF; core panel at 90 percent of month-ends). Frozen: nothing below changes after any return-based look at the universe; a change is a dated amendment, counted as a design choice under E18.
 
 ## Why
 
