@@ -7,7 +7,9 @@ Status: DRAFT, frozen on owner adoption. Nothing below may change after any retu
 
 ## Why
 
-Breadth (more independent bets per date) and a survivorship-free sample are the two largest levers on finding a statistically significant edge. Today's research universe is 1,529 current names, which is survivors only. The Massive archive holds about 36,700 tickers from 2003-09-10, including every dead and merged name. A point-in-time rule over that archive gives about 2,000 to 2,600 members a day, with delisted names present while they qualified.
+Breadth (more independent bets per date) and a survivorship-free sample are the two largest levers on finding a statistically significant edge. Today's research universe is 1,529 current names, which is survivors only. The Massive archive holds about 36,700 tickers from 2003-09-10, including every dead and merged name. A point-in-time rule over that archive gives about 4,150 members at a typical month-end (2,950 to 6,040), about 16,000 securities over the archive, with delisted names present while they qualified.
+
+The research universe and the tradable set are separate questions (owner 2026-11-13: "there should be more of a universe than 2000"). The universe is where signals are learned, so it is wide; capacity and cost decide what is traded, at promotion (positive net expectation), never inside the universe. A $1M median daily dollar volume name still takes a $25k position at 2.5 percent of daily volume.
 
 ## The rule (preregistered values)
 
@@ -16,8 +18,8 @@ Membership is decided at each month-end t, effective for the following month, fr
 | Element | Value | Note |
 |---|---|---|
 | Security type | common stock or ETF, from Massive reference types (captured, never live) | ADRs of operating companies count as common stock; preferreds, warrants, units, rights, ETNs and closed-end funds are out |
-| Liquidity | trailing 60-session median of close x volume at or above $10M to enter | measured: about 2,026 members at a typical month-end (1,033 to 3,454) |
-| Hysteresis | a member leaves only below $5M (half the entry floor) | keeps N and the cross-section stable |
+| Liquidity | trailing 60-session median of close x volume at or above $1M to enter (owner 2026-11-13) | measured 2026-11-12: about 4,154 members at a typical month-end (2,947 to 6,041), 16,045 securities ever |
+| Hysteresis | a member leaves only below $0.5M (half the entry floor) | keeps N and the cross-section stable |
 | Price | close at or above $1 on t | |
 | History | at least 60 sessions of the security's own bars before t | |
 | Identity | one security = one entity-map identifier (FIGI); a reused ticker is two securities | spans the map cannot place are not members on those dates |
