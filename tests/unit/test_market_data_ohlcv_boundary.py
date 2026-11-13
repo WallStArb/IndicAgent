@@ -66,6 +66,10 @@ _ALLOW_LIST: dict[str, str] = {
         "todo 600 step 7: the pre-drop card counts and digests every canonical row, "
         "placeholders included, so the rebuild is compared row for row"
     ),
+    "scripts/ops/bars/ops_massive_switch_delta.py": (
+        "todo 600 step 7: the expected delta must match the card, which counts every canonical "
+        "row, placeholders included; the tradeable view would hide the zero-volume slots it counts"
+    ),
     "scripts/ops/bars/ops_selection_gate.py": (
         "PERMANENT: standing proof that canonical is a pure function of raw plus policy (191-07). "
         "It compares every canonical vendor row, zero-volume provider bars included, with the "

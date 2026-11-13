@@ -1,33 +1,46 @@
-# Massive admission step 7: canonical drop and one-pass rebuild
+# Massive admission step 7: canonical drop and one-pass rebuild without IBKR
 
-Author: session for the lead (indicagent-32), 2026-11-11
-Status: prepared, not executed. Every command below is ordered; each carries its gate (what must be true to go on) and its abort rule. Nothing here deletes raw data; the deletion list is a separate, Opus-reviewed document this runbook only feeds.
-Informed by: `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 5, 8 step 7 and its amendments, 8a, 8b), `docs/plans/2026-11-10-massive-admission-refinement-review.md` (F2, F4, F14), `docs/plans/2026-11-11-bulk-raw-load-path-design.md` (section 6, the step 5 gate), `docs/plans/2026-11-11-split-horizon-fresh-check.md`, `.planning/todos/pending/608-massive-step4-split-findings-for-review.md`, `scripts/ops/bars/{ops_source_policy,ops_selection_gate}.py`, `services/{bar_selection,bar_derivation}.py`, `src/intelligence/bars/{daily_rule,split_rescale}.py`, read-only measurements on the live DB (2026-11-11).
+Author: session for the lead (indicagent-32), 2026-11-11; rewritten 2026-11-13 for the owner rulings (worker session for lead indicagent-d0)
+Status: prepared, not executed. Every command below is ordered; each carries its gate (what must be true to go on) and its abort rule. Parts A to D never touch raw. Part F (export, verify, then delete IBKR raw; retire IBKR) is written here and runs only after Part D passes.
+Informed by: the owner rulings of 2026-11-13 in `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md` ("IBKR is removed entirely"; then "use Massive for every date it has"), `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 5, 8, 8b, 8c), `docs/plans/2026-11-10-massive-admission-refinement-review.md` (F2, F4, F14), `docs/plans/2026-11-11-split-horizon-fresh-check.md`, `scripts/ops/bars/{ops_source_policy,ops_selection_gate,ops_massive_policy_plan,ops_massive_switch_delta,ops_identity_witness}.py`, read-only measurements on the live DB (2026-11-11 and 2026-11-13).
 
 ## What step 7 does
 
-Canonical `market_data_ohlcv` is a pure function of raw, policy and the pinned split horizon. Step 7 switches the policy to Massive and rebuilds canonical from raw in one pass: TRUNCATE, then every timeframe rebuilt by its own writer (5m and 1m by selection, 1d by the daily stage, 15m and 1h by the grid stage). `ohlcv_raw` is never touched.
+Canonical `market_data_ohlcv` is a pure function of raw, policy and the pinned split horizon. Step 7 switches the policy and rebuilds canonical from raw in one pass: TRUNCATE, then every timeframe rebuilt by its own writer (5m by selection, 1d by the daily stage, 15m and 1h by the grid stage). `ohlcv_raw` is not touched until Part F.
 
-Two policy stages, in order (design 8b):
+One stage. The policy (`ops_massive_policy_plan.py --switch`, one plan per timeframe):
 
-| Stage | 5m and 1d defaults | Gap-list names | Checked by |
-|---|---|---|---|
-| 1 | IBKR before 2003-09-10; Massive 2003-09-10 to 2016-01-04, no fallback; the live Alpaca default (fallback IBKR) from 2016-01-04, unchanged | IBKR symbol rows over their gap spans before 2016-01-04 | post-2016 canonical reproduced byte for byte; the 2016-01-04 seam witness |
-| 2 | IBKR before 2003-09-10; Massive 2003-09-10 to 2026-11-10, no fallback; Alpaca, no fallback, after | IBKR before 2016-01-04; Alpaca from 2016-01-04; names no vendor kind serves (futures, fx) keep IBKR | pre-2016 canonical reproduced byte for byte from stage 1; the archive-end seam witness; per-year compares |
+| Timeframe | Defaults | Symbol rows |
+|---|---|---|
+| 5m, 1d | Massive [1990-01-01, archive end), Alpaca [archive end, open); no fallback anywhere | Alpaca, no fallback, over each identity gap-list span clipped to [2016-01-04, archive end) |
+| 1m, 4h | Massive [1990-01-01, open) | none |
+| 15m, 1h | derived, unchanged | none |
 
-The 2003-09-10 boundary is a refinement of the design text ("Massive primary before 2016-01-04"): canonical 1d holds IBKR history back to 1998-12, before Massive's first file. A Massive default from 1990 with no fallback would drop it. 5m has no bar before 2006, so the boundary changes nothing there; it is kept for one shape across timeframes.
+The archive end is the first NYSE session after the manifest's last file day (2026-11-10 today), computed by `archive_end_of`, the one helper the plan and the delta script share. Massive holds no bar before its first file (2003-09-10) and no 1m or 4h bar, so those slots select nothing and leave canonical by construction. The Massive default still starts at 1990-01-01 because selection raises on a slot no policy row covers (`rank_vendors`, `resolve_policy`) and IBKR raw stays in the database through the rebuild: a policy that left the pre-2003 span uncovered would crash the rebuild, where this one keeps selection loud on a real coverage hole. Every live IBKR default and symbol row is retired; no row with IBKR as primary or fallback stays live (`ibkr_rows(plan)` is empty, and the builder refuses otherwise).
 
-## Tools (this branch)
+What leaves canonical, accepted by ruling (2026-11-13), each listed in the evidence and the data adjacency register:
+
+- every slot before 2003-09-10 (1d: 643,922 rows, IBKR, 703 names; survivors only and on IBKR's pre-2008 close definition);
+- canonical 1m (9,775,958 IBKR rows, 2026-03-23 to 2026-10-01; nothing in research reads 1m, Massive's minute files stay on disk as the archive);
+- gap-list spans before 2016-01-04 that the identity witness (A11) does not place, and IBKR slots inside gap spans from 2016-01-04 (the gap rows carry no fallback);
+- `predecessor_history`: bars an incumbent served under today's ticker before the security existed (SPAC shells, merged-away predecessors; 34 names on 1d, 53 on 5m, every lost session before both the name's first map span and its list_date);
+- `vendor_has_no_bar`: sessions or 5m buckets where the incumbent had a traded bar and Massive's own file under the map's ticker has no trade (1d: 2,341 slots on 138 names, 0.04 percent of the span; 5m: IBKR 35,728 bars on 646 names, Alpaca 4,416 on 462; missing stays missing; zero load holes, i.e. no case where Massive's file holds the trade and raw lacks it);
+- `outside_session`: IBKR 5m bars stamped outside the NYSE regular session (5m: 24,044 bars on 574 names); canonical 5m is session-bound and extended hours stay in raw only (standing ruling);
+- zero-volume IBKR placeholders (the tradeable view drops them anyway).
+
+The lists behind these counts (1d and 5m, one row per name-session or bar with its cause) are B4's `switch_losses.csv` and the day-file and minute-file checks of its `unexplained` rows; they go into the step 7 evidence and the data adjacency register.
+
+## Tools
 
 | Tool | Role | Writes |
 |---|---|---|
-| `scripts/ops/bars/ops_canonical_summary_card.py` | the card (counts and order-independent content digests per timeframe, symbol, vendor, kind, UTC month) and the card-to-card compare | files only |
-| `scripts/ops/bars/ops_massive_policy_plan.py` | builds the stage 1 and stage 2 `--plan` files from live policy, the pinned gap list and the 1d raw fingerprint; validates each with the writer's own `parse_plan` | files only |
-| `scripts/ops/bars/ops_canonical_rebuild.py` | `--preflight` (hard-abort preconditions, pins the horizon), `--rebuild` (span-major, chunk-aligned selection of 5m and 1m, compress as it goes, resumable), `--finish` (policy recompression, ANALYZE, storage-shape check) | canonical (through `select_and_write`) |
-| `scripts/ops/bars/ops_seam_witness.py` | level continuity across a seam against Massive's own split-adjusted raw (the 592 rule) | files only |
-| D7 `split_horizon_fresh` | every canonical Massive 5m bar carries the splits known now (required 5m check) | integrity_monitor |
-
-Existing tools used: `ops_source_policy --plan`, `ops_selection_gate --compare`, `services.bar_derivation --stage daily|grid`, `ops_table_backup`, `massive_download --restat`, `ops_restatement_review`, D7.
+| `scripts/ops/bars/ops_canonical_summary_card.py` | the card (counts and order-independent content digests per timeframe, symbol, vendor, kind, UTC month) | files only |
+| `scripts/ops/bars/ops_massive_policy_plan.py` | `--switch` builds one plan per timeframe; `--snapshot` and `--restore` for rollback; validates each with the writer's own `parse_plan` | files only |
+| `scripts/ops/bars/ops_massive_switch_delta.py` | the expected delta per (timeframe, month) with every lost slot classified; `--verify` is the D1 gate | files only |
+| `scripts/ops/bars/ops_identity_witness.py` | the design 8c identity witness for gap-list spans (IBKR stored raw used once as evidence before its deletion) | files only |
+| `scripts/ops/bars/ops_canonical_rebuild.py` | `--preflight`, `--rebuild` (span-major, chunk-aligned selection, compress as it goes, resumable), `--finish` | canonical (through `select_and_write`) |
+| `scripts/ops/bars/ops_seam_witness.py` | level continuity across a seam against Massive's own split-adjusted raw | files only |
+| D7 `split_horizon_fresh` | every canonical Massive 5m bar carries the splits known now | integrity_monitor |
 
 Set once per session:
 
@@ -35,7 +48,7 @@ Set once per session:
 cd /home/bg/dev/indicagent
 PY=.venv/bin/python
 OUT=logs/massive_step7            # all step 7 evidence; mkdir -p "$OUT"
-GAP=data/ticker_entity_map/20261110_be44ac7d4ea7/gap_list.csv   # the map the sweep loaded under; pin it
+GAP=data/ticker_entity_map/20261110_be44ac7d4ea7/gap_list.csv   # the map the sweep loaded under; pin it (A11 replaces it)
 PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1"
 ```
 
@@ -45,24 +58,21 @@ PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_
 
 Each line is a gate. Any red stops step 7; nothing below starts.
 
-A1. The raw load sweep is complete. `logs/massive_sweep/status.txt` has an `OK <year>` line for every year 2003 to 2026 (2026 through the archive end), and for every year both `compare_<Y>_5m_pre.json` and `compare_<Y>_5m_post.json` exist (the step 5 amendment: a skipped compare leaves the year ungated). For every year: `real_differences == 0`, `n_canonical` unchanged, and `after.unselected_slots - before.unselected_slots` equals the year's Massive-only count. The 1d row balance lines read `offered == bars out`.
+A1. The raw load sweep is complete. `logs/massive_sweep/status.txt` has an `OK <year>` line for every year 2003 to 2026 (2026 through the archive end), and for every year both `compare_<Y>_5m_pre.json` and `compare_<Y>_5m_post.json` exist. For every year: `real_differences == 0`, `n_canonical` unchanged, and `after.unselected_slots - before.unselected_slots` equals the year's Massive-only count. The 1d row balance lines read `offered == bars out`.
 Abort: any year missing or unbalanced.
 
-A2. Section 8a load checks have run over loaded raw and emit a complete partition of the mapped universe (name, era, outcome in pass, gap list, stop; bucket counts sum to the mapped total). No systemic stop (units, session offset, record sanity, volume bands). Name-level outcomes of the checks are FLAGS (amendment 2026-11-12, design 8a): a flagged name-era stays Massive-primary and is listed in the data adjacency register; it never gets an IBKR symbol row. `$GAP` is the identity gap list only (names Massive does not serve; IBKR is their only source).
-Abort: a systemic stop, or a partial run reported as a result.
+A2. The section 8a load checks are the admission record and gate nothing (owner ruling 2026-11-13: the 8a runner compares against IBKR and is archived at tag `archive/massive-8a-load-checks`, not landed). Copy the r5j and r5k out dirs to `data/backups/massive-8a-admission-record/` and record their sha256 in `$OUT/8a_record.sha256`. Gate: the copy exists and verifies.
 
-Amendment 2026-11-13 (lead, after the first full 8a run, r5h/r5i): a stop is scoped to its (era, timeframe), not to the switch as a whole (design 8a R1). The partition reports stops as `era/tf` in `stageC_stop_eras.json`, and A2's abort applies only to a stage A or B stop on the minute or day file as a whole, or to a partial run. A stopped (era, timeframe) keeps its incumbent default in the stage 1 plan: `ops_massive_policy_plan.py` takes the 8a out dir (pinned by path and the summary's sha256, never "newest") and emits per-timeframe default spans that exclude every stopped era, so the Massive default becomes a set of spans per timeframe rather than one span. The first full run gives 2014 to 2026 ok on both timeframes; 1d 2004 to 2007 is a close-definition difference (todo 610) that takes Massive by the one-definition rule; 1d 2008 to 2013 stops and keeps IBKR unless the stop is explained first. Every span seam this creates (1d at 2008-01-01 and 2014-01-01 if 2008 to 2013 stays IBKR) gets an `ops_seam_witness` run in Part D next to the 2016 seam. Not built yet: the plan builder's 8a input (todo 600, after the 8a runner lands).
-
-A3. Split reconciliation recorded. Todo 608's held classes are ruled (items 2, 3, 4, 7 at minimum listed with a disposition; item 1 and 5 are already ruled). After 9b's 1d load covers every year, rerun the lone-break sweep with Massive as the witness:
+A3. Split reconciliation recorded. Todo 608's held classes are ruled (items 2, 3, 4, 7 at minimum listed with a disposition; items 1 and 5 are already ruled). Rerun the lone-break sweep with Massive as the witness:
 
 ```bash
 $PY -m scripts.ops.bars.ops_split_calendar_audit --sweep --witness massive > "$OUT/split_sweep_massive.txt"
 ```
 Gate: every break is classified (real move, missing split, identity), and every missing market split the sweep finds is either recorded (`massive_reference` row through the writer) or listed with the names it affects. A missing split leaves an unseen step in canonical Massive history; this is the last point it is cheap to fix.
 
-A4. `split_horizon_fresh` exists and runs. This branch adds it (design note `docs/plans/2026-11-11-split-horizon-fresh-check.md`); it must be landed and D7 run once green on it before the switch (every name passes trivially today: no canonical Massive row exists).
+A4. `split_horizon_fresh` exists and runs (design note `docs/plans/2026-11-11-split-horizon-fresh-check.md`); D7 run once green on it before the switch.
 
-A5. Serve-time currency, zero drift (refinement review F3; repeat immediately before step 7 while the plan is live):
+A5. Serve-time currency, zero drift (refinement review F3; repeat immediately before step 7):
 
 ```bash
 $PY -m scripts.infrastructure.massive.massive_download --restat --drift-report "$OUT/etag_drift.json"
@@ -76,33 +86,26 @@ $PY -m pytest -n 0 -p no:cacheprovider -q \
   "tests/unit/bars/test_split_rescale.py::test_nvda_ten_for_one_canary_matches_the_hand_computed_series" \
   tests/unit/bars/test_split_rescale.py tests/unit/test_bar_selection.py \
   tests/unit/scripts/test_ops_selection_gate.py tests/unit/bars/test_daily_rule_massive.py \
-  tests/unit/bars/test_split_horizon_fresh.py
+  tests/unit/bars/test_split_horizon_fresh.py tests/unit/scripts/test_ops_massive_policy_plan.py \
+  tests/unit/scripts/test_ops_massive_switch_delta.py
 ```
 Gate: exit 0.
 
-A7. Restatement flags. Today every `--compare` exits 3 on `unreviewed_basis_flags` (290 on 2026-11-11), which is residue, not a difference. Review them (`$PY -m scripts.ops.bars.ops_restatement_review --all`, then `--mark ... --by ... --note ... --apply`) so the post-rebuild gate can read exit 0, or record the count and require it unchanged before and after. Recommended: review them; a basis-change flag inside the rebuilt span is exactly what the switch should not inherit unread.
+A7. Restatement flags. Review them (`$PY -m scripts.ops.bars.ops_restatement_review --all`, then `--mark ... --by ... --note ... --apply`) so the post-rebuild gate can read exit 0, or record the count and require it unchanged before and after.
 
-A8. IBKR 5m raw export (reversible-first; deletion is later and separate). Raw is not touched by step 7, but the export is cheapest while the system is quiet:
-
-```bash
-$PY -m scripts.ops.db.ops_table_backup --dump --backup-dir data/backups/ibkr-5m-raw-$(date -u +%F) \
-  --table ohlcv_raw:timestamp:timestamptz --where "vendor = 'ibkr' AND timeframe = '5m'"
-$PY -m scripts.ops.db.ops_table_backup --verify --backup-dir data/backups/ibkr-5m-raw-$(date -u +%F) \
-  --table ohlcv_raw:timestamp:timestamptz --where "vendor = 'ibkr' AND timeframe = '5m'"
-```
-Gate: `--verify` exit 0 (live recount and sha256 per year slice).
+A8. d2-v6 under the switch policy. The daily rule reads `alpaca_era_start` from the first Alpaca-primary default (it moves from 2016-01-04 to the archive end) and carries IBKR volume-basis and zero-volume guards. Gate: a unit test that runs the daily rule over the switch plan's rows (Massive default, Alpaca gap rows with no fallback, Alpaca after the archive end) passes. Not built yet (see Not built); step 7 does not start without it.
 
 A9. Snapshot the live policy (the rollback input; every abort rule after C2 restores from it):
 
 ```bash
-for tf in 5m 1d; do
+for tf in 5m 1d 1m 4h; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --snapshot --timeframe $tf --out "$OUT/policy_before_$tf.json"
 done
 ```
-Gate: a restore plan built from it right now is a no-op (2 defaults retired and re-inserted, every symbol row kept, none inserted; read-only check 2026-11-11: 5m 2 rows, 1d 97 rows, 95 kept):
+Gate: a restore plan built from it right now is a no-op (every default retired and re-inserted, every symbol row kept, none inserted):
 
 ```bash
-for tf in 5m 1d; do
+for tf in 5m 1d 1m 4h; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_noop_$tf.json"
 done
 ```
@@ -110,7 +113,7 @@ done
 Restore procedure, named R below (any abort after C2 applied a plan):
 
 ```bash
-for tf in 5m 1d; do
+for tf in 5m 1d 1m 4h; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_$tf.json"
   $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json"            # dry run
   $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json" --apply
@@ -124,9 +127,16 @@ sudo systemctl stop indicagent-bar-derivation-daily.timer indicagent-bar-derivat
   indicagent-bar-reconciliation-audit.timer indicagent-dividend-event-writer-yahoo.timer \
   indicagent-regime-coverage-auditor.timer indicagent-alpaca-nightly.timer \
   indicagent-compression-auditor.service
-systemctl is-enabled indicagent-ibkr-history-fetcher.timer   # must print disabled (it is, 2026-11-11)
+systemctl is-enabled indicagent-ibkr-history-fetcher.timer   # must print disabled
 ```
-The compression auditor force-runs the compression job on an overdue chunk, which would compress a chunk the rebuild is still filling. Also stopped: any hand-run `ops_split_detect`, `ops_source_policy`, `ops_selection_gate`, the sweep driver and corpus or rerun services. The design lets the Alpaca nightly run because it "writes raw only"; it does not: its 5m path selects into canonical through the load engine. Stop it for the window (about one day). On restart its tail asks the missed sessions again; confirm the first run after Part D loads them (its ledger rows for the missed dates).
+The compression auditor force-runs the compression job on an overdue chunk, which would compress a chunk the rebuild is still filling. Also stopped: any hand-run `ops_split_detect`, `ops_source_policy`, `ops_selection_gate`, the sweep driver and corpus or rerun services. The Alpaca nightly's 5m path selects into canonical through the load engine; stop it for the window. On restart its tail asks the missed sessions again; confirm the first run after Part D loads them.
+
+A11. Identity witness and map amendment (design 8c, before step 7 and before Part F deletes IBKR raw). IBKR's stored raw is used once here as evidence, never as a source:
+
+```bash
+$PY -m scripts.ops.bars.ops_identity_witness --gap-list "$GAP" --out "$OUT/identity_witness"
+```
+The rule is the declared one (8c, commit 8d10bd030), applied as is by the recorded owner override. The run of 2026-11-13 placed 183 of 616 spans in scope (thin 223, predecessor_history 76, predecessor_marker 44, level_unexplained 42, returns_disagree 35, identity_evidence_missing 13); the placed spans recover 281,149 pre-2016 IBKR 1d slots and 13,572,205 5m. Then, in order: the lead reads the placed list; the identity map takes the placed rows as a dated amendment through the map's own writer (never a hand edit), which writes the new map directory and its shrunken gap list; Massive raw is loaded for the placed names and spans (`ops_massive_load` under the new map, A1's gates for the touched years); `$GAP` is repointed to the new gap list. Gate: the map amendment's own validation, the load's row balance, and a re-run of the witness on the new gap list finding no `placed` span left.
 
 ## Part B: before the drop
 
@@ -136,13 +146,9 @@ B1. Summary card (derived data is dropped only after its card exists):
 $PY -m scripts.ops.bars.ops_canonical_summary_card --card "$OUT/card_before"
 sha256sum "$OUT"/card_before/* > "$OUT/card_before.sha256"
 ```
-The card also writes, mandatorily, `export_1d_red_lineage.csv.gz`: every column of the canonical 1d rows of each name whose latest 1d `lineage_missing` or `canonical_recompute` verdict is red, the rows raw cannot rebuild and the TRUNCATE would otherwise lose without a trace (on 2026-11-11: CTVA, 1,848 lineage-missing and 1,877 recompute-drifted bars; SCCO, 4,145 and 4,268; 6,231 canonical 1d rows exported in the read-only smoke run). `card.json` lists the red verdicts and the exported names.
-Measured: about 0.75M rows/s on a 5m month (2.7 s for one month of every name), so about 15 minutes for the 597M canonical rows. Gate: the card's totals per timeframe match the 2026-11-11 inventory to within what the nightlies added since (5m 401.8M, 15m 139.8M, 1h 38.5M, 1d 7.57M, 1m 9.78M, 4h 0). Abort: a timeframe missing or off by more than recent nightlies explain.
+The card also writes `export_1d_red_lineage.csv.gz`, every column of the canonical 1d rows of each name whose latest 1d `lineage_missing` or `canonical_recompute` verdict is red (CTVA and SCCO on 2026-11-11). Gate: the card's totals per timeframe match the 2026-11-13 inventory to within what the nightlies added since (5m 415.7M, 1d 7.27M, 1m 9.78M, 4h 0). Abort: a timeframe missing or off by more than recent nightlies explain.
 
-B2. Pre-image, mandatory. Two parts:
-
-- The red lineage export written by B1 (above). Gate: `card.json` `red_lineage.exported_symbols` covers every name in `red_lineage.verdicts`, and its row count is nonzero for each.
-- A disposition per red verdict, written before C3 to `$OUT/lineage_dispositions.json` (`{"SYMBOL|1d|check": "disposition"}`). The C3 preflight refuses while any red verdict lacks one. Pre-classified on 2026-11-11, both as expected D1 differences:
+B2. Pre-image, mandatory: the red lineage export written by B1 (`card.json` `red_lineage.exported_symbols` covers every name in `red_lineage.verdicts`), and a disposition per red verdict in `$OUT/lineage_dispositions.json` before C3:
 
 ```json
 {
@@ -152,59 +158,45 @@ B2. Pre-image, mandatory. Two parts:
   "SCCO|1d|canonical_recompute": "expected D1 difference: as CTVA"
 }
 ```
-A new red name found by B1 that is not on this list gets its own written disposition (and a look at why raw cannot rebuild it) before C3, never a copy of these lines.
+A new red name found by B1 gets its own written disposition before C3.
 
-Optional on top: a whole-table pre-image (`ops_table_backup --dump --table market_data_ohlcv:timestamp:timestamptz` to `data/backups/canonical-pre-step7-<date>`, then `--verify`; about 1 to 1.5 hours and 25 to 35 GB), which holds the old rows for any symbol-month D1 flags.
-
-B3. Old canonical equals the selection of raw under the old policy, every direct timeframe:
+B3. Old canonical equals the selection of raw under the old policy:
 
 ```bash
 $PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m 1m --out "$OUT/compare_before.json"
 ```
-Measured: 330 s per 27M-row 5m year, so about 85 minutes. Gate: `real_differences == 0`, `n_months_digest_mismatch == 0`, `session_choices_unrecorded == 0`, `mixed_vendor_sessions == 0`; exit 0, or 3 with only the A7 flag count. This anchors the byte-exact claim: the post-2016 policy does not change in stage 1, so its selection does not change.
+Gate: `real_differences == 0`, `n_months_digest_mismatch == 0`, `session_choices_unrecorded == 0`, `mixed_vendor_sessions == 0`; exit 0, or 3 with only the A7 flag count. This anchors the expected delta: the before side is exactly what raw and the old policy give.
 
-B4. Coverage-loss census. Sessions where IBKR answered a traded bar before 2016-01-04 and Massive has no bar, for names not on the gap list, become NaN after the switch (by design for zero-volume IBKR buckets; a silent loss when Massive simply lacks the name). Count them before deciding:
+B4. The expected delta, read-only, from the live selection BEFORE the drop and after A11's load:
 
-```sql
--- 1d: IBKR traded sessions with no Massive day bar, 2003-09-10 to 2016-01-04
-WITH ib AS (
-  SELECT symbol, ("timestamp" AT TIME ZONE 'UTC')::date AS d FROM ohlcv_raw
-  WHERE timeframe = '1d' AND vendor = 'ibkr' AND kind = 'smart_trades' AND volume > 0
-    AND "timestamp" >= '2003-09-10' AND "timestamp" < '2016-01-04'),
-ms AS (
-  SELECT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d FROM ohlcv_raw
-  WHERE timeframe = '1d' AND vendor = 'massive' AND kind = 'sip_flat'
-    AND "timestamp" >= '2003-09-09' AND "timestamp" < '2016-01-05')
-SELECT ib.symbol, extract(year FROM ib.d)::int AS year, count(*) AS lost_sessions
-FROM ib LEFT JOIN ms USING (symbol, d) WHERE ms.d IS NULL
-GROUP BY 1, 2 ORDER BY 3 DESC;
+```bash
+$PY -m scripts.ops.bars.ops_massive_switch_delta --timeframes 1d 5m --gap-list "$GAP" --out "$OUT/delta"
+$PSQL -At -c "SELECT count(*) FROM market_data_ohlcv WHERE timeframe = '1m'" > "$OUT/delta/1m_leaves.txt"
 ```
-Run it into `$OUT/coverage_loss_1d.csv`, then drop the names and spans the stage 1 plan keeps on IBKR (its `symbol_rows`). Gate: the remaining list is reviewed; each name is either accepted (delisted afterlife, halts) or added to the gap list and the plan rebuilt. A systemic share (more than a few percent of mapped names) stops step 7: the identity map, not the switch, is wrong. Repeat for 5m by session (same shape on `timeframe = '5m'`, `kind = 'named'` for IBKR and `sip_flat_agg` for Massive, grouping by session date) if the 1d list is not clean.
+Per (timeframe, UTC month) it full-joins canonical with Massive's raw slots and writes `switch_delta.csv` (before by vendor, pre-2003, Massive slots, moved, gained, lost by vendor, gap-row Alpaca, after the archive end, `expected_after`), `switch_losses.csv` (every lost slot, one row per name-session, classified gap_list, after_listing_end, zero_volume, no_ticker_span, unexplained) and `switch_summary.json`. Measured on 2026-11-13 before A11 (1d; the 5m run predates the gap rows and is redone here): before 7,266,037, expected after 5,525,817; pre-2003 643,922; moved to Massive 5,429,562; gained 91,707; lost 1,188,005 (gap_list 1,142,419, no_ticker_span 41,803, unexplained 2,341, zero_volume 1,442). Gate: `unexplained` is zero or every row is named (the day-file check: `vendor_has_no_bar` or `load_hole`; any `load_hole` stops step 7 until the load is repaired), every `no_ticker_span` name is `predecessor_history` (lost sessions before its first map span and before its list_date) or fixed in the map, and the lead accepts the summary. Keep `$OUT/delta` unchanged: D1 verifies against it.
 
-B5. Deletion list for Opus review (`docs/plans/<date>-massive-step7-deletion-list.md`), written from the card's `derived` section. It is reviewed before anything in it runs; nothing in this runbook executes it. Content it must rule on:
+B5. Deletion list for review (`docs/plans/<date>-massive-step7-deletion-list.md`), written from the card's `derived` section. Nothing in this runbook executes it:
 
 | Item | Count source | Why it is on the list |
 |---|---|---|
-| `bar_quality_flag` rows before 2016-01-04, per rule | card `derived` | flags key on (symbol, timeframe, timestamp): an IBKR-era flag would quarantine the Massive bar at the same stamp through the tradeable view. Rule-derived flags are recomputed by the scrub; human and one-off rules (`operator_bad_bar`, `legacy_price_sanity_status`, `vendor_disagreement`, `unconfirmed_split`, `pre_split_unrefetched`, `busted_trade_window`) need a per-row disposition (`busted_trade_window` 2010-05-06 is a market event and stays) |
-| `market_regimes` (5,354,790 rows) | card `derived` | derived from canonical bars; rebuilt by its own stage after the data gate |
-| `bar_session_choice` | card `derived` | none dropped: selection clears and rewrites the choices of every session it selects |
-| `bar_content_digest` | card `derived` | append-only history; nothing dropped, the current view moves |
-| IBKR 5m raw | A8 export | not in step 7; listed so the later deletion cites the verified export |
+| `bar_quality_flag` rows before the archive end, per rule | card `derived` | flags key on (symbol, timeframe, timestamp): a flag set on an IBKR- or Alpaca-era bar would quarantine the Massive bar at the same stamp through the tradeable view. Rule-derived flags are recomputed by the scrub; human and one-off rules (`operator_bad_bar`, `legacy_price_sanity_status`, `vendor_disagreement`, `unconfirmed_split`, `pre_split_unrefetched`, `busted_trade_window`) need a per-row disposition (`busted_trade_window` 2010-05-06 is a market event and stays) |
+| `market_regimes` | card `derived` | derived from canonical bars; rebuilt by its own stage after the data gate |
+| `bar_session_choice`, `bar_content_digest` | card `derived` | nothing dropped: selection rewrites the choices of every session it selects; the digest history is append-only |
 
-Ordering constraint: no 2016+ flag may be dropped before Part D's byte-exact check, because the grid stage excludes quarantined 5m bars and a dropped post-2016 flag would change 15m and 1h by itself.
+Ordering constraint: no flag on a bar from the archive end on, or inside an Alpaca gap row, may be dropped before D1, because the grid stage excludes quarantined 5m bars and a dropped flag would change 15m and 1h by itself.
 
-## Part C: policy, drop, rebuild (stage 1)
+## Part C: policy, drop, rebuild
 
 C1. Build and review the plans:
 
 ```bash
-for tf in 5m 1d; do
-  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 1 --timeframe $tf --gap-list "$GAP" --out "$OUT/plan_stage1_$tf.json"
+for tf in 5m 1d 1m 4h; do
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --switch --timeframe $tf --gap-list "$GAP" --out "$OUT/plan_$tf.json"
 done
 ```
-Read-only dry build on 2026-11-11 (current gap list): 5m 3 defaults, 580 IBKR symbol rows on 580 names; 1d 3 defaults, the same 580 rows, the 95 live 2016+ IBKR rows kept, none retired. Both validated by `parse_plan`. Gate: the counts are explained by the gap list, and a reviewer reads the plan's defaults block. 580 of 1,551 names keep IBKR for some pre-2016 span (473 `before_first_event` spans); that share is the identity map's, and the lead should accept it explicitly.
+Gate: each plan prints its defaults; 5m and 1d read `1990-01-01 massive, <archive end> alpaca`, 1m and 4h `1990-01-01 massive`; no row names IBKR (the builder refuses otherwise); `retire_default_ids` equals the live defaults; every live symbol row is retired (`replaced` when its name gets an Alpaca gap row, else `superseded_by_default`); the Alpaca gap rows equal the gap list's spans clipped to [2016-01-04, archive end), merged per name. A reviewer reads every defaults block.
 
-C2. Preflight first, then dry run and apply, in one sitting, 5m first. The preflight runs here as well as at C3, so a precondition that fails (a quiet unit, the lineage gate, the 1m source, a future split) stops step 7 before the policy has moved:
+C2. Preflight first, then dry run and apply, in one sitting, 5m first:
 
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json" \
@@ -217,17 +209,15 @@ K, the abort step: a clean preflight unschedules compression job 1078 so no chun
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_rebuild --abort --state "$OUT/rebuild_state.json"
 ```
-which reschedules it (it looks the job up when the state never recorded one). Leaving it unscheduled stops compression of every chunk, raw's peers included, until someone notices.
-
+which reschedules it.
 
 ```bash
-$PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_stage1_5m.json"           # dry run, rolled back
-$PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_stage1_5m.json" --apply
-$PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_stage1_1d.json"
-$PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_stage1_1d.json" --apply
+for tf in 5m 1d 1m 4h; do
+  $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_$tf.json"            # dry run, rolled back
+  $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/plan_$tf.json" --apply
+done
 ```
-Abort after any apply (the 1d apply refuses after the 5m one succeeded, or any later reason to stop before C3): R, then K. R copes with a timeframe that was never switched: its restore plan is the A9 no-op.
-Gate: each dry run prints counts equal to the plan (defaults retired 2 or 3, inserted 3, symbol rows as built). The 1d apply refuses if the raw fingerprint moved since the build (rebuild the plan) or the live default ids differ (someone changed policy). Ignore the printed `next:` hints; Part C replaces them. Two `ops_source_policy` rules changed on this branch to admit these plans: a 1d plan pins every live default id it retires, not exactly two (stage 1 leaves three; the apply still checks the pinned set against the live set under the table lock), and a kept symbol row beside new rows of its name is refused only when their date spans overlap (it was refused on the name alone).
+Abort after any apply: R, then K. Gate: each dry run prints counts equal to the plan. The 1d apply refuses if the raw fingerprint moved since the build (rebuild the plan) or the live default ids differ. After the four applies: `SELECT count(*) FROM bar_source_policy_current WHERE 'ibkr' IN (primary_source, coalesce(fallback_source, ''))` returns 0.
 
 C3. Preflight, immediately before the TRUNCATE (hard abort, design amendment of F4):
 
@@ -235,171 +225,188 @@ C3. Preflight, immediately before the TRUNCATE (hard abort, design amendment of 
 $PY -m scripts.ops.bars.ops_canonical_rebuild --preflight --state "$OUT/rebuild_state.json" \
   --card "$OUT/card_before" --dispositions "$OUT/lineage_dispositions.json"
 ```
-It checks: the lineage gate (every latest red 1d `lineage_missing` and `canonical_recompute` verdict has a written disposition and its name's canonical 1d rows are in the card's export); no foreign key references `market_data_ohlcv` (none on 2026-11-11); every canonical timeframe has a raw source (1m: raw IBKR 1m equals canonical 1m exactly, 9,775,958 on 2026-11-10; 4h holds none); the chunk grid is the epoch-aligned 90-day grid (true for all 114 chunks on 2026-11-11); no split row dated after today (none on 2026-11-11; see risk 18); one compression policy job (1078, `compress_after` 30 days); the quiet units and processes; disk headroom from the APR floor. It records the compression settings (segment by symbol, timeframe; order by timestamp) and pins the split horizon (the first preflight of the state file pins it, C2's; `--horizon` sets it there). On a resume's preflight (windows already written) the raw-source check is skipped, since a partly rebuilt table measures nothing, and the pre-TRUNCATE counts are kept. Gate: `PREFLIGHT OK`.
-Abort: any failure. Restore the policy (R, A9) and run K before anything else: the stage 1 rows are live and nothing may select under them while canonical is the old one. If the 1m source or a foreign key fails, the named fallback is the new-table-and-swap path (build the rebuilt timeframes into a new hypertable and swap names in one transaction, the 191-14 pattern; the swap tooling is in git at `2f43c5435^:scripts/ops/bars/ops_canonical_vendor_kind_swap.py`). It is not built: `select_and_write` and both derivation stages write `market_data_ohlcv` by name, so the fallback needs a target-table parameter in all three writers first, as its own plan. Never improvise a row-level DELETE: it decompresses chunks and leaves bloat (the migration 312 incident class).
+It checks the lineage gate, no foreign key on `market_data_ohlcv`, a raw source per canonical timeframe, the epoch-aligned 90-day chunk grid, no split row dated after today, one compression policy job, the quiet units and processes, disk headroom; it records the compression settings and pins the split horizon. Gate: `PREFLIGHT OK`.
+Abort: any failure. R and K before anything else. Never improvise a row-level DELETE (the migration 312 incident class).
 
-C4. TRUNCATE (seconds; frees the 21 GB the table holds):
+C4. TRUNCATE:
 
 ```bash
 $PSQL -c "SET lock_timeout = '30s'; TRUNCATE market_data_ohlcv;"
 $PSQL -c "SELECT count(*) FROM market_data_ohlcv;"   # 0
 ```
-Abort: a lock timeout means something still reads or writes canonical; find it (`pg_stat_activity`), stop it, rerun C3. If step 7 stops here instead: R, then K.
+Abort: a lock timeout means something still reads or writes canonical; find it, stop it, rerun C3. If step 7 stops here instead: R, then K.
 
-C5. Rebuild the direct timeframes, oldest window first, one horizon:
+C5. Rebuild 5m, oldest window first, one horizon (1m is not rebuilt: its policy serves nothing, so it leaves):
 
 ```bash
-$PY -m scripts.ops.bars.ops_canonical_rebuild --rebuild --state "$OUT/rebuild_state.json" --timeframes 5m 1m --from 2003-09-01
+$PY -m scripts.ops.bars.ops_canonical_rebuild --rebuild --state "$OUT/rebuild_state.json" --timeframes 5m --from 2003-09-01
 ```
-One invocation for both timeframes: a window's chunk is compressed only after every timeframe of the run has filled it, so a second run would insert into compressed chunks (decompression and bloat). `--from` is the first raw 5m bar (check `SELECT min("timestamp") FROM ohlcv_raw WHERE timeframe = '5m'`; Massive starts 2003-09-10, IBKR 5m 2006, raw 1m 2026-03-23). Each 90-day chunk window: every instrument through `select_and_write` per timeframe (one commit per symbol), then the chunk compressed if it is older than the policy's 30 days. The preflight unscheduled the policy job (1078) so it cannot compress a chunk mid-fill; C8 reschedules it. One JSON line per window in `rebuild_state.jsonl`: new, unselected (slots only an unranked vendor holds, mostly IBKR pre-2016 zero-volume buckets: missing is NaN), off_grid, skipped_null_volume, sessions_fallback, seconds.
-Guards the driver enforces itself: it refuses to start when `market_data_ohlcv` holds any row and this state file has written no window, when `--from` is after any requested timeframe's first raw bar (recorded by the preflight), or when the quiet list is not quiet (re-checked on every resume); it stops when a symbol's selection replaced, found equal or retracted a stored row (`changed`, `unchanged` or `dropped` above 0; the one symbol a crash left between its commit and the state save may find its own rows). `--preflight --reset` refuses once any window was written, so a resumed rebuild keeps its one horizon. A resume also needs the policy the preflight recorded (a digest of every live policy id): after R the preflight refuses the old state, so a restored policy is rebuilt from a fresh TRUNCATE and state file, never resumed into a half-built table. After K, `--rebuild` refuses until a new preflight unschedules the job again.
-Gate per window: `changed == unchanged == dropped == 0`. Projection rule: after the first three full-size windows (2006 on), multiply their mean seconds by the windows left; if the projection passes 12 hours, stop after the current window and decide (continue overnight, or build a COPY-based canonical writer as its own plan). Abort (a driver STOP, or the decision not to continue): R, then K; canonical stays partial and the quiet list stays stopped until a rebuild completes under some policy. Resume: rerun the same command; it skips completed windows and symbols.
+Each 90-day chunk window: every instrument through `select_and_write` (one commit per symbol), then the chunk compressed if older than the policy's 30 days. One JSON line per window in `rebuild_state.jsonl`. Guards the driver enforces: it refuses to start on a non-empty table with no written window, when `--from` is after the first raw bar, or when the quiet list is not quiet; it stops when a selection replaced, found equal or retracted a stored row. Gate per window: `changed == unchanged == dropped == 0`. Projection rule: after the first three full-size windows, multiply their mean seconds by the windows left; past 12 hours, stop after the current window and decide. Abort: R, then K. Resume: rerun the same command.
 
-C6. 1d, from raw under the new policy (d2-v6 serves Massive as `sip_flat_adj`), the whole universe, not `--changed-only`:
+C6. 1d, from raw under the new policy (d2-v6 serves Massive as `sip_flat_adj`), the whole universe:
 
 ```bash
 $PY -m services.bar_derivation --stage daily --apply --report "$OUT/daily_rebuild.tsv"
 ```
-Abort (failed symbols that a rerun does not clear): R, then K. Gate: the batch completes with zero failed symbols; `refused`, `unserved_primary` and `zero_volume` counts are read and explained (a Massive-only session under an IBKR symbol row is unserved by design).
+Gate: zero failed symbols; `refused`, `unserved_primary` and `zero_volume` counts are read and explained. Abort: R, then K.
 
-C7. 15m and 1h from the rebuilt 5m, the whole universe:
+C7. 15m and 1h from the rebuilt 5m:
 
 ```bash
 $PY -m services.bar_derivation --stage grid --apply
 ```
 Gate: zero failed symbols. Abort: R, then K.
 
-C8. Finish: reschedule and run the compression policy job (it recompresses the chunks C6 and C7 wrote into), ANALYZE, the storage shape against the preflight record:
+C8. Finish (reschedules and runs the compression policy job, ANALYZE, the storage shape against the preflight record):
 
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_rebuild --finish --state "$OUT/rebuild_state.json"
 ```
-Gate: `FINISH OK` (it reschedules the job itself). Abort: a storage-shape drift is fixed in place (settings, recompress); values are unaffected.
+Gate: `FINISH OK`.
 
-## Part D: checks (stage 1)
+## Part D: checks
 
-D1. Byte-exact from 2016 (proves the whole rebuild path: chunk alignment, the writers, compression, the derived pass):
+D1. The expected delta, exactly:
 
 ```bash
 $PY -m scripts.ops.bars.ops_canonical_summary_card --card "$OUT/card_after"
-$PY -m scripts.ops.bars.ops_canonical_summary_card --compare "$OUT/card_before" "$OUT/card_after" --from 2016-01-01 \
-  --expected 1d:CTVA 1d:SCCO --out "$OUT/compare_card_2016.json"
-$PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m 1m --out "$OUT/compare_after.json"
+$PY -m scripts.ops.bars.ops_massive_switch_delta --gap-list "$GAP" --out "$OUT/delta" \
+  --verify "$OUT/card_before" "$OUT/card_after"
+$PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m --out "$OUT/compare_after.json"
 ```
-`--from 2016-01-01` equals the 2016-01-04 seam here: 2016-01-01 is a holiday and the 2nd and 3rd a weekend, so no bar of any timeframe falls in between. Gate: the card compare exits 0 (every 2016+ group of every timeframe identical in count and digest, except the B2-dispositioned names passed as `--expected`, whose 1d differences are listed apart in `expected_differences` and read against the export), and the selection gate meets the B3 criteria. The 1d and grid stages are covered only by the card; the selection gate covers 5m and 1m.
-Abort and rollback: any difference. The card's report names the symbol-months; the B2 export (and the whole-table pre-image, if taken) shows the rows. Raw is untouched, so rollback is R (A9: the restore plans built from `policy_before_<tf>.json`) followed by C2's preflight, C3 to C8 again under a fresh state file; between the decision and that rerun, K. Until then canonical is rebuilt but not trusted: keep the quiet list stopped.
+Gate: `--verify` exits 0: every (timeframe, month) of 5m and 1d holds exactly B4's `expected_after` rows, 1m and 4h hold none, no row carries vendor ibkr, and every Alpaca group wholly inside a gap row is byte-identical to the before card; the selection gate meets the B3 criteria. A count failure is listed whole in `$OUT/delta/switch_verify.json`; each differing month is read against B4's rows (a Massive slot selection refused, a quarantine flag, a CTVA/SCCO lineage name) before anything else. 15m and 1h have no expected count: they follow 5m and are covered by D7 `canonical_recompute` and `digest_fresh`.
+Abort and rollback: any unexplained difference. Raw is untouched, so rollback is R followed by C2's preflight and C3 to C8 again under a fresh state file; between the decision and that rerun, K.
 
-D2. Seam witness at 2016-01-04 (F2 (a)), level over the span, both timeframes:
+D2. Seam witness at the archive end only (the one seam the policy has; before it Massive's own series runs through every date):
 
 ```bash
-$PY -m scripts.ops.bars.ops_seam_witness --seam 2016-01-04 --timeframe 1d --out "$OUT/seam_2016_1d.csv"
-$PY -m scripts.ops.bars.ops_seam_witness --seam 2016-01-04 --timeframe 5m --out "$OUT/seam_2016_5m.csv"
+for tf in 1d 5m; do
+  $PY -m scripts.ops.bars.ops_seam_witness --seam 2026-11-10 --timeframe $tf --incoming raw:alpaca/sip_rth \
+    --out "$OUT/seam_archive_end_$tf.csv"
+done
 ```
-Gate: zero `unexplained` among names with no split in the window. `reconciled_split` rows (an offset equal to a run of the name's recorded splits: an Alpaca capture-epoch seam, or a split one side lacks) and every `unexplained` row on a split-era name go to the disagreement ledger (design 8a) with the third witness named. Smoke run 2026-11-11 at 2024-06-10 (NVDA, AAPL, SPY, CENT, SNEX; 1d and 5m): every name `canonical_matches_massive`, NVDA's 10:1 split included.
+After the archive end there is no Massive reference, so the witness reads Alpaca's level against Massive over the sessions before the seam: the series canonical continues with. Gate: zero `unexplained` among names with no split in the window; `reconciled_split` rows (an Alpaca capture-epoch seam) go to the disagreement ledger with the third witness named.
 
-Also the 2003-09-10 seam (IBKR 1d history into Massive), one-sided by construction (Massive has no bar before it):
+D3. Rescale canary on data:
 
 ```bash
-$PY -m scripts.ops.bars.ops_seam_witness --seam 2003-09-10 --timeframe 1d --incoming raw:ibkr/smart_trades --out "$OUT/seam_2003_ibkr.csv"
-```
-Read the after-side level: IBKR's adjusted level against Massive over the first 20 sessions; an offset is a pre-2003 IBKR level defect the ledger records (informational, not a stop).
-
-D3. Rescale canaries on data (F2 (b) ran at unit level in A6):
-
-```bash
-# NVDA 2024-06-07 10:1: canonical (Alpaca in stage 1) against Massive divided by the split
+# NVDA 2024-06-07 10:1: canonical (now Massive) against Massive divided by the split
 $PY -m scripts.ops.bars.ops_seam_witness --seam 2024-06-10 --timeframe 5m --symbols NVDA --out "$OUT/canary_nvda_2024.csv"
-# pre-2016 splits canonical now serves from Massive (NVDA 2006-04-07 2:1, 2007-09-11 3:2),
-# against IBKR's own adjusted series, an independent arm
+# NVDA 2006-04-07 2:1, 2007-09-11 3:2, against IBKR's own adjusted series (still in raw until Part F), an independent arm
 $PY -m scripts.ops.bars.ops_seam_witness --seam 2007-09-12 --timeframe 1d --symbols NVDA --incoming raw:ibkr/smart_trades --out "$OUT/canary_nvda_2007.csv"
 ```
-Gate: `canonical_matches_massive` on both. A `reconciled_split` here is a rescale defect, not an epoch seam: stop (R, then K, then the rescale fix and a full rerun).
+Gate: `canonical_matches_massive` on the first; the second reads IBKR's level against the rescaled Massive over the span (an offset is an IBKR-side adjustment, informational). A `reconciled_split` on the first is a rescale defect: stop (R, K, the rescale fix and a full rerun).
 
-D4. D7, sample then all. D7 has no symbol filter; run it once and read a named sample first (NVDA, AAPL, SPY, BRK.B, A, AAL, CENT, RJF, OKE, WST, UHAL, SNEX, ES), then the universe:
+D4. D7, sample then all. Run it once and read a named sample first (NVDA, AAPL, SPY, BRK.B, A, AAL, CENT, RJF, OKE, WST, UHAL, SNEX), then the universe:
 
 ```bash
 $PY services/bar_reconciliation_audit.py
 ```
-Gate: on the sample, every required check green except the KNOWN-ACCEPTED rows of todo 608 item 5 (CENT and RJF should now be green, since Massive replaced their pre-2016 spans; SNEX stays an Alpaca epoch seam). Universe: `split_horizon_fresh` green on every name, and every other red verdict either existed before step 7 or is explained by the switch (a new red `split_continuity` or `canonical_recompute` on a pre-2016 span stops step 7).
+Gate: `split_horizon_fresh` green on every name; every other red verdict either existed before step 7 or is explained by the switch (a new red `split_continuity` or `canonical_recompute` stops step 7).
 
 D5. Restart the quiet list (A10, reversed; the compression auditor too), the Alpaca nightly last, and confirm its first run backfills the missed sessions.
 
-D6. Docs (design section 9, the step 7a commit) land after D1 to D4 pass.
+D6. Docs (design section 9, the step 7a commit) land after D1 to D4 pass, with B4's accepted-loss lists in the evidence and the data adjacency register.
 
-## Part E: stage 2 (after the 2016 to 2025 load checks pass)
+## Part F: IBKR raw export, verify, delete; IBKR retired (after Part D passes)
 
-Before stage 2, rerun from Part A: A5 (serve-time re-stat, zero drift), A9 (a fresh `policy_before_<tf>.json` snapshot of the stage 1 policy: stage 2's rollback restores stage 1, not the pre-switch policy) and A10 (the quiet list, stopped again). Stage 2 repeats Parts B to D with the stage 2 plans and a new state file (`$OUT/rebuild_state_stage2.json`, so the horizon is pinned afresh), as a second TRUNCATE and full rebuild, not a per-year reselect. Every 2016+ 5m row changes vendor; reselecting them in place would upsert about 270M rows into compressed chunks (decompress, then recompress), the bloat class the TRUNCATE path avoids, and the full rebuild gives stage 2 its own mechanical proof: the pre-2016 canonical stage 1 built must come back byte for byte.
+Written, not executed. The order is the owner's: step 7's checks pass, then export and restore-verify, then delete, then retire code, gateway and docs. Raw stays in the database until here as the rollback. IBKR raw held 365.4M rows on 2026-11-13 (5m 224.7M, 15m 94.0M, 1h 25.4M, 1m 9.78M, 1d 11.48M across smart_trades, smart_adjusted and five venue kinds), plus its `ohlcv_revision` rows (1d 4.51M, 5m 78k, 15m, 1h and 4h a few thousand).
+
+F1. Export, one compressed dump per table slice, under one directory:
 
 ```bash
-for tf in 5m 1d; do
-  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 2 --timeframe $tf --gap-list "$GAP" --out "$OUT/plan_stage2_$tf.json"
+BK=data/backups/ibkr-raw-2026-11
+$PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
+  --table ohlcv_raw --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+$PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
+  --table ohlcv_revision --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+$PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
+  --table ohlcv_raw --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+$PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
+  --table ohlcv_revision --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+```
+Gate: both `--verify` runs exit 0 (live recount and sha256 per year slice). The dump refuses below its disk margin.
+
+F2. Restore into a scratch schema and compare, per (kind, timeframe), the row count and a content digest of the restored rows against the live rows:
+
+```bash
+$PSQL -c "CREATE SCHEMA ibkr_restore_check; CREATE TABLE ibkr_restore_check.ohlcv_raw (LIKE public.ohlcv_raw);"
+for f in "$BK"/ohlcv_raw_*.csv.gz; do
+  zcat "$f" | $PSQL -c "\copy ibkr_restore_check.ohlcv_raw FROM STDIN WITH (FORMAT csv, HEADER true)"
 done
+DIGEST="SELECT kind, timeframe, count(*), sum(('x' || left(md5(concat_ws('|', symbol,
+  (extract(epoch FROM \"timestamp\") * 1000000)::bigint, float8send(open), float8send(high),
+  float8send(low), float8send(close), coalesce(volume::text, 'null'))), 15))::bit(60)::bigint)
+  FROM %s WHERE vendor = 'ibkr' GROUP BY 1, 2 ORDER BY 1, 2"
+$PSQL -At -c "$(printf "$DIGEST" public.ohlcv_raw)" > "$OUT/ibkr_live_digest.txt"
+$PSQL -At -c "$(printf "$DIGEST" ibkr_restore_check.ohlcv_raw)" > "$OUT/ibkr_restored_digest.txt"
+diff "$OUT/ibkr_live_digest.txt" "$OUT/ibkr_restored_digest.txt"
 ```
-Build it from the live state after stage 1 (it retires every live symbol row by name; gap-list names get IBKR before 2016-01-04 and Alpaca from it to the archive end). Checks: the card compare `--to 2016-01-01` (pre-2016 identical to stage 1's after-card); per-year `ops_selection_gate --compare --start Y-01-01 --end Y+1-01-01` reports for 2016 to 2026 (expected differences against the stage 1 card are the Alpaca epoch seams and rounding, classified under 8a); the archive-end seam:
+The same for `ohlcv_revision` (its own scratch table and digest over its columns). Gate: `diff` prints nothing for both tables. Then `DROP SCHEMA ibkr_restore_check CASCADE`.
+Abort: any difference; the dump is not trusted, nothing is deleted.
 
-```bash
-$PY -m scripts.ops.bars.ops_seam_witness --seam 2026-11-10 --timeframe 1d --incoming raw:alpaca/sip_rth --out "$OUT/seam_archive_end.csv"
-```
-(after the archive end there is no Massive reference, so the witness reads Alpaca's level against Massive over the sessions before the seam: the series canonical continues with).
+F3. Delete IBKR raw. `ohlcv_raw` is a compressed hypertable: a row-level DELETE decompresses chunks and leaves bloat, so the delete is its own reviewed migration (decompress the affected chunks, DELETE `WHERE vendor = 'ibkr'`, recompress, and end with a bare `VACUUM ohlcv_raw;`, the CLAUDE.md rule from the migration 312 incident; template `docs/foundation/timescaledb-compressed-column-migration.md`), plus `DELETE FROM ohlcv_revision WHERE vendor = 'ibkr'`. The raw last-wins law (528) keeps every vendor answer; this deletion is the owner's explicit exception, recorded with the dump's manifest sha256 in the migration's comment and in the methodology change ledger. Gate: `SELECT count(*) FROM ohlcv_raw WHERE vendor = 'ibkr'` returns 0, the D1 card recomputed after the delete equals `card_after` (canonical does not change), and `ops_selection_gate --compare` still meets the B3 criteria.
 
-Open decisions for stage 2 (the lead's):
+F4. Removal list (each its own reviewed commit, after F3; a repo-wide grep before deleting any shared helper):
 
-- Futures and fx (22 names, gap reason `asset_class_outside_vendor`): the plan keeps them on IBKR through the archive end. After it the Alpaca default serves nothing for them, the IBKR fetcher is disabled and the gateway lapse decision is 2026-12-01 (todo 544). Either an IBKR open-ended symbol row (the 1d plan refuses rows past the fingerprint window today) or the names leave intraday scope.
-- d2-v6 era logic reads `alpaca_era_start` from the first Alpaca-primary default; stage 2 moves it to 2026-11-10. Before the stage 2 apply, check the daily rule's IBKR volume-basis and zero-volume guards under Alpaca symbol rows with no fallback (a unit test with the stage 2 rows).
-- 1m stays on IBKR (its only source); "IBKR retired from selection" covers 5m and 1d.
+- the `ib-gateway` container (`production/docker-compose`), its credentials in `.env`, and the 2FA procedure in `docs/reference/gotchas.md`;
+- `src/providers/ibkr.py`, `src/providers/ibkr_adapter.py`, `services/ibkr_provider.py` and their callers (`scripts/infrastructure/backfill/_history_fetch_item.py`, `scripts/infrastructure/infrastructure_gateway_auth_probe.py`, `scripts/infrastructure/classification_ibkr_sourcing.py`, `scripts/infrastructure/reference_identity_capture.py` (the ISIN source of the identity map: replace or freeze before deleting), `scripts/infrastructure/universe_expansion_onboard_manifest.py`, `services/borrow_availability_capture.py`), `src/providers/__init__.py` exports;
+- the IBKR fetcher lane in `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` (its provider registry entry and `FetcherLock` use for IBKR), and the ask ledger rows of IBKR (`ohlcv_request`, read through `ohlcv_ask_current`; keep the table if Alpaca or Massive asks still use it);
+- systemd units `indicagent-ibkr-history-fetcher.{service,timer}`, `indicagent-ibkr-provider.service`, `indicagent-gateway-auth-probe.{service,timer}`, and their entries in `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` (`services/service_auditor.py`) and the `alert.lag.*` APR keys;
+- todo 544 (gateway version desupport) closed as moot;
+- CLAUDE.md: the IBKR line under Core Runtime (provider, gateway container, fetcher under `FetcherLock`), the IBKR wording in the Raw capture rule, the IBKR clientId memory, and the ubuntu1 gateway note; `docs/reference/gotchas.md` backfill and gateway sections.
 
 ## Estimates
 
-Measured inputs (2026-11-10 and 11): canonical 597.4M rows, 21 GB on disk, 90 GB before compression (6.3x to 7.2x per chunk); post-2016 rows 5m 273.5M, 15m 95.2M, 1h 26.2M, 1d 3.8M; pre-2016 5m 128.3M (IBKR). Massive 5m 2023: 23.2M rows (36.7k rows/s raw load); the 9b sweep measured 33k to 36k new rows/s on the bulk path, so a 5m year loads in about 12 minutes. Card digest 0.75M rows/s. Selection gate compare 83k rows/s (330 s per 27M-row 5m year). Grid writer 16.7k rows/s (73.1M new rows in 72.8 min, 2026-10-11). Daily stage over every name 8.5 min with no writes.
-
-Rebuilt 5m: about 273.5M (2016+, unchanged) plus about 200M to 250M pre-2016 Massive (2023's 23.2M a year falling with the name count in earlier years), so about 470M to 520M rows. The 5m write rate through `select_and_write` into fresh chunks is not measured (its multi-row INSERT has never run on an empty target at scale); 20k to 40k rows/s is the range from the raw path's measured server INSERT (44.8k rows/s) and the grid writer (16.7k).
+Measured inputs (2026-11-10 to 13): canonical 5m 415.7M rows, 1d 7.27M, 1m 9.78M; Massive 5m slots in span 370.2M (B4 before A11); card digest 0.75M rows/s; selection gate compare 83k rows/s; grid writer 16.7k rows/s; daily stage over every name 8.5 min with no writes. The expected-delta run took about 10 minutes for 1d and about 2 hours for 5m.
 
 | Step | Wall time | Basis |
 |---|---|---|
-| A (preconditions, export) | 2 to 3 h | IBKR 5m export dominates (unmeasured) |
+| A11 witness, map amendment and load of placed spans | 3 to 5 h | witness about 1 h measured; the load at the sweep's 33k rows/s for up to 14M 5m rows |
 | B1 card | 15 min | measured rate |
-| B2 pre-image (optional) | 1 to 1.5 h | estimate |
 | B3 compare | 1.5 h | measured rate |
+| B4 delta | 2 to 2.5 h | measured |
 | C3 preflight | 10 to 20 min | full-table counts, unmeasured |
-| C5 5m and 1m | 5 to 9 h | 490M rows at 20k to 40k rows/s plus about 145k selection calls; projected after 3 windows |
-| C6 daily | 20 to 40 min | 7.6M rows new, estimate |
-| C7 grid | 3 to 3.5 h | 180M to 200M rows at the measured 16.7k rows/s |
-| C8 finish | 30 to 60 min | recompressing the derived inserts, unmeasured |
-| D card, compares, witness, D7 | 2.5 to 3 h | measured compare rate; D7 unmeasured |
+| C5 5m | 4 to 8 h | about 380M rows at 20k to 40k rows/s plus the selection calls; projected after 3 windows |
+| C6 daily | 20 to 40 min | estimate |
+| C7 grid | 2.5 to 3.5 h | 140M to 180M rows at the measured 16.7k rows/s |
+| C8 finish | 30 to 60 min | unmeasured |
+| D card, verify, compare, witness, D7 | 2.5 to 3 h | measured compare rate; D7 unmeasured |
+| F1 to F2 export and restore check | 4 to 8 h | 365M rows, unmeasured |
 
-Stage 1 end to end: about 16 to 22 hours of wall time, 12 to 15 of them with canonical empty or partial. Start it in a morning so the paused 04:40 and 05:20 UTC nightlies are the only scheduled losses. Stage 2 is the same again minus A.
-
-Disk: TRUNCATE frees 21 GB. Peak during the rebuild: one uncompressed 5m window (about 3 GB), the 1d, 15m and 1h inserts into compressed chunks before C8 (about 190M rows, 25 to 35 GB uncompressed), and WAL (`max_wal_size` 16 GB). Budget 80 GB of headroom; the sweep reported 631 GB free after 2023. End state about 23 to 26 GB. The A8 export and B2 pre-image add their own files (estimate 15 to 35 GB each).
+Step 7 end to end: about 14 to 20 hours of wall time, 10 to 14 of them with canonical empty or partial. Start it in a morning so the paused nightlies are the only scheduled losses. Disk: TRUNCATE frees about 21 GB; budget 80 GB of headroom for the rebuild and the F1 dump's own files (estimate 30 to 50 GB).
 
 ## Risk register
 
-Each row: what can fail silently, how it is caught, and the abort or rollback. Raw is never touched, so every rollback is a policy change plus a rebuild.
+Each row: what can fail silently, how it is caught, and the abort or rollback. Raw is never touched before Part F, so every rollback before it is a policy change plus a rebuild.
 
 | # | Silent failure | Caught by | Abort or rollback |
 |---|---|---|---|
-| 1 | A missing split leaves a step in canonical Massive history (no record, no rescale) | A3 sweep; D4 `split_continuity`, seam witness | record the split, reselect the name (`--reselect-only`), re-derive its grid |
-| 2 | A split recorded after the rebuild's horizon leaves every earlier Massive 5m bar on the old scale | D7 `split_horizon_fresh` (required check, holds the name) | reselect the name; the reselect trigger on split writes is not built |
-| 3 | The 1d daily stage reads `corporate_action_current` without a horizon while 5m pins one; a split landing during the window gives 1d and 5m different scales | quiet list stops split writers; D4 `canonical_recompute` and `split_horizon_fresh` | rerun C6 for the name and reselect its 5m |
-| 4 | Pre-2016 IBKR-era quarantine flags quarantine the Massive bar at the same stamp | B5 deletion list; D4 sample | flag disposition per the reviewed list, then rescrub |
-| 5 | A post-2016 flag dropped early changes the grid, and D1 then fails for a reason unrelated to the rebuild | B5 ordering constraint | restore the flag rows, rerun C7 |
-| 6 | The Alpaca nightly selects into canonical during the window (the design's "raw only" is wrong for 5m) | A10 stops it; C3 refuses while it is active | if it ran, cut the D1 compare before its first touched month and rerun B3 logic for that month |
-| 7 | IBKR traded sessions with no Massive bar become NaN for names not on the gap list (a silent depth loss) | B4 census | add the names or spans to the gap list, rebuild the plan |
-| 8 | The gap list read is not the one the sweep loaded under (the default picks the lexically last directory) | `$GAP` pinned and its sha256 in every plan's evidence | rebuild the plan from the right file |
-| 9 | Massive incomplete against IBKR's zero-volume buckets would hand whole sessions to IBKR if a fallback were ranked | plans carry no fallback under Massive (ruling 2); C2 dry-run counts | none needed; a plan with a fallback fails review |
-| 10 | The 1m rows cannot be rebuilt (raw short) and are lost to the TRUNCATE | C3 hard abort, re-run immediately before C4 | stop; the new-table-and-swap fallback is its own plan |
-| 11 | Chunk compression settings or the chunk grid drift after the rebuild | C8 compares against the preflight record | fix the settings and recompress; values are unaffected |
-| 12 | The byte-exact check passes with the Massive code paths broken (it reads only unchanged 2016+ raw) | D2 seam witness, D3 data canaries, A6 unit canaries, D7 `split_horizon_fresh` | stop; fix the rescale path, rerun C5 to D |
-| 13 | An order-independent card digest collides (sum of 60-bit hashes) | count is compared beside the digest; B3/D1 selection gate on 5m and 1m compares rows exactly | none practical; the 1d and grid stages are also covered by D7 `canonical_recompute` and `digest_fresh` |
-| 14 | A reused ticker loaded under the wrong instrument (identity) | step 3 map; A2 identity check; D2 `unexplained` rows | the mapping retract path (law 528 amendment) by load id, then rebuild the name |
-| 15 | Stage 2 retires IBKR and futures/fx lose canonical after the archive end | Part E open decision | decide before building the stage 2 plan |
-| 16 | The 5m rebuild runs far longer than estimated and leaves canonical partial for a day | C5 projection rule after three windows | resume is safe; consumers stay stopped until D passes |
-| 17 | A disk floor is crossed mid-rebuild (derived inserts plus WAL) | the driver checks the APR floor before every window; C3 | stop, free space, resume (K if the stop is long) |
-| 18 | A split recorded before it executes (a future reference recapture lists them; the 2026-11-10 capture held one to 2027-01-13) divides Massive 1d history at once under d2-v6, which has no executed-by-horizon filter, while selection leaves 5m unscaled until it executes: 1d and 5m sit on different scales, and D7 `canonical_recompute` replays the same rule so it stays green | C3 refuses while any such row exists | align d2-v6 with `splits_known_at` (a rule version bump, its own plan) before any recapture applies future rows |
-| 19 | The compression policy job or the compression auditor compresses a chunk the rebuild is still filling | C3 unschedules job 1078 and refuses while the auditor runs; the driver compresses a window only after every timeframe | C8 reschedules, and K on every abort path; a chunk compressed early only costs recompression |
+| 1 | A missing split leaves a step in canonical Massive history | A3 sweep; D4 `split_continuity`, D3 canary | record the split, reselect the name, re-derive its grid |
+| 2 | A split recorded after the rebuild's horizon leaves earlier Massive 5m bars on the old scale | D7 `split_horizon_fresh` | reselect the name |
+| 3 | The daily stage and 5m see different split horizons | quiet list stops split writers; D4 | rerun C6 for the name and reselect its 5m |
+| 4 | Old-era quarantine flags quarantine the Massive bar at the same stamp | B5 deletion list; D1 count failure on that month | flag disposition per the reviewed list, then rescrub |
+| 5 | A plan leaves an IBKR row live (a primary, a fallback, a kept row) | the builder refuses (`ibkr_rows`), unit test; C2's count query | rebuild the plan |
+| 6 | Alpaca loses slots only the IBKR fallback filled | B4 counts them (lost_ibkr after the archive end and in gap rows) and names each class; accepted by ruling | none: missing stays missing |
+| 7 | The expected delta does not match the rebuild | D1 `--verify` per (timeframe, month), whole lists | read the month against B4; R and rebuild if the cause is the rebuild |
+| 8 | A selection or derivation path writes canonical during B4 or D1 | both are read-only sessions; A10 quiet list | rerun B4 after the stray writer is stopped |
+| 9 | The gap list read is not the one the plan and the delta used | `$GAP` pinned; its sha256 in every plan's evidence | rebuild the plan and B4 from the right file |
+| 10 | A reused ticker or predecessor history placed under today's security | 8c continuity gate (list_date, markers) and correlation; D4 | the mapping retract path (law 528 amendment) by load id, then rebuild the name |
+| 11 | d2-v6 misreads the moved `alpaca_era_start` or a no-fallback gap row | A8 unit test | fix the rule before step 7 |
+| 12 | The byte-exact gap-row check passes with the Massive code paths broken | D3 canary, A6 unit canaries, D7 `split_horizon_fresh` | stop; fix the rescale path, rerun C5 to D |
+| 13 | An order-independent card digest collides | counts compared beside the digest; the selection gate compares 5m rows exactly | none practical |
+| 14 | The IBKR dump is incomplete or corrupt and raw is deleted | F1 `--verify`, F2 restore and per-(kind, timeframe) digest compare before F3 | nothing is deleted until F2 passes |
+| 15 | The 5m rebuild runs far longer than estimated | C5 projection rule | resume is safe; consumers stay stopped until D passes |
+| 16 | A disk floor is crossed mid-rebuild or mid-dump | the driver's APR floor; the dump's disk margin | stop, free space, resume |
+| 17 | A split recorded before it executes divides Massive 1d at once under d2-v6 while 5m waits | C3 refuses while any such row exists | align d2-v6 with `splits_known_at` before any recapture applies future rows |
+| 18 | The compression job compresses a chunk the rebuild is still filling | C3 unschedules job 1078; the driver compresses a window only after it is filled | C8 reschedules, and K on every abort path |
 
 ## Not built (named)
 
-- A target-table parameter for `select_and_write` and both derivation stages, needed only by the new-table-and-swap fallback (C3).
+- A8's unit test of d2-v6 over the switch plan's rows (moved `alpaca_era_start`, Alpaca gap rows with no fallback).
+- The identity map's dated-amendment writer path for A11's placed spans, and the load of their Massive raw.
+- A target-table parameter for `select_and_write` and both derivation stages (the new-table-and-swap fallback of C3).
 - The reselect trigger on a split write (design section 5); `split_horizon_fresh` is the hold meanwhile.
-- A `--symbols` filter on D7 (D4 reads a sample out of the full run instead).
-- d2-v6's executed-by-horizon filter for Massive 1d (risk 18); the C3 guard holds until it exists.
+- A `--symbols` filter on D7.
+- d2-v6's executed-by-horizon filter for Massive 1d (risk 17); the C3 guard holds until it exists.
+- The F3 migration and the F4 commits.
