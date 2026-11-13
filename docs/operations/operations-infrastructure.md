@@ -19,7 +19,7 @@ Two servers, two remotely managed tunnels named after the hostnames. Each server
 | ubuntu1 | primary | 192.168.68.60 | ubuntu1 (`abcb8d19-...`) | ssh1.indicagent.com | ia1 |
 | ubuntu2 | standby and backup | 192.168.68.65 | ubuntu2 (`ade02e25-...`) | ssh2.indicagent.com | ia2 |
 
-Hardware (verified 2026-11-13): ubuntu1 has 64 GB RAM (59 GiB usable), 24 threads (AMD Ryzen AI 9 HX 370) and a 1.9 TB disk (1.6 TB free); numeric stack Python 3.14.4, numpy 2.4.6, scipy 1.18.1, pandas 3.1.1. ubuntu2 has 29 GiB RAM and a 914 GB disk and holds the standby, WAL-archive and base-backup duties. Postgres memory settings were sized for the previous box; re-check shared_buffers, work_mem and effective_cache_size at the next restart window, before the corpus rerun.
+Hardware (verified 2026-11-13): ubuntu1 has 64 GB RAM (59 GiB usable), 24 threads (AMD Ryzen AI 9 HX 370) and a 1.9 TB disk (1.6 TB free); numeric stack Python 3.14.4, numpy 2.4.6, scipy 1.18.1, pandas 3.1.1. ubuntu2 has 29 GiB RAM and a 914 GB disk and holds the standby, WAL-archive and base-backup duties. Postgres memory settings are sized for this box per the D-38 compose values (shared_buffers 14 GB, work_mem 256 MB, effective_cache_size 17340 MB, verified live 2026-11-13).
 
 Ingress rules live in Cloudflare, not in `/etc/cloudflared/config.yml` (ignored for a remotely managed tunnel; ubuntu1's unit still passes it for the tunnel ID). The repo file `production/cloudflare/tunnels.yml` is the source of truth; push it with `scripts/ops/cloudflare/apply_tunnel_ingress.py` (token with Cloudflare Tunnel Edit in `~/.cloudflare/api_token`). Do not edit rules in the dashboard by hand, or the next apply overwrites them. Web hostnames (grafana, api, dash) are services and keep their names. Laptop `~/.ssh/config`: `Host ia1` / `HostName ssh1.indicagent.com` / `ProxyCommand cloudflared access ssh --hostname %h`, and the same for `ia2` with `ssh2`. On a promotion, update the roles line in `CLAUDE.md` and this table.
 
@@ -28,11 +28,11 @@ Ingress rules live in Cloudflare, not in `/etc/cloudflared/config.yml` (ignored 
 ## Architecture
 
 IndicAgent runs on a single server (`192.168.68.60`, a fixed address set in netplan since the
-2026-11-12 move to the new server; the previous server, now idle at `192.168.68.65`, was `.53` until the
+2026-11-12 move to the new server; the previous server, now the standby and backup at `192.168.68.65`, was `.53` until the
 2026-09-23 power outage) with:
 
-- **Services:** systemd-managed daemons (27 services) + oneshot timers (12)
-- **Infrastructure:** Docker containers (TimescaleDB, Redpanda, Ollama, observability stack)
+- **Services:** systemd-managed daemons (24 service units) + oneshot timers (9)
+- **Infrastructure:** Docker containers (TimescaleDB, Redpanda, observability stack)
 - **Supervision:** systemd with watchdog integration (Phase 108)
 - **Telemetry:** OTel push-based to Collector, Prometheus scrape, Grafana dashboards
 
@@ -136,7 +136,7 @@ ExecStart=/home/bg/dev/indicagent/.venv/bin/python \
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicant-<job-name>
+SyslogIdentifier=indicagent-<job-name>
 ```
 
 #### Timer Template
@@ -192,11 +192,12 @@ async def _watchdog_notify(self) -> None:
 
 ```
 L0  Infrastructure sentinels
-    indicagent-redpanda-ready, indicagent-timescaledb-ready,
-    indicagent-infrastructure.target, indicagent-redpanda-watchdog
+    indicagent-redpanda-ready, indicagent-redpanda-watchdog,
+    indicagent-timescaledb-ready, indicagent-infrastructure.target
 
 L1  Data ingestion
-    indicagent-ibkr-provider, indicagent-bar-replay
+    indicagent-ibkr-provider (disabled 2026-11-10, deletion-listed),
+    indicagent-bar-replay
 
 L2  Stream routing
     indicagent-provider-merger
@@ -207,32 +208,30 @@ L3  Bar processing
 L4  Bar persistence
     indicagent-bar-writer
 
-L5  Intelligence pipeline
+L5  Compute pipeline
     indicagent-cross-asset, indicagent-macro-compute,
-    indicagent-intelligence-pipeline
+    indicagent-feature-vector-pipeline
 
-L6  Persistence writers (parallel)
-    indicagent-feature-writer, indicagent-signal-writer,
-    indicagent-lifecycle-writer, indicagent-lineage-writer,
-    indicagent-signal-tracker-compute
+L6  Persistence writers
+    indicagent-feature-vector-writer
 
-L7  AI/LLM layer
-    indicagent-alpha-swarm, indicagent-narrative-compute,
-    indicagent-llm-writer, indicagent-swarm-ledger-writer
+L7  Oneshot analytics (timers or fetcher-triggered; inactive between runs is correct)
+    indicagent-feature-parity-auditor, indicagent-ic-measure,
+    indicagent-feature-lifecycle, indicagent-bar-derivation,
+    indicagent-economic-series-writer, indicagent-bar-reconciliation-audit,
+    indicagent-ibkr-history-fetcher (disabled 2026-11-10, deletion-listed),
+    indicagent-research-ledger-render, indicagent-borrow-capture
 
-L8  Analytics (oneshot timers)
-    indicagent-signal-metrics-compute, indicagent-graduation-compute,
-    indicagent-ml-training, indicagent-ml-orchestrator, etc.
+L8  Audit, parity, alerting, config, self-healing
+    indicagent-alerting-agent, indicagent-dlq-drain,
+    indicagent-compression-auditor, indicagent-config-service,
+    indicagent-outbox-dispatcher, indicagent-self-healing-agent
 
-L9  Audit, parity, alerting
-    indicagent-signal-auditor, indicagent-signal-replay,
-    indicagent-alerting-agent, indicagent-dlq-drain
+L9  Top-level
+    indicagent-api, indicagent-dashboard
 
-L10 Top-level
-    indicagent-api, indicant-dashboard
-
-L11 Meta
-    indicant-service-auditor
+L10 Meta
+    indicagent-service-auditor
 ```
 
 **Priority:** Lower number = restarts first during graduated response.
@@ -301,8 +300,6 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/indicagent
 KAFKA_BOOTSTRAP_SERVERS=localhost:19092
 IBKR_HOST=127.0.0.1
 IBKR_PORT=7497
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_DEFAULT_MODEL=gemma4:e4b
 ```
 
 ### File Locations
@@ -325,15 +322,16 @@ OLLAMA_DEFAULT_MODEL=gemma4:e4b
 |-----------|---------|---------|
 | `timescaledb` | `:5432` | TimescaleDB database |
 | `redpanda` | `:19092` (Kafka), `:8081` (admin) | Kafka-compatible message broker |
-| `ollama` | `:11434` | Local LLM inference |
 | `otel-collector` | `:4317` (gRPC), `:4318` (HTTP), `:8889` (Prometheus) | Central telemetry hub |
 | `indicagent-prometheus` | `:9090` | Metrics scrape and alert evaluation |
 | `indicagent-grafana` | `:3001` | Dashboards |
 | `indicagent-loki` | `:3100` | Log aggregation |
 | `indicagent-tempo` | `:3200` (HTTP), `:4317` (OTLP) | Distributed traces |
 | `indicagent-alertmanager` | `:9093` | Alert routing |
-| `indicagent-mlflow` | `:5000` | ML experiment tracking |
-| `ib-gateway` | `:7497` (TWS port mapped) | IBKR TWS gateway |
+| `indicagent-node-exporter` | `:9100` | Host metrics |
+| `indicagent-postgres-exporter` | `:9187` | Database metrics |
+| `indicagent-postgres-exporter-tables` | per-table metrics | Table-level database metrics |
+| `ib-gateway` | `:7497` (TWS port mapped) | IBKR TWS gateway (IBKR lane disabled 2026-11-10, deletion-listed) |
 
 **All containers:** `restart: unless-stopped` in docker-compose.yml
 
@@ -389,23 +387,7 @@ pg_dump -U postgres -h localhost indicagent > backup.sql
 psql -U postgres -h localhost indicagent < backup.sql
 ```
 
-### Ollama
 
-```bash
-# List models
-docker exec ollama ollama list
-
-# Pull model
-docker exec ollama ollama pull <model-name>
-
-# Generate (test)
-docker exec ollama ollama run <model-name> "test prompt"
-
-# Check VRAM
-cat /sys/class/drm/card1/device/mem_info_vram_total
-```
-
-**Live services** `alpha_swarm` and `narrative_compute` hold persistent Ollama connections. Kill them before swapping models.
 
 ---
 
@@ -426,9 +408,9 @@ docker exec indicagent-prometheus wget -qO- http://localhost:9090/api/v1/rules
 # Verify DB
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT 1"
 
-# Verify migration version
+# Verify migration state (no version table exists; probe an object a recent migration created)
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1"
+  "SELECT to_regclass('public.ohlcv_revision');"
 
 # Verify git state
 git branch --show-current  # Should be main
@@ -458,26 +440,22 @@ git pull origin main
 
 4. **Rolling restart** (recommended)
    ```bash
-   # L4: Persistence layer first
-   sudo systemctl restart indicagent-bar-writer \
-                       indicagent-feature-writer \
-                       indicagent-signal-writer \
-                       indicagent-lifecycle-writer
+   # L1-L4: ingestion and bar persistence first
+   sudo systemctl restart indicagent-provider-merger \
+                       indicagent-bar-aggregator \
+                       indicagent-bar-writer
    sleep 10
 
-   # L5: Compute layer
-   sudo systemctl restart indicagent-intelligence-pipeline \
-                       indicagent-alpha-swarm \
-                       indicagent-narrative-compute
+   # L5-L6: compute and writers
+   sudo systemctl restart indicagent-feature-vector-pipeline \
+                       indicagent-feature-vector-writer
    sleep 10
 
-   # L6-L7: Analytics
-   sudo systemctl restart indicagent-signal-tracker-compute \
-                       indicagent-signal-metrics-compute \
-                       indicagent-llm-writer
+   # L9: top-level
+   sudo systemctl restart indicagent-api
 
-   # L10: Service auditor last
-   sudo systemctl restart indicant-service-auditor
+   # L10: service auditor last
+   sudo systemctl restart indicagent-service-auditor
    ```
 
 5. **Update dashboard** (if applicable)
@@ -592,8 +570,9 @@ sudo systemctl restart indicagent-<service>
 ### Data Not Flowing
 
 ```bash
-# Trace data flow through pipeline
-# 1. Check IBKR provider emitting
+# Trace data flow through the bar path (the streaming path is dormant; for batch runs,
+# check the writer and derivation logs instead)
+# 1. Check the provider emitting (if a live feed ever returns; the IBKR provider is deletion-listed)
 journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"
 
 # 2. Check merger routing

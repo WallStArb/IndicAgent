@@ -13,7 +13,7 @@
 
 TimescaleDB operations: tables, migrations, backfill, compression, backup, and advanced gotchas for IndicAgent's cold storage layer.
 
-**Architecture:** the streaming path is dormant; data arrives by nightly batch (IBKR and Alpaca into `ohlcv_raw`, then the canonical selection `market_data_ohlcv`). Compute reads the views, never the raw table. Writers persist in batch; the real-time path never touches the database directly.
+**Architecture:** the streaming path is dormant; data arrives by nightly batch (the Alpaca nightly into `ohlcv_raw`; Massive raw loaded 2026-11-11; the IBKR lane is disabled and deletion-listed as of 2026-11-13), then the canonical selection `market_data_ohlcv`. Compute reads the views, never the raw table. Writers persist in batch; the real-time path never touches the database directly.
 
 ---
 
@@ -51,7 +51,7 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `ohlcv_raw` | The single raw store of vendor answers (todo 533): every bar a supplier served, under its `(vendor, kind)` label, one row per (symbol, timeframe, vendor, kind, timestamp), any timeframe | `services/ohlcv_raw_writer.py` (single writer) |
 | `ohlcv_load`, `ohlcv_revision` | The write record of every bar writer (ingress write contract, migration 448; raw-first since phase 191): one `ohlcv_load` row per series written, with `caller`, `destination` (`raw` or `market_data_ohlcv`; `d1` and `archive` on older rows), `batch_id`, `n_new`, `n_changed`, `n_unchanged`, `n_removed`, `n_superseded`; the old values of any bar a write replaced in `ohlcv_revision`, with `origin` (`raw`, `superseded`; `load`, `archive_segment` on older rows). Both are permanent lineage | every bar writer through the contract (`bar_derivation` stages, the fetch paths, the load engine) |
 | `bar_source_policy` | Dated source policy per timeframe and per symbol exception, `[valid_from, valid_to)`, `ingress_mode`, `primary_source`, `fallback_source`, reason, evidence; a row is closed or retired (migration 520), never edited. Read through `bar_source_policy_current` (live rows; a guard test forbids reading the table) | `scripts/ops/bars/ops_source_policy.py` |
-| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25), labeled `vendor` and `kind`. 1d: `(tradier, consolidated)`, `(ibkr, fallback)` or `(ibkr, named)` by policy (rule d2-v3); 5m: `(alpaca, sip_rth)` from 2016-01-04 and `(ibkr, named)` by policy (D-191-P); 15m/1h: `(derived, 5m_grid)` | 1d, 15m, 1h: `bar_derivation`; 5m, 1m, 4h: `services/bar_selection.py`, called by the ingress contract after each raw write |
+| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25), labeled `vendor` and `kind`. 1d: `(alpaca, sip_rth)` primary with `(ibkr, named)` fallback (D-191-Q; the Tradier rows were deleted by migration 589 on 2026-11-12 and the stored build still predates the d2-v6 Massive rebuild pending step 7); 5m: `(alpaca, sip_rth)` from 2016-01-04 and `(ibkr, named)` by policy (D-191-P); 15m/1h: `(derived, 5m_grid)` | 1d, 15m, 1h: `bar_derivation`; 5m, 1m, 4h: `services/bar_selection.py`, called by the ingress contract after each raw write |
 | `bar_session_choice` | One row per non-trivial 5m/1m/4h session choice (a fallback session, a session no vendor holds completely), migration 480 | `services/bar_selection.py` |
 | `ohlcv_coverage` | Per (symbol, timeframe, provider) bounds, row count and last fetch status: the fetcher's ranking cache, derived and rebuildable (`--rebuild-coverage`) | the fetch paths (`services/ohlcv_coverage_writer.py`) |
 | `listing_end` | A name's recorded last session after a merger, buyout or delisting (migration 518); `freshness_1d` judges the name up to it. Read `listing_end_current` | migration only |
@@ -69,17 +69,15 @@ The fetch bookkeeping table was dropped by migration 459 (plan 185-43); progress
 `ohlcv_intraday_raw_archive` were dropped by migration 499 (plan 191-16): plan 191-05 had moved
 every write to `ohlcv_raw` and plans 191-13 and 191-16 proved the canonical output equal, so the
 stores they replaced were dead weight. A COPY backup of both (218,252,126 rows, 50 gzip slices
-with sha256 in `old_store_backup_manifest.json`) sits in `data/backups/191/`, retained until
-2026-11-12; `scripts/ops/bars/ops_old_store_backup.py --verify-files` checks it against its
-manifest without a database. The fetch-ledger and raw tables are plain tables (not hypertables).
+with sha256 in `old_store_backup_manifest.json`) sat in `data/backups/191/` (retention ended 2026-11-12; the backup directory and
+`scripts/ops/bars/ops_old_store_backup.py` are gone). `ohlcv_raw` is a compressed hypertable;
+the fetch-ledger tables are plain tables.
 `ohlcv_request` is mutable since migration 438; `corporate_action`, `bar_content_digest` and
 `listing_venue` refuse rewrites in a trigger (superuser included).
 
-Tradier (not funded since 2026-10-07; nothing answered after 2026-10-06): plan 191-20 deletes
-its bar rows (`ohlcv_raw` and canonical vendor `tradier`, its `ohlcv_revision` rows, its
-`ohlcv_coverage` rows) after the owner approves the residue report, with a COPY backup in
-`data/backups/191/` kept until about 2026-11-12. Its `ohlcv_request` and `ohlcv_load` rows stay
-as lineage. Until then its history is canonical 1d before 2026-10-07.
+Tradier: fully removed 2026-11-12 (migration 589 deleted its bar rows, `ohlcv_revision` and
+`ohlcv_coverage` rows; its `ohlcv_request` and `ohlcv_load` rows stay as lineage). Code archived
+at tag `archive/tradier-2026-11`.
 
 ### Roles
 
@@ -110,17 +108,15 @@ Readers of the raw layer exclude rows a test wrote: `ohlcv_request.caller NOT LI
 
 Four timers. Sources are chosen per date by `bar_source_policy_current`:
 
-- 1d today: Tradier before D = 2026-10-07 (closed default row, IBKR fallback), IBKR SMART
-  TRADES from D (migration 456), and per-symbol exception rows (MOD and QRVO keep Tradier
-  primary through hold rows). Decided, lands with plan 191-20 (todo 545): D-191-Q makes Alpaca
-  SIP the 1d primary from 2016-01-04 with IBKR fallback only where Alpaca has no tradeable bar,
-  IBKR alone before; a zero-volume bar never serves; spin-off and ticker-reuse exceptions are
-  per-name rows from a one-time three-vendor arbitration (Alpaca, IBKR, Tradier) before
-  Tradier is deleted, and spans where all three disagree go to the owner.
+- 1d (D-191-Q, landed): Alpaca SIP (`sip_rth`) primary from 2016-01-04 with IBKR fallback only
+  where Alpaca has no tradeable bar, IBKR alone before; a zero-volume bar never serves;
+  spin-off and ticker-reuse exceptions are per-name rows. The stored canonical build predates
+  the d2-v6 Massive route; step 7 rebuilds 1d in one pass (docs/operations/massive-step7-runbook.md),
+  after which the daily-rule arbitration logic retires.
 - 5m (D-191-P, done 2026-10-27): Alpaca SIP (`sip_rth`) from 2016-01-04 with IBKR fallback,
   IBKR alone before. `iex_rth` is raw only and never selected.
 
-1. `indicagent-ibkr-history-fetcher.timer` (enabled; every 15 min after the last run ends) runs
+1. `indicagent-ibkr-history-fetcher.timer` (DISABLED since 2026-11-10; the lane is on the step-7 deletion list; every 15 min after the last run ends when it ran) runs
    `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` under `FetcherLock`: the
    `ohlcv_coverage` queue over
    APR `infra.backfill.default_scopes` in two lanes, the update lane (every active name's 1d
@@ -224,11 +220,8 @@ and its disposition.
 | `dlq_events` | `PRIMARY KEY (id, routed_at)`; `dlq_events_dedup_idx` remains the `ON CONFLICT` target |
 | `integrity_monitor` | `PRIMARY KEY (id, evaluated_at)`; expression unique index remains the `ON CONFLICT` target |
 | `drift_monitor` | Dropped (migration 385): empty, no code writer or reader |
-| `alpha_multiplier_shadow` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
 | `service_health_events` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
-| `signal_lineage` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
 | `signal_transform_log` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
-| `transform_graduation` | `PRIMARY KEY (transform_id, transform_version, segment_key)` replacing the former unique constraint |
 
 Adding a column with a default (the identity `id`) cannot break writers because
 every INSERT into these tables names its columns (verified by grep before the
@@ -344,8 +337,12 @@ docker exec timescaledb psql -U postgres -d indicagent -f /tmp/file.sql
 
 ### Migration version
 
+There is no migration version table; applied state is the highest-numbered file in
+`production/migrations/` that has been run with `psql -f` on this database. To verify a deployment,
+check that an object from the newest applied migration exists, e.g.:
+
 ```sql
-SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
+SELECT to_regclass('public.ohlcv_revision');  -- any object a recent migration created; NULL means it never ran
 ```
 
 ---
