@@ -198,10 +198,11 @@ src/dashboard/.next/
 # Backup files
 *_backup.py
 *_backup.*
-!production/standby/pg_base_backup.sh
 # ...except the old-store backup tooling, whose subject is backups (phase 191 plan 16),
 # and its generic successor (todo 578)
 !scripts/ops/bars/ops_old_store_backup.py
+# ...and the standby host base-backup script
+!production/standby/pg_base_backup.sh
 !scripts/ops/db/ops_table_backup.py
 !scripts/ops/db/ops_table_backup_tool.py
 !tests/unit/scripts/test_ops_table_backup_tool.py
