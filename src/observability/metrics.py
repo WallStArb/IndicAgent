@@ -115,27 +115,6 @@ LANGGRAPH_WORKFLOW_DURATION = _meter.create_histogram(
 # Circuit breaker metrics
 # ---------------------------------------------------------------------------
 
-CIRCUIT_BREAKER_STATE = _meter.create_gauge(
-    "plugin_circuit_breaker_state",
-    description="Circuit breaker state (0=closed, 1=open, 2=half-open)",
-)
-CIRCUIT_BREAKER_FAILURES_TOTAL = _meter.create_counter(
-    "circuit_breaker_failures_total",
-    description="Total circuit breaker failures",
-)
-CIRCUIT_BREAKER_SUCCESSES_TOTAL = _meter.create_counter(
-    "circuit_breaker_successes_total",
-    description="Total circuit breaker successes",
-)
-CIRCUIT_BREAKER_TRANSITIONS_TOTAL = _meter.create_counter(
-    "circuit_breaker_state_transitions_total",
-    description="Total circuit breaker state transitions",
-)
-CIRCUIT_BREAKER_OPEN_SECONDS = _meter.create_histogram(
-    "circuit_breaker_open_duration_seconds",
-    description="Time spent in OPEN state per recovery cycle",
-    unit="s",
-)
 
 # ---------------------------------------------------------------------------
 # Persistence metrics
@@ -178,18 +157,6 @@ PROVIDER_CONNECTED = _meter.create_up_down_counter(
 PROVIDER_GAPS_FILLED_TOTAL = _meter.create_counter(
     "provider_gaps_filled_total",
     description="Total gap-fill bars fetched and published per provider",
-)
-PROVIDER_BARS_DROPPED_TOTAL = _meter.create_counter(
-    "provider_bars_dropped_total",
-    description="Bars dropped at the provider edge, labeled by reason",
-)
-IBKR_ERROR_326_TOTAL = _meter.create_counter(
-    "ibkr_error_326_total",
-    description="Error 326 (clientId collision) detections and recovery actions",
-)
-IBKR_CLIENT_ID_CURRENT = _meter.create_up_down_counter(
-    "ibkr_client_id_current",
-    description="Current IBKR clientId in use (value > base signals rotation)",
 )
 
 # ---------------------------------------------------------------------------

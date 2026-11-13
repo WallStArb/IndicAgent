@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Backfill Feature Factory: the IBKR fetch stage and the feature_vectors rebuild writer.
+"""Backfill Feature Factory: the feature_vectors rebuild writer (the IBKR fetch stage was removed
+2026-11-13 with the IBKR lane; bars arrive through the raw-capture loaders).
 
-Stage 1 (--fetch-only): fetch IBKR OHLCV history into market_data_ohlcv at target depths, 5m and
-1m only, through the ingress write contract (_history_fetch.store_bars, plan 185-42). Phase 185
-owns it. No checkpoint: every run asks the full depth and the contract writes only new and changed
-rows.
-
-Stage 2 (--compute-only): the single rebuild writer for feature_vectors (phase 186, D-28).
+The single rebuild writer for feature_vectors (phase 186, D-28).
 A unit of work is (symbol chunk, tf, calendar-year range), recorded as one provenance_batch row
 (D-24) with target_table feature_vectors; a rerun after a kill skips every unit whose record is
 completed and recomputes the rest (D-32a). Workers are compute-only: one task per symbol runs the
@@ -41,16 +37,13 @@ end of every unit. It is pinned so nightly bars landing between a kill and its r
 a completed unit's identity; a resume must pass the same horizon.
 
 Usage:
-    python services/backfill_feature_factory.py --compute-only --data-horizon 2026-10-01
-    python services/backfill_feature_factory.py --fetch-only
-    python services/backfill_feature_factory.py --symbols SPY,TLT --tf 1d --compute-only
-    python services/backfill_feature_factory.py --client-id 40
+    python services/backfill_feature_factory.py --data-horizon 2026-10-01
+    python services/backfill_feature_factory.py --symbols SPY,TLT --tf 1d
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import dataclasses
 import functools
 import hashlib
@@ -76,7 +69,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
-from scripts.infrastructure.backfill._history_fetch import store_bars
 from services._batch_utils import (
     _BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY,
     _BULK_LOAD_DEFAULT_COMPRESS_ON_COMPLETE,
@@ -151,8 +143,6 @@ from src.intelligence.features.kernels.macro import (
 from src.intelligence.features.kernels.residual import build_market_residual_series
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.providers import IBKRProvider
-from src.providers.base import ProviderSessionLost
 
 setup_service_logging("logs/backfill_feature_factory.log")
 
@@ -163,9 +153,6 @@ _logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _JOB = "backfill-feature-factory"
-
-# Default IBKR client-id — 40 per CLAUDE.md. Provider uses 35. 56+ exceeds cap.
-_DEFAULT_CLIENT_ID: int = 40
 
 # Target timeframes for backfill (1m is NOT a backfill target — live pipeline owns 1m,
 # confirmed intentional, todo 199). This literal is now only the APR fallback default --
@@ -242,32 +229,19 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     default ["5m", "15m", "1h", "1d"], byte-identical to the prior hardcoded
     _TARGET_TIMEFRAMES module constant unless an operator explicitly reconfigures it.
 
-    Validated here against _DEPTH_YEARS.keys() -- every configured tf must have a depth
-    entry, or run_fetch_stage's later bare `_DEPTH_YEARS[tf]` subscript would KeyError
-    partway through a live IBKR fetch, after some symbols were already stored (CLAUDE.md:
-    silent/late failure is worse than a loud one at load time).
+    Validated here against _BARS_PER_DAY.keys(): every configured tf needs a bars-per-day
+    entry, or bars_to_fetch_window raises partway through a run (silent or late failure is
+    worse than a loud one at load time).
     """
     tfs = _get_list_config(cfg, TARGET_TIMEFRAMES_KEY, list(_TARGET_TIMEFRAMES_DEFAULT))
-    _unknown = [tf for tf in tfs if tf not in _DEPTH_YEARS]
+    _unknown = [tf for tf in tfs if tf not in _BARS_PER_DAY]
     if _unknown:
         raise AssertionError(
             f"feature.factory.target_timeframes contains {_unknown!r}, which has no "
-            f"_DEPTH_YEARS entry ({sorted(_DEPTH_YEARS)}) -- add one before enabling this tf"
+            f"_BARS_PER_DAY entry ({sorted(_BARS_PER_DAY)}) -- add one before enabling this tf"
         )
     return tfs
 
-
-# The only timeframes the --fetch-only stage stores (plan 185-32): raw provider bars. 1d, 15m
-# and 1h belong to D2 and the archive (DERIVATION_OWNED_TIMEFRAMES), 4h to nothing here.
-_FETCH_STAGE_TIMEFRAMES = frozenset({"5m", "1m"})
-
-# Depth years per TF (D-09, phase 137 spec)
-_DEPTH_YEARS: dict[str, int] = {
-    "5m": 5,
-    "15m": 10,
-    "1h": 15,
-    "1d": 20,
-}
 
 # Bars per trading day per TF (objective formula)
 _BARS_PER_DAY: dict[str, int] = {
@@ -865,127 +839,6 @@ def unit_code_key(registry: KernelRegistry, columns: Sequence[str]) -> str:
     lines = sorted(f"{k.name}:{_kernel_module_key(k.module)}" for k in contributors)
     lines.append("writer:" + _kernel_code_key([_ROW_CONTRACT_MODULE], own=[_WRITER_OWN_MODULE]))
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Stage 1: IBKR Fetch
-# ---------------------------------------------------------------------------
-
-
-async def run_fetch_stage(
-    settings: Settings,
-    client_id: int,
-    symbols: list[str] | None,
-    db_conn: Any,
-    timeframes: list[str] | None = None,
-) -> None:
-    """Fetch IBKR OHLCV history for ETFs into market_data_ohlcv.
-
-    Stores the provider's bars as they arrived, 5m and 1m only (plan 185-32): no
-    calendar-grid fill (migration 444 refuses synthetic_fill), and 1d, 15m and 1h
-    belong to D2 and the archive, so they are refused here. Every chunk is written by the
-    ingress write contract (_history_fetch.store_bars, plan 185-42): new rows inserted,
-    changed rows rewritten with their old values in ohlcv_revision, one ohlcv_load row per
-    series. No checkpoint: a rerun asks the full depth again and writes only the difference.
-    """
-    contracts = get_active_contracts(settings, dimension="compute")
-    etf_contracts = _filter_etf_contracts(contracts, symbols)
-    _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
-
-    cfg = _load_config_service(db_conn)
-    target_timeframes = _restrict_timeframes(
-        _get_target_timeframes(cfg), timeframes, refuse_derivation_owned=True
-    )
-    refused = [tf for tf in target_timeframes if tf not in _FETCH_STAGE_TIMEFRAMES]
-    if refused:
-        raise ValueError(
-            f"fetch stage stores raw bars at 5m and 1m only (plan 185-32); refused {refused!r}"
-        )
-
-    provider = IBKRProvider(
-        host=settings.ib_host,
-        port=settings.ib_port,
-        client_id=client_id,
-    )
-
-    connected = await provider.connect()
-    if not connected:
-        _logger.error("ibkr_connect_failed")
-        raise RuntimeError("Cannot connect to IBKR TWS — aborting fetch stage")
-
-    end_dt = datetime.now(tz=UTC)
-    total_bars_fetched = 0
-
-    try:
-        for instrument in etf_contracts:
-            try:
-                qualified = await provider.qualify_instrument(instrument)
-                if not qualified:
-                    _logger.warning("qualify_failed", symbol=instrument.symbol)
-                    continue
-
-                for tf in target_timeframes:
-                    depth_years = _DEPTH_YEARS[tf]
-                    fetch_days = depth_years * 365
-                    start_dt = (end_dt - timedelta(days=fetch_days)).replace(
-                        hour=0, minute=0, second=0, microsecond=0
-                    )
-
-                    _logger.info(
-                        "fetch_start",
-                        symbol=instrument.symbol,
-                        tf=tf,
-                        depth_years=depth_years,
-                    )
-
-                    try:
-                        ohlcv_bars = await provider.fetch_historical_bars(
-                            symbol=instrument.symbol,
-                            timeframe=tf,
-                            start=start_dt,
-                            end=end_dt,
-                            continuous=False,
-                        )
-                        bar_dicts = [
-                            {
-                                "timestamp": b.timestamp,
-                                "open": b.open,
-                                "high": b.high,
-                                "low": b.low,
-                                "close": b.close,
-                                "volume": b.volume,
-                                "source": getattr(b, "source", "historical_backfill"),
-                            }
-                            for b in ohlcv_bars
-                        ]
-
-                        stored = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
-                        total_bars_fetched += stored
-                        _logger.info("fetch_stored", symbol=instrument.symbol, tf=tf, bars=stored)
-
-                    except ProviderSessionLost:
-                        raise  # todo 538: a dead history session ends the stage, loudly
-                    except Exception as error:
-                        _logger.error(
-                            "fetch_error",
-                            symbol=instrument.symbol,
-                            tf=tf,
-                            error=str(error),
-                        )
-
-                    await asyncio.sleep(1)  # IBKR pacing between TFs
-
-            except ProviderSessionLost:
-                raise
-            except Exception as error:
-                _logger.error("instrument_error", symbol=instrument.symbol, error=str(error))
-
-            await asyncio.sleep(2)  # IBKR pacing between instruments
-
-    finally:
-        await provider.disconnect()
-
-    _logger.info("fetch_stage_complete", total_bars=total_bars_fetched)
 
 
 # ---------------------------------------------------------------------------
@@ -2282,26 +2135,7 @@ def _completion_status(summary: dict[str, Any]) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Backfill Feature Factory: the IBKR fetch stage and the feature_vectors "
-            "rebuild writer"
-        )
-    )
-    parser.add_argument(
-        "--fetch-only",
-        action="store_true",
-        help="Only run Stage 1 (IBKR fetch into market_data_ohlcv), skip the rebuild",
-    )
-    parser.add_argument(
-        "--compute-only",
-        action="store_true",
-        help="Only run Stage 2 (the feature_vectors rebuild writer), skip IBKR fetch",
-    )
-    parser.add_argument(
-        "--client-id",
-        type=int,
-        default=_DEFAULT_CLIENT_ID,
-        help=f"IBKR client ID (default: {_DEFAULT_CLIENT_ID}; provider uses 35; max 50)",
+        description=("Backfill Feature Factory: the feature_vectors rebuild writer")
     )
     parser.add_argument(
         "--symbols",
@@ -2348,60 +2182,40 @@ def main() -> None:
     settings = Settings()
     db_conn = _connect_db(settings)
 
-    run_fetch = not args.compute_only
-    run_rebuild = not args.fetch_only
-
     # n_workers from the CLI arg or APR, read once on the main connection before the workers
     # spawn. run_rebuild_stage opens its own serial writer connection and closes it.
     n_workers: int = 1
     if args.workers is not None:
         n_workers = args.workers
-    elif run_rebuild:
+    else:
         cfg_tmp = _load_config_service(db_conn)
         n_workers = int(cfg_tmp.get_sync("infra.feature_factory.workers", 1))
 
     _logger.info(
         "backfill_start",
-        run_fetch=run_fetch,
-        run_rebuild=run_rebuild,
-        client_id=args.client_id,
         symbols=symbols,
         n_workers=n_workers,
     )
 
     try:
-        if run_fetch:
-            _logger.info("stage1_start")
-            asyncio.run(
-                run_fetch_stage(
-                    settings=settings,
-                    client_id=args.client_id,
-                    symbols=symbols,
-                    db_conn=db_conn,
-                    timeframes=timeframes,
-                )
-            )
-            _logger.info("stage1_complete")
+        _logger.info("stage2_start")
+        summary = run_rebuild_stage(
+            settings=settings,
+            symbols=symbols,
+            db_conn=db_conn,
+            n_workers=n_workers,
+            timeframes=timeframes,
+            horizon=horizon,
+        )
+        _logger.info(
+            "stage2_complete",
+            units_loaded=summary["units_loaded"],
+            units_skipped=summary["units_skipped"],
+            units_failed=summary["units_failed"],
+            rows_loaded=summary["rows_loaded"],
+        )
 
-        if run_rebuild:
-            _logger.info("stage2_start")
-            summary = run_rebuild_stage(
-                settings=settings,
-                symbols=symbols,
-                db_conn=db_conn,
-                n_workers=n_workers,
-                timeframes=timeframes,
-                horizon=horizon,
-            )
-            _logger.info(
-                "stage2_complete",
-                units_loaded=summary["units_loaded"],
-                units_skipped=summary["units_skipped"],
-                units_failed=summary["units_failed"],
-                rows_loaded=summary["rows_loaded"],
-            )
-
-        status = _completion_status(summary) if run_rebuild else "success"
+        status = _completion_status(summary)
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         _logger.info("backfill_complete", status=status)
         if status != "success":

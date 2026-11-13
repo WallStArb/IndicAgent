@@ -15,7 +15,6 @@ import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -27,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 from services import backfill_feature_factory as module
 from services.backfill_feature_factory import (
     _BARS_PER_DAY,
-    _DEFAULT_CLIENT_ID,
     _TARGET_TIMEFRAMES_DEFAULT,
     _get_target_timeframes,
 )
@@ -493,11 +491,6 @@ def test_a_run_with_failed_units_is_not_a_success() -> None:
     assert module._completion_status({"units_failed": 3}) == "partial"
 
 
-def test_default_client_id_is_40() -> None:
-    """IBKR client-id must default to 40 (T2 mitigation)."""
-    assert _DEFAULT_CLIENT_ID == 40
-
-
 def test_bars_per_day_values() -> None:
     """Verify _BARS_PER_DAY constants match objective specification."""
     assert _BARS_PER_DAY["5m"] == 78
@@ -511,15 +504,6 @@ def test_bars_per_day_values() -> None:
 # ---------------------------------------------------------------------------
 # Fetch stage writes through the ingress write contract (plan 185-42)
 # ---------------------------------------------------------------------------
-
-
-def test_fetch_stage_has_no_checkpoint_and_no_first_write_wins_insert() -> None:
-    """The fetch stage writes through _history_fetch.store_bars (the ingress write contract):
-    no backfill_status checkpoint read or write and no raw market_data_ohlcv insert remain."""
-    source = inspect.getsource(module)
-    assert "backfill_status" not in source
-    assert "INSERT INTO market_data_ohlcv" not in source
-    assert "store_bars(" in inspect.getsource(module.run_fetch_stage)
 
 
 # ---------------------------------------------------------------------------
@@ -888,175 +872,6 @@ class TestRestrictTimeframes:
 
         with pytest.raises(ValueError, match="1m"):
             _restrict_timeframes(["5m", "1d"], ["1m"])
-
-
-class TestRefuseDerivationOwnedTfs:
-    """Plan 185-18 task 1b: the fetch stage refuses 1d/15m/1h (their grid rows
-    belong to services/bar_derivation, D-06/D-15) with one logged warning per
-    refused timeframe, and keeps everything else unchanged. The fence lives in
-    _restrict_timeframes(refuse_derivation_owned=True); the rebuild stage
-    shares the narrowing without the fence (it reads stored bars, the derived
-    grid included, and writes none of them)."""
-
-    def test_refuses_daily_and_derivation_grid_tfs(self):
-        from services.backfill_feature_factory import _restrict_timeframes
-
-        kept = _restrict_timeframes(["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True)
-        assert kept == ["5m"]
-
-    def test_keeps_streaming_tfs_untouched(self):
-        from services.backfill_feature_factory import _restrict_timeframes
-
-        kept = _restrict_timeframes(["5m", "1m"], None, refuse_derivation_owned=True)
-        assert kept == ["5m", "1m"]
-
-    def test_one_warning_per_refused_timeframe_per_process(self):
-        """The refusal warning fires once per timeframe per process (every
-        fetch run narrows through this fence, so per-run repeats would be
-        noise): the first call warns for each refused tf, a later call in the
-        same process does not repeat them."""
-        from structlog.testing import capture_logs
-
-        import services.backfill_feature_factory as factory
-        from services.backfill_feature_factory import _restrict_timeframes
-
-        factory._OWNED_TF_WARNED.clear()
-        with capture_logs() as logs:
-            kept = _restrict_timeframes(
-                ["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True
-            )
-        assert kept == ["5m"]
-        warnings = [e for e in logs if e.get("log_level") == "warning"]
-        assert [e.get("tf") for e in warnings] == ["15m", "1h", "1d"]
-
-        with capture_logs() as logs_again:
-            _restrict_timeframes(["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True)
-        assert [e for e in logs_again if e.get("log_level") == "warning"] == []
-
-    def test_explicit_owned_tf_raises_instead_of_narrowing_to_nothing(self):
-        """--tf 1d is an operator request the fetch stage can never satisfy;
-        a silent narrowing to an empty run would be a no-op disguised as
-        success, so it raises (plan 185-18 task 1b)."""
-        import pytest
-
-        from services.backfill_feature_factory import _restrict_timeframes
-
-        with pytest.raises(ValueError, match="bar_derivation"):
-            _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d"], refuse_derivation_owned=True)
-
-    def test_rebuild_narrowing_keeps_owned_tfs(self):
-        """The rebuild path shares _restrict_timeframes without the fence: a
-        rebuild may legitimately target 1d alone (todo 421)."""
-        from services.backfill_feature_factory import _restrict_timeframes
-
-        assert _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d", "5m"]) == ["5m", "1d"]
-
-    def test_run_fetch_stage_narrows_through_the_fence(self):
-        """The composed entry point narrows through the fence before any fetch: a config that
-        still lists the derivation-owned timeframes reaches the fetch loop with 5m only."""
-        _stored, asked = _run_fetch_stage_with(["5m", "15m", "1h", "1d"], [])
-        assert asked == ["5m"]
-
-
-def _run_fetch_stage_with(timeframes, provider_bars):
-    """Drive run_fetch_stage over SPY with fakes; return (the bar dicts handed to store_bars,
-    the timeframes asked of the provider)."""
-    import asyncio
-
-    from services.backfill_feature_factory import run_fetch_stage
-
-    settings = MagicMock()
-    settings.ib_host = "127.0.0.1"
-    settings.ib_port = 7497
-    instrument = MagicMock()
-    instrument.symbol = "SPY"
-    instrument.asset_class = "equity"
-
-    async def _async_true(*_args, **_kwargs) -> bool:
-        return True
-
-    async def _async_none() -> None:
-        return None
-
-    asked: list[str] = []
-
-    async def _bars(**kwargs):
-        asked.append(kwargs["timeframe"])
-        return provider_bars
-
-    provider = MagicMock()
-    provider.connect = MagicMock(side_effect=_async_true)
-    provider.disconnect = MagicMock(side_effect=_async_none)
-    provider.qualify_instrument = MagicMock(side_effect=_async_true)
-    provider.fetch_historical_bars = MagicMock(side_effect=_bars)
-
-    stored: list[dict] = []
-
-    def _store_bars(_conn, bars, symbol, timeframe):
-        assert symbol == "SPY" and timeframe in {"5m", "1m"}
-        stored.extend(bars)
-        return len(bars)
-
-    async def _no_sleep(_seconds):
-        return None
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[instrument],
-        ),
-        patch(
-            "services.backfill_feature_factory._load_config_service",
-            return_value=MagicMock(),
-        ),
-        patch(
-            "services.backfill_feature_factory._get_target_timeframes",
-            return_value=timeframes,
-        ),
-        patch("services.backfill_feature_factory.store_bars", side_effect=_store_bars),
-        patch("services.backfill_feature_factory.IBKRProvider", return_value=provider),
-        patch("services.backfill_feature_factory.asyncio.sleep", side_effect=_no_sleep),
-    ):
-        asyncio.run(
-            run_fetch_stage(
-                settings=settings,
-                client_id=_DEFAULT_CLIENT_ID,
-                symbols=["SPY"],
-                db_conn=MagicMock(),
-            )
-        )
-    return stored, asked
-
-
-class TestFetchStageStoresRealBarsOnly:
-    """Plan 185-32: the --fetch-only stage stores the provider's bars as they arrived (no
-    normalize_bars grid fill) and only at 5m and 1m; migration 444 refuses synthetic_fill."""
-
-    def test_stores_the_provider_bars_without_filling_gaps(self):
-        start = datetime(2026, 10, 1, 13, 30, tzinfo=UTC)
-        bars = [
-            SimpleNamespace(
-                timestamp=start + timedelta(minutes=offset),
-                open=1.0,
-                high=2.0,
-                low=0.5,
-                close=1.5,
-                volume=10,
-                source="ibkr_named",
-            )
-            for offset in (0, 30)  # five slots missing between them
-        ]
-        rows, _asked = _run_fetch_stage_with(["5m"], bars)
-        assert [row["timestamp"] for row in rows] == [b.timestamp for b in bars]
-        assert {row["source"] for row in rows} == {"ibkr_named"}
-
-    def test_refuses_a_timeframe_outside_5m_and_1m(self):
-        with pytest.raises(ValueError, match="5m and 1m"):
-            _run_fetch_stage_with(["5m", "4h"], [])
-
-    def test_no_normalize_bars_in_the_fetch_stage(self):
-        source = inspect.getsource(module.run_fetch_stage)
-        assert "normalize_bars" not in source
 
 
 # ---------------------------------------------------------------------------

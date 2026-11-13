@@ -3,7 +3,7 @@ Core data models for the Multi-Timeframe Trading Signal Platform.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, time, timedelta
 from datetime import date as _date
 from datetime import datetime as _datetime
 from enum import StrEnum
@@ -297,33 +297,3 @@ class Timeframe(StrEnum):
     FOUR_HOUR = "4h"
     ONE_DAY = "1d"
     ONE_WEEK = "1w"
-
-
-@dataclass(frozen=True)
-class ContractMetadata:
-    """Futures contract roll tracking metadata.
-
-    Stores per-contract information for roll chain navigation and
-    lifetime filtering. Enables Renaissance-style per-contract data storage
-    where continuous series are derived, not baked in.
-
-    Example:
-            symbol="ESH6", base_symbol="ES", asset_class=AssetClass.FUTURES,
-            expiry_date=datetime(2026, 3, 19, tzinfo=ZoneInfo("America/Chicago")),
-            roll_from="ESZ5", roll_to="ESM6",
-            roll_date=datetime(2025, 12, 15, tzinfo=ZoneInfo("America/Chicago")),
-            roll_gap=-12.5, exchange="CME"
-    """
-
-    symbol: str
-    base_symbol: str
-    asset_class: AssetClass
-    expiry_date: datetime | None
-    first_notice_date: datetime | None
-    roll_from: str | None
-    roll_to: str | None
-    roll_date: datetime | None
-    roll_gap: float | None
-    exchange: str
-    created_at: datetime | None = None
-    updated_at: datetime | None = None

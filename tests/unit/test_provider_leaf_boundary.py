@@ -57,47 +57,7 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # IBKR mechanics and constants that entry drives. Moving the leaf factory into
 # src/providers (an entry the registry imports through the protocol surface)
 # would shrink the first row.
-_ALLOW_LIST: dict[str, str] = {
-    "scripts/infrastructure/backfill/ohlcv_history_fetcher.py": (
-        "STAYS POST-190-04: the provider registry's ibkr entry owns the concrete "
-        "IBKRProvider construction (leaf_factory, moved from the fetcher's "
-        "_default_provider); the loop itself is vendor-blind and dispatches only "
-        "through entry.fetch, so a foreign provider can never reach this import."
-    ),
-    "scripts/infrastructure/backfill/_history_fetch.py": (
-        "STAYS POST-190-04: the fetcher's helper library (APR overlays, campaign "
-        "helpers, module-level ibkr constants like _ARCHIVE_TFS) holds the ibkr "
-        "entry's leaf-native overlay loaders, which the entry's load_overlays hook "
-        "drives."
-    ),
-    "scripts/infrastructure/backfill/_history_fetch_item.py": (
-        "STAYS POST-190-04: this module IS the ibkr entry's fetch-hook "
-        "implementation (qualification, head floors, FX/crypto derive, venue "
-        "fallback); it imports the leaf module for the constants those mechanics "
-        "read, and no new vendor branches belong here."
-    ),
-    "scripts/infrastructure/reference_identity_capture.py": (
-        "PERMANENT: the identity capture (todo 600 step 3b) asks IBKR contract details "
-        "for the ISIN through the leaf's read-only, restart-free session; reference "
-        "data, not history, so no protocol seam applies."
-    ),
-    "scripts/infrastructure/universe_expansion_onboard_manifest.py": (
-        "PERMANENT (out of phase 190 scope): the onboarding manifest tool's dry run "
-        "qualifies contracts on the concrete IBKR leaf (docs/foundation/"
-        "instrument-onboarding-sop.md tooling); same rationale as classification "
-        "sourcing."
-    ),
-    "scripts/ops/bars/ops_intraday_venue_recovery.py": (
-        "PERMANENT: manual IBKR ops tool (intraday venue recovery) run under "
-        "FetcherLock against the concrete leaf; the manual ops tools keep concrete "
-        "access until a reason to route them through the protocol exists."
-    ),
-    "services/backfill_feature_factory.py": (
-        "PERMANENT (dormant DAG, unchanged this phase): the feature backfill "
-        "service constructs IBKRProvider for its history reads; dormant since the "
-        "v2.x archive and left byte-identical by phase 190."
-    ),
-}
+_ALLOW_LIST: dict[str, str] = {}
 
 
 @functools.lru_cache(maxsize=1)

@@ -73,10 +73,6 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
     "scripts/test_fetcher_lock.py": (
         "read-only: takes FetcherLock advisory locks and reads pg_stat_activity"
     ),
-    "scripts/test_ohlcv_history_fetcher.py": (
-        "read-only: probes reachability and reads live state; the fetcher itself runs on fake "
-        "pools"
-    ),
     "intelligence/test_swing_fib_trend_structure_primitives.py": (
         "read-only: fetches live OHLCV to fit structure primitives; skips when unreachable"
     ),

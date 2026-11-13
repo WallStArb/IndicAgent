@@ -2,7 +2,7 @@
 IndicAgent data providers.
 
 Usage:
-    from src.providers import IBKRProvider
+    from src.providers import history_leaf
     from src.providers.base import DataProvider, DataProviderAdapter, Tick, OHLCVBar
 """
 
@@ -17,7 +17,6 @@ from src.providers.base import (
     OHLCVBar,
     Tick,
 )
-from src.providers.ibkr import IBKRProvider
 
 __all__ = [
     "DataProvider",
@@ -26,7 +25,6 @@ __all__ = [
     "HistoryPage",
     "HistoryProvider",
     "HistoryRequest",
-    "IBKRProvider",
     "NoDataVerdict",
     "OHLCVBar",
     "Tick",
@@ -39,10 +37,8 @@ def history_leaf(name: str, settings=None, **kwargs) -> HistoryProvider:
     this factory and the HistoryProvider protocol, never a concrete leaf (the same
     fence the boundary test enforces on imports). A new vendor is one leaf module
     plus one entry here."""
-    if name == "ibkr":
-        return IBKRProvider(settings=settings, **kwargs)
     if name == "alpaca":
         from src.providers.alpaca import AlpacaProvider
 
         return AlpacaProvider(settings=settings, **kwargs)
-    raise ValueError(f"no history leaf for vendor {name!r}; known: ibkr, alpaca")
+    raise ValueError(f"no history leaf for vendor {name!r}; known: alpaca")

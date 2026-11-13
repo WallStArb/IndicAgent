@@ -339,15 +339,6 @@ class RequestRecord:
     terminal: bool | None = None
 
 
-class ProviderSessionLost(RuntimeError):
-    """A provider's history session stopped answering (todo 538): a request failed and the
-    provider's liveness probe failed too, so retrying into the same session only burns the run
-    budget. Raised by a provider's history leaf; every caller that walks history either lets it
-    propagate or ends its run on it. The IBKR case: the TCP socket and the gateway session stay
-    up while the history farm is dead (2026-11-01), so is_connected() and reqCurrentTime both
-    read healthy."""
-
-
 class SubscriptionLimitError(Exception):
     """Raised when a provider's subscription limit is reached."""
 

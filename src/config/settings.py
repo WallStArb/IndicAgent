@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.models import AssetClass, Instrument
@@ -74,20 +74,7 @@ class Settings(BaseSettings):
     )
 
     # IBKR
-    ib_host: str = Field(
-        default="172.18.176.1",
-        validation_alias=AliasChoices("ib_host", "IBKR_HOST", "IB_HOST"),
-    )
-    ib_port: int = Field(
-        default=7497,
-        validation_alias=AliasChoices("ib_port", "IBKR_PORT", "IB_PORT"),
-    )
     ib_client_id: int = Field(default=35, validation_alias="IB_CLIENT_ID")
-    ib_timeout_sec: float = Field(
-        default=20.0,
-        validation_alias=AliasChoices("ib_timeout_sec", "IBKR_TIMEOUT_SEC", "IB_TIMEOUT_SEC"),
-        description="Timeout in seconds for IBKR API operations (connect, requests)",
-    )
 
     # Alpaca market-data leaf (todo 521/T4): credentials from .env, pacing
     # fallback for the APR key infra.alpaca.rate_limit_max_requests (the real
@@ -551,46 +538,6 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
         _active_contracts_cache[dimension] = result
         _active_contracts_last_refresh[dimension] = now
     return result
-
-
-def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrument]:
-    """Return Instruments for ALL futures contracts in contract_metadata (including rolled/expired).
-
-    Same as get_active_contracts() but queries without the is_front_month filter.
-    Use for replay/backtest passes that should cover rolled contract history.
-    Non-futures (equities, FX, crypto) are NOT included — call get_active_contracts() and
-    merge if needed.
-    """
-
-    s = settings or _default_settings()
-    try:
-        import psycopg
-
-        with psycopg.connect(s.database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(_futures_template_sql())
-                tmpl_rows = cur.fetchall()
-                cur.execute(
-                    "SELECT symbol, base_symbol, exchange "
-                    "FROM contract_metadata "
-                    "WHERE asset_class = 'futures'"
-                )
-                rows = cur.fetchall()
-
-        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows, rows)
-
-        return [
-            _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
-        ]
-
-    except Exception as error:
-        import structlog as _structlog
-
-        _structlog.get_logger(__name__).warning(
-            "get_all_futures_contracts.db_query_failed",
-            error=str(error),
-        )
-        return []
 
 
 def get_active_symbols(settings: Settings | None = None, *, dimension: str) -> list[str]:

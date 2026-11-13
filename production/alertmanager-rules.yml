@@ -117,14 +117,6 @@ groups:
 
   - name: phase83-observability
     rules:
-      - alert: IBKRCircuitBreakerOpen
-        expr: increase(circuit_breaker_state_transitions_total{to_state="open"}[5m]) > 0
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "IBKR circuit breaker tripped to OPEN ({{ $labels.plugin_name }})"
-
       - alert: PipelineP95LatencyRegression
         expr: |
           histogram_quantile(0.95,

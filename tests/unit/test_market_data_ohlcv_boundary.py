@@ -76,12 +76,6 @@ _ALLOW_LIST: dict[str, str] = {
         "selection of ohlcv_raw; the tradeable view's volume > 0 filter would hide the very rows "
         "the proof must equal."
     ),
-    "scripts/ops/bars/ops_data_bar_check.py": (
-        "PERMANENT (plan 185-34): the D-28 gate judges each known-answer key by its stored row "
-        "(source and the pre-381 price_sanity_status), keyed by the 87 fixed keys only; the "
-        "tradeable view also hides a bar by that stale status, which would misread a bar "
-        "Tradier replaced as missing. Every other gate read uses the tradeable view."
-    ),
     "src/api/routes/market_data.py": (
         "PERMANENT: Raw display/API surface, not a measurement input -- correctly left alone "
         "(design doc's 'correctly left alone' list)."

@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 
 from src.providers.base import (
-    DataProvider,
     FetchBudget,
     HistoryPage,
     HistoryProvider,
@@ -29,48 +28,10 @@ from src.providers.base import (
     NoDataVerdict,
     OHLCVBar,
 )
-from src.providers.ibkr import IBKRProvider
 
 
 def _utc(year: int, month: int, day: int) -> datetime:
     return datetime(year, month, day, tzinfo=UTC)
-
-
-@pytest.fixture
-def provider() -> IBKRProvider:
-    # Existing test convention (tests/unit/providers/test_ibkr_provider.py):
-    # construct without connecting; isinstance checks never need a gateway.
-    return IBKRProvider(host="127.0.0.1", port=7497, client_id=1)
-
-
-class TestIbkrSatisfiesHistoryProvider:
-    def test_isinstance_history_provider(self, provider: IBKRProvider) -> None:
-        assert isinstance(provider, HistoryProvider)
-
-    def test_fetch_ohlcv_is_async(self, provider: IBKRProvider) -> None:
-        assert inspect.iscoroutinefunction(provider.fetch_ohlcv)
-
-    def test_still_satisfies_streaming_data_provider(self, provider: IBKRProvider) -> None:
-        # The streaming method set on DataProvider stays byte-identical this phase.
-        assert isinstance(provider, DataProvider)
-
-    def test_fetch_historical_bars_signature_unchanged(self, provider: IBKRProvider) -> None:
-        params = inspect.signature(provider.fetch_historical_bars).parameters
-        assert list(params) == [
-            "symbol",
-            "timeframe",
-            "start",
-            "end",
-            "continuous",
-            "on_chunk",
-            "on_empty_history",
-            "on_request",
-            "on_observation",
-            "fetch_run_id",
-            "route",
-        ]
-        required = [params[name].default is inspect.Parameter.empty for name in params]
-        assert required == [True, True, True, True] + [False] * 7
 
 
 class TestHistoryRequest:
@@ -110,63 +71,6 @@ class TestFetchBudget:
         budget = FetchBudget(deadline=deadline, max_requests=5)
         assert budget.deadline == deadline
         assert budget.max_requests == 5
-
-
-class TestNoDataVerdict:
-    def test_frozen(self) -> None:
-        verdict = NoDataVerdict(
-            provider="ibkr",
-            symbol="AAPL",
-            timeframe="1d",
-            empty_from=_utc(1998, 1, 2),
-            empty_through=_utc(1999, 1, 5),
-            reached_request_start=True,
-        )
-        with pytest.raises(FrozenInstanceError):
-            verdict.symbol = "MSFT"  # type: ignore[misc]
-
-    def test_ibkr_evidence_shape(self) -> None:
-        verdict = NoDataVerdict(
-            provider="ibkr",
-            symbol="AAPL",
-            timeframe="1d",
-            empty_from=_utc(1998, 1, 2),
-            empty_through=_utc(1999, 1, 5),
-            reached_request_start=False,
-            n_confirming_chunks=2,
-        )
-        assert verdict.provider == "ibkr"
-        assert verdict.n_confirming_chunks == 2
-        assert verdict.authoritative_empty is False
-
-    def test_rest_evidence_shape(self) -> None:
-        # A REST vendor's single authoritative empty; neither evidence field
-        # collapses into the other (design: per-vendor evidence the planner weights).
-        verdict = NoDataVerdict(
-            provider="alpaca",
-            symbol="AAPL",
-            timeframe="5m",
-            empty_from=_utc(2016, 1, 4),
-            empty_through=_utc(2016, 2, 5),
-            reached_request_start=True,
-            authoritative_empty=True,
-        )
-        assert verdict.n_confirming_chunks == 0
-        assert verdict.authoritative_empty is True
-
-    def test_both_evidence_fields_may_coexist(self) -> None:
-        verdict = NoDataVerdict(
-            provider="ibkr",
-            symbol="AAPL",
-            timeframe="1d",
-            empty_from=_utc(1998, 1, 2),
-            empty_through=_utc(1999, 1, 5),
-            reached_request_start=True,
-            n_confirming_chunks=3,
-            authoritative_empty=True,
-        )
-        assert verdict.n_confirming_chunks == 3
-        assert verdict.authoritative_empty is True
 
 
 class TestHistoryPage:
@@ -298,9 +202,8 @@ def fake_leaf() -> FakeHistoryLeaf:
 
 CONFORMANCE_LEAVES = [
     FakeHistoryLeaf(window_span_days=30),
-    IBKRProvider(host="127.0.0.1", port=7497, client_id=1),
 ]
-CONFORMANCE_LEAF_IDS = ["fake", "ibkr-structure"]
+CONFORMANCE_LEAF_IDS = ["fake"]
 
 
 @pytest.fixture(params=CONFORMANCE_LEAVES, ids=CONFORMANCE_LEAF_IDS)
