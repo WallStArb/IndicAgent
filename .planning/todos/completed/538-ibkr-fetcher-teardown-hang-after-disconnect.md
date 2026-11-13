@@ -56,7 +56,7 @@ instrumentation that names the awaited task (periodic asyncio task dump, or logg
 coroutine at lock acquire). Comparison dump (+5 min): sched_count stays 14 and the epoll timeout
 went 144.25 s -> 146.76 s, so the same handles re-arm on a recurring ~145 s cycle: an unlogged
 retry loop, not a one-shot wait. Diagnosis doc:
-docs/plans/2026-10-31-fetcher-future-hang-diagnosis.md (c8c0b12b9). Discriminator probe result 22:07Z (PM): the gateway auth probe (clientId 44,
+docs/plans/archive/2026-10-31-fetcher-future-hang-diagnosis.md (c8c0b12b9). Discriminator probe result 22:07Z (PM): the gateway auth probe (clientId 44,
 outside the fetcher family, no FetcherLock) authenticated and answered during the 21:25Z wedge,
 so the gateway session was serving new clients while the fetcher's own session sat silent:
 convicts the fetcher-side await/dropped-callback mechanism over a stuck gateway session.

@@ -2,7 +2,7 @@
 status: pending
 priority: P2
 filed: 2026-11-01
-source: data-layer redundancy audit (docs/plans/2026-11-01-data-layer-redundancy-audit.md), owner ask 2026-11-01
+source: data-layer redundancy audit (docs/plans/archive/2026-11-01-data-layer-redundancy-audit.md), owner ask 2026-11-01
 ---
 
 # Dormant streaming bars block: retire or keep, one decision not four

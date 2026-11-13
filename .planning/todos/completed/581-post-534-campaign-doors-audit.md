@@ -2,7 +2,7 @@
 status: closed
 priority: P3
 filed: 2026-11-01
-source: data-layer redundancy audit (docs/plans/2026-11-01-data-layer-redundancy-audit.md)
+source: data-layer redundancy audit (docs/plans/archive/2026-11-01-data-layer-redundancy-audit.md)
 gate: todo 534 (the pre-2016 5m campaign) closes
 closed: 2026-11-12
 ---

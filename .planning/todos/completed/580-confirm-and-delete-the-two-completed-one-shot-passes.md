@@ -3,7 +3,7 @@ status: closed
 priority: P3
 filed: 2026-11-01
 closed: 2026-11-01
-source: data-layer redundancy audit (docs/plans/2026-11-01-data-layer-redundancy-audit.md)
+source: data-layer redundancy audit (docs/plans/archive/2026-11-01-data-layer-redundancy-audit.md)
 ---
 
 # Confirm and delete the two completed one-shot passes

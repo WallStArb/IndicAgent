@@ -36,4 +36,4 @@ one-family refusal is gone, the refusal names the underpowered families, the
 187-14 stub is removed and the two-family synthetic book runs run_book
 unstubbed. Single-family books take the exact old path (repro_frozen
 bit-identical). Design note:
-docs/plans/2026-11-01-multi-family-book-power-plant.md.
+docs/plans/archive/2026-11-01-multi-family-book-power-plant.md.
