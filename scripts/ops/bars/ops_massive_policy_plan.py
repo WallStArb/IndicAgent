@@ -1,31 +1,30 @@
-"""Build the `ops_source_policy --plan` files of the Massive switch (todo 600, admission step 7).
+"""Build the `ops_source_policy --plan` files of the Massive switch without IBKR (todo 600 step 7).
 
-Design: docs/plans/2026-11-10-massive-admission-db-design.md section 8 step 7 (stage 1) and
-section 8b (stage 2); runbook docs/operations/massive-step7-runbook.md. Read-only: this script
-reads the live policy rows, the identity gap list and (1d) the raw fingerprint, and writes one
-JSON plan per (stage, timeframe). `ops_source_policy --plan FILE` (dry run, then --apply) is the
-writer; this script never writes the database.
+Owner rulings 2026-11-13 (todo 600, "IBKR is removed entirely", then "use Massive for every
+date it has"): canonical is Massive from its first file (2003-09-10) to the archive end and Alpaca
+from the archive end, with no IBKR default, symbol row or fallback anywhere and no fallback at
+all. The archive end is the first NYSE session after the manifest's last file day
+(``archive_end_of``). Runbook docs/operations/massive-step7-runbook.md. Read-only: this script
+reads the live policy rows, the archive manifest, the identity gap list (evidence only) and (1d)
+the raw fingerprint, and writes one JSON plan per timeframe. `ops_source_policy --plan FILE` (dry run,
+then --apply) is the writer; this script never writes the database.
 
-The defaults, per stage (5m and 1d alike; the 2003-09-10 boundary keeps the IBKR-only daily
-history before Massive's first file under IBKR, where no other vendor answers):
+The defaults per timeframe (``defaults_for``):
 
-  stage 1  [1990-01-01, 2003-09-10) ibkr | [2003-09-10, 2016-01-04) massive, no fallback |
-           [2016-01-04, open) the live post-2016 default, copied unchanged (alpaca, ibkr)
-  stage 2  [1990-01-01, 2003-09-10) ibkr | [2003-09-10, archive end) massive, no fallback |
-           [archive end, open) alpaca, no fallback (IBKR retired from selection)
+  5m, 1d   [1990-01-01, archive end) massive | [archive end, open) alpaca   seam: archive end
+  1m, 4h   [1990-01-01, open) massive                                       seam: 1990-01-01
 
-No fallback under Massive (ruling 2): a fallback vendor would judge Massive incomplete against
-its own zero-volume bars and take whole sessions. Names and spans on the identity gap list keep
-an incumbent through symbol rows over the part of the Massive span they cover: IBKR before
-2016-01-04; from 2016-01-04 Alpaca in stage 2, except `asset_class_outside_vendor` names
-(futures, fx), which no Massive or Alpaca kind serves and which keep IBKR.
+Massive holds no bar before its first file (2003-09-10) and no 1m or 4h bar, so those slots
+select nothing and leave canonical by construction. The Massive default still starts at
+1990-01-01 because selection raises on a slot no policy row covers (``rank_vendors``,
+``resolve_policy``), and IBKR raw stays in the database through the rebuild: a policy that left
+the pre-2003 span uncovered would crash the rebuild, where this one keeps selection loud on a real
+coverage hole. 15m and 1h are derived and keep their policy.
 
-Live symbol rows are named explicitly (ops_source_policy requires it for 1d, and for 5m an
-implicit plan would retire every symbol row unread). Stage 1 keeps every live row (the 2016+ rows
-are outside its change; --plan refuses a kept row that overlaps a new row of its name). Stage 2
-retires each: `replaced` when its name gets new rows, else `superseded_by_default` (IBKR leaves
-selection). The 1d plan pins every live default id it retires (three after stage 1) and
-carries the raw fingerprint through the latest end of any symbol row, as --plan requires.
+Every live default of the timeframe is retired by id and every live symbol row (the D-191-Q IBKR
+rows) is retired as ``superseded_by_default``: the plan leaves no IBKR row live. The identity gap
+list adds no symbol row: its spans become gaps (no incumbent serves them), recorded in the
+evidence with the list's path and sha256.
 
 Rollback (runbook A9 and every abort rule after C2): --snapshot writes a timeframe's live rows
 to JSON before the switch; --restore SNAPSHOT builds the plan that puts the policy back (the
@@ -40,10 +39,9 @@ import csv
 import hashlib
 import json
 import sys
-from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,15 +52,16 @@ import asyncpg  # noqa: E402
 
 from scripts.ops.bars.ops_source_policy import parse_plan, read_raw_fingerprint  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
-from src.intelligence.bars.vendor_arbitration import SEAM as ALPACA_SEAM  # noqa: E402
 
 FAR_PAST = date(1990, 1, 1)
-# The first session after the archive's last file (2026-11-09): Alpaca's nightly from here on.
-ARCHIVE_END = date(2026, 11, 10)
-OUTSIDE_VENDOR = "asset_class_outside_vendor"  # gap reason: no Massive or Alpaca kind serves it
-TIMEFRAMES = ("5m", "1d")
-STAGES = (1, 2)
+MASSIVE, ALPACA, IBKR = "massive", "alpaca", "ibkr"
+#: timeframes whose Massive span hands over to Alpaca at the archive end; the others have no
+#: Massive or Alpaca bar at all (1m and 4h leave canonical, owner ruling 2026-11-13)
+HANDOVER_TIMEFRAMES = ("5m", "1d")
+TIMEFRAMES = (*HANDOVER_TIMEFRAMES, "1m", "4h")
+DEFAULT_MANIFEST = project_root / "data/massive/manifest/manifest.jsonl"
 
 _LIVE_SQL = """
 SELECT policy_id::text AS policy_id, symbol, valid_from, valid_to, primary_source,
@@ -109,137 +108,97 @@ def read_gap_list(path: Path) -> list[GapRow]:
         ]
 
 
-def massive_span(stage: int, archive_end: date) -> tuple[date, date]:
-    """[first, end) of the span Massive serves by default in the stage."""
-    return MASSIVE_ARCHIVE_START, ALPACA_SEAM if stage == 1 else archive_end
-
-
-def _merge(spans: Iterable[tuple[date, date]]) -> list[tuple[date, date]]:
-    out: list[tuple[date, date]] = []
-    for start, end in sorted(spans):
-        if out and start <= out[-1][1]:
-            out[-1] = (out[-1][0], max(out[-1][1], end))
-        else:
-            out.append((start, end))
-    return out
-
-
-def incumbent_rows(
-    gaps: Sequence[GapRow], stage: int, archive_end: date, evidence: Mapping[str, Any]
-) -> list[dict[str, Any]]:
-    """The symbol rows that keep an incumbent over each gap-listed span inside the Massive span:
-    the spans of a name merged, clipped to the Massive span and cut at 2016-01-04 (IBKR before
-    it; Alpaca after it, except names outside every vendor kind, which keep IBKR)."""
-    first, end = massive_span(stage, archive_end)
-    by_symbol: dict[str, list[tuple[date, date]]] = defaultdict(list)
-    reasons: dict[str, set[str]] = defaultdict(set)
-    for g in gaps:
-        start = max(g.valid_from or first, first)
-        stop = min(g.valid_to or end, end)
-        if start < stop:
-            by_symbol[g.symbol].append((start, stop))
-            reasons[g.symbol].add(g.reason)
-    rows = []
-    for symbol in sorted(by_symbol):
-        outside = OUTSIDE_VENDOR in reasons[symbol]
-        for start, stop in _merge(by_symbol[symbol]):
-            cuts = [(start, min(stop, ALPACA_SEAM)), (max(start, ALPACA_SEAM), stop)]
-            for i, (a, b) in enumerate(cuts):
-                if a >= b:
-                    continue
-                primary = "ibkr" if i == 0 or outside else "alpaca"
-                rows.append(
-                    {
-                        "symbol": symbol,
-                        "valid_from": a.isoformat(),
-                        "valid_to": b.isoformat(),
-                        "primary": primary,
-                        "fallback": None,
-                        "evidence": {**evidence, "gap_reasons": sorted(reasons[symbol])},
-                    }
-                )
-    return rows
-
-
-def defaults_for(stage: int, live_defaults: Sequence[LiveRow], archive_end: date) -> list[dict]:
-    """The new defaults (module docstring). Stage 1 copies the live open default unchanged."""
-    first, end = massive_span(stage, archive_end)
-    head = [
-        {"valid_from": FAR_PAST.isoformat(), "valid_to": first.isoformat(), "primary": "ibkr"},
-        {"valid_from": first.isoformat(), "valid_to": end.isoformat(), "primary": "massive"},
+def archive_end_of(manifest: bytes) -> date:
+    """The first NYSE session after the manifest's last file day (its key's date stamp, the load
+    path's rule): Massive serves before it, Alpaca from it."""
+    stamps = [
+        date.fromisoformat(Path(json.loads(line)["key"]).name.removesuffix(".csv.gz"))
+        for line in manifest.decode().splitlines()
+        if line.strip()
     ]
-    if stage == 2:
-        return [*head, {"valid_from": end.isoformat(), "valid_to": None, "primary": "alpaca"}]
-    open_rows = [r for r in live_defaults if r.valid_to is None]
-    if len(open_rows) != 1 or open_rows[0].valid_from != ALPACA_SEAM:
-        raise ValueError(f"expected one live open default from {ALPACA_SEAM}, got {open_rows}")
-    tail = open_rows[0]
+    if not stamps:
+        raise ValueError("the archive manifest is empty")
+    last = max(stamps)
+    return min(nyse_sessions(last + timedelta(days=1), last + timedelta(days=15)))
+
+
+def defaults_for(timeframe: str, archive_end: date) -> list[dict[str, Any]]:
+    """The new defaults of a timeframe (module docstring): no fallback, the last open-ended."""
+    if timeframe not in TIMEFRAMES:
+        raise ValueError(f"timeframe {timeframe} has no Massive switch plan")
+    if timeframe not in HANDOVER_TIMEFRAMES:
+        return [{"valid_from": FAR_PAST.isoformat(), "valid_to": None, "primary": MASSIVE}]
+    end = archive_end.isoformat()
     return [
-        *head,
-        {
-            "valid_from": ALPACA_SEAM.isoformat(),
-            "valid_to": None,
-            "primary": tail.primary,
-            "fallback": tail.fallback,
-        },
+        {"valid_from": FAR_PAST.isoformat(), "valid_to": end, "primary": MASSIVE},
+        {"valid_from": end, "valid_to": None, "primary": ALPACA},
     ]
 
 
 def build_plan(
     *,
-    stage: int,
     timeframe: str,
     live: Sequence[LiveRow],
     gaps: Sequence[GapRow],
     gap_list: Mapping[str, str],
-    archive_end: date = ARCHIVE_END,
+    archive_end: date,
+    manifest: Mapping[str, str],
 ) -> dict[str, Any]:
-    """The plan JSON for one (stage, timeframe), without the 1d raw fingerprint (the caller adds
-    it once the latest symbol-row end, `through_needed`, is known)."""
-    if stage not in STAGES or timeframe not in TIMEFRAMES:
-        raise ValueError(f"stage {stage} / timeframe {timeframe} is not a Massive switch plan")
-    reason = (
-        f"Massive switch stage {stage} (todo 600 admission step 7, design section "
-        f"{'8 step 7' if stage == 1 else '8b'})"
-    )
+    """The plan JSON for one timeframe, without the 1d raw fingerprint (the caller adds it through
+    ``through_needed``, the seam: the plan has no symbol row)."""
+    new_defaults = defaults_for(timeframe, archive_end)
+    defaults = [r for r in live if r.symbol is None]
+    if not defaults:
+        raise ValueError(f"{timeframe}: no live default to retire")
     evidence = {
-        "stage": stage,
+        "ruling": (
+            "owner 2026-11-13, todo 600: IBKR removed entirely; Massive for every date it has; "
+            "no fallback"
+        ),
+        "archive_end": archive_end.isoformat(),
+        "manifest": dict(manifest),
         "design": "docs/plans/2026-11-10-massive-admission-db-design.md",
         "runbook": "docs/operations/massive-step7-runbook.md",
+        "coverage": (
+            f"Massive holds no bar before {MASSIVE_ARCHIVE_START} and no 1m or 4h bar: those "
+            "slots select nothing and leave canonical by construction"
+        ),
         "gap_list": dict(gap_list),
+        "gap_spans": [
+            {
+                "symbol": g.symbol,
+                "scope": g.scope,
+                "reason": g.reason,
+                "valid_from": _iso(g.valid_from),
+                "valid_to": _iso(g.valid_to),
+            }
+            for g in gaps
+        ],
     }
-    defaults = [r for r in live if r.symbol is None]
-    new_rows = incumbent_rows(gaps, stage, archive_end, {"gap_list": dict(gap_list)})
-    new_symbols = {r["symbol"] for r in new_rows}
-    retire, keep = [], []
-    for row in (r for r in live if r.symbol is not None):
-        if stage == 1:
-            keep.append(
-                {
-                    "policy_id": row.policy_id,
-                    "symbol": row.symbol,
-                    "reason": "outside the Massive span; stage 1 leaves 2016+ rows unchanged",
-                    "valid_from": row.valid_from.isoformat(),
-                    "valid_to": _iso(row.valid_to),
-                }
-            )
-        else:
-            disposition = "replaced" if row.symbol in new_symbols else "superseded_by_default"
-            retire.append(_retired(row, disposition, stage))
-    plan: dict[str, Any] = {
+    return {
         "timeframe": timeframe,
-        # a boundary of the new defaults (parse_plan); the one both stages share
-        "seam": MASSIVE_ARCHIVE_START.isoformat(),
-        "reason": reason,
+        "seam": new_defaults[-1]["valid_from"],
+        "reason": "Massive switch without IBKR (todo 600 admission step 7, owner ruling 2026-11-13)",
         "evidence": evidence,
         "retire_defaults": True,
         "retire_default_ids": sorted(r.policy_id for r in defaults),
-        "defaults": defaults_for(stage, defaults, archive_end),
-        "symbol_rows": sorted(new_rows, key=lambda r: (r["symbol"], r["valid_from"])),
-        "retire_symbol_rows": retire,
-        "keep_symbol_rows": keep,
+        "defaults": new_defaults,
+        "symbol_rows": [],
+        "retire_symbol_rows": [
+            _retired(r, "superseded_by_default") for r in live if r.symbol is not None
+        ],
+        "keep_symbol_rows": [],
     }
-    return plan
+
+
+def ibkr_rows(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Every row the plan would leave or make live with IBKR as primary or fallback: empty for
+    a switch plan (the failure mode the tests pin)."""
+    return [
+        r
+        for r in (*plan["defaults"], *plan["symbol_rows"], *plan.get("keep_symbol_rows", ()))
+        if IBKR in (r.get("primary"), r.get("fallback"))
+    ]
 
 
 def snapshot_rows(live: Sequence[LiveRow]) -> list[dict[str, Any]]:
@@ -317,7 +276,7 @@ def build_restore_plan(
             )
         else:
             disposition = "replaced" if row.symbol in new_symbols else "superseded_by_default"
-            retire.append(_retired(row, disposition, 0))
+            retire.append(_retired(row, disposition))
     return {
         "timeframe": timeframe,
         "seam": defaults[-1].valid_from.isoformat(),
@@ -346,13 +305,12 @@ def through_needed(plan: Mapping[str, Any]) -> date:
     return date.fromisoformat(max(ends, default=plan["seam"]))
 
 
-def _retired(row: LiveRow, disposition: str, stage: int) -> dict[str, Any]:
+def _retired(row: LiveRow, disposition: str) -> dict[str, Any]:
     return {
         "policy_id": row.policy_id,
         "symbol": row.symbol,
         "disposition": disposition,
         "evidence": {
-            "stage": stage,
             "was": [row.valid_from.isoformat(), _iso(row.valid_to)],
             "primary": row.primary,
         },
@@ -404,29 +362,33 @@ async def _main(args: argparse.Namespace) -> int:
                 source=f"{source} (sha256 {file_digest(source)})",
             )
         else:
-            gap_path = Path(args.gap_list)
+            gap_path, manifest = Path(args.gap_list), Path(args.manifest)
+            manifest_bytes = manifest.read_bytes()
             plan = build_plan(
-                stage=args.stage,
                 timeframe=args.timeframe,
                 live=live,
                 gaps=read_gap_list(gap_path),
                 gap_list={"path": str(gap_path), "sha256": file_digest(gap_path)},
-                archive_end=date.fromisoformat(args.archive_end),
+                archive_end=archive_end_of(manifest_bytes),
+                manifest={
+                    "path": str(manifest),
+                    "sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                },
             )
+            if ibkr_rows(plan):
+                raise ValueError(f"the plan leaves IBKR rows live: {ibkr_rows(plan)}")
         if args.timeframe == "1d":
             plan["raw_fingerprint"] = await read_raw_fingerprint(conn, through_needed(plan))
     finally:
         await conn.close()
     parse_plan(plan)  # the writer's own validation, before anyone reviews the file
     out.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
-    rows = plan["symbol_rows"]
+    spans = ", ".join(f"{r['valid_from']} {r['primary']}" for r in plan["defaults"])
     print(
-        f"{'restore' if args.restore else f'stage {args.stage}'} {args.timeframe}: "
-        f"{len(plan['defaults'])} defaults, "
-        f"{len(rows)} symbol rows on {len({r['symbol'] for r in rows})} names "
-        f"({sum(r['primary'] == 'ibkr' for r in rows)} ibkr, "
-        f"{sum(r['primary'] == 'alpaca' for r in rows)} alpaca), "
-        f"retire {len(plan['retire_symbol_rows'])}, keep {len(plan['keep_symbol_rows'])}; "
+        f"{'restore' if args.restore else 'switch'} {args.timeframe}: "
+        f"{len(plan['defaults'])} defaults ({spans}), "
+        f"retire {len(plan['retire_default_ids'])} defaults and "
+        f"{len(plan['retire_symbol_rows'])} symbol rows, keep {len(plan['keep_symbol_rows'])}; "
         f"wrote {out} (sha256 {file_digest(out)})"
     )
     return 0
@@ -435,7 +397,7 @@ async def _main(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--stage", type=int, choices=STAGES, help="build the stage's switch plan")
+    mode.add_argument("--switch", action="store_true", help="build the no-IBKR switch plan")
     mode.add_argument(
         "--snapshot", action="store_true", help="write the live rows (rollback input)"
     )
@@ -443,13 +405,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--timeframe", choices=TIMEFRAMES, required=True)
     parser.add_argument(
         "--gap-list",
-        help="--stage: the identity map's gap_list.csv the load sweep used (pin it; never 'newest')",
+        help="--switch: the identity map's gap_list.csv (recorded as the spans that become "
+        "gaps; pin it, never 'newest')",
     )
-    parser.add_argument("--archive-end", default=ARCHIVE_END.isoformat())
+    parser.add_argument(
+        "--manifest",
+        default=str(DEFAULT_MANIFEST),
+        help="--switch: the archive manifest; its last file day sets the archive end",
+    )
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    if args.stage and not args.gap_list:
-        parser.error("--stage needs --gap-list")
+    if args.switch and not args.gap_list:
+        parser.error("--switch needs --gap-list")
     return asyncio.run(_main(args))
 
 
