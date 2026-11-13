@@ -131,7 +131,7 @@ Production procedures: deployment, monitoring, troubleshooting. Files carry an `
 | `operations-database.md` | TimescaleDB operations (stale, v2.x) |
 | `operations-observability.md` | Operational runbook: Grafana dashboards, PromQL patterns, troubleshooting |
 | `operations-security.md` | Security architecture (not implemented; planned) |
-| `operations-disaster-recovery.md` | DR procedures (table-specific backup examples carry a staleness note) |
+| `operations-disaster-recovery.md` | DR: standby, WAL archive, base backups, restore drill, data mirror, RPO and RTO |
 | `operations-memory-performance.md` | Memory subsystem performance |
 | `operations-i7-emission-gates.md` | I7 emission gates (stale, v2.x) |
 | `operations-promotion-protocol.md` | Promotion protocol: StepM selection, positive net expectation, one forward confirmation |

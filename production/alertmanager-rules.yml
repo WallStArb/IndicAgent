@@ -210,3 +210,52 @@ groups:
         annotations:
           summary: "IBKR gateway is logged out (2FA prompt) — backfill cannot fetch"
           description: "The auth probe's API handshake failed for >10 minutes: the gateway is at a second-factor prompt or down. A human must approve the 2FA on the phone (or restart the ib-gateway container). Fires ahead of the next backfill run instead of after it (todo 395)."
+
+  # ubuntu2 backup and mirror (metrics from production/standby/standby_probe.sh). Alerting is
+  # not wired to a pager; these rules turn the Grafana panel red and show on /alerts.
+  - name: standby_backup
+    rules:
+      - alert: StandbyBaseBackupStale
+        expr: time() - standby_job_last_success_timestamp_seconds{task="base_backup"} > 8 * 86400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ubuntu2 base backup older than 8 days (weekly timer)"
+          description: "Check: ssh ubuntu2 'systemctl status indicagent-pg-base-backup.service; tail ~/backup/*.log'"
+
+      - alert: StandbyMirrorStale
+        expr: time() - standby_job_last_success_timestamp_seconds{task="data_mirror"} > 26 * 3600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ubuntu2 data mirror older than 26 hours (daily timer)"
+          description: "Check: ssh ubuntu2 'journalctl -u indicagent-data-mirror.service -n 30'"
+
+      - alert: StandbyWalArchiveDown
+        expr: standby_unit_active{unit="indicagent-pg-wal-archive.service"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ubuntu2 WAL archive service is not running"
+          description: "pg_receivewal stopped; the slot holds WAL on ubuntu1 until max_slot_wal_keep_size. Restart indicagent-pg-wal-archive.service on ubuntu2."
+
+      - alert: StandbyUnitFailed
+        expr: standby_unit_failed == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ubuntu2 unit {{ $labels.unit }} is in failed state"
+          description: "Check: ssh ubuntu2 'journalctl -u {{ $labels.unit }} -n 30'"
+
+      - alert: StandbyProbeBlind
+        expr: standby_probe_success == 0 or time() - standby_probe_timestamp_seconds > 900 or absent(standby_probe_timestamp_seconds)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "standby probe cannot read ubuntu2 (ssh down or probe timer stopped)"
+          description: "Backup status is unknown, not good. Check ubuntu2 reachability and indicagent-standby-probe.timer on ubuntu1."

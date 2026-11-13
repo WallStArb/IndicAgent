@@ -1,0 +1,9 @@
+[Unit]
+Description=IndicAgent standby probe: ubuntu2 backup and mirror status as node-exporter textfile metrics (runs on ubuntu1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+ExecStart=/home/bg/dev/indicagent/production/standby/standby_probe.sh

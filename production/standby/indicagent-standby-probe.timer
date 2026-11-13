@@ -1,0 +1,9 @@
+[Unit]
+Description=Every 5 minutes: probe the ubuntu2 backup jobs (runs on ubuntu1)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

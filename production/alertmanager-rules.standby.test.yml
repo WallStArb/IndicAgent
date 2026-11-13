@@ -1,0 +1,66 @@
+# promtool test rules production/alertmanager-rules.standby.test.yml  (run from production/)
+rule_files:
+  - alertmanager-rules.yml
+evaluation_interval: 1m
+tests:
+  # healthy at t=24h: base backup and mirror both 24 h old (under 8 d and 26 h), archive active
+  - interval: 1m
+    input_series:
+      - series: 'standby_job_last_success_timestamp_seconds{task="base_backup"}'
+        values: '0+0x14000'
+      - series: 'standby_job_last_success_timestamp_seconds{task="data_mirror"}'
+        values: '0x14000'
+      - series: 'standby_unit_active{unit="indicagent-pg-wal-archive.service"}'
+        values: '1x14000'
+      - series: 'standby_probe_success'
+        values: '1x14000'
+      - series: 'standby_probe_timestamp_seconds'
+        values: '0+60x14000'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: StandbyBaseBackupStale
+        exp_alerts: []
+      - eval_time: 24h
+        alertname: StandbyMirrorStale
+        exp_alerts: []
+  # stale: base backup frozen at t=0 is older than 8 days at t=9d; mirror frozen at t=0 is
+  # older than 26h at t=27h; archive stopped; probe blind
+  - interval: 1m
+    input_series:
+      - series: 'standby_job_last_success_timestamp_seconds{task="base_backup"}'
+        values: '0x14000'
+      - series: 'standby_job_last_success_timestamp_seconds{task="data_mirror"}'
+        values: '0x14000'
+      - series: 'standby_unit_active{unit="indicagent-pg-wal-archive.service"}'
+        values: '0x14000'
+      - series: 'standby_probe_success'
+        values: '0x14000'
+    alert_rule_test:
+      - eval_time: 9d
+        alertname: StandbyBaseBackupStale
+        exp_alerts:
+          - exp_labels: {severity: warning, task: base_backup}
+            exp_annotations:
+              summary: "ubuntu2 base backup older than 8 days (weekly timer)"
+              description: "Check: ssh ubuntu2 'systemctl status indicagent-pg-base-backup.service; tail ~/backup/*.log'"
+      - eval_time: 27h
+        alertname: StandbyMirrorStale
+        exp_alerts:
+          - exp_labels: {severity: warning, task: data_mirror}
+            exp_annotations:
+              summary: "ubuntu2 data mirror older than 26 hours (daily timer)"
+              description: "Check: ssh ubuntu2 'journalctl -u indicagent-data-mirror.service -n 30'"
+      - eval_time: 1h
+        alertname: StandbyWalArchiveDown
+        exp_alerts:
+          - exp_labels: {severity: critical, unit: indicagent-pg-wal-archive.service}
+            exp_annotations:
+              summary: "ubuntu2 WAL archive service is not running"
+              description: "pg_receivewal stopped; the slot holds WAL on ubuntu1 until max_slot_wal_keep_size. Restart indicagent-pg-wal-archive.service on ubuntu2."
+      - eval_time: 1h
+        alertname: StandbyProbeBlind
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "standby probe cannot read ubuntu2 (ssh down or probe timer stopped)"
+              description: "Backup status is unknown, not good. Check ubuntu2 reachability and indicagent-standby-probe.timer on ubuntu1."

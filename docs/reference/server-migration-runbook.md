@@ -137,7 +137,6 @@ OLD runs research against its local standby and returns results to NEW. It never
 - Rehearse Phases 1 and 2 on NEW before the cutover window; Phase 3 timing and the exact `pg_basebackup` ownership flags are the least certain steps.
 - Decide the `ssfi-timescaledb` sibling project (Phase 0, item 4).
 - Update `CLAUDE.md` ("Claude Code runs ON this machine", the IP `192.168.68.60`) and memory after cutover; record the cutover date and any deviations here.
-- `docs/operations/operations-disaster-recovery.md` is stale (v2.x tables); replace its backup section with Phase 5 once the restore drill passes.
 
 ## Cutover record (2026-11-12)
 
@@ -161,5 +160,5 @@ Executed from OLD over SSH, owner approving. Deviations from the plan above:
 - Restore drill passed: first base backup plus WAL recovered to LSN `204D/E90F2000` in a scratch container; 10 of 10 table counts equal the primary's at that point. Duration 497 s (extract 465 s, recovery 11 s).
 - Mirror: `~/dev` pulled daily (87 GB first run). The pull key on `ubuntu1` allows only read-only rsync of `/home/bg/dev`; a write and a shell login were both refused.
 - `pg_receivewal` writes mode 600 files, so a restore container running as another uid cannot read them; `restore_drill.sh` makes the archive readable first, and a real restore must do the same.
-- Open: off-site copy (owner decision), alerting on a failed timer, replacing the backup section of `operations-disaster-recovery.md`.
+- Open: off-site copy (owner decision). Failed or stale jobs are visible through `standby_probe.sh` metrics, rules and a Grafana row (2026-11-13); the disaster recovery doc is rewritten to match this design.
 

@@ -54,6 +54,7 @@ EXPORTER_PREFIXES = (
     "container_",
     "otelcol_",
     "timescaledb_",
+    "standby_",  # node-exporter textfile metrics written by production/standby/standby_probe.sh
 )
 EXPORTER_NAMES = {"up", "target_info", "scrape_duration_seconds", "scrape_samples_scraped"}
 _PROMQL_WORDS = {
