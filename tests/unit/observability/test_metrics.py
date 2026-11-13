@@ -13,7 +13,7 @@ class TestServiceAuditorMetrics:
         """SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL is an OTel counter with .add()."""
         assert hasattr(SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, "add")
         # Should not raise
-        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": "indicagent-ibkr-provider"})
+        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": "indicagent-bar-replay"})
 
 
 class TestBarAuditorMetrics:

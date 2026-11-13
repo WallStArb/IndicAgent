@@ -27,11 +27,10 @@ import _path_bootstrap  # noqa: F401 -- project root on sys.path
 import aiohttp
 import asyncpg
 
-from src.config.settings import get_active_contracts, get_settings
+from src.config.settings import get_settings
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import (
     topic_alert_requests,
     topic_health_events,
@@ -47,7 +46,6 @@ from src.observability.metrics import (
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
 _PROMETHEUS_URL = "http://localhost:9090/api/v1/query"
-_SVC_DATA_PROVIDER = "indicagent-ibkr-provider"
 _STALL_THRESHOLD_SECONDS = 120  # lowered from 360 per Phase 108 D-23 (verified against observed message cadence pre-deploy)
 
 
@@ -60,9 +58,8 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-redpanda-watchdog": 0,  # infra tier: Redpanda liveness watchdog
     "indicagent-timescaledb-ready": 0,  # infra tier: TimescaleDB readiness sentinel
     # Layer 1 — data ingestion
-    "indicagent-ibkr-provider": 1,  # priority 1: root data source; nothing upstream
-    "indicagent-bar-replay": 1,  # priority 1: alternate data source; parallel with ibkr-provider
-    "indicagent-provider-merger": 2,  # priority 2: downstream of ibkr-provider (1)
+    "indicagent-bar-replay": 1,  # priority 1: alternate data source; the root of the streaming chain
+    "indicagent-provider-merger": 2,  # priority 2: downstream of bar-replay (1)
     # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,  # priority 3: downstream of provider-merger (2)
     "indicagent-bar-auditor": 3,  # priority 3: parallel with bar-aggregator (3)
@@ -88,17 +85,10 @@ _DAG_ORDER: dict[str, int] = {
     # Phase 185 D7 (plan 23): reconciliation audit; reads only, reports to integrity_monitor
     # and Prometheus. Its own daily timer since the 189-06 cutover.
     "indicagent-bar-reconciliation-audit": 8,  # oneshot; inactive between runs is correct
-    # Phase 189 (plan 06 cutover): the single IBKR history fetcher on a 15-minute
-    # OnUnitInactiveSec timer. A BaseBatch-style oneshot, no Kafka consumer, so no lag entry.
-    "indicagent-ibkr-history-fetcher": 8,  # Type=exec oneshot run; inactive between fires is correct
     # Phase 187 plan 13: nightly render of docs/research/research-ledger.md from the database.
-    # A oneshot with no Kafka consumer, so no alert.lag.* key (the ibkr-history-fetcher
-    # precedent); plan 16 replaces _DAG_ORDER with the manifest.
+    # A oneshot with no Kafka consumer, so no alert.lag.* key (oneshots carry
+    # no lag entry); plan 16 replaces _DAG_ORDER with the manifest.
     "indicagent-research-ledger-render": 8,  # oneshot; DB -> research-ledger.md, commits on change
-    # Todo 438: daily IBKR shortability snapshot (borrow_availability_snapshots); live-only
-    # data, so a missed day is lost. Oneshot with no Kafka consumer, so no alert.lag.* key
-    # (the ibkr-history-fetcher precedent); health is job_completed_total on the timer.
-    "indicagent-borrow-capture": 8,  # oneshot; inactive between fires is correct
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
@@ -155,7 +145,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-roll-batch",
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
-        "indicagent-borrow-capture",  # Type=oneshot, timer-triggered (todo 438); inactive between fires is correct
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct
         "indicagent-feature-lifecycle",  # todo 402; inactive between IC pipeline runs is correct
@@ -164,7 +153,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-bar-derivation",  # Type=oneshot; inactive between runs is correct
         "indicagent-economic-series-writer",  # Type=oneshot, daily timer (todo 480); inactive between runs is correct
         "indicagent-bar-reconciliation-audit",  # Type=oneshot, daily timer (189-06; chained from the nightly before); inactive between runs is correct
-        "indicagent-ibkr-history-fetcher",  # Type=exec run per 15-min timer fire (phase 189); inactive between fires is correct
         "indicagent-research-ledger-render",  # Type=oneshot, daily 07:15 UTC timer (187-13); inactive between runs is correct
     }
 )
@@ -397,10 +385,9 @@ class ServiceAuditor(BaseDaemon):
         while self.running:
             await asyncio.sleep(self._prometheus_check_interval)
             try:
-                health_set, lag_map, data_flow = await asyncio.gather(
+                health_set, lag_map = await asyncio.gather(
                     self._fetch_prometheus_health(),
                     self._fetch_prometheus_lag(),
-                    self._fetch_provider_data_flow(),
                 )
                 units = await self._discover_services()
                 for unit in units:
@@ -410,10 +397,9 @@ class ServiceAuditor(BaseDaemon):
                     lag = lag_map.get(unit, 0)
                     active = "active" if has_metrics else "unknown"
                     sub = "running" if has_metrics else "no_metrics"
-                    bars_per_sec = data_flow.get(unit, 0.0)
                     lag_threshold = self._lag_thresholds.get(unit, 0)
                     await self._evaluate_service_dynamic(
-                        unit, active, sub, lag, lag_threshold, has_metrics, bars_per_sec
+                        unit, active, sub, lag, lag_threshold, has_metrics
                     )
                     SERVICE_UP_GAUGE.add(1 if has_metrics else 0, {"unit": unit})
 
@@ -480,7 +466,6 @@ class ServiceAuditor(BaseDaemon):
         lag_messages: int,
         lag_threshold: int,
         has_metrics: bool,
-        bars_per_sec: float = 0.0,
     ) -> None:
         # ML batch services inactive (dead) between runs is correct — do not restart.
         # Timer-triggered oneshots must only be started by systemd timers, not the auditor.
@@ -494,44 +479,6 @@ class ServiceAuditor(BaseDaemon):
         now = datetime.now(UTC)
         is_dead = active_state in ("failed", "inactive") or sub_state == "start-limit-hit"
         is_laggy = lag_threshold > 0 and lag_messages > lag_threshold
-
-        # -- DATA STOPPAGE DETECTION (IBKR provider only) --------------------
-        # Only meaningful when at least one active instrument's session is open;
-        # outside market hours bars_per_sec=0 is expected and must not trigger
-        # restart-thrashing.
-        if (
-            unit == _SVC_DATA_PROVIDER
-            and bars_per_sec == 0.0
-            and has_metrics
-            and self._any_active_session_open(now)
-        ):
-            if not state.degraded_since:
-                state.degraded_since = now
-            state.degraded_check_count += 1
-            if state.degraded_check_count >= 2:  # 2 checks = 30 seconds
-                await self._emit_health_event(
-                    service=unit,
-                    event_type="data_stoppage",
-                    previous_state=state.last_known_state,
-                    reason="bars/sec=0 for >30s during active session",
-                    lag_messages=None,
-                    restart_count=len(state.restart_times),
-                    duration_degraded_s=None,
-                )
-                await self._send_alert(
-                    "HIGH",
-                    f"Provider data stoppage: {unit}",
-                    {"reason": "bars_per_sec=0 for 30s during active session"},
-                )
-                state.last_known_state = "restarting"
-                await self._restart_service_by_unit(unit)
-                return
-            # Preserve the counter across iterations -- skip the healthy-reset
-            # tail below. Without this return, lines at the bottom of the
-            # function zero degraded_check_count every cycle and the
-            # >=2 gate is never reached.
-            return
-        # ------------------------------------------------------------------
 
         # -- RESTART ----------------------------------------------------------
         if is_dead:
@@ -725,39 +672,6 @@ class ServiceAuditor(BaseDaemon):
                 stalled.append(unit)
                 seen.add(unit)
         return stalled
-
-    def _any_active_session_open(self, now: datetime) -> bool:
-        """True if any active instrument's trading session is open at `now`.
-
-        Gates data-stoppage detection so overnight/weekend/holiday quiet
-        periods do not trigger restart-thrashing. Fails open (returns True)
-        on settings lookup error so genuine stoppages still surface.
-        """
-        try:
-            instruments = get_active_contracts(self.settings, dimension="live")
-        except Exception as error:
-            self.logger.warning(
-                "service_auditor.session_lookup_failed",
-                error=str(error),
-            )
-            return True
-        for inst in instruments:
-            session = SESSION_REGISTRY.get(inst.session_id)
-            if session is not None and session.is_open(now):
-                return True
-        return False
-
-    async def _fetch_provider_data_flow(self) -> dict[str, float]:
-        """Check provider bars/second rate to detect data stoppage."""
-        # Query rate of bars produced over last 5 minutes
-        results = await self._query_prometheus("rate(provider_bars_produced_total[5m])")
-        out: dict[str, float] = {}
-        for r in results:
-            provider = r["metric"].get("provider", "")
-            if provider == "ibkr":
-                out[_SVC_DATA_PROVIDER] = float(r["value"][1])
-                break
-        return out
 
     async def _query_prometheus(self, query: str) -> list[dict]:
         assert self._http_session is not None

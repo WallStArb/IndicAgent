@@ -4,12 +4,11 @@ Tests invoke the real business logic that triggers _send_alert, not _send_alert 
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from services.service_auditor import (
-    _SVC_DATA_PROVIDER,
     ServiceAuditor,
     ServiceState,
 )
@@ -49,42 +48,6 @@ def _make_unit(unit: str = "indicagent-test.service") -> str:
 
 class TestSendAlertViaBusinessLogic:
     """Verify _send_alert is called with correct args through real code paths."""
-
-    @pytest.mark.asyncio
-    async def test_data_stoppage_calls_send_alert_HIGH(self, agent):
-        """Data stoppage (2 checks of bars_per_sec=0 during active session) -> _send_alert HIGH."""
-        unit = _make_unit(_SVC_DATA_PROVIDER)
-        agent._service_states[unit] = ServiceState()
-        agent._send_alert = AsyncMock()
-
-        with patch.object(agent, "_any_active_session_open", return_value=True):
-            # First check: degraded_since set, count=1
-            await agent._evaluate_service_dynamic(
-                unit,
-                active_state="active",
-                sub_state="running",
-                lag_messages=0,
-                lag_threshold=1000,
-                has_metrics=True,
-                bars_per_sec=0.0,
-            )
-            assert agent._send_alert.call_count == 0  # not yet
-
-            # Second check: count >= 2 -> alert
-            await agent._evaluate_service_dynamic(
-                unit,
-                active_state="active",
-                sub_state="running",
-                lag_messages=0,
-                lag_threshold=1000,
-                has_metrics=True,
-                bars_per_sec=0.0,
-            )
-
-        assert agent._send_alert.call_count == 1
-        call_args = agent._send_alert.call_args
-        assert call_args[0][0] == "HIGH"
-        assert "Provider data stoppage" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_escalation_calls_send_alert_CRITICAL(self, agent):

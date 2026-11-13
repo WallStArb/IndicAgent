@@ -25,7 +25,6 @@ _EXPECTED_DIMENSION = {
     "src/providers/base_provider_agent.py": "live",
     "services/feature_vector_pipeline.py": "live",
     "services/bar_auditor.py": "live",
-    "services/service_auditor.py": "live",
     "services/provider_merger.py": "backfill",
 }
 
@@ -125,11 +124,3 @@ def test_setup_validates_before_connecting_to_provider():
         with pytest.raises(RuntimeError, match="streaming universe is empty"):
             asyncio.run(agent._setup())
     agent._create_adapter.assert_not_called()
-
-
-def test_ibkr_provider_cap_comes_from_settings():
-    from services.ibkr_provider import IBKRProvider
-
-    agent = IBKRProvider.__new__(IBKRProvider)
-    agent.settings = MagicMock(ibkr_max_subscriptions=80)
-    assert agent._max_live_subscriptions() == 80

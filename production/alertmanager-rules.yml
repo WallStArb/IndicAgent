@@ -78,16 +78,6 @@ groups:
 
   - name: indicagent_pipeline
     rules:
-      - alert: ProviderDataStoppage
-        expr: >
-          rate(provider_bars_produced_total[5m]) == 0
-          and indicagent_service_up{unit="indicagent-ibkr-provider"} == 1
-          and (hour() >= 6 and hour() <= 21)
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "IBKR provider producing zero bars during active session"
 
       - alert: ServiceDown
         expr: indicagent_service_up == 0
@@ -202,14 +192,6 @@ groups:
           summary: "Systemd watchdog notifications failing — sd_notify() error"
           description: "Suppression rate {{ $value | humanize }} — unit file missing NotifyAccess=main. Check {{ $labels.agent }} systemd config."
 
-      - alert: IBKRGatewayAuthDown
-        expr: max_over_time(ibkr_gateway_authenticated[10m]) < 1 or absent(ibkr_gateway_authenticated)
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: "IBKR gateway is logged out (2FA prompt) — backfill cannot fetch"
-          description: "The auth probe's API handshake failed for >10 minutes: the gateway is at a second-factor prompt or down. A human must approve the 2FA on the phone (or restart the ib-gateway container). Fires ahead of the next backfill run instead of after it (todo 395)."
 
   # ubuntu2 backup and mirror (metrics from production/standby/standby_probe.sh). Alerting is
   # not wired to a pager; these rules turn the Grafana panel red and show on /alerts.

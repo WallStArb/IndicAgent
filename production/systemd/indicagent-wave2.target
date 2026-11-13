@@ -7,7 +7,6 @@
 Description=IndicAgent Wave 2 gate — intelligence pipeline
 Requires=indicagent-infrastructure.target
 After=indicagent-wave1.target
-After=indicagent-ibkr-provider.service
 After=indicagent-bar-replay.service
 After=indicagent-provider-merger.service
 After=indicagent-bar-aggregator.service

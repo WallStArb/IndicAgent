@@ -36,7 +36,7 @@ def test_dag_order_covers_required_services():
     from services.service_auditor import _DAG_ORDER
 
     required = {
-        "indicagent-ibkr-provider",
+        "indicagent-bar-replay",
         "indicagent-provider-merger",
         "indicagent-bar-aggregator",
         "indicagent-bar-writer",
@@ -61,7 +61,7 @@ def test_dag_order_has_at_least_20_entries():
 def test_dag_order_sources_before_sinks():
     from services.service_auditor import _DAG_ORDER
 
-    assert _DAG_ORDER["indicagent-ibkr-provider"] < _DAG_ORDER["indicagent-provider-merger"]
+    assert _DAG_ORDER["indicagent-bar-replay"] < _DAG_ORDER["indicagent-provider-merger"]
     assert _DAG_ORDER["indicagent-provider-merger"] < _DAG_ORDER["indicagent-bar-aggregator"]
     assert (
         _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-feature-vector-pipeline"]
@@ -103,10 +103,10 @@ async def test_discover_services_returns_sorted_list():
     """_discover_services() parses systemctl output and sorts by DAG order."""
     agent = _make_agent()
 
-    # Mock systemctl output: bar-writer (dag 4) before ibkr-provider (dag 1)
+    # Mock systemctl output: bar-writer (dag 4) before bar-replay (dag 1)
     mock_stdout = (
         b"indicagent-bar-writer.service loaded active running\n"
-        b"indicagent-ibkr-provider.service loaded active running\n"
+        b"indicagent-bar-replay.service loaded active running\n"
         b"indicagent-feature-vector-pipeline.service loaded active running\n"
     )
 
@@ -116,9 +116,9 @@ async def test_discover_services_returns_sorted_list():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = await agent._discover_services()
 
-    # Should be sorted by DAG order: ibkr-provider (1) < bar-writer (4) < intelligence (5)
+    # Should be sorted by DAG order: bar-replay (1) < bar-writer (4) < intelligence (5)
     # Unit names are normalized (stripped of .service suffix) to match _DAG_ORDER keys
-    assert result[0] == "indicagent-ibkr-provider"
+    assert result[0] == "indicagent-bar-replay"
     assert result[1] == "indicagent-bar-writer"
     assert result[2] == "indicagent-feature-vector-pipeline"
 
@@ -144,7 +144,7 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
 
     mock_stdout = (
         b"\xe2\x97\x8f indicagent-bar-writer.service loaded failed failed\n"
-        b"indicagent-ibkr-provider.service loaded active running\n"
+        b"indicagent-bar-replay.service loaded active running\n"
     )
 
     mock_proc = AsyncMock()
@@ -154,7 +154,7 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
         result = await agent._discover_services()
 
     assert "indicagent-bar-writer" in result
-    assert "indicagent-ibkr-provider" in result
+    assert "indicagent-bar-replay" in result
 
 
 # -- SERVICE_UP_GAUGE ──────────────────────────────────────────────────────────
@@ -205,7 +205,6 @@ async def test_oneshot_units_not_restarted():
 
     agent = _make_agent()
     agent._http_session = MagicMock()
-    agent._any_active_session_open = MagicMock(return_value=False)
 
     restart_mock = AsyncMock()
     agent._restart_service_by_unit = restart_mock
@@ -227,7 +226,6 @@ async def test_oneshot_units_not_restarted():
         lag_messages=0,
         lag_threshold=0,
         has_metrics=False,
-        bars_per_sec=0.0,
     )
 
     # Restart must NOT have been called for a oneshot unit
@@ -442,38 +440,6 @@ async def test_emit_health_event_inserts_correct_schema():
     assert "service_health_events" in sql_and_args[0]
     assert "indicagent-bar-writer" in sql_and_args
     assert "restart" in sql_and_args
-
-
-# -- Data stoppage detection ──────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
-    from services.service_auditor import _SVC_DATA_PROVIDER, ServiceState
-
-    agent = _make_agent()
-    agent._service_states[_SVC_DATA_PROVIDER] = ServiceState()
-    agent._emit_health_event = AsyncMock()
-    agent._restart_service_by_unit = AsyncMock()
-    agent._send_alert = AsyncMock()
-    # Force session open so market-hours gate passes
-    agent._any_active_session_open = MagicMock(return_value=True)
-
-    lag_threshold = 0  # ibkr-provider has no lag threshold
-    # First check -- counter increments but no restart
-    await agent._evaluate_service_dynamic(
-        _SVC_DATA_PROVIDER, "active", "running", 0, lag_threshold, True, bars_per_sec=0.0
-    )
-    agent._restart_service_by_unit.assert_not_called()
-    assert agent._service_states[_SVC_DATA_PROVIDER].degraded_check_count == 1
-
-    # Second check -- triggers restart
-    await agent._evaluate_service_dynamic(
-        _SVC_DATA_PROVIDER, "active", "running", 0, lag_threshold, True, bars_per_sec=0.0
-    )
-    agent._restart_service_by_unit.assert_called_once_with(_SVC_DATA_PROVIDER)
-    event_types = [c[1]["event_type"] for c in agent._emit_health_event.call_args_list]
-    assert "data_stoppage" in event_types
 
 
 def test_research_ledger_render_is_a_registered_oneshot():

@@ -1,5 +1,5 @@
 # /home/bg/dev/indicagent/production/systemd/indicagent-wave1.target
-# Wave 1: data ingestion chain — ibkr-provider, bar-replay, provider-merger,
+# Wave 1: data ingestion chain — bar-replay, provider-merger,
 #          bar-aggregator, bar-auditor, bar-writer
 # Activates immediately after infrastructure (DB + Kafka) is ready.
 # Wave 2 services wait on this target plus the wave 1 service list.

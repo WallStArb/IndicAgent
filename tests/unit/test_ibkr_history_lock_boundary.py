@@ -39,11 +39,6 @@ _ALLOW_LIST: dict[str, str] = {
     "src/providers/base.py": (
         "PERMANENT: abstract provider interface definition, no IBKR process behind it."
     ),
-    "src/providers/ibkr_adapter.py": (
-        "PERMANENT: dormant v2.x streaming-stack adapter; its only consumer is "
-        "services/ibkr_provider.py, inactive since the IBKR live feed went down "
-        "(check `systemctl status` before citing it as live)."
-    ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "PERMANENT: helper library invoked only by ohlcv_history_fetcher.py, which holds "
         "FetcherLock for the whole run (no CLI since plan 189-08)."

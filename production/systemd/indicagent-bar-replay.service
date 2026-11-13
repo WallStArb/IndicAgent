@@ -13,7 +13,6 @@ Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/home/bg/dev/indicagent/.env
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.bar_replay_provider
 # On clean exit (caught up), automatically restart live ingestion + HTF aggregation.
-ExecStopPost=/bin/systemctl start indicagent-ibkr-provider.service
 ExecStopPost=/bin/systemctl start indicagent-bar-aggregator.service
 Restart=no
 WatchdogSec=60

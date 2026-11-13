@@ -64,12 +64,6 @@ _ALLOW_LIST: dict[str, str] = {
         "_default_provider); the loop itself is vendor-blind and dispatches only "
         "through entry.fetch, so a foreign provider can never reach this import."
     ),
-    "services/borrow_availability_capture.py": (
-        "STAYS: the borrow capture (todo 438) is market-data (reqMktData generic "
-        "tick 236), not history; the HistoryProvider protocol has no snapshot "
-        "surface and history_leaf dispatches FetchBudget/HistoryRequest only, so "
-        "the capture constructs IBKRProvider directly for connect + snapshot."
-    ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "STAYS POST-190-04: the fetcher's helper library (APR overlays, campaign "
         "helpers, module-level ibkr constants like _ARCHIVE_TFS) holds the ibkr "
@@ -81,20 +75,6 @@ _ALLOW_LIST: dict[str, str] = {
         "implementation (qualification, head floors, FX/crypto derive, venue "
         "fallback); it imports the leaf module for the constants those mechanics "
         "read, and no new vendor branches belong here."
-    ),
-    "scripts/infrastructure/infrastructure_gateway_auth_probe.py": (
-        "PERMANENT: the gateway auth probe (todo 395) tests the IBKR gateway handshake "
-        "itself; the vendor is the subject, so it constructs IBKRProvider directly."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py": (
-        "PERMANENT: the manual chunk-days/rate-limit calibration probe must drive "
-        "the real IBKR leaf under FetcherLock to measure vendor pacing; concrete "
-        "access is its purpose. It re-verifies the APR seeds after any limit change."
-    ),
-    "scripts/infrastructure/classification_ibkr_sourcing.py": (
-        "PERMANENT (out of phase 190 scope): onboarding/classification sourcing "
-        "qualifies candidate contracts on the concrete leaf during manifest runs; "
-        "moves only if a protocol-level qualification seam is ever justified."
     ),
     "scripts/infrastructure/reference_identity_capture.py": (
         "PERMANENT: the identity capture (todo 600 step 3b) asks IBKR contract details "
