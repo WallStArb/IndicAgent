@@ -102,7 +102,7 @@ to clear first, and nothing downstream should be designed in detail before that 
 
 ## 3. Data Foundation
 
-**Today:** OHLCV bars from two price vendors, IBKR and Alpaca SIP, captured raw in `ohlcv_raw` and selected into canonical bars by `bar_source_policy` (see `docs/foundation/canonical-truth-registry.md`), plus Yahoo dividends, feeding one intelligence module (V1 Quant).
+**Today (2026-11-13):** OHLCV bars captured raw in `ohlcv_raw` and selected into canonical bars by `bar_source_policy` (see `docs/foundation/canonical-truth-registry.md` and its transition annotation), plus Yahoo dividends, feeding one intelligence module (V1 Quant). Massive is the canonical historical vendor (raw loaded 2026-11-11) and the Alpaca nightly carries the forward tail; IBKR was removed entirely (owner ruling 2026-11-13, deletion completes at step 7 Part F) and Tradier was removed 2026-11-12 (migration 589).
 
 **Exchange-aware filtering already exists and is real, not a gap.** `src/core/market_calendar.py`
 is a proper `MarketCalendar` backed by `pandas_market_calendars` (real NYSE/CME session

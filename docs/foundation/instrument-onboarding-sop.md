@@ -101,6 +101,12 @@ snapshot.
 
 ## Stages
 
+> **Transition annotation, 2026-11-13:** the IBKR sourcing path below is disabled and
+> deletion-listed (owner ruling: IBKR removed entirely; step 7 Part F is the removal
+> procedure, `docs/operations/massive-step7-runbook.md`). Until a post-step-7 onboarding path
+> is written against Massive/Alpaca, treat the IBKR-specific stages as the historical
+> procedure and source history from the raw loads instead.
+
 Run every command from the main checkout (`/home/bg/dev/indicagent`). IBKR must be up:
 `docker ps | grep ib-gateway`, and remember the weekly 2FA logout (todo 395). IBKR client IDs:
 35 is the provider, 40 the history fetcher, 45 the gateway probe, 46 the manifest qualifier; pick
