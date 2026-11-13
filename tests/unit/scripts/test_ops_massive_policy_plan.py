@@ -247,3 +247,172 @@ def test_restore_refuses_a_snapshot_without_an_open_default():
     closed = [LiveRow("d", None, date(1990, 1, 1), date(2016, 1, 4), "ibkr", None, "x", {})]
     with pytest.raises(ValueError, match="open-ended default"):
         build_restore_plan(timeframe="5m", snapshot=closed, live=_defaults(), source="s")
+
+
+# ---- the 8a input (runbook A2 amendment 2026-11-13) ---------------------------------------------
+import csv as _csv  # noqa: E402
+import json as _json  # noqa: E402
+
+from scripts.ops.bars import ops_massive_policy_plan as _mod  # noqa: E402
+
+ERAS = list(range(2003, 2027))
+
+
+def _out_dir(tmp_path, *, verdicts=None, stops=None, status="complete", eras=None, calibrated=None):
+    """A synthetic 8a out dir: every era ok on both timeframes unless ``verdicts`` says
+    {(era, tf): (verdict, reason)}; ``stops`` are the (era, tf) in the stop file."""
+    verdicts = verdicts or {}
+    (tmp_path / "summary.json").write_text(
+        _json.dumps(
+            {
+                "status": status,
+                "stages_requested": ["A", "B", "C"],
+                "eras": eras if eras is not None else ERAS,
+                "partition": {"status": "complete"},
+            }
+        )
+    )
+    (tmp_path / "stageC_stop_eras.json").write_text(
+        _json.dumps({f"{e}/{tf}": "x" for (e, tf) in (stops or [])})
+    )
+    with (tmp_path / "stageC_era_tables.csv").open("w", newline="") as handle:
+        w = _csv.DictWriter(handle, ["era", "timeframe", "verdict", "reasons", "calibrated_on"])
+        w.writeheader()
+        for era in ERAS:
+            for tf in ("1d", "5m"):
+                verdict, reason = verdicts.get((era, tf), ("ok", ""))
+                w.writerow(
+                    {
+                        "era": era,
+                        "timeframe": tf,
+                        "verdict": verdict,
+                        "reasons": reason,
+                        "calibrated_on": calibrated or "2014,2015",
+                    }
+                )
+    return tmp_path
+
+
+def _defaults_of(tmp_path, timeframe, stage=1, **kw):
+    checks = _mod.read_load_checks(_out_dir(tmp_path, **kw))
+    live = _defaults()
+    plan = _mod.build_plan(
+        stage=stage, timeframe=timeframe, live=live, gaps=[], gap_list={}, checks=checks
+    )
+    return plan
+
+
+def _spans(plan):
+    return [(r["valid_from"], r["valid_to"], r["primary"]) for r in plan["defaults"]]
+
+
+def test_an_all_ok_run_reproduces_the_single_massive_span(tmp_path):
+    plan = _defaults_of(tmp_path, "5m")
+    assert [s for s in _spans(plan) if s[2] == "massive"] == [
+        ("2003-09-10", "2016-01-04", "massive")
+    ]
+    assert plan["evidence"]["load_checks"]["summary.json"]["sha256"]
+
+
+def test_a_stop_at_the_first_era_keeps_the_incumbent_from_the_archive_start(tmp_path):
+    plan = _defaults_of(
+        tmp_path, "1d", verdicts={(2003, "1d"): ("stop", "x")}, stops=[(2003, "1d")]
+    )
+    assert _spans(plan)[:3] == [
+        ("1990-01-01", "2003-09-10", "ibkr"),
+        ("2003-09-10", "2004-01-01", "ibkr"),
+        ("2004-01-01", "2016-01-04", "massive"),
+    ]
+    assert plan["seam"] == "2003-09-10"  # still a boundary of the new defaults
+
+
+def test_a_stop_at_the_last_era_of_the_span_keeps_the_incumbent_to_the_seam(tmp_path):
+    plan = _defaults_of(
+        tmp_path, "1d", verdicts={(2015, "1d"): ("stop", "x")}, stops=[(2015, "1d")]
+    )
+    assert ("2015-01-01", "2016-01-04", "ibkr") in _spans(plan)
+    assert ("2003-09-10", "2015-01-01", "massive") in _spans(plan)
+
+
+def test_two_adjacent_stopped_eras_merge_into_one_incumbent_span(tmp_path):
+    stops = [(2008, "1d"), (2009, "1d"), (2010, "1d")]
+    plan = _defaults_of(tmp_path, "1d", verdicts={k: ("stop", "x") for k in stops}, stops=stops)
+    assert ("2008-01-01", "2011-01-01", "ibkr") in _spans(plan)
+    edges = [(e["seam"], e["from_source"], e["to_source"]) for e in plan["seam_edges"]]
+    assert ("2008-01-01", "massive", "ibkr") in edges and ("2011-01-01", "ibkr", "massive") in edges
+
+
+def test_a_stopped_1d_era_leaves_5m_massive(tmp_path):
+    kw = dict(verdicts={(2010, "1d"): ("stop", "x")}, stops=[(2010, "1d")])
+    one_d = _defaults_of(tmp_path, "1d", **kw)
+    five_m = _defaults_of(tmp_path, "5m", **kw)
+    assert ("2010-01-01", "2011-01-01", "ibkr") in _spans(one_d)
+    assert [s for s in _spans(five_m) if s[2] != "massive"][0][2] == "ibkr"  # head and tail only
+    assert ("2003-09-10", "2016-01-04", "massive") in _spans(five_m)
+
+
+def test_the_source_table_maps_unresolved_close_definition_to_massive_and_the_rest_to_incumbent():
+    s = _mod.source_of
+    assert s("1d", "unresolved", ["close_definition_witnessed"]) == "massive"
+    assert s("1d", "unresolved", ["close_convention"]) == "incumbent"
+    assert s("5m", "no_detector", ["no_judged_names"]) == "massive"
+    assert s("5m", "unresolved", ["thin_era"]) == "massive"
+    assert s("1d", "stop", ["x"]) == "incumbent" and s("5m", "ok_convention", []) == "massive"
+    with pytest.raises(ValueError, match="no source rule"):
+        s("5m", "unresolved", ["something_new"])
+
+
+def test_unresolved_1d_eras_split_by_reason(tmp_path):
+    v = {
+        (2005, "1d"): ("unresolved", "close_definition_witnessed"),
+        (2009, "1d"): ("unresolved", "close_convention"),
+    }
+    plan = _defaults_of(tmp_path, "1d", verdicts=v)
+    assert ("2009-01-01", "2010-01-01", "ibkr") in _spans(plan)
+    assert not any(s[0] <= "2005-06-01" < s[1] and s[2] == "ibkr" for s in _spans(plan)[1:])
+
+
+def test_stage2_stopped_eras_after_2016_keep_alpaca_and_one_straddling_span_is_cut(tmp_path):
+    stops = [(2015, "1d"), (2016, "1d")]
+    plan = _defaults_of(
+        tmp_path, "1d", stage=2, verdicts={k: ("stop", "x") for k in stops}, stops=stops
+    )
+    got = _spans(plan)
+    assert ("2015-01-01", "2016-01-04", "ibkr") in got and (
+        "2016-01-04",
+        "2017-01-01",
+        "alpaca",
+    ) in got
+
+
+def test_a_partial_or_self_calibrated_or_short_run_refuses(tmp_path):
+    with pytest.raises(ValueError, match="need complete"):
+        _mod.read_load_checks(_out_dir(tmp_path, status="partial"))
+    with pytest.raises(ValueError, match="self-calibrated"):
+        _mod.read_load_checks(_out_dir(tmp_path, calibrated="self"))
+    with pytest.raises(ValueError, match="not the full"):
+        _mod.read_load_checks(_out_dir(tmp_path, eras=[2010, 2011]))
+
+
+def test_an_unknown_timeframe_key_or_an_era_outside_the_archive_refuses(tmp_path):
+    d = _out_dir(tmp_path)
+    (d / "stageC_stop_eras.json").write_text(_json.dumps({"2010/15m": "x"}))
+    with pytest.raises(ValueError, match="known timeframe"):
+        _mod.read_load_checks(d)
+    (d / "stageC_stop_eras.json").write_text(_json.dumps({"1999/1d": "x"}))
+    with pytest.raises(ValueError, match="outside the archive"):
+        _mod.read_load_checks(d)
+
+
+def test_the_plan_validates_through_the_writers_parse_plan_and_lists_its_edges(tmp_path):
+    stops = [(2008, "5m")]
+    plan = _defaults_of(tmp_path, "5m", verdicts={(2008, "5m"): ("stop", "x")}, stops=stops)
+    parse_plan(plan)
+    assert {e["seam"] for e in plan["seam_edges"]} >= {"2008-01-01", "2009-01-01"}
+
+
+def test_the_three_non_session_days_of_2016_are_no_era_of_their_own(tmp_path):
+    plan = _defaults_of(
+        tmp_path, "1d", verdicts={(2016, "1d"): ("stop", "x")}, stops=[(2016, "1d")]
+    )
+    assert ("2003-09-10", "2016-01-04", "massive") in _spans(plan)  # stage 1 ignores a 2016 stop

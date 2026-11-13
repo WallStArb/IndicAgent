@@ -36,6 +36,7 @@ cd /home/bg/dev/indicagent
 PY=.venv/bin/python
 OUT=logs/massive_step7            # all step 7 evidence; mkdir -p "$OUT"
 GAP=data/ticker_entity_map/20261110_be44ac7d4ea7/gap_list.csv   # the map the sweep loaded under; pin it
+LC=logs/massive_load_checks_<the gating run>   # the 8a out dir (complete run, era/tf stop file); pin it, never "newest"
 PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1"
 ```
 
@@ -51,7 +52,17 @@ Abort: any year missing or unbalanced.
 A2. Section 8a load checks have run over loaded raw and emit a complete partition of the mapped universe (name, era, outcome in pass, gap list, stop; bucket counts sum to the mapped total). No systemic stop (units, session offset, record sanity, volume bands). Name-level outcomes of the checks are FLAGS (amendment 2026-11-12, design 8a): a flagged name-era stays Massive-primary and is listed in the data adjacency register; it never gets an IBKR symbol row. `$GAP` is the identity gap list only (names Massive does not serve; IBKR is their only source).
 Abort: a systemic stop, or a partial run reported as a result.
 
-Amendment 2026-11-13 (lead, after the first full 8a run, r5h/r5i): a stop is scoped to its (era, timeframe), not to the switch as a whole (design 8a R1). The partition reports stops as `era/tf` in `stageC_stop_eras.json`, and A2's abort applies only to a stage A or B stop on the minute or day file as a whole, or to a partial run. A stopped (era, timeframe) keeps its incumbent default in the stage 1 plan: `ops_massive_policy_plan.py` takes the 8a out dir (pinned by path and the summary's sha256, never "newest") and emits per-timeframe default spans that exclude every stopped era, so the Massive default becomes a set of spans per timeframe rather than one span. The first full run gives 2014 to 2026 ok on both timeframes; 1d 2004 to 2007 is a close-definition difference (todo 610) that takes Massive by the one-definition rule; 1d 2008 to 2013 stops and keeps IBKR unless the stop is explained first. Every span seam this creates (1d at 2008-01-01 and 2014-01-01 if 2008 to 2013 stays IBKR) gets an `ops_seam_witness` run in Part D next to the 2016 seam. Not built yet: the plan builder's 8a input (todo 600, after the 8a runner lands).
+Amendment 2026-11-13 (lead, after the first full 8a run, r5h/r5i): a stop is scoped to its (era, timeframe), not to the switch as a whole (design 8a R1). The partition reports stops as `era/tf` in `stageC_stop_eras.json`, and A2's abort applies only to a stage A or B stop on the minute or day file as a whole, or to a partial run. A stopped (era, timeframe) keeps its incumbent default in the stage 1 plan: `ops_massive_policy_plan.py` takes the 8a out dir (pinned by path and the summary's sha256, never "newest") and emits per-timeframe default spans that exclude every stopped era, so the Massive default becomes a set of spans per timeframe rather than one span. The first full run gives 2014 to 2026 ok on both timeframes; 1d 2004 to 2007 is a close-definition difference (todo 610) that takes Massive by the one-definition rule; 1d 2008 to 2013 stops and keeps IBKR unless the stop is explained first. Every span seam this creates (1d at 2008-01-01 and 2014-01-01 if 2008 to 2013 stays IBKR) gets an `ops_seam_witness` run in Part D next to the 2016 seam. The plan builder's 8a input is built: `--load-checks-out DIR` (required with `--stage`) reads `summary.json` (status complete, stages A, B and C, the full 2003 to 2026 eras, partition closed), `stageC_stop_eras.json` (`era/tf` keys) and `stageC_era_tables.csv`, pins all three by path and sha256 in the plan's `evidence.load_checks`, and refuses a partial or self-calibrated run, an unknown timeframe key or an era outside the archive. The verdict-to-source table (`VERDICT_SOURCE` in `ops_massive_policy_plan.py`, the one place it lives):
+
+| Timeframe | Verdict (reason) | Source of that (era, timeframe) |
+|---|---|---|
+| any | ok, ok_convention | Massive |
+| any | no_detector, unresolved (thin_era) | Massive (a coverage fact, not a failure; the owner ruling keeps Massive the sole pre-2016 5m source) |
+| 1d | unresolved (close_definition_witnessed) | Massive (one close definition across the span, todo 610) |
+| 1d | unresolved (close_convention) | incumbent, until a third witness exists |
+| any | stop (either stage A, B or C) | incumbent: IBKR before 2016-01-04, Alpaca from it |
+
+Adjacent eras of one source merge into one default span; the head default before 2003-09-10 stays its own row so the seam stays a boundary. An era that overlaps the span by under a week (the three non-session days of 2016 in stage 1) takes the source of the era before it. The plan lists every span edge it creates in `seam_edges` and writes them to `<plan>.seams.csv` (timeframe, seam date, from and to source); Part D runs `ops_seam_witness` at each.
 
 A3. Split reconciliation recorded. Todo 608's held classes are ruled (items 2, 3, 4, 7 at minimum listed with a disposition; item 1 and 5 are already ruled). After 9b's 1d load covers every year, rerun the lone-break sweep with Massive as the witness:
 
@@ -199,7 +210,7 @@ C1. Build and review the plans:
 
 ```bash
 for tf in 5m 1d; do
-  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 1 --timeframe $tf --gap-list "$GAP" --out "$OUT/plan_stage1_$tf.json"
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 1 --timeframe $tf --gap-list "$GAP" --load-checks-out "$LC" --out "$OUT/plan_stage1_$tf.json"
 done
 ```
 Read-only dry build on 2026-11-11 (current gap list): 5m 3 defaults, 580 IBKR symbol rows on 580 names; 1d 3 defaults, the same 580 rows, the 95 live 2016+ IBKR rows kept, none retired. Both validated by `parse_plan`. Gate: the counts are explained by the gap list, and a reviewer reads the plan's defaults block. 580 of 1,551 names keep IBKR for some pre-2016 span (473 `before_first_event` spans); that share is the identity map's, and the lead should accept it explicitly.
@@ -332,7 +343,7 @@ Before stage 2, rerun from Part A: A5 (serve-time re-stat, zero drift), A9 (a fr
 
 ```bash
 for tf in 5m 1d; do
-  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 2 --timeframe $tf --gap-list "$GAP" --out "$OUT/plan_stage2_$tf.json"
+  $PY -m scripts.ops.bars.ops_massive_policy_plan --stage 2 --timeframe $tf --gap-list "$GAP" --load-checks-out "$LC" --out "$OUT/plan_stage2_$tf.json"
 done
 ```
 Build it from the live state after stage 1 (it retires every live symbol row by name; gap-list names get IBKR before 2016-01-04 and Alpaca from it to the archive end). Checks: the card compare `--to 2016-01-01` (pre-2016 identical to stage 1's after-card); per-year `ops_selection_gate --compare --start Y-01-01 --end Y+1-01-01` reports for 2016 to 2026 (expected differences against the stage 1 card are the Alpaca epoch seams and rounding, classified under 8a); the archive-end seam:
