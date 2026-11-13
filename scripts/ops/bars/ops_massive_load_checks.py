@@ -245,7 +245,7 @@ class SanityScan:
 
 def sanity_of(raw: RawFile) -> SanityScan:
     owned = owned_rows(raw)
-    counts, defective = lc.record_sanity_with_mask(
+    counts, defective = lc.record_sanity(
         raw.code, raw.window_start, raw.open, raw.high, raw.low, raw.close, raw.volume, owned
     )
     return SanityScan(counts, defective, owned)
@@ -263,6 +263,7 @@ def key_path(cfg: Config, check: str, era: int) -> Path:
 def write_part(cfg: Config, check: str, era: int, payload: dict[str, Any]) -> None:
     """Write a part and, beside it, its key: a reuse check reads the small sidecar, never the
     part. The sidecar lands last, so a part without its key is never reused."""
+    key_path(cfg, check, era).unlink(missing_ok=True)  # no stale key beside a half-written part
     write_json(part_path(cfg, check, era), payload)
     write_json(key_path(cfg, check, era), payload["key"])
 
@@ -275,25 +276,24 @@ def part_current(cfg: Config, check: str, era: int, key: Mapping[str, object]) -
     return bool(json.loads(sidecar.read_text()) == json.loads(json.dumps(key)))
 
 
-def load_part(cfg: Config, check: str, era: int, key: dict[str, object]) -> dict[str, Any] | None:
-    """A saved part computed under the same key, else None (recompute)."""
-    if not part_current(cfg, check, era, key):
-        return None
-    part: dict[str, Any] = json.loads(part_path(cfg, check, era).read_text())
-    return part
-
-
-def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
+def all_parts(
+    cfg: Config, check: str, key: Mapping[str, object] | None = None
+) -> dict[int, dict[str, Any]]:
+    """The saved parts of the requested eras. With ``key`` (one key for every era) the key embedded
+    in each part is compared too, besides the sidecar a reuse check reads."""
     out: dict[int, dict[str, Any]] = {}
     for era in cfg.eras:
         path = part_path(cfg, check, era)
         if path.exists():
-            out[era] = json.loads(path.read_text())
+            part = json.loads(path.read_text())
+            if key is not None and part.get("key") != json.loads(json.dumps(key)):
+                raise RuntimeError(f"{path} was computed under another key: rerun its stage")
+            out[era] = part
     return out
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5g"
+LOGIC_VERSION = "2026-11-13-r5h"
 
 
 _RAW_FINGERPRINT_SQL = """
@@ -416,6 +416,7 @@ class DefectLog:
     named: list[dict[str, Any]] = field(default_factory=list)
     unowned: list[dict[str, Any]] = field(default_factory=list)
     n_named: int = 0
+    _listed: Counter[tuple[str, str]] = field(default_factory=Counter)  # (list, file kind) rows
 
     def add(
         self, day: date, raw: RawFile, scan: SanityScan, open_ns: int, close_ns: int, file_kind: str
@@ -429,11 +430,13 @@ class DefectLog:
             f"{raw.tickers[code]}|{day.isoformat()}|defective_bar"
             for code in np.unique(raw.code[owned_idx])
         )
-        for idx, rows, cap in (
-            (owned_idx, self.named, DEFECT_LIST_CAP),
-            (unowned_idx, self.unowned, UNOWNED_LIST_CAP),
+        for idx, rows, cap, which in (
+            (owned_idx, self.named, DEFECT_LIST_CAP, "named"),
+            (unowned_idx, self.unowned, UNOWNED_LIST_CAP, "unowned"),
         ):
-            for i in idx[: max(0, cap - len(rows))]:
+            room = max(0, cap - self._listed[(which, file_kind)])  # the cap is per file kind
+            self._listed[(which, file_kind)] += min(room, len(idx))
+            for i in idx[:room]:
                 rows.append(
                     {
                         "day": day.isoformat(),
@@ -444,7 +447,12 @@ class DefectLog:
                         "low": float(raw.low[i]),
                         "close": float(raw.close[i]),
                         "volume": float(raw.volume[i]),
-                        "in_rth": bool(open_ns <= raw.window_start[i] < close_ns),
+                        # a day file has no session: null, not False
+                        "in_rth": (
+                            bool(open_ns <= raw.window_start[i] < close_ns)
+                            if file_kind == "minute"
+                            else None
+                        ),
                         "file_kind": file_kind,
                     }
                 )
@@ -610,8 +618,9 @@ def run_survivorship(cfg: Config, archive: Archive, conn: psycopg.Connection) ->
 # ---------------------------------------------------------------------------- stage A: verdicts
 def assemble_stage_a(cfg: Config, inputs: Mapping[str, str]) -> dict[str, Any]:
     """Fold the saved parts into the stage A result files and verdicts."""
-    sanity = all_parts(cfg, "record_sanity")
-    session = all_parts(cfg, "session")
+    key = sample_key(cfg, inputs)
+    sanity = all_parts(cfg, "record_sanity", key)
+    session = all_parts(cfg, "session", key)
     if not sanity or not session:
         raise lc.VacuousCheckError("assemble_stage_a: no era part saved")
     san_rows = []
@@ -920,8 +929,8 @@ def run_day_vs_minute(cfg: Config, archive: Archive, drawn: list[date], era: int
     logger.info("era_scanned", check="day_vs_minute", era=era, days=len(era_days))
 
 
-def assemble_day_vs_minute(cfg: Config) -> dict[str, Any]:
-    parts = all_parts(cfg, "day_vs_minute")
+def assemble_day_vs_minute(cfg: Config, inputs: Mapping[str, str]) -> dict[str, Any]:
+    parts = all_parts(cfg, "day_vs_minute", sample_key(cfg, inputs))
     if not parts:
         raise lc.VacuousCheckError("assemble_day_vs_minute: no era part saved")
     count_fields = [f for f in lc.DayVsMinuteCounts.__dataclass_fields__]
@@ -1101,7 +1110,7 @@ def run_stage_b(
     for era in cfg.eras:
         run_day_vs_minute(cfg, archive, drawn, era)
         run_volume_bands(cfg, conn, frozen, era, fingerprints[era], exchange)
-    verdict = assemble_day_vs_minute(cfg)
+    verdict = assemble_day_vs_minute(cfg, archive.inputs)
     vol = assemble_volume_bands(cfg, archive.inputs)
     return {
         "day_vs_minute_1d_kind": verdict["decision"],
@@ -1150,6 +1159,9 @@ def _session_keys(t_ns: np.ndarray, zone: str) -> np.ndarray:
     return index.tz_localize(None).normalize().values.astype("datetime64[D]")
 
 
+STREAM_ROWS = 10_000  # rows per network round trip of the bar stream
+
+
 def _bars_of(rows: list[tuple], timeframe: str, vendor: str, kind: str) -> Bars:
     """One name's rows (time-ordered) as arrays."""
     df = pd.DataFrame.from_records(
@@ -1186,7 +1198,9 @@ def fetch_bars(
     out: dict[str, Bars] = {}
     pending: list[tuple] = []
     with conn.cursor() as cur:
-        for row in cur.stream(_BARS_SQL, (timeframe, vendor, kind, names, start, end)):
+        for row in cur.stream(
+            _BARS_SQL, (timeframe, vendor, kind, names, start, end), size=STREAM_ROWS
+        ):
             if pending and row[0] != pending[0][0]:
                 out[str(pending[0][0])] = _bars_of(pending, timeframe, vendor, kind)
                 pending = []
@@ -1242,6 +1256,7 @@ class ArmResult:
     n_incumbent_unknown_volume: int = 0  # incumbent bars with a NULL volume: unknown, not zero
     break_step: float = math.nan  # step of an in-era level break that reads as a split
     break_pre_median: float = math.nan  # Massive / incumbent log level before that break
+    stable_offset: bool = False  # the stable constant offset predicate, evaluated once
     lp_hist: dict[str, int] = field(default_factory=dict)  # last_print candidates by size bin
 
     def counts(self) -> nc.AgreementCounts:
@@ -1351,11 +1366,16 @@ def compare_arm(
         counts.n_intra_agree,
         counts.iqr,
         nc.scale_class(
-            counts.median_log, counts.iqr, counts.share, counts.ret_share, counts.break_step
+            counts.median_log,
+            counts.stable_offset,
+            counts.share,
+            counts.ret_share,
+            counts.break_step,
         ),
         n_incumbent_unknown_volume=unknown_volume,
         break_step=counts.break_step,
         break_pre_median=counts.break_pre_median,
+        stable_offset=counts.stable_offset,
         lp_hist={str(b): n for b, n in counts.lp_hist.items()},
     )
 
@@ -1466,9 +1486,13 @@ def _has_traded(bars: Bars | None) -> bool:
     return bars is not None and bool(np.any(bars.volume > 0))
 
 
-def ibkr_traded(data: Mapping[tuple[str, str], Mapping[str, Bars]], name: str) -> bool:
-    """IBKR evidence only: Alpaca (the same upstream as Massive) never decides an outcome."""
-    return any(_has_traded(data.get((tf, "ibkr"), {}).get(name)) for tf in ("1d", "5m"))
+def trade_witness(data: Mapping[tuple[str, str], Mapping[str, Bars]], name: str) -> str:
+    """Who witnesses that a name traded, for hole detection only: IBKR first, then Alpaca (the
+    same upstream as Massive, so never a counter input or a price judgement), else empty."""
+    for arm in ("ibkr", "alpaca"):
+        if any(_has_traded(data.get((tf, arm), {}).get(name)) for tf in ("1d", "5m")):
+            return arm
+    return ""
 
 
 def run_name_era_batch(
@@ -1487,15 +1511,11 @@ def run_name_era_batch(
         arms = ["massive", "ibkr"] + (["alpaca"] if era >= ALPACA_FIRST_DAY.year else [])
         for arm in arms:
             data[(timeframe, arm)] = fetch_bars(conn, timeframe, arm, names, start, end)
-    # every frozen split on or after the era's first session explains the era's cumulative scale;
-    # the split tapes for all of them come in one query per batch and are stored in the part
+    # every frozen split on or after the era's first session explains the era's cumulative scale
     first_session = date(era, 1, 1)
     after = {
         n: [s for s in frozen.splits.get(n, []) if s.effective_date >= first_session] for n in names
     }
-    tapes = fetch_split_tapes(
-        conn, [(n, s.effective_date) for n, splits in after.items() for s in splits]
-    )
     out: dict[str, dict[str, Any]] = {}
     for name in names:
         wait_out_nightly_window()
@@ -1505,7 +1525,8 @@ def run_name_era_batch(
         span_listed = frozen.span_listed(name, era)
         listed = span_listed or massive_rows
         # the frozen span lists the name and an incumbent traded, yet Massive holds nothing: a hole
-        massive_hole = span_listed and not massive_rows and ibkr_traded(data, name)
+        witness = trade_witness(data, name)
+        massive_hole = span_listed and not massive_rows and bool(witness)
         sp = frozen.splits.get(name, [])
         ibkr_rescale = frozen.ibkr_rescales.get(name, [])
         in_window = [s for s in sp if date(era, 1, 1) <= s.effective_date <= date(era, 12, 31)]
@@ -1527,10 +1548,10 @@ def run_name_era_batch(
         seam = bool(alp) and nc.alpaca_epoch_seam_possible(
             alp.served_min, alp.served_max, [s.effective_date for s in in_window]
         )
-        ibkr_classes = {tf: (r.scale_class if r else "") for tf, r in results["ibkr"].items()}
         out[name] = {
             "listed": listed,
             "massive_hole": massive_hole,
+            "hole_witness": witness if massive_hole else "",
             "ibkr_rescales": [
                 f"{x.effective_date}:{x.factor}"
                 for x in ibkr_rescale
@@ -1541,16 +1562,16 @@ def run_name_era_batch(
             # a stable constant level factor (or a drifting one with agreeing returns) that no
             # frozen split reproduces: the input of the non-split list (--non-split-csv)
             "probable_ibkr_non_split_adjustment": any(
-                c in (nc.SCALE_ADJUSTMENT_LEVEL, nc.SCALE_LEVEL_DRIFT)
-                for c in ibkr_classes.values()
+                r is not None
+                and r.scale_class in (nc.SCALE_ADJUSTMENT_LEVEL, nc.SCALE_LEVEL_DRIFT)
+                and (
+                    r.stable_offset
+                    or nc.counts_as_systemic(r.scale_class, r.median_log_ratio, r.break_step)
+                )
+                for r in results["ibkr"].values()
             ),
             "splits_in_window": [f"{x.effective_date}:{x.factor}" for x in in_window],
             "splits_after_era": [f"{x.effective_date}:{x.factor}" for x in after[name]],
-            "split_tapes": {
-                x.effective_date.isoformat(): tapes[(name, x.effective_date)]
-                for x in after[name]
-                if (name, x.effective_date) in tapes
-            },
             "arms": {
                 a: {tf: (asdict(r) if r else None) for tf, r in rs.items()}
                 for a, rs in results.items()
@@ -1764,22 +1785,79 @@ def stage_c_keys(
     eras: Iterable[int],
     base_key: Mapping[str, Any],
     fingerprints: Mapping[int, Mapping[str, str]],
-    tape_years: Mapping[int, Iterable[int]],
 ) -> dict[int, dict[str, Any]]:
-    """The identity of each era's name part. The part stores tapes for splits of other eras too,
-    so it carries the fingerprints of exactly the years those tapes read (Massive 1d), besides its
-    own era's series."""
+    """The identity of each era's name part: the base key and the era's own raw series. Split
+    tapes live in their own parts (``run_split_tapes``), so no tape year enters a name key."""
     return {
-        era: {
-            **base_key,
-            "raw_fingerprint": scoped_fingerprint(fingerprints[era], STAGE_C_SERIES),
-            "tape_fingerprints": {
-                str(year): scoped_fingerprint(fingerprints[year], TAPE_SERIES)
-                for year in sorted(set(tape_years.get(era, ())))
-            },
-        }
+        era: {**base_key, "raw_fingerprint": scoped_fingerprint(fingerprints[era], STAGE_C_SERIES)}
         for era in eras
     }
+
+
+def tape_window_years(effective: date) -> tuple[int, ...]:
+    """The years a split's tape reads: the effective date's and the plus and minus 10 day window's."""
+    return tuple(
+        sorted(
+            {
+                (effective - timedelta(days=10)).year,
+                effective.year,
+                (effective + timedelta(days=10)).year,
+            }
+        )
+    )
+
+
+TAPE_CHUNK = 500  # (name, split) pairs per tape query
+
+
+def run_split_tapes(
+    cfg: Config,
+    conn: psycopg.Connection,
+    frozen: Frozen,
+    names: list[str],
+    fingerprints: Mapping[int, Mapping[str, str]],
+) -> dict[str, dict[str, list[float]]]:
+    """Massive's tape step at every frozen split of the sampled names (the ledger's second
+    witness), in one part per effective-date year keyed by the frozen record, the pairs and the
+    fingerprints of the years the tape windows read. A current-year split invalidates only its
+    own part; name parts neither store nor key on tapes. Returns name -> effective date -> tape."""
+    by_year: dict[int, list[tuple[str, date]]] = {}
+    for n in names:
+        for sp in frozen.splits.get(n, []):
+            if sp.effective_date.year >= min(cfg.eras):
+                by_year.setdefault(sp.effective_date.year, []).append((n, sp.effective_date))
+    windows = {
+        y: sorted({w for _, e in pairs for w in tape_window_years(e)})
+        for y, pairs in by_year.items()
+    }
+    missing = sorted({w for ws in windows.values() for w in ws} - set(fingerprints))
+    fingerprints = {**fingerprints, **raw_fingerprints(conn, missing, TAPE_SERIES)}
+    out: dict[str, dict[str, list[float]]] = {}
+    for year, pairs in sorted(by_year.items()):
+        key = {
+            "logic": LOGIC_VERSION,
+            "frozen": frozen_hashes(cfg),
+            "pairs_sha256": _rows_sha256(sorted(pairs)),
+            "tape_fingerprints": {
+                str(w): scoped_fingerprint(fingerprints[w], TAPE_SERIES) for w in windows[year]
+            },
+        }
+        if part_current(cfg, "split_tapes", year, key):
+            part = json.loads(part_path(cfg, "split_tapes", year).read_text())
+            if part["key"] != key:  # the second check: the key embedded in the part
+                raise RuntimeError(f"split_tapes part {year} disagrees with its sidecar key")
+            tapes = part["tapes"]
+        else:
+            fetched: dict[tuple[str, date], list[float]] = {}
+            for i in range(0, len(pairs), TAPE_CHUNK):
+                fetched.update(fetch_split_tapes(conn, pairs[i : i + TAPE_CHUNK]))
+            tapes = {}
+            for (n, eff), tape in fetched.items():
+                tapes.setdefault(n, {})[eff.isoformat()] = tape
+            write_part(cfg, "split_tapes", year, {"key": key, "year": year, "tapes": tapes})
+        for n, by_date in tapes.items():
+            out.setdefault(n, {}).update(by_date)
+    return out
 
 
 def run_stage_c(
@@ -1813,27 +1891,7 @@ def run_stage_c(
         "non_split_sha256": _rows_sha256(non_split),
         "frozen": frozen_hashes(cfg),
     }
-    # the years each era's part reads tapes from: the splits it stores (session windows reach 10
-    # days either side of the effective date); never the current year
-    tape_years = {
-        era: sorted(
-            {
-                y
-                for n in names
-                for sp in frozen.splits.get(n, [])
-                if sp.effective_date >= date(era, 1, 1)
-                for y in (
-                    (sp.effective_date - timedelta(days=10)).year,
-                    sp.effective_date.year,
-                    (sp.effective_date + timedelta(days=10)).year,
-                )
-            }
-        )
-        for era in cfg.eras
-    }
-    missing = sorted({y for ys in tape_years.values() for y in ys} - set(fingerprints))
-    fingerprints = {**fingerprints, **raw_fingerprints(conn, missing, TAPE_SERIES)}
-    keys = stage_c_keys(cfg.eras, base_key, fingerprints, tape_years)
+    keys = stage_c_keys(cfg.eras, base_key, fingerprints)
     for era in cfg.eras:
         if part_current(cfg, "name_checks", era, keys[era]):
             continue
@@ -1852,7 +1910,8 @@ def run_stage_c(
             names=len(detail),
             seconds=round(time.monotonic() - t0, 1),
         )
-    summary = assemble_stage_c(cfg, mapped, unmapped, keys, session_id, archive_inputs)
+    tapes = run_split_tapes(cfg, conn, frozen, names, fingerprints)
+    summary = assemble_stage_c(cfg, mapped, unmapped, keys, session_id, archive_inputs, tapes)
     summary["non_split_adjustment_list"] = (
         f"supplied ({len(non_split)} rows)" if non_split_csv else "not supplied"
     )
@@ -1934,6 +1993,7 @@ def assemble_stage_c(
     keys: dict[int, dict[str, Any]],
     session_id: str,
     archive_inputs: Mapping[str, str],
+    tapes: Mapping[str, Mapping[str, list[float]]],
 ) -> dict[str, Any]:
     parts = {e: p for e, p in all_parts(cfg, "name_checks").items() if p["key"] == keys.get(e)}
     eras = sorted(parts)
@@ -1985,6 +2045,7 @@ def assemble_stage_c(
                 "outcome": j.outcome,
                 "reason": j.reason,
                 "preclass": d["preclass"],
+                "hole_witness": d["hole_witness"],
                 "alpaca_epoch_seam_possible": d["alpaca_epoch_seam_possible"],
                 "probable_ibkr_non_split_adjustment": d["probable_ibkr_non_split_adjustment"],
             }
@@ -2041,7 +2102,7 @@ def assemble_stage_c(
                     ledger_row(
                         name, era, tf, f"level_class:{cls}",
                         pre if math.isfinite(pre) else r["median_log_ratio"],
-                        d["splits_after_era"], d["split_tapes"], session_id,
+                        d["splits_after_era"], tapes.get(name, {}), session_id,
                     )
                 )  # fmt: skip
             if j.outcome == nc.OUTCOME_FLAGGED and j.reason.startswith("price_agreement"):
@@ -2050,7 +2111,7 @@ def assemble_stage_c(
                 ledger.append(
                     ledger_row(
                         name, era, tf, j.reason, r["median_log_ratio"] if r else None,
-                        d["splits_after_era"], d["split_tapes"], session_id,
+                        d["splits_after_era"], tapes.get(name, {}), session_id,
                     )
                 )  # fmt: skip
             if d["probable_ibkr_non_split_adjustment"]:

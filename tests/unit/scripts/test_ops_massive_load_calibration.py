@@ -270,6 +270,7 @@ def _detail(massive: Series, incumbent: Series) -> dict:
     return {
         "listed": True,
         "massive_hole": False,
+        "hole_witness": "",
         "preclass": nc.ERA_NO_ACTION,
         "alpaca_epoch_seam_possible": False,
         "probable_ibkr_non_split_adjustment": False,
@@ -299,7 +300,7 @@ def _write_run(tmp_path, injected_era: int | None) -> tuple[runner.Config, dict]
 
 def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, None)
-    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
+    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {}, {})
     assert summary["partition"]["status"] == "complete"
     counts = summary["partition"]["counts"]
     assert counts["pass"] == 120 and counts["unmapped"] == 3 and counts["stop"] == 0
@@ -309,7 +310,7 @@ def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path
 
 def test_stage_c_assembly_stops_the_injected_era_and_only_that_era(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, 2010)  # 10 of 40 names: x100 on all fields
-    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
+    summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {}, {})
     counts = summary["partition"]["counts"]
     assert set(summary["stop_eras_all_sources"]) == {"2010"}
     assert counts["stop"] == 40 and counts["pass"] == 80 and counts["unmapped"] == 3
@@ -415,7 +416,7 @@ def test_a_missing_in_era_split_is_flagged_and_reaches_the_ledger(tmp_path) -> N
     ramp = 1 + np.linspace(0.0, 0.003, N_BARS)
     names["DRIFT"] = _detail(tuple(a * ramp for a in drifting), drifting)  # type: ignore[arg-type]
     cfg, keys = _write_parts(tmp_path, {2010: names})
-    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {}, {})
     out = _outcomes(tmp_path)
     assert out[("BROKEN", 2010)] == (nc.OUTCOME_FLAGGED, "scale_factor_split_like_1d")
     assert out[("DRIFT", 2010)][0] == nc.OUTCOME_PASS and out[("DRIFT", 2010)][1].endswith(
@@ -432,7 +433,7 @@ def test_other_concentration_carriers_are_flagged_not_passed(tmp_path) -> None:
         for tf in ("1d", "5m"):
             detail["arms"]["ibkr"][tf]["classes"] = {"other": 12}
     cfg, keys = _write_parts(tmp_path, {2010: names})
-    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    runner.assemble_stage_c(cfg, list(names), [], keys, "s", {}, {})
     out = _outcomes(tmp_path)
     assert all(
         out[(f"N{i}", 2010)] == (nc.OUTCOME_FLAGGED, "other_concentration") for i in range(30)
@@ -467,7 +468,7 @@ def test_a_1d_unresolved_era_never_flags_carriers_through_1d(tmp_path) -> None:
         if i < 30:
             one_d["classes"] = {"other": 12}
     cfg, keys = _write_parts(tmp_path, {2010: names})
-    summary = runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    summary = runner.assemble_stage_c(cfg, list(names), [], keys, "s", {}, {})
     out = _outcomes(tmp_path)
     assert summary["unresolved_1d_eras"] == [2010]
     assert all(out[(f"N{i}", 2010)][0] == nc.OUTCOME_PASS for i in range(30))
@@ -487,12 +488,12 @@ def test_200_flat_stale_massive_series_stop_the_era(reference: dict[int, Era]) -
     assert any(r.startswith("identity_unresolved_share") for r in verdict.reasons)
 
 
-def test_a_close_convention_era_is_unresolved_for_1d_while_5m_is_judged_alone() -> None:
-    """The reference eras carry almost no convention residual, the target carries a capped
-    last_print convention on most 1d names. The names fail the return test, but their
-    disagreement is explained, so the flagged counter stays low: 1d is unresolved (close
-    convention), 5m is ok, and the era does not stop."""
-    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.004) for e in REFERENCE}
+def test_a_close_convention_at_the_reference_rate_is_unresolved_for_1d_5m_alone() -> None:
+    """The close convention present in the reference eras at the SAME rate as in the target: the
+    names fail the return test but the disagreement is explained at the reference rate, so the
+    class counters stay quiet. 1d is unresolved (close convention), 5m is ok, the era does not
+    stop."""
+    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.30) for e in REFERENCE}
     ref_5m = {e: _era(e, 300, seed=e + 100) for e in REFERENCE}
     one_d = _era(TARGET_ERA, 1000, seed=87, convention_share=0.30)
     five_m = _era(TARGET_ERA, 1000, seed=86)
@@ -505,6 +506,65 @@ def test_a_close_convention_era_is_unresolved_for_1d_while_5m_is_judged_alone() 
     assert "close_convention" in out[(TARGET_ERA, "1d")].reasons
     assert out[(TARGET_ERA, "5m")].verdict == nc.ERA_OK
     assert runner._close_convention_unresolved(out[(TARGET_ERA, "1d")])
+
+
+def test_a_convention_far_above_the_reference_rate_stops_through_its_class_counter() -> None:
+    """Explained means explained at the reference rate: the same convention where the reference
+    eras hold almost none is a systemic change and stops the era (last_print counter)."""
+    ref_1d = {e: _era(e, 300, seed=e, convention_share=0.004) for e in REFERENCE}
+    target = _era(TARGET_ERA, 1000, seed=84, convention_share=0.30)
+    judged = {(e, "1d"): r.facts for e, r in ref_1d.items()}
+    judged[(TARGET_ERA, "1d")] = target.facts
+    out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])
+    assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_STOP
+    counters = tuple(f"{name}>" for name in nc.EXPLAINED_COUNTERS)
+    assert any(r.startswith(counters) for r in out[(TARGET_ERA, "1d")].reasons)
+
+
+def test_a_whole_era_one_session_shift_on_the_1d_file_stops() -> None:
+    def shifted(m: Series, rng: np.random.Generator, i: int) -> Series:
+        return tuple(np.roll(a, 1) for a in m)  # type: ignore[return-value]
+
+    ref = {e: _era(e, 300, seed=e) for e in REFERENCE}
+    target = _era(TARGET_ERA, 1000, seed=83, injected=1000, inject=shifted)
+    judged = {(e, "1d"): r.facts for e, r in ref.items()}
+    judged[(TARGET_ERA, "1d")] = target.facts
+    unresolved = {(e, "1d"): 0 for e in REFERENCE} | {(TARGET_ERA, "1d"): target.unresolved}
+    out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE], unresolved)
+    assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_STOP
+
+
+def _shift_facts(n_names: int, hit_share: float, bars: int) -> list[nc.NameFacts]:
+    """Names where ``bars`` of 150 bars are classed time_shift (a bar-stamp convention) on
+    ``hit_share`` of the names: the returns fail but the disagreement is explained."""
+    out = []
+    for i in range(n_names):
+        k = bars if i < n_names * hit_share else 0
+        counts = nc.AgreementCounts(
+            150, 150 - k, 150 - k, {"time_shift": k} if k else {}, 149, 149 - 2 * k, 150, 150
+        )
+        out.append(nc.NameFacts(f"S{i}", counts, 149 - 2 * k < 0.99 * 149, "", 0.0))
+    return out
+
+
+def test_a_bar_stamp_convention_passes_at_the_reference_rate_and_stops_when_absent_there() -> None:
+    """5 of 150 bars time-shifted on 60 percent of the names. Present in the reference eras at
+    the same rate: calibrated, the era is ok_convention. Absent from them: the time_shift
+    counter stops the era."""
+    same = {e: _shift_facts(300, 0.6, 5) for e in REFERENCE}
+    judged = {(e, "5m"): f for e, f in same.items()} | {
+        (TARGET_ERA, "5m"): _shift_facts(1000, 0.6, 5)
+    }
+    passes = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])[(TARGET_ERA, "5m")]
+    assert passes.verdict == nc.ERA_OK_CONVENTION, passes
+    assert passes.counters.time_shift_share == pytest.approx(0.6)
+    none = {e: _shift_facts(300, 0.0, 0) for e in REFERENCE}
+    judged = {(e, "5m"): f for e, f in none.items()} | {
+        (TARGET_ERA, "5m"): _shift_facts(1000, 0.6, 5)
+    }
+    stops = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE])[(TARGET_ERA, "5m")]
+    assert stops.verdict == nc.ERA_STOP
+    assert any(r.startswith("time_shift_share") for r in stops.reasons)
 
 
 def test_the_same_era_with_a_real_defect_still_stops() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import numpy as np
@@ -325,7 +326,7 @@ def test_daily_session_dates_use_the_one_definition() -> None:
         def execute(self, sql: str, params: object = None) -> None:
             return None
 
-        def stream(self, sql: str, params: object = None):
+        def stream(self, sql: str, params: object = None, size: int = 1):
             return iter(self.fetchall())
 
         def fetchall(self) -> list[tuple]:
@@ -361,13 +362,13 @@ def test_the_raw_fingerprint_is_scoped_per_series_and_moves_on_a_restatement() -
     )  # same row count, different served stamp and revision count
 
 
-def test_the_live_fingerprint_and_exchange_map_are_deterministic() -> None:
-    import os
-
+def test_the_live_fingerprint_and_exchange_map_are_deterministic(
+    sql_probe_url: str | None,
+) -> None:
     import pytest
 
     try:
-        conn = runner.connect_read_only(os.environ.get("LOAD_CHECKS_SQL_PROBE_URL"))
+        conn = runner.connect_read_only(sql_probe_url)
     except Exception as error:
         pytest.skip(f"database unavailable: {error}")
     with conn:
@@ -425,7 +426,7 @@ def test_every_heavy_read_waits_out_the_nightly_window(monkeypatch: pytest.Monke
         def execute(self, sql: str, params: object = None) -> None:
             return None
 
-        def stream(self, sql: str, params: object = None):
+        def stream(self, sql: str, params: object = None, size: int = 1):
             return iter(self.fetchall())
 
         def fetchall(self) -> list[tuple]:
@@ -452,22 +453,67 @@ def test_a_thin_era_is_not_the_close_convention() -> None:
     assert runner._close_convention_unresolved(convention)
 
 
-def test_a_name_part_carries_the_fingerprints_of_the_years_its_tapes_read() -> None:
-    def fp(count: int) -> dict[str, str]:
-        return {"massive|sip_flat|1d": f"{count}|x|0", "ibkr|named|1h": "9|y|0"}
+def test_split_tapes_have_their_own_parts_keyed_by_their_years(tmp_path) -> None:
+    from datetime import UTC, datetime
+    from pathlib import Path
 
-    base = {"seed": 1}
-    years = {2010: [2020]}
-    before = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5), 2021: fp(7)}, years)
-    after = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(6), 2021: fp(7)}, years)
-    assert before[2010]["tape_fingerprints"] == {"2020": {"massive|sip_flat|1d": "5|x|0"}}
-    assert before[2010] != after[2010]  # a reload of a year the tapes read invalidates the part
-    unrelated = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5), 2021: fp(8)}, years)
-    assert unrelated[2010] == before[2010]  # a year no tape reads (2021, the current year) does not
-    assert "ibkr|named|1h" not in str(before[2010])  # only the series stage C reads
+    from src.intelligence.bars.split_rescale import SplitFactor
+
+    tape_rows = [
+        ("A", date(2020, 8, 28), datetime(2020, 8, 28, 4, tzinfo=UTC), 500.0),
+        ("A", date(2020, 8, 28), datetime(2020, 8, 31, 4, tzinfo=UTC), 129.0),
+    ]
+    fetches: list[str] = []
+    state = {"count": 5}
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.sql = ""
+
+        def execute(self, sql: str, params: object = None) -> None:
+            self.sql = sql
+
+        def fetchall(self) -> list[tuple]:
+            if "ohlcv_revision" in self.sql:
+                return []
+            if "unnest" in self.sql:
+                fetches.append("tapes")
+                return tape_rows
+            return [("massive", "sip_flat", "1d", state["count"], None)]
+
+    class Conn:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    (Path(tmp_path) / "frozen").mkdir()
+    (Path(tmp_path) / "frozen" / "frozen.json").write_text(
+        json.dumps(
+            {
+                "freeze_version": runner.FREEZE_VERSION,
+                "sha256": {},
+                "horizon": "2026-11-12T00:00:00+00:00",
+            }
+        )
+    )
+    frozen = runner.Frozen({"A": [SplitFactor(date(2020, 8, 28), 4.0)]}, {}, {})
+    fps = {2010: {"massive|sip_flat|1d": "1|x|0"}}
+    first = runner.run_split_tapes(cfg, Conn(), frozen, ["A"], fps)  # type: ignore[arg-type]
+    assert first == {"A": {"2020-08-28": [500.0, 129.0]}} and fetches == ["tapes"]
+    runner.run_split_tapes(cfg, Conn(), frozen, ["A"], fps)  # type: ignore[arg-type]
+    assert fetches == ["tapes"]  # the part is current: nothing is fetched again
+    state["count"] = 6  # the 2020 series was reloaded: only this tape part is invalidated
+    runner.run_split_tapes(cfg, Conn(), frozen, ["A"], fps)  # type: ignore[arg-type]
+    assert fetches == ["tapes", "tapes"]
+    assert runner.tape_window_years(date(2020, 1, 5)) == (2019, 2020)
+    key = runner.stage_c_keys([2010], {"seed": 1}, fps)[2010]
+    assert "tape_fingerprints" not in key  # a name part does not key on tapes
 
 
-def test_alpaca_never_decides_a_massive_hole() -> None:
+def test_alpaca_may_witness_a_hole_but_ibkr_comes_first() -> None:
     traded = runner.Bars(
         np.array([1], dtype=np.int64),
         np.array(["2010-03-01"], dtype="datetime64[D]"),
@@ -476,8 +522,9 @@ def test_alpaca_never_decides_a_massive_hole() -> None:
         None,
         None,
     )
-    assert runner.ibkr_traded({("1d", "ibkr"): {"A": traded}}, "A")
-    assert not runner.ibkr_traded({("1d", "alpaca"): {"A": traded}}, "A")
+    assert runner.trade_witness({("1d", "ibkr"): {"A": traded}}, "A") == "ibkr"
+    assert runner.trade_witness({("1d", "alpaca"): {"A": traded}}, "A") == "alpaca"
+    assert runner.trade_witness({("1d", "alpaca"): {"B": traded}}, "A") == ""
 
 
 def test_the_dispute_window_is_the_session_calendar_centred_on_the_date() -> None:
@@ -518,7 +565,7 @@ def test_fetch_bars_streams_one_name_at_a_time() -> None:
         def __exit__(self, *exc: object) -> None:
             return None
 
-        def stream(self, sql: str, params: object = None):
+        def stream(self, sql: str, params: object = None, size: int = 1):
             return rows()
 
     class Conn:
@@ -530,3 +577,64 @@ def test_fetch_bars_streams_one_name_at_a_time() -> None:
     assert (
         sorted(out) == ["A", "B", "C"] and len(out["A"].t_ns) == 2 and consumed == [0, 1, 2, 3, 4]
     )
+
+
+def _raw_with_defects(n: int) -> runner.RawFile:
+    return runner.RawFile(
+        np.array([f"T{i}" for i in range(n)]),
+        np.arange(n),
+        np.arange(n, dtype=np.int64),
+        np.full(n, 10.0),
+        np.full(n, 9.0),  # high under open: every row defective
+        np.full(n, 8.0),
+        np.full(n, 10.0),
+        np.full(n, 1.0),
+    )
+
+
+def test_the_defect_cap_is_per_file_kind_and_a_day_row_has_no_rth_flag() -> None:
+    n = runner.DEFECT_LIST_CAP + 20
+    raw = _raw_with_defects(n)
+    scan = runner.sanity_of(raw)
+    log = runner.DefectLog()
+    log.add(date(2010, 3, 1), raw, scan, 0, 0, "day")
+    log.add(date(2010, 3, 2), raw, scan, 0, 10**18, "minute")
+    kinds = [r["file_kind"] for r in log.named]
+    assert kinds.count("day") == runner.DEFECT_LIST_CAP == kinds.count("minute")
+    assert all(r["in_rth"] is None for r in log.named if r["file_kind"] == "day")
+    assert all(r["in_rth"] is True for r in log.named if r["file_kind"] == "minute")
+    assert log.n_named == 2 * n
+
+
+def test_a_flat_identical_pair_agrees_and_exactly_one_flat_side_does_not() -> None:
+    flat = np.zeros(60)
+    varying = np.random.default_rng(2).normal(0, 0.01, 60)
+    assert nc.return_correlation(flat, flat.copy()) == 1.0
+    assert nc.return_correlation(flat, varying) == 0.0
+    assert nc.return_correlation(varying, flat) == 0.0
+    assert nc.return_correlation(flat, np.full(60, 0.001)) == 0.0  # both flat, not identical
+
+
+def test_a_part_write_removes_the_old_key_first_and_a_stale_part_is_refused(
+    tmp_path, monkeypatch
+) -> None:
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    key = runner.sample_key(cfg)
+    runner.write_part(cfg, "session", 2010, {"key": key})
+    assert runner.part_current(cfg, "session", 2010, key)
+    original = runner.write_json
+
+    def failing(path: Path, payload: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(runner, "write_json", failing)
+    with pytest.raises(OSError):
+        runner.write_part(cfg, "session", 2010, {"key": {**key, "seed": 2}})
+    monkeypatch.setattr(runner, "write_json", original)
+    assert not runner.part_current(cfg, "session", 2010, key)  # no sidecar stands for a torn part
+    runner.write_part(cfg, "session", 2010, {"key": key})
+    assert set(runner.all_parts(cfg, "session", key)) == {2010}
+    with pytest.raises(RuntimeError, match="another key"):  # the second check: the embedded key
+        runner.all_parts(cfg, "session", {**key, "seed": 9})

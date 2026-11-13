@@ -116,15 +116,25 @@ def test_return_agreement_detects_a_real_return_difference_and_skips_gaps() -> N
 
 
 def test_scale_class() -> None:
-    assert nc.scale_class(0.0002, 0.001, 1.0, 1.0) == ""
-    assert nc.scale_class(0.25, 0.002, 0.0, 1.0) == "adjustment_level"  # 1.28x, not a split ratio
-    assert nc.scale_class(math.log(2.0), 0.002, 0.0, 1.0) == "split_like_level"
-    assert nc.scale_class(-math.log(2.0), 0.002, 0.0, 1.0) == "split_like_level"
+    assert nc.scale_class(0.0002, False, 1.0, 1.0) == ""
+    assert nc.scale_class(0.25, True, 0.0, 1.0) == "adjustment_level"  # 1.28x, not a split ratio
+    assert nc.scale_class(math.log(2.0), True, 0.0, 1.0) == "split_like_level"
+    assert nc.scale_class(-math.log(2.0), True, 0.0, 1.0) == "split_like_level"
     # drifting offset with agreeing returns
-    assert nc.scale_class(0.0, 0.02, 0.5, 0.999) == "level_drift"
+    assert nc.scale_class(0.0, False, 0.5, 0.999) == "level_drift"
     # level and returns both disagree: no class, a real disagreement
-    assert nc.scale_class(0.0, 0.02, 0.5, 0.5) == ""
+    assert nc.scale_class(0.0, False, 0.5, 0.5) == ""
     assert nc.split_like_ratio(1.28) is None and nc.split_like_ratio(1.0) is None
+
+
+def test_the_stable_offset_needs_a_median_above_the_agreement_tolerance() -> None:
+    tol = (
+        0.01 * 0.5 / 250 + nc.PRICE_REL_TOL
+    )  # a 250 dollar name: half a cent over the price + 1 bp
+    assert nc.is_stable_offset(0.0, 0.001, 0.0005, tol)  # 5 bp on a 250 dollar name: an offset
+    assert not nc.is_stable_offset(0.0, 0.001, 0.00005, tol)  # median near zero: not an offset
+    assert not nc.is_stable_offset(0.6, 0.001, 0.0005, tol)  # most bars agree
+    assert not nc.is_stable_offset(0.0, 0.02, 0.0005, tol)  # noisy bars
 
 
 def test_ledger_witnesses_from_frozen_data_only() -> None:
@@ -360,10 +370,10 @@ def test_a_level_break_that_reads_as_a_split_is_split_like_and_a_small_drift_is_
     step = np.where(np.arange(n) < 40, math.log(2.0), 0.0)  # a missing 2:1 split, 27 percent in
     found, pre = nc.level_break_step(step)
     assert found == pytest.approx(-math.log(2.0)) and pre == pytest.approx(math.log(2.0))
-    assert nc.scale_class(0.0, 0.0, 0.7, 0.995, found) == nc.SCALE_SPLIT_LIKE
+    assert nc.scale_class(0.0, False, 0.7, 0.995, found) == nc.SCALE_SPLIT_LIKE
     drift = np.linspace(0.0, 0.003, n)  # 30 bp over the era, no step
     assert math.isnan(nc.level_break_step(drift)[0])
-    assert nc.scale_class(0.0015, 0.0015, 0.8, 0.995) == nc.SCALE_LEVEL_DRIFT
+    assert nc.scale_class(0.0015, False, 0.8, 0.995) == nc.SCALE_LEVEL_DRIFT
     assert math.isnan(
         nc.level_break_step(np.where(np.arange(n) < 2, 0.69, 0.0))[0]
     )  # under 5 percent

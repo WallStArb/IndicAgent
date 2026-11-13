@@ -67,6 +67,19 @@ async def mock_database_connection():
     return conn_mock
 
 
+def pytest_addoption(parser):
+    """`--sql-probe-url`: the database the Massive load-check SQL probe EXPLAINs against (the real
+    one); without it the probe uses the pytest database and skips where a table is missing."""
+    parser.addoption(
+        "--sql-probe-url", default=None, help="database URL for the load-check SQL probe"
+    )
+
+
+@pytest.fixture
+def sql_probe_url(request):
+    return request.config.getoption("--sql-probe-url")
+
+
 def pytest_xdist_auto_num_workers(config):
     """`-n auto` takes half the cores: the box also runs the live services and other sessions."""
     return max(1, (os.cpu_count() or 2) // 2)

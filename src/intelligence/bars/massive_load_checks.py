@@ -126,33 +126,7 @@ def row_test_masks(
     return consistent, positive, volume >= 0
 
 
-def defective_row_mask(
-    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray
-) -> np.ndarray:
-    """Rows failing a row test: inconsistent high/low, a non-positive or missing price, a
-    negative or missing volume."""
-    consistent, positive, volume_ok = row_test_masks(open_, high, low, close, volume)
-    ok: np.ndarray = consistent & positive & volume_ok
-    return ~ok
-
-
 def record_sanity(
-    ticker_code: np.ndarray,
-    window_start: np.ndarray,
-    open_: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    volume: np.ndarray,
-    owned: np.ndarray | None = None,
-) -> SanityCounts:
-    """Sanity counts of one file's rows; see ``record_sanity_with_mask``."""
-    return record_sanity_with_mask(
-        ticker_code, window_start, open_, high, low, close, volume, owned
-    )[0]
-
-
-def record_sanity_with_mask(
     ticker_code: np.ndarray,
     window_start: np.ndarray,
     open_: np.ndarray,

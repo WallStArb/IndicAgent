@@ -41,11 +41,11 @@ def _cfg(tmp_path: Path, **over: object) -> runner.Config:
 def test_part_reuse_requires_same_sample_key(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     runner.write_part(cfg, "session", 2010, {"key": runner.sample_key(cfg)})
-    assert runner.load_part(cfg, "session", 2010, runner.sample_key(cfg)) is not None
+    assert runner.part_current(cfg, "session", 2010, runner.sample_key(cfg))
     other = _cfg(tmp_path, days_per_era=3)
-    assert runner.load_part(other, "session", 2010, runner.sample_key(other)) is None
+    assert not runner.part_current(other, "session", 2010, runner.sample_key(other))
     forced = _cfg(tmp_path, force=True)
-    assert runner.load_part(forced, "session", 2010, runner.sample_key(forced)) is None
+    assert not runner.part_current(forced, "session", 2010, runner.sample_key(forced))
 
 
 def test_load_archive_last_manifest_row_wins_and_hashes_inputs(tmp_path: Path) -> None:
@@ -183,14 +183,14 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5g")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5h")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_part(cfg, "volume_bands", 2010, {"key": base})
-    assert runner.load_part(cfg, "volume_bands", 2010, base) is not None
+    assert runner.part_current(cfg, "volume_bands", 2010, base)
     reloaded = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 11})
-    assert runner.load_part(cfg, "volume_bands", 2010, reloaded) is None  # raw rows changed
+    assert not runner.part_current(cfg, "volume_bands", 2010, reloaded)  # raw rows changed
     changed = runner.sample_key(cfg, {"manifest.jsonl": "bb"}, {"massive|sip_flat|1d": 10})
-    assert runner.load_part(cfg, "volume_bands", 2010, changed) is None  # archive changed
+    assert not runner.part_current(cfg, "volume_bands", 2010, changed)  # archive changed
 
 
 def test_malformed_disputed_rows_fail_the_run(tmp_path: Path) -> None:
@@ -205,15 +205,9 @@ def test_a_ledger_row_without_a_median_writes_no_witness_and_no_fabricated_zero(
     assert row["verdict"] == "unresolved" and row["witnesses"] == "none available"
 
 
-def _live_url() -> str | None:
-    """The database the SQL probe runs against: LOAD_CHECKS_SQL_PROBE_URL (the real database), else
-    the pytest database."""
-    import os
-
-    return os.environ.get("LOAD_CHECKS_SQL_PROBE_URL")
-
-
-def test_every_sql_statement_the_runner_issues_executes_against_the_database() -> None:
+def test_every_sql_statement_the_runner_issues_executes_against_the_database(
+    sql_probe_url: str | None,
+) -> None:
     """Round 5 second review, finding 1: a FakeConn hid `text ->> unknown` in the freeze SQL. Every
     statement is EXPLAINed (parsed, analysed and planned) through connect_read_only(), and every
     ``execute`` call in the runner names a statement of the registry."""
@@ -223,7 +217,7 @@ def test_every_sql_statement_the_runner_issues_executes_against_the_database() -
     called = set(re.findall(r"execute\(\s*(_[A-Z_]+SQL)\b", source))
     assert called and called <= set(runner.SQL_STATEMENTS), called - set(runner.SQL_STATEMENTS)
     try:
-        conn = runner.connect_read_only(_live_url())
+        conn = runner.connect_read_only(sql_probe_url)
     except Exception as error:
         pytest.skip(f"database unavailable: {error}")
     with conn:
@@ -231,7 +225,7 @@ def test_every_sql_statement_the_runner_issues_executes_against_the_database() -
             try:
                 conn.execute("EXPLAIN " + sql, params or None)
             except Exception as error:
-                if "does not exist" in str(error) and _live_url() is None:
+                if "does not exist" in str(error) and sql_probe_url is None:
                     pytest.skip(f"{name}: the pytest database lacks the table ({error})")
                 raise AssertionError(f"{name} does not execute: {error}") from error
 

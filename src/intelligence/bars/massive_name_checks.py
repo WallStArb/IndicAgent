@@ -12,7 +12,8 @@ results are seen): they live in the design document and change only by a dated a
   names no field; the 1d census row names all of O, H, L, C separately, so the census reads
   ``n_agree_all`` and the verdicts read ``n_agree``). The factor is the cumulative
   split scale from the FROZEN corporate-action list, never fitted from the compared series.
-- 99 percent of matched bars per name-era, 99.5 percent vendor-wide (per era). Disagreements are
+- 99 percent of consecutive matched return pairs per name-era (level agreement is reported, not
+  gated; design 8a, sixth review). Disagreements are
   classified rounding / last_print / scale / time_shift / other; above 0.5 percent ``other``
   vendor-wide: investigate before any switch.
 - Scale factor (587 class): per name-year, median log close ratio within 10 bp of 0.
@@ -109,6 +110,13 @@ class AgreementCounts:
     stable_offset: bool = False
     break_step: float = math.nan
     break_pre_median: float = math.nan  # median log ratio before the break (Massive / incumbent)
+
+    def explained_bars(self, label: str, cap_bin: int) -> int:
+        """Bars of one explained class; ``last_print`` only within the size cap."""
+        n = self.n_class.get(label, 0)
+        if label == CLASS_LAST_PRINT:
+            n -= sum(c for b, c in self.lp_hist.items() if b > cap_bin)
+        return n
 
     def unexplained(self, cap_bin: int) -> int:
         """Disagreeing bars no size-capped convention explains: ``other`` plus the last_print
@@ -216,11 +224,11 @@ def classify_disagreements(
     own order (NaN where absent), for the time-shift reading; ``last_bucket`` flags the final
     bucket of a session (the closing auction and late prints land there). Order of reading
     (round 5 rule 3, rounding first): rounding (within 1.5 increments plus 1 bp on every field),
-    time_shift (all four fields agree with the previous or the next Massive bar), last_print (the
-    Massive close lies inside the incumbent bar's high-low range, and open, high and low agree, or
-    the bar is the session's last bucket with the open agreeing), scale (the name carries a stable
-    constant level offset of any size, ``stable_offset``, and this bar's close ratio sits within
-    0.5 percent of the name's median), else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
+    scale (the name carries a stable constant level offset, ``stable_offset``, and this bar's close
+    ratio sits within 0.5 percent of the name's median: it explains its bars before any look-alike
+    class), time_shift (all four fields agree with the previous or the next Massive bar),
+    last_print (the Massive close lies inside the incumbent bar's high-low range, and open, high
+    and low agree, or the bar is the session's last bucket with the open agreeing), else other. last_print is a CANDIDATE here: its size cap (the reference period's p99 of the
     absolute log close difference) is applied at assembly, see ``AgreementCounts.lp_hist``."""
     n = len(incumbent[0])
     labels = np.full(n, "", dtype=object)
@@ -259,9 +267,9 @@ def classify_disagreements(
     pending = ~agree
     for label, mask in (
         (CLASS_ROUNDING, rounding),
+        (CLASS_SCALE, scale),  # a stable offset explains its bars before any look-alike class
         (CLASS_TIME_SHIFT, shift),
         (CLASS_LAST_PRINT, last_print),
-        (CLASS_SCALE, scale),
     ):
         take = pending & mask
         labels[take] = label
@@ -320,7 +328,10 @@ def price_agreement(
         log_ratio = np.log(adj[3] / incumbent[3])
     median_log, iqr = _median_iqr(log_ratio)
     level_share = float(fields[3].mean())
-    stable = is_stable_offset(level_share, iqr)
+    tolerance_log = (
+        HALF_INCREMENT * increment / float(np.nanmedian(np.abs(incumbent[3]))) + PRICE_REL_TOL
+    )
+    stable = is_stable_offset(level_share, iqr, median_log, tolerance_log)
     # the break test only runs when the level disagrees somewhere (benign names never reach it)
     break_step, break_pre = (
         level_break_step(log_ratio) if level_share < NAME_ERA_AGREE_MIN else (math.nan, math.nan)
@@ -393,14 +404,14 @@ class EraCounters:
     #: judged names; thin-evidence names never count. A systemic price corruption decorrelates the
     #: pair and would otherwise hide behind the unresolved identity
     identity_unresolved_share: float = 0.0
+    #: explained classes are explained AT THE REFERENCE RATE: the share of judged names where the
+    #: class covers more than 0.5 percent of the name's bars (``scale`` is level_class_share)
+    time_shift_share: float = 0.0
+    rounding_share: float = 0.0
+    last_print_share: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
-        return {
-            "flagged_share": self.flagged_share,
-            "level_class_share": self.level_class_share,
-            "shared_factor_share": self.shared_factor_share,
-            "identity_unresolved_share": self.identity_unresolved_share,
-        }
+        return {name: getattr(self, name) for name in COUNTER_NAMES}
 
 
 COUNTER_NAMES = (
@@ -408,7 +419,15 @@ COUNTER_NAMES = (
     "level_class_share",
     "shared_factor_share",
     "identity_unresolved_share",
+    "time_shift_share",
+    "rounding_share",
+    "last_print_share",
 )
+EXPLAINED_COUNTERS = {
+    "time_shift_share": CLASS_TIME_SHIFT,
+    "rounding_share": CLASS_ROUNDING,
+    "last_print_share": CLASS_LAST_PRINT,
+}
 
 
 def era_counters(
@@ -435,6 +454,15 @@ def era_counters(
         sum(bool(f.level_class) for f in names) / n,
         (max(bins.values()) / n) if bins else 0.0,
         unresolved_share,
+        *(
+            sum(
+                f.counts.explained_bars(label, cap_bin)
+                > OTHER_INVESTIGATE_MAX_SHARE * f.counts.n_matched
+                for f in names
+            )
+            / n
+            for label in EXPLAINED_COUNTERS.values()
+        ),
     )
 
 
@@ -577,10 +605,18 @@ def _median_iqr(log_ratio: np.ndarray) -> tuple[float, float]:
     return float(med), float(q3 - q1)
 
 
-def is_stable_offset(level_share: float, dispersion: float) -> bool:
-    """The one predicate of a stable constant level offset, of any size: most bars sit out of
-    tolerance (level agreement under half) while the per-bar log ratio barely moves."""
-    return level_share < STABLE_CONSTANT_MAX_LEVEL_SHARE and dispersion <= STABLE_LEVEL_IQR
+def is_stable_offset(
+    level_share: float, dispersion: float, median_log: float, tolerance_log: float
+) -> bool:
+    """The one predicate of a stable constant level offset: most bars sit out of tolerance (level
+    agreement under half), the per-bar log ratio barely moves, and its median exceeds the per-bar
+    agreement tolerance (half the increment over the price level, plus 1 bp): a median near zero
+    with noisy bars is not an offset, a 5 bp offset on a 250 dollar name is."""
+    return (
+        level_share < STABLE_CONSTANT_MAX_LEVEL_SHARE
+        and dispersion <= STABLE_LEVEL_IQR
+        and abs(median_log) > tolerance_log
+    )
 
 
 def counts_as_systemic(scale_class_: str, median_log_ratio: float, break_step: float) -> bool:
@@ -661,22 +697,22 @@ def split_like_ratio(factor: float) -> float | None:
 
 def scale_class(
     median_log_ratio: float,
-    dispersion: float,
+    stable_offset: bool,
     level_share: float,
     ret_share: float,
     break_step: float = math.nan,
 ) -> str:
     """Level classification of a name-year (lead ruling 2026-11-12, R3c; stability test 2026-11-13).
 
-    A stable constant offset of ANY size (close level agreement under half of the bars, dispersion
-    within ``STABLE_LEVEL_IQR``): ``split_like_level`` when it reads as a split ratio, a candidate
+    A stable constant offset (``is_stable_offset``, evaluated once by ``price_agreement``):
+    ``split_like_level`` when it reads as a split ratio, a candidate
     split missing from the frozen table; ``adjustment_level`` otherwise, an incumbent non-split
     adjustment. An in-era level break that reads as a split (``level_break_step`` finite) is
     ``split_like_level`` too: a split missing from the frozen table, wherever it falls in the era.
     ``level_drift``: a level disagreement under 99 percent while the returns agree at 99 percent
     or better, with neither a stable constant nor such a step (a small drift). Anything else:
     empty."""
-    if is_stable_offset(level_share, dispersion):
+    if stable_offset:
         if split_like_ratio(math.exp(abs(median_log_ratio))) is not None:
             return SCALE_SPLIT_LIKE
         return SCALE_ADJUSTMENT_LEVEL
@@ -696,7 +732,8 @@ def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
     """Correlation of two aligned log-return series after dropping the split-sized returns (an
     absolute log return above ln 1.5 on either arm: a split is a scale event, never an identity
     one). NaN when fewer than ``IDENTITY_MIN_RETURNS`` returns remain (thin); a constant series
-    with enough returns correlates at 0 (decorrelated)."""
+    with enough returns correlates at 0 (decorrelated) unless both arms are flat and identical
+    (agreement)."""
     keep = (
         np.isfinite(returns_a)
         & np.isfinite(returns_b)
@@ -706,8 +743,11 @@ def return_correlation(returns_a: np.ndarray, returns_b: np.ndarray) -> float:
     a, b = returns_a[keep], returns_b[keep]
     if len(a) < IDENTITY_MIN_RETURNS:
         return math.nan  # thin: the only way an identity correlation is missing
-    if np.std(a) == 0 or np.std(b) == 0:
-        return 0.0  # a degenerate (flat, stale) series is a disagreement, not missing evidence
+    flat_a, flat_b = np.std(a) == 0, np.std(b) == 0
+    if flat_a and flat_b:
+        return 1.0 if np.array_equal(a, b) else 0.0  # both flat and identical: agreement
+    if flat_a or flat_b:
+        return 0.0  # one flat (stale) side is a disagreement, not missing evidence
     return float(np.corrcoef(a, b)[0, 1])
 
 
