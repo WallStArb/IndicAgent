@@ -251,6 +251,37 @@ def has_written(state_data: Mapping[str, Any]) -> bool:
     return any(state_data.get("done", {}).values()) or bool(state_data.get("inflight"))
 
 
+def run_shape(state_data: Mapping[str, Any], start: date, timeframes: Sequence[str]) -> str | None:
+    """Why the resume's arguments mismatch the recorded run shape, or None (a state with no
+    recorded shape is a first run: it records). A mistyped resume that skipped this check would
+    silently rebuild a different window set under the same ledger."""
+    recorded = state_data.get("run_shape")
+    if recorded is None:
+        return None
+    if recorded != {"start": start.isoformat(), "timeframes": list(timeframes)}:
+        return (
+            f"this state was started with --from {recorded['start']} --timeframes "
+            f"{recorded['timeframes']}; a different shape must run a new preflight"
+        )
+    return None
+
+
+def unbuilt_windows(state_data: Mapping[str, Any]) -> list[str]:
+    """The planned windows a run-shape timeframe has not finished building ("<tf> <window>"),
+    or the reason there is no ledger to read."""
+    shape = state_data.get("run_shape")
+    planned = state_data.get("planned_windows")
+    if shape is None or planned is None:
+        return [
+            "the state records no run shape or window ledger; resume the rebuild that wrote them"
+        ]
+    done = state_data.get("done", {})
+    keys = [w[0][:10] for w in planned]
+    return [
+        f"{tf} {key}" for tf in shape["timeframes"] for key in keys if key not in done.get(tf, [])
+    ]
+
+
 def add_totals(into: dict[str, int], result: Any) -> None:
     for key in _TOTAL_KEYS:
         into[key] = into.get(key, 0) + int(getattr(result, key))
@@ -442,6 +473,15 @@ def run_rebuild(args: argparse.Namespace) -> int:
     if state.data.get("aborted_at", "") > state.data.get("preflight_at", ""):
         print("refused: --abort rescheduled the compression job since the last preflight; rerun it")
         return 2
+    if why := run_shape(state.data, args.start, args.timeframes):
+        print("refused: " + why)
+        return 2
+    if "run_shape" not in state.data:
+        state.data["run_shape"] = {
+            "start": args.start.isoformat(),
+            "timeframes": list(args.timeframes),
+        }
+        state.save()
     if refusals := quiet_failures() + from_violations(
         args.start, state.data.get("raw_first", {}), args.timeframes
     ):
@@ -450,6 +490,8 @@ def run_rebuild(args: argparse.Namespace) -> int:
     horizon = state.horizon
     now = datetime.now(UTC)
     windows = chunk_windows(state.data["interval_s"], args.start, now)
+    state.data["planned_windows"] = [[a.isoformat(), b.isoformat()] for a, b in windows]
+    state.save()
     compress_before = now - timedelta(seconds=state.data["compression_job"][1])
     report = args.state.with_suffix(".jsonl")
     with psycopg.connect(_dsn()) as conn:
@@ -548,6 +590,12 @@ def run_abort(args: argparse.Namespace) -> int:
 
 def run_finish(args: argparse.Namespace) -> int:
     state = State(args.state)
+    if unbuilt := unbuilt_windows(state.data):
+        print(
+            "refused: finish would compress a partly filled chunk; unbuilt window(s): "
+            + "; ".join(unbuilt[:8])
+        )
+        return 2
     with psycopg.connect(_dsn(), autocommit=True) as conn, conn.cursor() as cur:
         cur.execute("SET statement_timeout = 0")
         cur.execute(_SCHEDULE_SQL, (state.data["compression_job"][0], True))
