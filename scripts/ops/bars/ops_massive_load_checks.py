@@ -34,7 +34,7 @@ import random
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
@@ -2133,6 +2133,35 @@ def _name_facts(
     )
 
 
+def _folded_classes(r: Mapping[str, Any]) -> Counter[str]:
+    """One stored arm result's class counts with its close_definition bars restored to their
+    fallback labels (the dict form of ``nc.fold_definition``)."""
+    mix: Counter[str] = Counter(r["classes"])
+    n = mix.pop(nc.CLASS_CLOSE_DEFINITION, 0)
+    if n:
+        mix.update(r["def_fallback"])
+    return mix
+
+
+def fold_unwitnessed(
+    judged: Mapping[tuple[int, str], list[nc.NameFacts]], eras: Sequence[int]
+) -> tuple[dict[tuple[int, str], list[nc.NameFacts]], dict[tuple[int, str], bool]]:
+    """THE place the definition witness folds. Per (era, timeframe) the witness (1d only); where
+    absent each close_definition bar returns to its stored fallback label. Era verdicts, the
+    stop contributors and the class totals all read these folded facts."""
+    witness = {
+        (e, tf): tf == "1d" and nc.close_definition_witnessed(judged.get((e, tf), []))
+        for e in eras
+        for tf in ("1d", "5m")
+    }
+    folded = {
+        key: facts if witness[key] else [nc.fold_definition(f) for f in facts]
+        for key, facts in judged.items()
+        if key in witness
+    }
+    return folded, witness
+
+
 def era_verdicts(
     judged: dict[tuple[int, str], list[nc.NameFacts]],
     eras: list[int],
@@ -2147,19 +2176,9 @@ def era_verdicts(
     out: dict[tuple[int, str], nc.EraVerdict] = {}
     unres = unresolved or {}
     ref_eras = [e for e in eras if e in nc.REFERENCE_ERAS]
+    judged, witness = fold_unwitnessed(judged, eras)
     for tf in ("1d", "5m"):
-        # the definition witness (1d): without it the close_definition bars are not explained
-        witnessed = {
-            e: tf == "1d" and nc.close_definition_witnessed(judged.get((e, tf), [])) for e in eras
-        }
-        judged = {
-            **judged,
-            **{
-                (e, tf): [nc.fold_definition(f) for f in judged.get((e, tf), [])]
-                for e in eras
-                if not witnessed[e] and judged.get((e, tf))
-            },
-        }
+        witnessed = {e: witness[(e, tf)] for e in eras}
         hist = {e: _pooled_hist(judged.get((e, tf), [])) for e in eras}
         for era in eras:
             ref = [
@@ -2267,6 +2286,7 @@ def assemble_stage_c(
                 facts = _name_facts(name, d, tf, gate.usable)
                 if facts is not None:
                     judged.setdefault((era, tf), []).append(facts)
+    judged, witness = fold_unwitnessed(judged, eras)
     verdicts = era_verdicts(judged, eras, unresolved)
     rows: list[dict[str, Any]] = []
     scale_rows: list[dict[str, Any]] = []
@@ -2337,7 +2357,9 @@ def assemble_stage_c(
             ).usable
             for tf in usable_tfs:  # the detail rows cover every usable timeframe, judged or not
                 r = d["arms"]["ibkr"][tf]
-                classes_total.update(r["classes"])
+                classes_total.update(
+                    r["classes"] if tf != "1d" or witness[(era, "1d")] else _folded_classes(r)
+                )
                 cls = r["scale_class"]
                 if not cls:
                     continue

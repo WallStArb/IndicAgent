@@ -767,3 +767,17 @@ def test_bars_of_a_level_drift_name_are_scale_only_near_the_local_drift_level() 
 
 def _name_ohlc(close: np.ndarray):
     return (close * 0.99, close * 1.01, close * 0.98, close.copy())
+
+
+def test_the_fold_is_one_place_and_contributors_and_class_totals_read_it() -> None:
+    counts = nc.AgreementCounts(
+        150, 140, 140, {"close_definition": 10}, 149, 149, 150, 150,
+        def_fallback={"rounding": 10}, n_alt=150, n_alt_dayfile=150, n_alt_last=0,
+    )  # fmt: skip
+    facts = [nc.NameFacts(f"F{i}", counts, False, "", 0.0) for i in range(30)]
+    folded, witness = runner.fold_unwitnessed({(2010, "1d"): facts}, [2010])
+    assert not witness[(2010, "1d")]
+    assert folded[(2010, "1d")][0].counts.n_class == {"rounding": 10}
+    assert runner._folded_classes(
+        {"classes": {"close_definition": 10}, "def_fallback": {"rounding": 10}}
+    ) == {"rounding": 10}
