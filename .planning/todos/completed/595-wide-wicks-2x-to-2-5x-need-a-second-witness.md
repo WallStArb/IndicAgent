@@ -1,8 +1,9 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-11-05
 source: lead (indicagent-4d), from the todo 594 robustness grid
+closed: 2026-11-13
 ---
 
 # Wide wicks between 2.0x and 2.5x on 1d need a second witness
@@ -112,3 +113,7 @@ flash crash (busted_trade_window covers)                  7
 | 2016-07-20 | FUBO | ibkr/fallback | 720.724 | 1081.09 | 360.362 | 1081.09 | 2.00 | 1.500 | yes | low-priced or fallback name: plausibly real |
 | 2019-04-22 | DFTX | ibkr/fallback | 6 | 15.5999 | 6 | 6.612 | 2.36 | 1.378 | yes | low-priced or fallback name: plausibly real |
 | 2020-03-16 | KTOS | alpaca/sip_rth | 11.71 | 11.89 | 5 | 11.05 | 2.21 | 1.355 | yes | market-event day: real or bad, needs a second witness |
+
+## Closure 2026-11-13
+
+Closed 2026-11-13 (lead): Superseded by the owner ruling of 2026-11-13 (todo 600): the wide 1d wicks were judged on the IBKR-era canonical, and the second witness this todo sought was IBKR or Alpaca against itself. Canonical 1d becomes the Massive day file (official prints); any wick still wide there surfaces through the nightly D7 wick checks after step 7 and gets its own todo then.

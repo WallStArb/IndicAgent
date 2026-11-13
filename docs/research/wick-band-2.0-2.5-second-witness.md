@@ -1,7 +1,7 @@
 # The 2.0-2.5x wick band has no second witness in the vendor's own tape
 
 Author: Claude (todo 595 measurement lane, 2026-11-09)
-Informed by: `.planning/todos/pending/595-wide-wicks-2x-to-2-5x-need-a-second-witness.md`;
+Informed by: `.planning/todos/completed/595-wide-wicks-2x-to-2-5x-need-a-second-witness.md`;
 todo 594 (`isolated_wick` rule, commit aff4f022c); `docs/research/scrub-historical-pass.md` for format.
 
 Status: measurement complete, proposal at the end. No rule landed from this lane; scripts

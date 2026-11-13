@@ -35,3 +35,7 @@ net expectation can be computed (its members turn over about 26x gross per sessi
 ## Also (2026-10-03)
 
 Once spread and dollar volume are measured, derive `instruments.live_tradeable` by a written rule from them (APR keys, one writer). It is false for all 1,529 names and nothing sets it; phase 188's capacity curve and the capital tier need the rule.
+
+## Note 2026-11-13 (lead)
+
+IBKR is removed (todo 600 owner ruling); the execution broker is Alpaca at zero commission (2026-10-09). The commission term of this model is Alpaca's, so the model reduces to spread plus any regulatory fees; IBKR commission is no longer a component.

@@ -1,8 +1,9 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-11-04
 source: todo 587 review, per-series split audit (ops_split_calendar_audit, 2026-11-04 rerun)
+closed: 2026-11-13
 ---
 
 # Splits canonical crosses adjusted on their date while an earlier raw series is off scale
@@ -216,3 +217,7 @@ Tool gaps found in the 2026-11-10 incident (session indicagent-0b; fix before th
    counts voided rows as deciding); corrections need the void-via-supersedes chain, which
    today means a direct insert under bar_derivation_writer. The tool deserves a
    `--supersede` path.
+
+## Closure 2026-11-13
+
+Closed 2026-11-13 (lead): Superseded by the owner ruling of 2026-11-13 (todo 600): canonical becomes Massive (split-rescaled by the frozen market splits) then Alpaca, so the off-scale earlier IBKR and Yahoo raw series no longer reach canonical. A split crossing that is real in the Massive selection surfaces through D7 split_continuity after step 7 and gets its own todo then.

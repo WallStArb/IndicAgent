@@ -18,7 +18,7 @@ key-files:
   created:
     - production/migrations/434_retire_ibkr_history_lease_apr.sql
     - tests/unit/test_retire_ibkr_history_lease_apr_migration_contract.py
-    - .planning/todos/pending/506-backfill-feature-factory-fetch-only-fetcher-lock.md
+    - .planning/todos/completed/506-backfill-feature-factory-fetch-only-fetcher-lock.md
     - .planning/todos/pending/507-split-refetch-in-process-under-the-fetcher-lock.md
   renamed:
     - scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py -> scripts/infrastructure/backfill/_history_fetch.py

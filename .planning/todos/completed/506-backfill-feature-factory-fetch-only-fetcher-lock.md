@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-10-07
 source: plan 189-08 Task 2 (CI guard rewritten around FetcherLock)
 owner: phase 186 rebuild writer (services/backfill_feature_factory.py)
+closed: 2026-11-13
 ---
 
 # backfill_feature_factory --fetch-only takes FetcherLock
@@ -35,3 +36,7 @@ After phase 186-26's single rebuild completes (no live or resumable rebuild run;
 ## Done when
 
 The factory references `FetcherLock`, the guard's allow-list has no factory entry, and the guard passes.
+
+## Closure 2026-11-13
+
+Closed 2026-11-13 (lead): Superseded by the owner ruling of 2026-11-13 (todo 600): IBKR is removed and the fetcher lane, FetcherLock included, is deleted in step 7 Part F, so there is no fetch path left to lock.

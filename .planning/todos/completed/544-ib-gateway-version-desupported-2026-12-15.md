@@ -1,9 +1,10 @@
 ---
-status: pending
+status: closed
 priority: P1
 filed: 2026-10-27
 source: IBKR warning 2172 in logs/ibkr_history_fetcher.log, 2026-10-27 01:31Z
 owner: 2026-10-27
+closed: 2026-11-13
 ---
 
 # The ib-gateway container runs a version IBKR desupports on 2026-12-15
@@ -33,3 +34,7 @@ all resolve to lapse. The only open path to "upgrade the image" is a retained IB
 (fallback bars, 1d deepening) the post-admission consolidation explicitly measures. Sequence
 consequence: the Massive purchase and pilot should land well before 2026-12-01 so lapse is a
 deliberate ruling, not a forced scramble against the 2026-12-15 desupport.
+
+## Closure 2026-11-13
+
+Closed 2026-11-13 (lead): Superseded by the owner ruling of 2026-11-13 (todo 600): IBKR is removed entirely, so the gateway is retired in step 7 Part F rather than upgraded. The 2026-12-15 desupport date no longer matters.
