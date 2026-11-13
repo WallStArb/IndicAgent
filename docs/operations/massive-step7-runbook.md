@@ -60,6 +60,7 @@ PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_
 Each line is a gate. Any red stops step 7; nothing below starts.
 
 A1. The raw load sweep is complete. `logs/massive_sweep/status.txt` has an `OK <year>` line for every year 2003 to 2026 (2026 through the archive end), and for every year both `compare_<Y>_5m_pre.json` and `compare_<Y>_5m_post.json` exist. For every year: `real_differences == 0`, `n_canonical` unchanged, and `after.unselected_slots - before.unselected_slots` equals the year's Massive-only count. The 1d row balance lines read `offered == bars out`.
+Amendment 2026-11-13: the sweep's scratch logs were deleted uncommitted, so the per-year file checks cannot be re-run; the sweep itself gated on them at load time (2026-11-11, all years green). The evaluable residue is database-side: record per-year, per-kind `ohlcv_raw` row counts into `$OUT/a1_raw_counts.txt` and confirm every year 2003 to 2026 has Massive rows (2026 through the archive end) before treating A1 as green.
 Abort: any year missing or unbalanced.
 
 A2. The section 8a load checks are the admission record and gate nothing (owner ruling 2026-11-13: the 8a runner compares against IBKR and is archived at tag `archive/massive-8a-load-checks`, not landed). Copy the r5j and r5k out dirs to `data/backups/massive-8a-admission-record/` and record their sha256 in `$OUT/8a_record.sha256`. Gate: the copy exists and verifies.
@@ -318,14 +319,15 @@ F1. Export, one compressed dump per table slice, under one directory:
 
 ```bash
 BK=data/backups/ibkr-raw-2026-11
+RET_UNTIL=$(date -d "+30 days" +%F)   # recorded in the manifest; required by --dump
 $PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
-  --table ohlcv_raw --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+  --table 'ohlcv_raw:timestamp:timestamptz' --where "vendor = 'ibkr'" --retention-until "$RET_UNTIL"
 $PY -m scripts.ops.db.ops_table_backup --dump --backup-dir "$BK" \
-  --table ohlcv_revision --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+  --table 'ohlcv_revision:timestamp:timestamptz' --where "vendor = 'ibkr'" --retention-until "$RET_UNTIL"
 $PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
-  --table ohlcv_raw --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+  --table 'ohlcv_raw:timestamp:timestamptz' --where "vendor = 'ibkr'"
 $PY -m scripts.ops.db.ops_table_backup --verify --backup-dir "$BK" \
-  --table ohlcv_revision --date-column timestamp --bound-kind timestamptz --where "vendor = 'ibkr'"
+  --table 'ohlcv_revision:timestamp:timestamptz' --where "vendor = 'ibkr'"
 ```
 Gate: both `--verify` runs exit 0 (live recount and sha256 per year slice). The dump refuses below its disk margin.
 
