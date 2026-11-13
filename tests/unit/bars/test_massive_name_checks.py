@@ -8,10 +8,9 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.bars import massive_load_checks as lc
 from src.intelligence.bars import massive_name_checks as nc
 from src.intelligence.bars.massive_load_checks import VacuousCheckError
-from src.intelligence.bars.split_rescale import SplitFactor
+from src.intelligence.bars.split_rescale import SplitFactor, scales_for_day_array
 
 
 def _ohlc(close: np.ndarray) -> nc.Ohlc:
@@ -150,25 +149,30 @@ def test_ledger_witnesses_from_frozen_data_only() -> None:
 @pytest.mark.parametrize("factor", [2.0, 0.1])  # a forward split and a reverse split
 def test_frozen_split_witness_is_direction_aware(factor: float) -> None:
     """Massive divided by the frozen split against an incumbent that lacks it leaves 1/f on the
-    old-scale bars: that direction supports Massive. A residual of f is the opposite direction and
-    never convicts the incumbent."""
+    old-scale bars: that supports Massive (incumbent defect). A residual of f is an incumbent
+    divided once too many: an incumbent or rescale problem, never a Massive defect."""
     split = [("2010-05-04", factor)]
     old_scale_days = np.array(["2010-05-03", "2010-05-04"], dtype="datetime64[D]")
-    scale = lc.split_scale_for_days(old_scale_days, [SplitFactor(date(2010, 5, 4), factor)])
+    scale = scales_for_day_array(old_scale_days, [SplitFactor(date(2010, 5, 4), factor)])
     massive_raw = np.full(2, 100.0 * factor)
     lacks_split = massive_raw.copy()  # the incumbent left on the old scale
-    one = np.ones(2)
-    residual = nc.price_agreement(
-        (massive_raw / 1.0,) * 4, scale, (lacks_split,) * 4, 0.01
-    ).median_log  # ln(Massive / factor / incumbent) of the name-era
-    residual = math.exp(residual)
-    assert residual == pytest.approx(1.0 / factor) and one.sum() == 2
+    residual = math.exp(
+        nc.price_agreement((massive_raw,) * 4, scale, (lacks_split,) * 4, 0.01).median_log
+    )  # ln(Massive / factor / incumbent) of the name-era
+    assert residual == pytest.approx(1.0 / factor)
     toward_massive = nc.frozen_split_witness(residual, split)
     assert toward_massive is not None and toward_massive.supports == "massive"
-    away = nc.frozen_split_witness(factor, split)
-    assert away is not None and away.supports == "incumbent"
-    row = nc.ledger_verdict("X", "2010", "d", [away], nc.DISPUTE_MASSIVE_VS_IBKR, "s1")
-    assert row.verdict != "incumbent_defect"
+    row = nc.ledger_verdict("X", "2010", "d", [toward_massive], nc.DISPUTE_MASSIVE_VS_IBKR, "s")
+    assert row.verdict == "incumbent_defect"
+    over = nc.frozen_split_witness(factor, split)
+    assert over is not None and over.supports == "incumbent_overscaled"
+    plain = nc.ledger_verdict("X", "2010", "d", [over], nc.DISPUTE_MASSIVE_VS_IBKR, "s")
+    assert plain.verdict == "incumbent_defect"  # never massive_defect
+    # the double-rescale case: rule 7 already rescaled that route, so the audit row is suspect
+    rescaled = nc.ledger_verdict(
+        "X", "2010", "d", [over], nc.DISPUTE_MASSIVE_VS_IBKR, "s", incumbent_rescaled=True
+    )
+    assert rescaled.verdict == "unresolved" and rescaled.decided_by == "rescale_conflict"
 
 
 def test_massive_continuity_alone_never_convicts_the_incumbent() -> None:

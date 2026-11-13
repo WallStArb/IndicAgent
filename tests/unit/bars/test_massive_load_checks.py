@@ -327,7 +327,11 @@ def test_clean_vendor_passes_every_systemic_check() -> None:
 
 
 def test_split_scale_matches_scales_for_sessions() -> None:
-    from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions
+    from src.intelligence.bars.split_rescale import (
+        SplitFactor,
+        scales_for_day_array,
+        scales_for_sessions,
+    )
 
     splits = [SplitFactor(date(2014, 6, 6), 7.0), SplitFactor(date(2020, 8, 28), 4.0)]
     days = [
@@ -338,7 +342,7 @@ def test_split_scale_matches_scales_for_sessions() -> None:
         date(2021, 1, 4),
     ]
     want = scales_for_sessions(days, splits)
-    got = lc.split_scale_for_days(np.array(days, dtype="datetime64[D]"), splits)
+    got = scales_for_day_array(np.array(days, dtype="datetime64[D]"), splits)
     assert got.tolist() == [want[d] for d in days]
     assert got.tolist() == [28.0, 28.0, 4.0, 4.0, 1.0]
 

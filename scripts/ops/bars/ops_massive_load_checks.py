@@ -61,6 +61,7 @@ from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.split_rescale import (  # noqa: E402
     SplitFactor,
     SplitRow,
+    scales_for_day_array,
     splits_known_at,
 )
 
@@ -241,6 +242,7 @@ class SanityScan:
     counts: lc.SanityCounts
     defective: np.ndarray
     owned: np.ndarray
+    duplicate: np.ndarray  # owned rows repeating an earlier (ticker, window_start)
 
 
 def sanity_of(raw: RawFile) -> SanityScan:
@@ -248,7 +250,15 @@ def sanity_of(raw: RawFile) -> SanityScan:
     counts, defective = lc.record_sanity(
         raw.code, raw.window_start, raw.open, raw.high, raw.low, raw.close, raw.volume, owned
     )
-    return SanityScan(counts, defective, owned)
+    dup = np.zeros(len(owned), dtype=bool)
+    idx = np.flatnonzero(owned)
+    order = np.lexsort((raw.window_start[idx], raw.code[idx]))
+    ordered = idx[order]
+    same = (raw.code[ordered][1:] == raw.code[ordered][:-1]) & (
+        raw.window_start[ordered][1:] == raw.window_start[ordered][:-1]
+    )
+    dup[ordered[1:][same]] = True
+    return SanityScan(counts, defective, owned, dup)
 
 
 # ---------------------------------------------------------------------------------- part store
@@ -298,18 +308,18 @@ def all_parts(
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5h"
+LOGIC_VERSION = "2026-11-13-r5i"
 
 
 _RAW_FINGERPRINT_SQL = """
 SELECT vendor, kind, timeframe, count(*), max(served_at) FROM ohlcv_raw
 WHERE "timestamp" >= %s AND "timestamp" < %s
-  AND (vendor || '|' || kind || '|' || timeframe) = ANY(%s) GROUP BY 1, 2, 3
+  AND vendor = ANY(%s) AND kind = ANY(%s) AND timeframe = ANY(%s) GROUP BY 1, 2, 3
 """
 _REVISION_FINGERPRINT_SQL = """
 SELECT date_part('year', "timestamp" AT TIME ZONE 'UTC')::int, vendor, kind, timeframe, count(*)
 FROM ohlcv_revision WHERE "timestamp" >= %s AND "timestamp" < %s
-  AND (vendor || '|' || kind || '|' || timeframe) = ANY(%s) GROUP BY 1, 2, 3, 4
+  AND vendor = ANY(%s) AND kind = ANY(%s) AND timeframe = ANY(%s) GROUP BY 1, 2, 3, 4
 """
 
 
@@ -324,25 +334,47 @@ def raw_fingerprints(
     in one pass over every requested era), read only for the ``series`` the requested stages read,
     and scoped again by each check to its own."""
     eras = sorted(set(eras))
+    series = list(series)
     wanted = sorted("|".join(s) for s in series)
     if not eras or not wanted:
         return {}
+    # plain column predicates push down into the chunk segments; the cross product they select is
+    # filtered to the wanted series below
+    vendors, kinds, frames = (sorted({s[i] for s in series}) for i in range(3))
     out: dict[int, dict[str, str]] = {era: {} for era in eras}
     wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(
             _REVISION_FINGERPRINT_SQL,
-            (datetime(eras[0], 1, 1, tzinfo=UTC), datetime(eras[-1] + 1, 1, 1, tzinfo=UTC), wanted),
+            (
+                datetime(eras[0], 1, 1, tzinfo=UTC),
+                datetime(eras[-1] + 1, 1, 1, tzinfo=UTC),
+                vendors,
+                kinds,
+                frames,
+            ),
         )
-        revisions = {(e, f"{v}|{k}|{t}"): int(n) for e, v, k, t, n in cur.fetchall()}
+        revisions = {
+            (e, f"{v}|{k}|{t}"): int(n)
+            for e, v, k, t, n in cur.fetchall()
+            if f"{v}|{k}|{t}" in wanted
+        }
         for era in eras:
             wait_out_nightly_window()
             cur.execute(
                 _RAW_FINGERPRINT_SQL,
-                (datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC), wanted),
+                (
+                    datetime(era, 1, 1, tzinfo=UTC),
+                    datetime(era + 1, 1, 1, tzinfo=UTC),
+                    vendors,
+                    kinds,
+                    frames,
+                ),
             )
             for v, k, t, n, served in cur.fetchall():
                 series = f"{v}|{k}|{t}"
+                if series not in wanted:
+                    continue
                 stamp = served.isoformat() if served is not None else ""
                 out[era][series] = f"{n}|{stamp}|{revisions.get((era, series), 0)}"
     return out
@@ -434,6 +466,11 @@ class DefectLog:
         self.gap.update(
             f"{raw.tickers[code]}|{day.isoformat()}|defective_bar"
             for code in np.unique(raw.code[owned_idx])
+        )
+        # a duplicate (ticker, window_start) row is a gap-list item for its day too
+        self.gap.update(
+            f"{raw.tickers[code]}|{day.isoformat()}|duplicate_key"
+            for code in np.unique(raw.code[scan.duplicate])
         )
         for idx, rows, cap, which in (
             (owned_idx, self.named, DEFECT_LIST_CAP, "named"),
@@ -552,6 +589,8 @@ def run_record_sanity_and_session(
 def run_publish_and_manifest(cfg: Config, archive: Archive, sessions: list[date]) -> None:
     """Publish lag of the last 20 sessions and manifest completeness (no file reads)."""
     last = [d for d in sessions if d in archive.servetimes[MINUTE]][-lc.PUBLISH_LAG_SESSIONS :]
+    if not last:
+        raise lc.VacuousCheckError("publish lag: no archived session has a serve time")
     bounds = nyse_sessions(last[0], last[-1])
     rows = []
     for dataset in (MINUTE, DAY):
@@ -621,6 +660,9 @@ def run_survivorship(cfg: Config, archive: Archive, conn: psycopg.Connection) ->
 
 
 # ---------------------------------------------------------------------------- stage A: verdicts
+FILE_KIND_TIMEFRAME = {"day_files": "1d", "minute_files": "5m"}
+
+
 def assemble_stage_a(cfg: Config, inputs: Mapping[str, str]) -> dict[str, Any]:
     """Fold the saved parts into the stage A result files and verdicts."""
     key = sample_key(cfg, inputs)
@@ -695,13 +737,16 @@ def assemble_stage_a(cfg: Config, inputs: Mapping[str, str]) -> dict[str, Any]:
     write_json(cfg.out / "stageA_gap_list_additions.json", gap)
     by_era = lc.session_verdict_by_era(results)
     write_json(cfg.out / "stageA_session_verdict.json", by_era)
-    stops: dict[str, list[str]] = {}
+    # a systemic stop reaches the timeframe whose file it judges: the session offset is read on
+    # the minute files (5m), record sanity per file kind (day file 1d, minute file 5m)
+    stops: dict[str, dict[str, list[str]]] = {}
     for era, v in by_era.items():
         if v["verdict"] == "stop":
-            stops.setdefault(str(era), []).append("session")
+            stops.setdefault(str(era), {}).setdefault("5m", []).append("session")
     for r in san_rows:
         if r["verdict"] == "stop":
-            stops.setdefault(str(r["era"]), []).append("record_sanity")
+            tf = FILE_KIND_TIMEFRAME[r["file_kind"]]
+            stops.setdefault(str(r["era"]), {}).setdefault(tf, []).append("record_sanity")
     write_json(
         cfg.out / "stageA_systemic.json",
         {"provenance": provenance(cfg, inputs, frozen=False), "stop_eras": stops},
@@ -836,6 +881,8 @@ class Frozen:
     splits: dict[str, list[SplitFactor]]
     ibkr_rescales: dict[str, list[SplitFactor]]
     spans: dict[str, list[tuple[date, date | None]]]
+    #: symbol -> effective date (iso) -> the inferred_by sources of its frozen split rows
+    split_sources: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def span_listed(self, name: str, era: int) -> bool:
         """The frozen ticker spans overlap the era (``valid_to`` is exclusive)."""
@@ -845,7 +892,7 @@ class Frozen:
     def ibkr_scale(self, name: str, days: np.ndarray) -> np.ndarray:
         """The cumulative factor the IBKR 1d series is divided by on each session (prices) and
         multiplied by (volume): the one rule 7 helper stage C prices and volume bands share."""
-        return lc.split_scale_for_days(days, self.ibkr_rescales.get(name, []))
+        return scales_for_day_array(days, self.ibkr_rescales.get(name, []))
 
 
 def load_frozen(cfg: Config) -> Frozen:
@@ -853,6 +900,7 @@ def load_frozen(cfg: Config) -> Frozen:
     yet executed then never rescales."""
     horizon = datetime.fromisoformat(read_frozen_record(cfg)["horizon"])
     market: dict[str, list[SplitRow]] = {}
+    sources: dict[str, dict[str, str]] = {}
     audit: dict[str, list[SplitRow]] = {}
     with (cfg.out / "frozen" / "corporate_actions.csv").open() as handle:
         for row in csv.DictReader(handle):
@@ -863,6 +911,11 @@ def load_frozen(cfg: Config) -> Frozen:
             )
             market.setdefault(row["symbol"], []).append(
                 SplitRow(*base, row["market_fact"] == "True")
+            )
+            known = sources.setdefault(row["symbol"], {})
+            day = row["effective_date"]
+            known[day] = "+".join(
+                sorted({*known.get(day, "").split("+"), row["inferred_by"]} - {""})
             )
             if IBKR_RESCALED_SERIES in row["unadjusted_routes"].split(";"):
                 # a calendar-audit row rescales the incumbent route whether or not it records the
@@ -877,6 +930,7 @@ def load_frozen(cfg: Config) -> Frozen:
         {s: splits_known_at(r, horizon) for s, r in market.items()},
         {s: splits_known_at(r, horizon) for s, r in audit.items()},
         spans,
+        sources,
     )
 
 
@@ -947,6 +1001,8 @@ def assemble_day_vs_minute(cfg: Config, inputs: Mapping[str, str]) -> dict[str, 
             k = (era, row["basis"])
             totals[k] = totals[k] + counts if k in totals else counts
     for (era, basis), counts in sorted(totals.items()):
+        if counts.n_names <= 0:
+            raise lc.VacuousCheckError(f"day_vs_minute: era {era} ({basis}) matched no name")
         csv_rows.append(
             {
                 "era": era,
@@ -1045,7 +1101,7 @@ def run_volume_bands(
             unmatched.append(symbol)
             continue
         days = np.array(common, dtype="datetime64[D]")
-        scale = lc.split_scale_for_days(days, frozen.splits.get(symbol, []))
+        scale = scales_for_day_array(days, frozen.splits.get(symbol, []))
         ibkr_volume = np.array([ibkr[d] for d in common]) * frozen.ibkr_scale(symbol, days)
         ratio = ibkr_volume / (np.array([massive[d] for d in common]) * scale)
         ratios.setdefault(exchange.by_symbol.get(symbol, UNKNOWN_EXCHANGE), {})[symbol] = float(
@@ -1099,7 +1155,8 @@ def assemble_volume_bands(
         cfg.out / "stageB_systemic.json",
         {
             "provenance": provenance(cfg, inputs, frozen=True),
-            "stop_eras": {str(r.era): ["volume_step"] for r in rows if r.verdict == "stop"},
+            # volume bands read the 1d files (day against minute never stops: the day file is served)
+            "stop_eras": {str(r.era): {"1d": ["volume_step"]} for r in rows if r.verdict == "stop"},
         },
     )
     return {
@@ -1272,6 +1329,11 @@ class ArmResult:
     break_step: float = math.nan  # step of an in-era level break that reads as a split
     break_pre_median: float = math.nan  # Massive / incumbent log level before that break
     stable_offset: bool = False  # the stable constant offset predicate, evaluated once
+    n_alt: int = 0
+    n_alt_dayfile: int = 0
+    n_alt_last: int = 0
+    first_disagree: str = ""  # first and last close disagreement (diagnostics; blank in a part
+    last_disagree: str = ""  # computed before they were recorded)
     lp_hist: dict[str, int] = field(default_factory=dict)  # last_print candidates by size bin
 
     def counts(self) -> nc.AgreementCounts:
@@ -1285,7 +1347,35 @@ class ArmResult:
             self.n_intra,
             self.n_intra_agree,
             {int(b): n for b, n in self.lp_hist.items()},
+            n_alt=self.n_alt,
+            n_alt_dayfile=self.n_alt_dayfile,
+            n_alt_last=self.n_alt_last,
         )
+
+
+def _last_trade_for(
+    keys: np.ndarray, last_trade: tuple[np.ndarray, np.ndarray] | None
+) -> np.ndarray | None:
+    """Massive's last regular-hours 5m close on each matched session (NaN where it has none)."""
+    if last_trade is None or len(last_trade[0]) == 0:
+        return None
+    days, closes = last_trade
+    pos = np.minimum(np.searchsorted(days, keys.astype("int64")), len(days) - 1)
+    return np.where(days[pos] == keys.astype("int64"), closes[pos], np.nan)
+
+
+def last_rth_closes(
+    m5: Bars, sessions: dict[date, tuple[datetime, datetime]]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per session, the close of Massive's last regular-hours 5m bar (the 15:55 bucket, kind
+    sip_flat_agg): keys (int64 session days, sorted) and closes. The definition witness reads it."""
+    rth = rth_mask(m5.t_ns, sessions)
+    keys = m5.key[rth].astype("int64")
+    close = m5.ohlc[3][rth]
+    if len(keys) == 0:
+        return keys, close
+    last = np.r_[np.flatnonzero(keys[1:] != keys[:-1]), len(keys) - 1]
+    return keys[last], close[last]
 
 
 def compare_arm(
@@ -1295,6 +1385,7 @@ def compare_arm(
     inc: Bars,
     splits: list[SplitFactor],
     sessions: dict[date, tuple[datetime, datetime]],
+    last_trade: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> ArmResult | None:
     """Massive against one incumbent arm for one name-era. None when the arm holds no bar.
 
@@ -1328,14 +1419,14 @@ def compare_arm(
         )  # fmt: skip
     inc_ohlc = tuple(a[hit] for a in inc.ohlc)
     m_ohlc = tuple(a[midx] for a in massive.ohlc)
-    scale = lc.split_scale_for_days(massive.key[midx], splits)
+    scale = scales_for_day_array(massive.key[midx], splits)
 
     def neighbour(shift: int) -> tuple[tuple[np.ndarray, ...], np.ndarray]:
         """The neighbour bar (NaN where absent) and the split scale of its OWN session."""
         j = midx + shift
         ok = (j >= 0) & (j < len(massive.t_ns))
         j = np.clip(j, 0, len(massive.t_ns) - 1)
-        own_scale = lc.split_scale_for_days(massive.key[j], splits)
+        own_scale = scales_for_day_array(massive.key[j], splits)
         return tuple(np.where(ok, a[j], np.nan) for a in massive.ohlc), own_scale
 
     prev_bar, prev_scale = neighbour(-1)
@@ -1354,8 +1445,16 @@ def compare_arm(
         last_bucket=last_bucket_mask(inc.t_ns[hit], sessions) if five else None,
         massive_pos=midx,
         incumbent_pos=rank[hit],
+        last_trade_close=_last_trade_for(massive.key[midx], last_trade),
     )
     adj_close = m_ohlc[3] / scale
+    off = np.flatnonzero(~nc.agree_mask(m_ohlc[3], scale, inc_ohlc[3], nc.INCUMBENT_INCREMENT[arm]))
+    when = inc.t_ns[hit] if five else inc.key[hit]
+    stamps = (
+        (str(np.datetime64(int(when[off[0]]), "ns")), str(np.datetime64(int(when[off[-1]]), "ns")))
+        if five and len(off)
+        else (str(when[off[0]]), str(when[off[-1]])) if len(off) else ("", "")
+    )
     if five:  # bar-to-bar returns of consecutive matched bars (same rule as the daily one)
         consec = (midx[1:] - midx[:-1] == 1) & (rank[hit][1:] - rank[hit][:-1] == 1)
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -1391,6 +1490,11 @@ def compare_arm(
         break_step=counts.break_step,
         break_pre_median=counts.break_pre_median,
         stable_offset=counts.stable_offset,
+        n_alt=counts.n_alt,
+        n_alt_dayfile=counts.n_alt_dayfile,
+        n_alt_last=counts.n_alt_last,
+        first_disagree=stamps[0],
+        last_disagree=stamps[1],
         lp_hist={str(b): n for b, n in counts.lp_hist.items()},
     )
 
@@ -1558,7 +1662,12 @@ def run_name_era_batch(
                         continue
                     if arm == "ibkr" and tf == "1d" and ibkr_rescale:
                         inc = rescaled_bars(inc, frozen.ibkr_scale(name, inc.key))  # rule 7
-                    results[arm][tf] = compare_arm(tf, arm, massive, inc, sp, sessions)
+                    witness = (
+                        last_rth_closes(m5, sessions)
+                        if (tf, arm) == ("1d", "ibkr") and m5 is not None
+                        else None
+                    )
+                    results[arm][tf] = compare_arm(tf, arm, massive, inc, sp, sessions, witness)
         alp = data.get(("1d", "alpaca"), {}).get(name)
         seam = bool(alp) and nc.alpaca_epoch_seam_possible(
             alp.served_min, alp.served_max, [s.effective_date for s in in_window]
@@ -1587,6 +1696,13 @@ def run_name_era_batch(
             ),
             "splits_in_window": [f"{x.effective_date}:{x.factor}" for x in in_window],
             "splits_after_era": [f"{x.effective_date}:{x.factor}" for x in after[name]],
+            "split_sources": {
+                x.effective_date.isoformat(): frozen.split_sources.get(name, {}).get(
+                    x.effective_date.isoformat(), ""
+                )
+                for x in after[name]
+            },
+            "massive_tfs": [tf for tf, bars in (("1d", dayfile), ("5m", m5)) if bars is not None],
             "arms": {
                 a: {tf: (asdict(r) if r else None) for tf, r in rs.items()}
                 for a, rs in results.items()
@@ -1691,12 +1807,13 @@ def read_non_split_csv(path: Path | None) -> set[tuple[str, int | None]]:
     return out
 
 
-def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[int, str]:
-    """Eras a systemic verdict of stages A and B stops (session offset, record sanity rate, a
-    volume step), from the result files of this run; empty when those stages did not run. A file
-    that does not carry the current provenance (rule version, archive inputs, the frozen record
-    for stage B, every requested era) is refused, never read."""
-    stops: dict[int, list[str]] = {}
+def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[tuple[int, str], str]:
+    """(era, timeframe) pairs a systemic verdict of stages A and B stops, with their reasons, from
+    the result files of this run; empty when those stages did not run. A file that does not carry
+    the current provenance (rule version, archive inputs, the frozen record for stage B, every
+    requested era) is refused, never read. A file in the earlier per-era layout (a plain reason
+    list) counts for both timeframes."""
+    stops: dict[tuple[int, str], list[str]] = {}
     for name, with_frozen in (("stageA_systemic.json", False), ("stageB_systemic.json", True)):
         path = cfg.out / name
         if not path.exists():
@@ -1709,9 +1826,47 @@ def systemic_stop_eras(cfg: Config, inputs: Mapping[str, str]) -> dict[int, str]
             stale.append("eras")
         if stale:
             raise RuntimeError(f"{path} was computed under other {stale}: rerun its stage")
-        for era, reasons in record["stop_eras"].items():
-            stops.setdefault(int(era), []).extend(reasons)
-    return {e: "+".join(sorted(set(r))) for e, r in stops.items()}
+        for era, by_tf in record["stop_eras"].items():
+            if isinstance(by_tf, list):
+                by_tf = {tf: by_tf for tf in TIMEFRAMES}
+            for tf, reasons in by_tf.items():
+                stops.setdefault((int(era), tf), []).extend(reasons)
+    return {k: "+".join(sorted(set(r))) for k, r in stops.items()}
+
+
+TIMEFRAMES = ("1d", "5m")
+
+
+def apply_timeframe_stops(
+    outcomes: Mapping[tuple[str, int], tuple[str, str]],
+    cell_timeframes: Mapping[tuple[str, int], tuple[str, ...]],
+    systemic: Mapping[tuple[int, str], str],
+    price: Mapping[tuple[int, str], str],
+) -> dict[tuple[str, int], tuple[str, str]]:
+    """Cell outcomes after the per-timeframe era stops. ``cell_timeframes`` are the timeframes a
+    cell was judged on, else the timeframes Massive holds for it, else both. A stage A or B
+    ``systemic`` stop (a failure of the file itself) reaches every cell of its timeframe, a
+    ``no_detector`` or non-split-convention cell included; a stage C ``price`` stop (a failure of
+    the price detector) cannot reach a cell no detector judged. A cell stops when every one of its
+    timeframes is stopped; a cell Massive loads nothing for (not listed, unmapped) never stops."""
+    out: dict[tuple[str, int], tuple[str, str]] = {}
+    never = (nc.OUTCOME_NOT_LISTED, nc.OUTCOME_UNMAPPED)
+    detector_less = (nc.OUTCOME_NO_DETECTOR,)
+    for (name, era), (outcome, reason) in outcomes.items():
+        tfs = cell_timeframes.get((name, era)) or TIMEFRAMES
+        why: list[str] = []
+        for tf in tfs:
+            if outcome in never:
+                break
+            if (era, tf) in systemic:
+                why.append(f"{tf}:{systemic[(era, tf)]}")
+            elif (era, tf) in price and outcome not in detector_less:
+                why.append(f"{tf}:{price[(era, tf)]}")
+        if outcome not in never and len(why) == len(tfs):
+            out[(name, era)] = (nc.OUTCOME_STOP, "systemic_stop:" + "+".join(why))
+        else:
+            out[(name, era)] = (outcome, reason)
+    return out
 
 
 _TAPES_SQL = """
@@ -1760,16 +1915,26 @@ def ledger_row(
     splits_after: list[str],
     tapes: Mapping[str, list[float]],
     session_id: str,
+    sources: Mapping[str, str] | None = None,
+    incumbent_rescaled: bool = False,
 ) -> dict[str, Any]:
     """One disagreement-ledger row with the two witnesses available without new data: the frozen
     corporate-action list (every split that explains the era's cumulative scale), and Massive's
     own tape step at the cited split's date (``tapes`` comes from the name part). A case with
-    neither stays unresolved; no witness is invented."""
+    neither stays unresolved; no witness is invented. Two guards: a frozen witness whose cited
+    splits all come from Massive's own reference (``massive_reference``) cannot convict the
+    incumbent (``witness_not_independent``), and a Massive tape that contradicts the frozen
+    witness leaves the case unresolved (``witness_contradiction``). ``incumbent_rescaled`` marks a
+    route rule 7 rescaled (a residual of f is then a ``rescale_conflict``)."""
     window = [(s.split(":")[0], float(s.split(":")[1])) for s in splits_after]
     witnesses: list[nc.Witness] = []
+    override = ""
     frozen = None if level_log is None else nc.frozen_split_witness(math.exp(level_log), window)
     if frozen is not None:
         witnesses.append(frozen)
+        cited_sources = {(sources or {}).get(day, "") for day in frozen.splits}
+        if frozen.supports != "incumbent" and cited_sources == {"massive_reference"}:
+            override = "witness_not_independent"  # Massive cannot witness against the incumbent
         cited = next(
             ((e, f) for e, f in window if frozen.citation.endswith(f"split {e} x{f}")), None
         )
@@ -1777,17 +1942,23 @@ def ledger_row(
             tw = nc.massive_tape_witness(*tapes[cited[0]], cited[1], cited[0])
             if tw is not None:
                 witnesses.append(tw)
+            else:
+                override = override or "witness_contradiction"
     row = nc.ledger_verdict(
-        name, f"{era}/{tf}", claimed, witnesses, nc.DISPUTE_MASSIVE_VS_IBKR, session_id
+        name, f"{era}/{tf}", claimed, witnesses, nc.DISPUTE_MASSIVE_VS_IBKR, session_id,
+        incumbent_rescaled,
+    )  # fmt: skip
+    verdict, decided_by = (
+        (nc.VERDICT_UNRESOLVED, override) if override else (row.verdict, row.decided_by)
     )
     return {
         "name": name,
         "span": f"{era}/{tf}",
         "claimed_defect": claimed,
         "witnesses": "; ".join(f"{w.kind}={w.citation}" for w in witnesses) or "none available",
-        "verdict": row.verdict,
-        "deciding_session_id": session_id if row.verdict != nc.VERDICT_UNRESOLVED else "",
-        "decided_by": row.decided_by,
+        "verdict": verdict,
+        "deciding_session_id": session_id if verdict != nc.VERDICT_UNRESOLVED else "",
+        "decided_by": decided_by,
     }
 
 
@@ -1971,6 +2142,18 @@ def era_verdicts(
     unres = unresolved or {}
     ref_eras = [e for e in eras if e in nc.REFERENCE_ERAS]
     for tf in ("1d", "5m"):
+        # the definition witness (1d): without it the close_definition bars are not explained
+        witnessed = {
+            e: tf == "1d" and nc.close_definition_witnessed(judged.get((e, tf), [])) for e in eras
+        }
+        judged = {
+            **judged,
+            **{
+                (e, tf): [nc.fold_definition(f) for f in judged.get((e, tf), [])]
+                for e in eras
+                if not witnessed[e] and judged.get((e, tf))
+            },
+        }
         hist = {e: _pooled_hist(judged.get((e, tf), [])) for e in eras}
         for era in eras:
             ref = [
@@ -1983,9 +2166,12 @@ def era_verdicts(
                 nc.era_counters(judged.get((e, tf), []), unres.get((e, tf), 0), cap) for e in ref
             )
             verdict = nc.judge_era(
-                tf, judged.get((era, tf), []), thresholds, cap, unres.get((era, tf), 0)
+                tf, judged.get((era, tf), []), thresholds, cap, unres.get((era, tf), 0),
+                witnessed[era],
+            )  # fmt: skip
+            out[(era, tf)] = replace(
+                verdict, calibration=",".join(map(str, ref)) or "self", cap_bin=cap
             )
-            out[(era, tf)] = replace(verdict, calibration=",".join(map(str, ref)) or "self")
     return out
 
 
@@ -1997,8 +2183,56 @@ def _pooled_hist(names: list[nc.NameFacts]) -> Counter[int]:
     return total
 
 
+CONTRIBUTORS_PER_STOP = 50
+
+
+def write_stop_contributors(
+    cfg: Config,
+    verdicts: Mapping[tuple[int, str], nc.EraVerdict],
+    judged: Mapping[tuple[int, str], list[nc.NameFacts]],
+    arm_results: Mapping[tuple[str, int], Mapping[str, ArmResult | None]],
+) -> None:
+    """Diagnostics, no verdict: for every stopped (era, timeframe) the names with the most
+    unexplained disagreement, with class mix, unexplained share, median log ratio and the first and
+    last disagreeing timestamp (one window or spread over the era)."""
+    rows: list[dict[str, Any]] = []
+    for (era, tf), v in sorted(verdicts.items()):
+        if v.verdict != nc.ERA_STOP:
+            continue
+        ranked = sorted(
+            judged.get((era, tf), []),
+            key=lambda f: (-f.counts.unexplained(v.cap_bin), f.name),
+        )[:CONTRIBUTORS_PER_STOP]
+        for f in ranked:
+            r = arm_results.get((f.name, era), {}).get(tf)
+            n = f.counts.n_matched
+            rows.append(
+                {
+                    "era": era,
+                    "timeframe": tf,
+                    "name": f.name,
+                    "n_matched": n,
+                    "unexplained": f.counts.unexplained(v.cap_bin),
+                    "unexplained_share": f.counts.unexplained(v.cap_bin) / n,
+                    "class_mix": json.dumps(f.counts.n_class, sort_keys=True),
+                    "median_log_ratio": f.median_log_ratio,
+                    "first_disagree": r.first_disagree if r else "",
+                    "last_disagree": r.last_disagree if r else "",
+                }
+            )
+    fields = [
+        "era", "timeframe", "name", "n_matched", "unexplained", "unexplained_share",
+        "class_mix", "median_log_ratio", "first_disagree", "last_disagree",
+    ]  # fmt: skip
+    write_csv(cfg.out / "stageC_stop_contributors.csv", rows, fields)
+
+
 def _close_convention_unresolved(verdict: nc.EraVerdict) -> bool:
-    return verdict.verdict == nc.ERA_UNRESOLVED and "close_convention" in verdict.reasons
+    """The 1d verdict is unresolved for a close convention or a witnessed close definition: the
+    cells are then judged on 5m alone."""
+    return verdict.verdict == nc.ERA_UNRESOLVED and bool(
+        {"close_convention", "close_definition_witnessed"} & set(verdict.reasons)
+    )
 
 
 def assemble_stage_c(
@@ -2010,7 +2244,8 @@ def assemble_stage_c(
     archive_inputs: Mapping[str, str],
     tapes: Mapping[str, Mapping[str, list[float]]],
 ) -> dict[str, Any]:
-    parts = {e: p for e, p in all_parts(cfg, "name_checks").items() if p["key"] == keys.get(e)}
+    # a part computed under another key raises: no silent filtering of stale eras
+    parts = all_parts(cfg, "name_checks", keys=keys)
     eras = sorted(parts)
     judged: dict[tuple[int, str], list[nc.NameFacts]] = {}
     arm_results: dict[tuple[str, int], dict[str, ArmResult | None]] = {}
@@ -2033,6 +2268,7 @@ def assemble_stage_c(
     unmatched_rows: list[dict[str, Any]] = []
     ledger: list[dict[str, Any]] = []
     outcomes: dict[tuple[str, int], tuple[str, str]] = {}
+    judged_tfs: dict[tuple[str, int], tuple[str, ...]] = {}
     classes_total: Counter[str] = Counter()
     carriers: dict[int, set[str]] = {}
     for (era, tf), v in verdicts.items():
@@ -2054,6 +2290,7 @@ def assemble_stage_c(
                 # rule 4, second half: a carrier of concentrated unexplained pairs is flagged
                 j = NameJudgement(nc.OUTCOME_FLAGGED, "other_concentration", j.judged)
             outcomes[(name, era)] = (j.outcome, j.reason)
+            judged_tfs[(name, era)] = j.judged or tuple(d["massive_tfs"])
             row: dict[str, Any] = {
                 "name": name,
                 "era": era,
@@ -2118,6 +2355,7 @@ def assemble_stage_c(
                         name, era, tf, f"level_class:{cls}",
                         pre if math.isfinite(pre) else r["median_log_ratio"],
                         d["splits_after_era"], tapes.get(name, {}), session_id,
+                        d["split_sources"], bool(d["ibkr_rescales"]),
                     )
                 )  # fmt: skip
             if j.outcome == nc.OUTCOME_FLAGGED and j.reason.startswith("price_agreement"):
@@ -2127,6 +2365,7 @@ def assemble_stage_c(
                     ledger_row(
                         name, era, tf, j.reason, r["median_log_ratio"] if r else None,
                         d["splits_after_era"], tapes.get(name, {}), session_id,
+                        d["split_sources"], bool(d["ibkr_rescales"]),
                     )
                 )  # fmt: skip
             if d["probable_ibkr_non_split_adjustment"]:
@@ -2153,6 +2392,9 @@ def assemble_stage_c(
             "verdict": v.verdict,
             "reasons": ";".join(v.reasons),
             "calibrated_on": v.calibration,
+            "close_share_dayfile": v.share_dayfile,
+            "close_share_last_trade": v.share_last_trade,
+            "close_definition_witnessed": v.close_definition_witnessed,
             "n_judged_names": v.n_judged,
             "n_matched": v.n_matched,
             "n_return_pairs": v.n_ret_pairs,
@@ -2220,20 +2462,30 @@ def assemble_stage_c(
         "decided_by",
     ]
     write_csv(cfg.out / "stageC_disagreement_ledger.csv", ledger, ledger_fields)
-    # an era stop is a stop of either timeframe or of stage A or B (a real stop outranks unresolved)
-    stops = {**systemic_stop_eras(cfg, archive_inputs)}
-    for (era, tf), v in sorted(verdicts.items()):
-        if v.verdict == nc.ERA_STOP:
-            reason = f"{tf}:" + "+".join(v.reasons)
-            stops[era] = f"{stops[era]}+{reason}" if era in stops else reason
+    # the era stop is PER TIMEFRAME (amendment after the r5h results, design 8a): a stage C verdict
+    # or a stage A/B systemic failure stops the timeframe it judges, a real stop outranks unresolved
+    systemic = systemic_stop_eras(cfg, archive_inputs)
+    price = {
+        (e, tf): "+".join(v.reasons)
+        for (e, tf), v in sorted(verdicts.items())
+        if v.verdict == nc.ERA_STOP
+    }
+    stops = {
+        k: "+".join(filter(None, [systemic.get(k), price.get(k)]))
+        for k in sorted({*systemic, *price})
+    }
+    write_stop_contributors(cfg, verdicts, judged, arm_results)
     unresolved_1d = sorted(e for e in eras if _close_convention_unresolved(verdicts[(e, "1d")]))
     expected = [(n, e) for n in [*mapped, *unmapped] for e in cfg.eras]
-    closed = nc.close_partition(expected, outcomes, stop_eras=stops)
+    closed = nc.close_partition(
+        expected, apply_timeframe_stops(outcomes, judged_tfs, systemic, price)
+    )
     gap_additions = sorted(
         {f"{n}|{e}|{r}" for (n, e), (o, r) in outcomes.items() if o == nc.OUTCOME_FLAGGED}
     )
     write_json(cfg.out / "stageC_gap_list_additions.json", gap_additions)
-    write_json(cfg.out / "stageC_stop_eras.json", {str(e): r for e, r in sorted(stops.items())})
+    stop_view = {f"{e}/{tf}": r for (e, tf), r in sorted(stops.items())}
+    write_json(cfg.out / "stageC_stop_eras.json", stop_view)
     reasons = Counter(f"{o}:{r}" if r else o for (o, r) in outcomes.values())
     summary: dict[str, Any] = {
         "names_judged": len({n for n, _ in outcomes}),
@@ -2242,7 +2494,7 @@ def assemble_stage_c(
         "eras": eras,
         "era_verdicts": {f"{e}/{tf}": v.verdict for (e, tf), v in sorted(verdicts.items())},
         "unresolved_1d_eras": unresolved_1d,
-        "stop_eras_all_sources": {str(e): r for e, r in sorted(stops.items())},
+        "stop_eras_all_sources": stop_view,
         "disagreement_classes_total": dict(classes_total),
         "ledger_rows": len(ledger),
         "ledger_verdicts": dict(Counter(r["verdict"] for r in ledger)),
@@ -2402,10 +2654,13 @@ SQL_STATEMENTS: dict[str, tuple[str, tuple[Any, ...]]] = {
     "_VOL_SQL": (_VOL_SQL, ("ibkr", "smart_trades", _PROBE_START, _PROBE_END)),
     "_BARS_SQL": (_BARS_SQL, ("1d", "massive", "sip_flat", ["A"], _PROBE_START, _PROBE_END)),
     "_TAPES_SQL": (_TAPES_SQL, (["A"], [date(2010, 3, 1)])),
-    "_RAW_FINGERPRINT_SQL": (_RAW_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END, ["a|b|1d"])),
+    "_RAW_FINGERPRINT_SQL": (
+        _RAW_FINGERPRINT_SQL,
+        (_PROBE_START, _PROBE_END, ["a"], ["b"], ["1d"]),
+    ),
     "_REVISION_FINGERPRINT_SQL": (
         _REVISION_FINGERPRINT_SQL,
-        (_PROBE_START, _PROBE_END, ["a|b|1d"]),
+        (_PROBE_START, _PROBE_END, ["a"], ["b"], ["1d"]),
     ),
 }
 

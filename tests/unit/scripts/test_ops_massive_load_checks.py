@@ -183,7 +183,7 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5h")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5i")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_part(cfg, "volume_bands", 2010, {"key": base})
     assert runner.part_current(cfg, "volume_bands", 2010, base)
@@ -254,10 +254,10 @@ def test_stage_c_refuses_stage_a_and_b_files_without_the_current_provenance(
             tmp_path / name,
             {
                 "provenance": runner.provenance(cfg, inputs, frozen=with_frozen),
-                "stop_eras": {"2010": ["session"]},
+                "stop_eras": {"2010": {"5m": ["session"]}},
             },
         )
-    assert runner.systemic_stop_eras(cfg, inputs) == {2010: "session"}
+    assert runner.systemic_stop_eras(cfg, inputs) == {(2010, "5m"): "session"}
     with pytest.raises(RuntimeError, match="archive_inputs"):  # the archive changed
         runner.systemic_stop_eras(cfg, {"manifest.jsonl": "bb"})
     wider = runner.Config(tmp_path, tmp_path, cfg.seed, cfg.days_per_era, (2010, 2011), False, 0.0)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 
 import numpy as np
@@ -11,7 +12,7 @@ import pytest
 from scripts.ops.bars import ops_massive_load_checks as runner
 from src.intelligence.bars import massive_name_checks as nc
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.bars.split_rescale import SplitFactor
+from src.intelligence.bars.split_rescale import SplitFactor, scales_for_day_array
 
 NS = 1_000_000_000
 
@@ -242,9 +243,7 @@ def test_the_calendar_audit_rescales_the_ibkr_1d_series_before_the_comparison() 
     unadjusted_ibkr = _daily(days, adjusted * np.where(np.array(days) <= effective, 2.0, 1.0))
     before = runner.compare_arm("1d", "ibkr", raw_massive, unadjusted_ibkr, split, {})
     assert before is not None and before.n_ret_agree < before.n_ret_pairs  # IBKR's recorded defect
-    fixed = runner.rescaled_bars(
-        unadjusted_ibkr, runner.lc.split_scale_for_days(unadjusted_ibkr.key, split)
-    )
+    fixed = runner.rescaled_bars(unadjusted_ibkr, scales_for_day_array(unadjusted_ibkr.key, split))
     after = runner.compare_arm("1d", "ibkr", raw_massive, fixed, split, {})
     assert after is not None and after.n_agree == 150 and after.n_ret_agree == after.n_ret_pairs
 
@@ -649,3 +648,74 @@ def test_volume_band_parts_are_checked_against_their_per_era_key(tmp_path) -> No
     assert set(runner.all_parts(cfg, "volume_bands", keys={2010: key})) == {2010}
     with pytest.raises(RuntimeError, match="another key"):
         runner.all_parts(cfg, "volume_bands", keys={2010: {**key, "exchange_map_sha256": "b"}})
+
+
+def test_a_frozen_witness_from_massive_reference_alone_cannot_convict_the_incumbent() -> None:
+    splits = ["2020-06-01:3.0"]
+    level = math.log(1 / 3)
+    own = runner.ledger_row(
+        "A", 2010, "1d", "c", level, splits, {}, "s", {"2020-06-01": "massive_reference"}
+    )
+    assert own["verdict"] == "unresolved" and own["decided_by"] == "witness_not_independent"
+    independent = runner.ledger_row(
+        "A", 2010, "1d", "c", level, splits, {}, "s", {"2020-06-01": "calendar_audit"}
+    )
+    assert independent["verdict"] == "incumbent_defect"
+    mixed = runner.ledger_row(
+        "A", 2010, "1d", "c", level, splits, {}, "s",
+        {"2020-06-01": "calendar_audit+massive_reference"},
+    )  # fmt: skip
+    assert mixed["verdict"] == "incumbent_defect"  # one independent source is enough
+
+
+def test_a_massive_tape_that_contradicts_the_frozen_witness_is_unresolved() -> None:
+    splits = ["2020-06-01:3.0"]
+    level = math.log(1 / 3)
+    agree = runner.ledger_row(
+        "A", 2010, "1d", "c", level, splits, {"2020-06-01": [300.0, 100.0]}, "s", {}
+    )
+    assert agree["verdict"] == "incumbent_defect"  # the tape steps by the factor too
+    contra = runner.ledger_row(
+        "A", 2010, "1d", "c", level, splits, {"2020-06-01": [100.0, 100.0]}, "s", {}
+    )
+    assert contra["verdict"] == "unresolved" and contra["decided_by"] == "witness_contradiction"
+
+
+def test_duplicate_key_rows_enter_the_gap_list() -> None:
+    raw = runner.RawFile(
+        np.array(["A", "B"]),
+        np.array([0, 0, 1]),
+        np.array([5, 5, 7], dtype=np.int64),  # A repeats (A, 5)
+        np.full(3, 10.0), np.full(3, 11.0), np.full(3, 9.0), np.full(3, 10.0), np.full(3, 1.0),
+    )  # fmt: skip
+    log = runner.DefectLog()
+    log.add(date(2010, 3, 1), raw, runner.sanity_of(raw), 0, 0, "day")
+    assert log.gap == {"A|2010-03-01|duplicate_key"}
+
+
+def test_empty_inputs_raise_the_declared_error_before_any_division_or_index(tmp_path) -> None:
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    archive = runner.Archive(
+        {runner.MINUTE: {}, runner.DAY: {}}, {runner.MINUTE: {}, runner.DAY: {}}, {}
+    )
+    with pytest.raises(runner.lc.VacuousCheckError, match="publish lag"):
+        runner.run_publish_and_manifest(cfg, archive, [date(2010, 3, 1)])
+    zero = runner.lc.DayVsMinuteCounts(0, 3, 0, 0, 0, 0, 0)
+    runner.write_part(
+        cfg, "day_vs_minute", 2010,
+        {"key": runner.sample_key(cfg, {}), "era": 2010,
+         "rows": [{"day": "2010-03-01", "basis": "rth", **zero.__dict__}]},
+    )  # fmt: skip
+    with pytest.raises(runner.lc.VacuousCheckError, match="matched no name"):
+        runner.assemble_day_vs_minute(cfg, {})
+
+
+def test_stage_c_refuses_a_part_computed_under_another_key(tmp_path) -> None:
+    from pathlib import Path
+
+    cfg = runner.Config(Path(tmp_path), Path(tmp_path), 1, 6, (2010,), False, 0.0)
+    runner.write_part(cfg, "name_checks", 2010, {"key": {"seed": 1}, "era": 2010, "names": {}})
+    with pytest.raises(RuntimeError, match="another key"):
+        runner.assemble_stage_c(cfg, ["A"], [], {2010: {"seed": 2}}, "s", {}, {})

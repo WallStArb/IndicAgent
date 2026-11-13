@@ -22,6 +22,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
+import numpy as np
+
 from src.intelligence.bars.selection import SESSION_TZ, Candidate, session_date
 from src.intelligence.bars.vendor_kind import (
     KIND_MASSIVE_1D,
@@ -94,6 +96,17 @@ def scales_for_sessions(days: Iterable[date], splits: Sequence[SplitFactor]) -> 
                 scale *= split.factor
         scales[day] = scale
     return scales
+
+
+def scales_for_day_array(days: np.ndarray, splits: Sequence[SplitFactor]) -> np.ndarray:
+    """``scales_for_sessions`` vectorised over a ``datetime64[D]`` array: the same arithmetic (a
+    split's effective date is the last session on the old scale; factors multiply onto 1.0 in
+    effective-date order). The splits are the FROZEN corporate-action list, never a factor fitted
+    from the compared series."""
+    scale = np.ones(len(days), dtype=np.float64)
+    for split in sorted(splits, key=lambda sp: sp.effective_date):
+        scale = np.where(days <= np.datetime64(split.effective_date), scale * split.factor, scale)
+    return scale
 
 
 def rescale_volume(volume: int | None, scale: float) -> int | None:

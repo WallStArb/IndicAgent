@@ -33,7 +33,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 import numpy as np
@@ -75,6 +75,10 @@ SCALE_CLASS_BAR_TOL = 0.005
 ROUNDING_INCREMENTS = 1.5
 
 CLASS_ROUNDING, CLASS_LAST_PRINT, CLASS_SCALE = "rounding", "last_print", "scale"
+CLASS_CLOSE_DEFINITION = "close_definition"  # 1d: incumbent close is Massive's last RTH 5m close
+#: the same, for a bar that is also within rounding tolerance of the day-file close: without a
+#: witness it folds back into ``rounding``, never into ``other``
+CLASS_CLOSE_DEFINITION_ROUNDING = "close_definition_rounding"
 CLASS_TIME_SHIFT, CLASS_OTHER = "time_shift", "other"
 CLASSES = (CLASS_ROUNDING, CLASS_LAST_PRINT, CLASS_SCALE, CLASS_TIME_SHIFT, CLASS_OTHER)
 
@@ -110,6 +114,12 @@ class AgreementCounts:
     stable_offset: bool = False
     break_step: float = math.nan
     break_pre_median: float = math.nan  # median log ratio before the break (Massive / incumbent)
+    #: definition witness (1d, design 8a sixth review R4): over the matched days with a Massive last
+    #: RTH 5m close, the days where the incumbent close matches the day-file close and the days
+    #: where it matches the last-trade close (``WITNESS_REL_TOL`` median-relative test)
+    n_alt: int = 0
+    n_alt_dayfile: int = 0
+    n_alt_last: int = 0
 
     def explained_bars(self, label: str, cap_bin: int) -> int:
         """Bars of one explained class; ``last_print`` only within the size cap."""
@@ -152,6 +162,9 @@ class AgreementCounts:
             self.n_intra + other.n_intra,
             self.n_intra_agree + other.n_intra_agree,
             dict(hist),
+            n_alt=self.n_alt + other.n_alt,
+            n_alt_dayfile=self.n_alt_dayfile + other.n_alt_dayfile,
+            n_alt_last=self.n_alt_last + other.n_alt_last,
         )
 
 
@@ -213,9 +226,10 @@ def classify_disagreements(
     massive_prev_adj: Ohlc | None,
     massive_next_adj: Ohlc | None,
     increment: float,
-    name_median_log_ratio: float,
-    stable_offset: bool,
+    scale_centers: Sequence[float],
+    scale_all: bool,
     last_bucket: np.ndarray | None = None,
+    last_trade_close: np.ndarray | None = None,
 ) -> np.ndarray:
     """A class label per matched bar (object array; '' where the bar agrees).
 
@@ -259,15 +273,26 @@ def classify_disagreements(
     last_print = ohl & close_in_range
     with np.errstate(divide="ignore", invalid="ignore"):
         bar_log = np.log(massive_adj[3] / incumbent[3])
-    scale = (
-        np.abs(bar_log - name_median_log_ratio) <= SCALE_CLASS_BAR_TOL
-        if stable_offset
-        else np.zeros(n, dtype=bool)
-    )
+    # a stable offset (one centre), a split-sized level break (the levels before and after it) or
+    # a level drift (every disagreeing bar) is the scale class that level_class_share measures
+    scale = np.full(n, scale_all, dtype=bool)
+    for centre in scale_centers:
+        scale |= np.abs(bar_log - centre) <= SCALE_CLASS_BAR_TOL
+    # the incumbent close is Massive's last regular-hours trade (its definition of the close)
+    definition = np.zeros(n, dtype=bool)
+    if last_trade_close is not None:
+        definition = np.abs(last_trade_close - incumbent[3]) <= (
+            HALF_INCREMENT * increment + WITNESS_REL_TOL * np.abs(incumbent[3])
+        )
     pending = ~agree
+    take = pending & scale  # a stable offset explains its bars before any look-alike class
+    labels[take] = CLASS_SCALE
+    pending &= ~take
+    take = pending & definition
+    labels[take] = np.where(rounding[take], CLASS_CLOSE_DEFINITION_ROUNDING, CLASS_CLOSE_DEFINITION)
+    pending &= ~take
     for label, mask in (
         (CLASS_ROUNDING, rounding),
-        (CLASS_SCALE, scale),  # a stable offset explains its bars before any look-alike class
         (CLASS_TIME_SHIFT, shift),
         (CLASS_LAST_PRINT, last_print),
     ):
@@ -308,6 +333,7 @@ def price_agreement(
     incumbent_pos: np.ndarray | None = None,
     massive_prev_scale: np.ndarray | None = None,
     massive_next_scale: np.ndarray | None = None,
+    last_trade_close: np.ndarray | None = None,
 ) -> AgreementCounts:
     """Level and (when positions are given) return agreement of matched bars (arrays aligned bar
     for bar). Raises when nothing matched."""
@@ -336,17 +362,42 @@ def price_agreement(
     break_step, break_pre = (
         level_break_step(log_ratio) if level_share < NAME_ERA_AGREE_MIN else (math.nan, math.nan)
     )
-    labels = classify_disagreements(
-        adj, incumbent, prev, nxt, increment, median_log, stable, last_bucket  # type: ignore[arg-type]
-    )
-    disagree = ~fields[3]
-    classes = Counter(str(x) for x in labels[disagree])
-    hist = last_print_histogram(np.where(disagree, labels, ""), adj[3], incumbent[3])
     pairs = pair_ok = bars = bar_ok = 0
     if massive_pos is not None and incumbent_pos is not None:
         pairs, pair_ok, bars, bar_ok = return_agreement(
             adj, incumbent, massive_pos, incumbent_pos, increment  # type: ignore[arg-type]
         )
+    level = scale_class(
+        median_log, stable, level_share, pair_ok / pairs if pairs else math.nan, break_step
+    )
+    centres = (
+        [median_log]
+        if stable
+        else [break_pre, break_pre + break_step] if math.isfinite(break_step) else []
+    )
+    labels = classify_disagreements(
+        adj,
+        incumbent,
+        prev,
+        nxt,
+        increment,
+        centres,
+        level == SCALE_LEVEL_DRIFT,
+        last_bucket,  # type: ignore[arg-type]
+        None if last_trade_close is None else last_trade_close / scale,
+    )
+    disagree = ~fields[3]
+    classes = Counter(str(x) for x in labels[disagree])
+    hist = last_print_histogram(np.where(disagree, labels, ""), adj[3], incumbent[3])
+    n_alt = n_alt_day = n_alt_last = 0
+    if last_trade_close is not None:
+        have = np.isfinite(last_trade_close)
+        tol = HALF_INCREMENT * increment + WITNESS_REL_TOL * np.abs(incumbent[3])
+        day_ok = np.abs(adj[3] - incumbent[3]) <= tol
+        last_ok = np.abs(last_trade_close / scale - incumbent[3]) <= tol
+        n_alt = int(have.sum())
+        n_alt_day = int((have & day_ok).sum())
+        n_alt_last = int((have & last_ok).sum())
     return AgreementCounts(
         n,
         int(fields[3].sum()),
@@ -362,6 +413,9 @@ def price_agreement(
         stable,
         break_step,
         break_pre,
+        n_alt,
+        n_alt_day,
+        n_alt_last,
     )
 
 
@@ -466,6 +520,43 @@ def era_counters(
     )
 
 
+def definition_shares(names: Sequence[NameFacts]) -> tuple[float, float]:
+    """(day-file match share, last-trade match share) of the incumbent close over the judged
+    names' days that have a Massive last RTH 5m close; NaN without such a day."""
+    n = sum(f.counts.n_alt for f in names)
+    if n == 0:
+        return math.nan, math.nan
+    return (
+        sum(f.counts.n_alt_dayfile for f in names) / n,
+        sum(f.counts.n_alt_last for f in names) / n,
+    )
+
+
+def close_definition_witnessed(names: Sequence[NameFacts]) -> bool:
+    """The incumbent's 1d close follows Massive's last regular-hours trade rather than the
+    official day-file close: the last-trade match exceeds the day-file match by
+    ``DEFINITION_MARGIN``. Calibrated on 2014 to 2026, where the day-file match is 90 to 99
+    percent and the last-trade match 30 to 40 (a margin near -0.55), so no reference era trips it;
+    2006 reads +0.50."""
+    day, last = definition_shares(names)
+    return not math.isnan(day) and last - day > DEFINITION_MARGIN
+
+
+def fold_definition(f: NameFacts) -> NameFacts:
+    """Without a witness the close_definition bars are not explained: they count as ``other``."""
+    n = f.counts.n_class.get(CLASS_CLOSE_DEFINITION, 0)
+    n_round = f.counts.n_class.get(CLASS_CLOSE_DEFINITION_ROUNDING, 0)
+    if not n and not n_round:
+        return f
+    mix = dict(f.counts.n_class)
+    mix.pop(CLASS_CLOSE_DEFINITION, None)
+    mix.pop(CLASS_CLOSE_DEFINITION_ROUNDING, None)
+    mix[CLASS_OTHER] = mix.get(CLASS_OTHER, 0) + n
+    if n_round:
+        mix[CLASS_ROUNDING] = mix.get(CLASS_ROUNDING, 0) + n_round
+    return replace(f, counts=replace(f.counts, n_class=mix))
+
+
 def _unexplained(f: NameFacts, cap_bin: int) -> bool:
     return f.counts.unexplained(cap_bin) > OTHER_INVESTIGATE_MAX_SHARE * f.counts.n_matched
 
@@ -518,6 +609,10 @@ class EraVerdict:
     thresholds: dict[str, float]
     class_mix: dict[str, int]
     calibration: str = ""  # the eras that calibrated the thresholds and the cap, or "self"
+    cap_bin: int = 0  # the last_print size cap the era was judged at (for diagnostics)
+    close_definition_witnessed: bool = False
+    share_dayfile: float = math.nan  # definition witness shares (1d), both carried in the era table
+    share_last_trade: float = math.nan
 
 
 def judge_era(
@@ -526,6 +621,7 @@ def judge_era(
     thresholds: Mapping[str, float],
     cap_bin: int,
     n_identity_unresolved: int = 0,
+    definition_witnessed: bool = False,
 ) -> EraVerdict:
     """The verdict of one era and timeframe (round 5 rules 2 to 5).
 
@@ -593,15 +689,23 @@ def judge_era(
         reasons.append("empty_clean_set")
     if reasons:
         verdict = ERA_STOP
+    elif definition_witnessed and timeframe == "1d":
+        # the incumbent's close is Massive's last regular-hours trade, the day file the official
+        # close: a definition difference, never a stop (the served policy takes Massive for the era)
+        verdict = ERA_UNRESOLVED
+        reasons.append("close_definition_witnessed")
     elif convention or residual > OTHER_INVESTIGATE_MAX_SHARE:
         verdict = ERA_UNRESOLVED if timeframe == "1d" else ERA_OK_CONVENTION
         reasons.append("return_residual_explained" if timeframe != "1d" else "close_convention")
     else:
         verdict = ERA_OK
     mix = dict(total.n_class)
+    day_share, last_share = definition_shares(names) if timeframe == "1d" else (math.nan, math.nan)
     return EraVerdict(
         timeframe, verdict, tuple(reasons), counters.n_judged, total.n_matched, total.n_ret_pairs,
         residual, other_share, len(carriers), concentration, counters, dict(thresholds), mix,
+        close_definition_witnessed=definition_witnessed and timeframe == "1d",
+        share_dayfile=day_share, share_last_trade=last_share,
     )  # fmt: skip
 
 
@@ -676,6 +780,8 @@ def level_break_step(log_ratio: np.ndarray) -> tuple[float, float]:
 #: A level offset is "stable" when the interquartile range of the per-bar log close ratio is at
 #: most 50 bp (design 8a, amendment 2026-11-13 constants table).
 STABLE_LEVEL_IQR = 0.005
+WITNESS_REL_TOL = 2e-4  # median-relative close match of the definition witness (2 bp)
+DEFINITION_MARGIN = 0.25  # last-trade match share must exceed the day-file share by this
 WITNESS_TOL = 0.01  # relative match of a residual to a split product (frozen-list witness)
 TAPE_WITNESS_TOL = 0.02  # relative match of Massive's tape step to the recorded split factor
 WITNESS_MAX_SPLITS = 16  # subsets of the frozen splits are enumerated up to this many
@@ -893,8 +999,9 @@ VERDICT_UNRESOLVED = "unresolved"
 @dataclass(frozen=True)
 class Witness:
     kind: str
-    supports: str  # "massive" or "incumbent"
+    supports: str  # "massive", "incumbent", or "incumbent_overscaled" (frozen residual of f)
     citation: str
+    splits: tuple[str, ...] = ()  # effective dates of the frozen splits a frozen witness cites
 
 
 @dataclass(frozen=True)
@@ -915,6 +1022,7 @@ def ledger_verdict(
     witnesses: Sequence[Witness],
     dispute_kind: str,
     session_id: str,
+    incumbent_rescaled: bool = False,
 ) -> LedgerRow:
     """Decide one disputed case by the stated precedence. The first witness kind in
     ``WITNESS_PRECEDENCE`` present decides (several witnesses of one kind must agree, else the case
@@ -938,7 +1046,16 @@ def ledger_verdict(
             return LedgerRow(
                 name, span, claimed_defect, tuple(witnesses), VERDICT_UNRESOLVED, session_id, kind
             )
-        if sides == {"incumbent"}:
+        if sides == {"incumbent_overscaled"}:
+            # the incumbent was divided once too many: an incumbent or rescale problem, never a
+            # Massive defect; when rule 7 rescaled that route the calendar_audit row is suspect
+            if incumbent_rescaled:
+                return LedgerRow(
+                    name, span, claimed_defect, tuple(witnesses), VERDICT_UNRESOLVED,
+                    session_id, "rescale_conflict",
+                )  # fmt: skip
+            verdict = VERDICT_INCUMBENT_DEFECT
+        elif sides == {"incumbent"}:
             verdict = VERDICT_MASSIVE_DEFECT
         elif kind == "massive_continuity":
             verdict = VERDICT_UNRESOLVED
@@ -973,8 +1090,8 @@ def frozen_split_witness(
     splits that explain the cumulative scale of the era's bars: every one on or after the era's
     first session. Dividing by a split of factor f moves the bars up to its effective date onto
     the new scale, so an incumbent that lacks the split leaves a residual of 1/f: the dated record
-    explains the dispute and supports Massive. A residual of f points the other way, so the record
-    supports the incumbent there. The residual is tested against the product of EVERY non-empty
+    explains the dispute and supports Massive. A residual of f means the incumbent was divided once too many
+    (``incumbent_overscaled``), never a Massive defect. The residual is tested against the product of EVERY non-empty
     subset of the splits (an incumbent lacking some of them; the count per name is small). The
     witness is cited only when exactly one subset matches: several matching subsets are
     ambiguous and give no witness, as does no match (never invented)."""
@@ -985,7 +1102,7 @@ def frozen_split_witness(
     for mask in range(1, 1 << len(ordered)):
         subset = tuple(ordered[i] for i in range(len(ordered)) if mask >> i & 1)
         product = math.prod(f for _, f in subset)
-        for candidate, supports in ((1.0 / product, "massive"), (product, "incumbent")):
+        for candidate, supports in ((1.0 / product, "massive"), (product, "incumbent_overscaled")):
             if abs(level_factor / candidate - 1.0) <= tol:
                 matches.append((subset, product, supports))
     if len(matches) != 1:
@@ -1000,7 +1117,7 @@ def frozen_split_witness(
             + ", ".join(f"{e} x{f}" for e, f in subset)
             + f" (product x{product})"
         )
-    return Witness("filing_dated_corporate_action", supports, citation)
+    return Witness("filing_dated_corporate_action", supports, citation, tuple(e for e, _ in subset))
 
 
 def massive_tape_witness(

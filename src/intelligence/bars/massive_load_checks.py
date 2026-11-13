@@ -33,8 +33,6 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from src.intelligence.bars.split_rescale import SplitFactor
-
 # --- spec constants (design section 8a) --------------------------------------------------------
 #: Record sanity: high/low consistency must hold on this share of bars.
 SANITY_MIN_CONSISTENT_SHARE = 0.999
@@ -579,16 +577,3 @@ def volume_bands(
 def count_by(items: Iterable[str]) -> dict[str, int]:
     """Sorted counts, for summary JSON."""
     return dict(sorted(Counter(items).items()))
-
-
-# --- adjustment scale (stages B volume bands and C price checks) -------------------------------
-def split_scale_for_days(days: np.ndarray, splits: Sequence[SplitFactor]) -> np.ndarray:
-    """The cumulative factor dividing the prices (and multiplying the volume) of each session date,
-    1.0 when no split covers it. ``days`` is a ``datetime64[D]`` array. Same arithmetic as
-    ``split_rescale.scales_for_sessions`` (a split's effective date is the last session on the old
-    scale; factors multiply in effective-date order), vectorised. The splits are the FROZEN
-    corporate-action list, never a factor fitted from the compared series."""
-    scale = np.ones(len(days), dtype=np.float64)
-    for split in sorted(splits, key=lambda sp: sp.effective_date):
-        scale = np.where(days <= np.datetime64(split.effective_date), scale * split.factor, scale)
-    return scale

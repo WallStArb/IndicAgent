@@ -271,6 +271,9 @@ def _detail(massive: Series, incumbent: Series) -> dict:
         "listed": True,
         "massive_hole": False,
         "hole_witness": "",
+        "split_sources": {},
+        "massive_tfs": ["1d", "5m"],
+        "ibkr_rescales": [],
         "preclass": nc.ERA_NO_ACTION,
         "alpaca_epoch_seam_possible": False,
         "probable_ibkr_non_split_adjustment": False,
@@ -312,7 +315,7 @@ def test_stage_c_assembly_stops_the_injected_era_and_only_that_era(tmp_path) -> 
     cfg, keys = _write_run(tmp_path, 2010)  # 10 of 40 names: x100 on all fields
     summary = runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {}, {})
     counts = summary["partition"]["counts"]
-    assert set(summary["stop_eras_all_sources"]) == {"2010"}
+    assert set(summary["stop_eras_all_sources"]) == {"2010/1d", "2010/5m"}
     assert counts["stop"] == 40 and counts["pass"] == 80 and counts["unmapped"] == 3
     assert summary["vendor_wide_return_agreement"] == "stop"
 
@@ -607,3 +610,142 @@ def test_the_same_era_with_a_real_defect_still_stops() -> None:
     unresolved = {(TARGET_ERA, "1d"): target.unresolved} | {(e, "1d"): 0 for e in REFERENCE}
     out = runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE], unresolved)
     assert out[(TARGET_ERA, "1d")].verdict == nc.ERA_STOP
+
+
+def test_a_stop_on_one_timeframe_stops_only_the_cells_judged_on_it() -> None:
+    outcomes = {
+        ("A", 2010): ("pass", ""),
+        ("B", 2010): ("pass", ""),
+        ("C", 2010): ("flagged", "price_agreement_1d"),
+        ("D", 2010): ("no_detector", "no_detector"),
+        ("E", 2010): ("not_listed_in_era", "not_listed_in_era"),
+    }
+    tfs = {
+        ("A", 2010): ("1d",),
+        ("B", 2010): ("5m",),
+        ("C", 2010): ("1d", "5m"),
+        ("D", 2010): ("5m",),
+    }
+    out = runner.apply_timeframe_stops(outcomes, tfs, {}, {(2010, "1d"): "x"})
+    assert out[("A", 2010)][0] == "stop" and out[("B", 2010)][0] == "pass"
+    assert out[("C", 2010)][0] == "flagged"  # judged on 5m too, which is not stopped
+    assert out[("D", 2010)][0] == "no_detector"  # a price stop cannot reach a detector-less cell
+    both = runner.apply_timeframe_stops(outcomes, tfs, {}, {(2010, "1d"): "x", (2010, "5m"): "y"})
+    assert both[("C", 2010)][0] == "stop" and both[("B", 2010)][0] == "stop"
+    assert both[("D", 2010)][0] == "no_detector" and both[("E", 2010)][0] == "not_listed_in_era"
+
+
+def test_a_stage_a_session_stop_reaches_the_no_detector_cells_of_its_timeframe() -> None:
+    outcomes = {("P", 2004): ("no_detector", "no_detector"), ("Q", 2004): ("no_detector", "x")}
+    tfs = {("P", 2004): ("5m",), ("Q", 2004): ("1d",)}
+    out = runner.apply_timeframe_stops(outcomes, tfs, {(2004, "5m"): "session"}, {})
+    assert out[("P", 2004)] == ("stop", "systemic_stop:5m:session")
+    assert out[("Q", 2004)][0] == "no_detector"  # its timeframe (1d) is not stopped
+
+
+def test_the_return_residual_is_a_share_in_zero_one(tmp_path) -> None:
+    import csv
+
+    cfg, keys = _write_run(tmp_path, 2010)
+    runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {}, {})
+    for row in csv.DictReader((tmp_path / "stageC_era_tables.csv").open()):
+        if row["return_residual"] not in ("", "nan"):
+            assert 0.0 <= float(row["return_residual"]) <= 1.0, row
+
+
+def test_a_stopped_era_timeframe_writes_its_top_contributors_with_timestamps(tmp_path) -> None:
+    import csv
+
+    cfg, keys = _write_run(tmp_path, 2010)
+    runner.assemble_stage_c(cfg, [f"N{i}" for i in range(40)], ["U"], keys, "s", {}, {})
+    rows = list(csv.DictReader((tmp_path / "stageC_stop_contributors.csv").open()))
+    assert {r["timeframe"] for r in rows} == {"1d", "5m"} and {r["era"] for r in rows} == {"2010"}
+    assert float(rows[0]["unexplained_share"]) >= 0 and "scale" in rows[0]["class_mix"]
+    assert rows[0]["first_disagree"] and rows[0]["last_disagree"] >= rows[0]["first_disagree"]
+
+
+# ---- the definition witness (design 8a, r5i): incumbent close = Massive's last RTH trade -------
+def _definition_facts(
+    n_names: int, seed: int, *, incumbent_is_last: bool, defect_names: int = 0
+) -> Era:
+    """1d names whose day-file close is the official close and whose last RTH 5m close differs from
+    it by up to 40 bp (beyond rounding). The incumbent carries the last trade (``incumbent_is_last``) or the official
+    close. ``defect_names`` of them also carry a 5 percent close error on 30 percent of days."""
+    rng = np.random.default_rng(seed)
+    out: list[nc.NameFacts] = []
+    unresolved = 0
+    for i in range(n_names):
+        series = _name_series(rng)
+        official = series[3]
+        last = official * (1 + rng.uniform(-0.004, 0.004, N_BARS))
+        incumbent = np.round(last if incumbent_is_last else official, 2)
+        inc_series = (incumbent * 0.99, incumbent * 1.01, incumbent * 0.98, incumbent)
+        massive = series
+        if i < defect_names:
+            bad = rng.random(N_BARS) < 0.30
+            massive = (*series[:3], np.where(bad, official * 1.05, official))
+        witness = (KEYS.astype("int64"), last)
+        result = runner.compare_arm(
+            "1d", "ibkr", _bars(massive), _bars(inc_series), [], {}, witness
+        )
+        detail = {"arms": {"ibkr": {"1d": asdict(result)}}}
+        gate = runner.judged_timeframes({"1d": result}, nc.ERA_NO_ACTION, True)
+        if gate.outcome:
+            unresolved += gate.reason == "identity_decorrelated"
+            continue
+        facts = runner._name_facts(f"D{seed}_{i}", detail, "1d", gate.usable)
+        if facts is not None:
+            out.append(facts)
+    return Era(out, unresolved)
+
+
+def test_a_witnessed_close_definition_is_unresolved_and_a_real_defect_in_it_still_stops() -> None:
+    ref = {e: _definition_facts(300, e, incumbent_is_last=False) for e in REFERENCE}
+    for e in REFERENCE:  # the reference rate: the day-file match dominates, no era is witnessed
+        assert not nc.close_definition_witnessed(ref[e].facts)
+    witnessed = _definition_facts(1000, 70, incumbent_is_last=True)
+    day, last = nc.definition_shares(witnessed.facts)
+    assert last - day > nc.DEFINITION_MARGIN and last > 0.9 and day < 0.6, (day, last)
+
+    def judge(target: Era):
+        judged = {(e, "1d"): r.facts for e, r in ref.items()} | {(TARGET_ERA, "1d"): target.facts}
+        unres = {(e, "1d"): 0 for e in REFERENCE} | {(TARGET_ERA, "1d"): target.unresolved}
+        return runner.era_verdicts(judged, [TARGET_ERA, *REFERENCE], unres)[(TARGET_ERA, "1d")]
+
+    v = judge(witnessed)
+    assert v.verdict == nc.ERA_UNRESOLVED and "close_definition_witnessed" in v.reasons
+    assert v.close_definition_witnessed and v.share_last_trade > v.share_dayfile
+    assert runner._close_convention_unresolved(v)
+    defect = judge(_definition_facts(1000, 71, incumbent_is_last=True, defect_names=200))
+    assert defect.verdict == nc.ERA_STOP
+
+
+def test_the_same_data_without_a_witness_counts_the_definition_bars_as_other() -> None:
+    """When the incumbent follows the OFFICIAL close the last-trade match is low: no witness, so a
+    stray close_definition bar is not explained."""
+    plain = _definition_facts(300, 72, incumbent_is_last=False)
+    assert not nc.close_definition_witnessed(plain.facts)
+    folded = nc.fold_definition(
+        nc.NameFacts(
+            "X",
+            nc.AgreementCounts(150, 140, 140, {"close_definition": 10}, 149, 149, 150, 150),
+            False,
+            "",
+            0.0,
+        )
+    )
+    assert folded.counts.n_class == {"other": 10}
+
+
+def test_bars_of_a_level_drift_name_get_the_scale_label() -> None:
+    n = 100
+    close = np.linspace(20, 30, n)
+    inc = _name_ohlc(close)
+    labels = nc.classify_disagreements(_name_ohlc(close * 1.003), inc, None, None, 0.0001, [], True)
+    assert set(labels) == {"scale"}  # every disagreeing bar of a drift name is the scale class
+    none = nc.classify_disagreements(_name_ohlc(close * 1.003), inc, None, None, 0.0001, [], False)
+    assert set(none) == {"other"}
+
+
+def _name_ohlc(close: np.ndarray):
+    return (close * 0.99, close * 1.01, close * 0.98, close.copy())
