@@ -10,7 +10,7 @@ import pytest
 
 from scripts.ops.bars import ops_massive_load as loader
 from src.intelligence.bars.massive_flat import FlatBars
-from src.intelligence.bars.massive_symbol_map import TickerSpan
+from src.intelligence.bars.massive_symbol_map import TickerSpan, unaccounted_instruments
 
 DAY = date(2024, 6, 11)
 T0 = int(datetime(2024, 6, 11, 13, 30, tzinfo=UTC).timestamp()) * 1_000_000_000
@@ -275,3 +275,18 @@ def test_month_batch_builds_one_raw_batch_with_per_file_serve_time(monkeypatch):
     assert [f[0] for f in lineage["AAA"]["files"]] == ["2024-06-03", "2024-06-04"]
     assert lineage["AAA"]["definition_epoch_ids"] == ["None", "epoch1"]
     assert lineage["BBX"]["ticker_events"] == {"e2": "BBB"}
+
+
+def test_all_tickers_checks_every_instrument_and_loads_1d_only():
+    active, every = ["AAPL", "MSFT"], ["AAPL", "MSFT", "DEAD"]
+    assert loader.checked_symbols(False, active, every) == ["AAPL", "MSFT"]
+    assert loader.checked_symbols(True, active, every) == ["AAPL", "DEAD", "MSFT"]
+    with pytest.raises(SystemExit):
+        loader.main(["--timeframe", "5m", "--years", "2010", "--all-tickers"])
+
+
+def test_a_dead_name_without_a_span_or_gap_row_refuses_an_all_tickers_run():
+    spans = [TickerSpan("e1", "AAPL", "AAPL", date(2003, 9, 10), None)]
+    checked = loader.checked_symbols(True, ["AAPL"], ["AAPL", "DEAD"])
+    assert unaccounted_instruments(checked, spans, set()) == ["DEAD"]
+    assert unaccounted_instruments(checked, spans, {"DEAD"}) == []

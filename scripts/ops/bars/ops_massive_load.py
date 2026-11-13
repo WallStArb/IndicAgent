@@ -22,6 +22,14 @@ recompression of ohlcv_raw's partial chunks. Rerunning the same command is the r
 
 The loader fails loudly, before reading a file, when an active instrument has neither a span nor
 a gap-list row.
+
+``--all-tickers`` (stage 2 universe, docs/plans/2026-11-13-stage2-universe-preregistration.md,
+gate 3; 1d only; runs after step 7): the load covers every instrument the identity map places,
+dead names included (they enter as instrument rows through the onboarding SOP's stage 2
+exception, never hand-written). The completeness check then covers every instrument, active or
+not: a dead name with neither a span nor a gap row refuses the run. Each year's line also counts
+the spans of instruments outside the active set (the names the mode adds). The per-year gate and
+the dry-run default are unchanged.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ import shutil
 import sys
 import time
 from collections import Counter
-from collections.abc import Collection, Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -202,6 +210,17 @@ def read_active_symbols(cur: Any) -> list[str]:
     return [row[0] for row in cur.fetchall()]
 
 
+def read_all_symbols(cur: Any) -> list[str]:
+    cur.execute("SELECT symbol FROM instruments")
+    return [row[0] for row in cur.fetchall()]
+
+
+def checked_symbols(all_tickers: bool, active: Sequence[str], every: Sequence[str]) -> list[str]:
+    """The instruments the completeness check covers: the active ones, or with --all-tickers
+    every instrument (a dead name the map neither placed nor refused is a silent hole too)."""
+    return sorted(set(every) if all_tickers else set(active))
+
+
 def volume_epoch_id(cur: Any, day: date) -> str | None:
     """The definition_epoch in force for Massive volume on `day` (the latest effective_from on or
     before it); None before the first epoch."""
@@ -354,12 +373,14 @@ def run(args: argparse.Namespace) -> int:
         with conn.cursor() as cur:
             spans = read_spans(cur)
             active = read_active_symbols(cur)
-        missing = unaccounted_instruments(active, spans, gap_symbols)
+            every = read_all_symbols(cur) if args.all_tickers else []
+        checked = checked_symbols(args.all_tickers, active, every)
+        missing = unaccounted_instruments(checked, spans, gap_symbols)
         if missing:
-            print(
-                f"FAIL: {len(missing)} active instruments have no span and no gap row: {missing[:20]}"
-            )
+            scope = "instruments" if args.all_tickers else "active instruments"
+            print(f"FAIL: {len(missing)} {scope} have no span and no gap row: {missing[:20]}")
             return 2
+        active_set = set(active)
         index = ArchiveIndex()
         reports: dict[int, list[DayReport]] = {}
         verdicts: dict[int, list[SpanVerdict]] = {}
@@ -380,6 +401,11 @@ def run(args: argparse.Namespace) -> int:
             ]
             loadable = [v.trimmed for v in year_verdicts if v.trimmed is not None]
             print(f"{year} spans: {verdict_table(year_verdicts)}", flush=True)
+            if args.all_tickers:
+                added = sum(1 for span in loadable if span.symbol not in active_set)
+                print(
+                    f"{year} all-tickers: {added} loadable spans outside the active set", flush=True
+                )
             verdicts[year] = year_verdicts
             t0 = time.monotonic()
             slots = IncumbentSlots(conn, args.timeframe)
@@ -656,9 +682,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--month", type=int, default=None, choices=range(1, 13), help="one month")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--apply", action="store_true", help="write; default is a dry run")
+    parser.add_argument(
+        "--all-tickers",
+        action="store_true",
+        help="1d only: every instrument the map places, dead names included (stage 2 universe)",
+    )
     args = parser.parse_args(argv)
     if args.years != sorted(args.years, reverse=True):
         parser.error("--years must be newest first")
+    if args.all_tickers and args.timeframe != "1d":
+        parser.error("--all-tickers loads 1d only (5m is the liquidity tier, its own gate)")
     return run(args)
 
 
