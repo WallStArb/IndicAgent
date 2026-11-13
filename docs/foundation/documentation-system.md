@@ -79,6 +79,9 @@ docs/
   ideas/          Research workspace — living, speculative, not authoritative
   research/       Architecture reviews, methodology decisions, priorities log — filename-stable, living
   plans/          Phase implementation plans — living workspace
+  analysis/       One-off analyses and investigation write-ups
+  renaissance-rigor-playbook/  Portable rigor playbook (generics; differs from foundation/ by design)
+  superpowers/    GSD and workflow tooling docs for Claude sessions
 ```
 
 ### Inner Ring — Authoritative, Verified
@@ -241,7 +244,18 @@ draft  →  design  →  current  →  archived
 
 Documentation quality is only durable if violations are visible.
 
-### Pre-Commit Checks (advisory)
+### Enforced checks (2026-11-13 state)
+
+- **Glossary enforcement (blocking):** `tools/check_glossary.py` against
+  `tools/glossary_baseline.json` runs as pre-commit guard 8 (`tools/pre-commit.hook`, opt-in
+  install) and as the CI job "Glossary enforcement" (`.github/workflows/ci.yml`); new hits of
+  retired terms fail the build.
+- **Doc-consuming unit tests (blocking in CI):** `tests/unit/test_doc_schema_numbers.py`
+  (undated claims in `docs/foundation` and canonical `docs/plans`), and
+  `tests/unit/test_todo_priorities_link_integrity.py` (every pending todo has a PRIORITIES row
+  and every link resolves).
+- **Advisory, not wired:** the two greps below are the intended advisory checks; they are not
+  installed in any hook or CI job today.
 
 ```bash
 # Docs claiming `current` status with no citations
@@ -272,7 +286,7 @@ These do not change as part of any restructure:
 - **`docs/foundation/`** — trusted without code cross-checking
 - **Domain folder file names** — follow `<domain>-<role>.md`
 - **Plan docs** — follow `YYYY-MM-DD-<description>.md`
-- **Idea docs** — carry `**Status:** draft | under-review | adopted | rejected`
+- **Idea docs** — carry a Status line; the intended vocabulary is `draft | under-review | adopted | rejected`, though many existing docs state status in prose instead
 - **All `current` docs** — carry `**Last Updated:** YYYY-MM-DD` and source citations
 - **`concepts/`** — permanent tier; **`architecture/`** — read-only structurally
 
