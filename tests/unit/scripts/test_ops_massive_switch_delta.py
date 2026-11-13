@@ -93,3 +93,33 @@ def test_summarize_counts_slots_sessions_and_names_per_cause():
 def test_month_bounds_roll_over_the_year():
     lo, hi = month_bounds(date(2025, 12, 1))
     assert (lo.date(), hi.date()) == (date(2025, 12, 1), date(2026, 1, 1))
+
+
+def test_verify_checks_counts_ibkr_and_the_gap_row_alpaca_groups():
+    from scripts.ops.bars.ops_massive_switch_delta import verify
+
+    def card(tf, sym, vendor, month, n, digest="d"):
+        return {"timeframe": tf, "symbol": sym, "vendor": vendor, "kind": "k", "month": month,
+                "n": n, "digest": digest}  # fmt: skip
+
+    before = [
+        card("1d", "GAP", "alpaca", "2020-05-01", 21),
+        card("1d", "GAP", "ibkr", "2020-05-01", 2),
+    ]
+    deltas = [{"timeframe": "1d", "month": "2020-05-01", "expected_after": "121"}]
+    good = [
+        card("1d", "GAP", "alpaca", "2020-05-01", 21),
+        card("1d", "OK", "massive", "2020-05-01", 100),
+    ]
+    assert verify(before, good, deltas, IDENTITY, END)["ok"]
+    bad = [
+        card("1d", "GAP", "alpaca", "2020-05-01", 21, "x"),
+        card("1d", "OK", "ibkr", "2020-05-01", 100),
+    ]
+    report = verify(before, bad, deltas, IDENTITY, END)
+    assert not report["ok"] and report["ibkr_rows_left"] == ["1d:OK"]
+    assert len(report["gap_row_groups_changed"]) == 1
+    short = verify(before, good[:1], deltas, IDENTITY, END)
+    assert short["count_failures"] == [
+        {"timeframe": "1d", "month": "2020-05-01", "expected": 121, "got": 21}
+    ]

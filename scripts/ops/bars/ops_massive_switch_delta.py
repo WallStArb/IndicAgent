@@ -19,8 +19,11 @@ archive end, Alpaca from it, no fallback, nothing before Massive's first file):
 - after_end_other: other slots from the archive end (they leave: no fallback)
 - expected_after = massive + gap_alpaca + after_end_alpaca
 
-The card compare (runbook D1) must show exactly ``expected_after`` rows per (timeframe, month)
-after the rebuild. 1m (IBKR only) leaves whole by ruling; the runbook counts it with one query.
+After the rebuild, ``--verify BEFORE_CARD AFTER_CARD`` (runbook D1, file-only) checks the cards
+against this run's ``switch_delta.csv``: every (timeframe, month) of 5m and 1d holds exactly
+``expected_after`` rows, 1m and 4h hold none, no row carries vendor ibkr, and every Alpaca group
+(symbol, month) wholly inside an Alpaca gap row is byte-identical to the before card. 1m (IBKR
+only) leaves whole by ruling.
 
 Every lost slot is classified (``classify_loss``), in this order: ``gap_list`` (an identity gap
 span covers it: unplaced, no source by design), ``after_listing_end`` (after the name's recorded
@@ -48,6 +51,7 @@ sys.path.insert(0, str(project_root))
 
 import psycopg  # noqa: E402
 
+from scripts.ops.bars.ops_canonical_summary_card import read_card  # noqa: E402
 from scripts.ops.bars.ops_massive_policy_plan import (  # noqa: E402
     ALPACA_FIRST_DAY,
     DEFAULT_MANIFEST,
@@ -79,6 +83,7 @@ DELTA_FIELDS = (
     "after_end_other",
     "expected_after",
 )
+HANDOVER_DELTA_TIMEFRAMES = ("5m", "1d")
 LOSS_FIELDS = ("timeframe", "symbol", "session", "vendor", "zero_volume", "slots", "cause")
 
 #: One grouped row of the month join: (symbol, session date, canonical vendor or None, zero or
@@ -259,6 +264,63 @@ def month_groups(conn: Any, timeframe: str, month: date) -> list[Group]:
         return [Group(*r) for r in cur.fetchall()]
 
 
+def verify(
+    before: Iterable[Mapping[str, Any]],
+    after: Iterable[Mapping[str, Any]],
+    deltas: Iterable[Mapping[str, Any]],
+    identity: Identity,
+    archive_end: date,
+) -> dict[str, Any]:
+    """The D1 gate (module docstring): failures are listed whole, never sampled."""
+    after = list(after)
+    got: Counter[tuple[str, str]] = Counter()
+    for r in after:
+        got[(r["timeframe"], r["month"])] += int(r["n"])
+    want = {(d["timeframe"], d["month"]): int(d["expected_after"]) for d in deltas}
+    count_failures = [
+        {"timeframe": tf, "month": m, "expected": n, "got": got.get((tf, m), 0)}
+        for (tf, m), n in sorted(want.items())
+        if got.get((tf, m), 0) != n
+    ]
+    count_failures += [
+        {"timeframe": tf, "month": m, "expected": 0, "got": n}
+        for (tf, m), n in sorted(got.items())
+        if tf in HANDOVER_DELTA_TIMEFRAMES and (tf, m) not in want and n or tf in ("1m", "4h") and n
+    ]
+    ibkr_left = sorted({(r["timeframe"], r["symbol"]) for r in after if r["vendor"] == "ibkr"})
+
+    def whole_month_gap_row(symbol: str, month: date) -> bool:
+        """Every session date of the month lies inside one of the name's Alpaca gap rows."""
+        _, hi = month_bounds(month)
+        first = max(month, ALPACA_FIRST_DAY)
+        if month < ALPACA_FIRST_DAY.replace(day=1) or hi.date() > archive_end:
+            return False
+        days = (first + timedelta(days=i) for i in range((hi.date() - first).days))
+        return all(identity.gap_covers(symbol, d) for d in days)
+
+    key = ("timeframe", "symbol", "vendor", "kind", "month")
+    after_groups = {tuple(r[k] for k in key): (r["n"], r["digest"]) for r in after}
+    kept = changed = 0
+    changed_groups = []
+    for r in before:
+        if r["vendor"] != "alpaca" or r["timeframe"] not in HANDOVER_DELTA_TIMEFRAMES:
+            continue
+        if not whole_month_gap_row(r["symbol"], date.fromisoformat(r["month"])):
+            continue
+        if after_groups.get(tuple(r[k] for k in key)) == (r["n"], r["digest"]):
+            kept += 1
+        else:
+            changed += 1
+            changed_groups.append({k: r[k] for k in key})
+    return {
+        "ok": not count_failures and not ibkr_left and not changed,
+        "count_failures": count_failures,
+        "ibkr_rows_left": [f"{tf}:{s}" for tf, s in ibkr_left],
+        "gap_row_groups_identical": kept,
+        "gap_row_groups_changed": changed_groups,
+    }
+
+
 def summarize(losses: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, dict[str, int]]]:
     """Per timeframe and cause: slots, name-sessions and names."""
     slots: Counter[tuple[str, str]] = Counter()
@@ -292,8 +354,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--gap-list", required=True, help="the pinned identity gap_list.csv")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     parser.add_argument("--out", type=Path, required=True, help="output directory")
+    parser.add_argument(
+        "--verify",
+        nargs=2,
+        type=Path,
+        metavar=("BEFORE_CARD", "AFTER_CARD"),
+        help="D1: check the after card against --out's switch_delta.csv (file-only)",
+    )
     args = parser.parse_args(argv)
     archive_end = archive_end_of(Path(args.manifest).read_bytes())
+    if args.verify:
+        with (args.out / "switch_delta.csv").open(newline="") as handle:
+            deltas = list(csv.DictReader(handle))
+        gaps: dict[str, list[GapRow]] = defaultdict(list)
+        for g in read_gap_list(Path(args.gap_list)):
+            gaps[g.symbol].append(g)
+        report = verify(
+            read_card(args.verify[0]),
+            read_card(args.verify[1]),
+            deltas,
+            Identity(dict(gaps), {}, {}),
+            archive_end,
+        )
+        (args.out / "switch_verify.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps({k: v for k, v in report.items() if k != "count_failures"} | {
+            "count_failures": len(report["count_failures"])}, indent=2))  # fmt: skip
+        return 0 if report["ok"] else 1
     args.out.mkdir(parents=True, exist_ok=True)
     dsn = get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     deltas: list[dict[str, Any]] = []
