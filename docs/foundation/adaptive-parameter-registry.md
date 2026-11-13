@@ -327,6 +327,7 @@ All are ML learning targets. IC Engine measures IC at the current period, propos
 | Mathematical constants (π, contract multipliers) | Code | Not tunable |
 | Numbers that define a statistical concept (`momentum_z_5`) | Column name | The number IS the feature |
 | Per-user personalization | Future user preferences system | Requires user identity |
+| Pre-registered gate constants (e.g. the Massive 8a load-check thresholds) | A dated constants table in the design doc, mirrored as named module constants | Declared before the run they judge; a tunable threshold invites tuning after seeing results, so a change is a dated design amendment, never a `config_state` write |
 
 ---
 
