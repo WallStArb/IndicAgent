@@ -79,15 +79,25 @@ def test_frozen_splits_load_from_the_frozen_file_only(tmp_path: Path) -> None:
     frozen = tmp_path / "frozen"
     frozen.mkdir()
     (frozen / "frozen.json").write_text(
-        json.dumps({"sha256": {}, "horizon": "2026-11-12T12:00:00+00:00"})
+        json.dumps(
+            {
+                "freeze_version": runner.FREEZE_VERSION,
+                "sha256": {},
+                "horizon": "2026-11-12T12:00:00+00:00",
+            }
+        )
     )
     (frozen / "corporate_actions.csv").write_text(
-        "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact\n"
-        "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
-        "AAPL,2020-08-28,4.0,2026-10-01T00:00:00+00:00,calendar_audit,True,False\n"
-        "AAPL,2030-01-01,2.0,2026-10-01T00:00:00+00:00,massive_reference,False,True\n"
+        "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact,"
+        "unadjusted_routes\n"
+        "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True,\n"
+        "AAPL,2020-08-28,4.0,2026-10-01T00:00:00+00:00,calendar_audit,True,False,\n"
+        "AAPL,2030-01-01,2.0,2026-10-01T00:00:00+00:00,massive_reference,False,True,\n"
     )
-    splits = runner.load_frozen_splits(cfg)
+    (frozen / "ticker_spans.csv").write_text(
+        "symbol,ticker,valid_from,valid_to\nAAPL,AAPL,2003-09-10,\n"
+    )
+    splits = runner.load_frozen(cfg).splits
     # the operator route correction and the not-yet-executed split never rescale
     assert [(s.effective_date, s.factor) for s in splits["AAPL"]] == [(date(2014, 6, 6), 7.0)]
 
@@ -148,16 +158,6 @@ def test_freeze_writes_identical_inputs_and_hashes_the_horizon_in_the_record(
         runner.freeze_inputs(_cfg(first), None)  # type: ignore[arg-type]
 
 
-def test_a_frozen_record_without_a_horizon_is_refused(tmp_path: Path) -> None:
-    runner.freeze_inputs(_cfg(tmp_path), _FakeConn())
-    path = tmp_path / "frozen" / "frozen.json"
-    record = json.loads(path.read_text())
-    del record["horizon"]
-    path.write_text(json.dumps(record))
-    with pytest.raises(RuntimeError, match="horizon"):
-        runner.freeze_inputs(_cfg(tmp_path), None)  # type: ignore[arg-type]
-
-
 def test_the_runner_session_is_read_only_on_the_server() -> None:
     """Round 5 finding 6: psycopg ignores conn.read_only in autocommit mode, so the runner sets
     the server-side default; a write must be refused by the database itself."""
@@ -183,7 +183,7 @@ def test_the_runner_source_issues_no_write_statement() -> None:
 def test_part_keys_carry_the_inputs_and_the_raw_fingerprint(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     base = runner.sample_key(cfg, {"manifest.jsonl": "aa"}, {"massive|sip_flat|1d": 10})
-    assert runner.LOGIC_VERSION.endswith("r5c")  # no round 4 part is ever reused
+    assert runner.LOGIC_VERSION.endswith("r5d")  # no round 4 part is ever reused
     assert base["archive_inputs"] == {"manifest.jsonl": "aa"}
     runner.write_json(runner.part_path(cfg, "volume_bands", 2010), {"key": base})
     assert runner.load_part(cfg, "volume_bands", 2010, base) is not None
@@ -203,3 +203,75 @@ def test_malformed_disputed_rows_fail_the_run(tmp_path: Path) -> None:
 def test_a_ledger_row_without_a_median_writes_no_witness_and_no_fabricated_zero() -> None:
     row = runner.ledger_row(None, "A", 2010, "1d", "price_agreement_1d", None, [], "s")  # type: ignore[arg-type]
     assert row["verdict"] == "unresolved" and row["witnesses"] == "none available"
+
+
+def _live_url() -> str | None:
+    """The database the SQL probe runs against: LOAD_CHECKS_SQL_PROBE_URL (the real database), else
+    the pytest database."""
+    import os
+
+    return os.environ.get("LOAD_CHECKS_SQL_PROBE_URL")
+
+
+def test_every_sql_statement_the_runner_issues_executes_against_the_database() -> None:
+    """Round 5 second review, finding 1: a FakeConn hid `text ->> unknown` in the freeze SQL. Every
+    statement is EXPLAINed (parsed, analysed and planned) through connect_read_only(), and every
+    ``execute`` call in the runner names a statement of the registry."""
+    import re
+
+    source = Path(runner.__file__).read_text()
+    called = set(re.findall(r"execute\(\s*(_[A-Z_]+SQL)\b", source))
+    assert called and called <= set(runner.SQL_STATEMENTS), called - set(runner.SQL_STATEMENTS)
+    try:
+        conn = runner.connect_read_only(_live_url())
+    except Exception as error:
+        pytest.skip(f"database unavailable: {error}")
+    with conn:
+        for name, (sql, params) in runner.SQL_STATEMENTS.items():
+            try:
+                conn.execute("EXPLAIN " + sql, params or None)
+            except Exception as error:
+                if "does not exist" in str(error) and _live_url() is None:
+                    pytest.skip(f"{name}: the pytest database lacks the table ({error})")
+                raise AssertionError(f"{name} does not execute: {error}") from error
+
+
+def test_a_frozen_record_of_another_version_is_refused(tmp_path: Path) -> None:
+    runner.freeze_inputs(_cfg(tmp_path), _FakeConn())
+    path = tmp_path / "frozen" / "frozen.json"
+    record = json.loads(path.read_text())
+    assert record["freeze_version"] == runner.FREEZE_VERSION
+    record["freeze_version"] = runner.FREEZE_VERSION - 1
+    path.write_text(json.dumps(record))
+    with pytest.raises(RuntimeError, match="freeze version"):
+        runner.freeze_inputs(_cfg(tmp_path), None)  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="freeze version"):
+        runner.frozen_hashes(_cfg(tmp_path))
+
+
+def test_stage_c_refuses_stage_a_and_b_files_without_the_current_provenance(
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    inputs = {"manifest.jsonl": "aa"}
+    runner.freeze_inputs(cfg, _FakeConn())
+    for name, with_frozen in (("stageA_systemic.json", False), ("stageB_systemic.json", True)):
+        runner.write_json(
+            tmp_path / name,
+            {
+                "provenance": runner.provenance(cfg, inputs, frozen=with_frozen),
+                "stop_eras": {"2010": ["session"]},
+            },
+        )
+    assert runner.systemic_stop_eras(cfg, inputs) == {2010: "session"}
+    with pytest.raises(RuntimeError, match="archive_inputs"):  # the archive changed
+        runner.systemic_stop_eras(cfg, {"manifest.jsonl": "bb"})
+    wider = runner.Config(tmp_path, tmp_path, cfg.seed, cfg.days_per_era, (2010, 2011), False, 0.0)
+    with pytest.raises(RuntimeError, match="eras"):  # an era the file does not cover
+        runner.systemic_stop_eras(wider, inputs)
+    path = tmp_path / "stageB_systemic.json"
+    record = json.loads(path.read_text())
+    record["provenance"]["logic"] = "old"
+    path.write_text(json.dumps(record))
+    with pytest.raises(RuntimeError, match="logic"):
+        runner.systemic_stop_eras(cfg, inputs)

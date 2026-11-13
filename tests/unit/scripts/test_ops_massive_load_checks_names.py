@@ -238,7 +238,13 @@ def test_frozen_loads_the_calendar_audit_rescales_and_the_spans(tmp_path) -> Non
     frozen = Path(tmp_path) / "frozen"
     frozen.mkdir()
     (frozen / "frozen.json").write_text(
-        json.dumps({"sha256": {}, "horizon": "2026-11-12T12:00:00+00:00"})
+        json.dumps(
+            {
+                "freeze_version": runner.FREEZE_VERSION,
+                "sha256": {},
+                "horizon": "2026-11-12T12:00:00+00:00",
+            }
+        )
     )
     header = "symbol,effective_date,factor,recorded_at,inferred_by,rows_file,market_fact,unadjusted_routes\n"
     (frozen / "corporate_actions.csv").write_text(
@@ -248,7 +254,7 @@ def test_frozen_loads_the_calendar_audit_rescales_and_the_spans(tmp_path) -> Non
         + "AAPL,2014-06-06,7.0,2026-10-01T00:00:00+00:00,massive_reference,False,True,\n"
     )
     (frozen / "ticker_spans.csv").write_text(
-        "symbol,ticker,valid_from,valid_to\nEAT,EAT,2003-09-10,\nOLD,OLD,2003-09-10,2009-06-30\n"
+        "symbol,ticker,valid_from,valid_to\nEAT,EAT,2003-09-10,\nOLD,OLD,2003-09-10,2010-01-01\n"
     )
     out = runner.load_frozen(cfg)
     assert [(s.effective_date.year, s.factor) for s in out.ibkr_rescales["PATK"]] == [(2012, 0.4)]
@@ -260,7 +266,7 @@ def test_frozen_loads_the_calendar_audit_rescales_and_the_spans(tmp_path) -> Non
 
 def test_a_massive_hole_is_flagged_never_not_listed_and_never_stop_exempt() -> None:
     outcome = runner.judged_timeframes({}, nc.ERA_NO_ACTION, True, massive_hole=True)
-    assert outcome == (nc.OUTCOME_FLAGGED, "massive_hole", ())
+    assert tuple(outcome) == (nc.OUTCOME_FLAGGED, "massive_hole", (), ())
     assert nc.OUTCOME_FLAGGED not in nc.STOP_EXEMPT_OUTCOMES
 
 
@@ -335,10 +341,12 @@ def test_the_raw_fingerprint_is_scoped_per_series_and_moves_on_a_restatement() -
 
 
 def test_the_live_fingerprint_and_exchange_map_are_deterministic() -> None:
+    import os
+
     import pytest
 
     try:
-        conn = runner.connect_read_only()
+        conn = runner.connect_read_only(os.environ.get("LOAD_CHECKS_SQL_PROBE_URL"))
     except Exception as error:
         pytest.skip(f"database unavailable: {error}")
     with conn:
@@ -352,3 +360,23 @@ def test_the_live_fingerprint_and_exchange_map_are_deterministic() -> None:
         except Exception as error:  # the test database carries no reference_raw
             pytest.skip(f"reference_raw unavailable: {error}")
         assert len(rows) == len({s for s, _ in rows})  # one capture per ticker
+
+
+def test_identity_is_judged_per_timeframe_and_counts_only_with_a_detector() -> None:
+    bad_1d = _arm(250, 250, 0.0, 0.5)  # decorrelated daily pair with a detector
+    good_5m = _arm(250, 250, 0.0, 0.99)
+    gate = runner.judged_timeframes({"1d": bad_1d, "5m": good_5m}, nc.ERA_NO_ACTION, True)
+    assert gate.outcome == "" and gate.usable == ("5m",) and gate.decorrelated == ("1d",)
+    # decorrelated but under the pair minimum: unresolved as a cell, never counted
+    few_bad = _arm(30, 30, 0.0, 0.5)
+    gate = runner.judged_timeframes({"1d": few_bad}, nc.ERA_NO_ACTION, True)
+    assert gate.reason == "identity_decorrelated" and gate.decorrelated == ()
+
+
+def test_the_ibkr_volume_rescale_is_the_factor_stage_c_divides_prices_by() -> None:
+    from src.intelligence.bars.split_rescale import SplitFactor
+
+    frozen = runner.Frozen({}, {"A": [SplitFactor(date(2010, 3, 5), 2.0)]}, {})
+    days = np.array(["2010-03-04", "2010-03-05", "2010-03-08"], dtype="datetime64[D]")
+    assert frozen.ibkr_scale("A", days).tolist() == [2.0, 2.0, 1.0]
+    assert frozen.ibkr_scale("B", days).tolist() == [1.0, 1.0, 1.0]

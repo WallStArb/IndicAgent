@@ -53,6 +53,7 @@ LAST_PRINT_CAP_QUANTILE = 0.99
 LAST_PRINT_BIN = 1e-4  # log units per histogram bin
 LAST_PRINT_MAX_BIN = 2000
 SHARED_FACTOR_BIN = 0.005  # log units
+MIN_JUDGED_NAMES = 20  # judged names an (era, timeframe) needs for counters and verdicts
 IDENTITY_MIN_RETURNS = 20  # returns the identity correlation needs after the split-sized ones
 IDENTITY_SPLIT_LOG_RETURN = math.log(
     1.5
@@ -476,15 +477,23 @@ def judge_era(
     classes); else ``ok``. No judged name is ``no_detector``, an explicit row, never a silent
     skip and never a pass. A stop outranks unresolved."""
     counters = era_counters(names, n_identity_unresolved)
-    if not names:
-        reasons = [
-            f"{key}>{thresholds[key]:.4f}"
-            for key in COUNTER_NAMES
-            if counters.as_dict()[key] > thresholds[key]
-        ]
+    thin = len(names) < MIN_JUDGED_NAMES
+    if thin:
+        # too few judged names for the counters, the residual and empty_clean_set; only a
+        # decorrelation backed by enough evidence (decorrelated plus judged names) can stop it
+        enough = len(names) + n_identity_unresolved >= MIN_JUDGED_NAMES
+        stops = (
+            [f"identity_unresolved_share>{thresholds['identity_unresolved_share']:.4f}"]
+            if enough
+            and counters.identity_unresolved_share > thresholds["identity_unresolved_share"]
+            else []
+        )
+        verdict = ERA_STOP if stops else ERA_NO_DETECTOR if not names else ERA_UNRESOLVED
+        reasons = tuple(stops) or (("no_judged_names",) if not names else ("thin_era",))
+        n_matched = sum(f.counts.n_matched for f in names)
         return EraVerdict(
-            timeframe, ERA_STOP if reasons else ERA_NO_DETECTOR,
-            tuple(reasons) or ("no_judged_names",), 0, 0, 0, math.nan, math.nan, 0, (),
+            timeframe, verdict, reasons, len(names), n_matched,
+            sum(f.counts.n_ret_pairs for f in names), math.nan, math.nan, 0, (),
             counters, dict(thresholds), {},
         )  # fmt: skip
     total = names[0].counts

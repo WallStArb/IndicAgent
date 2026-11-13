@@ -204,8 +204,10 @@ def test_clean_vendor_passes_every_name_level_check() -> None:
         nc.scale_class(median, nc.level_dispersion(massive[3], np.ones(n), inc[3]), 1.0, 1.0) == ""
     )
     assert nc.identity_resolved(nc.identity_correlation(massive[3], inc[3]))
-    facts = [nc.NameFacts("A", counts, False, "", 0.0)]
+    facts = [nc.NameFacts(f"A{i}", counts, False, "", 0.0) for i in range(nc.MIN_JUDGED_NAMES)]
     assert nc.judge_era("5m", facts, nc.counter_thresholds([]), 0).verdict == "ok"
+    thin = nc.judge_era("5m", facts[:-1], nc.counter_thresholds([]), 0)  # one name short
+    assert thin.verdict == "unresolved" and thin.reasons == ("thin_era",)
     part = nc.close_partition([("A", 2010)], {("A", 2010): ("pass", "")}, stop_eras={})
     assert isinstance(part, nc.Partition) and part.counts["pass"] == 1 and part.counts["stop"] == 0
 

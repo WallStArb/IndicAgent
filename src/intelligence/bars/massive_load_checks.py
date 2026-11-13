@@ -109,16 +109,25 @@ class SanityCounts:
         )
 
 
-def defective_row_mask(
+def row_test_masks(
     open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray
-) -> np.ndarray:
-    """Rows failing a row test: inconsistent high/low, a non-positive or missing price, a
-    negative or missing volume (NaN fails every comparison, so the negated form is used)."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The three row tests, the one definition: (high/low consistent, prices positive, volume
+    present and non-negative). NaN fails every comparison, so each mask is the positive form."""
     consistent = (
         (high >= np.maximum(open_, close)) & (low <= np.minimum(open_, close)) & (high >= low)
     )
     positive = (open_ > 0) & (high > 0) & (low > 0) & (close > 0)
-    ok: np.ndarray = consistent & positive & (volume >= 0)
+    return consistent, positive, volume >= 0
+
+
+def defective_row_mask(
+    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray
+) -> np.ndarray:
+    """Rows failing a row test: inconsistent high/low, a non-positive or missing price, a
+    negative or missing volume."""
+    consistent, positive, volume_ok = row_test_masks(open_, high, low, close, volume)
+    ok: np.ndarray = consistent & positive & volume_ok
     return ~ok
 
 
@@ -143,11 +152,8 @@ def record_sanity(
     n = int(np.count_nonzero(own))
     if n == 0:
         raise VacuousCheckError("record_sanity: no owned row")
-    consistent = (
-        (high >= np.maximum(open_, close)) & (low <= np.minimum(open_, close)) & (high >= low)
-    )
-    positive = (open_ > 0) & (high > 0) & (low > 0) & (close > 0)
-    defective = defective_row_mask(open_, high, low, close, volume)
+    consistent, positive, volume_ok = row_test_masks(open_, high, low, close, volume)
+    defective = ~(consistent & positive & volume_ok)
     c, w = ticker_code[own], window_start[own]
     order = np.lexsort((w, c))
     c, w = c[order], w[order]
@@ -156,7 +162,7 @@ def record_sanity(
         n_rows=n,
         n_ohlc_inconsistent=int(np.count_nonzero(~consistent & own)),
         n_nonpositive_price=int(np.count_nonzero(~positive & own)),
-        n_negative_volume=int(np.count_nonzero(~(volume >= 0) & own)),
+        n_negative_volume=int(np.count_nonzero(~volume_ok & own)),
         n_duplicate_keys=dups,
         n_defective_rows=int(np.count_nonzero(defective & own)),
         n_unowned_rows=n_all - n,

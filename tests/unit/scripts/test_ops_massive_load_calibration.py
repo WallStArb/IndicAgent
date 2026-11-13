@@ -120,8 +120,8 @@ def _era(
 def _judge(target: Era, reference: dict[int, Era], tf: str = "5m"):
     judged = {(e, tf): r.facts for e, r in reference.items()}
     judged[(TARGET_ERA, tf)] = target.facts
-    unresolved = {e: r.unresolved for e, r in reference.items()}
-    unresolved[TARGET_ERA] = target.unresolved
+    unresolved = {(e, tf): r.unresolved for e, r in reference.items()}
+    unresolved[(TARGET_ERA, tf)] = target.unresolved
     return runner.era_verdicts(judged, [TARGET_ERA, *reference], unresolved)[(TARGET_ERA, tf)]
 
 
@@ -198,17 +198,17 @@ def test_a_close_convention_residual_is_unresolved_for_1d_and_ok_convention_for_
 def test_a_last_print_beyond_the_reference_cap_is_unexplained_and_stops(
     reference: dict[int, Era],
 ) -> None:
-    """The last_print class is size capped: a close 1 percent off inside the high-low range on
+    """The last_print class is size capped: a close 0.5 percent off inside the high-low range on
     30 percent of days across the whole era is beyond a reference that shows none."""
     ref = {e: _era(e, 300, seed=e, convention_share=0.30) for e in REFERENCE}  # 0.2 percent prints
-    big = _era(TARGET_ERA, 1000, seed=95, injected=1000, inject=_close_1pct_inside_range)
+    big = _era(TARGET_ERA, 1000, seed=95, injected=1000, inject=_close_half_pct_inside_range)
     verdict = _judge(big, ref)
     assert verdict.verdict == nc.ERA_STOP and "unexplained_other" in verdict.reasons
 
 
-def _close_1pct_inside_range(m: Series, rng: np.random.Generator, i: int) -> Series:
+def _close_half_pct_inside_range(m: Series, rng: np.random.Generator, i: int) -> Series:
     bad = rng.random(N_BARS) < 0.30
-    return (*m[:3], np.where(bad, m[3] * 1.01, m[3]))
+    return (*m[:3], np.where(bad, m[3] * 1.005, m[3]))
 
 
 def test_an_empty_clean_set_is_never_ok(reference: dict[int, Era]) -> None:
@@ -249,13 +249,14 @@ def test_a_defect_inside_a_reference_era_still_stops_it(
     judged = {(e, "5m"): r.facts for e, r in reference.items()}
     injected = _era(2015, 1000, seed=93, injected=200, inject=_x100)
     judged[(2015, "5m")] = injected.facts
-    unresolved = {e: r.unresolved for e, r in reference.items()} | {2015: injected.unresolved}
+    unresolved = {(e, "5m"): r.unresolved for e, r in reference.items()}
+    unresolved[(2015, "5m")] = injected.unresolved
     verdict = runner.era_verdicts(judged, list(REFERENCE), unresolved)[(2015, "5m")]
     assert verdict.verdict == nc.ERA_STOP and "level_class_share>0.0200" in verdict.reasons
     clean = runner.era_verdicts(
         {(e, "5m"): r.facts for e, r in reference.items()},
         list(REFERENCE),
-        {e: r.unresolved for e, r in reference.items()},
+        {(e, "5m"): r.unresolved for e, r in reference.items()},
     )
     assert all(v.verdict == nc.ERA_OK for (_, tf), v in clean.items() if tf == "5m")
 
@@ -299,7 +300,7 @@ def _write_run(tmp_path, injected_era: int | None) -> tuple[runner.Config, dict]
 
 def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, None)
-    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s")
+    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
     assert summary["partition"]["status"] == "complete"
     counts = summary["partition"]["counts"]
     assert counts["pass"] == 120 and counts["unmapped"] == 3 and counts["stop"] == 0
@@ -309,7 +310,7 @@ def test_stage_c_assembly_closes_the_partition_with_every_outcome_class(tmp_path
 
 def test_stage_c_assembly_stops_the_injected_era_and_only_that_era(tmp_path) -> None:
     cfg, keys = _write_run(tmp_path, 2010)  # 10 of 40 names: x100 on all fields
-    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s")
+    summary = runner.assemble_stage_c(cfg, None, [f"N{i}" for i in range(40)], ["U"], keys, "s", {})
     counts = summary["partition"]["counts"]
     assert set(summary["stop_eras_all_sources"]) == {"2010"}
     assert counts["stop"] == 40 and counts["pass"] == 80 and counts["unmapped"] == 3
