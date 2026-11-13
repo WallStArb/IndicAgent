@@ -23,4 +23,11 @@ symbols; the full 925-symbol 1d run is 7:12 in all), so a skip decision costs ab
 a kill loses at most one unit of about two to five minutes. Both are small at 1d; the intraday tfs are the
 open question (todo 471). Decide from the intraday measurement. The `--start` defect is fixed (F2).
 
-Original plan: after todo 469 fixes the bootstrap cost, measure both costs on the rebuilt features. If the digest pass matters, cache column digests keyed by the feature table's content watermark; if resume loss matters, checkpoint per-block score rows (small) under the unit key. 
+Original plan: after todo 469 fixes the bootstrap cost, measure both costs on the rebuilt features. If the digest pass matters, cache column digests keyed by the feature table's content watermark; if resume loss matters, checkpoint per-block score rows (small) under the unit key.
+
+## 2026-11-13 note
+
+Measure alongside todo 471's intraday sizing run on the rebuilt table (post data gate; the host is
+now 64 GB / 24 threads). Faster compute shrinks the digest-pass cost relatively, but bigger block
+widths grow the kill-loses-a-unit blast radius, so the checkpoint-per-block option is the likely
+answer if 471 lands on large widths.

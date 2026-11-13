@@ -30,3 +30,13 @@ and record peak RSS and wall clock per pass, then set the operational block widt
 count) for the tf, or chunk the fetch by symbol range if the union grid itself does not fit. The
 block width is operational (bit-identical for any width, asserted in tests), so the choice needs
 no recompute of anything stored. Decide before 186-28 names its tf set.
+
+## 2026-11-13 host update
+
+The compute host is now 64 GB (59 GiB usable, 24 threads; verified 2026-11-13), up from the 29 GB /
+12-thread box these numbers were measured on. The width-32 15m block grid alone (31 GB at 931
+symbols) now fits alongside an idle database; 5m still needs width <= 8. Measure 15m at widths 4,
+8 and 16 and 5m at 4 and 8, with the thread count up to about 20 (leave Postgres headroom), on the
+REBUILT table in the pre-rerun window: the no-corpus-compute rule stands until the data gate
+(186-32), and measuring on rows the rebuild replaces is wall time wasted. Run nothing while a load
+chain or the nightly window is active (the 2026-11-13 contention lesson).

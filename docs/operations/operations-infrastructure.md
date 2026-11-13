@@ -19,6 +19,8 @@ Two servers, two remotely managed tunnels named after the hostnames. Each server
 | ubuntu1 | primary | 192.168.68.60 | ubuntu1 (`abcb8d19-...`) | ssh1.indicagent.com | ia1 |
 | ubuntu2 | standby and backup | 192.168.68.65 | ubuntu2 (`ade02e25-...`) | ssh2.indicagent.com | ia2 |
 
+Hardware (verified 2026-11-13): ubuntu1 has 64 GB RAM (59 GiB usable), 24 threads (AMD Ryzen AI 9 HX 370) and a 1.9 TB disk (1.6 TB free); numeric stack Python 3.14.4, numpy 2.4.6, scipy 1.18.1, pandas 3.1.1. ubuntu2 has 29 GiB RAM and a 914 GB disk and holds the standby, WAL-archive and base-backup duties. Postgres memory settings were sized for the previous box; re-check shared_buffers, work_mem and effective_cache_size at the next restart window, before the corpus rerun.
+
 Ingress rules live in Cloudflare, not in `/etc/cloudflared/config.yml` (ignored for a remotely managed tunnel; ubuntu1's unit still passes it for the tunnel ID). The repo file `production/cloudflare/tunnels.yml` is the source of truth; push it with `scripts/ops/cloudflare/apply_tunnel_ingress.py` (token with Cloudflare Tunnel Edit in `~/.cloudflare/api_token`). Do not edit rules in the dashboard by hand, or the next apply overwrites them. Web hostnames (grafana, api, dash) are services and keep their names. Laptop `~/.ssh/config`: `Host ia1` / `HostName ssh1.indicagent.com` / `ProxyCommand cloudflared access ssh --hostname %h`, and the same for `ia2` with `ssh2`. On a promotion, update the roles line in `CLAUDE.md` and this table.
 
 ---
