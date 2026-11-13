@@ -76,9 +76,6 @@ ROUNDING_INCREMENTS = 1.5
 
 CLASS_ROUNDING, CLASS_LAST_PRINT, CLASS_SCALE = "rounding", "last_print", "scale"
 CLASS_CLOSE_DEFINITION = "close_definition"  # 1d: incumbent close is Massive's last RTH 5m close
-#: the same, for a bar that is also within rounding tolerance of the day-file close: without a
-#: witness it folds back into ``rounding``, never into ``other``
-CLASS_CLOSE_DEFINITION_ROUNDING = "close_definition_rounding"
 CLASS_TIME_SHIFT, CLASS_OTHER = "time_shift", "other"
 CLASSES = (CLASS_ROUNDING, CLASS_LAST_PRINT, CLASS_SCALE, CLASS_TIME_SHIFT, CLASS_OTHER)
 
@@ -120,6 +117,11 @@ class AgreementCounts:
     n_alt: int = 0
     n_alt_dayfile: int = 0
     n_alt_last: int = 0
+    #: the label each ``close_definition`` bar would have had without that class, with the
+    #: last_print size bins of those that would have been last_print: what an unwitnessed era
+    #: restores (``fold_definition``)
+    def_fallback: dict[str, int] = field(default_factory=dict)
+    def_fallback_hist: dict[int, int] = field(default_factory=dict)
 
     def explained_bars(self, label: str, cap_bin: int) -> int:
         """Bars of one explained class; ``last_print`` only within the size cap."""
@@ -165,6 +167,10 @@ class AgreementCounts:
             n_alt=self.n_alt + other.n_alt,
             n_alt_dayfile=self.n_alt_dayfile + other.n_alt_dayfile,
             n_alt_last=self.n_alt_last + other.n_alt_last,
+            def_fallback=dict(Counter(self.def_fallback) + Counter(other.def_fallback)),
+            def_fallback_hist=dict(
+                Counter(self.def_fallback_hist) + Counter(other.def_fallback_hist)
+            ),
         )
 
 
@@ -289,7 +295,7 @@ def classify_disagreements(
     labels[take] = CLASS_SCALE
     pending &= ~take
     take = pending & definition
-    labels[take] = np.where(rounding[take], CLASS_CLOSE_DEFINITION_ROUNDING, CLASS_CLOSE_DEFINITION)
+    labels[take] = CLASS_CLOSE_DEFINITION
     pending &= ~take
     for label, mask in (
         (CLASS_ROUNDING, rounding),
@@ -387,6 +393,23 @@ def price_agreement(
         None if last_trade_close is None else last_trade_close / scale,
     )
     disagree = ~fields[3]
+    fallback: dict[str, int] = {}
+    fallback_hist: dict[int, int] = {}
+    if last_trade_close is not None and (labels[disagree] == CLASS_CLOSE_DEFINITION).any():
+        plain = classify_disagreements(
+            adj,
+            incumbent,
+            prev,
+            nxt,
+            increment,
+            centres,
+            level == SCALE_LEVEL_DRIFT,
+            last_bucket,  # type: ignore[arg-type]
+            None,
+        )
+        was = disagree & (labels == CLASS_CLOSE_DEFINITION)
+        fallback = dict(Counter(str(x) for x in plain[was]))
+        fallback_hist = last_print_histogram(np.where(was, plain, ""), adj[3], incumbent[3])
     classes = Counter(str(x) for x in labels[disagree])
     hist = last_print_histogram(np.where(disagree, labels, ""), adj[3], incumbent[3])
     n_alt = n_alt_day = n_alt_last = 0
@@ -416,6 +439,8 @@ def price_agreement(
         n_alt,
         n_alt_day,
         n_alt_last,
+        fallback,
+        fallback_hist,
     )
 
 
@@ -543,18 +568,18 @@ def close_definition_witnessed(names: Sequence[NameFacts]) -> bool:
 
 
 def fold_definition(f: NameFacts) -> NameFacts:
-    """Without a witness the close_definition bars are not explained: they count as ``other``."""
+    """Without a witness each close_definition bar returns to the label it would have had without
+    that class (stored with the part), so an unwitnessed era reads exactly as the classifier
+    without the witness would."""
     n = f.counts.n_class.get(CLASS_CLOSE_DEFINITION, 0)
-    n_round = f.counts.n_class.get(CLASS_CLOSE_DEFINITION_ROUNDING, 0)
-    if not n and not n_round:
+    if not n:
         return f
     mix = dict(f.counts.n_class)
-    mix.pop(CLASS_CLOSE_DEFINITION, None)
-    mix.pop(CLASS_CLOSE_DEFINITION_ROUNDING, None)
-    mix[CLASS_OTHER] = mix.get(CLASS_OTHER, 0) + n
-    if n_round:
-        mix[CLASS_ROUNDING] = mix.get(CLASS_ROUNDING, 0) + n_round
-    return replace(f, counts=replace(f.counts, n_class=mix))
+    mix.pop(CLASS_CLOSE_DEFINITION)
+    for label, count in f.counts.def_fallback.items():
+        mix[label] = mix.get(label, 0) + count
+    hist = dict(Counter(f.counts.lp_hist) + Counter(f.counts.def_fallback_hist))
+    return replace(f, counts=replace(f.counts, n_class=mix, lp_hist=hist))
 
 
 def _unexplained(f: NameFacts, cap_bin: int) -> bool:

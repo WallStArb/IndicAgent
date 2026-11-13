@@ -308,7 +308,7 @@ def all_parts(
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5i"
+LOGIC_VERSION = "2026-11-13-r5j"
 
 
 _RAW_FINGERPRINT_SQL = """
@@ -1332,6 +1332,8 @@ class ArmResult:
     n_alt: int = 0
     n_alt_dayfile: int = 0
     n_alt_last: int = 0
+    def_fallback: dict[str, int] = field(default_factory=dict)
+    def_fallback_hist: dict[str, int] = field(default_factory=dict)
     first_disagree: str = ""  # first and last close disagreement (diagnostics; blank in a part
     last_disagree: str = ""  # computed before they were recorded)
     lp_hist: dict[str, int] = field(default_factory=dict)  # last_print candidates by size bin
@@ -1350,6 +1352,8 @@ class ArmResult:
             n_alt=self.n_alt,
             n_alt_dayfile=self.n_alt_dayfile,
             n_alt_last=self.n_alt_last,
+            def_fallback=self.def_fallback,
+            def_fallback_hist={int(b): n for b, n in self.def_fallback_hist.items()},
         )
 
 
@@ -1493,6 +1497,8 @@ def compare_arm(
         n_alt=counts.n_alt,
         n_alt_dayfile=counts.n_alt_dayfile,
         n_alt_last=counts.n_alt_last,
+        def_fallback=counts.def_fallback,
+        def_fallback_hist={str(b): n for b, n in counts.def_fallback_hist.items()},
         first_disagree=stamps[0],
         last_disagree=stamps[1],
         lp_hist={str(b): n for b, n in counts.lp_hist.items()},

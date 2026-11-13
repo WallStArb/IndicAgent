@@ -441,3 +441,19 @@ def test_one_materiality_rule_decides_which_level_classes_are_systemic() -> None
     assert nc.counts_as_systemic(nc.SCALE_LEVEL_DRIFT, 0.0, math.nan)
     assert nc.counts_as_systemic(nc.SCALE_SPLIT_LIKE, 0.0, -0.69)  # a break with a near-zero median
     assert not nc.counts_as_systemic("", 5.0, math.nan)
+
+
+def test_an_unwitnessed_era_reads_exactly_as_the_classifier_without_the_witness() -> None:
+    rng = np.random.default_rng(11)
+    n = 300
+    close = 25 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    massive = _ohlc(close)
+    last = close * (1 + rng.uniform(-0.004, 0.004, n))
+    inc = _ohlc(np.round(last, 2))  # the incumbent follows the last trade
+    plain = nc.price_agreement(massive, np.ones(n), inc, 0.01)
+    witnessed = nc.price_agreement(massive, np.ones(n), inc, 0.01, last_trade_close=last)
+    assert witnessed.n_class.get("close_definition", 0) > 0
+    facts = nc.NameFacts("X", witnessed, False, "", 0.0)
+    folded = nc.fold_definition(facts).counts
+    assert folded.n_class == plain.n_class and folded.lp_hist == plain.lp_hist
+    assert "close_definition" not in folded.n_class

@@ -728,13 +728,23 @@ def test_the_same_data_without_a_witness_counts_the_definition_bars_as_other() -
     folded = nc.fold_definition(
         nc.NameFacts(
             "X",
-            nc.AgreementCounts(150, 140, 140, {"close_definition": 10}, 149, 149, 150, 150),
+            nc.AgreementCounts(
+                150,
+                140,
+                140,
+                {"close_definition": 10},
+                149,
+                149,
+                150,
+                150,
+                def_fallback={"other": 6, "rounding": 4},
+            ),
             False,
             "",
             0.0,
         )
     )
-    assert folded.counts.n_class == {"other": 10}
+    assert folded.counts.n_class == {"other": 6, "rounding": 4}  # each bar's own fallback
 
 
 def test_bars_of_a_level_drift_name_get_the_scale_label() -> None:
