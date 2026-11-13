@@ -32,11 +32,13 @@ for _ in $(seq 1 360); do
 done
 [[ $state == f ]] || { docker logs --tail 20 restore-drill; echo "recovery did not finish" >&2; exit 1; }
 t2=$(date +%s)
-fail=0
+fail=0; compared=0
 while read -r table expected; do
   [[ $table == LSN_* ]] && continue
   got=$(docker exec restore-drill psql -U postgres -d indicagent -Atc "select count(*) from $table")
+  compared=$((compared+1))
   if [[ $got == "$expected" ]]; then echo "OK    $table $got"; else echo "DIFF  $table restored=$got reference=$expected"; fail=1; fi
 done < "$REF"
+(( compared > 0 )) || { echo "reference file compared no tables" >&2; exit 1; }
 echo "extract $((t1-t0)) s, recovery $((t2-t1)) s, total $(( $(date +%s)-t0 )) s"
 exit "$fail"
