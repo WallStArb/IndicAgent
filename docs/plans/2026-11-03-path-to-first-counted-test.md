@@ -13,6 +13,13 @@ lift) with three side lanes (data gaps, decisions, preregistration) that must be
 gate they feed. Lead plans, rules and verifies; Sonnet worker sessions execute; one worker per
 shared file set.
 
+## Amendment 2026-11-13 (lead: 8a verdict, E21 adopted)
+
+- Order from here: the 8a runner lands -> the policy plan builder reads the 8a partition per (era, timeframe) -> step 7 stage 1 -> data gate 186-32 -> the 584 pin and one corpus rerun -> 186-28 fresh IC run -> the E21 sweep pilot (the volume gate: one block measured before any full sweep) -> the first counted test.
+- E21 is adopted (feature-level selection counts every measured cell as a `research_run` attempt), so the discovery sweep needs no further owner word; the clean-data rule still gates it.
+- 1d sources differ by era after step 7: Massive's official close for 2004 to 2007 (a close-definition difference, todo 610) and 2014 onward; IBKR for 2008 to 2013 unless its 6 to 10 percent close residual is explained first. Targets are open to open (`panel.forward_returns`), and opens agree at the same rate in every era, so the close dispute does not move IC targets; close-derived features do. A daily test that reads close-derived features across 2008-01-01 or 2014-01-01 waits for the seam witness at that edge.
+- The stage 2 universe (todo 609) follows step 7; it is the largest breadth lever and its rule is preregistered before any look.
+
 ## Amendment 2026-11-09 (owner: Massive flat files, todo 600)
 
 - The pre-2016 5m source can now be Massive instead of IBKR. The intraday data gate waits on the Massive decision (todo 600): admitted after its basis study, or rejected, or not purchased, in which case IBKR coverage (todo 534) is the gate. The pin must not move before that decision, because admitting Massive later would change the canonical selection and force a second rerun; this keeps 'one pin move, one rerun'. IBKR stays the running fallback.

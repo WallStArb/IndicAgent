@@ -47,7 +47,7 @@ not IBKR coverage.
 
 | Lane | Order |
 |---|---|
-| Data (phase 191 done, 192 Massive) | Raw loads 2026 to 2003 done and gated 2026-11-11 -> section 8a load checks -> step 7 (canonical one-pass rebuild from raw, 2016 seam witness, NVDA canary; 16 to 22 h, Alpaca nightly stopped) -> data gate 186-32 -> the 584 pin and one corpus rerun -> 186-28 fresh IC run. The deletion list (IBKR 5m leg, gateway) lands only after the rebuild proves itself; todo 574 (Tradier removal) done 2026-11-12 |
+| Data (phase 191 done, 192 Massive) | Raw loads 2026 to 2003 done and gated 2026-11-11 -> section 8a load checks (runner in review round 8, first real verdict 2026-11-13: 2014-2026 ok both timeframes, 1d 2008-2013 stop keeps IBKR, 1d 2004-2007 a close-definition difference served from Massive) -> plan builder reads the 8a partition per (era, timeframe) -> step 7 (canonical one-pass rebuild from raw, 2016 seam witness, NVDA canary; 16 to 22 h, Alpaca nightly stopped) -> data gate 186-32 -> the 584 pin and one corpus rerun -> 186-28 fresh IC run. The deletion list (IBKR 5m leg, gateway) lands only after the rebuild proves itself; todo 574 (Tradier removal) done 2026-11-12 |
 | Build (phase 186, 25/29) | 186-17 Task 2 in a fetcher gap; 186-26 rerun waits on the data gate (rows discarded 2026-11-04, migration 569); 186-27 landed (migration 570); 186-28 after the rerun, tf set from 471 |
 | Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table; 13-14 on todo 482; admission holes are todo 588 |
 | Research core (phase 187) | Selection core plans 08-15; governance (16-18) after the first feature family; E17 v2 battery (todos 547, 586) before StepM selection and the book rule |
