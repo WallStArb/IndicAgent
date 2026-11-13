@@ -197,7 +197,9 @@ def manifest_last_day(data: bytes) -> date:
     return max(date.fromisoformat(stamp) for stamp in stamps)
 
 
-def read_load_checks(out_dir: Path, manifest: Path = DEFAULT_MANIFEST) -> LoadChecks:
+def read_load_checks(
+    out_dir: Path, manifest: Path = DEFAULT_MANIFEST, archive_end: date = ARCHIVE_END
+) -> LoadChecks:
     """Read and validate an 8a out dir: one run or a refusal (module docstring). Each input is
     read once; its hash and its parse come from the same bytes."""
     blobs: dict[str, bytes] = {}
@@ -217,7 +219,12 @@ def read_load_checks(out_dir: Path, manifest: Path = DEFAULT_MANIFEST) -> LoadCh
     manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
     if (summary.get("inputs") or {}).get("manifest.jsonl") != manifest_sha:
         raise ValueError(f"{out_dir}: the run hashed another manifest than {manifest}")
-    want = tuple(range(ARCHIVE_FIRST_ERA, manifest_last_day(manifest_bytes).year + 1))
+    last_day = manifest_last_day(manifest_bytes)
+    if archive_end <= last_day:
+        raise ValueError(
+            f"archive end {archive_end} is not after the manifest's last day {last_day}"
+        )
+    want = tuple(range(ARCHIVE_FIRST_ERA, last_day.year + 1))
     stage_c = summary.get("stage_c") or {}
     if tuple(summary.get("eras", ())) != want or tuple(stage_c.get("eras", ())) != want:
         raise ValueError(f"{out_dir}: eras {summary.get('eras')} are not the archive's {want}")
@@ -254,12 +261,16 @@ def read_load_checks(out_dir: Path, manifest: Path = DEFAULT_MANIFEST) -> LoadCh
         },
         "manifest": {"path": str(manifest), "sha256": manifest_sha},
         "stopped": sorted(f"{e}/{tf}" for e, tf in stopped),
-        # a stopped pre-2016 5m era keeps IBKR: the one exception to the sole-source ruling
-        "sole_source_exception": sorted(
-            f"{e}/5m" for e, tf in stopped if tf == "5m" and e < ALPACA_SEAM.year
-        ),
     }
     return LoadChecks(want, source, stopped, provenance)
+
+
+def sole_source_exceptions(checks: LoadChecks, timeframe: str) -> list[str]:
+    """The stopped pre-2016 5m eras: they keep IBKR, the one exception to the owner's sole-source
+    ruling for that era only (lead ruling 2026-11-13). Empty for 1d."""
+    return sorted(
+        f"{e}/{tf}" for e, tf in checks.stopped if tf == "5m" == timeframe and e < ALPACA_SEAM.year
+    )
 
 
 def era_start(era: int) -> date:
@@ -271,8 +282,10 @@ def era_start(era: int) -> date:
 def era_spans(
     checks: LoadChecks, stage: int, timeframe: str, archive_end: date
 ) -> list[tuple[date, date, str]]:
-    """[(start, end, "massive" or "incumbent")] tiling the Massive span, adjacent equal sources
-    merged. The head (before the archive start) is not part of it: it keeps its seam."""
+    """[(start, end, primary)] tiling the Massive span: "massive", or the incumbent of a stopped
+    era (``_incumbent_primary``: IBKR before 2016-01-04, Alpaca from it, so a stopped run across
+    the seam splits there), adjacent equal primaries merged. The head (before the archive start)
+    is not part of it: it keeps its seam."""
     first, end = massive_span(stage, archive_end)
     merged: list[tuple[date, date, str]] = []
     for era in checks.eras:
@@ -280,6 +293,7 @@ def era_spans(
         if start >= stop:
             continue
         src = checks.source[(era, timeframe)]
+        src = MASSIVE if src == MASSIVE else _incumbent_primary(start)
         if merged and merged[-1][2] == src and merged[-1][1] == start:
             merged[-1] = (merged[-1][0], stop, src)
         else:
@@ -356,25 +370,10 @@ def defaults_for(
     first, end = massive_span(stage, archive_end)
     head = [{"valid_from": FAR_PAST.isoformat(), "valid_to": first.isoformat(), "primary": "ibkr"}]
     middle = [
-        {
-            "valid_from": a.isoformat(),
-            "valid_to": b.isoformat(),
-            "primary": MASSIVE if src == MASSIVE else _incumbent_primary(a),
-        }
-        for a, b, src in spans
+        {"valid_from": a.isoformat(), "valid_to": b.isoformat(), "primary": primary}
+        for a, b, primary in spans
     ]
-    # an incumbent span straddling 2016-01-04 (stage 2) is cut there: IBKR then Alpaca
-    cut: list[dict] = []
-    for row in middle:
-        a, b = date.fromisoformat(row["valid_from"]), date.fromisoformat(row["valid_to"])
-        if row["primary"] != MASSIVE and a < ALPACA_SEAM < b:
-            cut += [
-                {**row, "valid_to": ALPACA_SEAM.isoformat(), "primary": "ibkr"},
-                {**row, "valid_from": ALPACA_SEAM.isoformat(), "primary": "alpaca"},
-            ]
-        else:
-            cut.append(row)
-    rows = [*head, *cut]
+    rows = [*head, *middle]
     if stage == 2:
         return [*rows, {"valid_from": end.isoformat(), "valid_to": None, "primary": "alpaca"}]
     open_rows = [r for r in live_defaults if r.valid_to is None]
@@ -453,6 +452,7 @@ def build_plan(
         "runbook": "docs/operations/massive-step7-runbook.md",
         "gap_list": dict(gap_list),
         "load_checks": checks.provenance,
+        "sole_source_exception": sole_source_exceptions(checks, timeframe),
     }
     defaults = [r for r in live if r.symbol is None]
     spans = era_spans(checks, stage, timeframe, archive_end)
@@ -661,10 +661,14 @@ async def _main(args: argparse.Namespace) -> int:
                 gaps=read_gap_list(gap_path),
                 gap_list={"path": str(gap_path), "sha256": file_digest(gap_path)},
                 archive_end=date.fromisoformat(args.archive_end),
-                checks=read_load_checks(Path(args.load_checks_out), Path(args.manifest)),
+                checks=read_load_checks(
+                    Path(args.load_checks_out),
+                    Path(args.manifest),
+                    date.fromisoformat(args.archive_end),
+                ),
             )
-            exceptions = plan["evidence"]["load_checks"]["sole_source_exception"]
-            if exceptions and args.timeframe == "5m":
+            exceptions = plan["evidence"]["sole_source_exception"]
+            if exceptions:
                 print(
                     f"SOLE-SOURCE EXCEPTION: {len(exceptions)} stopped pre-2016 5m era(s) keep "
                     f"the IBKR default: {', '.join(exceptions)}"

@@ -358,7 +358,7 @@ def test_an_all_ok_run_reproduces_the_single_massive_span(tmp_path):
         pins["summary.json"]["sha256"]
         == hashlib.sha256((tmp_path / "summary.json").read_bytes()).hexdigest()
     )
-    assert pins["manifest"]["sha256"] and pins["sole_source_exception"] == []
+    assert pins["manifest"]["sha256"] and plan["evidence"]["sole_source_exception"] == []
 
 
 def test_today_s_three_hand_witness_rows_come_out_of_the_incoming_rule(tmp_path):
@@ -464,8 +464,10 @@ def test_stage1_ignores_a_2016_stop(tmp_path):
 def test_a_stopped_pre_2016_5m_era_is_a_listed_sole_source_exception(tmp_path):
     plan = _plan_with(tmp_path, "5m", stops=[(2008, "5m"), (2020, "5m")])
     assert ("2008-01-01", "2009-01-01", "ibkr") in _spans(plan)
-    assert plan["evidence"]["load_checks"]["sole_source_exception"] == ["2008/5m"]
+    assert plan["evidence"]["sole_source_exception"] == ["2008/5m"]
     parse_plan(plan)
+    one_d = _plan_with(tmp_path, "1d", stops=[(2008, "5m")])
+    assert one_d["evidence"]["sole_source_exception"] == []
 
 
 def test_a_partial_or_self_calibrated_or_short_run_refuses(tmp_path):
@@ -482,6 +484,9 @@ def test_the_eras_come_from_the_manifest_the_run_hashed(tmp_path):
     manifest.write_text(manifest.read_text() + json.dumps(MANIFEST_LINES[0]) + "\n")
     with pytest.raises(ValueError, match="another manifest"):
         mod.read_load_checks(out, manifest)
+    out, manifest = _out_dir(tmp_path)
+    with pytest.raises(ValueError, match="not after the manifest's last day"):
+        mod.read_load_checks(out, manifest, date(2026, 11, 9))
     assert mod.manifest_last_day(
         "".join(json.dumps(r) + "\n" for r in MANIFEST_LINES).encode()
     ) == date(2026, 11, 9)
