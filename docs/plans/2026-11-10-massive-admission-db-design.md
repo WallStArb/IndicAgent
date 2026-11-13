@@ -205,6 +205,16 @@ Amendment 2026-11-13 (round 5 review findings, lead rulings):
 - Part-key fingerprint: per era and (vendor, kind, timeframe) the raw row count, the latest `served_at` and the number of revision-log rows (a same-count restatement moves them). It is computed once per invocation; a check keys only on the series it reads.
 - Exchange map (volume bands): the latest Massive overview capture per ticker (latest `served_at`, then `reference_raw_id`); its hash is part of the volume_bands part key.
 
+Amendment 2026-11-13 (second review, lead rulings):
+
+- Identity is judged per timeframe: a timeframe is usable for a name-era when it has a detector (at least 100 consecutive pairs) and its own identity correlation is finite and at least 0.9; decorrelated when the correlation is finite and under 0.9. A name with a usable timeframe is judged on the usable ones; with none it is `identity_decorrelated` (a detector timeframe decorrelated) or `identity_thin`. The fourth counter of a timeframe counts only names decorrelated on that timeframe with a detector there, over those and that timeframe's judged names; the 1d count never feeds the 5m share or the reverse.
+- Minimum judged names: an (era, timeframe) needs at least 20 judged names (the volume-cell value) for the counters, `empty_clean_set` and the residual verdicts. Below it the verdict is `unresolved` (reason `thin_era`), disclosed, neither ok nor stop, unless the identity counter already stops it (decorrelated plus judged names at least 20). Expected: 5m before IBKR's 5m starts (2006-06-02) has too few judged names; Massive remains the sole pre-2016 5m source (owner ruling).
+- Ticker spans: `valid_to` is exclusive; a span lists the era when `valid_from` is on or before the era's last day and `valid_to` is after its first day.
+- The frozen record carries `freeze_version`; a record of another version is refused, never patched.
+- Stage C refuses stage A and B result files that do not carry the current provenance (rule version, archive input hashes, the frozen record for stage B, and every requested era); the files embed it when written.
+- Volume bands rescale the IBKR volume by the same calendar-audit factor stage C divides IBKR prices by (a share count is multiplied); one helper serves both.
+- The Massive exchange map is read and hashed once per invocation. The stage C part key is seed, rule version, frozen record, sample size, non-split list and the scoped raw fingerprint (no archive sampling parameter).
+
 ## 9. Documents that move with step 7a
 
 - `docs/foundation/canonical-truth-registry.md`: the Bar source policy row, the Roles paragraph, the provider count, the provider matrix (Massive 5m and 1d rows; IBKR loses "primary before 2016"), the canonical 1d row, the corporate-actions row (new input and `inferred_by` code).
