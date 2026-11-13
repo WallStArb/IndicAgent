@@ -271,38 +271,48 @@ def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5e"
+LOGIC_VERSION = "2026-11-13-r5f"
 
 
 _RAW_FINGERPRINT_SQL = """
 SELECT vendor, kind, timeframe, count(*), max(served_at) FROM ohlcv_raw
-WHERE "timestamp" >= %s AND "timestamp" < %s GROUP BY 1, 2, 3
+WHERE "timestamp" >= %s AND "timestamp" < %s
+  AND (vendor || '|' || kind || '|' || timeframe) = ANY(%s) GROUP BY 1, 2, 3
 """
 _REVISION_FINGERPRINT_SQL = """
 SELECT date_part('year', "timestamp" AT TIME ZONE 'UTC')::int, vendor, kind, timeframe, count(*)
-FROM ohlcv_revision WHERE "timestamp" >= %s AND "timestamp" < %s GROUP BY 1, 2, 3, 4
+FROM ohlcv_revision WHERE "timestamp" >= %s AND "timestamp" < %s
+  AND (vendor || '|' || kind || '|' || timeframe) = ANY(%s) GROUP BY 1, 2, 3, 4
 """
 
 
-def raw_fingerprints(conn: psycopg.Connection, eras: Iterable[int]) -> dict[int, dict[str, str]]:
+def raw_fingerprints(
+    conn: psycopg.Connection,
+    eras: Iterable[int],
+    series: Iterable[tuple[str, str, str]],
+) -> dict[int, dict[str, str]]:
     """Per era, per ``vendor|kind|timeframe``: ``rows|latest served_at|revision rows`` (round 5
     rule 7). A reload or extension moves the count; a restatement that keeps the count moves the
     served stamp and the revision-log count. Computed once per invocation (the revision log is read
-    in one pass over every requested era) and scoped by each check to the series it reads."""
+    in one pass over every requested era), read only for the ``series`` the requested stages read,
+    and scoped again by each check to its own."""
     eras = sorted(set(eras))
-    if not eras:
+    wanted = sorted("|".join(s) for s in series)
+    if not eras or not wanted:
         return {}
     out: dict[int, dict[str, str]] = {era: {} for era in eras}
+    wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(
             _REVISION_FINGERPRINT_SQL,
-            (datetime(eras[0], 1, 1, tzinfo=UTC), datetime(eras[-1] + 1, 1, 1, tzinfo=UTC)),
+            (datetime(eras[0], 1, 1, tzinfo=UTC), datetime(eras[-1] + 1, 1, 1, tzinfo=UTC), wanted),
         )
         revisions = {(e, f"{v}|{k}|{t}"): int(n) for e, v, k, t, n in cur.fetchall()}
         for era in eras:
+            wait_out_nightly_window()
             cur.execute(
                 _RAW_FINGERPRINT_SQL,
-                (datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC)),
+                (datetime(era, 1, 1, tzinfo=UTC), datetime(era + 1, 1, 1, tzinfo=UTC), wanted),
             )
             for v, k, t, n, served in cur.fetchall():
                 series = f"{v}|{k}|{t}"
@@ -522,6 +532,7 @@ _LISTING_END_SQL = "SELECT symbol, last_session FROM listing_end_current"
 def run_survivorship(cfg: Config, archive: Archive, conn: psycopg.Connection) -> dict[str, Any]:
     """Presence by era (names with a held 1d Massive bar per era) and each instrument's first and
     last Massive 1d bar against its recorded listing end. Disclosed, never a gate."""
+    wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(_HELD_SQL)
         held = {s: (a, b) for s, a, b in cur.fetchall()}
@@ -820,10 +831,9 @@ def load_frozen(cfg: Config) -> Frozen:
     )
 
 
-def rescaled_bars(bars: Bars, splits: list[SplitFactor]) -> Bars:
-    """A series carried onto the split-adjusted basis: prices of the sessions on or before each
-    split's effective date divided by its factor (the daily rule's route rescale)."""
-    scale = lc.split_scale_for_days(bars.key, splits)  # == Frozen.ibkr_scale for the same splits
+def rescaled_bars(bars: Bars, scale: np.ndarray) -> Bars:
+    """A series carried onto the split-adjusted basis: prices divided by the per-session
+    ``scale`` (``Frozen.ibkr_scale``, the one rule 7 factor)."""
     ohlc = tuple(a / scale for a in bars.ohlc)
     return Bars(bars.t_ns, bars.key, ohlc, bars.volume, bars.served_min, bars.served_max)
 
@@ -935,6 +945,7 @@ class ExchangeMap:
 
 
 def load_exchange_map(conn: psycopg.Connection) -> ExchangeMap:
+    wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(_EXCHANGE_SQL)
         by_symbol = {s: (e or UNKNOWN_EXCHANGE) for s, e in cur.fetchall()}
@@ -964,6 +975,7 @@ def run_volume_bands(
     series: dict[str, dict[str, dict[date, float]]] = {"ibkr": {}, "massive": {}}
     with conn.cursor() as cur:
         for vendor, kind in (("ibkr", "smart_trades"), ("massive", "sip_flat")):
+            wait_out_nightly_window()
             cur.execute(_VOL_SQL, (vendor, kind, start, end))
             for symbol, stamp, volume in cur.fetchall():
                 day = raw_session_date(vendor, kind, stamp)
@@ -1111,6 +1123,7 @@ def fetch_bars(
 ) -> dict[str, Bars]:
     """Raw bars of one (timeframe, vendor) for several names over [start, end), per name."""
     kind = ARM_KINDS[(timeframe, vendor)]
+    wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(_BARS_SQL, (timeframe, vendor, kind, names, start, end))
         rows = cur.fetchall()
@@ -1184,6 +1197,7 @@ class ArmResult:
     scale_class: str = ""
     n_incumbent_unknown_volume: int = 0  # incumbent bars with a NULL volume: unknown, not zero
     break_step: float = math.nan  # step of an in-era level break that reads as a split
+    break_pre_median: float = math.nan  # Massive / incumbent log level before that break
     lp_hist: dict[str, int] = field(default_factory=dict)  # last_print candidates by size bin
 
     def counts(self) -> nc.AgreementCounts:
@@ -1290,6 +1304,7 @@ def compare_arm(
         ),
         n_incumbent_unknown_volume=unknown_volume,
         break_step=counts.break_step,
+        break_pre_median=counts.break_pre_median,
         lp_hist={str(b): n for b, n in counts.lp_hist.items()},
     )
 
@@ -1455,9 +1470,7 @@ def run_name_era_batch(
                         results[arm][tf] = None
                         continue
                     if arm == "ibkr" and tf == "1d" and ibkr_rescale:
-                        inc = rescaled_bars(
-                            inc, ibkr_rescale
-                        )  # rule 7: the audit's unadjusted series
+                        inc = rescaled_bars(inc, frozen.ibkr_scale(name, inc.key))  # rule 7
                     results[arm][tf] = compare_arm(tf, arm, massive, inc, sp, sessions)
         alp = data.get(("1d", "alpaca"), {}).get(name)
         seam = bool(alp) and nc.alpaca_epoch_seam_possible(
@@ -1518,7 +1531,7 @@ def run_disputed_windows(
         massive = fetch_bars(conn, "1d", "massive", [symbol], start, end).get(symbol)
         inc = fetch_bars(conn, "1d", "ibkr", [symbol], start, end).get(symbol)
         if inc is not None and frozen.ibkr_rescales.get(symbol):
-            inc = rescaled_bars(inc, frozen.ibkr_rescales[symbol])  # rule 7
+            inc = rescaled_bars(inc, frozen.ibkr_scale(symbol, inc.key))  # rule 7
         row: dict[str, Any] = {
             "symbol": symbol,
             "date": day.isoformat(),
@@ -1625,6 +1638,7 @@ def fetch_split_tapes(
     A pair with either side absent is missing from the result."""
     if not pairs:
         return {}
+    wait_out_nightly_window()
     with conn.cursor() as cur:
         cur.execute(_TAPES_SQL, ([p[0] for p in pairs], [p[1] for p in pairs]))
         rows = cur.fetchall()
@@ -1682,8 +1696,29 @@ def ledger_row(
     }
 
 
+TAPE_SERIES = (("massive", "sip_flat", "1d"),)  # the split tapes' source
 #: The raw series stage C reads: every arm of ARM_KINDS.
 STAGE_C_SERIES = tuple(sorted((vendor, kind, tf) for (tf, vendor), kind in ARM_KINDS.items()))
+
+
+def stage_c_keys(
+    eras: Iterable[int], base_key: Mapping[str, Any], fingerprints: Mapping[int, Mapping[str, str]]
+) -> dict[int, dict[str, Any]]:
+    """The identity of each era's name part. The part stores tapes for splits of LATER eras too, so
+    it carries the fingerprints of the eras those tapes read (Massive 1d, from the splits' own
+    years), not only its own era's."""
+    return {
+        era: {
+            **base_key,
+            "raw_fingerprint": scoped_fingerprint(fingerprints[era], STAGE_C_SERIES),
+            "tape_fingerprints": {
+                str(year): scoped_fingerprint(fingerprints[year], TAPE_SERIES)
+                for year in sorted(fingerprints)
+                if year > era
+            },
+        }
+        for era in eras
+    }
 
 
 def run_stage_c(
@@ -1717,13 +1752,7 @@ def run_stage_c(
         "non_split_sha256": _rows_sha256(non_split),
         "frozen": frozen_hashes(cfg),
     }
-    keys = {
-        era: {
-            **base_key,
-            "raw_fingerprint": scoped_fingerprint(fingerprints[era], STAGE_C_SERIES),
-        }
-        for era in cfg.eras
-    }
+    keys = stage_c_keys(cfg.eras, base_key, fingerprints)
     for era in cfg.eras:
         if load_part(cfg, "name_checks", era, keys[era]):
             continue
@@ -1812,6 +1841,10 @@ def era_verdicts(
     return out
 
 
+def _close_convention_unresolved(verdict: nc.EraVerdict) -> bool:
+    return verdict.verdict == nc.ERA_UNRESOLVED and "close_convention" in verdict.reasons
+
+
 def assemble_stage_c(
     cfg: Config,
     mapped: list[str],
@@ -1845,10 +1878,13 @@ def assemble_stage_c(
     outcomes: dict[tuple[str, int], tuple[str, str]] = {}
     classes_total: Counter[str] = Counter()
     carriers: dict[int, set[str]] = {}
-    for (era, _), v in verdicts.items():
-        carriers.setdefault(era, set()).update(v.other_concentration)
+    for (era, tf), v in verdicts.items():
+        # a timeframe flags only where its own verdict lets it: never through an unresolved 1d
+        if not (tf == "1d" and _close_convention_unresolved(v)):
+            carriers.setdefault(era, set()).update(v.other_concentration)
     for era in eras:
-        one_d_unresolved = verdicts[(era, "1d")].verdict == nc.ERA_UNRESOLVED
+        # the close convention only: a thin era is a coverage gap, treated alike on 1d and 5m
+        one_d_unresolved = _close_convention_unresolved(verdicts[(era, "1d")])
         for name, d in sorted(parts[era]["names"].items()):
             j = judge_name_era(
                 arm_results[(name, era)],
@@ -1916,11 +1952,13 @@ def assemble_stage_c(
                         "frozen_splits_in_window": ";".join(d["splits_in_window"]),
                     }
                 )
-                step = r["break_step"]
+                # an in-era break is judged by the residual BEFORE it (Massive / incumbent), the
+                # frozen_split_witness convention; otherwise by the era's median
+                pre = r["break_pre_median"]
                 ledger.append(
                     ledger_row(
                         name, era, tf, f"level_class:{cls}",
-                        step if math.isfinite(step) else r["median_log_ratio"],
+                        pre if math.isfinite(pre) else r["median_log_ratio"],
                         d["splits_after_era"], d["split_tapes"], session_id,
                     )
                 )  # fmt: skip
@@ -2030,7 +2068,7 @@ def assemble_stage_c(
         if v.verdict == nc.ERA_STOP:
             reason = f"{tf}:" + "+".join(v.reasons)
             stops[era] = f"{stops[era]}+{reason}" if era in stops else reason
-    unresolved_1d = sorted(e for e in eras if verdicts[(e, "1d")].verdict == nc.ERA_UNRESOLVED)
+    unresolved_1d = sorted(e for e in eras if _close_convention_unresolved(verdicts[(e, "1d")]))
     expected = [(n, e) for n in [*mapped, *unmapped] for e in cfg.eras]
     closed = nc.close_partition(expected, outcomes, stop_eras=stops)
     gap_additions = sorted(
@@ -2147,7 +2185,16 @@ def main(argv: list[str] | None = None) -> int:
     archive_last_era = max(archive.manifest[MINUTE] | archive.manifest[DAY]).year
     with connect_read_only() as conn:
         # one fingerprint per era per invocation, shared by every check that keys on raw rows
-        fingerprints = raw_fingerprints(conn, cfg.eras) if stages & {"B", "C"} else {}
+        read: set[tuple[str, str, str]] = set()
+        if "B" in stages:
+            read |= set(VOLUME_SERIES)
+        if "C" in stages:
+            read |= set(STAGE_C_SERIES)
+        # stage C parts also carry the later eras their split tapes read (up to the current year)
+        fp_eras = set(cfg.eras)
+        if "C" in stages:
+            fp_eras |= set(range(min(cfg.eras), datetime.now(UTC).year + 1))
+        fingerprints = raw_fingerprints(conn, fp_eras, read) if read else {}
         if "A" in stages:
             summary["stage_a"] = run_stage_a(cfg, archive, conn)
         if "B" in stages:
@@ -2201,8 +2248,11 @@ SQL_STATEMENTS: dict[str, tuple[str, tuple[Any, ...]]] = {
     "_VOL_SQL": (_VOL_SQL, ("ibkr", "smart_trades", _PROBE_START, _PROBE_END)),
     "_BARS_SQL": (_BARS_SQL, ("1d", "massive", "sip_flat", ["A"], _PROBE_START, _PROBE_END)),
     "_TAPES_SQL": (_TAPES_SQL, (["A"], [date(2010, 3, 1)])),
-    "_RAW_FINGERPRINT_SQL": (_RAW_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END)),
-    "_REVISION_FINGERPRINT_SQL": (_REVISION_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END)),
+    "_RAW_FINGERPRINT_SQL": (_RAW_FINGERPRINT_SQL, (_PROBE_START, _PROBE_END, ["a|b|1d"])),
+    "_REVISION_FINGERPRINT_SQL": (
+        _REVISION_FINGERPRINT_SQL,
+        (_PROBE_START, _PROBE_END, ["a|b|1d"]),
+    ),
 }
 
 

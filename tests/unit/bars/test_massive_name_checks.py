@@ -79,8 +79,6 @@ def test_vacuous_inputs_raise() -> None:
         nc.price_agreement((empty,) * 4, empty, (empty,) * 4, 0.01)
     with pytest.raises(VacuousCheckError):
         nc.name_era_agreement_ok(nc.AgreementCounts(0, 0, 0))
-    with pytest.raises(VacuousCheckError):
-        nc.scale_check(empty, empty, empty)
 
 
 def test_return_agreement_is_invariant_to_a_constant_level_factor() -> None:
@@ -149,8 +147,12 @@ def test_frozen_split_witness_is_direction_aware(factor: float) -> None:
     scale = lc.split_scale_for_days(old_scale_days, [SplitFactor(date(2010, 5, 4), factor)])
     massive_raw = np.full(2, 100.0 * factor)
     lacks_split = massive_raw.copy()  # the incumbent left on the old scale
-    residual = math.exp(nc.scale_check(massive_raw, scale, lacks_split))
-    assert residual == pytest.approx(1.0 / factor)
+    one = np.ones(2)
+    residual = nc.price_agreement(
+        (massive_raw / 1.0,) * 4, scale, (lacks_split,) * 4, 0.01
+    ).median_log  # ln(Massive / factor / incumbent) of the name-era
+    residual = math.exp(residual)
+    assert residual == pytest.approx(1.0 / factor) and one.sum() == 2
     toward_massive = nc.frozen_split_witness(residual, split)
     assert toward_massive is not None and toward_massive.supports == "massive"
     away = nc.frozen_split_witness(factor, split)
@@ -198,11 +200,8 @@ def test_clean_vendor_passes_every_name_level_check() -> None:
     counts = nc.price_agreement(massive, np.ones(n), inc, 0.01, massive_pos=pos, incumbent_pos=pos)
     assert counts.share == 1.0 and counts.ret_share == 1.0 and counts.intra_share == 1.0
     assert nc.name_era_agreement_ok(counts)
-    median = nc.scale_check(massive[3], np.ones(n), inc[3])
-    assert nc.scale_ok(median)
-    assert (
-        nc.scale_class(median, nc.level_dispersion(massive[3], np.ones(n), inc[3]), 1.0, 1.0) == ""
-    )
+    assert abs(counts.median_log) <= nc.SCALE_LEVEL_TOL
+    assert nc.scale_class(counts.median_log, counts.iqr, 1.0, 1.0) == ""
     assert nc.identity_resolved(nc.identity_correlation(massive[3], inc[3]))
     facts = [nc.NameFacts(f"A{i}", counts, False, "", 0.0) for i in range(nc.MIN_JUDGED_NAMES)]
     assert nc.judge_era("5m", facts, nc.counter_thresholds([]), 0).verdict == "ok"
@@ -210,14 +209,6 @@ def test_clean_vendor_passes_every_name_level_check() -> None:
     assert thin.verdict == "unresolved" and thin.reasons == ("thin_era",)
     part = nc.close_partition([("A", 2010)], {("A", 2010): ("pass", "")}, stop_eras={})
     assert isinstance(part, nc.Partition) and part.counts["pass"] == 1 and part.counts["stop"] == 0
-
-
-def test_scale_check_uses_given_factor() -> None:
-    close = np.array([50.0, 51.0, 52.0])
-    assert nc.scale_ok(nc.scale_check(close * 4, np.full(3, 4.0), close))
-    drifted = nc.scale_check(close * 1.002, np.ones(3), close)
-    assert not nc.scale_ok(drifted)
-    assert nc.scale_ok(nc.scale_check(close * 1.0009, np.ones(3), close))
 
 
 def test_identity_correlation() -> None:
@@ -340,12 +331,17 @@ def test_the_frozen_witness_offers_every_split_that_explains_the_cumulative_scal
     later = [("2020-06-01", 3.0)]
     w = nc.frozen_split_witness(1 / 3, later)
     assert w is not None and w.supports == "massive" and "2020-06-01" in w.citation
-    # an incumbent missing two splits: the cumulative product from the earliest explains it
+    # an incumbent missing both splits: the product of the subset explains it
     two = [("2018-03-01", 2.0), ("2020-06-01", 3.0)]
     product = nc.frozen_split_witness(1 / 6, two)
     assert product is not None and product.supports == "massive"
-    assert "splits from 2018-03-01" in product.citation
+    assert "2018-03-01 x2.0" in product.citation and "2020-06-01 x3.0" in product.citation
+    # an incumbent missing only the earlier one (a non-contiguous subset is not special)
+    assert nc.frozen_split_witness(1 / 2, two).citation.endswith("split 2018-03-01 x2.0")  # type: ignore[union-attr]
     assert nc.frozen_split_witness(1.37, two) is None  # never invented
+    # two subsets with the same product (2 x 3 = 6 and the single 6): ambiguous, no witness
+    ambiguous = [("2018-03-01", 2.0), ("2019-01-01", 3.0), ("2020-06-01", 6.0)]
+    assert nc.frozen_split_witness(1 / 6, ambiguous) is None
 
 
 def test_price_agreement_returns_one_set_of_level_statistics() -> None:
@@ -362,9 +358,35 @@ def test_price_agreement_returns_one_set_of_level_statistics() -> None:
 def test_a_level_break_that_reads_as_a_split_is_split_like_and_a_small_drift_is_not() -> None:
     n = 150
     step = np.where(np.arange(n) < 40, math.log(2.0), 0.0)  # a missing 2:1 split, 27 percent in
-    assert nc.level_break_step(step) == pytest.approx(-math.log(2.0))
-    assert nc.scale_class(0.0, 0.0, 0.7, 0.995, nc.level_break_step(step)) == nc.SCALE_SPLIT_LIKE
+    found, pre = nc.level_break_step(step)
+    assert found == pytest.approx(-math.log(2.0)) and pre == pytest.approx(math.log(2.0))
+    assert nc.scale_class(0.0, 0.0, 0.7, 0.995, found) == nc.SCALE_SPLIT_LIKE
     drift = np.linspace(0.0, 0.003, n)  # 30 bp over the era, no step
-    assert math.isnan(nc.level_break_step(drift))
+    assert math.isnan(nc.level_break_step(drift)[0])
     assert nc.scale_class(0.0015, 0.0015, 0.8, 0.995) == nc.SCALE_LEVEL_DRIFT
-    assert math.isnan(nc.level_break_step(np.where(np.arange(n) < 2, 0.69, 0.0)))  # under 5 percent
+    assert math.isnan(
+        nc.level_break_step(np.where(np.arange(n) < 2, 0.69, 0.0))[0]
+    )  # under 5 percent
+
+
+def test_a_missing_split_has_the_same_witness_whether_it_falls_mid_era_or_covers_the_era() -> None:
+    """The IBKR series lacks a 2:1 split the frozen list holds. Mid-era the pre-break residual is
+    ln(1/2) (Massive divided by the split over the incumbent on the old scale), and the same
+    residual describes the whole-era case: both witness Massive, an incumbent defect."""
+    frozen = [("2010-03-01", 2.0)]
+    mid_era = np.where(np.arange(150) < 40, math.log(0.5), 0.0)
+    _, pre = nc.level_break_step(mid_era)
+    whole_era = nc.price_agreement(
+        (np.full(150, 25.0),) * 4, np.full(150, 2.0), (np.full(150, 25.0),) * 4, 0.01
+    ).median_log
+    assert pre == pytest.approx(math.log(0.5)) and whole_era == pytest.approx(math.log(0.5))
+    for level in (pre, whole_era):
+        row = nc.ledger_verdict(
+            "X",
+            "2010",
+            "d",
+            [nc.frozen_split_witness(math.exp(level), frozen)],  # type: ignore[list-item]
+            nc.DISPUTE_MASSIVE_VS_IBKR,
+            "s",
+        )
+        assert row.verdict == "incumbent_defect"

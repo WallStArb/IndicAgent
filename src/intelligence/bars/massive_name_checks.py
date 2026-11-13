@@ -108,6 +108,7 @@ class AgreementCounts:
     iqr: float = math.nan
     stable_offset: bool = False
     break_step: float = math.nan
+    break_pre_median: float = math.nan  # median log ratio before the break (Massive / incumbent)
 
     def unexplained(self, cap_bin: int) -> int:
         """Disagreeing bars no size-capped convention explains: ``other`` plus the last_print
@@ -316,7 +317,9 @@ def price_agreement(
     level_share = float(fields[3].mean())
     stable = is_stable_offset(level_share, iqr)
     # the break test only runs when the level disagrees somewhere (benign names never reach it)
-    break_step = level_break_step(log_ratio) if level_share < NAME_ERA_AGREE_MIN else math.nan
+    break_step, break_pre = (
+        level_break_step(log_ratio) if level_share < NAME_ERA_AGREE_MIN else (math.nan, math.nan)
+    )
     labels = classify_disagreements(
         adj, incumbent, prev, nxt, increment, median_log, stable, last_bucket  # type: ignore[arg-type]
     )
@@ -342,6 +345,7 @@ def price_agreement(
         iqr,
         stable,
         break_step,
+        break_pre,
     )
 
 
@@ -552,21 +556,6 @@ def judge_era(
 
 
 # --- scale factor ------------------------------------------------------------------------------
-def scale_check(
-    massive_close_raw: np.ndarray, scale: np.ndarray, incumbent_close: np.ndarray
-) -> float:
-    """The median log close ratio ln(Massive / factor / incumbent) of a name-year. The factor is
-    given (frozen splits), never estimated here. Raises on zero matched bars."""
-    if len(scale) == 0:
-        raise VacuousCheckError("scale_check: no matched bar")
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return _median_iqr(np.log(massive_close_raw / scale / incumbent_close))[0]
-
-
-def scale_ok(median_log_ratio: float) -> bool:
-    return abs(median_log_ratio) <= SCALE_LEVEL_TOL
-
-
 def _median_iqr(log_ratio: np.ndarray) -> tuple[float, float]:
     """Median and interquartile range of a per-bar log close ratio (NaN bars ignored)."""
     q1, med, q3 = np.nanpercentile(log_ratio, [25, 50, 75])
@@ -579,7 +568,7 @@ def is_stable_offset(level_share: float, dispersion: float) -> bool:
     return level_share < STABLE_CONSTANT_MAX_LEVEL_SHARE and dispersion <= STABLE_LEVEL_IQR
 
 
-def level_break_step(log_ratio: np.ndarray) -> float:
+def level_break_step(log_ratio: np.ndarray) -> tuple[float, float]:
     """The step of an in-era level break that reads as a split, else NaN.
 
     Candidate breaks on a grid of ``STEP_GRID`` points (each side at least
@@ -587,14 +576,16 @@ def level_break_step(log_ratio: np.ndarray) -> float:
     of the per-bar log close ratio after the break minus before it. It counts when both sides are
     stable (interquartile range within ``STABLE_LEVEL_IQR``), the step exceeds the scale tolerance
     and its ratio matches a split within ``SPLIT_LIKE_TOL``: a split missing from the frozen table
-    persists to the end (or the start) of the era. The largest such step wins."""
+    persists to the end (or the start) of the era. The largest such step wins. Returns
+    (step, median before the break): the pre-break residual is the Massive / incumbent level the
+    frozen split witness compares against."""
     r = log_ratio[np.isfinite(log_ratio)]
     r = r[:: max(1, len(r) // STEP_MAX_POINTS)]
     n = len(r)
     seg = max(STEP_MIN_SEGMENT_BARS, math.ceil(STEP_MIN_SEGMENT_SHARE * n))
     if n < 2 * seg:
-        return math.nan
-    best = math.nan
+        return math.nan, math.nan
+    best = pre = math.nan
     for k in np.unique(np.linspace(seg, n - seg, STEP_GRID).astype(int)):
         before, after = r[:k], r[k:]
         med_b, iqr_b = _median_iqr(before)
@@ -607,13 +598,16 @@ def level_break_step(log_ratio: np.ndarray) -> float:
             and split_like_ratio(math.exp(abs(step))) is not None
             and (math.isnan(best) or abs(step) > abs(best))
         ):
-            best = step
-    return best
+            best, pre = step, med_b
+    return best, pre
 
 
 #: A level offset is "stable" when the interquartile range of the per-bar log close ratio is at
 #: most 50 bp (design 8a, amendment 2026-11-13 constants table).
 STABLE_LEVEL_IQR = 0.005
+WITNESS_TOL = 0.01  # relative match of a residual to a split product (frozen-list witness)
+TAPE_WITNESS_TOL = 0.02  # relative match of Massive's tape step to the recorded split factor
+WITNESS_MAX_SPLITS = 16  # subsets of the frozen splits are enumerated up to this many
 STEP_MIN_SEGMENT_SHARE = 0.05  # the shorter side of a level break: share of the bars ...
 STEP_MIN_SEGMENT_BARS = 5  # ... and at least this many bars
 STEP_GRID = 64  # candidate break points per name-era
@@ -621,14 +615,9 @@ STEP_MAX_POINTS = 2000  # the series is stride-thinned to this length (bounds co
 #: Ratios a split table can hold; a stable level factor within 0.5 percent of one reads as a
 #: split-like offset (a candidate missing split), anything else as a non-split adjustment.
 SPLIT_LIKE_TOL = 0.005
-SPLIT_LIKE_RATIOS = tuple(
-    sorted(
-        {float(n) for n in range(2, 21)}
-        | {1.5, 2.5, 3.5, 4 / 3, 5 / 3}
-        | {1 / n for n in range(2, 21)}
-        | {2 / 3, 0.4, 2 / 7, 3 / 4, 3 / 5}
-    )
-)
+#: Ratios above 1 only: ``split_like_ratio`` reads exp(|log factor|), so a reverse split is its
+#: reciprocal's forward ratio.
+SPLIT_LIKE_RATIOS = tuple(sorted({float(n) for n in range(2, 21)} | {1.5, 2.5, 3.5, 4 / 3, 5 / 3}))
 SCALE_ADJUSTMENT_LEVEL = "adjustment_level"
 SCALE_SPLIT_LIKE = "split_like_level"
 SCALE_LEVEL_DRIFT = "level_drift"
@@ -640,17 +629,6 @@ def split_like_ratio(factor: float) -> float | None:
         if abs(factor / ratio - 1.0) <= SPLIT_LIKE_TOL:
             return ratio
     return None
-
-
-def level_dispersion(
-    massive_close_raw: np.ndarray, scale: np.ndarray, incumbent_close: np.ndarray
-) -> float:
-    """Interquartile range of the per-bar log close ratio (the factor is the given frozen one)."""
-    if len(scale) == 0:
-        raise VacuousCheckError("level_dispersion: no matched bar")
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.log(massive_close_raw / scale / incumbent_close)
-    return _median_iqr(ratio)[1]
 
 
 def scale_class(
@@ -909,41 +887,50 @@ def dispute_window_sessions(
 
 # --- ledger witnesses with no new data ---------------------------------------------------------
 def frozen_split_witness(
-    level_factor: float, splits_after: Sequence[tuple[str, float]], tol: float = 0.01
+    level_factor: float, splits_after: Sequence[tuple[str, float]], tol: float = WITNESS_TOL
 ) -> Witness | None:
     """The frozen corporate-action list as a witness for one disputed name-era. ``level_factor`` is
-    the residual Massive / incumbent after Massive is divided by the frozen splits;
-    ``splits_after`` holds (effective date, factor) of the frozen splits that explain the
-    cumulative scale of the era's bars: every one on or after the era's first session. Dividing by
-    a split of factor f moves the bars up to its effective date onto the new scale, so an
-    incumbent that lacks the split leaves a residual of 1/f: the dated record explains the dispute
-    and supports Massive. A residual of f points the other way, so the record supports the
-    incumbent there. The residual is tested against each split alone and against the cumulative
-    product from each split to the last (an incumbent lacking several). Neither within ``tol``: no
-    witness (never invented)."""
+    the residual Massive / incumbent after Massive is divided by the frozen splits (for an in-era
+    break, the pre-break residual); ``splits_after`` holds (effective date, factor) of the frozen
+    splits that explain the cumulative scale of the era's bars: every one on or after the era's
+    first session. Dividing by a split of factor f moves the bars up to its effective date onto
+    the new scale, so an incumbent that lacks the split leaves a residual of 1/f: the dated record
+    explains the dispute and supports Massive. A residual of f points the other way, so the record
+    supports the incumbent there. The residual is tested against the product of EVERY non-empty
+    subset of the splits (an incumbent lacking some of them; the count per name is small). The
+    witness is cited only when exactly one subset matches: several matching subsets are
+    ambiguous and give no witness, as does no match (never invented)."""
     ordered = sorted(splits_after)
-    for effective, factor in ordered:
-        for candidate, supports in ((1.0 / factor, "massive"), (factor, "incumbent")):
-            if abs(level_factor / candidate - 1.0) <= tol:
-                return Witness(
-                    "filing_dated_corporate_action",
-                    supports,
-                    f"frozen corporate_action split {effective} x{factor}",
-                )
-    for i in range(len(ordered) - 1):
-        product = math.prod(f for _, f in ordered[i:])
+    if len(ordered) > WITNESS_MAX_SPLITS:
+        return None
+    matches: list[tuple[tuple[tuple[str, float], ...], float, str]] = []
+    for mask in range(1, 1 << len(ordered)):
+        subset = tuple(ordered[i] for i in range(len(ordered)) if mask >> i & 1)
+        product = math.prod(f for _, f in subset)
         for candidate, supports in ((1.0 / product, "massive"), (product, "incumbent")):
             if abs(level_factor / candidate - 1.0) <= tol:
-                return Witness(
-                    "filing_dated_corporate_action",
-                    supports,
-                    f"frozen corporate_action splits from {ordered[i][0]} x{product}",
-                )
-    return None
+                matches.append((subset, product, supports))
+    if len(matches) != 1:
+        return None
+    subset, product, supports = matches[0]
+    if len(subset) == 1:
+        effective, factor = subset[0]
+        citation = f"frozen corporate_action split {effective} x{factor}"
+    else:
+        citation = (
+            "frozen corporate_action splits "
+            + ", ".join(f"{e} x{f}" for e, f in subset)
+            + f" (product x{product})"
+        )
+    return Witness("filing_dated_corporate_action", supports, citation)
 
 
 def massive_tape_witness(
-    close_before: float, close_after: float, factor: float, effective: str, tol: float = 0.02
+    close_before: float,
+    close_after: float,
+    factor: float,
+    effective: str,
+    tol: float = TAPE_WITNESS_TOL,
 ) -> Witness | None:
     """Massive's own continuity witness for a recorded split: Massive's unadjusted tape steps by
     the split factor across its effective date (close on the last old-scale session over the close

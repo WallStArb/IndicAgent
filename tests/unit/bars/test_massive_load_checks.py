@@ -358,3 +358,15 @@ def test_volume_step_compares_across_a_missing_era_and_flags_it() -> None:
     cells[(2011, "XNAS")] = {"A": 1.0}
     out = lc.volume_bands(cells)
     assert [r.verdict for r in out] == ["ok", "thin", "stop"]
+
+
+def test_one_nan_volume_minute_does_not_move_the_session_peak() -> None:
+    minutes = np.arange(-30, 30, dtype=np.int64)
+    window = minutes * 60 * 1_000_000_000
+    volume = np.ones(len(minutes))
+    volume[40] = 500.0  # the true peak, +10 minutes
+    clean = lc.volume_peak_offset_minutes(window, volume, 0)
+    volume[5] = np.nan  # an unknown minute elsewhere in the window
+    assert lc.volume_peak_offset_minutes(window, volume, 0) == clean == 10
+    volume[40] = np.nan  # the peak minute itself unknown: the next-best minute, never NaN-driven
+    assert lc.volume_peak_offset_minutes(window, volume, 0) != 10

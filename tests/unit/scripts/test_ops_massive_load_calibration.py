@@ -461,3 +461,19 @@ def test_a_thin_reference_era_does_not_raise_the_thresholds(
         thin.thresholds["flagged_share"] == nc.COUNTER_FLOOR_SHARE
     )
     assert "2014" not in thin.calibration.split(",")
+
+
+def test_a_1d_unresolved_era_never_flags_carriers_through_1d(tmp_path) -> None:
+    """The 1d close convention (residual above 0.5 percent, every name still at 99 percent) makes
+    the 1d verdict unresolved; carriers of unexplained pairs seen only on 1d stay pass."""
+    names = _clean_names(2010, 200, seed=73)
+    for i, detail in enumerate(names.values()):
+        one_d = detail["arms"]["ibkr"]["1d"]
+        one_d["n_ret_agree"] = one_d["n_ret_pairs"] - 1  # 148 of 149: 99.3 percent, residual 0.67
+        if i < 30:
+            one_d["classes"] = {"other": 12}
+    cfg, keys = _write_parts(tmp_path, {2010: names})
+    summary = runner.assemble_stage_c(cfg, list(names), [], keys, "s", {})
+    out = _outcomes(tmp_path)
+    assert summary["unresolved_1d_eras"] == [2010]
+    assert all(out[(f"N{i}", 2010)][0] == nc.OUTCOME_PASS for i in range(30))

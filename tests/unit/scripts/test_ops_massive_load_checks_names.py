@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import numpy as np
+import pytest
 
 from scripts.ops.bars import ops_massive_load_checks as runner
 from src.intelligence.bars import massive_name_checks as nc
@@ -225,7 +226,9 @@ def test_the_calendar_audit_rescales_the_ibkr_1d_series_before_the_comparison() 
     unadjusted_ibkr = _daily(days, adjusted * np.where(np.array(days) <= effective, 2.0, 1.0))
     before = runner.compare_arm("1d", "ibkr", raw_massive, unadjusted_ibkr, split, {})
     assert before is not None and before.n_ret_agree < before.n_ret_pairs  # IBKR's recorded defect
-    fixed = runner.rescaled_bars(unadjusted_ibkr, split)
+    fixed = runner.rescaled_bars(
+        unadjusted_ibkr, runner.lc.split_scale_for_days(unadjusted_ibkr.key, split)
+    )
     after = runner.compare_arm("1d", "ibkr", raw_massive, fixed, split, {})
     assert after is not None and after.n_agree == 150 and after.n_ret_agree == after.n_ret_pairs
 
@@ -350,8 +353,8 @@ def test_the_live_fingerprint_and_exchange_map_are_deterministic() -> None:
     except Exception as error:
         pytest.skip(f"database unavailable: {error}")
     with conn:
-        first = runner.raw_fingerprints(conn, [2010, 2011])
-        assert first == runner.raw_fingerprints(conn, [2010, 2011])
+        first = runner.raw_fingerprints(conn, [2010, 2011], runner.STAGE_C_SERIES)
+        assert first == runner.raw_fingerprints(conn, [2010, 2011], runner.STAGE_C_SERIES)
         assert set(first) == {2010, 2011}
         try:
             with conn.cursor() as cur:
@@ -380,3 +383,61 @@ def test_the_ibkr_volume_rescale_is_the_factor_stage_c_divides_prices_by() -> No
     days = np.array(["2010-03-04", "2010-03-05", "2010-03-08"], dtype="datetime64[D]")
     assert frozen.ibkr_scale("A", days).tolist() == [2.0, 2.0, 1.0]
     assert frozen.ibkr_scale("B", days).tolist() == [1.0, 1.0, 1.0]
+
+
+@pytest.fixture(autouse=True)
+def _outside_the_nightly_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A test run inside a nightly timer window must not sleep through it."""
+    monkeypatch.setattr(runner, "in_nightly_window", lambda now: False)
+
+
+def test_every_heavy_read_waits_out_the_nightly_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    waits: list[str] = []
+    monkeypatch.setattr(runner, "wait_out_nightly_window", lambda: waits.append("w"))
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def execute(self, sql: str, params: object = None) -> None:
+            return None
+
+        def fetchall(self) -> list[tuple]:
+            return []
+
+    class Conn:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+    start, end = datetime(2010, 1, 1, tzinfo=UTC), datetime(2011, 1, 1, tzinfo=UTC)
+    runner.fetch_bars(Conn(), "1d", "ibkr", ["A"], start, end)  # type: ignore[arg-type]
+    runner.fetch_split_tapes(Conn(), [("A", date(2010, 3, 1))])  # type: ignore[arg-type]
+    runner.load_exchange_map(Conn())  # type: ignore[arg-type]
+    runner.raw_fingerprints(Conn(), [2010, 2011], runner.VOLUME_SERIES)  # type: ignore[arg-type]
+    assert len(waits) == 1 + 1 + 1 + 3  # one per read; the fingerprints wait before each era
+
+
+def test_a_thin_era_is_not_the_close_convention() -> None:
+    thin = nc.EraVerdict("1d", nc.ERA_UNRESOLVED, ("thin_era",), 5, 0, 0, 0, 0, 0, (), None, {}, {})  # type: ignore[arg-type]
+    convention = nc.EraVerdict(
+        "1d", nc.ERA_UNRESOLVED, ("close_convention",), 50, 0, 0, 0, 0, 0, (), None, {}, {}  # type: ignore[arg-type]
+    )
+    assert not runner._close_convention_unresolved(thin)
+    assert runner._close_convention_unresolved(convention)
+
+
+def test_a_name_part_carries_the_fingerprints_of_the_later_eras_its_tapes_read() -> None:
+    def fp(count: int) -> dict[str, str]:
+        return {"massive|sip_flat|1d": f"{count}|x|0", "ibkr|named|1h": "9|y|0"}
+
+    base = {"seed": 1}
+    before = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(5)})
+    after = runner.stage_c_keys([2010], base, {2010: fp(1), 2020: fp(6)})  # a 2020 reload
+    assert before[2010]["tape_fingerprints"] == {"2020": {"massive|sip_flat|1d": "5|x|0"}}
+    assert before[2010] != after[2010]  # the 2010 part is invalidated by a later-era change
+    assert "ibkr|named|1h" not in str(before[2010])  # only the series stage C reads

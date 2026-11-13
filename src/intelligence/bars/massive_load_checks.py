@@ -54,6 +54,11 @@ SESSION_CLOSE_OFFSETS = frozenset({-1, 0})
 #: Day against minute: price equality tolerance (served prices carry at most 4 decimals, so a
 #: float-noise bound; a real print difference is at least 1e-4) and volume tolerance in shares
 #: (the day file is rounded half to even to whole shares; fractional minute sums are rounded alike).
+#: Survivorship reading: calendar slack around a listing end or the archive end (a reporting
+#: convention, never a gate), and the slack under 6.5 hours below which a session is an early close
+#: (the irregular 15:56 close included). Pre-registered, design 8a constants table.
+SURVIVORSHIP_SLACK_DAYS = 7
+EARLY_CLOSE_SLACK = timedelta(minutes=3)
 PRICE_EQUAL_ABS_TOL = 1e-6
 VOLUME_EQUAL_ABS_TOL = 0.5
 
@@ -211,7 +216,7 @@ def post_dst_sessions(sessions: Sequence[date]) -> list[date]:
 def early_close_sessions(bounds: Mapping[date, tuple[datetime, datetime]]) -> list[date]:
     """Sessions shorter than the regular 6.5 hours (the irregular 15:56 close included)."""
     full = timedelta(hours=6, minutes=30)
-    return sorted(d for d, (o, c) in bounds.items() if c - o < full - timedelta(minutes=3))
+    return sorted(d for d, (o, c) in bounds.items() if c - o < full - EARLY_CLOSE_SLACK)
 
 
 def seeded_session_draw(
@@ -257,11 +262,14 @@ def volume_peak_offset_minutes(
     ``half_window_min`` minutes either side. Raises when the window holds no volume."""
     minute = (window_start_ns - anchor_ns) // _NS_PER_MIN
     sel = (minute >= -half_window_min) & (minute < half_window_min)
-    if not sel.any() or not np.any(volume[sel] > 0):
+    # a non-finite volume is unknown: it adds nothing to the profile (one NaN would poison the
+    # bincount of its minute and move the peak)
+    usable = np.where(np.isfinite(volume[sel]), volume[sel], 0.0)
+    if not sel.any() or not np.any(usable > 0):
         raise VacuousCheckError("volume_peak_offset_minutes: no volume near the anchor")
     profile = np.bincount(
         (minute[sel] + half_window_min).astype(np.int64),
-        weights=volume[sel],
+        weights=usable,
         minlength=2 * half_window_min,
     )
     return int(np.argmax(profile)) - half_window_min
@@ -364,22 +372,13 @@ def manifest_completeness(
 
 
 # --- survivorship ------------------------------------------------------------------------------
-@dataclass(frozen=True)
-class SurvivorshipRow:
-    symbol: str
-    first_bar: date | None
-    last_bar: date | None
-    listing_end: date | None
-    reading: str  # absent | present_active | ends_at_listing_end | ends_before | ends_after | no_listing_end_ended
-
-
 def survivorship_reading(
     first_bar: date | None,
     last_bar: date | None,
     listing_end: date | None,
     archive_end: date,
     *,
-    slack_sessions_days: int = 7,
+    slack_sessions_days: int = SURVIVORSHIP_SLACK_DAYS,
 ) -> str:
     """Disclosure only, never a gate. ``slack_sessions_days`` is calendar slack for a last print
     that precedes the delisting stamp (a reporting convention, not a pass threshold)."""
