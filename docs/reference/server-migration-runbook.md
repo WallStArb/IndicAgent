@@ -161,5 +161,5 @@ Executed from OLD over SSH, owner approving. Deviations from the plan above:
 - Restore drill passed: first base backup plus WAL recovered to LSN `204D/E90F2000` in a scratch container; 10 of 10 table counts equal the primary's at that point. Duration 497 s (extract 465 s, recovery 11 s).
 - Mirror: `~/dev` pulled daily (87 GB first run). The pull key on `ubuntu1` allows only read-only rsync of `/home/bg/dev`; a write and a shell login were both refused.
 - `pg_receivewal` writes mode 600 files, so a restore container running as another uid cannot read them; `restore_drill.sh` makes the archive readable first, and a real restore must do the same.
-- Open: off-site copy (owner decision), Cloudflare tunnel for `ubuntu2`, alerting on a failed timer, replacing the backup section of `operations-disaster-recovery.md`.
+- Open: off-site copy (owner decision), alerting on a failed timer, replacing the backup section of `operations-disaster-recovery.md`.
 
