@@ -32,11 +32,12 @@ Injector = Callable[[Series, np.random.Generator, int], Series]
 
 
 def _bars(ohlc: Series) -> runner.Bars:
+    n = len(ohlc[0])
     return runner.Bars(
-        KEYS.astype("datetime64[ns]").astype("int64"),
-        KEYS,
+        KEYS[:n].astype("datetime64[ns]").astype("int64"),
+        KEYS[:n],
         ohlc,
-        np.full(N_BARS, 1e6),
+        np.full(n, 1e6),
         None,
         None,
     )
@@ -49,10 +50,11 @@ def _name_series(rng: np.random.Generator) -> Series:
 
 class Era(NamedTuple):
     facts: list[nc.NameFacts]
-    unresolved: int  # names whose identity correlation failed (counted by the fourth counter)
+    unresolved: int  # DECORRELATED names (counted by the fourth counter); thin ones never count
+    thin: int = 0  # names whose daily and 5m evidence are both thin (listed, never counted)
 
 
-def _facts(name: str, massive: Series, incumbent: Series) -> nc.NameFacts | None:
+def _facts(name: str, massive: Series, incumbent: Series) -> tuple[nc.NameFacts | None, str]:
     """The runner's own path: compare_arm, the stored detail, the judged facts. The same result
     stands for both timeframes, so the identity gate sees what a real name-era shows it."""
     inc = tuple(np.round(a, 2) for a in incumbent)  # IBKR stores cents
@@ -60,7 +62,9 @@ def _facts(name: str, massive: Series, incumbent: Series) -> nc.NameFacts | None
     assert result is not None
     detail = {"arms": {"ibkr": {"5m": asdict(result)}}}
     gate = runner.judged_timeframes({"1d": result, "5m": result}, nc.ERA_NO_ACTION, True)
-    return runner._name_facts(name, detail, "5m", gate[2]) if not gate[0] else None
+    if gate[0]:
+        return None, gate[1]
+    return runner._name_facts(name, detail, "5m", gate[2]), ""
 
 
 def _era(
@@ -73,30 +77,44 @@ def _era(
     natural_defects: int = 0,
     convention_share: float = 0.0,
     injected_price_scale: float = 1.0,
+    thin: int = 0,
 ) -> Era:
     rng = np.random.default_rng(seed)
     out: list[nc.NameFacts] = []
-    unresolved = 0
+    unresolved = n_thin = 0
     for i in range(n_names):
         series = _name_series(rng)
+        is_thin = natural_defects <= i < natural_defects + thin
+        if is_thin:  # 15 sessions: under the 20-return identity minimum on both timeframes
+            series = tuple(a[:15] for a in series)  # type: ignore[assignment]
         if inject is not None and i >= n_names - injected and injected_price_scale != 1.0:
             series = tuple(a * injected_price_scale for a in series)  # type: ignore[assignment]
         massive = series
-        if i < natural_defects:  # a few names with a 0.5 percent close error on 10 percent of days
+        if is_thin:
+            pass
+        elif (
+            i < natural_defects
+        ):  # a few names with a 0.5 percent close error on 10 percent of days
             bad = rng.random(N_BARS) < 0.1
             close = np.where(bad, series[3] * 1.005, series[3])
             massive = (*series[:3], close)
-        if convention_share and i % 2 == 0:  # the day file's close differs a little, inside H-L
+        if (
+            convention_share and i % 2 == 0 and not is_thin
+        ):  # the day file's close differs a little, inside H-L
             hit = rng.random(N_BARS) < convention_share
             massive = (*series[:3], np.where(hit, series[3] * 1.002, series[3]))
-        if inject is not None and i >= n_names - injected:
+        if inject is not None and i >= n_names - injected and not is_thin:
             massive = inject(massive, rng, i)
-        facts = _facts(f"N{era}_{i}", massive, series)
-        if facts is None:
-            unresolved += 1
-        else:
+        facts, reason = _facts(f"N{era}_{i}", massive, series)
+        if facts is not None:
             out.append(facts)
-    return Era(out, unresolved)
+        elif reason == "identity_decorrelated":
+            unresolved += 1
+        elif reason == "identity_thin":
+            n_thin += 1
+        else:
+            raise AssertionError(f"unexpected gate outcome {reason!r}")
+    return Era(out, unresolved, n_thin)
 
 
 def _judge(target: Era, reference: dict[int, Era], tf: str = "5m"):
@@ -332,3 +350,23 @@ def test_a_5bp_offset_that_is_not_constant_lands_in_other(reference: dict[int, E
     )
     verdict = _judge(target, reference)
     assert verdict.class_mix.get("other", 0) > 0  # no stable constant: not scale, not rounding
+
+
+def test_200_thin_names_never_stop_an_era_but_200_decorrelated_names_do(
+    reference: dict[int, Era],
+) -> None:
+    """Thin is a coverage fact and only a disagreement can stop an era: 200 names with 15 sessions
+    (identity unresolved, listed) leave the verdict ok; 200 names decorrelated by a close 5 percent
+    off on 30 percent of days stop it."""
+    thin = _era(TARGET_ERA, 1000, seed=90, thin=200, natural_defects=3)
+    assert thin.thin == 200 and thin.unresolved == 0
+    verdict = _judge(thin, reference)
+    assert verdict.verdict in (nc.ERA_OK, nc.ERA_OK_CONVENTION), verdict
+    assert verdict.counters.identity_unresolved_share == 0.0
+    decorrelated = _era(
+        TARGET_ERA, 1000, seed=89, injected=200, inject=_close_5pct_off, natural_defects=3
+    )
+    assert decorrelated.thin == 0 and decorrelated.unresolved == 200
+    stopped = _judge(decorrelated, reference)
+    assert stopped.verdict == nc.ERA_STOP
+    assert any(r.startswith("identity_unresolved_share") for r in stopped.reasons)

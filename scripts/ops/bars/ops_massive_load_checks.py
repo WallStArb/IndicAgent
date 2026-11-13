@@ -269,7 +269,7 @@ def all_parts(cfg: Config, check: str) -> dict[int, dict[str, Any]]:
 
 
 #: Bumped when a check rule changes, so saved parts computed under the old rule are recomputed.
-LOGIC_VERSION = "2026-11-13-r5b"
+LOGIC_VERSION = "2026-11-13-r5c"
 
 
 _RAW_FINGERPRINT_SQL = """
@@ -1264,7 +1264,9 @@ def judged_timeframes(
     present = [r for r in (results.get("1d"), results.get("5m")) if r is not None]
     judging = next((r.correlation for r in present if math.isfinite(r.correlation)), math.nan)
     if any(r.n_matched > 0 for r in present) and not nc.identity_resolved(judging):
-        return nc.OUTCOME_UNRESOLVED, "identity_unresolved", ()
+        # decorrelated is a disagreement (counts toward an era stop); thin is a coverage gap
+        reason = "identity_thin" if math.isnan(judging) else "identity_decorrelated"
+        return nc.OUTCOME_UNRESOLVED, reason, ()
     usable = tuple(
         tf for tf in ("1d", "5m") if results.get(tf) is not None and nc.has_detector(results[tf].counts())  # type: ignore[union-attr]
     )
@@ -1704,13 +1706,13 @@ def assemble_stage_c(
     eras = sorted(parts)
     judged: dict[tuple[int, str], list[nc.NameFacts]] = {}
     arm_results: dict[tuple[str, int], dict[str, ArmResult | None]] = {}
-    unresolved: dict[int, int] = {}  # names per era whose identity correlation failed
+    unresolved: dict[int, int] = {}  # decorrelated names per era (thin ones never count)
     for era in eras:
         for name, d in sorted(parts[era]["names"].items()):
             results = {tf: _arm_result(d, "ibkr", tf) for tf in ("1d", "5m")}
             gate = judged_timeframes(results, d["preclass"], d["listed"], d["massive_hole"])
             arm_results[(name, era)] = results
-            if gate[1] == "identity_unresolved":
+            if gate[1] == "identity_decorrelated":
                 unresolved[era] = unresolved.get(era, 0) + 1
             for tf in gate[2]:
                 facts = _name_facts(name, d, tf, gate[2])

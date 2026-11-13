@@ -367,8 +367,9 @@ class EraCounters:
     flagged_share: float
     level_class_share: float
     shared_factor_share: float
-    #: names with a detector whose identity correlation failed, over those and the judged names: a
-    #: systemic price corruption decorrelates the pair and hides behind identity_unresolved
+    #: DECORRELATED names (correlation computed on enough returns, under 0.9), over those and the
+    #: judged names; thin-evidence names never count. A systemic price corruption decorrelates the
+    #: pair and would otherwise hide behind the unresolved identity
     identity_unresolved_share: float = 0.0
 
     def as_dict(self) -> dict[str, float]:

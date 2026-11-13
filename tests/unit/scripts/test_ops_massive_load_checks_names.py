@@ -125,7 +125,7 @@ def test_judge_name_era_outcomes() -> None:
         "non_split_adjustment_convention",
     )
     unresolved = _arm(250, 250, 0.0, 0.5)
-    assert _outcome(_judge({"1d": unresolved})) == (nc.OUTCOME_UNRESOLVED, "identity_unresolved")
+    assert _outcome(_judge({"1d": unresolved})) == (nc.OUTCOME_UNRESOLVED, "identity_decorrelated")
     low = _arm(250, 250, 0.0, 0.99, ret=0.96)  # returns agree on 96 percent
     assert _outcome(_judge({"1d": low})) == (nc.OUTCOME_FLAGGED, "price_agreement_1d")
 
@@ -281,7 +281,7 @@ def test_identity_ignores_split_sized_returns_and_falls_back_to_the_5m_returns()
         :2
     ] == (
         nc.OUTCOME_UNRESOLVED,
-        "identity_unresolved",
+        "identity_thin",
     )
 
 
