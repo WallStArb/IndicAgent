@@ -139,7 +139,7 @@ imports.
 ## Decisions waiting on the owner
 
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members (S1 drift), or hold the family. E17 landed (`d2f3ff0b1`, flat-top kernel plus influence series); the daily battery went from 40+ size failures to 3 marginal ones; the StepM attestation passed and `select_books.py` is unblocked; B3 power still open.
-- Todo 562: the multi-family power plant, decided before the `generated_family` grammar.
+- Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
 - Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
 - Still open owner calls: the clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes, the 185-49 reversal for the 587 rescale.
 - Concept-layer reset (todo 571, owner-approved) runs after the 186-26 rebuild and 564's batch. The 2026-10-30 research reset is done (migration 544; `.planning/gate_look_log.jsonl` kept: deleting rows does not un-see looks at the forward span); its restart conditions are superseded by the Massive admission path. Statistics infrastructure (E17, StepM) stays, certified on synthetic data.
