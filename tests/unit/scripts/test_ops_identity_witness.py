@@ -14,7 +14,6 @@ from scripts.ops.bars.ops_identity_witness import (
     PREDECESSOR,
     RETURNS_DISAGREE,
     THIN,
-    WITNESS_MIN_PAIRS,
     References,
     continuity,
     judge,
@@ -37,15 +36,33 @@ def test_the_same_tape_places_and_a_split_is_rescaled_first():
     split_day = DAYS[150]
     massive = {d: c * (2.0 if d <= split_day else 1.0) for d, c in ibkr.items()}  # raw, unadjusted
     scales = {d: 2.0 if d <= split_day else 1.0 for d in massive}
-    matched, pairs, agreeing, median, iqr, decision = judge(massive, ibkr, scales)
+    matched, pairs, agreeing, corr, median, iqr, decision = judge(massive, ibkr, scales)
     assert (matched, pairs, agreeing) == (300, 299, 299)
-    assert abs(median) < 1e-9 and decision == PLACED
+    assert corr > 0.999 and abs(median) < 1e-9 and decision == PLACED
 
 
 def test_another_tape_disagrees_and_a_short_one_is_thin():
     assert judge(_walk(2), _walk(1), {})[-1] == RETURNS_DISAGREE
-    short = dict(list(_walk(1).items())[:WITNESS_MIN_PAIRS])
-    assert judge(short, short, {})[-1] == THIN  # 99 pairs
+    short = dict(list(_walk(1).items())[:20])
+    assert judge(short, short, {})[-1] == THIN  # 19 returns, under the 8a minimum of 20
+
+
+def test_a_close_definition_difference_still_places_on_correlation():
+    """The first calibration's failure: the same security, closes off by a few cents on many
+    days (last trade against official close), fails 99 percent agreement but correlates."""
+    ibkr = _walk(1)
+    massive = {d: c + (0.03 if i % 3 == 0 else 0.0) for i, (d, c) in enumerate(ibkr.items())}
+    matched, pairs, agreeing, corr, *_rest, decision = judge(massive, ibkr, {})
+    assert agreeing < 0.99 * pairs and corr >= 0.9 and decision == PLACED
+
+
+def test_split_sized_returns_leave_the_identity_correlation():
+    from scripts.ops.bars.ops_identity_witness import identity_correlation, split_sized
+
+    assert split_sized(math.log(4 / 3)) and split_sized(-math.log(2)) and not split_sized(0.2)
+    base = [0.01 * math.sin(i) for i in range(40)]
+    shocked = [*base[:20], -math.log(4 / 3), *base[21:]]
+    assert identity_correlation(shocked, base) > 0.99
 
 
 def test_a_stable_unexplained_offset_does_not_place():

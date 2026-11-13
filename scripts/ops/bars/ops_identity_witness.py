@@ -50,6 +50,13 @@ from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.bars.split_rescale import scales_for_sessions, splits_known_at  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 
+#: the 8a identity gate (8c amendment after the first calibration): the decision rule
+IDENTITY_MIN_CORRELATION = 0.9
+IDENTITY_MIN_RETURNS = 20
+IDENTITY_SPLIT_LOG_RETURN = math.log(1.5)
+SPLIT_LIKE_TOL = 0.005
+SPLIT_LIKE_RATIOS = tuple(sorted({float(n) for n in range(2, 21)} | {1.5, 2.5, 3.5, 4 / 3, 5 / 3}))
+#: evidence only since that amendment (the first calibration's decision rule)
 WITNESS_MIN_PAIRS = 100
 WITNESS_RETURN_SHARE = 0.99
 WITNESS_INCREMENT = 0.01
@@ -116,6 +123,7 @@ class Witness:
     pairs: int
     agreeing: int
     return_share: float
+    correlation: float
     level_median: float
     level_iqr: float
     n_splits: int
@@ -156,17 +164,42 @@ def _tau(price: float) -> float:
     return WITNESS_INCREMENT / 2 + PRICE_REL_TOL * price
 
 
+def split_sized(r: float) -> bool:
+    """A split-sized log return (8a identity gate): above ln 1.5, or a split ratio's factor."""
+    a = abs(r)
+    return a > IDENTITY_SPLIT_LOG_RETURN or any(
+        abs(math.exp(a) / ratio - 1.0) <= SPLIT_LIKE_TOL for ratio in SPLIT_LIKE_RATIOS
+    )
+
+
+def identity_correlation(r_m: Sequence[float], r_i: Sequence[float]) -> float:
+    """The 8a identity correlation of paired returns, split-sized ones dropped on either arm;
+    NaN under ``IDENTITY_MIN_RETURNS`` (thin); a flat side correlates 0, both flat and equal 1."""
+    kept = [(a, b) for a, b in zip(r_m, r_i, strict=True) if not (split_sized(a) or split_sized(b))]
+    if len(kept) < IDENTITY_MIN_RETURNS:
+        return math.nan
+    xs, ys = [a for a, _ in kept], [b for _, b in kept]
+    sx, sy = statistics.pstdev(xs), statistics.pstdev(ys)
+    if sx == 0 or sy == 0:
+        return 1.0 if sx == sy == 0 and xs == ys else 0.0
+    return statistics.correlation(xs, ys)
+
+
 def judge(
     massive: Mapping[date, float], ibkr: Mapping[date, float], scales: Mapping[date, float]
-) -> tuple[int, int, int, float, float, str]:
-    """(matched, pairs, agreeing, level median, level IQR, decision) of one candidate series.
-    ``massive`` is the raw close by session, ``scales`` its frozen split scale by session."""
+) -> tuple[int, int, int, float, float, float, str]:
+    """(matched, pairs, agreeing, correlation, level median, level IQR, decision) of one
+    candidate series. ``massive`` is the raw close by session, ``scales`` its frozen split scale
+    by session. The decision reads the identity correlation and the level (8c amendment); the
+    pair agreement is evidence."""
     m_days, i_days = sorted(massive), sorted(ibkr)
     m_prev = dict(zip(m_days[1:], m_days, strict=False))
     i_prev = dict(zip(i_days[1:], i_days, strict=False))
     matched = sorted(set(massive) & set(ibkr))
     adj = {d: massive[d] / scales.get(d, 1.0) for d in matched}
     pairs = agreeing = 0
+    returns_m: list[float] = []
+    returns_i: list[float] = []
     for day in matched:
         before = m_prev.get(day)
         if before is None or before != i_prev.get(day) or before not in adj:
@@ -176,21 +209,24 @@ def judge(
         r_i = math.log(ibkr[day] / ibkr[before])
         tol = _tau(ibkr[day]) / ibkr[day] + _tau(ibkr[before]) / ibkr[before]
         agreeing += abs(r_m - r_i) <= tol
+        returns_m.append(r_m)
+        returns_i.append(r_i)
+    correlation = identity_correlation(returns_m, returns_i)
     levels = [math.log(adj[d] / ibkr[d]) for d in matched if adj[d] > 0]
     if len(levels) >= 4:
         q1, median, q3 = statistics.quantiles(levels, n=4)
         iqr = q3 - q1
     else:
         median, iqr = (statistics.median(levels) if levels else math.nan), math.nan
-    if pairs < WITNESS_MIN_PAIRS:
+    if math.isnan(correlation):
         decision = THIN
-    elif agreeing < WITNESS_RETURN_SHARE * pairs:
+    elif correlation < IDENTITY_MIN_CORRELATION:
         decision = RETURNS_DISAGREE
     elif not (iqr <= WITNESS_LEVEL_IQR and abs(median) <= WITNESS_LEVEL_TOL):
         decision = LEVEL_UNEXPLAINED
     else:
         decision = PLACED
-    return len(matched), pairs, agreeing, median, iqr, decision
+    return len(matched), pairs, agreeing, correlation, median, iqr, decision
 
 
 def span_decision(decisions: Sequence[str]) -> str:
@@ -285,11 +321,13 @@ def read_references(conn: Any) -> References:
 
 def calibration_spans(
     gap_spans: Sequence[Span], refs: References, predecessors: Sequence[Mapping[str, Any]],
-    map_tickers: Mapping[str, set[str]],
+    map_tickers: Mapping[str, set[str]], ibkr_sessions: Mapping[str, int],
 ) -> tuple[list[Span], list[Span]]:  # fmt: skip
     """(must not place, must place), the 8c amendment's two calibration sets, the second by the
     rule fixed before any result: before_first_event from 2003-09-10, list_date before 1995, a
-    chain of only its own symbol, no delisted row of another FIGI; the first 10 by symbol."""
+    chain of only its own symbol, no delisted row of another FIGI, at least
+    ``WITNESS_MIN_PAIRS`` IBKR sessions in the span and a candidate ticker in the captured events
+    chain (the second amendment); the first 10 by symbol."""
     negative = [
         Span(
             p["symbol"],
@@ -308,6 +346,8 @@ def calibration_spans(
         and (refs.list_date.get(s.symbol) or date.max) < CALIBRATION_LIST_BEFORE
         and {t for _, t in refs.events.get(s.symbol, ())} <= {s.symbol}
         and all(f == refs.figi.get(s.symbol) for f, _ in refs.delisted.get(s.symbol, ()))
+        and ibkr_sessions.get(s.symbol, 0) >= WITNESS_MIN_PAIRS
+        and bool(set(s.candidates) & {t for _, t in refs.events.get(s.symbol, ())})
     ][:CALIBRATION_SIZE]
     return negative, positive
 
@@ -328,7 +368,7 @@ def evaluate(
             decisions, placing = [], []
             for ticker in s.candidates:
                 massive = {d: c for d, c in closes.get(ticker, {}).items() if s.start <= d < s.end}
-                matched, pairs, agreeing, median, iqr, decision = judge(
+                matched, pairs, agreeing, corr, median, iqr, decision = judge(
                     massive, ibkr, scales_for_sessions(massive, splits)
                 )
                 gate = continuity(refs, s.symbol, s.reason, s.start, s.end, ticker)
@@ -337,7 +377,7 @@ def evaluate(
                 if decision == PLACED:
                     placing.append(ticker)
                 rows.append(Witness(s.symbol, s.start, s.end, ticker, matched, pairs, agreeing,
-                                    agreeing / pairs if pairs else math.nan, median, iqr,
+                                    agreeing / pairs if pairs else math.nan, corr, median, iqr,
                                     len(splits), decision))  # fmt: skip
             span_rows.append(
                 {
@@ -380,8 +420,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         spans = read_spans(args.gap_list, archive_end, map_tickers)
         sets: dict[str, list[Span]] = {"spans": spans}
         if args.calibrate:
+            sessions = {s.symbol: _ibkr_sessions(conn, s) for s in spans}
             negative, positive = calibration_spans(
-                spans, refs, json.loads(args.calibrate.read_text()), map_tickers
+                spans, refs, json.loads(args.calibrate.read_text()), map_tickers, sessions
             )
             sets = {"must_not_place": negative, "must_place": positive}
         every = [s for group in sets.values() for s in group]
@@ -416,6 +457,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     (args.out / "identity_witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
     return 0
+
+
+def _ibkr_sessions(conn: Any, span: Span) -> int:
+    lo = datetime(span.start.year, span.start.month, span.start.day, tzinfo=UTC)
+    hi = datetime(span.end.year, span.end.month, span.end.day, tzinfo=UTC)
+    return len(conn.execute(_IBKR_SQL, (span.symbol, lo, hi)).fetchall())
 
 
 def _iso(day: date | None) -> str | None:
