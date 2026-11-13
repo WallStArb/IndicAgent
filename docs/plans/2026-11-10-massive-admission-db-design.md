@@ -215,6 +215,24 @@ Amendment 2026-11-13 (second review, lead rulings):
 - Volume bands rescale the IBKR volume by the same calendar-audit factor stage C divides IBKR prices by (a share count is multiplied); one helper serves both.
 - The Massive exchange map is read and hashed once per invocation. The stage C part key is seed, rule version, frozen record, sample size, non-split list and the scoped raw fingerprint (no archive sampling parameter).
 
+Amendment 2026-11-13 (third review, lead rulings): the thresholds of the admission gate are pre-registered constants of a one-shot gate, not APR parameters (an operator-tunable gate threshold invites tuning after the results are seen); they live in this document and change only by a dated amendment. The table of the constants the code carries beyond the rules above:
+
+| Constant | Value | Provenance | Meaning |
+|---|---|---|---|
+| `SCALE_CLASS_BAR_TOL` | 0.005 (log) | [conventional] | a bar reads as `scale` when its close ratio lies within this of the name's median |
+| `ROUNDING_INCREMENTS` | 1.5 | [conventional] | a bar within this many increments plus 1 bp on every field reads as `rounding` |
+| `SPLIT_LIKE_TOL` | 0.005 | [conventional] | a level factor within this (relative) of a split ratio reads as split-like |
+| `STABLE_LEVEL_IQR` | 0.005 (log) | [conventional] | interquartile range of the per-bar log close ratio at or under this is stable (one predicate, with the level-agreement test, for the stable constant offset) |
+| `STEP_MIN_SEGMENT_SHARE`, `STEP_MIN_SEGMENT_BARS` | 0.05, 5 | [conventional] | the shorter side of a level break holds at least this share of the era's bars and this many bars |
+| `STEP_GRID`, `STEP_MAX_POINTS` | 64, 2000 | [implementation] | candidate break points per name-era, and the stride-thinned series length (bounds cost, not the verdict) |
+
+- Missing in-era split: a level break whose step (median of the per-bar log close ratio after the break minus before it) matches a split ratio within `SPLIT_LIKE_TOL`, with both sides stable (interquartile range at most `STABLE_LEVEL_IQR`) and the shorter side at least `STEP_MIN_SEGMENT_SHARE` of the bars, is `split_like_level`: the name-era is `flagged` and reaches the disagreement ledger, wherever the break falls in the era. `level_drift` is the same class only without such a step (a small drift) and passes, listed.
+- Other concentration (rule 4, second half): a carrier that is otherwise `pass` is `flagged` with reason `other_concentration` and goes on the gap list.
+- Calibration pool: only (era, timeframe) rows with at least `MIN_JUDGED_NAMES` judged names enter the 3x-max reference and the last_print cap pool; a thin reference era calibrates nothing.
+- `identity_decorrelated` needs a decorrelated DETECTOR timeframe; otherwise the name-era is `identity_thin` or `no_detector`.
+- Ledger witness window: the frozen splits that explain the cumulative scale of the era's bars, i.e. every frozen split on or after the era's first session up to the horizon, singly and as cumulative products from the earliest; the split-tape witness is taken from tapes fetched once per batch and stored in the name part (under the part's raw fingerprint), never queried at assembly.
+- The disputed-date census reports `n_agree_all` (open, high, low and close), per the module contract.
+
 ## 9. Documents that move with step 7a
 
 - `docs/foundation/canonical-truth-registry.md`: the Bar source policy row, the Roles paragraph, the provider count, the provider matrix (Massive 5m and 1d rows; IBKR loses "primary before 2016"), the canonical 1d row, the corporate-actions row (new input and `inferred_by` code).
