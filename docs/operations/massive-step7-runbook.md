@@ -275,6 +275,7 @@ $PY -m scripts.ops.bars.ops_massive_switch_delta --gap-list "$GAP" --out "$OUT/d
 $PY -m scripts.ops.bars.ops_selection_gate --compare --timeframes 5m --out "$OUT/compare_after.json"
 ```
 Gate: `--verify` exits 0: every (timeframe, month) of 5m and 1d holds exactly B4's `expected_after` rows, 1m and 4h hold none, no row carries vendor ibkr, and every Alpaca group wholly inside a gap row is byte-identical to the before card; the selection gate meets the B3 criteria. A count failure is listed whole in `$OUT/delta/switch_verify.json`; each differing month is read against B4's rows (a Massive slot selection refused, a quarantine flag, a CTVA/SCCO lineage name) before anything else. 15m and 1h have no expected count: they follow 5m and are covered by D7 `canonical_recompute` and `digest_fresh`.
+The gate's strength: verify is count-exact per (timeframe, month) plus byte-identity for Alpaca gap groups; Massive-era content correctness is owned by D3/D4/D7. Review-cosmetic defects accepted there, noted and not fixed: crash-window totals double-count, the `_running` pgrep wrapper can miss a process, and `Settings()` vs `get_settings()` is inconsistent across the scripts.
 Abort and rollback: any unexplained difference. Raw is untouched, so rollback is R followed by C2's preflight and C3 to C8 again under a fresh state file; between the decision and that rerun, K.
 
 D2. Seam witness at the archive end only (the one seam the policy has; before it Massive's own series runs through every date):
