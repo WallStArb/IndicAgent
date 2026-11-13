@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import json
 from datetime import date
 
 import pytest
 
+from scripts.ops.bars import ops_massive_policy_plan as mod
 from scripts.ops.bars.ops_massive_policy_plan import (
     GapRow,
     LiveRow,
+    LoadChecks,
     build_plan,
     build_restore_plan,
     incumbent_rows,
@@ -21,6 +26,14 @@ from scripts.ops.bars.ops_source_policy import parse_plan
 
 _GAP = {"path": "data/ticker_entity_map/x/gap_list.csv", "sha256": "ab"}
 _FP = {"through": "2026-11-10", "series": {"ibkr/smart_trades": {"rows": 1}}}
+ERAS = tuple(range(2003, 2027))
+#: every era ok on both timeframes: the plan the builder made before the 8a input existed
+_OK = LoadChecks(
+    ERAS,
+    {(e, tf): mod.MASSIVE for e in ERAS for tf in mod.TIMEFRAMES},
+    frozenset(),
+    {"stopped": [], "sole_source_exception": []},
+)
 
 
 def _defaults():
@@ -44,7 +57,9 @@ _GAPS = [
 
 
 def _plan(stage, timeframe, live):
-    plan = build_plan(stage=stage, timeframe=timeframe, live=live, gaps=_GAPS, gap_list=_GAP)
+    plan = build_plan(
+        stage=stage, timeframe=timeframe, live=live, gaps=_GAPS, gap_list=_GAP, checks=_OK
+    )
     if timeframe == "1d":
         plan["raw_fingerprint"] = _FP
     return plan
@@ -138,16 +153,20 @@ def test_stage2_retires_every_live_symbol_row_and_names_each():
 
 
 def test_through_needed_is_the_latest_symbol_row_end():
-    plan = build_plan(stage=1, timeframe="1d", live=_defaults(), gaps=_GAPS, gap_list=_GAP)
+    plan = build_plan(
+        stage=1, timeframe="1d", live=_defaults(), gaps=_GAPS, gap_list=_GAP, checks=_OK
+    )
     assert through_needed(plan) == date(2016, 1, 4)
-    stage2 = build_plan(stage=2, timeframe="1d", live=_defaults(), gaps=_GAPS, gap_list=_GAP)
+    stage2 = build_plan(
+        stage=2, timeframe="1d", live=_defaults(), gaps=_GAPS, gap_list=_GAP, checks=_OK
+    )
     assert through_needed(stage2) == date(2026, 11, 10)
 
 
 def test_stage1_refuses_an_unexpected_live_open_default():
     live = [LiveRow("d", None, date(1990, 1, 1), None, "ibkr", None, "seed", {})]
     with pytest.raises(ValueError, match="live open default"):
-        build_plan(stage=1, timeframe="5m", live=live, gaps=(), gap_list=_GAP)
+        build_plan(stage=1, timeframe="5m", live=live, gaps=(), gap_list=_GAP, checks=_OK)
 
 
 def test_a_gap_span_outside_the_massive_span_adds_nothing():
@@ -250,33 +269,42 @@ def test_restore_refuses_a_snapshot_without_an_open_default():
 
 
 # ---- the 8a input (runbook A2 amendment 2026-11-13) ---------------------------------------------
-import csv as _csv  # noqa: E402
-import json as _json  # noqa: E402
-
-from scripts.ops.bars import ops_massive_policy_plan as _mod  # noqa: E402
-
-ERAS = list(range(2003, 2027))
+MANIFEST_LINES = [
+    {"dataset": "minute", "key": "us_stocks_sip/minute_aggs_v1/2003/09/2003-09-10.csv.gz"},
+    {"dataset": "day", "key": "us_stocks_sip/day_aggs_v1/2026/11/2026-11-09.csv.gz"},
+]
 
 
 def _out_dir(tmp_path, *, verdicts=None, stops=None, status="complete", eras=None, calibrated=None):
-    """A synthetic 8a out dir: every era ok on both timeframes unless ``verdicts`` says
-    {(era, tf): (verdict, reason)}; ``stops`` are the (era, tf) in the stop file."""
-    verdicts = verdicts or {}
-    (tmp_path / "summary.json").write_text(
-        _json.dumps(
-            {
-                "status": status,
-                "stages_requested": ["A", "B", "C"],
-                "eras": eras if eras is not None else ERAS,
-                "partition": {"status": "complete"},
-            }
-        )
-    )
-    (tmp_path / "stageC_stop_eras.json").write_text(
-        _json.dumps({f"{e}/{tf}": "x" for (e, tf) in (stops or [])})
-    )
+    """A synthetic 8a out dir and its manifest: every era ok on both timeframes unless
+    ``verdicts`` says {(era, tf): (verdict, reason)}; ``stops`` are the stopped (era, tf), stop
+    verdicts by default. Returns (out dir, manifest path)."""
+    verdicts = dict(verdicts or {})
+    for key in stops or []:
+        verdicts.setdefault(key, ("stop", "x"))
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text("".join(json.dumps(r) + "\n" for r in MANIFEST_LINES))
+    eras = list(eras if eras is not None else ERAS)
+    stop_view = {f"{e}/{tf}": "x" for (e, tf) in (stops or [])}
+    era_verdicts = {
+        f"{e}/{tf}": verdicts.get((e, tf), ("ok", ""))[0] for e in ERAS for tf in ("1d", "5m")
+    }
+    summary = {
+        "status": status,
+        "stages_requested": ["A", "B", "C"],
+        "eras": eras,
+        "inputs": {"manifest.jsonl": hashlib.sha256(manifest.read_bytes()).hexdigest()},
+        "partition": {"status": "complete"},
+        "stage_c": {
+            "eras": eras,
+            "era_verdicts": era_verdicts,
+            "stop_eras_all_sources": stop_view,
+        },
+    }
+    (tmp_path / "summary.json").write_text(json.dumps(summary))
+    (tmp_path / "stageC_stop_eras.json").write_text(json.dumps(stop_view))
     with (tmp_path / "stageC_era_tables.csv").open("w", newline="") as handle:
-        w = _csv.DictWriter(handle, ["era", "timeframe", "verdict", "reasons", "calibrated_on"])
+        w = csv.DictWriter(handle, ["era", "timeframe", "verdict", "reasons", "calibrated_on"])
         w.writeheader()
         for era in ERAS:
             for tf in ("1d", "5m"):
@@ -290,76 +318,111 @@ def _out_dir(tmp_path, *, verdicts=None, stops=None, status="complete", eras=Non
                         "calibrated_on": calibrated or "2014,2015",
                     }
                 )
-    return tmp_path
+    return tmp_path, manifest
 
 
-def _defaults_of(tmp_path, timeframe, stage=1, **kw):
-    checks = _mod.read_load_checks(_out_dir(tmp_path, **kw))
-    live = _defaults()
-    plan = _mod.build_plan(
-        stage=stage, timeframe=timeframe, live=live, gaps=[], gap_list={}, checks=checks
+def _checks(tmp_path, **kw):
+    return mod.read_load_checks(*_out_dir(tmp_path, **kw))
+
+
+def _plan_with(tmp_path, timeframe, stage=1, **kw):
+    return build_plan(
+        stage=stage,
+        timeframe=timeframe,
+        live=_defaults(),
+        gaps=[],
+        gap_list={},
+        checks=_checks(tmp_path, **kw),
     )
-    return plan
 
 
 def _spans(plan):
     return [(r["valid_from"], r["valid_to"], r["primary"]) for r in plan["defaults"]]
 
 
-def test_an_all_ok_run_reproduces_the_single_massive_span(tmp_path):
-    plan = _defaults_of(tmp_path, "5m")
-    assert [s for s in _spans(plan) if s[2] == "massive"] == [
-        ("2003-09-10", "2016-01-04", "massive")
+def _edges(plan):
+    return [
+        (e["seam"], e["from_source"], e["to_source"], e["incoming"]) for e in plan["seam_edges"]
     ]
-    assert plan["evidence"]["load_checks"]["summary.json"]["sha256"]
+
+
+def test_an_all_ok_run_reproduces_the_single_massive_span(tmp_path):
+    plan = _plan_with(tmp_path, "5m")
+    assert _spans(plan) == [
+        ("1990-01-01", "2003-09-10", "ibkr"),
+        ("2003-09-10", "2016-01-04", "massive"),
+        ("2016-01-04", None, "alpaca"),
+    ]
+    pins = plan["evidence"]["load_checks"]
+    assert (
+        pins["summary.json"]["sha256"]
+        == hashlib.sha256((tmp_path / "summary.json").read_bytes()).hexdigest()
+    )
+    assert pins["manifest"]["sha256"] and pins["sole_source_exception"] == []
+
+
+def test_today_s_three_hand_witness_rows_come_out_of_the_incoming_rule(tmp_path):
+    """Runbook D2 before the loop: 2016-01-04 1d and 5m on canonical, 2003-09-10 1d on IBKR raw;
+    Part E: the archive end on Alpaca raw."""
+    one_d, five_m = _plan_with(tmp_path, "1d"), _plan_with(tmp_path, "5m")
+    assert _edges(one_d) == [
+        ("2003-09-10", "ibkr", "massive", "raw:ibkr/smart_trades"),
+        ("2016-01-04", "massive", "alpaca", "canonical"),
+    ]
+    assert ("2016-01-04", "massive", "alpaca", "canonical") in _edges(five_m)
+    stage2 = _plan_with(tmp_path, "1d", stage=2)
+    assert ("2026-11-10", "massive", "alpaca", "raw:alpaca/sip_rth") in _edges(stage2)
 
 
 def test_a_stop_at_the_first_era_keeps_the_incumbent_from_the_archive_start(tmp_path):
-    plan = _defaults_of(
-        tmp_path, "1d", verdicts={(2003, "1d"): ("stop", "x")}, stops=[(2003, "1d")]
-    )
+    plan = _plan_with(tmp_path, "1d", stops=[(2003, "1d")])
     assert _spans(plan)[:3] == [
         ("1990-01-01", "2003-09-10", "ibkr"),
         ("2003-09-10", "2004-01-01", "ibkr"),
         ("2004-01-01", "2016-01-04", "massive"),
     ]
     assert plan["seam"] == "2003-09-10"  # still a boundary of the new defaults
+    assert _edges(plan)[0] == ("2004-01-01", "ibkr", "massive", "canonical")
 
 
 def test_a_stop_at_the_last_era_of_the_span_keeps_the_incumbent_to_the_seam(tmp_path):
-    plan = _defaults_of(
-        tmp_path, "1d", verdicts={(2015, "1d"): ("stop", "x")}, stops=[(2015, "1d")]
-    )
-    assert ("2015-01-01", "2016-01-04", "ibkr") in _spans(plan)
-    assert ("2003-09-10", "2015-01-01", "massive") in _spans(plan)
+    plan = _plan_with(tmp_path, "1d", stops=[(2015, "1d")])
+    assert _spans(plan)[1:] == [
+        ("2003-09-10", "2015-01-01", "massive"),
+        ("2015-01-01", "2016-01-04", "ibkr"),
+        ("2016-01-04", None, "alpaca"),
+    ]
 
 
-def test_two_adjacent_stopped_eras_merge_into_one_incumbent_span(tmp_path):
-    stops = [(2008, "1d"), (2009, "1d"), (2010, "1d")]
-    plan = _defaults_of(tmp_path, "1d", verdicts={k: ("stop", "x") for k in stops}, stops=stops)
-    assert ("2008-01-01", "2011-01-01", "ibkr") in _spans(plan)
-    edges = [(e["seam"], e["from_source"], e["to_source"]) for e in plan["seam_edges"]]
-    assert ("2008-01-01", "massive", "ibkr") in edges and ("2011-01-01", "ibkr", "massive") in edges
-
-
-def test_a_stopped_1d_era_leaves_5m_massive(tmp_path):
-    kw = dict(verdicts={(2010, "1d"): ("stop", "x")}, stops=[(2010, "1d")])
-    one_d = _defaults_of(tmp_path, "1d", **kw)
-    five_m = _defaults_of(tmp_path, "5m", **kw)
-    assert ("2010-01-01", "2011-01-01", "ibkr") in _spans(one_d)
-    assert [s for s in _spans(five_m) if s[2] != "massive"][0][2] == "ibkr"  # head and tail only
-    assert ("2003-09-10", "2016-01-04", "massive") in _spans(five_m)
+def test_the_2008_to_2013_1d_stop_is_one_ibkr_span_with_two_canonical_edges(tmp_path):
+    """The first full run's shape (runbook A2): 1d 2008 to 2013 stopped, 5m untouched."""
+    stops = [(e, "1d") for e in range(2008, 2014)]
+    one_d = _plan_with(tmp_path, "1d", stops=stops)
+    assert _spans(one_d)[1:4] == [
+        ("2003-09-10", "2008-01-01", "massive"),
+        ("2008-01-01", "2014-01-01", "ibkr"),
+        ("2014-01-01", "2016-01-04", "massive"),
+    ]
+    assert _edges(one_d)[1:3] == [
+        ("2008-01-01", "massive", "ibkr", "canonical"),
+        ("2014-01-01", "ibkr", "massive", "canonical"),
+    ]
+    assert len(one_d["defaults"]) == len(one_d["seam_edges"]) + 1 == 5
+    five_m = _plan_with(tmp_path, "5m", stops=stops)
+    assert _spans(five_m)[1] == ("2003-09-10", "2016-01-04", "massive")
+    assert len(five_m["defaults"]) == 3
 
 
 def test_the_source_table_maps_unresolved_close_definition_to_massive_and_the_rest_to_incumbent():
-    s = _mod.source_of
+    s = mod.source_of
     assert s("1d", "unresolved", ["close_definition_witnessed"]) == "massive"
     assert s("1d", "unresolved", ["close_convention"]) == "incumbent"
     assert s("5m", "no_detector", ["no_judged_names"]) == "massive"
     assert s("5m", "unresolved", ["thin_era"]) == "massive"
-    assert s("1d", "stop", ["x"]) == "incumbent" and s("5m", "ok_convention", []) == "massive"
-    with pytest.raises(ValueError, match="no source rule"):
-        s("5m", "unresolved", ["something_new"])
+    assert s("5m", "ok_convention", []) == "massive"
+    for verdict, reasons in (("unresolved", ["something_new"]), ("stop", ["x"])):
+        with pytest.raises(ValueError, match="no source rule"):
+            s("5m", verdict, reasons)  # a stop is the stop set's, never the table's
 
 
 def test_unresolved_1d_eras_split_by_reason(tmp_path):
@@ -367,52 +430,104 @@ def test_unresolved_1d_eras_split_by_reason(tmp_path):
         (2005, "1d"): ("unresolved", "close_definition_witnessed"),
         (2009, "1d"): ("unresolved", "close_convention"),
     }
-    plan = _defaults_of(tmp_path, "1d", verdicts=v)
-    assert ("2009-01-01", "2010-01-01", "ibkr") in _spans(plan)
-    assert not any(s[0] <= "2005-06-01" < s[1] and s[2] == "ibkr" for s in _spans(plan)[1:])
+    plan = _plan_with(tmp_path, "1d", verdicts=v)
+    assert _spans(plan)[1:4] == [
+        ("2003-09-10", "2009-01-01", "massive"),
+        ("2009-01-01", "2010-01-01", "ibkr"),
+        ("2010-01-01", "2016-01-04", "massive"),
+    ]
 
 
-def test_stage2_stopped_eras_after_2016_keep_alpaca_and_one_straddling_span_is_cut(tmp_path):
-    stops = [(2015, "1d"), (2016, "1d")]
-    plan = _defaults_of(
-        tmp_path, "1d", stage=2, verdicts={k: ("stop", "x") for k in stops}, stops=stops
-    )
-    got = _spans(plan)
-    assert ("2015-01-01", "2016-01-04", "ibkr") in got and (
-        "2016-01-04",
-        "2017-01-01",
-        "alpaca",
-    ) in got
+def test_stage2_a_stopped_2016_era_starts_at_the_seam_with_no_non_session_span(tmp_path):
+    plan = _plan_with(tmp_path, "1d", stage=2, stops=[(2016, "1d")])
+    assert _spans(plan)[1:4] == [
+        ("2003-09-10", "2016-01-04", "massive"),
+        ("2016-01-04", "2017-01-01", "alpaca"),
+        ("2017-01-01", "2026-11-10", "massive"),
+    ]
+    assert [e[0] for e in _edges(plan)] == ["2003-09-10", "2016-01-04", "2017-01-01", "2026-11-10"]
+
+
+def test_stage2_a_stop_straddling_2016_is_cut_at_the_seam(tmp_path):
+    plan = _plan_with(tmp_path, "1d", stage=2, stops=[(2015, "1d"), (2016, "1d")])
+    assert _spans(plan)[2:4] == [
+        ("2015-01-01", "2016-01-04", "ibkr"),
+        ("2016-01-04", "2017-01-01", "alpaca"),
+    ]
+
+
+def test_stage1_ignores_a_2016_stop(tmp_path):
+    plan = _plan_with(tmp_path, "1d", stops=[(2016, "1d")])
+    assert _spans(plan)[1] == ("2003-09-10", "2016-01-04", "massive")
+
+
+def test_a_stopped_pre_2016_5m_era_is_a_listed_sole_source_exception(tmp_path):
+    plan = _plan_with(tmp_path, "5m", stops=[(2008, "5m"), (2020, "5m")])
+    assert ("2008-01-01", "2009-01-01", "ibkr") in _spans(plan)
+    assert plan["evidence"]["load_checks"]["sole_source_exception"] == ["2008/5m"]
+    parse_plan(plan)
 
 
 def test_a_partial_or_self_calibrated_or_short_run_refuses(tmp_path):
     with pytest.raises(ValueError, match="need complete"):
-        _mod.read_load_checks(_out_dir(tmp_path, status="partial"))
+        _checks(tmp_path, status="partial")
     with pytest.raises(ValueError, match="self-calibrated"):
-        _mod.read_load_checks(_out_dir(tmp_path, calibrated="self"))
-    with pytest.raises(ValueError, match="not the full"):
-        _mod.read_load_checks(_out_dir(tmp_path, eras=[2010, 2011]))
+        _checks(tmp_path, calibrated="self")
+    with pytest.raises(ValueError, match="not the archive's"):
+        _checks(tmp_path, eras=list(range(2003, 2026)))
+
+
+def test_the_eras_come_from_the_manifest_the_run_hashed(tmp_path):
+    out, manifest = _out_dir(tmp_path)
+    manifest.write_text(manifest.read_text() + json.dumps(MANIFEST_LINES[0]) + "\n")
+    with pytest.raises(ValueError, match="another manifest"):
+        mod.read_load_checks(out, manifest)
+    assert mod.manifest_last_day(
+        "".join(json.dumps(r) + "\n" for r in MANIFEST_LINES).encode()
+    ) == date(2026, 11, 9)
+
+
+def test_the_era_table_and_the_stop_file_must_match_the_summary(tmp_path):
+    out, manifest = _out_dir(tmp_path, stops=[(2010, "1d")])
+    (out / "stageC_stop_eras.json").write_text(json.dumps({}))
+    with pytest.raises(ValueError, match="differs from the summary's stops"):
+        mod.read_load_checks(out, manifest)
+    out, manifest = _out_dir(tmp_path)
+    table = (out / "stageC_era_tables.csv").read_text()
+    (out / "stageC_era_tables.csv").write_text(table.replace("2010,1d,ok", "2010,1d,stop"))
+    with pytest.raises(ValueError, match="verdict differs"):
+        mod.read_load_checks(out, manifest)
+    lines = table.splitlines()
+    (out / "stageC_era_tables.csv").write_text("\n".join([*lines, lines[1]]) + "\n")
+    with pytest.raises(ValueError, match="duplicate row"):
+        mod.read_load_checks(out, manifest)
+
+
+def test_a_stop_verdict_missing_from_the_stop_file_refuses(tmp_path):
+    out, manifest = _out_dir(tmp_path, verdicts={(2010, "5m"): ("stop", "x")})
+    with pytest.raises(ValueError, match="not in the stop file"):
+        mod.read_load_checks(out, manifest)
 
 
 def test_an_unknown_timeframe_key_or_an_era_outside_the_archive_refuses(tmp_path):
-    d = _out_dir(tmp_path)
-    (d / "stageC_stop_eras.json").write_text(_json.dumps({"2010/15m": "x"}))
-    with pytest.raises(ValueError, match="known timeframe"):
-        _mod.read_load_checks(d)
-    (d / "stageC_stop_eras.json").write_text(_json.dumps({"1999/1d": "x"}))
-    with pytest.raises(ValueError, match="outside the archive"):
-        _mod.read_load_checks(d)
+    out, manifest = _out_dir(tmp_path)
+    summary = json.loads((out / "summary.json").read_text())
+    for view, match in (({"2010/15m": "x"}, "known timeframe"), ({"1999/1d": "x"}, "exactly")):
+        summary["stage_c"]["stop_eras_all_sources"] = view
+        (out / "summary.json").write_text(json.dumps(summary))
+        (out / "stageC_stop_eras.json").write_text(json.dumps(view))
+        with pytest.raises(ValueError, match=match):
+            mod.read_load_checks(out, manifest)
 
 
-def test_the_plan_validates_through_the_writers_parse_plan_and_lists_its_edges(tmp_path):
-    stops = [(2008, "5m")]
-    plan = _defaults_of(tmp_path, "5m", verdicts={(2008, "5m"): ("stop", "x")}, stops=stops)
-    parse_plan(plan)
-    assert {e["seam"] for e in plan["seam_edges"]} >= {"2008-01-01", "2009-01-01"}
-
-
-def test_the_three_non_session_days_of_2016_are_no_era_of_their_own(tmp_path):
-    plan = _defaults_of(
-        tmp_path, "1d", verdicts={(2016, "1d"): ("stop", "x")}, stops=[(2016, "1d")]
-    )
-    assert ("2003-09-10", "2016-01-04", "massive") in _spans(plan)  # stage 1 ignores a 2016 stop
+@pytest.mark.parametrize(
+    "stops",
+    [[], [(2003, "1d")], [(e, "1d") for e in range(2008, 2014)], [(2015, "1d")], [(2016, "1d")]],
+)
+@pytest.mark.parametrize("stage", [1, 2])
+def test_the_default_count_follows_from_the_seam_edges(tmp_path, stage, stops):
+    """Runbook C1: defaults = edges + 1, plus one when the 2003 era is stopped."""
+    plan = _plan_with(tmp_path, "1d", stage=stage, stops=stops)
+    head_stopped = (2003, "1d") in stops
+    assert len(plan["defaults"]) == len(plan["seam_edges"]) + 1 + head_stopped
+    parse_plan({**plan, "raw_fingerprint": _FP})
