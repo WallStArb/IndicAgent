@@ -174,6 +174,11 @@ def archive_sessions(archive: Archive) -> list[date]:
     return sorted(nyse_sessions(days[0], days[-1]))
 
 
+def _rows_sha256(rows: Any) -> str:
+    """Order-independent content hash of a set of small tuples (part keys carry it)."""
+    return hashlib.sha256(json.dumps(sorted(map(repr, rows))).encode()).hexdigest()
+
+
 # --------------------------------------------------------------------------------------- reads
 @dataclass(frozen=True)
 class RawFile:
@@ -612,10 +617,11 @@ def freeze_inputs(cfg: Config, conn: psycopg.Connection) -> dict[str, Any]:
         "n_corporate_actions": len(ca_rows),
         "n_ticker_spans": len(span_rows),
     }
-    write_json(record_path, record)
     # the freeze time is recorded BESIDE the hashed content, never inside it (R5): two freezes of
-    # the same database state write byte-identical frozen.json and CSV files
+    # the same database state write byte-identical frozen.json and CSV files. It lands before
+    # frozen.json, whose presence marks the freeze complete.
     (fdir / "frozen_at.txt").write_text(datetime.now(UTC).isoformat() + "\n")
+    write_json(record_path, record)
     logger.info("inputs_frozen", **record)
     return record
 
@@ -1365,6 +1371,8 @@ def run_stage_c(
         "max_names": max_names,
         "n_names": len(names),
         "non_split_rows": len(non_split),
+        "non_split_sha256": _rows_sha256(non_split),
+        "frozen_sha256": json.loads((cfg.out / "frozen" / "frozen.json").read_text())["sha256"],
     }
     for era in cfg.eras:
         if load_part(cfg, "name_checks", era, key):
@@ -1682,7 +1690,9 @@ def run_stage_a(cfg: Config, archive: Archive, conn: psycopg.Connection) -> dict
     verdicts = assemble_stage_a(cfg)
     verdicts["survivorship"] = run_survivorship(cfg, archive, conn)
     completeness = json.loads((cfg.out / "stageA_manifest_completeness.json").read_text())
-    verdicts["manifest_complete"] = all(v["complete"] for v in completeness.values())
+    verdicts["manifest_complete"] = (
+        "ok" if all(v["complete"] for v in completeness.values()) else "stop"
+    )
     return verdicts
 
 
@@ -1734,7 +1744,8 @@ def main(argv: list[str] | None = None) -> int:
         "eras": list(cfg.eras),
         "inputs": archive.inputs,
     }
-    with psycopg.connect(get_settings().database_url) as conn:
+    archive_last_era = max(archive.manifest[MINUTE] | archive.manifest[DAY]).year
+    with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
         conn.read_only = True
         if "A" in stages:
             summary["stage_a"] = run_stage_a(cfg, archive, conn)
@@ -1756,7 +1767,7 @@ def main(argv: list[str] | None = None) -> int:
     partition = summary.get("stage_c", {}).get("partition")
     full = (
         stages >= {"A", "B", "C"}
-        and cfg.eras == tuple(range(2003, 2027))
+        and cfg.eras == tuple(range(2003, archive_last_era + 1))
         and isinstance(partition, dict)
         and partition.get("status") == "complete"
     )

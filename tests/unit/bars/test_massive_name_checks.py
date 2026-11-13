@@ -8,8 +8,10 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from src.intelligence.bars import massive_load_checks as lc
 from src.intelligence.bars import massive_name_checks as nc
 from src.intelligence.bars.massive_load_checks import VacuousCheckError
+from src.intelligence.bars.split_rescale import SplitFactor
 
 
 def _ohlc(close: np.ndarray) -> nc.Ohlc:
@@ -178,14 +180,61 @@ def test_scale_class() -> None:
 
 
 def test_ledger_witnesses_from_frozen_data_only() -> None:
-    w = nc.frozen_split_witness(2.0, [("2010-05-04", 2.0)])
+    w = nc.frozen_split_witness(0.5, [("2010-05-04", 2.0)])
     assert w is not None and w.kind == "filing_dated_corporate_action" and w.supports == "massive"
-    assert nc.frozen_split_witness(0.5, [("2010-05-04", 2.0)]) is not None  # the inverse
     assert nc.frozen_split_witness(1.28, [("2010-05-04", 2.0)]) is None
     assert nc.frozen_split_witness(2.0, []) is None
     assert nc.massive_tape_witness(100.0, 50.0, 2.0, "2010-05-04") is not None
     assert nc.massive_tape_witness(100.0, 99.0, 2.0, "2010-05-04") is None
     assert nc.massive_tape_witness(0.0, 50.0, 2.0, "2010-05-04") is None
+
+
+@pytest.mark.parametrize("factor", [2.0, 0.1])  # a forward split and a reverse split
+def test_frozen_split_witness_is_direction_aware(factor: float) -> None:
+    """Massive divided by the frozen split against an incumbent that lacks it leaves 1/f on the
+    old-scale bars: that direction supports Massive. A residual of f is the opposite direction and
+    never convicts the incumbent."""
+    split = [("2010-05-04", factor)]
+    old_scale_days = np.array(["2010-05-03", "2010-05-04"], dtype="datetime64[D]")
+    scale = lc.split_scale_for_days(old_scale_days, [SplitFactor(date(2010, 5, 4), factor)])
+    massive_raw = np.full(2, 100.0 * factor)
+    lacks_split = massive_raw.copy()  # the incumbent left on the old scale
+    residual = math.exp(nc.scale_check(massive_raw, scale, lacks_split))
+    assert residual == pytest.approx(1.0 / factor)
+    toward_massive = nc.frozen_split_witness(residual, split)
+    assert toward_massive is not None and toward_massive.supports == "massive"
+    away = nc.frozen_split_witness(factor, split)
+    assert away is not None and away.supports == "incumbent"
+    row = nc.ledger_verdict("X", "2010", "d", [away], nc.DISPUTE_MASSIVE_VS_IBKR, "s1")
+    assert row.verdict != "incumbent_defect"
+
+
+def test_massive_continuity_alone_never_convicts_the_incumbent() -> None:
+    """Massive's own tape is Massive, not a third party: on its own it can convict Massive but not
+    the incumbent; with an independent witness in agreement the incumbent defect stands."""
+    w = nc.Witness
+    tape = w("massive_continuity", "massive", "m")
+    alone = nc.ledger_verdict("X", "2010", "d", [tape], nc.DISPUTE_MASSIVE_VS_IBKR, "s1")
+    assert alone.verdict == "unresolved"
+    against = nc.ledger_verdict(
+        "X",
+        "2010",
+        "d",
+        [w("massive_continuity", "incumbent", "m")],
+        nc.DISPUTE_MASSIVE_VS_IBKR,
+        "s1",
+    )
+    assert against.verdict == "massive_defect"
+    with_record = nc.ledger_verdict(
+        "X",
+        "2010",
+        "d",
+        [tape, w("filing_dated_corporate_action", "massive", "f")],
+        nc.DISPUTE_MASSIVE_VS_IBKR,
+        "s1",
+    )
+    assert with_record.verdict == "incumbent_defect"
+    assert with_record.decided_by == "filing_dated_corporate_action"
 
 
 def test_clean_vendor_passes_every_name_level_check() -> None:

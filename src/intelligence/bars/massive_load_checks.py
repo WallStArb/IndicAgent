@@ -482,9 +482,9 @@ def compare_day_to_minutes(
         n += 1
         got = (agg.open[i], agg.high[i], agg.low[i], agg.close[i], agg.volume[i])
         for k in range(4):
-            if abs(vals[k] - got[k]) > PRICE_EQUAL_ABS_TOL:
+            if not abs(vals[k] - got[k]) <= PRICE_EQUAL_ABS_TOL:
                 mism[k] += 1
-        if abs(vals[4] - got[4]) > VOLUME_EQUAL_ABS_TOL:
+        if not abs(vals[4] - got[4]) <= VOLUME_EQUAL_ABS_TOL:
             mism[4] += 1
     return DayVsMinuteCounts(n, day_only, *mism)
 

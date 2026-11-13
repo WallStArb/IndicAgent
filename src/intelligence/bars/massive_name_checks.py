@@ -148,10 +148,16 @@ def return_agreement(
         i_i = np.log(ic / incumbent[0])
         itol = _tau(ic, increment) / ic + _tau(incumbent[0], increment) / incumbent[0]
         bar_ok = np.abs(i_m - i_i) <= itol
+        usable_open = (
+            np.isfinite(massive_adj[0])
+            & np.isfinite(incumbent[0])
+            & (massive_adj[0] > 0)
+            & (incumbent[0] > 0)
+        )
     return (
         int(np.count_nonzero(consec)),
         int(np.count_nonzero(consec & pair_ok)),
-        len(mc),
+        int(np.count_nonzero(usable_open)),
         int(np.count_nonzero(bar_ok)),
     )
 
@@ -229,7 +235,11 @@ def classify_disagreements(
         else np.zeros(n, dtype=bool)
     )
     if last_bucket is not None:
-        ohl = ohl | last_bucket
+        # the last bucket may carry an extra print in high or low; the open must still agree
+        open_agrees = np.abs(massive_adj[0] - incumbent[0]) <= HALF_INCREMENT * increment + (
+            PRICE_REL_TOL * np.abs(incumbent[0])
+        )
+        ohl = ohl | (last_bucket & open_agrees)
     pending = ~agree
     for label, mask in (
         (CLASS_TIME_SHIFT, shift),
@@ -501,7 +511,8 @@ def close_partition(
     stops: dict[int, str] = (
         dict(stop_eras) if isinstance(stop_eras, Mapping) else {e: "era" for e in stop_eras}
     )
-    unknown = [c for c in outcomes if c not in set(cells)]
+    cell_set = set(cells)
+    unknown = [c for c in outcomes if c not in cell_set]
     if unknown:
         raise ValueError(f"cells judged but not expected: {unknown[:3]}")
     missing = tuple(c for c in cells if c not in outcomes)
@@ -570,8 +581,10 @@ def ledger_verdict(
     """Decide one disputed case by the stated precedence. The first witness kind in
     ``WITNESS_PRECEDENCE`` present decides (several witnesses of one kind must agree, else the case
     is unresolved). An incumbent defect call needs a third witness: Massive is the yardstick, but a
-    case with only the Alpaca corroborator, or none, is unresolved. ``ibkr_1d_official_close`` is
-    ignored in a Massive-internal dispute (it would be circular there)."""
+    case with only the Alpaca corroborator, or none, is unresolved. ``massive_continuity`` is
+    Massive, not a third party: when it decides, it can call a Massive defect but leaves an
+    incumbent defect unresolved. ``ibkr_1d_official_close`` is ignored in a Massive-internal
+    dispute (it would be circular there)."""
     usable = [
         w
         for w in witnesses
@@ -587,7 +600,12 @@ def ledger_verdict(
             return LedgerRow(
                 name, span, claimed_defect, tuple(witnesses), VERDICT_UNRESOLVED, session_id, kind
             )
-        verdict = VERDICT_MASSIVE_DEFECT if sides == {"incumbent"} else VERDICT_INCUMBENT_DEFECT
+        if sides == {"incumbent"}:
+            verdict = VERDICT_MASSIVE_DEFECT
+        elif kind == "massive_continuity":
+            verdict = VERDICT_UNRESOLVED
+        else:
+            verdict = VERDICT_INCUMBENT_DEFECT
         return LedgerRow(name, span, claimed_defect, tuple(witnesses), verdict, session_id, kind)
     return LedgerRow(
         name, span, claimed_defect, tuple(witnesses), VERDICT_UNRESOLVED, session_id, "none"
@@ -611,17 +629,20 @@ def dispute_window_sessions(
 def frozen_split_witness(
     level_factor: float, splits_in_window: Sequence[tuple[str, float]], tol: float = 0.01
 ) -> Witness | None:
-    """The frozen corporate-action list as a witness for one disputed name-era: when the residual
-    level factor between Massive (already divided by the frozen splits) and the incumbent equals a
-    recorded split of the window (or its inverse) within ``tol``, the dated record says Massive's
-    basis carries the split and the incumbent's does not: it supports Massive. ``splits_in_window``
-    holds (effective date, factor). No such split: no witness (never invented)."""
+    """The frozen corporate-action list as a witness for one disputed name-era. ``level_factor`` is
+    the residual Massive / incumbent after Massive is divided by the frozen splits;
+    ``splits_in_window`` holds (effective date, factor). Dividing by a split of factor f moves the
+    bars up to its effective date onto the new scale, so an incumbent that lacks the split leaves
+    a residual of 1/f: the dated record explains the dispute and supports Massive. A residual of f
+    points the other way (Massive a split factor above the incumbent after the division, which no
+    missing split explains), so the record supports the incumbent there. Neither within ``tol``:
+    no witness (never invented)."""
     for effective, factor in splits_in_window:
-        for candidate in (factor, 1.0 / factor):
+        for candidate, supports in ((1.0 / factor, "massive"), (factor, "incumbent")):
             if abs(level_factor / candidate - 1.0) <= tol:
                 return Witness(
                     "filing_dated_corporate_action",
-                    "massive",
+                    supports,
                     f"frozen corporate_action split {effective} x{factor}",
                 )
     return None
@@ -632,7 +653,8 @@ def massive_tape_witness(
 ) -> Witness | None:
     """Massive's own continuity witness for a recorded split: Massive's unadjusted tape steps by
     the split factor across its effective date (close on the last old-scale session over the close
-    on the next, within ``tol``). A tape that steps by the factor supports the recorded split."""
+    on the next, within ``tol``). A tape that steps by the factor supports the recorded split; it
+    corroborates and never alone convicts the incumbent (see ``ledger_verdict``)."""
     if not (close_before > 0 and close_after > 0):
         return None
     if abs((close_before / close_after) / factor - 1.0) <= tol:

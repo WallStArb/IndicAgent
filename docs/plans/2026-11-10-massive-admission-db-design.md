@@ -141,7 +141,7 @@ Two policy stages, in this order, so the byte-exact check keeps testing the rebu
 ## 8a. Load checks
 
 Owner 2026-11-10: Massive is used regardless, so there is no separate pilot and no admit or
-refuse verdict. The checks below replace the pilot basis study (archived, `docs/plans/archive/2026-11-09-massive-pilot-basis-study.md`). They decide how each name and span is loaded, never whether Massive is used. Massive is the yardstick: a disagreement with IBKR or Alpaca is an incumbent defect when a third witness agrees (Massive's own continuity across eras, an exchange-official close, a filing-dated split), and unresolved otherwise. From 2016-01-04 Alpaca agreement carries no weight on units, session or scale (same upstream); IBKR is the independent arm. Survivorship is measured and disclosed (presence by era, the names missing), never a gate.
+refuse verdict. The checks below replace the pilot basis study (archived, `docs/plans/archive/2026-11-09-massive-pilot-basis-study.md`). They decide how each name and span is loaded, never whether Massive is used. Massive is the yardstick: a disagreement with IBKR or Alpaca is an incumbent defect when a third witness agrees (an exchange-official close, a filing-dated split), and unresolved otherwise. From 2016-01-04 Alpaca agreement carries no weight on units, session or scale (same upstream); IBKR is the independent arm. Survivorship is measured and disclosed (presence by era, the names missing), never a gate.
 
 Two outcomes, nothing in between: a name or span outside a check keeps its incumbent through a symbol row and goes on the gap list; a systemic failure (units, session offset, internal consistency) stops step 7 until fixed.
 
