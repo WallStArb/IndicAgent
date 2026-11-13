@@ -18,8 +18,10 @@ from scripts.ops.bars.ops_canonical_rebuild import (
     policy_digest,
     read_card_lineage,
     result_violation,
+    run_shape,
     session_bounds,
     source_shortfalls,
+    unbuilt_windows,
 )
 from src.intelligence.bars.selection import SESSION_TZ
 
@@ -315,3 +317,32 @@ def test_a_preflight_after_the_truncate_keeps_the_pre_truncate_record(tmp_path, 
     state = State(path)
     assert state.data["canonical_rows_before"] == before
     assert any("live policy differs" in f for f in state.data["preflight_failures"])
+
+
+def test_a_resume_must_match_the_recorded_run_shape(tmp_path):
+    # A mistyped --from or a reordered --timeframes on a resume would silently rebuild a
+    # different window set under the same ledger; the first run records, later ones must match.
+    state = State(tmp_path / "shape.json")
+    state.data["run_shape"] = {"start": "2016-01-01", "timeframes": ["5m", "1d"]}
+    assert run_shape(state.data, date(2016, 1, 1), ["5m", "1d"]) is None
+    mismatch = run_shape(state.data, date(2003, 9, 10), ["5m", "1d"])
+    assert mismatch is not None and "started with --from 2016-01-01" in mismatch
+    assert run_shape(state.data, date(2016, 1, 1), ["1d", "5m"]) is not None
+    assert run_shape({}, date(2016, 1, 1), ["5m", "1d"]) is None
+
+
+def test_finish_refuses_while_planned_windows_are_unbuilt(tmp_path):
+    # FINISH OK mid-rebuild would reschedule compression over a partly filled chunk; the ledger
+    # must show every planned window done for every run-shape timeframe.
+    state = State(tmp_path / "finish.json")
+    state.data["run_shape"] = {"start": "2016-01-01", "timeframes": ["5m", "1d"]}
+    state.data["planned_windows"] = [
+        ["2016-01-01T00:00:00+00:00", "2016-01-02T00:00:00+00:00"],
+        ["2016-01-02T00:00:00+00:00", "2016-01-03T00:00:00+00:00"],
+    ]
+    assert len(unbuilt_windows(state.data)) == 4
+    state.data["done"] = {"5m": ["2016-01-01", "2016-01-02"]}
+    assert unbuilt_windows(state.data) == ["1d 2016-01-01", "1d 2016-01-02"]
+    state.data["done"]["1d"] = ["2016-01-01", "2016-01-02"]
+    assert unbuilt_windows(state.data) == []
+    assert "no run shape" in unbuilt_windows({})[0]

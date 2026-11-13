@@ -2,7 +2,8 @@
 step 7; runbook docs/operations/massive-step7-runbook.md, A2 and D1).
 
 Read-only (a read-only session; temp nothing, write nothing). Run it against the live selection
-BEFORE the drop. Per (timeframe, UTC month) of canonical ``market_data_ohlcv`` it full-joins the
+BEFORE the drop. Per (timeframe, UTC month) of canonical ``market_data_ohlcv`` and of Massive's
+raw months it full-joins the
 canonical slots with Massive's raw slots (5m ``sip_flat_agg`` by stamp, 1d ``sip_flat`` by
 session date) and counts, under the switch policy (``ops_massive_policy_plan``: Massive before the
 archive end, Alpaca from it, no fallback, nothing before Massive's first file):
@@ -23,7 +24,10 @@ After the rebuild, ``--verify BEFORE_CARD AFTER_CARD`` (runbook D1, file-only) c
 against this run's ``switch_delta.csv``: every (timeframe, month) of 5m and 1d holds exactly
 ``expected_after`` rows, 1m and 4h hold none, no row carries vendor ibkr, and every Alpaca group
 (symbol, month) wholly inside an Alpaca gap row is byte-identical to the before card. 1m (IBKR
-only) leaves whole by ruling.
+only) leaves whole by ruling. The months wanted are the union of the before card's months and the
+delta rows' months: a month canonical never held but Massive raw fills is a delta row (the run
+reads Massive's raw months too), and a before-card month the delta run skipped fails loudly as
+an unpredicted month rather than passing silently.
 
 Every lost slot is classified (``classify_loss``), in this order: ``gap_list`` (an identity gap
 span covers it: unplaced, no source by design), ``after_listing_end`` (after the name's recorded
@@ -60,6 +64,10 @@ from scripts.ops.bars.ops_massive_policy_plan import (  # noqa: E402
     read_gap_list,
 )
 from src.config.settings import get_settings  # noqa: E402
+from src.intelligence.bars.selection import (  # noqa: E402
+    RTH_GRID_STEP_MINUTES,
+    rth_grid_stamps,
+)
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 
 MASSIVE_KIND = {"5m": "sip_flat_agg", "1d": "sip_flat"}
@@ -97,19 +105,20 @@ WITH c AS (
     SELECT symbol, {m_key} AS k, {m_day} AS d
     FROM ohlcv_raw
     WHERE timeframe = %(tf)s AND vendor = 'massive' AND kind = %(kind)s
-      AND "timestamp" >= %(raw_lo)s AND "timestamp" < %(raw_hi)s
+      AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{m_grid}
 )
 SELECT coalesce(c.symbol, m.symbol), coalesce(c.d, m.d), c.vendor, coalesce(c.zero, false),
        c.symbol IS NOT NULL, m.symbol IS NOT NULL, count(*)
 FROM c FULL JOIN m ON c.symbol = m.symbol AND c.k = m.k
-WHERE coalesce(c.d, m.d) >= %(lo_day)s AND coalesce(c.d, m.d) < %(hi_day)s
 GROUP BY 1, 2, 3, 4, 5, 6
 """
+_GRID_CLAUSE = ' AND "timestamp" = ANY(%(grid)s)'
 _NY = "AT TIME ZONE 'America/New_York'"
-_RAW_DAY = f'("timestamp" {_NY})::date'  # a raw bar's session date
+_RAW_DAY = f'("timestamp" {_NY})::date'  # a raw bar's session date (classification only)
 _KEYS = {
     # 5m: the bar stamp on both sides; 1d: canonical is stamped at the UTC date, raw at New York
-    # midnight, so the key is the session date
+    # midnight, so the key is the session date. The month both sides belong to is the UTC stamp
+    # month (the card's bucket); d never scopes a month.
     "5m": {"c_key": '"timestamp"', "c_day": f'("timestamp" {_NY})::date', "m_key": '"timestamp"'},
     "1d": {
         "c_key": "(\"timestamp\" AT TIME ZONE 'UTC')::date",
@@ -125,6 +134,10 @@ _LISTING_END_SQL = "SELECT symbol, last_session FROM listing_end_current"
 _MONTHS_SQL = """
 SELECT DISTINCT date_trunc('month', "timestamp" AT TIME ZONE 'UTC')::date
 FROM market_data_ohlcv WHERE timeframe = %s ORDER BY 1
+"""
+_RAW_MONTHS_SQL = """
+SELECT DISTINCT date_trunc('month', "timestamp" AT TIME ZONE 'UTC')::date
+FROM ohlcv_raw WHERE timeframe = %s AND vendor = 'massive' AND kind = %s ORDER BY 1
 """
 
 
@@ -244,23 +257,28 @@ def read_identity(conn: Any, gaps: Sequence[GapRow]) -> Identity:
     return Identity(dict(by_gap), dict(spans), listing_end)
 
 
-def month_groups(conn: Any, timeframe: str, month: date) -> list[Group]:
+def month_params(timeframe: str, month: date) -> dict[str, Any]:
+    """The month join's parameters: the UTC stamp month on both sides (the card's bucket), and
+    for 5m only the regular-hours grid stamps selection can take (one calendar year of slack
+    each side, as selection builds its grids)."""
     lo, hi = month_bounds(month)
-    # 1d raw is stamped at New York midnight: read one day either side, keep the month's sessions
-    pad = timedelta(days=1 if timeframe == "1d" else 0)
-    sql = _JOIN_SQL.format(**_KEYS[timeframe], m_day=_RAW_DAY)
-    params = {
-        "tf": timeframe,
-        "kind": MASSIVE_KIND[timeframe],
-        "lo": lo,
-        "hi": hi,
-        "raw_lo": lo - pad,
-        "raw_hi": hi + pad,
-        "lo_day": lo.date(),
-        "hi_day": hi.date(),
-    }
+    params: dict[str, Any] = {"tf": timeframe, "kind": MASSIVE_KIND[timeframe], "lo": lo, "hi": hi}
+    if timeframe in RTH_GRID_STEP_MINUTES:
+        params["grid"] = sorted(rth_grid_stamps(timeframe, lo.year - 1, lo.year + 1))
+    return params
+
+
+def month_sql(timeframe: str) -> str:
+    return _JOIN_SQL.format(
+        **_KEYS[timeframe],
+        m_day=_RAW_DAY,
+        m_grid=_GRID_CLAUSE if timeframe in RTH_GRID_STEP_MINUTES else "",
+    )
+
+
+def month_groups(conn: Any, timeframe: str, month: date) -> list[Group]:
     with conn.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(month_sql(timeframe), month_params(timeframe, month))
         return [Group(*r) for r in cur.fetchall()]
 
 
@@ -272,12 +290,23 @@ def verify(
     archive_end: date,
 ) -> dict[str, Any]:
     """The D1 gate (module docstring): failures are listed whole, never sampled."""
+    before = list(before)
     after = list(after)
     got: Counter[tuple[str, str]] = Counter()
     for r in after:
         got[(r["timeframe"], r["month"])] += int(r["n"])
     want = {(d["timeframe"], d["month"]): int(d["expected_after"]) for d in deltas}
+    predicted = set(want)
+    # A before-card month the delta run skipped is unpredictable: the rebuild could hold
+    # anything there and the gate could not count it, so it fails unconditionally (a handover
+    # timeframe's canonical-before month is always a delta row by construction; its absence is
+    # a B4 defect).
     count_failures = [
+        {"timeframe": tf, "month": m, "expected": "delta_skipped", "got": got.get((tf, m), 0)}
+        for (tf, m) in sorted({(r["timeframe"], r["month"]) for r in before} - predicted)
+        if tf in HANDOVER_DELTA_TIMEFRAMES
+    ]
+    count_failures += [
         {"timeframe": tf, "month": m, "expected": n, "got": got.get((tf, m), 0)}
         for (tf, m), n in sorted(want.items())
         if got.get((tf, m), 0) != n
@@ -392,9 +421,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         for tf in args.timeframes:
             with conn.cursor() as cur:
                 cur.execute(_MONTHS_SQL, (tf,))
-                months = [r[0] for r in cur.fetchall()]
+                months = {r[0] for r in cur.fetchall()}
+                cur.execute(_RAW_MONTHS_SQL, (tf, MASSIVE_KIND[tf]))
+                months |= {r[0] for r in cur.fetchall()}
             last = date(archive_end.year, archive_end.month, 1)
-            months = sorted(set(months) | {last})
+            months = sorted(months | {last})
             for month in months:
                 row, lost = tally(month_groups(conn, tf, month), tf, month, archive_end, identity)
                 deltas.append(row)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from scripts.ops.bars.ops_massive_policy_plan import GapRow
 from scripts.ops.bars.ops_massive_switch_delta import (
@@ -123,3 +123,63 @@ def test_verify_checks_counts_ibkr_and_the_gap_row_alpaca_groups():
     assert short["count_failures"] == [
         {"timeframe": "1d", "month": "2020-05-01", "expected": 121, "got": 21}
     ]
+
+
+def test_verify_wants_every_before_card_month_and_fails_an_unpredicted_one():
+    # The months wanted are the union of the before card's months and the delta rows': a month
+    # canonical never held but the rebuild fills is a delta row and passes at its expectation;
+    # a month the after card holds that delta skipped fails as expected-zero, never silently.
+    from scripts.ops.bars.ops_massive_switch_delta import verify
+
+    def card(tf, sym, month, n, digest="d"):
+        return {"timeframe": tf, "symbol": sym, "vendor": "massive", "kind": "k",
+                "month": month, "n": n, "digest": digest}  # fmt: skip
+
+    filled = [card("1d", "OK", "2010-05-01", 30)]
+    deltas = [{"timeframe": "1d", "month": "2010-05-01", "expected_after": "30"}]
+    assert verify([], filled, deltas, IDENTITY, END)["ok"]
+    unpredicted = filled + [card("1d", "NEW", "2011-06-01", 5)]
+    report = verify([], unpredicted, deltas, IDENTITY, END)
+    assert not report["ok"]
+    assert {
+        "timeframe": "1d",
+        "month": "2011-06-01",
+        "expected": 0,
+        "got": 5,
+    } in report["count_failures"]
+    skipped = [card("1d", "OLD", "2020-05-01", 4)]
+    report = verify(skipped, filled, deltas, IDENTITY, END)
+    assert not report["ok"]
+
+
+def test_an_out_of_session_stamp_cannot_inflate_expected_after():
+    # 5m keeps only the regular-hours grid stamps selection can take (the same filter
+    # selection applies to sip_flat_agg); 08:30 New York is off grid, 09:35 is on it. 1d has
+    # no stamp grid.
+    from scripts.ops.bars.ops_massive_switch_delta import month_params, month_sql
+
+    grid = month_params("5m", date(2016, 1, 1))["grid"]
+    assert datetime(2016, 1, 4, 13, 30, tzinfo=UTC) not in grid  # 08:30 New York
+    assert datetime(2016, 1, 4, 14, 35, tzinfo=UTC) in grid  # 09:35 New York
+    assert "ANY(%(grid)s)" in month_sql("5m")
+    assert "grid" not in month_params("1d", date(2016, 1, 1))
+    assert "ANY(%(grid)s)" not in month_sql("1d")
+
+
+def test_a_stamp_just_after_utc_midnight_buckets_by_its_utc_month_not_its_new_york_session():
+    # 2016-07-01 00:15 UTC is the June 30 late session in New York: the card buckets by UTC
+    # month, so both join sides are scoped by the stamp and nothing re-filters by the session
+    # date (a 1d New York midnight stamp shares its stamp's UTC date).
+    from scripts.ops.bars.ops_massive_switch_delta import month_params, month_sql
+
+    stamp = datetime(2016, 7, 1, 0, 15, tzinfo=UTC)
+    for month, inside in ((date(2016, 6, 1), False), (date(2016, 7, 1), True)):
+        params = month_params("5m", month)
+        assert (params["lo"] <= stamp < params["hi"]) is inside
+        sql = month_sql("5m")
+        assert "lo_day" not in sql and "hi_day" not in sql and "raw_lo" not in sql
+        midnight = datetime(2016, 7, 1, 4, 0, tzinfo=UTC)
+        params = month_params("1d", month)
+        assert (params["lo"] <= midnight < params["hi"]) is inside
+        sql = month_sql("1d")
+        assert "lo_day" not in sql and "hi_day" not in sql and "raw_lo" not in sql
