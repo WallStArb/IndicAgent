@@ -16,12 +16,12 @@ The discipline is borrowed on purpose from two places. From Renaissance Technolo
 
 ## Where it stands
 
-Stated plainly, because the rigor below only means something if it is applied to this project's own claims. Figures are as of 2026-10-14 and come from the live database and `.planning/STATE.md`.
+Stated plainly, because the rigor below only means something if it is applied to this project's own claims. Figures are as of 2026-11-13 and come from the live database and `.planning/STATE.md`.
 
 - **Feature-level evidence is real; a tradeable construction is not yet proven.** Individual measurements show statistically real, replicated predictive power. No book has yet passed confirmation net of trading costs, and none trades capital.
 - **The platform is mid-rebuild.** Milestone v3.5 (Unified Research Pipeline) replaces the earlier ensemble chain with one pipeline from raw data to a frozen book. Research attempts are paused while the build lands (owner decision, 2026-09-27).
-- **The data layer is large and growing.** 1,529 active instruments (1,502 eligible for daily computation). Daily history reaches back to 2000. Five-minute bars cover every eligible name, and a deep backfill of the 2006 to 2015 intraday history is running.
-- **The registry governs 302 features** (295 active, 5 candidate, 2 deprecated), each with a recorded lifecycle.
+- **The data layer is large and growing.** 1,529 active instruments, and the Massive acquisition adds the full US market archive: day and minute aggregates from 2003-09-10, more than 30,000 ticker identities, 82 GB of verified flat files. Massive is becoming the primary vendor with Alpaca carrying the forward tail; IBKR retires once the rebuild proves itself. The database holds about 770 million raw bar rows and 575 million canonical rows (93 GB). The preregistered stage 2 universe expands research coverage to about 4,150 names a day, survivorship-free, from data already on disk.
+- **The registry governs 412 features** (289 active, 99 candidate, 24 deprecated as of 2026-11-13), each with a recorded lifecycle.
 
 Live status: [`.planning/STATE.md`](.planning/STATE.md). Every research verdict: [`docs/research/construction-verdict-ledger.md`](docs/research/construction-verdict-ledger.md).
 
@@ -75,7 +75,7 @@ ingest -> feature -> measure -> research -> frozen book -> forward run -> capita
 
 | Stage | What it does |
 |---|---|
-| **Ingest** | Bars from IBKR (daily primary and deep history) and Alpaca (five-minute), written through one ingress contract. Every vendor row is kept under its supplier's label; missing data stays missing. |
+| **Ingest** | Bars from the Massive flat-file archive (day and minute aggregates, 2003 onward), Alpaca (nightly tail) and IBKR (retiring after the Massive rebuild), written through one ingress contract. Every vendor row is kept under its supplier's label; missing data stays missing. |
 | **Feature** | Measurements computed on every bar, unconditionally, with no directional opinion. Point in time: universe, classification, tags and parameters as of the bar. |
 | **Measure** | Information coefficient of every feature against executable forward returns (open to open), per symbol and pooled, conditioned on regime, on non-overlapping windows. |
 | **Research** | Panel, residualized target, pre-registered families, mechanical guards, a walk-forward combiner that sets member weights, a construction rule, and a book test. Every run is recorded in `research_run`. |
