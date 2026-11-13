@@ -52,7 +52,7 @@ not IBKR coverage.
 | Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table; 13-14 on todo 482; admission holes are todo 588 |
 | Research core (phase 187) | Selection core plans 08-15; governance (16-18) after the first feature family; E17 v2 battery (todos 547, 586) before StepM selection and the book rule |
 | Testing | Waits on the clean-data rule (E21 adopted 2026-11-13): family 2, daily price-only families 441 + 423, then 440; feature and regime families after the rebuild and 184 |
-| Quick, independent | 544 (gateway upgrade or planned lapse, decide by 2026-12-01, deadline 2026-12-15), 443 |
+| Quick, independent | 443 (remaining item sequenced after the 186-26 rebuild; see its P2 row below) |
 
 ## P0: Gates the data gate or the first counted test
 
