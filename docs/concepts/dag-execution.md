@@ -87,7 +87,6 @@ Full system map with Mermaid diagram, agent taxonomy, topic registry, and all in
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-plugins.md` — plugin DAG structure, wave execution, code
 - Service DAG: `docs/architecture/architecture-dag-topology.md` — full system map and service invariants
 - Principles: `docs/foundation/design-principles.md` — DAG mandate as Principle 11
 - Code: `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`

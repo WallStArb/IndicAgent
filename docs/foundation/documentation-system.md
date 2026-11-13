@@ -182,10 +182,9 @@ Domain folder docs follow `<domain>-<role>.md`. Domain part matches the folder. 
 
 | Role suffix | Primary question | Example |
 |------------|-----------------|---------|
-| `foundation` | WHY + WHAT | `intelligence-foundation.md` |
-| `operations` | HOW (sysadmin) | `intelligence-operations.md` |
-| `plugins` | HOW (developer) | `intelligence-plugins.md` |
-| `lifecycle` | WHAT + HOW | `signals-lifecycle.md` |
+| `foundation` | WHY + WHAT | `data-foundation.md` |
+| `operations` | HOW (sysadmin) | `operations-infrastructure.md` |
+| `lifecycle` | WHAT + HOW | `intelligence-alpha-frames-and-feature-lifecycle.md` |
 
 The role suffix is not a closed list — choose the word that names what the document does. Two-word role suffixes are permitted when one word is ambiguous.
 

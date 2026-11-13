@@ -164,8 +164,7 @@ If a future v3.0 layer needs to record *why* an alpha was or wasn't promoted (th
 
 - `docs/architecture/architecture-v3-alphaengine-pipeline.md` — live measurement/ensemble/governance pipeline this principle now lives in
 - `docs/concepts/regime-awareness.md` — how regime conditioning (not gating) closes the same selection-bias failure mode one layer earlier
-- `docs/signals/signals-schema.md` — complete DDL reference for the archived three-table schema and join view
-- `docs/signals/signal-trade-separation-ADR.md` — formal ADR with the original implementation decision and migration plan
+- The archived DDL and the formal ADR (`docs/signals/signals-schema.md`, `signal-trade-separation-ADR.md`) were deleted with the v2.x signal surface on 2026-11-13; both are in git history.
 - `docs/concepts/extrinsic-confidence-layer.md` — ECL; why the detection layer must be unfiltered (v2.x)
 - `docs/foundation/glossary.md` — SLA, CFL, counterfactual pnl_r, survivorship bias canonical definitions
 - `docs/foundation/canonical-truth-registry.md` — canonical writer for each SLA table (archived) and for `alpha_events` (live)

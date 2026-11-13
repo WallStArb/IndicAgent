@@ -135,5 +135,5 @@ HTF bars are published to `market.bars.htf` and consumed directly by `Intelligen
 
 - **Reference data & roll logic:** `data-foundation.md` — instruments, contract_metadata, roll lifecycle
 - **Hot/warm/cold tiers:** `data-pipeline.md` — Redpanda topics, processing services, TimescaleDB writers
-- `docs/architecture/architecture-overview.md` — Layer 0 (Data Ingestion) and Layer 1 (Bar Processing; staleness-quarantined)
+- `docs/architecture/architecture-dag-topology.md` — the service DAG map (v2.x revival reference)
 - `src/providers/CLAUDE.md` — IBKR contract setup, asset class rules, troubleshooting

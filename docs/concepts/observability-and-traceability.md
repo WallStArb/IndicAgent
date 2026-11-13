@@ -69,4 +69,3 @@ When designing observability for a new system:
 
 - Implementation: `docs/platform/platform-observability.md` — OTel instruments, Grafana setup, D-27 SLO alerts
 - Agent contract: `docs/agents/agents-foundation.md` — BaseAgent mandatory OTel signals
-- Audit trail: `docs/intelligence/intelligence-ai.md` — `llm_calls` schema and back-fill pattern

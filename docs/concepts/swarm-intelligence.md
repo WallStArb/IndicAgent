@@ -71,8 +71,6 @@ When designing a swarm intelligence system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-ai.md` — BaseAIWorker protocol, shadow governance, LLM audit trail
-- Calibration: `docs/intelligence/intelligence-foundation.md` — calibration chain, swarm overlay position
 - Code: `services/alpha_swarm_agent.py`, `src/intelligence/ai/alpha/`
 - Related concept: `docs/concepts/adaptive-intelligence.md` — how shadow governance gates swarm agents
 - Related concept: `docs/concepts/evidence-graded-signals.md` — how swarm multiplier relates to CIS calibration

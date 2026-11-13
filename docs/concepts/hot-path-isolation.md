@@ -52,7 +52,5 @@ When designing a new real-time intelligence system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-foundation.md` — Data Flow section
 - Related concept: `docs/concepts/event-driven-fabric.md` — why Kafka is the decoupling mechanism
 - Related concept: `docs/concepts/incremental-computation.md` — how hot-path state is maintained O(1)
-- Operations: `docs/intelligence/intelligence-operations.md` — latency breakdown and tuning

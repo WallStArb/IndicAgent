@@ -96,7 +96,6 @@ When designing a multi-source confirmation system:
 
 - Live substrate: `services/ensemble_trainer.py`, `services/ensemble_ic_engine.py` — IC-weighted ensemble, BH-FDR, walk-forward gating
 - Live substrate: `docs/foundation/unified-concept-registry.md` — feature promotion gating that feeds the ensemble
-- Historical implementation: `docs/intelligence/intelligence-foundation.md` — CIS architecture, 6-bucket detail, adaptive weights, calibration chain
 - Historical code: `src/intelligence/trading/cis_scorer.py` (dormant, no live caller path)
 - Related concept: `docs/concepts/regime-awareness.md`
 - Related concept: `docs/concepts/adaptive-intelligence.md` — evidence-gated promotion lifecycle (UCR)

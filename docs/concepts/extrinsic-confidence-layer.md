@@ -135,7 +135,5 @@ The gate remains, but it is now *auditable*. This is the correct architecture fo
 
 ## See Also
 
-- `docs/signals/signals-ecl.md` — code surfaces, field reference, plugin implementation contract
-- `docs/signals/signals-confidence-patterns.md` — Section 5: ECL; anti-patterns for I7 plugin authors
 - `docs/concepts/signal-ledger-architecture.md` — SLA design; why counterfactual_pnl_r closes Bias Layer 2
 - `docs/foundation/glossary.md` — ECL, ICC, SLA, survivorship bias canonical definitions

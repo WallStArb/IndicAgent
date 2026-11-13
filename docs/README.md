@@ -8,9 +8,9 @@
 
 ## Documentation Taxonomy
 
-The docs use a **domain-first, recipe-card format**: each folder owns a specific domain, and each file answers one of four questions — WHY (design rationale), WHAT (contracts and data shapes), HOW (procedures), or WHERE (quick lookup). Files within a domain folder are named `<domain>-<role>.md` (e.g., `intelligence-foundation.md`, `signals-lifecycle.md`).
+The docs use a **domain-first, recipe-card format**: each folder owns a specific domain, and each file answers one of four questions — WHY (design rationale), WHAT (contracts and data shapes), HOW (procedures), or WHERE (quick lookup). Files within a domain folder are named `<domain>-<role>.md` (e.g., `intelligence-layer-architecture.md`, `agents-writers.md`).
 
-The `intelligence/` folder is the gold standard — its four core files (foundation, plugins, AI, operations) are each a distinct recipe card. New domain folders (`agents/`, `signals/`, `platform/`) follow the same pattern. Older folders (`foundation/`, `data/`, `operations/`, `reference/`) are stable but predate the recipe-card convention. `architecture/` is legacy — content migrates to domain folders over time. `concepts/` is the permanent home for cross-domain conceptual WHY docs; it is not a migration staging area.
+The `intelligence/` folder is the gold standard — its surviving files are the v3.0 factor-model docs and the layer architecture. Other domain folders (`agents/`, `platform/`) follow the same pattern. Older folders (`foundation/`, `data/`, `operations/`, `reference/`) are stable but predate the recipe-card convention. `architecture/` is legacy — content migrates to domain folders over time. `concepts/` is the permanent home for cross-domain conceptual WHY docs; it is not a migration staging area.
 
 Docs declare a `Status` (`draft`, `design`, `current`, `archived`; see `foundation/documentation-system.md` §6). Read it before citing a doc: much of the domain content below documents the archived v2.x pipeline.
 
@@ -68,16 +68,10 @@ standard; the domain content itself is historical, not currently-running behavio
 
 | File | Description |
 |------|-------------|
-| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts (v2.x, ARCHIVED) |
 | `intelligence-alphaengine.md` | IC-weighted factor model — vocabulary, methodology, and why the plugin approach was replaced (v3.0) |
 | `intelligence-alphaengine-methodology.md` | IC measurement methodology (current, living reference) |
-| `intelligence-plugins.md` | Plugin protocol, how to add a plugin, 132-plugin inventory |
-| `intelligence-ai.md` | Swarm agents, LLM chain, shadow governance |
-| `intelligence-operations.md` | Services, monitoring, debugging the intelligence pipeline |
 | `intelligence-layer-architecture.md` | Layers vs. mechanisms in the intelligence layer (current) |
 | `intelligence-alpha-frames-and-feature-lifecycle.md` | Feature lifecycle: data-quality governance of feature status (current) |
-| `intelligence-hmm-observation-vector.md` | HMM observation vector design (5D vector) |
-| `intelligence-performance.md` | Pipeline optimization strategy (stale, v2.x) |
 
 ### `agents/` — v2.x era — Agent infrastructure domain
 
@@ -89,21 +83,6 @@ service layout; check each Status line before citing.
 | `agents-foundation.md` | Agent lifecycle, OTel signals, BaseAgent contract |
 | `agents-operations.md` | Role taxonomy, DAG topology, service mesh |
 | `agents-writers.md` | Writer agent patterns, DLQ, persistence contracts |
-
-### `signals/` — v2.x era — Signal domain
-
-**Content status:** the Signal Ledger Architecture (SLA) these files document is ARCHIVED — no
-live consumer as of 2026-07-02 (see root `CLAUDE.md`'s Data Flow section).
-
-| File | Description |
-|------|-------------|
-| `signals-foundation.md` | Signal schema, entry types, status strings, schema versioning (pre-SLA; partially stale) |
-| `signals-schema.md` | SLA table DDL — signal_events, trade_frames, trade_executions, signal_ledger view (v2.x, ARCHIVED) |
-| `signals-ecl.md` | ECL system reference — vector fields, ML training patterns, boundary verification |
-| `signals-lifecycle.md` | I7 signal creation, zone activation, MAE/MFE, outcome classification |
-| `signals-operations.md` | Signal monitoring, shadow governance, graduation pipeline |
-| `signals-confidence-patterns.md` | Setup confidence patterns (stale, v2.x) |
-| `signal-trade-separation-ADR.md` | ADR: formal decision record for the 3-table SLA split |
 
 ### `platform/` — v2.x era — Infrastructure + API + Observability domain
 
@@ -201,9 +180,7 @@ System design docs that predate the domain-folder taxonomy. Files carry an `arch
 
 | File | Description |
 |------|-------------|
-| `architecture-overview.md` | Architecture overview (draft, staleness-quarantined 2026-08-11) |
 | `architecture-dag-topology.md` | DAG topology and methodology for the v2.x intelligence pipeline (historical / future-revival reference) |
-| `architecture-evolution.md` | v2.8 historical architecture snapshot of the archived v2.x I1-I7 pipeline |
 | `archive/architecture-v2-event-driven-pipeline.md` | V2 event-driven real-time pipeline, architecture generation 1 (archived 2026-10-28; the stack was removed in phase 185-45) |
 | `architecture-v3-alphaengine-pipeline.md` | V3.0 statistical IC-discovery architecture, generation 2 (status as of 2026-08-05; predates the v3.5 unified design) |
 

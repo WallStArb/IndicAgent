@@ -53,10 +53,9 @@ _ALLOW_LIST: dict[str, str] = {
         "FetcherLock for the whole run."
     ),
     "services/backfill_feature_factory.py": (
-        "TEMPORARY (retire: todo 506): the phase 186 rebuild writer's --fetch-only stage "
-        "fetches 1d bars without the lock; editing it while 186-26's rebuild is pending can "
-        "discard the rebuild's cells, so the lock wiring waits for that rebuild. Not scheduled "
-        "today, so it never runs beside the fetcher."
+        "PERMANENT until deletion: the IBKR fetch lane was removed 2026-11-13 (todo 506 closed "
+        "as superseded), so the lock wiring is moot; the --fetch-only stage is deletion-listed "
+        "with the rest of the IBKR code in the step 7 runbook and is not scheduled."
     ),
 }
 

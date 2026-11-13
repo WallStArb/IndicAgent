@@ -656,7 +656,7 @@ ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone frict
 **Banned:** intrinsic composite, intrinsic score, plugin confidence
 **Status:** archived — computed inside the I7 plugin tier, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and the `plugin` entry above).
 
-**Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/signals/signals-confidence-patterns.md`.
+**Code surface (deleted with the v2.x signal surface, migration 521; files in git history):** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB.
 
 ---
 
@@ -849,7 +849,7 @@ The system of extrinsic confidence vectors that annotate an emitted signal as ob
 **Avoid:** "CTF gate" as a name for the pattern of suppressing signals on CTF absence
 **Status:** archived — annotates `signal_events`, the v2.x SLA detection table, which has no live consumer as of 2026-07-02 (see CLAUDE.md Architecture note and `Signal Ledger Architecture (SLA)` entry above).
 
-**Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/signals/signals-confidence-patterns.md`.
+**Code surface (deleted with the v2.x signal surface, migration 521; files in git history):** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`.
 
 ---
 
@@ -997,7 +997,7 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 **Avoid:** "decision record," "design record," or "architecture doc" for a locked decision (use ADR)
 **Status:** active
 
-**Code surface:** `docs/signals/*-ADR.md`; first instance: `docs/signals/signal-trade-separation-ADR.md` (Phase 128).
+**Code surface:** ADRs live beside the design they decide. First instance: `docs/signals/signal-trade-separation-ADR.md` (Phase 128, deleted with the v2.x signal docs 2026-11-13; git history); the surviving record is `docs/concepts/signal-ledger-architecture.md`.
 
 ---
 
@@ -2567,8 +2567,6 @@ the `listing end` record, which marks a name's last session and keeps it in the 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
 - `docs/foundation/principles.md` — the governing principles that determine why terms are defined this way
 - `docs/foundation/adaptive-parameter-registry.md` — Adaptive Parameter Registry (APR) full specification
-- `docs/signals/signals-confidence-patterns.md` — ECL definition and boundary invariant
-- `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags
 - `docs/research/stratification-security-classification-hierarchy.md` — `classification scheme` vs. `taxonomy` design (GICS vs. custom sub-classification), unscheduled
 - `docs/research/stratification-dimension-unification.md` — StratificationDimension protocol for unified conditioning layer

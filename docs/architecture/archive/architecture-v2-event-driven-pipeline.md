@@ -377,7 +377,7 @@ I7 plugin fires
 
 **[10] CUSUM + shadow gate - the two feedback loops** - CUSUM control charts track win rate per setup and feed back into `perf_multiplier` without waiting for the 30-day window to catch up. Shadow gate requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive EV at 95% CI) before a plugin enters the live stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles.
 
-Full stage-by-stage detail: [`docs/signals/signals-foundation.md`](../../signals/signals-foundation.md) · CIS bucket weights and adaptive weight systems: [`docs/intelligence/intelligence-foundation.md`](../../intelligence/intelligence-foundation.md)
+Full stage-by-stage detail and CIS bucket weights: the signals and intelligence foundation docs were deleted 2026-11-13 with the v2.x stack (git history); the durable principles live in `docs/concepts/`.
 
 ---
 
@@ -724,9 +724,7 @@ Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signal
 
 | Document | Covers |
 |----------|--------|
-| [Signals Foundation](../../signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
-| [Signals Lifecycle](../../signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
-| [Signals Operations](../../signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
+| Signals docs (deleted 2026-11-13, git history) | signal_ledger schema, quality pipeline, state machine, runbooks; the durable principle is `docs/concepts/signal-ledger-architecture.md` |
 | [Signal-Trade Separation ADR](../../signals/signal-trade-separation-ADR.md) | 3-table schema decision (signal_events/trade_frames/trade_executions) - why, full schema, dropped columns, FK design, G0 audit |
 
 ### Research & Planning - not authoritative

@@ -325,7 +325,6 @@ journalctl -u indicagent-roll-batch.service -n 30 --no-pager
 
 ## See Also
 
-- **Bar flow:** `data-provider.md` — provider isolation, failover, IBKR dual streams, bar normalization
+- **Bar flow:** `data-provider.md` — provider isolation, failover, bar normalization (banner: streaming dormant, IBKR removed)
 - **Hot/warm/cold tiers:** `data-pipeline.md` — Redpanda topics, processing services, TimescaleDB writers
-- **Intelligence layer:** `docs/intelligence/intelligence-foundation.md` — how bar data feeds I1-I8
-- **DAG topology:** `docs/architecture/dag-topology.md` — full service graph including roll-batch timer
+- **DAG topology:** `docs/architecture/architecture-dag-topology.md` — full service graph (v2.x revival reference)

@@ -375,7 +375,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 ## See Also
 
-- `docs/intelligence/intelligence-plugins.md` — Plugin protocol, InputSpec, tier lists
+- `docs/concepts/plugin-composability.md` — why the plugin protocol was rejected and what replaced it
 - `docs/agents/agents-foundation.md` — BaseDaemon lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
 - `docs/foundation/design-principles.md` — Architectural design principles
