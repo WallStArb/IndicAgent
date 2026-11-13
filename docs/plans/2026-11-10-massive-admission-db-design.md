@@ -225,13 +225,20 @@ Amendment 2026-11-13 (third review, lead rulings): the thresholds of the admissi
 | `STABLE_LEVEL_IQR` | 0.005 (log) | [conventional] | interquartile range of the per-bar log close ratio at or under this is stable (one predicate, with the level-agreement test, for the stable constant offset) |
 | `STEP_MIN_SEGMENT_SHARE`, `STEP_MIN_SEGMENT_BARS` | 0.05, 5 | [conventional] | the shorter side of a level break holds at least this share of the era's bars and this many bars |
 | `STEP_GRID`, `STEP_MAX_POINTS` | 64, 2000 | [implementation] | candidate break points per name-era, and the stride-thinned series length (bounds cost, not the verdict) |
+| `WITNESS_TOL` | 0.01 (relative) | [conventional] | a residual matches a frozen split product within this |
+| `TAPE_WITNESS_TOL` | 0.02 (relative) | [conventional] | Massive's tape step matches the recorded split factor within this |
+| `WITNESS_MAX_SPLITS` | 16 | [implementation] | subsets of a name's frozen splits are enumerated up to this many; more gives no witness |
+| `SURVIVORSHIP_SLACK_DAYS` | 7 | [conventional] | calendar slack around a listing end or the archive end in the survivorship reading (disclosure, never a gate) |
+| `EARLY_CLOSE_SLACK` | 3 minutes | [conventional] | a session shorter than 6.5 hours by more than this is an early close (the irregular 15:56 close included) |
 
 - Missing in-era split: a level break whose step (median of the per-bar log close ratio after the break minus before it) matches a split ratio within `SPLIT_LIKE_TOL`, with both sides stable (interquartile range at most `STABLE_LEVEL_IQR`) and the shorter side at least `STEP_MIN_SEGMENT_SHARE` of the bars, is `split_like_level`: the name-era is `flagged` and reaches the disagreement ledger, wherever the break falls in the era. `level_drift` is the same class only without such a step (a small drift) and passes, listed.
 - Other concentration (rule 4, second half): a carrier that is otherwise `pass` is `flagged` with reason `other_concentration` and goes on the gap list.
 - Calibration pool: only (era, timeframe) rows with at least `MIN_JUDGED_NAMES` judged names enter the 3x-max reference and the last_print cap pool; a thin reference era calibrates nothing.
 - `identity_decorrelated` needs a decorrelated DETECTOR timeframe; otherwise the name-era is `identity_thin` or `no_detector`.
-- Ledger witness window: the frozen splits that explain the cumulative scale of the era's bars, i.e. every frozen split on or after the era's first session up to the horizon, singly and as cumulative products from the earliest; the split-tape witness is taken from tapes fetched once per batch and stored in the name part (under the part's raw fingerprint), never queried at assembly.
+- Ledger witness window: the frozen splits that explain the cumulative scale of the era's bars, i.e. every frozen split on or after the era's first session up to the horizon, tested as the product of every non-empty subset (an incumbent may lack only some of them); the witness is cited only when exactly one subset matches, and several matching subsets are ambiguous: no witness, the case stays unresolved; for an in-era level break the residual compared is the one BEFORE the break (Massive over incumbent), so a missing split gives the same witness mid-era and over the whole era; the split-tape witness is taken from tapes fetched once per batch and stored in the name part (under the part's raw fingerprint), never queried at assembly.
 - The disputed-date census reports `n_agree_all` (open, high, low and close), per the module contract.
+
+Amendment 2026-11-13 (fourth review, lead rulings): `other_concentration` carriers are flagged only through timeframes whose era verdict lets that timeframe flag (never through a 1d verdict that is unresolved for the close convention); the 1d `unresolved` that judges cells on 5m alone is the close-convention reason only, and `thin_era` is a coverage gap treated alike on 1d and 5m. A non-finite volume adds nothing to the session peak profile. Every heavy database read and file scan waits out the nightly timer windows. A name part that stores split tapes carries the raw fingerprints of the eras those tapes read, and the fingerprints are read only for the series the requested stages read.
 
 ## 9. Documents that move with step 7a
 
