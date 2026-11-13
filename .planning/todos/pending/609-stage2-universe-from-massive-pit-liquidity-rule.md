@@ -42,6 +42,10 @@ Choosing the floor or type filter after seeing results (it is a counted design c
 
 Step 7 and the 8a checks pass first (stage 1 is the data gate; this does not jump it). Then: the membership rule preregistered and recorded; the membership table built and its count by year reported; 1d raw loaded for all tickers with the load-engine gate per year (compare 0 real differences, canonical unchanged); a cost estimate for 5m and feature compute at the proposed tiers; owner sees the count by year before any compute.
 
+## Preregistration draft (2026-11-13)
+
+`docs/plans/2026-11-13-stage2-universe-preregistration.md` (DRAFT until the owner adopts it). Owner 2026-11-13: "we will expand the universe". Changes from the ruling above: identity is Massive's entity map only (IBKR removed), and the rule values are research-design constants in the preregistration and the spec hash, not APR keys.
+
 ## Next step
 
 After 8a and step 7: write the preregistration (rule, thresholds, type source) and the 1d all-ticker load plan; extend `ops_massive_load.py` with an `--all-tickers` mode behind the identity map. Design hook: `docs/plans/2026-11-10-massive-admission-db-design.md` section 8b stage 2 and section 11.
