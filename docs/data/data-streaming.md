@@ -221,7 +221,7 @@ IBKR TWS → IBKRProvider (market.bars.raw.ibkr)
 | `:9092` | Internal Kafka API (container-to-container) |
 | `:19092` | External Kafka API (host access) |
 | `:9644` | Admin API |
-| `:18843` | Schema Registry (available but not yet used) |
+| `:8081 (internal), 18081 (external)` | Schema Registry (available but not yet used) |
 
 ### Producer configuration (`KafkaProducerClient`, `src/core/kafka_utils.py`)
 
@@ -252,7 +252,7 @@ Consumer({
 Topics use JSON schemas without Schema Registry (currently):
 - Schemas defined in `src/intelligence/schemas.py`
 - Core types: `BarEvent`, `IntelligenceEvent`, `SignalEvent`, `LifecycleEvent`, `LLMCallEvent`, `NarrativeEvent`
-- Redpanda Schema Registry (port 18843) is available for future backward/forward compatibility enforcement.
+- Redpanda Schema Registry (port 8081 (internal), 18081 (external)) is available for future backward/forward compatibility enforcement.
 
 ---
 
@@ -266,7 +266,7 @@ All topics are constructed via `src/core/stream_keys.py` — never hardcoded. To
 
 **Examples:** `dev.market.bars`, `dev.intelligence.journal`, `dev.intelligence.i7.signals`
 
-The `{env}` prefix comes from `Settings.indicagent_env`. Mixed env prefixes cause services to subscribe to different topics and produce zero data flow — always verify `INDICAGENT_ENV` is consistent across the deployment.
+The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mixed env prefixes cause services to subscribe to different topics and produce zero data flow — always verify `INDICAGENT_ENV` is consistent across the deployment.
 
 ### Full stream key catalog
 

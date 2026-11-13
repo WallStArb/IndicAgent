@@ -9,8 +9,12 @@
 > `intelligence.i7.signals`, `intelligence.journal`, `IntelligencePipeline`,
 > `indicagent-feature-writer`/`signal-writer` → `intelligence_features`/`signal_ledger`)
 > describe the ARCHIVED v2.x compute/persistence layer, with no live consumer as of 2026-07-02
-> per CLAUDE.md; the hot/warm/cold tiering concept itself still applies to v3.0. Not yet
-> rewritten -- tracked for a future doc pass, not fixed here.
+> per CLAUDE.md; the hot/warm/cold tiering concept itself still applies to v3.0. The ingest
+> diagrams naming IBKR TWS as the operating source describe a removed world: IBKR was removed
+> entirely (owner ruling 2026-11-13) and the streaming hot path is dormant — today's data
+> arrives by nightly batch into `ohlcv_raw` (Alpaca; Massive historical already loaded), then
+> canonical selection by `bar_source_policy`. Not yet rewritten -- tracked for a future doc
+> pass, not fixed here.
 
 ## Overview
 
@@ -111,7 +115,7 @@ The microservices architecture enforces **Separation of Concerns (SoC)** as an o
 | `llm_calls` | `indicagent-llm-writer` | Full LLM call audit — request, response, outcome back-filled on signal close |
 | `llm_model_scores` | `indicagent-llm-writer` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value |
 
-The live pipeline never writes to `market_data_ohlcv` directly. If TWS disconnects, gaps are filled with `historical_backfill.py --days 2`.
+The live pipeline never writes to `market_data_ohlcv` directly. If TWS disconnects, gaps are filled with the backfill fetcher lane (`scripts/infrastructure/backfill/`; disabled since 2026-11-10, deletion-listed).
 
 ### JSONB Codec Requirement
 

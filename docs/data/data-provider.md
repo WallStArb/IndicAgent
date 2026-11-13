@@ -8,12 +8,16 @@
 
 ---
 
-> **Staleness note (2026-08-01):** Most of this doc (provider isolation, `ProviderMerger`, bar
-> normalization) still describes live architecture, but its `intelligence_features` rationale
-> and its claim that `IntelligencePipeline` consumes HTF bars name the ARCHIVED v2.x pipeline
-> (no live consumer as of 2026-07-02 per CLAUDE.md) — the live consumer is
-> `FeatureVectorPipeline`. Not yet rewritten for v3.0 -- tracked for a future doc pass, not
-> fixed here.
+> **Staleness note (2026-08-01, extended 2026-11-13):** Most of this doc (provider isolation,
+> `ProviderMerger`, bar normalization) still describes the streaming architecture, but the
+> streaming path is DORMANT while no live feed exists. Its IBKR dual-stream (RTB + official)
+> framing describes a removed world: IBKR was removed entirely (owner ruling 2026-11-13; the
+> provider is disabled and deletion-listed), and today's data arrives by nightly batch into
+> `ohlcv_raw`, with canonical `market_data_ohlcv` selected from raw by `bar_source_policy`
+> (Massive historical + Alpaca forward). Its `intelligence_features` rationale and its claim
+> that `IntelligencePipeline` consumes HTF bars name the ARCHIVED v2.x pipeline (no live
+> consumer as of 2026-07-02 per CLAUDE.md) — the live consumer is `FeatureVectorPipeline`.
+> Not yet rewritten for v3.0 -- tracked for a future doc pass, not fixed here.
 
 ## Provider Isolation Pattern
 
@@ -35,12 +39,18 @@ IndicAgent is **provider-neutral** — canonical instrument symbols, stream keys
 
 Before publishing to a raw topic, every provider normalizes its native bar format to the canonical `BarMessage` schema via `src/core/bar_normalizer.py`. This is where provider-specific quirks (IBKR local symbol mapping, tick format differences, timestamp alignment) are resolved. Downstream services only ever see `BarMessage` — no provider-specific logic leaks past this boundary.
 
-Source constants defined in `bar_normalizer.py` tag each bar's origin:
+Source constants defined in `bar_normalizer.py` tag each bar's origin (the live list;
+`SOURCE_IBKR_RTB` no longer exists and `SOURCE_IBKR_GENERIC` carries the value `"ibkr"`):
 ```python
-SOURCE_IBKR_RTB      = "ibkr_rtb"       # 5s real-time bars aggregated to 1m
-SOURCE_IBKR_OFFICIAL = "ibkr_official"  # Official 1m bars (authoritative)
-SOURCE_IBKR_GENERIC  = "ibkr_generic"   # Generic tick-derived bars
-SOURCE_IBKR_NAMED    = "ibkr_named"     # Named contract bars
+SOURCE_IBKR_NAMED      = "ibkr_named"           # Named-contract direct IBKR fetch
+SOURCE_IBKR_CONTINUOUS = "ibkr_continuous_adj"  # Continuous back-adjusted IBKR fetch
+SOURCE_IBKR_OFFICIAL   = "ibkr_official"        # Official 1m bars from TWS reconciliation
+SOURCE_IBKR_GENERIC    = "ibkr"                 # Generic IBKR fetch (RTB / fallback)
+SOURCE_IBKR_SEED       = "ibkr_seed"            # Historical seed bar from DB backfill
+SOURCE_HTF_DERIVED     = "htf_derived"          # Aggregated from 1m bars by BarAccumulator
+SOURCE_DERIVED_1M      = "derived_1m"           # Aggregated from 1m bars in DB
+SOURCE_IBKR_VENUE      = "ibkr_venue"           # Former-primary-venue volume routing (todo 433)
+SOURCE_UNKNOWN         = "unknown"              # Source missing from payload
 ```
 
 ---
@@ -78,16 +88,11 @@ This is an IBKR implementation detail. `ProviderMerger` and all downstream servi
 
 ## Source Tagging
 
-`src/core/bar_normalizer.py` defines source constants applied at ingestion:
+`src/core/bar_normalizer.py` defines source constants applied at ingestion; canonical rows carry
+`(vendor, kind)` since plan 191-13 (the map is `src/intelligence/bars/vendor_kind.py`). See the
+live constant list in the Bar Normalization section above.
 
-```python
-SOURCE_IBKR_RTB      = "ibkr_rtb"       # 5s real-time bars aggregated to 1m
-SOURCE_IBKR_OFFICIAL = "ibkr_official"  # Official 1m bars (authoritative, reconciliation)
-SOURCE_IBKR_GENERIC  = "ibkr_generic"   # Generic tick-derived bars
-SOURCE_IBKR_NAMED    = "ibkr_named"     # Named contract bars
-```
-
-The `market_data_ohlcv.source` column preserves the tag. ML training pipelines can filter to `ibkr_official` for the highest-fidelity dataset.
+The `market_data_ohlcv.source` column preserves the tag.
 
 ---
 
@@ -130,5 +135,5 @@ HTF bars are published to `market.bars.htf` and consumed directly by `Intelligen
 
 - **Reference data & roll logic:** `data-foundation.md` — instruments, contract_metadata, roll lifecycle
 - **Hot/warm/cold tiers:** `data-pipeline.md` — Redpanda topics, processing services, TimescaleDB writers
-- `docs/architecture/overview.md` — Layer 0 (Data Ingestion) and Layer 1 (Bar Processing)
+- `docs/architecture/architecture-overview.md` — Layer 0 (Data Ingestion) and Layer 1 (Bar Processing; staleness-quarantined)
 - `src/providers/CLAUDE.md` — IBKR contract setup, asset class rules, troubleshooting

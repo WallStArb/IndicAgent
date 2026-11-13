@@ -91,7 +91,7 @@ How a symbol travels from config to live bar subscription:
        ON CONFLICT DO NOTHING
 
 3. Runtime resolution
-   get_active_contracts(settings) →
+   get_active_contracts(settings, dimension="compute") →
      SELECT symbol, base_symbol FROM contract_metadata WHERE is_front_month=true
      JOIN instruments ON base_symbol=base → inherit tick_size, point_value, exchange
      → Instrument(symbol="NGN6", base="NG", tick_size=0.001, point_value=10000, ...)
@@ -112,7 +112,7 @@ Futures contracts expire on a fixed calendar. When a front-month contract expire
 
 ### Calendar-Driven Detection (`detect_rolls`)
 
-`production/scripts/roll_batch.py` runs nightly at 8pm via systemd timer. The primary detection path is pure calendar arithmetic — no volume heuristics, no streaming state.
+`scripts/ops/roll/ops_roll_batch.py` runs nightly via systemd timer (`indicagent-roll-batch`, `OnCalendar=*-*-* 17:30 America/New_York`, disabled live). The primary detection path is pure calendar arithmetic — no volume heuristics, no streaming state.
 
 ```python
 detect_rolls(today: date) -> list[RollDecision]
@@ -207,7 +207,7 @@ This is the single function that bridges reference data to all runtime consumers
 
 ```python
 # src/config/settings.py
-get_active_contracts(settings: Settings | None = None) -> list[Instrument]
+get_active_contracts(settings: Settings | None = None, *, dimension: str) -> list[Instrument]
 ```
 
 **What it does:**
@@ -221,7 +221,7 @@ get_active_contracts(settings: Settings | None = None) -> list[Instrument]
 
 **Fallback:** On DB error, returns last valid cache. Cold start with no cache returns empty list — services will retry on the next 60-second cycle.
 
-**Important:** `get_active_contracts()` is a module-level function, not a method on `Settings`. Call as `get_active_contracts(settings)`, never `settings.get_active_contracts()`.
+**Important:** `get_active_contracts()` is a module-level function, not a method on `Settings`, and `dimension` is keyword-only and required (`backfill`/`compute`/`compute_1d`/`live` — the universe definitions). Call as `get_active_contracts(settings, dimension="compute")`, never `settings.get_active_contracts()`; a call without `dimension` raises.
 
 ---
 
@@ -231,17 +231,12 @@ When bars are missing (provider outage, contract expiry, weekend recovery), the 
 
 ```
 BarAuditor
-  → detects gap in market_data_ohlcv (symbol, timeframe, time range)
-  → publishes BarGapRequest to market.events.gap_requests
-
-IBKRProvider
-  → subscribes to market.events.gap_requests
-  → calls reqHistoricalData for (symbol, start_ts, end_ts)
-  → publishes bars to market.bars.raw.ibkr
-  → BarWriter persists to market_data_ohlcv
+  → detects a gap in market_data_ohlcv (symbol, timeframe, time range)
+  → the backfill fetcher lane fills it from history (scripts/infrastructure/backfill/
+    ohlcv_history_fetcher.py under FetcherLock; disabled since 2026-11-10, deletion-listed)
 ```
 
-Gaps are detected on both 1m and HTF timeframes. HTF gaps are inferred from missing 1m source bars. The loop is self-terminating: once the gap is filled, the auditor stops emitting requests for that range.
+The historic IBKR gap-fill subscriber to `market.events.gap_requests` is gone (the provider holds no gap subscription today); with the streaming path dormant, missing bars arrive by the nightly batch chain (Alpaca nightly; Massive historical in raw). Gaps are detected on both 1m and HTF timeframes. HTF gaps are inferred from missing 1m source bars.
 
 **After a contract roll:** the new front-month has no bar history in `market_data_ohlcv`. The bar auditor will detect the gap on the first bar arrival and trigger backfill for the prior trading session automatically.
 
@@ -296,7 +291,9 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
   UPDATE contract_metadata SET is_front_month=true  WHERE symbol='NGN6';
   COMMIT;"
 
-# 5. Restart provider to pick up new front-month
+# 5. Restart the provider to pick up the new front-month (the IBKR provider is disabled
+#    since 2026-11-10 and deletion-listed; with the streaming path dormant, front-month
+#    changes propagate through get_active_contracts()'s 60-second cache instead)
 sudo systemctl restart indicagent-ibkr-provider.service
 ```
 
