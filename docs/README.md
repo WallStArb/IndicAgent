@@ -2,7 +2,7 @@
 
 **Version:** 3.0
 **Status:** current
-**Last Updated:** 2026-10-10
+**Last Updated:** 2026-11-13
 
 ---
 
@@ -79,7 +79,10 @@ standard; the domain content itself is historical, not currently-running behavio
 | `intelligence-hmm-observation-vector.md` | HMM observation vector design (5D vector) |
 | `intelligence-performance.md` | Pipeline optimization strategy (stale, v2.x) |
 
-### `agents/` — new (Phase 3) — Agent infrastructure domain
+### `agents/` — v2.x era — Agent infrastructure domain
+
+**Content status:** the BaseAgent daemon framework these files document predates the v3.5
+service layout; check each Status line before citing.
 
 | File | Description |
 |------|-------------|
@@ -87,7 +90,7 @@ standard; the domain content itself is historical, not currently-running behavio
 | `agents-operations.md` | Role taxonomy, DAG topology, service mesh |
 | `agents-writers.md` | Writer agent patterns, DLQ, persistence contracts |
 
-### `signals/` — new (Phase 3) — Signal domain
+### `signals/` — v2.x era — Signal domain
 
 **Content status:** the Signal Ledger Architecture (SLA) these files document is ARCHIVED — no
 live consumer as of 2026-07-02 (see root `CLAUDE.md`'s Data Flow section).
@@ -102,7 +105,7 @@ live consumer as of 2026-07-02 (see root `CLAUDE.md`'s Data Flow section).
 | `signals-confidence-patterns.md` | Setup confidence patterns (stale, v2.x) |
 | `signal-trade-separation-ADR.md` | ADR: formal decision record for the 3-table SLA split |
 
-### `platform/` — new (Phase 4) — Infrastructure + API + Observability domain
+### `platform/` — v2.x era — Infrastructure + API + Observability domain
 
 | File | Description |
 |------|-------------|
@@ -117,7 +120,7 @@ live consumer as of 2026-07-02 (see root `CLAUDE.md`'s Data Flow section).
 | File | Description |
 |------|-------------|
 | `data-foundation.md` | Reference data, instrument contracts, roll architecture |
-| `data-provider.md` | Provider isolation, failover, IBKR dual streams |
+| `data-provider.md` | Provider isolation, failover, bar normalization (banner: streaming dormant, IBKR removed, Massive/Alpaca is the batch path) |
 | `data-pipeline.md` | Hot/warm/cold flow, Redpanda topics, consumer groups, TimescaleDB |
 | `data-streaming.md` | Streaming patterns, topic naming, stream_keys.py |
 
@@ -136,6 +139,7 @@ Production procedures: deployment, monitoring, troubleshooting. Files carry an `
 | `operations-i7-emission-gates.md` | I7 emission gates (stale, v2.x) |
 | `operations-promotion-protocol.md` | Promotion protocol: StepM selection, positive net expectation, one forward confirmation |
 | `corpus-rerun-runbook.md` | The corpus rerun step runner (186-31): launch, resume, disk, refusals, recovery |
+| `massive-step7-runbook.md` | Massive admission step 7: canonical drop and one-pass rebuild without IBKR, then the IBKR export-delete-retire part; the current vendor-transition runbook |
 
 ### `development/` — stable — Developer HOW
 
@@ -158,6 +162,9 @@ Cheat sheets, gotchas, configuration, naming and documentation standards for fas
 | `gotchas.md` | Known pitfalls and solutions |
 | `configuration.md` | Configuration reference |
 | `db-maintenance.md` | Database maintenance runbook |
+| `server-migration-runbook.md` | The 2026-11-12 server cutover: ubuntu1 primary, ubuntu2 standby (WAL archive + base backups); cutover record and pending phases |
+| `massive-plan-entitlements.md` | What the Massive REST API answered on our paid plan on 2026-11-10, captured empirically (todo 600) |
+| `data-adjacency-register.md` | Adjacency register for third-party data systems: what each borders and how (refreshed at the quarterly scouting pass) |
 | `alpaca-api.md` | Alpaca API facts the integration depends on (execution rail + 5m data vendor), current |
 | `databento-api.md` | Databento API facts and open questions (candidate third data vendor), draft |
 | `clearstreet-api.md` | Clear Street API facts and open questions (execution venue, no market data), draft |
