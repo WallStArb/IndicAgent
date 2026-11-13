@@ -29,9 +29,19 @@ Pass the same ``--captured-at`` to resume; the default is today's UTC date.
 Credentials: ``MASSIVE_API_KEY`` from the environment or ``.env``; it travels only in an
 Authorization header inside this process (never in argv, a file or a stored URL).
 
+Point-in-time snapshots (``--pit-snapshots``, stage 2 universe identity evidence, lead ruling
+2026-11-13): the ticker list as of each NYSE month-end from 2003-09 to the archive's last file
+day, both ``active=true`` and ``active=false`` with ``date=``, every page, as endpoint
+``pit_snapshots`` (key ``<date>@active`` or ``<date>@inactive``), stored under
+``data/massive/reference/pit_snapshots/<captured_at>/`` and loaded into ``reference_raw`` by the
+reference raw writer like every capture. Without ``--apply`` the mode only prints its units and
+fetches nothing; ``--pit-dates`` restricts it to named dates (the timing sample).
+
 Usage:
     .venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture \\
         [--captured-at YYYYMMDD] [--concurrency N] [--only name,name] [--ticker-limit N] [--verify]
+    .venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --pit-snapshots \\
+        [--pit-dates YYYY-MM-DD,...] [--apply]
 """
 
 from __future__ import annotations
@@ -55,6 +65,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import structlog
@@ -149,6 +160,11 @@ TICKER_ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint("float", "/stocks/vX/float", "ticker={ticker}", True),
 )
 TICKER_LIST_ENDPOINTS = ("tickers_active", "tickers_delisted")
+PIT_ENDPOINT = Endpoint(
+    "pit_snapshots", "/v3/reference/tickers", "market=stocks&active={active}&date={date}&limit=1000"
+)
+PIT_FIRST_MONTH = date(2003, 9, 1)
+PIT_KINDS = ("active", "inactive")
 ALL_ENDPOINT_NAMES = frozenset(e.name for e in LIST_ENDPOINTS + TICKER_ENDPOINTS)
 ACTIVE = "active"
 
@@ -183,6 +199,10 @@ class Unit:
     delisted: str | None = None
 
     def first_url(self, base_url: str) -> str:
+        if self.endpoint.name == PIT_ENDPOINT.name:
+            day, kind = self.key.split("@")
+            query = self.endpoint.query.format(active=str(kind == ACTIVE).lower(), date=day)
+            return f"{base_url.rstrip('/')}{self.endpoint.path}?{query}"
         ticker = quote(self.ticker, safe="")
         path = self.endpoint.path.format(ticker=ticker)
         query = self.endpoint.query.format(ticker=ticker)
@@ -190,6 +210,21 @@ class Unit:
             last_active = date.fromisoformat(self.delisted) - timedelta(days=1)
             query = f"date={last_active.isoformat()}"
         return f"{base_url.rstrip('/')}{path}" + (f"?{query}" if query else "")
+
+
+def month_end_sessions(first_month: date, last_day: date) -> list[date]:
+    """The last NYSE session of every month from ``first_month`` through ``last_day``'s month,
+    the last one capped at ``last_day`` (the archive's last file day)."""
+    from src.intelligence.bars.sessions import nyse_sessions
+
+    by_month: dict[tuple[int, int], date] = {}
+    for day in sorted(nyse_sessions(first_month, last_day)):
+        by_month[(day.year, day.month)] = day
+    return [by_month[k] for k in sorted(by_month)]
+
+
+def pit_units(days: Iterable[date]) -> list[Unit]:
+    return [Unit(PIT_ENDPOINT, f"{d.isoformat()}@{kind}") for d in days for kind in PIT_KINDS]
 
 
 def list_unit(endpoint: Endpoint) -> Unit:
@@ -597,6 +632,8 @@ def run(
         return 2
 
     ctx = Context(cfg, root, args.captured_at, Manifest(manifest_path), fetch_fn, sleep)
+    if getattr(args, "pit_snapshots", False):  # hand-built namespaces predate the mode
+        return run_pit(args, ctx, lock)
     list_endpoints = [e for e in LIST_ENDPOINTS if only is None or e.name in only]
     ticker_endpoints = [e for e in TICKER_ENDPOINTS if only is None or e.name in only]
     total = 0
@@ -640,6 +677,41 @@ def run(
     return 1 if failed or ctx.denied else 0
 
 
+def pit_days(args: argparse.Namespace) -> list[date]:
+    if args.pit_dates:
+        return [date.fromisoformat(d) for d in args.pit_dates.split(",")]
+    return month_end_sessions(PIT_FIRST_MONTH, last_file_day(args.data_root))
+
+
+def last_file_day(data_root: Path) -> date:
+    """The archive's last file day: the latest date stamp of the downloader manifest's keys (the
+    load path's rule; merge with ops_massive_policy_plan.archive_end_of when both land)."""
+    lines = (data_root / "manifest" / "manifest.jsonl").read_text().splitlines()
+    return max(
+        date.fromisoformat(Path(json.loads(x)["key"]).name.removesuffix(".csv.gz"))
+        for x in lines
+        if x.strip()
+    )
+
+
+def run_pit(args: argparse.Namespace, ctx: Context, lock: Any) -> int:
+    units = pit_units(pit_days(args))
+    started = time.monotonic()
+    try:
+        total, failed = run_with_retries(units, ctx, args.concurrency, args.min_free_gb)
+    finally:
+        status = "failure" if ctx.denied else "success"
+        JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
+        flush_and_shutdown_metrics()
+        lock.close()
+    seconds = time.monotonic() - started
+    print(
+        f"pit_snapshots: {len(units)} units, {total} responses in {seconds:.0f} s, "
+        f"{len(failed)} units failed, denied {sorted(ctx.denied)}"
+    )
+    return 1 if failed or ctx.denied else 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data-root", type=Path, default=REPO_ROOT / "data" / "massive")
@@ -650,11 +722,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--env-file", type=Path, default=REPO_ROOT / ".env")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument("--min-free-gb", type=int, default=DEFAULT_MIN_FREE_GB)
+    parser.add_argument("--pit-snapshots", action="store_true", help="month-end ticker lists")
+    parser.add_argument("--pit-dates", default=None, help="--pit-snapshots: these dates only")
+    parser.add_argument(
+        "--apply", action="store_true", help="--pit-snapshots: fetch (default: list)"
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run(parse_args(argv))
+    args = parse_args(argv)
+    if args.pit_snapshots and not args.apply:
+        units = pit_units(pit_days(args))
+        print(f"pit_snapshots dry run: {len(units)} units ({units[0].key} .. {units[-1].key})")
+        return 0
+    return run(args)
 
 
 if __name__ == "__main__":

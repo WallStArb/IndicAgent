@@ -382,3 +382,37 @@ class TestRun:
         with lock_path.open("w") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
             assert cap.run(self.args(tmp_path), cfg, FakeApi({}), lambda s: None) == 2
+
+
+class TestPitSnapshots:
+    def test_month_ends_are_the_last_nyse_session_capped_at_the_last_file_day(self):
+        from datetime import date
+
+        days = cap.month_end_sessions(date(2003, 9, 1), date(2026, 11, 9))
+        assert days[0] == date(2003, 9, 30) and days[-1] == date(2026, 11, 9)
+        assert date(2008, 2, 29) in days and date(2016, 12, 30) in days  # 2016-12-31 a Saturday
+        assert len(days) == len({(d.year, d.month) for d in days}) == 279
+
+    def test_each_date_asks_active_and_inactive_with_the_date(self):
+        from datetime import date
+
+        units = cap.pit_units([date(2010, 3, 31)])
+        assert [u.key for u in units] == ["2010-03-31@active", "2010-03-31@inactive"]
+        assert units[0].first_url(BASE) == (
+            f"{BASE}/v3/reference/tickers?market=stocks&active=true&date=2010-03-31&limit=1000"
+        )
+        assert "active=false&date=2010-03-31" in units[1].first_url(BASE)
+
+    def test_a_snapshot_page_lands_under_pit_snapshots_with_its_manifest_line(self, tmp_path, cfg):
+        from datetime import date
+
+        unit = cap.pit_units([date(2010, 3, 31)])[0]
+        api = FakeApi({unit.first_url(BASE): ok({"results": [{"ticker": "AAPL"}]})})
+        ctx = make_ctx(tmp_path, cfg, api)
+        assert cap.capture_unit(unit, ctx) == 1
+        assert cap.page_path(tmp_path, "pit_snapshots", "d", "2010-03-31@active", 1).is_file()
+        assert ctx.manifest.get("pit_snapshots", "2010-03-31@active", 1)["status"] == 200
+
+    def test_the_mode_is_a_dry_run_without_apply(self, capsys):
+        assert cap.main(["--pit-snapshots", "--pit-dates", "2010-03-31,2010-04-30"]) == 0
+        assert "4 units" in capsys.readouterr().out
