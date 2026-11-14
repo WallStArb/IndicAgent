@@ -95,7 +95,7 @@ Gate: exit 0.
 
 A7. Restatement flags. Review them (`$PY -m scripts.ops.bars.ops_restatement_review --all`, then `--mark ... --by ... --note ... --apply`) so the post-rebuild gate can read exit 0, or record the count and require it unchanged before and after.
 
-A8. d2-v6 under the switch policy. The daily rule reads `alpaca_era_start` from the first Alpaca-primary default (it moves from 2016-01-04 to the archive end) and carries IBKR volume-basis and zero-volume guards. Gate: a unit test that runs the daily rule over the switch plan's rows (Massive default, Alpaca gap rows with no fallback, Alpaca after the archive end) passes. Not built yet (see Not built); step 7 does not start without it.
+A8. d2-v6 under the switch policy. The daily rule reads `alpaca_era_start` from the first Alpaca-primary default (it moves from 2016-01-04 to the archive end) and carries IBKR volume-basis and zero-volume guards. Gate: a unit test that runs the daily rule over the switch plan's rows (Massive default, Alpaca gap rows with no fallback, Alpaca after the archive end) passes. Built: `tests/unit/bars/test_daily_rule_switch_plan.py` (six cases through the real `defaults_for` and `gap_rows` shapes; landed 2026-11-13).
 
 A9. Snapshot the live policy (the rollback input; every abort rule after C2 restores from it):
 
@@ -373,10 +373,8 @@ Each row: what can fail silently, how it is caught, and the abort or rollback. R
 
 ## Not built (named)
 
-- A8's unit test of d2-v6 over the switch plan's rows (moved `alpaca_era_start`, Alpaca gap rows with no fallback).
-- The identity map's dated-amendment writer path for A11's placed spans, and the load of their Massive raw.
 - A target-table parameter for `select_and_write` and both derivation stages (the new-table-and-swap fallback of C3).
 - The reselect trigger on a split write (design section 5); `split_horizon_fresh` is the hold meanwhile.
 - A `--symbols` filter on D7.
 - d2-v6's executed-by-horizon filter for Massive 1d (risk 17); the C3 guard holds until it exists.
-- The F3 migration and the F4 commits.
+- The F3 migration (the F4 code, gateway and key removals landed 2026-11-13).
