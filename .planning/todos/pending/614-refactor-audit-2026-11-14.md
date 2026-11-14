@@ -9,7 +9,7 @@ source: lead audit 2026-11-14 (read-only worker, claims 1 and 2 re-verified at s
 
 ## What
 
-Sixteen candidates, ranked by how much each shortens the path to a counted test or protects one. Guards: the rebuild code key (`unit_code_key`), `repro_frozen`, timers, the step 7 window. Execute in the order below; each landing gets /simplify, /review and the SOP gates.
+Seventeen candidates, ranked by how much each shortens the path to a counted test or protects one. Guards: the rebuild code key (`unit_code_key`), `repro_frozen`, timers, the step 7 window. Execute in the order below; each landing gets /simplify, /review and the SOP gates.
 
 | # | Candidate | Action | Earliest time |
 |---|---|---|---|
@@ -29,6 +29,7 @@ Sixteen candidates, ranked by how much each shortens the path to a counted test 
 | 14 | `combiner.py:451,497` `except LinAlgError: continue` drops a fold silently | validate penalty > 0 in the spec and raise, or count skipped folds | with `repro_frozen`; after 584 |
 | 15 | Manual timer quiesce in the rerun and step 7 (A10/D5) | `corpus_rerun --quiesce` and `--release` | now, before 584 |
 | 16 | Oversized modules (`feature_factory`, `backfill_feature_factory`, `kernels/price`, `_batch_utils`, `bar_derivation`, `bar_reconciliation_audit`, `runner`) | split by responsibility, per the order and guards in the audit | per file: after step 7, or after 584 |
+| 17 | The archive last-file-day rule exists twice: `ops_massive_policy_plan.archive_end_of` and `massive_reference_capture.last_file_day` | one helper beside `MASSIVE_MANIFEST` in `vendor_ingress.py` (both are step 7 or nightly imports); keep `ArchiveManifestError(ValueError)` with the same message | after step 7 |
 
 Dead helpers with no callers (delete with their tests): `ic_math.scale_max_abs_return`, `daily_rule.basis_closes`, `daily_rule.current_closes`, `bar_scrub.load_scrub_params`, `ops_selection_gate.utc_date`, and the tests-only set (`ic_math` walk-forward and magnitude helpers, `term_structure_lag.lag_*`, `contribution.shapley_sampled`, `leave_one_out`, `AsyncRequestSink`, `align_causality_probe`). Swallowed errors, broad excepts and APR constants not listed above were checked and are correct or exempt.
 

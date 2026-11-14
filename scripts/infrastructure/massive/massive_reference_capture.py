@@ -65,7 +65,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote, urlsplit
 
 import structlog
@@ -73,6 +72,7 @@ from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.service_utils import format_iso_ts, setup_service_logging
+from src.intelligence.bars.massive_reference import PIT_SNAPSHOTS
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -161,7 +161,7 @@ TICKER_ENDPOINTS: tuple[Endpoint, ...] = (
 )
 TICKER_LIST_ENDPOINTS = ("tickers_active", "tickers_delisted")
 PIT_ENDPOINT = Endpoint(
-    "pit_snapshots", "/v3/reference/tickers", "market=stocks&active={active}&date={date}&limit=1000"
+    PIT_SNAPSHOTS, "/v3/reference/tickers", "market=stocks&active={active}&date={date}&limit=1000"
 )
 PIT_FIRST_MONTH = date(2003, 9, 1)
 PIT_KINDS = ("active", "inactive")
@@ -617,6 +617,12 @@ def run(
         def fetch_fn(url: str) -> Response:
             return http_fetch(cfg, url)
 
+    pit = getattr(args, "pit_snapshots", False)  # hand-built namespaces predate the mode
+    try:
+        pit_work = pit_units(pit_days(args)) if pit else []
+    except ArchiveManifestError as error:
+        print(f"REFUSING: {error}", file=sys.stderr)
+        return 2
     root.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     lock = (manifest_path.parent / f"{args.captured_at}.lock").open("w")
@@ -632,32 +638,37 @@ def run(
         return 2
 
     ctx = Context(cfg, root, args.captured_at, Manifest(manifest_path), fetch_fn, sleep)
-    if getattr(args, "pit_snapshots", False):  # hand-built namespaces predate the mode
-        return run_pit(args, ctx, lock)
-    list_endpoints = [e for e in LIST_ENDPOINTS if only is None or e.name in only]
-    ticker_endpoints = [e for e in TICKER_ENDPOINTS if only is None or e.name in only]
     total = 0
     failed: list[Unit] = []
+    finished = False
     try:
-        total, failed = run_with_retries(
-            [list_unit(e) for e in list_endpoints], ctx, args.concurrency, args.min_free_gb
-        )
-        if ticker_endpoints and not failed:
-            rows = ticker_rows(root, args.captured_at)
-            if not rows:
-                print("no saved ticker lists to name the per-ticker universe", file=sys.stderr)
-                return 1
-            if args.ticker_limit:
-                rows = rows[: args.ticker_limit]
-            log.info("phase.tickers", endpoints=len(ticker_endpoints), tickers=len(rows))
-            units = (ticker_unit(e, row) for row in rows for e in ticker_endpoints)
-            fetched, failed = run_with_retries(list(units), ctx, args.concurrency, args.min_free_gb)
-            total += fetched
-        elif ticker_endpoints:
-            print(
-                "a ticker or list endpoint failed; the per-ticker phase was not started",
-                file=sys.stderr,
+        if pit:
+            total, failed = run_with_retries(pit_work, ctx, args.concurrency, args.min_free_gb)
+        else:
+            list_endpoints = [e for e in LIST_ENDPOINTS if only is None or e.name in only]
+            ticker_endpoints = [e for e in TICKER_ENDPOINTS if only is None or e.name in only]
+            total, failed = run_with_retries(
+                [list_unit(e) for e in list_endpoints], ctx, args.concurrency, args.min_free_gb
             )
+            if ticker_endpoints and not failed:
+                rows = ticker_rows(root, args.captured_at)
+                if not rows:
+                    print("no saved ticker lists to name the per-ticker universe", file=sys.stderr)
+                    return 1
+                if args.ticker_limit:
+                    rows = rows[: args.ticker_limit]
+                log.info("phase.tickers", endpoints=len(ticker_endpoints), tickers=len(rows))
+                units = (ticker_unit(e, row) for row in rows for e in ticker_endpoints)
+                fetched, failed = run_with_retries(
+                    list(units), ctx, args.concurrency, args.min_free_gb
+                )
+                total += fetched
+            elif ticker_endpoints:
+                print(
+                    "a ticker or list endpoint failed; the per-ticker phase was not started",
+                    file=sys.stderr,
+                )
+        finished = True
     except AuthError as error:
         log.error("run.auth_failed", error=str(error))
         print(f"AUTH FAILED: {error}", file=sys.stderr)
@@ -666,7 +677,7 @@ def run(
         print(f"REFUSING mid-run: {error}", file=sys.stderr)
         return 2
     finally:
-        status = "failure" if failed or ctx.denied else "success"
+        status = "success" if finished and not failed and not ctx.denied else "failure"
         JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
         flush_and_shutdown_metrics()
         lock.close()
@@ -677,39 +688,33 @@ def run(
     return 1 if failed or ctx.denied else 0
 
 
+class ArchiveManifestError(ValueError):
+    """The Massive downloader manifest is missing or holds no file day."""
+
+
+def last_file_day(manifest: bytes) -> date:
+    """The archive's last file day: the latest date stamp of the downloader manifest's keys (the
+    rule of ops_massive_policy_plan.archive_end_of, which still holds its own copy until step 7
+    is quiet; todo 614 row 17 merges them)."""
+    stamps = [
+        date.fromisoformat(Path(json.loads(line)["key"]).name.removesuffix(".csv.gz"))
+        for line in manifest.decode().splitlines()
+        if line.strip()
+    ]
+    if not stamps:
+        raise ArchiveManifestError("the archive manifest is empty")
+    return max(stamps)
+
+
 def pit_days(args: argparse.Namespace) -> list[date]:
     if args.pit_dates:
-        return [date.fromisoformat(d) for d in args.pit_dates.split(",")]
-    return month_end_sessions(PIT_FIRST_MONTH, last_file_day(args.data_root))
-
-
-def last_file_day(data_root: Path) -> date:
-    """The archive's last file day: the latest date stamp of the downloader manifest's keys (the
-    load path's rule; merge with ops_massive_policy_plan.archive_end_of when both land)."""
-    lines = (data_root / "manifest" / "manifest.jsonl").read_text().splitlines()
-    return max(
-        date.fromisoformat(Path(json.loads(x)["key"]).name.removesuffix(".csv.gz"))
-        for x in lines
-        if x.strip()
-    )
-
-
-def run_pit(args: argparse.Namespace, ctx: Context, lock: Any) -> int:
-    units = pit_units(pit_days(args))
-    started = time.monotonic()
+        return sorted({date.fromisoformat(d) for d in args.pit_dates.split(",")})
+    path = args.data_root / "manifest" / "manifest.jsonl"
     try:
-        total, failed = run_with_retries(units, ctx, args.concurrency, args.min_free_gb)
-    finally:
-        status = "failure" if ctx.denied else "success"
-        JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
-        flush_and_shutdown_metrics()
-        lock.close()
-    seconds = time.monotonic() - started
-    print(
-        f"pit_snapshots: {len(units)} units, {total} responses in {seconds:.0f} s, "
-        f"{len(failed)} units failed, denied {sorted(ctx.denied)}"
-    )
-    return 1 if failed or ctx.denied else 0
+        manifest = path.read_bytes()
+    except OSError as error:
+        raise ArchiveManifestError(f"{path}: {error.strerror}") from error
+    return month_end_sessions(PIT_FIRST_MONTH, last_file_day(manifest))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -733,7 +738,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.pit_snapshots and not args.apply:
-        units = pit_units(pit_days(args))
+        try:
+            units = pit_units(pit_days(args))
+        except ArchiveManifestError as error:
+            print(f"REFUSING: {error}", file=sys.stderr)
+            return 2
         print(f"pit_snapshots dry run: {len(units)} units ({units[0].key} .. {units[-1].key})")
         return 0
     return run(args)

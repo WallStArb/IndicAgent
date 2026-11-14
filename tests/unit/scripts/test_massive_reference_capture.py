@@ -12,6 +12,7 @@ import http.server
 import json
 import threading
 import urllib.error
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -416,3 +417,85 @@ class TestPitSnapshots:
     def test_the_mode_is_a_dry_run_without_apply(self, capsys):
         assert cap.main(["--pit-snapshots", "--pit-dates", "2010-03-31,2010-04-30"]) == 0
         assert "4 units" in capsys.readouterr().out
+
+
+class TestPitRun:
+    def pit_args(self, tmp_path, **over):
+        base = dict(
+            data_root=tmp_path,
+            captured_at="20261110",
+            only=None,
+            ticker_limit=0,
+            verify=False,
+            env_file=tmp_path / ".env",
+            concurrency=1,
+            min_free_gb=0,
+            pit_snapshots=True,
+            pit_dates="2010-03-31",
+            apply=True,
+        )
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def urls(self):
+        first = cap.pit_units([date(2010, 3, 31)])
+        return first[0].first_url(BASE), first[1].first_url(BASE)
+
+    def test_two_pages_through_run_succeed_and_page_two_keeps_the_date(self, tmp_path, cfg):
+        from src.intelligence.bars.massive_reference import parse_manifest_line
+
+        active, inactive = self.urls()
+        next_page = f"{BASE}/v3/reference/tickers?cursor=2"
+        api = FakeApi(
+            {
+                active: ok({"results": [], "next_url": next_page}),
+                next_page: ok({"results": []}),
+                inactive: ok({"results": []}),
+            }
+        )
+        assert cap.run(self.pit_args(tmp_path), cfg, api, lambda s: None) == 0
+        manifest = tmp_path / "reference" / "manifest" / "20261110.jsonl"
+        lines = [line for line in manifest.read_text().splitlines() if "2010-03-31@active" in line]
+        parsed = [
+            parse_manifest_line(line, manifest, i, repo_root=tmp_path.parent)
+            for i, line in enumerate(lines)
+        ]
+        assert [c.page for c in parsed] == [1, 2]
+        assert {c.as_of for c in parsed} == {date(2010, 3, 31)}
+
+    def test_a_failed_unit_fails_the_run_and_its_metric(self, tmp_path, cfg, monkeypatch):
+        statuses: list[dict] = []
+        monkeypatch.setattr(cap.JOB_COMPLETED_TOTAL, "add", lambda n, attrs: statuses.append(attrs))
+        active, inactive = self.urls()
+        api = FakeApi({active: ok({"results": []}), inactive: lambda: 1 / 0})
+        assert cap.run(self.pit_args(tmp_path), cfg, api, lambda s: None) == 1
+        assert statuses[-1]["status"] == "failure"
+
+    def test_an_auth_failure_is_exit_3_and_a_failure_metric(self, tmp_path, cfg, monkeypatch):
+        statuses: list[dict] = []
+        monkeypatch.setattr(cap.JOB_COMPLETED_TOTAL, "add", lambda n, attrs: statuses.append(attrs))
+        active, inactive = self.urls()
+        denied = cap.Response(401, DAY, b"{}")
+        api = FakeApi({active: denied, inactive: denied})
+        assert cap.run(self.pit_args(tmp_path), cfg, api, lambda s: None) == 3
+        assert statuses[-1]["status"] == "failure"
+
+    def test_an_empty_or_missing_archive_manifest_refuses_with_a_named_error(
+        self, tmp_path, cfg, capsys
+    ):
+        args = self.pit_args(tmp_path, pit_dates=None)
+        assert cap.run(args, cfg, FakeApi({}), lambda s: None) == 2
+        assert "manifest" in capsys.readouterr().err
+        manifest = tmp_path / "manifest"
+        manifest.mkdir()
+        (manifest / "manifest.jsonl").write_bytes(b"\n")
+        with pytest.raises(cap.ArchiveManifestError, match="empty"):
+            cap.pit_days(args)
+
+    def test_last_file_day_is_the_latest_key_stamp(self):
+        lines = b'{"key": "x/2026/11/2026-11-06.csv.gz"}\n{"key": "x/2026/11/2026-11-09.csv.gz"}\n'
+        assert cap.last_file_day(lines).isoformat() == "2026-11-09"
+
+    def test_repeated_pit_dates_collapse(self, tmp_path):
+        args = self.pit_args(tmp_path, pit_dates="2010-04-30,2010-03-31,2010-04-30")
+        assert [d.isoformat() for d in cap.pit_days(args)] == ["2010-03-31", "2010-04-30"]

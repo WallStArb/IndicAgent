@@ -168,3 +168,27 @@ def test_non_http_answer_has_no_status(tmp_path):
     assert capture.http_status is None
     assert capture.request_key == "BRK.B"
     assert capture.served_at.isoformat() == "2026-11-10T18:37:39.205738+00:00"
+
+
+def _pit_line(page: int, url: str) -> str:
+    return json.dumps(
+        {
+            "endpoint": "pit_snapshots",
+            "key": "2010-03-31@active",
+            "page": page,
+            "url": url,
+            "status": 200,
+            "date": "Tue, 10 Nov 2026 15:49:53 GMT",
+            "bytes": 2,
+            "sha256": "c" * 64,
+            "path": f"pit_snapshots/20261110/2010-03-31@active__p{page:04d}.json.gz",
+            "fetched_at": "2026-11-10T15:49:53.533201Z",
+        }
+    )
+
+
+def test_every_page_of_a_pit_snapshot_carries_the_snapshot_date():
+    base = "https://api.massive.com/v3/reference/tickers"
+    first = _parse(_pit_line(1, f"{base}?market=stocks&active=true&date=2010-03-31"), DATED, ROOT)
+    later = _parse(_pit_line(2, f"{base}?cursor=YXA9"), DATED, ROOT)  # next_url has no date=
+    assert first.as_of == later.as_of == date(2010, 3, 31)

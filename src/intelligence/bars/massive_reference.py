@@ -106,6 +106,17 @@ def _as_of(url: str) -> date | None:
     return date.fromisoformat(values[0])
 
 
+PIT_SNAPSHOTS = (
+    "pit_snapshots"  # month-end ticker lists: as_of is the request key's date, not the URL's
+)
+
+
+def _pit_as_of(request_key: str) -> date:
+    """A point-in-time snapshot's date is its request key (``2010-03-31@active``): only page 1's
+    URL carries ``date=``, later pages are bare ``cursor=`` URLs."""
+    return date.fromisoformat(request_key.split("@", 1)[0])
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ReferenceCaptureError(f"timestamp without a zone: {value!r}")
@@ -146,7 +157,11 @@ def parse_manifest_line(
             endpoint=entry["endpoint"],
             request_key=key,
             page=page,
-            as_of=_as_of(url),
+            as_of=(
+                _pit_as_of(key)
+                if layout == DATED and entry["endpoint"] == PIT_SNAPSHOTS
+                else _as_of(url)
+            ),
             url=url,
             http_status=None if entry["status"] is None else int(entry["status"]),
             served_at=_served_at(entry, layout),

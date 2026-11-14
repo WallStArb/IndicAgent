@@ -290,3 +290,77 @@ def test_a_dead_name_without_a_span_or_gap_row_refuses_an_all_tickers_run():
     checked = loader.checked_symbols(True, ["AAPL"], ["AAPL", "DEAD"])
     assert unaccounted_instruments(checked, spans, set()) == ["DEAD"]
     assert unaccounted_instruments(checked, spans, {"DEAD"}) == []
+
+
+class _FakeCursor:
+    """symbol, ticker_event and instruments answers for run(): one active name with a span, one
+    inactive name with neither a span nor a gap row (or, when `span_for_dead`, with a span)."""
+
+    def __init__(self, span_for_dead: bool = False):
+        self.span_for_dead = span_for_dead
+        self.sql = ""
+
+    def execute(self, sql, *args):
+        self.sql = sql
+
+    def fetchall(self):
+        if "ticker_event" in self.sql:
+            rows = [("e1", "AAPL", "AAPL", date(2003, 9, 10), None)]
+            if self.span_for_dead:
+                rows.append(("e2", "DEAD", "DEAD", date(2003, 9, 10), date(2008, 1, 1)))
+            return rows
+        if "is_active" in self.sql:
+            return [("AAPL",)]
+        return [("AAPL",), ("DEAD",)]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _Reached(Exception):
+    """Raised by the stub archive index: the completeness check was passed."""
+
+
+def _run_loader(monkeypatch, tmp_path, argv, cursor):
+    gap = tmp_path / "gap_list.csv"
+    gap.write_text("symbol\n")
+    conn = type("Conn", (), {"cursor": lambda self: cursor, "close": lambda self: None})()
+    monkeypatch.setattr(loader.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(loader, "ArchiveIndex", lambda: (_ for _ in ()).throw(_Reached()))
+    monkeypatch.setattr(loader, "setup_service_logging", lambda *a, **k: None)
+    return loader.main([*argv, "--gap-list", str(gap)])
+
+
+def test_run_refuses_a_dead_name_with_no_span_or_gap_row_only_under_all_tickers(
+    monkeypatch, tmp_path, capsys
+):
+    base = ["--timeframe", "1d", "--years", "2010"]
+    assert _run_loader(monkeypatch, tmp_path, [*base, "--all-tickers"], _FakeCursor()) == 2
+    assert "DEAD" in capsys.readouterr().out
+    with pytest.raises(_Reached):  # without the flag the check passes and the run goes on
+        _run_loader(monkeypatch, tmp_path, base, _FakeCursor())
+
+
+def test_all_tickers_refuses_when_no_name_outside_the_active_set_has_a_span(
+    monkeypatch, tmp_path, capsys
+):
+    argv = ["--timeframe", "1d", "--years", "2010", "--all-tickers"]
+    gap = tmp_path / "gap_list.csv"
+    gap.write_text("symbol\nDEAD\n")  # accounted for by a gap row, still no span outside active
+    conn = type("Conn", (), {"cursor": lambda self: _FakeCursor(), "close": lambda self: None})()
+    monkeypatch.setattr(loader.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(loader, "setup_service_logging", lambda *a, **k: None)
+    assert loader.main([*argv, "--gap-list", str(gap)]) == 2
+    assert "adds nothing" in capsys.readouterr().out
+    with pytest.raises(_Reached):  # a span for the dead name lets the run past both checks
+        _run_loader(monkeypatch, tmp_path, argv, _FakeCursor(span_for_dead=True))
+
+
+def test_all_tickers_parses_with_1d(monkeypatch):
+    seen = []
+    monkeypatch.setattr(loader, "run", lambda args: seen.append(args) or 0)
+    assert loader.main(["--timeframe", "1d", "--years", "2010", "--all-tickers"]) == 0
+    assert seen[0].all_tickers and seen[0].timeframe == "1d"

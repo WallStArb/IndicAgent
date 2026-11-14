@@ -381,6 +381,12 @@ def run(args: argparse.Namespace) -> int:
             print(f"FAIL: {len(missing)} {scope} have no span and no gap row: {missing[:20]}")
             return 2
         active_set = set(active)
+        if args.all_tickers and not any(span.symbol not in active_set for span in spans):
+            print(
+                "FAIL: --all-tickers adds nothing: no instrument outside the active set has a "
+                "Massive span (dead-name instruments and their map rows come first)"
+            )
+            return 2
         index = ArchiveIndex()
         reports: dict[int, list[DayReport]] = {}
         verdicts: dict[int, list[SpanVerdict]] = {}
