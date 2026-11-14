@@ -97,11 +97,31 @@ def test_a_plan_touching_a_name_that_must_stay_refuses(files):
         plan_install(files, OLD, ["LUMN"])
 
 
+def _installed(files, plan, lineage=True):
+    figi = {s.symbol: s.composite_figi for s in OLD}
+    return [
+        OldSpan(
+            k[0], k[1], k[2], k[3], figi[k[0]], "raw",
+            canonical_json({"map_install": {"map_digest": files.digest}} if lineage else {}),
+        )
+        for k in sorted(plan.new_keys)
+    ]  # fmt: skip
+
+
 def test_a_second_install_over_the_first_is_a_no_op(files):
     first = plan_install(files, OLD, UNTOUCHED)
-    after = [OldSpan(k[0], k[1], k[2], k[3], "BBG1", "raw", "{}") for k in sorted(first.new_keys)]
-    again = plan_install(files, after, UNTOUCHED)
+    again = plan_install(files, _installed(files, first), UNTOUCHED)
     assert (again.status, again.retire, again.insert) == ("already_installed", (), ())
+
+
+def test_live_rows_with_the_maps_dates_but_not_its_lineage_or_identity_are_not_a_no_op(files):
+    first = plan_install(files, OLD, UNTOUCHED)
+    with pytest.raises(InstallRefused, match="not this map"):
+        plan_install(files, _installed(files, first, lineage=False), UNTOUCHED)
+    wrong = [OldSpan(s.symbol, s.ticker, s.start, s.end, "OTHER", "raw", s.evidence)
+             for s in _installed(files, first)]  # fmt: skip
+    with pytest.raises(InstallRefused, match="not this map"):
+        plan_install(files, wrong, UNTOUCHED)
 
 
 def test_a_row_balance_that_does_not_match_the_map_refuses(files):

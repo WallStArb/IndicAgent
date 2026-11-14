@@ -1311,6 +1311,23 @@ def verify_install_reconciliation(
     return recomputed
 
 
+def _require_installed_identity(
+    files: MapFiles, live_old: Sequence[OldSpan], new_rows: Mapping[SpanKey, Mapping[str, str]]
+) -> None:
+    """Live rows that carry the map's keys count as installed only when they also carry its
+    identifiers and, for every row the map added, this map's install lineage."""
+    for s in live_old:
+        row = new_rows[(s.symbol, s.ticker, s.start, s.end)]
+        lineage = json.loads(s.evidence).get("map_install", {})
+        if s.composite_figi != row["composite_figi"] or (
+            row["origin"] != "kept" and lineage.get("map_digest") != files.digest
+        ):
+            raise InstallRefused(
+                f"{s.symbol} {s.ticker} {s.start}: the live row has the map's dates but not its "
+                "identifier or install lineage; it is not this map"
+            )
+
+
 def plan_install(
     files: MapFiles, live_old: Sequence[OldSpan], untouched: Collection[str]
 ) -> InstallPlan:
@@ -1322,6 +1339,7 @@ def plan_install(
     new_rows = _span_rows(files.raw["spans.csv"])
     new_keys = frozenset(new_rows)
     if live_keys == new_keys:
+        _require_installed_identity(files, live_old, new_rows)
         return InstallPlan("already_installed", (), (), len(live_keys), len(live_keys), new_keys)
     live_sha = hashlib.sha256(spans_csv(live_old)).hexdigest()
     if live_sha != files.pinned_sha256:
@@ -1357,6 +1375,8 @@ def plan_install(
         )
         for k in sorted(insert_keys)
     )  # fmt: skip
+    if not insert:
+        raise InstallRefused("the map inserts no rows: an install with no lineage cannot be undone")
     if any(s.origin == "kept" for s in insert):
         raise InstallRefused("a span the map marks kept is not among the live spans")
     plan = InstallPlan(
@@ -1421,7 +1441,7 @@ def retire_reason(install_id: str, digest: str, disposition: str) -> str:
 
 def plan_rollback(install_id: str, rows: Sequence[HistoryRow]) -> RollbackPlan:
     """Undo an install: retire the rows it inserted and insert back copies of the rows it
-    retired. Refuses unless the table still holds exactly the install's result (a later install
+    retired (same content, new ids and a new recorded_at: the copy is recorded when restored). Refuses unless the table still holds exactly the install's result (a later install
     or amendment must be rolled back first)."""
     mark = f"{INSTALL_REASON} {install_id} "
     inserted = [
@@ -1473,7 +1493,7 @@ SELECT ticker_event_id::text AS id, security_identifier_id, symbol, ticker, vali
        reference_raw_id::text AS reference_raw_id, evidence, retired_reason
   FROM ticker_event
  WHERE vendor = 'massive'
-   AND (evidence->'map_install'->>'install_id' = $1 OR retired_reason LIKE $2)
+   AND (evidence->'map_install'->>'install_id' = $1 OR starts_with(retired_reason, $2))
 """
 _RETIRE_SQL = """
 UPDATE ticker_event SET retired_reason = u.reason
@@ -1568,6 +1588,10 @@ class TickerEntityMapInstaller(BaseBatch):
         install_id = new_install_id(files.digest, datetime.now(UTC))
         staging = self._out_root.parent / f".staging_{install_id}"
         pre_sha = ""
+        outcome = "no_op"
+        copy = self._apply and not present
+        if copy:
+            _stage(staging, files.raw)
         async with pool.acquire() as conn:
             try:
                 async with conn.transaction():
@@ -1576,12 +1600,9 @@ class TickerEntityMapInstaller(BaseBatch):
                     plan = plan_install(files, live_old_spans(rows), untouched)
                     report = _install_report(plan, files, install_id, self._apply)
                     if plan.status == "already_installed":
-                        return {**report, "outcome": "no_op"}
+                        raise _Rehearsal
                     ids = {_row_key(r): r["ticker_event_id"] for r in rows}
-                    pre_sha = content_sha256(
-                        [{**r, "security_identifier_id": r["security_identifier_id"]}
-                         for r in rows]  # fmt: skip
-                    )
+                    pre_sha = content_sha256(rows)
                     lineage = {
                         "install_id": install_id, "map_digest": files.digest,
                         "map_dir": files.name, "pre_install_sha256": pre_sha,
@@ -1597,19 +1618,28 @@ class TickerEntityMapInstaller(BaseBatch):
                     verify_balance(plan, [_row_key(r) for r in live_after])
                     if not self._apply:
                         raise _Rehearsal
-                    if not present:
-                        _stage(staging, files.raw)
                 outcome = "installed"
             except _Rehearsal:
-                outcome = "rolled_back"
+                if plan.status != "already_installed":
+                    outcome = "rolled_back"
             except BaseException:
                 shutil.rmtree(staging, ignore_errors=True)
                 raise
-        if outcome == "installed" and not present:
-            self._out_root.mkdir(parents=True, exist_ok=True)
-            os.rename(staging, target)
+        if copy and outcome in ("installed", "no_op"):
+            # the commit is done: name the install before the directory move can fail
+            self.logger.info("ticker_entity_map.install_committed", install_id=install_id)
+            try:
+                self._out_root.mkdir(parents=True, exist_ok=True)
+                os.rename(staging, target)
+            except OSError as error:
+                raise RuntimeError(
+                    f"install {install_id} is committed but {target} was not written ({error}); "
+                    "rerun the same install to copy the directory, or --rollback it"
+                ) from error
+        elif copy:
+            shutil.rmtree(staging, ignore_errors=True)
         return {**report, "outcome": outcome, "pre_install_sha256": pre_sha,
-                "map_dir_installed": str(target) if outcome == "installed" else None}  # fmt: skip
+                "map_dir_installed": str(target) if copy and outcome != "rolled_back" else None}  # fmt: skip
 
     async def _insert(
         self, conn: asyncpg.Connection, plan: InstallPlan, lineage: Mapping[str, Any]
@@ -1651,7 +1681,7 @@ class TickerEntityMapInstaller(BaseBatch):
                                    r["valid_from"], r["valid_to"], r["reference_raw_id"],
                                    r["evidence"], r["retired_reason"])
                         for r in await conn.fetch(
-                            _INSTALL_ROWS_SQL, install_id, f"{INSTALL_REASON} {install_id} %"
+                            _INSTALL_ROWS_SQL, install_id, f"{INSTALL_REASON} {install_id} "
                         )
                     ]  # fmt: skip
                     plan = plan_rollback(install_id, rows)
