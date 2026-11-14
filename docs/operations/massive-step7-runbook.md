@@ -106,10 +106,10 @@ for tf in 5m 1d 1m 4h; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --snapshot --timeframe $tf --out "$OUT/policy_before_$tf.json"
 done
 ```
-Gate: a restore plan built from it right now is a no-op (every default retired and re-inserted, every symbol row kept, none inserted):
+Gate: a restore plan built from it right now is a no-op (every default retired and re-inserted, every symbol row kept, none inserted). 4h is snapshotted as evidence only: its one default closed 2026-10-15 (no open end), so the restore builder and the writer both refuse it, and a rollback has nothing to put back (4h selects no bar before or after the switch; the 2,184 IBKR 4h rows stay in raw until Part F). Checked 2026-11-14: 5m, 1d and 1m restore plans are no-ops, 4h refuses as stated.
 
 ```bash
-for tf in 5m 1d 1m 4h; do
+for tf in 5m 1d 1m; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_noop_$tf.json"
 done
 ```
@@ -117,7 +117,7 @@ done
 Restore procedure, named R below (any abort after C2 applied a plan):
 
 ```bash
-for tf in 5m 1d 1m 4h; do
+for tf in 5m 1d 1m; do
   $PY -m scripts.ops.bars.ops_massive_policy_plan --restore "$OUT/policy_before_$tf.json" --timeframe $tf --out "$OUT/restore_$tf.json"
   $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json"            # dry run
   $PY -m scripts.ops.bars.ops_source_policy --plan "$OUT/restore_$tf.json" --apply
