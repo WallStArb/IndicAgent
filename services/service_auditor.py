@@ -86,6 +86,8 @@ _DAG_ORDER: dict[str, int] = {
     # A oneshot with no Kafka consumer, so no alert.lag.* key (oneshots carry
     # no lag entry); plan 16 replaces _DAG_ORDER with the manifest.
     "indicagent-research-ledger-render": 8,  # oneshot; DB -> research-ledger.md, commits on change
+    # Massive flat-file archive and its raw load; a daily timer, no Kafka, so no alert.lag.* key.
+    "indicagent-massive-nightly": 8,  # oneshot; vendor listing -> archive -> ohlcv_raw (massive)
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
@@ -147,6 +149,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-economic-series-writer",  # Type=oneshot, daily timer (todo 480); inactive between runs is correct
         "indicagent-bar-reconciliation-audit",  # Type=oneshot, daily timer (189-06; chained from the nightly before); inactive between runs is correct
         "indicagent-research-ledger-render",  # Type=oneshot, daily 07:15 UTC timer (187-13); inactive between runs is correct
+        "indicagent-massive-nightly",  # Type=oneshot, daily 12:00 UTC timer; inactive between runs is correct
     }
 )
 

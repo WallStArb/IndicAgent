@@ -122,6 +122,7 @@ Four timers. Sources are chosen per date by `bar_source_policy_current`:
    before now because the free plan refuses recent SIP, bounded by
    `infra.alpaca.nightly_max_requests` and `infra.alpaca.nightly_deadline_minutes`. 5m is
    selected into canonical in the same transaction; 1d is raw capture only.
+2b. `indicagent-massive-nightly.timer` (12:00 UTC) runs `scripts/ops/bars/ops_massive_nightly.py --apply`: downloads the Massive day files the manifest lacks, then loads the months they touch into `ohlcv_raw` (1d, then 5m), refusing while a Massive load is running or recent (the step 7 quiet check). Install after step 7: `sudo cp production/systemd/indicagent-massive-nightly.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now indicagent-massive-nightly.timer`.
 3. `indicagent-bar-derivation-daily.timer` (05:20 UTC) runs `bar_derivation --stage daily
    --changed-only --apply`, deriving the night's 1d into canonical. Without it the newest session
    waits for the next IBKR fetcher run-end daily stage, up to about 5 hours, and the audit at

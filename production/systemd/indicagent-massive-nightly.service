@@ -1,0 +1,13 @@
+[Unit]
+Description=IndicAgent Massive nightly archive and raw load leaf (scripts/ops/bars/ops_massive_nightly.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m scripts.ops.bars.ops_massive_nightly --apply
+# Exit 1 is a refusal (loader not quiet, unverified file) or a partial night; the next timer fire
+# derives the same window again.
+TimeoutStartSec=4h

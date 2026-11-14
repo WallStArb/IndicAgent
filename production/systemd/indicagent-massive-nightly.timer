@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Massive archive refresh and raw load (the vendor posts a day's file the next calendar day)
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

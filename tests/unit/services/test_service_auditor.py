@@ -444,3 +444,10 @@ def test_research_ledger_render_is_a_registered_oneshot():
     assert _DAG_ORDER["indicagent-research-ledger-render"] == 8  # oneshot tier, no lag key
     # Without this the auditor restarts the inactive unit and escalates it as a dead daemon.
     assert "indicagent-research-ledger-render" in _ONESHOT_UNITS
+
+
+def test_massive_nightly_is_a_registered_oneshot():
+    from services.service_auditor import _DAG_ORDER, _ONESHOT_UNITS
+
+    assert _DAG_ORDER["indicagent-massive-nightly"] == 8
+    assert "indicagent-massive-nightly" in _ONESHOT_UNITS

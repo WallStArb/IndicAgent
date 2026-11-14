@@ -111,17 +111,25 @@ def read_gap_list(path: Path) -> list[GapRow]:
         ]
 
 
-def archive_end_of(manifest: bytes) -> date:
-    """The first NYSE session after the manifest's last file day (its key's date stamp, the load
-    path's rule): Massive serves before it, Alpaca from it."""
+def last_file_day(manifest: bytes, dataset: str | None = None) -> date:
+    """The newest file day in the manifest (its key's date stamp, the load path's rule), over one
+    dataset (``minute_aggs_v1``, ``day_aggs_v1``) or all of them."""
     stamps = [
-        date.fromisoformat(Path(json.loads(line)["key"]).name.removesuffix(".csv.gz"))
+        date.fromisoformat(Path(key).name.removesuffix(".csv.gz"))
         for line in manifest.decode().splitlines()
         if line.strip()
+        for key in [json.loads(line)["key"]]
+        if dataset is None or f"/{dataset}/" in key
     ]
     if not stamps:
         raise ValueError("the archive manifest is empty")
-    last = max(stamps)
+    return max(stamps)
+
+
+def archive_end_of(manifest: bytes) -> date:
+    """The first NYSE session after the manifest's last file day: Massive serves before it,
+    Alpaca from it."""
+    last = last_file_day(manifest)
     return min(nyse_sessions(last + timedelta(days=1), last + timedelta(days=15)))
 
 
