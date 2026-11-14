@@ -447,15 +447,6 @@ KAFKA_PUBLISH_SECONDS = _meter.create_histogram(
 )
 
 # ---------------------------------------------------------------------------
-# Contract hot-reload (Phase hardening)
-# ---------------------------------------------------------------------------
-
-CONTRACTS_RELOAD_TOTAL = _meter.create_counter(
-    "contracts_reload_total",
-    description="Contract hot-reload attempts labeled by status (success|failure)",
-)
-
-# ---------------------------------------------------------------------------
 # Pipeline backpressure (Phase hardening)
 # ---------------------------------------------------------------------------
 

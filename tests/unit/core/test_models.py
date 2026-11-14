@@ -3,8 +3,6 @@ from datetime import UTC, date, datetime
 import pytest
 
 from src.core.models import SESSION_REGISTRY, AssetClass, Instrument
-from src.core.schemas.market_events import ContractUpdateEvent
-from src.core.stream_keys import topic_contract_updates
 
 
 class TestAssetClass:
@@ -57,7 +55,7 @@ class TestInstrument:
 
 
 # ---------------------------------------------------------------------------
-# TradingSession, ContractUpdateEvent, and stream_keys tests
+# TradingSession and stream_keys tests
 # (merged from tests/unit/test_models.py)
 # ---------------------------------------------------------------------------
 
@@ -150,41 +148,3 @@ class TestMaxAchievablePct:
         for name, session in SESSION_REGISTRY.items():
             pct = session.max_achievable_pct()
             assert 0 < pct <= 1.0, f"Session {name!r} returned {pct!r}"
-
-
-class TestContractUpdateEvent:
-    def test_create_required_fields(self):
-        evt = ContractUpdateEvent(
-            base_symbol="ES",
-            old_contract="ESH6",
-            new_contract="ESM6",
-            promoted_at=datetime(2026, 3, 16, 12, 0, tzinfo=UTC),
-        )
-        assert evt.base_symbol == "ES"
-
-    def test_serialize_to_json(self):
-        evt = ContractUpdateEvent(
-            base_symbol="CL",
-            old_contract="CLJ6",
-            new_contract="CLK6",
-            promoted_at=datetime(2026, 3, 16, 12, 0, tzinfo=UTC),
-        )
-        d = evt.model_dump(mode="json")
-        assert isinstance(d["promoted_at"], str)
-
-    def test_missing_field_raises_validation_error(self):
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            ContractUpdateEvent(base_symbol="ES", old_contract="ESH6")
-
-
-class TestNewStreamKeys:
-    def test_topic_contract_updates_empty_env(self):
-        assert topic_contract_updates("") == "market.events.contract_update"
-
-    def test_topic_contract_updates_dev_env(self):
-        assert topic_contract_updates("dev") == "dev.market.events.contract_update"
-
-    def test_topic_contract_updates_prod_env(self):
-        assert topic_contract_updates("prod") == "prod.market.events.contract_update"

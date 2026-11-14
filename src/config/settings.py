@@ -223,8 +223,8 @@ def dimension_where_clause(dimension: str, alias: str | None = None) -> str:
 def invalidate_active_contracts_cache() -> None:
     """Force next get_active_contracts() call to re-query the database.
 
-    Invalidates every dimension. Called by services that receive ContractUpdateEvent to
-    reduce contract-switch latency from ~60s (TTL expiry) to ~1s (next audit cycle).
+    Invalidates every dimension. Called by the instruments NOTIFY listener so a contract change
+    is seen on the next call instead of after the ~60s TTL.
     """
     global _active_contracts_last_refresh  # noqa: PLW0603
     with _settings_lock:

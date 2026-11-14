@@ -278,9 +278,6 @@ The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mi
 
 # Market events
 {env}.market.events.gap_requests        # gap fill requests (BarAuditor)
-{env}.market.events.roll                # roll detection events (roll_batch timer) — raw string, no stream_keys.py function
-{env}.market.events.contract_update    # front-month promotions (ContractMetadataWriter)
-{env}.roll.batch.dlq                   # malformed roll event DLQ
 
 # Intelligence pipeline
 {env}.intelligence.journal             # BarIntelligenceRecord — atomic per-bar output

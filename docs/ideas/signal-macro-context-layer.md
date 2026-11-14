@@ -315,7 +315,7 @@ No doc is archived; each states its owner here.
 | Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | idea, refreshed 2026-10-01 |
 | Rate, credit and funding regime axes, broadcast across the timeframe stack | "Stratifying the timeframe stack by macro regime" above; todo 481 | curve tier tracks the 10-year change with an inverted sign (todo 481, resolved 2026-11-03 to the measured-series margins crossed into the four-quadrant label); the other candidate axes are unbuilt |
 | Sensitivity to market-wide factors or events | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | consumers of this layer |
-| `macro_features` / `macro_analyzer` | the dormant streaming path | no reader; if streaming returns, it computes from the same kernels rather than keep a second macro home |
+| `macro_features` / `macro_analyzer` | the dormant streaming path, deleted 2026-11-14 (todo 614 row 5); constructions and defects in `macro-factor-constructions-archived.md` | no reader; if streaming returns, it computes from the same kernels rather than keep a second macro home |
 | Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not this layer |
 
 ## Reused from SSFI

@@ -180,11 +180,9 @@ COMMIT;
 
 Idempotent: if `new_contract` is already `is_front_month=true`, the function returns early without writing.
 
-### Kafka Broadcast (`broadcast_update`)
+### Contract cache refresh
 
-After DB promotion, `roll_batch.py` publishes a `ContractUpdateEvent` to `topic_contract_updates`. `bar-auditor` subscribes to this topic to invalidate its in-memory contract cache. Without this, it would map bars to the stale front-month symbol until restart.
-
-The `get_active_contracts()` 60-second cache also expires naturally, so all other services pick up the new front-month within one minute.
+The broadcast of promotions over Kafka was deleted (todo 614 rows 5 and 19). `get_active_contracts()` refreshes on the instruments NOTIFY listener or when its 60-second cache expires.
 
 ### Roll Cycle Reference
 
@@ -316,8 +314,6 @@ journalctl -u indicagent-roll-batch.service -n 30 --no-pager
 | `src/config/settings.py` | `get_active_contracts()` — runtime contract resolution with 60s cache |
 | `src/config/contracts.py` | `FUTURES_ROLL_CYCLES`, `derive_roll_chain()`, `get_expiry_date()`, `get_roll_window()` |
 | `production/scripts/roll_batch.py` | Nightly roll promotion: `detect_rolls()`, `detect_expired_front_months()`, `execute_promotion()`, `broadcast_update()` |
-| `src/core/schemas/market_events.py` | `ContractUpdateEvent` — Kafka payload for roll broadcasts |
-| `src/core/stream_keys.py` | `topic_contract_updates()` — roll broadcast topic |
 | `services/bar_auditor.py` | Gap detection + BarGapRequest emission |
 | `services/ibkr_provider.py` | Gap-fill subscriber; re-subscribes on roll via `get_active_contracts()` |
 

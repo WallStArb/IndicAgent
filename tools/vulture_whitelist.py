@@ -339,7 +339,6 @@ _.group_label  # unused method (src/config/vocabulary_service.py:171)
 _.group_description  # unused method (src/config/vocabulary_service.py:176)
 _.serialize_timestamp  # unused method (src/core/schemas/dlq_payload.py:29)
 _range_to_close  # unused function (src/intelligence/feature_factory.py:1727)
-_._cleanup_roll_suppression  # unused method (services/bar_auditor.py:796)
 config_get  # unused function (services/config_service.py:198)
 config_list  # unused function (services/config_service.py:206)
 _._validate_session_id  # unused method (src/core/models.py:277)
@@ -925,10 +924,7 @@ fetch_feature_matrix  # unused function (scripts/research/feature_matrix.py:146)
 onboard_instrument  # unused function (src/config/instrument_onboarding.py:197)
 BaseProvider  # unused class (src/providers/base_provider_agent.py:44)
 
-# Todo 614 rows 5 and 19: orphans of the deleted futures chain. ContractUpdateEvent and its field
-# go with row 19 (no producer left); MacroContext.ftq_score and corr_z are unfed but live in
+# Todo 614 row 5: MacroContext.ftq_score and corr_z are unfed but live in
 # src/intelligence/schemas.py, which is in the rebuild key, so they leave after step 7.
-ContractUpdateEvent  # unused class (src/core/schemas/market_events.py:41)
-new_contract  # unused variable (src/core/schemas/market_events.py:56)
 ftq_score  # unused variable (src/intelligence/schemas.py:462)
 corr_z  # unused variable (src/intelligence/schemas.py:465)

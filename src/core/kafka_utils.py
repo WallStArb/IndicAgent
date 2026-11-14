@@ -375,17 +375,6 @@ class KafkaConsumerClient:
                 )
         return total_lag
 
-    async def getmany(self, *, timeout_ms: int = 0, max_records: int = 100) -> list:
-        """Non-blocking batch fetch — thin delegation to confluent_kafka's consume().
-
-        Returns [Message, ...] immediately with any buffered messages (when
-        timeout_ms=0). Used by agents that need to drain messages without blocking
-        (e.g. BarAuditor contract cache invalidation).
-        """
-        return await asyncio.to_thread(
-            self._consumer.consume, num_messages=max_records, timeout=timeout_ms / 1000
-        )
-
     def _consume_loop_blocking(
         self,
         loop: asyncio.AbstractEventLoop,

@@ -36,15 +36,14 @@ class TestBarAuditorInit:
         assert agent.name == "bar_auditor_agent"
 
     def test_topics_consumed_returns_empty_list(self):
-        """topics_consumed returns contract_update topic."""
+        """bar_auditor consumes no topics (the contract-update consumer was deleted, row 19)."""
         from services.bar_auditor import BarAuditor
 
         agent = BarAuditor.__new__(BarAuditor)
         agent.settings = MagicMock(env_name="development")
         # Inject the property via the class
         topics = BarAuditor.topics_consumed.fget(agent)
-        assert len(topics) == 1
-        assert any("contract_update" in t for t in topics)
+        assert topics == []
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
@@ -127,7 +126,6 @@ def _make_agent_stub(env_name="development"):
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._post_roll_suppression = {}
     agent._agent_attrs = {"agent": "bar_auditor_agent"}
     return agent
 
@@ -268,7 +266,6 @@ class TestRunAudit:
 # ---------------------------------------------------------------------------
 
 from services.bar_auditor import _COMPLETENESS_GATE, _HTF_TIMEFRAME_MINUTES
-from src.core.stream_keys import topic_contract_updates
 
 
 def test_completeness_gate_constant():
@@ -282,17 +279,6 @@ def test_htf_timeframe_minutes_constant():
     assert "15m" in _HTF_TIMEFRAME_MINUTES
     assert "1h" in _HTF_TIMEFRAME_MINUTES
     assert "4h" in _HTF_TIMEFRAME_MINUTES
-
-
-def test_topics_consumed_includes_contract_updates():
-    """topics_consumed must include the contract_updates topic for cache invalidation."""
-    from services.bar_auditor import BarAuditor
-
-    agent = BarAuditor.__new__(BarAuditor)
-    agent.settings = MagicMock(env_name="")
-    topics = BarAuditor.topics_consumed.fget(agent)
-    expected_topic = topic_contract_updates("")
-    assert expected_topic in topics
 
 
 class TestPriceSanityFence:

@@ -82,17 +82,6 @@ def topic_gap_requests(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.events.gap_requests"
 
 
-def topic_contract_updates(env_name: str) -> str:
-    """Kafka topic for ContractUpdateEvent messages from ContractMetadataWriterAgent.
-
-    Published after each successful front-month promotion.
-    Consumers (e.g. BarAuditor) use this to invalidate contract caches.
-    Purpose: latency optimization — live services flush contract cache on receipt.
-    NOT required for correctness; services converge within TTL cache cycle (60s).
-    """
-    return f"{env_prefix(env_name)}market.events.contract_update"
-
-
 def topic_intelligence(env_name: str) -> str:
     """Kafka topic for I3–I6 intelligence pipeline output (IntelligenceEvent)."""
     return f"{env_prefix(env_name)}intelligence"

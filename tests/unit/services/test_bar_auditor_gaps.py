@@ -283,7 +283,6 @@ async def test_detect_gaps_htf_alarm_comes_from_the_shared_planner(monkeypatch):
         symbol="SPY", trading_session=_FakeSession(), session_id="nyse", exchange="NYSE"
     )
     agent = _auditor()
-    agent._is_roll_suppressed = lambda symbol: False
     agent._upsert_market_data_gap = AsyncMock()
     agent._resolve_market_data_gap = AsyncMock()
 

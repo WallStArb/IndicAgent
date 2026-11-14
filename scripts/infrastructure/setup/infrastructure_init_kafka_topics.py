@@ -40,7 +40,6 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
 _COMPACTED_TOPICS: list[tuple[str, int]] = [
     # (suffix, num_partitions)
     ("bar.aggregator.state", 1),  # Phase 74: BarAggregator state checkpoints
-    ("market.events.contract_update", 1),
 ]
 
 

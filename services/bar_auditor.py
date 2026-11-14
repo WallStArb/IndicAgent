@@ -31,15 +31,14 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
 from services._batch_utils import load_apr_dict_async
-from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
+from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.database_manager import create_pool as create_db_pool
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.kafka_utils import KafkaProducerClient
 from src.core.schemas.market_events import BarGapRequest
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
-    topic_contract_updates,
     topic_gap_fill_dlq,
     topic_gap_requests,
 )
@@ -134,7 +133,6 @@ _HTF_SPAN_APR_KEYS = [
 # Index 0 = after 1st attempt (5 min), index 1 = after 2nd attempt (30 min).
 _RETRY_BACKOFFS_SECS: tuple[int, ...] = (300, 1800)
 MAX_GAP_RETRIES: int = 3
-_POST_ROLL_SUPPRESS_SECS: int = 7200  # 2 hours
 
 
 class _AuditWindow(NamedTuple):
@@ -181,12 +179,10 @@ class BarAuditor(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(max_idle_seconds=300)
+        super().__init__(max_idle_seconds=0)
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
-        self._contract_consumer: KafkaConsumerClient | None = None
         # old_contract -> roll_detection_ts: suppress gap requests for 2h post-roll
-        self._post_roll_suppression: dict[str, datetime] = {}
 
         self._agent_attrs = {"agent": self.name}
         # Module-level counter (already registered in metrics.py via Plan 1)
@@ -198,28 +194,19 @@ class BarAuditor(BaseDaemon):
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [
-            topic_contract_updates(self.env_name),
-        ]
+        return []
 
     @property
     def topics_produced(self) -> list[str]:
         return [topic_gap_requests(self.env_name)]
 
     async def _setup(self) -> None:
-        """Connect asyncpg pool, Kafka producer, and contract update consumer."""
+        """Connect asyncpg pool and Kafka producer."""
         self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
-        self._contract_consumer = KafkaConsumerClient(
-            topic_contract_updates(self.env_name),
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id="bar_auditor_contract_updates_consumer",
-            auto_offset_reset="latest",
-        )
-        await self._contract_consumer.start()
         self.logger.info(
             "bar_auditor.setup_complete",
             topics_produced=self.topics_produced,
@@ -227,9 +214,7 @@ class BarAuditor(BaseDaemon):
         )
 
     async def _teardown(self) -> None:
-        """Stop producer, contract consumer, and close DB pool."""
-        if self._contract_consumer is not None:
-            await self._contract_consumer.stop()
+        """Stop producer and close DB pool."""
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()
         if self._db_pool is not None:
@@ -242,7 +227,6 @@ class BarAuditor(BaseDaemon):
         wakes the wait and exits cleanly.
         """
         # Startup audit (D-12)
-        await self._drain_contract_updates()
         await self._run_audit()
 
         while self.running:
@@ -261,7 +245,6 @@ class BarAuditor(BaseDaemon):
             if not self.running:
                 break
 
-            await self._drain_contract_updates()
             instruments = get_active_contracts(self.settings, dimension="live")
             if self._any_session_open(instruments):
                 await self._run_audit(instruments)
@@ -269,33 +252,6 @@ class BarAuditor(BaseDaemon):
     # ------------------------------------------------------------------
     # Business logic
     # ------------------------------------------------------------------
-
-    async def _drain_contract_updates(self) -> None:
-        """Check for ContractUpdateEvent messages and invalidate contract cache.
-
-        Non-blocking drain — uses getmany(timeout_ms=0) to return immediately
-        with any buffered messages. Does NOT block if no messages are pending.
-        Topic absence degrades gracefully to TTL-only cache (60s lag).
-        """
-        if self._contract_consumer is None:
-            return
-        try:
-            records = await self._contract_consumer.getmany(timeout_ms=0, max_records=100)
-            count = len(records)
-            if count > 0:
-                self._record_message_consumed()  # Track liveness for stall detection
-                invalidate_active_contracts_cache()
-                self.logger.info(
-                    "bar_auditor.contract_update_received",
-                    count=count,
-                )
-        except TimeoutError:
-            pass  # Expected — no messages available
-        except Exception as error:
-            self.logger.debug(
-                "bar_auditor.contract_drain_error",
-                error=str(error),
-            )
 
     async def _plan_htf_gaps(
         self,
@@ -452,13 +408,6 @@ class BarAuditor(BaseDaemon):
             gaps: list[BarGapRequest] = []
             for w in windows:
                 sym = w.instrument.symbol
-                if self._is_roll_suppressed(sym):
-                    self.logger.debug(
-                        "bar_auditor.gap_suppressed_post_roll",
-                        symbol=sym,
-                        date=str(w.target_date),
-                    )
-                    continue
                 session = w.instrument.trading_session
                 threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
 
@@ -783,20 +732,6 @@ class BarAuditor(BaseDaemon):
             retry_count=retry_count,
             error=error,
         )
-
-    def _is_roll_suppressed(self, old_contract: str) -> bool:
-        """True if old_contract is within 2h post-roll suppression window."""
-        roll_time = self._post_roll_suppression.get(old_contract)
-        if roll_time is None:
-            return False
-        return (datetime.now(UTC) - roll_time).total_seconds() < _POST_ROLL_SUPPRESS_SECS
-
-    def _cleanup_roll_suppression(self) -> None:
-        """Remove stale suppression entries (> 2h old) to prevent unbounded growth."""
-        cutoff = datetime.now(UTC) - timedelta(seconds=_POST_ROLL_SUPPRESS_SECS)
-        stale = [k for k, v in self._post_roll_suppression.items() if v < cutoff]
-        for k in stale:
-            del self._post_roll_suppression[k]
 
     def _any_session_open(self, instruments: list) -> bool:
         """True if any active instrument's trading session is currently open."""

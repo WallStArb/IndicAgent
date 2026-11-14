@@ -45,7 +45,6 @@ from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
     topic_config_updates,
-    topic_contract_updates,
     topic_feature_vectors,
     topic_intelligence_pipeline_dlq,
     topic_market_bars,
@@ -94,7 +93,6 @@ from src.intelligence.pipeline.per_key_worker_manager import (
 )
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
 from src.observability.metrics import (
-    CONTRACTS_RELOAD_TOTAL,
     PIPELINE_BACKPRESSURE_DROP_TOTAL,
     counter,
 )
@@ -488,13 +486,11 @@ class FeatureVectorPipeline(BaseDaemon):
         )
         await self._kafka_producer.start()
 
-        self._contracts_topic = topic_contract_updates(self.settings.env_name)
         self._config_updates_topic = topic_config_updates(self.settings.env_name)
         topics = [
             topic_market_bars(self.settings.env_name),
             topic_market_bars_htf(self.settings.env_name),
             topic_system_events(self.settings.env_name),
-            self._contracts_topic,
             self._config_updates_topic,
         ]
         self._kafka_consumer = KafkaConsumerClient(
@@ -1263,7 +1259,6 @@ class FeatureVectorPipeline(BaseDaemon):
 
     async def _process_loop(self) -> None:
         _system_topic = topic_system_events(self.settings.env_name)
-        _contracts_topic = self._contracts_topic
         COMMIT_BATCH_SIZE = 100
         msg_count = 0
         while self.running:
@@ -1277,17 +1272,6 @@ class FeatureVectorPipeline(BaseDaemon):
                     try:
                         if _topic == _system_topic:
                             await self._handle_system_event(payload)
-                        elif _topic == _contracts_topic:
-                            try:
-                                new_contracts = get_active_contracts(
-                                    self.settings, dimension="live"
-                                )
-                                self._contracts = new_contracts
-                                CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
-                                self.logger.info("contracts_reloaded", count=len(self._contracts))
-                            except Exception as error:
-                                CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
-                                self.logger.error("contracts_reload_failed", error=str(error))
                         elif _topic == self._config_updates_topic:
                             await self._handle_config_update(payload)
                         else:
