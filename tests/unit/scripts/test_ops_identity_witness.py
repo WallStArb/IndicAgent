@@ -617,3 +617,53 @@ def test_the_tenure_flag_reaches_the_placement_row():
         _Conn({}), [span], refs, closes, datetime(2026, 11, 13, tzinfo=UTC)
     )
     assert placements and all(TENURE_UNCAPTURED in r["lead_read"] for r in placements)
+
+
+def test_a_sibling_wins_only_when_the_witness_contradicts_the_name_s_own_tape():
+    # SSB-like: the own ticker's file tape is another issuer's and the witness says so
+    d = _days(date(2020, 1, 1), date(2020, 1, 5))
+    claims = {"AAA": d, "AAAK": d}
+    assigned, _, lost = settle_sessions(claims, {"AAA": DISAGREES, "AAAK": AGREES}, {"AAAK"})
+    assert assigned == {"AAAK": tuple(d)} and lost == {"AAA"}
+    assigned, _, lost = settle_sessions(claims, {"AAA": DISAGREES}, {"AAAK"})  # sole one left
+    assert assigned == {"AAAK": tuple(d)}
+    # both agree: the name takes the sessions, never the sibling
+    assigned, _, lost = settle_sessions(claims, {"AAA": AGREES, "AAAK": AGREES}, {"AAAK"})
+    assert assigned == {"AAA": tuple(d)} and lost == {"AAAK"}
+
+
+def test_evaluate_documentary_bars_a_no_figi_ticker_from_sessions_the_name_carries():
+    refs = _refs(
+        _current("AAA", "C1", "S1"),
+        _rec("AAAK", "C1", "", gone=date(2012, 12, 14)),
+        listed={"AAA": date(1973, 1, 2)},
+    )
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[20], ("AAA", "AAAK"))
+    closes = {t: {d: 50.0 for d in DAYS[:10]} for t in ("AAA", "AAAK")}
+    placements, spans, _ = evaluate_documentary(
+        _Conn({}), [span], refs, closes, datetime(2026, 11, 13, tzinfo=UTC)
+    )
+    assert all(r["file_ticker"] != "AAAK" for r in placements)  # nothing agrees: nobody places
+    assert spans[0]["placed_sessions"] == 0
+
+
+def test_a_renamed_predecessor_with_unrelated_rights_is_not_a_shell():
+    refs = _refs(
+        _current("VATE", "C1", "S1"),
+        _rec("PTGI", "C1", "", kind="CS", gone=DAYS[50]),
+        _rec("VATEr", "C1", "", kind="RIGHT", gone=DAYS[200]),
+        listed={"VATE": DAYS[0]},
+    )
+    assert shell_delisting("VATE", refs.issuers["VATE"][0], refs.issuers) is None
+
+
+def test_another_issuers_warrant_on_a_reused_ticker_does_not_reject_the_name_s_ticker():
+    refs = _refs(
+        _current("AAA", "C1", "S1"),
+        _rec("AAAX", "C1", "S1", gone=DAYS[100]),
+        _rec("AAAX", "C9", "", kind="WARRANT", gone=DAYS[2]),
+        listed={"AAA": date(1990, 1, 1)},
+    )
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[20], ("AAA", "AAAX"))
+    cands, claims = place_span(refs, span, {"AAAX": DAYS[:10]})
+    assert claims["AAAX"] == tuple(DAYS[3:10])

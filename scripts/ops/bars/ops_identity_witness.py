@@ -405,15 +405,17 @@ def settle_sessions(
     agrees; the other claimants are ``lost`` (a ticker shown not to be the name's tape is placed
     nowhere in the span). With no one left the session goes to no one. A claimant in ``no_win`` (a
     same-CIK ticker with no share-class FIGI) never takes a contested session, by default or by
-    agreeing: a sibling class that trades beside the name is placed on none of the sessions they
-    share."""
+    agreeing, while a claimant outside ``no_win`` is not contradicted: a sibling class that trades
+    beside the name is placed on none of the sessions they share. When the witness contradicts the
+    name's own tape (another issuer's reused ticker), the predecessor is the one left and wins."""
     contested = contested_sessions(claims)
     won: dict[date, str] = {}
     lost: set[str] = set()
     for day, claimants in contested.items():
         left = [t for t in claimants if verdicts.get(t) != DISAGREES]
         winners = left if len(left) == 1 else [t for t in left if verdicts.get(t) == AGREES]
-        winners = [t for t in winners if t not in no_win]
+        if any(t not in no_win for t in left):  # a sibling is barred while the name is not
+            winners = [t for t in winners if t not in no_win]  # contradicted; else it may win
         if len(winners) == 1:
             won[day] = winners[0]
             lost |= set(claimants) - set(winners)
@@ -478,16 +480,26 @@ def candidate_tickers(
 def shell_delisting(
     symbol: str, current: IssuerRecord | None, issuers: Mapping[str, Sequence[IssuerRecord]]
 ) -> date | None:
-    """The day a blank-check shell of the name's CIK was delisted, or None. A same-CIK unit,
-    warrant or right ticker marks a shell; its common-stock ticker's earliest dated delisting is
-    the combination. The name's ``list_date`` can be the shell's IPO, so its tape from the shell
-    era is another business's and the lower bound of the name's tape is this day, not list_date."""
+    """The day a blank-check shell of the name's CIK was delisted, or None. The shell is a
+    same-CIK common-stock ticker that has a same-CIK unit, warrant or right ticker named after it
+    (the ticker starts with the shell's); its earliest dated delisting is the combination. A
+    renamed predecessor with unrelated rights or warrants is not a shell. The name's ``list_date``
+    can be the shell's IPO, so its tape from the shell era is another business's and the lower
+    bound of the name's tape is this day, not list_date."""
     if current is None or not current.cik:
         return None
     records = [r for t, rs in issuers.items() if t != symbol for r in rs if r.cik == current.cik]
-    if not any(r.security_type in NON_EQUITY_TYPES for r in records):
-        return None
-    return min((r.gone for r in records if r.gone and r.security_type == "CS"), default=None)
+    derivative = {r.ticker for r in records if r.security_type in NON_EQUITY_TYPES}
+    return min(
+        (
+            r.gone
+            for r in records
+            if r.gone
+            and r.security_type == "CS"
+            and any(t != r.ticker and t.startswith(r.ticker) for t in derivative)
+        ),
+        default=None,
+    )
 
 
 def _tape_gap(days: Sequence[date]) -> bool:
@@ -511,6 +523,7 @@ def place_span(
     )
     listed = refs.list_date.get(span.symbol)
     shell = shell_delisting(span.symbol, current, refs.issuers)
+    cik = current.cik if current else ""
     candidates: list[Candidate] = []
     claims: dict[str, tuple[date, ...]] = {}
     for ticker in candidate_tickers(span.symbol, current, span.candidates, refs.issuers):
@@ -523,7 +536,7 @@ def place_span(
             if tenure is None or listed is None
             else (
                 NON_EQUITY_SECURITY
-                if any(r.security_type in NON_EQUITY_TYPES for r in records)
+                if any(r.security_type in NON_EQUITY_TYPES and r.cik == cik for r in records)
                 else tenure.reject
                 or (MARKER if own and span.reason in MIXED_IDENTITY_REASONS else None)
             )
@@ -855,6 +868,7 @@ def evaluate_documentary(
                         "span_end": s.end.isoformat(), "candidate": c.ticker,
                         "decision": final, "evidence": c.evidence,
                         "file_sessions": c.file_sessions, "admissible_sessions": len(c.admissible),
+                        "lead_read": c.lead_read,
                         "placed_sessions": len(assigned.get(c.ticker, ())),
                         "dropped_sessions": len(dropped.get(c.ticker, ())),
                         **{
