@@ -146,7 +146,7 @@ The rule is the declared one (8c, commit 8d10bd030), applied as is by the record
 A=$OUT/a11_amend_20261114   # the amended witness output
 $PY -m services.ticker_entity_map_writer --documentary $A/documentary_placements.csv --documentary-sha256 $(sha256sum $A/documentary_placements.csv | cut -d' ' -f1) \
   --regions $A/documentary_spans.csv --regions-sha256 $(sha256sum $A/documentary_spans.csv | cut -d' ' -f1) \
-  --map-dir data/ticker_entity_map/20261113_595bb68f6772 --pinned-map-digest 595bb68f6772 \
+  --map-dir data/ticker_entity_map/20261113_595bb68f6772 --pinned-map-digest 595bb68f6772 --pinned-spans-sha256 04bfefc463e8271a29c79467b5a082f793a36995279ede1c701447034a8e5e45 \
   --out $OUT/map_scratch --version-date 20261114 \
   --lost-1d $OUT/unexplained_20261114/u1d_final_v2.csv --lost-5m $OUT/unexplained_20261114/lost5m_classified.csv \
   --coverage-summary $A/coverage_summary.json --hidden-1d CACI:2009-05-04:CACI --hidden-1d PAR:2011-01-03:PAR --hidden-1d Z:2015-08-17:Z

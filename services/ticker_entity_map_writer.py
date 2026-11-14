@@ -1188,7 +1188,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.documentary:
         needed = ("documentary_sha256", "regions", "regions_sha256", "map_dir",
-                  "pinned_map_digest", "out", "version_date")  # fmt: skip
+                  "pinned_map_digest", "out", "version_date", "pinned_spans_sha256", "lost_1d", "lost_5m",
+                  "coverage_summary")  # fmt: skip
         if args.apply or args.amend or [n for n in needed if not getattr(args, n)]:
             parser.error(f"--documentary needs {needed} and takes no --apply or --amend")
     if args.amend and not (args.amend_sha256 and args.amend_candidates and args.gap_list):
