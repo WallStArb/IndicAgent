@@ -1600,7 +1600,8 @@ def massive_load_pids() -> list[int]:
         except OSError:
             continue  # the process ended between the listing and the read
         if b"python" in os.path.basename(argv[0]) and any(
-            a in _MASSIVE_LOAD_MODULES or a.endswith(_MASSIVE_LOAD_FILES) for a in argv[1:]
+            a in _MASSIVE_LOAD_MODULES or os.path.basename(a) in _MASSIVE_LOAD_FILES
+            for a in argv[1:]
         ):
             found.append(int(entry.name))
     return found

@@ -6,20 +6,24 @@ vendor posts a day's file the next calendar day, so the timer fires around 12:00
 
 The window is derived, never remembered, so a missed night heals itself:
 
-- fetch: from the day after the oldest per-dataset last archived day in the manifest through the
-  vendor's newest key (``fetch_window``). A day with no key (weekend, holiday, a file not yet
-  posted) is not an error. A failed download leaves the manifest where it was, so the same window
-  is asked again.
+- fetch: per dataset, every vendor key dated after that dataset's last archived day and absent
+  from the manifest. A day with no key (weekend, holiday, a file not yet posted) is not an error.
+  A failed download leaves the manifest where it was, so the same window is asked again.
 - load: per timeframe, the months from the day after the newest Massive raw day through the
-  newest archived day (``months_to_load``). A load that failed leaves raw where it was, so the
-  months are asked again; the loader is last-wins, so a reload is safe.
+  newest archived day (``months_to_load``); never a month older than that. A load that failed
+  leaves raw where it was, so the months are asked again.
 
-Refusals, all exit 1 with a loud log and nothing advanced: the quiet check fails (the step 7
-interlock the ticker entity map install uses: no Massive loader process, no Massive load row in the
-last 30 minutes); a file in the window has no manifest record whose ETag matches the vendor
-listing (an unverified file is never loaded); any download or load step fails. Exit 0 only when
-the night is current, or everything it set out to do is done. Dry run is the default and still
-lists the vendor (a read); it downloads and writes nothing, and prints the window.
+Drift is reported, never acted on: every listed key's ETag and size is compared with the manifest
+(``md.restat_drift``); a difference is not downloaded or loaded. The report goes to
+``etag_drift_<UTC date>.json`` beside the manifest, the run counts as status ``drift`` and exits 0,
+because the archive as served is correct; a repost is a lead decision (a manual ``--restat``).
+
+Refusals, all exit 1 with a loud log and nothing advanced: the quiet check fails, at the start and
+again before the load (the step 7 interlock the ticker entity map install uses: no Massive loader
+or nightly process, no Massive load row in the last 30 minutes); a blank ETag in the listing or
+the manifest; a fetched file whose manifest record does not match the listing; any download or load
+step fails. Dry run is the default and still lists the vendor (a read); it downloads and writes
+nothing, and prints the window.
 
 The load uses the newest installed identity map (the loader's default); this leaf never picks a
 map. Disk headroom: ``--min-free-gb`` for the download, the loader's own APR floor for the load.
@@ -29,12 +33,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import asyncpg
 import psycopg
@@ -71,17 +77,6 @@ class Window:
     last: date
 
 
-def fetch_window(archived_last: Sequence[date], vendor_newest: date | None) -> Window | None:
-    """The days to fetch, or None when the archive already reaches the vendor's newest key.
-
-    Starts after the OLDEST dataset's last archived day, so a day one dataset posted and the other
-    did not yet is asked again the next night."""
-    if vendor_newest is None:
-        return None
-    first = min(archived_last) + timedelta(days=1)
-    return Window(first, vendor_newest) if first <= vendor_newest else None
-
-
 def months_to_load(raw_newest: date | None, archived_last: date) -> list[tuple[int, int]]:
     """Calendar months (year, month), oldest first, between the day after the newest raw day and
     the newest archived day; empty when raw is current. An empty raw is a refusal upstream, not a
@@ -102,10 +97,12 @@ class Steps:
     vendor_entries: Callable[[], list[md.KeyEntry]]
     archived_last: Callable[[str], date]  # newest manifest file day of a dataset
     to_download: Callable[[list[md.KeyEntry]], list[md.KeyEntry]]
+    drift: Callable[[list[md.KeyEntry]], list[dict]]  # md.restat_drift rows
+    write_drift: Callable[[list[dict]], Path]
     unverified: Callable[[list[md.KeyEntry]], list[str]]  # window keys without a matching record
     raw_newest: Callable[[str], date | None]  # newest Massive raw day of a timeframe
     require_quiet: Callable[[], None]  # raises InstallRefused
-    download: Callable[[Window], int]  # 0 on success
+    download: Callable[[str, Window], int]  # (dataset, days) -> 0 on success
     load: Callable[[str, int, int], int]  # (timeframe, year, month) -> 0 on success
 
 
@@ -123,20 +120,9 @@ def _reach(steps: Steps, fetched: list[md.KeyEntry]) -> dict[str, date]:
 def _pending(
     steps: Steps, raw: dict[str, date | None], todo: list[md.KeyEntry]
 ) -> dict[str, list[tuple[int, int]]]:
-    """Per timeframe, the months to load: those past the newest raw day, plus the month of every
-    day the download (re)fetches, so a vendor repost of an already loaded day reloads."""
-    reach = _reach(steps, todo)
-    reposted = {
-        tf: {_month(e.date) for e in todo if e.dataset == ds}
-        for tf, ds in _TIMEFRAME_DATASET.items()
-    }
-    return {
-        tf: sorted(set(months_to_load(raw[tf], reach[tf])) | reposted[tf]) for tf in _LOAD_ORDER
-    }
-
-
-def _month(day: str) -> tuple[int, int]:
-    return int(day[:4]), int(day[5:7])
+    """Per timeframe, the months to load: from the day after the newest raw day through the newest
+    archived day once ``todo`` is in the manifest."""
+    return {tf: months_to_load(raw[tf], reach) for tf, reach in _reach(steps, todo).items()}
 
 
 def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> bool:
@@ -149,45 +135,61 @@ def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> boo
     return False
 
 
-def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) -> int:
-    """One night; 0 when current or done, 1 on any refusal or partial result."""
-    entries = steps.vendor_entries()
-    newest = max((date.fromisoformat(e.date) for e in entries), default=None)
-    window = fetch_window([steps.archived_last(ds) for ds in _TIMEFRAME_DATASET.values()], newest)
-    # Every listed key meets the manifest: a day the vendor reposted under a new ETag is as
-    # missing as a day not yet fetched (capture law 528).
-    todo = steps.to_download(entries)
+class Night(NamedTuple):
+    """The night's exit code and its metric status (success, drift, partial)."""
+
+    code: int
+    status: str
+
+
+def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) -> Night:
+    """One night; code 0 when current or done (status drift when the vendor changed a key already
+    archived), 1 on any refusal or partial result."""
+    try:
+        entries = steps.vendor_entries()
+        drift = steps.drift(entries)
+        todo = steps.to_download(entries)
+    except md.MissingServeFieldsError as error:
+        log.error("night.missing_etag", error=str(error))
+        out(f"REFUSING: {error}")
+        return Night(1, "partial")
+    status = "drift" if drift else "success"
+    if drift:
+        log.warning("night.etag_drift", keys=len(drift), first=drift[0]["key"])
+        out(f"drift: {len(drift)} listed keys differ from the manifest; none downloaded or loaded")
+        if apply:
+            out(f"drift report: {steps.write_drift(drift)}")
     raw = {tf: steps.raw_newest(tf) for tf in _LOAD_ORDER}
     empty = [tf for tf, day in raw.items() if day is None]
     if empty:
         out(f"REFUSING: no Massive raw rows for {empty}; the first load is a step 7 job")
-        return 1
+        return Night(1, "partial")
     pending = _pending(steps, raw, todo)
-    shown = f"{window.first}..{window.last}" if window else "none"
-    out(f"window: fetch {shown}; {len(todo)} files to download (vendor newest {newest})")
-    out(f"raw newest: {raw}; months to load: {pending}")
+    out(f"fetch: {len(todo)} files; raw newest {raw}; months to load {pending}")
     if not todo and not any(pending.values()):
         out("nothing new: the archive and raw are current")
-        log.info("night.current", vendor_newest=str(newest))
-        return 0
+        log.info("night.current")
+        return Night(0, status)
     if not apply:
         out("dry run: nothing downloaded or loaded (--apply to run)")
-        return 0
+        return Night(0, status)
 
     if _refused_not_quiet(steps, out, "start"):
-        return 1
-    if todo:
-        days = [date.fromisoformat(e.date) for e in todo]
-        code = steps.download(Window(min(days), max(days)))
-        bad = steps.unverified(todo)
+        return Night(1, "partial")
+    for dataset in _TIMEFRAME_DATASET.values():
+        days = [date.fromisoformat(e.date) for e in todo if e.dataset == dataset]
+        if not days:
+            continue
+        code = steps.download(dataset, Window(min(days), max(days)))
+        bad = steps.unverified([e for e in todo if e.dataset == dataset])
         if code != 0 or bad:
-            log.error("night.download_incomplete", exit=code, unverified=bad[:10])
-            out(f"FAILED: download exit {code}; {len(bad)} files unverified; no load")
-            return 1
-        pending = _pending(steps, raw, todo)
+            log.error("night.download_incomplete", dataset=dataset, exit=code, unverified=bad[:10])
+            out(f"FAILED: {dataset} download exit {code}; {len(bad)} files unverified; no load")
+            return Night(1, "partial")
+    pending = _pending(steps, raw, todo)
     # The download can take hours; a map install may have started since the first check.
     if any(pending.values()) and _refused_not_quiet(steps, out, "before load"):
-        return 1
+        return Night(1, "partial")
     failed = False
     for tf in _LOAD_ORDER:
         for year, month in pending[tf]:
@@ -196,7 +198,7 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
             if code != 0:
                 failed = True
                 out(f"FAILED: {tf} {year}-{month:02d} load exit {code}")
-    return 1 if failed else 0
+    return Night(1, "partial") if failed else Night(0, status)
 
 
 def _archived_last(manifest_path: Path) -> Callable[[str], date]:
@@ -208,18 +210,37 @@ def build_steps(args: argparse.Namespace) -> Steps:
     psycopg, loads through the loader's run."""
     manifest_dir = args.manifest_dir
     manifest_path = manifest_dir / md.MANIFEST_NAME
-    files_root = args.data_root / "files"
     cfg = md.S3Config(_env_file=args.env_file)
     datasets = list(md.DATASETS)
 
     def vendor_entries() -> list[md.KeyEntry]:
         if args.apply:
             with md.manifest_lock(manifest_dir):
-                return md.ensure_inventory(manifest_dir / md.INVENTORY_NAME, cfg, datasets, True)
-        return [e for ds in datasets for e in md.list_prefix(cfg, ds)]  # a read; writes nothing
+                entries = md.ensure_inventory(manifest_dir / md.INVENTORY_NAME, cfg, datasets, True)
+        else:
+            entries = [e for ds in datasets for e in md.list_prefix(cfg, ds)]  # a read only
+        for entry in entries:
+            if not entry.etag:
+                raise md.MissingServeFieldsError(f"listing entry {entry.key} has no ETag")
+        return entries
+
+    def drift(entries: list[md.KeyEntry]) -> list[dict]:
+        return md.restat_drift(md.load_manifest(manifest_path), entries)
+
+    def write_drift(rows: list[dict]) -> Path:
+        path = manifest_dir / f"etag_drift_{datetime.now(UTC):%Y-%m-%d}.json"
+        path.write_text(json.dumps(rows, indent=2) + "\n")
+        return path
 
     def to_download(entries: list[md.KeyEntry]) -> list[md.KeyEntry]:
-        return md.plan_downloads(entries, md.load_manifest(manifest_path), files_root)[0]
+        """Keys absent from the manifest and dated after their dataset's last archived day."""
+        index = md.load_manifest(manifest_path)
+        last = {ds: _archived_last(manifest_path)(ds) for ds in datasets}
+        return [
+            e
+            for e in entries
+            if e.key not in index and date.fromisoformat(e.date) > last[e.dataset]
+        ]
 
     def unverified(entries: list[md.KeyEntry]) -> list[str]:
         index = md.load_manifest(manifest_path)
@@ -243,11 +264,11 @@ def build_steps(args: argparse.Namespace) -> Steps:
 
         asyncio.run(check())
 
-    def download(window: Window) -> int:
+    def download(dataset: str, window: Window) -> int:
         dl_args = argparse.Namespace(
             data_root=args.data_root,
             manifest_dir=manifest_dir,
-            datasets=datasets,
+            datasets=[dataset],  # its days are all past its manifest, so none is a repost
             date_from=window.first.isoformat(),
             date_to=window.last.isoformat(),
             inventory_only=False,
@@ -278,14 +299,16 @@ def build_steps(args: argparse.Namespace) -> Steps:
         )
 
     return Steps(
-        vendor_entries,
-        _archived_last(manifest_path),
-        to_download,
-        unverified,
-        raw_newest,
-        require_quiet,
-        download,
-        load,
+        vendor_entries=vendor_entries,
+        archived_last=_archived_last(manifest_path),
+        to_download=to_download,
+        drift=drift,
+        write_drift=write_drift,
+        unverified=unverified,
+        raw_newest=raw_newest,
+        require_quiet=require_quiet,
+        download=download,
+        load=load,
     )
 
 
@@ -308,8 +331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"otel init failed, running without metrics: {error}", file=sys.stderr)
     started, status, code = time.monotonic(), "failure", 1
     try:
-        code = run_night(build_steps(args), apply=args.apply)
-        status = "success" if code == 0 else "partial"
+        code, status = run_night(build_steps(args), apply=args.apply)
     except Exception:
         log.exception("night.crashed")
         raise

@@ -374,3 +374,16 @@ def test_a_visible_massive_loader_process_is_found(tmp_path, name):
             proc.kill()
             proc.wait()
     assert loader.pid not in massive_load_pids()
+
+
+def test_a_pytest_run_naming_the_nightly_test_file_is_not_a_loader(tmp_path):
+    test_file = tmp_path / "test_ops_massive_nightly.py"
+    test_file.write_text("")
+    bystander = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", str(test_file)]
+    )
+    try:
+        assert bystander.pid not in massive_load_pids()
+    finally:
+        bystander.kill()
+        bystander.wait()

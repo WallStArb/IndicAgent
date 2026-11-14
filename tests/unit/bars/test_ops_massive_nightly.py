@@ -24,29 +24,20 @@ class Fake:
     """Records calls; every knob a test turns is a constructor argument."""
 
     def __init__(
-        self,
-        listed,
-        archived,
-        raw,
-        *,
-        quiet=True,
-        dl=0,
-        load=0,
-        bad=(),
-        reposted=(),
-        quiet_after=None,
+        self, listed, archived, raw, *, quiet=True, dl=0, load=0, bad=(), drift=(), quiet_after=None
     ):
         self.listed, self.archived, self.raw = listed, dict(archived), dict(raw)
         self.quiet, self.dl, self.load_code, self.bad = quiet, dl, load, list(bad)
-        self.reposted, self.quiet_after, self.quiet_calls = set(reposted), quiet_after, 0
+        self.drift_rows, self.quiet_after, self.quiet_calls = list(drift), quiet_after, 0
         self.calls: list = []
 
     def steps(self) -> nightly.Steps:
-        def download(window):
-            self.calls.append(("download", window))
+        def download(dataset, window):
+            self.calls.append(("download", dataset, window))
             if self.dl == 0:  # a good download advances the manifest
                 for e in self.listed:
-                    self.archived[e.dataset] = max(self.archived[e.dataset], D(e.date))
+                    if e.dataset == dataset:
+                        self.archived[dataset] = max(self.archived[dataset], D(e.date))
             return self.dl
 
         def load(tf, year, month):
@@ -59,12 +50,16 @@ class Fake:
             if not self.quiet or (self.quiet_after and self.quiet_calls > self.quiet_after):
                 raise InstallRefused("loader running")
 
+        def write_drift(rows):
+            self.calls.append(("write_drift", len(rows)))
+            return "report.json"
+
         return nightly.Steps(
             vendor_entries=lambda: self.listed,
             archived_last=lambda ds: self.archived[ds],
-            to_download=lambda es: [
-                e for e in es if D(e.date) > self.archived[e.dataset] or e.date in self.reposted
-            ],
+            to_download=lambda es: [e for e in es if D(e.date) > self.archived[e.dataset]],
+            drift=lambda es: self.drift_rows,
+            write_drift=write_drift,
             unverified=lambda es: self.bad,
             raw_newest=lambda tf: self.raw[tf],
             require_quiet=require_quiet,
@@ -75,16 +70,6 @@ class Fake:
 
 ARCHIVED = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
 RAW = {"1d": D("2026-11-13"), "5m": D("2026-11-13")}
-
-
-def test_window_starts_after_the_oldest_dataset_and_ends_at_the_vendor_newest():
-    window = nightly.fetch_window([D("2026-11-13"), D("2026-11-11")], D("2026-11-16"))
-    assert window == nightly.Window(D("2026-11-12"), D("2026-11-16"))
-
-
-def test_window_is_empty_when_the_archive_reaches_the_vendor_newest():
-    assert nightly.fetch_window([D("2026-11-13")], D("2026-11-13")) is None
-    assert nightly.fetch_window([D("2026-11-13")], None) is None
 
 
 def test_months_touched_span_the_year_end_and_skip_a_current_raw():
@@ -99,76 +84,120 @@ def test_months_touched_span_the_year_end_and_skip_a_current_raw():
 
 def test_a_current_night_is_a_loud_no_op_with_no_quiet_check(capsys):
     fake = Fake(both("2026-11-13"), ARCHIVED, RAW)
-    assert nightly.run_night(fake.steps(), apply=True) == 0
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "success")
     assert fake.calls == []
     assert "nothing new" in capsys.readouterr().out
 
 
-def test_weekend_with_no_new_key_is_not_an_error():
-    fake = Fake(both("2026-11-13"), ARCHIVED, RAW)  # Saturday: vendor has nothing past Friday
-    assert nightly.run_night(fake.steps(), apply=True) == 0
-
-
-def test_a_new_day_downloads_then_loads_1d_before_5m():
+def test_a_new_day_downloads_each_dataset_then_loads_1d_before_5m():
     fake = Fake(both("2026-11-13") + both("2026-11-16"), ARCHIVED, RAW)
-    assert nightly.run_night(fake.steps(), apply=True) == 0
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "success")
+    window = nightly.Window(D("2026-11-16"), D("2026-11-16"))
     assert fake.calls == [
         ("quiet",),
-        ("download", nightly.Window(D("2026-11-16"), D("2026-11-16"))),
+        ("download", "day_aggs_v1", window),
+        ("download", "minute_aggs_v1", window),
         ("quiet",),
         ("load", "1d", 2026, 11),
         ("load", "5m", 2026, 11),
     ]
 
 
-def test_dry_run_reports_the_window_and_writes_nothing(capsys):
-    fake = Fake(both("2026-11-16"), ARCHIVED, RAW)
-    assert nightly.run_night(fake.steps(), apply=False) == 0
+def test_dry_run_reports_the_fetch_and_writes_nothing(capsys):
+    fake = Fake(both("2026-11-16"), ARCHIVED, RAW, drift=[{"key": "k"}])
+    assert nightly.run_night(fake.steps(), apply=False) == (0, "drift")
     assert fake.calls == []
     out = capsys.readouterr().out
-    assert "2026-11-14..2026-11-16" in out and "dry run" in out
+    assert "fetch: 2 files" in out and "dry run" in out
 
 
 def test_a_failed_quiet_check_refuses_before_any_download_or_load():
     fake = Fake(both("2026-11-16"), ARCHIVED, RAW, quiet=False)
-    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "partial")
     assert fake.calls == [("quiet",)]
 
 
 def test_a_failed_download_exits_1_and_loads_nothing():
     fake = Fake(both("2026-11-16"), ARCHIVED, RAW, dl=1)
-    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert nightly.run_night(fake.steps(), apply=True).code == 1
     assert not [c for c in fake.calls if c[0] == "load"]
 
 
 def test_an_unverified_file_is_never_loaded_even_when_the_download_exits_0():
     fake = Fake(both("2026-11-16"), ARCHIVED, RAW, bad=["some/key"])
-    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert nightly.run_night(fake.steps(), apply=True).code == 1
     assert not [c for c in fake.calls if c[0] == "load"]
 
 
 def test_a_failed_load_exits_1_but_still_tries_the_other_timeframe():
     fake = Fake(both("2026-11-16"), ARCHIVED, RAW, load=2)
-    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert nightly.run_night(fake.steps(), apply=True).code == 1
     assert [c[1] for c in fake.calls if c[0] == "load"] == ["1d", "5m"]
 
 
 def test_a_load_left_by_an_earlier_night_heals_without_a_download():
     archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-16")}
     fake = Fake(both("2026-11-16"), archived, RAW)
-    assert nightly.run_night(fake.steps(), apply=True) == 0
-    assert fake.calls == [
-        ("quiet",),
-        ("quiet",),
-        ("load", "1d", 2026, 11),
-        ("load", "5m", 2026, 11),
-    ]
+    assert nightly.run_night(fake.steps(), apply=True).code == 0
+    assert [c[0] for c in fake.calls] == ["quiet", "quiet", "load", "load"]
 
 
 def test_an_empty_raw_refuses():
     fake = Fake(both("2026-11-16"), ARCHIVED, {"1d": None, "5m": RAW["5m"]})
-    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert nightly.run_night(fake.steps(), apply=True).code == 1
     assert fake.calls == []
+
+
+def test_datasets_with_different_archived_days_each_fetch_their_own_gap():
+    archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-13")}
+    fake = Fake(both("2026-11-16") + both("2026-11-13"), archived, RAW)
+    assert nightly.run_night(fake.steps(), apply=True).code == 0
+    downloads = [c for c in fake.calls if c[0] == "download"]
+    assert [d[1] for d in downloads] == ["minute_aggs_v1"]
+
+
+def test_a_download_crossing_a_month_loads_both_months_per_timeframe():
+    archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    fake = Fake(both("2026-10-30") + both("2026-11-02"), archived, raw)
+    assert nightly.run_night(fake.steps(), apply=True).code == 0
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 10),
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 10),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_drift_writes_the_report_triggers_no_download_or_load_and_exits_0():
+    fake = Fake(both("2026-11-13"), ARCHIVED, RAW, drift=[{"key": "a"}, {"key": "b"}])
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "drift")
+    assert fake.calls == [("write_drift", 2)]
+
+
+def test_drift_does_not_stop_a_new_day_from_loading_and_stays_status_drift():
+    fake = Fake(both("2026-11-16"), ARCHIVED, RAW, drift=[{"key": "a"}])
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "drift")
+    assert ("load", "1d", 2026, 11) in fake.calls and ("write_drift", 1) in fake.calls
+
+
+def test_a_blank_etag_exits_1_without_a_crash(capsys):
+    fake = Fake(both("2026-11-16"), ARCHIVED, RAW)
+    steps = fake.steps()
+
+    def blank():
+        raise nightly.md.MissingServeFieldsError("listing entry some/key has no ETag")
+
+    steps = nightly.Steps(**{**steps.__dict__, "vendor_entries": blank})
+    assert nightly.run_night(steps, apply=True) == (1, "partial")
+    assert "some/key" in capsys.readouterr().out
+    assert fake.calls == []
+
+
+def test_the_quiet_check_is_asked_again_before_the_load_and_refuses_it():
+    fake = Fake(both("2026-11-16"), ARCHIVED, RAW, quiet_after=1)  # quiet at start, not after
+    assert nightly.run_night(fake.steps(), apply=True).code == 1
+    assert [c[0] for c in fake.calls] == ["quiet", "download", "download", "quiet"]
 
 
 def test_last_file_day_is_per_dataset():
@@ -183,42 +212,6 @@ def test_last_file_day_is_per_dataset():
     assert archive_end_of(manifest) == D("2026-11-16")  # the next session after Friday
     with pytest.raises(ValueError):
         last_file_day(b"", None)
-
-
-def test_datasets_with_different_archived_days_each_fetch_their_own_gap():
-    archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-13")}
-    fake = Fake(both("2026-11-16") + both("2026-11-13"), archived, RAW)
-    assert nightly.run_night(fake.steps(), apply=True) == 0
-    assert ("download", nightly.Window(D("2026-11-16"), D("2026-11-16"))) in fake.calls
-
-
-def test_a_download_crossing_a_month_loads_both_months_per_timeframe():
-    archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
-    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
-    fake = Fake(both("2026-10-30") + both("2026-11-02"), archived, raw)
-    assert nightly.run_night(fake.steps(), apply=True) == 0
-    assert [c for c in fake.calls if c[0] == "load"] == [
-        ("load", "1d", 2026, 10),
-        ("load", "1d", 2026, 11),
-        ("load", "5m", 2026, 10),
-        ("load", "5m", 2026, 11),
-    ]
-
-
-def test_a_reposted_archived_day_is_fetched_and_its_month_reloaded():
-    fake = Fake(both("2026-11-13"), ARCHIVED, RAW, reposted={"2026-11-13"})
-    assert nightly.run_night(fake.steps(), apply=True) == 0
-    assert ("download", nightly.Window(D("2026-11-13"), D("2026-11-13"))) in fake.calls
-    assert [c for c in fake.calls if c[0] == "load"] == [
-        ("load", "1d", 2026, 11),
-        ("load", "5m", 2026, 11),
-    ]
-
-
-def test_the_quiet_check_is_asked_again_before_the_load_and_refuses_it():
-    fake = Fake(both("2026-11-16"), ARCHIVED, RAW, quiet_after=1)  # quiet at start, not after
-    assert nightly.run_night(fake.steps(), apply=True) == 1
-    assert [c[0] for c in fake.calls] == ["quiet", "download", "quiet"]
 
 
 def _args(tmp_path):
@@ -245,11 +238,11 @@ def test_build_steps_passes_the_download_and_load_arguments(tmp_path, monkeypatc
     monkeypatch.setattr(nightly.loader, "run", lambda args: seen.update(load=args) or 0)
     steps = nightly.build_steps(_args(tmp_path))
 
-    assert steps.download(nightly.Window(D("2026-11-14"), D("2026-11-16"))) == 0
+    assert steps.download("day_aggs_v1", nightly.Window(D("2026-11-14"), D("2026-11-16"))) == 0
     dl = seen["dl"]
     assert (dl.date_from, dl.date_to) == ("2026-11-14", "2026-11-16")
     assert dl.refresh_inventory is False and (dl.concurrency, dl.min_free_gb) == (3, 7)
-    assert dl.datasets == ["minute_aggs_v1", "day_aggs_v1"]
+    assert dl.datasets == ["day_aggs_v1"]
     assert seen["cfg"] == "cfg" and seen["kw"] == {"flush_metrics": False}
 
     assert steps.load("5m", 2026, 11) == 0
@@ -271,3 +264,21 @@ def test_build_steps_calls_a_missing_or_stale_etag_unverified(tmp_path, monkeypa
     (manifest_dir / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n")
     steps = nightly.build_steps(_args(tmp_path))
     assert steps.unverified([good, stale, absent]) == [stale.key, absent.key]
+
+
+def test_build_steps_to_download_is_absent_keys_after_the_last_archived_day(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(nightly.md, "S3Config", lambda **_: "cfg")
+    (tmp_path / "manifest").mkdir()
+    old, new = entry("2026-11-13", "day_aggs_v1"), entry("2026-11-16", "day_aggs_v1")
+    mrows = [entry(d, ds) for ds in nightly._TIMEFRAME_DATASET.values() for d in ("2026-11-13",)]
+    (tmp_path / "manifest" / "manifest.jsonl").write_text(
+        "\n".join(json.dumps({"key": e.key, "etag": "e", "bytes": 10}) for e in mrows) + "\n"
+    )
+    steps = nightly.build_steps(_args(tmp_path))
+    reposted = KeyEntry(old.key, old.dataset, old.date, 10, "other-etag")  # drift, not a fetch
+    assert steps.to_download([reposted, new]) == [new]
+    assert [r["key"] for r in steps.drift([reposted, new])] == [old.key] + [
+        e.key for e in mrows if e.key != old.key
+    ]
