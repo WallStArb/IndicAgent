@@ -72,6 +72,8 @@ $PY -m scripts.ops.bars.ops_split_calendar_audit --sweep --witness massive > "$O
 ```
 Gate: every break is classified (real move, missing split, identity), and every missing market split the sweep finds is either recorded (`massive_reference` row through the writer) or listed with the names it affects. A missing split leaves an unseen step in canonical Massive history; this is the last point it is cheap to fix.
 
+A3 run 2026-11-13 (`logs/massive_step7_a3_20261113/`, indicagent-8a): 1,180 lone breaks; real_move 494, reported 682, unrecorded_split 3 (GSAT, HSIC, TMUS), inseries_rescale 1 (CENT). The sweep reads current canonical, which is still IBKR-sourced, so its breaks are IBKR tape junctions that the switch removes; the gate is about Massive's own tape. Checked against it: CENT and GSAT already carry a current row (`massive_reference` 2007-02-05 x3.0; `calendar_audit` 2021-02-08), so `--apply-rows` skips both; HSIC (2013-03-13) and TMUS (2015-10-27) are continuous in Massive's `sip_flat` close (HSIC about 90, TMUS 39.0 across the break), so no market split exists to record and a rescale row would corrupt the Massive history. Nothing was written. The 682 `reported` breaks stay listed (no fix without vendor agreement) and are IBKR-era junctions that leave canonical at C4.
+
 A4. `split_horizon_fresh` exists and runs (design note `docs/plans/2026-11-11-split-horizon-fresh-check.md`); D7 run once green on it before the switch.
 
 A5. Serve-time currency, zero drift (refinement review F3; repeat immediately before step 7):
