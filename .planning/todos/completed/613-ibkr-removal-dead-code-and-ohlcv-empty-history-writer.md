@@ -1,5 +1,5 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-11-13
 source: IBKR code removal (commits 49e0b7284, 778a9f06c, 6b2ec7ffc), vulture diff against HEAD
@@ -34,3 +34,16 @@ After step 7 Part D passes, because the card and canaries still read the vendor-
 
 `vulture` shows no finding that the removal introduced, and the single-writer registry names a live
 writer (or a recorded retirement) for `ohlcv_empty_history`.
+
+## Closure 2026-11-13
+
+Done in 59309a5b1, earlier than the gate named: none of the deleted code is evidence for step 7 (the
+card, counts, witness and canaries read raw rows and the vendor-label logic, not these helpers).
+Deleted: the three `_d1_gaps` detectors, the `_empty_history` writer set (the module now only reads),
+`infer_split`, `find_seams`, `observation_kind`, `vendor_kind_to_label`, `SOURCE_NAMED` and
+`SOURCE_VENUE`, `reset_failures`, `read_stored_closes`, three dead metrics, the `DataProvider` history
+method, the IBKR conftest fixture, the coverage-SLA alert and the plugin-fallback panel.
+Decisions: `ohlcv_empty_history` is a frozen record (registered with an empty writer tuple; its readers
+stay); `ohlcv_provider_head` is dropped (migration 592, 3,060 IBKR head rows, no reader or writer);
+`instrument_onboarding.onboard_instrument` stays for the Stage 2 path (todo 609);
+`emit_integrity_fact_sync` and the v2.x `PLUGIN_*` metrics stay (tested, outside this removal).
