@@ -223,3 +223,4 @@ reserved 404 to 408) never reaches the test database. Check this before trusting
 - Validating a test statistic: check the H0 mean and sd of t and rejection counts against a binomial bound at each level, never one-sided p ranges alone (E16's bias hid behind p 0.28-0.77). Commit the pass criterion before the result exists.
 - Shift nulls have (sessions - L) / tau effective draws, not one per shift: a persistent signal (tau 40-60) gets about 60-90 and cannot resolve p < 0.00167.
 - Ad hoc multiprocess scripts: build the pool with `make_worker_pool(n, blas_threads_per_worker=1)` or export `OMP_NUM_THREADS=1`; a bare pool spawns 24 BLAS threads per numpy worker.
+- Removing a session worktree: its `data` entry is a symlink to the shared checkout's `data/`. Run `[ -L <wt>/data ] && rm <wt>/data` (never `rm -r`), then `git worktree remove <wt>`. Keep a worktree whose `logs/` holds unrecorded evidence or whose HEAD has commits not on origin/main.
