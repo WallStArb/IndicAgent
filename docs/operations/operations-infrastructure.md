@@ -19,7 +19,7 @@ Two servers, two remotely managed tunnels named after the hostnames. Each server
 | ubuntu1 | primary | 192.168.68.60 | ubuntu1 (`abcb8d19-...`) | ssh1.indicagent.com | ia1 |
 | ubuntu2 | standby and backup | 192.168.68.65 | ubuntu2 (`ade02e25-...`) | ssh2.indicagent.com | ia2 |
 
-Hardware (verified 2026-11-13): ubuntu1 has 64 GB RAM (59 GiB usable), 24 threads (AMD Ryzen AI 9 HX 370) and a 1.9 TB disk (1.6 TB free); numeric stack Python 3.14.4, numpy 2.4.6, scipy 1.18.1, pandas 3.1.1. ubuntu2 has 29 GiB RAM and a 914 GB disk and holds the standby, WAL-archive and base-backup duties. Postgres memory settings are sized for this box per the D-38 compose values (shared_buffers 14 GB, work_mem 256 MB, effective_cache_size 17340 MB, verified live 2026-11-13).
+Hardware (verified 2026-11-13): ubuntu1 has 64 GB RAM (59 GiB usable), 24 threads (AMD Ryzen AI 9 HX 370) and a 1.9 TB disk (1.6 TB free); numeric stack Python 3.14.4, numpy 2.4.6, scipy 1.18.1, pandas 3.1.1. ubuntu2 has 29 GiB RAM and a 914 GB disk and holds the standby, WAL-archive and base-backup duties. Postgres memory settings are sized for this box per the D-38 compose values (shared_buffers 14 GB, work_mem 256 MB, effective_cache_size 40 GB since 2026-11-14, was 17340 MB).
 
 Ingress rules live in Cloudflare, not in `/etc/cloudflared/config.yml` (ignored for a remotely managed tunnel; ubuntu1's unit still passes it for the tunnel ID). The repo file `production/cloudflare/tunnels.yml` is the source of truth; push it with `scripts/ops/cloudflare/apply_tunnel_ingress.py` (token with Cloudflare Tunnel Edit in `~/.cloudflare/api_token`). Do not edit rules in the dashboard by hand, or the next apply overwrites them. Web hostnames (grafana, api, dash) are services and keep their names. Laptop `~/.ssh/config`: `Host ia1` / `HostName ssh1.indicagent.com` / `ProxyCommand cloudflared access ssh --hostname %h`, and the same for `ia2` with `ssh2`. On a promotion, update the roles line in `CLAUDE.md` and this table.
 
@@ -307,6 +307,10 @@ IBKR_PORT=7497
 | `/home/bg/dev/indicagent/.env` | Environment variables (loaded by all services) |
 
 ---
+
+## Host kernel tunables
+
+Host sysctls live in `/etc/sysctl.d/99-indicagent.conf` on each server (not in the repo); a rebuilt host must reproduce these values. Memory-related lines on ubuntu1 (verified 2026-11-14): `vm.dirty_background_bytes = 1073741824`, `vm.dirty_bytes = 4294967296`, `vm.max_map_count = 1048576` and `vm.swappiness = 10` (added 2026-11-14; the Ubuntu default of 60 had pushed 4 of 8 GB of idle pages, including dormant redpanda, into swap while 36 GiB of RAM was available; `sudo sysctl -p /etc/sysctl.d/99-indicagent.conf` applies it, no reboot). Pending, scheduled by the lead after step 7: huge pages for `shared_buffers`, runbook `docs/operations/massive-step7-runbook.md` Part G.
 
 ## Docker Infrastructure
 

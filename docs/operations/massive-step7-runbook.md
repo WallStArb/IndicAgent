@@ -351,6 +351,22 @@ F4. Removal list (each its own reviewed commit, after F3; a repo-wide grep befor
 - todo 544 (gateway version desupport) closed as moot;
 - CLAUDE.md: the IBKR line under Core Runtime (provider, gateway container, fetcher under `FetcherLock`), the IBKR wording in the Raw capture rule, the IBKR clientId memory, and the ubuntu1 gateway note; `docs/reference/gotchas.md` backfill and gateway sections.
 
+## Part G: huge pages for shared_buffers (after step 7; written, not executed)
+
+Scheduled by the lead inside the post-rebuild quiet window with the D5 restart list, never earlier. Today `huge_pages=try` falls back silently (`HugePages_Total` 0), so the 14 GB `shared_buffers` sits in swappable 4 kB pages. Huge pages cannot be swapped and cut page-table overhead.
+
+G0. Precheck: the standby streams cleanly. On ubuntu1 `psql ... -c "select state, sync_state, pg_wal_lsn_diff(sent_lsn, replay_lsn) from pg_stat_replication"` shows `streaming` with a small lag, and ubuntu2's WAL archive is current. No fingerprinted run live.
+
+G1. Size. `docker exec timescaledb postgres -C shared_memory_size_in_huge_pages -D /var/lib/postgresql/18/docker` prints the page count (about 7,200 at 14 GB, 2 MB pages); reserve that plus 2%.
+
+G2. Reserve on the host: `echo "vm.nr_hugepages = <N>" | sudo tee -a /etc/sysctl.d/99-indicagent.conf && sudo sysctl -p /etc/sysctl.d/99-indicagent.conf`. Check `grep HugePages_Total /proc/meminfo` equals N (a fragmented host may reserve fewer; reserving right after the restart window starts, before the page cache refills, helps).
+
+G3. Fail loud. Add `"-c", "huge_pages=on"` to the timescaledb `command` in `production/docker-compose.yml` (on makes startup fail instead of silently falling back), commit, then from `production/` run `docker compose up -d --no-deps --no-build timescaledb`, run `ALTER SYSTEM RESET effective_cache_size` (the compose flag now carries it), and run `scripts/ops/db/ops_pg_settings_baseline.py`; no drift entry.
+
+G4. Verify. `HugePages_Free` has dropped by about N minus a few; `show huge_pages` is `on`; `indicagent` accepts connections; the standby reconnects (`pg_stat_replication` streaming); swap `used` has not grown.
+
+Rollback: remove the `huge_pages=on` flag, recreate the container (back to `try`), set `vm.nr_hugepages = 0` in the sysctl file and apply it. Data is untouched; the restart is the only outage.
+
 ## Estimates
 
 Measured inputs (2026-11-10 to 13): canonical 5m 415.7M rows, 1d 7.27M, 1m 9.78M; Massive 5m slots in span 370.2M (B4 before A11); card digest 0.75M rows/s; selection gate compare 83k rows/s; grid writer 16.7k rows/s; daily stage over every name 8.5 min with no writes. The expected-delta run took about 10 minutes for 1d and about 2 hours for 5m.

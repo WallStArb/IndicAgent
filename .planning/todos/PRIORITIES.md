@@ -112,6 +112,7 @@ not IBKR coverage.
 
 | Todo | Why now |
 |---|---|
+| [616](pending/616-ohlcv-coverage-zero-no-raw-update-temp-spill.md) | New 2026-11-14, P2. The `ohlcv_coverage` zero-no-raw UPDATE writes 68 GB of temp files (60% of the database's spill); fix the query shape, not `work_mem`. Waits for step 7: `services/ohlcv_coverage_writer.py` is imported by it. |
 | [559](pending/559-cointegration-spread-family-preregistration.md) | New 2026-10-28, owner reopened the cointegration concept (ledger section 2). Pre-register a spread family tested on its trading statistic (static and Kalman hedge ratios, OU half-life), disclosing the 2026-08-07 pilot and the 471-pair screen as seen data; no look before the pre-registration. Placement and the draft are the assistant's (needs an Opus or Fable pass). |
 | [548](pending/548-style-spread-regime-slot-and-time-series-construction.md) | New 2026-10-27. The owner's participation-state idea (RSP/SPY and style spreads) cannot run through the runner: S7 has no regime input slot (part A) and the runner is R1 only (part B's time-series book). Part B's synthetic power check comes first and needs neither. |
 | [529](pending/529-test-suite-cleanup-remnants-and-redundancy.md) | Moved from P0 2026-10-27 (hygiene, not on the testing path). New 2026-10-10, owner directive: many tests are remnants of deleted systems (v2.x, I8, Tradier) and many are redundant; the suite burns too much time and tokens. Evidence-first cleanup per the audit report; CI green per batch. |

@@ -25,6 +25,9 @@ services:
     # (max_parallel_workers_per_gather(12)+1) x peak active backends(3, 60 s sample) < MemTotal
     # - shared_buffers - other containers(~8.2 GiB, redpanda at its 6 GiB limit) - 4 GiB reserve
     # (10.3 GiB; 78 x 128MB = 9.75 GiB). shm_size = work_mem x 2 x 13 x 4 concurrent parallel queries = 13g.
+    # effective_cache_size = 40GB (2026-11-14): planner hint, no allocation; the page cache sits at ~47 GiB, so the
+    # old 17340MB steered big hypertable scans away from index plans. Live since 2026-11-14 via a reload-only
+    # ALTER SYSTEM bridge (lead-approved); this flag makes the next recreate carry it and the bridge is then reset.
     # After editing this block, recreate the container with
     # `docker compose up -d --no-deps --no-build timescaledb` (run from /home/bg/dev/indicagent/production)
     # and run scripts/ops/db/ops_pg_settings_baseline.py; a drift entry means the edit did not reach the server.
@@ -35,7 +38,8 @@ services:
       "-c", "wal_buffers=8192",
       "-c", "log_min_duration_statement=1000",
       "-c", "shared_buffers=14GB",
-      "-c", "work_mem=256MB"
+      "-c", "work_mem=256MB",
+      "-c", "effective_cache_size=40GB"
     ]
     environment:
       - POSTGRES_USER=postgres
