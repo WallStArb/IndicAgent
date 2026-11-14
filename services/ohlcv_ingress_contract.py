@@ -1,7 +1,7 @@
 """The ingress write contract for vendor bar writes (phase 185 plan 39; raw-first since phase 191).
 
-Data layer integrity design (docs/plans/2026-10-06-data-layer-integrity-design.md) section 4 and
-the unified raw bar table design (docs/plans/2026-10-12-unified-raw-bar-table-design.md, Ingress
+Data layer integrity design (docs/plans/archive/2026-10-06-data-layer-integrity-design.md)
+section 4 and the unified raw bar table design (docs/plans/2026-10-12-unified-raw-bar-table-design.md, Ingress
 contract, D-191-N). `apply_raw_contract` is the one entry point; it takes one chunk of vendor
 answers (`RawRow`, vendor and kind decided by the caller from what the vendor served) and, per
 (symbol, timeframe, vendor, kind) series, in the caller's one transaction:

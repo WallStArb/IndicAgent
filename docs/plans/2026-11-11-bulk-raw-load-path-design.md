@@ -1,7 +1,7 @@
 # Bulk raw load path: set-based classification for the Massive load
 
 Author: design subagent for the lead, 2026-11-11 (todo 600, admission step 5)
-Status: build steps 1 to 4 built 2026-11-11 (section 14); step 5 (rerouting the fetcher, nightly and Tradier restore) not started. No real load has run under it yet.
+Status: build steps 1 to 4 built 2026-11-11 (section 14); the Massive raw sweep 2003 to 2026 ran under it (403.3M rows, done 2026-11-11). Step 5 (reroute the row API onto `RawBatch` and delete the per-row classifier) is not started, so two classification implementations still coexist. The IBKR fetcher and the Tradier restore are deleted, so the row path's remaining callers are the load engine's `persist_chunk_atomically` path (the Alpaca nightly and `ops_bar_load.py`). Operative until step 5 lands; sections 4 to 6 are the design of record for the bulk half of `services/ohlcv_raw_writer.py` and `services/ohlcv_ingress_contract.py`.
 Informed by: commit 6f2e0eba7, `scripts/ops/bars/ops_massive_load.py`, `services/bar_load.py`, `services/ohlcv_ingress_contract.py`, `services/ohlcv_raw_writer.py`, `services/bar_selection.py`, `src/intelligence/bars/selection.py`, `scripts/ops/bars/ops_selection_gate.py`, `scripts/infrastructure/backfill/_intraday_persist.py`, `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 4, 8 step 5, 8b), `logs/massive_apply_5m_2024_06.log` and `logs/massive_5m_2024_06_size_pre.txt`, read-only schema queries and read-only timings (2026-11-11).
 
 ## 1. Problem and measured baseline

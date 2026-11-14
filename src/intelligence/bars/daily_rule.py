@@ -1,6 +1,6 @@
 """The unified canonical 1d rule d2-v6 (phase 185 plans 36 and 52; data layer integrity design
 sections 2 and 4 and its Amendment 2026-10-07,
-docs/plans/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
+docs/plans/archive/2026-10-06-data-layer-integrity-design.md; d2-v4 is D-191-Q of
 docs/plans/2026-10-12-unified-raw-bar-table-design.md, todo 545 step 3; d2-v5 is todo 587's
 calendar split rescale, Scale below; d2-v6 is todo 600's Massive route and split sources,
 Massive below).

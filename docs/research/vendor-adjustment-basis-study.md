@@ -4,7 +4,7 @@
 **Status:** complete 2026-10-07: rule pre-registered (a2d9ca6e1), results (038a5774c), 30 IBKR
 exception rows written and 25 names re-derived; vendor_basis_run blockers 46 to 31, each named
 under "Undecided runs" (owner decisions in todo 508)
-**Informed by:** docs/plans/2026-10-06-data-layer-integrity-design.md (sections 2, 6, 7, open
+**Informed by:** docs/plans/archive/2026-10-06-data-layer-integrity-design.md (sections 2, 6, 7, open
 risks; spec step 5); summaries of plans 185-33 (vendor_basis_run verdict, 46 blockers), 185-38
 (74 IBKR-primary exception rows, 113 names routed here, VMRK) and 185-46
 (docs/research/1d-primary-swap-evidence.md: the swap to IBKR primary from D = 2026-10-07)

@@ -51,7 +51,7 @@ Before the first split of a name with Tradier bars before D is recorded (the fet
 - A recorded split on a name with Tradier history before D leaves that history tradeable at the new
   scale (a test over a synthetic name, and a dry run over the live names with recorded splits).
 - D7's `canonical_recompute` and `policy_conformance` pass on such a name after the split.
-- The chosen option is recorded in `docs/plans/2026-10-06-data-layer-integrity-design.md`.
+- The chosen option is recorded in `docs/plans/archive/2026-10-06-data-layer-integrity-design.md`.
 
 ## Closed
 

@@ -3,7 +3,7 @@
 **Author:** Claude (Opus 5.5), 2026-10-07, at Brandon's request (plan 185-46 Task 2)
 **Status:** measured 2026-10-07 (rules pre-registered in 40c1a2402; results below); 185-47 reruns
 `--classify` after 189-10 Task 1b
-**Informed by:** docs/plans/2026-10-06-data-layer-integrity-design.md; summaries of plans 185-33, 185-36,
+**Informed by:** docs/plans/archive/2026-10-06-data-layer-integrity-design.md; summaries of plans 185-33, 185-36,
 185-38 and 185-41; owner decision 2026-10-07 (Tradier will not be funded, 1d primary moves to IBKR; D-01)
 
 Plan 185-46 measures and prepares; 185-47 applies the swap; 185-48 retires the Tradier loader. This

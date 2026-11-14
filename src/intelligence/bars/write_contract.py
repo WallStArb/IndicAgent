@@ -1,7 +1,7 @@
 """The write contract's pure core: compare incoming bars with stored bars (plan 185-31).
 
-Data layer integrity design (docs/plans/2026-10-06-data-layer-integrity-design.md) section 4:
-every writer of a bar table reads the stored rows for its keys, classifies each incoming row as
+Data layer integrity design (docs/plans/archive/2026-10-06-data-layer-integrity-design.md)
+section 4: every writer of a bar table reads the stored rows for its keys, classifies each incoming row as
 new, changed or unchanged by exact value, writes only new and changed rows, records the old value
 of every changed or removed row in ohlcv_revision. A write that revises more than
 threshold.bar_integrity.max_revision_ratio of what is stored is applied and flagged (vendor

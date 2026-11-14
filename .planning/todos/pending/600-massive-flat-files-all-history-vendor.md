@@ -74,6 +74,10 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
    SIP session from 2026-12-06, holidays and early closes, read by selection); `trade_count`
    (Massive `transactions`, Alpaca `n`) and Alpaca `vw` as nullable raw columns, kept out of
    compute until a consumer exists.
+7. Filings (EDGAR index, 8-K, Form 4) were not captured with the reference set: size one month,
+   then decide by 2026-12-01, before the plan lapses; EDGAR direct stays the clean source for
+   original filing dates (moved from the archived catalog draft,
+   `docs/plans/archive/2026-11-10-data-layer-catalog-and-refinements.md`).
 
 ## Progress 2026-11-11 (session 9ffac575)
 

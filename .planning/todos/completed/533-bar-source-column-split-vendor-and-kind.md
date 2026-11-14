@@ -79,7 +79,7 @@ with the revision log), canonical `market_data_ohlcv` a pure selection from it p
 1. **Design doc** `docs/plans/2026-10-12-unified-raw-bar-table-design.md`: schema, vocabulary
    (glossary entries for the raw table, vendor, kind; CVR namespace for kind), the selection
    rule, the revision rule, migration plan, reader cutover order. Amend
-   `docs/plans/2026-10-06-data-layer-integrity-design.md` (capture law 528 becomes "raw takes
+   `docs/plans/archive/2026-10-06-data-layer-integrity-design.md` (capture law 528 becomes "raw takes
    every answer"). AGY/Codex review.
 2. **Promote to a phase** with the design doc as its spec; plans follow steps 3-9.
 3. **Schema and writer:** create the raw hypertable (compressed, policy as the archive's); one

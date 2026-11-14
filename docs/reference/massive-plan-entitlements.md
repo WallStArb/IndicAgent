@@ -103,7 +103,7 @@ all 36,869 tickers. The entity-map raw material todo 600 needs is therefore alre
 
 ## Amendment 2026-11-10 (refinement review d386cac3a)
 
-Corrections from `docs/plans/2026-11-10-massive-admission-refinement-review.md`, recorded
+Corrections from `docs/plans/archive/2026-11-10-massive-admission-refinement-review.md`, recorded
 against what was captured:
 
 - Dividends: neither captured family carries a declaration date or the

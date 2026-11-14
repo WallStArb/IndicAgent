@@ -2,7 +2,7 @@
 
 Author: session for the lead (indicagent-32), 2026-11-11; rewritten 2026-11-13 for the owner rulings (worker session for lead indicagent-d0)
 Status: prepared, not executed. Every command below is ordered; each carries its gate (what must be true to go on) and its abort rule. Parts A to D never touch raw. Part F (export, verify, then delete IBKR raw; retire IBKR) is written here and runs only after Part D passes.
-Informed by: the owner rulings of 2026-11-13 in `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md` ("IBKR is removed entirely"; then "use Massive for every date it has"), `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 5, 8, 8b, 8c), `docs/plans/2026-11-10-massive-admission-refinement-review.md` (F2, F4, F14), `docs/plans/2026-11-11-split-horizon-fresh-check.md`, `scripts/ops/bars/{ops_source_policy,ops_selection_gate,ops_massive_policy_plan,ops_massive_switch_delta,ops_identity_witness}.py`, read-only measurements on the live DB (2026-11-11 and 2026-11-13).
+Informed by: the owner rulings of 2026-11-13 in `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md` ("IBKR is removed entirely"; then "use Massive for every date it has"), `docs/plans/2026-11-10-massive-admission-db-design.md` (sections 5, 8, 8b, 8c), `docs/plans/archive/2026-11-10-massive-admission-refinement-review.md` (F2, F4, F14), `docs/plans/archive/2026-11-11-split-horizon-fresh-check.md`, `scripts/ops/bars/{ops_source_policy,ops_selection_gate,ops_massive_policy_plan,ops_massive_switch_delta,ops_identity_witness}.py`, read-only measurements on the live DB (2026-11-11 and 2026-11-13).
 
 ## What step 7 does
 
@@ -74,7 +74,7 @@ Gate: every break is classified (real move, missing split, identity), and every 
 
 A3 run 2026-11-13 (`logs/massive_step7_a3_20261113/`, indicagent-8a): 1,180 lone breaks; real_move 494, reported 682, unrecorded_split 3 (GSAT, HSIC, TMUS), inseries_rescale 1 (CENT). The sweep reads current canonical, which is still IBKR-sourced, so its breaks are IBKR tape junctions that the switch removes; the gate is about Massive's own tape. Checked against it: CENT and GSAT already carry a current row (`massive_reference` 2007-02-05 x3.0; `calendar_audit` 2021-02-08), so `--apply-rows` skips both; HSIC (2013-03-13) and TMUS (2015-10-27) are continuous in Massive's `sip_flat` close (HSIC about 90, TMUS 39.0 across the break), so no market split exists to record and a rescale row would corrupt the Massive history. Nothing was written. The 682 `reported` breaks stay listed (no fix without vendor agreement) and are IBKR-era junctions that leave canonical at C4.
 
-A4. `split_horizon_fresh` exists and runs (design note `docs/plans/2026-11-11-split-horizon-fresh-check.md`); D7 run once green on it before the switch.
+A4. `split_horizon_fresh` exists and runs (design note `docs/plans/archive/2026-11-11-split-horizon-fresh-check.md`); D7 run once green on it before the switch.
 
 A5. Serve-time currency, zero drift (refinement review F3; repeat immediately before step 7):
 
