@@ -501,10 +501,10 @@ def _plain_ic_series(x: np.ndarray, y: np.ndarray, min_names: int) -> np.ndarray
 
 def _compute_cell(args: tuple) -> dict:
     feature, horizon, x5_ranks, x15_ranks, y_ranks, session, bars_per_year, x5_raw_ranks = args
-    plain_5m_mean, plain_5m_t, plain_5m_p, _ = session_hac_t(
+    plain_5m_mean, plain_5m_t, _, _ = session_hac_t(
         _plain_ic_series(x5_ranks, y_ranks, _MIN_NAMES_PER_BAR), session
     )
-    plain_15m_mean, plain_15m_t, plain_15m_p, _ = session_hac_t(
+    plain_15m_mean, plain_15m_t, _, _ = session_hac_t(
         _plain_ic_series(x15_ranks, y_ranks, _MIN_NAMES_PER_BAR), session
     )
     partial_ic_bar = partial_rank_ic_per_bar(x5_ranks, x15_ranks, y_ranks)

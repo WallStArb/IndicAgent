@@ -45,11 +45,8 @@ import httpx
 BASE = "https://paper-api.alpaca.markets"  # asserted: paper only, never live
 DATA_BASE = "https://data.alpaca.markets/v2"
 LEDGER = Path("data/scratch/alpaca-paper/orders.jsonl")
-MAX_MEASURED_ORDERS = 20
 QTY = "1"
-MIN_NAMES = 5
 STAGE_NAMES = ["SPY", "AAPL", "AMD", "KO", "HD"]
-RUN_NAMES = ["SPY", "AAPL", "AMD", "KO", "HD"]  # the measured set; >= MIN_NAMES
 
 
 def _keys() -> tuple[str, str]:

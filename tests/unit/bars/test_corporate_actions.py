@@ -25,19 +25,9 @@ from src.intelligence.bars.corporate_actions import (
     split_continuity,
     unknown_return_mask,
 )
-from src.intelligence.bars.seams import Seam
 
 _SNAP_TOL = 0.01
 _WED_THU = (date(2025, 3, 12), date(2025, 3, 13))
-
-
-def _seam(factor: float, n_days: int = 120) -> Seam:
-    return Seam(
-        start=date(2025, 1, 6),
-        end=date(2025, 6, 27),
-        factor=factor,
-        n_days=n_days,
-    )
 
 
 def test_disputed_dates_turn_pairs_into_ordered_records() -> None:

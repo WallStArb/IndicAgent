@@ -50,10 +50,6 @@ class EmptyRange:
     verified_at: datetime
     n_confirming_chunks: int
 
-    def adjoins(self, start: datetime, end: datetime, slack: timedelta) -> bool:
-        """True if [start, end] overlaps this range or touches it within `slack`."""
-        return start <= self.empty_through + slack and end >= self.empty_from - slack
-
 
 def has_bar_between(
     conn: Any, symbol: str, timeframe: str, start: datetime, end: datetime, vendor: str
