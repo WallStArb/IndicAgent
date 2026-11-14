@@ -383,7 +383,7 @@ async def execute_promotion(
 
 
 async def broadcast_update(decision: RollDecision, settings: Settings) -> None:
-    """Publish ContractUpdateEvent so bar_writer and bar_auditor invalidate caches."""
+    """Publish ContractUpdateEvent so bar_auditor invalidates its cache."""
     producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
     try:
         await producer.start()
