@@ -231,3 +231,18 @@ def test_reconciliation_counts_rows_held_by_a_new_span_of_the_name_and_ticker():
     bad = reconcile_coverage(spans, rows, {"1d": {"map_gap_rows": 2, "covered": 2},
                                            "5m": {"map_gap_rows": 0, "covered": 0}})  # fmt: skip
     assert not bad["1d"]["reconciles"]
+
+
+def test_a_name_wide_undated_gap_row_does_not_hide_a_partial_spans_lost_coverage():
+    wide = GapRow("PIPR", "instrument", "event_chain_head_mismatch", None, None, "{}")
+    result = _plan(gaps=[*GAPS, wide])
+    listed = [(g.symbol, g.start, g.end) for g in result.gaps if g.reason == "identity_unplaced"]
+    assert listed == [("PIPR", D("2004-01-01"), D("2020-01-06"))]
+
+
+def test_a_dated_gap_row_over_the_cut_still_records_it_and_one_elsewhere_does_not():
+    over = GapRow("PIPR", "span", "before_first_event", D("2004-01-01"), D("2010-01-04"), "{}")
+    elsewhere = GapRow("PIPR", "span", "after_last_event", D("2025-01-01"), D("2026-01-01"), "{}")
+    result = _plan(gaps=[*GAPS, over, elsewhere])
+    listed = [(g.start, g.end) for g in result.gaps if g.reason == "identity_unplaced"]
+    assert listed == [(D("2010-01-04"), D("2020-01-06"))]  # the dated row already covers the rest

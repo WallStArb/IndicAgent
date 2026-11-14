@@ -33,6 +33,10 @@ span that holds a placement, the old spans are cut out and the placements put in
 a span at the first and last file day of each ticker); what the cut removed and no placement
 re-covers becomes an ``identity_unplaced`` gap row; spans of unplaced witness decisions are left
 as they are. Every old span, gap row and placement is accounted in ``span_accounting.csv``.
+``--install MAP_DIR --install-digest D --untouched NAMES --lost-1d/--lost-5m/--coverage-summary``
+applies a scratch map version to the live rows (design 8c; section "Install" below): rehearsal
+unless ``--apply``; ``--rollback INSTALL_ID`` undoes a recorded install. Both refuse loudly and
+write nothing on any gate failure.
 """
 
 from __future__ import annotations
@@ -43,8 +47,11 @@ import csv
 import hashlib
 import io
 import json
+import os
+import re
+import shutil
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -593,7 +600,16 @@ def plan_documentary_map(
         lost = _meet(
             [(s.start, s.end) for s in old_spans if s.symbol == r.symbol], [(r.start, r.end)]
         )
-        existing = [(g.start or date.min, g.end or _OPEN) for g in gaps if g.symbol == r.symbol]
+        # Only dated gap rows that overlap this witness span already record lost coverage here;
+        # a name-wide undated row (start and end empty) records none of it.
+        existing = [
+            (g.start or date.min, g.end or _OPEN)
+            for g in gaps
+            if g.symbol == r.symbol
+            and (g.start or g.end)
+            and (g.start or date.min) < r.end
+            and (g.end or _OPEN) > r.start
+        ]
         for a, b in _union(_minus(_minus(lost, [(p.start, p.end) for p in held]), existing)):
             detail = canonical_json(
                 {"decision": r.decision, "witness_span": [_iso(r.start), _iso(r.end)]}
@@ -1046,13 +1062,36 @@ class TickerEntityMapAmender(BaseBatch):
 
 
 _DOC_SPANS_SQL = """
-SELECT e.symbol, e.ticker, e.valid_from, e.valid_to, e.reference_raw_id::text AS reference_raw_id,
-       e.evidence, i.value AS composite_figi
+SELECT e.ticker_event_id, e.symbol, e.ticker, e.valid_from, e.valid_to,
+       e.reference_raw_id::text AS reference_raw_id, e.evidence, e.security_identifier_id,
+       i.value AS composite_figi
   FROM ticker_event_current e
   JOIN security_identifier_current i
     ON i.security_identifier_id = e.security_identifier_id AND i.scheme = 'composite_figi'
  WHERE e.vendor = 'massive'
 """
+
+
+def live_old_spans(rows: Sequence[Mapping[str, Any]]) -> list[OldSpan]:
+    """The live spans (``_DOC_SPANS_SQL`` rows) as the pinned map's ``OldSpan`` list, in the
+    pinned file's order, so ``spans_csv`` of it is byte-comparable to ``pinned_spans.csv``."""
+    return read_old_spans(
+        sorted(
+            (
+                {
+                    "symbol": r["symbol"],
+                    "ticker": r["ticker"],
+                    "valid_from": r["valid_from"].isoformat(),
+                    "valid_to": r["valid_to"].isoformat() if r["valid_to"] else "",
+                    "composite_figi": r["composite_figi"],
+                    "reference_raw_id": r["reference_raw_id"],
+                    "evidence": canonical_json(r["evidence"]),
+                }
+                for r in rows
+            ),
+            key=lambda r: (r["symbol"], r["valid_from"], r["ticker"]),
+        )
+    )
 
 
 def refuse_install_path(out: Path, out_root: Path) -> None:
@@ -1102,23 +1141,7 @@ class TickerEntityMapDocumentary(BaseBatch):
         regions = read_witness_regions(args.regions.read_bytes(), args.regions_sha256)
         async with pool.acquire() as conn:
             rows = await conn.fetch(_DOC_SPANS_SQL)
-        old_spans = read_old_spans(
-            sorted(
-                (
-                    {
-                        "symbol": r["symbol"],
-                        "ticker": r["ticker"],
-                        "valid_from": r["valid_from"].isoformat(),
-                        "valid_to": r["valid_to"].isoformat() if r["valid_to"] else "",
-                        "composite_figi": r["composite_figi"],
-                        "reference_raw_id": r["reference_raw_id"],
-                        "evidence": canonical_json(r["evidence"]),
-                    }
-                    for r in rows
-                ),
-                key=lambda r: (r["symbol"], r["valid_from"], r["ticker"]),
-            )
-        )
+        old_spans = live_old_spans(rows)
         live_sha = hashlib.sha256(spans_csv(old_spans)).hexdigest()
         if args.pinned_spans_sha256 and args.pinned_spans_sha256 != live_sha:
             raise ValueError(f"live spans sha256 {live_sha} is not {args.pinned_spans_sha256}")
@@ -1136,6 +1159,7 @@ class TickerEntityMapDocumentary(BaseBatch):
                 },
                 json.loads(args.coverage_summary.read_text()),
             )
+        require_reconciled(reconciliation)
         inputs = {
             "pinned_map": args.map_dir.name,
             "pinned_map_gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
@@ -1149,6 +1173,531 @@ class TickerEntityMapDocumentary(BaseBatch):
         self.logger.info("ticker_entity_map.documentary_done", out=str(args.out / name))
         print(json.dumps({"out": str(args.out / name), **json.loads(files["map_diff.json"])},
                          indent=2, sort_keys=True))  # fmt: skip
+
+
+# ---------------------------------------------------------------------------------------------
+# Install (design 8c, 2026-11-14): a scratch map version becomes the live ``ticker_event`` rows.
+# ---------------------------------------------------------------------------------------------
+
+INSTALL_REASON = "ticker_map_install"
+ROLLBACK_REASON = "ticker_map_rollback"
+MAP_FILES = (
+    "gap_list.csv", "spans.csv", "pinned_spans.csv", "span_accounting.csv", "map_diff.json",
+)  # fmt: skip
+_MAP_NAME = re.compile(r"^\d{8}_([0-9a-f]{12})$")
+_ROLLED_BACK_ROOT = _REPO_ROOT / "data" / "ticker_entity_map_rolled_back"
+
+SpanKey = tuple[str, str, date, date]  # symbol, ticker, start, end (date.max when open)
+
+
+class InstallRefused(ValueError):
+    """The install or rollback cannot proceed; nothing was written."""
+
+
+@dataclass(frozen=True)
+class MapFiles:
+    """A scratch map directory, read and checked against its own recorded hashes."""
+
+    name: str
+    digest: str
+    raw: Mapping[str, bytes]
+    diff: Mapping[str, Any]
+
+    @property
+    def pinned_sha256(self) -> str:
+        return hashlib.sha256(self.raw["pinned_spans.csv"]).hexdigest()
+
+
+@dataclass(frozen=True)
+class InstallPlan:
+    status: str  # install | already_installed
+    retire: tuple[tuple[SpanKey, str], ...]  # key, disposition of the old span
+    insert: tuple[NewSpan, ...]
+    live_before: int
+    live_after: int
+    new_keys: frozenset[SpanKey]
+
+    @property
+    def touched_symbols(self) -> set[str]:
+        return {k[0] for k, _ in self.retire} | {s.symbol for s in self.insert}
+
+
+@dataclass(frozen=True)
+class HistoryRow:
+    """One ``ticker_event`` row as the rollback reads it."""
+
+    ticker_event_id: str
+    security_identifier_id: Any
+    symbol: str
+    ticker: str
+    start: date
+    end: date | None
+    reference_raw_id: str
+    evidence: dict[str, Any]
+    retired_reason: str | None
+
+    @property
+    def key(self) -> SpanKey:
+        return (self.symbol, self.ticker, self.start, self.end or _OPEN)
+
+
+@dataclass(frozen=True)
+class RollbackPlan:
+    install_id: str
+    retire_ids: tuple[str, ...]  # the rows the install inserted, to retire
+    restore: tuple[HistoryRow, ...]  # the rows the install retired, to insert back as copies
+    pre_install_sha256: str
+    map_dir: str
+
+
+def require_reconciled(reconciliation: Mapping[str, Any] | None) -> None:
+    """A map whose spans do not reproduce the lost-slot coverage counts is refused."""
+    if not reconciliation:
+        raise InstallRefused("the map carries no coverage reconciliation")
+    bad = sorted(tf for tf, v in reconciliation.items() if not v["reconciles"])
+    if bad:
+        raise InstallRefused(f"coverage does not reconcile for {bad}: {reconciliation}")
+
+
+def read_map_dir(path: Path) -> MapFiles:
+    """The scratch map's files, refused unless the name, gap list digest and every hash its own
+    ``map_diff.json`` records agree."""
+    match = _MAP_NAME.match(path.name)
+    if not match:
+        raise InstallRefused(f"{path.name} is not a <YYYYMMDD>_<digest12> map directory")
+    raw = {name: (path / name).read_bytes() for name in MAP_FILES}
+    extra = sorted(p.name for p in path.iterdir() if p.name not in MAP_FILES)
+    if extra:
+        raise InstallRefused(f"{path} holds files that are not part of a map version: {extra}")
+    doc = json.loads(raw["map_diff.json"])
+    for name, field_name in (
+        ("gap_list.csv", "gap_list_sha256"),
+        ("spans.csv", "spans_sha256"),
+        ("pinned_spans.csv", "pinned_spans_sha256"),
+    ):
+        if hashlib.sha256(raw[name]).hexdigest() != doc[field_name]:
+            raise InstallRefused(f"{path / name} does not hash to {field_name} in map_diff.json")
+    if not doc["gap_list_sha256"].startswith(match.group(1)):
+        raise InstallRefused(f"{path.name} does not carry its gap list digest")
+    return MapFiles(path.name, match.group(1), raw, doc)
+
+
+def _span_rows(csv_bytes: bytes) -> dict[SpanKey, dict[str, str]]:
+    listed = list(csv.DictReader(io.StringIO(csv_bytes.decode())))
+    rows = {
+        (r["symbol"], r["ticker"], date.fromisoformat(r["valid_from"]), _doc_date(r["valid_to"])): r
+        for r in listed
+    }
+    if len(rows) != len(listed):
+        raise InstallRefused("a span file holds a duplicate (symbol, ticker, valid_from, valid_to)")
+    return rows
+
+
+def verify_install_reconciliation(
+    files: MapFiles,
+    rows: Mapping[str, Sequence[tuple[str, str, str]]],
+    expected: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Recompute the coverage reconciliation from the map's own ``spans.csv`` and the lost-slot
+    inputs, refuse unless it holds and equals what the map recorded."""
+    spans = [
+        NewSpan(k[0], k[1], k[2], k[3], r["origin"], r["composite_figi"], "", "")
+        for k, r in _span_rows(files.raw["spans.csv"]).items()
+    ]
+    recomputed = reconcile_coverage(spans, rows, expected)
+    require_reconciled(recomputed)
+    if files.diff.get("reconciliation") != recomputed:
+        raise InstallRefused("the recomputed coverage reconciliation is not the one the map holds")
+    return recomputed
+
+
+def plan_install(
+    files: MapFiles, live_old: Sequence[OldSpan], untouched: Collection[str]
+) -> InstallPlan:
+    """Retire the old spans the map cut and insert the spans it adds; the kept spans are not
+    touched. Refuses when the live spans are not the pinned ones (drift), when the plan does not
+    reconcile to ``span_accounting.csv`` and ``map_diff.json``, or when it touches a name in
+    ``untouched``. A live set that already equals the map is a no-op."""
+    live_keys = {(s.symbol, s.ticker, s.start, s.end) for s in live_old}
+    new_rows = _span_rows(files.raw["spans.csv"])
+    new_keys = frozenset(new_rows)
+    if live_keys == new_keys:
+        return InstallPlan("already_installed", (), (), len(live_keys), len(live_keys), new_keys)
+    live_sha = hashlib.sha256(spans_csv(live_old)).hexdigest()
+    if live_sha != files.pinned_sha256:
+        raise InstallRefused(
+            f"the live spans (sha256 {live_sha}) are not the map's pinned spans "
+            f"({files.pinned_sha256}): the table moved since the map was built"
+        )
+    old_keys = set(_span_rows(files.raw["pinned_spans.csv"]))
+    accounted = {
+        (r["symbol"], r["ticker"], date.fromisoformat(r["valid_from"]), _doc_date(r["valid_to"])): r
+        for r in csv.DictReader(io.StringIO(files.raw["span_accounting.csv"].decode()))
+        if r["kind"] == "span"
+    }
+    retire_keys = old_keys - new_keys
+    insert_keys = new_keys - old_keys
+    cut = {k for k, r in accounted.items() if r["disposition"] != "kept"}
+    diff = files.diff["diff"]
+    if (
+        set(accounted) != old_keys
+        or cut != retire_keys
+        or len(retire_keys) != diff["span_rows_removed"]
+        or len(insert_keys) != diff["span_rows_added"]
+        or len(new_keys) != diff["new_spans"]
+        or len(old_keys) != diff["old_spans"]
+    ):
+        raise InstallRefused(
+            "the span diff does not reconcile to span_accounting.csv/map_diff.json"
+        )
+    insert = tuple(
+        NewSpan(
+            k[0], k[1], k[2], k[3], new_rows[k]["origin"], new_rows[k]["composite_figi"],
+            new_rows[k]["reference_raw_id"], new_rows[k]["evidence"],
+        )
+        for k in sorted(insert_keys)
+    )  # fmt: skip
+    if any(s.origin == "kept" for s in insert):
+        raise InstallRefused("a span the map marks kept is not among the live spans")
+    plan = InstallPlan(
+        "install",
+        tuple((k, accounted[k]["disposition"]) for k in sorted(retire_keys)),
+        insert,
+        len(old_keys),
+        len(new_keys),
+        new_keys,
+    )
+    hit = sorted(plan.touched_symbols & set(untouched))
+    if hit:
+        raise InstallRefused(f"the plan touches names that must stay as they are: {hit}")
+    if len(old_keys) - len(plan.retire) + len(plan.insert) != len(new_keys):
+        raise InstallRefused("row balance: live - retired + inserted is not the map's span count")
+    return plan
+
+
+def verify_balance(plan: InstallPlan, live_after: Collection[SpanKey]) -> None:
+    """After the writes, before the commit: the live rows are exactly the map's spans."""
+    keys = set(live_after)
+    if len(live_after) != plan.live_after or keys != plan.new_keys:
+        raise InstallRefused(
+            f"row balance: {len(live_after)} live rows after the writes, the map has "
+            f"{plan.live_after}; {len(keys - plan.new_keys)} extra, "
+            f"{len(plan.new_keys - keys)} missing"
+        )
+
+
+def new_install_id(digest: str, now: datetime) -> str:
+    return f"{digest}-{now:%Y%m%dT%H%M%SZ}"
+
+
+def content_sha256(rows: Sequence[Mapping[str, Any]]) -> str:
+    """Hash of a live span set by content, not by row id or recorded_at: what a rollback must
+    reproduce."""
+    lines = sorted(
+        "|".join(
+            (
+                r["symbol"], r["ticker"], r["valid_from"].isoformat(),
+                r["valid_to"].isoformat() if r["valid_to"] else "",
+                str(r["security_identifier_id"]), str(r["reference_raw_id"]),
+                canonical_json(r["evidence"]),
+            )
+        )
+        for r in rows
+    )  # fmt: skip
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def install_evidence(span: NewSpan, lineage: Mapping[str, Any]) -> str:
+    """The new row's evidence: the map's own, plus the install lineage under ``map_install``."""
+    body = json.loads(span.evidence)
+    if "map_install" in body:
+        raise InstallRefused(f"{span.symbol} {span.ticker}: evidence already holds map_install")
+    return canonical_json({**body, "map_install": {**lineage, "origin": span.origin}})
+
+
+def retire_reason(install_id: str, digest: str, disposition: str) -> str:
+    return f"{INSTALL_REASON} {install_id} map {digest}: old span {disposition}"
+
+
+def plan_rollback(install_id: str, rows: Sequence[HistoryRow]) -> RollbackPlan:
+    """Undo an install: retire the rows it inserted and insert back copies of the rows it
+    retired. Refuses unless the table still holds exactly the install's result (a later install
+    or amendment must be rolled back first)."""
+    mark = f"{INSTALL_REASON} {install_id} "
+    inserted = [
+        r for r in rows if r.evidence.get("map_install", {}).get("install_id") == install_id
+    ]
+    live_inserted = [r for r in inserted if r.retired_reason is None]
+    retired = [r for r in rows if r.retired_reason and r.retired_reason.startswith(mark)]
+    if not inserted:
+        raise InstallRefused(f"no rows were inserted by install {install_id}")
+    lineage = {k: v for k, v in inserted[0].evidence["map_install"].items() if k != "origin"}
+    if any(
+        {k: v for k, v in r.evidence["map_install"].items() if k != "origin"} != lineage
+        for r in inserted
+    ):
+        raise InstallRefused(f"install {install_id}: rows carry inconsistent lineage")
+    if len(retired) != lineage["rows_retired"]:
+        raise InstallRefused(
+            f"install {install_id} retired {len(retired)} rows now, {lineage['rows_retired']} "
+            "recorded: it was already rolled back or the history is damaged"
+        )
+    if len(live_inserted) != lineage["rows_inserted"]:
+        raise InstallRefused(
+            f"only {len(live_inserted)} of the {lineage['rows_inserted']} rows install "
+            f"{install_id} inserted are live: it was already rolled back, or a later change retired them "
+            "(roll that back first)"
+        )
+    return RollbackPlan(
+        install_id,
+        tuple(r.ticker_event_id for r in live_inserted),
+        tuple(sorted(retired, key=lambda r: r.key)),
+        lineage["pre_install_sha256"],
+        lineage["map_dir"],
+    )
+
+
+def check_install_target(target: Path, raw: Mapping[str, bytes]) -> bool:
+    """True when ``target`` already holds exactly the map (nothing to copy); False when absent;
+    refuses when it exists with other content."""
+    if not target.exists():
+        return False
+    held = {p.name: p.read_bytes() for p in target.iterdir() if p.is_file()}
+    if held != dict(raw):
+        raise InstallRefused(f"{target} exists with content other than this map")
+    return True
+
+
+_INSTALL_ROWS_SQL = """
+SELECT ticker_event_id::text AS id, security_identifier_id, symbol, ticker, valid_from, valid_to,
+       reference_raw_id::text AS reference_raw_id, evidence, retired_reason
+  FROM ticker_event
+ WHERE vendor = 'massive'
+   AND (evidence->'map_install'->>'install_id' = $1 OR retired_reason LIKE $2)
+"""
+_RETIRE_SQL = """
+UPDATE ticker_event SET retired_reason = u.reason
+  FROM unnest($1::uuid[], $2::text[]) AS u(id, reason)
+ WHERE ticker_event.ticker_event_id = u.id AND ticker_event.retired_at IS NULL
+"""
+_LOCK_SQL = "LOCK TABLE ticker_event IN SHARE ROW EXCLUSIVE MODE"
+_LIVE_SQL = """
+SELECT symbol, ticker, valid_from, valid_to, security_identifier_id,
+       reference_raw_id::text AS reference_raw_id, evidence
+  FROM ticker_event_current WHERE vendor = 'massive'
+"""
+
+
+def _row_key(r: Mapping[str, Any]) -> SpanKey:
+    return (r["symbol"], r["ticker"], r["valid_from"], r["valid_to"] or _OPEN)
+
+
+async def _retire(conn: asyncpg.Connection, ids: Sequence[Any], reasons: Sequence[str]) -> None:
+    status = await conn.execute(_RETIRE_SQL, list(ids), list(reasons))
+    if status != f"UPDATE {len(ids)}":
+        raise InstallRefused(f"{status} rows retired, expected {len(ids)}")
+
+
+def _stage(staging: Path, raw: Mapping[str, bytes]) -> None:
+    shutil.rmtree(staging, ignore_errors=True)
+    write_map_files(staging, raw)
+
+
+def _install_report(
+    plan: InstallPlan, files: MapFiles, install_id: str, apply: bool
+) -> dict[str, Any]:
+    return {
+        "mode": "install", "apply": apply, "install_id": install_id, "map": files.name,
+        "status": plan.status, "pinned_spans_sha256": files.pinned_sha256,
+        "balance": {"live_before": plan.live_before, "retire": len(plan.retire),
+                    "insert": len(plan.insert), "live_after_expected": plan.live_after},
+        "retire_by_disposition": dict(Counter(d for _, d in plan.retire)),
+        "insert_by_origin": dict(Counter(s.origin for s in plan.insert)),
+        "names_touched": sorted(plan.touched_symbols),
+        "retire": [[k[0], k[1], k[2].isoformat(), _iso(k[3]), d] for k, d in plan.retire],
+        "insert": [[s.symbol, s.ticker, s.start.isoformat(), _iso(s.end), s.origin]
+                   for s in plan.insert],
+    }  # fmt: skip
+
+
+class TickerEntityMapInstaller(BaseBatch):
+    """The --install and --rollback runs (module docstring). One transaction on one connection,
+    a table lock for its whole length, rehearsal (rolled back) unless --apply."""
+
+    job_name = _JOB
+    compute_version = "1.0.0"
+
+    def __init__(self, db_dsn: str, args: argparse.Namespace, out_root: Path = _OUT_ROOT,
+                 rolled_back_root: Path = _ROLLED_BACK_ROOT):  # fmt: skip
+        super().__init__(db_dsn)
+        self._args = args
+        self._apply = args.apply
+        self._out_root = out_root
+        self._rolled_back_root = rolled_back_root
+
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        report = await (self._rollback(pool) if self._args.rollback else self._install(pool))
+        self.logger.info(
+            "ticker_entity_map.install_done", mode=report["mode"], outcome=report["outcome"]
+        )
+        print(json.dumps(report, indent=2, sort_keys=True, default=str))
+
+    def _verified_map(self) -> MapFiles:
+        args = self._args
+        files = read_map_dir(args.install)
+        if files.digest != args.install_digest:
+            raise InstallRefused(
+                f"the map is {files.digest}, --install-digest says {args.install_digest}"
+            )
+        hidden = [tuple(h.split(":")) for h in args.hidden_1d]
+        verify_install_reconciliation(
+            files,
+            {
+                "1d": _read_lost_rows(args.lost_1d, "file_ticker") + hidden,
+                "5m": _read_lost_rows(args.lost_5m, "alt_ticker"),
+            },
+            json.loads(args.coverage_summary.read_text()),
+        )
+        return files
+
+    async def _install(self, pool: asyncpg.Pool) -> dict[str, Any]:
+        files = self._verified_map()
+        untouched = [s for s in self._args.untouched.split(",") if s]
+        target = self._out_root / files.name
+        present = check_install_target(target, files.raw)
+        install_id = new_install_id(files.digest, datetime.now(UTC))
+        staging = self._out_root.parent / f".staging_{install_id}"
+        pre_sha = ""
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    await conn.execute(_LOCK_SQL)
+                    rows = await conn.fetch(_DOC_SPANS_SQL)
+                    plan = plan_install(files, live_old_spans(rows), untouched)
+                    report = _install_report(plan, files, install_id, self._apply)
+                    if plan.status == "already_installed":
+                        return {**report, "outcome": "no_op"}
+                    ids = {_row_key(r): r["ticker_event_id"] for r in rows}
+                    pre_sha = content_sha256(
+                        [{**r, "security_identifier_id": r["security_identifier_id"]}
+                         for r in rows]  # fmt: skip
+                    )
+                    lineage = {
+                        "install_id": install_id, "map_digest": files.digest,
+                        "map_dir": files.name, "pre_install_sha256": pre_sha,
+                        "rows_retired": len(plan.retire), "rows_inserted": len(plan.insert),
+                    }  # fmt: skip
+                    await _retire(
+                        conn,
+                        [ids[k] for k, _ in plan.retire],
+                        [retire_reason(install_id, files.digest, d) for _, d in plan.retire],
+                    )
+                    await self._insert(conn, plan, lineage)
+                    live_after = await conn.fetch(_LIVE_SQL)
+                    verify_balance(plan, [_row_key(r) for r in live_after])
+                    if not self._apply:
+                        raise _Rehearsal
+                    if not present:
+                        _stage(staging, files.raw)
+                outcome = "installed"
+            except _Rehearsal:
+                outcome = "rolled_back"
+            except BaseException:
+                shutil.rmtree(staging, ignore_errors=True)
+                raise
+        if outcome == "installed" and not present:
+            self._out_root.mkdir(parents=True, exist_ok=True)
+            os.rename(staging, target)
+        return {**report, "outcome": outcome, "pre_install_sha256": pre_sha,
+                "map_dir_installed": str(target) if outcome == "installed" else None}  # fmt: skip
+
+    async def _insert(
+        self, conn: asyncpg.Connection, plan: InstallPlan, lineage: Mapping[str, Any]
+    ) -> None:
+        sids = {
+            (r["symbol"], r["value"]): r["security_identifier_id"]
+            for r in await conn.fetch(_AMEND_IDS_SQL)
+            if r["scheme"] == SPAN_SCHEME
+        }
+        overview = {r["symbol"]: r["id"] for r in await conn.fetch(_AMEND_OVERVIEW_SQL)}
+        spans = plan.insert
+        missing = [
+            (s.symbol, s.composite_figi) for s in spans if (s.symbol, s.composite_figi) not in sids
+        ]
+        if missing:
+            raise InstallRefused(f"no live {SPAN_SCHEME} identifier for {missing}")
+        absent = sorted({s.symbol for s in spans if not s.reference_raw_id} - overview.keys())
+        if absent:
+            raise InstallRefused(f"no captured overview answer to cite for {absent}")
+        await conn.execute(
+            _INSERT_SPANS_SQL,
+            [sids[(s.symbol, s.composite_figi)] for s in spans],
+            [s.symbol for s in spans],
+            [s.ticker for s in spans],
+            [s.start for s in spans],
+            [None if s.end == _OPEN else s.end for s in spans],
+            [s.reference_raw_id or overview[s.symbol] for s in spans],
+            [install_evidence(s, lineage) for s in spans],
+        )
+
+    async def _rollback(self, pool: asyncpg.Pool) -> dict[str, Any]:
+        install_id = self._args.rollback
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    await conn.execute(_LOCK_SQL)
+                    rows = [
+                        HistoryRow(r["id"], r["security_identifier_id"], r["symbol"], r["ticker"],
+                                   r["valid_from"], r["valid_to"], r["reference_raw_id"],
+                                   r["evidence"], r["retired_reason"])
+                        for r in await conn.fetch(
+                            _INSTALL_ROWS_SQL, install_id, f"{INSTALL_REASON} {install_id} %"
+                        )
+                    ]  # fmt: skip
+                    plan = plan_rollback(install_id, rows)
+                    live_before = await conn.fetch(_LIVE_SQL)
+                    before_keys = {_row_key(r) for r in live_before}
+                    reason = f"{ROLLBACK_REASON} {install_id}: restores the rows it retired"
+                    await _retire(conn, plan.retire_ids, [reason] * len(plan.retire_ids))
+                    await conn.execute(
+                        _INSERT_SPANS_SQL,
+                        [r.security_identifier_id for r in plan.restore],
+                        [r.symbol for r in plan.restore],
+                        [r.ticker for r in plan.restore],
+                        [r.start for r in plan.restore],
+                        [r.end for r in plan.restore],
+                        [r.reference_raw_id for r in plan.restore],
+                        [canonical_json(r.evidence) for r in plan.restore],
+                    )
+                    live_after = await conn.fetch(_LIVE_SQL)
+                    inserted_keys = {r.key for r in rows if r.ticker_event_id in plan.retire_ids}
+                    expected = (before_keys - inserted_keys) | {r.key for r in plan.restore}
+                    after_sha = content_sha256(live_after)
+                    after_keys = [_row_key(r) for r in live_after]
+                    if set(after_keys) != expected or len(after_keys) != len(expected):
+                        raise InstallRefused("rollback row balance does not reconcile")
+                    if after_sha != plan.pre_install_sha256:
+                        raise InstallRefused(
+                            f"the rows after the rollback (sha256 {after_sha}) are not the rows "
+                            f"before the install ({plan.pre_install_sha256})"
+                        )
+                    if not self._apply:
+                        raise _Rehearsal
+                outcome = "rolled_back_install"
+            except _Rehearsal:
+                outcome = "rehearsed_rollback"
+        if outcome == "rolled_back_install":
+            source = self._out_root / plan.map_dir
+            if source.exists():
+                self._rolled_back_root.mkdir(parents=True, exist_ok=True)
+                os.rename(source, self._rolled_back_root / f"{plan.map_dir}__{install_id}")
+        return {
+            "mode": "rollback", "install_id": install_id, "apply": self._apply,
+            "outcome": outcome, "rows_retired": len(plan.retire_ids),
+            "rows_restored": len(plan.restore), "live_before": len(live_before),
+            "live_after": len(live_after), "post_rollback_sha256": after_sha,
+            "pre_install_sha256": plan.pre_install_sha256,
+        }  # fmt: skip
 
 
 class _Rehearsal(Exception):
@@ -1185,7 +1734,22 @@ def main() -> None:
     parser.add_argument(
         "--coverage-summary", type=Path, help="--documentary: coverage_summary.json"
     )
+    parser.add_argument("--install", type=Path, help="install this scratch map version (8c)")
+    parser.add_argument("--install-digest", help="--install: the map's 12-digit digest")
+    parser.add_argument(
+        "--untouched",
+        help="--install: comma-separated names the plan must not touch (may be empty)",
+    )
+    parser.add_argument("--rollback", metavar="INSTALL_ID", help="undo a recorded install")
     args = parser.parse_args()
+    if args.install and args.rollback:
+        parser.error("--install and --rollback are separate runs")
+    if (args.install or args.rollback) and (args.documentary or args.amend):
+        parser.error("--install and --rollback take no --documentary or --amend")
+    if args.install:
+        needed = ("install_digest", "lost_1d", "lost_5m", "coverage_summary")
+        if [n for n in needed if not getattr(args, n)] or args.untouched is None:
+            parser.error(f"--install needs --untouched and {needed}")
     if args.documentary:
         needed = ("documentary_sha256", "regions", "regions_sha256", "map_dir",
                   "pinned_map_digest", "out", "version_date", "pinned_spans_sha256", "lost_1d", "lost_5m",
@@ -1200,7 +1764,9 @@ def main() -> None:
         pass
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    if args.documentary:
+    if args.install or args.rollback:
+        asyncio.run(TickerEntityMapInstaller(db_dsn, args).run())
+    elif args.documentary:
         asyncio.run(TickerEntityMapDocumentary(db_dsn, args).run())
     elif args.amend:
         asyncio.run(TickerEntityMapAmender(db_dsn, args.apply, args).run())
