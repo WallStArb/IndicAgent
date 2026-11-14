@@ -924,3 +924,11 @@ evaluate_name  # unused function (src/intelligence/bars/venue_study.py:97)
 fetch_feature_matrix  # unused function (scripts/research/feature_matrix.py:146)
 onboard_instrument  # unused function (src/config/instrument_onboarding.py:197)
 BaseProvider  # unused class (src/providers/base_provider_agent.py:44)
+
+# Todo 614 rows 5 and 19: orphans of the deleted futures chain. ContractUpdateEvent and its field
+# go with row 19 (no producer left); MacroContext.ftq_score and corr_z are unfed but live in
+# src/intelligence/schemas.py, which is in the rebuild key, so they leave after step 7.
+ContractUpdateEvent  # unused class (src/core/schemas/market_events.py:41)
+new_contract  # unused variable (src/core/schemas/market_events.py:56)
+ftq_score  # unused variable (src/intelligence/schemas.py:462)
+corr_z  # unused variable (src/intelligence/schemas.py:465)
