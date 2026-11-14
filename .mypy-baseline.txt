@@ -357,7 +357,6 @@ src/intelligence/context/volume_profile.py:0: note: Right operand is of type "fl
 src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
 src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
 src/intelligence/context/volume_profile.py:0: note: Right operand is of type "float | None"
-src/intelligence/cross_asset_features.py:0: error: Incompatible types in
 src/intelligence/feature_factory.py:0: error: Argument
 src/intelligence/feature_factory.py:0: error: Argument
 src/intelligence/feature_factory.py:0: error: Argument

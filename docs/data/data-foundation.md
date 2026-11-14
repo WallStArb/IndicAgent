@@ -8,10 +8,10 @@
 
 > **Staleness note (2026-08-01):** This doc names `IntelligencePipeline` as a contract-selection
 > consumer (ARCHIVED, no live consumer as of 2026-07-02 per CLAUDE.md) and describes
-> `production/scripts/roll_batch.py` running nightly via systemd timer — the script has since
-> moved to `scripts/ops/roll/ops_roll_batch.py` and, per CLAUDE.md, all systemd timers are
-> confirmed disabled as of 2026-07-02. Not yet rewritten -- tracked for a future doc pass, not
-> fixed here.
+> `production/scripts/roll_batch.py` running nightly via systemd timer. The script, its unit and
+> its timer were deleted on 2026-11-14 (todo 614 row 5); the `roll_events` table stays. The roll
+> sections below describe the deleted batch and are historical. Not yet rewritten -- tracked for a
+> future doc pass, not fixed here.
 
 ## Purpose
 
@@ -112,7 +112,7 @@ Futures contracts expire on a fixed calendar. When a front-month contract expire
 
 ### Calendar-Driven Detection (`detect_rolls`)
 
-`scripts/ops/roll/ops_roll_batch.py` runs nightly via systemd timer (`indicagent-roll-batch`, `OnCalendar=*-*-* 17:30 America/New_York`, disabled live). The primary detection path is pure calendar arithmetic — no volume heuristics, no streaming state.
+The deleted roll batch ran nightly via a systemd timer (disabled live). The primary detection path is pure calendar arithmetic — no volume heuristics, no streaming state.
 
 ```python
 detect_rolls(today: date) -> list[RollDecision]

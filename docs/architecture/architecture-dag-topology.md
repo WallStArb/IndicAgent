@@ -63,7 +63,6 @@ graph TD
     subgraph BarTier["Bar Processing Tier"]
         BAGG["BarAggregator\n:9120"]
         BAUDIT["BarAuditor\n:9123"]
-        ROLL["roll-batch timer\nnightly 8pm"]
     end
 
     subgraph IntelTier["Intelligence Compute Tier"]
@@ -248,7 +247,6 @@ Compute (DB-ignorant) → Kafka → Writer (DB access only)
 |-------|-------|--------|---------|
 | `BarAggregator` | `market.bars` (1m) | `market.bars.htf` | 1m → 5m/15m/1h/4h/1d aggregation |
 | `BarAuditor` | `market.bars.htf` | `market.events.gap_requests` | Gap detection |
-| `roll-batch` timer (nightly 8pm) | calendar logic | `contract_metadata` | Futures roll detection + promotion |
 
 ### 4. Intelligence Compute
 
@@ -285,7 +283,6 @@ Compute (DB-ignorant) → Kafka → Writer (DB access only)
 | `market.bars.htf` | `BarAggregator` | Bar tier, Pipeline | HTF bars (5m-1d) |
 | `market.data.quality` | `ProviderMerger` | `CrossAssetService` | Provider quality events |
 | `market.events.gap_requests` | `BarAuditor` | `IBKRProvider` | Gap fill requests |
-| `market.events.roll` | `roll-batch` timer | Pipeline | Futures roll events |
 | `intelligence.journal` | `IntelligencePipeline` | FeatureWriter, Narrative, Parity | Full I1-I7 tiered JSONB |
 | `intelligence.i7.signals` | `IntelligencePipeline` | SignalWriter, Tracker | Winner I7 signal |
 | `narratives` | `NarrativeSwarm` | `LLMWriterService` | I8 LLM analysis |
@@ -305,7 +302,6 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/provider_merger.py` | `ProviderMerger` | `indicagent-provider-merger` | :9130 |
 | `services/bar_aggregator.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
 | `services/bar_auditor.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
-| `scripts/ops/roll/ops_roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
 
 **Intelligence layer:**
 
@@ -321,7 +317,6 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/signal_metrics_writer_agent.py` | `SignalMetricsWriter` | `indicagent-signal-metrics-writer` | :9127 |
 | `services/narrative_group_compute_agent.py` | `NarrativeSwarm` | `indicagent-ai-narrative` | :9113 |
 | `services/llm_writer_service.py` | `LLMWriterService` | `indicagent-llm-writer` | :9117 |
-| `services/cross_asset_service.py` | `CrossAssetService` | `indicagent-cross-asset` | :9118 |
 
 **Auditing & observability layer:**
 

@@ -79,7 +79,7 @@ no lane now and sits below the build lanes as cleanup.
 
 ## 4. Smaller items
 
-- `roll_events` (written by `ops_roll_batch.py`) lost its only readers (v2.x replay scripts); in
+- `roll_events` (its writer `ops_roll_batch.py` was deleted in todo 614 row 5) lost its only readers (v2.x replay scripts); in
   `_KEEP_TABLES` until someone owes it a reader or it retires.
 - DONE 2026-10-26: Kafka leftovers. Eight dead DLQ builders, the I8 narrative topics, the legacy
   Redis key helpers, `topic_market_ticks` and `topic_intelligence_shadow` deleted from

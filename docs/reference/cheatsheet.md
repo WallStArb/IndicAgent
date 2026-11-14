@@ -26,7 +26,6 @@ sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-provider-merger
 sudo systemctl restart indicagent-bar-aggregator
 sudo systemctl restart indicagent-feature-vector-writer   # v3.0 writer; indicagent-feature-writer.service does not exist
-sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
 # The streaming path (provider-merger, bar-aggregator and the other compute daemons) is

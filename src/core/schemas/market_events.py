@@ -1,7 +1,8 @@
 """Market event schemas for gap fill requests and contract updates.
 
 BarGapRequest is the typed contract published by BarAuditor to topic_gap_requests.
-ContractUpdateEvent is broadcast by roll_batch to topic_contract_updates.
+ContractUpdateEvent was broadcast by roll_batch to topic_contract_updates; the producer was deleted
+(todo 614 row 5) and the event and its consumers go in row 19.
 
 BarGapRequest design decisions (Phase 53.1):
 - request_id is auto-generated UUID for DLQ correlation/traceability.

@@ -58,7 +58,6 @@ the `Settings` class documented here.
 | `ROLL_CONFIRMATION_BARS` | `3` | Bars required to confirm roll |
 | `ROLL_TIME_OF_DAY_GATED` | `true` | Gate roll detection by time of day |
 
-> **Roll-batch:** Roll detection runs as a nightly systemd timer (`indicagent-roll-batch`, `OnCalendar=*-*-* 17:30 America/New_York`, disabled live) via `scripts/ops/roll/ops_roll_batch.py`. It replaces the former 24/7 `roll-compute` + `contract-metadata-writer` daemons. `inactive (dead)` between runs is correct — do not treat as failure.
 
 ### ML Foundation
 

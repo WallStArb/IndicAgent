@@ -75,18 +75,12 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L1 — data ingestion | 1 | `ibkr-provider`, `bar-replay` |
 | L2 — stream merge | 2 | `provider-merger` |
 | L3 — bar processing | 3 | `bar-aggregator`, `bar-auditor` |
-| L5 — intelligence context | 5 | `cross-asset`, `macro-compute` |
 | L6 — feature factory pipeline | 6 | `feature-vector-pipeline` |
 | L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer` |
 | L8 — AI/analytics + IC/ensemble/alpha oneshots | 8 | `alpha-swarm`, `narrative-compute`, `llm-writer`, `swarm-ledger-writer`, `signal-metrics-compute`, `signal-metrics-writer`, `graduation-compute`, `graduation-writer`, `regime-writer`, `forward-return-writer`, `ic-engine`, `ensemble-trainer`, `alpha-publisher`, `ensemble-ic-engine`, `alpha-frame-writer`, `counterfactual-tracker`, and all timer-triggered oneshot services (ML batch, shadow, feature-validation, hmm-training, memory-batch) |
 | L9 — audit, parity, alerting, config/self-healing | 9 | `signal-auditor`, `signal-replay`, `alerting-agent`, `dlq-drain`, `config-service`, `outbox-dispatcher`, `self-healing-agent` |
 | L10 — top-level services | 10 | `api`, `dashboard` |
 | Meta-monitor | 11 | `service-auditor` |
-
-**Not in `_DAG_ORDER` despite being a timer-triggered oneshot:** `indicagent-roll-batch` is
-listed in `_ONESHOT_UNITS` (so the auditor knows not to treat "inactive between runs" as a
-failure) but has no `_DAG_ORDER` entry at all — a live asymmetry in the code, not a doc
-staleness artifact; noted here rather than silently reproduced.
 
 ### `_DAG_ORDER` (authoritative — from `services/service_auditor.py`)
 
@@ -100,8 +94,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-provider-merger": 2,
     "indicagent-bar-aggregator": 3,
     "indicagent-bar-auditor": 3,
-    "indicagent-cross-asset": 5,
-    "indicagent-macro-compute": 5,
     "indicagent-feature-vector-pipeline": 6,
     "indicagent-feature-vector-writer": 7,
     "indicagent-signal-tracker-compute": 7,
@@ -154,9 +146,6 @@ _DAG_ORDER: dict[str, int] = {
 }
 ```
 
-Note: `indicagent-roll-batch` is a timer-triggered oneshot (`_ONESHOT_UNITS`) with no
-`_DAG_ORDER` entry — see the callout above the layer table.
-
 ### Lag Thresholds (messages before DEGRADED)
 
 **Behavioral drift from the version of this doc stamped 2026-05-29:** `_LAG_THRESHOLDS` is no
@@ -183,7 +172,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_tracker":                "indicagent-signal-tracker-compute",
     "signal_writer":                 "indicagent-signal-writer",
     "llm_writer":                    "indicagent-llm-writer",
-    "cross_asset_analyzer":          "indicagent-cross-asset",
     "bar_auditor":                   "indicagent-bar-auditor",
     "provider_merger":               "indicagent-provider-merger",
     "lifecycle_writer":              "indicagent-lifecycle-writer",
@@ -193,7 +181,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "alpha_swarm":                   "indicagent-alpha-swarm",
     "narrative_swarm":               "indicagent-narrative-compute",
     "swarm_ledger_writer":           "indicagent-swarm-ledger-writer",
-    "macro_analyzer":                "indicagent-macro-compute",
     "signal_auditor":                "indicagent-signal-auditor",
     "graduation_analyzer":           "indicagent-graduation-compute",
     "graduation_writer":             "indicagent-graduation-writer",
@@ -355,7 +342,6 @@ These services are timer-triggered oneshots — they run, do work, and exit. `in
 
 - `indicagent-ml-training`, `indicagent-ml-signal-training-materialize` (nightly 11pm)
 - `indicagent-ml-orchestrator`, `indicagent-ml-data-quality`, `indicagent-ml-discovery` (weekly Monday)
-- `indicagent-roll-batch` (nightly 8pm)
 - `indicagent-weight-updater`, `indicagent-shadow-auditor` (timer-triggered)
 - `indicagent-feature-validation` (daily), `indicagent-hmm-training` (monthly)
 

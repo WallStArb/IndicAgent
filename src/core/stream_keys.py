@@ -103,11 +103,6 @@ def topic_system_events(env_name: str) -> str:
     return f"{env_prefix(env_name)}system.events"
 
 
-def topic_cross_asset(env_name: str) -> str:
-    """Kafka topic for cross-asset spread features (group-level)."""
-    return f"{env_prefix(env_name)}cross_asset"
-
-
 def topic_feature_vectors(env_name: str) -> str:
     """Kafka topic for FeatureVectorRecord per bar.
 
@@ -240,18 +235,6 @@ def topic_feature_vectors_dlq(env_name: str) -> str:
 def topic_intelligence_pipeline_dlq(env_name: str) -> str:
     """Dead letter queue for IntelligencePipeline unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
-
-
-def topic_macro_signals(env_name: str) -> str:
-    """Kafka topic for macro factor signals.
-
-    Published by: MacroAnalyzer
-    Consumed by: IntelligencePipeline (frames["cross_asset"])
-    DataWriterAgent writes to: macro_features hypertable
-
-    Topic naming: <env>.macro_signals (dots only, no colons)
-    """
-    return f"{env_prefix(env_name)}macro_signals"
 
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:

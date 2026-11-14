@@ -184,8 +184,6 @@ IBKR TWS → IBKRProvider (market.bars.raw.ibkr)
                 ├─ BarAggregator → market.bars.htf (5m-1d)
                 └─ BarAuditor → market.events.gap_requests
                 │
-                roll-batch timer (nightly 8pm) → contract_metadata (DB)
-                │
                 ↓ IntelligencePipeline
                 │   (I1-I7 unified, subscribes market.bars + market.bars.htf)
                 │   ├─ intelligence.journal (BarIntelligenceRecord — atomic per-bar record)
@@ -316,7 +314,6 @@ The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mi
 {env}.intelligence.signal_lineage.dlq  # failed lineage persistence
 
 # CTX / macro
-{env}.macro_signals                    # macro factor signals (MacroAnalyzer)
 
 # Writer DLQs
 {env}.feature.writer.dlq
@@ -563,7 +560,6 @@ docker exec redpanda rpk topic stats <topic-name>
 - **ADR-16: LLM audit trail** — every LLM call is a labeled training sample; full design at `docs/intelligence/` (LLM chain, llm_calls hypertable, per-model scoring, outcome back-fill). Design principle: once gone, the outcome cannot be recovered.
 - **ADR-17: Historical backfill — replay fidelity tradeoff** — Stage 2 replay writes `source='backfill'`. First ~50 bars have degraded quality (Kalman/GARCH warm-up). Accepted tradeoff. See `docs/data/data-pipeline.md`.
 - **ADR-18: ServiceAuditor — pipeline health and self-healing** — monitors all active services, publishes typed health state transitions to `system.health.events`, can trigger restarts on breach of lag/error thresholds. Escalation DLQ: `intelligence.service_auditor.journal.dlq`. See `docs/platform/platform-self-healing.md`.
-- **ADR-19: Roll batch — nightly timer replaces 24/7 daemons** — `production/scripts/roll_batch.py` runs as a nightly systemd timer at 8pm. Detects calendar-based rolls, promotes front-month contracts in `contract_metadata`, broadcasts updates via Kafka. `inactive (dead)` between runs is correct. See `docs/research/archive/futures-roll-simplification.md`.
 
 **API-layer ADRs (not streaming concerns — moved to See Also):**
 

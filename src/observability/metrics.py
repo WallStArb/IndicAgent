@@ -30,7 +30,7 @@ def _tier_to_functional(tier_code: str) -> str:
 def flush_and_shutdown_metrics(timeout_millis: int = 5000) -> None:
     """Flush and shut down the OTel MeterProvider before oneshot process exit.
 
-    Oneshot scripts (regime-writer, ic-measure, roll-batch) MUST call this
+    Oneshot scripts (regime-writer, ic-measure) MUST call this
     once at the end of main() so the OTLP exporter drains before the process
     exits.  Without this, JOB_COMPLETED_TOTAL increments never reach the
     collector.

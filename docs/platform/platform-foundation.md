@@ -81,7 +81,6 @@ P0   redpanda-ready, redpanda-watchdog,     — infra sentinels
 P1   ibkr-provider, bar-replay              — data ingestion
 P2   provider-merger                        — stream merge
 P3   bar-aggregator, bar-auditor            — bar processing
-P5   cross-asset, macro-compute             — intelligence context
 P6   feature-vector-pipeline                — Feature Factory compute
 P7   feature-vector-writer, signal-writer,  — persistence writers (parallel)
      signal-tracker-compute, lifecycle-writer,
@@ -103,15 +102,7 @@ P10  api, dashboard                         — top-level services
 P11  service-auditor                        — meta: monitors + restarts all above
 ```
 
-`indicagent-roll-batch` is a timer-triggered oneshot but has no `_DAG_ORDER` entry in the
-current code (a live asymmetry, not a doc gap).
-
 **ML batch services** (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`) are timer-triggered, not daemons. `inactive (dead)` between runs is correct — do not treat as failures.
-
-**Roll batch** (`roll-batch`) is documented as running nightly at 8pm, detecting calendar-based
-futures rolls and promoting front-month contracts in `contract_metadata` via Kafka broadcast —
-but per CLAUDE.md, **all systemd timers are confirmed disabled as of 2026-07-02**. Verify with
-`systemctl list-timers | grep indicagent` before assuming this runs on schedule.
 
 ### Docker Container Inventory
 
@@ -143,7 +134,6 @@ All systemd units follow the pattern: `indicagent-<name>.service` (daemons) or `
 Timer units defined in `production/systemd/`:
 - `indicagent-ml-training.timer` — nightly 11pm
 - `indicagent-ml-orchestrator.timer`, `indicagent-ml-data-quality.timer`, `indicagent-ml-discovery.timer` — weekly Monday
-- `indicagent-roll-batch.timer` — nightly 8pm
 - `indicagent-shadow-auditor.timer`, `indicagent-feature-validation.timer`, `indicagent-redpanda-watchdog.timer` — various schedules
 
 Installed units live in `/etc/systemd/system/`. Reference files in `production/systemd/` are the source; install manually after changes.

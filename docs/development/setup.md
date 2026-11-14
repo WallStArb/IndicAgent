@@ -172,7 +172,6 @@ sudo systemctl start \
   indicagent-lifecycle-writer \
   indicagent-llm-writer \
   indicagent-ai-narrative \
-  indicagent-cross-asset \
   indicagent-parity-auditor \
   indicagent-service-auditor \
   indicagent-swarm-orchestrator \

@@ -29,13 +29,12 @@ Live IBKR ingestion is stalled (frozen since 2026-08-12 per project memory, todo
 | Bar Aggregator | `indicagent-bar-aggregator` | `services/bar_aggregator.py` | `market.bars.htf` | `inactive (dead)` |
 | Bar Auditor | `indicagent-bar-auditor` | `services/bar_auditor.py` | `market.events.gap_requests` | `inactive (dead)` |
 
-> **Roll detection:** `indicagent-roll-batch.timer` (`scripts/ops/roll/ops_roll_batch.py`) is **confirmed `disabled`** (`systemctl is-enabled` → `disabled`, re-checked 2026-09-04) — do not assume it runs nightly. Verify with `systemctl list-timers --all | grep roll-batch` before citing as scheduled.
 
 ## Intelligence Compute Tier (Wave 2) — v3.0 Feature Factory
 
 | Service | Unit | File | Consumes | Publishes To |
 |---------|------|------|----------|---------------|
-| Feature Vector Pipeline | `indicagent-feature-vector-pipeline` | `services/feature_vector_pipeline.py` | `market.bars`, `market.bars.htf`, `cross_asset`, `macro_signals`, `system_events` | `feature_vectors` (Kafka topic, `topic_feature_vectors`) |
+| Feature Vector Pipeline | `indicagent-feature-vector-pipeline` | `services/feature_vector_pipeline.py` | `market.bars`, `market.bars.htf`, `system_events` | `feature_vectors` (Kafka topic, `topic_feature_vectors`) |
 
 Computes via `src/intelligence/feature_factory.py` — **not** `register_plugins.py`/the I1-I7 plugin DAG. Live 2026-09-04 (`active running`). DB-ignorant compute; persistence goes through the writer below (DAG Invariant 3). See `docs/architecture/architecture-dag-topology.md` §2 for wiring detail.
 
@@ -82,7 +81,6 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 | Bar Derivation Daily | `indicagent-bar-derivation-daily` | `services/bar_derivation.py --stage daily --changed-only --apply` | `.timer` `enabled`, daily 05:20 UTC (after the Alpaca nightly; before the grid and the audit) |
 | Bar Derivation Grid | `indicagent-bar-derivation-grid` | `services/bar_derivation.py --stage grid --changed-only --apply` | `.timer` `enabled`, daily 05:45 UTC (after the Alpaca nightly) |
 | Bar Reconciliation Audit (D7) | `indicagent-bar-reconciliation-audit` | `services/bar_reconciliation_audit.py` | `.timer` `enabled`, daily 06:00 UTC |
-| Roll Batch | `indicagent-roll-batch` | `scripts/ops/roll/ops_roll_batch.py` | `.timer` **`disabled`** — see Roll detection note above |
 
 ## IC / Alpha Pipeline (Batch — orchestrator-driven, not systemd units)
 
@@ -100,8 +98,6 @@ Removed in plan 185-45 (alpha swarm, narrative compute, swarm ledger writer, LLM
 
 | Service | Unit | File | Purpose | Live state |
 |---------|------|------|---------|------------|
-| Cross Asset | `indicagent-cross-asset` | `services/cross_asset_analyzer.py` | Cross-asset spread dynamics | `inactive (dead)` |
-| Macro Compute | `indicagent-macro-compute` | `services/macro_analyzer.py` | Macro factor computation | `inactive (dead)` |
 | Config Service | `indicagent-config-service` | `services/config_service.py` | APR HTTP API, port 9001 | not loaded |
 | Outbox Dispatcher | `indicagent-outbox-dispatcher` | `services/outbox_dispatcher_agent.py` | Transactional outbox → Kafka | not loaded |
 | Self-Healing Agent | `indicagent-self-healing-agent` | `services/self_healer.py` | Alertmanager webhook + remediation | not loaded |

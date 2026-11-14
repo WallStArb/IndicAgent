@@ -117,7 +117,6 @@ Automation is the final force multiplier — it makes a validated, simplified pr
 - The corpus orchestrator was built after each pipeline step was manually verified to produce correct output — automation followed validation, not the reverse (its successor, `services/corpus_rerun.py`, followed the same order in 186-31)
 - systemd services + Prometheus lag monitoring — automation layered on services that were proven correct in manual operation first
 - APR ML learning targets — parameter tuning is automated only after manual calibration proves the parameter matters and the range is sensible
-- `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — the roll process was manually executed and verified before being scheduled as a nightly timer; the timer is currently disabled (verify with `systemctl list-timers` before assuming it fires), a reminder that automation status must be re-checked live, not assumed from this doc
 - `BaseWriter` DLQ — automated error isolation, but only because the error taxonomy was understood through manual debugging first
 
 ---

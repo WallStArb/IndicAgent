@@ -15,8 +15,8 @@ changes added complexity the core system did not need while it was being refined
 - The 1,529 active names are equities and ETFs. Commodity, rate, currency and managed-futures
   exposure comes through funds (USO, DBMF, KMLM, CTA and similar), which carry their own roll cost
   and decay.
-- The nightly roll batch (`indicagent-roll-batch.timer`, `scripts/ops/roll/ops_roll_batch.py`)
-  exists and is disabled.
+- The nightly roll batch (unit, timer and script) was deleted on 2026-11-14 (todo 614 row 5);
+  its logic is in git history.
 
 ## Why it is hard
 

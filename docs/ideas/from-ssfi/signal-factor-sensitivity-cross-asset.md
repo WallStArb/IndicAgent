@@ -87,7 +87,7 @@ theme-independence/Grinold's-Law discipline.
 
 ## What doesn't transfer from indicagent, stated explicitly so it isn't assumed later
 
-`cross_asset_analyzer.py` and its sibling services are real-time Kafka-topic-subscribing
+`cross_asset_analyzer.py` (deleted 2026-11-14, todo 614 row 5) and its sibling services are real-time Kafka-topic-subscribing
 `BaseDaemon` processes, maintaining live rolling windows over streaming futures bars (ES/
 NQ/RTY/YM) — architecturally coupled to indicagent's own continuous-market-data
 infrastructure, which SSFI deliberately does not have (DAG Invariant 6, no general-purpose

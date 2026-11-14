@@ -82,13 +82,6 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
     "services/test_service_contract_resolution.py": (
         "mock-only: the literal is a settings stub, never connected"
     ),
-    "services/test_cross_asset_service.py": (
-        "mock-only: the literal is a service stub's database_url; the persist tests run on a "
-        "mock pool and assert the SQL text, never connected"
-    ),
-    "services/test_macro_analyzer.py": (
-        "mock-only: the literal is an agent stub's database_url, never connected"
-    ),
 }
 
 

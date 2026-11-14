@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed (producer, topic and consumers deleted 2026-11-14, todo 614 row 5)
 priority: P3
 found_during: phase-151-plan-04
 found_date: 2026-08-05

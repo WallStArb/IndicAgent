@@ -42,8 +42,6 @@ def test_dag_order_covers_required_services():
         "indicagent-bar-auditor",
         "indicagent-feature-vector-pipeline",
         "indicagent-feature-vector-writer",
-        "indicagent-cross-asset",
-        "indicagent-macro-compute",
         # indicagent-parity-auditor and indicagent-feature-snapshot-writer removed:
         # these services do not exist in the live system (not in /etc/systemd/system/).
     }
@@ -185,12 +183,11 @@ def test_all_live_services_in_dag_order():
 
 
 def test_feature_vector_pipeline_priority_is_6():
-    """feature-vector-pipeline must be priority 6 (after cross-asset=5, before writers=7)."""
+    """feature-vector-pipeline must be priority 6 (after bar-aggregator=3, before writers=7)."""
     from services.service_auditor import _DAG_ORDER
 
     assert _DAG_ORDER["indicagent-feature-vector-pipeline"] == 6
-    # cross-asset/macro are 5 (upstream), feature-vector-writer is 7 (downstream)
-    assert _DAG_ORDER["indicagent-cross-asset"] == 5
+    # feature-vector-writer is 7 (downstream)
     assert _DAG_ORDER["indicagent-feature-vector-writer"] == 7
 
 

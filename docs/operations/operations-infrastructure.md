@@ -205,7 +205,6 @@ L3  Bar processing
     indicagent-bar-aggregator, indicagent-bar-auditor
 
 L5  Compute pipeline
-    indicagent-cross-asset, indicagent-macro-compute,
     indicagent-feature-vector-pipeline
 
 L6  Persistence writers

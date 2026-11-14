@@ -134,9 +134,13 @@ _KEEP_TABLES: dict[str, str] = {
         "data/backups/509-signal-surface/. Owner call: drop or keep"
     ),
     "roll_events": (
-        "futures roll record written by scripts/ops/roll/ops_roll_batch.py; its only readers were "
+        "futures roll record; its writer (ops_roll_batch, deleted in todo 614 row 5) and its only readers were "
         "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "
         "reader is owed"
+    ),
+    "macro_features": (
+        "macro factor record; its writer (MacroAnalyzer, deleted in todo 614 row 5) was the only "
+        "code that touched it. Kept with its rows until todo 509 decides whether a reader is owed"
     ),
 }
 

@@ -106,12 +106,6 @@ class Settings(BaseSettings):
     roll_confirmation_bars: int = Field(default=3, validation_alias="ROLL_CONFIRMATION_BARS")
     roll_time_of_day_gated: bool = Field(default=True, validation_alias="ROLL_TIME_OF_DAY_GATED")
 
-    # Cross-asset intelligence (always active — feature flag removed Phase 47-04)
-    cross_asset_window_bars: int = Field(default=20, validation_alias="CROSS_ASSET_WINDOW_BARS")
-
-    # Macro factors service (Phase 64-03A)
-    macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
-
     # Provider Merger Agent (Phase 54-04)
     # provider_raw_topics: list of provider names whose raw topics to subscribe to
     # provider_routing_config: asset_class -> authoritative provider name
