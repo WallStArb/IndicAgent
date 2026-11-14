@@ -112,6 +112,7 @@ not IBKR coverage.
 
 | Todo | Why now |
 |---|---|
+| [617](pending/617-storage-and-database-hygiene-wave.md) | New 2026-11-14, P2, owner request. Disk is at 13 percent and compression already works (126 to 16 GB raw, 90 to 13 GB canonical); the waste is index size on `ohlcv_revision` (4.7 GB), 15 percent dead tuples on `bar_quality_flag`, 112 GB of temp spill and an uncompressed `integrity_monitor`. Folds in 616, 443, 589 and runbook Part G; waits for the step 7 quiet window. |
 | [616](pending/616-ohlcv-coverage-zero-no-raw-update-temp-spill.md) | New 2026-11-14, P2. The `ohlcv_coverage` zero-no-raw UPDATE writes 68 GB of temp files (60% of the database's spill); fix the query shape, not `work_mem`. Waits for step 7: `services/ohlcv_coverage_writer.py` is imported by it. |
 | [559](pending/559-cointegration-spread-family-preregistration.md) | New 2026-10-28, owner reopened the cointegration concept (ledger section 2). Pre-register a spread family tested on its trading statistic (static and Kalman hedge ratios, OU half-life), disclosing the 2026-08-07 pilot and the 471-pair screen as seen data; no look before the pre-registration. Placement and the draft are the assistant's (needs an Opus or Fable pass). |
 | [548](pending/548-style-spread-regime-slot-and-time-series-construction.md) | New 2026-10-27. The owner's participation-state idea (RSP/SPY and style spreads) cannot run through the runner: S7 has no regime input slot (part A) and the runner is R1 only (part B's time-series book). Part B's synthetic power check comes first and needs neither. |
