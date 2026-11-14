@@ -26,3 +26,7 @@ work_mem is not the fix (it is already 256 MB; a spill this size means the plan 
 ## Boundary
 
 `services/ohlcv_coverage_writer.py` is imported by step 7. Do not edit it until step 7 is done and the lead says the lane is quiet (CLAUDE.md: never edit a module a live or resumable fingerprinted run imports). Work waits; plan and measure on a copy only if the lead allows.
+
+## Also (lead survey 2026-11-14, from the deleted storage wave todo)
+
+Disk is 13 percent used and compression already holds (`ohlcv_raw` 126 to 16 GB, `market_data_ohlcv` 90 to 13 GB), so no storage wave is owed. After step 7 only: `VACUUM (ANALYZE)` on `bar_quality_flag` (14.9 percent dead tuples) and `ohlcv_revision`; the other items (exporter scrape 443, huge pages runbook Part G, recompress 589) keep their own rows. Index drops, hypertable conversions and image pruning were judged not worth the risk and effort.
