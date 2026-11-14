@@ -14,7 +14,7 @@ from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import undefined_on, unique_datetimes
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 # Calendar constant: average days per quarter (365.25 / 4). Not a tunable — fixed by definition.

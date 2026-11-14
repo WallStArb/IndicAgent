@@ -25,17 +25,18 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 # Import only the pure-function helpers — no network, no DB
 from services import backfill_feature_factory as module
 from services.backfill_feature_factory import (
-    _BARS_PER_DAY,
     _TARGET_TIMEFRAMES_DEFAULT,
     _get_target_timeframes,
 )
 from src.config.config_service import ConfigService
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.registry import (
     compute_kernels,
     constant_volume_basis,
     default_registry,
 )
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_row_values,
     feature_vectors_numeric_columns,
@@ -49,7 +50,6 @@ from src.intelligence.features.kernels.macro import (
     build_cross_asset_series,
     build_symbol_beta_series,
 )
-from src.intelligence.schemas import FeatureVector
 from tests.unit.intelligence import test_macro_alignment as tma
 from tests.unit.intelligence.bar_builders import synthetic_daily_bars
 
@@ -491,14 +491,6 @@ def test_a_run_with_failed_units_is_not_a_success() -> None:
     assert module._completion_status({"units_failed": 3}) == "partial"
 
 
-def test_bars_per_day_values() -> None:
-    """Verify _BARS_PER_DAY constants match objective specification."""
-    assert _BARS_PER_DAY["5m"] == 78
-    assert _BARS_PER_DAY["15m"] == 26
-    assert _BARS_PER_DAY["1h"] == 6
-    assert _BARS_PER_DAY["1d"] == 1
-
-
 # ---------------------------------------------------------------------------
 # Fetch resume: run_fetch_stage skips IBKR download for fetch_complete=true pairs
 # ---------------------------------------------------------------------------
@@ -534,6 +526,13 @@ def test_get_target_timeframes_honors_apr_override() -> None:
     cfg = ConfigService(database_url="")
     cfg._cache["feature.factory.target_timeframes"] = ["5m", "1h"]
     assert _get_target_timeframes(cfg) == ["5m", "1h"]
+
+
+def test_get_target_timeframes_refuses_an_unknown_timeframe_at_load() -> None:
+    cfg = ConfigService(database_url="")
+    cfg._cache["feature.factory.target_timeframes"] = ["5m", "4h"]
+    with pytest.raises(AssertionError, match="4h"):
+        _get_target_timeframes(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -928,74 +927,6 @@ class TestRebuildUnitDesign:
         with pytest.raises(ValueError, match="tz-aware"):
             rebuild_unit_ranges("5m", datetime(2020, 1, 1), datetime(2021, 1, 1, tzinfo=UTC))
 
-    def test_fetch_window_is_never_shorter_than_the_bars_it_must_hold(self) -> None:
-        from services.backfill_feature_factory import bars_to_fetch_window
-
-        # 5m: 78 regular-session bars a day, so 780 bars is at least 10 trading days; a bare
-        # 780 * 300 s would be 2.7 wall-clock hours and cover no more than one session.
-        window = bars_to_fetch_window("5m", 780)
-        assert window >= timedelta(days=14)
-        assert bars_to_fetch_window("1d", 5) >= timedelta(days=7)
-        assert bars_to_fetch_window("5m", 0) == timedelta(0)
-        with pytest.raises(ValueError, match="bars-per-day"):
-            bars_to_fetch_window("4h", 10)
-
-    def test_fetch_start_uses_declared_memory_for_stateless_contributors(self) -> None:
-        from services.backfill_feature_factory import bars_to_fetch_window, unit_fetch_start
-        from src.intelligence.features.contract.registry import default_registry
-
-        registry = default_registry()
-        config = _make_config()
-        series_start = datetime(2010, 1, 4, tzinfo=UTC)
-        range_start = datetime(2015, 1, 1, tzinfo=UTC)
-        # atr_z has a finite declared memory (no path-dependent upstream).
-        memory = registry.effective_memory_bars(registry.by_output("atr_z").name, config)
-        assert memory > 0
-        got = unit_fetch_start(registry, ["atr_z"], "5m", range_start, series_start, config)
-        assert got == range_start - bars_to_fetch_window("5m", memory)
-        assert series_start < got < range_start
-        # The deepest-memory column of a set wins.
-        deeper = unit_fetch_start(
-            registry, ["atr_z", "supply_dist_atr"], "5m", range_start, series_start, config
-        )
-        assert deeper < got
-
-    def test_fetch_start_never_precedes_the_series_start(self) -> None:
-        from services.backfill_feature_factory import unit_fetch_start
-        from src.intelligence.features.contract.registry import default_registry
-
-        series_start = datetime(2015, 1, 5, tzinfo=UTC)
-        got = unit_fetch_start(
-            default_registry(),
-            ["supply_dist_atr"],
-            "5m",
-            datetime(2015, 1, 6, tzinfo=UTC),
-            series_start,
-            _make_config(),
-        )
-        assert got == series_start
-
-    def test_fetch_start_is_the_series_start_for_a_path_dependent_contributor(self) -> None:
-        from services.backfill_feature_factory import (
-            path_dependent_contributors,
-            unit_fetch_start,
-        )
-        from src.intelligence.features.contract.registry import default_registry
-
-        registry = default_registry()
-        series_start = datetime(2010, 1, 4, tzinfo=UTC)
-        got = unit_fetch_start(
-            registry,
-            ["atr_z", "regime"],
-            "5m",
-            datetime(2020, 1, 1, tzinfo=UTC),
-            series_start,
-            _make_config(),
-        )
-        assert got == series_start
-        assert path_dependent_contributors(registry, ["atr_z"]) == ()
-        assert "hmm_trend_walk_forward" in path_dependent_contributors(registry, ["regime"])
-
     def test_every_externally_fed_kernel_declares_memory_in_the_consuming_tf(self) -> None:
         # D-26 denomination: a kernel reading a caller-supplied series (daily macro records, HTF
         # values) is a pass-through on the row grid, so its declared memory is in the consuming
@@ -1053,6 +984,72 @@ class TestRebuildUnitDesign:
             lambda m: "changed" if m == registry.by_output(unrelated).module else real(m),
         )
         assert module.unit_code_key(registry, ["atr_z"]) == before
+
+    def test_every_runtime_import_of_the_writer_is_hashed_or_reviewed(self) -> None:
+        """The writer line of the rebuild key is the import closure of the writer module, so every
+        first-party module it imports at run time (inside functions too) is hashed by source,
+        unless it is on IO_BOUNDARY_MODULES or the reviewed WRITER_UNHASHED_IMPORTS map, where it
+        registers by name. Computed from source on every run (`import_closure` is not cached),
+        never from a memoized key."""
+        import ast
+
+        from src.core.code_identity import (
+            FIRST_PARTY_PACKAGES,
+            IO_BOUNDARY_MODULES,
+            _imported_modules,
+            source_path,
+        )
+
+        writer = module._WRITER_MODULE
+        imported = set(
+            _imported_modules(
+                ast.parse(source_path(writer).read_bytes()), writer, FIRST_PARTY_PACKAGES
+            )
+        )
+        hashed = set(module.writer_code_modules())
+        assert imported <= hashed, sorted(imported - hashed)
+        opaque = set(IO_BOUNDARY_MODULES) | set(module.WRITER_UNHASHED_IMPORTS)
+        assert module._WRITER_OPAQUE == opaque
+        # The batch builders and the kernel config are hashed by source; the streaming
+        # factory is not in the key at all.
+        assert {
+            "src.intelligence.features.external_inputs",
+            "src.intelligence.features.feature_factory_config",
+            "src.intelligence.features.feature_vector_persistence",
+            "services._batch_utils",
+        } <= hashed - opaque
+        assert "src.intelligence.feature_factory" not in hashed
+        # Every map entry is a real import of the writer (a stale entry would later hide a
+        # module that starts to matter) and carries its reason.
+        assert set(module.WRITER_UNHASHED_IMPORTS) <= imported
+        assert all(reason.strip() for reason in module.WRITER_UNHASHED_IMPORTS.values())
+
+    def test_the_writer_line_moves_with_a_hashed_import_and_not_an_opaque_one(
+        self, monkeypatch
+    ) -> None:
+        from src.core import code_identity
+
+        registry = default_registry()
+        columns = ["atr_z"]
+        before = module.unit_code_key(registry, columns)
+        real = code_identity.normalized_source_for_hash
+
+        def edited(target: str):
+            path = str(code_identity.source_path(target))
+            return lambda source, _p=path: (
+                real(source) + b"#edit" if source == Path(_p).read_bytes() else real(source)
+            )
+
+        monkeypatch.setattr(
+            code_identity,
+            "normalized_source_for_hash",
+            edited("src.intelligence.features.external_inputs"),
+        )
+        assert module.unit_code_key(registry, columns) != before
+        monkeypatch.setattr(
+            code_identity, "normalized_source_for_hash", edited("src.config.settings")
+        )
+        assert module.unit_code_key(registry, columns) == before
 
     def test_apr_reader_uses_the_fallbacks_and_refuses_nonsense(self) -> None:
         from services.backfill_feature_factory import load_rebuild_unit_apr
@@ -2251,20 +2248,16 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
     assert last[fq_j] == pytest.approx(float(expected), rel=1e-6)
 
 
-def test_full_column_set_fetch_start_is_the_series_start():
+def test_full_column_set_has_path_dependent_contributors():
     """D-26: the contributing set of the whole v2 column set includes path-dependent kernels
-    (the regime walk-forward, hurst, ...), so the unit fetch starts at the series start; the
-    worker's single compute pass therefore covers the full series."""
-    from services.backfill_feature_factory import path_dependent_contributors, unit_fetch_start
+    (the regime walk-forward, hurst, ...), so no finite warmup reproduces it and the worker's
+    single compute pass covers the full series; a subset with none has none."""
+    from services.backfill_feature_factory import path_dependent_contributors
 
     registry = default_registry()
-    outputs = list(feature_vectors_output_columns())
-    series_start = datetime(2010, 1, 4, tzinfo=UTC)
-    got = unit_fetch_start(
-        registry, outputs, "5m", datetime(2020, 1, 1, tzinfo=UTC), series_start, tma.CONFIG
-    )
-    assert got == series_start
-    assert path_dependent_contributors(registry, outputs)
+    assert path_dependent_contributors(registry, list(feature_vectors_output_columns()))
+    assert path_dependent_contributors(registry, ["atr_z"]) == ()
+    assert "hmm_trend_walk_forward" in path_dependent_contributors(registry, ["regime"])
 
 
 def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):

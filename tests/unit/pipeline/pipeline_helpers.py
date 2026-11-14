@@ -54,7 +54,8 @@ def make_agent() -> FeatureVectorPipeline:
     agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
     # FeatureFactoryConfig required by _process_bar_compute() assertion.
     # Seeded with default values matching APR defaults.
-    from src.intelligence.feature_factory import FeatureFactoryConfig, invert_ctf_higher_tf_map
+    from src.intelligence.feature_factory import invert_ctf_higher_tf_map
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
     agent._feature_factory_config = FeatureFactoryConfig(
         momentum_window_fast=5,

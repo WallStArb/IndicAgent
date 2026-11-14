@@ -62,7 +62,7 @@ def load_manifest(fixture_dir: Path = FIXTURE_DIR) -> dict:
 
 
 def build_config(snapshot: dict):
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
     return FeatureFactoryConfig(**snapshot)
 

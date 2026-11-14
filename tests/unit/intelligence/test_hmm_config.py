@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactoryConfig
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels import _hmm
 from src.intelligence.features.kernels._hmm import FAMILY_SPECS, HmmConfig
 from src.intelligence.features.kernels.regime import compute_regime_columns

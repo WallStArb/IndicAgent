@@ -34,7 +34,7 @@ from src.intelligence.features.kernels._primitives import (
 from src.intelligence.features.kernels.macro import bar_ts_ns
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 class CtfRecord(NamedTuple):

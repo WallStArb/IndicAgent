@@ -44,7 +44,7 @@ from src.intelligence.features.kernels.macro import _grid_bars
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 def _require_window(config: FeatureFactoryConfig) -> int:

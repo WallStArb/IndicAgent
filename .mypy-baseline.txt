@@ -376,57 +376,30 @@ src/intelligence/feature_factory.py:0: error: Argument
 src/intelligence/feature_factory.py:0: error: Argument
 src/intelligence/feature_factory.py:0: error: Argument
 src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument
-src/intelligence/feature_factory.py:0: error: Argument "abs_ret_autocorr_1"
 src/intelligence/feature_factory.py:0: error: Argument "adx" to
 src/intelligence/feature_factory.py:0: error: Argument "amihud_illiq_z" to
 src/intelligence/feature_factory.py:0: error: Argument "aroon_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "aroon_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "atr_z" to
 src/intelligence/feature_factory.py:0: error: Argument "bar_close_pos" to
-src/intelligence/feature_factory.py:0: error: Argument "bars_since_52w_high"
-src/intelligence/feature_factory.py:0: error: Argument "bars_since_52w_low"
-src/intelligence/feature_factory.py:0: error: Argument "bars_since_low_fast"
-src/intelligence/feature_factory.py:0: error: Argument "bars_since_low_slow"
 src/intelligence/feature_factory.py:0: error: Argument "bb_pct_b_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "bb_pct_b_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "body_ratio" to
-src/intelligence/feature_factory.py:0: error: Argument "canary_constant" to
 src/intelligence/feature_factory.py:0: error: Argument "cci_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "cci_mid" to
 src/intelligence/feature_factory.py:0: error: Argument "cci_slow" to
-src/intelligence/feature_factory.py:0: error: Argument "cmf" to
-src/intelligence/feature_factory.py:0: error: Argument "ctf_momentum" to
-src/intelligence/feature_factory.py:0: error: Argument "ctf_regime_align" to
-src/intelligence/feature_factory.py:0: error: Argument "ctf_vwap_align" to
 src/intelligence/feature_factory.py:0: error: Argument "cvd_slope_z" to
-src/intelligence/feature_factory.py:0: error: Argument "days_to_month_end"
-src/intelligence/feature_factory.py:0: error: Argument "dist_from_high_fast"
-src/intelligence/feature_factory.py:0: error: Argument "dist_from_high_slow"
-src/intelligence/feature_factory.py:0: error: Argument "dist_from_low_fast"
-src/intelligence/feature_factory.py:0: error: Argument "dist_from_low_slow"
 src/intelligence/feature_factory.py:0: error: Argument "dollar_vol_z" to
 src/intelligence/feature_factory.py:0: error: Argument "flight_quality" to
 src/intelligence/feature_factory.py:0: error: Argument "gap_z" to
 src/intelligence/feature_factory.py:0: error: Argument "garch_ratio" to
 src/intelligence/feature_factory.py:0: error: Argument "garman_klass_vol_z"
-src/intelligence/feature_factory.py:0: error: Argument "high_52w_dist" to
-src/intelligence/feature_factory.py:0: error: Argument "high_low_corr" to
 src/intelligence/feature_factory.py:0: error: Argument "hma_slope_z" to
 src/intelligence/feature_factory.py:0: error: Argument "hurst" to
 src/intelligence/feature_factory.py:0: error: Argument "hv_ratio" to
 src/intelligence/feature_factory.py:0: error: Argument "hv_z_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "hv_z_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "hyg_lqd_ret_z" to
-src/intelligence/feature_factory.py:0: error: Argument "informed_flow" to
-src/intelligence/feature_factory.py:0: error: Argument "intraday_ret" to
 src/intelligence/feature_factory.py:0: error: Argument "lower_wick_ratio" to
 src/intelligence/feature_factory.py:0: error: Argument "mfi_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "mfi_slow" to
@@ -440,37 +413,13 @@ src/intelligence/feature_factory.py:0: error: Argument "obv_z" to
 src/intelligence/feature_factory.py:0: error: Argument "ofi_div" to
 src/intelligence/feature_factory.py:0: error: Argument "ofi_z" to
 src/intelligence/feature_factory.py:0: error: Argument "ofi_z_velocity" to
-src/intelligence/feature_factory.py:0: error: Argument "open_ret" to
-src/intelligence/feature_factory.py:0: error: Argument "open_vs_intraday" to
-src/intelligence/feature_factory.py:0: error: Argument "opex_flag" to
-src/intelligence/feature_factory.py:0: error: Argument "overnight_gap" to
 src/intelligence/feature_factory.py:0: error: Argument "overnight_gap_z" to
 src/intelligence/feature_factory.py:0: error: Argument "parkinson_vol_z" to
-src/intelligence/feature_factory.py:0: error: Argument "price_vol_corr_fast"
-src/intelligence/feature_factory.py:0: error: Argument "price_vol_corr_slow"
-src/intelligence/feature_factory.py:0: error: Argument "quad_witching_flag"
-src/intelligence/feature_factory.py:0: error: Argument "quarter_cycle_cos"
-src/intelligence/feature_factory.py:0: error: Argument "quarter_cycle_sin"
-src/intelligence/feature_factory.py:0: error: Argument "quarter_position" to
-src/intelligence/feature_factory.py:0: error: Argument "range_efficiency" to
-src/intelligence/feature_factory.py:0: error: Argument "range_pct_fast" to
-src/intelligence/feature_factory.py:0: error: Argument "range_pct_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "range_position" to
-src/intelligence/feature_factory.py:0: error: Argument "range_to_close" to
 src/intelligence/feature_factory.py:0: error: Argument "range_vol_product"
-src/intelligence/feature_factory.py:0: error: Argument "range_vs_atr" to
-src/intelligence/feature_factory.py:0: error: Argument "rel_volume" to
 src/intelligence/feature_factory.py:0: error: Argument "ret_acf1_z" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_autocorr_1" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_autocorr_5" to
 src/intelligence/feature_factory.py:0: error: Argument "ret_kurtosis_z_fast"
 src/intelligence/feature_factory.py:0: error: Argument "ret_kurtosis_z_slow"
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_1" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_2" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_3" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_fast" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_mid" to
-src/intelligence/feature_factory.py:0: error: Argument "ret_lag_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "ret_skew_z" to
 src/intelligence/feature_factory.py:0: error: Argument "ret_vol_ratio_fast"
 src/intelligence/feature_factory.py:0: error: Argument "rsi_fast" to
@@ -486,13 +435,8 @@ src/intelligence/feature_factory.py:0: error: Argument "shannon" to
 src/intelligence/feature_factory.py:0: error: Argument "stoch_k_fast" to
 src/intelligence/feature_factory.py:0: error: Argument "stoch_k_slow" to
 src/intelligence/feature_factory.py:0: error: Argument "streak_z" to
-src/intelligence/feature_factory.py:0: error: Argument "tdom_cos" to
-src/intelligence/feature_factory.py:0: error: Argument "tdom_sin" to
 src/intelligence/feature_factory.py:0: error: Argument "tip_tlt_ret_z" to
-src/intelligence/feature_factory.py:0: error: Argument "true_range_pct" to
 src/intelligence/feature_factory.py:0: error: Argument "up_vol_body_diff" to
-src/intelligence/feature_factory.py:0: error: Argument "up_vol_ratio_fast"
-src/intelligence/feature_factory.py:0: error: Argument "up_vol_ratio_slow"
 src/intelligence/feature_factory.py:0: error: Argument "updown_ratio_fast"
 src/intelligence/feature_factory.py:0: error: Argument "updown_ratio_slow"
 src/intelligence/feature_factory.py:0: error: Argument "upper_wick_ratio" to
@@ -504,12 +448,9 @@ src/intelligence/feature_factory.py:0: error: Argument "vol_asymmetry_z" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_body_product" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_of_vol" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_percentile" to
-src/intelligence/feature_factory.py:0: error: Argument "vol_persistence" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_range_ratio" to
-src/intelligence/feature_factory.py:0: error: Argument "vol_ratio" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_skew_product" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_std_z" to
-src/intelligence/feature_factory.py:0: error: Argument "vol_trend_ratio" to
 src/intelligence/feature_factory.py:0: error: Argument "vol_velocity_z" to
 src/intelligence/feature_factory.py:0: error: Argument "volume_z" to
 src/intelligence/feature_factory.py:0: error: Argument "volume_z_velocity"

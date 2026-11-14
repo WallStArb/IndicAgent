@@ -16,7 +16,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence.live_parity import (
     assert_live_batch_parity,

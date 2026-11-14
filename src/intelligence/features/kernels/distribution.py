@@ -53,7 +53,7 @@ from src.intelligence.features.kernels._primitives import _rolling_mean_series
 from src.intelligence.features.kernels.macro import _grid_bars
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 class DistributionRecord(NamedTuple):

@@ -48,7 +48,6 @@ import dataclasses
 import functools
 import hashlib
 import heapq
-import math
 import operator
 import shutil
 import sys
@@ -91,6 +90,8 @@ from services.corpus_rerun_budget import DiskGuardRefused, UnitDiskGuard
 from services.rebuild_preconditions import CoverageRow
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
+from src.core.code_identity import IO_BOUNDARY_MODULES, import_closure
+from src.core.code_identity import code_key as _code_key
 from src.core.market_calendar import get_market_calendar
 from src.core.real_column_range import clamp_to_real_range_array
 from src.core.service_utils import format_iso_ts, setup_service_logging
@@ -98,20 +99,20 @@ from src.intelligence.bars.integrity_checks import INFO_PROVEN_START
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES, GRID_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import DERIVED_PAIR, grid_volume_basis, volume_basis
 from src.intelligence.bars.verdict_gate import MONITOR_TYPE
-from src.intelligence.feature_factory import (
-    DailySeriesRecord,
-    FeatureFactoryConfig,
-    _batch_kernel_inputs,
-    _cross_tf_kernel_inputs,
-    _daily_records_kernel_inputs,
-    _macro_kernel_inputs,
-)
 from src.intelligence.features.contract.registry import (
     Kernel,
     KernelRegistry,
     compute_kernels,
     default_registry,
 )
+from src.intelligence.features.external_inputs import (
+    DailySeriesRecord,
+    batch_kernel_inputs,
+    cross_tf_kernel_inputs,
+    daily_records_kernel_inputs,
+    macro_kernel_inputs,
+)
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_row_values,
     feature_vectors_columns,
@@ -229,27 +230,19 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     default ["5m", "15m", "1h", "1d"], byte-identical to the prior hardcoded
     _TARGET_TIMEFRAMES module constant unless an operator explicitly reconfigures it.
 
-    Validated here against _BARS_PER_DAY.keys(): every configured tf needs a bars-per-day
-    entry, or bars_to_fetch_window raises partway through a run (silent or late failure is
-    worse than a loud one at load time).
+    Validated here against the timeframes the rebuild knows (the default list): an unknown tf
+    fails at load time, not partway through a run.
     """
     tfs = _get_list_config(cfg, TARGET_TIMEFRAMES_KEY, list(_TARGET_TIMEFRAMES_DEFAULT))
-    _unknown = [tf for tf in tfs if tf not in _BARS_PER_DAY]
+    _unknown = [tf for tf in tfs if tf not in _TARGET_TIMEFRAMES_DEFAULT]
     if _unknown:
         raise AssertionError(
-            f"feature.factory.target_timeframes contains {_unknown!r}, which has no "
-            f"_BARS_PER_DAY entry ({sorted(_BARS_PER_DAY)}) -- add one before enabling this tf"
+            f"feature.factory.target_timeframes contains {_unknown!r}, outside the timeframes "
+            f"the rebuild knows ({_TARGET_TIMEFRAMES_DEFAULT}); a new one needs a code change "
+            "and review, not an APR edit"
         )
     return tfs
 
-
-# Bars per trading day per TF (objective formula)
-_BARS_PER_DAY: dict[str, int] = {
-    "5m": 78,
-    "15m": 26,
-    "1h": 6,
-    "1d": 1,
-}
 
 # Rows per memory block of the rebuild: one fetch round trip of a symbol's bars and one spool
 # write block. APR fallback; the live value is infra.feature_factory.rebuild_block_rows
@@ -700,10 +693,6 @@ _REBUILD_SYMBOLS_PER_CHUNK_DEFAULT: int = 25
 _REBUILD_MAX_UNIT_ROWS_KEY = "infra.feature_factory.max_unit_rows"
 _REBUILD_MAX_UNIT_ROWS_DEFAULT: int = 1_000_000
 
-# Calendar slack when a memory in bars becomes a fetch window: weekends and holidays make a
-# trading-bar count span more wall-clock days than bars / bars-per-day.
-_FETCH_CALENDAR_SLACK_DAYS: int = 7
-
 
 def load_rebuild_unit_apr(cfg: ConfigService) -> tuple[int, int]:
     """(symbols per chunk, max rows per unit) from APR, each at least 1."""
@@ -763,60 +752,16 @@ def rebuild_unit_ranges(
     return ranges
 
 
-def bars_to_fetch_window(tf: str, bars: int) -> timedelta:
-    """A wall-clock window guaranteed to hold at least `bars` bars of `tf` (never fewer).
-
-    Uses the regular-session bars per day, which is at most the real count (extended-hours bars
-    only add), so the window errs long: bars / per-day trading days, scaled by 7/5 for weekends,
-    plus a holiday slack. A bare `bars * tf_seconds` would cover a night and a weekend with no
-    bars and under-warm the first rows of a unit.
-    """
-    per_day = _BARS_PER_DAY.get(tf)
-    if per_day is None:
-        raise ValueError(f"no bars-per-day for timeframe {tf!r}; known: {sorted(_BARS_PER_DAY)}")
-    if bars <= 0:
-        return timedelta(0)
-    trading_days = math.ceil(bars / per_day)
-    return timedelta(days=math.ceil(trading_days * 7 / 5) + _FETCH_CALENDAR_SLACK_DAYS)
-
-
 def path_dependent_contributors(
     registry: KernelRegistry, columns: Sequence[str]
 ) -> tuple[str, ...]:
     """Names of the kernels, among those contributing `columns` (upstream included), that are
-    declared path dependent: no finite memory reproduces their output (D-26)."""
+    declared path dependent: no finite memory reproduces their output (D-26). The full column
+    set has such contributors (the HMM regime pair, session VP, the weekly VWAP, among them), so
+    the worker computes every (symbol, tf) series from its start in one pass."""
     return tuple(
         sorted(k.name for k in registry.topological_order(list(columns)) if k.path_dependent)
     )
-
-
-def unit_fetch_start(
-    registry: KernelRegistry,
-    columns: Sequence[str],
-    tf: str,
-    range_start: datetime,
-    series_start: datetime,
-    config: FeatureFactoryConfig,
-) -> datetime:
-    """Where a unit's bar fetch must start so its first row is as if computed from the series
-    start (D-26): `range_start` less the max declared memory over the kernels contributing
-    `columns`, never before `series_start`.
-
-    A contributing kernel that is path dependent (an expanding window, an accumulator anchored
-    at row 0, a refit cadence counted from the first bar) has no finite memory, so the answer is
-    `series_start`; `path_dependent_contributors` names them. With every column requested the
-    registry has 14 such contributing kernels (the HMM regime pair and their labels, session VP and
-    levels, the weekly VWAP, the statistics refresh and autocorrelation kernels, among
-    them), so a full rebuild unit computes from the series start and the memory branch serves a
-    subset of columns. External inputs (daily macro records, HTF
-    values) are built by the caller from the full source history on the row grid, so their
-    warmup is not the fetch start's concern; their pass-through kernels declare memory 0.
-    """
-    if path_dependent_contributors(registry, columns):
-        return series_start
-    contributors = registry.topological_order(list(columns))
-    memory = max((registry.effective_memory_bars(k.name, config) for k in contributors), default=0)
-    return max(series_start, range_start - bars_to_fetch_window(tf, memory))
 
 
 @functools.cache
@@ -825,11 +770,40 @@ def _kernel_module_key(module: str) -> str:
     return _kernel_code_key([module])
 
 
-# The writer's own identity: this module (hashed as a file, without its imports) and the row
-# contract with its import closure, so a change to how rows are built or spooled renames every
-# unit it would have produced differently.
-_WRITER_OWN_MODULE = "services.backfill_feature_factory"
-_ROW_CONTRACT_MODULE = "src.intelligence.features.feature_vector_persistence"
+# The writer's own identity: the import closure of this module, so every first-party module it
+# imports at run time (the row contract, the external-input builders, the kernel config, the
+# batch utilities, the kernel modules it calls directly) is hashed by default and a change to
+# any of them renames every unit. A new import is hashed until it is reviewed onto the map below.
+_WRITER_MODULE = "services.backfill_feature_factory"
+# Reviewed 2026-11-14: writer imports that cannot change a stored value, each with the reason.
+# The map is hashed source: editing an entry or its reason re-keys every unit.
+# Like IO_BOUNDARY_MODULES, but for this key only: each registers by name, its source is not
+# hashed and its imports are not followed.
+WRITER_UNHASHED_IMPORTS: dict[str, str] = {
+    "services.corpus_rerun_apr": "the rerun's disk and budget APR keys; sizes the run only",
+    "services.corpus_rerun_budget": "the unit disk guard; admits or refuses a unit, never edits one",
+    "services.rebuild_preconditions": (
+        "CoverageRow only, a unit's (count, first, last) bar coverage; it enters the input digest"
+    ),
+    "src.config.settings": (
+        "Settings and the active contract list pick the universe; the symbols are in each "
+        "unit's identity"
+    ),
+    "src.intelligence.bars.integrity_checks": (
+        "INFO_PROVEN_START, the metric name that selects a proven start; the start itself "
+        "enters the input digest"
+    ),
+    "src.intelligence.bars.verdict_gate": (
+        "MONITOR_TYPE, the monitor name in the same proven-start query"
+    ),
+    "src.observability.otel": "OpenTelemetry provider setup at process start; telemetry only",
+}
+_WRITER_OPAQUE: frozenset[str] = frozenset(IO_BOUNDARY_MODULES) | frozenset(WRITER_UNHASHED_IMPORTS)
+
+
+def writer_code_modules() -> tuple[str, ...]:
+    """The modules the writer line of `unit_code_key` hashes (opaque ones by name)."""
+    return import_closure([_WRITER_MODULE], io_boundary=_WRITER_OPAQUE)
 
 
 def unit_code_key(registry: KernelRegistry, columns: Sequence[str]) -> str:
@@ -837,7 +811,7 @@ def unit_code_key(registry: KernelRegistry, columns: Sequence[str]) -> str:
     `columns`, plus the writer's own modules; matches BulkLoadSpec.code_key's 32-64 hex rule."""
     contributors: list[Kernel] = list(registry.topological_order(list(columns)))
     lines = sorted(f"{k.name}:{_kernel_module_key(k.module)}" for k in contributors)
-    lines.append("writer:" + _kernel_code_key([_ROW_CONTRACT_MODULE], own=[_WRITER_OWN_MODULE]))
+    lines.append("writer:" + _code_key(writer_code_modules(), io_boundary=_WRITER_OPAQUE))
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
@@ -1053,7 +1027,7 @@ def _series_kernel_inputs(
     )
     row_ns = bars["ts"]
     return {
-        **_batch_kernel_inputs(
+        **batch_kernel_inputs(
             row_ns,
             bars["open"],
             bars["high"],
@@ -1064,7 +1038,7 @@ def _series_kernel_inputs(
             tf,
             bars["volume_basis"],
         ),
-        **_macro_kernel_inputs(
+        **macro_kernel_inputs(
             row_ns,
             symbol,
             tf,
@@ -1072,13 +1046,13 @@ def _series_kernel_inputs(
             cross_asset_by_date,
             beta_by_date,
         ),
-        **_cross_tf_kernel_inputs(
+        **cross_tf_kernel_inputs(
             row_ns,
             tf,
             None,  # type: ignore[arg-type]
             ctf_series,
         ),
-        **_daily_records_kernel_inputs(row_ns, tf, daily_records),
+        **daily_records_kernel_inputs(row_ns, tf, daily_records),
     }
 
 
@@ -1764,8 +1738,8 @@ def _chunk_filter(chunk_indices: Sequence[int] | None, n_chunks: int) -> frozens
 
 
 def rebuild_code_key() -> str:
-    """The code key every rebuild unit carries (the registry's kernels for the table's outputs,
-    this module and the row contract), as the stage computes it."""
+    """The code key every rebuild unit carries (the registry's kernels for the table's outputs
+    and the writer's import closure), as the stage computes it."""
     return unit_code_key(default_registry(), list(feature_vectors_output_columns()))
 
 
@@ -1853,7 +1827,7 @@ def run_rebuild_stage(
     statistics and month digests alone, each unit's provenance row is consulted
     (`completed_provenance_batch`), and only a group with a pending unit dispatches workers; the
     next group's workers run while this group's units load. Compute reads the whole series from
-    its start (the path-dependent kernels need it, see `unit_fetch_start`), once per (symbol,
+    its start (the path-dependent kernels need it, see `path_dependent_contributors`), once per (symbol,
     tf), and each unit takes its year of rows from that one pass.
 
     Compression runs at the end of every full-universe stage (any --tf, failed units or not); a

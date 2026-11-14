@@ -252,26 +252,26 @@ def test_daily_asof_requires_sorted_dates():
 
 def _macro_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, np.ndarray]:
     """Macro kernel outputs on the intraday row grid, from raw daily bars and raw bars."""
-    from src.intelligence.feature_factory import _macro_kernel_inputs
     from src.intelligence.features.contract.registry import compute_kernels, default_registry
+    from src.intelligence.features.external_inputs import macro_kernel_inputs
     from src.intelligence.features.kernels.macro import MACRO_COLUMNS
 
     cross, beta = _records(daily)
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
     inputs = {
         "ts": ts,
-        **_macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), cross, beta),
+        **macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), cross, beta),
     }
     return compute_kernels(default_registry(), inputs, CONFIG, outputs=list(MACRO_COLUMNS))
 
 
 def _constant_per_series_outputs(bars: list[dict]) -> dict[str, np.ndarray]:
     """The symbol and tf externals as the batch path builds them: one value on every row."""
-    from src.intelligence.feature_factory import _batch_kernel_inputs
+    from src.intelligence.features.external_inputs import batch_kernel_inputs
 
     z = np.zeros(len(bars))
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
-    built = _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL, "5m", np.ones(len(ts), dtype=np.int64))
+    built = batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL, "5m", np.ones(len(ts), dtype=np.int64))
     return {"symbol": built["symbol"], "tf": built["tf"]}
 
 
@@ -290,7 +290,10 @@ def _dividend_amount_bars(daily_bars: list[dict]) -> list[dict]:
 def _add_list_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, np.ndarray]:
     """The item-8 pass-through outputs on the intraday row grid, from raw daily bars: the three
     builders, the as-of alignment, and the pass-through kernels."""
-    from src.intelligence.feature_factory import DailySeriesRecord, _daily_records_kernel_inputs
+    from src.intelligence.features.external_inputs import (
+        DailySeriesRecord,
+        daily_records_kernel_inputs,
+    )
     from src.intelligence.features.kernels.distribution import (
         DISTRIBUTION_COLUMNS,
         build_distribution_series,
@@ -309,7 +312,7 @@ def _add_list_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[st
         dividend_yield=build_dividend_yield_series(symbol_bars, amounts, CONFIG),
     )
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
-    inputs = {"ts": ts, **_daily_records_kernel_inputs(ts, "5m", records)}
+    inputs = {"ts": ts, **daily_records_kernel_inputs(ts, "5m", records)}
     return compute_kernels(
         default_registry(),
         inputs,
@@ -411,7 +414,7 @@ def _external_outputs(alignment, bars, daily):
 @pytest.mark.parametrize("cut_row", [3, BARS_PER_SESSION * 5 + 30, BARS_PER_SESSION * 6 + 77])
 def test_every_alignment_has_causal_rows_up_to_t(alignment, cut_row):
     """For every external declared with `alignment`: truncate the raw bars at row t and the raw
-    daily records to those known by the end of row t's bar, run the real `_macro_kernel_inputs`
+    daily records to those known by the end of row t's bar, run the real `macro_kernel_inputs`
     and kernels; rows <= t must not move. A new Alignment member without a runner fails here."""
     bars, daily = _intraday(), _daily_bars()
     full = _external_outputs(alignment, bars, daily)
@@ -447,14 +450,14 @@ def test_every_alignment_has_causal_rows_up_to_t(alignment, cut_row):
 
 
 def test_the_factory_refuses_an_external_whose_alignment_it_cannot_build(monkeypatch):
-    from src.intelligence import feature_factory
+    from src.intelligence.features import external_inputs
 
     monkeypatch.setattr(
-        feature_factory, "_BUILT_ALIGNMENTS", frozenset({Alignment.CONSTANT_PER_SERIES})
+        external_inputs, "_BUILT_ALIGNMENTS", frozenset({Alignment.CONSTANT_PER_SERIES})
     )
     ts = np.array([0], dtype=np.int64)
     with pytest.raises(ValueError, match="no builder"):
-        feature_factory._macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), None, None)
+        external_inputs.macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), None, None)
 
 
 def test_rows_before_the_first_daily_record_are_nan_not_zero():
@@ -485,9 +488,9 @@ def _covered_externals(alignment, bars, daily) -> set[str]:
 
 def test_every_declared_external_has_a_builder_and_a_truncation_case():
     """Per external, not per alignment: a new external a kernel declares cannot ship unless its
-    alignment has a registered builder in the factory and the truncation test above builds
+    alignment has a registered builder in external_inputs and the truncation test above builds
     and cuts that exact external."""
-    from src.intelligence import feature_factory
+    from src.intelligence.features import external_inputs
 
     bars, daily = _intraday(), _daily_bars()
     externals = default_registry().external_inputs
@@ -498,7 +501,7 @@ def test_every_declared_external_has_a_builder_and_a_truncation_case():
     }
     for external in externals:
         assert (
-            external.alignment in feature_factory._BUILT_ALIGNMENTS
+            external.alignment in external_inputs._BUILT_ALIGNMENTS
         ), f"{external.name}: no builder for {external.alignment.name}"
         assert (
             external.name in covered[external.alignment]

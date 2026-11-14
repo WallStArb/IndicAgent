@@ -54,7 +54,7 @@ import pytest
 
 def _make_sentinel_record():
     """Build a FeatureVectorRecord with distinguishable sentinel values per field group."""
-    from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
+    from src.intelligence.features.feature_vector import FeatureVector, FeatureVectorRecord
 
     fv = FeatureVector(
         momentum_z_fast=1.111,

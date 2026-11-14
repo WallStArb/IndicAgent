@@ -15,6 +15,7 @@ from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
 )
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import _pearson_acf1, _skewness
 from src.intelligence.features.kernels.calendar import (
@@ -34,7 +35,6 @@ from src.intelligence.features.kernels.price import (
     _rsi,
 )
 from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
-from src.intelligence.schemas import FeatureVector
 
 UTC = UTC
 

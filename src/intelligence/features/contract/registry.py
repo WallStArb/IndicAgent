@@ -27,7 +27,7 @@ from src.intelligence.bars.vendor_kind import VOLUME_BASIS_CONSOLIDATED
 from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 # Raw inputs every kernel may declare. Timestamps enter as int64 UTC nanoseconds. `volume_basis`
 # (todo 555) is one small integer per bar saying what that bar's `volume` counts; a rolling
@@ -185,7 +185,7 @@ class Alignment(enum.Enum):
     """When a caller-supplied value is available relative to the row it is aligned to.
 
     Part of the causality contract: the probe truncates inputs it is given, so it cannot see
-    how the caller aligned an external. Each member needs a builder in feature_factory
+    how the caller aligned an external. Each member needs a builder in features.external_inputs
     (`_BUILT_ALIGNMENTS`) and a raw-input truncation runner in tests/unit/intelligence/
     test_macro_alignment.py.
     """

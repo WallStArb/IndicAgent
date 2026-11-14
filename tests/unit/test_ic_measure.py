@@ -234,7 +234,7 @@ class TestFeatureNames:
     def test_schema_types_decide_featurevector_order_first_then_other_numeric_columns(self) -> None:
         import dataclasses as dc
 
-        from src.intelligence.schemas import FeatureVector
+        from src.intelligence.features.feature_vector import FeatureVector
 
         fv_names = [f.name for f in dc.fields(FeatureVector)]
         present = [fv_names[2], fv_names[0]]  # schema order must not matter

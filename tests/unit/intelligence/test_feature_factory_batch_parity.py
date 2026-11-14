@@ -706,7 +706,7 @@ def test_missing_routing_ties_to_the_schema_annotation():
     import inspect
     import math
 
-    from src.intelligence.schemas import FeatureVector
+    from src.intelligence.features.feature_vector import FeatureVector
 
     kwargs = {
         pname: (

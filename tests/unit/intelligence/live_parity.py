@@ -18,9 +18,10 @@ from __future__ import annotations
 import math
 import pickle
 
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from src.intelligence.schemas import FeatureVector
 
 _PARITY_TOL = 1e-6
 

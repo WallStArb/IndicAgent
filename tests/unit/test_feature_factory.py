@@ -18,7 +18,9 @@ import numpy as np
 import pytest
 
 # These imports will fail RED until implementation exists.
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import (
     CrossAssetState,
     FeatureCache,
@@ -40,7 +42,6 @@ from src.intelligence.features.kernels.price import (
     _range_vs_atr,
 )
 from src.intelligence.features.kernels.volume import _informed_flow
-from src.intelligence.schemas import FeatureVector
 from tests.unit.intelligence.helpers import ATR_GATED_COUNT_COLUMNS
 
 # Derived, not hardcoded -- a literal dev-machine path here means these tests

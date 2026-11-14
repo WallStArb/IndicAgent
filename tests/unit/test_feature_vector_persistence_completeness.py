@@ -34,12 +34,12 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
     feature_vector_to_insert_params,
 )
-from src.intelligence.schemas import FeatureVector
 
 _ALL_FEATURE_FIELDS = [f.name for f in dataclasses.fields(FeatureVector)]
 

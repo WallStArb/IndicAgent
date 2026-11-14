@@ -1185,34 +1185,66 @@
   "real|XLE|1h": 1200,
   "real|XLE|1d": 1248
  },
- "fixture_bytes": 3994187,
- "regenerated_from": "d3f2ba825ddb7d48571ccd47a1310137887403dc",
- "regeneration_reason": "186-31 review round 6: presence from knowability, part 2. The six ATR-gated detection counts (sr_level_count, bsl/ssl_touches, pool_count, active_demand/supply_zones) read NaN where ATR is invalid (their tolerance scales by atr_val, so the detection never ran), and the swing/trend/fib geometry computes under an invalid ATR with only the ATR-dividing outputs NaN. Synthetic-case rows with ATR == 0 change presence for those columns.",
+ "fixture_bytes": 3995263,
+ "regenerated_from": "9275f629748e248a6bb5ccdfbbf8653565b04e37",
+ "regeneration_reason": "todo 614 row 8 (no_fill): the streaming FeatureFactory writes a non-finite value as missing (None, stored NULL) instead of a fabricated 0.0, 1.0, 0.5 or canary constant; warmup rows of the formerly guarded columns move from the fallback to NaN",
  "changed_columns": {
   "synthetic|SPY|5m": [
-   "active_demand_zones",
-   "active_supply_zones",
-   "bsl_touches",
-   "pool_count",
-   "sr_level_count",
-   "ssl_touches"
+   "abs_ret_autocorr_1",
+   "price_vol_corr_fast",
+   "price_vol_corr_slow",
+   "ret_autocorr_1",
+   "ret_autocorr_5",
+   "vol_persistence"
   ],
-  "real|SPY|5m": [],
-  "real|SPY|15m": [],
-  "real|SPY|1h": [],
-  "real|SPY|1d": [],
-  "real|QQQ|5m": [],
-  "real|QQQ|15m": [],
-  "real|QQQ|1h": [],
-  "real|QQQ|1d": [],
-  "real|TLT|5m": [],
-  "real|TLT|15m": [],
-  "real|TLT|1h": [],
-  "real|TLT|1d": [],
-  "real|XLE|5m": [],
-  "real|XLE|15m": [],
-  "real|XLE|1h": [],
-  "real|XLE|1d": []
+  "real|SPY|5m": [
+   "price_vol_corr_slow"
+  ],
+  "real|SPY|15m": [
+   "price_vol_corr_slow"
+  ],
+  "real|SPY|1h": [
+   "price_vol_corr_slow"
+  ],
+  "real|SPY|1d": [
+   "price_vol_corr_slow"
+  ],
+  "real|QQQ|5m": [
+   "price_vol_corr_slow"
+  ],
+  "real|QQQ|15m": [
+   "price_vol_corr_slow"
+  ],
+  "real|QQQ|1h": [
+   "price_vol_corr_slow"
+  ],
+  "real|QQQ|1d": [
+   "price_vol_corr_slow"
+  ],
+  "real|TLT|5m": [
+   "price_vol_corr_slow"
+  ],
+  "real|TLT|15m": [
+   "price_vol_corr_slow"
+  ],
+  "real|TLT|1h": [
+   "price_vol_corr_slow"
+  ],
+  "real|TLT|1d": [
+   "price_vol_corr_slow"
+  ],
+  "real|XLE|5m": [
+   "price_vol_corr_slow"
+  ],
+  "real|XLE|15m": [
+   "price_vol_corr_slow"
+  ],
+  "real|XLE|1h": [
+   "price_vol_corr_slow"
+  ],
+  "real|XLE|1d": [
+   "price_vol_corr_slow"
+  ]
  },
  "regeneration_history": [
   {
@@ -2882,6 +2914,37 @@
    "changed_columns": {
     "synthetic|SPY|5m": [
      "gap_filled"
+    ],
+    "real|SPY|5m": [],
+    "real|SPY|15m": [],
+    "real|SPY|1h": [],
+    "real|SPY|1d": [],
+    "real|QQQ|5m": [],
+    "real|QQQ|15m": [],
+    "real|QQQ|1h": [],
+    "real|QQQ|1d": [],
+    "real|TLT|5m": [],
+    "real|TLT|15m": [],
+    "real|TLT|1h": [],
+    "real|TLT|1d": [],
+    "real|XLE|5m": [],
+    "real|XLE|15m": [],
+    "real|XLE|1h": [],
+    "real|XLE|1d": []
+   },
+   "capture_commit": "9840009aa2d4cda0cf7807c97be2ba05bf0aba0a"
+  },
+  {
+   "regenerated_from": "d3f2ba825ddb7d48571ccd47a1310137887403dc",
+   "regeneration_reason": "186-31 review round 6: presence from knowability, part 2. The six ATR-gated detection counts (sr_level_count, bsl/ssl_touches, pool_count, active_demand/supply_zones) read NaN where ATR is invalid (their tolerance scales by atr_val, so the detection never ran), and the swing/trend/fib geometry computes under an invalid ATR with only the ATR-dividing outputs NaN. Synthetic-case rows with ATR == 0 change presence for those columns.",
+   "changed_columns": {
+    "synthetic|SPY|5m": [
+     "active_demand_zones",
+     "active_supply_zones",
+     "bsl_touches",
+     "pool_count",
+     "sr_level_count",
+     "ssl_touches"
     ],
     "real|SPY|5m": [],
     "real|SPY|15m": [],

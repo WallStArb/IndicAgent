@@ -26,6 +26,7 @@ from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     _cold_start_vector,
 )
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.control import (
     _CANARY_CONSTANT_VALUE,
@@ -35,7 +36,6 @@ from src.intelligence.features.kernels.control import (
     _canary_noise_uniform,
     _canary_sub_seed,
 )
-from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
 # Fixtures

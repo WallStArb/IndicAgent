@@ -233,7 +233,7 @@ Live-verified against `\dt`/`\dv` and row counts, 2026-09-04. v3.0 tables are th
 
 | Table | Purpose | Hypertable | Writes | Status |
 |-------|---------|-----------|--------|--------|
-| `feature_vectors` | 298 orthogonal feature primitives/bar (`FeatureVector`, `src/intelligence/schemas.py`) | Yes (85 chunks) | `FeatureVectorWriter`, every bar | **Live v3.0** — 106M+ rows |
+| `feature_vectors` | 298 orthogonal feature primitives/bar (`FeatureVector`, `src/intelligence/features/feature_vector.py`) | Yes (85 chunks) | `FeatureVectorWriter`, every bar | **Live v3.0** — 106M+ rows |
 | `alpha_events` | Alpha emission events (sole writer: `AlphaPublisher`) | Yes (81 chunks) | Per qualifying ensemble score | **Live v3.0** — 70M+ rows |
 | `market_data_ohlcv` | Raw OHLCV cold storage (calendar grid; use `market_data_ohlcv_tradeable` view for compute/measurement — see root `CLAUDE.md`) | Yes (258 chunks) | Backfill + live ingestion | **Live v3.0** — 640M+ rows |
 | `llm_calls` | LLM audit log, outcome backfill | Yes (1 chunk) | Per LLM call | Low volume (39 rows) — I8 AI stack is dormant-pending-design, not actively firing |

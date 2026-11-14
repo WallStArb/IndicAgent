@@ -29,21 +29,25 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, NamedTuple
+from typing import Any
 
 import numpy as np
 import structlog
 
 from src.intelligence.features.contract.registry import (
-    Alignment,
     compute_kernels,
     constant_volume_basis,
     default_registry,
 )
+from src.intelligence.features.external_inputs import (
+    batch_kernel_inputs,
+    cross_tf_kernel_inputs,
+    macro_kernel_inputs,
+)
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import KeyGroup, none_mask_name
 from src.intelligence.features.kernels.calendar import (
     _day_of_month_cos,
@@ -82,15 +86,9 @@ from src.intelligence.features.kernels.control import (
 )
 from src.intelligence.features.kernels.cross_tf import (
     CtfSeries,
-    ctf_row_inputs,
 )
-from src.intelligence.features.kernels.distribution import DISTRIBUTION_COLUMNS
 from src.intelligence.features.kernels.macro import (
-    RECORD_COLUMNS,
-    CrossAssetRecord,
     bar_ts_ns,
-    daily_asof_indices,
-    daily_close_availability,
 )
 from src.intelligence.features.kernels.price import (
     _aroon_osc,
@@ -119,7 +117,6 @@ from src.intelligence.features.kernels.price import (
     _upper_wick_ratio,
     _vol_ratio,
 )
-from src.intelligence.features.kernels.residual import RESIDUAL_COLUMNS
 from src.intelligence.features.kernels.smc import (
     _FVG_OUTPUT_KEYS,
     _POOL_OUTPUT_KEYS,
@@ -160,7 +157,6 @@ from src.intelligence.features.kernels.vp_sr import (
     _derive_session_vp,
     _rolling_poc_price,
 )
-from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
 # Algorithm version tracking
@@ -514,496 +510,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "volatility_rank_z": "quant",
 }
 
-# ---------------------------------------------------------------------------
-# APR-backed configuration (frozen, built once by caller)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class FeatureFactoryConfig:
-    """Frozen APR-backed parameter container for FeatureFactory.compute().
-
-    Built ONCE by IntelligencePipeline._prewarm_threshold_config() or the
-    backfill init. Passed as an explicit argument to compute() on every bar.
-    APR keys (feature.* namespace) map directly to these fields.
-
-    Fields:
-        momentum_window_fast: APR feature.momentum.window_fast
-        momentum_window_mid: APR feature.momentum.window_mid
-        momentum_window_slow: APR feature.momentum.window_slow
-        momentum_zscore_window: APR feature.momentum.zscore_window
-        volume_zscore_window: APR feature.volume.zscore_window
-        ofi_zscore_window: APR feature.ofi.zscore_window
-        cvd_slope_bars: APR feature.cvd.slope_bars
-        cmf_period: APR feature.cmf.period
-        vol_short_bars: APR feature.vol.short_bars
-        vol_long_bars: APR feature.vol.long_bars
-        hma_period: APR feature.hma.period
-        adx_period: APR feature.adx.period
-        hurst_window: APR feature.hurst.window
-        garch_window: APR feature.garch.window
-        vix_zscore_window: APR feature.vix.zscore_window
-        yield_curve_zscore_window: APR feature.yield_curve.zscore_window
-        regime_cache_refresh_bars: APR feature.regime.cache_refresh_bars
-        min_bars_warmup: APR feature.cache.min_bars_warmup
-        cross_asset_rv_window: APR feature.cross_asset.rv_window
-        ny_session_start_utc_hour: APR feature.session.ny_start_utc_hour
-        ny_session_start_utc_minute: APR feature.session.ny_start_utc_minute
-        ny_session_end_utc_hour: APR feature.session.ny_end_utc_hour
-        overlap_start_utc_hour: APR feature.session.overlap_start_utc_hour
-        overlap_end_utc_hour: APR feature.session.overlap_end_utc_hour
-        power_hour_start_utc_hour: APR feature.session.power_hour_start_utc_hour
-        power_hour_end_utc_hour: APR feature.session.power_hour_end_utc_hour
-        opening_range_start_minute: APR feature.session.opening_range_start_minute
-        opening_range_end_minute: APR feature.session.opening_range_end_minute
-        ret_lag_fast: APR feature.ret_lag.fast
-        ret_lag_mid: APR feature.ret_lag.mid
-        ret_lag_slow: APR feature.ret_lag.slow
-        overnight_gap_window: APR feature.overnight_gap.window
-        dollar_vol_window: APR feature.dollar_vol.window
-        vol_range_ratio_window: APR feature.vol_range_ratio.window
-        vol_trend_fast: APR feature.vol_trend.fast
-        vol_trend_slow: APR feature.vol_trend.slow
-        up_vol_ratio_fast: APR feature.up_vol_ratio.fast
-        up_vol_ratio_slow: APR feature.up_vol_ratio.slow
-        vol_percentile_window: APR feature.vol_percentile.window
-        vol_persistence_window: APR feature.vol_persistence.window
-        vol_std_window: APR feature.vol_std.window
-        mfi_fast: APR feature.mfi.fast
-        mfi_slow: APR feature.mfi.slow
-        obv_window: APR feature.obv.window
-        dist_window_fast: APR feature.breakout.dist_window_fast
-        dist_window_slow: APR feature.breakout.dist_window_slow
-        range_window_fast: APR feature.breakout.range_window_fast
-        range_window_slow: APR feature.breakout.range_window_slow
-        stoch_window_fast: APR feature.breakout.stoch_window_fast
-        stoch_window_slow: APR feature.breakout.stoch_window_slow
-        percentile_window_fast: APR feature.breakout.percentile_window_fast
-        percentile_window_slow: APR feature.breakout.percentile_window_slow
-        efficiency_window_fast: APR feature.breakout.efficiency_window_fast
-        efficiency_window_slow: APR feature.breakout.efficiency_window_slow
-        ret_kurtosis_fast: APR feature.ret_kurtosis.fast
-        ret_kurtosis_slow: APR feature.ret_kurtosis.slow
-        ret_kurtosis_zscore_window: APR feature.ret_kurtosis.zscore_window
-        updown_ratio_fast: APR feature.updown_ratio.fast
-        updown_ratio_slow: APR feature.updown_ratio.slow
-        streak_window: APR feature.streak.window
-        realized_var_fast: APR feature.realized_var.fast
-        realized_var_slow: APR feature.realized_var.slow
-        vol_of_vol_window: APR feature.vol_of_vol.window
-        high_low_corr_window: APR feature.high_low_corr.window
-        variance_ratio_fast: APR feature.variance_ratio.fast
-        variance_ratio_slow: APR feature.variance_ratio.slow
-        vol_asymmetry_window: APR feature.vol_asymmetry.window
-        bb_pct_b_fast: APR feature.bb_pct_b.fast
-        bb_pct_b_slow: APR feature.bb_pct_b.slow
-        hv_fast: APR feature.hv.fast
-        hv_slow: APR feature.hv.slow
-        hv_ratio_window: APR feature.hv.ratio_window
-        parkinson_vol_window: APR feature.parkinson_vol.window
-        parkinson_vol_zscore_window: APR feature.parkinson_vol.zscore_window
-        garman_klass_vol_window: APR feature.garman_klass_vol.window
-        garman_klass_vol_zscore_window: APR feature.garman_klass_vol.zscore_window
-        yang_zhang_vol_window: APR feature.yang_zhang_vol.window
-        yang_zhang_vol_zscore_window: APR feature.yang_zhang_vol.zscore_window
-        vol_velocity_window: APR feature.vol_velocity.window
-        intraday_noise_window: APR feature.intraday_noise.window
-        price_vol_corr_fast: APR feature.price_vol_corr.fast
-        price_vol_corr_slow: APR feature.price_vol_corr.slow
-        momentum_velocity_window: APR feature.momentum_velocity.window
-        vwap_velocity_window: APR feature.vwap_velocity.window
-        rsi_velocity_window: APR feature.rsi_velocity.window
-        ofi_velocity_window: APR feature.ofi_velocity.window
-        cvd_velocity_window: APR feature.cvd_velocity.window
-        volume_velocity_window: APR feature.volume_velocity.window
-        extreme_move_sigma_threshold: APR feature.bars_since_extreme_move.sigma_threshold
-        vol_spike_threshold: APR feature.bars_since_vol_spike.threshold
-        tip_tlt_zscore_window: APR feature.tip_tlt.zscore_window
-        hyg_lqd_zscore_window: APR feature.hyg_lqd.zscore_window
-        sb_corr_window_fast: APR feature.sb_corr.window_fast
-        sb_corr_window_slow: APR feature.sb_corr.window_slow
-        sb_corr_zscore_window: APR feature.sb_corr.zscore_window
-        factor_beta_window: APR feature.factor_beta.window
-        factor_beta_zscore_window: APR feature.factor_beta.zscore_window
-        session_vp_value_area_pct: APR feature.session_vp.value_area_pct
-        session_vp_n_buckets: APR feature.session_vp.n_buckets
-        session_vp_hvn_threshold: APR feature.session_vp.hvn_threshold
-        session_vp_lvn_threshold: APR feature.session_vp.lvn_threshold
-        session_vp_rolling_window: APR feature.session_vp.rolling_window
-        sr_window: APR feature.sr.window
-        sr_cluster_atr_mult: APR feature.sr.cluster_atr_mult
-        sr_lookback_by_tf: APR feature.sr.lookback_by_tf
-        smc_order_blocks_lookback: APR feature.smc.order_blocks.lookback
-        smc_order_blocks_impulse_bars: APR feature.smc.order_blocks.impulse_bars
-        smc_order_blocks_significant_move_pct: APR feature.smc.order_blocks.significant_move_pct
-        smc_order_blocks_opposing_candle_lookback: APR feature.smc.order_blocks.opposing_candle_lookback
-        smc_order_blocks_strength_fallback: APR feature.smc.order_blocks.strength_fallback
-        smc_fvg_lookback: APR feature.smc.fvg.lookback
-        smc_liquidity_sweeps_lookback: APR feature.smc.liquidity_sweeps.lookback
-        smc_liquidity_sweeps_swing_neighbor: APR feature.smc.liquidity_sweeps.swing_neighbor
-        smc_liquidity_sweeps_reclaim_bars: APR feature.smc.liquidity_sweeps.reclaim_bars
-        smc_liquidity_sweeps_depth_ramp_max_pct: APR feature.smc.liquidity_sweeps.depth_ramp_max_pct
-        smc_liquidity_sweeps_reclaim_velocity_ramp_max: APR feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max
-        smc_liquidity_pools_lookback: APR feature.smc.liquidity_pools.lookback
-        smc_liquidity_pools_swing_neighbor: APR feature.smc.liquidity_pools.swing_neighbor
-        smc_liquidity_pools_equal_level_tolerance_atr_mult: APR feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
-        smc_liquidity_pools_session_bars: APR feature.smc.liquidity_pools.session_bars
-        smc_liquidity_pools_significance_weights: APR feature.smc.liquidity_pools.significance_weights
-        smc_zones_lookback: APR feature.smc.zones.lookback
-        smc_zones_impulse_atr_mult: APR feature.smc.zones.impulse_atr_mult
-        smc_zones_base_body_ratio: APR feature.smc.zones.base_body_ratio
-        smc_zones_base_atr_mult: APR feature.smc.zones.base_atr_mult
-        smc_zones_max_base_bars: APR feature.smc.zones.max_base_bars
-        smc_zones_zone_height_cap_atr_mult: APR feature.smc.zones.zone_height_cap_atr_mult
-        smc_zones_impulse_overlap_atr_mult: APR feature.smc.zones.impulse_overlap_atr_mult
-        smc_zones_freshness_decay_k: APR feature.smc.zones.freshness_decay_k
-        smc_zones_strength_premium_align_mult: APR feature.smc.zones.strength_premium_align_mult
-        smc_zones_strength_fvg_align_mult: APR feature.smc.zones.strength_fvg_align_mult
-        smc_zones_age_penalty_floor: APR feature.smc.zones.age_penalty_floor
-        smc_zones_age_penalty_window_bars: APR feature.smc.zones.age_penalty_window_bars
-        smc_zones_age_penalty_max_pct: APR feature.smc.zones.age_penalty_max_pct
-        smc_zones_max_tracked_zones: APR feature.smc.zones.max_tracked_zones
-        smc_bos_choch_lookback: APR feature.smc.bos_choch.lookback
-        smc_bos_choch_swing_neighbor: APR feature.smc.bos_choch.swing_neighbor
-        swing_pivot_window: APR feature.swing.pivot_window
-        swing_lookback_bars: APR feature.swing.lookback_bars
-        trend_structure_atr_strength_divisor: APR feature.trend_structure.atr_strength_divisor
-        trend_structure_range_lookback_bars: APR feature.trend_structure.range_lookback_bars
-        swing_momentum_confirm_n: APR feature.swing_momentum.confirm_n
-        swing_momentum_max_extremes: APR feature.swing_momentum.max_extremes
-        swing_momentum_lookback_bars: APR feature.swing_momentum.lookback_bars
-        swing_momentum_reference_bars: APR feature.swing_momentum.reference_bars
-        swing_momentum_speed_factor_min: APR feature.swing_momentum.speed_factor_min
-        swing_momentum_speed_factor_max: APR feature.swing_momentum.speed_factor_max
-        swing_momentum_energy_divisor: APR feature.swing_momentum.energy_divisor
-        swing_momentum_intensity_ramp_lo: APR feature.swing_momentum.intensity_ramp_lo
-        swing_momentum_intensity_ramp_hi: APR feature.swing_momentum.intensity_ramp_hi
-        fib_cluster_atr_divisor: APR feature.fib.cluster_atr_divisor
-        atr_normalization_min_pct: APR feature.atr_normalization.min_atr_pct
-        ctf_higher_tf_map: APR feature.ctf.higher_tf_map
-        ctf_vwap_window: APR feature.ctf.vwap_window
-        market_residual_z_window: APR feature.market_residual.z_window
-        idiosyncratic_volatility_window: APR feature.idiosyncratic_volatility.window
-        market_residual_lag1_acf_window: APR feature.market_residual.lag1_acf_window
-        residual_beta_stability_window: APR feature.residual_beta_stability.window
-        max_daily_return_window: APR feature.max_daily_return.window
-        max_drawdown_window: APR feature.max_drawdown.window
-        downside_deviation_window: APR feature.downside_deviation.window
-        size_proxy_window: APR feature.size_proxy.window
-        dividend_yield_window: APR feature.dividend_yield.window
-        high_low_spread_window: APR feature.high_low_spread.window
-        roll_spread_window: APR feature.roll_spread.window
-    """
-
-    momentum_window_fast: int  # feature.momentum.window_fast
-    momentum_window_mid: int  # feature.momentum.window_mid
-    momentum_window_slow: int  # feature.momentum.window_slow
-    momentum_zscore_window: int  # feature.momentum.zscore_window
-    volume_zscore_window: int  # feature.volume.zscore_window
-    ofi_zscore_window: int  # feature.ofi.zscore_window
-    cvd_slope_bars: int  # feature.cvd.slope_bars
-    cmf_period: int  # feature.cmf.period
-    vol_short_bars: int  # feature.vol.short_bars
-    vol_long_bars: int  # feature.vol.long_bars
-    hma_period: int  # feature.hma.period
-    adx_period: int  # feature.adx.period
-    hurst_window: int  # feature.hurst.window
-    garch_window: int  # feature.garch.window
-    vix_zscore_window: int  # feature.vix.zscore_window
-    yield_curve_zscore_window: int  # feature.yield_curve.zscore_window
-    regime_cache_refresh_bars: int  # feature.regime.cache_refresh_bars
-    # Cache warmup / cross-asset
-    min_bars_warmup: int  # feature.cache.min_bars_warmup
-    cross_asset_rv_window: int  # feature.cross_asset.rv_window
-    # Session / calendar (APR-backed so DST/market-hour adjustments are operationally safe)
-    ny_session_start_utc_hour: int  # feature.session.ny_start_utc_hour
-    ny_session_start_utc_minute: int  # feature.session.ny_start_utc_minute
-    ny_session_end_utc_hour: int  # feature.session.ny_end_utc_hour
-    overlap_start_utc_hour: int  # feature.session.overlap_start_utc_hour
-    overlap_end_utc_hour: int  # feature.session.overlap_end_utc_hour
-    power_hour_start_utc_hour: int  # feature.session.power_hour_start_utc_hour
-    power_hour_end_utc_hour: int  # feature.session.power_hour_end_utc_hour
-    opening_range_start_minute: int  # feature.session.opening_range_start_minute
-    opening_range_end_minute: int  # feature.session.opening_range_end_minute
-    # Oscillators (added in P7)
-    rsi_fast_period: int  # feature.period.rsi.fast
-    rsi_mid_period: int  # feature.period.rsi.mid
-    rsi_slow_period: int  # feature.period.rsi.slow
-    cci_fast_period: int  # feature.period.cci.fast
-    cci_mid_period: int  # feature.period.cci.mid
-    cci_slow_period: int  # feature.period.cci.slow
-    # Trend freshness
-    aroon_fast_period: int  # feature.period.aroon.fast
-    aroon_slow_period: int  # feature.period.aroon.slow
-    # Statistical / liquidity
-    amihud_zscore_window: int  # feature.amihud.zscore_window
-    ret_skew_window: int  # feature.ret_skew.window
-    ret_skew_zscore_window: int  # feature.ret_skew.zscore_window
-    ret_acf_window: int  # feature.ret_acf.window
-    ret_acf_zscore_window: int  # feature.ret_acf.zscore_window
-    high_52w_window: int  # feature.high_52w.window
-    # Renaissance Primitives — lagged returns + overnight gap z-score (Phase 142.5 Plan 01)
-    ret_lag_fast: int  # feature.ret_lag.fast
-    ret_lag_mid: int  # feature.ret_lag.mid
-    ret_lag_slow: int  # feature.ret_lag.slow
-    overnight_gap_window: int  # feature.overnight_gap.window
-    # Renaissance Primitives — volume structure (Phase 142.5 Plan 02)
-    dollar_vol_window: int  # feature.dollar_vol.window
-    vol_range_ratio_window: int  # feature.vol_range_ratio.window
-    vol_trend_fast: int  # feature.vol_trend.fast
-    vol_trend_slow: int  # feature.vol_trend.slow
-    up_vol_ratio_fast: int  # feature.up_vol_ratio.fast
-    up_vol_ratio_slow: int  # feature.up_vol_ratio.slow
-    vol_percentile_window: int  # feature.vol_percentile.window
-    vol_persistence_window: int  # feature.vol_persistence.window
-    vol_std_window: int  # feature.vol_std.window
-    mfi_fast: int  # feature.mfi.fast
-    mfi_slow: int  # feature.mfi.slow
-    obv_window: int  # feature.obv.window
-    # Renaissance Primitives — breakout distance (Phase 142.5 Plan 05)
-    dist_window_fast: int  # feature.breakout.dist_window_fast
-    dist_window_slow: int  # feature.breakout.dist_window_slow
-    range_window_fast: int  # feature.breakout.range_window_fast
-    range_window_slow: int  # feature.breakout.range_window_slow
-    stoch_window_fast: int  # feature.breakout.stoch_window_fast
-    stoch_window_slow: int  # feature.breakout.stoch_window_slow
-    percentile_window_fast: int  # feature.breakout.percentile_window_fast
-    percentile_window_slow: int  # feature.breakout.percentile_window_slow
-    efficiency_window_fast: int  # feature.breakout.efficiency_window_fast
-    efficiency_window_slow: int  # feature.breakout.efficiency_window_slow
-    # Renaissance Primitives — return distribution + realized variance (Phase 142.5 Plan 03)
-    ret_kurtosis_fast: int  # feature.ret_kurtosis.fast
-    ret_kurtosis_slow: int  # feature.ret_kurtosis.slow
-    ret_kurtosis_zscore_window: int  # feature.ret_kurtosis.zscore_window
-    updown_ratio_fast: int  # feature.updown_ratio.fast
-    updown_ratio_slow: int  # feature.updown_ratio.slow
-    streak_window: int  # feature.streak.window
-    realized_var_fast: int  # feature.realized_var.fast
-    realized_var_slow: int  # feature.realized_var.slow
-    vol_of_vol_window: int  # feature.vol_of_vol.window
-    high_low_corr_window: int  # feature.high_low_corr.window
-    variance_ratio_fast: int  # feature.variance_ratio.fast
-    variance_ratio_slow: int  # feature.variance_ratio.slow
-    vol_asymmetry_window: int  # feature.vol_asymmetry.window
-    bb_pct_b_fast: int  # feature.bb_pct_b.fast
-    bb_pct_b_slow: int  # feature.bb_pct_b.slow
-    hv_fast: int  # feature.hv.fast
-    hv_slow: int  # feature.hv.slow
-    hv_ratio_window: int  # feature.hv.ratio_window
-    # Renaissance Primitives — Alternative Volatility + Volatility Dynamics (Phase 142.5 Plan 04)
-    parkinson_vol_window: int  # feature.parkinson_vol.window
-    parkinson_vol_zscore_window: int  # feature.parkinson_vol.zscore_window
-    garman_klass_vol_window: int  # feature.garman_klass_vol.window
-    garman_klass_vol_zscore_window: int  # feature.garman_klass_vol.zscore_window
-    yang_zhang_vol_window: int  # feature.yang_zhang_vol.window
-    yang_zhang_vol_zscore_window: int  # feature.yang_zhang_vol.zscore_window
-    vol_velocity_window: int  # feature.vol_velocity.window
-    intraday_noise_window: int  # feature.intraday_noise.window
-    # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
-    price_vol_corr_fast: int  # feature.price_vol_corr.fast
-    price_vol_corr_slow: int  # feature.price_vol_corr.slow
-    # Velocity Primitives (Phase 151 Plan 01 Task 2, todo 123). Separate keys
-    # per family (not a reuse of vol_velocity_window) per naming-system.md
-    # section 7's gradient rule -- momentum-velocity and VWAP-velocity are
-    # semantically distinct families.
-    momentum_velocity_window: int  # feature.momentum_velocity.window
-    vwap_velocity_window: int  # feature.vwap_velocity.window
-    # Velocity Primitives Extension (todo 320). Same per-family separate-key
-    # rule as the block immediately above -- rsi_velocity_window is shared
-    # across all 3 RSI gradients (matching momentum_velocity_window's own
-    # one-key-for-3-gradients precedent), ofi/cvd/volume each get their own
-    # key since they're semantically distinct families. Non-defaulted,
-    # matching momentum_velocity_window/vwap_velocity_window's own precedent.
-    rsi_velocity_window: int  # feature.rsi_velocity.window
-    ofi_velocity_window: int  # feature.ofi_velocity.window
-    cvd_velocity_window: int  # feature.cvd_velocity.window
-    volume_velocity_window: int  # feature.volume_velocity.window
-    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180). The 2 event
-    # thresholds behind bars_since_extreme_move_*/bars_since_vol_spike_*.
-    # Non-defaulted (matching momentum_velocity_window/vwap_velocity_window's
-    # own precedent immediately above) -- both real production entrypoints
-    # AND every direct FeatureFactoryConfig(...) construction site are wired
-    # in this same plan.
-    extreme_move_sigma_threshold: float  # feature.bars_since_extreme_move.sigma_threshold
-    vol_spike_threshold: float  # feature.bars_since_vol_spike.threshold
-    # Cross-asset — Spread/Beta Atomics (Phase 151 Plan 04, todos 123/180).
-    # Non-defaulted (matching extreme_move_sigma_threshold/vol_spike_threshold's
-    # own precedent immediately above) -- both real production entrypoints AND
-    # every direct FeatureFactoryConfig(...) construction site are wired in
-    # this same plan. factor_beta (not bare "beta") per glossary's ban on the
-    # unqualified term; one shared window pair serves both equity_beta_z and
-    # rate_beta_z (same statistic, different factor series).
-    tip_tlt_zscore_window: int  # feature.tip_tlt.zscore_window
-    hyg_lqd_zscore_window: int  # feature.hyg_lqd.zscore_window
-    sb_corr_window_fast: int  # feature.sb_corr.window_fast
-    sb_corr_window_slow: int  # feature.sb_corr.window_slow
-    sb_corr_zscore_window: int  # feature.sb_corr.zscore_window
-    factor_beta_window: int  # feature.factor_beta.window
-    factor_beta_zscore_window: int  # feature.factor_beta.zscore_window
-    # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
-    # both noise canaries (Gaussian and Uniform draw independent sub-seeds
-    # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
-    # every other field in this dataclass) so the ~6 pre-existing direct
-    # FeatureFactoryConfig(...) construction sites across the test suite and
-    # services/*.py don't all require updating in this plan; the 2 real
-    # production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire this from ConfigService.
-    canary_rng_seed: int = 90042  # alpha.ic.canary_rng_seed [initial_estimate]
-    # Session Volume Profile (Phase 163 Plan 01, D-03/D-13). Defaulted for the
-    # same reason as canary_rng_seed above (avoid updating every pre-existing
-    # direct FeatureFactoryConfig(...) construction site); the 2 real production
-    # entrypoints (backfill_feature_factory.py, feature_vector_pipeline.py)
-    # explicitly wire these from ConfigService.
-    session_vp_value_area_pct: float = 0.70  # feature.session_vp.value_area_pct
-    session_vp_n_buckets: int = 50  # feature.session_vp.n_buckets
-    session_vp_hvn_threshold: float = 0.80  # feature.session_vp.hvn_threshold
-    session_vp_lvn_threshold: float = 0.20  # feature.session_vp.lvn_threshold
-    session_vp_rolling_window: int = 480  # feature.session_vp.rolling_window
-    # Support/Resistance (Phase 163 Plan 01, consumed by Plan 03). Same
-    # defaulting rationale as above.
-    sr_window: int = 10  # feature.sr.window
-    sr_cluster_atr_mult: float = 0.5  # feature.sr.cluster_atr_mult
-    sr_lookback_by_tf: dict = field(  # feature.sr.lookback_by_tf
-        default_factory=lambda: {"1m": 60, "5m": 60, "15m": 80, "1h": 120, "4h": 90, "1d": 60}
-    )
-    # SMC Institutional Footprint (Phase 164 Plan 01, contract-only -- consumed by
-    # Plans 02-04's compute logic). Same defaulting rationale as above (avoid
-    # updating every pre-existing direct FeatureFactoryConfig(...) construction
-    # site); the 2 real production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire these from ConfigService. All
-    # values [conventional] -- copied verbatim from the archived smc_context
-    # plugins' own hardcoded defaults (164-RESEARCH.md).
-    smc_order_blocks_lookback: int = 100  # feature.smc.order_blocks.lookback
-    smc_order_blocks_impulse_bars: int = 3  # feature.smc.order_blocks.impulse_bars
-    smc_order_blocks_significant_move_pct: float = (
-        0.003  # feature.smc.order_blocks.significant_move_pct
-    )
-    smc_order_blocks_opposing_candle_lookback: int = (
-        10  # feature.smc.order_blocks.opposing_candle_lookback
-    )
-    smc_order_blocks_strength_fallback: float = 0.5  # feature.smc.order_blocks.strength_fallback
-    smc_fvg_lookback: int = 100  # feature.smc.fvg.lookback
-    smc_liquidity_sweeps_lookback: int = 120  # feature.smc.liquidity_sweeps.lookback
-    smc_liquidity_sweeps_swing_neighbor: int = 5  # feature.smc.liquidity_sweeps.swing_neighbor
-    smc_liquidity_sweeps_reclaim_bars: int = 3  # feature.smc.liquidity_sweeps.reclaim_bars
-    smc_liquidity_sweeps_depth_ramp_max_pct: float = (
-        2.0  # feature.smc.liquidity_sweeps.depth_ramp_max_pct
-    )
-    smc_liquidity_sweeps_reclaim_velocity_ramp_max: float = (
-        0.5  # feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max
-    )
-    smc_liquidity_pools_lookback: int = 150  # feature.smc.liquidity_pools.lookback
-    smc_liquidity_pools_swing_neighbor: int = 5  # feature.smc.liquidity_pools.swing_neighbor
-    smc_liquidity_pools_equal_level_tolerance_atr_mult: float = (
-        0.75  # feature.smc.liquidity_pools.equal_level_tolerance_atr_mult
-    )
-    smc_liquidity_pools_session_bars: int = 390  # feature.smc.liquidity_pools.session_bars
-    smc_liquidity_pools_significance_weights: dict = (
-        field(  # feature.smc.liquidity_pools.significance_weights
-            default_factory=lambda: {
-                "eq_highs_3": 0.75,
-                "eq_lows_3": 0.75,
-                "eq_highs_2": 0.60,
-                "eq_lows_2": 0.60,
-                "session_high": 0.50,
-                "session_low": 0.50,
-            }
-        )
-    )
-    smc_zones_lookback: int = 150  # feature.smc.zones.lookback
-    smc_zones_impulse_atr_mult: float = 1.5  # feature.smc.zones.impulse_atr_mult
-    smc_zones_base_body_ratio: float = 0.5  # feature.smc.zones.base_body_ratio
-    smc_zones_base_atr_mult: float = 1.0  # feature.smc.zones.base_atr_mult
-    smc_zones_max_base_bars: int = 5  # feature.smc.zones.max_base_bars
-    smc_zones_zone_height_cap_atr_mult: float = 2.5  # feature.smc.zones.zone_height_cap_atr_mult
-    smc_zones_impulse_overlap_atr_mult: float = 0.4  # feature.smc.zones.impulse_overlap_atr_mult
-    smc_zones_freshness_decay_k: float = 0.5  # feature.smc.zones.freshness_decay_k
-    smc_zones_strength_premium_align_mult: float = (
-        1.20  # feature.smc.zones.strength_premium_align_mult
-    )
-    smc_zones_strength_fvg_align_mult: float = 1.15  # feature.smc.zones.strength_fvg_align_mult
-    smc_zones_age_penalty_floor: float = 0.70  # feature.smc.zones.age_penalty_floor
-    smc_zones_age_penalty_window_bars: int = 200  # feature.smc.zones.age_penalty_window_bars
-    smc_zones_age_penalty_max_pct: float = 0.30  # feature.smc.zones.age_penalty_max_pct
-    smc_zones_max_tracked_zones: int = 5  # feature.smc.zones.max_tracked_zones
-    smc_bos_choch_lookback: int = 120  # feature.smc.bos_choch.lookback
-    smc_bos_choch_swing_neighbor: int = 5  # feature.smc.bos_choch.swing_neighbor
-    # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01, contract-only --
-    # consumed by Plans 02-04's compute logic). Same defaulting rationale as
-    # above (avoid updating every pre-existing direct FeatureFactoryConfig(...)
-    # construction site); the 2 real production entrypoints
-    # (backfill_feature_factory.py, feature_vector_pipeline.py) explicitly
-    # wire these from ConfigService. All values [conventional] -- copied
-    # verbatim from the archived i3_structure plugins' own hardcoded defaults
-    # (165-RESEARCH.md).
-    swing_pivot_window: int = 5  # feature.swing.pivot_window
-    swing_lookback_bars: int = 120  # feature.swing.lookback_bars
-    trend_structure_atr_strength_divisor: float = (
-        5.0  # feature.trend_structure.atr_strength_divisor
-    )
-    trend_structure_range_lookback_bars: int = 20  # feature.trend_structure.range_lookback_bars
-    swing_momentum_confirm_n: int = 3  # feature.swing_momentum.confirm_n
-    swing_momentum_max_extremes: int = 6  # feature.swing_momentum.max_extremes
-    swing_momentum_lookback_bars: int = 60  # feature.swing_momentum.lookback_bars
-    swing_momentum_reference_bars: int = 20  # feature.swing_momentum.reference_bars
-    swing_momentum_speed_factor_min: float = 0.1  # feature.swing_momentum.speed_factor_min
-    swing_momentum_speed_factor_max: float = 3.0  # feature.swing_momentum.speed_factor_max
-    swing_momentum_energy_divisor: float = 3.0  # feature.swing_momentum.energy_divisor
-    swing_momentum_intensity_ramp_lo: float = 1.0  # feature.swing_momentum.intensity_ramp_lo
-    swing_momentum_intensity_ramp_hi: float = 2.0  # feature.swing_momentum.intensity_ramp_hi
-    fib_cluster_atr_divisor: float = 2.0  # feature.fib.cluster_atr_divisor
-    atr_normalization_min_pct: float = 0.0001  # feature.atr_normalization.min_atr_pct
-    # CTF (cross-timeframe) higher-timeframe source mapping (todo 242, migration 305).
-    # Single source of truth for both backfill_feature_factory.py's batch
-    # _build_ctf_series() and feature_vector_pipeline.py's live per-HTF-bar update --
-    # do not duplicate this dict. Formerly a hardcoded module constant
-    # (feature_cache._CTF_HIGHER_TF); "1d" is self-referential (no timeframe above 1d
-    # exists in this corpus) -- ctf_momentum degenerates into a same-tf RSI oscillator
-    # there rather than genuine cross-timeframe signal (todo 189), kept for batch/live
-    # parity, not because it's a good statistic.
-    ctf_higher_tf_map: dict = field(  # feature.ctf.higher_tf_map
-        default_factory=lambda: {"5m": "1h", "15m": "1h", "1h": "1d", "1d": "1d"}
-    )
-    # Rolling VWAP window, in HTF bars, behind ctf_vwap_align (todo 584 6b).
-    ctf_vwap_window: int = 20  # feature.ctf.vwap_window
-    # Item 8 add-list windows (todo 584 D2): the market-residual, return-distribution, size and
-    # dividend-yield families. Defaulted like ctf_vwap_window; the two service entrypoints wire them.
-    market_residual_z_window: int = 252  # feature.market_residual.z_window
-    idiosyncratic_volatility_window: int = 21  # feature.idiosyncratic_volatility.window
-    market_residual_lag1_acf_window: int = 63  # feature.market_residual.lag1_acf_window
-    residual_beta_stability_window: int = 60  # feature.residual_beta_stability.window
-    max_daily_return_window: int = 21  # feature.max_daily_return.window
-    max_drawdown_window: int = 252  # feature.max_drawdown.window
-    downside_deviation_window: int = 252  # feature.downside_deviation.window
-    size_proxy_window: int = 63  # feature.size_proxy.window
-    dividend_yield_window: int = 252  # feature.dividend_yield.window
-    # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353). Same
-    # defaulting rationale as canary_rng_seed above (avoid updating every
-    # pre-existing direct FeatureFactoryConfig(...) construction site); the 2
-    # real production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire these from ConfigService.
-    earnings_season_start_days: int = 14  # feature.earnings_season.start_days
-    earnings_season_end_days: int = 42  # feature.earnings_season.end_days
-    # Spread estimators (todo 553, kernels/liquidity.py, migration 526). Same defaulting
-    # rationale as earnings_season_* above; backfill_feature_factory.py and
-    # feature_vector_pipeline.py wire both from ConfigService.
-    high_low_spread_window: int = 21  # feature.high_low_spread.window
-    roll_spread_window: int = 252  # feature.roll_spread.window
-    # Amihud z-score (todo 555, migration 534): the share of the window that must hold a valid
-    # observation; below it the output is NaN. Defaulted like the keys above; both production
-    # entrypoints wire it from ConfigService.
-    amihud_min_valid_fraction: float = 0.8  # feature.amihud.min_valid_fraction
-    # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py). The
-    # names, APR keys and casts are declared once, in kernels._hmm.HmmConfig, and there are no
-    # defaults: every value changes stored regime labels and the live APR values differ from
-    # any value a default could carry. None means "not wired": the regime kernels raise on it.
-    # Every production entrypoint that runs them loads this with
-    # `HmmConfig.from_values(config_service.get_sync)` (backfill_feature_factory.py,
-    # feature_vector_pipeline.py). Changing any value invalidates every stored regime label.
-    # `infra.hmm.rolling_block_rows` is not here: it changes no output, and the regime writer
-    # and the rebuild pass it to the kernels as an argument.
-    hmm: HmmConfig | None = None
-
 
 def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[str]]:
     """Inverse of ctf_higher_tf_map: which LTF caches read ctf_momentum from a given
@@ -1268,179 +774,15 @@ def _kernel_row(
     }
 
 
-def _batch_kernel_inputs(
-    row_ns: np.ndarray,
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    symbol: str,
-    tf: str,
-    volume_basis: np.ndarray,
-) -> dict[str, np.ndarray]:
-    """Bar arrays plus the per-row `symbol` and `tf` external inputs for compute_kernels."""
-    return {
-        "ts": row_ns,
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "volume": volumes,
-        "volume_basis": volume_basis,
-        "symbol": np.array([symbol] * len(row_ns), dtype=object),
-        "tf": np.array([tf] * len(row_ns), dtype=object),
-    }
-
-
 def _none_if_nan(value: float) -> float | None:
     """A value that is NaN on the kernel grid is None in the FeatureVector."""
     return None if math.isnan(value) else float(value)
 
 
-# The external-input alignments this module has a builder for: CONSTANT_PER_SERIES by
-# `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`,
-# DAILY_REFERENCE_GRID by `kernels.macro.daily_reference_grid` (the daily-grid kernels run on it),
-# HTF_ASOF_CLOSE by `_cross_tf_kernel_inputs`. A kernel module
-# declaring an external with any other Alignment is refused rather than fed an unaligned value.
-_BUILT_ALIGNMENTS = frozenset(
-    {
-        Alignment.CONSTANT_PER_SERIES,
-        Alignment.DAILY_ASOF_CLOSE,
-        Alignment.DAILY_REFERENCE_GRID,
-        Alignment.HTF_ASOF_CLOSE,
-    }
-)
-
-
-def _require_buildable_externals() -> None:
-    for external in default_registry().external_inputs:
-        if external.alignment not in _BUILT_ALIGNMENTS:
-            raise ValueError(
-                f"external input {external.name!r} has alignment {external.alignment.name}, "
-                "and feature_factory has no builder for it"
-            )
-
-
-# A row with no daily record available yet is missing data (no_fill): all-NaN, so the kernels
-# emit NaN instead of a fabricated 0.0 z-score.
-_MISSING_CROSS_ASSET = CrossAssetRecord(*([float("nan")] * len(CrossAssetRecord._fields)))
-
-
-def _macro_kernel_inputs(
-    row_ns: np.ndarray,
-    symbol: str,
-    tf: str,
-    cache: FeatureCache,
-    cross_asset_by_date: dict | None,
-    beta_by_date: dict | None,
-) -> dict[str, np.ndarray]:
-    """The ten `ext_*` macro inputs on the row grid (None becomes NaN).
-
-    Batch path: the daily records are aligned as-of the row's bar end with `daily_asof_indices`
-    (a record dated d is available from the 16:00 ET close of d, so an intraday row on d reads
-    d - 1; 1d rows read their own date). A row with no available record reads the default:
-    NaN for the cross-asset fields, None (NaN) for the betas. Live path (cross_asset_by_date and
-    beta_by_date None): the cache's values broadcast, with equity_beta_z None for SPY and
-    rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
-    already-closed daily values.
-    """
-    _require_buildable_externals()
-    n = len(row_ns)
-    out: dict[str, np.ndarray] = {}
-    if cross_asset_by_date is not None:
-        dates = sorted(cross_asset_by_date)
-        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
-        records = [cross_asset_by_date[d] for d in dates]
-        for name in RECORD_COLUMNS:
-            # The default closes each column, so index -1 (no record available) reads it.
-            column = [getattr(r, name) for r in records] + [getattr(_MISSING_CROSS_ASSET, name)]
-            out[f"ext_{name}"] = np.array(column, dtype=np.float64)[index]
-    else:
-        for name in RECORD_COLUMNS:
-            out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
-    if beta_by_date is not None:
-        dates = sorted(beta_by_date)
-        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
-        pairs = [beta_by_date[d] for d in dates] + [(None, None)]
-        for position, name in enumerate(("ext_equity_beta_z", "ext_rate_beta_z")):
-            column = [np.nan if p[position] is None else p[position] for p in pairs]
-            out[name] = np.array(column, dtype=np.float64)[index]
-    else:
-        equity = None if symbol == "SPY" else cache.equity_beta_z
-        rate = None if symbol == "TLT" else cache.rate_beta_z
-        out["ext_equity_beta_z"] = np.full(n, np.nan if equity is None else equity)
-        out["ext_rate_beta_z"] = np.full(n, np.nan if rate is None else rate)
-    return out
-
-
-class DailySeriesRecord(NamedTuple):
-    """One symbol's daily-grain add-list records (todo 584 item 8), each keyed by date: the
-    market-residual family, the return-distribution family and the dividend yield. A family left
-    None (or empty) reads NaN on every row."""
-
-    residual: dict | None = None
-    distribution: dict | None = None
-    dividend_yield: dict | None = None
-
-
-def _daily_records_kernel_inputs(
-    row_ns: np.ndarray, tf: str, records: DailySeriesRecord | None
-) -> dict[str, np.ndarray]:
-    """The `ext_*` inputs of the item-8 daily families on the row grid, aligned as-of the row's
-    bar end like the betas (a record dated d is available from d's 16:00 ET close). A row with no
-    available record, or a family with no records, reads NaN: undefined, never a fill."""
-    records = records or DailySeriesRecord()
-    families = (
-        (records.residual, RESIDUAL_COLUMNS, getattr),
-        (records.distribution, DISTRIBUTION_COLUMNS, getattr),
-        (records.dividend_yield, ("dividend_yield",), lambda value, name: value),
-    )
-    out: dict[str, np.ndarray] = {}
-    for by_date, names, read in families:
-        dates = sorted(by_date or {})
-        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
-        for name in names:
-            column = [read(by_date[d], name) for d in dates] + [np.nan]
-            out[f"ext_{name}"] = np.array(column, dtype=np.float64)[index]
-    return out
-
-
-def _cross_tf_kernel_inputs(
-    row_ns: np.ndarray,
-    tf: str,
-    cache: FeatureCache,
-    ctf_by_ts: CtfSeries | None,
-) -> dict[str, np.ndarray]:
-    """The four cross-timeframe `ext_*` inputs on the row grid.
-
-    Batch path (`ctf_by_ts` given): `ctf_row_inputs` looks each row up among the HTF values
-    keyed by their bar's close. Live path: the cache's CTF values broadcast and the
-    HTF return is NaN (the divergences have no live-path plumbing).
-    """
-    n = len(row_ns)
-    if ctf_by_ts is not None:
-        out = ctf_row_inputs(row_ns, ctf_by_ts)
-    else:
-        out = {
-            "ext_ctf_momentum": np.full(n, cache.ctf_momentum, dtype=np.float64),
-            "ext_ctf_vwap_align": np.full(n, cache.ctf_vwap_align, dtype=np.float64),
-            "ext_ctf_regime_align": np.full(n, cache.ctf_regime_align, dtype=np.float64),
-            "ext_htf_last_log_ret": np.full(n, np.nan),
-        }
-    return out
-
-
-def _guard(v: float | None, fallback: float = 0.0) -> float | None:
-    """Replace non-finite floats with fallback. Pass None through unchanged."""
-    if v is None:
-        return None
-    return v if math.isfinite(v) else fallback
-
-
 def _missing_if_nan(v: float | None) -> float | None:
-    """A cross-asset input that is undefined (no record yet, short history, zero spread) is
-    missing (None, stored NULL), never a fabricated 0.0 (todo 463, D1 rules 1 and 5)."""
+    """A non-finite value (no record yet, short history, zero spread, a zero denominator) is
+    missing (None, stored NULL), never a fabricated 0.0 or neutral fallback (no_fill; todo 463,
+    D1 rules 1 and 5; todo 614 row 8)."""
     return v if v is not None and math.isfinite(v) else None
 
 
@@ -1460,10 +802,10 @@ def _missing_product(v: float | None, name: str, inputs: Sequence[float | None])
 _GUARD_COUNTED_SUBSTITUTIONS: dict[str, int] = {}
 
 
-def _guard_counted(v: float, name: str) -> float:
-    """Like _guard(v, fallback=0.0) but increments a named, observable counter. Reached only
-    through `_missing_product`, which has already classified a non-finite input as missing
-    data: this firing means every input was finite and the product still is not.
+def _guard_counted(v: float, name: str) -> float | None:
+    """A non-finite product is missing (None), counted under a named, observable counter.
+    Reached only through `_missing_product`, which has already classified a non-finite input
+    as missing data: this firing means every input was finite and the product still is not.
 
     Explicit range clipping was rejected at design time: a float64 product of two z-scores
     cannot reach ±inf short of roughly 1e154 per factor -- structurally unreachable for a
@@ -1473,7 +815,7 @@ def _guard_counted(v: float, name: str) -> float:
     if math.isfinite(v):
         return v
     _GUARD_COUNTED_SUBSTITUTIONS[name] = _GUARD_COUNTED_SUBSTITUTIONS.get(name, 0) + 1
-    return 0.0
+    return None
 
 
 def _report_guard_counted_substitutions() -> None:
@@ -1809,8 +1151,8 @@ def _build_feature_vector(
     return FeatureVector(
         # The rule-5 columns (z-scores, RSI, the products reading them) are missing (None) on a
         # window that does not define them, never a neutral fill; so are the smc/vp_sr no-object
-        # columns (todo 584 4b-2 group 4). The remaining _guard columns are quantities whose 0.0
-        # is a measured value (event flags, counts, directions; zero_is_state in 4c).
+        # columns (todo 584 4b-2 group 4). Every other column is missing on a non-finite value
+        # too; a flag, count or direction that is 0.0 stays 0.0 (zero_is_state in 4c).
         momentum_z_fast=_missing_if_nan(momentum_z_fast),
         momentum_z_mid=_missing_if_nan(momentum_z_mid),
         range_position=_missing_if_nan(range_position),
@@ -1818,17 +1160,17 @@ def _build_feature_vector(
         gap_z=_missing_if_nan(gap_z),
         momentum_z_slow=_missing_if_nan(momentum_z_slow),
         momentum_reversal_z=_missing_if_nan(momentum_reversal_z),
-        informed_flow=_guard(informed_flow),
+        informed_flow=_missing_if_nan(informed_flow),
         volume_z=_missing_if_nan(volume_z),
         ofi_z=_missing_if_nan(ofi_z),
         ofi_div=_missing_if_nan(ofi_div),
         cvd_slope_z=_missing_if_nan(cvd_slope_z),
-        cmf=_guard(cmf),
-        rel_volume=_guard(rel_volume, 1.0),
+        cmf=_missing_if_nan(cmf),
+        rel_volume=_missing_if_nan(rel_volume),
         # zero-spread window -> NaN, not a fabricated 0.0 (D1 rule 5, todo 584 4c)
         vwap_dev_sigma=_missing_if_nan(vwap_dev_sigma),
         atr_z=_missing_if_nan(atr_z),
-        vol_ratio=_guard(vol_ratio, 1.0),
+        vol_ratio=_missing_if_nan(vol_ratio),
         poc_dist_atr=_missing_if_nan(poc_dist_atr),
         va_position=_missing_if_nan(va_position),
         sr_support_dist=_missing_if_nan(sr_support_dist),
@@ -1850,9 +1192,9 @@ def _build_feature_vector(
         resistance_age_bars=_missing_if_nan(resistance_age_bars),
         support_age_bars=_missing_if_nan(support_age_bars),
         sr_level_count=_missing_if_nan(sr_level_count),
-        hmm_regime_prob=_guard(hmm_regime_prob),
-        hmm_entropy=_guard(hmm_entropy),
-        hmm_duration=_guard(hmm_duration),
+        hmm_regime_prob=_missing_if_nan(hmm_regime_prob),
+        hmm_entropy=_missing_if_nan(hmm_entropy),
+        hmm_duration=_missing_if_nan(hmm_duration),
         # The five bar statistics are missing (None) before the first regime refresh and on a
         # window that does not define them, never a neutral 0.5/1.0/0.0 (D1 rule 5, todo 584).
         hurst=_missing_if_nan(hurst),
@@ -1881,38 +1223,38 @@ def _build_feature_vector(
         dow_sin=dow_sin,
         dow_cos=dow_cos,
         month_position=month_position,
-        quarter_position=_guard(quarter_position, 0.0),
-        days_to_month_end=_guard(days_to_month_end, 0.0),
-        quarter_cycle_sin=_guard(quarter_cycle_sin, 0.0),
-        quarter_cycle_cos=_guard(quarter_cycle_cos, 1.0),
-        tdom_sin=_guard(tdom_sin, 0.0),
-        tdom_cos=_guard(tdom_cos, 1.0),
-        minute_of_hour_sin=_guard(minute_of_hour_sin, 0.0),
-        minute_of_hour_cos=_guard(minute_of_hour_cos, 1.0),
-        ctf_momentum=_guard(ctf_momentum),
-        ctf_vwap_align=_guard(ctf_vwap_align),
-        ctf_regime_align=_guard(ctf_regime_align),
+        quarter_position=_missing_if_nan(quarter_position),
+        days_to_month_end=_missing_if_nan(days_to_month_end),
+        quarter_cycle_sin=_missing_if_nan(quarter_cycle_sin),
+        quarter_cycle_cos=_missing_if_nan(quarter_cycle_cos),
+        tdom_sin=_missing_if_nan(tdom_sin),
+        tdom_cos=_missing_if_nan(tdom_cos),
+        minute_of_hour_sin=_missing_if_nan(minute_of_hour_sin),
+        minute_of_hour_cos=_missing_if_nan(minute_of_hour_cos),
+        ctf_momentum=_missing_if_nan(ctf_momentum),
+        ctf_vwap_align=_missing_if_nan(ctf_vwap_align),
+        ctf_regime_align=_missing_if_nan(ctf_regime_align),
         amihud_illiq_z=_missing_if_nan(amihud_illiq_z),
-        high_52w_dist=_guard(high_52w_dist),
+        high_52w_dist=_missing_if_nan(high_52w_dist),
         ret_skew_z=_missing_if_nan(ret_skew_z),
         ret_acf1_z=_missing_if_nan(ret_acf1_z),
         body_ratio=_missing_if_nan(body_ratio),
         upper_wick_ratio=_missing_if_nan(upper_wick_ratio),
         lower_wick_ratio=_missing_if_nan(lower_wick_ratio),
-        range_vs_atr=_guard(range_vs_atr, 0.0),
+        range_vs_atr=_missing_if_nan(range_vs_atr),
         close_vs_open_direction=close_vs_open_direction,
-        overnight_gap=_guard(overnight_gap, 0.0),
+        overnight_gap=_missing_if_nan(overnight_gap),
         overnight_gap_z=_missing_if_nan(overnight_gap_z),
-        range_efficiency=_guard(range_efficiency, 0.0),
-        ret_lag_1=_guard(ret_lag_1, 0.0),
-        ret_lag_2=_guard(ret_lag_2, 0.0),
-        ret_lag_3=_guard(ret_lag_3, 0.0),
-        ret_lag_fast=_guard(ret_lag_fast, 0.0),
-        ret_lag_mid=_guard(ret_lag_mid, 0.0),
-        ret_lag_slow=_guard(ret_lag_slow, 0.0),
-        open_ret=_guard(open_ret, 0.0),
-        intraday_ret=_guard(intraday_ret, 0.0),
-        open_vs_intraday=_guard(open_vs_intraday, 0.0),
+        range_efficiency=_missing_if_nan(range_efficiency),
+        ret_lag_1=_missing_if_nan(ret_lag_1),
+        ret_lag_2=_missing_if_nan(ret_lag_2),
+        ret_lag_3=_missing_if_nan(ret_lag_3),
+        ret_lag_fast=_missing_if_nan(ret_lag_fast),
+        ret_lag_mid=_missing_if_nan(ret_lag_mid),
+        ret_lag_slow=_missing_if_nan(ret_lag_slow),
+        open_ret=_missing_if_nan(open_ret),
+        intraday_ret=_missing_if_nan(intraday_ret),
+        open_vs_intraday=_missing_if_nan(open_vs_intraday),
         session_time_pos=session_time_pos,
         hour_of_day_sin=hour_of_day_sin,
         hour_of_day_cos=hour_of_day_cos,
@@ -1927,21 +1269,21 @@ def _build_feature_vector(
         vol_acceleration=_missing_if_nan(vol_acceleration),
         dollar_vol_z=_missing_if_nan(dollar_vol_z),
         vol_range_ratio=_missing_if_nan(vol_range_ratio),
-        vol_trend_ratio=_guard(vol_trend_ratio, 1.0),
-        up_vol_ratio_fast=_guard(up_vol_ratio_fast, 0.5),
-        up_vol_ratio_slow=_guard(up_vol_ratio_slow, 0.5),
+        vol_trend_ratio=_missing_if_nan(vol_trend_ratio),
+        up_vol_ratio_fast=_missing_if_nan(up_vol_ratio_fast),
+        up_vol_ratio_slow=_missing_if_nan(up_vol_ratio_slow),
         vol_percentile=_missing_if_nan(vol_percentile),
-        vol_persistence=_guard(vol_persistence, 0.0),
+        vol_persistence=_missing_if_nan(vol_persistence),
         vol_std_z=_missing_if_nan(vol_std_z),
         mfi_fast=_missing_if_nan(mfi_fast),
         mfi_slow=_missing_if_nan(mfi_slow),
         obv_z=_missing_if_nan(obv_z),
-        dist_from_high_fast=_guard(dist_from_high_fast, 0.0),
-        dist_from_high_slow=_guard(dist_from_high_slow, 0.0),
-        dist_from_low_fast=_guard(dist_from_low_fast, 0.0),
-        dist_from_low_slow=_guard(dist_from_low_slow, 0.0),
-        range_pct_fast=_guard(range_pct_fast, 0.0),
-        range_pct_slow=_guard(range_pct_slow, 0.0),
+        dist_from_high_fast=_missing_if_nan(dist_from_high_fast),
+        dist_from_high_slow=_missing_if_nan(dist_from_high_slow),
+        dist_from_low_fast=_missing_if_nan(dist_from_low_fast),
+        dist_from_low_slow=_missing_if_nan(dist_from_low_slow),
+        range_pct_fast=_missing_if_nan(range_pct_fast),
+        range_pct_slow=_missing_if_nan(range_pct_slow),
         stoch_k_fast=_missing_if_nan(stoch_k_fast),
         stoch_k_slow=_missing_if_nan(stoch_k_slow),
         price_percentile_fast=_missing_if_nan(price_percentile_fast),
@@ -1950,17 +1292,17 @@ def _build_feature_vector(
         efficiency_ratio_slow=_missing_if_nan(efficiency_ratio_slow),
         ret_kurtosis_z_fast=_missing_if_nan(ret_kurtosis_z_fast),
         ret_kurtosis_z_slow=_missing_if_nan(ret_kurtosis_z_slow),
-        ret_autocorr_1=_guard(ret_autocorr_1, 0.0),
-        ret_autocorr_5=_guard(ret_autocorr_5, 0.0),
+        ret_autocorr_1=_missing_if_nan(ret_autocorr_1),
+        ret_autocorr_5=_missing_if_nan(ret_autocorr_5),
         updown_ratio_fast=_missing_if_nan(updown_ratio_fast),
         updown_ratio_slow=_missing_if_nan(updown_ratio_slow),
         streak_z=_missing_if_nan(streak_z),
         realized_var_ratio_fast=_missing_if_nan(realized_var_ratio_fast),
         realized_var_ratio_slow=_missing_if_nan(realized_var_ratio_slow),
-        range_to_close=_guard(range_to_close, 0.0),
-        true_range_pct=_guard(true_range_pct, 0.0),
+        range_to_close=_missing_if_nan(range_to_close),
+        true_range_pct=_missing_if_nan(true_range_pct),
         vol_of_vol=_missing_if_nan(vol_of_vol),
-        high_low_corr=_guard(high_low_corr, 0.0),
+        high_low_corr=_missing_if_nan(high_low_corr),
         variance_ratio_fast=_missing_if_nan(variance_ratio_fast),
         variance_ratio_slow=_missing_if_nan(variance_ratio_slow),
         vol_asymmetry_z=_missing_if_nan(vol_asymmetry_z),
@@ -1987,17 +1329,17 @@ def _build_feature_vector(
         ofi_z_velocity=_missing_if_nan(ofi_z_velocity),
         cvd_slope_z_velocity=_missing_if_nan(cvd_slope_z_velocity),
         volume_z_velocity=_missing_if_nan(volume_z_velocity),
-        bars_since_high_fast=_guard(bars_since_high_fast, 0.0),
-        bars_since_high_slow=_guard(bars_since_high_slow, 0.0),
-        bars_since_low_fast=_guard(bars_since_low_fast, 0.0),
-        bars_since_low_slow=_guard(bars_since_low_slow, 0.0),
-        bars_since_52w_high=_guard(bars_since_52w_high, 0.0),
-        bars_since_52w_low=_guard(bars_since_52w_low, 0.0),
+        bars_since_high_fast=_missing_if_nan(bars_since_high_fast),
+        bars_since_high_slow=_missing_if_nan(bars_since_high_slow),
+        bars_since_low_fast=_missing_if_nan(bars_since_low_fast),
+        bars_since_low_slow=_missing_if_nan(bars_since_low_slow),
+        bars_since_52w_high=_missing_if_nan(bars_since_52w_high),
+        bars_since_52w_low=_missing_if_nan(bars_since_52w_low),
         bars_since_extreme_move_fast=_missing_if_nan(bars_since_extreme_move_fast),
         bars_since_extreme_move_slow=_missing_if_nan(bars_since_extreme_move_slow),
         bars_since_vol_spike_fast=_missing_if_nan(bars_since_vol_spike_fast),
         bars_since_vol_spike_slow=_missing_if_nan(bars_since_vol_spike_slow),
-        abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
+        abs_ret_autocorr_1=_missing_if_nan(abs_ret_autocorr_1),
         # Missing stays missing (todo 463, D1 rules 1 and 5): NaN becomes None, never 0.0.
         tip_tlt_ret_z=_missing_if_nan(tip_tlt_ret_z),
         hyg_lqd_ret_z=_missing_if_nan(hyg_lqd_ret_z),
@@ -2006,20 +1348,20 @@ def _build_feature_vector(
         sb_corr_z=_missing_if_nan(sb_corr_z),
         equity_beta_z=_missing_if_nan(equity_beta_z),
         rate_beta_z=_missing_if_nan(rate_beta_z),
-        ret_div_5m_1h=_guard(ret_div_5m_1h),
-        ret_div_1h_1d=_guard(ret_div_1h_1d),
-        opex_flag=_guard(opex_flag, 0.0),
-        quad_witching_flag=_guard(quad_witching_flag, 0.0),
-        earnings_season_flag=_guard(earnings_season_flag, 0.0),
-        days_since_quarter_end=_guard(days_since_quarter_end, 0.0),
+        ret_div_5m_1h=_missing_if_nan(ret_div_5m_1h),
+        ret_div_1h_1d=_missing_if_nan(ret_div_1h_1d),
+        opex_flag=_missing_if_nan(opex_flag),
+        quad_witching_flag=_missing_if_nan(quad_witching_flag),
+        earnings_season_flag=_missing_if_nan(earnings_season_flag),
+        days_since_quarter_end=_missing_if_nan(days_since_quarter_end),
         vol_body_product=_missing_product(
             vol_body_product, "vol_body_product", (body_ratio, volume_z)
         ),
         ret_vol_product_fast=_missing_product(
             ret_vol_product_fast, "ret_vol_product_fast", (ret_lag_fast, volume_z)
         ),
-        price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
-        price_vol_corr_slow=_guard(price_vol_corr_slow, 0.0),
+        price_vol_corr_fast=_missing_if_nan(price_vol_corr_fast),
+        price_vol_corr_slow=_missing_if_nan(price_vol_corr_slow),
         range_vol_product=_missing_product(
             range_vol_product, "range_vol_product", (range_vs_atr, volume_z)
         ),
@@ -2112,14 +1454,14 @@ def _build_feature_vector(
         weekly_s2_dist_atr=_missing_if_nan(weekly_s2_dist_atr),
         nearest_level_dist_atr=_missing_if_nan(nearest_level_dist_atr),
         gap_filled=_missing_if_nan(gap_filled),
-        canary_noise_gaussian=_guard(canary_noise_gaussian, 0.0),
-        canary_noise_uniform=_guard(canary_noise_uniform, 0.0),
-        canary_constant=_guard(canary_constant, _CANARY_CONSTANT_VALUE),
-        canary_near_constant=_guard(canary_near_constant, _CANARY_CONSTANT_VALUE),
-        canary_acausal_placebo=_guard(canary_acausal_placebo, 0.0),
+        canary_noise_gaussian=_missing_if_nan(canary_noise_gaussian),
+        canary_noise_uniform=_missing_if_nan(canary_noise_uniform),
+        canary_constant=_missing_if_nan(canary_constant),
+        canary_near_constant=_missing_if_nan(canary_near_constant),
+        canary_acausal_placebo=_missing_if_nan(canary_acausal_placebo),
         # SMC no-object columns are missing (None) where the object does not exist, never a
-        # fabricated 0.0; flags, counts and direction fields keep _guard (0.0 is their measured
-        # state, zero_is_state in 4c) (D1 rule 2, todo 584 4b-2 group 4).
+        # fabricated 0.0; a measured 0.0 flag, count or direction stays 0.0 (zero_is_state in
+        # 4c) (D1 rule 2, todo 584 4b-2 group 4).
         ob_bull_dist_atr=_missing_if_nan(ob_bull_dist_atr),
         ob_bear_dist_atr=_missing_if_nan(ob_bear_dist_atr),
         ob_strength=_missing_if_nan(ob_strength),
@@ -2824,7 +2166,7 @@ class FeatureFactory:
         k = compute_kernels(
             registry,
             {
-                **_batch_kernel_inputs(
+                **batch_kernel_inputs(
                     row_ns,
                     opens,
                     highs,
@@ -2835,10 +2177,8 @@ class FeatureFactory:
                     tf,
                     _bars_volume_basis(bars),
                 ),
-                **_macro_kernel_inputs(
-                    row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
-                ),
-                **_cross_tf_kernel_inputs(row_ns, tf, cache, ctf_by_ts),
+                **macro_kernel_inputs(row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date),
+                **cross_tf_kernel_inputs(row_ns, tf, cache, ctf_by_ts),
             },
             config,
             outputs=list(
@@ -3003,8 +2343,7 @@ class FeatureFactory:
             rate_beta_z_val = _none_if_nan(k["rate_beta_z"][i])
 
             # Calendar primitives. The five session flags are declared intraday-only on 1d
-            # (D1): the kernel grid carries NaN there, which is None here (never the 0.0 a
-            # plain float() read would hand _guard downstream).
+            # (D1): the kernel grid carries NaN there, which is None here.
             in_ny_session_val = _none_if_nan(k["in_ny_session"][i])
             in_overlap_val = _none_if_nan(k["in_overlap"][i])
             power_hour_val = _none_if_nan(k["power_hour"][i])

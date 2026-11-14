@@ -35,12 +35,12 @@ from typing import Any
 
 import numpy as np
 
-from src.intelligence.feature_factory import FeatureFactoryConfig
 from src.intelligence.features.contract.registry import (
     KernelRegistry,
     default_registry,
     feature_memory_bars,
 )
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.statistics.feature_coverage import SymbolCounts, feature_tf_quality
 
 

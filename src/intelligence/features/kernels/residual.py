@@ -60,7 +60,7 @@ from src.intelligence.features.kernels._primitives import _corr_or_nan, _z_or_na
 from src.intelligence.features.kernels.macro import SPY, _grid_bars, common_bar_dates
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 class MarketResidualRecord(NamedTuple):

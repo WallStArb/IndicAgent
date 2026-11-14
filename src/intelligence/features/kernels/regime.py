@@ -44,7 +44,7 @@ from src.intelligence.features.kernels._hmm import (
 )
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 __all__ = [
     "EXTERNAL_INPUTS",

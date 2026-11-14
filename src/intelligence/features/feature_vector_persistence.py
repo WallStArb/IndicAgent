@@ -174,7 +174,7 @@ _EARNINGS_SEASON_FIELD_NAMES slice, appended LAST in the column list so no
 existing column's positional SQL parameter index shifts. Both values are real
 computed floats from day one on both live and batch paths.
 
-Ring 1: imports FeatureVector from src.intelligence.schemas.
+Ring 1: imports FeatureVector from src.intelligence.features.feature_vector.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
 
@@ -190,7 +190,7 @@ from datetime import datetime, timedelta
 
 from src.core.real_column_range import clamp_to_real_range
 from src.core.service_utils import TF_SECONDS as _TF_SECONDS
-from src.intelligence.schemas import FeatureVector
+from src.intelligence.features.feature_vector import FeatureVector
 
 # ── Schema constraint ─────────────────────────────────────────────────────────
 
@@ -950,8 +950,7 @@ def feature_vector_row_values(
     `numeric_values` are the numeric columns in `feature_vectors_numeric_columns()` order. A
     NaN is missing data (no_fill: a warmup row, a macro column before the first daily record, a
     column a mask marks None) and is written as None, so the COPY stores NULL and never the text
-    NaN. The legacy row builders raise on NaN and re-fabricated 0.0 through `_guard`; neither
-    runs here. An infinite value is kept as it is (a loud value downstream, not a silent NULL).
+    NaN. An infinite value is kept as it is (a loud value downstream, not a silent NULL).
     """
     n_numeric = len(feature_vectors_numeric_columns())
     if len(numeric_values) != n_numeric:

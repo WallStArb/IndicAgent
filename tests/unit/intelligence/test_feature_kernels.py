@@ -18,12 +18,7 @@ from functools import lru_cache
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import (
-    FeatureFactory,
-    _cross_tf_kernel_inputs,
-    _daily_records_kernel_inputs,
-    _macro_kernel_inputs,
-)
+from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.causality_probe import (
     causality_probe,
     memory_check,
@@ -36,6 +31,11 @@ from src.intelligence.features.contract.registry import (
     KernelRegistry,
     compute_kernels,
     default_registry,
+)
+from src.intelligence.features.external_inputs import (
+    cross_tf_kernel_inputs,
+    daily_records_kernel_inputs,
+    macro_kernel_inputs,
 )
 from src.intelligence.features.feature_vector_persistence import (
     _ALL_COLUMN_NAMES,
@@ -226,15 +226,15 @@ def _synthetic_case():
         "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
         "tf": np.array(["5m"] * len(inputs["ts"]), dtype=object),
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
-        **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
-        **_cross_tf_kernel_inputs(
+        **macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
+        **cross_tf_kernel_inputs(
             inputs["ts"],
             "5m",
             FeatureCache(),
             None,
         ),
         # the item-8 daily families have no live-cache branch: every row reads NaN
-        **_daily_records_kernel_inputs(inputs["ts"], "5m", None),
+        **daily_records_kernel_inputs(inputs["ts"], "5m", None),
     }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)

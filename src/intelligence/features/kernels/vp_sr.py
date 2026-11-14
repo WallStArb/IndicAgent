@@ -7,8 +7,7 @@ reads the loop's `atr_val` (the ATR padded series at row i). The two cache-backe
 fresh `FeatureCache` with the loop's update calls from row 1, so they are path dependent.
 
 A helper that returns None for a key emits NaN in that key's column and 1.0 in its
-`_<key>_is_none` column, so a caller can tell None from a non-finite float (`_guard` maps the two
-differently).
+`_<key>_is_none` column, so a caller can tell None from a non-finite float.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import linear_ramp
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 # ---------------------------------------------------------------------------

@@ -28,10 +28,10 @@ import dataclasses
 import re
 from pathlib import Path
 
+from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.feature_vector_persistence import (
     feature_vectors_columns,
 )
-from src.intelligence.schemas import FeatureVector
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 

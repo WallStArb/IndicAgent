@@ -781,7 +781,7 @@ class TestGuardCountedTripwire:
 
         assert _guard_counted(3.14, "momentum_vol_regime_product") == 3.14
 
-    def test_nonfinite_value_substitutes_zero_and_increments_counter(self) -> None:
+    def test_nonfinite_value_is_missing_and_increments_counter(self) -> None:
         from src.intelligence.feature_factory import (
             _GUARD_COUNTED_SUBSTITUTIONS,
             _guard_counted,
@@ -789,12 +789,12 @@ class TestGuardCountedTripwire:
 
         _GUARD_COUNTED_SUBSTITUTIONS.clear()
         result = _guard_counted(float("inf"), "momentum_vol_regime_product")
-        assert result == 0.0
+        assert result is None
         assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 1
 
-        # A second substitution on the same compound (this time -inf) increments again.
+        # A second firing on the same compound (this time -inf) increments again.
         result2 = _guard_counted(float("-inf"), "momentum_vol_regime_product")
-        assert result2 == 0.0
+        assert result2 is None
         assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
 
         # nan on a DIFFERENT compound increments its own independent counter.
@@ -803,6 +803,35 @@ class TestGuardCountedTripwire:
         assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
 
         _GUARD_COUNTED_SUBSTITUTIONS.clear()
+
+
+class TestStreamingNoFill:
+    """A value the streaming factory cannot compute is missing (None), never a fabricated 0.0,
+    1.0, 0.5 or canary constant (no_fill; todo 614 row 8)."""
+
+    def test_a_short_window_row_is_missing_not_a_fallback(self) -> None:
+        import dataclasses
+
+        from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
+
+        config = _make_config_for_min_window()
+        results = FeatureFactory.compute_batch(
+            _make_bars_dicts(60), "SPY", "5m", FeatureCache(), config, warm_up_bars=1
+        )
+        first = results[0][1]
+        # The slow price-volume correlation has no full window on the first row.
+        assert first.price_vol_corr_slow is None
+        for _, fv in results:
+            for field in dataclasses.fields(fv):
+                value = getattr(fv, field.name)
+                if isinstance(value, float):
+                    assert math.isfinite(value), field.name
+
+    def test_the_fallback_guard_is_gone(self) -> None:
+        from src.intelligence import feature_factory
+
+        assert not hasattr(feature_factory, "_guard")
 
 
 class TestGuardCountedReport:

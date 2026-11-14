@@ -40,7 +40,7 @@ from src.intelligence.features.kernels._primitives import (
 )
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 _logger = structlog.get_logger(__name__)
 

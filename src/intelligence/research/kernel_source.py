@@ -47,7 +47,7 @@ from src.intelligence.features.research_kernels.rolling import (
 from src.intelligence.research.panel import Panel
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 
 class KernelSourceRefused(ValueError):

@@ -94,6 +94,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402
 from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
+from src.intelligence.features.feature_vector import FeatureVector  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
     FamilyCompleteness,
     IcCell,
@@ -135,7 +136,6 @@ from src.intelligence.measure.term_structure import (  # noqa: E402
 )
 from src.intelligence.research import panel as research_panel  # noqa: E402
 from src.intelligence.research import snapshot  # noqa: E402
-from src.intelligence.schemas import FeatureVector  # noqa: E402
 from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
 from src.observability.metrics import (  # noqa: E402
     JOB_COMPLETED_TOTAL,

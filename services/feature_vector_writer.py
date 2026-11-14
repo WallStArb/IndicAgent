@@ -31,12 +31,12 @@ from src.core.stream_keys import (
     topic_feature_vectors_dlq,
 )
 from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION
+from src.intelligence.features.feature_vector import FeatureVector, FeatureVectorRecord
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL,
     VALID_REGIME_LABEL_SOURCES,
     feature_vector_to_insert_params,
 )
-from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,

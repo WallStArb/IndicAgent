@@ -10,7 +10,7 @@ import pytest
 
 def _make_valid_feature_vector():
     """Build a valid FeatureVector for test fixtures."""
-    from src.intelligence.schemas import FeatureVector
+    from src.intelligence.features.feature_vector import FeatureVector
 
     return FeatureVector(
         momentum_z_fast=0.1,
@@ -289,7 +289,7 @@ def _make_valid_feature_vector():
 
 def _make_valid_record():
     """Build a valid FeatureVectorRecord for test fixtures."""
-    from src.intelligence.schemas import FeatureVectorRecord
+    from src.intelligence.features.feature_vector import FeatureVectorRecord
 
     return FeatureVectorRecord(
         symbol="SPY",
@@ -374,7 +374,7 @@ def test_record_to_insert_params_structural_columns():
 def test_record_to_insert_params_regime_can_be_none():
     """regime field is nullable — None passes through as None."""
     from services.feature_vector_writer import _record_to_insert_params
-    from src.intelligence.schemas import FeatureVectorRecord
+    from src.intelligence.features.feature_vector import FeatureVectorRecord
 
     rec = _make_valid_record()
     rec_no_regime = FeatureVectorRecord(

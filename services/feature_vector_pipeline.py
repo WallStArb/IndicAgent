@@ -56,10 +56,11 @@ from src.core.stream_keys import (
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
-    FeatureFactoryConfig,
     invert_ctf_higher_tf_map,
 )
 from src.intelligence.features.contract.registry import registry_column_gaps
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
+from src.intelligence.features.feature_vector import FeatureVectorRecord
 from src.intelligence.features.feature_vector_persistence import NUMERIC_COLUMN_NAMES
 from src.intelligence.features.kernels._cache_state import (
     FeatureCache,
@@ -92,7 +93,6 @@ from src.intelligence.pipeline.per_key_worker_manager import (
     _WORKER_QUEUE_DEPTH_GAUGE,
 )
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
-from src.intelligence.schemas import FeatureVectorRecord
 from src.observability.metrics import (
     CONTRACTS_RELOAD_TOTAL,
     PIPELINE_BACKPRESSURE_DROP_TOTAL,
@@ -336,7 +336,7 @@ class FeatureVectorPipeline(BaseDaemon):
         flight_quality/yield_slope_z from THIS TIMEFRAME's own bar history
         (`self._bar_history.get(role_symbol, tf)` -- 5m bars at tf=="5m", 1h bars at
         tf=="1h", ...). That is a materially different statistical object than the
-        canonical daily-broadcast definition: schemas.py's FeatureVector docstring
+        canonical daily-broadcast definition: feature_vector.py's FeatureVector docstring
         states these fields are "broadcast to every symbol on a given date, like vix_z
         above" (one value per calendar date, computed from DAILY closes), and
         build_cross_asset_series only ever receives "1d" bars from the batch caller.

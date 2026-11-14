@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactoryConfig
 from src.intelligence.features.contract.registry import default_registry, feature_memory_bars
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.research import feature_inputs as fi
 from src.intelligence.research import store
