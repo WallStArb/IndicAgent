@@ -386,5 +386,3 @@ def rebuild_from_stored_state(
         {"provider": provider, "symbols": symbol_list, "not_coverage": _NOT_COVERAGE},
     )
     return written + int(cur.rowcount)
-
-

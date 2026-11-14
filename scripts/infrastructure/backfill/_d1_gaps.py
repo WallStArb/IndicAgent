@@ -312,8 +312,6 @@ def subtract_windows(
     return out
 
 
-
-
 # 1d: a session is covered by a complete bar of this vendor's own TRADES answer on its date (any
 # kind: for IBKR smart_trades or a venue_<route> listing-venue route, D-20), or by a definitive
 # no_data window containing the whole session day. The dividend-adjusted series answers a
@@ -383,7 +381,3 @@ def _plan_with_empty_gate(
         if plan_gaps(slots, stored, answered, interval, run_end=run_end) != plan:
             on_skip(empty)
     return plan
-
-
-
-

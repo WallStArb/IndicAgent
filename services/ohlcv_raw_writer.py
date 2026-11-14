@@ -505,8 +505,6 @@ def preview_series(conn: Any, rows: Iterable[RawRow], *, answered_at: datetime) 
         return _classify_series(cur, series, keyed, answered_at).delta
 
 
-
-
 # --------------------------------------------------------------------------------------
 # Columnar bulk path (bulk raw load path design, sections 4 and 5)
 # --------------------------------------------------------------------------------------
