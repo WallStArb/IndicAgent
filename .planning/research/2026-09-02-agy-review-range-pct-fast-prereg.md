@@ -172,7 +172,7 @@ The specific findings are ranked below by severity, most severe first.
 
 ## Required Amendments Before Execution
 
-Before `scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py` is written or run, the pre-registration section in `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` must be amended with the following locked decisions:
+Before `scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py` is written or run, the pre-registration section in `docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md` must be amended with the following locked decisions:
 
 | Area | Current Text | Required Amendment |
 |---|---|---|

@@ -2,7 +2,7 @@
 status: completed
 priority: P1
 filed: 2026-09-24
-source: Phase 179 pre-registration code read (docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md, section 2)
+source: Phase 179 pre-registration code read (docs/plans/archive/2026-09-24-phase179-sleeve-walk-forward-prereg.md, section 2)
 ---
 
 # ensemble_trainer fits stratum covariance on every bar, holdout included

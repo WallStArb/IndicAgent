@@ -3,7 +3,7 @@ status: completed
 closed: 2026-09-24
 priority: P1
 filed: 2026-09-24
-source: council review 2026-09-24, docs/plans/2026-09-24-edge-proof-program.md "Phase 181 queue"
+source: council review 2026-09-24, docs/plans/archive/2026-09-24-edge-proof-program.md "Phase 181 queue"
 ---
 
 # Phase 181 candidate 1: TSMOM on the 13-symbol sleeve through the phase 179 evaluator
@@ -25,7 +25,7 @@ candidate.
    prices, as in the real run: a 252-session trailing return is far more persistent than V2's
    AR(1) phi 0.98 alpha.
 3. Pre-registration committed before any real-data number:
-   `docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md`.
+   `docs/plans/archive/2026-09-24-phase181-tsmom-sleeve-prereg.md`.
 4. One real run, S5 holdout sign check if ACT-level, ledger row.
 
 Independent of todo 418 (no refit, no production fidelity question). Data: the sleeve's price

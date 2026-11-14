@@ -110,7 +110,7 @@ a `factor_series`) for any interaction before renaming.
 ## Cross-refs
 
 - Todo 379 (completed) -- the stopgap this follow-up extends.
-- `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` -- full design
+- `docs/plans/archive/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` -- full design
   doc + all three reviewers' complete findings.
 - `docs/foundation/instrument-tag-registry.md` -- ITR spec; Known Gaps section already
   flags `discovery_oos_days` as unenforced and `sensitivity`/`macro_driver` tags as

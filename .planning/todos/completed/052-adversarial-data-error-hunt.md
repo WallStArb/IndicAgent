@@ -77,7 +77,7 @@ their effect on `feature_ic_scores`.
 
 ## Triage 2026-09-26 (backlog review with the owner)
 
-OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.
+OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/archive/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.
 
 ## Closed 2026-10-06 (phase 185 plan 24)
 

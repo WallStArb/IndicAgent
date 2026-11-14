@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-09-25
-source: adversarial review of docs/plans/2026-09-25-multi-timeframe-horizon-design.md (finding 4)
+source: adversarial review of docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md (finding 4)
 ---
 
 # No dividend history: daily targets and price-level features are price-only

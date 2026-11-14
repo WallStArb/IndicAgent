@@ -41,7 +41,7 @@ Alternatives, weaker: (a) `DO UPDATE` to the later observation (loses the first,
 permanence rule); (b) hold derivation for bars younger than a settle window (APR
 `infra.bar_derivation.revision_settle_days`) and verify only settled bars, which leaves a window of
 unverified deletes but never discards an observation. The intraday redesign
-(`docs/plans/2026-09-29-intraday-bar-store-redesign.md`) and phase 189's single fetcher own the write
+(`docs/plans/archive/2026-09-29-intraday-bar-store-redesign.md`) and phase 189's single fetcher own the write
 path, so this should land with or before 189-04.
 
 Until fixed, the 7 symbols keep their stored 15m/1h rows (nothing deleted) and the grid stage's exit

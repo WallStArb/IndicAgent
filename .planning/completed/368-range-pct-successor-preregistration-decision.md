@@ -2,7 +2,7 @@
 
 **Filed:** 2026-09-02, after pre-registration 1 returned DEAD
 (`de7c33bb2`, full numbers in
-`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` § "Pre-registration
+`docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md` § "Pre-registration
 1 run").
 
 ## Problem

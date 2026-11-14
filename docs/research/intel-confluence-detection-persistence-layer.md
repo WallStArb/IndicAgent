@@ -293,7 +293,7 @@ publication. Design for it:
 
 ## References
 
-- `docs/plans/2026-07-01-regime-stratification-alternatives.md` — stratification dimensions; CI-width
+- `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` — stratification dimensions; CI-width
   selection logic this design's calibration layer extends
 - `docs/research/multi-engine-regime-architecture.md` — Partial IC validation protocol (gate 1's direct
   ancestor)
@@ -305,7 +305,7 @@ publication. Design for it:
   kernel gate 1 lives in
 - `docs/research/concept-unified-registry.md` — lifecycle MVP, `baseline_metric` shrinkage,
   `decaying`-as-transition mapping
-- `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` §0b/0c — hard prerequisite of gate 1
+- `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` §0b/0c — hard prerequisite of gate 1
 - Todo `030-cost-hurdle-apr-calibration.md`
 - `.planning/research/2026-07-03-intel10-11-fable-review.md` — this rewrite's source review
 - ROADMAP.md Phase 151, Phase 143 (merged lifecycle phase, formerly 149B); Phase 142B SHADOW-REVIEW.md pre-commitment pattern (criteria

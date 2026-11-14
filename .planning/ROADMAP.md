@@ -110,7 +110,7 @@ the shrunk ic_engine.
 a filled value or a second implementation of a feature. Supported at phase close (Codex review 2026-10-27):
 daily books with 1d, 1h, 15m and 5m sources and 1h books with 1d sources, horizon 1, equal weight;
 every other route is refused at spec load until an E17 battery cell certifies it. Build section 7 of
-`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 3): B1 S0 adds `high`, `low`
+`docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` (revision 3): B1 S0 adds `high`, `low`
 and `closes_at` (NaT on untraded rows), fetches a warmup prefix, and reads phase 185's derived 15m
 and 1h bars; B2 new registry entries (vectorized percentile and 52-week, rolling VWAP) and a
 `kernel_source` adapter on phase 186's kernel registry; B3 the causal `align` node with its
@@ -147,7 +147,7 @@ Plans:
 
 ### Phase 185: Daily data foundation
 
-**Status:** complete (53 plans, waves 1-26). Built stages D0-D7 of `docs/plans/2026-09-26-daily-data-foundation.md`: data-quality labels, an append-only 1d observation store, derived 1d bars written by the derivation alone, venue-move recovery (todo 433), empty history recorded only when every route answers "no data", splits and dividends detected point in time, listing-venue history (D6) and daily reconciliation (D7). D8 (forward survivorship capture) was descoped 2026-09-26 and the survivorship bound retired 2026-10-09 (todo 514). The Tradier-primary 1d path became IBKR-primary (185-47) and was then deleted by phase 191; the v2.x AI stack was removed (185-45). Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
+**Status:** complete (53 plans, waves 1-26). Built stages D0-D7 of `docs/plans/archive/2026-09-26-daily-data-foundation.md`: data-quality labels, an append-only 1d observation store, derived 1d bars written by the derivation alone, venue-move recovery (todo 433), empty history recorded only when every route answers "no data", splits and dividends detected point in time, listing-venue history (D6) and daily reconciliation (D7). D8 (forward survivorship capture) was descoped 2026-09-26 and the survivorship bound retired 2026-10-09 (todo 514). The Tradier-primary 1d path became IBKR-primary (185-47) and was then deleted by phase 191; the v2.x AI stack was removed (185-45). Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
@@ -447,7 +447,7 @@ Plans:
 
 ### Phase 190: Provider history plane unification
 
-**Status:** complete (7 plans; cutover 2026-10-10, parity PASS). One multi-provider fetcher (`ohlcv_history_fetcher`) with a provider dimension on queue items, per-provider heads and quarantine (todo 526, closed), leaves in `src/providers/<vendor>.py` behind one protocol, and a two-tier ledger. Design: `docs/plans/2026-10-09-provider-history-plane-unification-design.md`. Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
+**Status:** complete (7 plans; cutover 2026-10-10, parity PASS). One multi-provider fetcher (`ohlcv_history_fetcher`) with a provider dimension on queue items, per-provider heads and quarantine (todo 526, closed), leaves in `src/providers/<vendor>.py` behind one protocol, and a two-tier ledger. Design: `docs/plans/archive/2026-10-09-provider-history-plane-unification-design.md`. Full plan list: `git show 1cd2d632a:.planning/ROADMAP.md`.
 
 ### Phase 191: Unified raw bar table
 

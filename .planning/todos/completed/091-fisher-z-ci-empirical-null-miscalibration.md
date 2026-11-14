@@ -94,7 +94,7 @@ owner, not resolved here.
    vs. `is_pooled=false` results explicitly and report them separately, so the P6 cross-sectional
    effect and the novel per-symbol autocorrelation effect don't get re-conflated into one number.
 2. **Reopening circular block bootstrap in the kernel is the natural fix per the original design
-   doc** (`docs/plans/2026-07-09-ic-null-calibration-design.md`), but treat this as the leading
+   doc** (`docs/plans/archive/2026-07-09-ic-null-calibration-design.md`), but treat this as the leading
    candidate, not a foregone conclusion, until step 1's confirmation (or the project owner's
    explicit call) settles it. If pursued: implement circular block bootstrap in `ic_math.py`,
    giving the currently-dead `alpha.ic.bootstrap_seed`, `alpha.ic.bootstrap_resamples`, and

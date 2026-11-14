@@ -9,7 +9,7 @@ source: personal-scale edge determination program, 2026-09-02 (user-approved pla
 
 # 367 — Paper placement: evaluate already-measured signal mass against the 0b personal hurdle
 
-Workstream 0c of `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`.
+Workstream 0c of `docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md`.
 Consumes existing numbers only -- no new measurement runs.
 
 **Executed 2026-09-02 (partial):** the 5-10d range/vol mass is placed. The flat library
@@ -40,7 +40,7 @@ governance rule.
 
 ## References
 
-- `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` -- the program
+- `docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md` -- the program
   (§ 0c results carries the scope-completion note)
 - todo 277, todo 278 -- residual threads
 - `docs/research/measurement-nonlinear-interaction-combiner.md` -- N1 residual numbers

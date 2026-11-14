@@ -3,7 +3,7 @@
 Filed: 2026-10-10
 Owner: pending
 Priority: P1 (blocks scratch cleanup; data-loss defect)
-Plan: docs/plans/2026-10-10-raw-capture-enforcement.md
+Plan: docs/plans/archive/2026-10-10-raw-capture-enforcement.md
 
 The load engine silently discarded 81.7M vendor-served rows in the 2026-10-10
 run (50.4M stored-held under first-writer-stays, 31.3M extended-hours), and

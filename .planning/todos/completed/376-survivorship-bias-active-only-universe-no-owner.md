@@ -82,7 +82,7 @@ Not a code fix -- a data-sourcing and documentation question:
 - `.planning/STATE.md` Strategic Plan section -- original flag, 2026-09-12/13.
 - `docs/research/construction-verdict-ledger.md` -- every verdict this bias potentially
   affects.
-- `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` -- the program whose
+- `docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md` -- the program whose
   closure surfaced this as the one unresolved integrity gap.
 
 ## Planned (2026-09-27)

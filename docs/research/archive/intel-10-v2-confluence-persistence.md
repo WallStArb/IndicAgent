@@ -228,7 +228,7 @@ publication. Design for it:
 
 ## References
 
-- `docs/plans/2026-07-01-regime-stratification-alternatives.md` — stratification dimensions; CI-width
+- `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` — stratification dimensions; CI-width
   selection logic this design's calibration layer extends
 - `docs/research/multi-engine-regime-architecture.md` — Partial IC validation protocol (gate 1's direct
   ancestor)

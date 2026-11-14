@@ -5,7 +5,7 @@
 **Original last updated:** 2026-04-21
 **Status:** Superseded future-idea draft. Preserved for Path A/Path B, MoA, and future-agent ideas.
 **Current canonical swarm architecture:** `docs/intelligence/swarm-architecture.md`
-**Current implementation plan:** `docs/plans/2026-05-05-swarm-intelligence-design.md`
+**Current implementation plan:** `docs/plans/archive/2026-05-05-swarm-intelligence-design.md`
 
 > This document is archived because its implementation model (`SwarmOrchestratorAgent`,
 > `SwarmWriterAgent`, `IAlphaContributor`, `SwarmContext`, `alpha_multiplier_shadow`,

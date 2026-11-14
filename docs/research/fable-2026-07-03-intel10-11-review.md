@@ -149,5 +149,5 @@ Net effect: one rewritten idea doc (confluence-as-predictor), one short measurem
 - `docs/research/intel-13-analog-engine.md` (Score Object deletion; return-distribution primitive; definedness rules), `docs/research/intel-15-measurement-engine.md` (unification status post-142A), `docs/research/intel-12-stratification-dimension.md`
 - `docs/research/concept-governance-registries.md` (four-table MVP; intel-10 mapping rule; baseline shrinkage)
 - `docs/research/edge-source-thesis.md` (cross_sectional_relative_value, §P6 cross-sectional effective N)
-- `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` (§0b/0c — now gate-1 prerequisites)
+- `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` (§0b/0c — now gate-1 prerequisites)
 - ROADMAP.md — Phase 142A status (complete 2026-07-02), Phases 145-147 (stale pre-intel-13 spec), 142B/SHADOW-REVIEW pattern

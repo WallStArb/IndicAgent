@@ -14,7 +14,7 @@ source: found by two independent cross-AI reviews (Codex, Fable) of a same-day f
 
 Option (a) (`source='human'` only) shipped in both flagged call sites, per unanimous
 recommendation from three independent reviews (Codex, Fable, AGY) of
-`docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md`:
+`docs/plans/archive/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md`:
 
 - `cross_sectional_regime_model.py`'s `_load_tags_by_symbol` (the live path -- corpus
   pipeline step 4) and `equity_regime_model.py`'s `_compute_breadth_fraction` (the

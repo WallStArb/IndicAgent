@@ -444,7 +444,7 @@ deriv  = ema3 - signal
 ## Related Files
 
 - Original concept: `momentum-acceleration-second-derivative.md` (shipped v1.6)
-- Implementation plan: `docs/plans/2026-02-25-momentum-acceleration-analysis.md`
+- Implementation plan: `docs/plans/archive/2026-02-25-momentum-acceleration-analysis.md`
 - Plugin code: `src/intelligence/composites/` (4 plugins)
 - Plugin registry: `src/intelligence/register_plugins.py` — `TIER_I2`
 

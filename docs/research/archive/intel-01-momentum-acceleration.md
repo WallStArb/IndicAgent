@@ -7,7 +7,7 @@
 **Last Updated:** 2026-02-27
 **Tags:** momentum, second-derivative, acceleration, indicators, rsi, macd, roc, intelligence
 
-**Detail / implementation plan:** [docs/plans/2026-02-25-momentum-acceleration-analysis.md](../plans/2026-02-25-momentum-acceleration-analysis.md)
+**Detail / implementation plan:** [docs/plans/archive/2026-02-25-momentum-acceleration-analysis.md](../plans/2026-02-25-momentum-acceleration-analysis.md)
 
 ---
 

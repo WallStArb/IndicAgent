@@ -38,7 +38,7 @@ independent observations and break the demotion/promotion hysteresis. The measur
 shows the two Phase 176 features are correctly `active` under the materiality rule (zero
 weight means they can never be a material failure) and already excluded from weight by the
 per-cell gate, so this is not P1. Replacement design, with the measurements:
-`docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md` (append-only
+`docs/plans/archive/2026-09-24-feature-lifecycle-evidence-ledger-design.md` (append-only
 `concept_evaluation` ledger, status as a pure function of it, lifecycle extracted into its
 own `feature_lifecycle` DAG node, governance state removed from `feature_ic_scores`).
 

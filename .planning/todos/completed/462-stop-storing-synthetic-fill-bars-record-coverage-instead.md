@@ -316,7 +316,7 @@ real are CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV and EMR. C
   100.0% (2006 85.3%), then 2024 97.7%, 2025 94.5% (13 names below 50%), 2026 98.4% (13 names
   below 50%); 2021 and 2022 have one name below 50% each. So the defect is concentrated in recent
   years and a small set of names, not spread across the corpus. Only the 240 names with 5m are
-  measurable. Redesign: `docs/plans/2026-09-29-intraday-bar-store-redesign.md`.
+  measurable. Redesign: `docs/plans/archive/2026-09-29-intraday-bar-store-redesign.md`.
 
 ## Reuse correction (2026-09-29, after the architecture review)
 
@@ -331,7 +331,7 @@ Two earlier steps in this todo are already covered by phase 185 and are not new 
 
 What is new here is 5m and 1m (185 never touches them), the answered-window plan, atomic
 request-and-bars persistence, coverage-aware derivation flags, and the completeness audit. All of
-it, with the DAG, is in `docs/plans/2026-09-29-intraday-bar-store-redesign.md`. 185-12 edits the
+it, with the DAG, is in `docs/plans/archive/2026-09-29-intraday-bar-store-redesign.md`. 185-12 edits the
 same pipeline file as `--real-bars-only`, so plan 185-12 against the current file.
 
 ## Code review of the interim (2026-09-29, commit e7b26de03)

@@ -254,7 +254,7 @@ alpha.orthogonal.regime_min_effective_n DEFAULT 3000  -- Min obs per regime cell
 **Concept Registry Integration:**
 - Every regime model is a `concept_registry` row (`domain='regime_model'`)
 - Promotion gate: substitution test must pass
-- Existing 8 alternatives from `docs/plans/2026-07-01-regime-stratification-alternatives.md` become candidates
+- Existing 8 alternatives from `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` become candidates
 
 ---
 
@@ -702,7 +702,7 @@ were specific to the mechanisms rejected/superseded above (D4, Phase 145) and we
 ## References
 
 - Todo 029 "Feature Scoring Beyond IC" — original marginal contribution spec
-- `docs/plans/2026-07-01-regime-stratification-alternatives.md` — 8 regime candidates + orthogonality gates
+- `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` — 8 regime candidates + orthogonality gates
 - `docs/research/intel-13-analog-engine.md` — AnalogEngine as complementary prediction method
 - `docs/research/intel-11-dual-system-discrete-vs-portfolio.md` (archived) — portfolio construction gap
 - `docs/research/measurement-ic-engine.md` — Measurement Gaps section (0a marginal contribution)

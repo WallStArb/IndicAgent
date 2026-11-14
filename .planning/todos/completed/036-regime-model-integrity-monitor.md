@@ -29,7 +29,7 @@ the monitoring blind spot closes with phase 188's per-member monitoring and deca
 
 ## Problem
 
-Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/2026-06-27-health-guardian-design.md`
+Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/archive/2026-06-27-health-guardian-design.md`
 (archived 2026-07-02, source for Phases 149A/149B/150 — superseded by
 `docs/research/intel-14-integrity-monitor.md`, which found this consolidation had dropped real
 content from its own predecessors; `DistributionDriftMonitor` kept unchanged, consult intel-14

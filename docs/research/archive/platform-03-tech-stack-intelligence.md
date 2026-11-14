@@ -202,7 +202,7 @@ MCP enables agents to pull historical data on demand instead of relying solely o
 
 ### 3.4 `ctx` Substrate (Qualitative Intelligence)
 
-**Design doc:** `docs/plans/2026-05-02-unified-intelligence-design.md`
+**Design doc:** `docs/plans/archive/2026-05-02-unified-intelligence-design.md`
 
 | Gap | What's Needed | Depends On |
 |-----|--------------|------------|

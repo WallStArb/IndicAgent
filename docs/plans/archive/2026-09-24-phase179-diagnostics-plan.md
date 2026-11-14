@@ -1,7 +1,7 @@
 # Phase 179 sleeve walk-forward diagnostics (stub)
 
 **Archived 2026-10-31** under the doc-disposition hierarchy (root CLAUDE.md). Full text in git
-history at `docs/plans/2026-09-24-phase179-diagnostics-plan.md`, commit 708f3fe09.
+history at `docs/plans/archive/2026-09-24-phase179-diagnostics-plan.md`, commit 708f3fe09.
 
 **The ideas worth keeping** (reusable for any future walk-forward or book evaluation):
 - Diagnostics never feed the verdict token: one script outside the harness package, reading the

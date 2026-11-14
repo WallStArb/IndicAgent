@@ -1576,7 +1576,7 @@ directly.
 
 **Not:** a timeframe. A timeframe is a property of an input; a clock is a property of a book.
 **Banned:** (none)
-**Status:** active (design, `docs/plans/2026-09-25-multi-timeframe-horizon-design.md`)
+**Status:** active (design, `docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md`)
 
 ---
 
@@ -1676,7 +1676,7 @@ predictor's information lasts, produced by every recorded run and fed into nothi
 **Not:** `alpha decay` (a feature's rolling IC losing significance over calendar time) or the
 legacy cumulative-horizon IC ladder (overlapping targets).
 **Banned:** (none)
-**Status:** design (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` D2)
+**Status:** design (`docs/plans/archive/2026-09-25-multi-timeframe-horizon-design.md` D2)
 
 ---
 

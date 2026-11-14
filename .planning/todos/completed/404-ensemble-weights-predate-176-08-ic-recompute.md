@@ -3,7 +3,7 @@ status: closed
 priority: P1
 filed: 2026-09-24
 closed: 2026-09-24
-source: measured while designing todo 402 (docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md, finding 6)
+source: measured while designing todo 402 (docs/plans/archive/2026-09-24-feature-lifecycle-evidence-ledger-design.md, finding 6)
 ---
 
 # Champion ensemble weights predate the 176-08 IC recompute

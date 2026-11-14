@@ -6,7 +6,7 @@ idea: "A dollar-neutral long-short book ranked on range_pct_fast earns a persona
 verdict: DEAD
 verdict_date: 2026-09-02
 recipe:
-  spec: docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  spec: docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   script: scripts/analysis/range_pct_fast_xs_ls_h5_falsification.py
   recipe_commit: 8f0bd464bb3e02e78b95e53d02520aba96f15fe4
 results:
@@ -47,7 +47,7 @@ status_now: reopened
 reopened_as: "construction-verdict-ledger.md section 2: cross-sectional family on S1 residual targets (range_pct_fast, both forms)"
 reproducible: false
 sources:
-  - docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  - docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   - production/migrations/329_concept_registry_construction_domain.sql
   - production/migrations/335_concept_registry_range_pct_fast_pooled_spread_bug_correction.sql
   - db:concept_registry

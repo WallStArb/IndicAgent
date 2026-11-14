@@ -32,7 +32,7 @@ already-persisted `feature_ic_scores`/`market_regimes` rows, consistent with 0c'
 
 This verdict was cited as corroborating evidence when the personal-scale edge program's
 kill criterion (decision gate rule 3) fired 2026-09-12
-(`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`, Results §3). The gate
+(`docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md`, Results §3). The gate
 firing does NOT rest on this verdict alone — it rests primarily on two fully rigorous,
 pre-registered, concept_registry-governed failures (`range_pct_fast_xs_ls_h5` DEAD,
 `alpha_score_residual_single_security_15m` FAIL) plus the fully-scripted graveyard items

@@ -1,6 +1,6 @@
 # Personal-scale edge determination program - archive stub
 
-Program plan, 2026-09-02 (Claude/Sonnet 5, interactive session). CLOSED: the pre-registered decision gate's kill criterion (rule 3) fired 2026-09-12. Superseded by the unified research-to-production design (2026-09-26, E18) and at the program level by `docs/plans/2026-10-31-data-fill-and-corpus-rerun-plan.md` (2026-10-31).
+Program plan, 2026-09-02 (Claude/Sonnet 5, interactive session). CLOSED: the pre-registered decision gate's kill criterion (rule 3) fired 2026-09-12. Superseded by the unified research-to-production design (2026-09-26, E18) and at the program level by `docs/plans/archive/2026-10-31-data-fill-and-corpus-rerun-plan.md` (2026-10-31).
 
 Ideas worth keeping:
 

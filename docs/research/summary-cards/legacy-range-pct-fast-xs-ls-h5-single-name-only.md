@@ -6,7 +6,7 @@ idea: "The range_pct_fast long-short book keeps a stable net edge when restricte
 verdict: DEAD
 verdict_date: 2026-09-13
 recipe:
-  spec: docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  spec: docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   script: scripts/analysis/range_pct_fast_beta_by_universe_composition.py
   recipe_commit: 9adf3f2d48d1ff6f3feb445bfa228122fe6594f8
 results:
@@ -42,7 +42,7 @@ status_now: reopened
 reopened_as: "construction-verdict-ledger.md section 2: cross-sectional family on S1 residual targets (range_pct_fast, both forms)"
 reproducible: false
 sources:
-  - docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  - docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   - production/migrations/334_concept_registry_range_pct_fast_single_name_verdict.sql
   - .planning/todos/completed/375-single-name-only-range-pct-fast-refalsification.md
   - db:concept_registry
@@ -53,7 +53,7 @@ related_cards: [legacy-range-pct-fast-xs-ls-h5]
 # range_pct_fast cross-sectional long-short restricted to single-name equities (Pre-registration 3)
 
 Author: Claude Sonnet 5.5, 2026-09-29
-Informed by: `docs/research/construction-verdict-ledger.md` section 4 row `range_pct_fast_xs_ls_h5_single_name_only`; `docs/plans/2026-09-02-personal-scale-edge-determination-plan.md` (Pre-registration 3); migration 334; todo 375
+Informed by: `docs/research/construction-verdict-ledger.md` section 4 row `range_pct_fast_xs_ls_h5_single_name_only`; `docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md` (Pre-registration 3); migration 334; todo 375
 
 ## What was tried
 

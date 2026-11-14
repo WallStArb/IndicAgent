@@ -32,7 +32,7 @@ twice (E16, E17), and the whole path from data to capital was redesigned as one 
 5. **Regime system corrected** (144, 171, 172) — cross-sectional `regime_group` model; production HMM trend labels proven a volatility partition mislabeled; `regime_volatility` (K=3, walk-forward) replacement
 6. **Proof gates run honestly** (148, 166, 167, 173) — per-symbol OOS proof gates, frame recalibration, cross-sectional construction (retracted on re-verification), broadcast significance correction + full 8-step corpus recompute
 
-**Post-milestone state:** research continues under the pre-registered personal-scale edge determination program (`docs/plans/2026-09-02-personal-scale-edge-determination-plan.md`) on the research track, outside the phase system; its decision gate's winning branch earns the next phase.
+**Post-milestone state:** research continues under the pre-registered personal-scale edge determination program (`docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md`) on the research track, outside the phase system; its decision gate's winning branch earns the next phase.
 
 **Archive:** `.planning/milestones/v3.1-phases/` (all 26 phase directories)
 

@@ -16,7 +16,7 @@ names. 1d history exists for all 1,502; 5m does not exist for the other 1,262. T
 
 Scope decision (owner, 2026-10-06, replaces the 2026-09-27 "fetch 5m, 15m and 1h" decision): fetch raw 5m only.
 Research features need 5m through 1d on every name, and 15m and 1h are derived from 5m (phase 185 D2b, todo 446;
-docs/plans/2026-09-29-intraday-bar-store-redesign.md) so every timeframe a feature sees comes from the same bars.
+docs/plans/archive/2026-09-29-intraday-bar-store-redesign.md) so every timeframe a feature sees comes from the same bars.
 Fetching 15m and 1h from IBKR as well costs the single history stream days that 5m needs. Which names get 5m:
 all 1,502 `compute_eligible_1d` names (the 1,262 missing 5m plus the 240 that have it); the rebuild's scope is the
 promoted set, chosen by promotion state and never by screening on history or returns. The 598 active names that are

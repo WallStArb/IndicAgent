@@ -31,7 +31,7 @@ The wide-ask probe (SPY 5m, one request per width, under the FetcherLock, nothin
 each. IBKR refuses 5m asks beyond roughly 180 days; the current 150-day chunking is at the ceiling.
 What remains is the 37-day drain as measured, or not running the IBKR drain at all for the span a
 second tape covers (Alpaca serves complete 5m from 2016-01-01; see indicagent-87's pilot
-`docs/plans/2026-10-09-alpaca-integration-pilot.md` and admission path todo 521). The IBKR drain's
+`docs/plans/archive/2026-10-09-alpaca-integration-pilot.md` and admission path todo 521). The IBKR drain's
 remaining unique value is the 2006-2015 tail and a second tape for parity.
 
 ## Refinement 2026-10-09 (indicagent-87): the tail drain may have no consumer

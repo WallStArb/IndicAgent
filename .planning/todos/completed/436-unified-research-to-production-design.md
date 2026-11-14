@@ -87,7 +87,7 @@ Questions the doc settles:
 3. ic_engine: disclosure, proposer (method D4), per-member monitoring; whether the regime x tf
    grid shrinks to what those need.
 4. Methods portfolio inside the one pipeline, charged to M = 30. Input:
-   `docs/plans/2026-09-26-research-methods-portfolio.md` (discovery D1-D5: prior families, whole
+   `docs/plans/archive/2026-09-26-research-methods-portfolio.md` (discovery D1-D5: prior families, whole
    corpus as one family, interactions, IC as proposer, learned members; combiners: equal weight,
    ridge, regime-conditioned, gradient-boosted).
 5. Deletions list, with each item's consumer check.

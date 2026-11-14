@@ -411,7 +411,7 @@ Any observation vector or engine change invalidates `feature_ic_scores`. Validat
 - `docs/intelligence/intelligence-hmm-observation-vector.md` -- current 5D price/vol vector and evaluation protocol
 - `docs/research/intel-08-macro-cross-asset.md` -- macro/cross-asset signals
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
-- `docs/plans/2026-07-01-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
+- `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
 
 ## Sequencing verdict vs. percentile-rank stratification (2026-07-01 design review)
 

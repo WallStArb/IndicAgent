@@ -64,7 +64,7 @@ the regime-generation algorithm mid-run would invalidate that run's results from
 change forward, same class of risk as todos 226/229. Sequence after that run completes.
 
 **Measurement-first design doc written 2026-08-02:**
-`docs/plans/2026-08-02-regime-label-transition-quality-measurement-design.md`. Rejects the
+`docs/plans/archive/2026-08-02-regime-label-transition-quality-measurement-design.md`. Rejects the
 10-20% ic_sharpe claim above as unverified (traced to a planning doc, never measured). Specs
 a read-only diagnostic (no production changes) that measures, out-of-sample, whether
 combined-label hysteresis smoothing and/or a purge window actually move IC, before either
@@ -85,7 +85,7 @@ materiality reading if run before this one resolves.
 
 **Priority: Medium — correctness improvement, not a blocker**
 **Gate: Phase 141 complete (OPEN) — do after Phase B corpus re-run**
-**Source:** `docs/plans/2026-06-26-renaissance-optimization-roadmap.md` (IC-003)
+**Source:** `docs/plans/archive/2026-06-26-renaissance-optimization-roadmap.md` (IC-003)
 
 ---
 

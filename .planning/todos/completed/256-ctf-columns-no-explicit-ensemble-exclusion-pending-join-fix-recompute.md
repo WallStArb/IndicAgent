@@ -75,7 +75,7 @@ required step in the recompute plan now, not an assumption to rely on separately
    features pending a known data-integrity issue -- more invasive, adds a mechanism this
    codebase doesn't currently have (no existing "quarantine list" concept).
 3. Just land the join-fix recompute (see
-   `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`) -- makes the
+   `docs/plans/archive/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md`) -- makes the
    question moot rather than building a workaround for values known to be wrong.
 
 **Update, 2026-08-07: option 3 landed** (recompute executed 2026-08-05/07) but did NOT make
@@ -88,7 +88,7 @@ to the known leak, just accidental exclusion via merits) is still real and still
 
 - [todo 243](../pending/243-ctf-momentum-batch-join-lookahead-bias.md) -- the underlying leak this todo is about not silently propagating
 - todo 230 -- **CLOSED 2026-08-02** (was: the FATAL halt blocking steps 6-8; resolved same-day via a Binomial-tolerance fix, not a silent override -- see `project_single_security_alpha_refinement_gating_2026_08_08` memory for detail if ever needed)
-- `docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md` -- the scoped recompute plan; executed, did not close this todo (see update above)
+- `docs/plans/archive/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md` -- the scoped recompute plan; executed, did not close this todo (see update above)
 - `.planning/milestones/v3.1-phases/170-concept-registry-feature-domain-migration-feature-registry-r/170-05-SUMMARY.md` -- Plan 05 BLOCKED on the same empty `alpha_ensemble_ic` precondition (re-check if still relevant -- not verified in this pass)
 
 ## Triage 2026-09-26 (backlog review with the owner)

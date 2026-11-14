@@ -3,7 +3,7 @@
 Author: Claude Opus 5.5, 2026-09-24
 Status: superseded for decision rules by unified design 11 (data-quality status, phase 186-09);
 current rules live in `docs/foundation/unified-concept-registry.md`. Superseded again
-2026-10-31 at the program level by `docs/plans/2026-10-31-data-fill-and-corpus-rerun-plan.md`
+2026-10-31 at the program level by `docs/plans/archive/2026-10-31-data-fill-and-corpus-rerun-plan.md`
 (operative). The `concept_evaluation` ledger mechanics below still describe the table.
 Archived 2026-10-31 (todo 568); the pre-condense full text stands at commit `bfed851f9`.
 Original status: design, not yet implemented; landed inside the

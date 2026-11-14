@@ -8,7 +8,7 @@
 ## Result (2026-07-10)
 
 Ran `scripts/ops/alpha/ops_interaction_primitives_pilot.py` against the live corpus
-(implemented in `docs/plans/2026-07-09-interaction-primitives-partial-ic-pilot-plan.md`,
+(implemented in `docs/plans/archive/2026-07-09-interaction-primitives-partial-ic-pilot-plan.md`,
 executed via subagent-driven development on branch
 `worktree-interaction-primitives-partial-ic-pilot`). Two real bugs were found and fixed
 during execution (not scope changes — both preserved the plan's exact measurement design):

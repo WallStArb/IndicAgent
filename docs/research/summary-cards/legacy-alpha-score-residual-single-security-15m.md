@@ -6,7 +6,7 @@ idea: "The cross-sectionally demeaned alpha_score residual predicts each symbol'
 verdict: FAIL
 verdict_date: 2026-09-03
 recipe:
-  spec: docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  spec: docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   script: scripts/analysis/alpha_score_residual_single_security_15m.py
   recipe_commit: f8eceadf4c0108087ecd0138f9805c715096789f
 results:
@@ -47,7 +47,7 @@ status_now: reopened
 reopened_as: "construction-verdict-ledger.md section 2: a 15m single-name family on S1 residual targets"
 reproducible: false
 sources:
-  - docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
+  - docs/plans/archive/2026-09-02-personal-scale-edge-determination-plan.md
   - production/migrations/330_concept_registry_residual_single_security_verdict.sql
   - db:concept_registry
   - docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological

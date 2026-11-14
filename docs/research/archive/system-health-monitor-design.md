@@ -766,7 +766,7 @@ decay.recovery_consecutive_passes = 2               # Recovery confirmation for 
 ## Next Steps
 
 1. **Formalize this concept** → Add to ROADMAP.md as v3.0 Phase 151A-151C
-2. **Create implementation plan** → `docs/plans/2026-06-27-ensemble-lifecycle-implementation.md`
+2. **Create implementation plan** → `docs/plans/archive/2026-06-27-ensemble-lifecycle-implementation.md`
 3. **Use `/gsd-plan-phase`** when ready to schedule implementation
 
 **This is a reusable platform. Build it right, use it everywhere.**

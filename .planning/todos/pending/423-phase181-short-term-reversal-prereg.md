@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-09-24
-source: council review 2026-09-24, docs/plans/2026-09-24-edge-proof-program.md "Phase 181 queue"
+source: council review 2026-09-24, docs/plans/archive/2026-09-24-edge-proof-program.md "Phase 181 queue"
 ---
 
 # Family 4 member: residual short-term reversal on single names, market-neutral
