@@ -37,11 +37,6 @@ def test_the_provisioning_script_creates_every_dlq_topic():
     assert provisioned == _dlq_topics("")
 
 
-def test_dlq_topics_take_the_env_prefix():
-    assert stream_keys.topic_bar_writer_dlq("dev") == "dev.bar.writer.dlq"
-    assert stream_keys.topic_bar_writer_dlq("") == "bar.writer.dlq"
-
-
 def test_no_dlq_topic_is_in_the_python_topic_specs():
     """infrastructure_ensure_topics.sh owns DLQ retention (7 days); a DLQ row in the Python specs
     would let infrastructure_enforce_topic_retention.py cut it back to the 1-day buffer tier."""

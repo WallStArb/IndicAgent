@@ -50,14 +50,6 @@ _ALLOW_LIST: dict[str, str] = {
         "verified by value and only then deleted. Registered in service_auditor.py's "
         "_DAG_ORDER and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
-    "services/bar_writer.py": (
-        "PERMANENT: the streaming-path bar writer persists provider bars at the "
-        "one-minute timeframe only (the live path is dormant while the IBKR feed "
-        "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
-        "(daily, hourly, quarter-hour) with a logged warning; plan 191-13 added the "
-        "same refusal for 5m/4h aggregator output, which has no canonical "
-        "(vendor, kind) identity."
-    ),
 }
 
 

@@ -182,7 +182,7 @@ Idempotent: if `new_contract` is already `is_front_month=true`, the function ret
 
 ### Kafka Broadcast (`broadcast_update`)
 
-After DB promotion, `roll_batch.py` publishes a `ContractUpdateEvent` to `topic_contract_updates`. `bar-writer` and `bar-auditor` subscribe to this topic to invalidate in-memory contract caches. Without this, those services would map bars to the stale front-month symbol until restart.
+After DB promotion, `roll_batch.py` publishes a `ContractUpdateEvent` to `topic_contract_updates`. `bar-auditor` subscribes to this topic to invalidate its in-memory contract cache. Without this, it would map bars to the stale front-month symbol until restart.
 
 The `get_active_contracts()` 60-second cache also expires naturally, so all other services pick up the new front-month within one minute.
 

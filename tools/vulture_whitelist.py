@@ -2,7 +2,6 @@ expected_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enfo
 actual_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:34)
 _._last_reset  # unused attribute (services/bar_aggregator.py:99)
 _._last_reset  # unused attribute (services/bar_aggregator.py:121)
-_._write_errors_attrs  # unused attribute (services/bar_writer.py:119)
 _._producer_client  # unused attribute (services/cross_asset_analyzer.py:185)
 _._live_quotes  # unused attribute (services/feature_vector_pipeline.py:186)
 _._feature_factory  # unused attribute (services/feature_vector_pipeline.py:208)
@@ -434,7 +433,6 @@ _.verify_prerequisites  # unused method (src/observability/corpus_manifest.py:23
 get_vocabulary  # unused function (src/api/routes/vocabulary.py:30)
 _.update_cross_asset  # unused method (src/intelligence/features/kernels/_cache_state.py:562)
 reset_vocabulary_service_for_test  # unused function (src/core/vocabulary_access.py:56) - test-only helper, real caller is tests/unit/core/test_vocabulary_access.py, invisible to vulture's src/services/scripts-only scan paths (todo 327 final review, renamed todo 330)
-_._vocabulary_service  # unused attribute (services/bar_writer.py:124) - written by _prewarm_timeframe_vocabulary(), read only in tests (asserted directly) after the /simplify pass folded its .initialize() call into vocabulary_access.prewarm(), removing the only production-code read
 _._vocabulary_service  # unused attribute (services/feature_vector_pipeline.py:208) - same as above
 _vix_symbol  # unused attribute (services/feature_vector_pipeline.py:240) - newly exposed by todo 328's deletion of src/intelligence/pipeline/feature_pipeline_executor.py; a real cascading-dead-code question for the broader I1-I7 audit (todo 223), not re-triaged here
 get_all_states_for  # unused method (src/intelligence/pipeline/state_manager.py:103) - same as above

@@ -80,7 +80,7 @@ SOURCE_UNKNOWN         = "unknown"              # Source missing from payload
 | RTB (5s real-time bars) | `reqRealTimeBars` | `ibkr_rtb` | Low-latency aggregated 1m bars for the hot path |
 | Official 1m bars | `reqHistoricalData(keepUpToDate=True)` | `ibkr_official` | Authoritative ground truth for reconciliation |
 
-Both streams publish to `market.bars.raw.ibkr` with their source tag. `BarWriter` uses the source tag when persisting to `market_data_ohlcv` — official bars take precedence over RTB bars for the same timestamp.
+Both streams publish to `market.bars.raw.ibkr` with their source tag.
 
 This is an IBKR implementation detail. `ProviderMerger` and all downstream services see only canonical `BarMessage` payloads from `market.bars`.
 

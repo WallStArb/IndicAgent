@@ -100,7 +100,7 @@ No lazy miss-then-fetch fallback — the corpus is small (~100 rows total) and t
 
 The three vocabulary tables are **written only at migration time** — `VocabularyService` is a pure read-side projection, never a writer.
 
-**Sync-context accessor:** `src/core/vocabulary_access.py` (renamed from `timeframe_vocabulary.py` since todo 327 landed) wraps `VocabularyService` for Ring 0 daemons that need to read a namespace synchronously after their async setup phase has already prewarmed it — `set_vocabulary_service()` registers the instance once at startup; `standard_timeframes()`, the generic `codes(namespace, default)`, and `group_codes(namespace, group_name, default)` read it synchronously everywhere else in that process. `bar_writer.py` and `feature_vector_pipeline.py` are the live callers - the pattern to copy for any future namespace that needs the same sync-read shape, rather than re-inventing it (todo 327).
+**Sync-context accessor:** `src/core/vocabulary_access.py` (renamed from `timeframe_vocabulary.py` since todo 327 landed) wraps `VocabularyService` for Ring 0 daemons that need to read a namespace synchronously after their async setup phase has already prewarmed it — `set_vocabulary_service()` registers the instance once at startup; `standard_timeframes()`, the generic `codes(namespace, default)`, and `group_codes(namespace, group_name, default)` read it synchronously everywhere else in that process. `feature_vector_pipeline.py` is the live caller - the pattern to copy for any future namespace that needs the same sync-read shape, rather than re-inventing it (todo 327).
 
 ---
 

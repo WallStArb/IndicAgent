@@ -11,7 +11,6 @@ After=indicagent-bar-replay.service
 After=indicagent-provider-merger.service
 After=indicagent-bar-aggregator.service
 After=indicagent-bar-auditor.service
-After=indicagent-bar-writer.service
 
 [Install]
 WantedBy=multi-user.target

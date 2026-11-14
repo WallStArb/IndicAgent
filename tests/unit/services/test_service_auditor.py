@@ -39,7 +39,6 @@ def test_dag_order_covers_required_services():
         "indicagent-bar-replay",
         "indicagent-provider-merger",
         "indicagent-bar-aggregator",
-        "indicagent-bar-writer",
         "indicagent-bar-auditor",
         "indicagent-feature-vector-pipeline",
         "indicagent-feature-vector-writer",
@@ -103,9 +102,9 @@ async def test_discover_services_returns_sorted_list():
     """_discover_services() parses systemctl output and sorts by DAG order."""
     agent = _make_agent()
 
-    # Mock systemctl output: bar-writer (dag 4) before bar-replay (dag 1)
+    # Mock systemctl output: bar-auditor (dag 3) before bar-replay (dag 1)
     mock_stdout = (
-        b"indicagent-bar-writer.service loaded active running\n"
+        b"indicagent-bar-auditor.service loaded active running\n"
         b"indicagent-bar-replay.service loaded active running\n"
         b"indicagent-feature-vector-pipeline.service loaded active running\n"
     )
@@ -116,10 +115,10 @@ async def test_discover_services_returns_sorted_list():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = await agent._discover_services()
 
-    # Should be sorted by DAG order: bar-replay (1) < bar-writer (4) < intelligence (5)
+    # Should be sorted by DAG order: bar-replay (1) < bar-auditor (3) < intelligence (5)
     # Unit names are normalized (stripped of .service suffix) to match _DAG_ORDER keys
     assert result[0] == "indicagent-bar-replay"
-    assert result[1] == "indicagent-bar-writer"
+    assert result[1] == "indicagent-bar-auditor"
     assert result[2] == "indicagent-feature-vector-pipeline"
 
 
@@ -143,7 +142,7 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
     agent = _make_agent()
 
     mock_stdout = (
-        b"\xe2\x97\x8f indicagent-bar-writer.service loaded failed failed\n"
+        b"\xe2\x97\x8f indicagent-bar-auditor.service loaded failed failed\n"
         b"indicagent-bar-replay.service loaded active running\n"
     )
 
@@ -153,7 +152,7 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = await agent._discover_services()
 
-    assert "indicagent-bar-writer" in result
+    assert "indicagent-bar-auditor" in result
     assert "indicagent-bar-replay" in result
 
 
@@ -310,12 +309,12 @@ async def test_healthy_service_no_action():
     from services.service_auditor import ServiceState
 
     agent = _make_agent()
-    agent._service_states["indicagent-bar-writer"] = ServiceState()
+    agent._service_states["indicagent-bar-auditor"] = ServiceState()
     agent._emit_health_event = AsyncMock()
     agent._restart_service_by_unit = AsyncMock()
 
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "active", "running", 0, 1000, True
+        "indicagent-bar-auditor", "active", "running", 0, 1000, True
     )
     agent._emit_health_event.assert_not_called()
     agent._restart_service_by_unit.assert_not_called()
@@ -326,14 +325,14 @@ async def test_dead_service_triggers_restart():
     from services.service_auditor import ServiceState
 
     agent = _make_agent()
-    agent._service_states["indicagent-bar-writer"] = ServiceState()
+    agent._service_states["indicagent-bar-auditor"] = ServiceState()
     agent._emit_health_event = AsyncMock()
     agent._restart_service_by_unit = AsyncMock()
 
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "failed", "start-limit-hit", 0, 1000, False
+        "indicagent-bar-auditor", "failed", "start-limit-hit", 0, 1000, False
     )
-    agent._restart_service_by_unit.assert_called_once_with("indicagent-bar-writer")
+    agent._restart_service_by_unit.assert_called_once_with("indicagent-bar-auditor")
 
 
 @pytest.mark.asyncio
@@ -341,20 +340,20 @@ async def test_high_lag_degrades_after_two_checks():
     from services.service_auditor import ServiceState
 
     agent = _make_agent()
-    agent._service_states["indicagent-bar-writer"] = ServiceState()
+    agent._service_states["indicagent-bar-auditor"] = ServiceState()
     agent._emit_health_event = AsyncMock()
     agent._restart_service_by_unit = AsyncMock()
 
     # First check -- no emit yet, just increments counter
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "active", "running", 2000, 1000, True
+        "indicagent-bar-auditor", "active", "running", 2000, 1000, True
     )
     agent._restart_service_by_unit.assert_not_called()
-    assert agent._service_states["indicagent-bar-writer"].degraded_check_count == 1
+    assert agent._service_states["indicagent-bar-auditor"].degraded_check_count == 1
 
     # Second consecutive check -- emits degraded event
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "active", "running", 2000, 1000, True
+        "indicagent-bar-auditor", "active", "running", 2000, 1000, True
     )
     agent._restart_service_by_unit.assert_not_called()
     assert agent._emit_health_event.call_count == 1
@@ -373,13 +372,13 @@ async def test_escalates_after_three_restarts_in_window():
         now - timedelta(minutes=5),
         now - timedelta(minutes=2),
     ]
-    agent._service_states["indicagent-bar-writer"] = state
+    agent._service_states["indicagent-bar-auditor"] = state
     agent._emit_health_event = AsyncMock()
     agent._restart_service_by_unit = AsyncMock()
     agent._send_to_dlq = AsyncMock()
 
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "failed", "start-limit-hit", 0, 1000, False
+        "indicagent-bar-auditor", "failed", "start-limit-hit", 0, 1000, False
     )
 
     agent._restart_service_by_unit.assert_not_called()
@@ -395,12 +394,12 @@ async def test_recovery_emits_recovered_event_with_duration():
     state = ServiceState()
     state.last_known_state = "degraded"
     state.degraded_since = datetime.now(UTC) - timedelta(seconds=120)
-    agent._service_states["indicagent-bar-writer"] = state
+    agent._service_states["indicagent-bar-auditor"] = state
     agent._emit_health_event = AsyncMock()
     agent._restart_service_by_unit = AsyncMock()
 
     await agent._evaluate_service_dynamic(
-        "indicagent-bar-writer", "active", "running", 0, 1000, True
+        "indicagent-bar-auditor", "active", "running", 0, 1000, True
     )
 
     agent._emit_health_event.assert_called_once()
@@ -426,7 +425,7 @@ async def test_emit_health_event_inserts_correct_schema():
     agent._kafka_producer = AsyncMock()
 
     await agent._emit_health_event(
-        service="indicagent-bar-writer",
+        service="indicagent-bar-auditor",
         event_type="restart",
         previous_state="failed",
         reason="StartLimitHit",
@@ -438,7 +437,7 @@ async def test_emit_health_event_inserts_correct_schema():
     mock_conn.execute.assert_called_once()
     sql_and_args = mock_conn.execute.call_args[0]
     assert "service_health_events" in sql_and_args[0]
-    assert "indicagent-bar-writer" in sql_and_args
+    assert "indicagent-bar-auditor" in sql_and_args
     assert "restart" in sql_and_args
 
 

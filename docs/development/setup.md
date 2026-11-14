@@ -157,7 +157,6 @@ Then start the full pipeline in dependency order:
 sudo systemctl start \
   indicagent-ibkr-provider \
   indicagent-bar-aggregator \
-  indicagent-bar-writer \
   indicagent-bar-auditor \
   indicagent-provider-merger \
   indicagent-roll-compute \

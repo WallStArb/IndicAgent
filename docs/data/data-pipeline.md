@@ -108,7 +108,7 @@ The microservices architecture enforces **Separation of Concerns (SoC)** as an o
 
 | Table | Written By | Purpose |
 |-------|-----------|---------|
-| `market_data_ohlcv` | `BarWriter` | Raw OHLCV cold storage. Primary time column: `timestamp` |
+| `market_data_ohlcv` | `ohlcv_raw` selection (`bar_source_policy`), `bar_derivation` | Canonical OHLCV. Primary time column: `timestamp` |
 | `intelligence_features` | `indicagent-feature-writer` | Full feature vectors per bar (tiered JSONB: bar/i1/i3/i4/i5/smc/i6). Column: `ts` |
 | `signal_ledger` | `indicagent-signal-writer` (new rows) + `indicagent-lifecycle-writer` (lifecycle updates) | Trading signals (I7) with lifecycle state, MAE/MFE, 8-class outcome; includes `expires_at` (TTL column), `entry_zone_low`, `entry_zone_high` |
 | `signal_metrics` | `indicagent-signal-metrics-writer` | Per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe, n) by regime; only rows with `n >= 30` drive signal ranking |
@@ -165,7 +165,7 @@ IBKR TWS (127.0.0.1:7497, Docker)
                     └─► market.bars (canonical 1m, hot)
                           ├─► BarAggregatorAgent
                           │     └─► market.bars.htf (5m–1d, hot)
-                          │           └─► BarWriter → market_data_ohlcv (cold)
+                          │           (no database writer: streaming bars are not persisted)
                           └─► IntelligencePipeline (I1–I7 unified, warm)
                                   (also subscribes to market.bars.htf)
                                 ├─► intelligence (IntelligenceEvent, keyed SYMBOL:TF)

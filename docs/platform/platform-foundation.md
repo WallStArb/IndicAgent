@@ -81,7 +81,6 @@ P0   redpanda-ready, redpanda-watchdog,     — infra sentinels
 P1   ibkr-provider, bar-replay              — data ingestion
 P2   provider-merger                        — stream merge
 P3   bar-aggregator, bar-auditor            — bar processing
-P4   bar-writer                             — OHLCV persistence
 P5   cross-asset, macro-compute             — intelligence context
 P6   feature-vector-pipeline                — Feature Factory compute
 P7   feature-vector-writer, signal-writer,  — persistence writers (parallel)

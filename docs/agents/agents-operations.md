@@ -75,7 +75,6 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L1 — data ingestion | 1 | `ibkr-provider`, `bar-replay` |
 | L2 — stream merge | 2 | `provider-merger` |
 | L3 — bar processing | 3 | `bar-aggregator`, `bar-auditor` |
-| L4 — bar persistence | 4 | `bar-writer` |
 | L5 — intelligence context | 5 | `cross-asset`, `macro-compute` |
 | L6 — feature factory pipeline | 6 | `feature-vector-pipeline` |
 | L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer` |
@@ -101,7 +100,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-provider-merger": 2,
     "indicagent-bar-aggregator": 3,
     "indicagent-bar-auditor": 3,
-    "indicagent-bar-writer": 4,
     "indicagent-cross-asset": 5,
     "indicagent-macro-compute": 5,
     "indicagent-feature-vector-pipeline": 6,
@@ -179,7 +177,6 @@ The `PERSISTENCE_CONSUMER_LAG` metric uses `agent_id` label whose value comes fr
 
 ```python
 _AGENT_ID_TO_UNIT: dict[str, str] = {
-    "bar_writer":                    "indicagent-bar-writer",
     "bar_aggregator":                "indicagent-bar-aggregator",
     "feature_vector_pipeline":       "indicagent-feature-vector-pipeline",
     "feature_vector_writer":         "indicagent-feature-vector-writer",

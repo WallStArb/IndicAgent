@@ -228,11 +228,6 @@ def topic_bar_aggregator_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}bar.aggregator.dlq"
 
 
-def topic_bar_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for BarWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}bar.writer.dlq"
-
-
 def topic_feature_vectors_dlq(env_name: str) -> str:
     """Dead letter queue for feature_vector_writer unparseable FeatureVectorRecord payloads.
 

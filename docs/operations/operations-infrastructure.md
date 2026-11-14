@@ -37,12 +37,12 @@ IndicAgent runs on a single server (`192.168.68.60`, a fixed address set in netp
 - **Telemetry:** OTel push-based to Collector, Prometheus scrape, Grafana dashboards
 
 **Dormant streaming block is KEEP (owner decision 2026-11-01, todo 579):** `bar_auditor`,
-`bar_replay_provider`, `bar_writer` and `bar_aggregator` stay installed with their units
+`bar_replay_provider` and `bar_aggregator` stay installed with their units
 disabled. The real-time feed is down and today's data arrives by nightly batch, but the feed
 returns: Alpaca is the streaming candidate and the endgame is real-time trading, so this block
-is the eventual real-time path, not dead weight. Do not retire it in cleanup passes; audits
-that flag it as dormant should close on this note. Reactivation on feed return: enable the four
-units in wave order (`systemctl start indicagent-bar-replay indicagent-bar-writer
+is the eventual real-time path, not dead weight. `bar_writer` was deleted (2026-11-14, todo 614 row 7): it wrote 1m rows to canonical past raw (law 528) and 1m leaves canonical at step 7, so a returning feed persists through the raw ingress, not a Kafka-to-canonical writer. Do not retire the rest in cleanup passes; audits
+that flag it as dormant should close on this note. Reactivation on feed return: enable the
+remaining units in wave order (`systemctl start indicagent-bar-replay
 indicagent-bar-aggregator indicagent-bar-auditor`), verify bars flow to `market.bars` topics and
 the aggregator's HTF output, and re-check `_DAG_ORDER` lag thresholds.
 
@@ -203,9 +203,6 @@ L2  Stream routing
 
 L3  Bar processing
     indicagent-bar-aggregator, indicagent-bar-auditor
-
-L4  Bar persistence
-    indicagent-bar-writer
 
 L5  Compute pipeline
     indicagent-cross-asset, indicagent-macro-compute,
@@ -439,8 +436,7 @@ git pull origin main
    ```bash
    # L1-L4: ingestion and bar persistence first
    sudo systemctl restart indicagent-provider-merger \
-                       indicagent-bar-aggregator \
-                       indicagent-bar-writer
+                       indicagent-bar-aggregator
    sleep 10
 
    # L5-L6: compute and writers

@@ -27,7 +27,6 @@ Live IBKR ingestion is stalled (frozen since 2026-08-12 per project memory, todo
 | Service | Unit | File | Publishes To | Live state |
 |---------|------|------|---------------|------------|
 | Bar Aggregator | `indicagent-bar-aggregator` | `services/bar_aggregator.py` | `market.bars.htf` | `inactive (dead)` |
-| Bar Writer | `indicagent-bar-writer` | `services/bar_writer.py` | `market_data_ohlcv` (DB) | `inactive (dead)` |
 | Bar Auditor | `indicagent-bar-auditor` | `services/bar_auditor.py` | `market.events.gap_requests` | `inactive (dead)` |
 
 > **Roll detection:** `indicagent-roll-batch.timer` (`scripts/ops/roll/ops_roll_batch.py`) is **confirmed `disabled`** (`systemctl is-enabled` → `disabled`, re-checked 2026-09-04) — do not assume it runs nightly. Verify with `systemctl list-timers --all | grep roll-batch` before citing as scheduled.

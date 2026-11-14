@@ -62,7 +62,6 @@ graph TD
 
     subgraph BarTier["Bar Processing Tier"]
         BAGG["BarAggregator\n:9120"]
-        BWRITE["BarWriter\n:9121"]
         BAUDIT["BarAuditor\n:9123"]
         ROLL["roll-batch timer\nnightly 8pm"]
     end
@@ -106,16 +105,13 @@ graph TD
 
     %% Merger outputs
     MERGER -->|"market.bars (canonical)"| BAGG
-    MERGER -->|"market.bars"| BWRITE
     MERGER -->|"market.bars"| PIPELINE
     MERGER -->|"market.data.quality (side-channel)"| CROSS
 
     %% Bar tier
-    BAGG -->|"market.bars.htf"| BWRITE
     BAGG -->|"market.bars.htf"| BAUDIT
     BAGG -->|"market.bars.htf"| PIPELINE
     BAUDIT -->|"market.events.gap_requests"| IBKR
-    BWRITE --> OHLCV
 
     %% Intelligence compute (unified)
     PIPELINE -->|"intelligence.journal"| FWRITE
@@ -251,7 +247,6 @@ Compute (DB-ignorant) → Kafka → Writer (DB access only)
 | Agent | Input | Output | Purpose |
 |-------|-------|--------|---------|
 | `BarAggregator` | `market.bars` (1m) | `market.bars.htf` | 1m → 5m/15m/1h/4h/1d aggregation |
-| `BarWriter` | `market.bars` + `.htf` | `market_data_ohlcv` | Batch-write OHLCV to DB |
 | `BarAuditor` | `market.bars.htf` | `market.events.gap_requests` | Gap detection |
 | `roll-batch` timer (nightly 8pm) | calendar logic | `contract_metadata` | Futures roll detection + promotion |
 
@@ -309,7 +304,6 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/ibkr_provider.py` | `IBKRProvider` | `indicagent-ibkr-provider` | :9129 |
 | `services/provider_merger.py` | `ProviderMerger` | `indicagent-provider-merger` | :9130 |
 | `services/bar_aggregator.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
-| `services/bar_writer.py` | `BarWriter` | `indicagent-bar-writer` | :9121 |
 | `services/bar_auditor.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
 | `scripts/ops/roll/ops_roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
 

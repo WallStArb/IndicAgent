@@ -63,7 +63,6 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,  # priority 3: downstream of provider-merger (2)
     "indicagent-bar-auditor": 3,  # priority 3: parallel with bar-aggregator (3)
-    "indicagent-bar-writer": 4,  # priority 4: downstream of bar-aggregator (3)
     # Layer 3 — intelligence pipeline (I1-I7)
     "indicagent-cross-asset": 5,  # priority 5: cross-asset context; feature-vector-pipeline depends on its topic output
     "indicagent-macro-compute": 5,  # priority 5: parallel with cross-asset (5)
@@ -116,7 +115,6 @@ _DAG_ORDER: dict[str, int] = {
 # Keys MUST match the auto-derived agent_id from BaseDaemon._to_snake_case(ClassName)
 # because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py.
 _AGENT_ID_TO_UNIT: dict[str, str] = {
-    "bar_writer": "indicagent-bar-writer",
     "bar_aggregator": "indicagent-bar-aggregator",
     "feature_vector_pipeline": "indicagent-feature-vector-pipeline",
     "feature_vector_writer": "indicagent-feature-vector-writer",

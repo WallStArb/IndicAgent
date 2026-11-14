@@ -165,7 +165,7 @@ class BaseWriter(BaseDaemon, abc.ABC):
         """Create and start a KafkaConsumerClient assigned to self._consumer.
 
         Subclasses call this in _setup() instead of manually constructing consumers.
-        Accepts optional extra topics for multi-topic consumers (e.g. bar_writer).
+        Accepts optional extra topics for multi-topic consumers.
         """
         from src.core.kafka_utils import KafkaConsumerClient
 

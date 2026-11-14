@@ -34,7 +34,6 @@ from src.core.schemas.dlq_payload import DLQPayload
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import (
     topic_bar_aggregator_dlq,
-    topic_bar_writer_dlq,
     topic_feature_vectors_dlq,
     topic_gap_fill_dlq,
     topic_health_events_dlq,
@@ -87,13 +86,12 @@ class DLQWriter(BaseDaemon):
         self._DLQ_MAX_RETRIES: int = 3
 
     def _build_topics(self) -> list[str]:
-        """One DLQ topic per live producer: the bar path (aggregator, writer, gap fill), the
+        """One DLQ topic per live producer: the bar path (aggregator, gap fill), the
         feature path (feature_vector_pipeline's signal and pipeline DLQs, feature_vector_writer)
         and the service auditor's health events."""
         env = self.settings.env_name
         return [
             topic_bar_aggregator_dlq(env),
-            topic_bar_writer_dlq(env),
             topic_gap_fill_dlq(env),
             topic_signal_dlq(env),
             topic_intelligence_pipeline_dlq(env),

@@ -45,7 +45,7 @@ def test_dlq_reads_the_window_from_apr(client, mock_db):
     newest = datetime(2026, 10, 26, tzinfo=UTC)
     mock_db.execute_query.return_value = [
         {
-            "dlq_topic": "bar.writer.dlq",
+            "dlq_topic": "bar.aggregator.dlq",
             "error_type": "ValueError",
             "events": 3,
             "newest": newest,

@@ -19,7 +19,7 @@ Sixteen candidates, ranked by how much each shortens the path to a counted test 
 | 4 | Local `vulture` exits 3 (255 findings) while CI runs bare `vulture` | confirm CI state, delete the truly dead code, whitelist dispatch-by-name methods | now outside step 7 modules |
 | 5 | Futures-only chain is dead and `macro_analyzer` persists its own output (DAG invariant 3); `flight_to_quality` turns missing into 0.0 | delete the chain (macro, cross-asset, roll units, `_DAG_ORDER` entries); keep the `roll_events` table | now (restart `service_auditor` after) |
 | 6 | Dead v2.x classes in `schemas.py` (inside the rebuild key) | delete; move `FeatureVector` and `FeatureVectorRecord` to their own module | now, bundled with 1 |
-| 7 | `services/bar_writer.py` writes 1m to canonical bypassing raw (breaks law 528) | route through the raw ingress or delete with the streaming path | now |
+| 7 | `services/bar_writer.py` writes 1m to canonical bypassing raw (breaks law 528) | route through the raw ingress or delete with the streaming path | now; landed 2026-11-14: deleted with its unit, tests, auditor entries and the bar.writer.dlq topic (installed copy at /etc/systemd/system left for the lead) |
 | 8 | Streaming `FeatureFactory` maps non-finite to 0.0 (66 `_guard(` calls; breaks `no_fill`) | None instead, as part of 1 | now, with 1 |
 | 9 | `ops_seam_witness.py` re-derives the 1d session zone inline | use `daily_rule.raw_session_date` | after step 7 |
 | 10 | `_batch_utils.py` sync and async twins (write session, job restore, headroom, table probe) | one pure plan, two thin drivers; then split the file | after step 7 |

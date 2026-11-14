@@ -182,7 +182,6 @@ IBKR TWS → IBKRProvider (market.bars.raw.ibkr)
                 market.bars (canonical 1m)
                 │
                 ├─ BarAggregator → market.bars.htf (5m-1d)
-                ├─ BarWriter → market_data_ohlcv (TimescaleDB)
                 └─ BarAuditor → market.events.gap_requests
                 │
                 roll-batch timer (nightly 8pm) → contract_metadata (DB)
@@ -320,7 +319,6 @@ The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mi
 {env}.macro_signals                    # macro factor signals (MacroAnalyzer)
 
 # Writer DLQs
-{env}.bar.writer.dlq
 {env}.feature.writer.dlq
 {env}.signal.tracker.dlq
 
@@ -347,8 +345,8 @@ The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mi
 | Topic | Purpose | Producers | Consumers | Retention |
 |-------|---------|-----------|-----------|-----------|
 | `{env}.market.bars.raw.ibkr` | IBKR raw 5s RTB + 1m bars | `IBKRProvider` | `ProviderMerger` | 1h |
-| `{env}.market.bars` | Canonical 1m bars | `ProviderMerger` | `BarAggregator`, `IntelligencePipeline`, `BarWriter` | 24h |
-| `{env}.market.bars.htf` | HTF bars (5m-1d) | `BarAggregatorAgent` | `BarWriter`, `IntelligencePipeline` | 7d |
+| `{env}.market.bars` | Canonical 1m bars | `ProviderMerger` | `BarAggregator`, `IntelligencePipeline` | 24h |
+| `{env}.market.bars.htf` | HTF bars (5m-1d) | `BarAggregatorAgent` | `IntelligencePipeline` | 7d |
 
 **Intelligence topics**
 
@@ -376,7 +374,6 @@ The `{env}` prefix comes from `Settings.env_name` (env var `INDICAGENT_ENV`). Mi
 |-------|---------|-----------|-----------|-----------|
 | `{env}.feature.writer.dlq` | Feature writer failures | `FeatureWriter` | `DLQDrainAgent` | 7d |
 | `{env}.intelligence.signal.writer.dlq` | Signal writer failures | `SignalWriter` | `DLQDrainAgent` | 7d |
-| `{env}.bar.writer.dlq` | Bar writer failures | `BarWriter` | `DLQDrainAgent` | 7d |
 
 **AI/LLM topics**
 
