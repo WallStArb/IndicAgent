@@ -19,7 +19,7 @@ from tests.integration.conftest import TEST_DB_URL
 
 pytestmark = pytest.mark.integration
 
-CAVEAT = {"code": "survivorship_pre2016_ibkr_5m", "text": "biased", "counts": {"names": 3}}
+CAVEAT = {"code": "survivorship_pre_alpaca_era_5m", "text": "biased", "counts": {"names": 3}}
 
 
 @pytest.fixture()

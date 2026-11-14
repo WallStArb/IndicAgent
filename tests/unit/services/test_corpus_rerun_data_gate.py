@@ -40,13 +40,18 @@ def _policy(tf: str, lo: date, hi: date | None, primary: str, symbol: str | None
     return PolicyRow(tf, symbol, lo, hi, "batch", primary, None)
 
 
-def _default_policy(era: date = ERA) -> list[PolicyRow]:
+def _default_policy(era: date = ERA, pre: str = "ibkr") -> list[PolicyRow]:
     return [
-        _policy("5m", date(1990, 1, 1), era, "ibkr"),
+        _policy("5m", date(1990, 1, 1), era, pre),
         _policy("5m", era, None, "alpaca"),
-        _policy("1d", date(1990, 1, 1), era, "ibkr"),
+        _policy("1d", date(1990, 1, 1), era, pre),
         _policy("1d", era, None, "alpaca"),
     ]
+
+
+def _post_step7_policy() -> list[PolicyRow]:
+    """After step 7 the 5m primary before the Alpaca era is Massive, not IBKR."""
+    return _default_policy(pre="massive")
 
 
 def _sessions(lo: date, hi: date) -> list[date]:
@@ -79,6 +84,7 @@ class Fixture:
     session_ids: dict[str, str] = field(default_factory=dict)
     # (vendor, ask, complete, has_partial_bars): the rows of ohlcv_ask_current
     asks: list[tuple[str, gate.CompletedAsk, bool, bool]] = field(default_factory=list)
+    pre_pair: tuple[str, str] = ("ibkr", "named")  # the (vendor, kind) serving before ERA
 
     def add_name(self, symbol: str, start: date, *, full: bool = True) -> None:
         """A name whose every session from start to the horizon has its 1d bar and, when full,
@@ -89,7 +95,7 @@ class Fixture:
         self.days_1d[symbol] = set(days)
         if full:
             for day in days:
-                vendor, kind = ("ibkr", "named") if day < ERA else ("alpaca", "sip_rth")
+                vendor, kind = self.pre_pair if day < ERA else ("alpaca", "sip_rth")
                 self.bars_5m[(symbol, vendor, kind, day)] = _full(day)
 
     def drop_5m(self, symbol: str, lo: date, hi: date) -> None:
@@ -192,9 +198,10 @@ def test_complete_history_passes_with_the_survivorship_caveat(monkeypatch):
     world.add_name("AAA", date(2015, 11, 2))
     result = world.run(monkeypatch)
     assert result.ok
-    assert result.caveat["code"] == "survivorship_pre2016_ibkr_5m"
+    assert result.caveat["code"] == "survivorship_pre_alpaca_era_5m"
     assert result.caveat["source"] == "todo 534 owner decision 2026-11-04"
     assert "survivorship-biased" in result.caveat["text"]
+    assert "IBKR" not in result.caveat["text"]
     pre_era = len(_sessions(date(2015, 11, 2), ERA))
     assert result.caveat["counts"] == {
         "names_with_1d_before_alpaca_era": 1,
@@ -209,6 +216,22 @@ def test_complete_history_passes_with_the_survivorship_caveat(monkeypatch):
     record = result.as_record()
     assert record["horizon"] == "2016-03-01T00:00:00+00:00"
     assert record["eras"]["ibkr/named"]["bar_complete"] == pre_era
+
+
+def test_caveat_counts_follow_the_policy_in_force_after_step_7(monkeypatch):
+    world = Fixture(policy=_post_step7_policy(), pre_pair=("massive", "sip_flat_adj"))
+    world.add_name("AAA", date(2015, 11, 2))
+    result = world.run(monkeypatch)
+    assert result.ok
+    pre_era = len(_sessions(date(2015, 11, 2), ERA))
+    assert pre_era > 0
+    assert result.caveat["code"] == "survivorship_pre_alpaca_era_5m"
+    assert "IBKR" not in result.caveat["text"]
+    assert result.caveat["counts"]["names_with_1d_before_alpaca_era"] == 1
+    assert result.caveat["counts"]["names_pre_era_all_5m"] == 1
+    assert result.caveat["counts"]["pre_era_sessions_by_5m"] == pre_era
+    assert "ibkr/named" not in result.eras
+    assert result.eras["massive/sip_flat_adj"].sessions == pre_era
 
 
 def test_mid_history_hole_fails_though_the_first_5m_bar_is_at_the_1d_start(monkeypatch):
@@ -570,3 +593,34 @@ def test_ask_serving_bars_on_day_one_and_none_on_day_two(monkeypatch, complete, 
     assert counts.partial_sessions == (0 if complete else 1)
     assert counts.no_trades == (1 if day_two == "no_trades" else 0)
     assert counts.missing_sessions == (1 if day_two == "missing" else 0)
+
+
+def test_planned_post_step7_policy_with_alpaca_gap_rows_is_not_refused():
+    """Massive default to the era start, Alpaca from it, an Alpaca gap row before 2016: the label
+    alpaca/sip_rth serves on both sides, in different years, so the split is exact."""
+    seg = gate.Segment
+    era = date(2026, 11, 11)
+    segments = {
+        "AAA": [
+            seg(date(2015, 1, 2), date(2016, 1, 4), "alpaca", "sip_rth"),
+            seg(date(2016, 1, 4), era, "massive", "sip_flat_adj"),
+            seg(era, date(2026, 12, 1), "alpaca", "sip_rth"),
+        ]
+    }
+    keys = gate.pre_era_keys(segments, era)
+    assert ("AAA", 2015, "alpaca/sip_rth") in keys
+    assert ("AAA", 2026, "massive/sip_flat_adj") in keys
+    assert ("AAA", 2026, "alpaca/sip_rth") not in keys
+
+
+def test_one_tally_shared_by_both_sides_of_the_era_start_refuses():
+    seg = gate.Segment
+    era = date(2026, 11, 11)
+    segments = {
+        "AAA": [
+            seg(date(2026, 1, 2), era, "massive", "sip_flat_adj"),
+            seg(era, date(2026, 12, 1), "massive", "sip_flat_adj"),
+        ]
+    }
+    with pytest.raises(LookupError, match="cannot split"):
+        gate.pre_era_keys(segments, era)

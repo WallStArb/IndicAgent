@@ -54,11 +54,18 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    (span rows, straddling chunk, compressed rest, 1d uncompressed and compressed, WAL, two
    spools of the largest group, since the next group spools while the previous one loads), then
    the data gate verdict. Its compressed terms use the 6.0 APR seed and are a preview only.
-2. Disable the blocking timers and let their services finish. For each unit in
-   `infra.corpus_rerun.blocking_timers`: `sudo systemctl disable --now <timer>`, then wait until
-   `systemctl is-active <service>` reports `inactive` or `failed`. An `enabled` timer, or a
-   service still running a fetch it already started, moves bars under the run; the pin gate
-   refuses both. Make sure no manual IBKR history tool holds FetcherLock.
+2. Quiesce the blocking timers:
+
+   ```
+   .venv/bin/python -m services.corpus_rerun --quiesce [--wait-seconds N]
+   ```
+   For each unit in `infra.corpus_rerun.blocking_timers` it records the enabled and active state
+   to `logs/corpus_rerun_quiesce.json`, runs `sudo -n systemctl disable` and `stop`, and waits
+   until the unit's service is `inactive` or `failed`. A second call keeps the first record. It
+   refuses while a corpus rerun, `ic_measure` or rebuild process is live. An `enabled` timer, or a
+   service still running a fetch it already started, moves bars under the run; the pin gate only
+   checks and refuses both. Make sure no manual IBKR history tool holds FetcherLock. After the
+   run, `--release` restores exactly the recorded set and removes the file.
 3. Create the run from the commit to pin (default HEAD of the main checkout):
 
    ```
@@ -166,9 +173,10 @@ amendment through the methodology ledger, never a mask change.
 
 ## The survivorship caveat
 
-IBKR serves only names that trade today and the universe was chosen today, so every result whose
-sample includes pre-2016 5m is survivorship-biased (todo 534 owner decision 2026-11-04, code
-`survivorship_pre2016_ibkr_5m`). The data gate's pass writes it to `corpus_run.caveats` with its
+The universe was chosen today, so every result whose sample includes 5m history before the Alpaca
+era is survivorship-biased: names that stopped trading before today are absent (todo 534 owner
+decision 2026-11-04, code `survivorship_pre_alpaca_era_5m`). The pre-era is read from the 5m
+`bar_source_policy_current` rows in force, so it is IBKR before step 7 and Massive after it. The data gate's pass writes it to `corpus_run.caveats` with its
 counts, in the same transaction as the result; the array is append only (migration 578) and a
 retried step never duplicates it. The `ic_measure` and `canary` step summaries carry
 `corpus_run.caveats` verbatim. Any result read from this run discloses it.

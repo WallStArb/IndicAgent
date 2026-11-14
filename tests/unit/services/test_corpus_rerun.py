@@ -32,7 +32,7 @@ def _jan1(year: int) -> datetime:
 
 
 SPANS = ((_jan1(2010), _jan1(2013)), (_jan1(2013), _jan1(2016)))
-CAVEAT = {"code": "survivorship_pre2016_ibkr_5m", "text": "biased", "counts": {"names": 3}}
+CAVEAT = {"code": "survivorship_pre_alpaca_era_5m", "text": "biased", "counts": {"names": 3}}
 
 
 def _counts() -> list[list[Any]]:

@@ -80,7 +80,7 @@ from services._batch_utils import (
     load_config_service_sync,
     parse_run_id,
 )
-from services.corpus_rerun_apr import CorpusRerunApr, load_corpus_rerun_apr
+from services.corpus_rerun_apr import CorpusRerunApr, load_corpus_rerun_apr, load_quiesce_apr
 from services.corpus_rerun_budget import (
     STAGE_1D,
     BudgetInputs,
@@ -96,6 +96,7 @@ from services.corpus_rerun_budget import (
     span_peak,
     step_increment,
 )
+from services.corpus_rerun_quiesce import timer_is_quiet
 from src.config.settings import Settings
 from src.core.canonical_json import canonical_json
 from src.core.service_utils import setup_service_logging
@@ -996,7 +997,7 @@ class CorpusRerun:
             active = d.systemctl("is-active", service)
             check(
                 f"timer:{timer}",
-                enabled in ("disabled", "masked") and active in ("inactive", "failed"),
+                timer_is_quiet(enabled, active),
                 f"{timer} is {enabled or 'unknown'}; {service} is {active or 'unknown'}",
             )
         if upcoming.kind in (PILOT, STAGE_1D, SPAN, PIN_GATE):
@@ -1716,6 +1717,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     mode.add_argument("--new-run", action="store_true", help="plan spans, create run + worktree")
     mode.add_argument("--run-id", type=parse_run_id, help="the corpus_run to drive")
     mode.add_argument("--print-identity", action="store_true", help=argparse.SUPPRESS)
+    mode.add_argument(
+        "--quiesce",
+        action="store_true",
+        help="disable and stop the blocking timers, record the prior set under logs/",
+    )
+    mode.add_argument(
+        "--release", action="store_true", help="restore the set --quiesce recorded, then remove it"
+    )
     parser.add_argument(
         "--plan-only",
         action="store_true",
@@ -1736,6 +1745,37 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def _quiesce_command(args: argparse.Namespace, conn: Any) -> int:
+    from services import corpus_rerun_quiesce as q
+    from services import rebuild_preconditions as rp
+
+    deps = q.QuiesceDeps(
+        query=systemctl,
+        change=q.real_change,
+        no_live_run=lambda: rp.check_no_live_run(rp.fetch_process_lines(), ""),
+    )
+    path = q.state_path(main_logs_dir())
+    try:
+        if args.quiesce:
+            cfg = load_config_service_sync(conn)
+            apr, wait = load_corpus_rerun_apr(cfg), load_quiesce_apr(cfg)
+            q.quiesce(
+                apr.blocking_timers,
+                deps,
+                path,
+                wait_seconds=wait.wait_seconds,
+                poll_seconds=wait.poll_seconds,
+            )
+            print(f"quiesced {len(apr.blocking_timers)} timers; the prior set is in {path}")
+        else:
+            restored = q.release(deps, path)
+            print(f"released: {restored}" if restored else "nothing recorded; nothing to release")
+    except q.QuiesceError as error:
+        print(f"STOPPED: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     settings = Settings()
@@ -1748,6 +1788,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     setup_service_logging(str(main_logs_dir() / "corpus_rerun.log"))
     try:
+        if args.quiesce or args.release:
+            return _quiesce_command(args, conn)
         if args.new_run:
             from services.backfill_feature_factory import default_data_horizon
 

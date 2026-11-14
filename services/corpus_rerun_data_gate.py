@@ -61,7 +61,7 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow, primary_pair
 from src.intelligence.bars.gap_plan import COVERAGE_EVIDENCE
-from src.intelligence.bars.vendor_kind import VENDOR_ALPACA, VENDOR_IBKR
+from src.intelligence.bars.vendor_kind import VENDOR_ALPACA
 
 _logger = structlog.get_logger(__name__)
 
@@ -79,11 +79,11 @@ COVERED_EMPTY = "covered_empty"
 NO_TRADES = "no_trades"
 PARTIAL = "partial"
 
-SURVIVORSHIP_CAVEAT_CODE = "survivorship_pre2016_ibkr_5m"
+SURVIVORSHIP_CAVEAT_CODE = "survivorship_pre_alpaca_era_5m"
 SURVIVORSHIP_CAVEAT_SOURCE = "todo 534 owner decision 2026-11-04"
 SURVIVORSHIP_CAVEAT_TEXT = (
-    "IBKR serves only names that trade today and the universe was chosen today, so every result "
-    "whose sample includes pre-2016 5m is survivorship-biased."
+    "The universe was chosen today, so every result whose sample includes 5m history before the "
+    "Alpaca era is survivorship-biased: names that stopped trading before today are absent."
 )
 
 
@@ -367,6 +367,26 @@ def five_minute_segments(
     return segments
 
 
+def pre_era_keys(segments: Mapping[str, Sequence[Segment]], era_start: date) -> frozenset[TallyKey]:
+    """The tally keys (symbol, year, era) of sessions the 5m policy serves before the Alpaca era.
+    Tallies are by year, so a key that sessions on both sides of the era start would share (the
+    same name and label in the era start's year) cannot be split; that policy shape refuses
+    rather than let the caveat count post-era sessions as pre-era."""
+    pre: set[TallyKey] = set()
+    post: set[TallyKey] = set()
+    for symbol, segs in segments.items():
+        for seg in segs:
+            keys = pre if seg.lo < era_start else post
+            last = seg.hi - timedelta(days=1)
+            keys.update((symbol, year, seg.era) for year in range(seg.lo.year, last.year + 1))
+    if pre & post:
+        raise LookupError(
+            f"5m sessions before and after {era_start} share a (name, year, era) tally: "
+            f"{sorted(pre & post)[:5]}; the survivorship caveat cannot split them"
+        )
+    return frozenset(pre)
+
+
 def _sessions_in(days: Sequence[date], lo: date, hi_inclusive: date) -> int:
     return bisect.bisect_right(days, hi_inclusive) - bisect.bisect_left(days, lo)
 
@@ -532,6 +552,7 @@ def evaluate(
     calendar_key: str,
     first_session: date,
     era_start: date,
+    pre_keys: frozenset[TallyKey],
 ) -> DataGateResult:
     """Judge the tallies. A name without a start, sessions or 1d sessions refuses unless held;
     a name-year fails when its 1d-missing or 5m-uncovered share of sessions passes its APR
@@ -615,7 +636,7 @@ def evaluate(
         pre_calendar_1d_sessions_total=sum(pre_calendar_nonzero.values()),
         caveat=(
             _survivorship_caveat(
-                {k: t for k, t in tallies.items() if k[0] not in refused_or_held}, era_start
+                {k: t for k, t in tallies.items() if k[0] not in refused_or_held}, pre_keys
             )
             if ok
             else None
@@ -624,15 +645,14 @@ def evaluate(
 
 
 def _survivorship_caveat(
-    tallies: Mapping[TallyKey, NameYearTally], era_start: date
+    tallies: Mapping[TallyKey, NameYearTally], pre_keys: frozenset[TallyKey]
 ) -> dict[str, Any]:
-    """The pre-2016 IBKR 5m caveat over the sessions IBKR serves as primary before the Alpaca
-    era."""
-    pre_era = era_label(*primary_pair(VENDOR_IBKR, era_start - timedelta(days=1), era_start))
+    """The caveat over the sessions served before the Alpaca era, whatever (vendor, kind) the 5m
+    policy in force names there (`pre_keys`, from the policy's segments)."""
     per_name: dict[str, NameYearTally] = defaultdict(NameYearTally)
-    for (symbol, _, era), t in tallies.items():
-        if era == pre_era:
-            per_name[symbol].add(t)
+    for key, t in tallies.items():
+        if key in pre_keys:
+            per_name[key[0]].add(t)
     return {
         "code": SURVIVORSHIP_CAVEAT_CODE,
         "source": SURVIVORSHIP_CAVEAT_SOURCE,
@@ -922,6 +942,7 @@ def run_data_gate(
         calendar_key=key,
         first_session=first,
         era_start=era_start,
+        pre_keys=pre_era_keys(segments, era_start),
     )
     _logger.info(
         "corpus_rerun_data_gate.measured",

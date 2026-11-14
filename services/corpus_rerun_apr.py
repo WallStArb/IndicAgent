@@ -25,6 +25,10 @@ MIN_SESSION_BAR_FRACTION_KEY = "infra.corpus_rerun.data_gate.min_session_bar_fra
 BLOCKING_TIMERS_KEY = "infra.corpus_rerun.blocking_timers"
 MAX_NULL_FRACTION_KEY = "infra.corpus_rerun.max_null_fraction"  # migration 582 (186-31)
 
+# Operator-command keys (migration 593): read by `corpus_rerun --quiesce`, not pinned in a run.
+QUIESCE_WAIT_SECONDS_KEY = "infra.corpus_rerun.quiesce.wait_seconds"
+QUIESCE_POLL_SECONDS_KEY = "infra.corpus_rerun.quiesce.poll_seconds"
+
 # Every key the snapshot reads: the runner pins their values in corpus_run.apr_hash.
 APR_KEYS: tuple[str, ...] = (
     MAX_DISK_FRACTION_KEY,
@@ -76,3 +80,20 @@ def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
         blocking_timers=tuple(json.loads(str(value(BLOCKING_TIMERS_KEY)))),
         max_null_fraction=float(value(MAX_NULL_FRACTION_KEY)),
     )
+
+
+@dataclass(frozen=True)
+class QuiesceApr:
+    wait_seconds: float
+    poll_seconds: float
+
+
+def load_quiesce_apr(cfg: ConfigService) -> QuiesceApr:
+    """The `--quiesce` wait and poll seconds, read with no default (migration 593)."""
+    values = {}
+    for key in (QUIESCE_WAIT_SECONDS_KEY, QUIESCE_POLL_SECONDS_KEY):
+        seeded = cfg.get_sync(key)
+        if seeded is None:
+            raise KeyError(f"APR key {key} is not seeded (migration 593)")
+        values[key] = float(seeded)
+    return QuiesceApr(values[QUIESCE_WAIT_SECONDS_KEY], values[QUIESCE_POLL_SECONDS_KEY])
