@@ -66,3 +66,12 @@ interior removals, day-to-day vendor noise). All but BNY block D7's vendor_basis
   1,752; 2023-08-08 to 2026-08-06), market_data_ohlcv 2,184 (equal to raw on every key),
   ohlcv_coverage 2; bar_source_policy 4h row closed (valid_to 2026-10-15). Every raw value was
   logged to ohlcv_revision first (origin raw, 2 ohlcv_load rows, caller dq-delete-191-10).
+
+## Rule for the step 7 residue, written 2026-11-14 before it is applied (lead, owner restatement 2026-11-14: single securities are not worth the effort)
+
+Source: `logs/massive_step7/a11_amend_20261114_v2/coverage_remaining_by_name.csv`, the names the amended identity witness cannot place: BWXT (BWC, 11 sessions), EXP (CXP, 12), HWM (ARNC, 10), RGA (RGA.A, 51, ambiguous), SPXC (SPW, 10), UHAL (UHAEQ and UHALQ, 130), USAU (DRAM, 242 1d, 1,601 5m) and PIPR (PJC, 4,028 1d sessions and 230,022 5m rows, Massive holds no record of PJC).
+
+1. Test (data quality only, never returns): the unplaced share of the name's Massive-era sessions, from the same file. Above 10 percent the name is excluded under this todo; at or below 10 percent it stays, its unplaced sessions are a counted gap row and disclosed in the B4 card, and no further identity work is spent on it. The 10 percent line is fixed here before the shares are computed and changes only by a dated amendment.
+2. Expected outcome (shares measured in the dry-run list, not asserted here): PIPR is far above the line; the other seven are days to one year of gap and stay.
+3. An excluded name is handled as the scoped exception in CLAUDE.md says: dry-run list first, per-name row-count and content-hash manifest, one transaction per name, tombstone (is_active false, reason code `identity_unresolved`, date, this todo), no name that any recorded research run used is deleted (excluded only). The delete runs after B4 and before the step 7 rebuild, so the one-pass rebuild never computes it.
+4. Replacement: by the stage 2 universe rule (todo 609, point-in-time liquidity rank in the same classification node), never hand-picked, entering with no look at history or returns.
