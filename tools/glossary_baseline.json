@@ -14,9 +14,6 @@
   ".planning/ROADMAP.md": {
    "param store": 1
   },
-  ".planning/STATE.md": {
-   "draining": 1
-  },
   ".planning/phases/185-daily-data-foundation/.continue-here.md": {
    "drain": 1
   },
@@ -95,9 +92,6 @@
    "drain": 3,
    "the drain": 2
   },
-  ".planning/phases/190-provider-history-plane-unification-one-multi-provider-fetche/parity-diff-record.md": {
-   "drain": 1
-  },
   ".planning/reviews/2026-06-22-foundation-council-review.md": {
    "signal source": 1
   },
@@ -113,18 +107,15 @@
   ".planning/todos/completed/430-terminology-enforcement-curate-then-ratchet.md": {
    "market detector": 1
   },
+  ".planning/todos/completed/505-nightly-update-lane-exceeds-r4-measure-5m-pacing-ceiling.md": {
+   "drain": 2
+  },
   ".planning/todos/completed/523-5m-drain-launch-decision-after-c4-gate-failure.md": {
    "drain": 11,
    "the drain": 3
   },
-  ".planning/todos/completed/505-nightly-update-lane-exceeds-r4-measure-5m-pacing-ceiling.md": {
-   "drain": 2
-  },
   ".planning/todos/pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md": {
    "drain": 2
-  },
-  "dashboard/src/hooks/use-observability-stream.ts": {
-   "drain": 1
   },
   "docs/agents/agents-foundation.md": {
    "drain": 4,
@@ -135,9 +126,6 @@
   },
   "docs/agents/agents-writers.md": {
    "drain": 2
-  },
-  "docs/architecture/architecture-evolution.md": {
-   "drain": 1
   },
   "docs/architecture/architecture-v3-alphaengine-pipeline.md": {
    "alpha discovery": 1,
@@ -158,32 +146,11 @@
    "config store": 1,
    "param store": 1
   },
-  "docs/foundation/v3-north-star.md": {
-   "conviction score": 1,
-   "plugin confidence": 2
-  },
   "docs/ideas/signal-implied-borrow-cost-from-listed-derivatives.md": {
    "signal source": 1
   },
-  "docs/intelligence/intelligence-operations.md": {
-   "drain": 1
-  },
   "docs/operations/operations-infrastructure.md": {
    "drain": 1
-  },
-  "docs/plans/2026-09-24-edge-proof-program.md": {
-   "signal source": 1
-  },
-  "docs/plans/2026-10-09-alpaca-5m-admission-build.md": {
-   "drain": 2,
-   "the drain": 1
-  },
-  "docs/plans/2026-10-09-alpaca-integration-pilot.md": {
-   "drain": 1
-  },
-  "docs/plans/2026-10-09-provider-history-plane-unification-design.md": {
-   "drain": 4,
-   "the drain": 2
   },
   "docs/platform/platform-foundation.md": {
    "drain": 1
@@ -211,21 +178,6 @@
   "docs/research/measurement-nonlinear-interaction-combiner.md": {
    "combined score": 1
   },
-  "docs/signals/signal-trade-separation-ADR.md": {
-   "intrinsic composite": 1,
-   "signal_ledger_v2": 2
-  },
-  "docs/signals/signals-confidence-patterns.md": {
-   "3-table architecture": 1,
-   "intrinsic composite": 1
-  },
-  "docs/signals/signals-foundation.md": {
-   "intrinsic composite": 1,
-   "plugin confidence": 1
-  },
-  "docs/signals/signals-schema.md": {
-   "intrinsic composite": 1
-  },
   "production/migrations/017_cis_attribution.sql": {
    "alpha discovery": 1
   },
@@ -247,9 +199,6 @@
   "production/migrations/465_provider_history_two_tier_keys.sql": {
    "drain": 1
   },
-  "scripts/infrastructure/backfill/_fetch_queue.py": {
-   "drain": 1
-  },
   "scripts/infrastructure/features_regime_kernel_coverage_sweep.py": {
    "drain": 3
   },
@@ -258,10 +207,6 @@
   },
   "services/bar_auditor.py": {
    "drain": 5
-  },
-  "services/bar_load.py": {
-   "drain": 2,
-   "the drain": 1
   },
   "services/dlq_writer.py": {
    "drain": 3,
@@ -294,24 +239,9 @@
   "src/core/kafka_utils.py": {
    "drain": 3
   },
-  "src/intelligence/archive/trading_i7/delta_exhaustion.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/archive/trading_i7/divergence_stack.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/archive/trading_i7/failed_breakout.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/archive/trading_i7/ofi_divergence.py": {
-   "intrinsic composite": 1
-  },
   "src/intelligence/pipeline/output_queue.py": {
    "drain": 41,
    "the drain": 1
-  },
-  "src/intelligence/pipeline/signal_processor.py": {
-   "plugin confidence": 1
   },
   "src/intelligence/research/evaluate.py": {
    "signal source": 1
@@ -326,11 +256,7 @@
    "signal source": 1
   },
   "src/observability/metrics.py": {
-   "drain": 1,
-   "plugin confidence": 1
-  },
-  "src/observability/plugin_observer.py": {
-   "plugin confidence": 2
+   "drain": 1
   },
   "src/providers/base_provider_agent.py": {
    "drain": 1
@@ -346,9 +272,6 @@
   },
   "tests/integration/fixtures/seed_config_2026-11-05.sql": {
    "drain": 2
-  },
-  "tests/unit/observability/test_new_plugin_metrics.py": {
-   "plugin confidence": 4
   },
   "tests/unit/pipeline/test_output_queue.py": {
    "drain": 25,

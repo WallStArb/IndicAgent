@@ -94,9 +94,6 @@ class Settings(BaseSettings):
     telegram_chat_id: str = Field(default="", validation_alias="TELEGRAM_CHAT_ID")
     discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
 
-    # IBKR subscription cap (market data lines)
-    ibkr_max_subscriptions: int = Field(default=80, validation_alias="IBKR_MAX_SUBSCRIPTIONS")
-
     # Roll monitoring runtime config (tuning knobs — not feature flags)
     roll_monitor_window_size: int = Field(default=100, validation_alias="ROLL_MONITOR_WINDOW_SIZE")
     roll_monitor_threshold_default: float = Field(

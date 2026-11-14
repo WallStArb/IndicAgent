@@ -116,18 +116,7 @@ Four timers. Sources are chosen per date by `bar_source_policy_current`:
 - 5m (D-191-P, done 2026-10-27): Alpaca SIP (`sip_rth`) from 2016-01-04 with IBKR fallback,
   IBKR alone before. `iex_rth` is raw only and never selected.
 
-1. `indicagent-ibkr-history-fetcher.timer` (DISABLED since 2026-11-10; the lane is on the step-7 deletion list; every 15 min after the last run ends when it ran) runs
-   `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` under `FetcherLock`: the
-   `ohlcv_coverage` queue over
-   APR `infra.backfill.default_scopes` in two lanes, the update lane (every active name's 1d
-   and 5m since its latest stored bar, overlapping the stored tail) and the gap-fill lane (a
-   series' full depth once every `infra.backfill.gap_fill_interval_days`), then at run end split
-   detection (`ops_split_detect.py`), the daily stage (`bar_derivation --stage daily`: D2
-   canonical 1d plus the D2a scrub rules) and the grid stage (`bar_derivation --stage grid
-   --changed-only --apply`: D2b 15m/1h), then the status file
-   `logs/ibkr_history_fetcher_status.json` (D7's `nightly_skipped` reads it) and
-   `job_completed_total`.
-2. `indicagent-alpaca-nightly.timer` (04:40 UTC) runs `scripts/ops/bars/ops_bar_nightly.py
+1. `indicagent-alpaca-nightly.timer` (04:40 UTC) runs `scripts/ops/bars/ops_bar_nightly.py
    --vendor alpaca --apply`: every active name's recent 5m and 1d SIP window
    (`infra.alpaca.nightly_window_days`), ending `infra.alpaca.sip_recent_lag_minutes` (20)
    before now because the free plan refuses recent SIP, bounded by
@@ -349,11 +338,7 @@ SELECT to_regclass('public.ohlcv_revision');  -- any object a recent migration c
 
 ## Backfill and Gap-Fill
 
-One IBKR history stream: `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`
-(`indicagent-ibkr-history-fetcher`, phase 189) works the `ohlcv_coverage` queue under its
-singleton `FetcherLock`; its update and gap-fill lanes are the gap fill after downtime, so there
-is no separate recovery script. Concurrent history streams measured no added throughput (todo
-449, 2026-09-27) and contend for the same pacing budget. Alpaca history is
+The IBKR history stream was removed 2026-11-13. Alpaca history is
 `scripts/ops/bars/ops_bar_nightly.py` with a wide `--days` window. Both write `ohlcv_raw`
 last-wins through the ingress contract: a re-fetch replaces a vendor's own stored answer and logs
 the old values in `ohlcv_revision`, it never skips an existing row. Commands:

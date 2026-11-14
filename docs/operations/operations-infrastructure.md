@@ -196,7 +196,6 @@ L0  Infrastructure sentinels
     indicagent-timescaledb-ready, indicagent-infrastructure.target
 
 L1  Data ingestion
-    indicagent-ibkr-provider (disabled 2026-11-10, deletion-listed),
     indicagent-bar-replay
 
 L2  Stream routing
@@ -219,8 +218,7 @@ L7  Oneshot analytics (timers or fetcher-triggered; inactive between runs is cor
     indicagent-feature-parity-auditor, indicagent-ic-measure,
     indicagent-feature-lifecycle, indicagent-bar-derivation,
     indicagent-economic-series-writer, indicagent-bar-reconciliation-audit,
-    indicagent-ibkr-history-fetcher (disabled 2026-11-10, deletion-listed),
-    indicagent-research-ledger-render, indicagent-borrow-capture
+    indicagent-research-ledger-render
 
 L8  Audit, parity, alerting, config, self-healing
     indicagent-alerting-agent, indicagent-dlq-drain,
@@ -331,7 +329,6 @@ IBKR_PORT=7497
 | `indicagent-node-exporter` | `:9100` | Host metrics |
 | `indicagent-postgres-exporter` | `:9187` | Database metrics |
 | `indicagent-postgres-exporter-tables` | per-table metrics | Table-level database metrics |
-| `ib-gateway` | `:7497` (TWS port mapped) | IBKR TWS gateway (IBKR lane disabled 2026-11-10, deletion-listed) |
 
 **All containers:** `restart: unless-stopped` in docker-compose.yml
 
@@ -572,8 +569,7 @@ sudo systemctl restart indicagent-<service>
 ```bash
 # Trace data flow through the bar path (the streaming path is dormant; for batch runs,
 # check the writer and derivation logs instead)
-# 1. Check the provider emitting (if a live feed ever returns; the IBKR provider is deletion-listed)
-journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"
+# 1. Check the provider emitting (no live provider exists; the IBKR provider was removed 2026-11-13)
 
 # 2. Check merger routing
 journalctl -u indicagent-provider-merger --since "2 minutes ago" | grep "routed"

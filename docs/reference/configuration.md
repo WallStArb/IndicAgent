@@ -39,18 +39,6 @@ the `Settings` class documented here.
 | `REPLAY_BATCH_SIZE` | `100` | Max signals per replay-auditor cycle |
 | `REPLAY_INTERVAL_SECONDS` | `300` | Seconds between replay-auditor cycles (5 min) |
 
-### IBKR
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IBKR_HOST` / `IB_HOST` | `172.18.176.1` | IBKR Gateway host (Docker network IP — see Infrastructure note) |
-| `IBKR_PORT` / `IB_PORT` | `7497` | IBKR TWS port |
-| `IB_CLIENT_ID` | `35` | IBKR client ID for provider |
-| `IBKR_TIMEOUT_SEC` | `20.0` | Timeout (seconds) for IBKR API operations |
-| `IBKR_MAX_SUBSCRIPTIONS` | `80` | Market data subscription cap |
-
-> **Infrastructure note (transition, 2026-11-13):** the IBKR lane is disabled and deletion-listed (owner ruling: IBKR removed entirely; step 7 Part F exports and deletes the raw data); the fields below still exist in `Settings`. The IBKR Gateway runs in the `ib-gateway` Docker container. The host address used by services on the Docker network differs from the host machine loopback. The `ib-gateway` container publishes port `7497` and is accessible from the host at `127.0.0.1:7497`. Services inside Docker use the Docker network gateway IP (default `172.18.176.1`).
-
 ### Alerting
 
 | Variable | Default | Description |

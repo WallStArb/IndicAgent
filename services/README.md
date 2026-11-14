@@ -29,8 +29,7 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 | `dividend_event_writer.py` | Dividend events (Yahoo) |
 | `reference_raw_writer.py` | The one writer of `reference_raw`: Massive reference capture manifests, one row per line, sha256-verified (todo 600) |
 
-The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`)
-run by `indicagent-ibkr-history-fetcher.timer`; the Alpaca capture is
+The Alpaca capture is
 `scripts/ops/bars/ops_bar_nightly.py`, run by `indicagent-alpaca-nightly.timer` (04:40 UTC), and
 `indicagent-bar-derivation-daily.timer` (05:20 UTC) derives the night's 1d and
 `indicagent-bar-derivation-grid.timer` (05:45 UTC) derives the grid after it. The retired

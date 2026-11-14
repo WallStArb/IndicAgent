@@ -104,8 +104,7 @@ every Alpaca answer lands in `ohlcv_raw` and canonical is a selection by `bar_so
 
 Thin httpx client in `src/providers/` (Ring 0) vs `alpaca-py` SDK: decided in
 the plan, not here. The provider-isolation rule is the constraint either way:
-Alpaca credentials and endpoints live in one module, exactly as ib_async lives
-only in `src/providers/ibkr.py`.
+Alpaca credentials and endpoints live in one module.
 
 ## Sources
 

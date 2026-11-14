@@ -96,18 +96,6 @@ def _get_mock_contracts():
         return settings_mod.get_active_contracts()
 
 
-class TestIbkrMaxSubscriptions:
-    def test_default_is_80(self, monkeypatch):
-        monkeypatch.delenv("IBKR_MAX_SUBSCRIPTIONS", raising=False)
-        s = Settings(_env_file=None)
-        assert s.ibkr_max_subscriptions == 80
-
-    def test_env_override(self, monkeypatch):
-        monkeypatch.setenv("IBKR_MAX_SUBSCRIPTIONS", "100")
-        s = Settings()
-        assert s.ibkr_max_subscriptions == 100
-
-
 class TestPilotETFs:
     def test_pilot_etfs_present(self):
         """Pilot ETFs must be present in the canonical instrument set."""
