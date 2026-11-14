@@ -1078,16 +1078,17 @@ def run(
     cfg: S3Config | None = None,
     list_runner: CurlRunner = curl_run,
     fetch_fn: FetchFn = curl_fetch,
-    flush_metrics: bool = True,
+    emit_metrics: bool = True,
 ) -> int:
-    """``flush_metrics=False`` leaves the meter open for a caller that emits its own completion."""
+    """``emit_metrics=False`` counts no completion and leaves the meter open, for a caller that
+    runs this per day and emits its own."""
     setup_service_logging(str(REPO_ROOT / "logs" / "massive_download.log"))
     writes = args.migrate_manifest or not (args.verify or args.verify_etag or args.restat)
     if not writes:
-        return _dispatch(args, cfg, list_runner, fetch_fn, flush_metrics)
+        return _dispatch(args, cfg, list_runner, fetch_fn, emit_metrics)
     try:
         with manifest_lock(args.manifest_dir):
-            return _dispatch(args, cfg, list_runner, fetch_fn, flush_metrics)
+            return _dispatch(args, cfg, list_runner, fetch_fn, emit_metrics)
     except (ManifestLockedError, InventoryScopeError) as error:
         print(f"REFUSING: {error}", file=sys.stderr)
         return EXIT_REFUSED
@@ -1098,7 +1099,7 @@ def _dispatch(
     cfg: S3Config | None,
     list_runner: CurlRunner,
     fetch_fn: FetchFn,
-    flush_metrics: bool,
+    emit_metrics: bool,
 ) -> int:
     files_root = args.data_root / "files"
     manifest_dir = args.manifest_dir
@@ -1155,8 +1156,8 @@ def _dispatch(
             f"selected {len(selected)} keys, {human_bytes(total_bytes)}; "
             f"written to {inventory_path}"
         )
-        JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": "success"})
-        if flush_metrics:
+        if emit_metrics:
+            JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": "success"})
             flush_and_shutdown_metrics()
         return 0
 
@@ -1273,8 +1274,8 @@ def _dispatch(
 
     elapsed = time.monotonic() - started
     status = "failure" if (failures or refusal or floor_stopped) else "success"
-    JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
-    if flush_metrics:
+    if emit_metrics:
+        JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
         flush_and_shutdown_metrics()
     if floor_stopped:
         log.error("disk.floor_stopped_run")

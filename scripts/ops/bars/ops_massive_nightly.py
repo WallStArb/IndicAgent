@@ -9,9 +9,14 @@ The window is derived, never remembered, so a missed night heals itself:
 - fetch: every vendor key absent from the manifest, whatever its date, one day at a time. A day
   with no key (weekend, holiday, a file not yet posted) is not an error.
   A failed download leaves the manifest where it was, so the same window is asked again.
-- load: per timeframe, the months from the day after the newest Massive raw day (or the earliest
-  day fetched tonight, if older) through the newest archived day (``months_to_load``). A month
-  that fails stops that timeframe, so raw never advances past it and the months are asked again.
+- load: per timeframe, the months from the month of the day after the newest Massive raw day
+  through the newest archived day (``months_to_load``), never an earlier month. A month that fails
+  stops that timeframe, so raw never advances past it and the months at or after raw+1 are asked
+  again.
+- late keys: a fetched day older than that first month (a hole or a late-posted historical day) is
+  fetched and verified, never loaded: a reload of an old month under today's identity map is a
+  lead decision. It is logged, written to ``late_keys_<UTC date>.json`` beside the manifest, and
+  the night exits 1 with status ``manual_load`` after the recent months have loaded.
 
 Drift is reported, never acted on: every listed key's ETag and size is compared with the manifest
 (``md.restat_drift``); a difference is not downloaded or loaded. The report goes to
@@ -77,24 +82,34 @@ class Window:
     last: date
 
 
-def months_to_load(
-    raw_newest: date | None, archived_last: date, earliest_fetched: date | None = None
-) -> list[tuple[int, int]]:
-    """Calendar months (year, month), oldest first, from the day after the newest raw day (or the
-    earliest day fetched tonight, when that is older: a late-posted or retried day) through the
-    newest archived day; empty when raw is current. An empty raw is a refusal upstream, not a
-    full-history load."""
-    if raw_newest is None or (earliest_fetched is None and archived_last <= raw_newest):
+def first_loadable_month(raw_newest: date) -> date:
+    """First day of the month holding the day after the newest raw day: nothing older loads."""
+    return (raw_newest + timedelta(days=1)).replace(day=1)
+
+
+def months_to_load(raw_newest: date | None, archived_last: date) -> list[tuple[int, int]]:
+    """Calendar months (year, month), oldest first, from the month of the day after the newest raw
+    day through the newest archived day; empty when raw is current. An empty raw is a refusal
+    upstream, not a full-history load."""
+    if raw_newest is None or archived_last <= raw_newest:
         return []
-    day = raw_newest + timedelta(days=1)
-    if earliest_fetched is not None:
-        day = min(day, earliest_fetched)
-    day = day.replace(day=1)
-    months: list[tuple[int, int]] = []
+    day, months = first_loadable_month(raw_newest), []
     while (day.year, day.month) <= (archived_last.year, archived_last.month):
         months.append((day.year, day.month))
         day = date(day.year + day.month // 12, day.month % 12 + 1, 1)
     return months
+
+
+def late_keys(todo: list[md.KeyEntry], raw: dict[str, date | None]) -> list[dict]:
+    """Fetched keys dated before their timeframe's first loadable month."""
+    return [
+        {"key": e.key, "dataset": e.dataset, "day": e.date, "month": e.date[:7]}
+        for tf, dataset in _TIMEFRAME_DATASET.items()
+        for e in todo
+        if e.dataset == dataset
+        and raw[tf] is not None
+        and date.fromisoformat(e.date) < first_loadable_month(raw[tf])
+    ]
 
 
 def absent_from_manifest(
@@ -114,7 +129,7 @@ class Steps:
     archived_last: Callable[[str], date]  # newest manifest file day of a dataset
     to_download: Callable[[list[md.KeyEntry]], list[md.KeyEntry]]
     drift: Callable[[list[md.KeyEntry]], list[dict]]  # md.restat_drift rows
-    write_drift: Callable[[list[dict]], Path]
+    write_report: Callable[[str, list[dict]], Path]  # (name, rows) -> etag_drift / late_keys file
     unverified: Callable[[list[md.KeyEntry]], list[str]]  # window keys without a matching record
     raw_newest: Callable[[str], date | None]  # newest Massive raw day of a timeframe
     require_quiet: Callable[[], None]  # raises InstallRefused
@@ -136,20 +151,9 @@ def _reach(steps: Steps, fetched: list[md.KeyEntry]) -> dict[str, date]:
 def _pending(
     steps: Steps, raw: dict[str, date | None], todo: list[md.KeyEntry]
 ) -> dict[str, list[tuple[int, int]]]:
-    """Per timeframe, the months to load: from the day after the newest raw day through the newest
-    archived day once ``todo`` is in the manifest."""
+    """Per timeframe, the months to load once ``todo`` is in the manifest."""
     reach = _reach(steps, todo)
-    return {
-        tf: months_to_load(
-            raw[tf],
-            reach[tf],
-            min(
-                (date.fromisoformat(e.date) for e in todo if e.dataset == _TIMEFRAME_DATASET[tf]),
-                default=None,
-            ),
-        )
-        for tf in _LOAD_ORDER
-    }
+    return {tf: months_to_load(raw[tf], reach[tf]) for tf in _LOAD_ORDER}
 
 
 def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> bool:
@@ -163,7 +167,7 @@ def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> boo
 
 
 class Night(NamedTuple):
-    """The night's exit code and its metric status (success, drift, partial)."""
+    """The night's exit code and its metric status (success, drift, manual_load, partial)."""
 
     code: int
     status: str
@@ -185,12 +189,13 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
         log.warning("night.etag_drift", keys=len(drift), first=drift[0]["key"])
         out(f"drift: {len(drift)} listed keys differ from the manifest; none downloaded or loaded")
         if apply:
-            out(f"drift report: {steps.write_drift(drift)}")
+            out(f"drift report: {steps.write_report("etag_drift", drift)}")
     raw = {tf: steps.raw_newest(tf) for tf in _LOAD_ORDER}
     empty = [tf for tf, day in raw.items() if day is None]
     if empty:
         out(f"REFUSING: no Massive raw rows for {empty}; the first load is a step 7 job")
         return Night(1, "partial")
+    late = late_keys(todo, raw)
     pending = _pending(steps, raw, todo)
     out(f"fetch: {len(todo)} files; raw newest {raw}; months to load {pending}")
     if not todo and not any(pending.values()):
@@ -198,6 +203,8 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
         log.info("night.current")
         return Night(0, status)
     if not apply:
+        if late:
+            out(f"late keys: {len(late)} would be fetched and not loaded (manual_load)")
         out("dry run: nothing downloaded or loaded (--apply to run)")
         return Night(0, status)
 
@@ -226,7 +233,16 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
                 failed = True
                 out(f"FAILED: {tf} {year}-{month:02d} load exit {code}; later {tf} months wait")
                 break  # raw must not advance past a month that did not load
-    return Night(1, "partial") if failed else Night(0, status)
+    if failed:
+        return Night(1, "partial")
+    if late:
+        for row in late:
+            log.error("night.late_key_not_loaded", **row)
+        out(
+            f"late keys: {len(late)} fetched, not loaded; report {steps.write_report('late_keys', late)}"
+        )
+        return Night(1, "manual_load")
+    return Night(0, status)
 
 
 def _archived_last(manifest_path: Path) -> Callable[[str], date]:
@@ -255,8 +271,8 @@ def build_steps(args: argparse.Namespace) -> Steps:
     def drift(entries: list[md.KeyEntry]) -> list[dict]:
         return md.restat_drift(md.load_manifest(manifest_path), entries)
 
-    def write_drift(rows: list[dict]) -> Path:
-        path = manifest_dir / f"etag_drift_{datetime.now(UTC):%Y-%m-%d}.json"
+    def write_report(name: str, rows: list[dict]) -> Path:
+        path = manifest_dir / f"{name}_{datetime.now(UTC):%Y-%m-%d}.json"
         path.write_text(json.dumps(rows, indent=2) + "\n")
         return path
 
@@ -304,7 +320,7 @@ def build_steps(args: argparse.Namespace) -> Steps:
             min_free_gb=args.min_free_gb,
         )
         # the leaf flushes once, at its end, after its own completion count
-        return md.run(dl_args, cfg, flush_metrics=False)
+        return md.run(dl_args, cfg, emit_metrics=False)
 
     def load(timeframe: str, year: int, month: int) -> int:
         return loader.run(
@@ -324,7 +340,7 @@ def build_steps(args: argparse.Namespace) -> Steps:
         archived_last=_archived_last(manifest_path),
         to_download=to_download,
         drift=drift,
-        write_drift=write_drift,
+        write_report=write_report,
         unverified=unverified,
         raw_newest=raw_newest,
         require_quiet=require_quiet,

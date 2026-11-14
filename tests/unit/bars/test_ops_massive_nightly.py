@@ -77,8 +77,8 @@ class Fake:
             if not self.quiet or (self.quiet_after and self.quiet_calls > self.quiet_after):
                 raise InstallRefused("loader running")
 
-        def write_drift(rows):
-            self.calls.append(("write_drift", len(rows)))
+        def write_report(name, rows):
+            self.calls.append(("write_report", name, len(rows)))
             return "report.json"
 
         return nightly.Steps(
@@ -86,7 +86,7 @@ class Fake:
             archived_last=self.archived_last,
             to_download=lambda es: nightly.absent_from_manifest(es, self.manifest),
             drift=lambda es: self.drift_rows,
-            write_drift=write_drift,
+            write_report=write_report,
             unverified=lambda es: self.bad,
             raw_newest=lambda tf: self.raw[tf],
             require_quiet=require_quiet,
@@ -208,13 +208,17 @@ def test_a_download_crossing_a_month_loads_both_months_per_timeframe():
 def test_drift_writes_the_report_triggers_no_download_or_load_and_exits_0():
     fake = Fake(both("2026-11-13"), ARCHIVED, RAW, drift=[{"key": "a"}, {"key": "b"}])
     assert nightly.run_night(fake.steps(), apply=True) == (0, "drift")
-    assert fake.calls == [("write_drift", 2)]
+    assert fake.calls == [("write_report", "etag_drift", 2)]
 
 
 def test_drift_does_not_stop_a_new_day_from_loading_and_stays_status_drift():
     fake = Fake(both("2026-11-16"), ARCHIVED, RAW, drift=[{"key": "a"}])
     assert nightly.run_night(fake.steps(), apply=True) == (0, "drift")
-    assert ("load", "1d", 2026, 11) in fake.calls and ("write_drift", 1) in fake.calls
+    assert ("load", "1d", 2026, 11) in fake.calls and (
+        "write_report",
+        "etag_drift",
+        1,
+    ) in fake.calls
 
 
 def test_a_blank_etag_exits_1_without_a_crash(capsys):
@@ -279,7 +283,7 @@ def test_build_steps_passes_the_download_and_load_arguments(tmp_path, monkeypatc
     assert (dl.date_from, dl.date_to) == ("2026-11-14", "2026-11-16")
     assert dl.refresh_inventory is False and (dl.concurrency, dl.min_free_gb) == (3, 7)
     assert dl.datasets == ["day_aggs_v1"]
-    assert seen["cfg"] == "cfg" and seen["kw"] == {"flush_metrics": False}
+    assert seen["cfg"] == "cfg" and seen["kw"] == {"emit_metrics": False}
 
     assert steps.load("5m", 2026, 11) == 0
     load = seen["load"]
@@ -302,7 +306,7 @@ def test_build_steps_calls_a_missing_or_stale_etag_unverified(tmp_path, monkeypa
     assert steps.unverified([good, stale, absent]) == [stale.key, absent.key]
 
 
-def test_build_steps_to_download_is_absent_keys_after_the_last_archived_day(tmp_path, monkeypatch):
+def test_build_steps_to_download_is_absent_keys_and_never_a_changed_etag(tmp_path, monkeypatch):
     import json
 
     monkeypatch.setattr(nightly.md, "S3Config", lambda **_: "cfg")
@@ -344,18 +348,22 @@ def test_a_partial_multi_day_download_is_finished_the_next_night_and_its_month_l
     ]
 
 
-def test_a_late_posted_day_before_the_newest_archived_day_is_fetched_and_its_month_loaded():
+def test_a_late_old_key_is_fetched_not_loaded_reported_and_exits_1_while_recent_days_load():
     archived = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
-    fake = Fake(both("2026-11-05") + both("2026-11-13"), archived, RAW, absent={"2026-11-05"})
-    assert nightly.run_night(fake.steps(), apply=True) == (0, "success")
-    assert [c[:2] for c in fake.calls if c[0] == "download"] == [
-        ("download", "day_aggs_v1"),
-        ("download", "minute_aggs_v1"),
-    ]
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    # 09-15 is a hole before October (late, not loaded); 10-29 is inside the first loadable month
+    listed = both("2026-09-15") + both("2026-10-29") + both("2026-11-13")
+    fake = Fake(listed, archived, raw, absent={"2026-09-15", "2026-10-29"})
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "manual_load")
+    fetched = [(c[1], c[2].first.isoformat()) for c in fake.calls if c[0] == "download"]
+    assert ("day_aggs_v1", "2026-09-15") in fetched and ("minute_aggs_v1", "2026-10-29") in fetched
     assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 10),
         ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 10),
         ("load", "5m", 2026, 11),
     ]
+    assert ("write_report", "late_keys", 2) in fake.calls  # both datasets of 09-15, not 10-29
 
 
 def test_a_failed_month_stops_that_timeframe_so_raw_never_advances_past_it():
