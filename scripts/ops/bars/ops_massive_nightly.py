@@ -35,7 +35,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from unittest import mock
 
 import asyncpg
 import psycopg
@@ -121,25 +120,49 @@ def _reach(steps: Steps, fetched: list[md.KeyEntry]) -> dict[str, date]:
     }
 
 
+def _pending(
+    steps: Steps, raw: dict[str, date | None], todo: list[md.KeyEntry]
+) -> dict[str, list[tuple[int, int]]]:
+    """Per timeframe, the months to load: those past the newest raw day, plus the month of every
+    day the download (re)fetches, so a vendor repost of an already loaded day reloads."""
+    reach = _reach(steps, todo)
+    reposted = {
+        tf: {_month(e.date) for e in todo if e.dataset == ds}
+        for tf, ds in _TIMEFRAME_DATASET.items()
+    }
+    return {
+        tf: sorted(set(months_to_load(raw[tf], reach[tf])) | reposted[tf]) for tf in _LOAD_ORDER
+    }
+
+
+def _month(day: str) -> tuple[int, int]:
+    return int(day[:4]), int(day[5:7])
+
+
+def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> bool:
+    try:
+        steps.require_quiet()
+    except InstallRefused as error:
+        log.error("night.refused_not_quiet", at=at, error=str(error))
+        out(f"REFUSING ({at}): {error}")
+        return True
+    return False
+
+
 def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) -> int:
     """One night; 0 when current or done, 1 on any refusal or partial result."""
     entries = steps.vendor_entries()
     newest = max((date.fromisoformat(e.date) for e in entries), default=None)
-    archived = [steps.archived_last(ds) for ds in _TIMEFRAME_DATASET.values()]
-    window = fetch_window(archived, newest)
-    in_window = (
-        [e for e in entries if window.first <= date.fromisoformat(e.date) <= window.last]
-        if window
-        else []
-    )
-    todo = steps.to_download(in_window)
+    window = fetch_window([steps.archived_last(ds) for ds in _TIMEFRAME_DATASET.values()], newest)
+    # Every listed key meets the manifest: a day the vendor reposted under a new ETag is as
+    # missing as a day not yet fetched (capture law 528).
+    todo = steps.to_download(entries)
     raw = {tf: steps.raw_newest(tf) for tf in _LOAD_ORDER}
     empty = [tf for tf, day in raw.items() if day is None]
     if empty:
         out(f"REFUSING: no Massive raw rows for {empty}; the first load is a step 7 job")
         return 1
-    reach = _reach(steps, todo)
-    pending = {tf: months_to_load(raw[tf], reach[tf]) for tf in _LOAD_ORDER}
+    pending = _pending(steps, raw, todo)
     shown = f"{window.first}..{window.last}" if window else "none"
     out(f"window: fetch {shown}; {len(todo)} files to download (vendor newest {newest})")
     out(f"raw newest: {raw}; months to load: {pending}")
@@ -151,22 +174,21 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
         out("dry run: nothing downloaded or loaded (--apply to run)")
         return 0
 
-    try:
-        steps.require_quiet()
-    except InstallRefused as error:
-        log.error("night.refused_not_quiet", error=str(error))
-        out(f"REFUSING: {error}")
+    if _refused_not_quiet(steps, out, "start"):
         return 1
-
-    failed = False
     if todo:
-        code = steps.download(window)
-        bad = steps.unverified(in_window)
+        days = [date.fromisoformat(e.date) for e in todo]
+        code = steps.download(Window(min(days), max(days)))
+        bad = steps.unverified(todo)
         if code != 0 or bad:
             log.error("night.download_incomplete", exit=code, unverified=bad[:10])
-            out(f"FAILED: download exit {code}; {len(bad)} window files unverified; no load")
+            out(f"FAILED: download exit {code}; {len(bad)} files unverified; no load")
             return 1
-        pending = {tf: months_to_load(raw[tf], _reach(steps, [])[tf]) for tf in _LOAD_ORDER}
+        pending = _pending(steps, raw, todo)
+    # The download can take hours; a map install may have started since the first check.
+    if any(pending.values()) and _refused_not_quiet(steps, out, "before load"):
+        return 1
+    failed = False
     for tf in _LOAD_ORDER:
         for year, month in pending[tf]:
             code = steps.load(tf, year, month)
@@ -239,10 +261,8 @@ def build_steps(args: argparse.Namespace) -> Steps:
             concurrency=args.concurrency,
             min_free_gb=args.min_free_gb,
         )
-        # md.run ends with flush_and_shutdown_metrics, which would close the meter before this
-        # leaf's own completion count; the leaf flushes once, at its end.
-        with mock.patch.object(md, "flush_and_shutdown_metrics", lambda *_a, **_k: None):
-            return md.run(dl_args, cfg)
+        # the leaf flushes once, at its end, after its own completion count
+        return md.run(dl_args, cfg, flush_metrics=False)
 
     def load(timeframe: str, year: int, month: int) -> int:
         return loader.run(

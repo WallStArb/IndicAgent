@@ -360,8 +360,9 @@ def test_the_inputs_are_read_once_as_bytes_and_hidden_rows_join_the_1d_rows(tmp_
     assert got.expected() == EXPECTED
 
 
-def test_a_visible_massive_loader_process_is_found(tmp_path):
-    script = tmp_path / "ops_massive_load.py"
+@pytest.mark.parametrize("name", ["ops_massive_load.py", "ops_massive_nightly.py"])
+def test_a_visible_massive_loader_process_is_found(tmp_path, name):
+    script = tmp_path / name
     script.write_text("import time; time.sleep(30)")
     loader = subprocess.Popen([sys.executable, str(script)])
     bystander = subprocess.Popen(["sleep", "30", script.name])  # names the file, runs no loader

@@ -23,9 +23,22 @@ def both(day: str) -> list[KeyEntry]:
 class Fake:
     """Records calls; every knob a test turns is a constructor argument."""
 
-    def __init__(self, listed, archived, raw, *, quiet=True, dl=0, load=0, bad=()):
+    def __init__(
+        self,
+        listed,
+        archived,
+        raw,
+        *,
+        quiet=True,
+        dl=0,
+        load=0,
+        bad=(),
+        reposted=(),
+        quiet_after=None,
+    ):
         self.listed, self.archived, self.raw = listed, dict(archived), dict(raw)
         self.quiet, self.dl, self.load_code, self.bad = quiet, dl, load, list(bad)
+        self.reposted, self.quiet_after, self.quiet_calls = set(reposted), quiet_after, 0
         self.calls: list = []
 
     def steps(self) -> nightly.Steps:
@@ -42,13 +55,16 @@ class Fake:
 
         def require_quiet():
             self.calls.append(("quiet",))
-            if not self.quiet:
+            self.quiet_calls += 1
+            if not self.quiet or (self.quiet_after and self.quiet_calls > self.quiet_after):
                 raise InstallRefused("loader running")
 
         return nightly.Steps(
             vendor_entries=lambda: self.listed,
             archived_last=lambda ds: self.archived[ds],
-            to_download=lambda es: [e for e in es if D(e.date) > self.archived[e.dataset]],
+            to_download=lambda es: [
+                e for e in es if D(e.date) > self.archived[e.dataset] or e.date in self.reposted
+            ],
             unverified=lambda es: self.bad,
             raw_newest=lambda tf: self.raw[tf],
             require_quiet=require_quiet,
@@ -98,7 +114,8 @@ def test_a_new_day_downloads_then_loads_1d_before_5m():
     assert nightly.run_night(fake.steps(), apply=True) == 0
     assert fake.calls == [
         ("quiet",),
-        ("download", nightly.Window(D("2026-11-14"), D("2026-11-16"))),
+        ("download", nightly.Window(D("2026-11-16"), D("2026-11-16"))),
+        ("quiet",),
         ("load", "1d", 2026, 11),
         ("load", "5m", 2026, 11),
     ]
@@ -140,7 +157,12 @@ def test_a_load_left_by_an_earlier_night_heals_without_a_download():
     archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-16")}
     fake = Fake(both("2026-11-16"), archived, RAW)
     assert nightly.run_night(fake.steps(), apply=True) == 0
-    assert fake.calls == [("quiet",), ("load", "1d", 2026, 11), ("load", "5m", 2026, 11)]
+    assert fake.calls == [
+        ("quiet",),
+        ("quiet",),
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 11),
+    ]
 
 
 def test_an_empty_raw_refuses():
@@ -161,3 +183,91 @@ def test_last_file_day_is_per_dataset():
     assert archive_end_of(manifest) == D("2026-11-16")  # the next session after Friday
     with pytest.raises(ValueError):
         last_file_day(b"", None)
+
+
+def test_datasets_with_different_archived_days_each_fetch_their_own_gap():
+    archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-13")}
+    fake = Fake(both("2026-11-16") + both("2026-11-13"), archived, RAW)
+    assert nightly.run_night(fake.steps(), apply=True) == 0
+    assert ("download", nightly.Window(D("2026-11-16"), D("2026-11-16"))) in fake.calls
+
+
+def test_a_download_crossing_a_month_loads_both_months_per_timeframe():
+    archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    fake = Fake(both("2026-10-30") + both("2026-11-02"), archived, raw)
+    assert nightly.run_night(fake.steps(), apply=True) == 0
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 10),
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 10),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_a_reposted_archived_day_is_fetched_and_its_month_reloaded():
+    fake = Fake(both("2026-11-13"), ARCHIVED, RAW, reposted={"2026-11-13"})
+    assert nightly.run_night(fake.steps(), apply=True) == 0
+    assert ("download", nightly.Window(D("2026-11-13"), D("2026-11-13"))) in fake.calls
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_the_quiet_check_is_asked_again_before_the_load_and_refuses_it():
+    fake = Fake(both("2026-11-16"), ARCHIVED, RAW, quiet_after=1)  # quiet at start, not after
+    assert nightly.run_night(fake.steps(), apply=True) == 1
+    assert [c[0] for c in fake.calls] == ["quiet", "download", "quiet"]
+
+
+def _args(tmp_path):
+    import argparse
+
+    return argparse.Namespace(
+        apply=True,
+        data_root=tmp_path,
+        manifest_dir=tmp_path / "manifest",
+        env_file=tmp_path / ".env",
+        concurrency=3,
+        min_free_gb=7,
+    )
+
+
+def test_build_steps_passes_the_download_and_load_arguments(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(nightly.md, "S3Config", lambda **_: "cfg")
+    monkeypatch.setattr(
+        nightly.md,
+        "run",
+        lambda args, cfg, **kw: seen.update(dl=args, cfg=cfg, kw=kw) or 0,
+    )
+    monkeypatch.setattr(nightly.loader, "run", lambda args: seen.update(load=args) or 0)
+    steps = nightly.build_steps(_args(tmp_path))
+
+    assert steps.download(nightly.Window(D("2026-11-14"), D("2026-11-16"))) == 0
+    dl = seen["dl"]
+    assert (dl.date_from, dl.date_to) == ("2026-11-14", "2026-11-16")
+    assert dl.refresh_inventory is False and (dl.concurrency, dl.min_free_gb) == (3, 7)
+    assert dl.datasets == ["minute_aggs_v1", "day_aggs_v1"]
+    assert seen["cfg"] == "cfg" and seen["kw"] == {"flush_metrics": False}
+
+    assert steps.load("5m", 2026, 11) == 0
+    load = seen["load"]
+    assert (load.timeframe, load.years, load.month, load.apply) == ("5m", [2026], 11, True)
+    assert load.gap_list is None and load.all_tickers is False  # the newest installed map
+
+
+def test_build_steps_calls_a_missing_or_stale_etag_unverified(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(nightly.md, "S3Config", lambda **_: "cfg")
+    manifest_dir = tmp_path / "manifest"
+    manifest_dir.mkdir()
+    good, stale, absent = (
+        entry(d, "day_aggs_v1") for d in ("2026-11-13", "2026-11-14", "2026-11-15")
+    )
+    records = [{"key": good.key, "etag": "e"}, {"key": stale.key, "etag": "old"}]
+    (manifest_dir / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    steps = nightly.build_steps(_args(tmp_path))
+    assert steps.unverified([good, stale, absent]) == [stale.key, absent.key]

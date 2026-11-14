@@ -1078,14 +1078,16 @@ def run(
     cfg: S3Config | None = None,
     list_runner: CurlRunner = curl_run,
     fetch_fn: FetchFn = curl_fetch,
+    flush_metrics: bool = True,
 ) -> int:
+    """``flush_metrics=False`` leaves the meter open for a caller that emits its own completion."""
     setup_service_logging(str(REPO_ROOT / "logs" / "massive_download.log"))
     writes = args.migrate_manifest or not (args.verify or args.verify_etag or args.restat)
     if not writes:
-        return _dispatch(args, cfg, list_runner, fetch_fn)
+        return _dispatch(args, cfg, list_runner, fetch_fn, flush_metrics)
     try:
         with manifest_lock(args.manifest_dir):
-            return _dispatch(args, cfg, list_runner, fetch_fn)
+            return _dispatch(args, cfg, list_runner, fetch_fn, flush_metrics)
     except (ManifestLockedError, InventoryScopeError) as error:
         print(f"REFUSING: {error}", file=sys.stderr)
         return EXIT_REFUSED
@@ -1096,6 +1098,7 @@ def _dispatch(
     cfg: S3Config | None,
     list_runner: CurlRunner,
     fetch_fn: FetchFn,
+    flush_metrics: bool,
 ) -> int:
     files_root = args.data_root / "files"
     manifest_dir = args.manifest_dir
@@ -1153,7 +1156,8 @@ def _dispatch(
             f"written to {inventory_path}"
         )
         JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": "success"})
-        flush_and_shutdown_metrics()
+        if flush_metrics:
+            flush_and_shutdown_metrics()
         return 0
 
     manifest_index = load_manifest(manifest_path)
@@ -1270,7 +1274,8 @@ def _dispatch(
     elapsed = time.monotonic() - started
     status = "failure" if (failures or refusal or floor_stopped) else "success"
     JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": status})
-    flush_and_shutdown_metrics()
+    if flush_metrics:
+        flush_and_shutdown_metrics()
     if floor_stopped:
         log.error("disk.floor_stopped_run")
         print(

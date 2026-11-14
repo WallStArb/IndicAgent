@@ -1580,8 +1580,12 @@ SELECT count(*)::int FROM ohlcv_load
 # An interlock on the procedure, not a tunable: a Massive load writes under the spans an install
 # retires, and a knob here would invite loosening it after seeing a refusal.
 _MASSIVE_QUIET_MINUTES = 30
-_MASSIVE_LOAD_MODULE = b"scripts.ops.bars.ops_massive_load"
-_MASSIVE_LOAD_FILE = b"ops_massive_load.py"
+# The loader itself and the nightly leaf, which runs the loader in-process under its own argv.
+_MASSIVE_LOAD_MODULES = (
+    b"scripts.ops.bars.ops_massive_load",
+    b"scripts.ops.bars.ops_massive_nightly",
+)
+_MASSIVE_LOAD_FILES = (b"ops_massive_load.py", b"ops_massive_nightly.py")
 
 
 def massive_load_pids() -> list[int]:
@@ -1596,7 +1600,7 @@ def massive_load_pids() -> list[int]:
         except OSError:
             continue  # the process ended between the listing and the read
         if b"python" in os.path.basename(argv[0]) and any(
-            a == _MASSIVE_LOAD_MODULE or a.endswith(_MASSIVE_LOAD_FILE) for a in argv[1:]
+            a in _MASSIVE_LOAD_MODULES or a.endswith(_MASSIVE_LOAD_FILES) for a in argv[1:]
         ):
             found.append(int(entry.name))
     return found
