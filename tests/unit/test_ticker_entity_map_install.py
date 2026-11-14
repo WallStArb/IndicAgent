@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -14,11 +17,14 @@ from services.ticker_entity_map_writer import (
     InstallRefused,
     NewSpan,
     OldSpan,
+    ReconcileInputs,
     WitnessRegion,
     canonical_json,
     check_install_target,
     content_sha256,
     install_evidence,
+    manifest_sha256,
+    massive_load_pids,
     plan_documentary_map,
     plan_install,
     plan_rollback,
@@ -262,3 +268,108 @@ def test_a_rollback_refuses_an_install_that_is_gone_rolled_back_or_built_upon():
         plan_rollback("i1", rolled)
     with pytest.raises(InstallRefused, match="already rolled back"):
         plan_rollback("i1", _history(n_retired=1)[1:] + _history()[1:2])
+
+
+LOST_1D = (
+    b"symbol,session,file_ticker,class\nLUMN,2010-01-04,CTL,map_gap\nLUMN,2010-01-05,X,other\n"
+)
+LOST_5M = b"symbol,session,alt_ticker,class\n"
+COVERAGE = json.dumps(EXPECTED).encode()
+HIDDEN = ("CACI:2009-05-04:CACI",)
+
+
+def _inputs(hidden=()):
+    return ReconcileInputs(LOST_1D, LOST_5M, COVERAGE, tuple(sorted(hidden)))
+
+
+def _build_pinned(tmp_path: Path, reconcile: ReconcileInputs) -> Path:
+    result = plan_documentary_map(OLD, [], REGIONS, PLACEMENTS, "p" * 8)
+    reconciliation = reconcile_coverage(result.spans, LOST, EXPECTED)
+    name, files = render_documentary_map(
+        OLD, result, {"x": 1, **reconcile.pins()}, reconciliation, "20261114"
+    )
+    write_map_files(tmp_path / name, files)
+    return tmp_path / name
+
+
+def test_the_manifest_pin_covers_every_file_and_the_directory_name_is_unchanged(tmp_path):
+    path = _build_pinned(tmp_path, _inputs())
+    files = read_map_dir(path)
+    assert files.manifest_sha256 == manifest_sha256(files.raw)
+    assert path.name == f"20261114_{files.diff['gap_list_sha256'][:12]}"
+    files.require_pins(files.manifest_sha256, _inputs())
+    with pytest.raises(InstallRefused, match="--install-spans-sha256"):
+        files.require_pins("0" * 64, _inputs())
+
+
+def test_spans_edited_together_with_their_recorded_hash_still_fail_the_pin(tmp_path):
+    path = _build_pinned(tmp_path, _inputs())
+    pin = read_map_dir(path).manifest_sha256
+    spans = (path / "spans.csv").read_bytes().replace(b"CTL", b"CTX")
+    (path / "spans.csv").write_bytes(spans)
+    doc = json.loads((path / "map_diff.json").read_text())
+    doc["spans_sha256"] = hashlib.sha256(spans).hexdigest()
+    (path / "map_diff.json").write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    edited = read_map_dir(path)  # the map is internally consistent again
+    with pytest.raises(InstallRefused, match="--install-spans-sha256"):
+        edited.require_pins(pin, _inputs())
+
+
+@pytest.mark.parametrize("name", ["span_accounting.csv", "map_diff.json"])
+def test_the_accounting_and_the_diff_are_pinned_too(tmp_path, name):
+    path = _build_pinned(tmp_path, _inputs())
+    pin = read_map_dir(path).manifest_sha256
+    (path / name).write_bytes((path / name).read_bytes() + b" ")
+    with pytest.raises(InstallRefused, match="--install-spans-sha256"):
+        read_map_dir(path).require_pins(pin, _inputs())
+
+
+def test_reconciliation_inputs_must_be_the_ones_the_map_recorded(tmp_path):
+    files = read_map_dir(_build_pinned(tmp_path, _inputs()))
+    pin = files.manifest_sha256
+    files.require_pins(pin, _inputs())
+    changed = ReconcileInputs(LOST_1D + b"LUMN,2010-01-06,CTL,map_gap\n", LOST_5M, COVERAGE, ())
+    with pytest.raises(InstallRefused, match="lost_1d_sha256.*rebuild"):
+        files.require_pins(pin, changed)
+    with pytest.raises(InstallRefused, match="coverage_summary_sha256"):
+        files.require_pins(pin, ReconcileInputs(LOST_1D, LOST_5M, COVERAGE + b" ", ()))
+    with pytest.raises(InstallRefused, match="hidden_1d"):
+        files.require_pins(pin, _inputs(HIDDEN))
+
+
+def test_a_map_built_before_the_input_pins_refuses_with_a_rebuild_message(files):
+    with pytest.raises(InstallRefused, match="rebuild the map"):
+        files.require_pins(files.manifest_sha256, _inputs())
+
+
+def test_the_inputs_are_read_once_as_bytes_and_hidden_rows_join_the_1d_rows(tmp_path):
+    for name, data in (("a", LOST_1D), ("b", LOST_5M), ("c", COVERAGE)):
+        (tmp_path / name).write_bytes(data)
+
+    class Args:
+        lost_1d, lost_5m, coverage_summary = (tmp_path / n for n in "abc")
+        hidden_1d = ["Z:2015-08-17:Z", "CACI:2009-05-04:CACI"]
+
+    got = ReconcileInputs.read(Args)  # type: ignore[arg-type]
+    assert got.rows() == {
+        "1d": [("LUMN", "2010-01-04", "CTL"), ("CACI", "2009-05-04", "CACI"),
+               ("Z", "2015-08-17", "Z")],
+        "5m": [],
+    }  # fmt: skip
+    assert got.pins()["hidden_1d"] == ["CACI:2009-05-04:CACI", "Z:2015-08-17:Z"]
+    assert got.expected() == EXPECTED
+
+
+def test_a_visible_massive_loader_process_is_found(tmp_path):
+    script = tmp_path / "ops_massive_load.py"
+    script.write_text("import time; time.sleep(30)")
+    loader = subprocess.Popen([sys.executable, str(script)])
+    bystander = subprocess.Popen(["sleep", "30", script.name])  # names the file, runs no loader
+    try:
+        found = massive_load_pids()
+        assert loader.pid in found and bystander.pid not in found
+    finally:
+        for proc in (loader, bystander):
+            proc.kill()
+            proc.wait()
+    assert loader.pid not in massive_load_pids()

@@ -33,9 +33,9 @@ span that holds a placement, the old spans are cut out and the placements put in
 a span at the first and last file day of each ticker); what the cut removed and no placement
 re-covers becomes an ``identity_unplaced`` gap row; spans of unplaced witness decisions are left
 as they are. Every old span, gap row and placement is accounted in ``span_accounting.csv``.
-``--install MAP_DIR --install-digest D --untouched NAMES --lost-1d/--lost-5m/--coverage-summary``
-applies a scratch map version to the live rows (design 8c; section "Install" below): rehearsal
-unless ``--apply``; ``--rollback INSTALL_ID`` undoes a recorded install. Both refuse loudly and
+``--install MAP_DIR --install-digest D --install-spans-sha256 H --untouched NAMES --lost-1d
+--lost-5m --coverage-summary [--hidden-1d ...]`` applies a scratch map version to the live rows
+(design 8c; section "Install" below): rehearsal unless ``--apply``; ``--rollback INSTALL_ID`` undoes a recorded install. Both refuse loudly and
 write nothing on any gate failure.
 """
 
@@ -1110,14 +1110,59 @@ def write_map_files(out: Path, files: Mapping[str, bytes]) -> None:
         target.write_bytes(data)
 
 
-def _read_lost_rows(path: Path, ticker_column: str) -> list[tuple[str, str, str]]:
+def _read_lost_rows(data: bytes, ticker_column: str) -> list[tuple[str, str, str]]:
     """The map_gap rows of a classified lost-slot file as (symbol, session, file ticker)."""
-    with path.open(newline="", encoding="utf-8") as handle:
-        return [
-            (r["symbol"], r["session"], r[ticker_column])
-            for r in csv.DictReader(handle)
-            if r["class"] == "map_gap"
-        ]
+    return [
+        (r["symbol"], r["session"], r[ticker_column])
+        for r in csv.DictReader(io.StringIO(data.decode()))
+        if r["class"] == "map_gap"
+    ]
+
+
+@dataclass(frozen=True)
+class ReconcileInputs:
+    """The bytes of every file the coverage reconciliation reads, read once so the hash that is
+    pinned and the rows that are judged are the same bytes."""
+
+    lost_1d: bytes
+    lost_5m: bytes
+    coverage_summary: bytes
+    hidden_1d: tuple[str, ...]
+
+    @classmethod
+    def read(cls, args: argparse.Namespace) -> ReconcileInputs:
+        return cls(
+            args.lost_1d.read_bytes(), args.lost_5m.read_bytes(),
+            args.coverage_summary.read_bytes(), tuple(sorted(args.hidden_1d)),
+        )  # fmt: skip
+
+    def pins(self) -> dict[str, Any]:
+        """What ``map_diff.json`` records under ``inputs`` and an install verifies."""
+        return {
+            "lost_1d_sha256": hashlib.sha256(self.lost_1d).hexdigest(),
+            "lost_5m_sha256": hashlib.sha256(self.lost_5m).hexdigest(),
+            "coverage_summary_sha256": hashlib.sha256(self.coverage_summary).hexdigest(),
+            "hidden_1d": list(self.hidden_1d),
+        }
+
+    def rows(self) -> dict[str, list[tuple[str, str, str]]]:
+        hidden = [tuple(h.split(":")) for h in self.hidden_1d]
+        return {
+            "1d": _read_lost_rows(self.lost_1d, "file_ticker") + hidden,
+            "5m": _read_lost_rows(self.lost_5m, "alt_ticker"),
+        }
+
+    def expected(self) -> dict[str, Any]:
+        return json.loads(self.coverage_summary)
+
+
+def manifest_sha256(files: Mapping[str, bytes]) -> str:
+    """One digest over every file of a map version, ``map_diff.json`` (which records the hashes
+    of the spans, the pinned spans, the gap list and the reconciliation inputs) included. The
+    directory name stays the gap list digest; this is the pin an install checks."""
+    return hashlib.sha256(
+        "".join(f"{n} {hashlib.sha256(files[n]).hexdigest()}\n" for n in sorted(files)).encode()
+    ).hexdigest()
 
 
 class TickerEntityMapDocumentary(BaseBatch):
@@ -1148,31 +1193,23 @@ class TickerEntityMapDocumentary(BaseBatch):
         result = plan_documentary_map(
             old_spans, read_gap_rows(gap_bytes), regions, placements, args.documentary_sha256
         )
-        reconciliation = None
-        if args.lost_1d and args.lost_5m and args.coverage_summary:
-            hidden = [tuple(h.split(":")) for h in args.hidden_1d]
-            reconciliation = reconcile_coverage(
-                result.spans,
-                {
-                    "1d": _read_lost_rows(args.lost_1d, "file_ticker") + hidden,
-                    "5m": _read_lost_rows(args.lost_5m, "alt_ticker"),
-                },
-                json.loads(args.coverage_summary.read_text()),
-            )
+        reconcile = ReconcileInputs.read(args)
+        reconciliation = reconcile_coverage(result.spans, reconcile.rows(), reconcile.expected())
         require_reconciled(reconciliation)
         inputs = {
             "pinned_map": args.map_dir.name,
             "pinned_map_gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
             "placements_sha256": args.documentary_sha256,
             "witness_spans_sha256": args.regions_sha256,
+            **reconcile.pins(),
         }
         name, files = render_documentary_map(
             old_spans, result, inputs, reconciliation, args.version_date
         )
         write_map_files(args.out / name, files)
         self.logger.info("ticker_entity_map.documentary_done", out=str(args.out / name))
-        print(json.dumps({"out": str(args.out / name), **json.loads(files["map_diff.json"])},
-                         indent=2, sort_keys=True))  # fmt: skip
+        print(json.dumps({"out": str(args.out / name), "install_spans_sha256": manifest_sha256(files),
+                          **json.loads(files["map_diff.json"])}, indent=2, sort_keys=True))  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1206,6 +1243,26 @@ class MapFiles:
     @property
     def pinned_sha256(self) -> str:
         return hashlib.sha256(self.raw["pinned_spans.csv"]).hexdigest()
+
+    @property
+    def manifest_sha256(self) -> str:
+        return manifest_sha256(self.raw)
+
+    def require_pins(self, install_spans_sha256: str, reconcile: ReconcileInputs) -> None:
+        """The install runs only on the map the lead pinned (every file of it) and on the
+        reconciliation inputs the map was built from."""
+        if self.manifest_sha256 != install_spans_sha256:
+            raise InstallRefused(
+                f"the map's files hash to {self.manifest_sha256}, --install-spans-sha256 says "
+                f"{install_spans_sha256}"
+            )
+        recorded = self.diff.get("inputs", {})
+        for key, value in reconcile.pins().items():
+            if recorded.get(key) != value:
+                raise InstallRefused(
+                    f"reconciliation input {key} is {value!r}, the map recorded "
+                    f"{recorded.get(key)!r}: rebuild the map with --documentary on these inputs"
+                )
 
 
 @dataclass(frozen=True)
@@ -1508,6 +1565,70 @@ SELECT symbol, ticker, valid_from, valid_to, security_identifier_id,
 """
 
 
+# A Massive load cites every ticker_event id it loaded under in ``ohlcv_load.detail``
+# (``"ticker_events": {"<id>": "<ticker>"}``, ops_massive_load lineage).
+_LOADS_CITING_SQL = """
+SELECT symbol, count(*)::int AS loads FROM ohlcv_load
+ WHERE caller LIKE 'massive%' AND symbol = ANY($1::text[])
+   AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS u(id) WHERE position(u.id IN detail) > 0)
+ GROUP BY symbol
+"""
+_RECENT_MASSIVE_LOAD_SQL = """
+SELECT count(*)::int FROM ohlcv_load
+ WHERE caller LIKE 'massive%' AND loaded_at > clock_timestamp() - make_interval(mins => $1)
+"""
+# An interlock on the procedure, not a tunable: a Massive load writes under the spans an install
+# retires, and a knob here would invite loosening it after seeing a refusal.
+_MASSIVE_QUIET_MINUTES = 30
+_MASSIVE_LOAD_MODULE = b"scripts.ops.bars.ops_massive_load"
+_MASSIVE_LOAD_FILE = b"ops_massive_load.py"
+
+
+def massive_load_pids() -> list[int]:
+    """Python processes on this host running the Massive loader, by module or script argument
+    (this process excluded; an editor or ``tail`` that merely names the file does not count)."""
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue  # the process ended between the listing and the read
+        if b"python" in os.path.basename(argv[0]) and any(
+            a == _MASSIVE_LOAD_MODULE or a.endswith(_MASSIVE_LOAD_FILE) for a in argv[1:]
+        ):
+            found.append(int(entry.name))
+    return found
+
+
+async def require_massive_quiet(conn: asyncpg.Connection) -> None:
+    """No Massive load runs during an install or rollback: it would write raw under spans the
+    run retires. Refuses on a visible loader process or a Massive load row of the last minutes."""
+    pids = massive_load_pids()
+    if pids:
+        raise InstallRefused(f"ops_massive_load is running (pids {pids}); stop it first")
+    recent = await conn.fetchval(_RECENT_MASSIVE_LOAD_SQL, _MASSIVE_QUIET_MINUTES)
+    if recent:
+        raise InstallRefused(
+            f"{recent} Massive load rows were written in the last {_MASSIVE_QUIET_MINUTES} "
+            "minutes: wait until the loader has been quiet that long"
+        )
+
+
+async def loads_citing(
+    conn: asyncpg.Connection, spans: Sequence[tuple[str, str]]
+) -> dict[str, int]:
+    """Massive load rows whose detail cites any of the ``(symbol, ticker_event_id)`` spans,
+    counted per symbol."""
+    if not spans:
+        return {}
+    rows = await conn.fetch(
+        _LOADS_CITING_SQL, sorted({s for s, _ in spans}), sorted({i for _, i in spans})
+    )
+    return {r["symbol"]: r["loads"] for r in rows}
+
+
 def _row_key(r: Mapping[str, Any]) -> SpanKey:
     return (r["symbol"], r["ticker"], r["valid_from"], r["valid_to"] or _OPEN)
 
@@ -1569,15 +1690,9 @@ class TickerEntityMapInstaller(BaseBatch):
             raise InstallRefused(
                 f"the map is {files.digest}, --install-digest says {args.install_digest}"
             )
-        hidden = [tuple(h.split(":")) for h in args.hidden_1d]
-        verify_install_reconciliation(
-            files,
-            {
-                "1d": _read_lost_rows(args.lost_1d, "file_ticker") + hidden,
-                "5m": _read_lost_rows(args.lost_5m, "alt_ticker"),
-            },
-            json.loads(args.coverage_summary.read_text()),
-        )
+        reconcile = ReconcileInputs.read(args)
+        files.require_pins(args.install_spans_sha256, reconcile)
+        verify_install_reconciliation(files, reconcile.rows(), reconcile.expected())
         return files
 
     async def _install(self, pool: asyncpg.Pool) -> dict[str, Any]:
@@ -1596,13 +1711,18 @@ class TickerEntityMapInstaller(BaseBatch):
             try:
                 async with conn.transaction():
                     await conn.execute(_LOCK_SQL)
+                    await require_massive_quiet(conn)
                     rows = await conn.fetch(_DOC_SPANS_SQL)
                     plan = plan_install(files, live_old_spans(rows), untouched)
                     report = _install_report(plan, files, install_id, self._apply)
                     if plan.status == "already_installed":
                         raise _Rehearsal
                     ids = {_row_key(r): r["ticker_event_id"] for r in rows}
-                    pre_sha = content_sha256(rows)
+                    # the same query and hash the rollback reads: every live row, identifier or not
+                    pre_sha = content_sha256(await conn.fetch(_LIVE_SQL))
+                    report["loaded_under_retired_spans"] = await loads_citing(
+                        conn, [(k[0], str(ids[k])) for k, _ in plan.retire]
+                    )
                     lineage = {
                         "install_id": install_id, "map_digest": files.digest,
                         "map_dir": files.name, "pre_install_sha256": pre_sha,
@@ -1614,7 +1734,7 @@ class TickerEntityMapInstaller(BaseBatch):
                         [retire_reason(install_id, files.digest, d) for _, d in plan.retire],
                     )
                     await self._insert(conn, plan, lineage)
-                    live_after = await conn.fetch(_LIVE_SQL)
+                    live_after = await conn.fetch(_DOC_SPANS_SQL)
                     verify_balance(plan, [_row_key(r) for r in live_after])
                     if not self._apply:
                         raise _Rehearsal
@@ -1676,6 +1796,7 @@ class TickerEntityMapInstaller(BaseBatch):
             try:
                 async with conn.transaction():
                     await conn.execute(_LOCK_SQL)
+                    await require_massive_quiet(conn)
                     rows = [
                         HistoryRow(r["id"], r["security_identifier_id"], r["symbol"], r["ticker"],
                                    r["valid_from"], r["valid_to"], r["reference_raw_id"],
@@ -1685,6 +1806,17 @@ class TickerEntityMapInstaller(BaseBatch):
                         )
                     ]  # fmt: skip
                     plan = plan_rollback(install_id, rows)
+                    loaded = await loads_citing(
+                        conn,
+                        [(r.symbol, r.ticker_event_id) for r in rows
+                         if r.ticker_event_id in plan.retire_ids],
+                    )  # fmt: skip
+                    if loaded and not self._args.accept_loaded_rows:
+                        raise InstallRefused(
+                            f"Massive load rows cite spans this install inserted: {loaded}; "
+                            "rolling back leaves that raw under retired spans. Reload it under "
+                            "the restored spans, then pass --accept-loaded-rows"
+                        )
                     live_before = await conn.fetch(_LIVE_SQL)
                     before_keys = {_row_key(r) for r in live_before}
                     reason = f"{ROLLBACK_REASON} {install_id}: restores the rows it retired"
@@ -1727,6 +1859,7 @@ class TickerEntityMapInstaller(BaseBatch):
             "rows_restored": len(plan.restore), "live_before": len(live_before),
             "live_after": len(live_after), "post_rollback_sha256": after_sha,
             "pre_install_sha256": plan.pre_install_sha256,
+            "loaded_rows_citing_inserted": loaded, "accepted_loaded_rows": bool(loaded),
         }  # fmt: skip
 
 
@@ -1767,6 +1900,15 @@ def main() -> None:
     parser.add_argument("--install", type=Path, help="install this scratch map version (8c)")
     parser.add_argument("--install-digest", help="--install: the map's 12-digit digest")
     parser.add_argument(
+        "--install-spans-sha256",
+        help="--install: the map's file manifest digest, printed by the --documentary run",
+    )
+    parser.add_argument(
+        "--accept-loaded-rows",
+        action="store_true",
+        help="--rollback: proceed although Massive load rows cite the spans being rolled back",
+    )
+    parser.add_argument(
         "--untouched",
         help="--install: comma-separated names the plan must not touch (may be empty)",
     )
@@ -1776,8 +1918,16 @@ def main() -> None:
         parser.error("--install and --rollback are separate runs")
     if (args.install or args.rollback) and (args.documentary or args.amend):
         parser.error("--install and --rollback take no --documentary or --amend")
+    if args.accept_loaded_rows and not args.rollback:
+        parser.error("--accept-loaded-rows belongs to --rollback")
     if args.install:
-        needed = ("install_digest", "lost_1d", "lost_5m", "coverage_summary")
+        needed = (
+            "install_digest",
+            "install_spans_sha256",
+            "lost_1d",
+            "lost_5m",
+            "coverage_summary",
+        )
         if [n for n in needed if not getattr(args, n)] or args.untouched is None:
             parser.error(f"--install needs --untouched and {needed}")
     if args.documentary:
