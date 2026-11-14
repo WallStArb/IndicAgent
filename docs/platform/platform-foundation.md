@@ -90,7 +90,7 @@ P8   alpha-swarm, narrative-compute,        — AI/LLM layer + analytics +
      signal-metrics-compute/-writer,          all other timer-triggered
      graduation-compute/-writer,              oneshots (ML batch, shadow,
      regime-writer, forward-return-writer,    feature-validation,
-     ic-engine, ensemble-trainer,              hmm-training, memory-batch)
+     ic-engine, ensemble-trainer,              memory-batch)
      alpha-publisher, ensemble-ic-engine,
      alpha-frame-writer, counterfactual-tracker,
      ml-training, ...

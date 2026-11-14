@@ -74,7 +74,6 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 | ML Discovery | `indicagent-ml-discovery` | `services/ml_discovery_analyzer.py` | Weekly |
 | ML Orchestrator | `indicagent-ml-orchestrator` | `services/ml_orchestrator.py` | Weekly |
 | ML Signal Training Materialize | `indicagent-ml-signal-training-materialize` | `services/ml_signal_training_agent.py` | Nightly JOIN materialization |
-| HMM Training | `indicagent-hmm-training` | `services/hmm_training_agent.py` | Monthly Baum-Welch retraining |
 | Feature Validation | `indicagent-feature-validation` | `services/feature_validation_agent.py` | Daily IC/p-value decisions |
 | Memory Batch | `indicagent-memory-batch` | `scripts/ops/memory/ops_batch_agent_memory.py` | Nightly 21:00 |
 | Alpaca Nightly | `indicagent-alpaca-nightly` | `scripts/ops/bars/ops_bar_nightly.py --vendor alpaca --apply` | `.timer` `enabled`, daily 04:40 UTC |

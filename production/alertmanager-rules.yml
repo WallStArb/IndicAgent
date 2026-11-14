@@ -190,6 +190,17 @@ groups:
           summary: "{{ $labels.vendor }} {{ $labels.timeframe }} raw bars trail the last completed NYSE session by {{ $value }} sessions"
           description: "Measured at the end of the last nightly capture from the newest ohlcv_raw bar. Check the nightly summary line for errors, unfinished windows and unselected slots."
 
+      - alert: DataCaptureCoverageLow
+        # Live baseline 2026-11-14: 0.993 on 5m and 1d (11 of 1,529 names not current: delisted or
+        # halted). Below 0.95 a real share of the universe missed a session.
+        expr: min by (vendor, timeframe) (last_over_time(data_capture_coverage_ratio[26h])) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.vendor }} {{ $labels.timeframe }}: {{ $value | humanizePercentage }} of the active universe is current to the last completed NYSE session"
+          description: "Per-name check at the end of the last nightly capture; DataCaptureBehind reads only the newest bar over the whole universe. Check the nightly summary line for errors, unfinished windows and a budget stop."
+
       - alert: APIHealthDown
         expr: api_health{service="indicagent-api"} < 1
         for: 1m

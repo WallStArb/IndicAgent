@@ -181,8 +181,10 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./alertmanager-rules.yml:/etc/prometheus/alertmanager-rules.yml:ro
+      # The directory, not single files: a git pull replaces a file with a new inode and a
+      # single-file bind mount keeps serving the old copy. A restart is still needed for the
+      # collector; Prometheus reloads (POST /-/reload) the new files without one.
+      - ./:/etc/prometheus:ro
       - prometheus-data:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -233,7 +235,7 @@ services:
       options:
         max-size: "100m"
         max-file: "3"
-    command: ["--config=/etc/otelcol/config.yaml"]
+    command: ["--config=/etc/otelcol/otel-collector-config.yaml"]
     environment:
       - INDICAGENT_ENV=${INDICAGENT_ENV:-dev}
     ports:
@@ -241,7 +243,7 @@ services:
       - "4318:4318"   # OTLP HTTP receiver (existing agents already send here)
       - "8889:8889"   # Prometheus metrics exporter (scraped by Prometheus)
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./:/etc/otelcol:ro  # the directory: see the prometheus mount
     depends_on:
       - prometheus
       - tempo
@@ -261,7 +263,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./:/etc/alertmanager:ro  # the directory: see the prometheus mount
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

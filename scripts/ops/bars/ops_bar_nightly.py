@@ -55,7 +55,7 @@ from services.ohlcv_coverage_writer import fetch_status_for_outcome, record_fetc
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
-from src.intelligence.bars.capture_freshness import sessions_behind
+from src.intelligence.bars.capture_freshness import coverage_ratio, sessions_behind
 from src.intelligence.bars.gap_plan import ANSWERED_OUTCOMES
 from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
 from src.observability.metrics import (
@@ -77,6 +77,12 @@ _SESSIONS_BEHIND = point_gauge(
     "data_capture_sessions_behind",
     "Completed NYSE sessions after the newest raw bar of a vendor and timeframe (0 is current)",
 )
+_COVERAGE = point_gauge(
+    "data_capture_coverage_ratio",
+    "Fraction of the active universe whose newest raw bar reaches the last completed NYSE session",
+)
+# Per-name newest bars are read from this many recent days; a name older than that is not current.
+_COVERAGE_LOOKBACK = timedelta(days=14)
 
 
 def _apr_int(conn, key: str, default: int) -> int:
@@ -224,6 +230,7 @@ def main() -> int:
         print(f"otel init failed, running without metrics: {error}", file=sys.stderr)
     started = _time.monotonic()
     freshness: dict[str, int | None] = {}
+    coverage: dict[str, float | None] = {}
     conn = None
     try:
         conn = psycopg.connect(settings.database_url, autocommit=True)
@@ -303,13 +310,19 @@ def main() -> int:
         if args.apply:
             try:
                 freshness = capture_freshness(conn, args.vendor, policy_5m.kind, timeframes)
+                if not args.symbols:  # a --symbols subset would overwrite the universe-wide gauge
+                    coverage = capture_coverage(
+                        conn, args.vendor, policy_5m.kind, timeframes, universe
+                    )
             except Exception as error:
                 # The capture is done; a failed freshness read leaves the gauge absent and never
                 # changes the summary or the exit code.
                 print(f"capture freshness unavailable: {error}", file=sys.stderr)
     except Exception:
         if args.apply:
-            emit_run_metrics("failure", _time.monotonic() - started, freshness, args.vendor)
+            emit_run_metrics(
+                "failure", _time.monotonic() - started, freshness, args.vendor, coverage
+            )
         raise
     finally:
         if conn is not None:
@@ -321,7 +334,11 @@ def main() -> int:
         # A partial night (exit 1) is re-asked by the next timer fire, so it is not a failure to
         # page: `failure` is a crash. The missed and behind alerts watch the rest.
         emit_run_metrics(
-            "partial" if code else "success", _time.monotonic() - started, freshness, args.vendor
+            "partial" if code else "success",
+            _time.monotonic() - started,
+            freshness,
+            args.vendor,
+            coverage,
         )
     return code
 
@@ -347,8 +364,31 @@ def capture_freshness(
     return behind
 
 
+def capture_coverage(
+    conn, vendor: str, kind: str | None, timeframes: tuple[str, ...], universe: list[str]
+) -> dict[str, float | None]:
+    """Per timeframe, the fraction of `universe` whose newest raw bar reaches the last completed
+    session (a name never captured counts as not current)."""
+    now = datetime.now(UTC)
+    ratios: dict[str, float | None] = {}
+    with conn.cursor() as cur:
+        for timeframe in timeframes:
+            cur.execute(
+                'SELECT symbol, max("timestamp") FROM ohlcv_raw '
+                "WHERE vendor = %s AND timeframe = %s AND (%s::text IS NULL OR kind = %s) "
+                'AND "timestamp" >= %s GROUP BY symbol',
+                (vendor, timeframe, kind, kind, now - _COVERAGE_LOOKBACK),
+            )
+            ratios[timeframe] = coverage_ratio(dict(cur.fetchall()), universe, now)
+    return ratios
+
+
 def emit_run_metrics(
-    status: str, elapsed_s: float, freshness: dict[str, int | None], vendor: str
+    status: str,
+    elapsed_s: float,
+    freshness: dict[str, int | None],
+    vendor: str,
+    coverage: dict[str, float | None] | None = None,
 ) -> None:
     """job_completed_total and job_duration_seconds, plus the freshness gauge per timeframe.
 
@@ -360,6 +400,9 @@ def emit_run_metrics(
     for timeframe, behind in freshness.items():
         if behind is not None:
             _SESSIONS_BEHIND.set(behind, {"vendor": vendor, "timeframe": timeframe})
+    for timeframe, ratio in (coverage or {}).items():
+        if ratio is not None:
+            _COVERAGE.set(ratio, {"vendor": vendor, "timeframe": timeframe})
     flush_and_shutdown_metrics()
 
 

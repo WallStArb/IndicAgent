@@ -122,7 +122,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ml-data-quality": 8,
     "indicagent-ml-discovery": 8,
     "indicagent-feature-validation": 8,
-    "indicagent-hmm-training": 8,
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
     "indicagent-regime-writer": 8,
     "indicagent-forward-return-writer": 8,
@@ -343,7 +342,7 @@ These services are timer-triggered oneshots — they run, do work, and exit. `in
 - `indicagent-ml-training`, `indicagent-ml-signal-training-materialize` (nightly 11pm)
 - `indicagent-ml-orchestrator`, `indicagent-ml-data-quality`, `indicagent-ml-discovery` (weekly Monday)
 - `indicagent-weight-updater`, `indicagent-shadow-auditor` (timer-triggered)
-- `indicagent-feature-validation` (daily), `indicagent-hmm-training` (monthly)
+- `indicagent-feature-validation` (daily)
 
 All are in `_ONESHOT_UNITS` in `service_auditor.py` and are excluded from the restart logic. To verify a timer fired: `systemctl list-timers --all | grep <name>`. To see run logs: `journalctl -u indicagent-<name>`.
 

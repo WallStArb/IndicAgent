@@ -348,8 +348,8 @@ journalctl -u indicagent-intelligence-pipeline | grep <plugin-name>
 
 1. Update rule in `production/alertmanager-rules.yml`
 2. Update documentation in this runbook
-3. Reload Prometheus: `docker exec indicagent-prometheus kill -HUP 1`
-4. Verify new rule loaded: `curl http://localhost:9090/api/v1/rules`
+3. Reload Prometheus: `curl -X POST localhost:9090/-/reload` (the rules directory is bind-mounted, so a pulled file is seen; a container created before 2026-11-14 keeps the old single-file mounts through a restart, so recreate it once with `cd production && docker compose up -d prometheus`)
+4. Verify every rule loaded, by name and count: `curl http://localhost:9090/api/v1/rules`
 
 ---
 

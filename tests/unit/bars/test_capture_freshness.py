@@ -175,3 +175,53 @@ def test_a_failed_freshness_read_leaves_the_exit_code_and_status_alone(monkeypat
         0,
         ["success"],
     )
+
+
+def test_coverage_counts_every_name_not_the_newest_bar():
+    from src.intelligence.bars.capture_freshness import coverage_ratio
+
+    current = datetime(2026, 11, 13, 5, 0, tzinfo=UTC)  # Friday's 1d stamp
+    stale = datetime(2026, 11, 12, 5, 0, tzinfo=UTC)
+    latest = {"SPY": current, "QQQ": current, "OLD": stale}
+    universe = ["SPY", "QQQ", "OLD", "NEVER"]
+    assert coverage_ratio(latest, universe, SATURDAY) == 0.5
+    # sessions_behind on the newest bar reads fully current for the same data
+    assert sessions_behind(max(latest.values()), SATURDAY) == 0
+
+
+def test_coverage_is_missing_not_one_without_a_universe_or_a_completed_session():
+    from src.intelligence.bars.capture_freshness import coverage_ratio
+
+    assert coverage_ratio({}, [], SATURDAY) is None
+    assert coverage_ratio({"SPY": SATURDAY}, ["SPY"], SATURDAY) == 1.0
+
+
+def test_capture_coverage_asks_per_symbol_newest_bars_filtered_by_kind_and_window():
+    from scripts.ops.bars.ops_bar_nightly import capture_coverage
+
+    cursor = MagicMock()
+    stamp = datetime.now(UTC)
+    cursor.fetchall.return_value = [("SPY", stamp)]
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+
+    result = capture_coverage(conn, "alpaca", "sip_rth", ("1d",), ["SPY", "QQQ"])
+
+    params = cursor.execute.call_args.args[1]
+    assert params[:4] == ("alpaca", "1d", "sip_rth", "sip_rth")
+    assert result == {"1d": 0.5}  # a bar stamped now is current; QQQ has none
+
+
+def test_emit_publishes_coverage_and_skips_a_missing_ratio(monkeypatch):
+    from scripts.ops.bars import ops_bar_nightly as nightly
+
+    coverage_gauge = MagicMock()
+    monkeypatch.setattr(nightly, "JOB_COMPLETED_TOTAL", MagicMock())
+    monkeypatch.setattr(nightly, "JOB_DURATION_SECONDS", MagicMock())
+    monkeypatch.setattr(nightly, "_SESSIONS_BEHIND", MagicMock())
+    monkeypatch.setattr(nightly, "_COVERAGE", coverage_gauge)
+    monkeypatch.setattr(nightly, "flush_and_shutdown_metrics", MagicMock())
+
+    nightly.emit_run_metrics("success", 1.0, {}, "alpaca", {"5m": 0.99, "1d": None})
+
+    coverage_gauge.set.assert_called_once_with(0.99, {"vendor": "alpaca", "timeframe": "5m"})

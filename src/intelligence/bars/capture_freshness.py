@@ -8,6 +8,7 @@ inside its session (extended hours stay on that date), so the ET date of a stamp
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -39,3 +40,24 @@ def sessions_behind(latest: datetime | None, now: datetime) -> int | None:
         return None
     captured = session_date_of(latest)
     return sum(1 for day in completed_sessions(now) if day > captured)
+
+
+def coverage_ratio(
+    latest_by_symbol: Mapping[str, datetime], universe: Sequence[str], now: datetime
+) -> float | None:
+    """Fraction of `universe` whose newest captured bar reaches the last completed session.
+
+    A name with no captured bar counts as not current. None when the universe is empty or no
+    session has completed in the window: missing is never 1.0. `sessions_behind` reads the newest
+    bar over the whole universe, so one current name hides the rest; this reads every name.
+    """
+    completed = completed_sessions(now)
+    if not universe or not completed:
+        return None
+    last = completed[-1]
+    current = sum(
+        1
+        for symbol in universe
+        if symbol in latest_by_symbol and session_date_of(latest_by_symbol[symbol]) >= last
+    )
+    return current / len(universe)
