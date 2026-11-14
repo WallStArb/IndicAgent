@@ -56,7 +56,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 1. Backup of the files and the raw dumps, mandatory before the plan lapses (the files cannot be
    replaced afterwards). Destination (owner 2026-11-10): the owner's second machine (HX370, 64 GB,
-   2 TB), pending setup. Until it is up the archive has one copy. Shape when it is: copy
+   2 TB), pending setup. Today (2026-11-14) the archive has two copies in one site: ubuntu1 and the nightly pull mirror on ubuntu2 (`indicagent-data-mirror.timer`); the off-site copy is todo 618, with the HX370 as its first target. Shape when it is: copy
    `data/massive/files/` and `data/massive/manifest/` with checksums, then run the downloader's
    `--verify` against the copy (manifest sha256 is the proof), keep the copy read-only.
 2. The owner's admission call (bundled with the law 528 amendment); no verdict step.
@@ -135,3 +135,9 @@ Partition (runner r5j, full 2003 to 2026): Massive admitted for 1d 2014 to 2026 
 Order (lead): step 7 with the no-IBKR policy -> its checks pass -> export and restore-verify -> delete IBKR raw -> retire code, gateway and docs. Raw stays in the database until the rebuild is proven, as the rollback.
 
 Consequences: the 8a runner (branch massive-8a-load-checks) compares against IBKR and cannot run after the deletion, so it is not landed: tag archive/massive-8a-load-checks, keep the r5j and r5k out dirs as the admission record (copied to data/backups). The per-era plan builder (branch step7-plan-8a-input) is likewise archived; step 7 uses a single-policy plan with no 8a input.
+
+## Open items added 2026-11-14 (lead review of the Massive plans)
+
+8. Pin the seam. `archive_end_of` reads the live manifest, so any added file moves the Massive-to-Alpaca seam (files through 2026-11-13 give 2026-11-16; the runbook sets `SEAM=2026-11-12`; the B4 evidence used an earlier end). Step 7 takes one fixed seam date through an explicit override on the plan and the delta script, recorded in the runbook, and B4 is re-ruled against that date. Raw loads and manifest growth after it are harmless; a seam that drifts under a gate is not. Check which seam the B4 delta used before ruling.
+9. Deadline list, all before the plan lapses about 2026-12-10: renewal decision (owner; it decides whether the nightly leaf runs and whether canonical stays on Alpaca after the seam); filings sizing and decision by 2026-12-01 (item 7); entitlement probe (one request per candidate REST endpoint family not in the 2026-11-10 capture; a 403 means not entitled) and a final dated reference capture about 2026-12-07 into a new `captured_at` directory; final file catch-up and `massive_download --verify` just before the lapse; first off-site copy (todo 618).
+10. Nightly leaf. `scripts/ops/bars/ops_massive_nightly.py` keeps the archive and raw current. Scope ruled 2026-11-14: new days only, never a month older than the newest raw day, a vendor repost writes an ETag drift report and a warning and is never reloaded unattended, timer off until the renewal call.

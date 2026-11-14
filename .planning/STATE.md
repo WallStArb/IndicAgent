@@ -67,7 +67,16 @@ Next, in order:
 
 Running timers (leave them): Alpaca nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends
 06:30Z, standby probe every 5 min. The IBKR fetcher is gone. Dated: the Massive plan lapses about 2026-12-10;
-the archive is the single copy until it is backed up elsewhere (owner deferred offsite backup).
+the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer`, 04:30Z, `/home/bg/mirror`, current
+through the previous night) and no off-site copy yet (todo 618, the owner picks provider and key custody).
+
+Massive dated list (todo 600): the seam is the first NYSE session after the manifest's last file day
+(`archive_end_of`), so every file added to the manifest moves it (files now run to 2026-11-13, seam 2026-11-16;
+the runbook sets `SEAM=2026-11-12`). Step 7 pins one fixed seam date before B4 is re-ruled; the B4 evidence is
+checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
+reference capture (after an entitlement probe) and a final file catch-up with `massive_download --verify`.
+Before 2026-12-10: the plan renewal decision (owner) and the first off-site copy. The Massive nightly leaf
+(`ops_massive_nightly`, worker worktree, unpushed) stays off until the renewal call.
 
 Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly,
 bar_derivation, D7, shared writers, the dashboard) works in a detached worktree off origin/main; nothing unpushed
