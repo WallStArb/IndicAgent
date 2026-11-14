@@ -44,9 +44,18 @@ Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca,
 leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
 survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
 
-In flight: a worker runs step 7 Part B, read-only (A5 drift check, A6 canary tests, B1 card, B3 selection-gate
-compare, B4 expected delta) with evidence under `logs/massive_step7/`. Peer sessions lead 2c and worker 6e are
-out of quota; no other session is running.
+In flight: step 7 Part B4 does not meet its gate. The expected delta reports 23,042 unexplained 1d name-sessions
+and 929,317 unexplained 5m slots; about 87 percent are map gaps, from one defect in the A11 witness (it placed 183
+spans on the name's current ticker only, so predecessor tickers such as CTL for LUMN were never candidates).
+Evidence: `logs/massive_step7/mapgap_20261114/` (root cause, 53-row proposal) and `logs/massive_step7/unexplained_20261114/`.
+A worker amends the witness (documentary identity by CIK and share-class FIGI, coverage-aware placement) and writes a
+corrected proposal under `logs/massive_step7/a11_amend_20261114/`; nothing is applied to the map. Owner decisions
+open: removal of 438 contaminated SSB raw rows (another issuer under a reused ticker, 2003 to 2006) and the
+evidence accepted for BWXT/BWC, HWM/ARNC, EXP/CXP, USAU/DRAM, UHAEQ/UHALQ. Landed 2026-11-14 outside step 7:
+todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22; migration 594 is on main and not applied live; the monitoring
+stack was recreated and the oneshot metric path works again (it was dropped for 10 days). Pending operator steps
+(sudo, after step 7): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units,
+reinstall wave targets, daemon-reload, restart `service_auditor`; apply migration 594.
 
 Next, in order:
 1. Lead rules on the B4 summary (gates in runbook B4), reviews the B5 deletion list, lands branch `step7-no-ibkr`.
