@@ -214,3 +214,21 @@ def test_equal_weight_reads_no_target_and_rejects_bad_signs():
             EqualWeight(signs=bad)
     with pytest.raises(ValueError, match="does not match"):
         EqualWeight(signs=(1.0,)).combine(stack, np.zeros((10, 8)))
+
+
+@pytest.mark.parametrize("penalty", [0.0, -1.0, float("nan"), float("inf")])
+def test_a_non_positive_or_non_finite_penalty_is_refused(penalty):
+    with pytest.raises(ValueError, match="positive"):
+        RidgeSpec(window_rows=120, refit_rows=40, penalty=penalty, embargo=3, min_obs=30)
+
+
+def test_perfectly_collinear_members_still_fit_every_fold():
+    """penalty > 0 keeps corr + penalty I invertible, so no fold is dropped for singularity."""
+    rng = np.random.default_rng(11)
+    n, m = 400, 30
+    base = rng.normal(size=(n, m))
+    stack = np.stack([base, base, rng.normal(size=(n, m))], axis=2)  # members 0 and 1 identical
+    target = 0.4 * base + rng.normal(size=(n, m))
+    got = walk_forward_ridge(stack, target, SPEC)
+    first = refit_positions(n, SPEC)[0]
+    assert np.isfinite(got[first:]).all()

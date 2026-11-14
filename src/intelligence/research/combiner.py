@@ -235,8 +235,8 @@ class RidgeSpec:
     def __post_init__(self) -> None:
         if self.window_rows < 1 or self.refit_rows < 1 or self.embargo < 1:
             raise ValueError(f"window_rows, refit_rows and embargo must be positive: {self}")
-        if not (np.isfinite(self.penalty) and self.penalty >= 0):
-            raise ValueError(f"penalty must be finite and non-negative: {self}")
+        if not (np.isfinite(self.penalty) and self.penalty > 0):
+            raise ValueError(f"penalty must be finite and positive: {self}")
         if self.min_members is not None and self.min_members < 1:
             raise ValueError(f"min_members must be at least 1: {self}")
 
@@ -446,10 +446,9 @@ def walk_forward_ridge(
             continue
         sd = np.sqrt(diag)
         rhs = ((sxy[hi] - sxy[lo]) / c - mu * ((sy[hi] - sy[lo]) / c)) / sd
-        try:
-            b = np.linalg.solve(cov / np.outer(sd, sd) + spec.penalty * eye, rhs)
-        except np.linalg.LinAlgError:
-            continue
+        # corr + penalty I is positive definite for penalty > 0 (RidgeSpec), so this solve cannot
+        # be singular; a LinAlgError would be a bug and propagates rather than dropping the fold.
+        b = np.linalg.solve(cov / np.outer(sd, sd) + spec.penalty * eye, rhs)
         if not np.all(np.isfinite(b)):
             continue
         rows = p + np.flatnonzero(live[p:q])
@@ -492,10 +491,7 @@ def _subset_forecast(
     block = combined[p:q]
     for j, pattern in enumerate(patterns):
         k = np.flatnonzero(pattern)
-        try:
-            b = np.linalg.solve(corr[np.ix_(k, k)] + spec.penalty * np.eye(len(k)), rhs[k])
-        except np.linalg.LinAlgError:
-            continue
+        b = np.linalg.solve(corr[np.ix_(k, k)] + spec.penalty * np.eye(len(k)), rhs[k])
         r, i = cells[inverse.ravel() == j].T
         block[r, i] = z[r, i][:, k] @ b
         if terms_out is not None:
