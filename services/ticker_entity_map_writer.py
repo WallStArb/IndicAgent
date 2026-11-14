@@ -24,6 +24,15 @@ its captured OpenFIGI answer only when exactly one entry matches its ticker on e
 other name stays a gap, listed). Any overlap with a live span (of the name, or of the ticker
 under another name) refuses the run. The gap list is rewritten without the placed spans into a
 new dated map directory. One transaction; rehearsal by default, --apply to write.
+
+``--documentary PLACEMENTS_CSV`` is the documentary amendment of design section 8c (2026-11-14):
+the pinned map (its gap list directory plus the live ``ticker_event`` spans, read only) and the
+witness's ``documentary_placements.csv`` and ``documentary_spans.csv`` give a new map version
+under ``--out``, never the database and never ``data/ticker_entity_map``. Inside each witness
+span that holds a placement, the old spans are cut out and the placements put in (a rename splits
+a span at the first and last file day of each ticker); what the cut removed and no placement
+re-covers becomes an ``identity_unplaced`` gap row; spans of unplaced witness decisions are left
+as they are. Every old span, gap row and placement is accounted in ``span_accounting.csv``.
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ import csv
 import hashlib
 import io
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -252,6 +262,506 @@ def plan_amendment(
         if (g["symbol"], g["reason"], start, end) in placed_keys:
             amendment.removed_gaps.append(g)
     return amendment
+
+
+# ---------------------------------------------------------------------------------------------
+# Documentary amendment (design 8c, 2026-11-14): pure planning, then one render.
+# ---------------------------------------------------------------------------------------------
+
+_OPEN = date.max  # an open end inside the interval algebra; written back as an empty cell
+IDENTITY_UNPLACED = "identity_unplaced"
+DOC_PLACED = frozenset({"placed", "placed_partial"})
+DOC_AMENDMENT = "design 8c documentary witness (lead ruling 2026-11-14)"
+GAP_FIELDS = ("symbol", "scope", "reason", "valid_from", "valid_to", "detail")
+SPAN_FIELDS = (
+    "symbol", "ticker", "valid_from", "valid_to", "origin", "composite_figi", "reference_raw_id",
+    "evidence",
+)  # fmt: skip
+ACCOUNT_FIELDS = (
+    "kind", "symbol", "ticker", "valid_from", "valid_to", "disposition", "reason", "pieces",
+)  # fmt: skip
+
+Interval = tuple[date, date]  # [start, end), end date.max when open
+
+
+@dataclass(frozen=True)
+class OldSpan:
+    symbol: str
+    ticker: str
+    start: date
+    end: date  # date.max when open
+    composite_figi: str
+    reference_raw_id: str
+    evidence: str  # canonical JSON
+
+
+@dataclass(frozen=True)
+class WitnessRegion:
+    """One row of ``documentary_spans.csv``: the span the witness judged."""
+
+    symbol: str
+    start: date
+    end: date
+    decision: str
+    placed_sessions: int
+
+
+@dataclass(frozen=True)
+class DocPlacement:
+    """One row of ``documentary_placements.csv``."""
+
+    symbol: str
+    ticker: str
+    start: date
+    end: date
+    sessions: int
+    reason: str
+    documentary_identity: str
+    corroboration: str
+    lead_read: str
+
+
+@dataclass(frozen=True)
+class NewSpan:
+    symbol: str
+    ticker: str
+    start: date
+    end: date
+    origin: str  # kept | clipped | placement
+    composite_figi: str
+    reference_raw_id: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class GapRow:
+    symbol: str
+    scope: str
+    reason: str
+    start: date | None
+    end: date | None
+    detail: str
+
+
+@dataclass
+class DocumentaryMap:
+    spans: list[NewSpan]
+    gaps: list[GapRow]
+    accounting: list[dict[str, str]]
+
+
+def _cut(a: date, b: date, c: date, d: date) -> list[Interval]:
+    """[a, b) minus [c, d)."""
+    if c >= b or d <= a:
+        return [(a, b)]
+    return [p for p in ((a, min(b, c)), (max(a, d), b)) if p[0] < p[1]]
+
+
+def _minus(base: Sequence[Interval], cuts: Sequence[Interval]) -> list[Interval]:
+    out = list(base)
+    for c, d in cuts:
+        out = [piece for a, b in out for piece in _cut(a, b, c, d)]
+    return out
+
+
+def _union(items: Sequence[Interval]) -> list[Interval]:
+    """Sorted, touching and overlapping intervals merged."""
+    merged: list[Interval] = []
+    for a, b in sorted(items):
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def _meet(a: Sequence[Interval], b: Sequence[Interval]) -> list[Interval]:
+    return [(max(x, z), min(y, w)) for x, y in a for z, w in b if max(x, z) < min(y, w)]
+
+
+def _iso(d: date | None) -> str:
+    return "" if d is None or d in (_OPEN, date.min) else d.isoformat()
+
+
+def _pieces(items: Sequence[Interval]) -> str:
+    return ";".join(f"{_iso(a)}..{_iso(b)}" for a, b in items)
+
+
+def _doc_date(cell: str) -> date:
+    return date.fromisoformat(cell) if cell else _OPEN
+
+
+def read_old_spans(rows: Sequence[Mapping[str, str]]) -> list[OldSpan]:
+    return [
+        OldSpan(
+            r["symbol"], r["ticker"], date.fromisoformat(r["valid_from"]),
+            _doc_date(r["valid_to"]), r["composite_figi"], r["reference_raw_id"], r["evidence"],
+        )
+        for r in rows
+    ]  # fmt: skip
+
+
+def _require_sha(data: bytes, sha256: str, what: str) -> None:
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != sha256:
+        raise ValueError(f"{what} sha256 {digest} is not the pinned {sha256}")
+
+
+def read_witness_regions(csv_bytes: bytes, sha256: str) -> list[WitnessRegion]:
+    _require_sha(csv_bytes, sha256, "documentary_spans.csv")
+    return [
+        WitnessRegion(
+            r["symbol"], date.fromisoformat(r["span_start"]), date.fromisoformat(r["span_end"]),
+            r["decision"], int(r["placed_sessions"]),
+        )
+        for r in csv.DictReader(io.StringIO(csv_bytes.decode()))
+    ]  # fmt: skip
+
+
+def read_doc_placements(csv_bytes: bytes, sha256: str) -> list[DocPlacement]:
+    _require_sha(csv_bytes, sha256, "documentary_placements.csv")
+    return [
+        DocPlacement(
+            r["symbol"], r["file_ticker"], date.fromisoformat(r["start"]),
+            date.fromisoformat(r["end"]), int(r["sessions"]), r["reason"],
+            r["documentary_identity"], r["corroboration"], r["lead_read"],
+        )
+        for r in csv.DictReader(io.StringIO(csv_bytes.decode()))
+    ]  # fmt: skip
+
+
+def read_gap_rows(gap_bytes: bytes) -> list[GapRow]:
+    return [
+        GapRow(
+            r["symbol"], r["scope"], r["reason"],
+            date.fromisoformat(r["valid_from"]) if r["valid_from"] else None,
+            date.fromisoformat(r["valid_to"]) if r["valid_to"] else None, r["detail"],
+        )
+        for r in csv.DictReader(io.StringIO(gap_bytes.decode()))
+    ]  # fmt: skip
+
+
+def check_pinned_map(map_dir_name: str, gap_bytes: bytes, claimed_digest: str) -> None:
+    """The placements were made against the pinned map ``claimed_digest`` (12 hex digits of its
+    gap list); refuses unless the map directory is that map and is internally consistent."""
+    actual = hashlib.sha256(gap_bytes).hexdigest()[:12]
+    if not map_dir_name.endswith(f"_{actual}"):
+        raise ValueError(f"map directory {map_dir_name} holds a gap list with digest {actual}")
+    if actual != claimed_digest:
+        raise ValueError(
+            f"the placements are pinned to map digest {claimed_digest}, the map given is {actual}"
+        )
+
+
+def _validate_documentary_inputs(
+    regions: Sequence[WitnessRegion],
+    placements: Sequence[DocPlacement],
+    figi_by_symbol: Mapping[str, str],
+) -> dict[WitnessRegion, list[DocPlacement]]:
+    """Each placement sits inside one placed witness span of its name, the sessions add up, no
+    placements overlap, and every placed name has a composite FIGI. Returns placements by span."""
+    by_region: dict[WitnessRegion, list[DocPlacement]] = {r: [] for r in regions}
+    if len(by_region) != len(regions):
+        raise ValueError("duplicate witness span rows")
+    for p in placements:
+        homes = [
+            r for r in regions if r.symbol == p.symbol and r.start <= p.start and p.end <= r.end
+        ]
+        if len(homes) != 1:
+            raise ValueError(
+                f"placement {p.symbol} {p.ticker} {p.start}..{p.end} lies in {len(homes)} "
+                "witness spans, not one"
+            )
+        if homes[0].decision not in DOC_PLACED:
+            raise ValueError(f"placement {p.symbol} {p.start} sits in a {homes[0].decision} span")
+        if p.symbol not in figi_by_symbol:
+            raise ValueError(f"placement {p.symbol} {p.ticker}: no composite FIGI in the map")
+        by_region[homes[0]].append(p)
+    for r, held in by_region.items():
+        if (r.decision in DOC_PLACED) != bool(held):
+            raise ValueError(
+                f"witness span {r.symbol} {r.start} is {r.decision} with {len(held)} placements"
+            )
+        if sum(p.sessions for p in held) != r.placed_sessions:
+            raise ValueError(
+                f"witness span {r.symbol} {r.start}: placements hold "
+                f"{sum(p.sessions for p in held)} sessions, the span says {r.placed_sessions}"
+            )
+        ranges = sorted((p.start, p.end) for p in held)
+        if any(ranges[i][1] > ranges[i + 1][0] for i in range(len(ranges) - 1)):
+            raise ValueError(f"placements overlap inside {r.symbol} {r.start}")
+    return by_region
+
+
+def _gap_account(
+    g: GapRow, disposition: str, reason: str, pieces: Sequence[Interval]
+) -> dict[str, str]:
+    return {
+        "kind": "gap", "symbol": g.symbol, "ticker": g.reason, "valid_from": _iso(g.start),
+        "valid_to": _iso(g.end), "disposition": disposition, "reason": reason,
+        "pieces": _pieces(pieces),
+    }  # fmt: skip
+
+
+def plan_documentary_map(
+    old_spans: Sequence[OldSpan],
+    gap_rows: Sequence[GapRow],
+    regions: Sequence[WitnessRegion],
+    placements: Sequence[DocPlacement],
+    placements_sha256: str,
+) -> DocumentaryMap:
+    """The new map version (module docstring). Pure; raises on any input it cannot account."""
+    figi = {s.symbol: s.composite_figi for s in old_spans}
+    by_region = _validate_documentary_inputs(regions, placements, figi)
+    cuts: dict[str, list[Interval]] = {}
+    for r, held in by_region.items():
+        if held:
+            cuts.setdefault(r.symbol, []).append((r.start, r.end))
+    placed_of: dict[str, list[Interval]] = {}
+    for p in placements:
+        placed_of.setdefault(p.symbol, []).append((p.start, p.end))
+
+    spans: list[NewSpan] = []
+    accounting: list[dict[str, str]] = []
+    for s in sorted(old_spans, key=lambda x: (x.symbol, x.start, x.ticker)):
+        pieces = _minus([(s.start, s.end)], cuts.get(s.symbol, ()))
+        whole = pieces == [(s.start, s.end)]
+        spans.extend(
+            NewSpan(
+                s.symbol, s.ticker, a, b, "kept" if whole else "clipped", s.composite_figi,
+                s.reference_raw_id, s.evidence,
+            )
+            for a, b in pieces
+        )  # fmt: skip
+        if whole:
+            disposition, reason = "kept", ""
+        elif not pieces:
+            disposition, reason = "removed", "inside a witness span that holds placements"
+        else:
+            disposition = "split" if len(pieces) > 1 else "clipped"
+            reason = "witness span cut out"
+        accounting.append(
+            {
+                "kind": "span", "symbol": s.symbol, "ticker": s.ticker,
+                "valid_from": _iso(s.start), "valid_to": _iso(s.end),
+                "disposition": disposition, "reason": reason, "pieces": _pieces(pieces),
+            }
+        )  # fmt: skip
+    for p in sorted(placements, key=lambda x: (x.symbol, x.start, x.ticker)):
+        evidence = {
+            "amendment": DOC_AMENDMENT,
+            "placements_sha256": placements_sha256,
+            "gap_reason": p.reason,
+            "documentary_identity": p.documentary_identity,
+            "corroboration": p.corroboration,
+            "lead_read": p.lead_read,
+            "sessions": p.sessions,
+        }
+        spans.append(
+            NewSpan(
+                p.symbol, p.ticker, p.start, p.end, "placement", figi[p.symbol], "",
+                canonical_json(evidence),
+            )
+        )  # fmt: skip
+        accounting.append(
+            {
+                "kind": "placement", "symbol": p.symbol, "ticker": p.ticker,
+                "valid_from": _iso(p.start), "valid_to": _iso(p.end), "disposition": "added",
+                "reason": f"{p.sessions} sessions, {p.documentary_identity}",
+                "pieces": _pieces([(p.start, p.end)]),
+            }
+        )  # fmt: skip
+
+    gaps: list[GapRow] = []
+    for g in gap_rows:
+        own = placed_of.get(g.symbol, ())
+        whole_range = [(g.start or date.min, g.end or _OPEN)]
+        pieces = _minus(whole_range, own) if g.scope == "span" else whole_range
+        for a, b in pieces:
+            gaps.append(
+                GapRow(
+                    g.symbol, g.scope, g.reason, None if a == date.min else a,
+                    None if b == _OPEN else b, g.detail,
+                )
+            )  # fmt: skip
+        disposition = "kept" if pieces == whole_range else ("clipped" if pieces else "removed")
+        reason = "" if disposition == "kept" else "placements cover it"
+        accounting.append(_gap_account(g, disposition, reason, pieces))
+    for r, held in by_region.items():
+        if r.decision != "placed_partial":
+            continue
+        lost = _meet(
+            [(s.start, s.end) for s in old_spans if s.symbol == r.symbol], [(r.start, r.end)]
+        )
+        existing = [(g.start or date.min, g.end or _OPEN) for g in gaps if g.symbol == r.symbol]
+        for a, b in _union(_minus(_minus(lost, [(p.start, p.end) for p in held]), existing)):
+            detail = canonical_json(
+                {"decision": r.decision, "witness_span": [_iso(r.start), _iso(r.end)]}
+            )
+            row = GapRow(r.symbol, "span", IDENTITY_UNPLACED, a, b, detail)
+            gaps.append(row)
+            accounting.append(
+                _gap_account(row, "added", "old coverage cut out, not placed", [(a, b)])
+            )
+    result = DocumentaryMap(
+        sorted(spans, key=lambda x: (x.symbol, x.start, x.ticker)),
+        sorted(gaps, key=lambda g: (g.symbol, g.start or date.min, g.reason, g.end or _OPEN)),
+        accounting,
+    )
+    _audit(result, old_spans, cuts, placed_of, len(gap_rows))
+    return result
+
+
+def _audit(
+    result: DocumentaryMap,
+    old_spans: Sequence[OldSpan],
+    cuts: Mapping[str, Sequence[Interval]],
+    placed_of: Mapping[str, Sequence[Interval]],
+    n_gap_rows: int,
+) -> None:
+    """The new map is the old one with the witness spans cut out and the placements put in, per
+    name; spans of a name never overlap; a ticker is held by one name at a time."""
+    for symbol in sorted({s.symbol for s in old_spans}):
+        old = [(s.start, s.end) for s in old_spans if s.symbol == symbol]
+        expect = _union(_minus(old, cuts.get(symbol, ())) + list(placed_of.get(symbol, ())))
+        new = sorted((s.start, s.end) for s in result.spans if s.symbol == symbol)
+        if any(new[i][1] > new[i + 1][0] for i in range(len(new) - 1)):
+            raise RuntimeError(f"{symbol}: spans of one name overlap")
+        if _union(new) != expect:
+            raise RuntimeError(
+                f"{symbol}: new coverage differs from old minus cuts plus placements"
+            )
+    holders: dict[str, list[tuple[date, date, str]]] = {}
+    for s in result.spans:
+        holders.setdefault(s.ticker, []).append((s.start, s.end, s.symbol))
+    for ticker, held in holders.items():
+        for a, b, sym in held:
+            for c, d, other in held:
+                if sym < other and a < d and c < b:
+                    raise RuntimeError(
+                        f"ticker {ticker} held by {sym} and {other} over {max(a, c)}"
+                    )
+    spans_in = sum(r["kind"] == "span" for r in result.accounting)
+    gaps_in = sum(r["kind"] == "gap" and r["disposition"] != "added" for r in result.accounting)
+    if (spans_in, gaps_in) != (len(old_spans), n_gap_rows):
+        raise RuntimeError(f"accounted {spans_in} spans and {gaps_in} gap rows of the input")
+
+
+def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, list(fields), lineterminator="\r\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue().encode()
+
+
+def spans_csv(spans: Sequence[NewSpan | OldSpan]) -> bytes:
+    return _csv_bytes(
+        SPAN_FIELDS,
+        [
+            {
+                "symbol": s.symbol, "ticker": s.ticker, "valid_from": _iso(s.start),
+                "valid_to": _iso(s.end), "origin": getattr(s, "origin", "pinned"),
+                "composite_figi": s.composite_figi, "reference_raw_id": s.reference_raw_id,
+                "evidence": s.evidence,
+            }
+            for s in spans
+        ],
+    )  # fmt: skip
+
+
+def gap_list_csv(gaps: Sequence[GapRow]) -> bytes:
+    return _csv_bytes(
+        GAP_FIELDS,
+        [
+            {
+                "symbol": g.symbol, "scope": g.scope, "reason": g.reason,
+                "valid_from": _iso(g.start), "valid_to": _iso(g.end), "detail": g.detail,
+            }
+            for g in gaps
+        ],
+    )  # fmt: skip
+
+
+def map_diff(old_spans: Sequence[OldSpan], result: DocumentaryMap) -> dict[str, Any]:
+    """Old map against new: span rows added and removed, what became of each old span, and the
+    sessions the placements cover (as the witness counted them)."""
+    old_keys = {(s.symbol, s.ticker, s.start, s.end) for s in old_spans}
+    new_keys = {(s.symbol, s.ticker, s.start, s.end) for s in result.spans}
+    by_disposition = Counter(r["disposition"] for r in result.accounting if r["kind"] == "span")
+    placements = [r for r in result.accounting if r["kind"] == "placement"]
+    changed = {
+        r["symbol"] for r in result.accounting if r["kind"] != "gap" and r["disposition"] != "kept"
+    }
+    return {
+        "old_spans": len(old_spans),
+        "new_spans": len(result.spans),
+        "span_rows_removed": len(old_keys - new_keys),
+        "span_rows_added": len(new_keys - old_keys),
+        "old_spans_by_disposition": dict(sorted(by_disposition.items())),
+        "placements_added": len(placements),
+        "sessions_newly_covered": sum(int(r["reason"].split()[0]) for r in placements),
+        "gap_rows": len(result.gaps),
+        "gap_rows_identity_unplaced": sum(g.reason == IDENTITY_UNPLACED for g in result.gaps),
+        "names_changed": sorted(changed),
+    }
+
+
+def reconcile_coverage(
+    spans: Sequence[NewSpan],
+    rows: Mapping[str, Sequence[tuple[str, str, str]]],
+    expected: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Per timeframe, how many map_gap rows (symbol, session, file ticker) a new span of that
+    name and ticker holds, against ``coverage_summary.json``."""
+    held: dict[tuple[str, str], list[Interval]] = {}
+    for s in spans:
+        held.setdefault((s.symbol, s.ticker), []).append((s.start, s.end))
+    out: dict[str, Any] = {}
+    for tf, items in rows.items():
+        covered = sum(
+            any(a <= date.fromisoformat(session) < b for a, b in held.get((symbol, ticker), ()))
+            for symbol, session, ticker in items
+        )
+        want = expected[tf]
+        out[tf] = {
+            "map_gap_rows": len(items),
+            "covered": covered,
+            "expected_map_gap_rows": want["map_gap_rows"],
+            "expected_covered": want["covered"],
+            "reconciles": (len(items), covered) == (want["map_gap_rows"], want["covered"]),
+        }
+    return out
+
+
+def render_documentary_map(
+    old_spans: Sequence[OldSpan],
+    result: DocumentaryMap,
+    inputs: Mapping[str, Any],
+    reconciliation: Mapping[str, Any] | None,
+    version_date: str,
+) -> tuple[str, dict[str, bytes]]:
+    """The directory name (``<version_date>_<digest12>``, the digest of the gap list as the
+    amender derives it) and every file's bytes. No clock is read."""
+    gap = gap_list_csv(result.gaps)
+    new_spans = spans_csv(result.spans)
+    pinned = spans_csv(old_spans)
+    doc = {
+        "inputs": dict(inputs),
+        "pinned_spans_sha256": hashlib.sha256(pinned).hexdigest(),
+        "gap_list_sha256": hashlib.sha256(gap).hexdigest(),
+        "spans_sha256": hashlib.sha256(new_spans).hexdigest(),
+        "diff": map_diff(old_spans, result),
+        "reconciliation": reconciliation,
+    }
+    files = {
+        "gap_list.csv": gap,
+        "spans.csv": new_spans,
+        "pinned_spans.csv": pinned,
+        "span_accounting.csv": _csv_bytes(ACCOUNT_FIELDS, result.accounting),
+        "map_diff.json": (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode(),
+    }
+    return f"{version_date}_{hashlib.sha256(gap).hexdigest()[:12]}", files
 
 
 def _answers(rows: list) -> dict[str, Answer]:
@@ -535,6 +1045,112 @@ class TickerEntityMapAmender(BaseBatch):
         print(json.dumps({"outcome": outcome, "out": str(out), **report}, indent=2, default=str))
 
 
+_DOC_SPANS_SQL = """
+SELECT e.symbol, e.ticker, e.valid_from, e.valid_to, e.reference_raw_id::text AS reference_raw_id,
+       e.evidence, i.value AS composite_figi
+  FROM ticker_event_current e
+  JOIN security_identifier_current i
+    ON i.security_identifier_id = e.security_identifier_id AND i.scheme = 'composite_figi'
+ WHERE e.vendor = 'massive'
+"""
+
+
+def refuse_install_path(out: Path, out_root: Path) -> None:
+    """The documentary run writes a scratch directory only; installing a map is a separate step."""
+    if out.resolve().is_relative_to(out_root.resolve()):
+        raise ValueError(f"--out {out} is inside {out_root}: this run writes a scratch map only")
+
+
+def write_map_files(out: Path, files: Mapping[str, bytes]) -> None:
+    """Write the files; an existing file with other bytes refuses (a map version is immutable)."""
+    out.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        target = out / name
+        if target.exists() and target.read_bytes() != data:
+            raise RuntimeError(f"{target} exists with other bytes")
+        target.write_bytes(data)
+
+
+def _read_lost_rows(path: Path, ticker_column: str) -> list[tuple[str, str, str]]:
+    """The map_gap rows of a classified lost-slot file as (symbol, session, file ticker)."""
+    with path.open(newline="", encoding="utf-8") as handle:
+        return [
+            (r["symbol"], r["session"], r[ticker_column])
+            for r in csv.DictReader(handle)
+            if r["class"] == "map_gap"
+        ]
+
+
+class TickerEntityMapDocumentary(BaseBatch):
+    """The --documentary run (module docstring): a new map version in a scratch directory. Reads
+    the live spans; writes no table."""
+
+    job_name = _JOB
+    compute_version = "1.0.0"
+
+    def __init__(self, db_dsn: str, args: argparse.Namespace, out_root: Path = _OUT_ROOT):
+        super().__init__(db_dsn)
+        self._args = args
+        self._out_root = out_root
+
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        args = self._args
+        refuse_install_path(args.out, self._out_root)
+        gap_bytes = (args.map_dir / "gap_list.csv").read_bytes()
+        check_pinned_map(args.map_dir.name, gap_bytes, args.pinned_map_digest)
+        placements = read_doc_placements(args.documentary.read_bytes(), args.documentary_sha256)
+        regions = read_witness_regions(args.regions.read_bytes(), args.regions_sha256)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_DOC_SPANS_SQL)
+        old_spans = read_old_spans(
+            sorted(
+                (
+                    {
+                        "symbol": r["symbol"],
+                        "ticker": r["ticker"],
+                        "valid_from": r["valid_from"].isoformat(),
+                        "valid_to": r["valid_to"].isoformat() if r["valid_to"] else "",
+                        "composite_figi": r["composite_figi"],
+                        "reference_raw_id": r["reference_raw_id"],
+                        "evidence": canonical_json(r["evidence"]),
+                    }
+                    for r in rows
+                ),
+                key=lambda r: (r["symbol"], r["valid_from"], r["ticker"]),
+            )
+        )
+        live_sha = hashlib.sha256(spans_csv(old_spans)).hexdigest()
+        if args.pinned_spans_sha256 and args.pinned_spans_sha256 != live_sha:
+            raise ValueError(f"live spans sha256 {live_sha} is not {args.pinned_spans_sha256}")
+        result = plan_documentary_map(
+            old_spans, read_gap_rows(gap_bytes), regions, placements, args.documentary_sha256
+        )
+        reconciliation = None
+        if args.lost_1d and args.lost_5m and args.coverage_summary:
+            hidden = [tuple(h.split(":")) for h in args.hidden_1d]
+            reconciliation = reconcile_coverage(
+                result.spans,
+                {
+                    "1d": _read_lost_rows(args.lost_1d, "file_ticker") + hidden,
+                    "5m": _read_lost_rows(args.lost_5m, "alt_ticker"),
+                },
+                json.loads(args.coverage_summary.read_text()),
+            )
+        inputs = {
+            "pinned_map": args.map_dir.name,
+            "pinned_map_gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
+            "placements_sha256": args.documentary_sha256,
+            "witness_spans_sha256": args.regions_sha256,
+        }
+        name, files = render_documentary_map(
+            old_spans, result, inputs, reconciliation, args.version_date
+        )
+        write_map_files(args.out / name, files)
+        self.logger.info("ticker_entity_map.documentary_done", out=str(args.out / name))
+        print(json.dumps({"out": str(args.out / name), **json.loads(files["map_diff.json"])},
+                         indent=2, sort_keys=True))  # fmt: skip
+
+
 class _Rehearsal(Exception):
     """Raised inside the transaction to roll it back on a run without --apply."""
 
@@ -549,7 +1165,32 @@ def main() -> None:
     parser.add_argument(
         "--manifest", type=Path, default=_REPO_ROOT / "data/massive/manifest/manifest.jsonl"
     )
+    parser.add_argument("--documentary", type=Path, help="documentary_placements.csv (design 8c)")
+    parser.add_argument("--documentary-sha256", help="--documentary: the pinned sha256")
+    parser.add_argument("--regions", type=Path, help="--documentary: documentary_spans.csv")
+    parser.add_argument("--regions-sha256", help="--documentary: its pinned sha256")
+    parser.add_argument("--map-dir", type=Path, help="--documentary: the pinned map directory")
+    parser.add_argument("--pinned-map-digest", help="--documentary: its 12-digit digest")
+    parser.add_argument("--pinned-spans-sha256", help="--documentary: sha256 of the live spans")
+    parser.add_argument("--out", type=Path, help="--documentary: scratch output root")
+    parser.add_argument("--version-date", help="--documentary: YYYYMMDD of the new map name")
+    parser.add_argument("--lost-1d", type=Path, help="--documentary: 1d classified lost rows")
+    parser.add_argument("--lost-5m", type=Path, help="--documentary: 5m classified lost rows")
+    parser.add_argument(
+        "--hidden-1d",
+        action="append",
+        default=[],
+        help="--documentary: SYMBOL:SESSION:TICKER, a 1d row the classification hid as no bar",
+    )
+    parser.add_argument(
+        "--coverage-summary", type=Path, help="--documentary: coverage_summary.json"
+    )
     args = parser.parse_args()
+    if args.documentary:
+        needed = ("documentary_sha256", "regions", "regions_sha256", "map_dir",
+                  "pinned_map_digest", "out", "version_date")  # fmt: skip
+        if args.apply or args.amend or [n for n in needed if not getattr(args, n)]:
+            parser.error(f"--documentary needs {needed} and takes no --apply or --amend")
     if args.amend and not (args.amend_sha256 and args.amend_candidates and args.gap_list):
         parser.error("--amend needs --amend-sha256, --amend-candidates and --gap-list")
     try:
@@ -558,7 +1199,9 @@ def main() -> None:
         pass
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    if args.amend:
+    if args.documentary:
+        asyncio.run(TickerEntityMapDocumentary(db_dsn, args).run())
+    elif args.amend:
         asyncio.run(TickerEntityMapAmender(db_dsn, args.apply, args).run())
     else:
         asyncio.run(TickerEntityMapWriter(db_dsn, args.apply).run())
