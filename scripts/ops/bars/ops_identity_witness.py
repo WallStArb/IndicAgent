@@ -21,8 +21,10 @@ The constants are pre-registered in the design table (section 8c), not APR param
 
 Documentary rule (default, 8c amendment 2026-11-14; ``--rule legacy`` keeps the rule above):
 a ticker is placed on a span by documentary identity, not by the IBKR tape. Its captured Massive
-reference record must carry the name's CIK and share-class FIGI (a missing FIGI passes; another
-issuer's record, a record with no CIK or no record never passes). Placement is coverage-aware:
+reference record must carry the name's CIK and share-class FIGI (a missing FIGI passes, but the
+ticker never takes a session the name's own ticker also carries, so a sibling share class places
+on none; a unit, warrant or right never places; another issuer's record, a record with no CIK or no record never passes; a same-CIK
+shell's delisting day, not list_date, bounds the name's tape). Placement is coverage-aware:
 only the sessions the day files carry under that ticker, inside its documented tenure, are placed,
 so a rename splits a span at the first and last file day of each ticker, not at an event date.
 IBKR agreement stays corroboration; only a measured disagreement holds a placement.
@@ -38,7 +40,7 @@ import math
 import statistics
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -86,6 +88,7 @@ MIXED_IDENTITY_REASONS = frozenset(
 IDENTITY_NO_REFERENCE = "identity_no_reference"
 IDENTITY_OTHER_ISSUER = "identity_other_issuer"
 IDENTITY_REUSE_UNDATED = "identity_reuse_undated"
+NON_EQUITY_SECURITY = "non_equity_security_type"
 NO_FILE_COVERAGE = "no_file_coverage"
 CORROBORATION_CONFLICT = "corroboration_conflict"
 AMBIGUOUS_SESSIONS = "ambiguous_sessions"
@@ -98,6 +101,12 @@ EVIDENCE_OWN, EVIDENCE_FIGI_SAME, EVIDENCE_FIGI_ABSENT = (
     "cik_same_figi_absent",
 )
 ACTIVE_SOURCE = "overview_active"
+#: Massive security types that are never a name's tape (a blank-check shell's units, warrants, rights)
+NON_EQUITY_TYPES = frozenset({"UNIT", "WARRANT", "RIGHT"})
+#: flag only, never a gate: a calendar-day gap in a placed ticker's file tenure beyond which the
+#: ticker reads as reused (a continuously listed ticker is never absent for a full week)
+TENURE_GAP_DAYS = 7
+TENURE_UNCAPTURED = "tenure_uncaptured"
 CALIBRATION_LIST_BEFORE = date(1995, 1, 1)
 CALIBRATION_SIZE = 10
 DEFAULT_DAY_DIR = project_root / "data/massive/files/day_aggs_v1"
@@ -321,16 +330,21 @@ def issuer_match(current: IssuerRecord, record: IssuerRecord) -> str | None:
 @dataclass(frozen=True)
 class Tenure:
     """What the references say about one ticker for one name: the evidence label (or the
-    rejection), and the documented window ``[lower, upper)`` the name held the ticker in (None is
-    open)."""
+    rejection), and the documented window ``(lower, upper)`` the name held the ticker in: strictly
+    after the last day of another issuer's record, strictly before the name's own last day (None is
+    open). ``reused`` marks a ticker whose records name more than one issuer."""
 
     evidence: str | None
     reject: str | None
     lower: date | None = None
     upper: date | None = None
+    reused: bool = False
 
 
-def documentary_tenure(current: IssuerRecord, records: Sequence[IssuerRecord]) -> Tenure:
+def documentary_tenure(
+    current: IssuerRecord,
+    records: Sequence[IssuerRecord],
+) -> Tenure:
     """The documentary identity of a ticker's captured records against the name's current record.
     No record, or only other issuers', rejects. The window ends at the latest delisting date of
     the name's own records (open when one is undated) and starts at the latest delisting date of
@@ -364,7 +378,8 @@ def documentary_tenure(current: IssuerRecord, records: Sequence[IssuerRecord]) -
         for label in (EVIDENCE_OWN, EVIDENCE_FIGI_SAME, EVIDENCE_FIGI_ABSENT)
         if label in labels
     )
-    return Tenure(evidence, None, lower, upper)
+    reused = len({r.cik for r in records if r.cik}) > 1
+    return Tenure(evidence, None, lower, upper, reused)
 
 
 def contested_sessions(claims: Mapping[str, Sequence[date]]) -> dict[date, tuple[str, ...]]:
@@ -379,20 +394,26 @@ def contested_sessions(claims: Mapping[str, Sequence[date]]) -> dict[date, tuple
 
 
 def settle_sessions(
-    claims: Mapping[str, Sequence[date]], verdicts: Mapping[str, str]
+    claims: Mapping[str, Sequence[date]],
+    verdicts: Mapping[str, str],
+    no_win: Collection[str] = (),
 ) -> tuple[dict[str, tuple[date, ...]], dict[str, tuple[date, ...]], set[str]]:
     """(assigned, dropped, lost) after the contested sessions are settled. ``verdicts`` is what
     the independent witness says of each claimant's tape over its contested sessions (``AGREES``,
     ``DISAGREES``, anything else is unclear). A claimant the witness contradicts is out; a
     contested session goes to the one claimant left, or when several are left to the one that
     agrees; the other claimants are ``lost`` (a ticker shown not to be the name's tape is placed
-    nowhere in the span). With no one left the session goes to no one."""
+    nowhere in the span). With no one left the session goes to no one. A claimant in ``no_win`` (a
+    same-CIK ticker with no share-class FIGI) never takes a contested session, by default or by
+    agreeing: a sibling class that trades beside the name is placed on none of the sessions they
+    share."""
     contested = contested_sessions(claims)
     won: dict[date, str] = {}
     lost: set[str] = set()
     for day, claimants in contested.items():
         left = [t for t in claimants if verdicts.get(t) != DISAGREES]
         winners = left if len(left) == 1 else [t for t in left if verdicts.get(t) == AGREES]
+        winners = [t for t in winners if t not in no_win]
         if len(winners) == 1:
             won[day] = winners[0]
             lost |= set(claimants) - set(winners)
@@ -437,6 +458,7 @@ class Candidate:
     evidence: str
     file_sessions: int  # sessions the day files carry under the ticker inside the span
     admissible: tuple[date, ...]  # those inside the ticker's documented tenure
+    lead_read: str = ""  # TENURE_UNCAPTURED when the ticker reads as reused with no captured end
 
 
 def candidate_tickers(
@@ -453,6 +475,25 @@ def candidate_tickers(
     return tuple(sorted(found))
 
 
+def shell_delisting(
+    symbol: str, current: IssuerRecord | None, issuers: Mapping[str, Sequence[IssuerRecord]]
+) -> date | None:
+    """The day a blank-check shell of the name's CIK was delisted, or None. A same-CIK unit,
+    warrant or right ticker marks a shell; its common-stock ticker's earliest dated delisting is
+    the combination. The name's ``list_date`` can be the shell's IPO, so its tape from the shell
+    era is another business's and the lower bound of the name's tape is this day, not list_date."""
+    if current is None or not current.cik:
+        return None
+    records = [r for t, rs in issuers.items() if t != symbol for r in rs if r.cik == current.cik]
+    if not any(r.security_type in NON_EQUITY_TYPES for r in records):
+        return None
+    return min((r.gone for r in records if r.gone and r.security_type == "CS"), default=None)
+
+
+def _tape_gap(days: Sequence[date]) -> bool:
+    return any((b - a).days > TENURE_GAP_DAYS for a, b in zip(days, days[1:], strict=False))
+
+
 def place_span(
     refs: References, span: Span, sessions: Mapping[str, Sequence[date]]
 ) -> tuple[list[Candidate], dict[str, tuple[date, ...]]]:
@@ -460,39 +501,52 @@ def place_span(
     ``sessions`` holds the day-file sessions per ticker. Every candidate also needs the name's
     captured listing date on or before the session (the 8c listing guard: a blank-check shell's or
     another security's tape before the name listed is not the name's history, even when the CIK
-    carries over), and the name's own ticker a gap reason that does not itself record mixed
-    identity."""
+    carries over) and, when a same-CIK shell exists, strictly after the shell's delisting day; a
+    ticker with a unit, warrant or right record never places; a same-CIK ticker with no share-class
+    FIGI never takes a session the name's own ticker also carries (``settle_sessions`` ``no_win``,
+    so a sibling share class places on none of them, a renamed predecessor on all of its own); and
+    the name's own ticker needs a gap reason that does not itself record mixed identity."""
     current = next(
         (r for r in refs.issuers.get(span.symbol, ()) if r.source == ACTIVE_SOURCE), None
     )
     listed = refs.list_date.get(span.symbol)
+    shell = shell_delisting(span.symbol, current, refs.issuers)
     candidates: list[Candidate] = []
     claims: dict[str, tuple[date, ...]] = {}
     for ticker in candidate_tickers(span.symbol, current, span.candidates, refs.issuers):
         inside = tuple(d for d in sessions.get(ticker, ()) if span.start <= d < span.end)
         own = ticker == span.symbol
-        tenure = documentary_tenure(current, refs.issuers.get(ticker, ())) if current else None
+        records = refs.issuers.get(ticker, ())
+        tenure = documentary_tenure(current, records) if current else None
         reject = (
             MISSING
             if tenure is None or listed is None
-            else tenure.reject
-            or (MARKER if own and span.reason in MIXED_IDENTITY_REASONS else None)
+            else (
+                NON_EQUITY_SECURITY
+                if any(r.security_type in NON_EQUITY_TYPES for r in records)
+                else tenure.reject
+                or (MARKER if own and span.reason in MIXED_IDENTITY_REASONS else None)
+            )
         )
         if reject or tenure is None:
             candidates.append(Candidate(ticker, reject or MISSING, "", len(inside), ()))
             continue
-        lower = max(filter(None, (tenure.lower, listed)), default=None)
         window = tuple(
             d
             for d in inside
-            if (lower is None or d >= lower) and (tenure.upper is None or d < tenure.upper)
+            if (listed is None or d >= listed)
+            and (shell is None or d > shell)
+            and (tenure.lower is None or d > tenure.lower)
+            and (tenure.upper is None or d < tenure.upper)
         )
         evidence = tenure.evidence or ""
+        reused = tenure.reused or _tape_gap(window)
         candidates.append(
             Candidate(
-                ticker, ADMISSIBLE if window else NO_FILE_COVERAGE, evidence, len(inside), window
+                ticker, ADMISSIBLE if window else NO_FILE_COVERAGE, evidence, len(inside), window,
+                TENURE_UNCAPTURED if reused and tenure.lower is None else "",
             )
-        )
+        )  # fmt: skip
         if window:
             claims[ticker] = window
     return candidates, claims
@@ -704,6 +758,7 @@ def corroboration_label(verdict: str, median: float) -> str:
 _NOT_PLACED_ORDER = (
     MISSING,
     MARKER,
+    NON_EQUITY_SECURITY,
     IDENTITY_OTHER_ISSUER,
     IDENTITY_NO_REFERENCE,
     IDENTITY_REUSE_UNDATED,
@@ -762,7 +817,12 @@ def evaluate_documentary(
                 t: tape_verdict(corroborate(t, [d for d, ts in contested.items() if t in ts]))
                 for t in sorted({t for ts in contested.values() for t in ts})
             }
-            assigned, dropped, lost = settle_sessions(claims, verdicts)
+            no_win = {
+                c.ticker
+                for c in candidates
+                if c.evidence == EVIDENCE_FIGI_ABSENT and c.ticker != s.symbol
+            }
+            assigned, dropped, lost = settle_sessions(claims, verdicts, no_win)
             evidence: dict[str, dict[str, Any]] = {}
             for ticker in sorted(assigned):
                 matched, pairs, _, corr, median, iqr, verdict = corroborate(
@@ -817,10 +877,18 @@ def evaluate_documentary(
                         "symbol": s.symbol, "file_ticker": ticker, "start": first.isoformat(),
                         "end": last.isoformat(), "sessions": count, "reason": s.reason,
                         "documentary_identity": identity, "corroboration": corroboration,
-                        "lead_read": (  # a run on the listing guard alone and not corroborated
-                            "pre_event_not_corroborated"
-                            if identity == EVIDENCE_OWN_PRE_EVENT and corroboration != AGREES
-                            else ""
+                        "lead_read": "|".join(
+                            filter(
+                                None,
+                                (
+                                    # a run on the listing guard alone and not corroborated
+                                    "pre_event_not_corroborated"
+                                    if identity == EVIDENCE_OWN_PRE_EVENT
+                                    and corroboration != AGREES
+                                    else "",
+                                    c.lead_read,
+                                ),
+                            )
                         ),
                     }
                 )  # fmt: skip

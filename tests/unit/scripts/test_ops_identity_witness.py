@@ -27,9 +27,11 @@ from scripts.ops.bars.ops_identity_witness import (
     MARKER,
     MISSING,
     NO_FILE_COVERAGE,
+    NON_EQUITY_SECURITY,
     PLACED,
     PREDECESSOR,
     RETURNS_DISAGREE,
+    TENURE_UNCAPTURED,
     THIN,
     UNCLEAR,
     IssuerRecord,
@@ -49,6 +51,7 @@ from scripts.ops.bars.ops_identity_witness import (
     read_day_files,
     read_issuer_records,
     settle_sessions,
+    shell_delisting,
     span_decision,
     tape_verdict,
 )
@@ -496,3 +499,121 @@ def test_an_uncorroborated_own_run_before_its_event_is_flagged_for_the_lead_read
     assert placements[0]["corroboration"] == THIN
     assert placements[0]["lead_read"] == "pre_event_not_corroborated"
     assert spans[0]["decision"] == PLACED
+
+
+def test_a_sibling_class_with_no_figi_never_takes_a_session_it_shares_with_the_name():
+    # CMCSK-like: same CIK, no share-class FIGI, trades on the same sessions as the name
+    refs = _refs(
+        _current("AAA", "C1", "S1"),
+        _rec("AAAK", "C1", "", gone=date(2012, 12, 14)),
+        listed={"AAA": date(1973, 1, 2)},
+    )
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[20], ("AAA", "AAAK"))
+    both = {"AAA": DAYS[:10], "AAAK": DAYS[:10]}
+    _, claims = place_span(refs, span, both)
+    assert set(claims) == {"AAA", "AAAK"}  # the contest decides, not a pass
+    # the sibling agrees and the name is unclear: the sibling still wins nothing
+    assigned, dropped, lost = settle_sessions(claims, {"AAAK": AGREES}, no_win={"AAAK"})
+    assert assigned == {} and set(dropped) == {"AAA", "AAAK"} and lost == set()
+    # the name agrees: it takes them and the sibling is lost
+    assigned, _, lost = settle_sessions(claims, {"AAA": AGREES}, no_win={"AAAK"})
+    assert list(assigned) == ["AAA"] and lost == {"AAAK"}
+
+
+def test_a_predecessor_with_no_figi_places_dated_or_not_with_or_without_a_gap_to_the_new_ticker():
+    for gone in (date(2005, 3, 1), None):  # an undated delisted row still places: no shared tape
+        refs = _refs(
+            _current("VIAV", "C1", "S1"),
+            _rec("JDSU", "C1", "", gone=gone),
+            listed={"VIAV": date(1993, 11, 1)},
+        )
+        span = Span("VIAV", "before_first_event", DAYS[0], DAYS[40], ("VIAV", "JDSU"))
+        for new_first in (DAYS[10], DAYS[30]):  # abutting, and a gap before the new ticker
+            sessions = {"JDSU": DAYS[:10], "VIAV": [d for d in DAYS[:40] if d >= new_first]}
+            cands, claims = place_span(refs, span, sessions)
+            assert claims["JDSU"] == tuple(DAYS[:10])
+            assert {c.ticker: c.evidence for c in cands}["JDSU"] == EVIDENCE_FIGI_ABSENT
+            assigned, dropped, _ = settle_sessions(claims, {}, no_win={"JDSU"})
+            assert assigned["JDSU"] == tuple(DAYS[:10]) and dropped == {}
+
+
+def test_a_unit_warrant_or_right_ticker_never_places_whatever_its_cik_and_figi():
+    for kind in ("UNIT", "WARRANT", "RIGHT"):
+        refs = _refs(
+            _current("AAA", "C1", "S1"),
+            _rec("AAAX", "C1", "S1", kind=kind, gone=date(2005, 3, 1)),
+            listed={"AAA": date(1990, 1, 1)},
+        )
+        span = Span("AAA", "before_first_event", DAYS[0], DAYS[20], ("AAA", "AAAX"))
+        cands, claims = place_span(refs, span, {"AAAX": DAYS[:5]})
+        assert claims == {}
+        assert {c.ticker: c.decision for c in cands}["AAAX"] == NON_EQUITY_SECURITY
+
+
+def _spce_like():
+    """A name whose list_date is its blank-check shell's IPO: IPOA (CS), units and warrants of one
+    CIK, the shell delisted on the combination day."""
+    gone = DAYS[100]
+    refs = _refs(
+        _current("SPCE", "C1", "S1"),
+        _rec("IPOA", "C1", "", kind="CS", gone=gone),
+        _rec("IPOA.U", "C1", "", kind="UNIT", gone=gone),
+        _rec("IPOA.WS", "C1", "", kind="WARRANT", gone=gone),
+        listed={"SPCE": DAYS[0]},  # the shell's IPO
+    )
+    return refs, gone
+
+
+def test_the_shell_delisting_day_not_list_date_bounds_the_name_s_tape():
+    refs, gone = _spce_like()
+    assert shell_delisting("SPCE", refs.issuers["SPCE"][0], refs.issuers) == gone
+    span = Span("SPCE", "before_first_event", DAYS[90], DAYS[110], ("SPCE", "IPOA"))
+    sessions = {"IPOA": DAYS[90:101], "SPCE": DAYS[95:110]}  # SPCE's file also carries shell days
+    cands, claims = place_span(refs, span, sessions)
+    assert claims["SPCE"] == tuple(DAYS[101:110])  # strictly after the shell's last day
+    assert "IPOA" not in claims  # the shell's own tape ends at its delisting: nothing after it
+    assert {c.ticker: c.decision for c in cands}["IPOA"] == NO_FILE_COVERAGE
+
+
+def test_without_a_unit_warrant_or_right_the_list_date_stands():
+    refs = _refs(
+        _current("SPCE", "C1", "S1"),
+        _rec("IPOA", "C1", "", kind="CS", gone=DAYS[100]),
+        listed={"SPCE": DAYS[0]},
+    )
+    assert shell_delisting("SPCE", refs.issuers["SPCE"][0], refs.issuers) is None
+
+
+def test_a_window_starts_strictly_after_the_other_issuers_last_day():
+    refs = _refs(
+        _current("AAA", "C1", "S1"),
+        _rec("AAA", "C7", "", gone=DAYS[5]),
+        listed={"AAA": date(1990, 1, 1)},
+    )
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[20], ("AAA",))
+    _, claims = place_span(refs, span, {"AAA": DAYS[:15]})
+    assert claims["AAA"] == tuple(DAYS[6:15])
+
+
+def test_a_reused_ticker_with_no_captured_other_issuer_end_is_flagged_not_silent():
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[60], ("AAA",))
+    listed = {"AAA": date(1990, 1, 1)}
+    refs = _refs(_current("AAA", "C1", "S1"), listed=listed)
+    gap = DAYS[:5] + DAYS[30:35]  # absent for weeks inside the tenure
+    cands, _ = place_span(refs, span, {"AAA": gap})
+    assert cands[0].lead_read == TENURE_UNCAPTURED
+    cands, _ = place_span(refs, span, {"AAA": DAYS[:10]})
+    assert cands[0].lead_read == ""
+    bounded = _refs(_current("AAA", "C1", "S1"), _rec("AAA", "C7", "", gone=DAYS[2]), listed=listed)
+    cands, _ = place_span(bounded, span, {"AAA": DAYS[:10]})
+    assert cands[0].lead_read == ""  # the other issuer's end is captured
+
+
+def test_the_tenure_flag_reaches_the_placement_row():
+    refs = _refs(_current("AAA", "C1", "S1"), listed={"AAA": date(1990, 1, 1)})
+    span = Span("AAA", "before_first_event", DAYS[0], DAYS[60], ("AAA",))
+    closes = {"AAA": {d: 50.0 for d in DAYS[:5] + DAYS[30:35]}}
+    placements, _, _ = evaluate_documentary(
+        _Conn({}), [span], refs, closes, datetime(2026, 11, 13, tzinfo=UTC)
+    )
+    assert placements and all(TENURE_UNCAPTURED in r["lead_read"] for r in placements)
