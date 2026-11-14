@@ -1,11 +1,9 @@
-"""ohlcv_empty_history store (migration 354): gap subtraction, staleness, upsert shape."""
+"""ohlcv_empty_history: the surviving module reads only (the writer left with the IBKR fetcher)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
-
-import pytest
 
 from scripts.infrastructure.backfill import _empty_history as eh
 from src.providers.base import EmptyHistory
@@ -20,132 +18,14 @@ def _dt(y, m, d):
 _EMPTY = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23), 2)
 
 
-@pytest.mark.parametrize(
-    ("gaps", "expected"),
-    [
-        # the pre-history gap vanishes; the recent gap stays
-        (
-            [(_dt(2006, 9, 28), _dt(2024, 3, 26)), (_dt(2026, 8, 12), _dt(2026, 9, 23))],
-            [(_dt(2026, 8, 12), _dt(2026, 9, 23))],
-        ),
-        # a gap straddling the range end keeps only the part after it
-        ([(_dt(2024, 1, 1), _dt(2024, 6, 1))], [(_dt(2024, 3, 27), _dt(2024, 6, 1))]),
-        # a gap starting before the range keeps only the part before it
-        ([(_dt(2005, 1, 1), _dt(2007, 1, 1))], [(_dt(2005, 1, 1), _dt(2006, 9, 27))]),
-        # entirely outside: untouched
-        ([(_dt(2025, 1, 1), _dt(2025, 2, 1))], [(_dt(2025, 1, 1), _dt(2025, 2, 1))]),
-    ],
-)
-def test_subtract_removes_only_the_verified_range(gaps, expected):
-    assert eh.subtract(gaps, _EMPTY, _D) == expected
-
-
-def test_freshness_is_bounded_by_reverify_days():
-    now = _dt(2026, 12, 21)
-    assert eh.is_fresh(_EMPTY.verified_at, now, reverify_days=90) is True
-    assert eh.is_fresh(_EMPTY.verified_at, now + 2 * _D, reverify_days=90) is False
-
-
-def test_apply_empty_range_ignores_missing_or_stale_ranges():
-    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 26))]
-    assert eh.apply_empty_range(gaps, None, _dt(2026, 9, 24), 90, _D, 2) == gaps
-    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2027, 9, 24), 90, _D, 2) == gaps
-    assert eh.apply_empty_range(gaps, _EMPTY, _dt(2026, 9, 24), 90, _D, 2) == []
-
-
-def test_single_answer_range_is_not_applied_until_confirmed():
-    """todo 049: one "no data" answer is not trusted; the range keeps being asked."""
-    once = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23), 1)
-    gaps = [(_dt(2006, 9, 28), _dt(2024, 3, 26))]
-    assert eh.apply_empty_range(gaps, once, _dt(2026, 9, 24), 90, _D, 2) == gaps
-
-
 _OBSERVED = EmptyHistory(_dt(2023, 6, 1), _dt(2024, 3, 26), 2, False)
 _WINDOW = (_dt(2006, 9, 28), _dt(2024, 3, 26))
 _SLIVER = (_dt(2024, 3, 28), _dt(2024, 4, 5))  # after the prior range, before the first bar
 
 
-@pytest.mark.parametrize(
-    ("window", "observed", "prior", "bar_before", "expected"),
-    [
-        (_WINDOW, None, None, False, []),  # nothing learned, nothing to undo: no DB query
-        (_WINDOW, _OBSERVED, None, False, ["probe", "record"]),
-        (_WINDOW, None, _EMPTY, False, ["probe", "drop"]),  # prior re-asked, not confirmed
-        (_SLIVER, None, _EMPTY, False, []),  # a window elsewhere never drops the prior
-        (_WINDOW, _OBSERVED, _EMPTY, True, ["probe"]),  # not pre-history: says nothing
-    ],
-)
-def test_reconcile_decisions(monkeypatch, window, observed, prior, bar_before, expected):
-    calls = []
-    monkeypatch.setattr(eh, "has_bar_before", lambda *a: calls.append("probe") or bar_before)
-    monkeypatch.setattr(eh, "record", lambda *a: calls.append("record"))
-    monkeypatch.setattr(eh, "drop", lambda *a: calls.append("drop"))
-    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", window, observed, prior, 2 * _D)
-    assert calls == expected
-
-
-def test_record_merges_an_adjoining_prior_and_accumulates_confirmations():
-    """A sliver verified next to the prior range extends it; it never replaces it."""
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    sliver = EmptyHistory(_dt(2024, 3, 28), _dt(2024, 4, 5), 1, True)
-    eh.record(conn, "GEV", "1h", "ibkr", _dt(2024, 3, 28), sliver, prior=_EMPTY)
-    params = cur.execute.call_args.args[1]
-    assert params[3] == _dt(2006, 9, 28)  # empty_from kept from the prior range
-    assert params[4] == _dt(2024, 4, 5)  # empty_through extended
-    assert params[6] == 3  # 2 prior confirmations + 1
-
-
-def test_record_without_a_prior_range_stores_the_observed_range():
-    """The first record for a (symbol, timeframe) has nothing to merge with."""
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    walk = EmptyHistory(_dt(2007, 4, 19), _dt(2015, 10, 27), 2, False)
-    eh.record(conn, "TMUS", "5m", "ibkr", _dt(2007, 4, 19), walk)
-    params = cur.execute.call_args.args[1]
-    assert params[3] == _dt(2007, 4, 19)
-    assert params[4] == _dt(2015, 10, 27)
-    assert params[6] == 2
-
-
 # ---------------------------------------------------------------------------
 # Provider heads: per-(symbol, timeframe) verified rows; seeded floors are not heads
 # ---------------------------------------------------------------------------
-
-
-def test_record_head_upserts_a_verified_row_at_the_three_column_key():
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    eh.record_head_per_tf(conn, "GEV", "ibkr", "5m", _dt(2024, 3, 27))
-    sql = cur.execute.call_args.args[0]
-    assert "(symbol, provider, timeframe, head_ts, verified_at, head_kind)" in sql
-    assert "ON CONFLICT (symbol, provider, timeframe)" in sql
-    # a successful lookup replaces a seeded floor: the row becomes a verified head
-    assert "head_kind = 'verified'" in sql
-    assert cur.execute.call_args.args[1] == ("GEV", "ibkr", "5m", _dt(2024, 3, 27))
-
-
-def test_load_fresh_heads_reads_verified_rows_only_keyed_by_symbol_and_timeframe():
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchall.return_value = [
-        ("GEV", "5m", _dt(2024, 3, 27)),
-        ("GEV", "1d", _dt(2010, 1, 4)),
-    ]
-    heads = eh.load_fresh_heads(conn, "ibkr", 90)
-    # the 5m and 1d rows of one symbol never overwrite each other
-    assert heads == {("GEV", "5m"): _dt(2024, 3, 27), ("GEV", "1d"): _dt(2010, 1, 4)}
-    sql, params = cur.execute.call_args.args
-    assert "head_kind = 'verified'" in sql
-    assert params == ("ibkr", 90)
-
-
-def test_load_tape_floors_reads_only_the_seeded_floor_rows():
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchall.return_value = [("GEV", "1d", _dt(2000, 1, 3))]
-    assert eh.load_tape_floors(conn, "ibkr") == {("GEV", "1d"): _dt(2000, 1, 3)}
-    assert "head_kind = 'floor'" in cur.execute.call_args.args[0]
 
 
 # --- raw is per source: pre-history and real-bar probes read the asking vendor's rows -------
@@ -158,38 +38,9 @@ def _probe_conn(answer: bool = False):
     return conn, cur
 
 
-def test_has_bar_before_reads_only_the_vendors_own_raw_rows():
-    conn, cur = _probe_conn(True)
-    assert eh.has_bar_before(conn, "GEV", "5m", _dt(2024, 1, 1), "ibkr") is True
-    sql, params = cur.execute.call_args.args
-    assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
-    assert "market_data_ohlcv" not in sql
-    assert params == ("GEV", "5m", "ibkr", _dt(2024, 1, 1))
-
-
 def test_has_bar_between_reads_only_the_vendors_own_raw_rows():
     conn, cur = _probe_conn(False)
     assert eh.has_bar_between(conn, "GEV", "1d", _dt(2024, 1, 1), _dt(2024, 2, 1), "ibkr") is False
     sql, params = cur.execute.call_args.args
     assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
     assert params == ("GEV", "1d", "ibkr", _dt(2024, 1, 1), _dt(2024, 2, 1))
-
-
-def test_first_bar_is_the_vendors_oldest_raw_bar_for_the_named_timeframe():
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchone.return_value = (_dt(2020, 1, 1),)
-    assert eh.load_first_bar(conn, "GEV", "5m", "ibkr") == _dt(2020, 1, 1)
-    sql, params = cur.execute.call_args.args
-    # naming the timeframe lets the (symbol, timeframe, timestamp) index serve the MIN
-    assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql and "timeframe = %s" in sql
-    assert params == ("GEV", "5m", "ibkr")
-    cur.fetchone.return_value = (None,)
-    assert eh.load_first_bar(conn, "NEW", "5m", "ibkr") is None
-
-
-def test_reconcile_asks_the_providers_own_raw_whether_the_window_is_pre_history(monkeypatch):
-    seen = []
-    monkeypatch.setattr(eh, "has_bar_before", lambda *a: seen.append(a) or True)
-    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", _WINDOW, _OBSERVED, None, 2 * _D)
-    assert seen[0][-1] == "ibkr"

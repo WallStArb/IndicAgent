@@ -90,7 +90,6 @@ def test_every_write_carries_the_provider_label():
     for fn in (
         "def record_fetch_outcome(",
         "def refresh_1d_bounds(",
-        "def reset_failures(",
         "def rebuild_from_stored_state(",
     ):
         start = source.index(fn)
@@ -140,7 +139,6 @@ def test_the_writer_functions_are_the_listed_set():
         "record_fetch_outcome",
         "refresh_1d_bounds",
         "rebuild_from_stored_state",
-        "reset_failures",
         "count_new_slots",  # the incremental row_count in distinct slots, as the rebuild counts
         "fetch_status_for_outcome",  # the rebuild's outcome CASE, for incremental status writes
     }

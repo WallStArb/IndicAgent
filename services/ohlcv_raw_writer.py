@@ -505,21 +505,6 @@ def preview_series(conn: Any, rows: Iterable[RawRow], *, answered_at: datetime) 
         return _classify_series(cur, series, keyed, answered_at).delta
 
 
-def read_stored_closes(
-    conn: Any,
-    symbol: str,
-    timeframe: str,
-    vendor: str,
-    kind: str,
-    timestamps: Iterable[datetime],
-) -> dict[datetime, float]:
-    """The stored raw closes of ONE (symbol, timeframe, vendor, kind) series at `timestamps`:
-    a vendor's own answers only, for the update lane's overlap judgment (stored close versus
-    the fresh close of the same source)."""
-    with conn.cursor() as cur:
-        return {
-            row[0]: row[4] for row in _read_stored(cur, symbol, timeframe, vendor, kind, timestamps)
-        }
 
 
 # --------------------------------------------------------------------------------------

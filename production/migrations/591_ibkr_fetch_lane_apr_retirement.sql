@@ -3,7 +3,7 @@
 --
 -- The IBKR provider (src/providers/ibkr.py), the history fetcher stack (ohlcv_history_fetcher,
 -- _history_fetch, _history_fetch_item, _fetch_queue) and the factory's fetch stage are deleted in
--- the same commit; these 40 keys governed them and have no reader left
+-- the same commit; these 41 keys governed them and have no reader left
 -- (tests/unit/test_table_and_apr_key_readers.py). Retired in the order history, state, schema.
 -- The ask ledger tables and the raw rows stay: ohlcv_request feeds the bar audits, and the
 -- vendor=ibkr raw rows are deleted by step 7 Part F.
@@ -30,6 +30,7 @@ DELETE FROM config_history WHERE config_key IN (
     'infra.backfill.run_budget_minutes',
     'infra.backfill.update_overlap_days_5m',
     'infra.backfill.update_overlap_sessions_1d',
+    'infra.backfill.max_staleness_days_before_preempt',
     'infra.ibkr.chunk_days.15m',
     'infra.ibkr.chunk_days.1d',
     'infra.ibkr.chunk_days.1h',
@@ -72,6 +73,7 @@ DELETE FROM config_state WHERE config_key IN (
     'infra.backfill.run_budget_minutes',
     'infra.backfill.update_overlap_days_5m',
     'infra.backfill.update_overlap_sessions_1d',
+    'infra.backfill.max_staleness_days_before_preempt',
     'infra.ibkr.chunk_days.15m',
     'infra.ibkr.chunk_days.1d',
     'infra.ibkr.chunk_days.1h',
@@ -114,6 +116,7 @@ DELETE FROM config_schema WHERE config_key IN (
     'infra.backfill.run_budget_minutes',
     'infra.backfill.update_overlap_days_5m',
     'infra.backfill.update_overlap_sessions_1d',
+    'infra.backfill.max_staleness_days_before_preempt',
     'infra.ibkr.chunk_days.15m',
     'infra.ibkr.chunk_days.1d',
     'infra.ibkr.chunk_days.1h',

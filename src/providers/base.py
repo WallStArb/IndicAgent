@@ -106,16 +106,6 @@ class DataProvider(Protocol):
         """
         ...
 
-    async def fetch_historical_bars(
-        self,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime,
-    ) -> list[OHLCVBar]:
-        """Fetch historical OHLCV bars. timeframe: '1m', '5m', '15m', '1h'."""
-        ...
-
 
 @runtime_checkable
 class DataProviderAdapter(Protocol):

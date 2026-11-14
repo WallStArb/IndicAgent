@@ -35,8 +35,6 @@ from typing import Literal
 
 import numpy as np
 
-from src.intelligence.bars.seams import Seam
-
 # The largest numerator or denominator a plausible split ratio carries
 # (interface bound from plan 185-07, definitional: it separates real corporate
 # actions from arbitrary rationals, it is not an operator tunable).
@@ -54,30 +52,6 @@ class SplitInference:
     effective_date: date
     factor: float
     kind: Literal["split", "reverse_split"]
-
-
-def infer_split(seam: Seam, *, ratio_snap_tol: float) -> SplitInference | None:
-    """The split a seam explains, or None when its factor snaps to no rational.
-
-    Searches p/q over 1 <= p, q <= 50 for the closest rational to seam.factor
-    (ties broken toward the smaller denominator) and accepts it when the gap is
-    within ratio_snap_tol. A snap to 1 is refused: a ratio that close to 1 is
-    not a split, and the seam stays unexplained.
-    """
-    best_p = best_q = 1
-    best_diff = float("inf")
-    for q in range(1, _MAX_SPLIT_TERMS + 1):
-        p = min(_MAX_SPLIT_TERMS, max(1, round(seam.factor * q)))
-        diff = abs(seam.factor - p / q)
-        if diff < best_diff:
-            best_diff, best_p, best_q = diff, p, q
-    if best_p == best_q or best_diff > ratio_snap_tol:
-        return None
-    return SplitInference(
-        effective_date=seam.end,
-        factor=best_p / best_q,
-        kind="split" if best_p > best_q else "reverse_split",
-    )
 
 
 @dataclass(frozen=True)

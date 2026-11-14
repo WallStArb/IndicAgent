@@ -15,9 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-SOURCE_NAMED = "ibkr_named"
-SOURCE_VENUE = "ibkr_venue"
-
 
 @dataclass(frozen=True)
 class Observation:

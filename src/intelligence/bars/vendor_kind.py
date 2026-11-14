@@ -35,7 +35,6 @@ from src.core.bar_normalizer import (
     SOURCE_IBKR_VENUE,
 )
 from src.intelligence.bars.sources import (
-    ROUTE_ALPACA,
     SOURCE_ALPACA,
     SOURCE_DERIVED_5M,
     SOURCE_IBKR_FALLBACK,
@@ -197,56 +196,9 @@ def label_to_vendor_kind(label: str) -> tuple[str, str]:
         raise KeyError(f"bar source label {label!r} has no (vendor, kind)") from None
 
 
-def vendor_kind_to_label(vendor: str, kind: str) -> str:
-    """The source label of a (vendor, kind); KeyError naming the pair when it has none."""
-    try:
-        return VENDOR_KIND_TO_LABEL[(vendor, kind)]
-    except KeyError:
-        raise KeyError(f"(vendor, kind) = ({vendor!r}, {kind!r}) has no source label") from None
-
-
 class UnmappedObservation(ValueError):
     """A (source, route, what_to_show) with no raw kind: a route or request type nobody mapped.
     The fetcher reports it per item as `unmapped_kind` instead of failing the whole window."""
-
-
-def observation_kind(source: str, route: str, what_to_show: str) -> str:
-    """The raw kind for a fetched bar's route evidence (source, route, what_to_show), as the
-    fetcher item pipeline maps it before the raw write (ohlcv_observation, the 1d store that
-    carried these columns, was dropped by plan 191-16).
-
-    ibkr SMART TRADES is smart_trades and SMART ADJUSTED_LAST is smart_adjusted; an ibkr
-    listing-venue route with TRADES is `venue_<route>` (one kind per route). An alpaca route is
-    the feed the leaf asked: SIP (or the label-level ALPACA) is sip_rth, IEX is iex_rth. Route
-    LEGACY_IMPORT carries no route evidence and
-    resolves by its source column, as SMART. Anything else raises ValueError.
-    """
-    if source == VENDOR_IBKR:
-        if route in (_ROUTE_SMART, _ROUTE_LEGACY_IMPORT):
-            if what_to_show == _TRADES:
-                return "smart_trades"
-            if what_to_show == _ADJUSTED_LAST and route == _ROUTE_SMART:
-                return "smart_adjusted"
-        elif what_to_show == _TRADES and route != ROUTE_ALPACA:
-            if route not in VENUE_ROUTES:
-                raise UnmappedObservation(
-                    f"unmapped ibkr listing-venue route {route!r}; add it to VENUE_ROUTES "
-                    "and seed its bar_kind code"
-                )
-            return f"venue_{route.lower()}"
-    elif source == VENDOR_ALPACA and route in (
-        ROUTE_ALPACA,
-        _ROUTE_ALPACA_SIP,
-        _ROUTE_LEGACY_IMPORT,
-    ):
-        if what_to_show == _TRADES:
-            return "sip_rth"
-    elif source == VENDOR_ALPACA and route == _ROUTE_ALPACA_IEX:
-        if what_to_show == _TRADES:
-            return "iex_rth"
-    raise UnmappedObservation(
-        f"unmapped observation (source={source!r}, route={route!r}, what_to_show={what_to_show!r})"
-    )
 
 
 def canonical_kind_for_raw(vendor: str, kind: str) -> str:

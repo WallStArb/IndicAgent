@@ -88,10 +88,6 @@ def point_gauge(name: str, documentation: str):
 # Plugin pipeline metrics
 # ---------------------------------------------------------------------------
 
-PLUGIN_FALLBACK_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_fallback_total",
-    description="Plugin fallbacks to direct calculation",
-)
 PLUGIN_DURATION_MS = _meter.create_histogram(
     "intelligence_pipeline_plugin_duration_ms",
     description="Per-plugin execution latency",
@@ -311,11 +307,6 @@ JOB_DURATION_SECONDS = _meter.create_histogram(
 
 # Todo 387 staleness observability (phase 189 plan 04), recorded by the IBKR history fetcher
 # at run end with attribute job.
-OHLCV_COVERAGE_SLA_BREACHED_SERIES = point_gauge(
-    "ohlcv_coverage_sla_breached_series",
-    "In-scope (symbol, timeframe) series whose staleness exceeds "
-    "infra.backfill.max_staleness_days_before_preempt, at fetcher run end",
-)
 
 # ---------------------------------------------------------------------------
 # API health gauge (Phase 108)
@@ -406,19 +397,6 @@ REMEDIATION_CIRCUIT_BREAKER_OPEN_TOTAL = _meter.create_counter(
     "remediation_circuit_breaker_open_total",
     description="Circuit breaker open events (5-min failure rate > 50%)",
 )
-
-
-def record_langgraph_workflow(
-    workflow_name: str,
-    duration_seconds: float,
-    status: str = "success",
-    intelligence_tier: str = "I5",
-) -> None:
-    LANGGRAPH_WORKFLOW_EXECUTION_TOTAL.add(1, {"workflow_name": workflow_name, "status": status})
-    LANGGRAPH_WORKFLOW_DURATION.record(
-        duration_seconds,
-        {"workflow_name": workflow_name, "intelligence_tier": intelligence_tier},
-    )
 
 
 # ---------------------------------------------------------------------------

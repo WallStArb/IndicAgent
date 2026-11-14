@@ -9,12 +9,9 @@ from src.intelligence.bars.vendor_kind import (
     BAR_KINDS,
     BAR_VENDORS,
     LABEL_TO_VENDOR_KIND,
-    VENDOR_KIND_TO_LABEL,
     VENDOR_SERVED_KINDS,
     canonical_kind_for_raw,
     label_to_vendor_kind,
-    observation_kind,
-    vendor_kind_to_label,
 )
 
 _EXPECTED = {
@@ -56,37 +53,6 @@ def test_every_label_constant_is_mapped_and_none_else():
     assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"
 
 
-def test_inverse_round_trips_every_entry():
-    assert len(VENDOR_KIND_TO_LABEL) == len(LABEL_TO_VENDOR_KIND)
-    for label, (vendor, kind) in LABEL_TO_VENDOR_KIND.items():
-        assert vendor_kind_to_label(vendor, kind) == label
-        assert label_to_vendor_kind(label) == (vendor, kind)
-
-
-def test_unknown_pair_raises_keyerror_naming_it():
-    with pytest.raises(KeyError, match="databento.*named"):
-        vendor_kind_to_label("databento", "named")
-    with pytest.raises(KeyError, match="nope"):
-        label_to_vendor_kind("nope")
-
-
-@pytest.mark.parametrize(
-    ("source", "route", "wts", "kind"),
-    [
-        ("ibkr", "SMART", "TRADES", "smart_trades"),
-        ("ibkr", "SMART", "ADJUSTED_LAST", "smart_adjusted"),
-        ("ibkr", "ARCA", "TRADES", "venue_arca"),
-        ("ibkr", "ISLAND", "TRADES", "venue_island"),
-        ("alpaca", "ALPACA", "TRADES", "sip_rth"),
-        ("alpaca", "SIP", "TRADES", "sip_rth"),
-        ("alpaca", "IEX", "TRADES", "iex_rth"),
-        ("ibkr", "LEGACY_IMPORT", "TRADES", "smart_trades"),
-    ],
-)
-def test_observation_kind(source, route, wts, kind):
-    assert observation_kind(source, route, wts) == kind
-
-
 def test_alpaca_kind_for_feed_names_the_answered_basis():
     from src.intelligence.bars.vendor_kind import ALPACA_FEED_KINDS, alpaca_kind_for_feed
 
@@ -113,23 +79,6 @@ def test_vendor_served_kinds_gate_the_explicit_kind():
     assert "alpaca" in VENDOR_SERVED_KINDS and "ibkr" not in VENDOR_SERVED_KINDS
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ("ibkr", "ARCA", "ADJUSTED_LAST"),
-        ("ibkr", "LEGACY_IMPORT", "ADJUSTED_LAST"),
-        ("ibkr", "TRADIER", "TRADES"),
-        ("tradier", "SMART", "TRADES"),
-        ("tradier", "TRADIER", "TRADES"),
-        ("tradier", "LEGACY_IMPORT", "TRADES"),
-        ("derived", "SMART", "TRADES"),
-    ],
-)
-def test_observation_kind_unknown_combination_raises(args):
-    with pytest.raises(ValueError, match="unmapped"):
-        observation_kind(*args)
-
-
 def test_canonical_kind_for_raw():
     assert canonical_kind_for_raw("ibkr", "smart_trades") == "named"
     assert canonical_kind_for_raw("ibkr", "venue") == "venue"
@@ -150,28 +99,6 @@ def test_vocabularies_cover_every_mapped_pair():
         assert kind in BAR_KINDS
     assert {"smart_trades", "smart_adjusted"} <= set(BAR_KINDS)
     assert all(BAR_KINDS.values())
-
-
-def test_each_listing_venue_route_is_its_own_raw_kind():
-    from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, VENUE_ROUTES
-
-    kinds = {observation_kind("ibkr", route, "TRADES") for route in VENUE_ROUTES}
-    assert kinds == set(VENUE_ROUTE_KINDS) and len(kinds) == len(VENUE_ROUTES)
-
-
-def test_unlisted_venue_route_raises_naming_the_route():
-    with pytest.raises(ValueError, match="unmapped ibkr listing-venue route 'EDGX'"):
-        observation_kind("ibkr", "EDGX", "TRADES")
-
-
-def test_unmapped_observation_is_a_distinct_error_type_and_still_a_value_error():
-    from src.intelligence.bars.vendor_kind import UnmappedObservation
-
-    assert issubclass(UnmappedObservation, ValueError)
-    with pytest.raises(UnmappedObservation):
-        observation_kind("ibkr", "EDGX", "TRADES")
-    with pytest.raises(UnmappedObservation):
-        observation_kind("ibkr", "SMART", "MIDPOINT")
 
 
 def test_apr_venue_fallback_seed_is_a_subset_of_venue_routes():
@@ -195,7 +122,6 @@ def test_massive_vendor_kind_maps_are_complete():
         VENDOR_SERVED_KINDS,
         VOLUME_BASIS_CONSOLIDATED,
         canonical_kind_for_raw,
-        label_to_vendor_kind,
         raw_kind_for_canonical,
         volume_basis,
     )

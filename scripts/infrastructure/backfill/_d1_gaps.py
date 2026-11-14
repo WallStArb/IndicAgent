@@ -20,7 +20,7 @@ for 1m/4h; 1d moved to D1 in task 1b.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -35,7 +35,6 @@ from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
-    DAILY_NOT_COVERAGE_KINDS,
     LOAD_COVERAGE_DESTINATIONS,
     LOAD_COVERAGE_OUTCOMES,
     LOAD_COVERAGE_SOURCES,
@@ -46,7 +45,6 @@ from src.intelligence.bars.gap_plan import (
     plan_gaps,
     request_ts,
 )
-from src.intelligence.bars.sessions import session_complete_at
 from src.intelligence.bars.sources import GRID_SOURCE_TF
 from src.intelligence.bars.vendor_kind import VENUE_ROUTES
 
@@ -314,61 +312,6 @@ def subtract_windows(
     return out
 
 
-def detect_gaps_from_record(
-    conn: Any,
-    symbol: str,
-    timeframe: str,
-    start_dt: datetime,
-    end_dt: datetime,
-    expected_slots: Sequence[datetime],
-    *,
-    vendor: str,
-    empty: EmptyRange | None = None,
-    now: datetime | None = None,
-    reverify_days: int | None = None,
-    min_confirmations: int | None = None,
-    on_skip: Callable[[EmptyRange], None] | None = None,
-) -> list[tuple[datetime, datetime]]:
-    """The gap plan for (symbol, timeframe) over [start_dt, end_dt] for `vendor`'s own raw.
-
-    `expected_slots` come from gap_plan.expected_grid_slots. The empty-history
-    gate mirrors empty_history.apply_empty_range: a range suppresses slots only
-    when it is fresh (`now` within `reverify_days` of verified_at) and
-    confirmed by at least `min_confirmations` chunks. When a gated range
-    changes the plan, `on_skip` receives it (the pipeline prints its skip line
-    and counts it there).
-    """
-    if timeframe not in _TF_MINUTES:
-        raise ValueError(
-            f"detect_gaps_from_record covers 5m/15m/1h (plan 185-18); "
-            f"{timeframe!r} stays on the legacy detect_gaps fallback"
-        )
-    interval = timedelta(minutes=_TF_MINUTES[timeframe])
-    # A slot whose bar has not ended by `now` is not plannable (todo 535 items 10 and 15, the
-    # intraday analogue of the 1d session_complete_at horizon): the leaf drops a forming bar
-    # (complete_intraday_bars), so an ask whose window covered it would record the slot as
-    # answered with no bar, a silent hole 15m and 1h never re-ask. The grid block end
-    # (slot + interval) bounds the bar's end, so a short opening bar waits at most one interval.
-    if now is not None:
-        expected_slots = [slot for slot in expected_slots if slot + interval <= now]
-    with conn.cursor() as cur:
-        cur.execute(_RAW_SLOTS_SQL, (symbol, timeframe, vendor, start_dt, end_dt))
-        rows = cur.fetchall()
-    stored = [_aware(r[0]) for r in rows]
-    answered = load_answered_windows(conn, symbol, timeframe, vendor, start=start_dt, end=end_dt)
-
-    return _plan_with_empty_gate(
-        expected_slots,
-        stored,
-        answered,
-        interval,
-        run_end=end_dt,
-        empty=empty,
-        now=now,
-        reverify_days=reverify_days,
-        min_confirmations=min_confirmations,
-        on_skip=on_skip,
-    )
 
 
 # 1d: a session is covered by a complete bar of this vendor's own TRADES answer on its date (any
@@ -442,117 +385,5 @@ def _plan_with_empty_gate(
     return plan
 
 
-def detect_gaps_1d_from_d1(
-    conn: Any,
-    symbol: str,
-    start: date,
-    end: date,
-    sessions: Mapping[date, Any],
-    *,
-    vendor: str,
-    empty: EmptyRange | None = None,
-    now: datetime | None = None,
-    reverify_days: int | None = None,
-    min_confirmations: int | None = None,
-    on_skip: Callable[[EmptyRange], None] | None = None,
-) -> list[tuple[date, date]]:
-    """The 1d gap plan for `symbol` over [start, end], from `vendor`'s own raw.
-
-    `sessions` is the NYSE session map (src.intelligence.bars.sessions.
-    nyse_sessions) over the window; a session date the vendor holds no complete bar for
-    and no covering no_data window is a gap. One rule for every timeframe: plan_gaps with
-    a one-day interval over session-midnight slots. Windows come back as contiguous
-    end-exclusive (date, date) ranges -- the range ends at the last missing session's own
-    day end, so the ask covers that whole day.
-
-    A stored bar counts only when its session was complete when the vendor served it
-    (session_complete_at(bar_date, served_at), D-191-J): a bar served while its session
-    was still forming is not the vendor's answer for the day and stays a gap until a run
-    sees the session whole. `now` caps the horizon exactly as the intraday readers cap
-    theirs: only sessions closed by `now` are planned, so an unfinished current session is never
-    asked and a closed one is asked from the moment it closes, not at the next 00:00 UTC.
-    Without `now` the horizon is the whole requested window. The empty-history gate mirrors
-    detect_gaps_from_record.
-    """
-    if end < start:
-        return []
-    with conn.cursor() as cur:
-        cur.execute(
-            _1D_STORED_SQL,
-            (
-                symbol,
-                vendor,
-                list(DAILY_NOT_COVERAGE_KINDS),
-                midnight_utc(start),
-                midnight_utc(end) + _1D_INTERVAL,
-            ),
-        )
-        stored_rows = cur.fetchall()
-    answered = load_answered_windows(conn, symbol, "1d", vendor)
-
-    # A row without a serve time predates the serve stamp and counts (nothing to judge it by).
-    stored = sorted(
-        {
-            _aware(stamp)
-            for stamp, served_at in stored_rows
-            if served_at is None
-            or session_complete_at(_aware(stamp).date(), _aware(served_at), sessions)
-        }
-    )
-    # Only a session that has closed is plannable: asking a forming session returns a partial
-    # bar that never counts, and capping its window at `now` would collapse to a zero-length
-    # (D, D) ask. A 1d window is never capped at now; it ends at the last planned session's own
-    # day end, so the ask covers that whole day once the day is complete.
-    slots = [
-        midnight_utc(day)
-        for day in sorted(sessions)
-        if start <= day <= end and (now is None or session_complete_at(day, now, sessions))
-    ]
-    run_end = midnight_utc(end) + _1D_INTERVAL
-
-    plan = _plan_with_empty_gate(
-        slots,
-        stored,
-        answered,
-        _1D_INTERVAL,
-        run_end=run_end,
-        empty=empty,
-        now=now,
-        reverify_days=reverify_days,
-        min_confirmations=min_confirmations,
-        on_skip=on_skip,
-    )
-    return [(window_start.date(), window_end.date()) for window_start, window_end in plan]
 
 
-def with_overlap_window(
-    gaps: Sequence[tuple[date, date]],
-    sessions: Iterable[date],
-    end: date,
-    overlap_sessions: int,
-) -> list[tuple[date, date]]:
-    """`gaps` plus a window over the last `overlap_sessions` sessions up to `end`, merged (D-21).
-
-    The nightly re-asks sessions D1 already answers so a fresh observation overlaps an
-    earlier one and a split shows as a constant price ratio (services/split_detection.py).
-    The planner never asks an answered session, so the overlap is added after planning, in
-    the planner's own end-exclusive (first session, day after the last session) shape, so the
-    last session itself is covered; windows that touch or overlap merge into one request.
-    `sessions` must hold only sessions closed at the run's time (a forming session is never
-    re-asked). `overlap_sessions` of 0 returns the plan unchanged.
-    """
-    planned = list(gaps)
-    if overlap_sessions <= 0:
-        return planned
-    eligible = sorted(day for day in sessions if day <= end)
-    if not eligible:
-        return planned
-    windows = sorted([*planned, (eligible[-overlap_sessions:][0], eligible[-1] + _1D_INTERVAL)])
-    merged: list[tuple[date, date]] = [windows[0]]
-    for window_start, window_end in windows[1:]:
-        prev_start, prev_end = merged[-1]
-        if window_start <= prev_end:
-            merged[-1] = (prev_start, max(prev_end, window_end))
-        else:
-            merged.append((window_start, window_end))
-    return merged

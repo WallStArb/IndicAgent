@@ -108,18 +108,7 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             reason="the fetch ledger writer (RequestSink / AsyncRequestSink, phase 191 plan 02)",
         ),
     ),
-    "ohlcv_empty_history": (
-        Writer(
-            "scripts/infrastructure/backfill/_empty_history.py",
-            reason="the answered-empty ledger's one module (todo 433)",
-        ),
-    ),
-    "ohlcv_provider_head": (
-        Writer(
-            "scripts/infrastructure/backfill/_empty_history.py",
-            reason="verified provider heads, written beside the empty-history rows",
-        ),
-    ),
+    "ohlcv_empty_history": (),  # frozen record: its writer left with the IBKR fetcher (todo 613)
     "bar_quality_flag": (
         Writer(
             "services/bar_scrub.py",

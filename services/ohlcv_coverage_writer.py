@@ -388,23 +388,3 @@ def rebuild_from_stored_state(
     return written + int(cur.rowcount)
 
 
-def reset_failures(cur: Any, symbol: str, timeframe: str | None, *, provider: str = "ibkr") -> int:
-    """Zero consecutive_failures for a symbol (one timeframe, or all when None).
-
-    The fetcher's --reset-failures path re-admits an excluded series to the queue; the
-    counter is per-provider row state, so the reset is scoped to the provider's rows. Runs
-    under SET LOCAL ROLE bar_derivation_writer. Returns the number of rows reset.
-    """
-    if timeframe is None:
-        cur.execute(
-            "UPDATE ohlcv_coverage SET consecutive_failures = 0 "
-            "WHERE symbol = %s AND provider = %s",
-            (symbol, provider),
-        )
-    else:
-        cur.execute(
-            "UPDATE ohlcv_coverage SET consecutive_failures = 0 "
-            "WHERE symbol = %s AND timeframe = %s AND provider = %s",
-            (symbol, timeframe, provider),
-        )
-    return cur.rowcount

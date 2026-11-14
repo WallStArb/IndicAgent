@@ -6,30 +6,6 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _reset_ibkr_hist_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """todo 122: src/providers/ibkr.py's `_hist_rate_limiter` is a process-wide
-    module-level singleton (real time.monotonic() timestamps, real asyncio.sleep()),
-    never reset between tests. Any unit test exercising fetch_historical_bars() --
-    even fully mocked at the ib_async layer -- still pays the real 55-req/10-min
-    throttle. Once cumulative calls across the pytest session cross that limit, the
-    next acquire() blocks for real, up to ~601s, with the event loop idle and zero
-    CPU (confirmed via py-spy: reproducible full-suite hang at the same point in
-    collection order). No unit test asserts on the limiter's own behavior, so a
-    session-wide no-op is a pure test-isolation fix -- production behavior
-    (ibkr.py itself) is untouched.
-    """
-    try:
-        from src.providers import ibkr
-    except ImportError:
-        return
-
-    async def _noop_acquire() -> float:
-        return 0.0  # matches acquire()'s slept-seconds return (todo 485)
-
-    monkeypatch.setattr(ibkr._hist_rate_limiter, "acquire", _noop_acquire)
-
-
-@pytest.fixture(autouse=True)
 def _prewarm_compressed_hypertable_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Todo 308: services/_batch_utils.py's `_known_compressed_hypertables` cache is
     process-lifetime, shared module state -- pre-warm it to today's real-world value

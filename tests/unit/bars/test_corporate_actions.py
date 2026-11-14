@@ -19,7 +19,6 @@ import pytest
 from src.intelligence.bars.corporate_actions import (
     SplitRatioRule,
     disputed_dates,
-    infer_split,
     judge_calendar_split,
     recognised_split_ratio,
     scale_step,
@@ -39,38 +38,6 @@ def _seam(factor: float, n_days: int = 120) -> Seam:
         factor=factor,
         n_days=n_days,
     )
-
-
-def test_infer_split_two_for_one() -> None:
-    seam = _seam(2.0, n_days=180)
-    record = infer_split(seam, ratio_snap_tol=_SNAP_TOL)
-    assert record is not None
-    assert record.effective_date == seam.end
-    assert record.factor == pytest.approx(2.0)
-    assert record.kind == "split"
-
-
-def test_infer_split_one_for_eight_is_reverse_split() -> None:
-    record = infer_split(_seam(0.125), ratio_snap_tol=_SNAP_TOL)
-    assert record is not None
-    assert record.factor == pytest.approx(0.125)
-    assert record.kind == "reverse_split"
-    assert record.effective_date == date(2025, 6, 27)
-
-
-def test_infer_split_noisy_factor_snaps_to_rational() -> None:
-    record = infer_split(_seam(1.993), ratio_snap_tol=_SNAP_TOL)
-    assert record is not None
-    assert record.factor == pytest.approx(2.0)
-    assert record.kind == "split"
-    three_halves = infer_split(_seam(1.502), ratio_snap_tol=0.005)
-    assert three_halves is not None
-    assert three_halves.factor == pytest.approx(1.5)
-
-
-def test_infer_split_irrational_ratio_stays_unexplained() -> None:
-    # sqrt(3): nearest p/q with p, q <= 50 is 26/15 = 1.7333, 0.0012 away.
-    assert infer_split(_seam(1.7321), ratio_snap_tol=0.0005) is None
 
 
 def test_disputed_dates_turn_pairs_into_ordered_records() -> None:
