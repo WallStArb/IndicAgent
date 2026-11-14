@@ -158,13 +158,37 @@ groups:
           description: "Unit {{ $labels.unit }} exceeded 120s without processing. watchdog_notify_total indicates heartbeat rate."
 
       - alert: OneshotJobFailed
-        expr: increase(job_completed_total{status="failure"}[1h]) > 0
+        # Each run is a new series that starts at 1, which increase() cannot see, so look for any failure
+        # sample in the hour.
+        expr: max by (job_name) (max_over_time(job_completed_total{status="failure"}[1h])) > 0
         for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "Oneshot job {{ $labels.job }} failed — manual investigation required"
-          description: "Timer-triggered script exited with error. Check logs for {{ $labels.job }} service."
+          summary: "Oneshot job {{ $labels.job_name }} failed; manual investigation required"
+          description: "Timer-triggered script exited with error. Check logs for {{ $labels.job_name }} service."
+
+      # Data layer (todo 614 row 21). The nightly capture is a oneshot, so its series lives only
+      # while Prometheus keeps the samples; the windows below span a day plus the timer's jitter.
+      # job_name is the oneshot's name: the collector renames the OTel `job` attribute because
+      # the prometheus exporter reserves `job` for service.name (otel-collector-config.yaml).
+      - alert: NightlyCaptureMissed
+        expr: absent_over_time(job_completed_total{job_name="alpaca-nightly"}[26h])
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No alpaca-nightly completion in 26h (the 04:40 UTC capture did not run or could not report)"
+          description: "Check indicagent-alpaca-nightly.timer and journalctl -u indicagent-alpaca-nightly.service; Persistent=true runs a missed fire at the next boot."
+
+      - alert: DataCaptureBehind
+        expr: max by (vendor, timeframe) (last_over_time(data_capture_sessions_behind[26h])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.vendor }} {{ $labels.timeframe }} raw bars trail the last completed NYSE session by {{ $value }} sessions"
+          description: "Measured at the end of the last nightly capture from the newest ohlcv_raw bar. Check the nightly summary line for errors, unfinished windows and unselected slots."
 
       - alert: APIHealthDown
         expr: api_health{service="indicagent-api"} < 1

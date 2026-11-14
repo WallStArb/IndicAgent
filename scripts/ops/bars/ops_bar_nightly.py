@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time as _time
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -54,14 +55,28 @@ from services.ohlcv_coverage_writer import fetch_status_for_outcome, record_fetc
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
+from src.intelligence.bars.capture_freshness import sessions_behind
 from src.intelligence.bars.gap_plan import ANSWERED_OUTCOMES
 from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
+from src.observability.metrics import (
+    JOB_COMPLETED_TOTAL,
+    JOB_DURATION_SECONDS,
+    flush_and_shutdown_metrics,
+    point_gauge,
+)
+from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import history_leaf
 from src.providers.base import FetchBudget, HistoryRequest
 
 CALLER_SINK = "{vendor}-nightly"
 CALLER_5M = "{vendor}-nightly-5m"
 CALLER_1D = "{vendor}-nightly-1d-raw"
+# Matches the systemd unit suffix (indicagent-alpaca-nightly), the job label every oneshot emits.
+_JOB = "alpaca-nightly"
+_SESSIONS_BEHIND = point_gauge(
+    "data_capture_sessions_behind",
+    "Completed NYSE sessions after the newest raw bar of a vendor and timeframe (0 is current)",
+)
 
 
 def _apr_int(conn, key: str, default: int) -> int:
@@ -202,8 +217,16 @@ def main() -> int:
         parser.error(f"--start {args.start} must precede --end {args.end}")
 
     settings = get_settings()
-    conn = psycopg.connect(settings.database_url, autocommit=True)
     try:
+        init_otel_providers(f"indicagent-{_JOB}")
+    except OTelInitError as error:
+        # Capture must not die with its collector; the miss shows as an absent completion.
+        print(f"otel init failed, running without metrics: {error}", file=sys.stderr)
+    started = _time.monotonic()
+    freshness: dict[str, int | None] = {}
+    conn = None
+    try:
+        conn = psycopg.connect(settings.database_url, autocommit=True)
         # Alpaca only: the feed the tail is asked on (APR, migrations 511 and 513) and the raw
         # kind that basis is written under; a sip window ends before the recent-SIP horizon.
         data_feed = (
@@ -277,11 +300,67 @@ def main() -> int:
                 skip_complete=args.skip_complete,
             )
         )
+        if args.apply:
+            try:
+                freshness = capture_freshness(conn, args.vendor, policy_5m.kind, timeframes)
+            except Exception as error:
+                # The capture is done; a failed freshness read leaves the gauge absent and never
+                # changes the summary or the exit code.
+                print(f"capture freshness unavailable: {error}", file=sys.stderr)
+    except Exception:
+        if args.apply:
+            emit_run_metrics("failure", _time.monotonic() - started, freshness, args.vendor)
+        raise
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     print(summary_line(summary, apply=args.apply))
-    return exit_code(summary)
+    code = exit_code(summary)
+    if args.apply:
+        # A partial night (exit 1) is re-asked by the next timer fire, so it is not a failure to
+        # page: `failure` is a crash. The missed and behind alerts watch the rest.
+        emit_run_metrics(
+            "partial" if code else "success", _time.monotonic() - started, freshness, args.vendor
+        )
+    return code
+
+
+def capture_freshness(
+    conn, vendor: str, kind: str | None, timeframes: tuple[str, ...]
+) -> dict[str, int | None]:
+    """Sessions the newest raw bar of each timeframe trails the last completed NYSE session.
+
+    The kind filter keeps other feeds out of the count. The newest bar over the whole universe
+    reads current while one name is current, so a partial capture is not caught (limitation).
+    """
+    now = datetime.now(UTC)
+    behind: dict[str, int | None] = {}
+    with conn.cursor() as cur:
+        for timeframe in timeframes:
+            cur.execute(
+                'SELECT max("timestamp") FROM ohlcv_raw '
+                "WHERE vendor = %s AND timeframe = %s AND (%s::text IS NULL OR kind = %s)",
+                (vendor, timeframe, kind, kind),
+            )
+            behind[timeframe] = sessions_behind(cur.fetchone()[0], now)
+    return behind
+
+
+def emit_run_metrics(
+    status: str, elapsed_s: float, freshness: dict[str, int | None], vendor: str
+) -> None:
+    """job_completed_total and job_duration_seconds, plus the freshness gauge per timeframe.
+
+    A timeframe with no raw rows publishes nothing (the missed-run alert is the witness), never 0.
+    """
+    attrs = {"job": _JOB, "status": status}
+    JOB_COMPLETED_TOTAL.add(1, attrs)
+    JOB_DURATION_SECONDS.record(elapsed_s, attrs)
+    for timeframe, behind in freshness.items():
+        if behind is not None:
+            _SESSIONS_BEHIND.set(behind, {"vendor": vendor, "timeframe": timeframe})
+    flush_and_shutdown_metrics()
 
 
 class _NightlySink:

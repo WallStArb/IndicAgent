@@ -18,6 +18,25 @@ processors:
       - key: deployment.environment
         value: ${INDICAGENT_ENV}
         action: upsert
+  # The prometheus exporter turns resource service.name into a constant `job` label and drops any
+  # metric whose data points also carry a `job` attribute (job_completed_total and
+  # job_duration_seconds, every oneshot, never reached Prometheus before this). Renaming the
+  # attribute keeps the oneshot name queryable as job_name.
+  # Every oneshot run is a new process, so service.instance.id (host:pid) makes a new series per
+  # run. The nightly capture's freshness gauge is read as one series over 26h, so its series must
+  # not change per run: drop the per-process id for that service only.
+  transform/stable_nightly:
+    metric_statements:
+      - context: resource
+        statements:
+          - delete_key(resource.attributes, "service.instance.id") where resource.attributes["service.name"] == "indicagent-alpaca-nightly"
+  attributes/job_name:
+    actions:
+      - key: job_name
+        from_attribute: job
+        action: insert
+      - key: job
+        action: delete
 
 exporters:
   prometheus:
@@ -35,7 +54,7 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [batch, resource]
+      processors: [batch, resource, attributes/job_name, transform/stable_nightly]
       exporters: [prometheus]
     traces:
       receivers: [otlp]

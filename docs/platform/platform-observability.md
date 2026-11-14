@@ -187,7 +187,7 @@ finally:
     flush_and_shutdown_metrics(timeout_millis=5000)
 ```
 
-The `job` label must match the systemd unit `%n` suffix exactly (kebab-case). `flush_and_shutdown_metrics()` must be called in `finally` — oneshot processes exit before the 15s push interval fires.
+The `job` label must match the systemd unit `%n` suffix exactly (kebab-case). Emit the attribute as `job`; the collector renames it to `job_name` (the prometheus exporter reserves `job` for the service name, and a data point carrying `job` was dropped until 2026-11-14), so PromQL queries `job_name`. A `status` of `failure` is a crash; a run the next timer fire re-asks reports `partial`. `flush_and_shutdown_metrics()` must be called in `finally`; oneshot processes exit before the 15s push interval fires.
 
 ### `agent_last_message_timestamp_seconds` label key
 
