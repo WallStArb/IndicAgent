@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -39,7 +40,7 @@ from src.core.database_manager import connect_with_codecs, create_pool
 
 pytestmark = pytest.mark.integration
 
-DB_NAME = "ticker_install_test"
+DB_NAME = f"ticker_install_test_{os.getpid()}"
 MAINTENANCE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
 DSN = f"postgresql://postgres:postgres@localhost:5432/{DB_NAME}"
 MIGRATION = (

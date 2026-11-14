@@ -1711,12 +1711,12 @@ class TickerEntityMapInstaller(BaseBatch):
             try:
                 async with conn.transaction():
                     await conn.execute(_LOCK_SQL)
-                    await require_massive_quiet(conn)
                     rows = await conn.fetch(_DOC_SPANS_SQL)
                     plan = plan_install(files, live_old_spans(rows), untouched)
                     report = _install_report(plan, files, install_id, self._apply)
                     if plan.status == "already_installed":
-                        raise _Rehearsal
+                        raise _Rehearsal  # writes nothing: no quiet loader needed
+                    await require_massive_quiet(conn)
                     ids = {_row_key(r): r["ticker_event_id"] for r in rows}
                     # the same query and hash the rollback reads: every live row, identifier or not
                     pre_sha = content_sha256(await conn.fetch(_LIVE_SQL))
@@ -1814,8 +1814,9 @@ class TickerEntityMapInstaller(BaseBatch):
                     if loaded and not self._args.accept_loaded_rows:
                         raise InstallRefused(
                             f"Massive load rows cite spans this install inserted: {loaded}; "
-                            "rolling back leaves that raw under retired spans. Reload it under "
-                            "the restored spans, then pass --accept-loaded-rows"
+                            "rolling back leaves that raw under retired spans. Read the "
+                            "counts, pass --accept-loaded-rows, then reload that raw under the "
+                            "restored spans"
                         )
                     live_before = await conn.fetch(_LIVE_SQL)
                     before_keys = {_row_key(r) for r in live_before}
