@@ -210,39 +210,47 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
 
     if _refused_not_quiet(steps, out, "start"):
         return Night(1, "partial")
-    # One day at a time: a day's request range holds only absent keys, so a drifted key between
-    # two fetched days is never swept into a refetch.
-    for e in sorted(todo, key=lambda e: (e.dataset, e.date)):
-        day = date.fromisoformat(e.date)
-        code = steps.download(e.dataset, Window(day, day))
-        bad = steps.unverified([e])
-        if code != 0 or bad:
-            log.error("night.download_incomplete", key=e.key, exit=code, unverified=bad)
-            out(f"FAILED: {e.key} download exit {code}, unverified {len(bad)}; no load")
+    late_by_key = {row["key"]: row for row in late}
+    fetched_late: list[dict] = []
+    try:
+        # One day at a time: a day's request range holds only absent keys, so a drifted key between
+        # two fetched days is never swept into a refetch.
+        for e in sorted(todo, key=lambda e: (e.dataset, e.date)):
+            day = date.fromisoformat(e.date)
+            code = steps.download(e.dataset, Window(day, day))
+            bad = steps.unverified([e])
+            if code != 0 or bad:
+                log.error("night.download_incomplete", key=e.key, exit=code, unverified=bad)
+                out(f"FAILED: {e.key} download exit {code}, unverified {len(bad)}; no load")
+                return Night(1, "partial")
+            if e.key in late_by_key:
+                fetched_late.append(late_by_key[e.key])
+        pending = _pending(steps, raw, todo)
+        # The download can take hours; a map install may have started since the first check.
+        if any(pending.values()) and _refused_not_quiet(steps, out, "before load"):
             return Night(1, "partial")
-    pending = _pending(steps, raw, todo)
-    # The download can take hours; a map install may have started since the first check.
-    if any(pending.values()) and _refused_not_quiet(steps, out, "before load"):
-        return Night(1, "partial")
-    failed = False
-    for tf in _LOAD_ORDER:
-        for year, month in pending[tf]:
-            code = steps.load(tf, year, month)
-            log.info("night.load", timeframe=tf, year=year, month=month, exit=code)
-            if code != 0:
-                failed = True
-                out(f"FAILED: {tf} {year}-{month:02d} load exit {code}; later {tf} months wait")
-                break  # raw must not advance past a month that did not load
-    if failed:
-        return Night(1, "partial")
-    if late:
-        for row in late:
-            log.error("night.late_key_not_loaded", **row)
-        out(
-            f"late keys: {len(late)} fetched, not loaded; report {steps.write_report('late_keys', late)}"
-        )
-        return Night(1, "manual_load")
-    return Night(0, status)
+        failed = False
+        for tf in _LOAD_ORDER:
+            for year, month in pending[tf]:
+                code = steps.load(tf, year, month)
+                log.info("night.load", timeframe=tf, year=year, month=month, exit=code)
+                if code != 0:
+                    failed = True
+                    out(f"FAILED: {tf} {year}-{month:02d} load exit {code}; later {tf} months wait")
+                    break  # raw must not advance past a month that did not load
+        if failed:
+            return Night(1, "partial")
+        if fetched_late:
+            return Night(1, "manual_load")
+        return Night(0, status)
+    finally:
+        # Every exit after a fetch reports the late keys it landed: next night they are in the
+        # manifest, no longer absent, so this is their only record.
+        if fetched_late:
+            for row in fetched_late:
+                log.error("night.late_key_not_loaded", **row)
+            report = steps.write_report("late_keys", fetched_late)
+            out(f"late keys: {len(fetched_late)} fetched, not loaded; report {report}")
 
 
 def _archived_last(manifest_path: Path) -> Callable[[str], date]:

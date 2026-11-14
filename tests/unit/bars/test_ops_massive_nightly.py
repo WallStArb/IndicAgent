@@ -366,6 +366,27 @@ def test_a_late_old_key_is_fetched_not_loaded_reported_and_exits_1_while_recent_
     assert ("write_report", "late_keys", 2) in fake.calls  # both datasets of 09-15, not 10-29
 
 
+def test_a_late_key_is_reported_even_when_a_load_fails_and_the_night_stays_partial():
+    archived = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    listed = both("2026-09-15") + both("2026-11-13")
+    fake = Fake(listed, archived, raw, absent={"2026-09-15"}, load_fail={("1d", 2026, 10)})
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "partial")
+    assert ("write_report", "late_keys", 2) in fake.calls
+
+
+def test_a_late_key_is_reported_when_a_later_download_fails_after_it_landed():
+    archived = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    listed = both("2026-09-15") + both("2026-11-16")
+    fake = Fake(
+        listed, archived, raw, absent={"2026-09-15"}, fail_once={("day_aggs_v1", "2026-11-16")}
+    )
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "partial")
+    # day_aggs 09-15 landed before day_aggs 11-16 failed: the report names it; the night stopped
+    assert ("write_report", "late_keys", 1) in fake.calls
+
+
 def test_a_failed_month_stops_that_timeframe_so_raw_never_advances_past_it():
     archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
     raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
