@@ -6,12 +6,12 @@ vendor posts a day's file the next calendar day, so the timer fires around 12:00
 
 The window is derived, never remembered, so a missed night heals itself:
 
-- fetch: per dataset, every vendor key dated after that dataset's last archived day and absent
-  from the manifest. A day with no key (weekend, holiday, a file not yet posted) is not an error.
+- fetch: every vendor key absent from the manifest, whatever its date, one day at a time. A day
+  with no key (weekend, holiday, a file not yet posted) is not an error.
   A failed download leaves the manifest where it was, so the same window is asked again.
-- load: per timeframe, the months from the day after the newest Massive raw day through the
-  newest archived day (``months_to_load``); never a month older than that. A load that failed
-  leaves raw where it was, so the months are asked again.
+- load: per timeframe, the months from the day after the newest Massive raw day (or the earliest
+  day fetched tonight, if older) through the newest archived day (``months_to_load``). A month
+  that fails stops that timeframe, so raw never advances past it and the months are asked again.
 
 Drift is reported, never acted on: every listed key's ETag and size is compared with the manifest
 (``md.restat_drift``); a difference is not downloaded or loaded. The report goes to
@@ -77,17 +77,33 @@ class Window:
     last: date
 
 
-def months_to_load(raw_newest: date | None, archived_last: date) -> list[tuple[int, int]]:
-    """Calendar months (year, month), oldest first, between the day after the newest raw day and
-    the newest archived day; empty when raw is current. An empty raw is a refusal upstream, not a
+def months_to_load(
+    raw_newest: date | None, archived_last: date, earliest_fetched: date | None = None
+) -> list[tuple[int, int]]:
+    """Calendar months (year, month), oldest first, from the day after the newest raw day (or the
+    earliest day fetched tonight, when that is older: a late-posted or retried day) through the
+    newest archived day; empty when raw is current. An empty raw is a refusal upstream, not a
     full-history load."""
-    if raw_newest is None or archived_last <= raw_newest:
+    if raw_newest is None or (earliest_fetched is None and archived_last <= raw_newest):
         return []
-    day, months = raw_newest + timedelta(days=1), []
+    day = raw_newest + timedelta(days=1)
+    if earliest_fetched is not None:
+        day = min(day, earliest_fetched)
+    day = day.replace(day=1)
+    months: list[tuple[int, int]] = []
     while (day.year, day.month) <= (archived_last.year, archived_last.month):
         months.append((day.year, day.month))
         day = date(day.year + day.month // 12, day.month % 12 + 1, 1)
     return months
+
+
+def absent_from_manifest(
+    entries: list[md.KeyEntry], manifest: dict[str, dict]
+) -> list[md.KeyEntry]:
+    """Every listed key the manifest has no record of, whatever its date: a day that failed
+    earlier or was posted late is as missing as a new one. A key already recorded is never
+    refetched here, even under a new ETag or size (that is drift, reported)."""
+    return [e for e in entries if e.key not in manifest]
 
 
 @dataclass(frozen=True)
@@ -122,7 +138,18 @@ def _pending(
 ) -> dict[str, list[tuple[int, int]]]:
     """Per timeframe, the months to load: from the day after the newest raw day through the newest
     archived day once ``todo`` is in the manifest."""
-    return {tf: months_to_load(raw[tf], reach) for tf, reach in _reach(steps, todo).items()}
+    reach = _reach(steps, todo)
+    return {
+        tf: months_to_load(
+            raw[tf],
+            reach[tf],
+            min(
+                (date.fromisoformat(e.date) for e in todo if e.dataset == _TIMEFRAME_DATASET[tf]),
+                default=None,
+            ),
+        )
+        for tf in _LOAD_ORDER
+    }
 
 
 def _refused_not_quiet(steps: Steps, out: Callable[[str], None], at: str) -> bool:
@@ -176,15 +203,15 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
 
     if _refused_not_quiet(steps, out, "start"):
         return Night(1, "partial")
-    for dataset in _TIMEFRAME_DATASET.values():
-        days = [date.fromisoformat(e.date) for e in todo if e.dataset == dataset]
-        if not days:
-            continue
-        code = steps.download(dataset, Window(min(days), max(days)))
-        bad = steps.unverified([e for e in todo if e.dataset == dataset])
+    # One day at a time: a day's request range holds only absent keys, so a drifted key between
+    # two fetched days is never swept into a refetch.
+    for e in sorted(todo, key=lambda e: (e.dataset, e.date)):
+        day = date.fromisoformat(e.date)
+        code = steps.download(e.dataset, Window(day, day))
+        bad = steps.unverified([e])
         if code != 0 or bad:
-            log.error("night.download_incomplete", dataset=dataset, exit=code, unverified=bad[:10])
-            out(f"FAILED: {dataset} download exit {code}; {len(bad)} files unverified; no load")
+            log.error("night.download_incomplete", key=e.key, exit=code, unverified=bad)
+            out(f"FAILED: {e.key} download exit {code}, unverified {len(bad)}; no load")
             return Night(1, "partial")
     pending = _pending(steps, raw, todo)
     # The download can take hours; a map install may have started since the first check.
@@ -197,7 +224,8 @@ def run_night(steps: Steps, *, apply: bool, out: Callable[[str], None] = print) 
             log.info("night.load", timeframe=tf, year=year, month=month, exit=code)
             if code != 0:
                 failed = True
-                out(f"FAILED: {tf} {year}-{month:02d} load exit {code}")
+                out(f"FAILED: {tf} {year}-{month:02d} load exit {code}; later {tf} months wait")
+                break  # raw must not advance past a month that did not load
     return Night(1, "partial") if failed else Night(0, status)
 
 
@@ -233,14 +261,7 @@ def build_steps(args: argparse.Namespace) -> Steps:
         return path
 
     def to_download(entries: list[md.KeyEntry]) -> list[md.KeyEntry]:
-        """Keys absent from the manifest and dated after their dataset's last archived day."""
-        index = md.load_manifest(manifest_path)
-        last = {ds: _archived_last(manifest_path)(ds) for ds in datasets}
-        return [
-            e
-            for e in entries
-            if e.key not in index and date.fromisoformat(e.date) > last[e.dataset]
-        ]
+        return absent_from_manifest(entries, md.load_manifest(manifest_path))
 
     def unverified(entries: list[md.KeyEntry]) -> list[str]:
         index = md.load_manifest(manifest_path)

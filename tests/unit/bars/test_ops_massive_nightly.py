@@ -21,28 +21,55 @@ def both(day: str) -> list[KeyEntry]:
 
 
 class Fake:
-    """Records calls; every knob a test turns is a constructor argument."""
+    """A vendor listing and a manifest; the production ``absent_from_manifest`` runs over them.
+
+    ``absent`` dates are listed but not in the manifest even though older than its newest day;
+    ``fail_once`` (dataset, date) pairs fail their first download; ``dl`` fails every download."""
 
     def __init__(
-        self, listed, archived, raw, *, quiet=True, dl=0, load=0, bad=(), drift=(), quiet_after=None
+        self,
+        listed,
+        archived,
+        raw,
+        *,
+        quiet=True,
+        dl=0,
+        load=0,
+        bad=(),
+        drift=(),
+        quiet_after=None,
+        absent=(),
+        fail_once=(),
+        load_fail=(),
     ):
-        self.listed, self.archived, self.raw = listed, dict(archived), dict(raw)
+        self.listed, self.raw = listed, dict(raw)
+        self.manifest = {entry(day, ds).key: {"etag": "e"} for ds, day in _iso(archived).items()}
+        self.manifest |= {
+            e.key: {"etag": "e"}
+            for e in listed
+            if D(e.date) <= archived[e.dataset] and e.date not in absent
+        }
         self.quiet, self.dl, self.load_code, self.bad = quiet, dl, load, list(bad)
         self.drift_rows, self.quiet_after, self.quiet_calls = list(drift), quiet_after, 0
+        self.fail_once, self.load_fail = set(fail_once), set(load_fail)
         self.calls: list = []
+
+    def archived_last(self, dataset):
+        return max(D(k.rsplit("/", 1)[1][:10]) for k in self.manifest if f"/{dataset}/" in k)
 
     def steps(self) -> nightly.Steps:
         def download(dataset, window):
             self.calls.append(("download", dataset, window))
-            if self.dl == 0:  # a good download advances the manifest
-                for e in self.listed:
-                    if e.dataset == dataset:
-                        self.archived[dataset] = max(self.archived[dataset], D(e.date))
-            return self.dl
+            day = window.first.isoformat()
+            if self.dl or (dataset, day) in self.fail_once:
+                self.fail_once.discard((dataset, day))
+                return 1
+            self.manifest[entry(day, dataset).key] = {"etag": "e"}  # a good download is recorded
+            return 0
 
         def load(tf, year, month):
             self.calls.append(("load", tf, year, month))
-            return self.load_code
+            return 2 if (tf, year, month) in self.load_fail else self.load_code
 
         def require_quiet():
             self.calls.append(("quiet",))
@@ -56,8 +83,8 @@ class Fake:
 
         return nightly.Steps(
             vendor_entries=lambda: self.listed,
-            archived_last=lambda ds: self.archived[ds],
-            to_download=lambda es: [e for e in es if D(e.date) > self.archived[e.dataset]],
+            archived_last=self.archived_last,
+            to_download=lambda es: nightly.absent_from_manifest(es, self.manifest),
             drift=lambda es: self.drift_rows,
             write_drift=write_drift,
             unverified=lambda es: self.bad,
@@ -66,6 +93,10 @@ class Fake:
             download=download,
             load=load,
         )
+
+
+def _iso(archived):
+    return {ds: day.isoformat() for ds, day in archived.items()}
 
 
 ARCHIVED = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
@@ -139,7 +170,12 @@ def test_a_load_left_by_an_earlier_night_heals_without_a_download():
     archived = {"day_aggs_v1": D("2026-11-16"), "minute_aggs_v1": D("2026-11-16")}
     fake = Fake(both("2026-11-16"), archived, RAW)
     assert nightly.run_night(fake.steps(), apply=True).code == 0
-    assert [c[0] for c in fake.calls] == ["quiet", "quiet", "load", "load"]
+    assert fake.calls == [
+        ("quiet",),
+        ("quiet",),
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 11),
+    ]
 
 
 def test_an_empty_raw_refuses():
@@ -282,3 +318,62 @@ def test_build_steps_to_download_is_absent_keys_after_the_last_archived_day(tmp_
     assert [r["key"] for r in steps.drift([reposted, new])] == [old.key] + [
         e.key for e in mrows if e.key != old.key
     ]
+
+
+def test_a_partial_multi_day_download_is_finished_the_next_night_and_its_month_loaded():
+    archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    listed = both("2026-10-30") + both("2026-11-02") + both("2026-11-03") + both("2026-11-04")
+    fake = Fake(listed, archived, raw, fail_once={("day_aggs_v1", "2026-11-03")})
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "partial")  # 11-02 landed, 11-03 not
+    assert not [c for c in fake.calls if c[0] == "load"]
+    assert fake.archived_last("day_aggs_v1") == D("2026-11-02")
+
+    fake.calls.clear()
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "success")
+    assert (
+        "download",
+        "day_aggs_v1",
+        nightly.Window(D("2026-11-03"), D("2026-11-03")),
+    ) in fake.calls
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 10),
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 10),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_a_late_posted_day_before_the_newest_archived_day_is_fetched_and_its_month_loaded():
+    archived = {"day_aggs_v1": D("2026-11-13"), "minute_aggs_v1": D("2026-11-13")}
+    fake = Fake(both("2026-11-05") + both("2026-11-13"), archived, RAW, absent={"2026-11-05"})
+    assert nightly.run_night(fake.steps(), apply=True) == (0, "success")
+    assert [c[:2] for c in fake.calls if c[0] == "download"] == [
+        ("download", "day_aggs_v1"),
+        ("download", "minute_aggs_v1"),
+    ]
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 11),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_a_failed_month_stops_that_timeframe_so_raw_never_advances_past_it():
+    archived = {"day_aggs_v1": D("2026-10-30"), "minute_aggs_v1": D("2026-10-30")}
+    raw = {"1d": D("2026-10-30"), "5m": D("2026-10-30")}
+    fake = Fake(
+        both("2026-10-30") + both("2026-11-02"), archived, raw, load_fail={("1d", 2026, 10)}
+    )
+    assert nightly.run_night(fake.steps(), apply=True) == (1, "partial")
+    assert [c for c in fake.calls if c[0] == "load"] == [
+        ("load", "1d", 2026, 10),
+        ("load", "5m", 2026, 10),
+        ("load", "5m", 2026, 11),
+    ]
+
+
+def test_a_changed_etag_on_a_recorded_key_is_never_refetched():
+    listed = both("2026-11-13")
+    fake = Fake(listed, ARCHIVED, RAW, drift=[{"key": listed[0].key}])
+    reposted = [nightly.md.KeyEntry(e.key, e.dataset, e.date, 99, "new") for e in listed]
+    assert nightly.absent_from_manifest(reposted, fake.manifest) == []
