@@ -46,11 +46,11 @@ survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fa
 
 In flight: step 7 Part B4 reran 2026-11-15 under the installed map 20261114_6195ae11abff (install 6195ae11abff-20261114T204239Z;
 Massive loads for the placed spans applied). 1d: expected_after 6,269,119, zero load_hole; unexplained 3,427 rows (3,202
-vendor_has_no_bar, 225 map_gap on BWXT/HWM/SSB/UHAL/RGA, owner evidence rulings open); 2,064 sit on witness-placed spans
+vendor_has_no_bar, 225 map_gap on BWXT/HWM/SSB/UHAL/RGA, residue disclosed, no further effort per todo 512); 2,064 sit on witness-placed spans
 inside gap rows. Gate defect: 8 witness-placed spans (ACGL, AXS, DOX, NAD, RCL, RNR, WTM, SLM) end 2026-11-10 though Massive
 holds them to 2026-11-13; c6 fixes the witness/writer and rebuilds a scratch map, then reinstall, load the 4 days, rerun B4.
-5m classification (28) is running; evidence `logs/massive_step7/b4_gate_20261115/`. Owner decisions open: removal of 438
-contaminated SSB raw rows, evidence for BWXT/BWC, HWM/ARNC, EXP/CXP, USAU/DRAM, UHAEQ/UHALQ, rulings on PIPR/PJC and RGA.
+5m classification (28) is running; evidence `logs/massive_step7/b4_gate_20261115/`. Low-value names (SSB, BWXT/BWC, HWM/ARNC, EXP/CXP, USAU/DRAM, UHAEQ/UHALQ, PIPR/PJC, RGA; owner 2026-11-15) get no
+more effort: they stay unplaced or excluded under todo 512, residual counts go in the B4 evidence, nothing blocks on them.
 Unpushed refactor stack (indicagent-e7, `/home/bg/dev/wt-refactor-batch`, reviewed): os.environ removals with migration 595,
 services/batch_support split (deletes services/_batch_utils.py, moves code keys), dead-code deletion with migration 596;
 lands after Part C and D1, never before. Landed 2026-11-14 outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22;
