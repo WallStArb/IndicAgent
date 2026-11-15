@@ -5,6 +5,20 @@
 **Informed by:** `docs/ideas/signal-published-prior-shortlist.md` (items 1 to 3 and the sources table; every published figure there is a prior to count, not an expected result), `docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md` (the form and the family H-A joins), `docs/plans/2026-11-13-stage2-universe-preregistration.md` (the universe), the universe IC wiring plan for todo 609 blocker I1 (how a spec reads it; unpushed, lands with L3), `docs/plans/methodology-change-ledger.md` E17, E18 and E21, `docs/research/construction-verdict-ledger.md`.
 **Governing rules:** E17 (decision statistic), E18 (every attempt counted, Romano-Wolf StepM selection, net-expectation promotion, one forward confirmation per book), E21 (every measured cell counted).
 
+## Owner adoption list
+
+Everything below is pending an owner decision; the lead recommends adopting each. Nothing is adopted, built or run, and no real-data number exists.
+
+| # | Item | What adopting does | Where it is written | Lead recommendation |
+|---|---|---|---|---|
+| 1 | 5m tier amendment ($25M entry, $12.5M exit, nested in the membership) | Fixes the 5m tier definition before any tier load; the code already carries the values | the I2 design doc, part 1 (unpushed, commit 45cb4e9f7) | Adopt |
+| 2 | Seen-name holdout | Excludes the screen's 231 names and the TSMOM sleeve (about 5 percent of the membership) from both panels, by a pinned list | section 2 here; build item B-U in the I1 plan | Adopt |
+| 3 | A1, universe amendment | Moves the daily residual family from `daily_unseen` to the membership and core panels | daily residual prereg section 10 (draft) | Adopt |
+| 4 | A2, sixth member | Adds the information-discreteness member M3 to the daily residual family | daily residual prereg section 10 (draft) and H-A here | Adopt |
+| 5 | E22 ledger entry | Records the counted design choices for the three families (12 series) before any result | section 6 here | Adopt |
+
+Items 3 and 4 depend on 2; none of the five moves a recorded spec hash.
+
 ## 1. Which three, and why
 
 The shortlist's own ranking rule is the filter: data the rebuild already holds, a construction the runner already has, slow turnover, few added series. Applied to the stage 2 world, three items clear it and the rest wait on something that does not exist yet.
@@ -29,7 +43,7 @@ Universe note. The lead's brief says "universe from the stage 2 tier". These thr
 **Universe.**
 - Primary panel: `universe: universe_membership`. Session d is a member of the latest built as_of strictly before d; prices stay unmasked (warmup and returns need them), and the target and member cells of non-members are NaN (wiring plan design items 1 to 4). The ledger rule id (`stage2-2026-11-15` or later) is inside the snapshot hash.
 - Core panel: `universe_membership_core`, names that are members at 90 percent or more of the month-ends of the span. The stage 2 preregistration requires every family on both panels. Each panel is its own counted series (section 4).
-- Seen-name holdout, recommended: the 231 names the 2026-09-13 screen and the corpus IC looks read, plus the TSMOM sleeve, are excluded from both panels by the pinned list the daily residual family already defines (B1). It is 5 percent or less of the membership, and it keeps these tests unseen on their data without a second disclosure cell. This needs the membership universe to accept an exclusion list (build requirement B-U). If the owner prefers no holdout, drop B-U and each family discloses the seen names as a prior look touching about 5 percent of the panel.
+- Seen-name holdout (lead recommends adopt): the 231 names the 2026-09-13 screen and the corpus IC looks read, plus the TSMOM sleeve, are excluded from both panels by the pinned list the daily residual family already defines (B1). It is 5 percent or less of the membership, and it keeps these tests unseen on their data without a second disclosure cell. This needs the membership universe to accept an exclusion list (build requirement B-U). If the owner prefers no holdout, drop B-U and each family discloses the seen names as a prior look touching about 5 percent of the panel.
 - The `daily_unseen` universe of the daily residual prereg (section 2, 1,269 names of `compute_eligible_1d`) is superseded for H-A by the rule above; that supersession is draft amendment A1 in section 3.
 
 **Target.** `panel.forward_returns`, `ln(open[d+h+1] / open[d+1])`, residualized by S1 vintage 1 with the forward-horizon lag (`transform.s1_target(panel, h, vintage_1)`), exactly the family's recipe. Total-return prices (`panel.total_return: {suspect_yield: 0.10}`); outside `dividend_event_coverage` dividends are unknown, never zero. Horizon h = 5 only. The h = 21 versions wait for todo 547 and are new specs with their own counted attempts. S1 is regenerated from the rebuilt tables on the membership panel before any run; a vintage fit on the old universe is not reused.
@@ -152,6 +166,6 @@ In order, none optional:
 
 ## 7. Open points for the owner or lead
 
-- Adopt or drop the seen-name holdout (B-U): recommendation adopt, since it costs 5 percent of the panel and keeps the run unseen.
-- Core panel counted as its own series (doubles each count): recommendation count it, as the stage 2 rule requires every family on both panels.
+- Seen-name holdout (B-U): lead ruled adopt, pending the owner (adoption list, item 2).
+- Core panel counted as its own series: lead ruled yes (doubles each count).
 - H-B's regime disclosure stays off until todo 583 is fixed; H-A and H-C carry no regime claim.
