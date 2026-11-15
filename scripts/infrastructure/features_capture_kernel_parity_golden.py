@@ -15,6 +15,9 @@ Usage: python scripts/infrastructure/features_capture_kernel_parity_golden.py [-
        python scripts/infrastructure/features_capture_kernel_parity_golden.py --from-stored \
            --reason "why the golden changes"
 
+`--production --reason "..."` writes `production_golden.json`: the digests of the path the corpus
+rerun runs (`_compute_series_columns`) over the same stored real cases (no fetch, no database).
+
 `--from-stored` recomputes every case from the stored `real_inputs.npz` and the stored synthetic
 inputs (no fetch, no database), rewrites the digests and samples, and records the reason and the
 changed columns per case in the manifest, pushing the previous record into its history.
@@ -237,14 +240,43 @@ def regenerate_from_stored(out_dir: Path, reason: str) -> int:
     return 0
 
 
+def regenerate_production(out_dir: Path, reason: str) -> int:
+    """Digest the production path (`_series_kernel_inputs` + `_compute_series_columns`, the path
+    the corpus rerun runs) over the stored real cases into `production_golden.json`. No fetch, no
+    database; the legacy golden files are not touched."""
+    manifest = json.loads((out_dir / "manifest.json").read_text())
+    cases = [c for c in manifest["sample"]["cases"] if c["kind"] == "real"]
+    digests = {ref.case_id(c): ref.digest_output(ref.compute_production(c, out_dir)) for c in cases}
+    record = {
+        "reason": reason,
+        "capture_commit": git_head(),
+        "hmm": "SMALL_HMM_APR of tests/unit/intelligence/regime_kernel_fixtures.py",
+        "cases": digests,
+    }
+    (out_dir / "production_golden.json").write_text(json.dumps(record, indent=1) + "\n")
+    print(
+        f"production golden: {len(digests)} cases, {sum(len(d['columns']) for d in digests.values())} columns"
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="tests/fixtures/kernel_parity")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--from-stored", action="store_true", help="regenerate, no fetch")
+    parser.add_argument(
+        "--production",
+        action="store_true",
+        help="digest the production path over the stored real cases (no fetch)",
+    )
     parser.add_argument("--reason", help="why the golden changes (required with --from-stored)")
     args = parser.parse_args()
     out_dir = (REPO_ROOT / args.out).resolve()
+    if args.production:
+        if not args.reason:
+            parser.error("--production needs --reason")
+        return regenerate_production(out_dir, args.reason)
     if args.from_stored:
         if not args.reason:
             parser.error("--from-stored needs --reason")

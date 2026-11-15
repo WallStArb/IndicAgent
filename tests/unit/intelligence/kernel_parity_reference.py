@@ -12,6 +12,7 @@ reason recorded (D-25).
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ TEXT_COLUMNS = frozenset(
     }
 )
 CROSS_ASSET_SYMBOLS = ("SPY", "TLT", "SHY", "TIP", "HYG", "LQD")
+_BAR_FIELDS = ("open", "high", "low", "close", "volume")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _NAN = np.float32("nan")
 
@@ -160,22 +162,18 @@ def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> Referen
     return _to_output(_ALL_COLUMN_NAMES, rows)
 
 
-def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
-    """The legacy batch path the golden fixture pins.
+@dataclass
+class _RealCaseInputs:
+    bars: list[dict]
+    htf_bars: list[dict]
+    config: Any
+    cross_asset_by_date: dict
+    beta_by_date: dict
+    ctf_by_ts: Any
 
-    186-25 deleted `backfill_feature_factory._compute_symbol_tf` (the old compute stage the
-    fixture originally replayed); the same steps are inlined here against the still-live
-    legacy `FeatureFactory.compute_batch`, so the golden files never change (D-25). The
-    registry-parity fixture is a historical pin: the v2 rebuild computes through
-    `compute_kernels`, which 186-15's own tests pin separately.
-    """
-    from src.core.market_calendar import get_market_calendar
-    from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
-    from src.intelligence.features.feature_vector_persistence import (
-        _ALL_COLUMN_NAMES,
-        feature_vector_to_insert_params,
-    )
-    from src.intelligence.features.kernels._cache_state import FeatureCache
+
+def _real_case_inputs(case: dict, manifest: dict, fixture_dir: Path) -> _RealCaseInputs:
+    """The stored inputs of one real case, built once for both compute paths."""
     from src.intelligence.features.kernels.cross_tf import (
         _build_ctf_series,
         _rekey_ctf_series_to_actual_close,
@@ -193,7 +191,6 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
     beta_by_date = build_symbol_beta_series(d1[symbol], d1["SPY"], d1["TLT"], symbol, config)
     prefix = f"case/{symbol}/{tf}"
     bars = d1[symbol] if tf == "1d" else _series_bars(npz, f"{prefix}/main")
-
     htf_tf = config.ctf_higher_tf_map.get(tf)
     htf_bars = (
         d1[symbol]
@@ -204,17 +201,38 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
     ctf_by_ts = (
         _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf) if period_start else None
     )
+    return _RealCaseInputs(bars, htf_bars, config, cross_asset_by_date, beta_by_date, ctf_by_ts)
 
+
+def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
+    """The legacy batch path the golden fixture pins.
+
+    186-25 deleted `backfill_feature_factory._compute_symbol_tf` (the old compute stage the
+    fixture originally replayed); the same steps are inlined here against the still-live
+    legacy `FeatureFactory.compute_batch`, so the golden files never change (D-25). The
+    registry-parity fixture is a historical pin: the v2 rebuild computes through
+    `compute_kernels`, which 186-15's own tests pin separately.
+    """
+    from src.core.market_calendar import get_market_calendar
+    from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
+    from src.intelligence.features.feature_vector_persistence import (
+        _ALL_COLUMN_NAMES,
+        feature_vector_to_insert_params,
+    )
+    from src.intelligence.features.kernels._cache_state import FeatureCache
+
+    real = _real_case_inputs(case, manifest, fixture_dir)
+    symbol, tf = case["symbol"], case["tf"]
     results = FeatureFactory.compute_batch(
-        bars,
+        real.bars,
         symbol,
         tf,
         FeatureCache(),
-        config,
+        real.config,
         warm_up_bars=manifest["warm_up_bars"],
-        cross_asset_by_date=cross_asset_by_date,
-        ctf_by_ts=ctf_by_ts,
-        beta_by_date=beta_by_date,
+        cross_asset_by_date=real.cross_asset_by_date,
+        ctf_by_ts=real.ctf_by_ts,
+        beta_by_date=real.beta_by_date,
     )
     calendar = get_market_calendar()
     rows = [
@@ -232,6 +250,52 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
         if calendar.is_trading_bar("NYSE", ts, tf)
     ]
     return _to_output(_ALL_COLUMN_NAMES, rows)
+
+
+def compute_production(case: dict, fixture_dir: Path = FIXTURE_DIR) -> ReferenceOutput:
+    """The same real case through the path the corpus rerun runs: `_series_kernel_inputs` and
+    `_compute_series_columns` (one `compute_kernels` call from the series start, declared-warmup
+    and none masks, float32 clamp). Rows are the legacy reference's rows (after the manifest's
+    warm-up bars, trading bars only) so the two outputs align; only the columns the golden
+    manifest names are returned."""
+    from services.backfill_feature_factory import _compute_series_columns, _series_kernel_inputs
+    from src.core.market_calendar import get_market_calendar
+    from src.intelligence.features.feature_vector_persistence import feature_vectors_numeric_columns
+    from src.intelligence.features.kernels._hmm import HmmConfig
+    from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
+
+    manifest = load_manifest(fixture_dir)
+    real = _real_case_inputs(case, manifest, fixture_dir)
+    # The stored real_config carries no HMM section (the legacy path read the regime from a cache
+    # that never ran); the regime kernels run under the unit-test HMM values, pinned here.
+    config = dataclasses.replace(real.config, hmm=HmmConfig.from_values(SMALL_HMM_APR.get))
+    symbol, tf = case["symbol"], case["tf"]
+    n = len(real.bars)
+    arrays = {
+        "ts": np.array([dt_to_ns(b["ts"]) for b in real.bars], dtype=np.int64),
+        **{f: np.array([b[f] for b in real.bars], dtype=np.float64) for f in _BAR_FIELDS},
+        "volume_basis": constant_volume_basis(n),
+    }
+    inputs = _series_kernel_inputs(
+        symbol, tf, arrays, config, real.cross_asset_by_date, real.beta_by_date, real.htf_bars
+    )
+    series = _compute_series_columns(inputs, config)
+    calendar = get_market_calendar()
+    keep = np.array(
+        [
+            i >= manifest["warm_up_bars"]
+            and calendar.is_trading_bar("NYSE", real.bars[i]["ts"], tf)
+            for i in range(n)
+        ],
+        dtype=bool,
+    )
+    golden = set(manifest["numeric_columns"])
+    columns = {
+        name: series.numeric[keep, j].astype(np.float32)
+        for j, name in enumerate(feature_vectors_numeric_columns())
+        if name in golden
+    }
+    return ReferenceOutput(bar_ts=arrays["ts"][keep], columns=columns, text_columns={})
 
 
 def compute_reference(case: dict, fixture_dir: Path = FIXTURE_DIR) -> ReferenceOutput:
