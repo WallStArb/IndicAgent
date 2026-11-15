@@ -48,7 +48,7 @@ Set once per session:
 cd /home/bg/dev/indicagent
 PY=.venv/bin/python
 OUT=logs/massive_step7            # all step 7 evidence; mkdir -p "$OUT"
-GAP=data/ticker_entity_map/20261110_be44ac7d4ea7/gap_list.csv   # the map the sweep loaded under; pin it (A11 replaces it)
+GAP=data/ticker_entity_map/20261114_6195ae11abff/gap_list.csv   # the installed map (install 6195ae11abff-20261114T204239Z); pin it
 SEAM=2026-11-12                  # the manifest's last file day; D2's --seam reads this, never a hardcoded date
 PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1"
 ```
