@@ -12,8 +12,15 @@ Rule at t, for one security (one identity, so a reused ticker is two securities 
 - type: Massive reference type at t is common stock, ADR common or ETF (``ELIGIBLE_TYPES``);
 - bar on t: the security has a bar on t itself (a delisted or halted name has none, so it leaves
   at the first month-end after its last bar; no later data is read);
-- price: close on t at or above ``min_close``;
-- history: at least ``min_history_sessions`` of the security's own bars through t;
+- price: the AS-TRADED close on t at or above ``min_close``. Canonical closes are split-adjusted
+  by every split on record, including splits after t, so the stored close is un-adjusted by the
+  product of the factors of splits whose effective_date is on or after t (the inverse of
+  `split_rescale`: a bar dated on or before a split's effective_date was divided by its factor).
+  A $0.40 name that later reverse-splits 1:20 stored $8 and still fails; a $5 name that later
+  splits 10:1 stored $0.50 and still passes. The test and the stored close use what traded on t;
+- history: at least ``min_history_sessions`` of the security's own bars through t (the 60 bars
+  include t itself; "60 sessions before t" read strictly would need 61, a one-session difference
+  recorded in docs/plans/2026-11-15-universe-membership-design.md);
 - liquidity: the median of close x volume over the last ``window_sessions`` own bars through t is
   at or above ``entry_floor`` to enter, and a current member stays while it is at or above
   ``exit_floor`` (hysteresis: the exit floor is below the entry floor, so a name between the two
@@ -25,16 +32,20 @@ median is not computable and the security is not a member (no_fill: nothing is f
 dropped). Bars after t are never read, so a decision at t cannot move when later bars arrive.
 
 Dollar volume is close x volume per bar as stored. The product is invariant under a split
-adjustment applied to both columns, so no adjustment is applied here.
+adjustment applied to both columns, so the liquidity window needs no un-adjustment; only the
+price test needs the as-traded close.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 
 import numpy as np
+
+from src.intelligence.bars.split_rescale import SplitFactor
 
 # Identifies the preregistered rule values. A dated amendment that changes any value below bumps
 # this id; the build ledger refuses to extend a build made under another id.
@@ -76,6 +87,7 @@ class SecurityHistory:
     days: np.ndarray  # datetime64[D]
     close: np.ndarray  # float64
     volume: np.ndarray  # float64
+    splits: tuple[SplitFactor, ...] = ()  # every market split on record for the symbol
 
     def __post_init__(self) -> None:
         if not (len(self.days) == len(self.close) == len(self.volume)):
@@ -92,7 +104,7 @@ class MembershipRow:
     symbol: str
     security_type: str
     median_dollar_volume: float
-    close: float
+    close: float  # as traded on as_of, not the split-adjusted canonical close
     sessions: int
     entered: bool
 
@@ -107,6 +119,14 @@ def month_end_sessions(sessions: Iterable[date]) -> list[date]:
     for day in sorted(sessions):
         last[(day.year, day.month)] = day
     return sorted(last.values())
+
+
+def as_traded_close(canonical_close: float, as_of: date, splits: Iterable[SplitFactor]) -> float:
+    """The close that traded on `as_of`: the canonical (split-adjusted) close times the factor of
+    every split with effective_date on or after `as_of`, rounded to 6 places (prices are served
+    with at most 4, so rounding only removes the float noise of the round trip)."""
+    scale = math.prod(split.factor for split in splits if split.effective_date >= as_of)
+    return round(canonical_close * scale, 6)
 
 
 def decide(
@@ -125,8 +145,8 @@ def decide(
     n = int(np.searchsorted(history.days, np.datetime64(as_of, "D"), side="right"))
     if n < rule.min_history_sessions or history.days[n - 1] != np.datetime64(as_of, "D"):
         return None
-    close = float(history.close[n - 1])
-    if not np.isfinite(close) or close < rule.min_close:
+    close = as_traded_close(float(history.close[n - 1]), as_of, history.splits)
+    if not math.isfinite(close) or close < rule.min_close:
         return None
     start = n - rule.window_sessions
     dollar = history.close[start:n] * history.volume[start:n]

@@ -7,11 +7,13 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from src.intelligence.bars.split_rescale import SplitFactor
 from src.intelligence.universe_membership import (
     ELIGIBLE_TYPES,
     RULE,
     MembershipRule,
     SecurityHistory,
+    as_traded_close,
     decide,
     memberships_for_security,
     month_end_sessions,
@@ -197,3 +199,23 @@ def test_history_rejects_unsorted_days():
 def test_month_end_sessions_takes_last_session_per_month():
     days = [date(2020, 1, 30), date(2020, 1, 31), date(2020, 2, 3), date(2020, 2, 28)]
     assert month_end_sessions(days) == [date(2020, 1, 31), date(2020, 2, 28)]
+
+
+def test_as_traded_close_undoes_splits_on_or_after_t_only():
+    splits = [SplitFactor(date(2020, 6, 1), 10.0), SplitFactor(date(2019, 1, 1), 2.0)]
+    # t before both: both undone is wrong for the older one; only splits effective >= t count
+    assert as_traded_close(0.5, date(2020, 3, 31), splits) == pytest.approx(5.0)
+    assert as_traded_close(0.5, date(2020, 6, 1), splits) == pytest.approx(5.0)  # effective day
+    assert as_traded_close(0.5, date(2020, 6, 2), splits) == pytest.approx(0.5)
+    assert as_traded_close(0.5, date(2018, 1, 1), splits) == pytest.approx(10.0)
+
+
+def test_future_reverse_split_name_is_not_admitted_and_future_split_name_is_kept():
+    days = _days(60)
+    penny = _history(days, 2e6, close=8.0)  # as traded 0.40, then a 1:20 reverse split
+    object.__setattr__(penny, "splits", (SplitFactor(date(2021, 1, 4), 0.05),))
+    assert decide(penny, days[-1], "CS", False) is None
+    rich = _history(days, 2e6, close=0.5)  # as traded 5.0, then a 10:1 split
+    object.__setattr__(rich, "splits", (SplitFactor(date(2021, 1, 4), 10.0),))
+    row = decide(rich, days[-1], "CS", False)
+    assert row is not None and row.close == pytest.approx(5.0)

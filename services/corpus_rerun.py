@@ -760,6 +760,34 @@ def module_files() -> list[str]:
     return [str(services.__file__), str(writer.__file__)]
 
 
+_IC_UNIVERSE_READERS = ("services/ic_measure.py", "src/intelligence/research/snapshot.py")
+_IC_UNIVERSE_MARKERS = ("universe_membership", "corpus_universe")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_ic_universe_aligned(root: Path = _REPO_ROOT) -> Any:
+    """Blocks the corpus rerun while the IC measurement reads another universe than the corpus
+    computes (todo 609 blocker I1): ic_measure and research S0 take their symbols from the
+    `compute_eligible*` flags, so a membership-universe corpus would be measured on a different
+    name set. Passes once both source files read `universe_membership` (or `corpus_universe`);
+    until then it fails loudly. A source check, so wiring the readers clears it without an edit
+    here."""
+    from services import rebuild_preconditions as rp
+
+    stale = [
+        rel
+        for rel in _IC_UNIVERSE_READERS
+        if not any(marker in (root / rel).read_text() for marker in _IC_UNIVERSE_MARKERS)
+    ]
+    detail = (
+        "ic_measure and research S0 read the same universe as the corpus compute"
+        if not stale
+        else f"{', '.join(stale)} read the compute_eligible flags, not universe_membership; "
+        "the corpus universe and the IC universe differ (todo 609 blocker I1)"
+    )
+    return rp.CheckResult("ic_universe_aligned", not stale, detail)
+
+
 def rebuild_precondition_results(
     conn: Any, settings: Settings, includes_intraday: bool, disk: Mapping[str, int]
 ) -> list[Any]:
@@ -782,22 +810,29 @@ def rebuild_precondition_results(
         present = {name for (name,) in cur.fetchall()}
     decision_path = rp._PROJECT_ROOT / TODO445_DECISION_PATH
     decision = json.loads(decision_path.read_text()).get("todo445_decision")
-    return rp.run_all(
-        bar_scan=rp.fetch_bar_verdict_inputs(conn, symbols, tfs),
-        empty_history_spans=rp.fetch_empty_history_spans(conn, tfs),
-        grid_marker_present=grid,
-        grid_marker_detail="",
-        d2_scan=rp.fetch_d2_inputs(conn, symbols),
-        final_landed_markers=rp.fetch_final_landed_markers(),
-        todo445_decision=decision,
-        configured_tfs=tfs,
-        dependency_markers=markers,
-        present_relations=present,
-        disk=disk,
-        process_lines=rp.fetch_process_lines(),
-        resumable_log_evidence="",
-        includes_intraday=includes_intraday,
-    )
+    ic_universe = check_ic_universe_aligned()
+    try:
+        results = rp.run_all(
+            bar_scan=rp.fetch_bar_verdict_inputs(conn, symbols, tfs),
+            empty_history_spans=rp.fetch_empty_history_spans(conn, tfs),
+            grid_marker_present=grid,
+            grid_marker_detail="",
+            d2_scan=rp.fetch_d2_inputs(conn, symbols),
+            final_landed_markers=rp.fetch_final_landed_markers(),
+            todo445_decision=decision,
+            configured_tfs=tfs,
+            dependency_markers=markers,
+            present_relations=present,
+            disk=disk,
+            process_lines=rp.fetch_process_lines(),
+            resumable_log_evidence="",
+            includes_intraday=includes_intraday,
+        )
+    except rp.RebuildPreconditionFailure as failure:
+        raise rp.RebuildPreconditionFailure([*failure.results, ic_universe]) from None
+    if not ic_universe.ok:
+        raise rp.RebuildPreconditionFailure([*results, ic_universe])
+    return [*results, ic_universe]
 
 
 @dataclasses.dataclass
