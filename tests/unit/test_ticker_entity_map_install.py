@@ -387,3 +387,22 @@ def test_a_pytest_run_naming_the_nightly_test_file_is_not_a_loader(tmp_path):
     finally:
         bystander.kill()
         bystander.wait()
+
+
+def test_a_reopened_span_is_retired_and_inserted_with_the_open_end(tmp_path):
+    witness = json.dumps({"amendment": "design 8c identity witness (lead ruling 2026-11-13)"})
+    live = [
+        OldSpan("ACGL", "ACGL", D("2003-09-10"), D("2026-11-10"), "BBG7", "raw", witness),
+        *OLD,
+    ]
+    result = plan_documentary_map(live, [], [], [], "p" * 8, D("2026-11-10"))
+    nothing = {"1d": {"map_gap_rows": 0, "covered": 0}, "5m": {"map_gap_rows": 0, "covered": 0}}
+    reconciliation = reconcile_coverage(result.spans, {"1d": [], "5m": []}, nothing)
+    name, built = render_documentary_map(live, result, {"x": 1}, reconciliation, "20261115")
+    write_map_files(tmp_path / name, built)
+    plan = plan_install(read_map_dir(tmp_path / name), live, UNTOUCHED)
+    assert plan.status == "install"
+    assert [(k[0], k[3], d) for k, d in plan.retire] == [("ACGL", D("2026-11-10"), "reopened")]
+    assert [(s.symbol, s.end, s.origin) for s in plan.insert] == [("ACGL", OPEN, "reopened")]
+    assert (plan.live_before, plan.live_after) == (5, 5)
+    assert plan.touched_symbols == {"ACGL"}
