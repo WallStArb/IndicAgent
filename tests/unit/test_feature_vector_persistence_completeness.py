@@ -143,8 +143,8 @@ def test_regime_writer_set_cols_derive_from_the_canonical_tuples():
 # feature_vector_to_insert_params() is the single shared row-serializer for both the
 # live asyncpg write path (FeatureVectorWriter) and the batch psycopg write path
 # (backfill_feature_factory) -- it never clamped a `real`-typed float to what Postgres's
-# `real` (float4) column can represent, unlike services/_batch_utils.py's
-# bulk_update_by_key (todo 312). A feature value with magnitude smaller than float4's
+# `real` (float4) column can represent, unlike the batch bulk-update helper
+# (since deleted; todo 312). A feature value with magnitude smaller than float4's
 # smallest subnormal (e.g. a highly-confident HMM posterior probability residual) made
 # Postgres reject the whole INSERT batch with "value out of range: underflow",
 # permanently stalling BIL/VRP/ENPH/GLD/NAD/SHY/STIP's backfills at 40-90% coverage.

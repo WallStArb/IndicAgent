@@ -153,15 +153,15 @@ placeholders).
 feature_vector_to_insert_params() now clamps every real-typed float through
 src.core.real_column_range.clamp_to_real_range() before returning the INSERT
 tuple. Root cause: this function is the single shared row-serializer for both
-write paths (module docstring above), but unlike services/batch_support/bulk_update.py's
-bulk_update_by_key (todo 312, 2026-08-14), it never protected against a
+write paths (module docstring above), but unlike the batch bulk-update helper (todo 312, 2026-08-14, since
+deleted), it never protected against a
 feature value underflowing Postgres's `real` (float4) representable range --
 a near-zero HMM posterior probability/entropy residual for a low-variance
 instrument (BIL, SHY, and 5 others) made Postgres reject the whole
 executemany() batch with "value out of range: underflow", permanently
 stalling those symbols' backfills at 40-90% coverage. clamp_to_real_range()
 lives in src/core/ (Ring 0) rather than being imported from
-services/batch_support/bulk_update.py (Ring 2) or duplicated here, so both call sites stay
+services/ (Ring 2) or duplicated here, so both call sites stay
 byte-identical.
 
 2026-09-23: extended to 309 columns (migration 350, Phase 176 Plan 03, todo

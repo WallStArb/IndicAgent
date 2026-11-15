@@ -1,7 +1,7 @@
 """Postgres `real` (IEEE 754 float4) column range clamping.
 
 Ring 0 (portable infrastructure, no domain vocab) so it can be imported by both a Ring 2
-batch service (services/batch_support/bulk_update.py) and a Ring 1 domain module
+batch service (services/batch_support/bulk_load.py) and a Ring 1 domain module
 (src/intelligence/features/feature_vector_persistence.py) without violating the Ring import
 rule (Ring 1 must not import services/).
 
@@ -16,8 +16,7 @@ Clamping the underflow tail to 0.0 is the mathematically correct value at this p
 an approximation being papered over. The overflow tail is symmetric defensive coverage.
 
 2026-09-22 (underflow-7symbol-real-column debug session): promoted out of
-services/batch_support/bulk_update.py, where it originally lived as a private helper used only by
-bulk_update_by_key. feature_vector_persistence.py's feature_vector_to_insert_params() -- the
+the batch bulk-update helper (since deleted), where it originally lived as a private helper. feature_vector_persistence.py's feature_vector_to_insert_params() -- the
 single shared row-serializer for both the live asyncpg write path (feature_vector_writer.py)
 and the batch psycopg write path (backfill_feature_factory.py) -- hit the identical Postgres
 error class on a different write primitive (raw INSERT, not bulk_update_by_key's COPY+UPDATE)

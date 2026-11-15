@@ -14,10 +14,10 @@ import psycopg.sql as pg_sql
 import structlog
 from psycopg.types.json import Jsonb
 
-from services.batch_support.bulk_update import _clamp_to_real_range
 from services.batch_support.config import cfg
 from services.batch_support.db import table_column_types
 from src.core.canonical_json import canonical_json
+from src.core.real_column_range import clamp_to_real_range
 from src.core.service_utils import format_iso_ts
 
 _logger = structlog.get_logger()
@@ -533,7 +533,7 @@ def _bulk_load_locked(
                     last_time = time_value
                     if real_positions and not preclamped_real:
                         row = tuple(
-                            _clamp_to_real_range(v) if i in real_positions else v
+                            clamp_to_real_range(v) if i in real_positions else v
                             for i, v in enumerate(row)
                         )
                     copy.write_row(row)

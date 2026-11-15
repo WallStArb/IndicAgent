@@ -47,7 +47,7 @@ class ScriptedCursor:
         # compressed_hypertable_write_session's combined statement_timeout +
         # idle_session_timeout APR lookup reads via fetchall(), not fetchone() --
         # default empty (no APR rows scripted) so the session falls back to its own
-        # defaults, same shape as _mock_sync_conn in tests/unit/test_batch_utils.py.
+        # defaults, same shape as _mock_sync_conn in tests/unit/test_batch_support_write_session.py.
         return self._response.get("fetchall", [])
 
     @property

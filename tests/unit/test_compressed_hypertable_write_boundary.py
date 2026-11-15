@@ -6,12 +6,9 @@ services/batch_support/write_session.py's `compressed_hypertable_write_session` 
 writeup): a compressed chunk has no usable per-row index at all, so ANY row-level UPDATE
 against one -- regardless of how selective its WHERE/JOIN predicate is -- forces a full
 Seq Scan (decompressing the chunk) at roughly 1000x the cost of the same UPDATE against a
-decompressed chunk. `bulk_update_by_key`'s callers can't be told apart from a hand-rolled
-UPDATE by grepping the table name (bulk_update_by_key's own SQL is built as
-`f"UPDATE {table} ..."`, so the literal text `UPDATE feature_vectors` never appears in its
-call sites' source) -- so this guard's job is narrower than "wrap every write": it exists
+decompressed chunk. This guard's job is narrower than "wrap every write": it exists
 to force any NEW raw, hand-rolled UPDATE against one of these tables through the same
-"why does this need to bypass bulk_update_by_key" justification `test_market_data_ohlcv_
+"why is this raw UPDATE needed" justification `test_market_data_ohlcv_
 boundary.py` already established for a structurally similar problem, at review time, in
 the diff, rather than relying on someone remembering the incident later.
 
@@ -65,9 +62,9 @@ def test_every_raw_compressed_hypertable_update_is_on_the_allow_list():
             "`UPDATE market_data_ohlcv` reference(s)"
         ),
         remedy=(
-            "If this is a genuine new write, prefer routing it through "
-            "bulk_update_by_key + compressed_hypertable_write_session (or the async "
-            "sibling) in services/batch_support/write_session.py rather than a hand-rolled UPDATE -- see "
+            "If this is a genuine new write, prefer bracketing it with "
+            "compressed_hypertable_write_session (or the async sibling) in "
+            "services/batch_support/write_session.py rather than a bare hand-rolled UPDATE -- see "
             "that function's docstring for why a raw UPDATE against these tables is "
             "~1000x more expensive than it looks. For market_data_ohlcv specifically, "
             "bar_derivation owns all derived-row writes and bar_scrub owns corrections "

@@ -31,7 +31,7 @@
 | `services/ic_engine.py` | `ICEngineConfig` gains `active_scales: dict[str, tuple[str, ...]]` field + `active_scales_for(tf)` method + `from_apr()` loading + `_COMPUTATIONAL_CONFIG_FIELDS` classification; 12 `_SCALES` call sites become local-variable bindings of `config.active_scales_for(tf)` |
 | `services/ensemble_ic_engine.py` | `EnsembleICConfig` gains the same field/method/loading (mirrors `ICEngineConfig`, no fingerprint classification needed — no fingerprint mechanism exists in this file) |
 | `production/migrations/271_ic_active_scales.sql` | Seeds `alpha.ic.active_scales.{5m,15m,1h,1d}` — `1h` gets `["fast","mid"]`, the other three get all four scales |
-| `tests/unit/test_batch_utils_active_scales.py` | New file: `canonicalize_active_scales()` behavior (ordering, unknown-scale rejection, empty-input handling) |
+| `the active-scales unit test (deleted 2026-11-15)` | New file: `canonicalize_active_scales()` behavior (ordering, unknown-scale rejection, empty-input handling) |
 | `tests/unit/test_ic_engine_fingerprint.py` | Extended: new field classified, snapshot key moves on `active_scales` change, deterministic regardless of configured JSON-array order |
 | `tests/unit/test_ic_engine_active_scales_boundary.py` | New file: grep-based boundary test asserting no bare `_SCALES` reference survives outside its own definition line |
 
@@ -41,7 +41,7 @@
 
 **Files:**
 - Modify: `services/batch_support/config.py` (add after `get_dict_config`, ~line 223)
-- Test: `tests/unit/test_batch_utils_active_scales.py` (new)
+- Test: `the active-scales unit test (deleted 2026-11-15)` (new)
 
 **Interfaces:**
 - Produces: `_CANONICAL_SCALE_ORDER: tuple[str, ...]` (module constant, `("fast", "mid", "slow", "extended")`), `ACTIVE_SCALES_FALLBACKS_BY_TF: dict[str, tuple[str, ...]]`, `canonicalize_active_scales(scales: list[str] | tuple[str, ...]) -> tuple[str, ...]`, `get_list_config(cfg_service: ConfigService, key: str, default: list) -> list`
@@ -118,7 +118,7 @@ def test_active_scales_fallbacks_already_canonically_ordered():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/unit/test_batch_utils_active_scales.py -v`
+Run: `.venv/bin/pytest the active-scales unit test (deleted 2026-11-15) -v`
 Expected: FAIL (`ImportError: cannot import name 'ACTIVE_SCALES_FALLBACKS_BY_TF'`)
 
 - [ ] **Step 3: Implement in `services/batch_support/config.py`**
@@ -186,13 +186,13 @@ def get_list_config(cfg_service: ConfigService, key: str, default: list) -> list
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/unit/test_batch_utils_active_scales.py -v`
+Run: `.venv/bin/pytest the active-scales unit test (deleted 2026-11-15) -v`
 Expected: PASS (9 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/batch_support/config.py tests/unit/test_batch_utils_active_scales.py
+git add services/batch_support/config.py the active-scales unit test (deleted 2026-11-15)
 git commit -m "feat(batch_utils): add canonicalize_active_scales + per-tf active-scale fallback table"
 ```
 

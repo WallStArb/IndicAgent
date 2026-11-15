@@ -6,47 +6,10 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _prewarm_compressed_hypertable_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Todo 308: services/batch_support/write_session.py's `_known_compressed_hypertables` cache is
-    process-lifetime, shared module state -- pre-warm it to today's real-world value
-    before every unit test so (a) a mocked DB response in one test can't leak into
-    another's assertions via this shared state, and (b) every pre-existing test across the
-    suite that calls `bulk_update_by_key`/`compressed_hypertable_write_session` (directly
-    or via a service under test) without any conn scripting for the new live query keeps
-    working exactly as before -- those conn mocks were written before this cache existed
-    and were never meant to answer it. Repo-wide (not just tests/unit/test_batch_utils.py)
-    because several other test files exercise this machinery indirectly through the
-    services they test (ic_engine, ops_regime_null_out_and_verify, regime_writer,
-    ic_shrinkage_step). Tests exercising the cache-population mechanism itself
-    (TestKnownCompressedHypertablesCache in test_batch_utils.py) explicitly reset to None
-    first.
-
-    This is a test-default convenience, not a drift-detection mechanism: no unit test here
-    (mocked connections, no real DB) could verify the live query's result matches actual
-    production schema either before or after todo 308 -- that guarantee now lives entirely
-    in production code (the live query itself can't go stale the way a hardcoded literal
-    could), the same way it always has for every other mocked-response default in this
-    file (e.g. the sibling fixture above). Deliberately kept autouse/repo-wide rather than
-    opt-in per file (an alternative code review raised): scoping it to only the ~7 files
-    that need it is real, valid follow-up work, but out of scope for todo 308's own "Where"
-    (this file + its tests only).
-    """
-    try:
-        import services.batch_support.write_session as batch_utils
-    except ImportError:
-        return
-    monkeypatch.setattr(
-        batch_utils,
-        "_compressed_hypertable_names_cache",
-        frozenset({"feature_vectors", "feature_ic_scores"}),
-    )
-
-
-@pytest.fixture(autouse=True)
 def _skip_decompress_headroom_preflight(request, monkeypatch):
     """Todo 426: compressed_hypertable_write_session's disk-headroom pre-flight issues its own
     queries and reads the host filesystem, which the scripted fake connections throughout
-    tests/unit/ don't model. It is tested directly in test_batch_utils.py; tests that need the
+    tests/unit/ don't model. It is tested directly in test_batch_support_write_session.py; tests that need the
     real pre-flight mark themselves `real_headroom_check`."""
     if request.node.get_closest_marker("real_headroom_check"):
         return
@@ -55,11 +18,7 @@ def _skip_decompress_headroom_preflight(request, monkeypatch):
     except ImportError:
         return
 
-    async def _noop_async(conn, hypertable):
-        return None
-
     monkeypatch.setattr(batch_utils, "_assert_decompress_headroom", lambda conn, hypertable: None)
-    monkeypatch.setattr(batch_utils, "_assert_decompress_headroom_async", _noop_async)
 
 
 # --- todo 494: unit tests must not reach the live database --------------------------
