@@ -35,6 +35,7 @@ from src.intelligence.features.kernels._primitives import (
     wilder_memory_bars,
     wilder_rsi_series,
 )
+from src.intelligence.features.kernels._windowed import high_distance
 
 if TYPE_CHECKING:
     pass
@@ -615,15 +616,21 @@ def _ret_acf1_z_series_full(closes: np.ndarray, acf_window: int, zscore_window: 
 
 def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     """Distance from rolling-max series. result[i] == streaming high_52w_dist at bar i.
-    O(n × window) — called once vs per-bar (not per-bar O(n^2) total).
+
+    From the first full window on it is `high_distance` (the registry's one sliding-max
+    implementation, todo 551); the first `window - 1` rows keep this column's own warmup, the
+    max over the rows seen so far. Row 0 and any window that is not finite or whose max is below
+    the floor read 0.0 (the column's neutral state).
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
-    for b in range(1, n):
-        w = min(window, b + 1)
-        rolling_max = float(np.max(closes[b + 1 - w : b + 1]))
+    for b in range(1, min(window - 1, n)):
+        rolling_max = float(np.max(closes[: b + 1]))
         if rolling_max >= 1e-10:
             result[b] = (float(closes[b]) - rolling_max) / rolling_max
+    full = high_distance(closes, window)
+    mask = np.isfinite(full)
+    result[mask] = full[mask]
     return result
 
 

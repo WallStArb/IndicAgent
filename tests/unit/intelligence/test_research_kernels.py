@@ -68,11 +68,33 @@ def test_percentile_parity_bit_equal_after_warmup(window):
     assert np.array_equal(ours[window - 1 :], ref[window - 1 :])
 
 
+def _high_dist_loop(closes: np.ndarray, window: int) -> np.ndarray:
+    """The stored column's original O(n x window) loop, frozen as the parity oracle (todo 551)."""
+    result = np.zeros(len(closes), dtype=float)
+    for b in range(1, len(closes)):
+        w = min(window, b + 1)
+        rolling_max = float(np.max(closes[b + 1 - w : b + 1]))
+        if rolling_max >= 1e-10:
+            result[b] = (float(closes[b]) - rolling_max) / rolling_max
+    return result
+
+
 @pytest.mark.parametrize("window", [20, 60, 252])
 def test_high_dist_parity_bit_equal_after_warmup(window):
     ours = _run(rolling_max_distance_kernel(window), PARITY)
-    ref = _high_52w_dist_series_full(PARITY["close"], window).astype(np.float32)
+    ref = _high_dist_loop(PARITY["close"], window).astype(np.float32)
     assert np.array_equal(ours[window - 1 :], ref[window - 1 :])
+
+
+@pytest.mark.parametrize("window", [1, 2, 3, 20, 252])
+@pytest.mark.parametrize("n", [0, 1, 2, 30, 600])
+def test_stored_high_52w_dist_equals_the_original_loop_at_every_row(window, n):
+    """The stored column now calls the registry's sliding max; its warmup rows and its NaN and
+    zero handling stay those of the loop it replaced, bit for bit in float64."""
+    close = PARITY["close"][:n].copy()
+    if n > 20:
+        close[7], close[15] = np.nan, 0.0
+    assert np.array_equal(_high_52w_dist_series_full(close, window), _high_dist_loop(close, window))
 
 
 def test_percentile_parity_with_ties():
@@ -153,6 +175,19 @@ def test_guard5_acausal_control_fails_the_probe():
     )
     with pytest.raises(CausalityViolation):
         causality_probe(control, INPUTS, None, ROWS)
+
+
+def test_windowed_families_are_registry_owned_not_stored():
+    """Todos 551, 552: the two families live in kernels/_windowed.py (underscored, so
+    discovery skips it) and the research package no longer defines them."""
+    from src.intelligence.features.kernels import _windowed
+
+    assert set(_windowed.FACTORIES) == {"rk_high_dist", "rk_vwap_dev"}
+    assert rolling.rolling_max_distance_kernel is _windowed.rolling_max_distance_kernel
+    assert rolling.rolling_vwap_deviation_kernel is _windowed.rolling_vwap_deviation_kernel
+    assert not hasattr(rolling, "_high_dist") and not hasattr(rolling, "_vwap_dev")
+    for output in default_registry().feature_columns():
+        assert family_of(output) is None
 
 
 def test_research_kernels_are_not_discovered_or_stored():
