@@ -1273,3 +1273,24 @@ was not predicted. Frozen verdicts are not re-scored.
   nothing in it reacts to a result. The volume gate stands: no full-corpus sweep before the measured
   pilot. The clean-data rule (owner 2026-10-30) still gates the first sweep; adoption removes only the
   counting-rule blocker.
+
+### E22: 2026-11-15 (OWNER EXCEPTION to the raw capture law 528): IBKR raw at or after 2003-09-10 is deleted with no export
+
+**Observed before the change.** IBKR raw held 365.4M `ohlcv_raw` rows on 2026-11-13 (5m 224.7M, 15m 94.0M,
+1h 25.4M, 1m 9.78M, 1d 11.48M) and 4.59M `ohlcv_revision` rows. Massive's flat files cover every date
+from 2003-09-10 and are the canonical source from that date (step 7); Alpaca covers the span after the
+archive end. IBKR raw is read once as evidence before the delete: the D1 card, B4's expected delta, the A11
+identity witness and the D3 seam canary.
+
+**What changed.** Law 528 (every vendor answer is stored and nothing is dropped) has one exception, ruled by the
+owner on 2026-11-13 ("IBKR is removed entirely"; no export, no restore check, no dump) and given its predicate
+by the lead on 2026-11-14: `vendor = 'ibkr' AND timestamp >= '2003-09-10'` in `ohlcv_raw` and `ohlcv_revision`,
+run by `logs/massive_step7/run_partf.sh` after Part D passes. The 672,245 IBKR 1d rows before 2003-09-10 stay: they
+are the only history before Massive's first file. Asks in `ohlcv_request` that retained rows cite stay with them.
+
+**What it costs.** The IBKR series cannot be re-read for any date at or after 2003-09-10. Canonical does not
+change (the gate compares the card recomputed after the delete with `card_after`), and no later statistic reads
+IBKR raw. A pre-2003 tape question has only the retained rows.
+
+**Pre-registered?** Yes. It is a retention decision made before the delete runs and not a response to a result of the
+machinery it modifies; it adds no look and changes no gate, threshold or return definition.
