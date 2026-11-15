@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import os
 import signal as _signal
 import time
 from datetime import UTC, date, datetime
@@ -159,12 +158,6 @@ class FeatureVectorPipeline(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        _log_file = os.environ.get("LOG_FILE")
-        if _log_file:
-            from src.core.service_utils import setup_service_logging
-
-            setup_service_logging(_log_file)
-
         _settings = get_settings()
         super().__init__(
             max_idle_seconds=300,
@@ -214,7 +207,6 @@ class FeatureVectorPipeline(BaseDaemon):
         self._ctf_lower_tfs: dict[str, list[str]] = {}
         self._feature_factory = FeatureFactory()
 
-        self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
         self._consumer_group = "feature_vector_pipeline_group"
         self._background_tasks: set = set()
 
@@ -562,7 +554,6 @@ class FeatureVectorPipeline(BaseDaemon):
         loop.add_signal_handler(_signal.SIGUSR1, self._on_feature_config_reload)
         self.logger.info(
             "agent.setup_complete",
-            shadow=self._shadow_mode,
             symbols=self._symbols,
             timeframes=self._timeframes,
         )

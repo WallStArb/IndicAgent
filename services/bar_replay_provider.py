@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
 
+from src.config.config_service import ConfigService
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -38,7 +38,8 @@ from src.observability.metrics import (
 CHECKPOINT_PATH = Path("cache/bar_replay_checkpoint.json")
 CATCH_UP_THRESHOLD = timedelta(minutes=5)
 BATCH_SIZE = 1000
-DEFAULT_RATE_BPS = float(os.environ.get("BAR_REPLAY_BARS_PER_SEC", "10"))
+RATE_BPS_KEY = "infra.bar_replay.bars_per_sec"
+DEFAULT_RATE_BPS = 10.0
 
 
 class BarReplayProvider(BaseDaemon):
@@ -56,7 +57,7 @@ class BarReplayProvider(BaseDaemon):
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
         self._last_replayed_ts: datetime | None = None
-        self._rate_bps = DEFAULT_RATE_BPS
+        self._rate_bps = DEFAULT_RATE_BPS  # set from APR in _setup
 
     async def _setup(self) -> None:
         self._pool = await create_db_pool(
@@ -67,6 +68,11 @@ class BarReplayProvider(BaseDaemon):
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._producer.start()
+        self._rate_bps = float(
+            await ConfigService(self.settings.database_url, pool=self._pool).get(
+                RATE_BPS_KEY, default=DEFAULT_RATE_BPS
+            )
+        )
         self._last_replayed_ts = self._load_checkpoint()
         self.logger.info(
             "bar_replay_provider.setup_complete",

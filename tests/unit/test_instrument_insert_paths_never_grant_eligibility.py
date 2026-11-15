@@ -84,24 +84,11 @@ def test_upsert_instruments_never_grants_eligibility():
 
 
 @pytest.mark.unit
-def test_api_startup_seed_call_matches_upsert_signature():
-    """The startup seed called upsert_instruments(instruments=...) against a parameter named
-    `contracts`; the TypeError was swallowed as "seed parse failed", so seeding an empty
-    instruments table silently did nothing."""
-    import ast
-    import inspect
+def test_api_startup_never_seeds_instruments():
+    """The API startup once seeded an empty instruments table from IBKR_CONTRACTS_JSON. Onboarding
+    goes through the instrument onboarding SOP only, so the startup path holds no insert call."""
     from pathlib import Path
 
-    params = set(inspect.signature(DatabaseManager.upsert_instruments).parameters) - {"self"}
-    tree = ast.parse((Path(__file__).resolve().parents[2] / "src/api/main.py").read_text())
-    calls = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "upsert_instruments"
-    ]
-    assert calls
-    for call in calls:
-        assert {k.arg for k in call.keywords} <= params
-        assert len(call.args) + len(call.keywords) == len(params)
+    source = (Path(__file__).resolve().parents[2] / "src/api/main.py").read_text()
+    assert "upsert_instruments" not in source
+    assert "IBKR_CONTRACTS_JSON" not in source
