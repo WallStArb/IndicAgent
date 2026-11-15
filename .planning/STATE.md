@@ -53,7 +53,9 @@ get no more effort: unplaced or excluded under todo 512, nothing blocks on them.
 Parallel lanes while Part C runs (no code in src/ or services/, no corpus reads): Opus research and ideas (published
 evidence on features, regimes and flows, ledger first, ranked shortlist in one `docs/ideas/` doc), refining existing ideas
 into testable specs, and refactor planning for the next compute layers (edits only in detached worktrees, landing after D1
-and e7's stack). The post-D1 checklist (corpus rerun runbook, todos 551/552/558/516/584/609) names the lanes and owners.
+and e7's stack), and a planning refresh (owner 2026-11-15: re-rank pending todos by the counted-test test, close shipped ones,
+bring ROADMAP and PRIORITIES in line; P0 to P3 placement is the owner's to ratify; the critical-path rewrite waits for the
+checklist). The post-D1 checklist (corpus rerun runbook, todos 551/552/558/516/584/609) names the lanes and owners.
 Unpushed refactor stack (indicagent-e7, `/home/bg/dev/wt-refactor-batch`, reviewed): os.environ removals with migration 595,
 services/batch_support split (deletes services/_batch_utils.py, moves code keys), dead-code deletion with migration 596;
 c6 is rebasing it and running every gate; it lands after D1, never before. Landed 2026-11-14 outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22;
