@@ -13,9 +13,9 @@
 | R2 cluster remainder (items 2, 3, 6, 7, 8, 4, 5) | not built | none | | | scheduled after the stack and L1 |
 | L3 universe, with the 5m tier | `/home/bg/dev/indicagent/.claude/worktrees/agent-a9b86b958ee414b2e` | `fa3fedc49` | `5d724bf16` | 9 / 9 | `universe_membership` rule, writer, `corpus_universe`, data gate, `corpus_rerun`, `backfill_feature_factory`; migration 597 |
 | I1 IC wiring | not built | none | | | plan only (L3 worktree, wiring plan items 1 to 7) |
-| Docs: prereg drafts | `/home/bg/dev/wt-prereg-drafts` | `023457eae` (3 commits) | `aac9e84a5` | 3 / 0 | docs only |
+| Docs: prereg drafts | landed on main as `1f3a83b11` | | | | docs only |
 | Docs: 184-12 gate, 516 plan, this runbook | `/home/bg/dev/wt-184-12` | see the report | `aac9e84a5` | 0 / 0 | docs only |
-| Docs: I2 tier design | `/home/bg/dev/wt-i2-tier` | `45cb4e9f7` | `fc3724037` | 1 / 5 | docs only |
+| Docs: I2 tier design | landed on main as `aa5cc47e3` | | | | docs only |
 
 Not mine and not in this runbook: `wt-refactor-batch` (`14b852606`, another session's), `wt-cleanup-audit`, `wt-runbook-partdf`.
 
@@ -72,7 +72,7 @@ $PY/mypy src/ --ignore-missing-imports | $PY/mypy-baseline filter   # exit 0 req
 | 5 | Land L3 `fa3fedc49` (rebase last; expect conflicts in `backfill_feature_factory.py` and `corpus_rerun.py`, resolve and re-run `tests/unit/services/test_backfill_feature_factory.py`, `test_corpus_rerun.py`, `test_corpus_rerun_data_gate.py`, `test_universe_membership_writer.py`, `tests/unit/test_universe_membership.py`) | 4 | per-landing gate; the I1 and I2 docs ride in it | 5m tier amendment: the code carries $25M / $12.5M; adopt before the tier load, but the code may land first because the load is gated separately |
 | 5a | Apply 597 | step 5 pushed | `to_regclass('public.universe_membership')` and `to_regclass('public.universe_membership_build')` are not NULL; both tables empty | none |
 | 6 | Build I1 (IC wiring, wiring plan items 1 to 7), review, land | 5 | per-landing gate; `repro_frozen` bit-identical; a methodology-change ledger entry written before any real-data look; `check_ic_universe_aligned` passes per timeframe | seen-name holdout (item 7 of the plan, B-U) is an optional inclusion; ledger entry E23 (prereg drafts doc) |
-| 7 | Docs landings: prereg drafts (`023457eae`), 184-12 gate and 516 plan drafts, the I2 tier design `45cb4e9f7`, this runbook | any time after step 0 (they touch no code key) | `tests/unit/test_doc_schema_numbers.py`, `test_todo_priorities_link_integrity.py`, glossary check, em-dash grep; after the I2 doc lands, change the two "unpushed commit 45cb4e9f7" mentions in the prereg drafts to its path | none; they are drafts and stay labelled DRAFT |
+| 7 | Docs landings: prereg drafts (`023457eae`), 184-12 gate and 516 plan drafts, the I2 tier design `45cb4e9f7`, this runbook | any time after step 0 (they touch no code key) | `tests/unit/test_doc_schema_numbers.py`, `test_todo_priorities_link_integrity.py`, glossary check, em-dash grep; the prereg drafts and the I2 tier design landed 2026-11-15 (I2 `aa5cc47e3`, prereg drafts `1f3a83b11`) and cross-reference by path | none; they are drafts and stay labelled DRAFT |
 | 8 | Operator steps from STATE (sudo): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units, reinstall the wave targets, `daemon-reload`, restart `service_auditor` | 4 (item 5 and 7 of R2 deleted their sources) | `systemctl list-unit-files 'indicagent-*'` shows none of the removed units; `_DAG_ORDER` and units consistent | none |
 | 9 | D5: restart the quiet list on the new code (timers and the compression auditor, `service-auditor` by hand, Alpaca nightly last) | 1 to 8 | the first nightly completes and backfills the missed sessions; `job_completed_total` ok | none |
 | 10 | Part F: apply the IBKR raw delete migration (number 598 or above) | D evidence final; D5 done | `ohlcv_raw` rows with `vendor = 'ibkr'` and `timestamp >= '2003-09-10'` are 0; bare `VACUUM ohlcv_raw;` ran; the Part F gate | the owner exception to law 528 (the ledger entry the lead is landing) |
@@ -116,5 +116,5 @@ Each landing is one push of a contiguous commit range, so rollback is `git rever
 
 - STATE.md says 594 is not applied; live state says it is. Correct STATE.
 - The readiness list numbers the Part F migration 597; 597 is L3's, so it is 598 or above.
-- The three prereg drafts and the I2 doc reference each other by commit until they all land; step 7 fixes the references.
+- The prereg drafts and the I2 doc have landed and reference each other by path. The prereg drafts still name the I1 wiring plan in words, because it lands with L3.
 - R2 remainder is not built; its migrations (if any) will need the next free number at landing, above 597 unless Part F lands first.
