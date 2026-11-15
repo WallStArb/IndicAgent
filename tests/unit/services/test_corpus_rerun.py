@@ -312,6 +312,29 @@ def test_the_order_is_fixed_and_span_major():
     assert steps[0].upstream is None
 
 
+def test_every_step_kind_has_one_explicit_handler_and_a_helper_is_never_a_step():
+    world = _world()
+    runner = world.runner
+    assert {step.kind for step in runner.steps} == set(runner.handlers)
+    # the handler of a step is the bound method named for its kind, and nothing else is reachable
+    assert runner.handlers[cr.SPAN].__name__ == "_step_span"
+    assert "_tf_of_step" not in {h.__name__ for h in runner.handlers.values()}
+    assert not hasattr(cr.CorpusRerun, "_step_tf")  # the helper no longer shares the scheme
+
+
+def test_a_step_kind_without_a_handler_fails_at_construction(monkeypatch):
+    original = cr.CorpusRerun._step_handlers
+
+    def without_canary(self):
+        handlers = original(self)
+        del handlers[cr.CANARY_STEP]
+        return handlers
+
+    monkeypatch.setattr(cr.CorpusRerun, "_step_handlers", without_canary)
+    with pytest.raises(ValueError, match="canary"):
+        _world()
+
+
 def test_a_step_without_its_upstream_row_is_refused_before_any_write():
     world = _world()
     with pytest.raises(cr.StepRefused, match="upstream step data_gate has not run"):

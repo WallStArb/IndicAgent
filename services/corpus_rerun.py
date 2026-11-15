@@ -948,6 +948,25 @@ class CorpusRerun:
         self.apr = apr
         self.steps = build_steps(run.spans)
         self.by_name = {step.name: step for step in self.steps}
+        self.handlers = self._step_handlers()
+        unhandled = sorted({step.kind for step in self.steps} - set(self.handlers))
+        if unhandled:  # a step kind added to the DAG without a handler fails at construction
+            raise ValueError(f"step kind(s) without a handler: {unhandled}")
+
+    def _step_handlers(self) -> dict[str, Callable[[Step], Any]]:
+        """The one table from a step kind to the method that runs it (never a name lookup, so a
+        helper cannot be mistaken for a step and a mistyped kind fails at construction)."""
+        return {
+            DATA_GATE: self._step_data_gate,
+            PIN_GATE: self._step_pin_gate,
+            PILOT: self._step_pilot,
+            STAGE_1D: self._step_stage_1d,
+            SPAN: self._step_span,
+            FEATURE_COMPLETE: self._step_feature_complete,
+            IC_MEASURE: self._step_ic_measure,
+            D19_BOUND: self._step_d19_bound,
+            CANARY_STEP: self._step_canary,
+        }
 
     # -- bookkeeping -----------------------------------------------------------
 
@@ -973,7 +992,7 @@ class CorpusRerun:
         _logger.info("corpus_rerun.step_started", step=name, run_id=self.run.run_id)
         started = self.deps.monotonic()
         try:
-            summary = getattr(self, f"_step_{step.kind}")(step)
+            summary = self.handlers[step.kind](step)
         except StepFailed as failure:
             failure.summary["seconds"] = round(self.deps.monotonic() - started, 1)
             self.store.finish(self.run.run_id, name, "failed", failure.summary)
@@ -1130,7 +1149,7 @@ class CorpusRerun:
         return counts.minus(counts_from_record(stored)) if stored else counts
 
     @staticmethod
-    def _step_tf(step: Step) -> str:
+    def _tf_of_step(step: Step) -> str:
         return step.tf if step.kind == SPAN and step.tf else "1d"
 
     def _peak_for(self, step: Step, inputs: BudgetInputs) -> Peak:
@@ -1143,7 +1162,7 @@ class CorpusRerun:
         """The upcoming step's own tf in its span, less what this run already loaded of it (a
         resumed step), plus the WAL and its spools. Growth since launch already holds the
         span's earlier tfs and everything compressed."""
-        tf = self._step_tf(step)
+        tf = self._tf_of_step(step)
         lo, hi = (
             self.run.spans[step.span_index]
             if step.kind == SPAN and step.span_index is not None
