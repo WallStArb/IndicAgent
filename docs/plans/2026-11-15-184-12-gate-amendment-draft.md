@@ -32,4 +32,4 @@ If any of (a) to (c) fails, write `184-12-DRY-S0.md` with "Gate not met" and the
 - Task 2 sample: the 50 sorted names come from the membership universe (above); adversarial symbols (late listings, missing bars, half-day activity) are chosen by query from the same membership, named in the report before the build.
 - Task 2 span: two years ending at least a year before `alpha.validation.oos_start` (2025-12-24), unchanged.
 - The H-C and H-A families do not read stored columns for their members, so the dry S0 columns stay as the plan chose them (one price-level 1d, one 1h, the high-memory 1d, one 5m).
-- 184-11 wiring (readiness lane L6, second clause): re-check at apply time whether `184-11-SUMMARY.md` exists; if not, the same stop rule applies to it.
+- 184-11 wiring (readiness lane L6, second clause): `184-11-SUMMARY.md` does not exist today; re-check at apply time, and if it is still absent the same stop rule applies to it.
