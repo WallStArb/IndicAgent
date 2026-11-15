@@ -72,3 +72,7 @@ dev = [
     "ruff>=0.15.0",
     "statsmodels>=0.14.6",
 ]
+
+[tool.mypy-baseline]
+baseline_path = ".mypy-baseline.txt"
+sort_baseline = true
