@@ -535,12 +535,12 @@ _COMPLETED_KEYS_SQL = (
 )
 # The stored rows of the units a run would adopt, on the planner's (tf, chunk, month) grid.
 _ADOPTABLE_ROWS_SQL = """
-WITH c AS (SELECT * FROM unnest(%s::text[], %s::int[]) AS c(symbol, idx)),
+WITH c AS (SELECT * FROM unnest(%s::text[], %s::int[], %s::text[]) AS c(symbol, idx, tf)),
 u AS (SELECT * FROM unnest(%s::text[], %s::int[], %s::timestamptz[], %s::timestamptz[])
         AS u(tf, idx, lo, hi))
 SELECT m.tf, c.idx, (date_trunc('month', m.bar_ts AT TIME ZONE 'UTC'))::date, count(*)
 FROM feature_vectors m
-JOIN c ON c.symbol = m.symbol
+JOIN c ON c.symbol = m.symbol AND c.tf = m.tf
 JOIN u ON u.tf = m.tf AND u.idx = c.idx AND m.bar_ts >= u.lo AND m.bar_ts < u.hi
 GROUP BY 1, 2, 3
 """
@@ -575,6 +575,7 @@ def stored_row_counts(
     settings: Any,
     horizon: datetime,
     chunks: Sequence[tuple[str, ...]],
+    intraday: frozenset[str],
     planned: Callable[..., tuple[list[Any], set[str]]] | None = None,
 ) -> RowCounts:
     """The rows already stored that the run would adopt, as RowCounts (not growth). Plans the
@@ -592,13 +593,22 @@ def stored_row_counts(
     units = adoptable_units(specs, completed, chunks)
     if not units:
         return RowCounts({})
-    names = [(s, i) for i, chunk in enumerate(chunks) for s in chunk]
+    from services.backfill_feature_factory import _chunk_for
+
+    # The names each timeframe stores per chunk: an intraday unit owns only the 5m tier's.
+    names = [
+        (s, i, tf)
+        for tf in sorted({u[0] for u in units})
+        for i, chunk in enumerate(chunks)
+        for s in _chunk_for(tf, chunk, intraday)
+    ]
     with conn.cursor() as cur:
         cur.execute(
             _ADOPTABLE_ROWS_SQL,
             (
-                [s for s, _ in names],
-                [i for _, i in names],
+                [s for s, _, _ in names],
+                [i for _, i, _ in names],
+                [t for _, _, t in names],
                 [u[0] for u in units],
                 [u[1] for u in units],
                 [u[2] for u in units],
@@ -1677,7 +1687,7 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
     counts = fetch_row_counts(
         conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes, ctx.intraday
     )
-    stored = stored_row_counts(conn, settings, horizon, ctx.chunks)
+    stored = stored_row_counts(conn, settings, horizon, ctx.chunks, ctx.intraday)
     inputs = BudgetInputs(
         free_bytes_at_launch=factory.database_free_bytes(cfg),
         max_disk_fraction=apr.max_disk_fraction,

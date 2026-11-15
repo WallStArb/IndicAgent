@@ -922,7 +922,14 @@ def test_a_new_run_over_a_dead_runs_rows_at_another_code_key_projects_them_as_gr
     whole rewrite as growth."""
     conn = _StoredConn(True, completed={"old-key"}, stored_rows=[("5m", 0, date(2010, 1, 1), 999)])
     planned = lambda settings, c, horizon: ([_unit("new-key")], set())  # noqa: E731
-    stored = cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned)
+    stored = cr.stored_row_counts(
+        conn,
+        object(),
+        _jan1(2026),
+        CHUNKS,
+        frozenset(s for c in CHUNKS for s in c),
+        planned=planned,
+    )
     assert stored.cells == {} and conn.unit_queries == []
     counts = RowCounts({("5m", 0, date(2010, m, 1)): 1000 for m in range(1, 13)})
     inputs = _world().runner._inputs()
@@ -940,10 +947,17 @@ def test_only_the_rows_of_units_the_run_would_adopt_count_as_stored():
         [_unit("same-key"), _unit("renamed", year=2011)],
         set(),
     )
-    stored = cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned)
+    stored = cr.stored_row_counts(
+        conn,
+        object(),
+        _jan1(2026),
+        CHUNKS,
+        frozenset(s for c in CHUNKS for s in c),
+        planned=planned,
+    )
     assert stored.cells == {("5m", 0, date(2010, 1, 1)): 1000}
     (params,) = conn.unit_queries
-    assert params[2:] == (["5m"], [0], [_jan1(2010)], [_jan1(2011)])  # the adoptable unit only
+    assert params[3:] == (["5m"], [0], [_jan1(2010)], [_jan1(2011)])  # the adoptable unit only
 
 
 def test_an_empty_table_plans_nothing_to_find_stored_rows():
@@ -951,7 +965,17 @@ def test_an_empty_table_plans_nothing_to_find_stored_rows():
         raise AssertionError("must not plan the full scope")
 
     conn = _StoredConn(False, set(), [])
-    assert cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, planned=planned).cells == {}
+    assert (
+        cr.stored_row_counts(
+            conn,
+            object(),
+            _jan1(2026),
+            CHUNKS,
+            frozenset(s for c in CHUNKS for s in c),
+            planned=planned,
+        ).cells
+        == {}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1117,3 +1141,11 @@ def test_a_tier_unit_is_adopted_under_its_full_chunk_index():
     )
     units = cr.adoptable_units([spec], {"k"}, [("AAA", "BBB"), ("CCC", "DDD")])
     assert units == [("5m", 1, spec.range_start, spec.range_end)]
+
+
+def test_stored_rows_of_an_adopted_intraday_unit_are_asked_for_the_tier_names_only():
+    conn = _StoredConn(True, completed={"k"}, stored_rows=[])
+    planned = lambda settings, c, horizon: ([_unit("k")], set())  # noqa: E731
+    cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, frozenset({"AAA"}), planned=planned)
+    (params,) = conn.unit_queries
+    assert params[0] == ["AAA"] and params[2] == ["5m"]  # BBB's old 5m rows are not counted
