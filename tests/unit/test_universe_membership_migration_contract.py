@@ -12,7 +12,7 @@ _CODE = re.sub(
 _FLAT = re.sub(r"\s+", " ", _CODE)
 
 
-def test_runs_in_one_transaction():
+def test_universe_membership_migration_runs_in_one_transaction():
     assert _CODE.strip().startswith("BEGIN;") and _CODE.rstrip().endswith("COMMIT;")
 
 
