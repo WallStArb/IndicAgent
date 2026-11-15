@@ -33,8 +33,8 @@ from datetime import UTC, date, datetime, timedelta
 import asyncpg
 import httpx
 
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.observability.metrics import counter

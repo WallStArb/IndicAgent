@@ -1845,7 +1845,7 @@ The record of one write batch to a bulk table (writer, per-kernel code key, APR 
 content digest, symbol x tf x time range); the lineage record and the idempotency key.
 **Banned:** (none)
 **Status:** active (phase 186, table provenance_batch, written only by
-services/_batch_utils.py bulk_load)
+services/batch_support/bulk_load.py bulk_load)
 
 ---
 

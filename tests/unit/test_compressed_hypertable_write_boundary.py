@@ -2,7 +2,7 @@
 `UPDATE market_data_ohlcv` outside this checked-in allow-list.
 
 All three are compressed TimescaleDB hypertables. Proven 2026-08-14 (see
-services/_batch_utils.py's `compressed_hypertable_write_session` docstring for the full
+services/batch_support/write_session.py's `compressed_hypertable_write_session` docstring for the full
 writeup): a compressed chunk has no usable per-row index at all, so ANY row-level UPDATE
 against one -- regardless of how selective its WHERE/JOIN predicate is -- forces a full
 Seq Scan (decompressing the chunk) at roughly 1000x the cost of the same UPDATE against a
@@ -67,7 +67,7 @@ def test_every_raw_compressed_hypertable_update_is_on_the_allow_list():
         remedy=(
             "If this is a genuine new write, prefer routing it through "
             "bulk_update_by_key + compressed_hypertable_write_session (or the async "
-            "sibling) in services/_batch_utils.py rather than a hand-rolled UPDATE -- see "
+            "sibling) in services/batch_support/write_session.py rather than a hand-rolled UPDATE -- see "
             "that function's docstring for why a raw UPDATE against these tables is "
             "~1000x more expensive than it looks. For market_data_ohlcv specifically, "
             "bar_derivation owns all derived-row writes and bar_scrub owns corrections "

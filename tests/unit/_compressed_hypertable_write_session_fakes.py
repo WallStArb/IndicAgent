@@ -1,4 +1,4 @@
-"""Shared test double for services._batch_utils.compressed_hypertable_write_session
+"""Shared test double for services.batch_support.write_session.compressed_hypertable_write_session
 (and its async sibling's call shape).
 
 `_ScriptedConn`/`_ScriptedCursor` replay a pre-scripted sequence of responses in call
@@ -87,7 +87,7 @@ class ScriptedConn:
         return resp
 
 
-# compressed_hypertable_write_session's fixed call sequence (services/_batch_utils.py) --
+# compressed_hypertable_write_session's fixed call sequence (services/batch_support/write_session.py) --
 # every test that runs a real (non-empty) write session prepends/appends these, so the
 # session's own internals only need updating in one place if its call shape changes again
 # (as it did 2026-08-14, twice in the same session: the statement_timeout override was

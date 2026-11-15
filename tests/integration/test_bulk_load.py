@@ -24,7 +24,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from services._batch_utils import BulkLoadRefused, BulkLoadSpec, bulk_load
+from services.batch_support.bulk_load import BulkLoadRefused, BulkLoadSpec, bulk_load
 from tests.integration.conftest import connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
@@ -363,7 +363,7 @@ class TestBulkLoadReplaceIntegration:
 
 class TestBarContentDigestsIntegration:
     def test_composition_changes_only_for_the_changed_symbol(self) -> None:
-        from services._batch_utils import bar_content_digests
+        from services.batch_support.digests import bar_content_digests
 
         tag = uuid4().hex[:6].upper()
         s1, s2, s3 = f"DG1{tag}", f"DG2{tag}", f"DG3{tag}"

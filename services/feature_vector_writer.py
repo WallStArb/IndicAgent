@@ -20,7 +20,7 @@ from typing import Any  # noqa: F401
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
-from services._batch_utils import fetch_table_columns
+from services.batch_support.db import fetch_table_columns
 from src.config.settings import Settings, get_active_symbols  # noqa: F401
 from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager

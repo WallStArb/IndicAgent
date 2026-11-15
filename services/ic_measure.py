@@ -75,21 +75,21 @@ from psycopg import sql
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import (  # noqa: E402
-    BAR_DIGEST_ABSENT_SYMBOL,
+from services.batch_support.bulk_load import (
     BulkLoadResult,
     BulkLoadSpec,
-    bar_content_digests,
     bulk_load,
     completed_provenance_batch,
-    compressed_hypertable_write_session,
-    kernel_code_modules,
-    load_config_service_sync,
     parse_run_id,
     prior_completed_unit,
-    short_lived_conn,
-    table_column_types,
 )
+from services.batch_support.db import load_config_service_sync, short_lived_conn, table_column_types
+from services.batch_support.digests import (
+    BAR_DIGEST_ABSENT_SYMBOL,
+    bar_content_digests,
+    kernel_code_modules,
+)
+from services.batch_support.write_session import compressed_hypertable_write_session
 from src.config.settings import Settings  # noqa: E402
 from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402

@@ -1,4 +1,4 @@
-"""Unit tests for services/_batch_utils.py's short_lived_conn(dsn) context manager
+"""Unit tests for services/batch_support/db.py's short_lived_conn(dsn) context manager
 (todo 129, 162-01 Task 1).
 
 Worker-side sibling of ic_engine.py's Settings-based `_short_lived_conn` -- takes a
@@ -19,8 +19,8 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import services._batch_utils as batch_utils
-from services._batch_utils import short_lived_conn
+import services.batch_support.db as batch_utils
+from services.batch_support.db import short_lived_conn
 
 
 def test_short_lived_conn_closes_on_normal_exit(monkeypatch: pytest.MonkeyPatch) -> None:

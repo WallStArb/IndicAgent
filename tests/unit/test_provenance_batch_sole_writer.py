@@ -1,7 +1,7 @@
-"""CI guard: services/_batch_utils.py bulk_load is the sole writer of provenance_batch.
+"""CI guard: services/batch_support/bulk_load.py bulk_load is the sole writer of provenance_batch.
 
 Phase 186 D-24: `provenance_batch` (migration 386) is written only by
-`services/_batch_utils.py bulk_load`. A second writer would bypass the advisory
+`services/batch_support/bulk_load.py bulk_load`. A second writer would bypass the advisory
 lock, the idempotency rule and the guard-trigger lifecycle, so any new file
 matching the pattern fails here unless this allow-list is edited with a reason.
 
@@ -31,7 +31,7 @@ _PROVENANCE_BATCH_WRITE_PATTERN = re.compile(
 )
 
 _ALLOW_LIST: dict[str, str] = {
-    "services/_batch_utils.py": "PERMANENT: sole writer of provenance_batch, D-24.",
+    "services/batch_support/bulk_load.py": "PERMANENT: sole writer of provenance_batch, D-24.",
     "production/migrations/386_provenance_batch.sql": (
         "PERMANENT: creates the table and guard triggers (its sole-writer rule comment "
         "matches the pattern)"
@@ -43,7 +43,7 @@ _ALLOW_LIST: dict[str, str] = {
 }
 
 _REMEDY = (
-    "Route the write through services/_batch_utils.py bulk_load (it holds the batch-key "
+    "Route the write through services/batch_support/bulk_load.py bulk_load (it holds the batch-key "
     "advisory lock and owns the provenance lifecycle), or add the file to the allow-list "
     "here with a real reason."
 )

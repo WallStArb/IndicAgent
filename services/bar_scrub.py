@@ -39,8 +39,8 @@ from typing import Any, NamedTuple
 import numpy as np
 import structlog
 
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from src.intelligence.bars.scrub_rules import (
     RULE_VERSION,
     BarFlag,

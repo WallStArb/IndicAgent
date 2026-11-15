@@ -67,9 +67,9 @@ from sklearn.preprocessing import StandardScaler
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import (  # noqa: E402
+from services.batch_support.db import load_config_service_sync
+from services.batch_support.tradeable import (
     fetch_tradeable_series,
-    load_config_service_sync,
     load_tradeable_series_block_rows,
 )
 from src.config.settings import get_settings  # noqa: E402

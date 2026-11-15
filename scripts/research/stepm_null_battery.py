@@ -31,7 +31,7 @@ import numpy as np
 from scipy.stats import binom
 
 sys.path.insert(0, ".")
-from services._batch_utils import make_worker_pool  # noqa: E402
+from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.intelligence.statistics import stepm as stepm_module  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 

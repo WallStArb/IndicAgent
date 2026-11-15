@@ -2,7 +2,7 @@
 
 Closes the "structurally removing that tier requires touching `ic_engine.py`'s fixed
 `_SCALES`-indexed compute loops (deferred to a separate follow-up todo)" gap
-`LOOKAHEAD_FALLBACKS_BY_TF`'s own docstring (`services/_batch_utils.py`) has named since
+`LOOKAHEAD_FALLBACKS_BY_TF`'s own docstring (`services/batch_support/config.py`) has named since
 todo 146 landed. Directly informed by, but explicitly decoupled from, todo 208's still-open
 investigation into whether the same-ET-session completeness gate should exist at all for
 5m/15m/1h.
@@ -176,7 +176,7 @@ corpus gets computed once under final logic.
 - `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md`,
   `.planning/todos/completed/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`,
   `.planning/todos/pending/202-per-tf-lookahead-grid-downstream-consumers-stale.md`
-- `services/_batch_utils.py` — `cfg()`, `LOOKAHEAD_FALLBACKS_BY_TF`, `lookaheads_for_tf`
+- `services/batch_support/config.py` — `cfg()`, `LOOKAHEAD_FALLBACKS_BY_TF`, `lookaheads_for_tf`
   (the exact pattern this design extends)
 - `services/ic_engine.py` — `_SCALES` (12 call sites + definition), `_COMPUTATIONAL_CONFIG_FIELDS`/
   `_compute_apr_snapshot_key` (Phase 162 fingerprint mechanism)

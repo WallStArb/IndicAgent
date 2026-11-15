@@ -57,9 +57,13 @@ _ALLOW_LIST: dict[str, str] = {
     "services/backfill_feature_factory.py": (
         "WRITER: the rebuild writer; names its target table feature_vectors."
     ),
-    "services/_batch_utils.py": (
+    "services/batch_support/bulk_load.py": (
         "WRITER: bulk-load infrastructure; names the table where the write-session allow-list "
         "excludes it (migration 570)."
+    ),
+    "services/batch_support/write_session.py": (
+        "WRITER: the compressed-hypertable write session; names the tables it hardens "
+        "(migration 570)."
     ),
     "services/rebuild_preconditions.py": (
         "WRITER: rebuild launch preconditions check that feature_vectors exists."

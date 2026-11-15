@@ -334,7 +334,7 @@ validation_error_handler  # unused function (services/config_service.py:131)
 _.group_codes  # unused method (src/config/vocabulary_service.py:167)
 _.start_all  # unused method (src/core/agent/manifest.py:66)
 init_tracing  # unused function (src/observability/otel.py:103)
-async_compressed_hypertable_write_session_or_noop  # unused function (services/_batch_utils.py:492)
+async_compressed_hypertable_write_session_or_noop  # unused function (services/batch_support/write_session.py)
 _.group_label  # unused method (src/config/vocabulary_service.py:171)
 _.group_description  # unused method (src/config/vocabulary_service.py:176)
 _.serialize_timestamp  # unused method (src/core/schemas/dlq_payload.py:29)
@@ -420,8 +420,8 @@ get_all_states_for  # unused method (src/intelligence/pipeline/state_manager.py:
 get_lock  # unused method (src/intelligence/pipeline/state_manager.py:111) - same as above
 update_batch  # unused method (src/intelligence/pipeline/state_manager.py:138) - same as above
 to_dataframe  # unused method (src/core/bar_history.py:64) - same as above
-_known_compressed_hypertables_async  # unused function (services/_batch_utils.py:260) - deliberate forward-scaffolding, confirmed real via its own docstring and the sibling async_compressed_hypertable_write_session's docstring: bulk_update_by_key's sync guard uses the sync sibling _known_compressed_hypertables, and the async write-session path deliberately validates against a separate static hardened-table allow-list (_validate_compressed_hypertable) instead -- this function exists so a future asyncpg-based bulk_update_by_key can reuse the identical guard without a second change, not dead code (2026-09-22 hygiene pass)
-exc_val  # unused variable (services/_batch_utils.py:1304) - Python's __exit__(self, exc_type, exc_val, exc_tb) context-manager protocol requires all three positional params regardless of whether the implementation inspects them; Float32ChunkAccumulator.__exit__ doesn't need exception details, just calls self.close() (2026-09-22 hygiene pass)
+_known_compressed_hypertables_async  # unused function (services/batch_support/write_session.py) - deliberate forward-scaffolding, confirmed real via its own docstring and the sibling async_compressed_hypertable_write_session's docstring: bulk_update_by_key's sync guard uses the sync sibling _known_compressed_hypertables, and the async write-session path deliberately validates against a separate static hardened-table allow-list (_validate_compressed_hypertable) instead -- this function exists so a future asyncpg-based bulk_update_by_key can reuse the identical guard without a second change, not dead code (2026-09-22 hygiene pass)
+exc_val  # unused variable (services/batch_support/accumulators.py) - Python's __exit__(self, exc_type, exc_val, exc_tb) context-manager protocol requires all three positional params regardless of whether the implementation inspects them; Float32ChunkAccumulator.__exit__ doesn't need exception details, just calls self.close() (2026-09-22 hygiene pass)
 UNSCALED_FIELDS  # unused variable (src/intelligence/research/evaluate.py:70) - the row-conversion classification list; read by the config-field classification test so a new EvaluationConfig field cannot go unclassified (phase 183, 2026-09-25)
 observed_daily  # unused variable (src/intelligence/research/evaluate.py:97) - EvaluationResult field (per-row or per-session series), read by tests and diagnostics (phase 183)
 observed_weights  # unused variable (src/intelligence/research/evaluate.py:99) - EvaluationResult field, calibrated-arm weights for turnover diagnostics (phase 183)
@@ -484,11 +484,11 @@ fisher_z_difference_p  # unused function (src/intelligence/statistics/ic_math.py
 ensure_success_for  # unused method (src/observability/corpus_manifest.py:163) - tested shared prerequisite-gate primitive; its only caller was ops_ensemble_ablation, deleted by 186-21; corpus_manifest survives 186-23 (the manifest system stays with ic_measure's pipeline)
 record_comparison_outcome  # unused method (src/intelligence/concept_registry_service.py:349) - tested concept-status transaction; its only caller was ops_ensemble_weight_compare, deleted by 186-21; the UCR spec keeps its semantics, fate with the registry service
 content_key  # unused method (src/core/agent/base_batch.py:119) - static SHA-256 content-key utility; its only caller was ic_engine, deleted by 186-23; kept on BaseBatch for the 186-25/26 rebuild writer's fingerprinting
-canonicalize_active_scales  # unused function (services/_batch_utils.py) - tested normalizer behind alpha.ic.active_scales.{tf}; its production readers (ic_engine, forward_return_writer) were deleted by 186-19/186-23; the keys and the verifier's Check-3 contract stay until 186-28 drops the legacy table
-ACTIVE_SCALES_FALLBACKS_BY_TF  # unused variable (services/_batch_utils.py) - fallback mirror behind alpha.ic.active_scales.{tf}; same disposition as canonicalize_active_scales (readers deleted by 186-19/186-23)
-append_row  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - disk-backed cell accumulator; only caller was ic_engine's memmap path, deleted by 186-23; kept for the 186-25/26 rebuild writer's disk-headroom option
-append_chunk  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
-finalize  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
+canonicalize_active_scales  # unused function (services/batch_support/config.py) - tested normalizer behind alpha.ic.active_scales.{tf}; its production readers (ic_engine, forward_return_writer) were deleted by 186-19/186-23; the keys and the verifier's Check-3 contract stay until 186-28 drops the legacy table
+ACTIVE_SCALES_FALLBACKS_BY_TF  # unused variable (services/batch_support/config.py) - fallback mirror behind alpha.ic.active_scales.{tf}; same disposition as canonicalize_active_scales (readers deleted by 186-19/186-23)
+append_row  # unused method (services/batch_support/accumulators.py Float32ChunkAccumulator) - disk-backed cell accumulator; only caller was ic_engine's memmap path, deleted by 186-23; kept for the 186-25/26 rebuild writer's disk-headroom option
+append_chunk  # unused method (services/batch_support/accumulators.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
+finalize  # unused method (services/batch_support/accumulators.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
 # 185-45: fields of the archived typed bus records (IntelligenceEvent tiers in src/intelligence/schemas.py,
 # the ML feature schema in src/core/ml/features.py, the signal_events repository row) whose only readers
 # were the removed AI stack (src/intelligence/ai/context.py and the alpha agents). The records stay while
@@ -836,7 +836,7 @@ _.class_counts  # unused method (scripts/ops/bars/ops_selection_gate.py:223)
 leave_one_out  # unused function (src/intelligence/research/contribution.py:61)
 vendor_labels  # unused function (scripts/ops/bars/ops_selection_gate.py:715)
 read_write_params  # unused function (services/ohlcv_raw_writer.py:214)
-compressed_hypertable_write_session_or_noop  # unused function (services/_batch_utils.py:1562)
+compressed_hypertable_write_session_or_noop  # unused function (services/batch_support/write_session.py)
 expand_int  # unused function (src/intelligence/statistics/ic_math.py:479)
 coverage_check  # unused function (src/intelligence/research/feature_inputs.py:431)
 correlation_clusters  # unused function (src/intelligence/research/contribution.py:167)
@@ -856,7 +856,7 @@ magnitude_conditional_ic  # unused function (src/intelligence/statistics/ic_math
 align_causality_probe  # unused function (src/intelligence/research/align.py:148)
 partial_spearman_ic  # unused function (src/intelligence/statistics/ic_math.py:714)
 evaluate_guard_fraction  # unused function (src/intelligence/statistics/ic_math.py:1186)
-bulk_update_by_key  # unused function (services/_batch_utils.py:103)
+bulk_update_by_key  # unused function (services/batch_support/bulk_update.py)
 load_answered_windows  # unused function (scripts/infrastructure/backfill/_d1_gaps.py:163)
 _compute_ic_rolling_metrics  # unused function (src/intelligence/statistics/ic_math.py:1069)
 _.compute_batch  # unused method (src/intelligence/feature_factory.py:2101)

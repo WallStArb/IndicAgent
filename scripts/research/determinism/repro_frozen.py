@@ -37,7 +37,7 @@ from scripts.research.determinism.snapshot_io import (  # noqa: E402
     load_snapshot,
     verify_snapshot,
 )
-from services._batch_utils import make_worker_pool  # noqa: E402
+from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.intelligence.research.evaluate import evaluate  # noqa: E402
 from src.intelligence.research.panel import daily_panel, forward_returns  # noqa: E402
 

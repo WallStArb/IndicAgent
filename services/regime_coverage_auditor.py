@@ -46,7 +46,7 @@ from psycopg.rows import dict_row
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import load_config_service_sync
+from services.batch_support.db import load_config_service_sync
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics

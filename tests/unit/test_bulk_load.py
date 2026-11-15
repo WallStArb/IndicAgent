@@ -1,4 +1,4 @@
-"""Fake-connection unit tests of services._batch_utils.bulk_load (phase 186 plan 06, D-24).
+"""Fake-connection unit tests of services.batch_support.bulk_load.bulk_load (phase 186 plan 06, D-24).
 
 Covers the statement sequence, idempotency through the provenance batch row, the
 live-schema float32 clamp, every refusal, and per-unit failure isolation (todos 301,
@@ -19,12 +19,9 @@ from typing import Any
 
 import pytest
 
-import services._batch_utils as batch_utils
-from services._batch_utils import (
-    BulkLoadRefused,
-    BulkLoadSpec,
-    bulk_load,
-)
+import services.batch_support.bulk_load as bulk_load_module
+import services.batch_support.db as db_module
+from services.batch_support.bulk_load import BulkLoadRefused, BulkLoadSpec, bulk_load
 from tests.unit._responder_fakes import FakeConn, scripted
 
 
@@ -374,7 +371,7 @@ class TestBulkLoadFailureIsolation:
                 self.warnings.append((event, kw))
 
         recorder = _Recorder()
-        monkeypatch.setattr(batch_utils, "_logger", recorder)
+        monkeypatch.setattr(bulk_load_module, "_logger", recorder)
 
         def _bad_rows():
             yield ("SPY", "1d", datetime(2026, 1, 4, 14, 30, tzinfo=UTC), 1.0, 2.0)
@@ -396,7 +393,7 @@ class TestTableColumnTypes:
 
     def test_maps_columns_to_types_in_the_current_schema(self) -> None:
         conn = _conn([_COLUMNS])
-        types = batch_utils.table_column_types(conn, "feature_vectors")
+        types = db_module.table_column_types(conn, "feature_vectors")
         assert types == {
             "symbol": "text",
             "tf": "text",
@@ -410,7 +407,7 @@ class TestTableColumnTypes:
 
     def test_a_table_with_no_columns_does_not_exist_and_raises(self) -> None:
         with pytest.raises(ValueError, match="feature_nope does not exist"):
-            batch_utils.table_column_types(_conn([{"fetchall": []}]), "feature_nope")
+            db_module.table_column_types(_conn([{"fetchall": []}]), "feature_nope")
 
     def test_bulk_load_into_a_missing_table_raises_before_any_write(self) -> None:
         conn = _conn([_LOCKED, {"fetchone": None}, {"fetchall": []}])
@@ -604,11 +601,11 @@ class TestUnitKey:
     def test_prior_completed_unit_looks_up_by_unit_key_only(self) -> None:
         spec = _spec(replace_where=self._WHERE)
         conn = _conn([{"fetchone": (1,)}])
-        assert batch_utils.prior_completed_unit(conn, spec) is True
+        assert bulk_load_module.prior_completed_unit(conn, spec) is True
         _k, text, params = conn.events[0]
         assert "unit_key = %s" in text and "status = 'completed'" in text
         assert tuple(params) == (spec.unit_key, spec.batch_key)
-        assert batch_utils.prior_completed_unit(_conn([{"fetchone": None}]), spec) is False
+        assert bulk_load_module.prior_completed_unit(_conn([{"fetchone": None}]), spec) is False
 
 
 class TestBulkLoadReplaceWhere:
@@ -715,7 +712,7 @@ class TestBulkLoadReplaceWhere:
 
     def test_a_dry_run_reports_would_replace_only_for_a_replacing_spec(self) -> None:
         conn = _conn([{"fetchone": (1,)}])
-        assert batch_utils.prior_completed_unit(conn, _spec()) is False  # append-only
+        assert bulk_load_module.prior_completed_unit(conn, _spec()) is False  # append-only
         assert conn.events == []  # and no query was issued
 
 
@@ -775,6 +772,6 @@ class TestRunId:
             _spec(run_id=value)
 
     def test_parse_run_id_canonicalizes_or_raises(self) -> None:
-        assert batch_utils.parse_run_id(_RUN_A.upper()) == _RUN_A
+        assert bulk_load_module.parse_run_id(_RUN_A.upper()) == _RUN_A
         with pytest.raises(ValueError):
-            batch_utils.parse_run_id("run-1")
+            bulk_load_module.parse_run_id("run-1")

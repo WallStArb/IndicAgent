@@ -36,7 +36,6 @@ import psycopg
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import load_config_service_sync  # noqa: E402
 from services.backfill_feature_factory import (  # noqa: E402
     _NO_FLOOR,
     _build_feature_factory_config,
@@ -48,6 +47,7 @@ from services.backfill_feature_factory import (  # noqa: E402
     default_data_horizon,
     feature_vectors_output_columns,
 )
+from services.batch_support.db import load_config_service_sync  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.features.contract.causality_probe import (  # noqa: E402
     CausalityViolation,

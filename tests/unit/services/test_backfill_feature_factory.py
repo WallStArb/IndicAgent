@@ -1016,7 +1016,7 @@ class TestRebuildUnitDesign:
             "src.intelligence.features.external_inputs",
             "src.intelligence.features.feature_factory_config",
             "src.intelligence.features.feature_vector_persistence",
-            "services._batch_utils",
+            "services.batch_support.bulk_load",
         } <= hashed - opaque
         assert "src.intelligence.feature_factory" not in hashed
         # Every map entry is a real import of the writer (a stale entry would later hide a
@@ -1097,7 +1097,7 @@ _NUMERIC_WIDTH = len(feature_vectors_numeric_columns())
 
 
 def _unit_spec(range_start, range_end, tf="1d", symbols=("AAA", "BBB")):
-    from services._batch_utils import BulkLoadSpec
+    from services.batch_support.bulk_load import BulkLoadSpec
 
     return BulkLoadSpec(
         writer=module._JOB,
@@ -2264,7 +2264,7 @@ def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
     """The digest pass plans each unit from per-symbol bar statistics plus the month-composed
     content digest, without fetching a bar or running a kernel; a symbol with no digest row at
     all is flagged digest-blind, never silently skipped."""
-    from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
+    from services.batch_support.digests import BAR_DIGEST_ABSENT_SYMBOL
     from tests.unit._compressed_hypertable_write_session_fakes import ScriptedConn
 
     stats = [

@@ -49,8 +49,8 @@ import structlog
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from services._batch_utils import cfg as _cfg  # noqa: E402
-from services._batch_utils import fetch_table_columns, load_apr_dict_async  # noqa: E402
+from services.batch_support.config import cfg as _cfg  # noqa: E402
+from services.batch_support.db import fetch_table_columns, load_apr_dict_async  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
 from src.core.integrity_monitor import emit_integrity_facts_async  # noqa: E402

@@ -1,4 +1,4 @@
-"""Unit tests for services/_batch_utils.py's async APR-loading helpers (todo 048).
+"""Unit tests for services/batch_support/db.py's async APR-loading helpers (todo 048).
 
 cfg() and load_apr_dict_async() consolidate a pattern previously copy-pasted verbatim
 across ensemble_trainer.py, alpha_publisher.py, and ensemble_ic_engine.py: load
@@ -20,29 +20,29 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import services._batch_utils as _batch_utils_module
-from services._batch_utils import (
+import services.batch_support.write_session as _batch_utils_module
+from services.batch_support.accumulators import Float32ChunkAccumulator
+from services.batch_support.bulk_update import (
+    _REAL_MAX_MAGNITUDE,
+    _REAL_MIN_MAGNITUDE,
+    _clamp_to_real_range,
+    bulk_update_by_key,
+)
+from services.batch_support.config import cfg
+from services.batch_support.db import connect_db_from_url, load_apr_dict_async
+from services.batch_support.pool import limit_blas_threads, make_worker_pool
+from services.batch_support.write_session import (
     _COMPRESS_ALL_DECOMPRESSED_CHUNKS_ASYNCPG_SQL,
     _DECOMPRESS_ALL_COMPRESSED_CHUNKS_ASYNCPG_SQL,
     _FIND_COMPRESSION_JOBS_ASYNCPG_SQL,
-    _REAL_MAX_MAGNITUDE,
-    _REAL_MIN_MAGNITUDE,
-    Float32ChunkAccumulator,
     _active_write_session_hypertable,
-    _clamp_to_real_range,
     _known_compressed_hypertables,
     _known_compressed_hypertables_async,
     _validate_compressed_hypertable,
     async_compressed_hypertable_write_session,
     async_compressed_hypertable_write_session_or_noop,
-    bulk_update_by_key,
-    cfg,
     compressed_hypertable_write_session,
     compressed_hypertable_write_session_or_noop,
-    connect_db_from_url,
-    limit_blas_threads,
-    load_apr_dict_async,
-    make_worker_pool,
 )
 
 
@@ -176,7 +176,7 @@ class TestLoadAprDictAsync:
 
 class TestConnectDbFromUrl:
     def test_disables_autocommit(self) -> None:
-        with patch("services._batch_utils.psycopg.connect") as mock_connect:
+        with patch("services.batch_support.db.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_connect.return_value = mock_conn
 
@@ -209,11 +209,11 @@ class TestLimitBlasThreads:
 class TestMakeWorkerPool:
     """Todo 216: every ProcessPoolExecutor construction site was converted to this
     wrapper so the BLAS thread cap can never be silently omitted (see the CI guard in
-    test_no_bare_process_pool_executor.py, which enforces that _batch_utils.py stays
+    test_no_bare_process_pool_executor.py, which enforces that batch_support/pool.py stays
     the only file constructing one directly)."""
 
     def test_wires_limit_blas_threads_as_initializer(self) -> None:
-        with patch("services._batch_utils.ProcessPoolExecutor") as mock_pool_cls:
+        with patch("services.batch_support.pool.ProcessPoolExecutor") as mock_pool_cls:
             make_worker_pool(4, 2)
 
             mock_pool_cls.assert_called_once_with(
@@ -223,7 +223,7 @@ class TestMakeWorkerPool:
             )
 
     def test_forwards_extra_kwargs_to_process_pool_executor(self) -> None:
-        with patch("services._batch_utils.ProcessPoolExecutor") as mock_pool_cls:
+        with patch("services.batch_support.pool.ProcessPoolExecutor") as mock_pool_cls:
             make_worker_pool(4, 2, mp_context="fake_ctx")
 
             mock_pool_cls.assert_called_once_with(
@@ -1331,32 +1331,35 @@ class TestDecompressHeadroomGuard:
         return _shutil._ntuple_diskusage(total, total - free, free)
 
     def test_raises_when_decompress_would_eat_the_reserve(self):
-        from services._batch_utils import check_decompress_headroom
+        from services.batch_support.write_session import check_decompress_headroom
 
         with patch(
-            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+            "services.batch_support.write_session.shutil.disk_usage",
+            return_value=self._usage(914e9, 414e9),
         ):
             with pytest.raises(RuntimeError, match="refused"):
                 check_decompress_headroom("feature_ic_scores", int(491e9), "/", 0.10)
 
     def test_passes_with_room_to_spare(self):
-        from services._batch_utils import check_decompress_headroom
+        from services.batch_support.write_session import check_decompress_headroom
 
         with patch(
-            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+            "services.batch_support.write_session.shutil.disk_usage",
+            return_value=self._usage(914e9, 414e9),
         ):
             check_decompress_headroom("feature_ic_scores", int(6e9), "/", 0.10)
 
     @pytest.mark.real_headroom_check
     def test_sync_session_refuses_before_touching_anything(self):
-        from services._batch_utils import compressed_hypertable_write_session
+        from services.batch_support.write_session import compressed_hypertable_write_session
 
         conn = MagicMock()
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.return_value = (int(491e9),)
         cur.fetchall.return_value = []
         with patch(
-            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+            "services.batch_support.write_session.shutil.disk_usage",
+            return_value=self._usage(914e9, 414e9),
         ):
             with pytest.raises(RuntimeError, match="refused"):
                 with compressed_hypertable_write_session(conn, "feature_ic_scores"):
@@ -1366,14 +1369,15 @@ class TestDecompressHeadroomGuard:
 
     @pytest.mark.real_headroom_check
     async def test_async_session_refuses_before_touching_anything(self):
-        from services._batch_utils import async_compressed_hypertable_write_session
+        from services.batch_support.write_session import async_compressed_hypertable_write_session
 
         conn = MagicMock()
         conn.fetchval = AsyncMock(return_value=int(491e9))
         conn.fetch = AsyncMock(return_value=[])
         conn.execute = AsyncMock()
         with patch(
-            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+            "services.batch_support.write_session.shutil.disk_usage",
+            return_value=self._usage(914e9, 414e9),
         ):
             with pytest.raises(RuntimeError, match="refused"):
                 async with async_compressed_hypertable_write_session(conn, "feature_ic_scores"):
@@ -1387,13 +1391,13 @@ class TestNativeDmlWriteMode:
 
     @pytest.mark.real_headroom_check
     def test_no_decompress_statements(self):
-        from services._batch_utils import compressed_hypertable_write_session
+        from services.batch_support.write_session import compressed_hypertable_write_session
 
         conn = MagicMock()
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchall.return_value = []
         cur.fetchone.return_value = ("0", "0", "0")
-        with patch("services._batch_utils.shutil.disk_usage") as usage:
+        with patch("services.batch_support.write_session.shutil.disk_usage") as usage:
             with compressed_hypertable_write_session(conn, "feature_ic_scores", decompress=False):
                 pass
         usage.assert_not_called()
@@ -1408,7 +1412,7 @@ class TestNativeDmlWriteMode:
 async def test_fetch_table_columns_reads_public_schema_names_and_types():
     from unittest.mock import AsyncMock, MagicMock
 
-    from services._batch_utils import _TABLE_COLUMNS_SQL, fetch_table_columns
+    from services.batch_support.db import _TABLE_COLUMNS_SQL, fetch_table_columns
 
     conn = MagicMock()
     conn.fetch = AsyncMock(

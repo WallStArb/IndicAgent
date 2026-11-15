@@ -20,7 +20,7 @@ from typing import Any
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import numpy as np
 
-from services._batch_utils import get_dict_config as _get_dict_config
+from services.batch_support.config import get_dict_config as _get_dict_config
 from src.config.config_service import ConfigService
 from src.config.instruments_listener import InstrumentsListener
 from src.config.settings import (

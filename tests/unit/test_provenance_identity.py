@@ -1,4 +1,4 @@
-"""Unit tests of the provenance identity helpers in services._batch_utils (phase 186 plan 14).
+"""Unit tests of the provenance identity helpers in services.batch_support.digests (phase 186 plan 14).
 
 kernel_code_key hashes only the named modules (D-23); bar_content_digests composes the
 bar_content_digest_current month digests per symbol (D-23 revision detection).
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from services._batch_utils import bar_content_digests, kernel_code_key, kernel_code_modules
+from services.batch_support.digests import bar_content_digests, kernel_code_key, kernel_code_modules
 from tests.unit._responder_fakes import FakeConn, rows_responder
 
 

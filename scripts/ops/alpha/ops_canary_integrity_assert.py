@@ -67,7 +67,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 from scipy.stats import binom
 
-from services._batch_utils import (
+from services.batch_support.bulk_load import (
     RUN_ADOPTIONS_SQL,
     belongs_to_run,
     bulk_load_unit_key,

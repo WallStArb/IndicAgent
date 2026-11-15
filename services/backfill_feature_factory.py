@@ -68,23 +68,25 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
-from services._batch_utils import (
+from services.batch_support.bulk_load import (
     _BULK_LOAD_COMPRESS_ON_COMPLETE_APR_KEY,
     _BULK_LOAD_DEFAULT_COMPRESS_ON_COMPLETE,
-    BAR_DIGEST_ABSENT_SYMBOL,
     BulkLoadSpec,
     parse_run_id,
 )
-from services._batch_utils import bar_content_digests as _bar_content_digests
-from services._batch_utils import bulk_load as _bulk_load
-from services._batch_utils import completed_provenance_batch as _completed_provenance_batch
-from services._batch_utils import compress_completed_chunks as _compress_completed_chunks
-from services._batch_utils import get_dict_config as _get_dict_config
-from services._batch_utils import get_list_config as _get_list_config
-from services._batch_utils import kernel_code_key as _kernel_code_key
-from services._batch_utils import load_config_service_sync as _load_config_service
-from services._batch_utils import make_worker_pool as _make_worker_pool
-from services._batch_utils import short_lived_conn as _short_lived_conn
+from services.batch_support.bulk_load import bulk_load as _bulk_load
+from services.batch_support.bulk_load import (
+    completed_provenance_batch as _completed_provenance_batch,
+)
+from services.batch_support.bulk_load import compress_completed_chunks as _compress_completed_chunks
+from services.batch_support.config import get_dict_config as _get_dict_config
+from services.batch_support.config import get_list_config as _get_list_config
+from services.batch_support.db import load_config_service_sync as _load_config_service
+from services.batch_support.db import short_lived_conn as _short_lived_conn
+from services.batch_support.digests import BAR_DIGEST_ABSENT_SYMBOL
+from services.batch_support.digests import bar_content_digests as _bar_content_digests
+from services.batch_support.digests import kernel_code_key as _kernel_code_key
+from services.batch_support.pool import make_worker_pool as _make_worker_pool
 from services.corpus_rerun_apr import load_corpus_rerun_apr
 from services.corpus_rerun_budget import DiskGuardRefused, UnitDiskGuard
 from services.rebuild_preconditions import CoverageRow

@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 import services.ic_measure as ic_measure
-from services._batch_utils import BulkLoadResult
+from services.batch_support.bulk_load import BulkLoadResult
 from src.intelligence.measure import ic as measure_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.term_structure import TermStructure
@@ -920,7 +920,7 @@ class TestUnitOwnsItsScope:
 
 
 def _spec() -> Any:
-    from services._batch_utils import BulkLoadSpec
+    from services.batch_support.bulk_load import BulkLoadSpec
 
     return BulkLoadSpec(
         writer="ic_measure.proposer",
@@ -1092,7 +1092,7 @@ class TestBarDigestBracket:
             ic_measure.check_bar_digests(before, after, ("AAA", "BBB"), allow_absent=False)
 
     def test_absent_symbols_refuse_a_real_run_but_not_when_allowed(self) -> None:
-        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
+        from services.batch_support.digests import BAR_DIGEST_ABSENT_SYMBOL
 
         same = {"AAA": BAR_DIGEST_ABSENT_SYMBOL, "BBB": "2" * 64}
         used = ("AAA", "BBB")
@@ -1107,7 +1107,7 @@ class TestBarDigestBracket:
     def test_only_symbols_the_panels_used_can_block_a_real_run(self) -> None:
         """A universe symbol with no tradeable bars has no panel column and no digest row; it
         cannot affect an IC, so it must not refuse the run. A used symbol with no row still does."""
-        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
+        from services.batch_support.digests import BAR_DIGEST_ABSENT_SYMBOL
 
         digests = {"NOBARS": BAR_DIGEST_ABSENT_SYMBOL, "AAA": "1" * 64}
         assert ic_measure.check_bar_digests(digests, digests, ("AAA",), allow_absent=False) == []
@@ -1232,7 +1232,7 @@ class TestAbsentDigestTolerance:
         assert self._allows(allow_absent_digests=True) is True
 
     def test_the_sentinel_is_the_one_bar_content_digests_returns(self) -> None:
-        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL, bar_content_digests
+        from services.batch_support.digests import BAR_DIGEST_ABSENT_SYMBOL, bar_content_digests
 
         conn = FakeConn(rows_responder([]))
         digests = bar_content_digests(conn, "1d", ["SPY"], _OOS.replace(year=2025), _OOS)

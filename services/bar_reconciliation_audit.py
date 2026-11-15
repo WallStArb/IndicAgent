@@ -68,8 +68,6 @@ import psycopg
 import structlog
 
 from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
     _RAW_DAILY_KINDS,
     _RAW_DAILY_VENDORS,
@@ -89,6 +87,8 @@ from services.bar_derivation import (
 )
 from services.bar_hold import Hold
 from services.bar_hold import held as read_held
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from services.ohlcv_coverage_writer import rebuild_from_stored_state
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch

@@ -310,7 +310,7 @@ class VocabularyDriftAuditor(BaseBatch):
     compute_version = "1.0.0"
 
     async def execute(self, pool: asyncpg.Pool) -> None:
-        # Not services._batch_utils.load_apr_dict_async/cfg (the pattern every
+        # Not services.batch_support.db.load_apr_dict_async and config.cfg (the pattern every
         # services/-resident BaseBatch sibling uses) -- this file lives in src/config/
         # (Ring 1), and services/ is Ring 2; Ring 1 may only import Ring 0
         # (naming-system.md's Ring rule). ConfigService lives in src/config/ itself

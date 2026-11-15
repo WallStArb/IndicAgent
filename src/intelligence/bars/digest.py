@@ -10,7 +10,7 @@ produced the hashed state.
 
 Cross-phase interface (phase 186 D-23/D-24): this module is the one definition
 of the bar content digest. The bar_content_digest table (plan 11) stores what
-this function computes; 186's COPY primitive in services/_batch_utils.py reads
+this function computes; 186's COPY primitive in services/batch_support/bulk_load.py reads
 that table and must never recompute the digest differently.
 
 Determinism: floats serialize through float.hex() (exact, platform-stable) and

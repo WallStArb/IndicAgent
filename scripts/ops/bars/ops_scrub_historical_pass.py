@@ -37,9 +37,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 import structlog
 
-from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from services.bar_scrub import BUSTED_TRADE_WINDOWS, discover_scrub_symbols, scrub_symbols
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_async
 from src.core.service_utils import setup_service_logging

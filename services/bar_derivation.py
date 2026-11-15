@@ -88,11 +88,11 @@ from uuid import uuid4
 import asyncpg
 import numpy as np
 
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from services.bar_hold import held as read_held
 from services.bar_scrub import FlagRow, scrub_symbols, write_flags
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.corporate_actions import RESTATEMENT_SOURCES, is_market_split

@@ -744,7 +744,7 @@ def test_feature_complete_passes_with_own_and_adopted_units():
 def _ic_units(world: World, owner: str, status: str = "loaded", reported_key=None) -> None:
     """Every expected ic_measure unit completed under `owner`, and the run's report listing
     each with `status` (and the batch key it computed, the completed row's by default)."""
-    from services._batch_utils import bulk_load_unit_key
+    from services.batch_support.bulk_load import bulk_load_unit_key
     from services.ic_measure import TARGET_TABLE, job_replace_where, job_writer
 
     outcomes = []

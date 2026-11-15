@@ -40,7 +40,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from services._batch_utils import make_worker_pool  # noqa: E402
+from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402

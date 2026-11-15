@@ -1,14 +1,11 @@
-"""Unit tests: services/_batch_utils.py's canonicalize_active_scales() and
+"""Unit tests: services/batch_support/config.py's canonicalize_active_scales() and
 ACTIVE_SCALES_FALLBACKS_BY_TF (per-tf active-scale-set design, 2026-07-30 spec)."""
 
 from __future__ import annotations
 
 import pytest
 
-from services._batch_utils import (
-    ACTIVE_SCALES_FALLBACKS_BY_TF,
-    canonicalize_active_scales,
-)
+from services.batch_support.config import ACTIVE_SCALES_FALLBACKS_BY_TF, canonicalize_active_scales
 
 
 def test_canonicalize_preserves_canonical_order_regardless_of_input_order():

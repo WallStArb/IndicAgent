@@ -46,8 +46,9 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.ops._common import file_sha256  # noqa: E402
-from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, load_apr_dict_async
-from services._batch_utils import cfg as _cfg
+from services.batch_support.config import LOOKAHEAD_FALLBACKS_BY_TF
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (

@@ -67,8 +67,8 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async as _load_apr_dict
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async as _load_apr_dict
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.rng import hash_key_to_int

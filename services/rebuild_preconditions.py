@@ -572,7 +572,7 @@ def fetch_landed_markers(conn: Any, state_path: Path | None = None) -> dict[str,
     except Exception:
         markers["writer_module_import"] = False
     try:
-        from services._batch_utils import BulkLoadSpec, bulk_load  # noqa: F401
+        from services.batch_support.bulk_load import BulkLoadSpec, bulk_load  # noqa: F401
 
         markers["bulk_load_import"] = True
     except Exception:

@@ -791,7 +791,7 @@ class _FakeGateConn:
 
 
 def _proposer_unit(tf: str) -> str:
-    from services._batch_utils import bulk_load_unit_key
+    from services.batch_support.bulk_load import bulk_load_unit_key
     from services.ic_measure import job_replace_where, job_writer
 
     return bulk_load_unit_key(

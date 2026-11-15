@@ -54,13 +54,14 @@ from psycopg import IsolationLevel, sql
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import get_list_config, load_config_service_sync  # noqa: E402
 from services.backfill_feature_factory import (  # noqa: E402
     TARGET_TIMEFRAMES_KEY,
     _build_feature_factory_config,
     _get_target_timeframes,
     stored_first_row,
 )
+from services.batch_support.config import get_list_config  # noqa: E402
+from services.batch_support.db import load_config_service_sync  # noqa: E402
 from services.corpus_rerun_apr import MAX_NULL_FRACTION_KEY  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.features.contract.registry import default_registry  # noqa: E402

@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from services._batch_utils import make_worker_pool  # noqa: E402
+from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.research import panel as panel_mod  # noqa: E402

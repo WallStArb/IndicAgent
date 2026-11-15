@@ -18,7 +18,7 @@ as pending, and `bulk_load` refuses it ("compressed chunk(s) ... overlap the uni
 a loud failure, never a silent write, but the only recovery today is a manual decompress of the
 chunk.
 
-The refusal lives in the shared primitive (`_bulk_load_precheck` in `services/_batch_utils.py`),
+The refusal lives in the shared primitive (`_bulk_load_precheck` in `services/batch_support/bulk_load.py`),
 which is also why no writer can coexist with a scheduled compression policy. The general fix sits
 at that depth: a unit-scoped path that decompresses only the chunks overlapping the unit range,
 under the existing headroom guard (`check_decompress_headroom`) and write session

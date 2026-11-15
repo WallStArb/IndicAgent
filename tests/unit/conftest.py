@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _prewarm_compressed_hypertable_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Todo 308: services/_batch_utils.py's `_known_compressed_hypertables` cache is
+    """Todo 308: services/batch_support/write_session.py's `_known_compressed_hypertables` cache is
     process-lifetime, shared module state -- pre-warm it to today's real-world value
     before every unit test so (a) a mocked DB response in one test can't leak into
     another's assertions via this shared state, and (b) every pre-existing test across the
@@ -32,7 +32,7 @@ def _prewarm_compressed_hypertable_cache(monkeypatch: pytest.MonkeyPatch) -> Non
     (this file + its tests only).
     """
     try:
-        import services._batch_utils as batch_utils
+        import services.batch_support.write_session as batch_utils
     except ImportError:
         return
     monkeypatch.setattr(
@@ -51,7 +51,7 @@ def _skip_decompress_headroom_preflight(request, monkeypatch):
     if request.node.get_closest_marker("real_headroom_check"):
         return
     try:
-        import services._batch_utils as batch_utils
+        import services.batch_support.write_session as batch_utils
     except ImportError:
         return
 

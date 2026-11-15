@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from scripts.research.determinism.config import HarnessConfig
-from services._batch_utils import make_worker_pool
+from services.batch_support.pool import make_worker_pool
 from src.intelligence.research.evaluate import annualized_sharpe, evaluate, sub_period_masks
 
 CFG = HarnessConfig(

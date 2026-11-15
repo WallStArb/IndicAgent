@@ -1,10 +1,10 @@
-"""CI guard: no new bare `ProcessPoolExecutor(` construction outside services/_batch_utils.py.
+"""CI guard: no new bare `ProcessPoolExecutor(` construction outside services/batch_support/pool.py.
 
 Todo 216: every batch service's ProcessPoolExecutor defaulted to letting each worker
 process spawn one OpenBLAS thread per logical core -- with N worker processes already
 providing process-level parallelism, that's an N x oversubscription of the same core
 count (measured: 2.5x slower even in complete isolation, see
-services/_batch_utils.py's limit_blas_threads() docstring). The fix consolidated every
+services/batch_support/pool.py's limit_blas_threads() docstring). The fix consolidated every
 construction site into make_worker_pool(), which wires the thread cap in via
 initializer=. Nothing structurally prevented a bare ProcessPoolExecutor(...) before this
 guard existed -- a future service could reintroduce the exact bug this fix closed with
@@ -32,7 +32,7 @@ _SEARCH_DIRS = ("services", "scripts", "src")
 
 # (file, reason) -- every direct ProcessPoolExecutor( construction must appear here.
 _ALLOW_LIST: dict[str, str] = {
-    "services/_batch_utils.py": (
+    "services/batch_support/pool.py": (
         "PERMANENT: the sole construction site -- make_worker_pool() wraps it with the "
         "BLAS thread cap already wired in via initializer=. Every other service must call "
         "make_worker_pool(), never ProcessPoolExecutor(...) directly."
@@ -52,7 +52,7 @@ def test_every_process_pool_executor_construction_is_on_the_allow_list():
         _ALLOW_LIST,
         what="direct ProcessPoolExecutor( construction",
         remedy=(
-            "Use services._batch_utils.make_worker_pool(n_workers, "
+            "Use services.batch_support.pool.make_worker_pool(n_workers, "
             "blas_threads_per_worker) instead -- it wires in the OpenBLAS thread cap "
             "(todo 216) that a bare ProcessPoolExecutor(...) silently omits."
         ),

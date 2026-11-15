@@ -453,7 +453,10 @@ _RAW_COMPRESSION_JOB_SQL = (
 # APR keys the compressed write session checks, todo 426).
 _DISK_PATH_KEY = "infra.compressed_hypertable_write_session.disk_path"
 _MIN_FREE_KEY = "infra.compressed_hypertable_write_session.min_free_after_fraction"
-_DISK_PATH_DEFAULT, _MIN_FREE_DEFAULT = "/", 0.10  # the migration seeds, as _batch_utils reads them
+_DISK_PATH_DEFAULT, _MIN_FREE_DEFAULT = (
+    "/",
+    0.10,
+)  # the migration seeds, as batch_support.write_session reads them
 
 
 def recompress_raw(conn: Any) -> None:

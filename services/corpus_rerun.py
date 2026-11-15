@@ -40,7 +40,7 @@ pilot compute gate, the canary).
 A unit skipped because a completed row with its identity exists keeps that row's run (completed
 rows are immutable): the step records it as adopted, {unit_key, batch_key, adopted_from_run_id},
 and every one-run check counts a unit when its completed row is the run's or adopted with the same
-batch_key from the run it records (services/_batch_utils.py belongs_to_run).
+batch_key from the run it records (services/batch_support/bulk_load.py belongs_to_run).
 
 Run it from the run's worktree with the main checkout's interpreter:
 
@@ -73,13 +73,13 @@ import psycopg
 import structlog
 from psycopg.types.json import Jsonb
 
-from services._batch_utils import (
+from services.batch_support.bulk_load import (
     RUN_ADOPTIONS_SQL,
     belongs_to_run,
     bulk_load_unit_key,
-    load_config_service_sync,
     parse_run_id,
 )
+from services.batch_support.db import load_config_service_sync
 from services.corpus_rerun_apr import CorpusRerunApr, load_corpus_rerun_apr, load_quiesce_apr
 from services.corpus_rerun_budget import (
     STAGE_1D,

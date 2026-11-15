@@ -30,7 +30,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
-from services._batch_utils import load_apr_dict_async
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import _TF_MINUTES

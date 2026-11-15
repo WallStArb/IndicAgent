@@ -215,9 +215,9 @@ def _fetch_real_bars(dsn: str) -> dict[str, dict[str, np.ndarray]]:
     screening tools share (imported here, not at module level)."""
     import psycopg
 
-    from services._batch_utils import (
+    from services.batch_support.db import load_config_service_sync
+    from services.batch_support.tradeable import (
         fetch_tradeable_series,
-        load_config_service_sync,
         load_tradeable_series_block_rows,
     )
 
@@ -371,7 +371,7 @@ def main() -> None:
 
     import psycopg
 
-    from services._batch_utils import load_config_service_sync
+    from services.batch_support.db import load_config_service_sync
     from src.config.settings import Settings
 
     dsn = Settings().database_url

@@ -1,7 +1,7 @@
 """Read-only coverage sweep of the walk-forward HMM regime kernels over stored bars (186-18).
 
 For each (symbol, tf, family) cell the sweep reads the bars from `market_data_ohlcv_tradeable`
-(through `services._batch_utils.fetch_tradeable_series`), builds the family's observation matrix once, runs the
+(through `services.batch_support.tradeable.fetch_tradeable_series`), builds the family's observation matrix once, runs the
 walk-forward kernel and reports how many refit segments were written, degenerate, not converged or
 gated for another reason, taken from the kernel's own per-segment events. It reads no returns, so
 it adds nothing to any vintage count, and it writes nothing to the database: the only output is
@@ -324,11 +324,11 @@ def main() -> None:
 
     import psycopg
 
-    from services._batch_utils import (
+    from services.batch_support.db import load_config_service_sync
+    from services.batch_support.pool import make_worker_pool
+    from services.batch_support.tradeable import (
         fetch_tradeable_series,
-        load_config_service_sync,
         load_tradeable_series_block_rows,
-        make_worker_pool,
     )
     from src.config.settings import Settings
 

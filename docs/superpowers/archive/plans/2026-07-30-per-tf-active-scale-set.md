@@ -27,7 +27,7 @@
 
 | File | Responsibility |
 |---|---|
-| `services/_batch_utils.py` | New `ACTIVE_SCALES_FALLBACKS_BY_TF` constant, new `canonicalize_active_scales()` pure function, new `get_list_config()` ConfigService helper (sibling of the existing `get_dict_config()`) |
+| `services/batch_support/config.py` | New `ACTIVE_SCALES_FALLBACKS_BY_TF` constant, new `canonicalize_active_scales()` pure function, new `get_list_config()` ConfigService helper (sibling of the existing `get_dict_config()`) |
 | `services/ic_engine.py` | `ICEngineConfig` gains `active_scales: dict[str, tuple[str, ...]]` field + `active_scales_for(tf)` method + `from_apr()` loading + `_COMPUTATIONAL_CONFIG_FIELDS` classification; 12 `_SCALES` call sites become local-variable bindings of `config.active_scales_for(tf)` |
 | `services/ensemble_ic_engine.py` | `EnsembleICConfig` gains the same field/method/loading (mirrors `ICEngineConfig`, no fingerprint classification needed — no fingerprint mechanism exists in this file) |
 | `production/migrations/271_ic_active_scales.sql` | Seeds `alpha.ic.active_scales.{5m,15m,1h,1d}` — `1h` gets `["fast","mid"]`, the other three get all four scales |
@@ -40,7 +40,7 @@
 ### Task 1: `_batch_utils.py` — canonicalization helper + fallback table + ConfigService list loader
 
 **Files:**
-- Modify: `services/_batch_utils.py` (add after `get_dict_config`, ~line 223)
+- Modify: `services/batch_support/config.py` (add after `get_dict_config`, ~line 223)
 - Test: `tests/unit/test_batch_utils_active_scales.py` (new)
 
 **Interfaces:**
@@ -51,7 +51,7 @@
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-"""Unit tests: services/_batch_utils.py's canonicalize_active_scales() and
+"""Unit tests: services/batch_support/config.py's canonicalize_active_scales() and
 ACTIVE_SCALES_FALLBACKS_BY_TF (per-tf active-scale-set design, 2026-07-30 spec)."""
 
 from __future__ import annotations
@@ -121,9 +121,9 @@ def test_active_scales_fallbacks_already_canonically_ordered():
 Run: `.venv/bin/pytest tests/unit/test_batch_utils_active_scales.py -v`
 Expected: FAIL (`ImportError: cannot import name 'ACTIVE_SCALES_FALLBACKS_BY_TF'`)
 
-- [ ] **Step 3: Implement in `services/_batch_utils.py`**
+- [ ] **Step 3: Implement in `services/batch_support/config.py`**
 
-Add immediately after `get_dict_config` (after line 223, before the trailing blank lines at EOF — check current EOF with `tail -5 services/_batch_utils.py` first):
+Add immediately after `get_dict_config` (after line 223, before the trailing blank lines at EOF — check current EOF with `tail -5 services/batch_support/config.py` first):
 
 ```python
 _CANONICAL_SCALE_ORDER: tuple[str, ...] = ("fast", "mid", "slow", "extended")
@@ -192,7 +192,7 @@ Expected: PASS (9 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/_batch_utils.py tests/unit/test_batch_utils_active_scales.py
+git add services/batch_support/config.py tests/unit/test_batch_utils_active_scales.py
 git commit -m "feat(batch_utils): add canonicalize_active_scales + per-tf active-scale fallback table"
 ```
 
@@ -739,7 +739,7 @@ Expected: 0 failures.
 
 - [ ] **Step 5: Run `/simplify` on the changed files**
 
-Per this project's Done-Coding SOP, invoke `/simplify` on `services/_batch_utils.py`, `services/ic_engine.py`, `services/ensemble_ic_engine.py` before review.
+Per this project's Done-Coding SOP, invoke `/simplify` on `services/batch_support/config.py`, `services/ic_engine.py`, `services/ensemble_ic_engine.py` before review.
 
 - [ ] **Step 6: Run `/review`**
 
@@ -772,7 +772,7 @@ Distinct from todo 202's already-fixed HIGH-2 finding in this same file (commit 
 - Modify: `src/observability/corpus_manifest_verifier.py` (`_load_apr_values`, lines ~42-100; the `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` module constants, lines ~42-56)
 - Test: `tests/unit/src/observability/test_corpus_manifest_verifier.py` (extend; one existing test needs updating, not just new tests added)
 
-**Architectural constraint — read before implementing:** this file lives in `src/observability/`, which is **Ring 0** (per this file's own existing comment at line ~44: "Ring 0 and must not import the services layer, per this repo's pre-commit Ring 0 boundary check"). The fix **cannot** import `ACTIVE_SCALES_FALLBACKS_BY_TF`/`canonicalize_active_scales` from `services/_batch_utils.py` — it must mirror the values **by value**, exactly matching how `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` already mirror `services/_batch_utils.py`'s lookahead grid by value (same existing pattern, same existing "keep in sync by hand" comment convention — copy that convention for the new constant, don't invent a different one).
+**Architectural constraint — read before implementing:** this file lives in `src/observability/`, which is **Ring 0** (per this file's own existing comment at line ~44: "Ring 0 and must not import the services layer, per this repo's pre-commit Ring 0 boundary check"). The fix **cannot** import `ACTIVE_SCALES_FALLBACKS_BY_TF`/`canonicalize_active_scales` from `services/batch_support/config.py` — it must mirror the values **by value**, exactly matching how `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` already mirror `services/batch_support/config.py`'s lookahead grid by value (same existing pattern, same existing "keep in sync by hand" comment convention — copy that convention for the new constant, don't invent a different one).
 
 **Step 1: Write the failing tests.** Add to `tests/unit/src/observability/test_corpus_manifest_verifier.py`:
 
@@ -835,7 +835,7 @@ After the existing `_LOOKAHEAD_SCALES`/`_APR_DEFAULT_LOOKAHEADS_BY_TF` block (~l
 # Todo 208/per-tf-active-scale-set design (2026-07-30): alpha.ic.active_scales.{tf}
 # controls WHICH of the 4 scales ic_engine actually attempts per tf -- 1h excludes
 # slow/extended (0.000 measured forward_returns completeness under the same-session
-# gate). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
+# gate). Mirrors services/batch_support/config.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
 # by import -- src/observability/ is Ring 0, see this file's Ring-0-boundary comment
 # above for _LOOKAHEAD_SCALES. Keep in sync with that dict by hand if it ever changes.
 _APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {

@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from services._batch_utils import BulkLoadSpec
+from services.batch_support.bulk_load import BulkLoadSpec
 from src.core.canonical_json import canonical_json
 from src.intelligence.research import spec as research_spec
 

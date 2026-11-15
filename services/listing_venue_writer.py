@@ -48,9 +48,9 @@ from typing import Any, NamedTuple
 
 import asyncpg
 
-from services._batch_utils import cfg as _cfg
-from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
+from services.batch_support.config import cfg as _cfg
+from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.observability.otel import OTelInitError, init_otel_providers

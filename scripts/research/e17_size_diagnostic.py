@@ -21,7 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from services._batch_utils import make_worker_pool  # noqa: E402
+from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.intelligence.research import null_battery as nb  # noqa: E402
 from src.intelligence.statistics.hac import newey_west_lag  # noqa: E402
 

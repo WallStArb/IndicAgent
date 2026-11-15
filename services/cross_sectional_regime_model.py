@@ -82,8 +82,8 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import connect_db_from_url
-from services._batch_utils import load_config_service_sync as _load_config_service
+from services.batch_support.db import connect_db_from_url
+from services.batch_support.db import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.regime_signals import REGISTRY
@@ -182,7 +182,7 @@ def _parse_group_configs(raw: str | list[dict]) -> list[dict]:
     The JSON-typed APR key alpha.regime.groups returns an ALREADY-PARSED list[dict]
     once cached: ConfigService._parse_value() calls json.loads() at cache-load time
     for value_type='json' keys (src/config/config_service.py:94-95), and
-    load_config_service_sync() (services/_batch_utils.py) populates the cache via
+    load_config_service_sync() (services/batch_support/db.py) populates the cache via
     that same _parse_value() path. Calling json.loads() again on an already-parsed
     list, or str()-ing it first, are both bugs: str(list_of_dicts) produces a
     Python-repr string (single quotes, True/False) that is NOT valid JSON and raises

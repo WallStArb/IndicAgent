@@ -28,7 +28,7 @@ if str(_project_root) not in sys.path:
 
 from unittest.mock import MagicMock
 
-from services._batch_utils import fetch_tradeable_series
+from services.batch_support.tradeable import fetch_tradeable_series
 from src.intelligence.features.kernels import _hmm as hmm_module
 from src.intelligence.features.kernels._hmm import (
     _LABEL_CALM,

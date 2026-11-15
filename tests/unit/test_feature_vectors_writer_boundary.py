@@ -2,7 +2,7 @@
 
 Since migration 570 `feature_vectors` is the kernel table: services/backfill_feature_factory.py
 fills every column (regime columns included, in the same pass, R-10) through
-services/_batch_utils.py bulk_load. The v1 in-place writers (regime_writer and the corpus repair
+services/batch_support/bulk_load.py bulk_load. The v1 in-place writers (regime_writer and the corpus repair
 scripts) were deleted in todo 590. Three layers hold the invariant:
 
 - a write statement on the table's literal name (the single-writer registry's `writer_pattern`:
@@ -21,7 +21,8 @@ from __future__ import annotations
 import functools
 from pathlib import Path
 
-from services._batch_utils import _WRITE_SESSION_HARDENED_TABLES, SOLE_BULK_LOAD_WRITERS
+from services.batch_support.bulk_load import SOLE_BULK_LOAD_WRITERS
+from services.batch_support.write_session import _WRITE_SESSION_HARDENED_TABLES
 from services.feature_vector_writer import _REQUIRED_COLUMNS
 from src.intelligence.features.feature_vector_persistence import feature_vectors_columns
 from tests.unit._source_grep_helpers import (
