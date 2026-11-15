@@ -58,6 +58,10 @@ mypy baseline repaired (a86654717); migration 594 is on main and not applied liv
 Pending operator steps (sudo, after step 7): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and
 hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`; apply migration 594.
 
+Lead goal (owner 2026-11-15): get the compute universe data optimal (step 7 rebuild, B4 rulings, stage 2 universe) so the
+feature and IC work can start; every session and worker assignment is picked by whether it shortens that path. The
+clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
+
 Next, in order:
 1. Lead rules on the B4 summary (gates in runbook B4) and reviews the B5 deletion list (`logs/massive_step7/b5_list_20261115/`; the branch `step7-no-ibkr` landed in 3d774818d).
 2. A10 quiesce, Part C drop and one-pass rebuild after a nightly (`docs/operations/massive-step7-runbook.md`,
