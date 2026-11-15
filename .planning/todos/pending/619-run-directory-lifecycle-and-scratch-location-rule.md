@@ -16,7 +16,7 @@ Measured 2026-11-15 (read-only dry run of the proposed GC rules): rotated logs 5
 
 1. Scratch location rule in `docs/reference/gotchas.md`: scratch for a todo lives only under `data/scratch/<todo-id>`; nothing under `cache/`, `.planning/tmp` or `/tmp`; the closing commit of the todo deletes its scratch dir.
 2. Run-directory lifecycle rule in the same section: a named run dir under `logs/` carries a one-line owner and end-of-life trigger in its README (the todo or step that closes it); at close, write the summary card, keep only the sha256 files and the evidence the card cites, delete the rest. Run dirs that a script reads (`repro_frozen` reads `logs/phase179/rerun_e14` and `logs/phase181`) say so in that README.
-3. The two concrete collapses are separate todos: 620 (shrink the `phase181` snapshot) and 621 (collapse `logs/massive_step7` after Part F).
+3. The concrete collapse is todo 621 (`logs/massive_step7` after Part F). Shrinking the `phase181` snapshot was considered and dropped: its directory name is its content hash (`store.verify`), 1.3 GB is 0.1 percent of free disk, and the nightly ubuntu2 mirror already holds a second copy.
 4. Reopen the GC leaf only if a later measurement shows removable clutter over 100 MB a month.
 
 ## Gates

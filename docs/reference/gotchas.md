@@ -130,7 +130,7 @@ key. Procedure: `docs/operations/corpus-rerun-runbook.md`.
 ## Scratch and run directories
 
 - **Scratch lives in one place:** `data/scratch/<todo-id>`. Nothing under `cache/`, `.planning/tmp` or `/tmp`; the closing commit of the todo deletes its scratch dir.
-- **A named run dir under `logs/` has an end of life:** its README names the owner and the todo or step that closes it, and says if a script reads it (`repro_frozen` reads `logs/phase179/rerun_e14` and `logs/phase181`). At close, write the summary card, keep the sha256 files and the evidence the card cites, delete the rest. Frozen-verdict inputs go into the off-site set (todo 620); the step 7 collapse is todo 621.
+- **A named run dir under `logs/` has an end of life:** its README names the owner and the todo or step that closes it, and says if a script reads it (`repro_frozen` reads `logs/phase179/rerun_e14` and `logs/phase181`). At close, write the summary card, keep the sha256 files and the evidence the card cites, delete the rest. The nightly ubuntu2 mirror (`data_mirror.sh`, no `--delete`) already holds `logs/`, so a delete on ubuntu1 does not free space on ubuntu2. The step 7 collapse is todo 621.
 
 ## OHLCV prices are split-adjusted
 
