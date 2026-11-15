@@ -56,8 +56,8 @@ sys.path.insert(0, str(project_root))
 
 from services.backfill_feature_factory import (  # noqa: E402
     TARGET_TIMEFRAMES_KEY,
-    _build_feature_factory_config,
-    _get_target_timeframes,
+    build_feature_factory_config,
+    get_target_timeframes,
     stored_first_row,
 )
 from services.batch_support.config import get_list_config  # noqa: E402
@@ -377,8 +377,8 @@ def main(argv: list[str] | None = None) -> int:
             args.symbol = get_list_config(cfg, PILOT_NAMES_KEY, [])
             if not args.symbol:
                 parser.error("APR key infra.pilot_gate.names is empty")
-        tfs = args.tf or _get_target_timeframes(cfg)
-        memory = declared_memory(registry, _build_feature_factory_config(cfg), columns, tfs)
+        tfs = args.tf or get_target_timeframes(cfg)
+        memory = declared_memory(registry, build_feature_factory_config(cfg), columns, tfs)
         filters, params = [], []
         for key, values in (("tf", args.tf), ("symbol", args.symbol)):
             if values:

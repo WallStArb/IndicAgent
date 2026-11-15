@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 from services import backfill_feature_factory as module
 from services.backfill_feature_factory import (
     _TARGET_TIMEFRAMES_DEFAULT,
-    _get_target_timeframes,
+    get_target_timeframes,
 )
 from src.config.config_service import ConfigService
 from src.intelligence.feature_factory import FeatureFactory
@@ -515,8 +515,8 @@ def test_get_target_timeframes_defaults_when_apr_key_absent() -> None:
     a bare ConfigService with an empty cache (no DB load) reproduces that "key absent"
     condition, since ConfigService.get_sync() is a plain cache.get(key, default)."""
     cfg = ConfigService(database_url="")
-    assert _get_target_timeframes(cfg) == ["5m", "15m", "1h", "1d"]
-    assert _get_target_timeframes(cfg) == _TARGET_TIMEFRAMES_DEFAULT
+    assert get_target_timeframes(cfg) == ["5m", "15m", "1h", "1d"]
+    assert get_target_timeframes(cfg) == _TARGET_TIMEFRAMES_DEFAULT
 
 
 def test_get_target_timeframes_honors_apr_override() -> None:
@@ -525,14 +525,14 @@ def test_get_target_timeframes_honors_apr_override() -> None:
     which timeframes get processed without a code change."""
     cfg = ConfigService(database_url="")
     cfg._cache["feature.factory.target_timeframes"] = ["5m", "1h"]
-    assert _get_target_timeframes(cfg) == ["5m", "1h"]
+    assert get_target_timeframes(cfg) == ["5m", "1h"]
 
 
 def test_get_target_timeframes_refuses_an_unknown_timeframe_at_load() -> None:
     cfg = ConfigService(database_url="")
     cfg._cache["feature.factory.target_timeframes"] = ["5m", "4h"]
     with pytest.raises(AssertionError, match="4h"):
-        _get_target_timeframes(cfg)
+        get_target_timeframes(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -1276,7 +1276,7 @@ def _run_rebuild_stage(
     compress_calls: list = []
 
     monkeypatch.setattr(module, "_load_config_service", lambda conn: _StubCfg(cfg_values))
-    monkeypatch.setattr(module, "_build_feature_factory_config", lambda cfg: tma.CONFIG)
+    monkeypatch.setattr(module, "build_feature_factory_config", lambda cfg: tma.CONFIG)
     monkeypatch.setattr(
         module,
         "corpus_universe",
@@ -1286,7 +1286,7 @@ def _run_rebuild_stage(
             if not intraday or tier is None or c.symbol in tier
         ],
     )
-    monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
+    monkeypatch.setattr(module, "filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
     monkeypatch.setattr(module, "build_cross_asset_series", lambda *a, **k: {})
     monkeypatch.setattr(module, "proven_starts", lambda conn, symbols: {})
@@ -2003,7 +2003,7 @@ def _bar_arrays(bars: list[dict]):
 
 def _rebuild_config():
     """tma.CONFIG with the regime kernels' HMM loaded (the stage builds it through
-    _build_feature_factory_config, which merges HmmConfig.from_values in production)."""
+    build_feature_factory_config, which merges HmmConfig.from_values in production)."""
     from src.intelligence.features.kernels._hmm import HmmConfig
     from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 
@@ -2076,7 +2076,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
             unit_ranges,
             str(tmp_path),
             100,
-            module._NO_FLOOR,
+            module.NO_FLOOR,
         )
     )
     assert payload["error"] is None, payload["error"]
@@ -2200,7 +2200,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
             [(0, (times[0], horizon))],
             str(spool_dir),
             100,
-            module._NO_FLOOR,
+            module.NO_FLOOR,
         )
     )
     assert payload["error"] is None

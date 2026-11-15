@@ -1109,8 +1109,8 @@ def test_the_intraday_verdict_scan_takes_the_tier_and_the_1d_checks_the_whole_un
     monkeypatch.setattr(cr, "load_config_service_sync", lambda conn: object())
     import services.backfill_feature_factory as factory
 
-    monkeypatch.setattr(factory, "_get_target_timeframes", lambda cfg: ["5m", "1d"])
-    monkeypatch.setattr(factory, "_filter_etf_contracts", lambda contracts, symbols: contracts)
+    monkeypatch.setattr(factory, "get_target_timeframes", lambda cfg: ["5m", "1d"])
+    monkeypatch.setattr(factory, "filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(rp, "fetch_landed_markers", lambda conn: {})
     monkeypatch.setattr(
         rp, "fetch_bar_verdict_inputs", lambda conn, syms, tfs: seen.setdefault("bar", list(syms))

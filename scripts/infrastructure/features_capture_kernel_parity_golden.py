@@ -40,8 +40,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.infrastructure._capture_common import git_head  # noqa: E402
 from services.backfill_feature_factory import (  # noqa: E402
-    _build_feature_factory_config,
     _load_config_service,
+    build_feature_factory_config,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES  # noqa: E402
@@ -284,7 +284,7 @@ def main() -> int:
 
     with psycopg.connect(Settings().database_url) as conn:
         conn.autocommit = True
-        config = _build_feature_factory_config(_load_config_service(conn))
+        config = build_feature_factory_config(_load_config_service(conn))
         warm_up_bars = config.momentum_zscore_window
         real_config = dataclasses.asdict(config)
         assert build_equal(real_config, config), "config snapshot does not round-trip"

@@ -629,7 +629,7 @@ def fetch_row_counts(
     """Tradeable bars per (tf, symbol chunk, month) from each name's proven start to the horizon:
     the rows the rebuild will write, as the planner counts them. 1d counts every name; an
     intraday timeframe only the 5m tier's (names outside it have bars but no features)."""
-    from services.backfill_feature_factory import _NO_FLOOR, _chunk_for
+    from services.backfill_feature_factory import NO_FLOOR, _chunk_for
 
     cells: dict[tuple[str, int, date], int] = {}
     for tfs in (
@@ -647,7 +647,7 @@ def fetch_row_counts(
                 (
                     [s for s, _ in names],
                     [i for _, i in names],
-                    [starts.get(s, _NO_FLOOR) for s, _ in names],
+                    [starts.get(s, NO_FLOOR) for s, _ in names],
                     tfs,
                     horizon,
                 ),
@@ -833,14 +833,14 @@ def rebuild_precondition_results(
     """Every D-32 rebuild precondition (services/rebuild_preconditions.py run_all) on the live
     inputs; raises RebuildPreconditionFailure naming every failure."""
     from services import rebuild_preconditions as rp
-    from services.backfill_feature_factory import _filter_etf_contracts, _get_target_timeframes
+    from services.backfill_feature_factory import filter_etf_contracts, get_target_timeframes
     from services.corpus_universe import corpus_universe
 
     cfg = load_config_service_sync(conn)
-    tfs = _get_target_timeframes(cfg)
-    symbols = sorted({c.symbol for c in _filter_etf_contracts(corpus_universe(conn), None)})
+    tfs = get_target_timeframes(cfg)
+    symbols = sorted({c.symbol for c in filter_etf_contracts(corpus_universe(conn), None)})
     intraday_symbols = sorted(
-        {c.symbol for c in _filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
+        {c.symbol for c in filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
     )
     markers = rp.fetch_landed_markers(conn)
     grid = bool(markers.pop("grid_marker", False))
@@ -1628,7 +1628,7 @@ def _connect(settings: Settings) -> Any:
 def current_identity(conn: Any) -> dict[str, Any]:
     """The rebuild code key and the APR hash as THIS process's code reads them (the worktree's
     when run from it), with the pinned keys and their values for the record."""
-    from services.backfill_feature_factory import _build_feature_factory_config, rebuild_code_key
+    from services.backfill_feature_factory import build_feature_factory_config, rebuild_code_key
 
     cfg = load_config_service_sync(conn)
     horizons = cfg.get_sync(_IC_HORIZONS_KEY)
@@ -1638,7 +1638,7 @@ def current_identity(conn: Any) -> dict[str, Any]:
     missing = sorted(k for k, v in values.items() if v is None)
     return {
         "code_key": rebuild_code_key(),
-        "apr_hash": apr_hash(values, _build_feature_factory_config(cfg)),
+        "apr_hash": apr_hash(values, build_feature_factory_config(cfg)),
         "apr_keys": keys,
         "apr_unseeded": missing,
     }

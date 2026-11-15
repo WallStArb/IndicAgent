@@ -53,8 +53,8 @@ from typing import Any
 import structlog
 
 from services.backfill_feature_factory import (
-    _filter_etf_contracts,
     default_data_horizon,
+    filter_etf_contracts,
     proven_starts,
 )
 from services.corpus_rerun_apr import CorpusRerunApr
@@ -910,8 +910,8 @@ def run_data_gate(
     if horizon.tzinfo is None:
         raise ValueError("run_data_gate: horizon must be tz-aware")
     calendar = calendar or get_market_calendar()
-    universe = _filter_etf_contracts(corpus_universe(conn), None)
-    intraday = {c.symbol for c in _filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
+    universe = filter_etf_contracts(corpus_universe(conn), None)
+    intraday = {c.symbol for c in filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
     key = resolve_calendar_key(universe, calendar)
     names = sorted({c.symbol for c in universe})
     starts = {s: ts.date() for s, ts in proven_starts(conn, names).items()}

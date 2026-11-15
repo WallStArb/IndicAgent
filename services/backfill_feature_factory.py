@@ -158,7 +158,7 @@ _JOB = "backfill-feature-factory"
 
 # Target timeframes for backfill (1m is NOT a backfill target — live pipeline owns 1m,
 # confirmed intentional, todo 199). This literal is now only the APR fallback default --
-# the live driver is feature.factory.target_timeframes, loaded via _get_target_timeframes()
+# the live driver is feature.factory.target_timeframes, loaded via get_target_timeframes()
 # below (todo 199: behavioral-list APR migration, CLAUDE.md APR mandate category 2).
 _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 
@@ -224,7 +224,7 @@ def _restrict_timeframes(
 TARGET_TIMEFRAMES_KEY = "feature.factory.target_timeframes"
 
 
-def _get_target_timeframes(cfg: ConfigService) -> list[str]:
+def get_target_timeframes(cfg: ConfigService) -> list[str]:
     """Load the APR-backed set of timeframes backfill_feature_factory processes.
 
     feature.factory.target_timeframes (migration 278, todo 199) -- JSON array,
@@ -354,7 +354,7 @@ def _connect_db(settings: Settings) -> Any:
     return conn
 
 
-def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
+def filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
     """Return active ETF contracts, excluding futures and FX, optionally filtered to symbols."""
     etf = [
         c
@@ -368,7 +368,7 @@ def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
     return etf
 
 
-def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
+def build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
     """Build FeatureFactoryConfig from APR keys (`FEATURE_APR_FIELDS`, the one table)."""
     return FeatureFactoryConfig.from_values(cfg.get_sync)
 
@@ -559,7 +559,7 @@ _FEATURE_TIME_COLUMN = "bar_ts"
 _TRADING_EXCHANGE = "NYSE"
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 # A name with no proven start reads from the beginning of its series.
-_NO_FLOOR = _EPOCH
+NO_FLOOR = _EPOCH
 
 
 _PROVEN_STARTS_SQL = """
@@ -898,7 +898,7 @@ def _fetch_bar_arrays(
     tf: str,
     horizon: datetime,
     block_rows: int,
-    floor: datetime = _NO_FLOOR,
+    floor: datetime = NO_FLOOR,
 ) -> tuple[dict[str, np.ndarray], list[datetime]]:
     """One series' bars from `floor` (the name's proven start; design D4) strictly before
     `horizon` from market_data_ohlcv_tradeable, streamed
@@ -1148,7 +1148,7 @@ def _unit_input_digest(
     (revision detection blind) a changed bar count still renames the unit."""
     lines = [
         f"{symbol}|{digests[symbol]}|{stat.count}|{stat.first.isoformat()}|{stat.last.isoformat()}"
-        + f"|start={starts.get(symbol, _NO_FLOOR).isoformat()}"
+        + f"|start={starts.get(symbol, NO_FLOOR).isoformat()}"
         for symbol, stat in sorted(stats.items())
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
@@ -1177,7 +1177,7 @@ def _plan_group(
     with conn.cursor() as cur:
         cur.execute(
             _UNIT_STATS_SQL,
-            (list(chunk), [starts.get(name, _NO_FLOOR) for name in chunk], tf, horizon),
+            (list(chunk), [starts.get(name, NO_FLOOR) for name in chunk], tf, horizon),
         )
         rows = cur.fetchall()
     if not rows:
@@ -1513,13 +1513,13 @@ def _stage_context(
     settings: Settings, db_conn: Any, symbols: list[str] | None, timeframes: list[str] | None
 ) -> _StageContext:
     cfg = _load_config_service(db_conn)
-    config = _build_feature_factory_config(cfg)
-    all_timeframes = _get_target_timeframes(cfg)
+    config = build_feature_factory_config(cfg)
+    all_timeframes = get_target_timeframes(cfg)
     symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
     contracts = corpus_universe(db_conn)
-    universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
+    universe = [c.symbol for c in filter_etf_contracts(contracts, symbols)]
     tier = {
-        c.symbol for c in _filter_etf_contracts(corpus_universe(db_conn, intraday=True), symbols)
+        c.symbol for c in filter_etf_contracts(corpus_universe(db_conn, intraday=True), symbols)
     }
     return _StageContext(
         cfg=cfg,
@@ -1794,7 +1794,7 @@ def run_rebuild_stage(
                                 unit_ranges,
                                 str(spool_dir),
                                 block_rows,
-                                starts.get(symbol, _NO_FLOOR),
+                                starts.get(symbol, NO_FLOOR),
                             ),
                         )
                         for symbol in plan.chunk  # the tier's names for an intraday tf

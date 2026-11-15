@@ -37,13 +37,13 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
 from services.backfill_feature_factory import (  # noqa: E402
-    _NO_FLOOR,
-    _build_feature_factory_config,
+    NO_FLOOR,
     _compute_series_columns,
     _fetch_bar_arrays,
     _fetch_bars_from_db,
     _series_kernel_inputs,
     build_daily_records,
+    build_feature_factory_config,
     default_data_horizon,
     feature_vectors_output_columns,
 )
@@ -124,8 +124,8 @@ def _unit_inputs(
 ):
     """Bars and every external input of one unit, built exactly as `_rebuild_worker` builds
     them (the same helpers, one definition of each alignment)."""
-    bars, _ = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows, _NO_FLOOR)
-    symbol_1d = _fetch_bars_from_db(conn, symbol, "1d", until=horizon, floor=_NO_FLOOR)
+    bars, _ = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows, NO_FLOOR)
+    symbol_1d = _fetch_bars_from_db(conn, symbol, "1d", until=horizon, floor=NO_FLOOR)
     beta_by_date = build_symbol_beta_series(
         symbol_1d, reference[SPY], reference[TLT], symbol, config
     )
@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     failures = errors = 0
     with psycopg.connect(get_settings().database_url) as conn:
         cfg = load_config_service_sync(conn)
-        config = _build_feature_factory_config(cfg)
+        config = build_feature_factory_config(cfg)
         block_rows = load_rolling_block_rows(cfg.get_sync)
         horizon = default_data_horizon()
         reference = {
