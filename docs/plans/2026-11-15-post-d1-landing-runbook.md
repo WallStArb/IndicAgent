@@ -120,3 +120,23 @@ Each landing is one push of a contiguous commit range, so rollback is `git rever
 - The readiness list numbers the Part F migration 597; 597 is L3's, so it is 598 or above.
 - The prereg drafts and the I2 doc have landed and reference each other by path. The prereg drafts still name the I1 wiring plan in words, because it lands with L3.
 - R2 remainder is not built; its migrations (if any) will need the next free number at landing, above 597 unless Part F lands first.
+
+## 9. Pre-land dry run (2026-11-15, scratch worktree off `0c539367b`, nothing pushed)
+
+Each held worktree was cherry-picked in landing order onto a scratch detached worktree off the then-current `origin/main` (`0c539367b`), with `tools/gate.py` after each step (unit suite and `repro_frozen`; the gate plans `repro_frozen` for every step from the stack on because `scripts/research` is touched), plus mypy-baseline filter, ruff, black and the glossary check where noted. Landing after D4 is a replay of these commits in this order; rebase moves only the base.
+
+| Step | Replayed | Scratch tip | Conflicts | Gate |
+|---|---|---|---|---|
+| 1 stack (6 commits) | `abd27158a` | `66613b3f9` | none | unit failed once: `test_no_dangling_references` (this runbook named the deleted batch helpers module by path); fixed by a docs commit `7cef9b90e`, then unit ok, `repro_frozen` ok, mypy-baseline filter exit 0, ruff 0, black 0. The stack's baseline sync removes 2 baseline lines and adds none |
+| 2 L1 (3 commits) | `d4adbb2f3` | `620136bf7` | none (auto-merged `feature_vector_persistence.py`) | unit ok, `repro_frozen` bit-identical ("phase 181 S2 ... bit-identical", "S3 bit-identical"), mypy filter exit 0 |
+| 3 R2 item 1 | `4db147529` | `e55f6fa25` | none | `test_production_path_golden.py` passes on the L1 base with no regeneration: the section 4 step 3 warning did not bite (L1's kernel moves leave the production-path digests equal). First gate run died with an xdist `INTERNALERROR: KeyError: <WorkerController gw2>` at 23 s (no test failure; worker-controller flake); the rerun passed unit (131 s) and `repro_frozen` |
+| 4 R2 remainder | not built | | | not replayable yet; each item replays the same way when built |
+| 5 L3 (9 commits) | `fa3fedc49` | `e91619386` | one: `.planning/todos/pending/609-...md`, because main now holds the short I2 pointer section and L3's first commit adds a "Build status" section at the same place. Resolved by keeping both, then a fixup commit `878aba8d0` merging the duplicate Blocker I2 sections into the L3 one and restoring the path-form references (the six files exist now) | unit ok (130 s), `repro_frozen` ok, mypy filter exit 0, ruff 0, black 0, glossary 0 |
+| 5 fixup | one new commit | `8477f7cef` | | `tools/check_duplicate_tests.py` exited 1 on the L3 branch: `test_runs_in_one_transaction` in `test_universe_membership_migration_contract.py` duplicates the test of the same name in `test_ohlcv_load_revision_migration_contract.py` on main. Renamed to `test_universe_membership_migration_runs_in_one_transaction`; the check exits 0. Neither the gate nor the suite runs this check, so it must be run by hand at every landing |
+
+Findings the replay adds to the procedure:
+- Run `tools/check_duplicate_tests.py` explicitly at every landing; `tools/gate.py` does not.
+- Run `tests/unit/test_no_dangling_references.py` before every docs push; a landing that deletes a file (the stack) makes docs that name it dangle.
+- Replay the two docs-only fixups (`7cef9b90e`, `878aba8d0`) and the test rename (`8477f7cef`) with their steps; they are the only edits beyond the held commits.
+- The L3 step's `repro_frozen` is bit-identical with migration 597 in the diff (no spec hash moved).
+- Applying migrations 595 to 597 was not part of the dry run (no live writes); the object checks of section 1 stand.
