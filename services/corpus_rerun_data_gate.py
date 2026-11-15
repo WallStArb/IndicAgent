@@ -57,7 +57,8 @@ from services.backfill_feature_factory import (
     proven_starts,
 )
 from services.corpus_rerun_apr import CorpusRerunApr
-from src.config.settings import Settings, get_active_contracts
+from services.corpus_universe import corpus_universe
+from src.config.settings import Settings
 from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow, primary_pair
 from src.intelligence.bars.gap_plan import COVERAGE_EVIDENCE
@@ -285,7 +286,7 @@ def resolve_calendar_key(universe: Sequence[Any], calendar: MarketCalendar) -> s
     a session_id the calendar does not support (no partial gate), and on an empty universe (a
     gate over no names would pass vacuously)."""
     if not universe:
-        raise ValueError("data gate: the compute_1d universe is empty")
+        raise ValueError("data gate: the corpus universe is empty")
     keys: set[str] = set()
     unsupported: list[str] = []
     for contract in universe:
@@ -882,13 +883,13 @@ def run_data_gate(
     horizon: datetime | None = None,
     calendar: MarketCalendar | None = None,
 ) -> DataGateResult:
-    """Measure the compute_1d universe (the rebuild's own) against the 584 rule. Reads only."""
+    """Measure the corpus universe (universe_membership; the rebuild's own) against the 584 rule. Reads only."""
     started = time.monotonic()
     horizon = horizon or default_data_horizon()
     if horizon.tzinfo is None:
         raise ValueError("run_data_gate: horizon must be tz-aware")
     calendar = calendar or get_market_calendar()
-    universe = _filter_etf_contracts(get_active_contracts(settings, dimension="compute_1d"), None)
+    universe = _filter_etf_contracts(corpus_universe(conn), None)
     key = resolve_calendar_key(universe, calendar)
     names = sorted({c.symbol for c in universe})
     starts = {s: ts.date() for s, ts in proven_starts(conn, names).items()}

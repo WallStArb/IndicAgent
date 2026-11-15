@@ -14,6 +14,7 @@ Domain code: pure functions over arrays, state at the edges. Ring rule, naming a
 | `portfolio/` | Instrument-level portfolio construction primitives. |
 | `regime_signals/` | Signal-type registry for regime modules. |
 | `concept_registry_service.py` | UCR; the only writer of a concept status. |
+| `universe_membership.py` | Stage 2 universe rule (pure, preregistered constants); writer is `services/universe_membership_writer.py`. |
 
 Package docstrings in each `__init__.py` are the source of truth for details.
 

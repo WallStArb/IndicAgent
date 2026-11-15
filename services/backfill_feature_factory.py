@@ -89,9 +89,10 @@ from services.batch_support.digests import kernel_code_key as _kernel_code_key
 from services.batch_support.pool import make_worker_pool as _make_worker_pool
 from services.corpus_rerun_apr import load_corpus_rerun_apr
 from services.corpus_rerun_budget import DiskGuardRefused, UnitDiskGuard
+from services.corpus_universe import corpus_universe
 from services.rebuild_preconditions import CoverageRow
 from src.config.config_service import ConfigService
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings
 from src.core.code_identity import IO_BOUNDARY_MODULES, import_closure
 from src.core.code_identity import code_key as _code_key
 from src.core.market_calendar import get_market_calendar
@@ -1768,7 +1769,7 @@ def _stage_context(
     config = _build_feature_factory_config(cfg)
     all_timeframes = _get_target_timeframes(cfg)
     symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
-    contracts = get_active_contracts(settings, dimension="compute_1d")
+    contracts = corpus_universe(db_conn)
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
     return _StageContext(
         cfg=cfg,

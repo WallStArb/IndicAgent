@@ -767,18 +767,11 @@ def rebuild_precondition_results(
     inputs; raises RebuildPreconditionFailure naming every failure."""
     from services import rebuild_preconditions as rp
     from services.backfill_feature_factory import _filter_etf_contracts, _get_target_timeframes
-    from src.config.settings import get_active_contracts
+    from services.corpus_universe import corpus_universe
 
     cfg = load_config_service_sync(conn)
     tfs = _get_target_timeframes(cfg)
-    symbols = sorted(
-        {
-            c.symbol
-            for c in _filter_etf_contracts(
-                get_active_contracts(settings, dimension="compute_1d"), None
-            )
-        }
-    )
+    symbols = sorted({c.symbol for c in _filter_etf_contracts(corpus_universe(conn), None)})
     markers = rp.fetch_landed_markers(conn)
     grid = bool(markers.pop("grid_marker", False))
     with conn.cursor() as cur:

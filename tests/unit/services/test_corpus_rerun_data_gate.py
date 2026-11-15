@@ -112,7 +112,7 @@ class Fixture:
             )
             for s in self.names
         ]
-        monkeypatch.setattr(gate, "get_active_contracts", lambda settings, dimension: universe)
+        monkeypatch.setattr(gate, "corpus_universe", lambda conn: universe)
         monkeypatch.setattr(
             gate,
             "proven_starts",

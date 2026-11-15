@@ -60,3 +60,9 @@ The corpus universe (every name ever a member) must not feed the 5m data gate: a
 - Rulings (lead, 2026-11-16): install after D4 at the 2026-11-09 anchor, with a rolled-back rehearsal first; the planner is not additive, so L = 2026-11-09 for the closed-list membership rule (`docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md`, pending adoption).
 - `run_609.sh`: s2 builds the scratch map, s3 rehearses then applies the install, s4b measures the unplaced share of rows at or above the $1M floor by year and type (`scripts/ops/bars/ops_pit_unplaced_share.py`) and shows it to the owner before membership (s5) is built. They run only after the branch lands.
 - Index migration for the identity-trigger probe: numbered 601 in the worktree (599 is the R2 cluster's); renumber at landing. Owner gates: `docs/plans/2026-11-16-609-owner-gates-summary.md`.
+
+## Build status 2026-11-15 (lane L3, synthetic data only)
+
+Code landed, not applied: migration 597 (`universe_membership`, `universe_membership_build`, insert-only), the pure rule `src/intelligence/universe_membership.py` (preregistered constants, `RULE_ID`), the single writer `services/universe_membership_writer.py` (rehearsal by default, `--through DAY`, `--apply`), and `services/corpus_universe.py`, which `corpus_rerun`, `corpus_rerun_data_gate` and `backfill_feature_factory._stage_context` now read as the compute universe (every symbol that was ever a member; no fallback to `compute_1d`, an empty ledger raises). Design: `docs/plans/2026-11-15-universe-membership-design.md`.
+
+Still open: apply 597 after step 7; real build and member count by year to the owner (gate 5); the `proven_start_1d` verdict facts for the new names (the compute universe skips a name with no proven start); gating the S0 IC panel on membership at each date (a `src/intelligence/research` edit, needs `repro_frozen`); the core panel (90 percent of month-ends).

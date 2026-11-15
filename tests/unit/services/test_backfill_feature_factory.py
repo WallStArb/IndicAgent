@@ -1278,8 +1278,8 @@ def _run_rebuild_stage(
     monkeypatch.setattr(module, "_build_feature_factory_config", lambda cfg: tma.CONFIG)
     monkeypatch.setattr(
         module,
-        "get_active_contracts",
-        lambda settings, dimension=None: _stub_contracts(dimension),
+        "corpus_universe",
+        lambda conn: _stub_contracts("compute_1d"),
     )
     monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])

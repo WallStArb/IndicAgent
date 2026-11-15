@@ -1,0 +1,199 @@
+"""Stage 2 universe membership rule (preregistration 2026-11-13) on synthetic daily bars."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+import numpy as np
+import pytest
+
+from src.intelligence.universe_membership import (
+    ELIGIBLE_TYPES,
+    RULE,
+    MembershipRule,
+    SecurityHistory,
+    decide,
+    memberships_for_security,
+    month_end_sessions,
+)
+
+START = date(2020, 1, 6)
+
+
+def _days(n: int, start: date = START) -> list[date]:
+    out: list[date] = []
+    d = start
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def _history(days: list[date], dollar: float | list[float], close: float = 10.0, symbol="AAA"):
+    dollars = dollar if isinstance(dollar, list) else [dollar] * len(days)
+    return SecurityHistory(
+        symbol=symbol,
+        days=np.array(days, dtype="datetime64[D]"),
+        close=np.full(len(days), close),
+        volume=np.array([x / close for x in dollars]),
+    )
+
+
+def test_preregistered_constants():
+    assert RULE.entry_floor == 1_000_000.0
+    assert RULE.exit_floor == 500_000.0
+    assert RULE.window_sessions == 60
+    assert RULE.min_history_sessions == 60
+    assert RULE.min_close == 1.0
+    assert ELIGIBLE_TYPES == {"CS", "ADRC", "ETF"}
+
+
+def test_entry_at_floor_inclusive_and_below_is_out():
+    days = _days(60)
+    assert decide(_history(days, 1_000_000.0), days[-1], "CS", False) is not None
+    assert decide(_history(days, 999_999.0), days[-1], "CS", False) is None
+
+
+def test_entry_is_the_window_median_not_the_mean():
+    days = _days(60)
+    # 31 of 60 sessions at $1.2M and 29 at $0: median $1.2M, mean $0.62M
+    dollars = [1_200_000.0] * 31 + [1.0] * 29
+    row = decide(_history(days, dollars), days[-1], "CS", False)
+    assert row is not None and row.median_dollar_volume == pytest.approx(1_200_000.0)
+    # 29 high of 60: median is low
+    assert decide(_history(days, [1_200_000.0] * 29 + [1.0] * 31), days[-1], "CS", False) is None
+
+
+def test_window_is_the_last_60_sessions_only():
+    days = _days(120)
+    dollars = [0.0 + 1.0] * 60 + [2_000_000.0] * 60
+    row = decide(_history(days, dollars), days[-1], "CS", False)
+    assert row is not None and row.sessions == 120
+
+
+def test_hysteresis_member_stays_between_floors_non_member_does_not_enter():
+    days = _days(60)
+    mid = _history(days, 700_000.0)
+    assert decide(mid, days[-1], "CS", True) is not None
+    assert decide(mid, days[-1], "CS", False) is None
+
+
+def test_hysteresis_exit_below_half_floor_and_boundary_stays():
+    days = _days(60)
+    assert decide(_history(days, 500_000.0), days[-1], "CS", True) is not None
+    assert decide(_history(days, 499_999.0), days[-1], "CS", True) is None
+
+
+def test_entered_flag_distinguishes_entry_from_retention():
+    days = _days(60)
+    assert decide(_history(days, 2e6), days[-1], "CS", False).entered is True
+    assert decide(_history(days, 7e5), days[-1], "CS", True).entered is False
+
+
+def test_price_floor_is_hard_even_for_a_member():
+    days = _days(60)
+    assert decide(_history(days, 2e6, close=0.99), days[-1], "CS", True) is None
+    assert decide(_history(days, 2e6, close=1.0), days[-1], "CS", True) is not None
+
+
+def test_history_needs_60_own_sessions():
+    days = _days(59)
+    assert decide(_history(days, 2e6), days[-1], "CS", False) is None
+    days = _days(60)
+    assert decide(_history(days, 2e6), days[-1], "CS", False) is not None
+
+
+def test_history_floor_is_hard_for_a_member():
+    days = _days(59)
+    assert decide(_history(days, 2e6), days[-1], "CS", True) is None
+
+
+@pytest.mark.parametrize(
+    "kind,ok",
+    [
+        ("CS", True),
+        ("ADRC", True),
+        ("ETF", True),
+        ("PFD", False),
+        ("WARRANT", False),
+        ("UNIT", False),
+        ("ETN", False),
+        (None, False),
+    ],
+)
+def test_types(kind, ok):
+    days = _days(60)
+    assert (decide(_history(days, 2e6), days[-1], kind, False) is not None) is ok
+
+
+def test_type_is_hard_for_a_member():
+    days = _days(60)
+    assert decide(_history(days, 2e6), days[-1], "PFD", True) is None
+
+
+def test_no_bar_on_t_is_not_a_member_delisting():
+    days = _days(80)
+    hist = _history(days[:70], 2e6)  # delisted after day 70
+    assert decide(hist, days[69], "CS", False) is not None
+    assert decide(hist, days[79], "CS", True) is None
+
+
+def test_decision_ignores_bars_after_t():
+    days = _days(120)
+    base = _history(days[:60], 2e6)
+    extended_dollars = [2e6] * 60 + [1.0] * 60  # collapse after t
+    extended = _history(days, extended_dollars)
+    assert decide(base, days[59], "CS", False) == decide(extended, days[59], "CS", False)
+
+
+def test_nan_in_window_is_not_a_member_and_is_not_filled():
+    days = _days(60)
+    hist = _history(days, 2e6)
+    hist.volume[10] = np.nan
+    assert decide(hist, days[-1], "CS", False) is None
+
+
+def test_walk_enters_holds_exits_and_reenters_only_at_entry_floor():
+    days = _days(60 * 5)
+    ends = [days[59], days[119], days[179], days[239], days[299]]
+    # 60-session blocks of dollar volume: 2M enter, 0.7M hold, 0.4M exit, 0.7M stay out, 2M re-enter
+    dollars = [2e6] * 60 + [7e5] * 60 + [4e5] * 60 + [7e5] * 60 + [2e6] * 60
+    rows = memberships_for_security(_history(days, dollars), ends, {e: "CS" for e in ends})
+    assert [r.as_of for r in rows] == [ends[0], ends[1], ends[4]]
+    assert [r.entered for r in rows] == [True, False, True]
+
+
+def test_walk_seed_resumes_hysteresis_state():
+    days = _days(60)
+    hist = _history(days, 7e5)
+    types = {days[-1]: "CS"}
+    assert memberships_for_security(hist, [days[-1]], types, was_member=True)
+    assert not memberships_for_security(hist, [days[-1]], types, was_member=False)
+
+
+def test_walk_missing_type_is_unknown_and_excluded():
+    days = _days(60)
+    assert memberships_for_security(_history(days, 2e6), [days[-1]], {}) == []
+
+
+def test_rule_validates_floor_order_and_window():
+    with pytest.raises(ValueError):
+        MembershipRule(entry_floor=1.0, exit_floor=2.0)
+    with pytest.raises(ValueError):
+        MembershipRule(window_sessions=60, min_history_sessions=59)
+
+
+def test_history_rejects_unsorted_days():
+    with pytest.raises(ValueError):
+        SecurityHistory(
+            "X",
+            np.array(["2020-01-02", "2020-01-01"], dtype="datetime64[D]"),
+            np.ones(2),
+            np.ones(2),
+        )
+
+
+def test_month_end_sessions_takes_last_session_per_month():
+    days = [date(2020, 1, 30), date(2020, 1, 31), date(2020, 2, 3), date(2020, 2, 28)]
+    assert month_end_sessions(days) == [date(2020, 1, 31), date(2020, 2, 28)]
