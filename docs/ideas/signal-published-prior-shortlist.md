@@ -1,6 +1,6 @@
 # Published-prior shortlist: features, regimes and flow predictors - Idea
 
-**Status:** Idea, 2026-11-15. Nothing queued, registered or computed. No real-data number exists for any hypothesis here; the clean-data rule holds while the step 7 rebuild runs. Each item enters only as a pre-registered family member or S7 variant, counted under E18 and E21.
+**Status:** Idea, 2026-11-15. Nothing queued, registered or computed. No real-data number exists for any hypothesis here; the clean-data rule holds while the step 7 rebuild runs. Each item enters only as a pre-registered family member or S7 variant, counted under E18 and E21. Draft registrations for items 1 to 3: `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`.
 **Author:** Claude research lane R1, 2026-11-15, from the lead's brief: a ranked shortlist of testable hypotheses grounded in published evidence, checked against the research ledger.
 **Informed by:** `docs/research/construction-verdict-ledger.md` (frozen) and `docs/research/research-ledger.md` (generated), `docs/ideas/base-feature-scouting-and-the-research-ladder.md`, `docs/ideas/signal-scoped-regime-states.md`, `docs/ideas/signal-participation-state-style-spreads.md`, `docs/ideas/signal-sensitivity-regime-interaction-primitives.md`, `docs/plans/2026-11-09-regime-conditional-and-incremental-ic.md`, `docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md`, the glossary, and a web pass on the papers cited in the sources table.
 
