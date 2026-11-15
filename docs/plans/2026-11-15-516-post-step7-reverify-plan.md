@@ -59,7 +59,7 @@ SELECT n.symbol,
 FROM n LEFT JOIN market_data_ohlcv c ON c.symbol = n.symbol AND c.timeframe = '1d'
 GROUP BY n.symbol ORDER BY 1;
 ```
-Expected: canon_rows = massive_sessions + alpaca_after, minus the sessions B4 drops (zero volume, no ticker span, gap-list rows; each name's drops are in `switch_delta.csv` totals and the loss report under `logs/massive_step7/delta*`). From raw today, ELE should land near 244 plus Alpaca after the archive end, IESC near 2,633, MSM near 5,833, and TIGO at the Alpaca-after-archive-end count only, because Massive holds no 1d row for TIGO.
+Expected: canon_rows = massive_sessions + alpaca_after, minus the sessions B4 drops (zero volume, no ticker span, gap-list rows; each name's drops are in the switch delta CSV and loss report under `logs/massive_step7/`). From raw today, ELE should land near 244 plus Alpaca after the archive end, IESC near 2,633, MSM near 5,833, and TIGO at the Alpaca-after-archive-end count only, because Massive holds no 1d row for TIGO.
 Pass per name: canon_rows equals massive_sessions + alpaca_after exactly (selection is a pure function of raw, `ops_selection_gate --compare` already proves it). A difference that equals the name's listed drop reasons is explained; one that does not is a finding.
 
 **Q6, are the names in the loss report.**
