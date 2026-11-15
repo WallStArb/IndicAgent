@@ -107,7 +107,7 @@ loudly - the design, not a defect. The pilot measures the actual failure volume 
 before the full stages run; if hole-era names fail in numbers, the answer is a per-era floor
 amendment through the methodology ledger, never a mask change.
 
-- `data_gate`: 186-32's `run_data_gate` over the compute_1d universe at the run's horizon. It
+- `data_gate`: 186-32's `run_data_gate` over the corpus universe (every name ever in `universe_membership`, todo 609) at the run's horizon. It
   counts, per name and year, every NYSE session from the name's proven start that holds a
   tradeable 1d bar and 5m coverage from the era's policy primary. It reports the 1d sessions
   before the calendar's first session per name (`pre_calendar_1d_sessions`), names without a

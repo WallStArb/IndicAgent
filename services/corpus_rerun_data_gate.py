@@ -1,6 +1,7 @@
 """The corpus rerun data gate (186-32, todo 593; the 584 rule, owner and lead 2026-11-04).
 
-No corpus compute runs until every compute_1d name's history is continuous: for each name and
+No corpus compute runs until every corpus-universe name's history is continuous (the names ever in
+`universe_membership`, `services.corpus_universe`): for each name and
 year, every exchange-calendar session from the name's proven start to the horizon holds a
 tradeable 1d bar and 5m coverage from the policy primary of its era, within the APR tolerances.
 Continuity, not the earliest row: a name whose first 5m bar sits at its 1d start but with a hole

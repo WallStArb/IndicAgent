@@ -26,3 +26,4 @@ The corpus compute universe is every symbol ever in `universe_membership` (`serv
 - A NULL close or volume is NaN, so the name is not a member that month (no fill).
 - `data/universe_membership/<through>/vanished_without_final_bar.csv` lists members whose bars stop more than 7 calendar days before their placed span ends (or before `--through` for an open span).
 - Ledger months may be empty only before the first member ever built; once any built month has members, every later month must have members.
+- Window convention. Bars come from the tradeable view (volume > 0), so the 60-bar window and the session count run over a name's traded days, the same convention as the day-file measurement that sized the floor. A name that trades one session in three has a window that spans about 180 calendar sessions; the preregistration does not bound the span, so none is applied. A later amendment may add one.
