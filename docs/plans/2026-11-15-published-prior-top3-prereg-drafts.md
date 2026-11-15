@@ -11,7 +11,7 @@ Everything below is pending an owner decision; the lead recommends adopting each
 
 | # | Item | What adopting does | Where it is written | Lead recommendation |
 |---|---|---|---|---|
-| 1 | 5m tier amendment ($25M entry, $12.5M exit, nested in the membership) | Fixes the 5m tier definition before any tier load; the code already carries the values | the I2 design doc, part 1 (unpushed, commit 45cb4e9f7) | Adopt |
+| 1 | 5m tier amendment ($25M entry, $12.5M exit, nested in the membership) | Fixes the 5m tier definition before any tier load; the code already carries the values | `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md` part 1 | Adopt |
 | 2 | Seen-name holdout | Excludes the screen's 231 names and the TSMOM sleeve (about 5 percent of the membership) from both panels, by a pinned list | section 2 here; build item B-U in the I1 plan | Adopt |
 | 3 | A1, universe amendment | Moves the daily residual family from `daily_unseen` to the membership and core panels | daily residual prereg section 10 (draft) | Adopt |
 | 4 | A2, sixth member | Adds the information-discreteness member M3 to the daily residual family | daily residual prereg section 10 (draft) and H-A here | Adopt |
