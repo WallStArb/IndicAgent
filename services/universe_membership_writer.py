@@ -14,14 +14,19 @@ its hysteresis state from the last built month and refuses to extend a build mad
 rule id. The run fails loudly, writing nothing, on: a month-end whose snapshot capture is not
 complete (both lists, contiguous pages, last page without next_url, status OK); no inactive name
 among the placed symbols (a survivor-only build); an empty month once any built month had
-members. The price test uses the as-traded close: canonical closes are un-adjusted by the market
-splits recorded by `--horizon` (the canonical selection horizon) with effective_date on or after
-the month-end. Every run writes `data/universe_membership/<through>/vanished_without_final_bar.csv`
+members. The price test uses the as-traded close: canonical closes are un-adjusted by every
+current market split of the symbol (`corporate_action_current` rows `is_market_split` accepts, no
+time filter: the set `daily_rule.split_scale` divided by, via
+`bar_derivation._SELECT_DAILY_SPLITS_SQL`, mirrored by the migration 588 lineage view) with
+effective_date on or after the month-end. The build refuses when canonical is not current with
+the splits: any corporate_action row (superseding and void rows included) recorded after the
+symbol's latest 1d `bar_content_digest.computed_at`, or actions and no 1d digest.
+Every run writes `data/universe_membership/<through>/vanished_without_final_bar.csv`
 (members whose bars stop well before their placed span). A run without `--apply` does everything
 and rolls the transaction back.
 
     .venv/bin/python -m services.universe_membership_writer --through 2026-10-30 \\
-        --horizon 2026-11-16T00:00:00+00:00            # rehearsal
+        # rehearsal
     (same command with --apply to write)
 
 Not to be run on real data before the step 7 data gate passes and the stage 2 load (preregistration
@@ -47,7 +52,7 @@ from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.bars.split_rescale import SplitFactor, SplitRow, splits_known_at
+from src.intelligence.bars.split_rescale import SplitFactor
 from src.intelligence.universe_membership import (
     ARCHIVE_START,
     RULE,
@@ -80,10 +85,30 @@ SELECT symbol, bool_or(valid_to IS NULL) AS open_span, max(valid_to) AS span_end
  WHERE vendor = 'massive' AND retired_at IS NULL AND symbol = ANY($1)
  GROUP BY symbol
 """
+# Exactly the split set the canonical 1d close was divided by: every current corporate_action row
+# of the symbol (bar_derivation._SELECT_DAILY_SPLITS_SQL), no recorded_at horizon, kept when
+# is_market_split accepts it (daily_rule.split_scale; migration 588 lineage view).
 _SPLITS_SQL = """
-SELECT symbol, effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' AS rows_file
+SELECT symbol, effective_date, factor, inferred_by, detail ? 'rows_file' AS rows_file
   FROM corporate_action_current
- WHERE symbol = ANY($1) AND action_type IN ('split', 'reverse_split')
+ WHERE symbol = ANY($1)
+ ORDER BY symbol, effective_date
+"""
+# Canonical is not current with the splits when any corporate_action row of the symbol (the base
+# table: superseding and void rows count) was recorded after the symbol's latest 1d digest, or
+# the symbol has actions and no 1d digest at all.
+_STALE_SPLITS_SQL = """
+SELECT ca.symbol, max(ca.recorded_at) AS latest_action, d.computed_at AS latest_digest
+  FROM corporate_action ca
+  LEFT JOIN (
+        SELECT symbol, max(computed_at) AS computed_at
+          FROM bar_content_digest WHERE timeframe = '1d' AND symbol = ANY($1)
+         GROUP BY symbol
+       ) d ON d.symbol = ca.symbol
+ WHERE ca.symbol = ANY($1)
+ GROUP BY ca.symbol, d.computed_at
+HAVING d.computed_at IS NULL OR max(ca.recorded_at) > d.computed_at
+ ORDER BY ca.symbol
 """
 _MEMBERS_AT_SQL = "SELECT symbol FROM universe_membership WHERE as_of = $1"
 # Every page of the month-end's two snapshot lists (`<date>@active` and `<date>@inactive`).
@@ -191,15 +216,11 @@ class UniverseMembershipWriter(BaseBatch):
         self,
         db_dsn: str,
         through: date,
-        horizon: datetime,
         apply: bool = False,
         out_dir: Path | None = None,
     ) -> None:
-        """`horizon` is the canonical selection horizon: the splits recorded by then are the ones
-        canonical closes are adjusted by, so those are the ones the as-traded close undoes."""
         super().__init__(db_dsn)
         self._through = through
-        self._horizon = horizon
         self._apply = apply
         self._out_dir = out_dir or _OUT_ROOT / through.isoformat()
 
@@ -254,8 +275,13 @@ class UniverseMembershipWriter(BaseBatch):
 
         rows: list[MembershipRow] = []
         vanished: list[tuple[str, date, date, str]] = []
+        stale: list[str] = []
         for lo in range(0, len(symbols), _SYMBOL_CHUNK):
             chunk = symbols[lo : lo + _SYMBOL_CHUNK]
+            stale += [
+                f"{r['symbol']} (split recorded {r['latest_action']}, 1d digest {r['latest_digest']})"
+                for r in await conn.fetch(_STALE_SPLITS_SQL, chunk)
+            ]
             splits = await self._splits(conn, chunk)
             histories = histories_from_records(await conn.fetch(_BARS_SQL, chunk, stop), splits)
             ends = {r["symbol"]: r for r in await conn.fetch(_SPAN_END_SQL, chunk)}
@@ -273,6 +299,12 @@ class UniverseMembershipWriter(BaseBatch):
                     if gone:
                         vanished.append(gone)
         self._write_report(vanished)
+        if stale:
+            raise RuntimeError(
+                f"canonical 1d is not current with the splits for {len(stale)} symbol(s); "
+                f"re-derive them first: {'; '.join(stale[:20])}"
+                f"{' ...' if len(stale) > 20 else ''}; nothing written"
+            )
 
         counts = Counter(row.as_of for row in rows)
         # Early month-ends have under 60 sessions of history and are legitimately empty; once a
@@ -328,17 +360,17 @@ class UniverseMembershipWriter(BaseBatch):
         )
         return True
 
+    @staticmethod
     async def _splits(
-        self, conn: asyncpg.Connection, symbols: Sequence[str]
+        conn: asyncpg.Connection, symbols: Sequence[str]
     ) -> dict[str, list[SplitFactor]]:
-        """Each symbol's market splits known at the canonical horizon (`splits_known_at`)."""
-        rows: dict[str, list[SplitRow]] = defaultdict(list)
+        """Each symbol's market splits, the set canonical 1d was divided by (daily_rule.split_scale
+        over bar_derivation._SELECT_DAILY_SPLITS_SQL; the migration 588 lineage view)."""
+        out: dict[str, list[SplitFactor]] = defaultdict(list)
         for r in await conn.fetch(_SPLITS_SQL, list(symbols)):
-            market = is_market_split(r["inferred_by"], operator_rows_file=r["rows_file"])
-            rows[r["symbol"]].append(
-                SplitRow(r["effective_date"], r["factor"], r["recorded_at"], market)
-            )
-        return {symbol: splits_known_at(found, self._horizon) for symbol, found in rows.items()}
+            if is_market_split(r["inferred_by"], operator_rows_file=r["rows_file"]):
+                out[r["symbol"]].append(SplitFactor(r["effective_date"], r["factor"]))
+        return dict(out)
 
     def _vanished(
         self, history: SecurityHistory, last_member: date, span: Mapping[str, Any] | None
@@ -388,11 +420,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build universe_membership month-ends")
     parser.add_argument("--through", required=True, help="last month-end to build (YYYY-MM-DD)")
     parser.add_argument(
-        "--horizon",
-        required=True,
-        help="canonical selection horizon (ISO, with zone): the splits recorded by it are undone",
-    )
-    parser.add_argument(
         "--apply", action="store_true", help="write (default: rolled-back rehearsal)"
     )
     args = parser.parse_args()
@@ -405,7 +432,6 @@ def main() -> None:
         UniverseMembershipWriter(
             db_dsn,
             date.fromisoformat(args.through),
-            datetime.fromisoformat(args.horizon),
             args.apply,
         ).run()
     )

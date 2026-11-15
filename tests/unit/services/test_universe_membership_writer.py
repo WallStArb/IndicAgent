@@ -12,8 +12,6 @@ import pytest
 from services import corpus_universe as cu
 from services import universe_membership_writer as w
 
-HORIZON = datetime(2026, 1, 1, tzinfo=UTC)
-
 
 def _weekdays(start: date, n: int) -> list[date]:
     out, day = [], start
@@ -143,6 +141,7 @@ class _Conn:
         splits=(),
         spans=(),
         seed=(),
+        stale=(),
     ):
         self.ledger = list(ledger)
         self.pages = pages if pages is not None else {m: _pages(m) for m in month_ends}
@@ -150,6 +149,7 @@ class _Conn:
         self.types = types or {"AAA": "CS", "PPP": "PFD", "THIN": "CS", "DEAD": "CS"}
         self.bars, self.splits, self.spans = bars or {}, list(splits), list(spans)
         self.seed = list(seed)
+        self.stale = list(stale)
         self.executemany = AsyncMock()
         self.copy_records_to_table = AsyncMock()
 
@@ -168,6 +168,8 @@ class _Conn:
             return [(s, d, c, v) for s, rows in self.bars.items() for d, c, v in rows]
         if sql == w._SPLITS_SQL:
             return self.splits
+        if sql == w._STALE_SPLITS_SQL:
+            return self.stale
         if sql == w._SPAN_END_SQL:
             return self.spans
         raise AssertionError(sql)
@@ -179,7 +181,7 @@ class _Conn:
 
 
 def _writer(through: date, tmp_path, apply=False):
-    return w.UniverseMembershipWriter("dsn", through, HORIZON, apply, tmp_path)
+    return w.UniverseMembershipWriter("dsn", through, apply, tmp_path)
 
 
 def _bars(days, close=10.0, dollars=2e6):
@@ -347,6 +349,51 @@ async def test_member_whose_bars_stop_before_its_span_is_reported(tmp_path):
     with (tmp_path / "vanished_without_final_bar.csv").open() as handle:
         rows = list(csv.reader(handle))
     assert rows[1][0] == "AAA" and rows[1][1] == "2003-12-31"
+
+
+async def test_split_recorded_after_the_last_derivation_refuses_the_build(tmp_path):
+    stale = [
+        {
+            "symbol": "RICH",
+            "latest_action": datetime(2025, 3, 1, tzinfo=UTC),
+            "latest_digest": datetime(2025, 1, 1, tzinfo=UTC),
+        }
+    ]
+    conn = _Conn(
+        month_ends=SEP_DEC,
+        symbols=("RICH", "DEAD"),
+        types={"RICH": "CS", "DEAD": "CS"},
+        bars={"RICH": _bars(DAYS_TO_DEC31, close=0.5), "DEAD": _bars(DAYS_TO_DEC31)},
+        splits=[_split_row("RICH", date(2004, 6, 1), 10.0)],
+        stale=stale,
+    )
+    with pytest.raises(RuntimeError, match=r"not current with the splits.*RICH"):
+        await _writer(DEC31, tmp_path)._build_and_write(conn)
+    conn.copy_records_to_table.assert_not_called()
+    conn.executemany.assert_not_called()
+
+
+def test_stale_guard_reads_every_corporate_action_row_not_only_current_ones():
+    # a superseding or void row is a change canonical has not seen either: the guard reads the
+    # base table, and a symbol with actions but no 1d digest is stale too
+    assert "FROM corporate_action ca" in w._STALE_SPLITS_SQL
+    assert "corporate_action_current" not in w._STALE_SPLITS_SQL
+    assert "d.computed_at IS NULL OR max(ca.recorded_at) > d.computed_at" in w._STALE_SPLITS_SQL
+    assert "timeframe = '1d'" in w._STALE_SPLITS_SQL
+
+
+def test_split_set_is_the_daily_rules_with_no_time_filter():
+    assert "corporate_action_current" in w._SPLITS_SQL and "recorded_at" not in w._SPLITS_SQL
+
+
+async def test_operator_correction_rows_are_not_undone(tmp_path):
+    # an incumbent route correction (calendar_audit from an operator rows file) is not a market
+    # split: is_market_split rejects it, as the daily rule does
+    conn = _Conn(
+        symbols=("X",),
+        splits=[{**_split_row("X", date(2004, 6, 1), 10.0), "rows_file": True}],
+    )
+    assert await w.UniverseMembershipWriter._splits(conn, ["X"]) == {}
 
 
 def _cursor_conn(ledger_row, instruments=()):

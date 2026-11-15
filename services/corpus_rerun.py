@@ -59,6 +59,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import hashlib
+import importlib
 import json
 import subprocess
 import sys
@@ -760,32 +761,39 @@ def module_files() -> list[str]:
     return [str(services.__file__), str(writer.__file__)]
 
 
-_IC_UNIVERSE_READERS = ("services/ic_measure.py", "src/intelligence/research/snapshot.py")
-_IC_UNIVERSE_MARKERS = ("universe_membership", "corpus_universe")
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_IC_UNIVERSE_READERS = ("services.ic_measure", "src.intelligence.research.snapshot")
+_UNIVERSE_SOURCE_ATTR = "UNIVERSE_SOURCE"
 
 
-def check_ic_universe_aligned(root: Path = _REPO_ROOT) -> Any:
+def check_ic_universe_aligned(import_module: Callable[[str], Any] = importlib.import_module) -> Any:
     """Blocks the corpus rerun while the IC measurement reads another universe than the corpus
-    computes (todo 609 blocker I1): ic_measure and research S0 take their symbols from the
-    `compute_eligible*` flags, so a membership-universe corpus would be measured on a different
-    name set. Passes once both source files read `universe_membership` (or `corpus_universe`);
-    until then it fails loudly. A source check, so wiring the readers clears it without an edit
-    here."""
+    computes (todo 609 blocker I1). ic_measure and research S0 each declare their universe source
+    as a module-level `UNIVERSE_SOURCE`; it must be `services.corpus_universe.corpus_universe`.
+    A module that cannot be imported, or has no such attribute (the state today: both read the
+    `compute_eligible*` flags), or declares another source, fails with the module named; the
+    check never raises. Wiring the readers (a research-side change under repro_frozen, after
+    step 7) clears it."""
     from services import rebuild_preconditions as rp
+    from services.corpus_universe import corpus_universe
 
-    stale = [
-        rel
-        for rel in _IC_UNIVERSE_READERS
-        if not any(marker in (root / rel).read_text() for marker in _IC_UNIVERSE_MARKERS)
-    ]
+    problems: list[str] = []
+    for name in _IC_UNIVERSE_READERS:
+        try:
+            module = import_module(name)
+        except Exception as error:
+            problems.append(f"{name} cannot be imported ({type(error).__name__}: {error})")
+            continue
+        if not hasattr(module, _UNIVERSE_SOURCE_ATTR):
+            problems.append(f"{name} declares no {_UNIVERSE_SOURCE_ATTR} (reads the flags)")
+        elif getattr(module, _UNIVERSE_SOURCE_ATTR) is not corpus_universe:
+            problems.append(f"{name}.{_UNIVERSE_SOURCE_ATTR} is not corpus_universe")
     detail = (
-        "ic_measure and research S0 read the same universe as the corpus compute"
-        if not stale
-        else f"{', '.join(stale)} read the compute_eligible flags, not universe_membership; "
-        "the corpus universe and the IC universe differ (todo 609 blocker I1)"
+        "ic_measure and research S0 read the corpus universe"
+        if not problems
+        else "; ".join(problems) + " (todo 609 blocker I1: the IC universe differs from the "
+        "corpus universe)"
     )
-    return rp.CheckResult("ic_universe_aligned", not stale, detail)
+    return rp.CheckResult("ic_universe_aligned", not problems, detail)
 
 
 def rebuild_precondition_results(
