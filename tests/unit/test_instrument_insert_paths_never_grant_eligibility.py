@@ -1,8 +1,8 @@
 """Every non-onboarding insert path writes eligibility flags false and resets them on re-activation.
 
-Phase 174 code review WR-04: compute_eligible defaulted to true and POST /instruments /
-DatabaseManager.upsert_instruments did not name it, so a row added or re-activated through
-them skipped the compute-readiness predicate. The upsert semantics (new row false, active
+Phase 174 code review WR-04: compute_eligible defaulted to true and POST /instruments
+(and the since-deleted DatabaseManager.upsert_instruments) did not name it, so a row added or
+re-activated through them skipped the compute-readiness predicate. The upsert semantics (new row false, active
 row keeps flags, re-activated row resets) were verified against live Postgres in a rolled-
 back transaction. The re-activation reset lives in migration 352's trigger + CHECK;
 these tests pin the insert shape and the migration's enforcement.
@@ -10,7 +10,6 @@ these tests pin the insert shape and the migration's enforcement.
 
 from __future__ import annotations
 
-import asyncio
 import re
 from unittest.mock import AsyncMock, MagicMock
 
@@ -21,7 +20,6 @@ from fastapi.testclient import TestClient
 from src.api import dependencies
 from src.api.routes.instruments import router as instruments_router
 from src.core.database_manager import DatabaseManager
-from src.core.models import AssetClass, Instrument
 
 _FLAGS = ("compute_eligible", "compute_eligible_1d", "live_tradeable")
 
@@ -76,14 +74,6 @@ def test_api_post_instrument_never_grants_eligibility():
 
 
 @pytest.mark.unit
-def test_upsert_instruments_never_grants_eligibility():
-    db = DatabaseManager.__new__(DatabaseManager)
-    db.execute_batch = AsyncMock()
-    asyncio.run(db.upsert_instruments([Instrument(symbol="ZZ", asset_class=AssetClass.EQUITY)]))
-    _assert_never_grants(db.execute_batch.call_args.args[0])
-
-
-@pytest.mark.unit
 def test_api_startup_never_seeds_instruments():
     """The API startup once seeded an empty instruments table from IBKR_CONTRACTS_JSON. Onboarding
     goes through the instrument onboarding SOP only, so the startup path holds no insert call."""
@@ -91,4 +81,5 @@ def test_api_startup_never_seeds_instruments():
 
     source = (Path(__file__).resolve().parents[2] / "src/api/main.py").read_text()
     assert "upsert_instruments" not in source
+    assert not hasattr(DatabaseManager, "upsert_instruments")
     assert "IBKR_CONTRACTS_JSON" not in source

@@ -129,42 +129,6 @@ class DatabaseManager:
         async with self.get_connection() as conn:
             return await conn.fetchrow(query, *args)
 
-    async def upsert_instruments(self, contracts: list) -> int:
-        """Upsert instrument records from Instrument list into instruments table.
-
-        Never grants eligibility: new rows are inserted with every eligibility flag false
-        and are promoted only through the compute-readiness predicate (174 review WR-04).
-        Re-activated rows start at false because the database clears the flags whenever a
-        row goes inactive (migration 352); an already-active row keeps its flags.
-
-        Returns:
-            Number of contracts upserted.
-        """
-        sql = """
-            INSERT INTO instruments (
-                symbol, base, contract_details, is_active,
-                compute_eligible, compute_eligible_1d, live_tradeable, updated_at
-            )
-            VALUES ($1, $2, $3::jsonb, $4, false, false, false, NOW())
-            ON CONFLICT (symbol) DO UPDATE
-                SET contract_details = EXCLUDED.contract_details,
-                    is_active = EXCLUDED.is_active,
-                    updated_at = NOW()
-        """
-
-        params = [
-            (
-                c.symbol,
-                c.base,
-                c.model_dump(),
-                True,
-            )  # c.symbol (full symbol) is PK - FX pairs share c.base and would collide.
-            for c in contracts
-        ]
-        await self.execute_batch(sql, params)
-        logger.info("Upserted instruments", count=len(params))
-        return len(params)
-
     async def instruments_trigger_exists(self) -> bool:
         """Check whether the instruments pg_notify trigger is installed.
 
