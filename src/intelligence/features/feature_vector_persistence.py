@@ -220,8 +220,8 @@ _RENAISSANCE_PRIMITIVE_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_
 
 # The 5 canary/control predictor fields (Phase 143.1 Plan 02, todo 068; migration
 # 223) are a second contiguous, same-order slice immediately following the
-# Renaissance primitives and immediately preceding the 3 nullable cross-sectional
-# fields -- same derive-don't-hand-type discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES,
+# Renaissance primitives and immediately preceding the SMC block (the 3 nullable
+# cross-sectional fields that once sat between them were retired, todo 558) -- same derive-don't-hand-type discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES,
 # for the exact same reason (module docstring): a hand-typed list is how 91/152
 # fields went silently unpersisted for an entire corpus rebuild.
 _CANARY_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
@@ -246,8 +246,7 @@ _STRUCTURAL_VP_SR_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES
 
 # The 36 new Smart Money Concepts fields (Phase 164 Plan 01, migration 266) are
 # a fourth contiguous, same-order slice -- immediately following the canary
-# fields in the dataclass (schemas.py placed this block right before the 3
-# nullable cross-sectional fields, after the canary block, since Python
+# fields in the dataclass (it follows the canary block, since Python
 # dataclass field ordering requires every field after a defaulted field to
 # also carry a default). Same derive-don't-hand-type discipline as the three
 # slices above; appended at the end of the column list below.
@@ -634,8 +633,7 @@ def feature_vector_to_insert_params(
       $63:       bar_close_ts (computed from bar_ts + TF duration)
       $64-$67:   4 new computed features (momentum_z_slow, momentum_reversal_z,
                  quarter_position, days_to_month_end)
-      $68-$70:   3 cross-sectional Optional features (None until Phase 139)
-      $71-$159:  89 Renaissance primitives (migration 206, Phase 142.5; 91
+      $68-$156:  89 Renaissance primitives (migration 206, Phase 142.5; 91
                  originally, 2 removed 2026-07-09 as redundant) in
                  dataclasses.fields(FeatureVector) order — wired 2026-07-08,
                  see module docstring for the gap this closes

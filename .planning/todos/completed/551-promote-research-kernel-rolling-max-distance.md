@@ -40,9 +40,10 @@ The registry owns the family: `src/intelligence/features/kernels/_windowed.py` h
 `high_distance` and the `rk_high_dist` factory (underscored, so `discover_kernels()` skips it and
 no stored column is added; feature_vectors is empty and no migration was needed). The stored
 `high_52w_dist` kernel calls `high_distance` from the first full window on and keeps its own
-warmup (max over the rows seen so far, 0.0 for row 0 and for a non-finite window); the old loop
+warmup (max over the rows seen so far, 0.0 for row 0 and for any non-finite window, infinite
+included, where the old loop returned NaN or -inf; no tradeable bar is infinite); the old loop
 is frozen in `tests/unit/intelligence/test_research_kernels.py` as the parity oracle and the
-stored series equals it bit for bit at every row, warmup included. The research copy is deleted;
+stored series equals it bit for bit at every row on finite and NaN inputs, warmup included. The research copy is deleted;
 `STORED_EQUIVALENTS` keeps the `rk_high_dist` -> `high_52w_dist` row in `research_kernels/rolling.py`
 until todo 550 moves the percentile family and empties the package. The "add research windows as
 stored columns" option was not taken: a window is a spec pin, and a stored column per window

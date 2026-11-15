@@ -619,8 +619,9 @@ def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 
     From the first full window on it is `high_distance` (the registry's one sliding-max
     implementation, todo 551); the first `window - 1` rows keep this column's own warmup, the
-    max over the rows seen so far. Row 0 and any window that is not finite or whose max is below
-    the floor read 0.0 (the column's neutral state).
+    max over the rows seen so far. Row 0 and any window that is not finite (NaN or infinite,
+    in warmup and after it alike) or whose max is below the floor read 0.0 (the column's neutral
+    state); the old loop returned NaN or -inf for an infinite close, which no tradeable bar has.
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
@@ -631,6 +632,7 @@ def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     full = high_distance(closes, window)
     mask = np.isfinite(full)
     result[mask] = full[mask]
+    result[~np.isfinite(result)] = 0.0
     return result
 
 

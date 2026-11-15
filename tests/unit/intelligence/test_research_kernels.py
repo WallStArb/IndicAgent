@@ -243,3 +243,20 @@ def test_family_and_window_parse():
     assert window_of("rk_vwap_dev_w20") == 20
     assert family_of("high_52w_dist") is None
     assert family_of("rk_unknown_w5") is None
+
+
+@pytest.mark.parametrize("window", [1, 2, 3, 20])
+def test_stored_high_52w_dist_reads_neutral_on_an_infinite_close(window):
+    """+inf makes every window holding it read 0.0 (the old loop gave NaN); -inf makes only its own
+    row read 0.0 (the old loop gave -inf), later windows have a finite max. Rows with a finite old
+    value still equal the original loop, in warmup and after it."""
+    for bad, neutral in ((np.inf, slice(50, 50 + window)), (-np.inf, slice(50, 51))):
+        close = PARITY["close"][:300].copy()
+        close[50] = bad
+        ours = _high_52w_dist_series_full(close, window)
+        ref = _high_dist_loop(close, window)
+        assert np.isfinite(ours).all()
+        assert (ours[neutral] == 0.0).all()
+        keep = np.isfinite(ref)
+        keep[neutral] = False
+        assert np.array_equal(ours[keep], ref[keep])
