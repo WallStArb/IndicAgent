@@ -25,45 +25,36 @@ _SOURCE = (
 
 
 def _threshold_keys() -> set[str]:
-    match = re.search(
-        r"_THRESHOLD_KEYS: tuple\[tuple\[str, Any\], \.\.\.\] = \((.*?)\n    \)\n",
-        _SOURCE,
-        re.DOTALL,
-    )
-    assert match, "Could not parse _THRESHOLD_KEYS from feature_vector_pipeline.py"
-    # \(\s*" (not \("): several entries wrap onto their own line, e.g.
-    #     (
-    #         "feature.sr.lookback_by_tf",
-    #         {...},
-    #     ),
-    # -- a bare \("  would silently miss these, the same multi-line blind spot fixed
-    # in _keys_read_building_feature_factory_config() below (found together, todo 242
-    # code review, 2026-08-07: fixing only one side made the other side's pre-existing
-    # gap visible as new false-positive "missing" entries).
-    return set(re.findall(r'\(\s*"([a-zA-Z0-9_.]+)",', match.group(1)))
+    from services.feature_vector_pipeline import FeatureVectorPipeline
+
+    return {key for key, _default in FeatureVectorPipeline._THRESHOLD_KEYS}
 
 
-def _keys_read_building_feature_factory_config() -> set[str]:
+def _prewarm_source() -> str:
     match = re.search(
         r"async def _prewarm_threshold_config\(self\).*?\n    async def ",
         _SOURCE,
         re.DOTALL,
     )
     assert match, "Could not parse _prewarm_threshold_config() from feature_vector_pipeline.py"
-    return set(re.findall(r'_(?:int|float|dict|str|bool)\(\s*"([a-zA-Z0-9_.]+)"', match.group(0)))
+    return match.group(0)
 
 
 def test_every_key_read_building_feature_factory_config_is_prewarmed():
-    """A key read via _int()/_float()/_dict() here but absent from _THRESHOLD_KEYS
-    silently cache-misses and falls through to the hardcoded default forever --
-    config_state edits to that key have zero effect on the running pipeline."""
-    used = _keys_read_building_feature_factory_config()
-    prewarmed = _threshold_keys()
-    missing = sorted(used - prewarmed)
+    """FeatureFactoryConfig.from_values reads exactly the keys of FEATURE_APR_FIELDS, and
+    _THRESHOLD_KEYS is built from the same table, so a key read there cannot miss the prewarm
+    (the silent cache-miss fall-through of todo 103). The method must also not grow a second,
+    hand-written key list."""
+    from src.intelligence.features.feature_factory_config import FEATURE_APR_FIELDS
+
+    missing = sorted({key for _f, key, _c, _d in FEATURE_APR_FIELDS} - _threshold_keys())
     assert not missing, (
-        f"{len(missing)} feature.* key(s) read while building FeatureFactoryConfig "
-        f"are missing from _THRESHOLD_KEYS and will silently ignore config_state: {missing}"
+        f"{len(missing)} FeatureFactoryConfig key(s) are missing from _THRESHOLD_KEYS "
+        f"and will silently ignore config_state: {missing}"
     )
+    source = _prewarm_source()
+    assert "FeatureFactoryConfig.from_values(" in source
+    assert not re.search(r'_(?:int|float|dict|str|bool)\(\s*"', source)
 
 
 def test_momentum_window_keys_specifically_fixed():
@@ -132,9 +123,9 @@ def test_pipeline_hmm_config_raises_on_a_missing_key():
         asyncio.run(_pipeline_with(values)._load_hmm_config())
 
 
-def test_prewarm_passes_the_hmm_config_into_feature_factory_config():
-    match = re.search(
-        r"async def _prewarm_threshold_config\(self\).*?\n    async def ", _SOURCE, re.DOTALL
-    )
-    assert match and "hmm=hmm_config" in match.group(0)
-    assert "await self._load_hmm_config()" in match.group(0)
+def test_prewarm_prewarms_the_hmm_keys_and_builds_the_config_from_one_table():
+    """The HMM keys are prewarmed by `_load_hmm_config`, and `from_values` reads them (with
+    every other key) from that warm cache; it builds the hmm block itself."""
+    source = _prewarm_source()
+    assert "await self._load_hmm_config()" in source
+    assert "FeatureFactoryConfig.from_values(" in source

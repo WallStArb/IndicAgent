@@ -526,7 +526,8 @@ def _json_object(raw: Any, default: dict) -> dict:
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
-        return json.loads(raw)
+        parsed: dict = json.loads(raw)
+        return parsed
     return default
 
 
