@@ -93,12 +93,13 @@ def test_dropped_columns_absent_and_pinned_to_the_evidence_file() -> None:
     assert not columns & set(_DROPPED_METADATA)
     assert not columns & set(RETIRED_COLUMNS)
     assert set(_DROPPED_METADATA) == set(METADATA_DROPPED)
-    # The three rank columns are not in feature_columns(); days_to_month_end is, so it is the
-    # one the derivation excludes explicitly.
+    # The three rank columns are gone from the registry and the FeatureVector (todo 558);
+    # days_to_month_end is a registry column, so it is the one the derivation excludes explicitly.
     assert "days_to_month_end" in default_registry().feature_columns()
     for name in ("momentum_rank_z", "volume_rank_z", "volatility_rank_z"):
-        assert name in UNOWNED_COLUMNS
+        assert name not in UNOWNED_COLUMNS
         assert name not in default_registry().feature_columns()
+        assert name not in FEATURE_VECTORS_COLUMNS
     assert not {"asian_session_high_dist_atr", "asian_session_low_dist_atr"} & set(
         columns
     )  # retired, todo 584 item 6

@@ -490,9 +490,6 @@ _STRUCTURAL_PREFIX_COLUMN_NAMES: tuple[str, ...] = (
     "momentum_reversal_z",
     "quarter_position",
     "days_to_month_end",
-    "momentum_rank_z",
-    "volume_rank_z",
-    "volatility_rank_z",
 )
 
 # Single source of truth for column order -- both SQL statements below and the
@@ -793,9 +790,6 @@ def feature_vector_to_insert_params(
         vector.momentum_reversal_z,
         vector.quarter_position,
         vector.days_to_month_end,
-        vector.momentum_rank_z,  # None until Phase 139 enrichment
-        vector.volume_rank_z,  # None until Phase 139 enrichment
-        vector.volatility_rank_z,  # None until Phase 139 enrichment
         # Renaissance Primitives (migration 206, Phase 142.5) — wired 2026-07-08,
         # see module docstring. $71 onward: derived by name from
         # _RENAISSANCE_PRIMITIVE_FIELD_NAMES (dataclasses.fields(FeatureVector)
@@ -879,8 +873,9 @@ def feature_vector_to_insert_params(
 # .planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/
 # 186-24-feature-vectors-v2-schema.json). tests/unit/intelligence/test_feature_vectors_rows.py
 # pins this tuple to that evidence file and to the migration. days_to_month_end is inside the
-# registry's feature_columns() and so must be excluded here; the three rank columns are in
-# UNOWNED_COLUMNS, not feature_columns(), so they never appear in the derivation below.
+# registry's feature_columns() and so must be excluded here; the three rank columns (retired from
+# the registry and the FeatureVector, todo 558) were never in feature_columns(), so they never
+# appear in the derivation below.
 FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS: frozenset[str] = frozenset(
     {
         "momentum_rank_z",

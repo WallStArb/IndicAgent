@@ -438,7 +438,7 @@ def test_feature_vector_domain_complete():
     Primitives Extension fields (todo 320) = 298, + 2 Earnings-Season
     Calendar Primitive fields (Phase 176 Plan 03, todo 353) = 300."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 288
+    assert len(FEATURE_VECTOR_DOMAIN) == 285
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

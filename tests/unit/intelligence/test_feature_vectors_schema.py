@@ -58,7 +58,6 @@ RETIRED_COLUMNS: dict[str, str] = {
         "hmm_vol_prob_elevated",
     )
 }
-NEVER_COMPUTED = ("momentum_rank_z", "volume_rank_z", "volatility_rank_z")
 METADATA_DROPPED: dict[str, str] = {
     "feature_vector_id": "superseded by the PK plus provenance_batch (D-34)",
     "pipeline_version": "per-row provenance superseded by provenance_batch",
@@ -174,8 +173,7 @@ def test_dropped_columns_absent_and_unowned_contract_intact() -> None:
     columns = set(parsed_columns())
     for name in {**DROPPED_COLUMNS, **METADATA_DROPPED}:
         assert name not in columns, name
-    for name in NEVER_COMPUTED:
-        assert name in UNOWNED_COLUMNS, name
+    assert not UNOWNED_COLUMNS  # todo 558: the three rank columns were the last entries
     assert not set(RETIRED_COLUMNS) & columns  # migration 577 dropped them from the empty table
     assert set(RETIRED_COLUMNS) <= set(dropped_columns())
     assert not set(RETIRED_COLUMNS) & expected_columns()

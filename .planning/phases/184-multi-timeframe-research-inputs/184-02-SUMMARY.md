@@ -19,8 +19,8 @@ key-files:
     - tests/unit/intelligence/test_research_kernels.py
     - tests/unit/research/test_kernel_source.py
     - .planning/todos/pending/550-promote-research-kernel-rolling-percentile.md
-    - .planning/todos/pending/551-promote-research-kernel-rolling-max-distance.md
-    - .planning/todos/pending/552-promote-research-kernel-rolling-vwap-deviation.md
+    - .planning/todos/completed/551-promote-research-kernel-rolling-max-distance.md
+    - .planning/todos/completed/552-promote-research-kernel-rolling-vwap-deviation.md
   modified:
     - docs/foundation/glossary.md
     - .planning/todos/PRIORITIES.md

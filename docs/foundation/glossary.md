@@ -1905,9 +1905,10 @@ A `Kernel` under the phase 186 registry contract (declared inputs, declared memo
 compute, the same causality probe and memory check) that lives in
 `src/intelligence/features/research_kernels/`, outside `kernels/`: `default_registry()` never
 discovers it and no stored column holds its output. Research computes it at spec-pinned
-windows, and only for a (statistic, window) no stored column carries (184-REVIEWS row 10). Each
-family has a pending todo to move it into the 186 registry once the rebuild's import closure
-unfreezes. **Banned:** (none)
+windows, and only for a (statistic, window) no stored column carries (184-REVIEWS row 10). The
+percentile family is the one that remains there (todo 550 moves it); the max-distance and VWAP
+deviation families are registry-owned window families in `kernels/_windowed.py` (todos 551, 552).
+**Banned:** (none)
 **Status:** active (phase 184 plan 02)
 
 ---

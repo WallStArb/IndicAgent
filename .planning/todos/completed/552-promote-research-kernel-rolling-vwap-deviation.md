@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-10-27
 source: plan 184-02 (184-REVIEWS row 10)
@@ -33,3 +33,12 @@ No stored equivalent: the stored `vwap_dev_sigma` is cumulative from the series 
 
 No research kernel duplicates a registry concept; `research_kernels` holds this family no longer.
 2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The import-closure freeze TRANSFERS: land this before the rerun starts (the window between data-complete and rerun-start), never mid-run.
+
+## Closed 2026-11-15 (session indicagent-c6, lane L1)
+
+The registry owns the family: `src/intelligence/features/kernels/_windowed.py` holds
+`vwap_deviation` and the `rk_vwap_dev` factory (underscored, discovery skips it, no stored column,
+no migration). No stored equivalent exists (`vwap_dev_sigma` is cumulative and refused by design
+D7 guard 5), so `STORED_EQUIVALENTS["rk_vwap_dev"]` stays empty. The research copy is deleted.
+Whether the cumulative `vwap_dev_sigma` stays remains todo 474's question; it is not a
+duplicate of this kernel. The stored-column option was not taken (see 551).

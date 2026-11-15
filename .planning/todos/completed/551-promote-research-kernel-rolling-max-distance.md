@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-10-27
 source: plan 184-02 (184-REVIEWS row 10)
@@ -33,3 +33,17 @@ Stored equivalent: `high_52w_dist` (`kernels/price.py` `_high_52w_dist_series_fu
 
 No research kernel duplicates a registry concept; `research_kernels` holds this family no longer.
 2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The import-closure freeze TRANSFERS: land this before the rerun starts (the window between data-complete and rerun-start), never mid-run.
+
+## Closed 2026-11-15 (session indicagent-c6, lane L1)
+
+The registry owns the family: `src/intelligence/features/kernels/_windowed.py` holds
+`high_distance` and the `rk_high_dist` factory (underscored, so `discover_kernels()` skips it and
+no stored column is added; feature_vectors is empty and no migration was needed). The stored
+`high_52w_dist` kernel calls `high_distance` from the first full window on and keeps its own
+warmup (max over the rows seen so far, 0.0 for row 0 and for a non-finite window); the old loop
+is frozen in `tests/unit/intelligence/test_research_kernels.py` as the parity oracle and the
+stored series equals it bit for bit at every row, warmup included. The research copy is deleted;
+`STORED_EQUIVALENTS` keeps the `rk_high_dist` -> `high_52w_dist` row in `research_kernels/rolling.py`
+until todo 550 moves the percentile family and empties the package. The "add research windows as
+stored columns" option was not taken: a window is a spec pin, and a stored column per window
+would widen the table and move every golden.

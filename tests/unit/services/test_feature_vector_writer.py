@@ -322,7 +322,7 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_159_tuple():
+def test_record_to_insert_params_returns_294_tuple():
     """_record_to_insert_params returns exactly 279 elements matching INSERT columns
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
@@ -340,7 +340,7 @@ def test_record_to_insert_params_returns_159_tuple():
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 297, f"Expected 297, got {len(params)}"
+    assert len(params) == 294, f"Expected 294, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -439,7 +439,7 @@ def test_feature_vector_id_differs_for_different_inputs():
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_159_param_tuple():
+def test_parse_payload_valid_record_returns_294_param_tuple():
     """Valid FeatureVectorRecord payload parses to a 279-element params tuple
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag
     removed; 164 after migration 223's 5 canary columns; 181 after migration
@@ -465,7 +465,7 @@ def test_parse_payload_valid_record_returns_159_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 297, f"Expected 297-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 294, f"Expected 294-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -612,7 +612,7 @@ def test_insert_sql_targets_feature_vectors():
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_159_placeholders():
+def test_insert_sql_has_294_placeholders():
     """_INSERT_FEATURE_VECTOR_SQL must have exactly 279 positional placeholders $1..$279
     (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed;
     164 after migration 223's 5 canary columns; 181 after migration 255's 17
@@ -629,7 +629,7 @@ def test_insert_sql_has_159_placeholders():
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 297, f"Expected 297 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 294, f"Expected 294 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

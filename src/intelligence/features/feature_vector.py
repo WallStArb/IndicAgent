@@ -748,13 +748,6 @@ class FeatureVector:
     choch_direction: float | None = None
     smc_trend_direction: float | None = None
     bars_since_last_shift: float | None = None
-    # Cross-sectional (3, nullable — never implemented; always None (todo 103,
-    # confirmed 2026-07-27). The "Phase 139 enrichment pass" this comment used to
-    # cite doesn't exist as a real, planned unit of work — deferred pending real
-    # cross-sectional rank feature design (same category as Phase 151/164).
-    momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
-    volume_rank_z: float | None = None  # cross-sectional volume rank z-score
-    volatility_rank_z: float | None = None  # cross-sectional volatility rank z-score
 
 
 @dataclasses.dataclass(frozen=True)

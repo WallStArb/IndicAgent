@@ -504,10 +504,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "choch_direction": "smart_money",
     "smc_trend_direction": "smart_money",
     "bars_since_last_shift": "smart_money",
-    # Cross-sectional (nullable — populated by Phase 139)
-    "momentum_rank_z": "quant",
-    "volume_rank_z": "quant",
-    "volatility_rank_z": "quant",
 }
 
 
@@ -1493,9 +1489,6 @@ def _build_feature_vector(
         choch_direction=_missing_if_nan(choch_direction),
         smc_trend_direction=_missing_if_nan(smc_trend_direction),
         bars_since_last_shift=_missing_if_nan(bars_since_last_shift),
-        momentum_rank_z=None,
-        volume_rank_z=None,
-        volatility_rank_z=None,
     )
 
 
@@ -3255,7 +3248,4 @@ def _cold_start_vector(
         weekly_s2_dist_atr=None,
         nearest_level_dist_atr=None,
         gap_filled=None,
-        momentum_rank_z=None,
-        volume_rank_z=None,
-        volatility_rank_z=None,
     )

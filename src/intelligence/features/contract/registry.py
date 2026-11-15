@@ -563,21 +563,10 @@ def default_registry() -> KernelRegistry:
 # Numeric FeatureVector columns no kernel owns, each with the reason. The pipeline refuses to
 # start when a numeric column is neither a registry feature column nor listed here, and a test
 # holds `feature_columns() + UNOWNED_COLUMNS` equal to the numeric schema, so a dropped or
-# forgotten column is loud (D-28, T-186-15-07).
-UNOWNED_COLUMNS: Mapping[str, str] = {
-    "momentum_rank_z": (
-        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
-        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
-    ),
-    "volatility_rank_z": (
-        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
-        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
-    ),
-    "volume_rank_z": (
-        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
-        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
-    ),
-}
+# forgotten column is loud (D-28, T-186-15-07). Empty since todo 558 retired the three
+# cross-sectional `*_rank_z` columns (never computed; a rank needs the whole universe per bar, so
+# it cannot be a per-series kernel); a column added here needs the same written reason.
+UNOWNED_COLUMNS: Mapping[str, str] = {}
 
 
 # Registry feature columns the legacy FeatureVector (the dormant streaming contract) does not
