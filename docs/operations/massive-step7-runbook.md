@@ -48,8 +48,8 @@ Set once per session:
 cd /home/bg/dev/indicagent
 PY=.venv/bin/python
 OUT=logs/massive_step7            # all step 7 evidence; mkdir -p "$OUT"
-GAP=data/ticker_entity_map/20261114_6195ae11abff/gap_list.csv   # the installed map (install 6195ae11abff-20261114T204239Z); pin it
-SEAM=2026-11-12                  # the manifest's last file day; D2's --seam reads this, never a hardcoded date
+GAP=data/ticker_entity_map/20261115_6195ae11abff/gap_list.csv   # the installed map (reopen install 6195ae11abff-20261115T130255Z, the one B4 reads); pin it
+SEAM=2026-11-16                  # the archive end (the first NYSE session after the manifest's last file day, 2026-11-13); D2's --seam reads this
 PSQL="env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1"
 ```
 
@@ -134,6 +134,7 @@ sudo systemctl disable --now indicagent-bar-derivation-daily.timer indicagent-ba
 systemctl is-enabled indicagent-bar-derivation-daily.timer indicagent-alpaca-nightly.timer   # must print disabled
 ```
 Stop and disable together: a reboot or power loss inside the 14 to 20 h window must not restart a writer, and D5 re-enables the same list (`systemctl enable --now`). The service auditor goes with them: it lists every indicagent unit, treats a stopped one as dead and runs `systemctl start` on it every 15 seconds (the compression auditor, 1,869 times on 2026-11-15); the start fails today only because the auditor runs as a user without the right, so the quiesce would hold by accident. The standby probe timer stays (it never touches the ohlcv tables; B5 review of 2026-11-15, `logs/massive_step7/b5_review_20261115/`). The service auditor's unit file is `disabled` while the process runs from a manual start; after `disable --now` D5 starts it by hand as before, and does not enable it.
+After each 5m window and at the end of the window (the standby can stall without the primary noticing; `max_slot_wal_keep_size` is 100 GB, past which a slot is invalidated and ubuntu2 needs a new base backup): `SELECT slot_name, active, wal_status, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) FROM pg_replication_slots;` (both slots `active`, `wal_status` `reserved`, never `lost` or `unreserved`) and `ssh 192.168.68.65 df -h /` (free space; 590 GB on 2026-11-15, the rebuild adds about 40 GB of archive).
 The compression auditor force-runs the compression job on an overdue chunk, which would compress a chunk the rebuild is still filling. Also stopped: any hand-run `ops_split_detect`, `ops_source_policy`, `ops_selection_gate`, the sweep driver and corpus or rerun services. The Alpaca nightly's 5m path selects into canonical through the load engine; stop it for the window. On restart its tail asks the missed sessions again; confirm the first run after Part D loads them.
 
 A11. Identity witness and map amendment (design 8c, before step 7 and before Part F deletes IBKR raw). IBKR's stored raw is used once here as evidence, never as a source:
@@ -324,10 +325,10 @@ $PY -m scripts.ops.bars.ops_seam_witness --seam 2007-09-12 --timeframe 1d --symb
 ```
 Gate: `canonical_matches_massive` on the first; the second reads IBKR's level against the rescaled Massive over the span (an offset is an IBKR-side adjustment, informational). A `reconciled_split` on the first is a rescale defect: stop (R, K, the rescale fix and a full rerun).
 
-D4. D7, sample then all. Run it once and read a named sample first (NVDA, AAPL, SPY, BRK.B, A, AAL, CENT, RJF, OKE, WST, UHAL, SNEX), then the universe:
+D4. D7. The audit has no sample mode and no arguments: one run is the full-universe sweep (about 77 minutes on 2026-11-15) and writes `integrity_monitor`. Read the named names (NVDA, AAPL, SPY, BRK.B, A, AAL, CENT, RJF, OKE, WST, UHAL, SNEX) from its result rows afterwards, not from a separate run:
 
 ```bash
-$PY services/bar_reconciliation_audit.py
+PYTHONPATH=. $PY services/bar_reconciliation_audit.py   # without PYTHONPATH the import of `scripts` fails
 ```
 Gate: `split_horizon_fresh` green on every name; every other red verdict either existed before step 7 or is explained by the switch (a new red `split_continuity` or `canonical_recompute` stops step 7).
 
