@@ -1036,8 +1036,13 @@ def test_the_pilot_names_only_the_5m_tier_in_its_intraday_gates():
     gates = [argv for argv, _ in world.commands]
     units = next(argv for argv in gates if "--units" in argv)
     assert "BBB:1d" in units and "AAA:1h" in units and "BBB:1h" not in units
-    screen = next(argv for argv in gates if "ops_feature_column_screen.py" in argv[1])
-    assert "AAA" in screen and "BBB" not in screen
+    screens = {
+        argv[argv.index("--tf") + 1]: argv
+        for argv in gates
+        if "ops_feature_column_screen.py" in argv[1]
+    }
+    assert "BBB" in screens["1d"] and "AAA" in screens["1d"]  # the 1d screen keeps all of chunk 0
+    assert "AAA" in screens["1h"] and "BBB" not in screens["1h"]
 
 
 def test_the_intraday_verdict_scan_takes_the_tier_and_the_1d_checks_the_whole_universe(
@@ -1079,3 +1084,36 @@ def test_the_intraday_verdict_scan_takes_the_tier_and_the_1d_checks_the_whole_un
     conn.cursor.return_value.__enter__.return_value = cursor
     cr.rebuild_precondition_results(conn, SimpleNamespace(), True, {})
     assert seen["bar"] == ["AAA"] and seen["d2"] == ["AAA", "BBB", "CCC"]
+
+
+def test_row_counts_ask_1d_for_every_name_and_intraday_for_the_tier_only():
+    calls: list = []
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    cursor.execute.side_effect = lambda sql, params: calls.append(params)
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    cr.fetch_row_counts(
+        conn,
+        [("AAA", "BBB"), ("CCC",)],
+        {},
+        datetime(2026, 10, 1, tzinfo=UTC),
+        ["5m", "1d"],
+        frozenset({"AAA"}),
+    )
+    by_tf = {tuple(p[3]): (p[0], p[1]) for p in calls}
+    assert by_tf[("1d",)] == (["AAA", "BBB", "CCC"], [0, 0, 1])
+    assert by_tf[("5m",)] == (["AAA"], [0])
+
+
+def test_a_tier_unit_is_adopted_under_its_full_chunk_index():
+    """A 5m unit holds only the tier's names of its chunk; its chunk is found by any symbol."""
+    spec = SimpleNamespace(
+        tf="5m",
+        symbols=("CCC",),
+        batch_key="k",
+        range_start=datetime(2020, 1, 1, tzinfo=UTC),
+        range_end=datetime(2021, 1, 1, tzinfo=UTC),
+    )
+    units = cr.adoptable_units([spec], {"k"}, [("AAA", "BBB"), ("CCC", "DDD")])
+    assert units == [("5m", 1, spec.range_start, spec.range_end)]

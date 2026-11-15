@@ -546,6 +546,13 @@ GROUP BY 1, 2, 3
 """
 
 
+def _combined(results: Iterable[tuple[int, str]]) -> tuple[int, str]:
+    """Several commands' (returncode, output) as one: the first non-zero code, outputs joined."""
+    found = list(results)
+    code = next((rc for rc, _ in found if rc), 0)
+    return code, "\n".join(out for _, out in found)
+
+
 def adoptable_units(
     specs: Sequence[Any], completed: set[str], chunks: Sequence[tuple[str, ...]]
 ) -> list[tuple[str, int, datetime, datetime]]:
@@ -553,9 +560,11 @@ def adoptable_units(
     already completed: the run will skip and adopt exactly these, so only their rows are on disk
     for good. A unit stored under another identity (another code key, APR or input) is
     replaced: its new rows are growth, and the old space comes back only after a VACUUM."""
-    index = {tuple(chunk): i for i, chunk in enumerate(chunks)}
+    # An intraday unit holds only the 5m tier's names of its chunk, so its chunk is found by any
+    # one of its symbols (all share one chunk), not by the whole tuple.
+    index = {s: i for i, chunk in enumerate(chunks) for s in chunk}
     return [
-        (spec.tf, index[tuple(spec.symbols)], spec.range_start, spec.range_end)
+        (spec.tf, index[spec.symbols[0]], spec.range_start, spec.range_end)
         for spec in specs
         if spec.batch_key in completed
     ]
@@ -605,24 +614,36 @@ def fetch_row_counts(
     starts: Mapping[str, datetime],
     horizon: datetime,
     timeframes: Sequence[str],
+    intraday: frozenset[str],
 ) -> RowCounts:
     """Tradeable bars per (tf, symbol chunk, month) from each name's proven start to the horizon:
-    the rows the rebuild will write, as the planner counts them."""
-    from services.backfill_feature_factory import _NO_FLOOR
+    the rows the rebuild will write, as the planner counts them. 1d counts every name; an
+    intraday timeframe only the 5m tier's (names outside it have bars but no features)."""
+    from services.backfill_feature_factory import _NO_FLOOR, _chunk_for
 
-    names = [(s, i) for i, chunk in enumerate(chunks) for s in chunk]
-    with conn.cursor() as cur:
-        cur.execute(
-            _ROW_COUNTS_SQL,
-            (
-                [s for s, _ in names],
-                [i for _, i in names],
-                [starts.get(s, _NO_FLOOR) for s, _ in names],
-                list(timeframes),
-                horizon,
-            ),
-        )
-        return RowCounts({(tf, int(i), month): int(n) for tf, i, month, n in cur.fetchall()})
+    cells: dict[tuple[str, int, date], int] = {}
+    for tfs in (
+        [tf for tf in timeframes if tf == "1d"],
+        [tf for tf in timeframes if tf != "1d"],
+    ):
+        if not tfs:
+            continue
+        names = [
+            (s, i) for i, chunk in enumerate(chunks) for s in _chunk_for(tfs[0], chunk, intraday)
+        ]
+        with conn.cursor() as cur:
+            cur.execute(
+                _ROW_COUNTS_SQL,
+                (
+                    [s for s, _ in names],
+                    [i for _, i in names],
+                    [starts.get(s, _NO_FLOOR) for s, _ in names],
+                    tfs,
+                    horizon,
+                ),
+            )
+            cells.update({(tf, int(i), month): int(n) for tf, i, month, n in cur.fetchall()})
+    return RowCounts(cells)
 
 
 def counts_record(counts: RowCounts) -> list[list[Any]]:
@@ -1299,15 +1320,16 @@ class CorpusRerun:
         # 1d runs the whole chunk 0; an intraday timeframe only its 5m-tier names, so the screen
         # and the compute gate never name a (symbol, tf) the stage did not compute.
         chunk0_by_tf = {tf: d.symbol_chunks(tf)[0] for tf in self.PILOT_TFS}
-        chunk0 = chunk0_by_tf[self.PILOT_HOURLY_TF]
         # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
-        screen = [d.python, str(COLUMN_SCREEN), "--null-gate"]
-        screen += [arg for tf in self.PILOT_TFS for arg in ("--tf", tf)]
-        for symbol in chunk0:
-            screen += ["--symbol", symbol]
+        # One screen per timeframe over the names that timeframe computed (all of chunk 0 for 1d).
+        screens = [
+            [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf]
+            + [arg for symbol in chunk0_by_tf[tf] for arg in ("--symbol", symbol)]
+            for tf in self.PILOT_TFS
+        ]
         units = [f"{s}:{tf}" for tf in self.PILOT_TFS for s in chunk0_by_tf[tf]]
         gates = {
-            "G1-G3": d.run_command(screen, d.worktree),
+            "G1-G3": _combined(d.run_command(argv, d.worktree) for argv in screens),
             "G4-G5": d.run_command(
                 [d.python, str(PILOT_COMPUTE_GATE), "--units", *units], d.worktree
             ),
@@ -1652,7 +1674,9 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
     cfg = load_config_service_sync(conn)
     apr = load_corpus_rerun_apr(cfg)
     ctx = factory._stage_context(settings, conn, None, None)
-    counts = fetch_row_counts(conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes)
+    counts = fetch_row_counts(
+        conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes, ctx.intraday
+    )
     stored = stored_row_counts(conn, settings, horizon, ctx.chunks)
     inputs = BudgetInputs(
         free_bytes_at_launch=factory.database_free_bytes(cfg),
