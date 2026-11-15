@@ -1,9 +1,7 @@
-src/api/main.py:0: error: "None" has no attribute "execute_query"
 src/api/main.py:0: error: "None" has no attribute "get_connection"
 src/api/main.py:0: error: "None" has no attribute "initialize"  [attr-defined]
 src/api/main.py:0: error: "None" has no attribute "initialize"  [attr-defined]
 src/api/main.py:0: error: "None" has no attribute "pool"  [attr-defined]
-src/api/main.py:0: error: "None" has no attribute "upsert_instruments"
 src/api/main.py:0: error: Incompatible types in assignment (expression has
 src/api/main.py:0: error: Incompatible types in assignment (expression has
 src/api/main.py:0: error: Name "health" already defined (by an import)

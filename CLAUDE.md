@@ -114,6 +114,5 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Service registry:** a new service updates `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py` and seeds its lag threshold as an `alert.lag.*` APR key.
 - **Observability:** metrics via `src/observability/metrics.py` (OTel SDK; never `prometheus_client`); spans via `observed_span(...)`. Every `BaseDaemon` inherits 5 mandatory health signals; oneshots emit `job_completed_total{job, status}`.
 - **Logging:** `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging(...)`, not journald. Never log per-row in a full-corpus loop. Never materialize a wide `SELECT tbl.*` corpus DataFrame.
-- **`bulk_update_by_key` `col_types`** must match the live schema (`"real"` columns are float32-clamped).
 - **Style:** exception variable is `error` (`except X as error:`). Renames need a test sweep (`grep -r "OldName" tests/`). Tests live in `tests/unit/` (CI-clean) and `tests/integration/`.
 - **Migrations applied live via `psql -f` are committed in the same breath.**
