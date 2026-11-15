@@ -56,7 +56,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 1. Backup of the files and the raw dumps, mandatory before the plan lapses (the files cannot be
    replaced afterwards). Destination (owner 2026-11-10): the owner's second machine (HX370, 64 GB,
-   2 TB), pending setup. Today (2026-11-14) the archive has two copies in one site: ubuntu1 and the nightly pull mirror on ubuntu2 (`indicagent-data-mirror.timer`); the off-site copy is todo 618, with the HX370 as its first target. Shape when it is: copy
+   2 TB), pending setup. Today (2026-11-14) the archive has two copies in one site: ubuntu1 and the nightly pull mirror on ubuntu2 (`indicagent-data-mirror.timer`); there is no off-site copy (owner 2026-11-15, todo 618 closed as accepted risk); the HX370 copy named above stands until the owner drops it. Shape when it is: copy
    `data/massive/files/` and `data/massive/manifest/` with checksums, then run the downloader's
    `--verify` against the copy (manifest sha256 is the proof), keep the copy read-only.
 2. The owner's admission call (bundled with the law 528 amendment); no verdict step.

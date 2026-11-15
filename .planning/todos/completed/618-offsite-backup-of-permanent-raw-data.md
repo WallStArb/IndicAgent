@@ -1,9 +1,14 @@
 ---
-status: pending
+status: closed
 priority: P1
+closed: 2026-11-15
 filed: 2026-11-14
 source: owner request 2026-11-14 ("write the off-site backup todo"), after the lead confirmed the copies that exist today
 ---
+
+# Closed 2026-11-15: no off-site copy (owner decision, accepted risk)
+
+Owner 2026-11-15: "nothing going offsite". The second copy is ubuntu2 (`indicagent-data-mirror.timer`, 04:30 UTC, no `--delete`, whole of `~/dev` including `logs/`; streaming standby, WAL archive and base backups). Accepted risk: a fire, theft, power event or ransomware run that reaches both servers loses the non-rebuildable tables (Alpaca raw, `reference_raw`, `economic_series_observation`, `dividend_events`, identity map versions, `config_*`, research records) and the Massive archive if the vendor has by then revoked access. Reopen only on an owner request. The draft below is kept for that case.
 
 # Off-site, encrypted, restore-tested backup of the permanent raw data
 
