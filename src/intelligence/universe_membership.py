@@ -24,7 +24,11 @@ Rule at t, for one security (one identity, so a reused ticker is two securities 
 - liquidity: the median of close x volume over the last ``window_sessions`` own bars through t is
   at or above ``entry_floor`` to enter, and a current member stays while it is at or above
   ``exit_floor`` (hysteresis: the exit floor is below the entry floor, so a name between the two
-  keeps its prior state and the cross-section stays stable).
+  keeps its prior state and the cross-section stays stable);
+- 5m tier (amendment 2026-11-15): a member whose same median is at or above ``tier_entry_floor``
+  is in the 5m tier, and a tier member stays while it is at or above ``tier_exit_floor``. The tier
+  has its own hysteresis state, is nested in the membership by construction (its floors are at
+  or above the membership floors) and leaves with it.
 
 The type, price, bar-on-t and history conditions are hard for members and non-members alike;
 hysteresis relaxes only the liquidity floor. A non-finite value anywhere in the window means the
@@ -49,7 +53,7 @@ from src.intelligence.bars.split_rescale import SplitFactor
 
 # Identifies the preregistered rule values. A dated amendment that changes any value below bumps
 # this id; the build ledger refuses to extend a build made under another id.
-RULE_ID = "stage2-2026-11-13"
+RULE_ID = "stage2-2026-11-15"
 
 # First day of the Massive archive; the first month-end considered.
 ARCHIVE_START = date(2003, 9, 10)
@@ -64,6 +68,8 @@ class MembershipRule:
 
     entry_floor: float = 1_000_000.0
     exit_floor: float = 500_000.0
+    tier_entry_floor: float = 25_000_000.0
+    tier_exit_floor: float = 12_500_000.0
     window_sessions: int = 60
     min_history_sessions: int = 60
     min_close: float = 1.0
@@ -72,6 +78,12 @@ class MembershipRule:
     def __post_init__(self) -> None:
         if not 0 < self.exit_floor <= self.entry_floor:
             raise ValueError("MembershipRule: need 0 < exit_floor <= entry_floor")
+        if not self.entry_floor <= self.tier_entry_floor or not (
+            self.exit_floor <= self.tier_exit_floor <= self.tier_entry_floor
+        ):
+            raise ValueError(
+                "MembershipRule: the tier floors must sit at or above the membership floors"
+            )
         if self.window_sessions < 1 or self.min_history_sessions < self.window_sessions:
             raise ValueError("MembershipRule: need 1 <= window_sessions <= min_history_sessions")
 
@@ -107,6 +119,7 @@ class MembershipRow:
     close: float  # as traded on as_of, not the split-adjusted canonical close
     sessions: int
     entered: bool
+    tier_5m: bool  # in the 5m tier (amendment 2026-11-15); implies membership
 
 
 def month_end_sessions(sessions: Iterable[date]) -> list[date]:
@@ -135,10 +148,14 @@ def decide(
     security_type: str | None,
     was_member: bool,
     rule: MembershipRule = RULE,
+    *,
+    was_tier: bool = False,
 ) -> MembershipRow | None:
     """The membership row for `history.symbol` at `as_of`, or None when it is not a member.
 
     `security_type` is the Massive type at `as_of` (None when unknown, which is ineligible).
+    `was_tier` is the 5m tier state at the previous month-end; it only counts for a name that
+    stays a member, so leaving the membership resets it.
     """
     if security_type is None or security_type not in rule.eligible_types:
         return None
@@ -163,6 +180,7 @@ def decide(
         close=close,
         sessions=n,
         entered=not was_member,
+        tier_5m=median >= (rule.tier_exit_floor if was_tier else rule.tier_entry_floor),
     )
 
 
@@ -172,16 +190,18 @@ def memberships_for_security(
     types: Mapping[date, str | None],
     *,
     was_member: bool = False,
+    was_tier: bool = False,
     rule: MembershipRule = RULE,
 ) -> list[MembershipRow]:
     """Walk `month_ends` (ascending) for one security, carrying membership forward for the
-    hysteresis. `was_member` seeds the state before the first month-end (a resumed build passes
-    the previous month's membership). `types` maps each month-end to the type known on it; a
+    hysteresis. `was_member` and `was_tier` seed the state before the first month-end (a resumed
+    build passes the previous month's membership and tier). `types` maps each month-end to the type known on it; a
     missing key is an unknown type."""
     rows: list[MembershipRow] = []
     for as_of in month_ends:
-        row = decide(history, as_of, types.get(as_of), was_member, rule)
+        row = decide(history, as_of, types.get(as_of), was_member, rule, was_tier=was_tier)
         was_member = row is not None
+        was_tier = row is not None and row.tier_5m
         if row is not None:
             rows.append(row)
     return rows

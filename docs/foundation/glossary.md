@@ -2349,6 +2349,24 @@ spans), and not the `screen` (the statistical test over a vintage). **Banned:** 
 `scripts/infrastructure/universe_expansion_onboard_manifest.py`,
 `src/intelligence/research/runner.py` (`_load_panel`), `config/universe/` (manifests)
 
+### `stage 2 universe` and `5m tier`
+
+The point-in-time research universe of the stage 2 preregistration
+(`docs/plans/2026-11-13-stage2-universe-preregistration.md`): the table `universe_membership`, one
+row per member per NYSE month-end, decided from data known at that month-end and effective for the
+following month, with `universe_membership_build` as the ledger of built month-ends. It is a
+different thing from the onboarding record `universe membership` above (a name's entry date and
+cohort on `instruments`); the table is the stage 2 universe, the onboarding record is not.
+The `5m tier` is its subset (`tier_5m` true) of members whose trailing 60-session median dollar
+volume is at or above the tier entry floor, kept above the tier exit floor, for which 5m bars are
+loaded and 5m features computed; 1d covers the whole stage 2 universe. **Not:** the `compute_1d` or
+`compute_eligible` flags of `instruments` (the pre-stage-2 universe), and not a screen on returns.
+**Banned:** (none)
+**Status:** built, not applied (migration 597, todo 609)
+**Code surface:** `src/intelligence/universe_membership.py` (the rule),
+`services/universe_membership_writer.py` (single writer), `services/corpus_universe.py` (the
+corpus compute universe, `intraday=True` for the tier)
+
 ### `warmup prefix`
 
 The sessions S0 fetches before a snapshot's start so every member's declared memory is filled at

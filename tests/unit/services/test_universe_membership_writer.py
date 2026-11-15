@@ -141,6 +141,7 @@ class _Conn:
         splits=(),
         spans=(),
         seed=(),
+        seed_tier=(),
         stale=(),
     ):
         self.ledger = list(ledger)
@@ -148,7 +149,7 @@ class _Conn:
         self.symbols, self.inactive = list(symbols), inactive
         self.types = types or {"AAA": "CS", "PPP": "PFD", "THIN": "CS", "DEAD": "CS"}
         self.bars, self.splits, self.spans = bars or {}, list(splits), list(spans)
-        self.seed = list(seed)
+        self.seed, self.seed_tier = list(seed), set(seed_tier)
         self.stale = list(stale)
         self.executemany = AsyncMock()
         self.copy_records_to_table = AsyncMock()
@@ -161,7 +162,7 @@ class _Conn:
         if sql == w._PLACED_SYMBOLS_SQL:
             return [{"symbol": s} for s in self.symbols]
         if sql == w._MEMBERS_AT_SQL:
-            return [{"symbol": s} for s in self.seed]
+            return [{"symbol": s, "tier_5m": s in self.seed_tier} for s in self.seed]
         if sql == w._TYPES_SQL:
             return [{"symbol": s, "security_type": t} for s, t in self.types.items()]
         if sql == w._BARS_SQL:
@@ -428,3 +429,38 @@ def test_corpus_universe_builds_instruments(monkeypatch):
     rows = [("AAA", "AAA", {"session_id": "nyse"}, None), ("ZZZ", "ZZZ", {}, None)]
     out = cu.corpus_universe(_cursor_conn((3, 1, date(2020, 3, 31)), rows))
     assert out == ["AAA", "ZZZ"] and len(seen) == 2
+
+
+async def test_resume_seeds_the_tier_state_and_the_record_carries_it(tmp_path):
+    days = _weekdays(date(2003, 9, 10), 135)
+    jan30 = date(2004, 1, 30)
+    ledger = [{"as_of": DEC31, "rule_id": w.RULE_ID, "n_members": 1}]
+    bars = {"AAA": _bars(days, dollars=15e6)}  # between the tier floors
+    kept = _Conn(ledger=ledger, month_ends=[jan30], seed=["AAA"], seed_tier=["AAA"], bars=bars)
+    assert await _writer(jan30, tmp_path)._build_and_write(kept) is True
+    records = kept.copy_records_to_table.call_args.kwargs["records"]
+    assert [(r[1], r[7]) for r in records] == [("AAA", True)]
+    fresh = _Conn(ledger=ledger, month_ends=[jan30], seed=["AAA"], bars=bars)
+    assert await _writer(jan30, tmp_path)._build_and_write(fresh) is True
+    records = fresh.copy_records_to_table.call_args.kwargs["records"]
+    assert [(r[1], r[7]) for r in records] == [("AAA", False)]
+    assert "tier_5m" in kept.copy_records_to_table.call_args.kwargs["columns"]
+
+
+def test_corpus_universe_intraday_reads_only_the_tier(monkeypatch):
+    monkeypatch.setattr(cu, "instrument_from_instruments_row", lambda *row: row[0])
+    conn = _cursor_conn((3, 1, date(2020, 3, 31)), [("AAA", "AAA", {}, None)])
+    assert cu.corpus_universe(conn, intraday=True) == ["AAA"]
+    executed = [
+        c.args[0] for c in conn.cursor.return_value.__enter__.return_value.execute.call_args_list
+    ]
+    assert "WHERE tier_5m" in executed[-1]
+    cu.corpus_universe(conn)
+    assert (
+        "tier_5m" not in conn.cursor.return_value.__enter__.return_value.execute.call_args.args[0]
+    )
+
+
+def test_corpus_universe_intraday_with_no_tier_member_fails_loudly():
+    with pytest.raises(cu.UniverseMembershipEmptyError, match="5m tier"):
+        cu.corpus_universe(_cursor_conn((3, 1, date(2020, 3, 31)), []), intraday=True)

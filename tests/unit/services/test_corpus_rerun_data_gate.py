@@ -85,6 +85,7 @@ class Fixture:
     # (vendor, ask, complete, has_partial_bars): the rows of ohlcv_ask_current
     asks: list[tuple[str, gate.CompletedAsk, bool, bool]] = field(default_factory=list)
     pre_pair: tuple[str, str] = ("ibkr", "named")  # the (vendor, kind) serving before ERA
+    tier: set[str] | None = None  # the 5m tier; None puts every name in it
 
     def add_name(self, symbol: str, start: date, *, full: bool = True) -> None:
         """A name whose every session from start to the horizon has its 1d bar and, when full,
@@ -112,7 +113,13 @@ class Fixture:
             )
             for s in self.names
         ]
-        monkeypatch.setattr(gate, "corpus_universe", lambda conn: universe)
+        monkeypatch.setattr(
+            gate,
+            "corpus_universe",
+            lambda conn, intraday=False: [
+                c for c in universe if not intraday or self.tier is None or c.symbol in self.tier
+            ],
+        )
         monkeypatch.setattr(
             gate,
             "proven_starts",
@@ -624,3 +631,39 @@ def test_one_tally_shared_by_both_sides_of_the_era_start_refuses():
     }
     with pytest.raises(LookupError, match="cannot split"):
         gate.pre_era_keys(segments, era)
+
+
+def test_a_name_outside_the_5m_tier_is_judged_on_1d_alone(monkeypatch):
+    """A 1d-only name with no 5m bars passes; the tier name beside it is still judged on 5m."""
+    world = Fixture(tier={"AAA"})
+    world.add_name("AAA", date(2016, 1, 4))
+    world.add_name("ONLY1D", date(2016, 1, 4), full=False)
+    result = world.run(monkeypatch)
+    assert result.ok and result.intraday_names == 1 and result.names_checked == 2
+    only = result.eras[gate.ONE_D_ONLY_ERA]
+    assert only.names == 1 and only.sessions == only.sessions_with_1d > 0
+    assert only.names_at_depth == 0 and only.missing_sessions == 0
+    assert result.eras["alpaca/sip_rth"].names == 1
+
+
+def test_a_1d_hole_fails_a_name_outside_the_5m_tier(monkeypatch):
+    world = Fixture(tier=set())
+    world.add_name("ONLY1D", date(2016, 1, 4), full=False)
+    world.days_1d["ONLY1D"] -= set(_sessions(date(2016, 2, 8), date(2016, 2, 13)))
+    assert _failing(world.run(monkeypatch)) == {("ONLY1D", 2016)}
+
+
+def test_a_5m_hole_still_fails_a_tier_name_beside_1d_only_names(monkeypatch):
+    world = Fixture(tier={"AAA"})
+    world.add_name("AAA", date(2016, 1, 4))
+    world.add_name("ONLY1D", date(2016, 1, 4), full=False)
+    world.drop_5m("AAA", date(2016, 2, 8), date(2016, 2, 13))
+    assert _failing(world.run(monkeypatch)) == {("AAA", 2016)}
+
+
+def test_1d_only_names_stay_out_of_the_survivorship_caveat(monkeypatch):
+    world = Fixture(tier={"AAA"})
+    world.add_name("AAA", date(2015, 6, 1))
+    world.add_name("ONLY1D", date(2015, 6, 1), full=False)
+    result = world.run(monkeypatch)
+    assert result.ok and result.caveat["counts"]["names_with_1d_before_alpaca_era"] == 1

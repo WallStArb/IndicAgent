@@ -1279,7 +1279,7 @@ def _run_rebuild_stage(
     monkeypatch.setattr(
         module,
         "corpus_universe",
-        lambda conn: _stub_contracts("compute_1d"),
+        lambda conn, intraday=False: _stub_contracts("compute_1d"),
     )
     monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
@@ -1307,11 +1307,13 @@ def _run_rebuild_stage(
     )
     real_compression_bound = module.compression_bound
 
-    def _bound(conn, chunks, tfs, horizon, code_key, apr, starts, known):
+    def _bound(conn, chunks, tfs, horizon, code_key, apr, starts, known, *, intraday):
         if bound_calls is not None:
             bound_calls.append((list(chunks), list(tfs), dict(known)))
         if real_bound:
-            return real_compression_bound(conn, chunks, tfs, horizon, code_key, apr, starts, known)
+            return real_compression_bound(
+                conn, chunks, tfs, horizon, code_key, apr, starts, known, intraday=intraday
+            )
         return bound
 
     monkeypatch.setattr(module, "compression_bound", _bound)
@@ -1519,15 +1521,17 @@ def test_compression_bound_is_the_earliest_uncompleted_unit_of_the_full_scope(mo
     horizon = datetime(2026, 10, 1, tzinfo=UTC)
     known = {(chunk, "1d"): [(datetime(2000, 1, 1, tzinfo=UTC), True)]}
     args = (object(), [chunk], ["1d", "5m", "1h"], horizon, "k" * 64, {}, {})
-    assert module.compression_bound(*args, known) == open_.range_start
+    assert module.compression_bound(*args, known, intraday=frozenset(chunk)) == open_.range_start
     assert planned_calls == [(chunk, "5m"), (chunk, "1h")]
 
     known[(chunk, "1d")] = [(datetime(2000, 1, 1, tzinfo=UTC), False)]
-    assert module.compression_bound(*args, known) == datetime(2000, 1, 1, tzinfo=UTC)
+    assert module.compression_bound(*args, known, intraday=frozenset(chunk)) == datetime(
+        2000, 1, 1, tzinfo=UTC
+    )
 
     monkeypatch.setattr(module, "_plan_group", lambda *a: None)
     known[(chunk, "1d")] = [(datetime(2000, 1, 1, tzinfo=UTC), True)]
-    assert module.compression_bound(*args, known) == _HORIZON_YEAR_START
+    assert module.compression_bound(*args, known, intraday=frozenset(chunk)) == _HORIZON_YEAR_START
 
 
 # ---------------------------------------------------------------------------
@@ -2444,3 +2448,30 @@ def test_a_units_stats_are_summed_over_its_symbols_and_reach_bulk_load(monkeypat
         "in_lvn": {"present": 12, "nan_present": 0},  # three symbols' counts
         "sr_support_dist": {"present": 30, "nan_present": 3},
     }
+
+
+def test_an_intraday_group_plans_only_the_5m_tier_and_1d_plans_the_whole_chunk(monkeypatch):
+    """Amendment 2026-11-15: chunking is the universe's, the tier filters intraday groups only."""
+    chunk = ("AAA", "BBB", "CCC")
+    tier = frozenset({"AAA", "CCC"})
+    assert module._chunk_for("1d", chunk, tier) == chunk
+    assert module._chunk_for("5m", chunk, tier) == ("AAA", "CCC")
+    assert module._chunk_for("1h", chunk, frozenset()) == ()
+
+    planned: list = []
+    ctx = SimpleNamespace(
+        chunks=[chunk],
+        all_timeframes=["5m", "1d"],
+        code_key="k" * 64,
+        apr_snapshot={},
+        starts={},
+        intraday=tier,
+    )
+    monkeypatch.setattr(module, "_stage_context", lambda *a: ctx)
+    monkeypatch.setattr(
+        module,
+        "_plan_group",
+        lambda conn, index, names, tf, *rest: planned.append((tf, names)) or None,
+    )
+    module.planned_units(object(), object(), datetime(2026, 10, 1, tzinfo=UTC))
+    assert planned == [("5m", ("AAA", "CCC")), ("1d", chunk)]

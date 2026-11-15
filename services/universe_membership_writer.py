@@ -110,7 +110,7 @@ SELECT ca.symbol, max(ca.recorded_at) AS latest_action, d.computed_at AS latest_
 HAVING d.computed_at IS NULL OR max(ca.recorded_at) > d.computed_at
  ORDER BY ca.symbol
 """
-_MEMBERS_AT_SQL = "SELECT symbol FROM universe_membership WHERE as_of = $1"
+_MEMBERS_AT_SQL = "SELECT symbol, tier_5m FROM universe_membership WHERE as_of = $1"
 # Every page of the month-end's two snapshot lists (`<date>@active` and `<date>@inactive`).
 _SNAPSHOT_PAGES_SQL = """
 SELECT request_key, page, http_status, body->>'status' AS status, body->>'next_url' AS next_url
@@ -262,9 +262,10 @@ class UniverseMembershipWriter(BaseBatch):
             return False
 
         types = await self._types(conn, todo)
-        seed = (
-            {r["symbol"] for r in await conn.fetch(_MEMBERS_AT_SQL, built[-1])} if built else set()
-        )
+        seed = {
+            r["symbol"]: r["tier_5m"]
+            for r in (await conn.fetch(_MEMBERS_AT_SQL, built[-1]) if built else [])
+        }
         symbols = [r["symbol"] for r in await conn.fetch(_PLACED_SYMBOLS_SQL)]
         if not await conn.fetchval(_INACTIVE_PLACED_SQL, symbols):
             raise RuntimeError(
@@ -291,6 +292,7 @@ class UniverseMembershipWriter(BaseBatch):
                     todo,
                     {m: types[m].get(symbol) for m in todo},
                     was_member=symbol in seed,
+                    was_tier=seed.get(symbol, False),
                     rule=RULE,
                 )
                 rows += member_rows
@@ -331,6 +333,7 @@ class UniverseMembershipWriter(BaseBatch):
                 "close",
                 "sessions",
                 "entered",
+                "tier_5m",
             ],
             records=[
                 (
@@ -341,13 +344,17 @@ class UniverseMembershipWriter(BaseBatch):
                     r.close,
                     r.sessions,
                     r.entered,
+                    r.tier_5m,
                 )
                 for r in rows
             ],
         )
-        by_year = Counter()
+        tier_counts = Counter(row.as_of for row in rows if row.tier_5m)
+        by_year: Counter[int] = Counter()
+        tier_by_year: Counter[int] = Counter()
         for m in todo:
             by_year[m.year] = max(by_year[m.year], counts[m])
+            tier_by_year[m.year] = max(tier_by_year[m.year], tier_counts[m])
         self.logger.info(
             "universe_membership.built",
             months=len(todo),
@@ -356,6 +363,7 @@ class UniverseMembershipWriter(BaseBatch):
             last=str(todo[-1]),
             apply=self._apply,
             max_members_by_year=dict(sorted(by_year.items())),
+            max_tier_5m_by_year=dict(sorted(tier_by_year.items())),
             vanished_without_final_bar=len(vanished),
         )
         return True

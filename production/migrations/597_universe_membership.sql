@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS universe_membership (
     close double precision NOT NULL CHECK (close > 0),
     sessions integer NOT NULL CHECK (sessions > 0),
     entered boolean NOT NULL,
+    tier_5m boolean NOT NULL,
     PRIMARY KEY (as_of, symbol)
 );
 
@@ -46,7 +47,9 @@ COMMENT ON TABLE universe_membership IS
     'month-end as_of, effective for the following month, decided from bars through as_of only. '
     'median_dollar_volume is the trailing 60-session median of close x volume, close the close on '
     'as_of, sessions the count of own bars through as_of, security_type the Massive type on as_of; '
-    'entered is true when the name crossed the entry floor and false when hysteresis kept it. '
+    'entered is true when the name crossed the entry floor and false when hysteresis kept it; '
+    'tier_5m is true when the name is in the 5m tier (amendment 2026-11-15: median at or above the '
+    'tier entry floor, kept above its exit floor; nested in the membership). '
     'Append-only. Single writer: UniverseMembershipWriter. Rule: preregistration 2026-11-13.';
 
 CREATE INDEX IF NOT EXISTS idx_universe_membership_symbol

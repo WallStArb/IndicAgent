@@ -1335,6 +1335,8 @@ def compression_bound(
     apr_snapshot: Mapping[str, Any],
     starts: Mapping[str, datetime],
     known: Mapping[tuple[tuple[str, ...], str], Sequence[tuple[datetime, bool]]],
+    *,
+    intraday: frozenset[str],
 ) -> datetime:
     """Chunks ending at or before this instant can be compressed (todo 584 item 4): the open
     chunk floor, pulled back to the earliest `range_start` of any unit of the full scope (every
@@ -1353,7 +1355,14 @@ def compression_bound(
             units = known.get((chunk, tf))
             if units is None:
                 plan = _plan_group(
-                    conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
+                    conn,
+                    chunk_index,
+                    _chunk_for(tf, chunk, intraday),
+                    tf,
+                    horizon,
+                    code_key,
+                    apr_snapshot,
+                    starts,
                 )
                 units = (
                     []
@@ -1413,6 +1422,13 @@ def _unit_input_digest(
         for symbol, stat in sorted(stats.items())
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _chunk_for(tf: str, chunk: tuple[str, ...], intraday: frozenset[str]) -> tuple[str, ...]:
+    """The names of `chunk` a timeframe computes: all of them for 1d, the 5m tier for an intraday
+    timeframe. Chunking itself is the universe's, so 1d unit keys never depend on the tier; an
+    empty result is the existing empty group (`_plan_group` returns None)."""
+    return chunk if tf == "1d" else tuple(s for s in chunk if s in intraday)
 
 
 def _plan_group(
@@ -1760,6 +1776,7 @@ class _StageContext:
     universe: list[str]
     chunks: list[tuple[str, ...]]
     starts: dict[str, datetime]
+    intraday: frozenset[str]  # the 5m tier (amendment 2026-11-15): the names with intraday units
 
 
 def _stage_context(
@@ -1771,6 +1788,9 @@ def _stage_context(
     symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
     contracts = corpus_universe(db_conn)
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
+    tier = {
+        c.symbol for c in _filter_etf_contracts(corpus_universe(db_conn, intraday=True), symbols)
+    }
     return _StageContext(
         cfg=cfg,
         config=config,
@@ -1782,6 +1802,7 @@ def _stage_context(
         universe=universe,
         chunks=split_symbol_chunks(universe, symbols_per_chunk),
         starts=proven_starts(db_conn, universe),
+        intraday=frozenset(tier),
     )
 
 
@@ -1802,7 +1823,14 @@ def planned_units(
     for chunk_index, chunk in enumerate(ctx.chunks):
         for tf in ctx.all_timeframes:
             plan = _plan_group(
-                db_conn, chunk_index, chunk, tf, horizon, ctx.code_key, ctx.apr_snapshot, ctx.starts
+                db_conn,
+                chunk_index,
+                _chunk_for(tf, chunk, ctx.intraday),
+                tf,
+                horizon,
+                ctx.code_key,
+                ctx.apr_snapshot,
+                ctx.starts,
             )
             if plan is not None:
                 specs.extend(unit.spec for unit in plan.units)
@@ -1945,7 +1973,14 @@ def run_rebuild_stage(
             for chunk_index, chunk in enumerate(chunks):
                 for tf in target_timeframes:
                     plan = _plan_group(
-                        db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot, starts
+                        db_conn,
+                        chunk_index,
+                        _chunk_for(tf, chunk, ctx.intraday),
+                        tf,
+                        horizon,
+                        code_key,
+                        apr_snapshot,
+                        starts,
                     )
                     planned[(chunk, tf)] = [] if plan is None else plan.units
                     if plan is None:
@@ -2075,7 +2110,15 @@ def run_rebuild_stage(
                 for key, units in planned.items()
             }
             bound = compression_bound(
-                db_conn, chunks, all_timeframes, horizon, code_key, apr_snapshot, starts, known
+                db_conn,
+                chunks,
+                all_timeframes,
+                horizon,
+                code_key,
+                apr_snapshot,
+                starts,
+                known,
+                intraday=ctx.intraday,
             )
             summary["chunks_compressed"] = _compress_completed_chunks(
                 write_conn, _FEATURE_TABLE, bound

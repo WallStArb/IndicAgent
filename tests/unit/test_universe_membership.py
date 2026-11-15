@@ -219,3 +219,54 @@ def test_future_reverse_split_name_is_not_admitted_and_future_split_name_is_kept
     object.__setattr__(rich, "splits", (SplitFactor(date(2021, 1, 4), 10.0),))
     row = decide(rich, days[-1], "CS", False)
     assert row is not None and row.close == pytest.approx(5.0)
+
+
+# --- 5m tier (amendment 2026-11-15) --------------------------------------------------------
+
+
+def test_tier_constants_and_validation():
+    assert RULE.tier_entry_floor == 25_000_000.0 and RULE.tier_exit_floor == 12_500_000.0
+    with pytest.raises(ValueError):  # a tier floor below the membership floor is not nested
+        MembershipRule(tier_entry_floor=500_000.0, tier_exit_floor=400_000.0)
+    with pytest.raises(ValueError):
+        MembershipRule(tier_entry_floor=2e7, tier_exit_floor=3e7)
+
+
+def test_tier_enters_at_the_tier_floor_inclusive_and_implies_membership():
+    days = _days(60)
+    at = decide(_history(days, 25_000_000.0), days[-1], "CS", False)
+    below = decide(_history(days, 24_999_999.0), days[-1], "CS", False)
+    assert at is not None and at.tier_5m
+    assert below is not None and not below.tier_5m  # a member, not in the tier
+
+
+def test_tier_hysteresis_holds_between_the_floors_and_leaves_below_the_exit():
+    days = _days(60)
+    hist = _history(days, 15e6)  # between 12.5M and 25M
+    assert not decide(hist, days[-1], "CS", True).tier_5m
+    assert decide(hist, days[-1], "CS", True, was_tier=True).tier_5m
+    low = _history(days, 12_000_000.0)
+    assert not decide(low, days[-1], "CS", True, was_tier=True).tier_5m
+
+
+def test_tier_state_is_lost_with_the_membership():
+    days = _days(60 * 4)
+    ends = [days[59], days[119], days[179], days[239]]
+    # tier, then out of the universe (below 0.5M), then 15M: a re-entrant needs the 25M floor
+    dollars = [3e7] * 60 + [4e5] * 60 + [15e6] * 60 + [3e7] * 60
+    rows = memberships_for_security(_history(days, dollars), ends, {e: "CS" for e in ends})
+    assert [(r.as_of, r.tier_5m) for r in rows] == [
+        (ends[0], True),
+        (ends[2], False),
+        (ends[3], True),
+    ]
+
+
+def test_walk_seed_resumes_the_tier_state():
+    days = _days(60)
+    hist = _history(days, 15e6)
+    types = {days[-1]: "CS"}
+    assert memberships_for_security(hist, [days[-1]], types, was_member=True, was_tier=True)[
+        0
+    ].tier_5m
+    assert not memberships_for_security(hist, [days[-1]], types, was_member=True)[0].tier_5m

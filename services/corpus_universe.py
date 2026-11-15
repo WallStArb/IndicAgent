@@ -27,13 +27,17 @@ _INSTRUMENTS_SQL = (
     "SELECT symbol, base, contract_details, "
     f"{current_level_name_sql('instruments')} "
     "FROM instruments "
-    "WHERE symbol IN (SELECT symbol FROM universe_membership) "
+    "WHERE symbol IN (SELECT symbol FROM universe_membership{tier}) "
     "ORDER BY symbol"
 )
 
 
-def corpus_universe(conn: Any) -> list[Instrument]:
+def corpus_universe(conn: Any, *, intraday: bool = False) -> list[Instrument]:
     """The `Instrument` of every symbol ever in `universe_membership`, ordered by symbol.
+
+    `intraday=True` narrows it to the symbols that were in the 5m tier at any month-end
+    (amendment 2026-11-15): the names that have 5m features and a 5m data gate. The tier is nested
+    in the membership, so the intraday list is always a subset of the default one.
 
     Raises `UniverseMembershipEmptyError` when no month-end is built and RuntimeError when the
     ledger mixes rule ids. A member whose `instruments` row cannot become an Instrument raises
@@ -49,10 +53,11 @@ def corpus_universe(conn: Any) -> list[Instrument]:
             )
         if rules != 1:
             raise RuntimeError(f"universe_membership_build mixes {rules} rule ids (last {last})")
-        cur.execute(_INSTRUMENTS_SQL)
+        cur.execute(_INSTRUMENTS_SQL.format(tier=" WHERE tier_5m" if intraday else ""))
         rows = cur.fetchall()
     if not rows:
         raise UniverseMembershipEmptyError(
-            f"universe_membership_build has {months} months through {last} but no member rows"
+            f"universe_membership_build has {months} months through {last} but no "
+            f"{'5m tier ' if intraday else ''}member rows"
         )
     return [instrument_from_instruments_row(*row) for row in rows]

@@ -46,7 +46,7 @@ import bisect
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -256,6 +256,9 @@ class DataGateResult:
     pre_calendar_1d_sessions: dict[str, int]
     pre_calendar_1d_sessions_total: int
     caveat: dict[str, Any] | None = None
+    intraday_names: int = (
+        0  # names the 5m term judged (the 5m tier); the rest have the 1d term only
+    )
 
     def as_record(self) -> dict[str, Any]:
         """The JSON-safe record the runner stores in corpus_run.data_gate."""
@@ -275,6 +278,16 @@ def _json_safe(value: Any) -> Any:
 
 def era_label(vendor: str, kind: str) -> str:
     return f"{vendor}/{kind}"
+
+
+# A name outside the 5m tier (amendment 2026-11-15) is judged on 1d alone: its sessions are one
+# segment of this era, which has no 5m policy, no 5m answers and no 5m bars to count.
+ONE_D_ONLY_ERA = era_label("none", "1d_only")
+
+
+def one_d_only_segments(lo: date, hi: date) -> list[Segment]:
+    """The single segment of a name that has no 5m term."""
+    return [Segment(lo, hi, "none", "1d_only")]
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +391,8 @@ def pre_era_keys(segments: Mapping[str, Sequence[Segment]], era_start: date) -> 
     post: set[TallyKey] = set()
     for symbol, segs in segments.items():
         for seg in segs:
+            if seg.era == ONE_D_ONLY_ERA:  # no 5m sessions: nothing for the 5m caveat to count
+                continue
             keys = pre if seg.lo < era_start else post
             last = seg.hi - timedelta(days=1)
             keys.update((symbol, year, seg.era) for year in range(seg.lo.year, last.year + 1))
@@ -558,7 +573,8 @@ def evaluate(
 ) -> DataGateResult:
     """Judge the tallies. A name without a start, sessions or 1d sessions refuses unless held;
     a name-year fails when its 1d-missing or 5m-uncovered share of sessions passes its APR
-    tolerance. On a pass the result carries the survivorship caveat with its counts."""
+    tolerance (a name whose only era is `ONE_D_ONLY_ERA` has no 5m term). On a pass the result carries the survivorship caveat with its counts.
+    """
     by_name: dict[str, dict[TallyKey, NameYearTally]] = defaultdict(dict)
     for key, tally in tallies.items():
         by_name[key[0]][key] = tally
@@ -585,6 +601,10 @@ def evaluate(
         for era, t in name_eras.items():
             counts = eras[era]
             counts.names += 1
+            if era == ONE_D_ONLY_ERA:  # 1d term only: no 5m depth to classify
+                counts.sessions += t.sessions
+                counts.sessions_with_1d += t.with_1d
+                continue
             counts.names_at_depth_by_bars += t.uncovered_by_bars <= tol_5m * t.sessions
             if t.uncovered <= tol_5m * t.sessions:
                 counts.names_at_depth += 1
@@ -603,8 +623,8 @@ def evaluate(
         for year, parts in sorted(years.items()):
             sessions = sum(t.sessions for _, t in parts)
             missing_1d = sessions - sum(t.with_1d for _, t in parts)
-            partial = sum(t.partial for _, t in parts)
-            missing = sum(t.missing for _, t in parts)
+            partial = sum(t.partial for era, t in parts if era != ONE_D_ONLY_ERA)
+            missing = sum(t.missing for era, t in parts if era != ONE_D_ONLY_ERA)
             fails = missing_1d > tol_1d * sessions or partial + missing > tol_5m * sessions
             for era, _ in parts:
                 eras[era].name_years += 1
@@ -891,6 +911,7 @@ def run_data_gate(
         raise ValueError("run_data_gate: horizon must be tz-aware")
     calendar = calendar or get_market_calendar()
     universe = _filter_etf_contracts(corpus_universe(conn), None)
+    intraday = {c.symbol for c in _filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
     key = resolve_calendar_key(universe, calendar)
     names = sorted({c.symbol for c in universe})
     starts = {s: ts.date() for s, ts in proven_starts(conn, names).items()}
@@ -902,14 +923,25 @@ def run_data_gate(
     rows_5m, rows_1d = fetch_policy(conn, TF_5M), fetch_policy(conn, TF_1D)
     era_start = alpaca_5m_era_start(rows_5m)
     segments = {
-        s: five_minute_segments(rows_5m, s, max(start, first), end, era_start)
+        s: (
+            five_minute_segments(rows_5m, s, max(start, first), end, era_start)
+            if s in intraday
+            else one_d_only_segments(max(start, first), end)
+        )
         for s, start in starts.items()
         if max(start, first) < end
     }
     spans_5m, spans_1d = fetch_empty_spans(conn, TF_5M), fetch_empty_spans(conn, TF_1D)
 
-    pairs = sorted({(seg.vendor, seg.kind) for segs in segments.values() for seg in segs})
-    answers = fetch_answers(conn, pairs, names, horizon)
+    pairs = sorted(
+        {
+            (seg.vendor, seg.kind)
+            for segs in segments.values()
+            for seg in segs
+            if seg.era != ONE_D_ONLY_ERA
+        }
+    )
+    answers = fetch_answers(conn, pairs, sorted(intraday & set(names)), horizon)
     tallies = session_tallies(segments, sessions, spans_5m, answers)
     for tally_key, n in fetch_1d_counts(conn, segments, days, horizon).items():
         tallies[tally_key].with_1d = n
@@ -946,10 +978,12 @@ def run_data_gate(
         era_start=era_start,
         pre_keys=pre_era_keys(segments, era_start),
     )
+    result = replace(result, intraday_names=len(intraday & set(starts)))
     _logger.info(
         "corpus_rerun_data_gate.measured",
         ok=result.ok,
         names=result.names_checked,
+        intraday_names=result.intraday_names,
         failing_name_years=len(result.failing_name_years),
         refused=len(result.names_without_proven_start)
         + len(result.names_with_zero_sessions)

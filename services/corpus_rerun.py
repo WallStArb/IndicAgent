@@ -808,6 +808,9 @@ def rebuild_precondition_results(
     cfg = load_config_service_sync(conn)
     tfs = _get_target_timeframes(cfg)
     symbols = sorted({c.symbol for c in _filter_etf_contracts(corpus_universe(conn), None)})
+    intraday_symbols = sorted(
+        {c.symbol for c in _filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
+    )
     markers = rp.fetch_landed_markers(conn)
     grid = bool(markers.pop("grid_marker", False))
     with conn.cursor() as cur:
@@ -821,7 +824,7 @@ def rebuild_precondition_results(
     ic_universe = check_ic_universe_aligned()
     try:
         results = rp.run_all(
-            bar_scan=rp.fetch_bar_verdict_inputs(conn, symbols, tfs),
+            bar_scan=rp.fetch_bar_verdict_inputs(conn, intraday_symbols, tfs),
             empty_history_spans=rp.fetch_empty_history_spans(conn, tfs),
             grid_marker_present=grid,
             grid_marker_detail="",
@@ -1691,7 +1694,8 @@ def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime) -> None
     apr = load_corpus_rerun_apr(load_config_service_sync(conn))
     result = run_data_gate(conn, settings, apr, horizon=horizon)
     print(
-        f"data_gate: {'PASS' if result.ok else 'FAIL'}; names {result.names_checked}; "
+        f"data_gate: {'PASS' if result.ok else 'FAIL'}; names {result.names_checked} "
+        f"(5m tier {result.intraday_names}); "
         f"failing name-years {len(result.failing_name_years)}; without a proven start "
         f"{len(result.names_without_proven_start)}"
     )
