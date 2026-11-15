@@ -858,7 +858,7 @@ class Deps:
     run_data_gate: Callable[..., Any]
     run_stage: Callable[..., dict[str, Any]]
     planned_units: Callable[..., tuple[list[Any], set[str]]]
-    symbol_chunks: Callable[[], list[tuple[str, ...]]]
+    symbol_chunks: Callable[[str], list[tuple[str, ...]]]  # by timeframe: the tier for intraday
     run_command: Callable[[Sequence[str], Path], tuple[int, str]]
     git_head: Callable[[Path], str]
     toplevel: Callable[[], Path]
@@ -1296,13 +1296,16 @@ class CorpusRerun:
         if problems:
             raise StepFailed("pilot units: " + "; ".join(problems), summary)
 
-        chunk0 = d.symbol_chunks()[0]
+        # 1d runs the whole chunk 0; an intraday timeframe only its 5m-tier names, so the screen
+        # and the compute gate never name a (symbol, tf) the stage did not compute.
+        chunk0_by_tf = {tf: d.symbol_chunks(tf)[0] for tf in self.PILOT_TFS}
+        chunk0 = chunk0_by_tf[self.PILOT_HOURLY_TF]
         # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
         screen = [d.python, str(COLUMN_SCREEN), "--null-gate"]
         screen += [arg for tf in self.PILOT_TFS for arg in ("--tf", tf)]
         for symbol in chunk0:
             screen += ["--symbol", symbol]
-        units = [f"{s}:{tf}" for tf in self.PILOT_TFS for s in chunk0]
+        units = [f"{s}:{tf}" for tf in self.PILOT_TFS for s in chunk0_by_tf[tf]]
         gates = {
             "G1-G3": d.run_command(screen, d.worktree),
             "G4-G5": d.run_command(
@@ -1336,7 +1339,7 @@ class CorpusRerun:
         # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
         # plan-only preview's fallback); the smaller of the 1d and 1h ratios is the conservative
         # one for every later projection.
-        compression = {tf: d.measure_compression(chunk0, tf) for tf in self.PILOT_TFS}
+        compression = {tf: d.measure_compression(chunk0_by_tf[tf], tf) for tf in self.PILOT_TFS}
         measured["pilot_compression"] = compression
         ratios = [c["ratio"] for c in compression.values() if c.get("ratio")]
         if len(ratios) != len(compression):
@@ -1608,7 +1611,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         run_data_gate=gate.run_data_gate,
         run_stage=factory.run_rebuild_stage,
         planned_units=factory.planned_units,
-        symbol_chunks=lambda: factory.symbol_chunks(settings, conn),
+        symbol_chunks=lambda tf: factory.symbol_chunks(settings, conn, tf),
         run_command=run_command,
         git_head=lambda path: _git(["rev-parse", "HEAD"], path),
         toplevel=lambda: Path(_git(["rev-parse", "--show-toplevel"], Path.cwd())).resolve(),

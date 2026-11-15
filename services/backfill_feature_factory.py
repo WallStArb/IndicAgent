@@ -1806,9 +1806,11 @@ def _stage_context(
     )
 
 
-def symbol_chunks(settings: Settings, db_conn: Any) -> list[tuple[str, ...]]:
-    """The full-universe symbol chunks every stage plans with (chunk 0 is the pilot's)."""
-    return _stage_context(settings, db_conn, None, None).chunks
+def symbol_chunks(settings: Settings, db_conn: Any, tf: str = "1d") -> list[tuple[str, ...]]:
+    """The full-universe symbol chunks every stage plans with (chunk 0 is the pilot's), as `tf`
+    computes them: the whole chunk for 1d, its 5m-tier names for an intraday timeframe."""
+    ctx = _stage_context(settings, db_conn, None, None)
+    return [_chunk_for(tf, chunk, ctx.intraday) for chunk in ctx.chunks]
 
 
 def planned_units(
@@ -2065,7 +2067,7 @@ def run_rebuild_stage(
                                 starts.get(symbol, _NO_FLOOR),
                             ),
                         )
-                        for symbol in chunk
+                        for symbol in plan.chunk  # the tier's names for an intraday tf
                     ]
                     previous, waiting = waiting, _PreparedGroup(plan, pending, futures, spool_dir)
                     if previous is not None:

@@ -2358,7 +2358,7 @@ following month, with `universe_membership_build` as the ledger of built month-e
 different thing from the onboarding record `universe membership` above (a name's entry date and
 cohort on `instruments`); the table is the stage 2 universe, the onboarding record is not.
 The `5m tier` is its subset (`tier_5m` true) of members whose trailing 60-session median dollar
-volume is at or above the tier entry floor, kept above the tier exit floor, for which 5m bars are
+volume is at or above the tier entry floor, kept at or above the tier exit floor, for which 5m bars are
 loaded and 5m features computed; 1d covers the whole stage 2 universe. **Not:** the `compute_1d` or
 `compute_eligible` flags of `instruments` (the pre-stage-2 universe), and not a screen on returns.
 **Banned:** (none)

@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -248,7 +249,7 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         run_data_gate=lambda conn, settings, apr, horizon: state["gate"],
         run_stage=rebuild,
         planned_units=lambda settings, conn, horizon: state["planned"],
-        symbol_chunks=lambda: [("AAA", "BBB")],
+        symbol_chunks=lambda tf="1d": state.get("chunks", {}).get(tf, [("AAA", "BBB")]),
         run_command=run_command,
         git_head=lambda path: state["head"],
         toplevel=lambda: state["toplevel"],
@@ -1024,3 +1025,57 @@ def test_feature_complete_and_the_pilot_run_the_object_gate():
     }
     with pytest.raises(cr.StepFailed, match="G6-objects"):
         pilot.runner.execute("pilot")
+
+
+def test_the_pilot_names_only_the_5m_tier_in_its_intraday_gates():
+    """Chunk 0 is whole for 1d and tier-only for 1h: the compute gate never names a (symbol, tf)
+    the stage did not compute, and the screen takes the tier's names."""
+    world = _world(chunks={"1d": [("AAA", "BBB")], "1h": [("AAA",)]})
+    _through(world, "pilot")
+    world.runner.execute("pilot")
+    gates = [argv for argv, _ in world.commands]
+    units = next(argv for argv in gates if "--units" in argv)
+    assert "BBB:1d" in units and "AAA:1h" in units and "BBB:1h" not in units
+    screen = next(argv for argv in gates if "ops_feature_column_screen.py" in argv[1])
+    assert "AAA" in screen and "BBB" not in screen
+
+
+def test_the_intraday_verdict_scan_takes_the_tier_and_the_1d_checks_the_whole_universe(
+    monkeypatch, tmp_path
+):
+    from services import rebuild_preconditions as rp
+
+    seen: dict = {}
+    names = {False: ["AAA", "BBB", "CCC"], True: ["AAA"]}
+    import services.corpus_universe as universe_module
+
+    monkeypatch.setattr(
+        universe_module,
+        "corpus_universe",
+        lambda conn, intraday=False: [SimpleNamespace(symbol=s) for s in names[intraday]],
+    )
+    monkeypatch.setattr(cr, "load_config_service_sync", lambda conn: object())
+    import services.backfill_feature_factory as factory
+
+    monkeypatch.setattr(factory, "_get_target_timeframes", lambda cfg: ["5m", "1d"])
+    monkeypatch.setattr(factory, "_filter_etf_contracts", lambda contracts, symbols: contracts)
+    monkeypatch.setattr(rp, "fetch_landed_markers", lambda conn: {})
+    monkeypatch.setattr(
+        rp, "fetch_bar_verdict_inputs", lambda conn, syms, tfs: seen.setdefault("bar", list(syms))
+    )
+    monkeypatch.setattr(rp, "fetch_empty_history_spans", lambda conn, tfs: None)
+    monkeypatch.setattr(rp, "fetch_d2_inputs", lambda conn, syms: seen.setdefault("d2", list(syms)))
+    monkeypatch.setattr(rp, "fetch_final_landed_markers", lambda: {})
+    monkeypatch.setattr(rp, "fetch_process_lines", lambda: [])
+    monkeypatch.setattr(rp, "run_all", lambda **kw: [])
+    monkeypatch.setattr(cr, "check_ic_universe_aligned", lambda: SimpleNamespace(ok=True))
+    decision = tmp_path / cr.TODO445_DECISION_PATH
+    decision.parent.mkdir(parents=True, exist_ok=True)
+    decision.write_text('{"todo445_decision": null}')
+    monkeypatch.setattr(rp, "_PROJECT_ROOT", tmp_path)
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    cr.rebuild_precondition_results(conn, SimpleNamespace(), True, {})
+    assert seen["bar"] == ["AAA"] and seen["d2"] == ["AAA", "BBB", "CCC"]

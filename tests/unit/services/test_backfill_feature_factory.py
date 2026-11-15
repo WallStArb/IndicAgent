@@ -1258,6 +1258,7 @@ def _run_rebuild_stage(
     chunk_indices=None,
     disk_guard=None,
     table_bytes=None,
+    tier=None,
 ):
     """Run run_rebuild_stage over canned group plans, a stub worker pool and a recording
     bulk_load; `compression_bound` returns `bound` and records its scope in `bound_calls`
@@ -1279,7 +1280,11 @@ def _run_rebuild_stage(
     monkeypatch.setattr(
         module,
         "corpus_universe",
-        lambda conn, intraday=False: _stub_contracts("compute_1d"),
+        lambda conn, intraday=False: [
+            c
+            for c in _stub_contracts("compute_1d")
+            if not intraday or tier is None or c.symbol in tier
+        ],
     )
     monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
     monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
@@ -1288,8 +1293,10 @@ def _run_rebuild_stage(
     monkeypatch.setattr(
         module,
         "_plan_group",
-        lambda conn, chunk_index, chunk, tf, horizon, code_key, apr, starts: plans.get(
-            (chunk_index, tf)
+        lambda conn, chunk_index, chunk, tf, horizon, code_key, apr, starts: (
+            None
+            if plans.get((chunk_index, tf)) is None or not chunk
+            else dataclasses.replace(plans[(chunk_index, tf)], chunk=tuple(chunk))
         ),
     )
     monkeypatch.setattr(
@@ -2475,3 +2482,32 @@ def test_an_intraday_group_plans_only_the_5m_tier_and_1d_plans_the_whole_chunk(m
     )
     module.planned_units(object(), object(), datetime(2026, 10, 1, tzinfo=UTC))
     assert planned == [("5m", ("AAA", "CCC")), ("1d", chunk)]
+
+
+def test_an_intraday_stage_dispatches_and_loads_only_the_5m_tier(monkeypatch, tmp_path):
+    """The planned group, the dispatched workers and the loaded rows all cover the tier's names:
+    a name outside it has no 5m worker and no 5m row, though the chunk holds it."""
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("5m", [u1], chunk=("AAA", "BBB"))
+    stamp = datetime(2020, 3, 2, tzinfo=UTC)
+    worker = _stub_worker({"AAA": {0: [stamp]}, "BBB": {0: [stamp]}})
+    summary, pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        {(0, "5m"): plan},
+        worker=worker,
+        timeframes=("5m",),
+        tier={"AAA"},
+    )
+    assert pool.dispatched == ["AAA"]
+    assert [row[0] for rows in recorder.rows_by_key.values() for row in rows] == ["AAA"]
+    assert summary["units_loaded"] == 1
+
+
+def test_a_1d_stage_still_dispatches_every_name_of_the_chunk(monkeypatch, tmp_path):
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1])
+    _, pool, _, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, worker=_stub_worker({}), tier={"AAA"}
+    )
+    assert pool.dispatched == ["AAA", "BBB", "CCC"]
