@@ -7,7 +7,7 @@
 
 | Held work | Worktree | Tip | Base | Ahead / behind origin/main | Touches |
 |---|---|---|---|---|---|
-| Refactor stack (6 commits) | `/home/bg/dev/wt-refactor-land` | `abd27158a` | `67e9bbfe6` | 6 / 11 | `services/batch_support/` split (deletes `services/_batch_utils.py`), 19 services, `scripts/ops/bars` (6), `src/core`, `src/config`, `src/api`, `src/intelligence/bars` (1), `src/intelligence/features` (1); migrations 595, 596 |
+| Refactor stack (6 commits) | `/home/bg/dev/wt-refactor-land` | `abd27158a` | `67e9bbfe6` | 6 / 11 | `services/batch_support/` split (deletes the old batch helpers module), 19 services, `scripts/ops/bars` (6), `src/core`, `src/config`, `src/api`, `src/intelligence/bars` (1), `src/intelligence/features` (1); migrations 595, 596 |
 | L1 kernels (551, 552, 558) | `/home/bg/dev/wt-l1-kernels` | `d4adbb2f3` | `5d724bf16` | 3 / 9 | `kernels/`, `research_kernels/`, `contract/registry.py`, `feature_vector.py`, `feature_factory.py`; no migration |
 | R2 item 1 (production-path golden) | `/home/bg/dev/wt-r2-prodpin` | `4db147529` | `5d724bf16` | 1 / 9 | tests, `production_golden.json`, one capture script; no code key |
 | R2 cluster remainder (items 2, 3, 6, 7, 8, 4, 5) | not built | none | | | scheduled after the stack and L1 |
