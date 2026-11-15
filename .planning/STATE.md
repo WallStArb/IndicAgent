@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-11-13T21:10:00.000Z"
+last_updated: "2026-11-15T23:20:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 3
@@ -33,10 +33,10 @@ Replace stale bullets with current facts; no dated narrative.
 
 ## Handoff (standing lead; the loop is in CLAUDE.md)
 
-Position 2026-11-14: Massive is acquired and verified (11,658 files, 2003-09-10 to 2026-11-09, 82 GB), every raw
+Position 2026-11-15: Massive is acquired and verified (11,658 files, 2003-09-10 to 2026-11-09, 82 GB), every raw
 load is done and gated (403.3M Massive rows in `ohlcv_raw`), the placed-span load and A11 witness gate are met
-(zero placed spans left; map `data/ticker_entity_map/20261113_595bb68f6772`), and IBKR code, gateway, units and
-83 APR keys are deleted (migrations 590-592). IBKR raw rows stay until Part F (no export, owner 2026-11-13).
+(zero placed spans left; the installed map is `data/ticker_entity_map/20261115_6195ae11abff`, the one B4 read), and IBKR code, gateway, units and
+83 APR keys are deleted (migrations 590-592). IBKR raw rows stay until Part F (no export, owner 2026-11-13; the 672,245 rows before 2003-09-10 stay for good, ledger E22).
 The 8a load-check runner is archived (tags `archive/massive-8a-load-checks`, `archive/step7-plan-8a-input`); its
 outputs are the admission record and gate nothing.
 
@@ -44,48 +44,51 @@ Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca,
 leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
 survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
 
-In flight: step 7 under map 20261114_6195ae11abff. B4 passed 2026-11-15 on the slim gate (runbook B4: load_hole 0 by one
-presence check, every no_ticker_span name predecessor_history or fixed, zero raw rows lost; all other residue is one
-disclosed total per timeframe; 1d 3,427 and 5m 95,546 unexplained, load_hole 0 on both). A10 quiesce is done; B1 card and
-B3 compare run detached, then C1 to C8 and D; Part C+D ETA about 14 to 20 h, finishing around midday 2026-11-16. Real-data
-compute starts only after D1 --verify exits 0 and the selection gate B3 criteria pass. Low-value names (owner 2026-11-15)
-get no more effort: unplaced or excluded under todo 512, nothing blocks on them.
-Parallel lanes while Part C runs (no code in src/ or services/, no corpus reads): Opus research and ideas (published
-evidence on features, regimes and flows, ledger first, ranked shortlist in one `docs/ideas/` doc), refining existing ideas
-into testable specs, and refactor planning for the next compute layers (edits only in detached worktrees, landing after D1
-and e7's stack), and a planning refresh (owner 2026-11-15: re-rank pending todos by the counted-test test, close shipped ones,
-bring ROADMAP and PRIORITIES in line; P0 to P3 placement is the owner's to ratify; the critical-path rewrite waits for the
-checklist). The post-D1 checklist (corpus rerun runbook, todos 551/552/558/516/584/609) names the lanes and owners.
-Unpushed refactor stack (indicagent-e7, `/home/bg/dev/wt-refactor-batch`, reviewed): os.environ removals with migration 595,
-services/batch_support split (deletes services/_batch_utils.py, moves code keys), dead-code deletion with migration 596;
-c6 is rebasing it and running every gate; it lands after D1, never before. Landed 2026-11-14 outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22;
-mypy baseline repaired (a86654717); migration 594 is on main and not applied live; the monitoring stack works again.
+In flight: step 7 Part C, started 2026-11-15 18:21Z through `logs/massive_step7/run_partc.sh` (do not touch it or its logs):
+C5 5m rebuild at window 73 of 95 (the preflight state is `rebuild_state.json`), then C6 1d, C7 grid, C8 finish; Part C+D
+ETA about 14 to 20 h, finishing around midday 2026-11-16. B4 passed on the slim gate (load_hole 0, 1d 3,427 and 5m
+95,546 unexplained residue disclosed as one total per timeframe); map `20261115_6195ae11abff` is installed; A10 quiesce
+holds (the Alpaca nightly, derivation, audit, dividend and regime timers and both auditors are disabled until D5);
+`reference_raw` holds the pit_snapshots month-end ticker lists (6,132 rows). Part D and F are scripted and not yet run:
+`run_partd.sh` (D1 to D3), `run_partd4.sh` (D4 audit, detached), `run_partd5.sh` (D5 restart list; dry run, then `--apply`
+with `SUDO_PASS`), `run_partf.sh` (IBKR raw delete; dry run, then `PARTF_CONFIRM=delete-ibkr-raw ... --apply`); run order
+and markers are in the runbook header. Real-data compute starts only after D1 `--verify` exits 0 and the selection gate
+B3 criteria pass. Low-value names (owner 2026-11-15) get no more effort: unplaced or excluded under todo 512.
+Held post-D1 landings (lead ruling 2026-11-15): the `wt-refactor-land` stack (supersedes `wt-refactor-batch`),
+`wt-l1-kernels`, `wt-r2-prodpin`, the L3 universe projection fix (`agent-a9b86b958ee414b2e`) and the `wt-i2-tier`
+doc; the landing order, gates and owners are in `docs/plans/2026-11-15-post-d1-landing-runbook.md`. Never land them
+before D1. The research lane has landed drafts only (published-prior shortlist `docs/ideas/signal-published-prior-shortlist.md`,
+top-three prereg drafts `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, 5m tier amendment
+`docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`); no real-data number exists for any of them.
+Landed outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22; mypy baseline repaired (a86654717);
+migration 594 is applied live (verified 2026-11-15: `alert.lag.bar-writer` gone, `migration_594` history row present).
 Pending operator steps (sudo, after step 7): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and
-hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`; apply migration 594.
+hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`.
 
 Lead goal (owner 2026-11-15): get the compute universe data optimal (step 7 rebuild, B4 rulings, stage 2 universe) so the
 feature and IC work can start; every session and worker assignment is picked by whether it shortens that path. The
 clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
 
 Next, in order:
-1. Lead rules on the B4 summary (gates in runbook B4) and reviews the B5 deletion list (`logs/massive_step7/b5_list_20261115/`; the branch `step7-no-ibkr` landed in 3d774818d).
-2. A10 quiesce, Part C drop and one-pass rebuild after a nightly (`docs/operations/massive-step7-runbook.md`,
-   14 to 20 h), D1 `ops_massive_switch_delta --verify`, D5 restart the quiet list, then Part F (IBKR raw delete).
+1. Part C finishes (`PARTC DONE`), then `run_partd.sh`, `run_partd4.sh`, `run_partd5.sh --apply` (D6 docs after D4), then
+   `run_partf.sh` (the lead launches each; `docs/operations/massive-step7-runbook.md`).
+2. The held post-D1 landings in the landing runbook's order.
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
 4. A3 split sweep against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
 
-Running timers (leave them): Alpaca nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends
-06:30Z, standby probe every 5 min. The IBKR fetcher is gone. Dated: the Massive plan lapses about 2026-12-10;
-the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer`, 04:30Z, `/home/bg/mirror`, current
-through the previous night) and no off-site copy by owner decision 2026-11-15 (todo 618 closed, accepted risk).
+Timers: quiesced for step 7 until D5 (see above). Running through it: the standby probe every 5 min. After D5: Alpaca
+nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends 06:30Z. The IBKR fetcher is gone. Dated: the
+Massive plan lapses about 2026-12-10; the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer` there,
+04:30Z, `/home/bg/mirror`, no `--delete`, current through the previous night) and no off-site copy by owner decision
+2026-11-15 (todo 618 closed, accepted risk).
 
 Massive dated list (todo 600): the seam is the first NYSE session after the manifest's last file day
 (`archive_end_of`), so every file added to the manifest moves it (files now run to 2026-11-13, seam 2026-11-16;
-the runbook sets `SEAM=2026-11-12`). Step 7 pins one fixed seam date before B4 is re-ruled; the B4 evidence is
+the runbook sets `SEAM=2026-11-16`). Step 7 pins one fixed seam date before B4 is re-ruled; the B4 evidence is
 checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
 reference capture (after an entitlement probe) and a final file catch-up with `massive_download --verify`.
-Before 2026-12-10: the plan renewal decision (owner) and the first off-site copy. The Massive nightly leaf
+Before 2026-12-10: the plan renewal decision (owner) and the HX370 copy named in todo 600 item 1 (owner to confirm or drop, since nothing else goes off-site). The Massive nightly leaf
 (`ops_massive_nightly`, worker worktree, unpushed) stays off until the renewal call.
 
 Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly,
@@ -102,6 +105,10 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
+- Pending adoptions (list in `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, lead recommends adopt for each):
+  the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout, A1 (daily residual universe), A2 (sixth member)
+  and the E23 ledger entry for the three published-prior families. Nothing is built or run until adopted.
+- Todo 600 item 1: keep or drop the HX370 copy of the Massive archive.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members
   (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
 - Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
