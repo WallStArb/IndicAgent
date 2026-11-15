@@ -25,7 +25,7 @@ What leaves canonical, accepted by ruling (2026-11-13), each listed in the evide
 - gap-list spans before 2016-01-04 that the identity witness (A11) does not place, and IBKR slots inside gap spans from 2016-01-04 (the gap rows carry no fallback);
 - `predecessor_history`: bars an incumbent served under today's ticker before the security existed (SPAC shells, merged-away predecessors; 34 names on 1d, 53 on 5m, every lost session before both the name's first map span and its list_date);
 - `vendor_has_no_bar`: sessions or 5m buckets where the incumbent had a traded bar and Massive's own file under the map's ticker has no trade (1d: 2,341 slots on 138 names, 0.04 percent of the span; 5m: IBKR 35,728 bars on 646 names, Alpaca 4,416 on 462; missing stays missing; zero load holes, i.e. no case where Massive's file holds the trade and raw lacks it);
-- `outside_session`: IBKR 5m bars stamped outside the NYSE regular session (5m: 24,044 bars on 574 names); canonical 5m is session-bound and extended hours stay in raw only (standing ruling);
+- `outside_session`: IBKR 5m bars stamped outside the NYSE regular session (5m: 30,141 bars on 648 names, B4 gate check of 2026-11-15); canonical 5m is session-bound and extended hours stay in raw only (standing ruling);
 - zero-volume IBKR placeholders (the tradeable view drops them anyway).
 
 The lists behind these counts (1d and 5m, one row per name-session or bar with its cause) are B4's `switch_losses.csv` and the day-file and minute-file checks of its `unexplained` rows; they go into the step 7 evidence and the data adjacency register.
@@ -127,12 +127,13 @@ done
 A10. Quiesce (design step 0 and F14). Stop, and keep stopped until Part D passes:
 
 ```bash
-sudo systemctl stop indicagent-bar-derivation-daily.timer indicagent-bar-derivation-grid.timer \
+sudo systemctl disable --now indicagent-bar-derivation-daily.timer indicagent-bar-derivation-grid.timer \
   indicagent-bar-reconciliation-audit.timer indicagent-dividend-event-writer-yahoo.timer \
   indicagent-regime-coverage-auditor.timer indicagent-alpaca-nightly.timer \
-  indicagent-compression-auditor.service
-systemctl is-enabled indicagent-ibkr-history-fetcher.timer   # must print disabled
+  indicagent-compression-auditor.service indicagent-service-auditor.service
+systemctl is-enabled indicagent-bar-derivation-daily.timer indicagent-alpaca-nightly.timer   # must print disabled
 ```
+Stop and disable together: a reboot or power loss inside the 14 to 20 h window must not restart a writer, and D5 re-enables the same list (`systemctl enable --now`). The service auditor goes with them: it lists every indicagent unit, treats a stopped one as dead and runs `systemctl start` on it every 15 seconds (the compression auditor, 1,869 times on 2026-11-15); the start fails today only because the auditor runs as a user without the right, so the quiesce would hold by accident. The standby probe timer stays (it never touches the ohlcv tables; B5 review of 2026-11-15, `logs/massive_step7/b5_review_20261115/`). The service auditor's unit file is `disabled` while the process runs from a manual start; after `disable --now` D5 starts it by hand as before, and does not enable it.
 The compression auditor force-runs the compression job on an overdue chunk, which would compress a chunk the rebuild is still filling. Also stopped: any hand-run `ops_split_detect`, `ops_source_policy`, `ops_selection_gate`, the sweep driver and corpus or rerun services. The Alpaca nightly's 5m path selects into canonical through the load engine; stop it for the window. On restart its tail asks the missed sessions again; confirm the first run after Part D loads them.
 
 A11. Identity witness and map amendment (design 8c, before step 7 and before Part F deletes IBKR raw). IBKR's stored raw is used once here as evidence, never as a source:
@@ -200,7 +201,7 @@ $PSQL -At -c "SELECT count(*) FROM market_data_ohlcv WHERE timeframe = '1m'" > "
 ```
 Per (timeframe, UTC month) it full-joins canonical with Massive's raw slots and writes `switch_delta.csv` (before by vendor, pre-2003, Massive slots, moved, gained, lost by vendor, gap-row Alpaca, after the archive end, `expected_after`), `switch_losses.csv` (every lost slot, one row per name-session, classified gap_list, after_listing_end, zero_volume, no_ticker_span, unexplained) and `switch_summary.json`. Measured on 2026-11-13 before A11 (1d; the 5m run predates the gap rows and is redone here): before 7,266,037, expected after 5,525,817; pre-2003 643,922; moved to Massive 5,429,562; gained 91,707; lost 1,188,005 (gap_list 1,142,419, no_ticker_span 41,803, unexplained 2,341, zero_volume 1,442). Gate: `unexplained` is zero or every row is named (the day-file check: `vendor_has_no_bar` or `load_hole`; any `load_hole` stops step 7 until the load is repaired), every `no_ticker_span` name is `predecessor_history` (lost sessions before its first map span and before its list_date) or fixed in the map, and the lead accepts the summary. Keep `$OUT/delta` unchanged: D1 verifies against it.
 
-B5. Deletion list for review (`docs/plans/<date>-massive-step7-deletion-list.md`), written from the card's `derived` section. Nothing in this runbook executes it:
+B5. Deletion list for review, built from live counts (not the card, whose `derived` flag counts stop at 2016-01-04): `logs/massive_step7/b5_list_20261115/` (`build_list.py` and its README; per-row dispositions in `flags_one_off_rows.csv`). 2026-11-15 headline: 12,572,897 flags, of them 589 before 2003-09-10, 882,470 to 2016-01-04, 10,725,059 from 2016-01-04 to the archive end outside Alpaca gap rows, 964,779 inside gap rows (stay), none from the archive end; 1,733 one-off and print-rule rows with dispositions keep 179, drop_obsolete 664, drop_with_lost_bar 308, recomputed_by_scrub 547, review_before_drop 35. Rebuild the list before C1 so it reads the counts of the day. Nothing in this runbook executes it:
 
 | Item | Count source | Why it is on the list |
 |---|---|---|
@@ -330,7 +331,7 @@ $PY services/bar_reconciliation_audit.py
 ```
 Gate: `split_horizon_fresh` green on every name; every other red verdict either existed before step 7 or is explained by the switch (a new red `split_continuity` or `canonical_recompute` stops step 7).
 
-D5. Restart the quiet list (A10, reversed; the compression auditor too), the Alpaca nightly last, and confirm its first run backfills the missed sessions.
+D5. Restart the quiet list (A10, reversed): `sudo systemctl enable --now` the timers and `indicagent-compression-auditor.service`, then start `indicagent-service-auditor.service` by hand (it was never enabled; do not enable it), the Alpaca nightly timer last, and confirm its first run backfills the missed sessions.
 
 D6. Docs (design section 9, the step 7a commit) land after D1 to D4 pass, with B4's accepted-loss lists in the evidence and the data adjacency register.
 
@@ -342,14 +343,7 @@ F1, F2 (dropped). Owner ruling 2026-11-13: IBKR raw is not worth keeping, so the
 
 F3. Delete IBKR raw (no export). `ohlcv_raw` is a compressed hypertable: a row-level DELETE decompresses chunks and leaves bloat, so the delete is its own reviewed migration (decompress the affected chunks, DELETE `WHERE vendor = 'ibkr' AND timestamp >= '2003-09-10'` (lead 2026-11-14: the 672,245 pre-archive 1d rows stay, the only history before Massive's first file; one predicate, no export), recompress, and end with a bare `VACUUM ohlcv_raw;`, the CLAUDE.md rule from the migration 312 incident; template `docs/foundation/timescaledb-compressed-column-migration.md`), plus `DELETE FROM ohlcv_revision WHERE vendor = 'ibkr' AND timestamp >= '2003-09-10'`. The raw last-wins law (528) keeps every vendor answer; this deletion is the owner's explicit exception, recorded with the dump's manifest sha256 in the migration's comment and in the methodology change ledger. Gate: `SELECT count(*) FROM ohlcv_raw WHERE vendor = 'ibkr'` returns 0, the D1 card recomputed after the delete equals `card_after` (canonical does not change), and `ops_selection_gate --compare` still meets the B3 criteria.
 
-F4. Removal list (each its own reviewed commit, after F3; a repo-wide grep before deleting any shared helper):
-
-- the `ib-gateway` container (`production/docker-compose`), its credentials in `.env`, and the 2FA procedure in `docs/reference/gotchas.md`;
-- `src/providers/ibkr.py`, `src/providers/ibkr_adapter.py`, `services/ibkr_provider.py` and their callers (`scripts/infrastructure/backfill/_history_fetch_item.py`, `scripts/infrastructure/infrastructure_gateway_auth_probe.py`, `scripts/infrastructure/classification_ibkr_sourcing.py`, `scripts/infrastructure/reference_identity_capture.py` (the ISIN source of the identity map: replace or freeze before deleting), `scripts/infrastructure/universe_expansion_onboard_manifest.py`, `services/borrow_availability_capture.py`), `src/providers/__init__.py` exports;
-- the IBKR fetcher lane in `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` (its provider registry entry and `FetcherLock` use for IBKR), and the ask ledger rows of IBKR (`ohlcv_request`, read through `ohlcv_ask_current`; keep the table if Alpaca or Massive asks still use it);
-- systemd units `indicagent-ibkr-history-fetcher.{service,timer}`, `indicagent-ibkr-provider.service`, `indicagent-gateway-auth-probe.{service,timer}`, and their entries in `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` (`services/service_auditor.py`) and the `alert.lag.*` APR keys;
-- todo 544 (gateway version desupport) closed as moot;
-- CLAUDE.md: the IBKR line under Core Runtime (provider, gateway container, fetcher under `FetcherLock`), the IBKR wording in the Raw capture rule, the IBKR clientId memory, and the ubuntu1 gateway note; `docs/reference/gotchas.md` backfill and gateway sections.
+F4. Removal list. The code, gateway and key removals landed 2026-11-13: on 2026-11-15 none of `src/providers/ibkr.py`, `src/providers/ibkr_adapter.py`, `services/ibkr_provider.py`, the five scripts that called them, the fetcher lane, the units `indicagent-ibkr-history-fetcher.{service,timer}`, `indicagent-ibkr-provider.service` and `indicagent-gateway-auth-probe.{service,timer}`, or the gateway container exists on `main`, CLAUDE.md carries one IBKR line (the vendor-label logic and the `vendor = 'ibkr'` raw rows), and todo 544 is gone. What Part F still deletes is the data: the F3 rows and, after F3, the IBKR rows of the ask ledger `ohlcv_request` (read through `ohlcv_ask_current`; keep the table, Alpaca and Massive asks use it). Two code comments in `services/service_auditor.py` still name the IBKR fetcher; the next code commit that touches the file corrects them. Repo-wide grep for `ibkr` before F3 returns the vendor-label logic only.
 
 ## Part G: huge pages for shared_buffers (after step 7; written, not executed)
 

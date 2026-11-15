@@ -59,7 +59,7 @@ Pending operator steps (sudo, after step 7): remove the installed bar-writer, cr
 hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`; apply migration 594.
 
 Next, in order:
-1. Lead rules on the B4 summary (gates in runbook B4), reviews the B5 deletion list, lands branch `step7-no-ibkr`.
+1. Lead rules on the B4 summary (gates in runbook B4) and reviews the B5 deletion list (`logs/massive_step7/b5_list_20261115/`; the branch `step7-no-ibkr` landed in 3d774818d).
 2. A10 quiesce, Part C drop and one-pass rebuild after a nightly (`docs/operations/massive-step7-runbook.md`,
    14 to 20 h), D1 `ops_massive_switch_delta --verify`, D5 restart the quiet list, then Part F (IBKR raw delete).
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
