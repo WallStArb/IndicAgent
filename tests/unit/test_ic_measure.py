@@ -1369,6 +1369,30 @@ class TestCodeKeyClosure:
         expected = _bytecode_closure(entries, ic_measure._OWN_MODULES)
         assert set(ic_measure.job_code_modules(job)) == expected
 
+    def test_every_batch_support_import_is_hashed_or_reviewed(self) -> None:
+        """A batch_support module that decides what a unit is (its batch key, adoption and input
+        digests) must be in the key; any other must be named in _UNHASHED_BATCH_SUPPORT with its
+        reason, so a new import cannot silently stay outside both."""
+        import ast
+
+        tree = ast.parse(Path(ic_measure.__file__).read_text())
+        imported = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith("services.batch_support")
+        }
+        classified = set(ic_measure._OWN_MODULES) | set(ic_measure._UNHASHED_BATCH_SUPPORT)
+        assert imported <= classified, sorted(imported - classified)
+        assert set(ic_measure._UNHASHED_BATCH_SUPPORT) <= imported
+        assert all(r.strip() for r in ic_measure._UNHASHED_BATCH_SUPPORT.values())
+        for job in ic_measure._ALL_JOBS:
+            assert {
+                "services.batch_support.bulk_load",
+                "services.batch_support.digests",
+            } <= set(ic_measure.job_code_modules(job)), job
+
     def test_infrastructure_that_cannot_reach_a_value_is_not_in_a_compute_key(self) -> None:
         for job in ic_measure._ALL_JOBS:
             mods = set(ic_measure.job_code_modules(job))

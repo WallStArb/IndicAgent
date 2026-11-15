@@ -13,20 +13,19 @@ dry run writes no rows and records no manifest.
 
 Blocking is a memory matter only. The feature family of a tf is fetched and measured in blocks of
 alpha.ic.feature_block_columns, but the row completeness, the bootstrap draws and the
-Benjamini-Hochberg family are whole-family, as in ic_engine (a cell is masked over all its
-features before its feature_block_columns chunks; one block-start matrix per cell is shared by
-every block; one BH family is corrected after every block). The bootstrap generator is not
-ic_engine's: each cell seeds its own, so a CI matches ic_engine's in distribution but not bit
-for bit (see measure.ic.block_bootstrap_ci); IC and p-value are comparable. The BH family of the proposer is every feature of the tf at the proposer horizon
-(src/intelligence/measure/proposer.py `family_fdr` cites ic_engine's wider corpus family).
+Benjamini-Hochberg family are whole-family (a cell is masked over all its features before its
+feature_block_columns chunks; one block-start matrix per cell is shared by every block; one BH
+family is corrected after every block). Each cell seeds its own bootstrap generator (see
+measure.ic.block_bootstrap_ci). The BH family of the proposer is every feature of the tf at the
+proposer horizon (`family_fdr` in src/intelligence/measure/proposer.py).
 Every value and every FDR decision is bit-identical for any block size; tests assert it.
 
 Identity of a unit (the provenance batch key):
 - the per-job code key: entry modules, their first-party import closure and this file
   (kernel_code_key);
 - the computational APR values (identity_snapshot); operational knobs (block, fetch and symbol
-  chunk sizes, the session-length guard) are read and logged but are never part of it, following
-  ic_engine's computational/operational split (services/ic_engine.py 997-1070);
+  chunk sizes, the session-length guard) are read and logged but are never part of it
+  (the COMPUTATIONAL and OPERATIONAL field kinds of `measure.params`);
 - an input digest: the per-symbol bar content digests, the S0 panel content digest (the bars as
   the panels loaded them, which the month-granular bar digest cannot see), a per-column digest
   of every feature of the family, the family digest (sorted names and computational params), and
@@ -194,8 +193,7 @@ _COL = {name: i for i, name in enumerate(COLUMNS)}
 
 # ---------------------------------------------------------------------------
 # APR: every MeasureParams field maps to exactly one key (migrations 414 and 417 seed the new ones).
-# Keys are split as ic_engine splits its config (services/ic_engine.py
-# `_COMPUTATIONAL_CONFIG_FIELDS`, `_OPERATIONAL_CONFIG_FIELDS`, lines 997-1070): a computational
+# Keys are split by field kind in `measure.params` (COMPUTATIONAL, OPERATIONAL): a computational
 # key moves stored values and is part of a unit's identity and apr_snapshot; an operational key
 # is read and logged but never enters either, so tuning a memory knob re-keys nothing.
 # ---------------------------------------------------------------------------
@@ -977,15 +975,27 @@ def active_jobs(jobs: Sequence[str], members: Sequence[str]) -> list[str]:
 # The code key of a job (D-23) covers its entry modules plus everything first-party they import
 # (kernel_code_key walks the closure, so the research store, dividends and market calendar the
 # target path reaches are in it without being listed) and this file, whose row building and unit
-# identity are part of what a value is. This file's own imports are infrastructure (bulk_load,
-# settings, metrics) and are not followed. Scoped per job: a proposer edit never re-keys
+# identity are part of what a value is. This file's own imports are infrastructure and are not
+# followed, except the two batch_support modules that decide what a unit is (_OWN_MODULES). Scoped per job: a proposer edit never re-keys
 # monitoring.
 _COMMON_ENTRIES = (
     "src.intelligence.measure.params",
     "src.intelligence.measure.targets",
     "src.intelligence.measure.ic",
 )
-_OWN_MODULES = ("services.ic_measure",)
+# `bulk_load` builds the provenance batch key and decides adoption of a completed unit; `digests`
+# builds the input digests a unit's identity holds. An edit to either changes what a unit is, so
+# both are hashed as files (not followed). The other batch_support imports carry no value or
+# identity and are reviewed in _UNHASHED_BATCH_SUPPORT (a test fails on a new, unclassified one).
+_OWN_MODULES = (
+    "services.ic_measure",
+    "services.batch_support.bulk_load",
+    "services.batch_support.digests",
+)
+_UNHASHED_BATCH_SUPPORT = {
+    "services.batch_support.db": "connection and config loading; no value and no identity input",
+    "services.batch_support.write_session": "write transaction mechanics; stores what is computed",
+}
 _JOB_ENTRIES: dict[str, tuple[str, ...]] = {
     JOB_PROPOSER: (
         "src.intelligence.measure.proposer",
@@ -1535,9 +1545,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         init_otel_providers(service_name=_JOB)
     except OTelInitError as error:
         _logger.warning("ic_measure.otel_init_failed", error=str(error))
-    # ic_measure.json is the step-manifest contract the deleted ic_engine honored (its reader,
-    # the corpus verification gate, was deleted in 186-31; the rerun judges provenance rows by
-    # run id instead). A dry run writes no rows and records no manifest: one would claim a completion
+    # ic_measure.json is a step manifest kept for the operator (the corpus verification gate that
+    # read it was deleted in 186-31; the rerun judges provenance rows by run id instead). A dry run writes no rows and records no manifest: one would claim a completion
     # that never happened.
     manifest = (
         None if args.dry_run else CorpusManifest("ic_measure", CorpusManifest.DEFAULT_MANIFEST_DIR)
