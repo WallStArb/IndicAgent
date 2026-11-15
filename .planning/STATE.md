@@ -44,16 +44,19 @@ Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca,
 leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
 survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
 
-In flight: step 7 Part B4 reran 2026-11-15 under the installed map 20261114_6195ae11abff (install 6195ae11abff-20261114T204239Z;
-Massive loads for the placed spans applied). 1d: expected_after 6,269,119, zero load_hole; unexplained 3,427 rows (3,202
-vendor_has_no_bar, 225 map_gap on BWXT/HWM/SSB/UHAL/RGA, residue disclosed, no further effort per todo 512); 2,064 sit on witness-placed spans
-inside gap rows. Gate defect: 8 witness-placed spans (ACGL, AXS, DOX, NAD, RCL, RNR, WTM, SLM) end 2026-11-10 though Massive
-holds them to 2026-11-13; c6 fixes the witness/writer and rebuilds a scratch map, then reinstall, load the 4 days, rerun B4.
-5m classification (28) is running; evidence `logs/massive_step7/b4_gate_20261115/`. Low-value names (SSB, BWXT/BWC, HWM/ARNC, EXP/CXP, USAU/DRAM, UHAEQ/UHALQ, PIPR/PJC, RGA; owner 2026-11-15) get no
-more effort: they stay unplaced or excluded under todo 512, residual counts go in the B4 evidence, nothing blocks on them.
+In flight: step 7 under map 20261114_6195ae11abff. B4 passed 2026-11-15 on the slim gate (runbook B4: load_hole 0 by one
+presence check, every no_ticker_span name predecessor_history or fixed, zero raw rows lost; all other residue is one
+disclosed total per timeframe; 1d 3,427 and 5m 95,546 unexplained, load_hole 0 on both). A10 quiesce is done; B1 card and
+B3 compare run detached, then C1 to C8 and D; Part C+D ETA about 14 to 20 h, finishing around midday 2026-11-16. Real-data
+compute starts only after D1 --verify exits 0 and the selection gate B3 criteria pass. Low-value names (owner 2026-11-15)
+get no more effort: unplaced or excluded under todo 512, nothing blocks on them.
+Parallel lanes while Part C runs (no code in src/ or services/, no corpus reads): Opus research and ideas (published
+evidence on features, regimes and flows, ledger first, ranked shortlist in one `docs/ideas/` doc), refining existing ideas
+into testable specs, and refactor planning for the next compute layers (edits only in detached worktrees, landing after D1
+and e7's stack). The post-D1 checklist (corpus rerun runbook, todos 551/552/558/516/584/609) names the lanes and owners.
 Unpushed refactor stack (indicagent-e7, `/home/bg/dev/wt-refactor-batch`, reviewed): os.environ removals with migration 595,
 services/batch_support split (deletes services/_batch_utils.py, moves code keys), dead-code deletion with migration 596;
-lands after Part C and D1, never before. Landed 2026-11-14 outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22;
+c6 is rebasing it and running every gate; it lands after D1, never before. Landed 2026-11-14 outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22;
 mypy baseline repaired (a86654717); migration 594 is on main and not applied live; the monitoring stack works again.
 Pending operator steps (sudo, after step 7): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and
 hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`; apply migration 594.
