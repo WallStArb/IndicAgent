@@ -127,6 +127,11 @@ key. Procedure: `docs/operations/corpus-rerun-runbook.md`.
 - **Isolated commits when concurrent work is suspected**: create a detached-HEAD scratch worktree off `origin/main` (`git worktree add <tmp-dir> origin/main --detach`), copy in just the specific files to change, commit, push, then `git worktree remove --force`. Never commit directly in the primary checkout if `git status` shows unexpected uncommitted files — that's another session's in-progress work.
 - **`git push origin HEAD:main` from a detached-HEAD worktree does NOT fast-forward the primary checkout's local `main`** — its `git log -1` can go stale relative to `origin/main` after repeated pushes. Use `git fetch origin main && git log origin/main -1` as ground truth, not the primary checkout's local branch.
 
+## Scratch and run directories
+
+- **Scratch lives in one place:** `data/scratch/<todo-id>`. Nothing under `cache/`, `.planning/tmp` or `/tmp`; the closing commit of the todo deletes its scratch dir.
+- **A named run dir under `logs/` has an end of life:** its README names the owner and the todo or step that closes it, and says if a script reads it (`repro_frozen` reads `logs/phase179/rerun_e14` and `logs/phase181`). At close, write the summary card, keep the sha256 files and the evidence the card cites, delete the rest. Collapses: todos 620 and 621.
+
 ## OHLCV prices are split-adjusted
 
 `market_data_ohlcv` holds IBKR `TRADES` bars, which are split-adjusted back through history
