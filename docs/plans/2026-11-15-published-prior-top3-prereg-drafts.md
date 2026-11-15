@@ -15,7 +15,7 @@ Everything below is pending an owner decision; the lead recommends adopting each
 | 2 | Seen-name holdout | Excludes the screen's 231 names and the TSMOM sleeve (about 5 percent of the membership) from both panels, by a pinned list | section 2 here; build item B-U in the I1 plan | Adopt |
 | 3 | A1, universe amendment | Moves the daily residual family from `daily_unseen` to the membership and core panels | daily residual prereg section 10 (draft) | Adopt |
 | 4 | A2, sixth member | Adds the information-discreteness member M3 to the daily residual family | daily residual prereg section 10 (draft) and H-A here | Adopt |
-| 5 | E22 ledger entry | Records the counted design choices for the three families (12 series) before any result | section 6 here | Adopt |
+| 5 | E23 ledger entry | Records the counted design choices for the three families (12 series) before any result | section 6 here | Adopt |
 
 Items 3 and 4 depend on 2; none of the five moves a recorded spec hash.
 
@@ -160,7 +160,7 @@ In order, none optional:
 - **B-H:** H-C kernels (`seasonal_same_month`, `seasonal_other_months`) and H-A's continuity kernel under `src/intelligence/research/families/`, pure functions over S1 residual arrays, with unit tests for the lag arithmetic, month labelling at month boundaries and the causality probe.
 - **B-S:** three spec files (`daily_residual_h5.yaml` amended for H-A, plus two new) with their spec-hash pins.
 
-**Draft entry for `docs/plans/methodology-change-ledger.md` (E22, written before any real-data result):** "Registration of three published-prior families on the stage 2 universe. Counted design choices: the `universe_membership` and core panels as the family universe (two series per member), the seen-name holdout, h = 5 only, the S1-residual transfers of H-A and H-C, the pinned directions, StepM detection at 0.05 as the only pass. Looks declared: 12 series (section 4). Pre-registered by construction: no real-data number exists. Moves no recorded spec hash; `repro_frozen` bit-identical."
+**Draft entry for `docs/plans/methodology-change-ledger.md` (E23, written before any real-data result):** "Registration of three published-prior families on the stage 2 universe. Counted design choices: the `universe_membership` and core panels as the family universe (two series per member), the seen-name holdout, h = 5 only, the S1-residual transfers of H-A and H-C, the pinned directions, StepM detection at 0.05 as the only pass. Looks declared: 12 series (section 4). Pre-registered by construction: no real-data number exists. Moves no recorded spec hash; `repro_frozen` bit-identical."
 
 **Draft rows for `docs/research/construction-verdict-ledger.md` section 3:** row 13, low-risk members (MAX, residual volatility, beta), design only, H-B above, pending pre-registration and the post-rebuild columns; row 14, same-calendar-month return seasonality, design only, H-C above, pending pre-registration. H-A is a member of row 11, recorded in the family's section 10, not a new row.
 
