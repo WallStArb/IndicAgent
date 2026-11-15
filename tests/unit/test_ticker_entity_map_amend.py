@@ -153,3 +153,18 @@ def test_a_rehearsal_rolls_back_and_writes_no_map_directory(tmp_path):
     assert conn.executed == 1  # the span insert ran inside the transaction ...
     assert not conn.committed  # ... which the rehearsal rolled back
     assert not Path(out_root).exists()  # and no map directory was written
+
+
+def test_a_placed_span_that_fills_an_open_gap_row_at_the_archive_end_stays_open():
+    open_gap = [{"symbol": "ACGL", "scope": "span", "reason": "before_first_event",
+                 "valid_from": "", "valid_to": "", "detail": "{}"}]  # fmt: skip
+    ids = {"ACGL": {"composite_figi": "C2", "isin": "I2"}}
+    at_end = _placed("ACGL", "ACGL", START, END)
+    plan = plan_amendment([at_end], ids, {}, [], open_gap, START, END)
+    assert [p.end for p in plan.spans] == [None] and plan.removed_gaps == open_gap
+    closed_gap = [{**open_gap[0], "valid_to": END.isoformat()}]
+    plan = plan_amendment([at_end], ids, {}, [], closed_gap, START, END)
+    assert [p.end for p in plan.spans] == [END]
+    earlier = plan_amendment([_placed("ACGL", "ACGL", START, date(2020, 1, 2))], ids, {}, [],
+                             open_gap, START, END)  # fmt: skip
+    assert [p.end for p in earlier.spans] == [date(2020, 1, 2)]

@@ -32,7 +32,9 @@ under ``--out``, never the database and never ``data/ticker_entity_map``. Inside
 span that holds a placement, the old spans are cut out and the placements put in (a rename splits
 a span at the first and last file day of each ticker); what the cut removed and no placement
 re-covers becomes an ``identity_unplaced`` gap row; spans of unplaced witness decisions are left
-as they are. Every old span, gap row and placement is accounted in ``span_accounting.csv``.
+as they are. ``--witness-archive-end DAY`` reopens the spans of the 2026-11-13 witness
+amendment that stop on DAY, the archive end that run read (the witness clips an open-ended gap row
+to it). Every old span, gap row and placement is accounted in ``span_accounting.csv``.
 ``--install MAP_DIR --install-digest D --install-spans-sha256 H --untouched NAMES --lost-1d
 --lost-5m --coverage-summary [--hidden-1d ...]`` applies a scratch map version to the live rows
 (design 8c; section "Install" below): rehearsal unless ``--apply``; ``--rollback INSTALL_ID`` undoes a recorded install. Both refuse loudly and
@@ -52,7 +54,7 @@ import re
 import shutil
 from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -139,6 +141,7 @@ _AMEND_SPANS_SQL = """
 SELECT symbol, ticker, valid_from, valid_to FROM ticker_event_current WHERE vendor = 'massive'
 """
 WITNESS_CODE, WITNESS_RULE = "07bfd963b", "8d10bd030"
+WITNESS_AMENDMENT = "design 8c identity witness (lead ruling 2026-11-13)"
 
 
 @dataclass(frozen=True)
@@ -146,7 +149,7 @@ class PlacedSpan:
     symbol: str
     reason: str
     start: date
-    end: date
+    end: date | None  # None when the gap row it fills is open-ended
     ticker: str
     evidence: dict[str, Any]
 
@@ -187,7 +190,7 @@ def read_placed(spans_csv: bytes, candidates_csv: bytes, sha256: str) -> list[Pl
                 date.fromisoformat(r["span_end"]),
                 r["placing_ticker"],
                 {
-                    "amendment": "design 8c identity witness (lead ruling 2026-11-13)",
+                    "amendment": WITNESS_AMENDMENT,
                     "witness_code": WITNESS_CODE,
                     "witness_rule": WITNESS_RULE,
                     "witness_spans_sha256": digest,
@@ -260,7 +263,18 @@ def plan_amendment(
             for scheme, value in zip(("composite_figi", "share_class_figi"), figi, strict=True):
                 if (p.symbol, scheme, value, answer[0]) not in amendment.mint:
                     amendment.mint.append((p.symbol, scheme, value, answer[0]))
-        amendment.spans.append(p)
+        # The witness clips an open-ended gap row to the archive end it read, so a span that ends
+        # there fills a row that has no end: it stays open, as the unplaced spans do, and does
+        # not stop at a horizon that the next day file moves.
+        still_open = p.end == archive_end and any(
+            g["symbol"] == p.symbol
+            and g["reason"] == p.reason
+            and not g["valid_to"]
+            and (date.fromisoformat(g["valid_from"]) if g["valid_from"] else archive_start)
+            == p.start
+            for g in gap_rows
+        )
+        amendment.spans.append(replace(p, end=None) if still_open else p)
         placed_keys.add((p.symbol, p.reason, p.start, p.end))
     for g in gap_rows:
         start = max(date.fromisoformat(g["valid_from"]) if g["valid_from"] else archive_start,
@@ -334,7 +348,7 @@ class NewSpan:
     ticker: str
     start: date
     end: date
-    origin: str  # kept | clipped | placement
+    origin: str  # kept | clipped | reopened | placement
     composite_figi: str
     reference_raw_id: str
     evidence: str
@@ -516,8 +530,13 @@ def plan_documentary_map(
     regions: Sequence[WitnessRegion],
     placements: Sequence[DocPlacement],
     placements_sha256: str,
+    witness_archive_end: date | None = None,
 ) -> DocumentaryMap:
-    """The new map version (module docstring). Pure; raises on any input it cannot account."""
+    """The new map version (module docstring). Pure; raises on any input it cannot account.
+
+    ``witness_archive_end`` is the archive end the 2026-11-13 witness run read. A span that run
+    placed and that stops on that day filled an open-ended gap row (the witness clips an open end
+    to the archive end), so the new map reopens it, as the unplaced spans are."""
     figi = {s.symbol: s.composite_figi for s in old_spans}
     by_region = _validate_documentary_inputs(regions, placements, figi)
     cuts: dict[str, list[Interval]] = {}
@@ -530,17 +549,29 @@ def plan_documentary_map(
 
     spans: list[NewSpan] = []
     accounting: list[dict[str, str]] = []
+    reopened = {
+        s
+        for s in old_spans
+        if witness_archive_end is not None
+        and s.end == witness_archive_end
+        and json.loads(s.evidence or "{}").get("amendment") == WITNESS_AMENDMENT
+    }
+    held_spans = [replace(s, end=_OPEN) if s in reopened else s for s in old_spans]
     for s in sorted(old_spans, key=lambda x: (x.symbol, x.start, x.ticker)):
-        pieces = _minus([(s.start, s.end)], cuts.get(s.symbol, ()))
-        whole = pieces == [(s.start, s.end)]
+        reopen = s in reopened
+        end = _OPEN if reopen else s.end
+        pieces = _minus([(s.start, end)], cuts.get(s.symbol, ()))
+        whole = pieces == [(s.start, end)]
+        origin = "clipped" if not whole else ("reopened" if reopen else "kept")
         spans.extend(
             NewSpan(
-                s.symbol, s.ticker, a, b, "kept" if whole else "clipped", s.composite_figi,
-                s.reference_raw_id, s.evidence,
+                s.symbol, s.ticker, a, b, origin, s.composite_figi, s.reference_raw_id, s.evidence
             )
             for a, b in pieces
         )  # fmt: skip
-        if whole:
+        if whole and reopen:
+            disposition, reason = "reopened", "witness span ended at the archive end it read"
+        elif whole:
             disposition, reason = "kept", ""
         elif not pieces:
             disposition, reason = "removed", "inside a witness span that holds placements"
@@ -598,7 +629,7 @@ def plan_documentary_map(
         if r.decision != "placed_partial":
             continue
         lost = _meet(
-            [(s.start, s.end) for s in old_spans if s.symbol == r.symbol], [(r.start, r.end)]
+            [(s.start, s.end) for s in held_spans if s.symbol == r.symbol], [(r.start, r.end)]
         )
         # Only dated gap rows that overlap this witness span already record lost coverage here;
         # a name-wide undated row (start and end empty) records none of it.
@@ -624,7 +655,7 @@ def plan_documentary_map(
         sorted(gaps, key=lambda g: (g.symbol, g.start or date.min, g.reason, g.end or _OPEN)),
         accounting,
     )
-    _audit(result, old_spans, cuts, placed_of, len(gap_rows))
+    _audit(result, held_spans, cuts, placed_of, len(gap_rows))
     return result
 
 
@@ -1191,7 +1222,12 @@ class TickerEntityMapDocumentary(BaseBatch):
         if args.pinned_spans_sha256 and args.pinned_spans_sha256 != live_sha:
             raise ValueError(f"live spans sha256 {live_sha} is not {args.pinned_spans_sha256}")
         result = plan_documentary_map(
-            old_spans, read_gap_rows(gap_bytes), regions, placements, args.documentary_sha256
+            old_spans,
+            read_gap_rows(gap_bytes),
+            regions,
+            placements,
+            args.documentary_sha256,
+            args.witness_archive_end,
         )
         reconcile = ReconcileInputs.read(args)
         reconciliation = reconcile_coverage(result.spans, reconcile.rows(), reconcile.expected())
@@ -1201,6 +1237,7 @@ class TickerEntityMapDocumentary(BaseBatch):
             "pinned_map_gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
             "placements_sha256": args.documentary_sha256,
             "witness_spans_sha256": args.regions_sha256,
+            "witness_archive_end": _iso(args.witness_archive_end),
             **reconcile.pins(),
         }
         name, files = render_documentary_map(
@@ -1891,6 +1928,11 @@ def main() -> None:
     parser.add_argument("--pinned-map-digest", help="--documentary: its 12-digit digest")
     parser.add_argument("--pinned-spans-sha256", help="--documentary: sha256 of the live spans")
     parser.add_argument("--out", type=Path, help="--documentary: scratch output root")
+    parser.add_argument(
+        "--witness-archive-end", type=date.fromisoformat,
+        help="--documentary: the archive end the 2026-11-13 witness run read (YYYY-MM-DD); its "
+        "placed spans that stop there reopen",
+    )  # fmt: skip
     parser.add_argument("--version-date", help="--documentary: YYYYMMDD of the new map name")
     parser.add_argument("--lost-1d", type=Path, help="--documentary: 1d classified lost rows")
     parser.add_argument("--lost-5m", type=Path, help="--documentary: 5m classified lost rows")

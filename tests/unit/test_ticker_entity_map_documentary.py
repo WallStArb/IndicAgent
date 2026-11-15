@@ -246,3 +246,31 @@ def test_a_dated_gap_row_over_the_cut_still_records_it_and_one_elsewhere_does_no
     result = _plan(gaps=[*GAPS, over, elsewhere])
     listed = [(g.start, g.end) for g in result.gaps if g.reason == "identity_unplaced"]
     assert listed == [(D("2010-01-04"), D("2020-01-06"))]  # the dated row already covers the rest
+
+
+WITNESS_END = D("2026-11-10")
+WITNESS_EVIDENCE = json.dumps({"amendment": "design 8c identity witness (lead ruling 2026-11-13)"})
+
+
+def _witness_span(symbol, end, evidence=WITNESS_EVIDENCE):
+    return OldSpan(symbol, symbol, D("2003-09-10"), end, "BBG9", "raw", evidence)
+
+
+def test_a_witness_span_that_stops_at_the_witness_archive_end_reopens():
+    old = [
+        _witness_span("ACGL", WITNESS_END),
+        _witness_span("DEAD", WITNESS_END, "{}"),  # same end, not the witness amendment
+        _witness_span("OLD", D("2019-01-02")),  # the witness amendment, ended earlier
+    ]
+    result = plan_documentary_map(old, [], [], [], PSHA, WITNESS_END)
+    assert _held(result, "ACGL") == [("ACGL", "2003-09-10", "")]
+    assert _held(result, "DEAD") == [("DEAD", "2003-09-10", "2026-11-10")]
+    assert _held(result, "OLD") == [("OLD", "2003-09-10", "2019-01-02")]
+    by_symbol = {r["symbol"]: r["disposition"] for r in result.accounting}
+    assert by_symbol == {"ACGL": "reopened", "DEAD": "kept", "OLD": "kept"}
+    assert {s.symbol: s.origin for s in result.spans}["ACGL"] == "reopened"
+
+
+def test_without_the_witness_archive_end_nothing_reopens():
+    result = plan_documentary_map([_witness_span("ACGL", WITNESS_END)], [], [], [], PSHA)
+    assert _held(result, "ACGL") == [("ACGL", "2003-09-10", "2026-11-10")]
