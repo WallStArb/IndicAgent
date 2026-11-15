@@ -76,7 +76,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
-import hashlib
 import json
 import math
 import statistics
@@ -96,6 +95,7 @@ sys.path.insert(0, str(project_root))
 import psycopg  # noqa: E402
 
 from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
+from scripts.ops._common import file_sha256  # noqa: E402
 from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_apr  # noqa: E402
 from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
@@ -551,7 +551,7 @@ def operator_rows(path: Path) -> list[dict[str, Any]]:
     move at the effective date (Yahoo's adjusted close, or the witnessing series' own continuous
     step), what D7 judges the date against. detail carries all of it, the reason, the evidence,
     and the file's sha256. The symbol is stripped; every rejection names its line."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = file_sha256(path)
     rows: list[dict[str, Any]] = []
     decided: set[tuple[str, date]] = set()
     with path.open() as fh:
@@ -614,7 +614,7 @@ def confirmed_rows(
     list, every series' scale included (a hand-edited file, or one from another tolerance, cannot
     write what the current rule would not confirm), so the parameters in detail are the ones that confirmed it,
     beside the file's sha256. detail.unadjusted_routes is the list the daily rule rescales."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = file_sha256(path)
     if excluded is None:
         excluded = operator_list(SPIN_OFF_EXCLUSIONS)
     rows = []
@@ -847,7 +847,7 @@ def massive_rows(
     date (the vendor serves SNX's 2020-12-01 Concentrix spin-off as a 2:1 split; a spin-off is a
     distribution, never a split row). One row per (symbol, effective date). detail carries the
     event, its witnesses, and the file's sha256. Every rejection names its line."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = file_sha256(path)
     if excluded is None:
         excluded = operator_list(SPIN_OFF_EXCLUSIONS)
     rows: list[dict[str, Any]] = []
@@ -989,7 +989,7 @@ def unconfirmed_candidates(
     excluded spin-off, a series conflict, or a price step at a different ratio. A conflict whose
     step bracket (effective_date to the calendar date) holds an operator-listed bad bar is that
     bar, not an unconfirmed split, and is left out. Each carries what the flag records."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = file_sha256(path)
     if bad_bars is None:
         bad_bars = operator_list(OPERATOR_BAD_BARS)
 

@@ -52,6 +52,7 @@ sys.path.insert(0, str(project_root))
 
 import asyncpg  # noqa: E402
 
+from scripts.ops._common import file_sha256  # noqa: E402
 from scripts.ops.bars.ops_source_policy import parse_plan, read_raw_fingerprint  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
@@ -365,10 +366,6 @@ def _iso(day: date | None) -> str | None:
     return day.isoformat() if day else None
 
 
-def file_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 async def _read_live(conn: Any, timeframe: str) -> list[LiveRow]:
     return [
         LiveRow(
@@ -403,7 +400,7 @@ async def _main(args: argparse.Namespace) -> int:
                 timeframe=args.timeframe,
                 snapshot=read_snapshot(json.loads(source.read_text())),
                 live=live,
-                source=f"{source} (sha256 {file_digest(source)})",
+                source=f"{source} (sha256 {file_sha256(source)})",
             )
         else:
             gap_path, manifest = Path(args.gap_list), Path(args.manifest)
@@ -412,7 +409,7 @@ async def _main(args: argparse.Namespace) -> int:
                 timeframe=args.timeframe,
                 live=live,
                 gaps=read_gap_list(gap_path),
-                gap_list={"path": str(gap_path), "sha256": file_digest(gap_path)},
+                gap_list={"path": str(gap_path), "sha256": file_sha256(gap_path)},
                 archive_end=archive_end_of(manifest_bytes),
                 manifest={
                     "path": str(manifest),
@@ -433,7 +430,7 @@ async def _main(args: argparse.Namespace) -> int:
         f"{len(plan['defaults'])} defaults ({spans}), "
         f"retire {len(plan['retire_default_ids'])} defaults and "
         f"{len(plan['retire_symbol_rows'])} symbol rows, keep {len(plan['keep_symbol_rows'])}; "
-        f"wrote {out} (sha256 {file_digest(out)})"
+        f"wrote {out} (sha256 {file_sha256(out)})"
     )
     return 0
 

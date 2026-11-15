@@ -68,6 +68,7 @@ import psycopg  # noqa: E402
 
 # Owned by the writer: its split-continuity key, its same-event window (a pair here is a pair
 # there, and a proposed row is never one its guard skips), and the splits endpoints it may cite.
+from scripts.ops._common import file_sha256  # noqa: E402
 from scripts.ops.bars.ops_split_calendar_audit import (  # noqa: E402
     MASSIVE_SPLITS_ENDPOINTS,
     PROPOSED_COLUMNS,
@@ -205,10 +206,6 @@ COPY (
     WHERE timeframe = '1d' AND close > 0 AND "timestamp" >= '{start}'::date
 ) TO STDOUT (FORMAT csv)
 """
-
-
-def sha256_of(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # ---------------------------------------------------------------- inputs
@@ -997,7 +994,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         "level_census_names": len({c["symbol"] for c in census}),
         "inputs": {
             "sweep_csv": str(sweep_csv) if sweep_csv else None,
-            "sweep_sha256": sha256_of(sweep_csv) if sweep_csv else None,
+            "sweep_sha256": file_sha256(sweep_csv) if sweep_csv else None,
         },
         "elapsed_s": round(time.monotonic() - t0, 1),
     }

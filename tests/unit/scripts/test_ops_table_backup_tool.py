@@ -78,7 +78,7 @@ def test_count_rows_in_gzip_refuses_a_file_without_final_newline(tmp_path: Path)
 def test_sha256_of_file_matches_hashlib(tmp_path: Path):
     path = tmp_path / "x.bin"
     path.write_bytes(b"backup bytes")
-    assert mod.sha256_of_file(path) == hashlib.sha256(b"backup bytes").hexdigest()
+    assert mod.file_sha256(path) == hashlib.sha256(b"backup bytes").hexdigest()
 
 
 def test_disk_refusal_scales_the_estimate_by_the_margin():

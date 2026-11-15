@@ -41,6 +41,7 @@ import psycopg
 project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
 
+from scripts.ops._common import file_sha256  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 
@@ -138,14 +139,6 @@ def count_rows_in_file(path: Path) -> int:
     if rows and last != b"\n":
         raise ValueError(f"{path.name}: stream does not end in a final newline; not countable")
     return rows
-
-
-def sha256_of_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while block := stream.read(1 << 20):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def manifest_table_totals(manifest: dict[str, Any]) -> dict[str, int]:
@@ -397,7 +390,7 @@ def _read_files(
                 continue
             key = (name, int(entry["year"]))
             files[key] = count_rows_in_file(path)
-            digests[key] = sha256_of_file(path)
+            digests[key] = file_sha256(path)
     return files, digests
 
 

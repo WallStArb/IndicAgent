@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import sys
 import time
@@ -46,6 +45,7 @@ from statsmodels.stats.multitest import multipletests
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from scripts.ops._common import file_sha256  # noqa: E402
 from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, load_apr_dict_async
 from services._batch_utils import cfg as _cfg
 from src.config.settings import Settings, get_active_contracts
@@ -334,7 +334,7 @@ def _append_look_log(
     parameter changed suspiciously close to an OOS look. Non-gating — write failures here
     must never block the diagnostic scorer itself.
     """
-    report_hash = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    report_hash = file_sha256(report_path)
     entry = {
         "run_ts": format_iso_ts(run_ts),
         "symbols": symbols,
