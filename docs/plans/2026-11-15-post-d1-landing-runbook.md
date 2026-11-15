@@ -1,0 +1,120 @@
+# Post-D1 landing runbook
+
+**Status:** DRAFT 2026-11-15, written read-only from the state of `origin/main` at `aac9e84a5` and the held worktrees below. Nothing in it has been run. The lead executes it, in order, after step 7's Part D passes; every push is the lead's.
+**Scope:** land every held worktree so the rebuild code key moves once, apply migrations 595 to 597, restart what the moves touch, then pin the corpus rerun. Companion docs: `docs/operations/massive-step7-runbook.md` (Parts C, D, F), `docs/operations/corpus-rerun-runbook.md`, the stage 2 preregistration, the readiness checklist `logs/massive_step7/post_step7_readiness_20261115/README.md` (items 0 to 17).
+
+## 1. State verified 2026-11-15
+
+| Held work | Worktree | Tip | Base | Ahead / behind origin/main | Touches |
+|---|---|---|---|---|---|
+| Refactor stack (6 commits) | `/home/bg/dev/wt-refactor-land` | `abd27158a` | `67e9bbfe6` | 6 / 11 | `services/batch_support/` split (deletes `services/_batch_utils.py`), 19 services, `scripts/ops/bars` (6), `src/core`, `src/config`, `src/api`, `src/intelligence/bars` (1), `src/intelligence/features` (1); migrations 595, 596 |
+| L1 kernels (551, 552, 558) | `/home/bg/dev/wt-l1-kernels` | `d4adbb2f3` | `5d724bf16` | 3 / 9 | `kernels/`, `research_kernels/`, `contract/registry.py`, `feature_vector.py`, `feature_factory.py`; no migration |
+| R2 item 1 (production-path golden) | `/home/bg/dev/wt-r2-prodpin` | `4db147529` | `5d724bf16` | 1 / 9 | tests, `production_golden.json`, one capture script; no code key |
+| R2 cluster remainder (items 2, 3, 6, 7, 8, 4, 5) | not built | none | | | scheduled after the stack and L1 |
+| L3 universe, with the 5m tier | `/home/bg/dev/indicagent/.claude/worktrees/agent-a9b86b958ee414b2e` | `fa3fedc49` | `5d724bf16` | 9 / 9 | `universe_membership` rule, writer, `corpus_universe`, data gate, `corpus_rerun`, `backfill_feature_factory`; migration 597 |
+| I1 IC wiring | not built | none | | | plan only (L3 worktree, wiring plan items 1 to 7) |
+| Docs: prereg drafts | `/home/bg/dev/wt-prereg-drafts` | `023457eae` (3 commits) | `aac9e84a5` | 3 / 0 | docs only |
+| Docs: 184-12 gate, 516 plan, this runbook | `/home/bg/dev/wt-184-12` | see the report | `aac9e84a5` | 0 / 0 | docs only |
+| Docs: I2 tier design | `/home/bg/dev/wt-i2-tier` | `45cb4e9f7` | `fc3724037` | 1 / 5 | docs only |
+
+Not mine and not in this runbook: `wt-refactor-batch` (`14b852606`, another session's), `wt-cleanup-audit`, `wt-runbook-partdf`.
+
+**Migration numbers against `origin/main` today.** The highest file on main is `594_retire_alert_lag_bar_writer_apr.sql`. 595 and 596 (stack) and 597 (L3) are free on main and unique across the three branches. The IBKR raw delete (Part F migration, readiness item 2) must therefore be numbered **598 or higher**, not 597 as the readiness list says; `tools/gate.py` stops on a clash, so re-run it at landing. Any migration the R2 cluster adds takes the next free number above the highest then on main, checked at its landing.
+
+**Applied state live (no version table; checked by object).**
+- 594: applied. `config_schema` holds no `alert.lag.bar-writer` key. STATE.md still says "not applied"; the file is idempotent, so re-running it is harmless, and STATE should be corrected.
+- 595: not applied (no `infra.bar_replay.bars_per_sec` key).
+- 596: not applied (`alpha.ic.active_scales.5m`, `.15m`, `.1h`, `.1d` still present).
+- 597: not applied (`to_regclass('public.universe_membership')` is NULL).
+- Compression: none of 595 to 597 rewrites or changes the type of a compressed column, so none owes a `VACUUM` clause. The CLAUDE.md rule (decompress, `ALTER COLUMN TYPE`, recompress ends with a bare `VACUUM <table>;`) binds only the Part F migration (598+), which already carries its own bare `VACUUM ohlcv_raw;`.
+
+## 2. The ordering principle
+
+1. Everything that moves `rebuild_code_key()` lands before the corpus rerun pins, in one window, so the key moves once. The closure includes `services/backfill_feature_factory.py`, the factory, `corpus_universe` and the rule module (L3), `batch_support` (the stack), and the kernels and registry (L1). Nothing in it is edited after `--new-run`.
+2. Landing starts only after **all of Part D** (D1 to D4, D6): D4 runs `bar_reconciliation_audit` for 77 minutes, and the stack edits it and `bar_derivation`, `bar_auditor`, `bar_scrub`, step 7 imports. D1 alone is not enough.
+3. Land **before D5** (restart of the quiet list). All timers and the compression auditor are stopped today, so no live process holds the old code; restarting once at D5 puts every unit on the new code with no second restart. This reorders the readiness list's items 1 and 4 (it has D5 first); the reason is the single restart. If the lead prefers D5 first, every oneshot still picks up new code on its next run and only the two long-lived enabled units in section 6 need a restart.
+4. Order of landing minimizes conflicts: stack, then L1, then R2 item 1, then the R2 remainder, then L3. L3 touches `services/backfill_feature_factory.py` and `services/corpus_rerun.py`, which the stack also edits, so it goes last and takes the conflict.
+
+## 3. The per-landing procedure (applies to every code landing)
+
+From the worktree (detached; there is no `.venv` there, so use the main checkout's interpreter):
+
+```bash
+cd <worktree>
+git fetch origin
+git rebase origin/main                     # conflicts: resolve, re-run the tests of every file touched by a conflict
+PY=/home/bg/dev/indicagent/.venv/bin
+$PY/python tools/gate.py --dry-run         # prints the plan: diff class, migration clash check, suite, repro_frozen if research/statistics moved
+$PY/python tools/gate.py                   # runs it; exit code is the verdict
+$PY/ruff check . && $PY/black --check .
+$PY/python tools/check_glossary.py
+$PY/python tools/check_duplicate_tests.py
+$PY/mypy src/ --ignore-missing-imports | $PY/mypy-baseline filter   # exit 0 required
+```
+
+- Judge by exit codes, never a tail. `mypy-baseline filter` exits 2 when violations were resolved: run `mypy-baseline sync`, review that the baseline only shrank, and commit it with the landing.
+- `repro_frozen` (bit-identical) runs inside `gate.py` when `src/intelligence/research/` or `statistics/` changed. For L1 run it explicitly after the push too: `$PY/python -m scripts.research.determinism.repro_frozen <scratch_dir> --logs /home/bg/dev/indicagent/logs` (it must report bit-identical).
+- Each code landing gets an independent review before the push (the Done-Coding SOP). The stack, L1 and L3 reviews are recorded; a rebase that changed content (a conflict resolution) is re-reviewed on the conflict hunks.
+- Push: `git push origin HEAD:main` (never chained with a first commit). Then fast-forward the shared checkout (`git -C /home/bg/dev/indicagent merge --ff-only origin/main`) only when no live process imports the changed modules (the quiet list is stopped, no rerun is live).
+- A migration applied live is committed in the same breath: apply with
+  `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1 -f production/migrations/<file>.sql`, then verify with the object check in section 1, in the same step as the push.
+
+## 4. The steps, in order
+
+| # | Step | Needs first | Gate | Owner adoption it waits on |
+|---|---|---|---|---|
+| 0 | Part D passed: D1 `--verify` exit 0, D2, D3, D4 (`bar_reconciliation_audit`), D6 docs | step 7 Part C done | the readiness item 0 gate | none |
+| 1 | Land the refactor stack `abd27158a` | 0 | per-landing gate, plus `tests/unit/test_table_and_apr_key_readers.py` (it covers 596's key retirement); the stack's own review | none |
+| 1a | Apply 595 then 596 | step 1 pushed | after each: the object check (section 1); `psql -c "select count(*) from config_schema where config_key like 'alpha.ic.active_scales%'"` returns 0 | none |
+| 2 | Land L1 `d4adbb2f3` (rebase onto step 1) | 1 | per-landing gate; kernel parity bit-equal float32 at and after warmup; `repro_frozen` after the push | none |
+| 3 | Land R2 item 1 `4db147529` (rebase onto step 2) | 2 | `tests/unit/intelligence/test_production_path_golden.py`. L1 moves two kernels the golden reads (`high_52w_dist`, VWAP deviation): if the golden fails after the rebase, regenerate with `features_capture_kernel_parity_golden.py --production`, read the diff, and record the reason in the commit; never regenerate silently | none |
+| 4 | R2 cluster remainder (items 2, 3, 6, 7, 8; item 4 deletes `ctf_regime_align`; item 5 retires the dormant streaming stack after item 2): each its own commit, rebased onto the last, same gate | 3 | per-landing gate each; a deletion also passes the repo-wide grep for dangling references (todo 614 row 22 (4)) | none |
+| 5 | Land L3 `fa3fedc49` (rebase last; expect conflicts in `backfill_feature_factory.py` and `corpus_rerun.py`, resolve and re-run `tests/unit/services/test_backfill_feature_factory.py`, `test_corpus_rerun.py`, `test_corpus_rerun_data_gate.py`, `test_universe_membership_writer.py`, `tests/unit/test_universe_membership.py`) | 4 | per-landing gate; the I1 and I2 docs ride in it | 5m tier amendment: the code carries $25M / $12.5M; adopt before the tier load, but the code may land first because the load is gated separately |
+| 5a | Apply 597 | step 5 pushed | `to_regclass('public.universe_membership')` and `to_regclass('public.universe_membership_build')` are not NULL; both tables empty | none |
+| 6 | Build I1 (IC wiring, wiring plan items 1 to 7), review, land | 5 | per-landing gate; `repro_frozen` bit-identical; a methodology-change ledger entry written before any real-data look; `check_ic_universe_aligned` passes per timeframe | seen-name holdout (item 7 of the plan, B-U) is an optional inclusion; ledger entry E23 (prereg drafts doc) |
+| 7 | Docs landings: prereg drafts (`023457eae`), 184-12 gate and 516 plan drafts, the I2 tier design `45cb4e9f7`, this runbook | any time after step 0 (they touch no code key) | `tests/unit/test_doc_schema_numbers.py`, `test_todo_priorities_link_integrity.py`, glossary check, em-dash grep; after the I2 doc lands, change the two "unpushed commit 45cb4e9f7" mentions in the prereg drafts to its path | none; they are drafts and stay labelled DRAFT |
+| 8 | Operator steps from STATE (sudo): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units, reinstall the wave targets, `daemon-reload`, restart `service_auditor` | 4 (item 5 and 7 of R2 deleted their sources) | `systemctl list-unit-files 'indicagent-*'` shows none of the removed units; `_DAG_ORDER` and units consistent | none |
+| 9 | D5: restart the quiet list on the new code (timers and the compression auditor, `service-auditor` by hand, Alpaca nightly last) | 1 to 8 | the first nightly completes and backfills the missed sessions; `job_completed_total` ok | none |
+| 10 | Part F: apply the IBKR raw delete migration (number 598 or above) | D evidence final; D5 done | `ohlcv_raw` rows with `vendor = 'ibkr'` and `timestamp >= '2003-09-10'` are 0; bare `VACUUM ohlcv_raw;` ran; the Part F gate | the owner exception to law 528 (the ledger entry the lead is landing) |
+| 11 | Stage 2 gates 4 and 3: dead-name instrument rows through the onboarding SOP exception; the entity map rebuilt on the pit anchor (`--pit-snapshots`, `reference_raw` already loaded); then `ops_massive_load.py --all-tickers` 1d, gated per year, `--apply` | 9 | per the preregistration amendments of 2026-11-13 and 2026-11-14 | none (adopted 2026-11-13) |
+| 12 | Stage 2 gate 5: `PYTHONPATH=. $PY -m services.universe_membership_writer` (rehearsal), then `--apply`; show member count by year to the owner | 5a, 11 | the writer's own guards; the count by year agrees with the preregistration's 4,150 typical month-end; the owner sees it before any compute | the 5m tier amendment (the writer records `tier_5m` under rule id `stage2-2026-11-15`; a different adoption moves the rule id and rebuilds) |
+| 13 | The 5m tier: the measured cost estimate, then the tier load | 12 | the estimate recorded as an amendment before loading | the tier amendment, adopted |
+
+## 5. The rerun pin sequence (after step 12; step 13 may follow the pin for 5m, see the note)
+
+All code that moves `rebuild_code_key()` is on main by step 6. Then, from the main checkout at the pin commit:
+
+1. Readiness item 11, read-only: every 584 manifest row reads landed with `git log` matching; 566's 71 held names closed.
+2. `$PY -m services.corpus_rerun --new-run --plan-only [--horizon YYYY-MM-DD]` (writes nothing; needs `universe_membership` built, else `corpus_universe` refuses). The plan must fit the limit; the 1d and tier terms are in the preview.
+3. `$PY -m services.corpus_rerun --quiesce` (records and stops the blocking timers; D5 restarted them, so this stops them again).
+4. `$PY -m services.corpus_rerun --new-run --commit <sha of main after step 6>`: creates `<main>-corpus-run-<id>`, computes the code key and APR hash in it, inserts `corpus_run`. Record the run id, the commit and the code key. From here edit nothing the rebuild imports.
+5. `cd <worktree> && $PY -m services.corpus_rerun --run-id <id> --step data_gate`, then `--step pilot`, then detached with `setsid`: `--through canary` (the runbook's step list). The 5m stages cover tier members only; the tier load (step 13) must have completed first or the 5m term has nothing to read.
+6. After the run: `--release` restores the recorded timer set.
+
+Owner items the rerun waits on: the clean-data lift (readiness item 19) before any counted test, not before the rerun; the tier amendment before step 13; the E23 ledger entry and A1, A2 before the first counted test.
+
+## 6. What to restart after each code-key move
+
+Code lands on main, not in a running process. Oneshot units load the new code at their next run and need no restart; only a long-lived process holding old modules does.
+
+| Landing | Units whose code moved | Action |
+|---|---|---|
+| Stack (step 1), R2 (step 4), L1 (step 2) | `indicagent-api` (enabled; `src/api`, `src/config`, `src/core` changed) | `sudo systemctl restart indicagent-api` after the fast-forward |
+| same | `indicagent-feature-vector-pipeline` (enabled; `services/feature_vector_pipeline.py`, `batch_support`, factory kernels changed) | `sudo systemctl restart indicagent-feature-vector-pipeline` |
+| same | oneshots and timers: `bar-derivation-daily`, `bar-derivation-grid`, `bar-reconciliation-audit`, `dividend-event-writer`, `economic-series-writer`, `regime-coverage-auditor`, `feature-parity-auditor`, `research-ledger-render`, `alpaca-nightly`, `ic-measure` | none while stopped; they start on the new code at D5. If D5 runs first, nothing to restart |
+| same | `service-auditor` (started by hand at D5; its `_DAG_ORDER` moved with the R2 deletions) | start it after step 8 so it reads the new registry |
+| L3 (step 5) | `corpus_rerun`, `backfill_feature_factory`, the universe writer (oneshot, run by hand) | none; no unit runs them. `ic-measure` reads the same factory modules: confirm it is stopped until the rerun's `ic_measure` step |
+| Part F migration | none | the nightly and derivation timers stay on their D5 state |
+
+`systemctl list-unit-files 'indicagent-*'` before and after each restart confirms the set; a unit that fails to start after a landing means rollback of that landing (section 7), not a patch on main.
+
+## 7. Rollback
+
+Each landing is one push of a contiguous commit range, so rollback is `git revert` of that range (never reset a pushed main). Migrations: 595 and 596 are reversible by re-inserting the keys from `config_history`'s retained rows (596 deletes history; its rollback is the migration text of 271 re-applied, so apply 596 only after the stack's suite and the key-reader test pass); 597 is reversible by `DROP TABLE universe_membership, universe_membership_build` while both are empty, and not after the first `--apply` (the tables are append-only by trigger; a correction is a new rule id, never an edit). Nothing here touches a live canonical table.
+
+## 8. Open items found while writing this
+
+- STATE.md says 594 is not applied; live state says it is. Correct STATE.
+- The readiness list numbers the Part F migration 597; 597 is L3's, so it is 598 or above.
+- The three prereg drafts and the I2 doc reference each other by commit until they all land; step 7 fixes the references.
+- R2 remainder is not built; its migrations (if any) will need the next free number at landing, above 597 unless Part F lands first.
