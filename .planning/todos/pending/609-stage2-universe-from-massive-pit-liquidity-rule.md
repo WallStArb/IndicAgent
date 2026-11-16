@@ -50,10 +50,6 @@ Step 7 and the 8a checks pass first (stage 1 is the data gate; this does not jum
 
 After 8a and step 7: write the preregistration (rule, thresholds, type source) and the 1d all-ticker load plan; extend `ops_massive_load.py` with an `--all-tickers` mode behind the identity map. Design hook: `docs/plans/2026-11-10-massive-admission-db-design.md` section 8b stage 2 and section 11.
 
-## Blocker I2: the 5m tier and the intraday corpus universe (draft 2026-11-15)
-
-The corpus universe (every name ever a member) must not feed the 5m data gate: a 1d-only name would fail its 5m term. Draft amendment (5m tier: member and 60-session median at or above $25M in, $12.5M out), the intraday variant of `corpus_universe`, the gate change with exact files and code-key impact, and the order against I1 and the corpus rerun pin: `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`. Not applied; owner adoption comes first.
-
 ## Status 2026-11-16 (indicagent-65)
 
 - Pit-anchor identity map and the stage 2 instrument writer (gaps G1 and G2) are built, independently reviewed and fixed in the held worktree `wt-pit-map`. Review fixes: a single missing month-end inside a listing is bridged, a span with no delisting date ends at the first absent month-end (the final bars of a delisting are inside it), and renames of names with no composite FIGI are counted (`bridged_months`, `cik_renames_split`). Design and the dated revision: `docs/plans/2026-11-15-pit-anchor-map-and-stage2-instruments.md`.
