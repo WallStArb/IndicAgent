@@ -101,9 +101,6 @@ src/intelligence/bars/vendor_arbitration.py:0: error: Incompatible types in
 src/intelligence/bars/venue_study.py:0: error: Unsupported operand types for
 src/intelligence/bars/venue_study.py:0: note: Left operand is of type "float | None"
 src/intelligence/bars/verdict_gate.py:0: error: Unsupported operand types for
-src/intelligence/feature_factory.py:0: error: Argument 8 to
-src/intelligence/feature_factory.py:0: error: Argument 9 to
-src/intelligence/feature_factory.py:0: error: Value expression in dictionary
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
