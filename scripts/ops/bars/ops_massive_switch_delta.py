@@ -29,6 +29,21 @@ delta rows' months: a month canonical never held but Massive raw fills is a delt
 reads Massive's raw months too), and a before-card month the delta run skipped fails loudly as
 an unpredicted month rather than passing silently.
 
+Post-policy expectation (``--post-policy DELTA_DIR``, D1 after the rebuild, read-only). The B4 delta
+above is computed from the canonical rows BEFORE the switch, so it counts as ``gap_alpaca`` only the
+Alpaca slots canonical already held at a name with an Alpaca gap row. After the policy switch the
+slot truth is a function of raw and policy: at a gap-row name every Alpaca raw slot (regular-hours grid
+for 5m; a zero-volume 5m bar is kept, a zero-volume Alpaca 1d bar is not selected) from 2016-01-04 to the
+archive end is selected, whatever vendor held it before, and after the archive end every such Alpaca
+raw slot is. A name the daily stage holds
+(``daily_rebuild.tsv``, outcome held) has no canonical 1d at all, so its Massive 1d slots are not
+expected. ``--post-policy`` reads the B4 ``switch_delta.csv`` (never modified) and writes a NEW
+directory: ``switch_delta.csv`` with ``expected_after = massive + alpaca_gap_raw +
+alpaca_after_end_raw - held_massive``, ``gap_raw_groups.csv`` (Alpaca raw slots per gap-row
+(symbol, month), the whole-month check reads it), ``held.json`` (the held names, disclosed) and a
+summary. ``--verify`` against that directory compares each whole-month gap-row Alpaca group with
+its raw count and prints the held names as their own line.
+
 Every lost slot is classified (``classify_loss``), in this order: ``gap_list`` (an identity gap
 span covers it: unplaced, no source by design), ``after_listing_end`` (after the name's recorded
 last session), ``zero_volume`` (the incumbent bar has zero or unknown volume: a non-trade
@@ -138,6 +153,34 @@ FROM market_data_ohlcv WHERE timeframe = %s ORDER BY 1
 _RAW_MONTHS_SQL = """
 SELECT DISTINCT date_trunc('month', "timestamp" AT TIME ZONE 'UTC')::date
 FROM ohlcv_raw WHERE timeframe = %s AND vendor = 'massive' AND kind = %s ORDER BY 1
+"""
+POST_POLICY_FIELDS = (*DELTA_FIELDS, "alpaca_gap_raw", "alpaca_after_end_raw", "held_massive")
+GAP_RAW_FIELDS = ("timeframe", "symbol", "month", "n", "whole_month")
+ALPACA_KIND = "sip_rth"
+_VOLUME_CLAUSE = {"1d": " AND coalesce(volume, 0) > 0"}  # 5m keeps its zero-volume bars
+_NY_DAY = f'("timestamp" {_NY})::date'
+#: Alpaca raw slots at the gap-row names in one UTC stamp month, per session date: the regular-hours
+#: grid for 5m, as selection takes it, with a zero-volume 5m bar kept (it is in canonical, the
+#: tradeable view drops it) and a zero-volume Alpaca 1d bar not selected (the daily rule; canonical 1d holds no zero-volume Alpaca row).
+_ALPACA_GAP_SQL = f"""
+SELECT symbol, {_NY_DAY} AS d, count(*) FROM ohlcv_raw
+WHERE timeframe = %(tf)s AND vendor = 'alpaca' AND kind = '{ALPACA_KIND}'
+  AND symbol = ANY(%(symbols)s)
+  AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{{grid}}{{volume}}
+GROUP BY 1, 2
+"""
+#: Alpaca raw slots on or after the archive end, every name, one month (same volume rule).
+_ALPACA_AFTER_END_SQL = f"""
+SELECT count(*) FROM ohlcv_raw
+WHERE timeframe = %(tf)s AND vendor = 'alpaca' AND kind = '{ALPACA_KIND}'
+  AND symbol <> ALL(%(held)s)
+  AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{{grid}}{{volume}} AND {_NY_DAY} >= %(end)s
+"""
+#: A held name's Massive 1d slots per session date.
+_HELD_MASSIVE_SQL = f"""
+SELECT symbol, {_NY_DAY} AS d, count(*) FROM ohlcv_raw
+WHERE timeframe = '1d' AND vendor = 'massive' AND kind = 'sip_flat' AND symbol = ANY(%s)
+GROUP BY 1, 2
 """
 
 
@@ -282,14 +325,91 @@ def month_groups(conn: Any, timeframe: str, month: date) -> list[Group]:
         return [Group(*r) for r in cur.fetchall()]
 
 
+def whole_month_gap_row(identity: Identity, symbol: str, month: date, archive_end: date) -> bool:
+    """Every session date of the month lies inside one of the name's Alpaca gap rows."""
+    _, hi = month_bounds(month)
+    first = max(month, ALPACA_FIRST_DAY)
+    if month < ALPACA_FIRST_DAY.replace(day=1) or hi.date() > archive_end:
+        return False
+    days = (first + timedelta(days=i) for i in range((hi.date() - first).days))
+    return all(identity.gap_covers(symbol, d) for d in days)
+
+
+def read_held(path: Path) -> list[dict[str, str]]:
+    """The names the daily stage holds (``daily_rebuild.tsv``, outcome held) and why."""
+    with path.open(newline="") as handle:
+        rows = csv.DictReader(handle, delimiter="\t")
+        return [
+            {"symbol": r["symbol"], "reason": r.get("held", "")}
+            for r in rows
+            if r.get("outcome") == "held"
+        ]
+
+
+def alpaca_gap_slots(
+    groups: Iterable[tuple[str, date, int]],
+    identity: Identity,
+    archive_end: date,
+    held: frozenset[str],
+    timeframe: str,
+) -> Counter[str]:
+    """Alpaca raw slots per gap-row name that selection takes (zero-volume Alpaca 1d bars are filtered in SQL): a session date
+    from the Alpaca seam to the archive end that an identity gap row covers. A held name has no
+    canonical 1d, so none of its slots count for 1d."""
+    out: Counter[str] = Counter()
+    for symbol, day, n in groups:
+        if timeframe == "1d" and symbol in held:
+            continue
+        if ALPACA_FIRST_DAY <= day < archive_end and identity.gap_covers(symbol, day):
+            out[symbol] += n
+    return out
+
+
+def held_massive_slots(
+    groups: Iterable[tuple[str, date, int]], identity: Identity, archive_end: date
+) -> Counter[tuple[str, int, int]]:
+    """A held name's Massive 1d slots that the B4 delta counted as ``massive`` (inside the
+    archive, outside an Alpaca gap row), per (name, UTC stamp month = the session date's month)."""
+    out: Counter[tuple[str, int, int]] = Counter()
+    for symbol, day, n in groups:
+        if not MASSIVE_ARCHIVE_START <= day < archive_end:
+            continue
+        if day >= ALPACA_FIRST_DAY and identity.gap_covers(symbol, day):
+            continue
+        out[(symbol, day.year, day.month)] += n
+    return out
+
+
+def post_policy_row(
+    base: Mapping[str, Any], alpaca_gap_raw: int, alpaca_after_end_raw: int, held_massive: int
+) -> dict[str, Any]:
+    """The B4 row with the post-policy expectation: ``expected_after`` is the slots selection
+    takes from raw under the switch policy (docstring), the B4 columns kept as they were."""
+    row = dict(base)
+    row.update(
+        alpaca_gap_raw=alpaca_gap_raw,
+        alpaca_after_end_raw=alpaca_after_end_raw,
+        held_massive=held_massive,
+    )
+    row["expected_after"] = (
+        int(base["massive"]) + alpaca_gap_raw + alpaca_after_end_raw - held_massive
+    )
+    return row
+
+
 def verify(
     before: Iterable[Mapping[str, Any]],
     after: Iterable[Mapping[str, Any]],
     deltas: Iterable[Mapping[str, Any]],
     identity: Identity,
     archive_end: date,
+    gap_raw: Iterable[Mapping[str, Any]] | None = None,
+    held: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """The D1 gate (module docstring): failures are listed whole, never sampled."""
+    """The D1 gate (module docstring): failures are listed whole, never sampled. With ``gap_raw``
+    (the post-policy directory) a whole-month gap-row Alpaca group must hold exactly its raw slot
+    count; without it (the B4 directory) it must be byte-identical to the before card. ``held`` is
+    printed in the report as its own line and excluded from the expectation upstream."""
     before = list(before)
     after = list(after)
     got: Counter[tuple[str, str]] = Counter()
@@ -318,35 +438,46 @@ def verify(
     ]
     ibkr_left = sorted({(r["timeframe"], r["symbol"]) for r in after if r["vendor"] == "ibkr"})
 
-    def whole_month_gap_row(symbol: str, month: date) -> bool:
-        """Every session date of the month lies inside one of the name's Alpaca gap rows."""
-        _, hi = month_bounds(month)
-        first = max(month, ALPACA_FIRST_DAY)
-        if month < ALPACA_FIRST_DAY.replace(day=1) or hi.date() > archive_end:
-            return False
-        days = (first + timedelta(days=i) for i in range((hi.date() - first).days))
-        return all(identity.gap_covers(symbol, d) for d in days)
-
     key = ("timeframe", "symbol", "vendor", "kind", "month")
     after_groups = {tuple(r[k] for k in key): (r["n"], r["digest"]) for r in after}
     kept = changed = 0
     changed_groups = []
-    for r in before:
-        if r["vendor"] != "alpaca" or r["timeframe"] not in HANDOVER_DELTA_TIMEFRAMES:
-            continue
-        if not whole_month_gap_row(r["symbol"], date.fromisoformat(r["month"])):
-            continue
-        if after_groups.get(tuple(r[k] for k in key)) == (r["n"], r["digest"]):
-            kept += 1
-        else:
-            changed += 1
-            changed_groups.append({k: r[k] for k in key})
+    if gap_raw is None:
+        for r in before:
+            if r["vendor"] != "alpaca" or r["timeframe"] not in HANDOVER_DELTA_TIMEFRAMES:
+                continue
+            if not whole_month_gap_row(
+                identity, r["symbol"], date.fromisoformat(r["month"]), archive_end
+            ):
+                continue
+            if after_groups.get(tuple(r[k] for k in key)) == (r["n"], r["digest"]):
+                kept += 1
+            else:
+                changed += 1
+                changed_groups.append({k: r[k] for k in key})
+    else:
+        before_groups = {tuple(r[k] for k in key): (r["n"], r["digest"]) for r in before}
+        for g in gap_raw:
+            if str(g["whole_month"]) not in ("True", "true", "1") or int(g["n"]) == 0:
+                continue
+            group = (g["timeframe"], g["symbol"], "alpaca", ALPACA_KIND, g["month"])
+            was = before_groups.get(group)
+            n_after, digest_after = after_groups.get(group, (0, ""))
+            # the count is the raw count; a group the before card already held complete (same
+            # count) must also be byte-identical, so a different revision or kind cannot pass
+            unchanged = was is None or int(was[0]) != int(g["n"]) or was[1] == digest_after
+            if n_after == int(g["n"]) and unchanged:
+                kept += 1
+            else:
+                changed += 1
+                changed_groups.append(dict(zip(key, group, strict=True)))
     return {
         "ok": not count_failures and not ibkr_left and not changed,
         "count_failures": count_failures,
         "ibkr_rows_left": [f"{tf}:{s}" for tf, s in ibkr_left],
         "gap_row_groups_identical": kept,
         "gap_row_groups_changed": changed_groups,
+        "held_names_excluded": [dict(h) for h in held],
     }
 
 
@@ -377,6 +508,120 @@ def _write_csv(path: Path, fields: Sequence[str], rows: Iterable[Mapping[str, An
         writer.writerows(rows)
 
 
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
+    """``--post-policy``: the expectation after the policy switch, into a NEW directory."""
+    delta_dir = args.post_policy.resolve()
+    out = args.out.resolve()
+    if out == delta_dir or out.is_relative_to(delta_dir):
+        print(
+            f"REFUSING: --out {out} is inside the B4 delta directory; it is evidence and never changes"
+        )
+        return 2
+    if out.exists() and any(out.iterdir()):
+        print(f"REFUSING: {out} is not empty; evidence is never overwritten")
+        return 2
+    base = _read_csv(delta_dir / "switch_delta.csv")
+    gap_rows = read_gap_list(Path(args.gap_list))
+    gaps: dict[str, list[GapRow]] = defaultdict(list)
+    for g in gap_rows:
+        gaps[g.symbol].append(g)
+    identity = Identity(dict(gaps), {}, {})
+    held_rows = read_held(Path(args.daily_rebuild))
+    held = frozenset(h["symbol"] for h in held_rows)
+    gap_symbols = sorted(
+        {g.symbol for g in gap_rows if g.valid_to is None or g.valid_to > ALPACA_FIRST_DAY}
+    )
+    dsn = get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    new_rows: list[dict[str, Any]] = []
+    raw_groups: list[dict[str, Any]] = []
+    with psycopg.connect(dsn) as conn:
+        conn.read_only = True
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 0")
+            cur.execute(_HELD_MASSIVE_SQL, (sorted(held),))
+            held_by_month = held_massive_slots(
+                [(sym, day, n) for sym, day, n in cur.fetchall()], identity, archive_end
+            )
+        for row in base:
+            tf, month = row["timeframe"], date.fromisoformat(row["month"])
+            lo, hi = month_bounds(month)
+            gap_n = after_end_n = 0
+            grid = _GRID_CLAUSE if tf in RTH_GRID_STEP_MINUTES else ""
+            params: dict[str, Any] = {"tf": tf, "lo": lo, "hi": hi}
+            if tf in RTH_GRID_STEP_MINUTES:
+                params["grid"] = sorted(rth_grid_stamps(tf, lo.year - 1, lo.year + 1))
+            if hi.date() > ALPACA_FIRST_DAY and lo.date() < archive_end and gap_symbols:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        _ALPACA_GAP_SQL.format(grid=grid, volume=_VOLUME_CLAUSE.get(tf, "")),
+                        {**params, "symbols": gap_symbols},
+                    )
+                    per_symbol = alpaca_gap_slots(
+                        [(sym, day, n) for sym, day, n in cur.fetchall()],
+                        identity, archive_end, held, tf,
+                    )  # fmt: skip
+                gap_n = sum(per_symbol.values())
+                raw_groups += [
+                    {"timeframe": tf, "symbol": sym, "month": month.isoformat(), "n": n,
+                     "whole_month": whole_month_gap_row(identity, sym, month, archive_end)}
+                    for sym, n in sorted(per_symbol.items())
+                ]  # fmt: skip
+            if hi.date() > archive_end:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        _ALPACA_AFTER_END_SQL.format(grid=grid, volume=_VOLUME_CLAUSE.get(tf, "")),
+                        {**params, "end": archive_end, "held": sorted(held) if tf == "1d" else []},
+                    )
+                    after_end_n = cur.fetchone()[0]
+            held_n = (
+                sum(
+                    n
+                    for (_, y, m), n in held_by_month.items()
+                    if (y, m) == (month.year, month.month)
+                )
+                if tf == "1d"
+                else 0
+            )
+            new_rows.append(post_policy_row(row, gap_n, after_end_n, held_n))
+            print(
+                f"{tf} {month}: B4 {row['expected_after']} -> {new_rows[-1]['expected_after']}",
+                flush=True,
+            )
+    out.mkdir(parents=True, exist_ok=True)
+    _write_csv(out / "switch_delta.csv", POST_POLICY_FIELDS, new_rows)
+    _write_csv(out / "gap_raw_groups.csv", GAP_RAW_FIELDS, raw_groups)
+    held_slots = Counter[str]()
+    for (symbol, _, _), n in held_by_month.items():
+        held_slots[symbol] += n
+    held_report = [
+        {**h, "massive_1d_slots_not_expected": held_slots[h["symbol"]]} for h in held_rows
+    ]
+    (out / "held.json").write_text(json.dumps(held_report, indent=2) + "\n")
+    summary = {
+        "archive_end": archive_end.isoformat(),
+        "b4_delta": str(delta_dir),
+        "gap_list": args.gap_list,
+        "daily_rebuild": str(args.daily_rebuild),
+        "held": held_report,
+        "held_massive_1d_slots": sum(held_slots.values()),
+        "totals": {
+            tf: {
+                f: sum(int(r[f]) for r in new_rows if r["timeframe"] == tf)
+                for f in ("expected_after", *POST_POLICY_FIELDS[-3:])
+            }
+            for tf in sorted({r["timeframe"] for r in new_rows})
+        },
+    }
+    (out / "switch_post_policy_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--timeframes", nargs="+", default=["1d", "5m"], choices=sorted(_KEYS))
@@ -390,20 +635,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar=("BEFORE_CARD", "AFTER_CARD"),
         help="D1: check the after card against --out's switch_delta.csv (file-only)",
     )
+    parser.add_argument(
+        "--post-policy",
+        type=Path,
+        metavar="B4_DELTA_DIR",
+        help="D1: write the expectation after the policy switch into --out (a new directory), "
+        "read from the B4 directory's switch_delta.csv, which is never modified",
+    )
+    parser.add_argument(
+        "--daily-rebuild",
+        default=str(project_root / "logs" / "massive_step7" / "daily_rebuild.tsv"),
+        help="--post-policy: the daily stage's report (held names are read from it)",
+    )
     args = parser.parse_args(argv)
+    if args.post_policy and args.verify:
+        parser.error("--post-policy and --verify are separate runs")
     archive_end = archive_end_of(Path(args.manifest).read_bytes())
+    if args.post_policy:
+        return run_post_policy(args, archive_end)
     if args.verify:
         with (args.out / "switch_delta.csv").open(newline="") as handle:
             deltas = list(csv.DictReader(handle))
         gaps: dict[str, list[GapRow]] = defaultdict(list)
         for g in read_gap_list(Path(args.gap_list)):
             gaps[g.symbol].append(g)
+        gap_raw_path, held_path = args.out / "gap_raw_groups.csv", args.out / "held.json"
         report = verify(
             read_card(args.verify[0]),
             read_card(args.verify[1]),
             deltas,
             Identity(dict(gaps), {}, {}),
             archive_end,
+            _read_csv(gap_raw_path) if gap_raw_path.exists() else None,
+            json.loads(held_path.read_text()) if held_path.exists() else (),
         )
         (args.out / "switch_verify.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({k: v for k, v in report.items() if k != "count_failures"} | {

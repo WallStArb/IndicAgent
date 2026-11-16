@@ -183,3 +183,169 @@ def test_a_stamp_just_after_utc_midnight_buckets_by_its_utc_month_not_its_new_yo
         assert (params["lo"] <= midnight < params["hi"]) is inside
         sql = month_sql("1d")
         assert "lo_day" not in sql and "hi_day" not in sql and "raw_lo" not in sql
+
+
+def test_post_policy_gap_slots_are_the_alpaca_raw_slots_of_gap_row_names_inside_the_window():
+    from scripts.ops.bars.ops_massive_switch_delta import alpaca_gap_slots
+
+    groups = [
+        ("GAP", date(2020, 5, 4), 78),  # inside a gap row: selected whatever vendor held it before
+        ("GAP", date(2015, 12, 31), 78),  # before the Alpaca seam: not an Alpaca slot
+        (
+            "GAP",
+            date(2026, 11, 11),
+            78,
+        ),  # on or after the archive end: counted by the after-end term
+        ("OK", date(2020, 5, 4), 78),  # no gap row: Massive or nothing, no fallback
+    ]
+    got = alpaca_gap_slots(groups, IDENTITY, END, frozenset(), "1d")
+    assert dict(got) == {"GAP": 78}
+    held = alpaca_gap_slots(groups, IDENTITY, END, frozenset({"GAP"}), "1d")
+    assert dict(held) == {}  # a held name has no canonical 1d
+    assert dict(alpaca_gap_slots(groups, IDENTITY, END, frozenset({"GAP"}), "5m")) == {"GAP": 78}
+
+
+def test_held_massive_slots_are_those_the_b4_delta_counted_as_massive():
+    from scripts.ops.bars.ops_massive_switch_delta import held_massive_slots
+
+    groups = [
+        ("HELD", date(2005, 10, 21), 1),
+        ("HELD", date(2002, 1, 2), 5),  # before the archive start
+        ("HELD", date(2026, 11, 11), 7),  # after the archive end
+        ("GAP", date(2020, 5, 4), 9),  # inside a gap row: counted as gap, not massive
+        ("GAP", date(2010, 5, 3), 2),  # a gap row before the seam: massive
+    ]
+    got = held_massive_slots(groups, IDENTITY, END)
+    assert dict(got) == {("HELD", 2005, 10): 1, ("GAP", 2010, 5): 2}
+
+
+def test_post_policy_row_replaces_expected_after_and_keeps_the_b4_columns():
+    from scripts.ops.bars.ops_massive_switch_delta import post_policy_row
+
+    base = {"massive": "100", "gap_alpaca": "6", "after_end_alpaca": "8", "expected_after": "114"}
+    row = post_policy_row(base, alpaca_gap_raw=40, alpaca_after_end_raw=10, held_massive=3)
+    assert row["expected_after"] == 100 + 40 + 10 - 3
+    assert row["gap_alpaca"] == "6" and row["held_massive"] == 3
+
+
+def test_verify_against_a_post_policy_directory_compares_gap_groups_with_their_raw_counts():
+    from scripts.ops.bars.ops_massive_switch_delta import verify
+
+    def card(sym, vendor, n, digest="d"):
+        return {"timeframe": "1d", "symbol": sym, "vendor": vendor, "kind": "k",
+                "month": "2020-05-01", "n": n, "digest": digest}  # fmt: skip
+
+    deltas = [{"timeframe": "1d", "month": "2020-05-01", "expected_after": "121"}]
+    raw = [
+        {
+            "timeframe": "1d",
+            "symbol": "GAP",
+            "month": "2020-05-01",
+            "n": "21",
+            "whole_month": "True",
+        },
+        {
+            "timeframe": "1d",
+            "symbol": "OK",
+            "month": "2020-05-01",
+            "n": "5",
+            "whole_month": "False",
+        },
+    ]
+    held = [{"symbol": "H", "reason": "unclassified_rescale"}]
+    after = [card("GAP", "alpaca", 21, "changed"), card("OK", "massive", 100)]
+    kind = {"kind": "sip_rth"}
+    for a in after:
+        a.update(kind if a["vendor"] == "alpaca" else {})
+    report = verify([], after, deltas, IDENTITY, END, raw, held)
+    assert report["ok"]  # the count is compared with the raw count, not the before bytes
+    assert report["gap_row_groups_identical"] == 1
+    assert report["held_names_excluded"] == held
+    wrong = [dict(after[0], n=20), after[1]]
+    bad = verify([], wrong, deltas, IDENTITY, END, raw, held)
+    assert not bad["ok"] and len(bad["gap_row_groups_changed"]) == 1
+
+
+def test_post_policy_refuses_the_b4_directory_and_a_non_empty_output(tmp_path):
+    import argparse
+
+    from scripts.ops.bars.ops_massive_switch_delta import run_post_policy
+
+    b4 = tmp_path / "delta"
+    b4.mkdir()
+    (b4 / "switch_delta.csv").write_text("timeframe\n")
+    ns = argparse.Namespace(post_policy=b4, out=b4)
+    assert run_post_policy(ns, END) == 2
+    out = tmp_path / "new"
+    out.mkdir()
+    (out / "x").write_text("1")
+    assert run_post_policy(argparse.Namespace(post_policy=b4, out=out), END) == 2
+
+
+def test_the_zero_volume_rule_differs_by_timeframe_in_the_alpaca_queries():
+    from scripts.ops.bars.ops_massive_switch_delta import (
+        _ALPACA_AFTER_END_SQL,
+        _ALPACA_GAP_SQL,
+        _VOLUME_CLAUSE,
+    )
+
+    assert "volume" in _VOLUME_CLAUSE["1d"] and "5m" not in _VOLUME_CLAUSE
+    for sql in (_ALPACA_GAP_SQL, _ALPACA_AFTER_END_SQL):
+        assert "coalesce(volume" in sql.format(grid="", volume=_VOLUME_CLAUSE["1d"])
+        assert "coalesce(volume" not in sql.format(grid="", volume=_VOLUME_CLAUSE.get("5m", ""))
+
+
+def test_post_policy_refuses_an_output_inside_the_b4_directory(tmp_path):
+    import argparse
+
+    from scripts.ops.bars.ops_massive_switch_delta import run_post_policy
+
+    b4 = tmp_path / "delta"
+    b4.mkdir()
+    ns = argparse.Namespace(post_policy=b4, out=b4 / "post")
+    assert run_post_policy(ns, END) == 2
+    assert not (b4 / "post").exists()
+
+
+def test_post_policy_and_verify_are_separate_runs(tmp_path):
+    import pytest
+
+    from scripts.ops.bars.ops_massive_switch_delta import main
+
+    with pytest.raises(SystemExit):
+        main(["--gap-list", "g", "--out", str(tmp_path), "--post-policy", str(tmp_path / "b"),
+              "--verify", "a", "b"])  # fmt: skip
+
+
+def test_a_post_policy_gap_group_the_before_card_held_complete_must_stay_byte_identical():
+    from scripts.ops.bars.ops_massive_switch_delta import verify
+
+    def card(n, digest):
+        return {"timeframe": "1d", "symbol": "GAP", "vendor": "alpaca", "kind": "sip_rth",
+                "month": "2020-05-01", "n": n, "digest": digest}  # fmt: skip
+
+    deltas = [{"timeframe": "1d", "month": "2020-05-01", "expected_after": "21"}]
+    raw = [
+        {
+            "timeframe": "1d",
+            "symbol": "GAP",
+            "month": "2020-05-01",
+            "n": "21",
+            "whole_month": "True",
+        }
+    ]
+    same = verify([card(21, "a")], [card(21, "a")], deltas, IDENTITY, END, raw)
+    assert same["ok"]
+    other_revision = verify([card(21, "a")], [card(21, "b")], deltas, IDENTITY, END, raw)
+    assert not other_revision["ok"] and len(other_revision["gap_row_groups_changed"]) == 1
+    grown = verify([card(10, "a")], [card(21, "b")], deltas, IDENTITY, END, raw)
+    assert grown["ok"]  # the before card held fewer slots, so a new digest is expected
+
+
+def test_whole_month_is_false_for_the_seam_month_and_the_archive_end_month():
+    from scripts.ops.bars.ops_massive_switch_delta import whole_month_gap_row
+
+    ident = Identity({"G": [GapRow("G", "instrument", "x", None, None)]}, {}, {})
+    assert whole_month_gap_row(ident, "G", date(2020, 5, 1), END)
+    assert not whole_month_gap_row(ident, "G", date(2015, 12, 1), END)  # before the seam month
+    assert not whole_month_gap_row(ident, "G", date(2026, 11, 1), END)  # runs past the archive end
