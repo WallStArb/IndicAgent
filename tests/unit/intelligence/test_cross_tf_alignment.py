@@ -559,8 +559,8 @@ def test_vwap_window_below_two_is_refused():
 
 
 def test_ret_div_columns_are_declared_undefined_on_every_other_known_timeframe():
+    from src.core.service_utils import TF_SECONDS as _TF_SECONDS
     from src.intelligence.features.contract.registry import default_registry
-    from src.intelligence.features.feature_vector_persistence import _TF_SECONDS
 
     kernel = next(k for k in default_registry().kernels if k.name == "cross_tf_divergence")
     for output, own in (("ret_div_5m_1h", "5m"), ("ret_div_1h_1d", "1h")):

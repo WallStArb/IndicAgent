@@ -290,7 +290,7 @@ class TestBarLevelPrimitives:
 class TestRegimePrimitives:
 
     def test_no_smooth_or_backward_in_factory(self) -> None:
-        """No accidental look-ahead in feature_factory.py (todo 086).
+        """No accidental look-ahead in the kernel modules (todo 086).
 
         The original check grepped for the literal words "smooth"/"smoothed",
         which false-positives on legitimately causal code: Phase 142.5's
@@ -308,13 +308,14 @@ class TestRegimePrimitives:
         scanning, not carved out by line number, so this stays correct as
         the file grows around it.
         """
-        # 186-12: the feature computation now lives in feature_factory.py plus the kernel
-        # modules under features/kernels/ (the canary placebo moved to control.py).
-        factory_path = _REPO_ROOT / "src" / "intelligence" / "feature_factory.py"
-        kernel_paths = sorted((factory_path.parent / "features" / "kernels").glob("*.py"))
+        # The feature computation lives in the kernel modules under features/kernels/ (the
+        # canary placebo is in control.py).
+        kernel_paths = sorted(
+            (_REPO_ROOT / "src" / "intelligence" / "features" / "kernels").glob("*.py")
+        )
         source_without_canary = ""
         n_stripped = 0
-        for path in (factory_path, *kernel_paths):
+        for path in kernel_paths:
             stripped, count = _source_without_acausal_canary(path.read_text())
             source_without_canary += stripped
             n_stripped += count
@@ -325,7 +326,7 @@ class TestRegimePrimitives:
         )
 
         assert "backward" not in source_without_canary.lower(), (
-            "Backward/look-ahead reference found in feature_factory.py outside "
+            "Backward/look-ahead reference found in a kernel module outside "
             "the documented _canary_acausal_placebo() positive control — forward "
             "only permitted"
         )

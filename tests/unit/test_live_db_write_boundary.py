@@ -73,9 +73,6 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
     "scripts/test_fetcher_lock.py": (
         "read-only: takes FetcherLock advisory locks and reads pg_stat_activity"
     ),
-    "intelligence/test_swing_fib_trend_structure_primitives.py": (
-        "read-only: fetches live OHLCV to fit structure primitives; skips when unreachable"
-    ),
     "config/test_settings_active_contracts_dimension.py": (
         "mock-only: the literal is a Settings stub's database_url, never connected"
     ),
