@@ -81,8 +81,7 @@ P0   redpanda-ready, redpanda-watchdog,     — infra sentinels
 P1   ibkr-provider, bar-replay              — data ingestion
 P2   provider-merger                        — stream merge
 P3   bar-aggregator, bar-auditor            — bar processing
-P6   feature-vector-pipeline                — Feature Factory compute
-P7   feature-vector-writer, signal-writer,  — persistence writers (parallel)
+P7   signal-writer,                         — persistence writers (parallel)
      signal-tracker-compute, lifecycle-writer,
      lineage-writer
 P8   alpha-swarm, narrative-compute,        — AI/LLM layer + analytics +
@@ -247,7 +246,7 @@ Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
 
 The DAG has hard dependencies: an L3 outage starves L5+. Example:
 
-- `bar-aggregator` (P3) fails → no bars published → `feature-vector-pipeline` (P6) processes nothing → all P7/P8 persistence agents go idle → `agent_last_message_timestamp_seconds` goes stale → Grafana `Service Stall` alert fires within 120s.
+- `bar-aggregator` (P3) fails → no bars published → downstream compute (P6) processes nothing → all P7/P8 persistence agents go idle → `agent_last_message_timestamp_seconds` goes stale → Grafana `Service Stall` alert fires within 120s.
 
 Diagnosis:
 ```bash

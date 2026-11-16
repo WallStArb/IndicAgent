@@ -30,14 +30,11 @@ Key design decisions:
 ```
 Bar arrives → (streaming feature path deleted in R2 item 5b; the rebuild writer computes the kernels in batch)
 
-topic_feature_vectors → FeatureVectorWriter (consumer group feature_vector_writer_group)
-                       → TimescaleDB (feature_vectors hypertable)
-
 Ensemble alpha score crosses threshold → AlphaPublisher → topic_alpha_events
                                                           → TimescaleDB (alpha_events)
 ```
 
-`FeatureVectorPipeline` never opens a write connection for its own computed output — it publishes to `topic_feature_vectors` and `FeatureVectorWriter` is the sole consumer that persists. Same pattern for `AlphaPublisher`/`topic_alpha_events` — `alpha_publisher` is the sole writer to `alpha_events`. This is DAG Invariant 3 (see `docs/concepts/dag-execution.md`) expressed as topic flow: a compute daemon publishes, a dedicated writer persists, never the other way around.
+A compute daemon never opens a write connection for its own computed output. `AlphaPublisher`/`topic_alpha_events` — `alpha_publisher` is the sole writer to `alpha_events`. This is DAG Invariant 3 (see `docs/concepts/dag-execution.md`) expressed as topic flow: a compute daemon publishes, a dedicated writer persists, never the other way around.
 
 ## Invariants
 

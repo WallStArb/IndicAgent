@@ -30,7 +30,7 @@ The feature kernels (`src/intelligence/features/kernels/`; the streaming `Featur
 
 So most of the 298 features are bounded-window recompute (the window is the state boundary), and a handful of genuinely stateful fields live in `FeatureCache` as true incremental state. This is architecturally the old doc's "window plugin" strategy generalized to the whole feature set, with the old doc's "incremental plugin" pattern surviving only for the few fields where re-deriving from a window would be wasteful or impossible (e.g. a duration counter has no window-based reconstruction).
 
-**Checkpointing:** `FeatureVectorPipeline` checkpoints `last_bar_offset` (the Kafka replay position) via `PluginStateManager`, not the window contents or `FeatureCache` fields themselves — on restart, `BarHistory` is repopulated from DB warmup/Kafka replay rather than deserialized from a state file. This differs from the old plugin-tier model, which serialized full per-plugin state to `cache/plugin_states.json`.
+**Checkpointing (historical; the streaming pipeline and `PluginStateManager` were deleted in R2 item 5):** the pipeline checkpointed `last_bar_offset` (the Kafka replay position), not the window contents or `FeatureCache` fields themselves — on restart, `BarHistory` is repopulated from DB warmup/Kafka replay rather than deserialized from a state file. This differs from the old plugin-tier model, which serialized full per-plugin state to `cache/plugin_states.json`.
 
 ## Invariants
 
@@ -51,6 +51,6 @@ When designing a bounded per-bar computation system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-alphaengine.md` — `FeatureFactory`/`FeatureVectorPipeline` architecture
+- Implementation: `docs/intelligence/intelligence-alphaengine.md` — the feature kernels and the batch rebuild (the streaming `FeatureFactory` and pipeline were deleted in R2 item 5)
 - Related concept: `docs/concepts/dag-execution.md` — how feature computation is ordered
 - Related concept: `docs/concepts/hot-path-isolation.md` — why hot-path state must be local, not DB-backed

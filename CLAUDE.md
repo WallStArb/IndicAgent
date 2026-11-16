@@ -49,7 +49,7 @@ Judge any test run by its exit code or summary line (`exit=${PIPESTATUS[0]}`), n
 **Removed (phase 185-45):** the v2.x I1-I7 signal path, typed bus and I8 AI stack (archive: local git tag `archive/v2x-ai-stack-2026-10`). `src/intelligence/pipeline/` and the `feature_vector_pipeline` service are deleted. Details: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.5, adopted 2026-09-26; unified design, E18):** `ingest (Massive archive + Alpaca -> ohlcv_raw -> market_data_ohlcv selection) -> feature (feature_vectors, market_regimes) -> measure (ic_measure: proposer, IC term structure, member monitoring) -> research (S0 panel -> S1 target -> S2 families -> S3 guards -> S7 combiner -> construction rule -> S8 book test; S6 ledger is the sole writer of research_run) -> frozen book -> forward runner (BookTracker/BookPositionWriter, sealed shadow) -> capital`. The old chain (`ensemble_trainer`, `EnsembleICEngine`, `alpha_publisher`, `alpha_events`, old ic_engine, `forward_return_writer`, `forward_returns`) was deleted in phase 186; build nothing on it.
 **Service DAG:** registry is `_DAG_ORDER` in `services/service_auditor.py`; live state `systemctl list-units --all | grep indicagent`; Grafana `:3001`. Oneshot batch services (`ic-measure` and the like) are `inactive (dead)` between runs, which is correct; the v2.x ML batch chain was deleted in todo 509 (last commit holding it: `e4d2345c2`).
-**Data flow:** the streaming path (providers → Redpanda → in-memory services; `FeatureVectorWriter` persists in batch; the bar writer was deleted 2026-11-14) is dormant while no live feed exists; today's data arrives by nightly batch backfill (Alpaca nightly; Massive historical already loaded in raw). The real-time path never touches the database directly.
+**Data flow:** the streaming path (providers → Redpanda → in-memory services; the feature-vector pipeline and writer were deleted in R2 item 5, the bar writer 2026-11-14) is dormant while no live feed exists; today's data arrives by nightly batch backfill (Alpaca nightly; Massive historical already loaded in raw). The real-time path never touches the database directly.
 
 ## Core Runtime
 
@@ -96,7 +96,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 1. **`ProviderMerger` is the sole writer to `market.bars`**
 2. **Compute stages run in-process**: feature computation publishes to Kafka; Kafka is a sink, not an inter-stage pipe. Compute daemons may hold a DB handle for their own reads (warmup history, ConfigService) and one-time schema bootstrap, but never persist their own output rows.
-3. **A compute daemon never writes its own computed output**: persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (e.g. `FeatureVectorWriter`). Auditors extend `BaseDaemon` directly.
+3. **A compute daemon never writes its own computed output**: persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (e.g. `DividendEventWriter`). Auditors extend `BaseDaemon` directly.
 4. **All topic keys via `stream_keys.py`**, no hardcoded topic strings.
 5. **No agent calls another agent directly**: topics are the only coupling.
 6. **All timestamps UTC**: `datetime.now(UTC)` only; never `datetime.now()` or `datetime.utcnow()`.

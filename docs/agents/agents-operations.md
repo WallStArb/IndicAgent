@@ -6,7 +6,7 @@
 > a verbatim transcription of `services/service_auditor.py` as of that date — v2.x names
 > (`feature-writer`, `intelligence-pipeline`, `parity-auditor`, `feature-snapshot-writer`) have
 > been replaced with their live v3.0 equivalents (`feature-vector-writer`,
-> `feature-vector-pipeline`, etc.). **Note for future readers:** the project intends to
+> `feature-vector-pipeline`, etc.; both retired in R2 item 5). **Note for future readers:** the project intends to
 > eventually run a second, more conventional intelligence path alongside v3.0's
 > Renaissance-style AlphaEngine (reviving the paused v2.x signal chain, not replacing it) — if
 > that happens, `_DAG_ORDER` will grow v2.x entries back in, and this table will need
@@ -75,8 +75,7 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L1 — data ingestion | 1 | `ibkr-provider`, `bar-replay` |
 | L2 — stream merge | 2 | `provider-merger` |
 | L3 — bar processing | 3 | `bar-aggregator`, `bar-auditor` |
-| L6 — feature factory pipeline | 6 | `feature-vector-pipeline` |
-| L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer` |
+| L7 — persistence writers | 7 | `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer` |
 | L8 — AI/analytics + IC/ensemble/alpha oneshots | 8 | `alpha-swarm`, `narrative-compute`, `llm-writer`, `swarm-ledger-writer`, `signal-metrics-compute`, `signal-metrics-writer`, `graduation-compute`, `graduation-writer`, `regime-writer`, `forward-return-writer`, `ic-engine`, `ensemble-trainer`, `alpha-publisher`, `ensemble-ic-engine`, `alpha-frame-writer`, `counterfactual-tracker`, and all timer-triggered oneshot services (ML batch, shadow, feature-validation, hmm-training, memory-batch) |
 | L9 — audit, parity, alerting, config/self-healing | 9 | `signal-auditor`, `signal-replay`, `alerting-agent`, `dlq-drain`, `config-service`, `outbox-dispatcher`, `self-healing-agent` |
 | L10 — top-level services | 10 | `api`, `dashboard` |
@@ -243,7 +242,7 @@ Follow these steps in order. Missing any step means the auditor cannot monitor o
 Open `services/service_auditor.py`. Find the layer comment that matches your service's role. Add an entry with the correct priority number. Lower numbers restart first — your service should be higher (later) than its dependencies.
 
 ```python
-"indicagent-my-new-service": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+"indicagent-my-new-service": 7,  # priority 7: downstream of bar-aggregator (4)
 ```
 
 **Step 2: Seed a lag threshold (if it is a Kafka consumer).**

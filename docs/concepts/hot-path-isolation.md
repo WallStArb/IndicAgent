@@ -24,18 +24,18 @@ The invariant: **no component on the hot path may call I/O.** Hot-path state is 
 ## How IndicAgent Applies It
 
 ```
-Hot:  IBKR TWS → Redpanda Streams → FeatureVectorPipeline (compute)   (sub-ms)
-Warm: Streams → feature computation → Kafka (sink)                    (<10ms)
-Cold: FeatureVectorWriter → feature_vectors (TimescaleDB)             (async batch)
+Hot:  provider → Redpanda Streams → in-memory compute daemon         (sub-ms)
+Warm: Streams → computation → Kafka (sink)                           (<10ms)
+Cold: dedicated BaseWriter/BaseBatch subclass → TimescaleDB          (async batch)
 ```
 
-`FeatureVectorPipeline` computes feature vectors from in-memory state (bar history, loaded at startup and updated incrementally per bar) and publishes results to Kafka — Kafka is a sink here, not an inter-stage pipe (DAG Invariant #2). It is not fully DB-ignorant: it holds its own DB handle for reads (warmup history, `ConfigService`) and one-time schema bootstrap, but it never persists its own computed output — that always goes through the dedicated `FeatureVectorWriter` (a `BaseWriter` subclass), which consumes the Kafka topic and writes to `feature_vectors` asynchronously (DAG Invariant #3). Reads-for-warmup on the hot path and writes-of-output on the cold path are different things; only the latter is forbidden inline.
+A compute daemon computes from in-memory state (bar history, loaded at startup and updated incrementally per bar) and publishes results to Kafka — Kafka is a sink here, not an inter-stage pipe (DAG Invariant #2). It is not fully DB-ignorant: it holds its own DB handle for reads (warmup history, `ConfigService`) and one-time schema bootstrap, but it never persists its own computed output — that always goes through a dedicated `BaseWriter`/`BaseBatch` subclass, which consumes the Kafka topic and writes asynchronously (DAG Invariant #3). The feature-vector pipeline and writer that once embodied this were deleted in R2 item 5; the principle stands for any future streaming path. Reads-for-warmup on the hot path and writes-of-output on the cold path are different things; only the latter is forbidden inline.
 
-Performance weights, config thresholds, and regime state are loaded at startup via `ConfigService`/`VocabularyService` and refreshed on a timer (not per-bar). Plugin/pipeline state is checkpointed to local disk via `PluginStateManager` — not to the database.
+Performance weights, config thresholds, and regime state are loaded at startup via `ConfigService`/`VocabularyService` and refreshed on a timer (not per-bar). Hot state is checkpointed to a local file — not to the database.
 
 ## Invariants
 
-- A compute daemon (e.g. `FeatureVectorPipeline`) may hold a DB handle for its own reads and startup bootstrap, but must never write its own computed output rows — that persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (DAG Invariant #3).
+- A compute daemon may hold a DB handle for its own reads and startup bootstrap, but must never write its own computed output rows — that persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (DAG Invariant #3).
 - Compute methods should be pure functions of their input + internal state wherever possible — no blocking I/O inline in the per-bar compute path.
 - Writers consume from topics — they never receive direct calls from compute agents.
 - A `TimescaleDB` outage must have zero impact on signal generation latency or throughput; only the async writer's flush backs up.
