@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import inspect
 import math
-import re
 from datetime import UTC, datetime
 from functools import lru_cache
 
@@ -281,30 +280,6 @@ _LEGACY_WARMUP_NAN_TO_ZERO = frozenset(
 )
 
 
-def test_kernel_outputs_equal_compute_batch_rows_1_onward():
-    kernels, batch, n = _synthetic_case()
-    # no regime; the KERNEL_ONLY_COLUMNS have no compute_batch counterpart
-    columns = [
-        c
-        for c in default_registry().feature_columns()
-        if c in kernels and c not in KERNEL_ONLY_COLUMNS
-    ]
-    for name in columns:
-        assert name in batch, f"{name} is not a FeatureVector field"
-        got = kernels[name][1:].astype(np.float32)
-        want = batch[name].astype(np.float32)
-        assert len(got) == len(want) == n - 1
-        bad = ~((got == want) | (np.isnan(got) & np.isnan(want)))
-        if name in _LEGACY_NAN_TO_ZERO:
-            bad &= ~(np.isnan(got) & (want == 0.0))
-        if name in _LEGACY_WARMUP_NAN_TO_ZERO:
-            warmup = np.cumprod(np.isnan(got)).astype(bool)  # the leading NaN run
-            bad &= ~(warmup & (want == 0.0))
-        assert (
-            not bad.any()
-        ), f"{name}: row {int(np.argmax(bad)) + 1} got {got[bad][0]!r} want {want[bad][0]!r}"
-
-
 def test_hma_slope_z_is_nan_until_the_slope_history_fills():
     """Todo 564: one HMA slope is appended per regime refresh, and the z-score needs
     momentum_zscore_window of them. Before that the column is undefined (NaN), never a 0.0
@@ -323,59 +298,10 @@ def test_hma_slope_z_is_nan_until_the_slope_history_fills():
     assert not (column == 0.0).any()
 
 
-def test_stateless_structure_kernels_equal_direct_helper_calls():
-    """The batch loop now reads these columns from the kernels, so (b) alone compares a kernel
-    with itself. This calls the moved helpers directly on the loop's windows, every 7th row."""
-    from src.intelligence.features.kernels import smc, vp_sr
-
-    kernels, _batch, n = _synthetic_case()
-    inputs, config = ref.synthetic_inputs()
-    o, h, lo, c, v = (inputs[f] for f in ("open", "high", "low", "close", "volume"))
-    atr = kernels["_atr_raw_padded"]
-    for i in range(1, n, 7):
-        a = float(atr[i])
-        s = max(0, i - config.smc_order_blocks_lookback + 1)
-        ob = smc._compute_order_blocks(
-            o[s : i + 1],
-            h[s : i + 1],
-            lo[s : i + 1],
-            c[s : i + 1],
-            v[s : i + 1],
-            float(c[i]),
-            a,
-            config,
-        )
-        s = max(0, i - config.sr_lookback_by_tf.get("5m", 120) + 1)
-        sr = vp_sr._compute_sr_dist_atr(
-            h[s : i + 1], lo[s : i + 1], float(c[i]), a, v[s : i + 1], "5m", config
-        )
-        s = max(0, i - config.swing_lookback_bars + 1)
-        swing = vp_sr._compute_swing_structure(h[s : i + 1], lo[s : i + 1], float(c[i]), a, config)
-        trend = vp_sr._compute_trend_structure(
-            h[s : i + 1], lo[s : i + 1], float(c[i]), a, swing, config
-        )
-        for name, want in {**ob, **sr, **trend}.items():
-            expected = np.nan if want is None else want
-            assert np.float32(kernels[name][i]) == np.float32(expected) or (
-                np.isnan(kernels[name][i]) and np.isnan(expected)
-            ), (name, i)
-        for name in vp_sr.SWING.keys:
-            want = swing[name]
-            expected = np.nan if want is None else want
-            got = kernels[name][i]
-            assert got == expected or (np.isnan(got) and np.isnan(expected)), (name, i)
-
-
 def _code_lines(func) -> str:
     return "\n".join(
         line for line in inspect.getsource(func).splitlines() if not line.lstrip().startswith("#")
     )
-
-
-def test_compute_batch_calls_no_delegated_helper():
-    body = _code_lines(FeatureFactory.compute_batch)
-    called = [name for name in DELEGATED_HELPERS if re.search(rf"(?<![A-Za-z0-9_]){name}\(", body)]
-    assert called == []
 
 
 def test_the_path_dependent_allow_list_is_the_reviewed_fifteen():

@@ -14,7 +14,6 @@ from datetime import UTC, date, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.distribution import (
@@ -34,6 +33,7 @@ from src.intelligence.features.kernels.macro import (
 )
 from src.intelligence.features.kernels.residual import _RESIDUAL_GRID_OUTPUTS, RESIDUAL_COLUMNS
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.production_series import series_rows
 
 CONFIG = dataclasses.replace(
     ref.build_config(ref.load_manifest()["synthetic_config"]),
@@ -118,16 +118,7 @@ def _batch(
     daily: dict[str, list[dict]], bars: list[dict], tf: str = "5m", symbol: str = SYMBOL
 ) -> dict:
     cross, beta = _records(daily, symbol)
-    results = FeatureFactory.compute_batch(
-        bars,
-        symbol,
-        tf,
-        FeatureCache(),
-        CONFIG,
-        cross_asset_by_date=cross,
-        beta_by_date=beta,
-    )
-    return {ts: fv for ts, fv in results}
+    return series_rows(bars, symbol, tf, CONFIG, cross_asset_by_date=cross, beta_by_date=beta)
 
 
 def _row_ts(session: int, hour_utc: int, minute: int) -> datetime:
@@ -151,27 +142,29 @@ def test_10am_row_reads_the_prior_days_record():
     cross, _ = _records(_daily_bars())
     row = _batch(_daily_bars(), _intraday())[_row_ts(TARGET_SESSION, 14, 0)]
     prior = cross[SESSIONS[TARGET_SESSION - 1]]
-    assert row.vix_z == prior.vix_z
-    assert row.flight_quality == prior.flight_quality
-    assert row.sb_corr_z == prior.sb_corr_z
+    assert row.vix_z == pytest.approx(prior.vix_z, rel=1e-6)
+    assert row.flight_quality == pytest.approx(prior.flight_quality, rel=1e-6)
+    assert row.sb_corr_z == pytest.approx(prior.sb_corr_z, rel=1e-6)
 
 
 def test_last_5m_bar_of_the_session_reads_that_days_close():
     """The 15:55 ET bar ends at 16:00 ET, when d's record becomes available."""
     cross, _ = _records(_daily_bars())
     last = _batch(_daily_bars(), _intraday())[_row_ts(TARGET_SESSION, 19, 55)]
-    assert last.vix_z == cross[SESSIONS[TARGET_SESSION]].vix_z
+    assert last.vix_z == pytest.approx(cross[SESSIONS[TARGET_SESSION]].vix_z, rel=1e-6)
     changed = _daily_bars()
     changed["SPY"][TARGET_SESSION]["close"] *= 1.05
-    assert last.vix_z != _batch(changed, _intraday())[_row_ts(TARGET_SESSION, 19, 55)].vix_z
+    assert last.vix_z != pytest.approx(
+        _batch(changed, _intraday())[_row_ts(TARGET_SESSION, 19, 55)].vix_z, rel=1e-6
+    )
 
 
 def test_betas_align_as_of_the_close_too():
     _, beta = _records(_daily_bars())
     bars = _intraday()
     row = _batch(_daily_bars(), bars)[_row_ts(TARGET_SESSION, 14, 0)]
-    assert row.equity_beta_z == beta[SESSIONS[TARGET_SESSION - 1]][0]
-    assert row.rate_beta_z == beta[SESSIONS[TARGET_SESSION - 1]][1]
+    assert row.equity_beta_z == pytest.approx(beta[SESSIONS[TARGET_SESSION - 1]][0], rel=1e-6)
+    assert row.rate_beta_z == pytest.approx(beta[SESSIONS[TARGET_SESSION - 1]][1], rel=1e-6)
 
 
 def test_1d_rows_read_their_own_dates_record():
@@ -182,15 +175,15 @@ def test_1d_rows_read_their_own_dates_record():
     for i in (40, 60, 90):
         row = rows[daily[SYMBOL][i]["ts"]]
         record = cross[SESSIONS[i]]
-        assert row.vix_z == record.vix_z
-        assert row.yield_slope_z == record.yield_slope_z
-        assert row.equity_beta_z == beta[SESSIONS[i]][0]
+        assert row.vix_z == pytest.approx(record.vix_z, rel=1e-6)
+        assert row.yield_slope_z == pytest.approx(record.yield_slope_z, rel=1e-6)
+        assert row.equity_beta_z == pytest.approx(beta[SESSIONS[i]][0], rel=1e-6)
 
 
 @pytest.mark.parametrize(("symbol", "column"), [("SPY", "equity_beta_z"), ("TLT", "rate_beta_z")])
-def test_factor_proxy_beta_stays_none(symbol, column):
+def test_factor_proxy_beta_stays_missing(symbol, column):
     row = _batch(_daily_bars(), _intraday(), symbol=symbol)[_row_ts(TARGET_SESSION, 14, 0)]
-    assert getattr(row, column) is None
+    assert math.isnan(getattr(row, column))
 
 
 def _ns(day: date, hour: int, minute: int = 0) -> int:

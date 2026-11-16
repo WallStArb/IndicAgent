@@ -20,11 +20,6 @@ import pytest
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _random_walk_arrays
 
 # ---------------------------------------------------------------------------
@@ -221,27 +216,6 @@ def _finite(values: list[float | None]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
-def test_sr_non_constant_batch(bars, cfg):
-    """sr_support_dist/sr_resist_dist must vary across bars, not freeze at 0.0.
-
-    Pre-Phase-163-Plan-03, both were permanently 0.0 in both live and batch
-    (read straight from an unpopulated FeatureCache stub attribute).
-    """
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == N - 1  # compute_batch loop is range(1, len(bars))
-
-    support_vals = _finite([fv.sr_support_dist for _, fv in results])
-    assert len(support_vals) > 1
-    assert len({round(v, 8) for v in support_vals}) > 1, "sr_support_dist is constant"
-    assert any(v != 0.0 for v in support_vals), "sr_support_dist frozen at 0.0"
-
-    resist_vals = _finite([fv.sr_resist_dist for _, fv in results])
-    assert len(resist_vals) > 1
-    assert len({round(v, 8) for v in resist_vals}) > 1, "sr_resist_dist is constant"
-    assert any(v != 0.0 for v in resist_vals), "sr_resist_dist frozen at 0.0"
-
-
 # ---------------------------------------------------------------------------
 # (b) ATR-unit conversion — pins the D-02 percent -> ATR unit fix
 # ---------------------------------------------------------------------------
@@ -321,41 +295,9 @@ def test_sr_in_atr_units(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_sr_live_batch_parity(bars, cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    assert_live_batch_parity(_SR_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))
-
-
 # ---------------------------------------------------------------------------
 # (d) D-19 fields non-constant — catches the original silent-omission bug
 # ---------------------------------------------------------------------------
-
-
-def test_sr_d19_fields_non_constant(bars, cfg):
-    """resistance_strength/support_strength/*_age_bars/sr_level_count must be computed on every
-    bar where their object exists -- the D-19 regression guard (silent all-None omission).
-    """
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-
-    d19_fields = (
-        "resistance_strength",
-        "support_strength",
-        "resistance_age_bars",
-        "support_age_bars",
-    )
-    for field in d19_fields:
-        raw = [getattr(fv, field) for _, fv in results]
-        # a side with no cluster in-window reads None (D1 rule 2, todo 584 4b-2 group 4);
-        # the regression this test guards is the silent all-None omission, not the None
-        assert sum(v is not None for v in raw) > 1, f"{field} left null (D-19 omission)"
-        finite_vals = _finite(raw)
-        assert len(finite_vals) > 1
-        assert all(v >= 0.0 for v in finite_vals), f"{field} has a negative value"
-    # the level count is a measurement over the observed window wherever the detection ran
-    # (0.0 = no clusters); rows whose ATR is invalid cannot cluster at all, so they read
-    # None/NaN there, present and unmeasured (186-31 review round 6)
-    assert sum(fv.sr_level_count is not None for _, fv in results) > 1
 
 
 # ---------------------------------------------------------------------------

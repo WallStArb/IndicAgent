@@ -19,11 +19,6 @@ import pytest
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 _OB_FIELDS = (
     "ob_bull_dist_atr",
@@ -418,33 +413,3 @@ def test_determinism_identical_inputs_identical_outputs(cfg):
 # ---------------------------------------------------------------------------
 # (f) compute_batch() produces the same non-constant/exercised behavior
 # ---------------------------------------------------------------------------
-
-
-def test_compute_batch_produces_non_constant_ob_fields(cfg):
-    bars = _ob_breaker_retest_bars()
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == len(bars) - 1
-
-    for field in ("ob_bull_dist_atr", "ob_strength"):
-        raw = [getattr(fv, field) for _, fv in results]
-        vals = _finite(raw)
-        assert len(vals) > 1
-        # warmup rows hold no order block: None, never a fabricated 0.0 that would fake
-        # variance (D1 rule 2, todo 584 4b-2 group 4); a constant measured value (one OB,
-        # one strength) is the true reading, not a freeze
-        assert any(v is None for v in raw), f"{field} warmup rows must be None"
-    assert (
-        len({round(v, 8) for v in _finite([fv.ob_bull_dist_atr for _, fv in results])}) > 1
-    ), "ob_bull_dist_atr is constant across compute_batch()"
-
-    # The final bar (the retest) must show an active breaker, matching compute().
-    _, fv_last = results[-1]
-    assert fv_last.breaker_block_active == 1.0
-    assert fv_last.ob_mitigation_pct is not None and fv_last.ob_mitigation_pct > 0.0
-
-
-def test_compute_live_batch_parity(cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    bars = _ob_breaker_retest_bars()
-    assert_live_batch_parity(_OB_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

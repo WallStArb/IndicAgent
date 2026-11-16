@@ -15,14 +15,13 @@ ret_div_1h_1d.
 from __future__ import annotations
 
 import bisect
+import math
 import random
 from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactory
-from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.cross_tf import (
     CtfRecord,
     CtfSeries,
@@ -31,6 +30,7 @@ from src.intelligence.features.kernels.cross_tf import (
 )
 from src.intelligence.features.kernels.macro import bar_ts_ns
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.production_series import series_rows
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
 SYMBOL = "SPY"
@@ -132,22 +132,19 @@ def _hourly_ltf(sessions: list[date], seed: int = 9) -> list[dict]:
     return bars
 
 
-def _compute(bars: list[dict], tf: str, ctf):
-    """compute_batch as the legacy batch path calls it for the CTF and ret_div inputs."""
-    results = FeatureFactory.compute_batch(
-        bars,
-        SYMBOL,
-        tf,
-        FeatureCache(),
-        CONFIG,
-        warm_up_bars=0,
-        ctf_by_ts=ctf or None,
-    )
-    return {ts: fv for ts, fv in results}
+def _compute(bars: list[dict], tf: str, htf_bars: list[dict]):
+    """The rows of the series through the corpus-rerun path, which builds the close-keyed CTF
+    series from the higher-timeframe bars itself (one definition of the alignment)."""
+    return series_rows(bars, SYMBOL, tf, CONFIG, htf_bars=htf_bars)
 
 
 def _ctf_values(fv, ret_div: str) -> tuple:
     return (*(getattr(fv, c) for c in CTF_COLUMNS), getattr(fv, ret_div))
+
+
+def _same(a: tuple, b: tuple) -> bool:
+    """Equal values, a missing value (NaN) equal to a missing value."""
+    return bool(np.array_equal(np.array(a, dtype=float), np.array(b, dtype=float), equal_nan=True))
 
 
 def _perturbed(bars: list[dict], keep: callable, seed: int = 99) -> list[dict]:
@@ -178,14 +175,16 @@ def test_a_perturbing_the_open_hour_and_later_leaves_5m_rows_unchanged():
     sessions = _sessions()
     hours, close_of = _hour_bars(sessions)
     rows = _five_minute_bars(sessions)
-    base = _compute(rows, "5m", _by_close(hours, "5m", "1h"))
+    base = _compute(rows, "5m", hours)
     for pivot in (hours[3], hours[7], hours[14], hours[15]):  # 15: opening partial hour
         changed = _perturbed(hours, lambda b, p=pivot["ts"]: b["ts"] < p)
-        alt = _compute(rows, "5m", _by_close(changed, "5m", "1h"))
+        alt = _compute(rows, "5m", changed)
         checked = 0
         for ts, fv in base.items():
             if ts + FIVE_MIN <= close_of[pivot["ts"]]:
-                assert _ctf_values(fv, "ret_div_5m_1h") == _ctf_values(alt[ts], "ret_div_5m_1h"), ts
+                assert _same(
+                    _ctf_values(fv, "ret_div_5m_1h"), _ctf_values(alt[ts], "ret_div_5m_1h")
+                ), ts
                 checked += 1
         assert checked > 0
 
@@ -197,15 +196,17 @@ def test_b_perturbing_day_d_leaves_the_1h_rows_of_day_d_unchanged():
     sessions = _sessions()
     days, _ = _day_bars(sessions)
     rows = _hourly_ltf(sessions)
-    base = _compute(rows, "1h", _by_close(days, "1h", "1d"))
+    base = _compute(rows, "1h", days)
     for k in (4, 9):
         pivot = days[k]["ts"]
         changed = _perturbed(days, lambda b, p=pivot: b["ts"] < p)
-        alt = _compute(rows, "1h", _by_close(changed, "1h", "1d"))
+        alt = _compute(rows, "1h", changed)
         same_day = [ts for ts in base if ts.date() == pivot.date()]
         assert same_day
         for ts in same_day:
-            assert _ctf_values(base[ts], "ret_div_1h_1d") == _ctf_values(alt[ts], "ret_div_1h_1d")
+            assert _same(
+                _ctf_values(base[ts], "ret_div_1h_1d"), _ctf_values(alt[ts], "ret_div_1h_1d")
+            )
 
 
 # ---- Row reads only HTF bars closed by its bar end -----------------------------------------
@@ -213,7 +214,7 @@ def test_b_perturbing_day_d_leaves_the_1h_rows_of_day_d_unchanged():
 
 def _htf_bar_read_by(fv, htf_log_rets: dict[float, datetime]) -> datetime | None:
     """The HTF bar a row read, identified by its own log return (ret_lag_1 - ret_div_5m_1h)."""
-    if fv.ret_div_5m_1h is None:
+    if math.isnan(fv.ret_div_5m_1h):
         return None
     got = fv.ret_lag_1 - fv.ret_div_5m_1h
     nearest = min(htf_log_rets, key=lambda value: abs(value - got))
@@ -252,7 +253,7 @@ def _scenario(name: str):
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
 def test_row_reads_only_htf_bars_closed_by_its_bar_end(scenario):
     _sessions_, hours, close_of, rows = _scenario(scenario)
-    got = _compute(rows, "5m", _by_close(hours, "5m", "1h"))
+    got = _compute(rows, "5m", hours)
     by_bar = _htf_returns_by_bar(hours)
     n_read = 0
     for ts, fv in got.items():
@@ -270,7 +271,7 @@ def test_the_scenarios_cover_a_weekend_and_a_half_day():
     assert _sessions()[5].weekday() < 5
 
 
-def test_a_plain_dict_is_refused_by_ctf_row_inputs_and_compute_batch():
+def test_a_plain_dict_is_refused_by_ctf_row_inputs():
     hours, _ = _hour_bars(_sessions(3))
     series = _by_close(hours, "5m", "1h")
     plain = {
@@ -281,9 +282,6 @@ def test_a_plain_dict_is_refused_by_ctf_row_inputs_and_compute_batch():
     }
     with pytest.raises(TypeError, match="CtfSeries"):
         ctf_row_inputs(np.array([bar_ts_ns(hours[0]["ts"])]), plain)
-    rows = _five_minute_bars(_sessions(3))
-    with pytest.raises(TypeError, match="CtfSeries"):
-        FeatureFactory.compute_batch(rows, SYMBOL, "5m", FeatureCache(), CONFIG, ctf_by_ts=plain)
 
 
 def test_a_start_keyed_dict_is_the_refused_shape():
@@ -298,15 +296,6 @@ def test_a_start_keyed_dict_is_the_refused_shape():
         ctf_row_inputs(np.array([bar_ts_ns(hours[0]["ts"])]), start_keyed)
     with pytest.raises(TypeError, match="CtfSeries"):
         CtfSeries(*([np.zeros(1)] * 5))
-    with pytest.raises(TypeError, match="CtfSeries"):
-        FeatureFactory.compute_batch(
-            _five_minute_bars(_sessions(3)),
-            SYMBOL,
-            "5m",
-            FeatureCache(),
-            CONFIG,
-            ctf_by_ts=start_keyed,
-        )
 
 
 def test_ctf_series_is_an_immutable_close_keyed_object():
@@ -440,7 +429,6 @@ def test_real_rows_ignore_htf_bars_not_closed_by_their_bar_end(symbol, tf, htf_t
     duration = {"5m": FIVE_MIN, "15m": 3 * FIVE_MIN, "1h": HOUR}[tf]
     succ = _next_start(htf)
     ret_div = "ret_div_5m_1h" if tf in ("5m", "15m") else "ret_div_1h_1d"
-    base_ctf = _by_close(htf, tf, htf_tf)
     picks = np.unique(np.linspace(60, len(main) - 1, REAL_ROWS).astype(int))
     moved = 0
     for i in picks:
@@ -452,9 +440,9 @@ def test_real_rows_ignore_htf_bars_not_closed_by_their_bar_end(symbol, tf, htf_t
             return following is not None and following <= end
 
         changed = _perturbed(htf, closed, seed=int(i))
-        want = _compute(window, tf, base_ctf)[main[i]["ts"]]
-        got = _compute(window, tf, _by_close(changed, tf, htf_tf))[main[i]["ts"]]
-        if _ctf_values(want, ret_div) != _ctf_values(got, ret_div):
+        want = _compute(window, tf, htf)[main[i]["ts"]]
+        got = _compute(window, tf, changed)[main[i]["ts"]]
+        if not _same(_ctf_values(want, ret_div), _ctf_values(got, ret_div)):
             moved += 1
     assert moved == 0, f"{moved} of {len(picks)} rows read an HTF bar that was not closed"
 

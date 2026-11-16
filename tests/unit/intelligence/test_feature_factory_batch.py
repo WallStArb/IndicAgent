@@ -109,36 +109,6 @@ def _make_bars_dicts(n: int, seed: int = 0) -> list[dict]:
     ]
 
 
-class TestMinWindowDerived:
-    def test_compute_batch_produces_results_with_fewer_than_50_bars_warmup(self) -> None:
-        """With MIN_WINDOW=40 (derived), a 42-bar batch must emit results.
-
-        Before the fix MIN_WINDOW=50 was hardcoded. With MIN_WINDOW=40, bars[41]
-        has a full 40-bar bounded window available — cci_slow etc. are computable.
-        This test fails if MIN_WINDOW is still 50 (window_bars would only be 42
-        bars but the bounded window slice [42-50:43] = [-8:43] = bars[:43] = 43
-        bars, which is fine — so this test actually validates that the constant
-        responds to config, not a behavior change at this size).
-        """
-        import math
-
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(60)
-        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
-        assert len(results) > 0, "compute_batch returned no results"
-        # Every emitted row is a measurement or missing (None), never a fabricated
-        # neutral; the last row has the full window, so it must be a measurement.
-        for _, fv in results:
-            assert fv.cci_slow is None or math.isfinite(fv.cci_slow)
-            assert fv.aroon_slow is None or math.isfinite(fv.aroon_slow)
-        assert math.isfinite(results[-1][1].cci_slow)
-        assert math.isfinite(results[-1][1].aroon_slow)
-
-
 class TestWilderRsiSeries:
     def test_terminal_value_matches_rsi_simple(self) -> None:
         """_wilder_rsi_series[-1] must equal _rsi_simple for every prefix length."""
@@ -373,54 +343,6 @@ class TestPhase151BatchLiveParity:
     """compute_batch()'s last-bar output for all 10 new fields must equal
     compute()'s output on the same bar window."""
 
-    def test_last_bar_parity(self) -> None:
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        bars = _make_bars_dicts(80)
-
-        live_cache = FeatureCache()
-        live_fv = FeatureFactory.compute(bars, "SPY", "5m", live_cache, config)
-
-        batch_cache = FeatureCache()
-        batch_results = FeatureFactory.compute_batch(
-            bars, "SPY", "5m", batch_cache, config, warm_up_bars=5
-        )
-        assert batch_results, "compute_batch returned no results"
-        _, batch_fv_last = batch_results[-1]
-
-        for field in (
-            "quarter_cycle_sin",
-            "quarter_cycle_cos",
-            "tdom_sin",
-            "tdom_cos",
-            "minute_of_hour_sin",
-            "minute_of_hour_cos",
-            "momentum_z_velocity_fast",
-            "momentum_z_velocity_mid",
-            "momentum_z_velocity_slow",
-            "vwap_dev_sigma_velocity",
-            # Phase 151 Plan 03: recency/statistical atomics -- extends this
-            # same parity harness rather than duplicating it.
-            "bars_since_high_fast",
-            "bars_since_high_slow",
-            "bars_since_low_fast",
-            "bars_since_low_slow",
-            "bars_since_52w_high",
-            "bars_since_52w_low",
-            "bars_since_extreme_move_fast",
-            "bars_since_extreme_move_slow",
-            "bars_since_vol_spike_fast",
-            "bars_since_vol_spike_slow",
-            "abs_ret_autocorr_1",
-        ):
-            live_val = getattr(live_fv, field)
-            batch_val = getattr(batch_fv_last, field)
-            assert live_val == pytest.approx(
-                batch_val, abs=1e-8
-            ), f"{field}: live={live_val} batch={batch_val}"
-
 
 # ---------------------------------------------------------------------------
 # Phase 151 Plan 03: recency/statistical atomics (todo 180)
@@ -584,116 +506,6 @@ class TestPhase151CrossTfDivergences:
     """ret_div_5m_1h/ret_div_1h_1d are timeframe-pinned to tf=="5m"/"1h"
     respectively and None everywhere else -- even with a populated ctf_by_ts."""
 
-    def test_15m_never_populates_5m_1h_or_1h_1d_divergence(self) -> None:
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(60)
-        ctf_by_ts = CtfSeries.from_close_keyed(
-            {
-                bars[0]["ts"]: CtfRecord(
-                    ctf_momentum=0.1,
-                    ctf_vwap_align=1.0,
-                    ctf_regime_align=1.0,
-                    htf_last_log_ret=0.01,
-                )
-            }
-        )
-        results = FeatureFactory.compute_batch(
-            bars,
-            "SPY",
-            "15m",
-            cache,
-            config,
-            warm_up_bars=5,
-            ctf_by_ts=ctf_by_ts,
-        )
-        assert results, "compute_batch returned no results"
-        for _, fv in results:
-            assert fv.ret_div_5m_1h is None
-            assert fv.ret_div_1h_1d is None
-
-    def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
-        from src.intelligence.features.kernels.price import _ret_lag_1
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(60)
-        htf_last_log_ret = 0.0123456789
-        ctf_by_ts = CtfSeries.from_close_keyed(
-            {
-                bars[0]["ts"]: CtfRecord(
-                    ctf_momentum=0.2,
-                    ctf_vwap_align=1.0,
-                    ctf_regime_align=0.0,
-                    htf_last_log_ret=htf_last_log_ret,
-                )
-            }
-        )
-        results = FeatureFactory.compute_batch(
-            bars,
-            "SPY",
-            "5m",
-            cache,
-            config,
-            warm_up_bars=5,
-            ctf_by_ts=ctf_by_ts,
-        )
-        assert results, "compute_batch returned no results"
-
-        ts_to_idx = {b["ts"]: idx for idx, b in enumerate(bars)}
-        closes_arr = np.array([b["close"] for b in bars])
-        for bar_ts, fv in results:
-            i = ts_to_idx[bar_ts]
-            own_log_ret = _ret_lag_1(closes_arr[: i + 1])
-            expected = own_log_ret - htf_last_log_ret
-            assert fv.ret_div_5m_1h == pytest.approx(
-                expected, abs=1e-12
-            ), f"bar {i}: got {fv.ret_div_5m_1h}, expected {expected}"
-            assert fv.ret_div_1h_1d is None
-
-    def test_ctf_momentum_unaffected_by_ctf_values_extension(self) -> None:
-        """CtfRecord extended ctf_by_ts's payload from a 3-tuple to a 4-field
-        NamedTuple (Phase 151 Plan 05) -- the 3 pre-existing CTF features must
-        still read identically off the same source, byte-for-byte."""
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(60)
-        ctf_by_ts = CtfSeries.from_close_keyed(
-            {
-                bars[0]["ts"]: CtfRecord(
-                    ctf_momentum=0.42,
-                    ctf_vwap_align=-1.0,
-                    ctf_regime_align=1.0,
-                    htf_last_log_ret=0.005,
-                )
-            }
-        )
-        results = FeatureFactory.compute_batch(
-            bars,
-            "SPY",
-            "5m",
-            cache,
-            config,
-            warm_up_bars=5,
-            ctf_by_ts=ctf_by_ts,
-        )
-        assert results, "compute_batch returned no results"
-        for _, fv in results:
-            assert fv.ctf_momentum == pytest.approx(0.42, abs=1e-12)
-            assert fv.ctf_vwap_align == pytest.approx(-1.0, abs=1e-12)
-            assert fv.ctf_regime_align == pytest.approx(1.0, abs=1e-12)
-
 
 # ---------------------------------------------------------------------------
 # Phase 151 Plan 06: Theory-Motivated Interaction Layer
@@ -738,24 +550,6 @@ class TestTheoryMotivatedInteractionProducts:
             assert actual == pytest.approx(
                 expected, abs=1e-12
             ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
-
-    def test_batch_path_products_match_parents(self) -> None:
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(80)
-        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
-        assert results, "compute_batch returned no results"
-
-        for _, fv in results:
-            for compound, (p1, p2) in self._PAIRS.items():
-                expected = self._product(getattr(fv, p1), getattr(fv, p2))
-                actual = getattr(fv, compound)
-                assert actual == pytest.approx(
-                    expected, abs=1e-12
-                ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
 
     # No cross-path (live vs batch) parity test for these 10 compounds:
     # momentum_trend_product/reversion_hurst_product depend on cache.adx/
@@ -809,25 +603,6 @@ class TestStreamingNoFill:
     """A value the streaming factory cannot compute is missing (None), never a fabricated 0.0,
     1.0, 0.5 or canary constant (no_fill; todo 614 row 8)."""
 
-    def test_a_short_window_row_is_missing_not_a_fallback(self) -> None:
-        import dataclasses
-
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        results = FeatureFactory.compute_batch(
-            _make_bars_dicts(60), "SPY", "5m", FeatureCache(), config, warm_up_bars=1
-        )
-        first = results[0][1]
-        # The slow price-volume correlation has no full window on the first row.
-        assert first.price_vol_corr_slow is None
-        for _, fv in results:
-            for field in dataclasses.fields(fv):
-                value = getattr(fv, field.name)
-                if isinstance(value, float):
-                    assert math.isfinite(value), field.name
-
     def test_the_fallback_guard_is_gone(self) -> None:
         from src.intelligence import feature_factory
 
@@ -840,73 +615,3 @@ class TestGuardCountedReport:
     nothing at all when every counter is zero -- CLAUDE.md's never-log-
     per-row-over-the-corpus rule applied to compute_batch()'s up-to-36.7M-row
     loop."""
-
-    def test_emits_nothing_when_all_counts_zero(self) -> None:
-        from structlog.testing import capture_logs
-
-        from src.intelligence.feature_factory import (
-            _GUARD_COUNTED_SUBSTITUTIONS,
-            _report_guard_counted_substitutions,
-        )
-
-        _GUARD_COUNTED_SUBSTITUTIONS.clear()
-        with capture_logs() as cap_logs:
-            _report_guard_counted_substitutions()
-        assert cap_logs == []
-
-    def test_emits_one_line_naming_only_nonzero_compounds_then_resets(self) -> None:
-        from structlog.testing import capture_logs
-
-        from src.intelligence.feature_factory import (
-            _GUARD_COUNTED_SUBSTITUTIONS,
-            _guard_counted,
-            _report_guard_counted_substitutions,
-        )
-
-        _GUARD_COUNTED_SUBSTITUTIONS.clear()
-        _guard_counted(float("inf"), "momentum_vol_regime_product")
-        _guard_counted(float("inf"), "momentum_vol_regime_product")
-        _guard_counted(float("nan"), "vix_reversion_product")
-
-        with capture_logs() as cap_logs:
-            _report_guard_counted_substitutions()
-
-        assert len(cap_logs) == 1, f"expected exactly one log line, got {cap_logs}"
-        event = cap_logs[0]
-        assert event["event"] == "theory_interaction_guard_substitutions"
-        assert event["substitutions"] == {
-            "momentum_vol_regime_product": 2,
-            "vix_reversion_product": 1,
-        }
-
-        # Reset after the report -- a second report call with no new
-        # substitutions in between must emit nothing.
-        assert _GUARD_COUNTED_SUBSTITUTIONS == {}
-        with capture_logs() as cap_logs2:
-            _report_guard_counted_substitutions()
-        assert cap_logs2 == []
-
-    def test_compute_batch_calls_report_at_most_once_and_stays_silent_on_real_data(
-        self,
-    ) -> None:
-        """End-to-end: compute_batch() over realistic (non-overflowing)
-        synthetic data never fires the tripwire, so its call-site-wired
-        report is silent -- confirms the wiring without duplicating the
-        direct-unit-test content coverage above."""
-        from structlog.testing import capture_logs
-
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(80)
-
-        with capture_logs() as cap_logs:
-            results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
-
-        assert results, "compute_batch returned no results"
-        theory_events = [
-            e for e in cap_logs if e.get("event") == "theory_interaction_guard_substitutions"
-        ]
-        assert len(theory_events) == 0, "no substitutions expected on realistic synthetic data"

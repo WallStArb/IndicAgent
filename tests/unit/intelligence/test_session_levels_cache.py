@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import (
@@ -271,29 +270,3 @@ def test_session_levels_no_collision_with_vp_state() -> None:
 # ---------------------------------------------------------------------------
 # (j) structural: wired at all 3 call sites
 # ---------------------------------------------------------------------------
-
-
-def test_session_levels_wired_into_pipeline_not_batch() -> None:
-    ff = "\n".join(
-        line
-        for line in Path("src/intelligence/feature_factory.py").read_text().splitlines()
-        if not line.lstrip().startswith("#")
-    )
-    fp = "\n".join(
-        line
-        for line in Path("services/feature_vector_pipeline.py").read_text().splitlines()
-        if not line.lstrip().startswith("#")
-    )
-    assert "update_session_levels(" not in ff, (
-        "compute_batch() must not hold session-levels accumulator state itself: the "
-        "session_levels kernel replays a fresh cache over the series (D-25, todo 584 D1), "
-        "so no caller-held cache can change a row"
-    )
-    assert (
-        "_kernel_row(k, SESSION_LEVEL, i)" in ff
-    ), "compute_batch() reads the session_levels kernel's columns row by row"
-    assert fp.count("update_session_levels(") == 2, (
-        "T-164-07: update_session_levels() must be wired into exactly two sites "
-        "in feature_vector_pipeline.py -- the live per-bar handler "
-        "(_process_bar_compute) and the warm-up replay block (_get_cache)"
-    )

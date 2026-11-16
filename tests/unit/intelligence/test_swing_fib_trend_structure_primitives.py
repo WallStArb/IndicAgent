@@ -31,12 +31,8 @@ from src.intelligence.feature_factory import (
 )
 from src.intelligence.features.feature_vector import FeatureVector
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-    live_per_bar,
-)
+from tests.unit.intelligence.live_parity import live_last, live_per_bar
+from tests.unit.intelligence.production_series import series_columns
 
 N = 250
 RNG = np.random.default_rng(7)
@@ -246,40 +242,6 @@ def _finite(values: list[float | None]) -> list[float]:
 # ---------------------------------------------------------------------------
 # (a) Swing/trend non-constant across bars (batch path) -- direct todo-153 guard
 # ---------------------------------------------------------------------------
-
-
-def test_swing_trend_non_constant_batch(bars, cfg):
-    """Each of the 13 swing/trend fields must take at least 2 distinct
-    non-None values across the bars -- never a frozen placeholder.
-
-    structure_integrity is checked separately (bounded + non-null, not
-    strict non-constancy): it only changes value when the swing sequence
-    contains an "overlap" (a low pivot above a prior high, or vice versa),
-    a structurally rare pattern under ordinary zigzag price action -- not
-    a frozen-placeholder bug. Its own formula (1 - overlap_count/max_overlaps)
-    is exercised directly by test_structure_integrity_bounded below.
-    """
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == N - 1
-
-    for field in _SWING_FIELDS + _TREND_FIELDS:
-        if field == "structure_integrity":
-            continue
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1, f"{field} has <=1 non-None finite value"
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant"
-
-
-def test_structure_integrity_bounded(bars, cfg):
-    """structure_integrity must be non-null wherever trend fields are
-    computed, and always in [0, 1] -- the formula's own valid range."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    vals = [fv.structure_integrity for _, fv in results if fv.trend_direction is not None]
-    assert len(vals) > 1
-    assert all(v is not None for v in vals), "structure_integrity null while trend_direction is set"
-    assert all(0.0 <= v <= 1.0 for v in vals), "structure_integrity out of [0,1] range"
 
 
 # ---------------------------------------------------------------------------
@@ -532,19 +494,6 @@ def test_invalid_atr_keeps_the_swing_trend_fib_geometry_measured(cfg):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def bars_batch_and_live_last(bars, cfg) -> tuple[FeatureVector, FeatureVector]:
-    """Shared by the swing/trend and swing-momentum/fib parity tests."""
-    return batch_last(bars, cfg), live_last(bars, cfg)
-
-
-def test_swing_trend_live_batch_parity(bars_batch_and_live_last):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to
-    1e-6 -- catches a forgotten compute_batch() wiring update (T-165-08)."""
-    assert_live_batch_parity(_SWING_FIELDS, *bars_batch_and_live_last)
-    assert_live_batch_parity(_TREND_FIELDS, *bars_batch_and_live_last)
-
-
 # ---------------------------------------------------------------------------
 # (g) APR keys are live -- proves config values actually change output
 # ---------------------------------------------------------------------------
@@ -584,17 +533,6 @@ def test_trend_structure_apr_keys_are_live(bars):
 # (a) Swing-momentum non-constant across bars (batch path) -- direct
 # todo-153-shaped guard
 # ---------------------------------------------------------------------------
-
-
-def test_swing_momentum_non_constant_batch(bars, cfg):
-    """Each of the 8 swing-momentum fields must take at least 2 distinct
-    non-None values across the batch run -- never a frozen placeholder."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    for field in _SWING_MOMENTUM_FIELDS:
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1, f"{field} has <=1 non-None finite value"
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant"
 
 
 # ---------------------------------------------------------------------------
@@ -729,22 +667,6 @@ def test_swing_momentum_expanding_uses_last_three():
 # ---------------------------------------------------------------------------
 
 
-def test_swing_momentum_velocity_bias_encoding(bars, cfg):
-    """swing_velocity_bias must be one of {-1.0, 0.0, 1.0} or None across a
-    batch run, and no FeatureVector field anywhere holds a string (D-03:
-    the numeric encoding of the archived swing_velocity_trend string
-    enum)."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    seen_bias_values: set[float | None] = set()
-    for _, fv in results:
-        seen_bias_values.add(fv.swing_velocity_bias)
-        for f in dataclasses.fields(fv):
-            val = getattr(fv, f.name)
-            assert not isinstance(val, str), f"{f.name} holds a string value: {val!r}"
-    assert seen_bias_values <= {-1.0, 0.0, 1.0, None}, seen_bias_values
-
-
 # ---------------------------------------------------------------------------
 # (f) swing_volume_confirmation free field (D-15) -- reads volume, not price
 # ---------------------------------------------------------------------------
@@ -774,17 +696,6 @@ def test_swing_momentum_volume_confirmation_free_field(bars, cfg):
 # ---------------------------------------------------------------------------
 # (g) nearest_fib_ratio is always one of the 5 canonical ratios
 # ---------------------------------------------------------------------------
-
-
-def test_fib_ratio_is_canonical(bars, cfg):
-    """nearest_fib_ratio on a warm bar must be a member of the 5 canonical
-    Fibonacci retracement ratios, never an interpolated value."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    canonical = {0.236, 0.382, 0.500, 0.618, 0.786}
-    vals = {fv.nearest_fib_ratio for _, fv in results if fv.nearest_fib_ratio is not None}
-    assert vals, "no warm bar produced a nearest_fib_ratio"
-    assert vals <= canonical, f"non-canonical fib ratio(s): {vals - canonical}"
 
 
 # ---------------------------------------------------------------------------
@@ -874,13 +785,6 @@ def test_fib_discount_zone_boundaries():
 # ---------------------------------------------------------------------------
 # (k) live == batch parity for all 12 swing-momentum/fib fields
 # ---------------------------------------------------------------------------
-
-
-def test_swing_momentum_fib_live_batch_parity(bars_batch_and_live_last):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to
-    1e-6 -- catches a forgotten compute_batch() wiring update."""
-    assert_live_batch_parity(_SWING_MOMENTUM_FIELDS, *bars_batch_and_live_last)
-    assert_live_batch_parity(_FIB_FIELDS, *bars_batch_and_live_last)
 
 
 # ---------------------------------------------------------------------------
@@ -1026,9 +930,9 @@ def session_bars() -> list[dict]:
 
 
 @pytest.fixture(scope="module")
-def session_batch_5m(session_bars, cfg) -> list:
-    """compute_batch() over `session_bars` at 5m; the session-level tests only read it."""
-    return FeatureFactory.compute_batch(session_bars, "SPY", "5m", FeatureCache(), cfg)
+def session_batch_5m(session_bars, cfg) -> dict:
+    """Every column of `session_bars` at 5m through the corpus-rerun path; read-only."""
+    return series_columns(session_bars, "SPY", "5m", cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -1037,66 +941,9 @@ def session_batch_5m(session_bars, cfg) -> list:
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_non_constant_batch(session_batch_5m):
-    """Each of the 11 session-levels fields must take at least 2 distinct
-    non-None values across a multi-session, multi-week batch run -- except
-    gap_filled, for which both 0.0 and 1.0 must occur."""
-    results = session_batch_5m
-
-    for field in _SESSION_LEVEL_FIELDS:
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1, f"{field} has <=1 non-None finite value"
-        if field == "gap_filled":
-            assert {0.0, 1.0} <= set(vals), f"gap_filled did not take both 0.0/1.0: {set(vals)}"
-        else:
-            assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant"
-
-
 # ---------------------------------------------------------------------------
 # (b) Cold nullability -- shorter than one session, no week has ever rolled over
 # ---------------------------------------------------------------------------
-
-
-def test_session_levels_cold_nullability(cfg):
-    """A series shorter than one session (never rolls over, but ATR is warm)
-    must yield None for the prior-session trio, opening_gap_pct, gap_filled, all
-    five weekly fields, and nearest_level_dist_atr on the final bar (D-01)."""
-    base_ts = datetime(2026, 7, 6, 13, 30, tzinfo=UTC)  # Monday 9:30 ET, single session
-    n = 10
-    mids = [100.0 + 0.5 * i for i in range(n)]
-    bars_local = [
-        {
-            "open": m,
-            "high": m + 0.5,
-            "low": m - 0.5,
-            "close": m,
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=5 * i),
-        }
-        for i, m in enumerate(mids)
-    ]
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars_local, "SPY", "5m", cache, cfg)
-    fv = results[-1][1]
-
-    # no prior session close: no opening gap exists, so gap_filled is absent too (186-31 review
-    # round 5: the gap flag is object dependent, never a fabricated 0.0 before the first gap)
-    for field in (
-        "gap_filled",
-        "prior_session_high_dist_atr",
-        "prior_session_low_dist_atr",
-        "prior_session_close_dist_atr",
-        "opening_gap_pct",
-        "weekly_pivot_dist_atr",
-        "weekly_r1_dist_atr",
-        "weekly_r2_dist_atr",
-        "weekly_s1_dist_atr",
-        "weekly_s2_dist_atr",
-        "nearest_level_dist_atr",
-    ):
-        assert (
-            getattr(fv, field) is None
-        ), f"{field} is not None before any session/week has completed -- D-01"
 
 
 # ---------------------------------------------------------------------------
@@ -1247,9 +1094,8 @@ def test_session_levels_daily_presence(session_bars, session_batch_5m, cfg):
     """The session_levels kernel declares nothing not applicable on 1d (the overnight and Asian
     outputs that were are retired, todo 584 item 6): opening_gap_pct and the weekly five are
     present at both 5m and 1d."""
-    results_5m = session_batch_5m
-    cache_1d = FeatureCache()
-    results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", cache_1d, cfg)
+    columns_5m = session_batch_5m
+    columns_1d = series_columns(session_bars, "SPY", "1d", cfg)
 
     for field in (
         "opening_gap_pct",
@@ -1259,8 +1105,8 @@ def test_session_levels_daily_presence(session_bars, session_batch_5m, cfg):
         "weekly_s1_dist_atr",
         "weekly_s2_dist_atr",
     ):
-        n_5m = sum(1 for _, fv in results_5m if _present(getattr(fv, field)))
-        n_1d = sum(1 for _, fv in results_1d if _present(getattr(fv, field)))
+        n_5m = int(np.isfinite(columns_5m[field]).sum())
+        n_1d = int(np.isfinite(columns_1d[field]).sum())
         assert n_5m > 0 and n_1d > 0, f"{field} must be meaningful on both 5m and 1d"
 
 
@@ -1305,64 +1151,14 @@ def _build_gap_fill_bars() -> list[dict]:
     return day1 + day2
 
 
-def test_session_levels_gap_filled_column(cfg):
-    """gap_filled must be exactly 0.0 or 1.0 (never None once ATR is valid
-    and a prior session exists), both values must occur across a fixture
-    designed to gap and then fill, and it must flip to 1.0 on the bar that
-    first brackets the prior session close, then stay latched (D-13)."""
-    bars_local = _build_gap_fill_bars()
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars_local, "SPY", "5m", cache, cfg)
-
-    day2_start_ts = bars_local[8]["ts"]
-    day2_vals = [(ts, fv.gap_filled) for ts, fv in results if ts >= day2_start_ts]
-    assert day2_vals, "no day-2 bars produced a result"
-    assert all(
-        v is not None for _, v in day2_vals
-    ), "gap_filled must never be None once ATR is warm and a prior session exists"
-    seen = {v for _, v in day2_vals}
-    assert seen == {0.0, 1.0}, f"gap_filled must take both 0.0 and 1.0, saw {seen}"
-
-    first_fill_idx = next(i for i, (_, v) in enumerate(day2_vals) if v == 1.0)
-    assert all(
-        v == 1.0 for _, v in day2_vals[first_fill_idx:]
-    ), "gap_filled must stay latched at 1.0 once the prior close is bracketed"
-    assert all(
-        v == 0.0 for _, v in day2_vals[:first_fill_idx]
-    ), "gap_filled must be 0.0 before the first bracketing bar"
-
-
 # ---------------------------------------------------------------------------
 # (g) live == batch parity for all 11 session-levels fields
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_live_batch_parity(session_bars, session_batch_5m, cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6
-    on all 11 session-levels fields -- catches a forgotten compute_batch() wiring update."""
-    assert_live_batch_parity(
-        _SESSION_LEVEL_FIELDS, session_batch_5m[-1][1], live_last(session_bars, cfg)
-    )
-
-
 # ---------------------------------------------------------------------------
 # (h) THE phase-closing gate: all 36 Phase 165 columns produce real values
 # ---------------------------------------------------------------------------
-
-
-def test_phase165_all_41_fields_non_constant_batch(session_batch_5m):
-    """Every one of the 36 Phase 165 fields must take at least one non-None
-    value somewhere across a multi-session, multi-week batch run -- the
-    single test that catches a whole sub-scope silently failing to wire (the
-    todo-153 failure mode)."""
-    results = session_batch_5m
-
-    all_none: list[str] = []
-    for field in _PHASE_165_FIELDS:
-        vals = [getattr(fv, field) for _, fv in results if getattr(fv, field) is not None]
-        if not vals:
-            all_none.append(field)
-    assert not all_none, f"Phase 165 field(s) NEVER non-None across the run: {all_none}"
 
 
 # ---------------------------------------------------------------------------
@@ -1404,10 +1200,9 @@ def test_phase165_field_set_matches_registry():
     )
 
 
-def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, session_batch_5m, cfg):
+def test_every_1d_not_applicable_output_is_missing(session_bars, session_batch_5m, cfg):
     """Every feature column the registry declares not applicable on 1d (design D1) is missing
-    in compute_batch's 1d output on the same bars -- NaN on the kernel grid reaches the
-    FeatureVector as None, never a neutral 0.0/0.5 (the old VP call-site branch) or a _guard
+    in the 1d series on the same bars -- NaN on the kernel grid, never a neutral 0.0/0.5 (the old VP call-site branch) or a _guard
     fallback (the old plain-float calendar reads)."""
     from src.intelligence.features.contract.registry import default_registry
 
@@ -1417,14 +1212,13 @@ def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, sessio
     assert missing, "the declaration set must not be empty"
     assert not (missing & declared)
 
-    results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", FeatureCache(), cfg)
+    columns_1d = series_columns(session_bars, "SPY", "1d", cfg)
     leaked = [
-        f"{name}: {_present(getattr(fv, name))}"
-        for _, fv in results_1d
+        name
         for name in sorted(missing)
-        if _present(getattr(fv, name))
+        if name in columns_1d and np.isfinite(columns_1d[name]).any()
     ]
-    assert not leaked, f"declared-1d outputs with values in batch: {leaked[:5]}"
+    assert not leaked, f"declared-1d outputs with values on the 1d series: {leaked[:5]}"
 
     # The same columns carry values at 5m where the fixture supplies the inputs (session flags,
     # clock encodings and VP; the ret_div divergences need CTF externals the fixture
@@ -1438,6 +1232,6 @@ def test_every_1d_not_applicable_output_is_missing_in_batch(session_bars, sessio
         "va_position",
     )
     for name in populated_at_5m:
-        assert any(
-            _present(getattr(fv, name)) for _, fv in session_batch_5m
-        ), f"{name} never populated at tf='5m' -- fixture too short"
+        assert np.isfinite(
+            session_batch_5m[name]
+        ).any(), f"{name} never populated at tf='5m' -- fixture too short"

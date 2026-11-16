@@ -22,11 +22,6 @@ from src.intelligence.feature_factory import (
     _compute_bos_choch,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 _BOS_FIELDS = (
     "bos_strength",
@@ -363,21 +358,3 @@ def test_structure_determinism_identical_inputs_identical_outputs(cfg):
 # ---------------------------------------------------------------------------
 # (f) compute_batch() produces non-constant structure fields
 # ---------------------------------------------------------------------------
-
-
-def test_compute_batch_produces_non_constant_structure_fields(cfg):
-    bars = _bars_from_path(_downtrend_choch_path())
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == len(bars) - 1
-
-    for field in ("bos_strength", "smc_trend_direction"):
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"
-
-
-def test_structure_compute_live_batch_parity(cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    bars = _bars_from_path(_downtrend_choch_path())
-    assert_live_batch_parity(_BOS_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

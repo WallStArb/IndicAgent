@@ -1,13 +1,10 @@
-"""Reference compute path for the kernel parity fixture (186-08).
+"""Reference path for the kernel parity fixture (186-08, trimmed in R2 item 2).
 
-`compute_reference(case)` is the one entry point the parity test and the capture script call.
-It runs the legacy batch compute path (`FeatureFactory.compute_batch`; for real cases the
-steps the deleted `backfill_feature_factory._compute_symbol_tf` ran, inlined in
-`_compute_real`) and returns float32 columns in `_ALL_COLUMN_NAMES` order.
-
-186-12 and 186-15 repoint `compute_reference` at the registry path. The golden files never
-change in those plans: a behavior change is a separate commit that regenerates them with the
-reason recorded (D-25).
+`compute_production(case)` runs a stored real case through the path the corpus rerun runs and
+returns float32 columns in the golden manifest's order. The legacy batch path
+(`FeatureFactory.compute_batch`) that the first golden pinned was deleted in R2 item 2; the
+digests in `production_golden.json` carry the pin. The helpers below load the stored real inputs,
+digest outputs and build cases for the tests that still read the fixture.
 """
 
 from __future__ import annotations
@@ -103,7 +100,7 @@ def _load_npz(name: str, fixture_dir: Path = FIXTURE_DIR):
 
 def synthetic_inputs(fixture_dir: Path = FIXTURE_DIR) -> tuple[dict[str, np.ndarray], Any]:
     """Synthetic bar arrays (ts int64 ns, ohlcv float64) and the synthetic config."""
-    npz = _load_npz("synthetic_golden.npz", fixture_dir)
+    npz = _load_npz("synthetic_inputs.npz", fixture_dir)
     inputs = {f: npz[f"in/{f}"] for f in ("ts", "open", "high", "low", "close", "volume")}
     inputs["volume_basis"] = constant_volume_basis(len(inputs["ts"]))
     return inputs, build_config(load_manifest(fixture_dir)["synthetic_config"])
@@ -131,35 +128,6 @@ def _to_output(columns: tuple[str, ...], rows: list[tuple]) -> ReferenceOutput:
                 arr[i] = np.float32(value)
         numeric[name] = arr
     return ReferenceOutput(bar_ts=bar_ts, columns=numeric, text_columns=text)
-
-
-def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
-    from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
-    from src.intelligence.features.feature_vector_persistence import (
-        _ALL_COLUMN_NAMES,
-        feature_vector_to_insert_params,
-    )
-    from src.intelligence.features.kernels._cache_state import FeatureCache
-
-    inputs, config = synthetic_inputs(fixture_dir)
-    bars = _bars_from_arrays(*(inputs[f] for f in ("ts", "open", "high", "low", "close", "volume")))
-    results = FeatureFactory.compute_batch(
-        bars, case["symbol"], case["tf"], FeatureCache(), config, warm_up_bars=0
-    )
-    rows = [
-        feature_vector_to_insert_params(
-            symbol=case["symbol"],
-            tf=case["tf"],
-            bar_ts=ts,
-            pipeline_version=manifest["pipeline_version"],
-            feature_factory_version=FEATURE_FACTORY_VERSION,
-            regime=None,
-            regime_label_source="filtered",
-            vector=fv,
-        )
-        for ts, fv in results
-    ]
-    return _to_output(_ALL_COLUMN_NAMES, rows)
 
 
 @dataclass
@@ -202,54 +170,6 @@ def _real_case_inputs(case: dict, manifest: dict, fixture_dir: Path) -> _RealCas
         _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf) if period_start else None
     )
     return _RealCaseInputs(bars, htf_bars, config, cross_asset_by_date, beta_by_date, ctf_by_ts)
-
-
-def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
-    """The legacy batch path the golden fixture pins.
-
-    186-25 deleted `backfill_feature_factory._compute_symbol_tf` (the old compute stage the
-    fixture originally replayed); the same steps are inlined here against the still-live
-    legacy `FeatureFactory.compute_batch`, so the golden files never change (D-25). The
-    registry-parity fixture is a historical pin: the v2 rebuild computes through
-    `compute_kernels`, which 186-15's own tests pin separately.
-    """
-    from src.core.market_calendar import get_market_calendar
-    from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
-    from src.intelligence.features.feature_vector_persistence import (
-        _ALL_COLUMN_NAMES,
-        feature_vector_to_insert_params,
-    )
-    from src.intelligence.features.kernels._cache_state import FeatureCache
-
-    real = _real_case_inputs(case, manifest, fixture_dir)
-    symbol, tf = case["symbol"], case["tf"]
-    results = FeatureFactory.compute_batch(
-        real.bars,
-        symbol,
-        tf,
-        FeatureCache(),
-        real.config,
-        warm_up_bars=manifest["warm_up_bars"],
-        cross_asset_by_date=real.cross_asset_by_date,
-        ctf_by_ts=real.ctf_by_ts,
-        beta_by_date=real.beta_by_date,
-    )
-    calendar = get_market_calendar()
-    rows = [
-        feature_vector_to_insert_params(
-            symbol=symbol,
-            tf=tf,
-            bar_ts=ts,
-            pipeline_version=manifest["pipeline_version"],
-            feature_factory_version=FEATURE_FACTORY_VERSION,
-            regime=None,
-            regime_label_source="filtered",
-            vector=fv,
-        )
-        for ts, fv in results
-        if calendar.is_trading_bar("NYSE", ts, tf)
-    ]
-    return _to_output(_ALL_COLUMN_NAMES, rows)
 
 
 def compute_production(case: dict, fixture_dir: Path = FIXTURE_DIR) -> ReferenceOutput:
@@ -296,15 +216,6 @@ def compute_production(case: dict, fixture_dir: Path = FIXTURE_DIR) -> Reference
         if name in golden
     }
     return ReferenceOutput(bar_ts=arrays["ts"][keep], columns=columns, text_columns={})
-
-
-def compute_reference(case: dict, fixture_dir: Path = FIXTURE_DIR) -> ReferenceOutput:
-    manifest = load_manifest(fixture_dir)
-    if case["kind"] == "synthetic":
-        return _compute_synthetic(case, manifest, fixture_dir)
-    if case["kind"] == "real":
-        return _compute_real(case, manifest, fixture_dir)
-    raise ValueError(f"unknown case kind {case['kind']!r}")
 
 
 def canonical_float32(values: np.ndarray) -> np.ndarray:

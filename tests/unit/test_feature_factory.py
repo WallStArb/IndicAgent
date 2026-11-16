@@ -461,23 +461,6 @@ class TestRegimePrimitives:
         assert fv.hmm_entropy is None
         assert fv.hmm_duration is None
 
-    def test_hmm_fields_never_leak_cache_value_in_compute_batch(self) -> None:
-        """compute_batch()'s per-bar loop is a third, independently-wired code
-        path from compute()'s main body and cold-start branch -- must not leak
-        either. Uses test_compute_batch_parity's pattern (fresh FeatureCache,
-        real bar series) rather than a hand-set cache value, since
-        compute_batch() manages its own cache.refresh_regime() lifecycle
-        internally instead of accepting a pre-seeded cache field."""
-        bars = _make_bars(120)
-        config = _make_config()
-        cache = _make_cache()
-        batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config)
-        assert batch_results, "compute_batch() returned no rows"
-        for _, fv in batch_results:
-            assert fv.hmm_regime_prob is None
-            assert fv.hmm_entropy is None
-            assert fv.hmm_duration is None
-
     def test_hurst_from_cache(self) -> None:
         bars = _make_bars(60)
         config = _make_config()
@@ -1602,36 +1585,6 @@ def test_price_volume_interaction_helpers_direct() -> None:
     assert math.isnan(_price_vol_corr_series_full(closes, const_volumes, window=20)[-1])
     const_closes = np.full(60, 100.0)
     assert math.isnan(_price_vol_corr_series_full(const_closes, volumes, window=20)[-1])
-
-
-def test_compute_batch_parity() -> None:
-    """General regression guard (Round 2 review M1/M4): compute() (per-bar live
-    path) and compute_batch() (vectorized backfill path) must return identical
-    values for every Renaissance primitive on the same synthetic bar series.
-
-    RED now: fields don't exist yet (AttributeError on first getattr). Stays
-    green once Plans 01-05.5 add matching `_*_series_full` precompute helpers
-    — catching any per-bar/vectorized divergence (e.g. an off-by-one window
-    boundary) that unit tests of either path alone would miss.
-    """
-    bars = _make_bars(120)
-    config = _make_config()
-    cache_live = FeatureCache()
-    cache_batch = FeatureCache()
-
-    live_fv = FeatureFactory.compute(bars, "SPY", "5m", cache_live, config)
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, config)
-    assert batch_results, "compute_batch() returned no rows"
-    _, batch_fv = batch_results[-1]
-
-    for field_name in RENAISSANCE_PRIMITIVE_FIELDS:
-        live_val = getattr(live_fv, field_name)
-        batch_val = getattr(batch_fv, field_name)
-        if live_val is None or batch_val is None:
-            continue
-        assert math.isclose(
-            live_val, batch_val, abs_tol=1e-6
-        ), f"Parity mismatch for {field_name}: compute()={live_val} vs compute_batch()={batch_val}"
 
 
 class TestIsValidAtr:

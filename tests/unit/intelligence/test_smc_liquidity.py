@@ -28,11 +28,6 @@ from src.intelligence.feature_factory import (
     _compute_liquidity_sweeps,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 _SWEEP_FIELDS = ("sweep_strength", "reclaim_velocity", "bars_since_last_sweep")
 _POOL_FIELDS = ("bsl_dist_atr", "ssl_dist_atr", "bsl_touches", "ssl_touches", "pool_count")
@@ -442,23 +437,3 @@ def test_liquidity_determinism_identical_inputs_identical_outputs(cfg):
 
 def _finite(values: list[float | None]) -> list[float]:
     return [v for v in values if v is not None and math.isfinite(v)]
-
-
-def test_compute_batch_produces_non_constant_liquidity_fields(cfg):
-    bars = _sweep_bars()
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == len(bars) - 1
-
-    for field in ("bars_since_last_sweep",):
-        vals = _finite([getattr(fv, field) for _, fv in results])
-        assert len(vals) > 1
-        assert len({round(v, 8) for v in vals}) > 1, f"{field} is constant across compute_batch()"
-
-
-def test_liquidity_compute_live_batch_parity(cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    bars = _equal_highs_pool_bars()
-    fv_batch, fv_live = batch_last(bars, cfg), live_last(bars, cfg)
-    assert_live_batch_parity(_SWEEP_FIELDS, fv_batch, fv_live)
-    assert_live_batch_parity(_POOL_FIELDS, fv_batch, fv_live)

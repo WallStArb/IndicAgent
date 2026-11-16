@@ -17,15 +17,8 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.feature_vector import FeatureVector
-from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 # ---------------------------------------------------------------------------
 # Shared fixtures — single NY session, ~90 1m bars (well within the
@@ -230,54 +223,9 @@ def _finite(values: list[float | None]) -> list[float]:
     return [v for v in values if v is not None and math.isfinite(v)]
 
 
-def test_vp_fields_non_constant_batch(bars, cfg):
-    """poc_dist_atr/va_position/+ new fields must vary across bars, not freeze at defaults.
-
-    This is the direct regression for todo 153: pre-Phase-163, poc_dist_atr was
-    permanently 0.0 and va_position permanently 0.5 in the batch path.
-    """
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == N - 1  # compute_batch loop is range(1, len(bars))
-
-    poc_dist_atr_vals = _finite([fv.poc_dist_atr for _, fv in results])
-    assert len(poc_dist_atr_vals) > 1
-    assert len({round(v, 8) for v in poc_dist_atr_vals}) > 1, "poc_dist_atr is constant"
-    assert any(v != 0.0 for v in poc_dist_atr_vals), "poc_dist_atr frozen at 0.0"
-
-    va_position_vals = _finite([fv.va_position for _, fv in results])
-    assert len(va_position_vals) > 1
-    assert all(0.0 <= v <= 1.0 for v in va_position_vals), "va_position out of [0,1]"
-    assert len({round(v, 8) for v in va_position_vals}) > 1, "va_position is constant"
-    assert any(v != 0.5 for v in va_position_vals), "va_position frozen at 0.5"
-
-    distance_to_vah_atr_vals = _finite([fv.distance_to_vah_atr for _, fv in results])
-    assert len(distance_to_vah_atr_vals) > 1
-    assert len({round(v, 8) for v in distance_to_vah_atr_vals}) > 1, "distance_to_vah_atr constant"
-
-    poc_rolling_vals = [fv.poc_rolling_dist_atr for _, fv in results]
-    poc_rolling_finite = [v for v in poc_rolling_vals if v is not None]
-    assert len(poc_rolling_finite) > 1
-    assert all(math.isfinite(v) for v in poc_rolling_finite)
-    assert len({round(v, 8) for v in poc_rolling_finite}) > 1, "poc_rolling_dist_atr constant"
-
-    divergence_vals = [fv.poc_session_rolling_divergence_atr for _, fv in results]
-    divergence_finite = [v for v in divergence_vals if v is not None]
-    assert len(divergence_finite) > 1
-    assert all(math.isfinite(v) for v in divergence_finite)
-    assert (
-        len({round(v, 8) for v in divergence_finite}) > 1
-    ), "poc_session_rolling_divergence_atr constant"
-
-
 # ---------------------------------------------------------------------------
 # (b) live == batch parity
 # ---------------------------------------------------------------------------
-
-
-def test_live_batch_parity(bars, cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    assert_live_batch_parity(_VP_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))
 
 
 # ---------------------------------------------------------------------------
@@ -308,56 +256,3 @@ def test_no_raw_price_persisted():
 # backfill which reads unbounded history. Pins the known, documented gap
 # (migration 256) so it can't silently widen without a test failure.
 # ---------------------------------------------------------------------------
-
-
-def test_poc_rolling_dist_atr_live_cap_gap_cr02():
-    """poc_rolling_dist_atr computed over the full 220-bar history must differ
-    materially from the same computation restricted to the trailing 200 bars
-    (mirroring FeatureVectorPipeline's BarHistory(maxlen=200),
-    services/feature_vector_pipeline.py:126) when the excluded bars sit in a
-    distinctly different price regime -- the live pipeline never sees more
-    than 200 bars regardless of session_vp_rolling_window's configured value.
-    """
-    cfg = dataclasses.replace(_make_cfg(), session_vp_rolling_window=220)
-
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    rng = np.random.default_rng(256)
-    n = 220
-    # First 20 bars: low price regime (~90) at 10x the volume of the remaining
-    # 200 high-regime (~110) bars -- POC (volume-weighted argmax bucket) lands
-    # in the low regime for the FULL window (low regime's aggregate volume
-    # dominates), but the CAPPED window (last 200 bars) excludes the low
-    # regime entirely, so its POC lands in the high regime instead.
-    low_regime = 90.0 + rng.normal(0, 0.05, 20)
-    high_regime = 110.0 + rng.normal(0, 0.05, n - 20)
-    closes = np.concatenate([low_regime, high_regime])
-    volumes = np.concatenate([rng.uniform(9e5, 1.1e6, 20), rng.uniform(1e4, 1e5, n - 20)])
-    spread = 0.05
-    bars = [
-        {
-            "open": float(closes[i]),
-            "high": float(closes[i] + spread),
-            "low": float(closes[i] - spread),
-            "close": float(closes[i]),
-            "volume": float(volumes[i]),
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-
-    full_results = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), cfg)
-    _, fv_full = full_results[-1]
-
-    capped_results = FeatureFactory.compute_batch(bars[-200:], "SPY", "5m", FeatureCache(), cfg)
-    _, fv_capped = capped_results[-1]
-
-    assert fv_full.poc_rolling_dist_atr is not None
-    assert fv_capped.poc_rolling_dist_atr is not None
-    assert abs(fv_full.poc_rolling_dist_atr - fv_capped.poc_rolling_dist_atr) > 0.5, (
-        "poc_rolling_dist_atr should differ materially between the full-220-bar "
-        "and 200-bar-capped computations given the excluded regime split -- if "
-        "this assertion starts failing, either CR-02's live cap gap has been "
-        "closed (BarHistory's maxlen raised or session_vp_rolling_window capped "
-        "explicitly -- update migration 256 and this test) or the regime "
-        "separation is no longer large enough to distinguish it."
-    )

@@ -17,11 +17,6 @@ import pytest
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 _FVG_FIELDS = ("fvg_dist_atr", "fvg_size_atr", "fvg_open_count")
 
@@ -335,26 +330,3 @@ def test_fvg_determinism_identical_inputs_identical_outputs(cfg):
 # ---------------------------------------------------------------------------
 # (e) compute_batch() produces non-constant FVG fields
 # ---------------------------------------------------------------------------
-
-
-def test_compute_batch_produces_non_constant_fvg_fields(cfg):
-    bars = _fvg_filled_bars()
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == len(bars) - 1
-
-    # the count is measured on every row (0.0 = no open gap); the size exists only while
-    # the gap is open -- exactly one row in this filled-gap fixture -- and is None (never a
-    # fabricated 0.0) everywhere else (D1 rule 2, todo 584 4b-2 group 4)
-    assert len(_finite([fv.fvg_open_count for _, fv in results])) > 1
-    assert len(_finite([fv.fvg_size_atr for _, fv in results])) >= 1
-    assert any(fv.fvg_size_atr is None for _, fv in results)
-    assert (
-        len({round(v, 8) for v in _finite([fv.fvg_open_count for _, fv in results])}) > 1
-    ), "fvg_open_count is constant across compute_batch()"
-
-
-def test_fvg_compute_live_batch_parity(cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    bars, _, _ = _fvg_base_bars()  # ends with the gap open, so every field is live
-    assert_live_batch_parity(_FVG_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

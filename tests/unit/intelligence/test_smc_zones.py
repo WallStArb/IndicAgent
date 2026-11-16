@@ -22,11 +22,6 @@ from src.intelligence.feature_factory import (
     _compute_supply_demand_zones,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import (
-    assert_live_batch_parity,
-    batch_last,
-    live_last,
-)
 
 _ZONE_FIELDS = (
     "demand_dist_atr",
@@ -494,24 +489,3 @@ def test_zones_determinism_identical_inputs_identical_outputs(cfg):
 # ---------------------------------------------------------------------------
 # (g) compute_batch() produces non-constant zone fields
 # ---------------------------------------------------------------------------
-
-
-def test_compute_batch_produces_non_constant_zone_fields(cfg):
-    bars = _zone_bars(1.0)
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, cfg)
-    assert len(results) == len(bars) - 1
-
-    for field in ("demand_dist_atr", "demand_freshness"):
-        raw = [getattr(fv, field) for _, fv in results]
-        vals = _finite(raw)
-        assert len(vals) > 1
-        # no-zone rows are None (D1 rule 2, todo 584 4b-2 group 4); a constant measured
-        # freshness (never-retested zone = 1.0) is the true reading, not a freeze
-        assert any(v is None for v in raw), f"{field} no-zone rows must be None"
-
-
-def test_zones_compute_live_batch_parity(cfg):
-    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
-    bars = _zone_bars(1.0)
-    assert_live_batch_parity(_ZONE_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

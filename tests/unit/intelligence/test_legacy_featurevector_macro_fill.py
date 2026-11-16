@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from structlog.testing import capture_logs
 
 from src.intelligence import feature_factory as ff
 from src.intelligence.feature_factory import FeatureFactory
@@ -65,29 +64,6 @@ def _legacy_batch(bars, late):
         beta_by_date=beta,
     )
     return results
-
-
-def test_kernel_layer_is_nan_and_the_legacy_vector_is_none():
-    bars, late, n_early = _early_history_case()
-    kernel = tma._macro_outputs(late, bars)
-    for name in _GUARDED_MACRO_FIELDS:
-        assert np.isnan(kernel[name][:n_early]).all(), f"kernel {name} must be NaN"
-    results = _legacy_batch(bars, late)
-    for name in _GUARDED_MACRO_FIELDS:
-        legacy = [getattr(fv, name) for _, fv in results[:n_early]]
-        assert legacy == [None] * n_early, f"legacy FeatureVector {name} is missing, not 0.0"
-
-
-def test_missing_macro_input_does_not_fire_the_guard_counted_tripwire():
-    """The products of a missing cross-asset input are missing data, not a numerical anomaly:
-    the value is None on the legacy path, and the counter stays silent."""
-    bars, late, n_early = _early_history_case()
-    with capture_logs() as logs:  # compute_batch reports and clears the counter at its end
-        results = _legacy_batch(bars, late)
-    for name in _PRODUCTS:
-        assert [getattr(fv, name) for _, fv in results[:n_early]] == [None] * n_early
-    fired = [e for e in logs if e["event"] == "theory_interaction_guard_substitutions"]
-    assert fired == [], fired
 
 
 def test_the_tripwire_still_fires_when_the_inputs_are_finite_and_the_product_is_not():

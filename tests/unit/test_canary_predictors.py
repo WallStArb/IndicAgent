@@ -36,6 +36,7 @@ from src.intelligence.features.kernels.control import (
     _canary_noise_uniform,
     _canary_sub_seed,
 )
+from tests.unit.intelligence.production_series import series_columns
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -483,41 +484,29 @@ class TestFeatureFactoryIntegration:
         assert fv.canary_constant == _CANARY_CONSTANT_VALUE
         assert abs(fv.canary_near_constant - _CANARY_CONSTANT_VALUE) < 1e-3
 
-    def test_compute_batch_acausal_placebo_is_genuinely_forward_shifted(self) -> None:
-        """compute_batch() has the full-history closes array in scope --
-        the acausal placebo must reference real future data for interior
-        bars, not silently degrade to 0.0 like the live path."""
+    def test_series_acausal_placebo_is_genuinely_forward_shifted(self) -> None:
+        """The corpus-rerun path has the full-history closes array in scope: the acausal placebo
+        must reference real future data for interior bars, not degrade to 0.0 like the live path."""
         bars = _make_bars(60)
-        config = _make_config()
-        cache = FeatureCache()
-        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config)
+        columns = series_columns(bars, "SPY", "5m", _make_config())
         closes = np.array([b["close"] for b in bars], dtype=float)
-        # Pick an interior bar with headroom for i+2.
-        i = 30
-        _, fv = results[i - 1]  # compute_batch results are 0-indexed from bar 1
+        i = 30  # an interior bar with headroom for i+2
         expected = math.log(closes[i + 2] / closes[i + 1])
-        assert fv.canary_acausal_placebo == pytest.approx(expected)
-        assert fv.canary_acausal_placebo != 0.0
+        assert float(columns["canary_acausal_placebo"][i]) == pytest.approx(expected, rel=1e-5)
+        assert columns["canary_acausal_placebo"][i] != 0.0
 
-    def test_compute_batch_last_two_bars_fall_back_to_zero(self) -> None:
-        """No future data exists for the final 2 bars of a batch run --
-        must degrade to 0.0, never crash or fabricate a value."""
-        bars = _make_bars(60)
-        config = _make_config()
-        cache = FeatureCache()
-        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config)
-        _, fv_last = results[-1]
-        assert fv_last.canary_acausal_placebo == 0.0
+    def test_series_last_two_bars_have_no_future_and_fall_back_to_zero(self) -> None:
+        """No future data exists for the final 2 bars of a series: the value degrades to 0.0,
+        never crashes and never fabricates one."""
+        columns = series_columns(_make_bars(60), "SPY", "5m", _make_config())
+        assert columns["canary_acausal_placebo"][-1] == 0.0
 
-    def test_compute_batch_noise_canaries_are_deterministic_across_runs(self) -> None:
+    def test_series_noise_canaries_are_deterministic_across_runs(self) -> None:
         bars = _make_bars(40)
-        config = _make_config()
-        results1 = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), config)
-        results2 = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), config)
-        for (ts1, fv1), (ts2, fv2) in zip(results1, results2, strict=True):
-            assert ts1 == ts2
-            assert fv1.canary_noise_gaussian == fv2.canary_noise_gaussian
-            assert fv1.canary_noise_uniform == fv2.canary_noise_uniform
+        first = series_columns(bars, "SPY", "5m", _make_config())
+        second = series_columns(bars, "SPY", "5m", _make_config())
+        for name in ("canary_noise_gaussian", "canary_noise_uniform"):
+            assert np.array_equal(first[name], second[name], equal_nan=True), name
 
     def test_cold_start_vector_returns_all_canary_fields(self) -> None:
         """142.5 cold-start-crash precedent: _cold_start_vector must be
