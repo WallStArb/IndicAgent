@@ -724,6 +724,9 @@ def _apply_decided(
             nearby = cur.fetchall()
             replaced = row.get("supersedes")
             if replaced:
+                # Only the massive_reference insert carries a supersedes column.
+                if "recorded_at" not in row:
+                    raise ValueError(f"{row['symbol']} {day}: supersedes needs a recorded_at row")
                 cur.execute(_CURRENT_SQL, (replaced,))
                 check_redate(row, cur.fetchone())
             existing = [

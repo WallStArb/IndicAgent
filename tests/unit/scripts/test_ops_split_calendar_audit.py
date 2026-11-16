@@ -1094,6 +1094,23 @@ def test_a_redate_supersedes_the_row_that_would_block_it(tmp_path, monkeypatch):
         audit.main(["--apply-massive", str(path)])
 
 
+def test_a_supersedes_without_recorded_at_is_refused_not_double_inserted(monkeypatch):
+    # Only the massive_reference insert has a supersedes column; a calendar-path row carrying one
+    # would drop the old row from the blockers and add a second current row.
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: _RedateConn(_nearby()))
+    row = {
+        "symbol": "ITA",
+        "action_type": "split",
+        "effective_date": date(2026, 11, 4),
+        "factor": 3.0,
+        "supersedes": _OLD_ID,
+        "detail": {},
+    }
+    settings = type("S", (), {"database_url": "x"})()
+    with pytest.raises(ValueError, match="needs a recorded_at"):
+        audit._apply_decided(settings, lambda conn: [row], commit=False)
+
+
 # ---------------- the Massive witness (todo 608 before step 7) ----------------
 
 
