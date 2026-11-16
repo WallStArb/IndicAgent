@@ -51,9 +51,8 @@ the retired feature-vector writer persists the legacy v1 FeatureVector contract,
 570 dropped the only table that matched it; `feature_vectors` is now the kernel-registry table
 the rebuild writer fills through `bulk_load`. Its former producer, `feature_vector_pipeline`, computed
 with the v2.x feature factory, not the kernels (deleted in R2 item 5b). On feed return it
-first needs a producer that emits kernel outputs and on feed return it first needs a producer that emits kernel outputs and a writer
-that persists them through `FEATURE_VECTORS_COLUMNS` and `feature_vector_row_values` (its startup
-schema check refuses the new table until then).
+first needs a producer that emits kernel outputs and a writer
+that persists them through `FEATURE_VECTORS_COLUMNS` and `feature_vector_row_values`.
 
 **Why systemd (not Docker for services):**
 - Direct host integration (no container overhead for compute services)

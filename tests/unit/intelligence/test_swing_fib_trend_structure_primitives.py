@@ -771,7 +771,7 @@ def test_trend_structure_and_swing_momentum_stay_bounded(cfg):
     assert integrity.size and np.all(integrity >= 0.0) and np.all(integrity <= 1.0)
     assert position.size and np.all(position >= 0.0) and np.all(position <= 1.0)
     bias = columns["swing_velocity_bias"][np.isfinite(columns["swing_velocity_bias"])]
-    assert set(np.unique(bias)) <= {-1.0, 0.0, 1.0}
+    assert bias.size and set(np.unique(bias)) <= {-1.0, 0.0, 1.0}
 
 
 def test_fib_discount_zone_flips_at_the_band_edges():

@@ -37,6 +37,18 @@ def _last(bars, tf: str = "5m", config=None, symbol: str = "SPY") -> dict[str, f
     return {name: float(col[-1]) for name, col in columns.items()}
 
 
+def _wilder_atr(bars: list[dict], period: int) -> float:
+    """Wilder ATR after the last bar, computed here so the ATR-unit tests do not lean on the kernel."""
+    h = np.array([b["high"] for b in bars])
+    lo = np.array([b["low"] for b in bars])
+    c = np.array([b["close"] for b in bars])
+    tr = np.maximum(h[1:] - lo[1:], np.maximum(abs(h[1:] - c[:-1]), abs(lo[1:] - c[:-1])))
+    atr = tr[:period].mean()
+    for value in tr[period:]:
+        atr = (atr * (period - 1) + value) / period
+    return float(atr)
+
+
 def _extend(bars: list[dict], open_: float, high: float, low: float, close: float) -> None:
     bars.append(
         {
@@ -129,18 +141,24 @@ def _fvg_filled_bars() -> list[dict]:
     return bars
 
 
-def test_pp_fvg_fires_with_finite_atr_normalised_values(cfg):
-    row = _last(_fvg_unfilled_bars(), config=cfg)
-    assert math.isfinite(row["fvg_size_atr"]) and row["fvg_size_atr"] != 0.0
-    assert math.isfinite(row["fvg_dist_atr"])
-    assert row["fvg_open_count"] >= 1.0
+def test_pp_fvg_values_are_the_gap_in_atr_units(cfg):
+    bars, gap_bottom, gap_top = _fvg_base_bars()
+    price = bars[-1]["close"]
+    for _ in range(5):
+        close = price + 0.1
+        _extend(bars, price, max(price, close) + 0.1, min(price, close) - 0.05, close)
+        price = close
+    atr = _wilder_atr(bars, cfg.adx_period)
+    row = _last(bars, config=cfg)
+    assert math.isclose(row["fvg_size_atr"], (gap_top - gap_bottom) / atr, rel_tol=1e-4)
+    midpoint = (gap_top + gap_bottom) / 2.0
+    assert math.isclose(row["fvg_dist_atr"], abs(bars[-1]["close"] - midpoint) / atr, rel_tol=1e-4)
+    assert row["fvg_open_count"] == 1.0
 
 
-def test_pp_fvg_open_count_decrements_when_filled(cfg):
-    unfilled = _last(_fvg_unfilled_bars(), config=cfg)["fvg_open_count"]
-    filled = _last(_fvg_filled_bars(), config=cfg)["fvg_open_count"]
-    assert unfilled >= 1.0
-    assert filled < unfilled
+def test_pp_fvg_open_count_is_one_unfilled_and_zero_filled(cfg):
+    assert _last(_fvg_unfilled_bars(), config=cfg)["fvg_open_count"] == 1.0
+    assert _last(_fvg_filled_bars(), config=cfg)["fvg_open_count"] == 0.0
 
 
 def test_pp_fvg_is_deterministic(cfg):
@@ -207,8 +225,12 @@ def test_pp_sweep_fires_with_bounded_strength_and_velocity(cfg):
     row = _last(_sweep_bars(), config=cfg)
     assert 0.0 <= row["sweep_strength"] <= 1.0
     assert 0.0 <= row["reclaim_velocity"] <= 1.0
-    assert math.isfinite(row["bars_since_last_sweep"]) and row["bars_since_last_sweep"] >= 0.0
-    assert row["bars_since_last_sweep"] == float(int(row["bars_since_last_sweep"]))
+    # the sweep bar is followed by exactly three reclaim bars
+    assert row["bars_since_last_sweep"] == 3.0
+    bars = _sweep_bars()
+    price = bars[-1]["close"]
+    _extend(bars, price, price + 0.05, price - 0.05, price)
+    assert _last(bars, config=cfg)["bars_since_last_sweep"] == 4.0
 
 
 def test_pp_no_sweep_in_window_is_missing_not_zero(cfg):
@@ -305,6 +327,17 @@ def test_pp_breaker_and_mitigation_separate_a_broken_block_from_an_untouched_one
     assert untouched["breaker_block_active"] == 0.0
     assert untouched["ob_mitigation_pct"] == 0.0
     assert untouched["ob_mitigated_flag"] == 0.0
+
+
+def test_pp_breaker_is_active_when_the_close_sits_inside_the_flipped_zone(cfg):
+    """A bullish block mitigated then retested from below flips bearish; a close that ends
+    inside the zone (not above it) is active through the in-zone branch alone."""
+    bars = _ob_breaker_retest_bars()[:-1]
+    price = bars[-1]["close"]
+    _extend(bars, *_candle(price, price + 1.5))
+    row = _last(bars, config=cfg)
+    assert row["breaker_block_active"] == 1.0
+    assert row["breaker_dist_atr"] < 0.1  # next to the zone midpoint, not above the zone
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +560,25 @@ def test_pp_flat_series_has_no_object_columns_and_no_none():
     assert row["bars_since_52w_high"] == 0.0
 
 
+_VP_AND_POOL_COLUMNS = frozenset(
+    {"poc_dist_atr", "va_position", "price_in_value_area", "in_lvn", "bsl_dist_atr", "ssl_dist_atr"}
+)
+
+
+def test_pp_quiet_series_with_a_valid_atr_has_no_smc_or_sr_object(cfg):
+    """ATR is positive here, so a NaN is the missing object itself, never the ATR gate: the
+    gap, block, sweep, zone and break distances must not read 0.0 or a neutral."""
+    bars = _warmup_bars()
+    assert _wilder_atr(bars, cfg.adx_period) > 0.0
+    row = _last(bars, config=cfg)
+    for name in _NO_OBJECT_COLUMNS:
+        if name in _VP_AND_POOL_COLUMNS:  # the alternating wiggle does form profile levels
+            continue
+        assert math.isnan(row[name]), f"{name} must be missing when no object exists"
+    for name in _ZERO_STATE_COLUMNS:
+        assert row[name] == 0.0, name
+
+
 # ---------------------------------------------------------------------------
 # 1d volume profile, calendar
 # ---------------------------------------------------------------------------
@@ -542,13 +594,13 @@ def test_pp_1d_volume_profile_session_columns_are_missing():
 
 
 @pytest.mark.parametrize(
-    "hour,expected",
-    [(14, 1.0), (2, 0.0)],
-    ids=["rth_hour", "outside_session"],
+    "hour,minute,expected",
+    [(13, 29, 0.0), (13, 30, 1.0), (14, 0, 1.0), (19, 59, 1.0), (20, 0, 0.0), (2, 0, 0.0)],
+    ids=["before_open", "first_in_session", "rth_hour", "last_in_session", "first_out", "night"],
 )
-def test_pp_in_ny_session_follows_the_bar_hour(hour, expected):
+def test_pp_in_ny_session_follows_the_bar_time(hour, minute, expected):
     bars = _make_bars(WARMUP_BARS + 100)
-    bars[-1]["ts"] = datetime(2026, 6, 4, hour, 0, tzinfo=UTC)
+    bars[-1]["ts"] = datetime(2026, 6, 4, hour, minute, tzinfo=UTC)
     assert _last(bars, "5m", _make_config())["in_ny_session"] == expected
 
 
@@ -572,3 +624,26 @@ def test_pp_bounded_volume_columns_stay_in_range():
     assert cmf.size and np.all(cmf >= -1.0) and np.all(cmf <= 1.0)
     vol_ratio = columns["vol_ratio"][np.isfinite(columns["vol_ratio"])]
     assert vol_ratio.size and np.all(vol_ratio >= 0.0)
+
+
+def test_pp_efficiency_ratio_and_price_percentile_have_measured_values():
+    n = WARMUP_BARS + 100
+    base = datetime(2026, 1, 2, 9, 30, tzinfo=UTC)
+    rising = [
+        {
+            "open": 100.0 + i * 0.1,
+            "high": 100.0 + i * 0.1 + 0.05,
+            "low": 100.0 + i * 0.1 - 0.05,
+            "close": 100.0 + i * 0.1,
+            "volume": 1000.0,
+            "ts": base + timedelta(minutes=i),
+        }
+        for i in range(n)
+    ]
+    columns = series_columns(rising, "SPY", "5m", _make_config())
+    # perfectly linear movement is fully efficient and the close tops its trailing window
+    assert math.isclose(float(columns["efficiency_ratio_fast"][-1]), 1.0, abs_tol=1e-6)
+    assert math.isclose(float(columns["price_percentile_fast"][-1]), 1.0, abs_tol=1e-6)
+    row = _last(_make_bars(n), "5m", _make_config())
+    assert 0.0 < row["efficiency_ratio_fast"] < 1.0
+    assert 0.0 < row["price_percentile_fast"] <= 1.0
