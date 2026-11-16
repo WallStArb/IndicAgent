@@ -987,6 +987,113 @@ def test_an_incumbent_route_correction_never_blocks_the_markets_split(tmp_path, 
     assert _inserted(conn) == []
 
 
+# ---------------- redate: a recorded split dated sessions off the vendor's (todo 608 item 7) ------
+
+_OLD_ID = "2d79eb70-61f4-42a5-9f37-46151ae599b4"
+_ITA = {
+    "symbol": "ITA",
+    "effective_date": "2026-11-04",
+    "execution_date": "2026-11-05",
+    "factor": "3.0",
+    "supersedes": _OLD_ID,
+}
+_ITA_CURRENT = ("ITA", "split", date(2026, 11, 3), 3.0, "nightly_overlap")
+
+
+def _redate_file(tmp_path, name="redate_rows.csv", **edit):
+    path = tmp_path / name
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=[*audit.PROPOSED_COLUMNS, "supersedes"])
+        writer.writeheader()
+        writer.writerow({**_MASSIVE_LINE, **_ITA, **edit})
+    return path
+
+
+def test_a_redate_line_carries_the_row_it_replaces(tmp_path):
+    (row,) = audit.massive_rows(_redate_file(tmp_path), _RULE)
+    assert row["supersedes"] == _OLD_ID
+    (plain,) = audit.massive_rows(_massive_file(tmp_path), _RULE)
+    assert plain["supersedes"] is None
+    with pytest.raises(ValueError, match="badly formed"):
+        audit.massive_rows(_redate_file(tmp_path, supersedes="not-a-uuid"), _RULE)
+
+
+@pytest.mark.parametrize(
+    "current, match",
+    [
+        (None, "not a current"),
+        (("QUAL", "split", date(2026, 11, 3), 3.0, "nightly_overlap"), "is a split of QUAL"),
+        (("ITA", "reverse_split", date(2026, 11, 3), 3.0, "nightly_overlap"), "is a reverse_split"),
+        (("ITA", "split", date(2026, 11, 3), 3.0, "massive_reference"), "never replaces"),
+        (("ITA", "split", date(2026, 11, 3), 3.0, "calendar_audit"), "never replaces"),
+        (("ITA", "split", date(2026, 11, 3), 4.0, "nightly_overlap"), "has factor 4.0"),
+        (("ITA", "split", date(2026, 10, 1), 3.0, "nightly_overlap"), "outside the same event"),
+    ],
+)
+def test_a_redate_only_replaces_a_current_restatement_row_of_the_same_event(
+    tmp_path, current, match
+):
+    (row,) = audit.massive_rows(_redate_file(tmp_path), _RULE)
+    with pytest.raises(ValueError, match=match):
+        audit.check_redate(row, current)
+    audit.check_redate(row, _ITA_CURRENT)
+
+
+class _RedateCursor(_ServedCursor):
+    current: tuple | None = _ITA_CURRENT
+    nearby: list = []
+
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        if "FROM corporate_action_current" in sql:
+            self._row = self.current
+        elif "FROM corporate_action\n" in sql:
+            self._rows = self.nearby
+
+
+class _RedateConn(_ServedConn):
+    def __init__(self, nearby, current=_ITA_CURRENT):
+        super().__init__([("00000000-0000-0000-0000-000000000001", _SERVED)])
+        self.nearby, self.current = nearby, current
+
+    def cursor(self):
+        cur = _RedateCursor(self)
+        cur.served, cur.nearby, cur.current = self.served, self.nearby, self.current
+        return cur
+
+
+def _nearby(*extra):
+    # _EXISTING_SQL's columns: type, effective, factor, inferred_by, rows_file, action_id.
+    return [("split", date(2026, 11, 3), 3.0, "nightly_overlap", False, _OLD_ID), *extra]
+
+
+def test_a_redate_supersedes_the_row_that_would_block_it(tmp_path, monkeypatch):
+    path = _redate_file(tmp_path)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    conn = _RedateConn(_nearby())
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(path)]) == 0
+    (insert,) = _inserted(conn)
+    assert "supersedes" in insert and "'massive_reference'" in insert
+    # The same line without the replaced id is blocked by the recorded row (the guard stands).
+    plain = _redate_file(tmp_path, supersedes="", name="plain.csv")
+    conn = _RedateConn(_nearby())
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(plain)]) == 0
+    assert _inserted(conn) == []
+    # Another row of the event still blocks the redate: only the replaced one is set aside.
+    other = ("split", date(2026, 11, 4), 3.0, "seam_audit", False, "other-id")
+    conn = _RedateConn(_nearby(other))
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    assert audit.main(["--apply-massive", str(path)]) == 0
+    assert _inserted(conn) == []
+    # A replaced row that is not current refuses the whole batch.
+    conn = _RedateConn(_nearby(), current=None)
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    with pytest.raises(ValueError, match="not a current"):
+        audit.main(["--apply-massive", str(path)])
+
+
 # ---------------- the Massive witness (todo 608 before step 7) ----------------
 
 

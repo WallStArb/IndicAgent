@@ -47,7 +47,10 @@ Two steps, with the evidence a reviewed, committed file between them:
     knowable from its capture, never from its effective date). Every line is re-judged (a
     recognised split ratio under the current APR, the orientation, status proposed) and every
     cited reference_raw page must exist with that serve time; same transaction and existing-row
-    guard as --apply. --commit is refused unless the consumers know the code
+    guard as --apply. A line with a `supersedes` action id (the audit's redate_rows.csv: a
+    recorded split dated sessions off the vendor's, todo 608 item 7) replaces that current
+    restatement-source row instead of being blocked by it: the new row's `supersedes` names it,
+    so the current view shows only the vendor-dated row (check_redate). --commit is refused unless the consumers know the code
     (MASSIVE_REFERENCE_CONSUMERS_READY, from corporate_actions.SPLIT_SOURCES; d2-v6 reads it).
 --sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
     Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
@@ -85,6 +88,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
@@ -97,6 +101,7 @@ from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
     MASSIVE_REFERENCE_SOURCE,
+    RESTATEMENT_SOURCES,
     SPLIT_SOURCES,
     SplitRatioRule,
     is_market_split,
@@ -165,8 +170,14 @@ _RAW_SERIES_OF = {
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
-SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file' FROM corporate_action
+SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file', action_id::text
+FROM corporate_action
 WHERE symbol = %s AND effective_date BETWEEN %s::date - %s AND %s::date + %s
+"""
+# The row a redate replaces must still be current (neither superseded nor void).
+_CURRENT_SQL = """
+SELECT symbol, action_type, effective_date, factor, inferred_by FROM corporate_action_current
+WHERE action_id = %s::uuid
 """
 _INSERT_SQL = """
 INSERT INTO corporate_action
@@ -179,8 +190,8 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 _INSERT_MASSIVE_SQL = """
 INSERT INTO corporate_action
     (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids, detail,
-     recorded_at)
-VALUES (%s, %s, %s, %s, 'massive_reference', '{}'::uuid[], %s::jsonb, %s::timestamptz)
+     recorded_at, supersedes)
+VALUES (%s, %s, %s, %s, 'massive_reference', '{}'::uuid[], %s::jsonb, %s::timestamptz, %s::uuid)
 """
 _REFERENCE_SERVED_SQL = """
 SELECT reference_raw_id::text, served_at FROM reference_raw
@@ -665,6 +676,27 @@ def confirmed_rows(
     return rows
 
 
+def check_redate(row: Mapping[str, Any], current: Sequence[Any] | None) -> None:
+    """Refuse a redate unless the row it replaces is a current restatement-source split of the
+    same symbol, factor and event: a recorded date that is off by sessions (todo 608 item 7) is
+    corrected by superseding that row, never by a second row beside it, and a reference row, a
+    route correction or a void is not the replaced kind. `current` is its corporate_action_current
+    line (symbol, action_type, effective_date, factor, inferred_by) or None when it is not current.
+    """
+    where = f"{row['symbol']} {row['effective_date']}: superseded {row['supersedes']}"
+    if current is None:
+        raise ValueError(f"{where} is not a current corporate_action row")
+    symbol, kind, effective, factor, inferred_by = current
+    if symbol != row["symbol"] or kind != row["action_type"]:
+        raise ValueError(f"{where} is a {kind} of {symbol}")
+    if inferred_by not in RESTATEMENT_SOURCES:
+        raise ValueError(f"{where} was written by {inferred_by}, which a redate never replaces")
+    if not math.isclose(factor, row["factor"], rel_tol=1e-9):
+        raise ValueError(f"{where} has factor {factor}, not {row['factor']}")
+    if abs((effective - row["effective_date"]).days) > SAME_EVENT_DAYS:
+        raise ValueError(f"{where} is dated {effective}, outside the same event")
+
+
 def _apply_decided(
     settings: Settings,
     build_rows: Callable[[Any], Sequence[dict[str, Any]]],
@@ -689,10 +721,16 @@ def _apply_decided(
         for row in rows:
             day, window = row["effective_date"], SAME_EVENT_DAYS
             cur.execute(_EXISTING_SQL, (row["symbol"], day, window, day, window))
+            nearby = cur.fetchall()
+            replaced = row.get("supersedes")
+            if replaced:
+                cur.execute(_CURRENT_SQL, (replaced,))
+                check_redate(row, cur.fetchone())
             existing = [
                 e
-                for e in cur.fetchall()
-                if not market_splits_only or is_market_split(e[3], operator_rows_file=e[4])
+                for e in nearby
+                if (not market_splits_only or is_market_split(e[3], operator_rows_file=e[4]))
+                and not (replaced and e[5] == replaced)
             ]
             if existing:
                 print(f"skipped {row['symbol']} {day} x{row['factor']}: decided by {existing}")
@@ -705,7 +743,7 @@ def _apply_decided(
                     day,
                     row["factor"],
                     json.dumps(row["detail"], sort_keys=True),
-                    *((row["recorded_at"],) if "recorded_at" in row else ()),
+                    *((row["recorded_at"], replaced) if "recorded_at" in row else ()),
                 ),
             )
             written += 1
@@ -832,6 +870,12 @@ def massive_rows(
                 raise ValueError(f"{where}: effective date not before execution {execution}")
             if listed_spin_off(symbol, execution, excluded):
                 raise ValueError(f"{where}: an operator-listed spin-off, never a split row")
+            replaced = (line.get("supersedes") or "").strip() or None
+            if replaced is not None:
+                try:
+                    UUID(replaced)
+                except ValueError:
+                    raise ValueError(f"{where}: supersedes {replaced!r} is badly formed") from None
             recorded_at = datetime.fromisoformat(line["recorded_at"])
             if recorded_at.tzinfo is None:
                 raise ValueError(f"{where}: recorded_at {line['recorded_at']!r} has no zone")
@@ -845,6 +889,7 @@ def massive_rows(
                     "effective_date": day,
                     "factor": ratio,
                     "recorded_at": recorded_at,
+                    "supersedes": replaced,
                     "detail": {
                         "event_id": line["event_id"],
                         "execution_date": execution.isoformat(),

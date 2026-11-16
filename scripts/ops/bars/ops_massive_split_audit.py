@@ -14,6 +14,8 @@ the database. Outputs land in --out (default data/massive_split_audit/<capture d
 - proposed_rows.csv: the massive_only events the tape confirms, as corporate_action rows
   (inferred_by massive_reference, recorded_at = the capture's served_at), the input of
   ops_split_calendar_audit --apply-massive; review_rows.csv: the massive_only events it does not;
+- redate_rows.csv: the date_offset pairs the tape confirms at the vendor's date, as the same lines
+  plus the recorded row each replaces (`supersedes`); --apply-massive supersedes it;
 - disagreement_ledger.csv: every date_offset, ratio_disagree, ours_only and tape-contradicted
   case with its witnesses, in the design's precedence order (section 8a amendment);
 - seams_active.csv: every level step of every active instrument's stitched Massive series,
@@ -78,6 +80,8 @@ from scripts.ops.bars.ops_split_calendar_audit import (  # noqa: E402
 from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_apr  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
+    RESTATEMENT_SOURCES,
+    SplitRatioRule,
     is_market_split,
     recognised_split_ratio,
 )
@@ -858,7 +862,13 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
             # The exact ratio the writer re-judges (a vendor 1.333 is 4/3).
             line["factor"] = recognised_split_ratio(m.vendor.factor, params.ratio_rule)
         (proposed if status == "proposed" else review).append(line)
+    redate = [
+        redate_line(m, ref.served_at, row)
+        for m, row in member_rows
+        if redate_ok(m, row["tape"], params.ratio_rule)
+    ]
     write_csv(out / "proposed_rows.csv", proposed, PROPOSED_COLUMNS)
+    write_csv(out / "redate_rows.csv", redate, REDATE_COLUMNS)
     write_csv(out / "review_rows.csv", review, PROPOSED_COLUMNS)
 
     # (5) Seams: every string, then every active instrument's stitched series, the latter read
@@ -954,6 +964,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
             for o in partition_counts(members)
         },
         "proposed_rows": len(proposed),
+        "redate_rows": len(redate),
         "proposed_guard_skips": sum(1 for p in proposed if p["guard_skip"]),
         "review_rows": len(review),
         "review_by_status": dict(Counter(r["status"] for r in review)),
@@ -1056,6 +1067,39 @@ def proposed_line(
         "tape": row["tape"],
         "tape_level_step": row["tape_level_step"],
     }
+
+
+# The redate file: the proposed columns plus the recorded row each line replaces.
+REDATE_COLUMNS = (*PROPOSED_COLUMNS, "supersedes")
+
+
+def redate_ok(m: ReconciledSplit, tape: str, rule: SplitRatioRule) -> bool:
+    """Whether a date_offset pair is a redate: the vendor's own tape steps at the vendor's date
+    (the same witness a proposal needs), the factor is a recognised ratio, and the recorded row
+    is a restatement-source market split (a detector's guess at the date; a reference row or a
+    route correction is never replaced)."""
+    return (
+        m.outcome == "date_offset"
+        and m.vendor is not None
+        and m.ours is not None
+        and tape == "tape_step"
+        and recognised_split_ratio(m.vendor.factor, rule) is not None
+        and m.ours.inferred_by in RESTATEMENT_SOURCES
+        and not m.ours.vendor_correction
+    )
+
+
+def redate_line(
+    m: ReconciledSplit, served_at: Mapping[str, datetime], row: Mapping[str, Any]
+) -> dict[str, Any]:
+    """A date_offset pair as a proposed line that supersedes the recorded row, at the exact ratio
+    the writer re-judges; its recorded_at is the vendor pages' serve time, as for any proposal."""
+    assert m.ours is not None
+    line = proposed_line(m, served_at, row)
+    line["status"] = "proposed"
+    line["factor"] = m.ours.factor
+    line["supersedes"] = m.ours.action_id
+    return line
 
 
 # The design's precedence order (section 8a amendment): a filing-dated corporate action first,
