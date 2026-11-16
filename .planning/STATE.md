@@ -108,7 +108,8 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 - Pending adoptions (list in `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, lead recommends adopt for each):
   the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout, A1 (daily residual universe), A2 (sixth member)
   the E23 ledger entry for the three published-prior families, and the family 9 registration with E26
-  (`docs/plans/2026-11-15-family9-52week-high-prereg-draft.md`). Nothing is built or run until adopted.
+  (`docs/plans/2026-11-15-family9-52week-high-prereg-draft.md`), and the stage 2 closed-list membership amendment for months after the
+  last Massive list (`docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md`). Nothing is built or run until adopted.
 - Todo 600 item 1: keep or drop the HX370 copy of the Massive archive.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members
   (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.

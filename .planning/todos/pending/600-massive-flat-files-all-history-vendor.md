@@ -146,3 +146,5 @@ Consequences: the 8a runner (branch massive-8a-load-checks) compares against IBK
 
 Items 5, 7, 9 and 10 are laid out with dated steps, commands, what cannot be recaptured and a renewal recommendation (owner decision) in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
 
+Lead ruling 2026-11-15 (indicagent-52, on the lapse checklist): no filings capture from Massive. If filings are ever needed, EDGAR direct is the source (free, acceptance timestamps, does not lapse), as its own todo. Item 7 closes on this ruling once the owner's renew-or-lapse call is recorded.
+
