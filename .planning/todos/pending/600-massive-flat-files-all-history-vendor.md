@@ -141,3 +141,8 @@ Consequences: the 8a runner (branch massive-8a-load-checks) compares against IBK
 8. Pin the seam. `archive_end_of` reads the live manifest, so any added file moves the Massive-to-Alpaca seam (files through 2026-11-13 give 2026-11-16; the runbook sets `SEAM=2026-11-12`; the B4 evidence used an earlier end). Step 7 takes one fixed seam date through an explicit override on the plan and the delta script, recorded in the runbook, and B4 is re-ruled against that date. Raw loads and manifest growth after it are harmless; a seam that drifts under a gate is not. Check which seam the B4 delta used before ruling.
 9. Deadline list, all before the plan lapses about 2026-12-10: renewal decision (owner; it decides whether the nightly leaf runs and whether canonical stays on Alpaca after the seam); filings sizing and decision by 2026-12-01 (item 7); entitlement probe (one request per candidate REST endpoint family not in the 2026-11-10 capture; a 403 means not entitled) and a final dated reference capture about 2026-12-07 into a new `captured_at` directory; final file catch-up and `massive_download --verify` just before the lapse; first off-site copy (todo 618).
 10. Nightly leaf. `scripts/ops/bars/ops_massive_nightly.py` keeps the archive and raw current. Scope ruled 2026-11-14: new days only, never a month older than the newest raw day, a vendor repost writes an ETag drift report and a warning and is never reloaded unattended, timer off until the renewal call.
+
+## Lapse checklist 2026-11-15
+
+Items 5, 7, 9 and 10 are laid out with dated steps, commands, what cannot be recaptured and a renewal recommendation (owner decision) in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+
