@@ -21,7 +21,7 @@ Real-time Server-Sent Events streams
 
 ## Plugin Reference
 
-**ARCHIVED (v2.x, no live consumer since 2026-07-02).** The I1-I7 plugin pipeline below is not the platform's live compute path — that's Feature Factory (`src/intelligence/feature_factory.py`, run by the retired feature-vector pipeline). Kept for historical reference.
+**ARCHIVED (v2.x, no live consumer since 2026-07-02).** The I1-I7 plugin pipeline below is not the platform's live compute path — that's Feature Factory (`src/intelligence/features/kernels/`, run by the retired feature-vector pipeline). Kept for historical reference.
 
 **[Plugin Overview](plugins/overview.md)**
 Plugin protocol, registration, lifecycle, tier source-code locations — archived system, described accurately as of 2026-09-04

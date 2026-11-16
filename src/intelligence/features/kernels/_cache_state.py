@@ -815,7 +815,7 @@ def _compute_session_directional_nodes(
 
 # NOTE: the CTF (cross-timeframe) higher-timeframe source mapping formerly lived here
 # as a hardcoded module constant (_CTF_HIGHER_TF). Migrated to APR (todo 242, migration
-# 305) -- now FeatureFactoryConfig.ctf_higher_tf_map (src/intelligence/feature_factory.py,
+# 305) -- now FeatureFactoryConfig.ctf_higher_tf_map (the deleted streaming feature_factory,
 # feature.ctf.higher_tf_map). backfill_feature_factory.py and feature_vector_pipeline.py
 # both read it from their own FeatureFactoryConfig instance, not from this module.
 

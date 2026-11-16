@@ -39,11 +39,6 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: the sole writer (through bulk_load); the hit is its kill-procedure comment "
         "that finds a leftover COPY backend."
     ),
-    "src/intelligence/features/feature_vector_persistence.py": (
-        "DORMANT: FEATURE_VECTOR_INSERT_SQL, the legacy v1 contract of the retired streaming "
-        "writer (R2 item 5a); nothing runs it, and it goes with the FeatureVector dataclass in "
-        "the next step of the retirement."
-    ),
 }
 
 _REMEDY = (

@@ -21,6 +21,7 @@ from src.intelligence.features.contract.registry import (
     discover_kernels,
     feature_memory_bars,
 )
+from src.intelligence.features.feature_vector import FeatureVector
 
 # Memory callables only read named attributes; a stand-in avoids the 113-field config.
 CFG = SimpleNamespace(window=20)
@@ -279,12 +280,11 @@ def test_feature_columns_plus_unowned_equal_schema():
     exactly: nothing unowned is unlisted and nothing listed is also owned."""
     from src.intelligence.features.contract.registry import KERNEL_ONLY_COLUMNS, UNOWNED_COLUMNS
     from src.intelligence.features.feature_vector_persistence import (
-        NUMERIC_COLUMN_NAMES,
         REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
         REGIME_WRITER_OWNED_COLUMN_NAMES,
     )
 
-    numeric = set(NUMERIC_COLUMN_NAMES)
+    numeric = {f.name for f in dataclasses.fields(FeatureVector)}
     owned = set(default_registry().feature_columns())
     regime_writer_columns = {
         *REGIME_WRITER_OWNED_COLUMN_NAMES,

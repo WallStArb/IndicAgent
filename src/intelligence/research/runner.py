@@ -111,7 +111,7 @@ from src.intelligence.research.timing import e17_memory, timing_test
 from src.intelligence.research.transforms import PanelTransform
 
 if TYPE_CHECKING:
-    from src.intelligence.feature_factory import FeatureFactoryConfig
+    from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
 

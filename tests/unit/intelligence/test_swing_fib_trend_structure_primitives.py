@@ -12,26 +12,13 @@ phase-wide gate proving all 36 columns produce real values.
 
 from __future__ import annotations
 
-import dataclasses
 import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
-import psycopg
 import pytest
 
-from src.intelligence.feature_factory import (
-    FEATURE_VECTOR_DOMAIN,
-    FeatureFactory,
-    FeatureFactoryConfig,
-    _compute_fib_zones,
-    _compute_swing_momentum,
-    _compute_swing_structure,
-    _compute_trend_structure,
-)
-from src.intelligence.features.feature_vector import FeatureVector
-from src.intelligence.features.kernels._cache_state import FeatureCache
-from tests.unit.intelligence.live_parity import live_last, live_per_bar
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from tests.unit.intelligence.production_series import series_columns
 
 N = 250
@@ -291,66 +278,9 @@ def _build_swing_micro_case_bars() -> list[dict]:
     ]
 
 
-def test_swing_dist_in_atr_units(cfg):
-    """A confirmed swing high exactly 1 ATR above close must yield
-    swing_high_dist_atr == 1.0, pinning the ATR conversion rather than just
-    asserting finiteness."""
-    micro_bars = _build_swing_micro_case_bars()
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(micro_bars, "SPY", "5m", cache, cfg)
-
-    assert fv.swing_high_dist_atr is not None
-    assert math.isfinite(fv.swing_high_dist_atr)
-    close_ = micro_bars[-1]["close"]
-    swing_high_price = 102.5
-    atr_val = 1.0
-    expected = (swing_high_price - close_) / atr_val
-    assert math.isclose(fv.swing_high_dist_atr, expected, abs_tol=1e-6)
-    assert math.isclose(fv.swing_high_dist_atr, 1.0, abs_tol=1e-6)
-
-
 # ---------------------------------------------------------------------------
 # (c) Trend-structure nullability -- THE most important test in this phase
 # ---------------------------------------------------------------------------
-
-
-def test_trend_structure_nullability(cfg):
-    """Fewer than 2 confirmed swing highs/lows must yield ALL-None trend
-    fields (D-01) -- never the archived plugin's fake trend_direction=0.0 /
-    price_position=0.5 "no signal" placeholders (the todo-153 failure shape).
-    """
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    # Monotonically rising ramp: no interior peaks, so find_peaks/find_troughs
-    # confirm zero (or at most one) swing high/low -- exactly the
-    # insufficient-data branch this test targets.
-    n = 60
-    closes = 100.0 + np.arange(n) * 0.5
-    bars = [
-        {
-            "open": float(closes[i] - 0.05),
-            "high": float(closes[i] + 0.10),
-            "low": float(closes[i] - 0.10),
-            "close": float(closes[i]),
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
-
-    for field in _TREND_FIELDS:
-        assert getattr(fv, field) is None, (
-            f"{field} is not None on a monotonic ramp (< 2 confirmed swings) -- "
-            f"D-01/todo-153: a fake-but-numeric placeholder is a silent-wrong-answer bug, "
-            f"not a measurement"
-        )
-    assert (
-        fv.trend_direction is None
-    ), "trend_direction must be None, not the archived 0.0 default (D-01/todo-153)"
-    assert (
-        fv.price_position is None
-    ), "price_position must be None, not the archived 0.5 default (D-01/todo-153)"
 
 
 # ---------------------------------------------------------------------------
@@ -358,70 +288,9 @@ def test_trend_structure_nullability(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_swing_detector_partial_nullability(cfg):
-    """With exactly one confirmed swing high, distance/age must be real
-    floats (a single pivot IS measurable) while type/pattern (which need a
-    second pivot to classify higher-high vs. lower-high) must be None."""
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    n = 40
-    # Rise to a single peak then fall away -- exactly one confirmed swing
-    # high (the peak), zero confirmed swing lows (monotonic segments on
-    # either side never confirm a trough within the window).
-    rise = np.arange(0, 20) * 0.3
-    fall = rise[-1] - np.arange(1, 21) * 0.3
-    closes = np.concatenate([100.0 + rise, 100.0 + fall])[:n]
-    bars = [
-        {
-            "open": float(closes[i] - 0.02),
-            "high": float(closes[i] + 0.05),
-            "low": float(closes[i] - 0.05),
-            "close": float(closes[i]),
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
-
-    assert fv.swing_high_dist_atr is not None, "single confirmed swing high should be measurable"
-    assert (
-        fv.swing_high_age_bars is not None
-    ), "single confirmed swing high age should be measurable"
-    assert (
-        fv.swing_high_type is None
-    ), "swing_high_type needs a 2nd peak to classify -- must be None"
-    assert fv.swing_pattern is None, "swing_pattern needs both high+low type -- must be None"
-
-
 # ---------------------------------------------------------------------------
 # (e) No confirmed pivots -- all 13 fields None (the no-object case)
 # ---------------------------------------------------------------------------
-
-
-def test_swing_trend_flat_series_all_none(cfg):
-    """A flat-price series has no confirmed pivots (find_peaks needs one strict
-    inequality): all 13 swing/trend fields are None -- the no-object case (D-01),
-    not an ATR state. ATR == 0 vs a valid ATR reads the same, because swing
-    detection never touches the ATR (186-31 review round 6)."""
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    n = 60
-    bars = [
-        {
-            "open": 100.0,
-            "high": 100.0,
-            "low": 100.0,
-            "close": 100.0,
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(bars, "SPY", "5m", cache, cfg)
-
-    for field in _SWING_FIELDS + _TREND_FIELDS:
-        assert getattr(fv, field) is None, f"{field} is not None on a flat (pivotless) series"
 
 
 def _random_walk_arrays(n=400, seed=5):
@@ -435,60 +304,6 @@ def _random_walk_arrays(n=400, seed=5):
     return high, low, float(close[-1])
 
 
-def test_invalid_atr_keeps_the_swing_trend_fib_geometry_measured(cfg):
-    """An invalid ATR is not absence (186-31 review round 5), and the swing/trend/fib
-    geometry never touches it (round 6): with ATR == 0 against 1.0 on the same bars, swing
-    detection, types, pattern and ages, direction, leg count, integrity, price position,
-    duration, the fib ratio and the discount-zone flag are all unchanged, while the two swing
-    distances, trend_strength, nearest_fib_dist_atr and fib_cluster_strength are NaN (present,
-    unmeasured) where their object exists."""
-    high, low, close_ = _random_walk_arrays()
-
-    valid = _compute_swing_structure(high, low, close_, 1.0, cfg)
-    invalid = _compute_swing_structure(high, low, close_, 0.0, cfg)
-    assert (
-        valid["swing_high_price"] is not None and valid["swing_low_price"] is not None
-    ), "fixture guard: the random walk must hold confirmed swings"
-    assert (
-        valid["swing_high_type"] is not None and valid["swing_pattern"] is not None
-    ), "fixture guard: types and pattern must be measurable"
-    for key in (
-        "swing_high_price",
-        "swing_low_price",
-        "swing_high_indices",
-        "swing_low_indices",
-        "n_bars",
-        "swing_high_type",
-        "swing_low_type",
-        "swing_pattern",
-        "swing_high_age_bars",
-        "swing_low_age_bars",
-    ):
-        assert invalid[key] == valid[key], key
-    assert math.isnan(invalid["swing_high_dist_atr"]) and math.isnan(invalid["swing_low_dist_atr"])
-    assert valid["swing_high_dist_atr"] is not None and valid["swing_low_dist_atr"] is not None
-
-    trend_valid = _compute_trend_structure(high, low, close_, 1.0, valid, cfg)
-    trend_invalid = _compute_trend_structure(high, low, close_, 0.0, valid, cfg)
-    assert trend_valid["trend_strength"] is not None, "fixture guard: strength must be measurable"
-    for key in (
-        "trend_direction",
-        "trend_leg_count",
-        "structure_integrity",
-        "price_position",
-        "trend_duration_bars",
-    ):
-        assert trend_invalid[key] == trend_valid[key], key
-    assert math.isnan(trend_invalid["trend_strength"])
-
-    fib_valid = _compute_fib_zones(close_, 1.0, valid, cfg)
-    fib_invalid = _compute_fib_zones(close_, 0.0, valid, cfg)
-    for key in ("nearest_fib_ratio", "in_fib_discount_zone"):
-        assert fib_invalid[key] == fib_valid[key], key
-    for key in ("nearest_fib_dist_atr", "fib_cluster_strength"):
-        assert math.isnan(fib_invalid[key]), key
-
-
 # ---------------------------------------------------------------------------
 # (f) live == batch parity for all 13 swing/trend fields
 # ---------------------------------------------------------------------------
@@ -497,32 +312,6 @@ def test_invalid_atr_keeps_the_swing_trend_fib_geometry_measured(cfg):
 # ---------------------------------------------------------------------------
 # (g) APR keys are live -- proves config values actually change output
 # ---------------------------------------------------------------------------
-
-
-def test_trend_structure_apr_keys_are_live(bars):
-    """Changing trend_structure_atr_strength_divisor must change
-    trend_strength; changing swing_pivot_window must change at least one
-    swing field. Proves the APR keys are read, not shadowed by a surviving
-    hardcoded constant."""
-    cache_a = FeatureCache()
-    fv_a = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_a, _make_cfg(trend_structure_atr_strength_divisor=5.0)
-    )
-    cache_b = FeatureCache()
-    fv_b = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_b, _make_cfg(trend_structure_atr_strength_divisor=50.0)
-    )
-    if fv_a.trend_strength is not None and fv_b.trend_strength is not None:
-        assert (
-            fv_a.trend_strength != fv_b.trend_strength
-        ), "trend_strength unchanged by trend_structure_atr_strength_divisor -- APR key may be shadowed"
-
-    cache_c = FeatureCache()
-    fv_c = FeatureFactory.compute(bars, "SPY", "5m", cache_c, _make_cfg(swing_pivot_window=3))
-    cache_d = FeatureCache()
-    fv_d = FeatureFactory.compute(bars, "SPY", "5m", cache_d, _make_cfg(swing_pivot_window=15))
-    diffs = [getattr(fv_c, f) != getattr(fv_d, f) for f in _SWING_FIELDS]
-    assert any(diffs), "no swing field changed with swing_pivot_window -- APR key may be shadowed"
 
 
 # ---------------------------------------------------------------------------
@@ -541,72 +330,9 @@ def test_trend_structure_apr_keys_are_live(bars):
 # ---------------------------------------------------------------------------
 
 
-def test_swing_momentum_nullability(cfg):
-    """A fixture with fewer than config.swing_momentum_max_extremes confirmed
-    extremes must yield ALL 8 swing-momentum fields None (D-01): the archived
-    plugin already returns {} (empty dict, "not computed") on insufficient
-    data -- this proves the v3 port preserves that contract rather than
-    emitting a fake average over too few swings."""
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    n = 30
-    closes = 100.0 + np.arange(n) * 0.3  # monotonic ramp: no interior swings
-    bars_local = [
-        {
-            "open": float(closes[i] - 0.02),
-            "high": float(closes[i] + 0.05),
-            "low": float(closes[i] - 0.05),
-            "close": float(closes[i]),
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(bars_local, "SPY", "5m", cache, cfg)
-    for field in _SWING_MOMENTUM_FIELDS:
-        assert getattr(fv, field) is None, (
-            f"{field} is not None on a monotonic ramp (< swing_momentum_max_extremes "
-            f"confirmed swings) -- D-01: the archived plugin returns {{}} on "
-            f"insufficient data, matched here by None"
-        )
-
-
 # ---------------------------------------------------------------------------
 # (c) ATR-invariance -- THE proof obligation for Task 1(e)'s divisor deletion
 # ---------------------------------------------------------------------------
-
-
-def test_swing_momentum_atr_invariance(bars, cfg):
-    """Scaling every price in the fixture by a constant factor (which
-    changes ATR materially) must leave swing_amplitude_ratio,
-    swing_amplitude_expanding, swing_amplitude_intensity, struct_energy and
-    swing_velocity_bias unchanged to 1e-12. If this ever fails, the ATR-
-    divisor deletion was wrong -- revert it, do not weaken this test."""
-    highs = np.array([b["high"] for b in bars], dtype=float)
-    lows = np.array([b["low"] for b in bars], dtype=float)
-    volumes = np.array([b["volume"] for b in bars], dtype=float)
-
-    base = _compute_swing_momentum(highs, lows, volumes, cfg)
-    factor = 7.0
-    scaled = _compute_swing_momentum(highs * factor, lows * factor, volumes, cfg)
-
-    for field in (
-        "swing_amplitude_ratio",
-        "swing_amplitude_expanding",
-        "swing_amplitude_intensity",
-        "struct_energy",
-        "swing_velocity_bias",
-    ):
-        b = base[field]
-        s = scaled[field]
-        assert b is not None and s is not None, f"{field} unexpectedly None"
-        # rel_tol=0.0 is mandatory here -- math.isclose's default rel_tol=1e-9
-        # would dominate abs_tol=1e-12 for values ~O(1) and silently mask a
-        # real precision regression (caught during this plan's own
-        # mutation-verification pass: the archived +1e-9 epsilon produces a
-        # ~1.3e-10 divergence, invisible to the default rel_tol but well
-        # above this abs_tol).
-        assert math.isclose(b, s, rel_tol=0.0, abs_tol=1e-12), f"{field}: base={b!r} scaled={s!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -649,19 +375,6 @@ def _build_amplitude_progression_bars() -> list[dict]:
     ]
 
 
-def test_swing_momentum_expanding_uses_last_three():
-    """swing_amplitude_expanding must be 0.0 on a fixture whose FIRST three
-    amplitudes increase while its LAST three do not -- the regression guard
-    for the archived amplitudes[0] < amplitudes[1] < amplitudes[2] bug."""
-    bars_local = _build_amplitude_progression_bars()
-    local_cfg = _make_cfg(swing_momentum_confirm_n=3, swing_momentum_max_extremes=7)
-    highs = np.array([b["high"] for b in bars_local], dtype=float)
-    lows = np.array([b["low"] for b in bars_local], dtype=float)
-    volumes = np.array([b["volume"] for b in bars_local], dtype=float)
-    result = _compute_swing_momentum(highs, lows, volumes, local_cfg)
-    assert result["swing_amplitude_expanding"] == 0.0, result
-
-
 # ---------------------------------------------------------------------------
 # (e) swing_velocity_bias numeric encoding (D-03) -- no string anywhere
 # ---------------------------------------------------------------------------
@@ -670,27 +383,6 @@ def test_swing_momentum_expanding_uses_last_three():
 # ---------------------------------------------------------------------------
 # (f) swing_volume_confirmation free field (D-15) -- reads volume, not price
 # ---------------------------------------------------------------------------
-
-
-def test_swing_momentum_volume_confirmation_free_field(bars, cfg):
-    """swing_volume_confirmation must be non-None and > 0 on a fixture with
-    varying volume, and must change when only the volume series changes
-    (prices held fixed) -- proving it reads volume, not price."""
-    cache_a = FeatureCache()
-    fv_a = FeatureFactory.compute(bars, "SPY", "5m", cache_a, cfg)
-    assert fv_a.swing_volume_confirmation is not None
-    assert fv_a.swing_volume_confirmation > 0
-
-    bars_b = [dict(b) for b in bars]
-    rng2 = np.random.default_rng(99)
-    scaled_vol = rng2.uniform(1e4, 1e6, len(bars_b))
-    for i, b in enumerate(bars_b):
-        b["volume"] = float(scaled_vol[i])
-
-    cache_b = FeatureCache()
-    fv_b = FeatureFactory.compute(bars_b, "SPY", "5m", cache_b, cfg)
-    assert fv_b.swing_volume_confirmation is not None
-    assert fv_a.swing_volume_confirmation != fv_b.swing_volume_confirmation
 
 
 # ---------------------------------------------------------------------------
@@ -703,83 +395,14 @@ def test_swing_momentum_volume_confirmation_free_field(bars, cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_fib_dist_in_atr_units(cfg):
-    """Reuse the constant-true-range fixture (Wilder ATR converges to
-    exactly 1.0) and assert nearest_fib_dist_atr equals the raw price
-    distance from close to the nearest fib level within 1e-6 -- pins the
-    ATR conversion rather than merely asserting finiteness."""
-    micro_bars = _build_swing_micro_case_bars()
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(micro_bars, "SPY", "5m", cache, cfg)
-    assert fv.nearest_fib_dist_atr is not None
-
-    highs = np.array([b["high"] for b in micro_bars], dtype=float)
-    lows = np.array([b["low"] for b in micro_bars], dtype=float)
-    close_ = float(micro_bars[-1]["close"])
-    atr_val = 1.0  # pinned by construction, matching test_swing_dist_in_atr_units
-    swing_fields = _compute_swing_structure(highs, lows, close_, atr_val, cfg)
-    swing_high_price = swing_fields["swing_high_price"]
-    swing_low_price = swing_fields["swing_low_price"]
-    assert swing_high_price is not None and swing_low_price is not None
-    swing_range = swing_high_price - swing_low_price
-    levels = [swing_low_price + r * swing_range for r in (0.236, 0.382, 0.500, 0.618, 0.786)]
-    nearest_level = min(levels, key=lambda lv: abs(lv - close_))
-    expected = abs(close_ - nearest_level) / atr_val
-
-    assert math.isclose(fv.nearest_fib_dist_atr, expected, abs_tol=1e-6)
-
-
 # ---------------------------------------------------------------------------
 # (i) fib nullability on a degenerate (flat, zero-ATR) swing
 # ---------------------------------------------------------------------------
 
 
-def test_fib_nullability_on_degenerate_swing(cfg):
-    """A flat-price series has no confirmed pivots, so no swing prices exist and
-    all 4 fib fields are None -- the no-object case (there is no fib object to
-    measure), not an ATR state."""
-    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
-    n = 60
-    bars_local = [
-        {
-            "open": 100.0,
-            "high": 100.0,
-            "low": 100.0,
-            "close": 100.0,
-            "volume": 1_000.0,
-            "ts": base_ts + timedelta(minutes=i),
-        }
-        for i in range(n)
-    ]
-    cache = FeatureCache()
-    fv = FeatureFactory.compute(bars_local, "SPY", "5m", cache, cfg)
-    for field in _FIB_FIELDS:
-        assert getattr(fv, field) is None, f"{field} is not None on zero-ATR flat series"
-
-
 # ---------------------------------------------------------------------------
 # (j) fib discount-zone boundary flip
 # ---------------------------------------------------------------------------
-
-
-def test_fib_discount_zone_boundaries():
-    """Hand-place close_ just inside and just outside the [50.0%, 78.6%]
-    band via a directly-constructed swing_fields dict; in_fib_discount_zone
-    must flip 1.0 -> 0.0 on both sides of the band."""
-    local_cfg = _make_cfg()
-    swing_fields = {"swing_high_price": 110.0, "swing_low_price": 100.0}
-    atr_val = 1.0
-    level_500 = 105.0
-    level_786 = 107.86
-
-    inside = _compute_fib_zones(level_500 + 0.5, atr_val, swing_fields, local_cfg)
-    assert inside["in_fib_discount_zone"] == 1.0, inside
-
-    below = _compute_fib_zones(level_500 - 0.5, atr_val, swing_fields, local_cfg)
-    assert below["in_fib_discount_zone"] == 0.0, below
-
-    above = _compute_fib_zones(level_786 + 0.5, atr_val, swing_fields, local_cfg)
-    assert above["in_fib_discount_zone"] == 0.0, above
 
 
 # ---------------------------------------------------------------------------
@@ -790,51 +413,6 @@ def test_fib_discount_zone_boundaries():
 # ---------------------------------------------------------------------------
 # (l) APR keys are live -- proves config values actually change output
 # ---------------------------------------------------------------------------
-
-
-def test_swing_momentum_fib_apr_keys_are_live(bars):
-    """Changing swing_momentum_energy_divisor must change struct_energy;
-    changing swing_momentum_confirm_n must change at least one
-    swing-momentum field; changing fib_cluster_atr_divisor must leave
-    fib_cluster_strength monotone non-increasing as the divisor grows (a
-    smaller clustering threshold can only reduce or hold clustering).
-    Proves the APR keys are read, not shadowed by a surviving hardcoded
-    constant."""
-    cache_a = FeatureCache()
-    fv_a = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_a, _make_cfg(swing_momentum_energy_divisor=3.0)
-    )
-    cache_b = FeatureCache()
-    fv_b = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_b, _make_cfg(swing_momentum_energy_divisor=30.0)
-    )
-    if fv_a.struct_energy is not None and fv_b.struct_energy is not None:
-        assert (
-            fv_a.struct_energy != fv_b.struct_energy
-        ), "struct_energy unchanged by swing_momentum_energy_divisor -- APR key may be shadowed"
-
-    cache_c = FeatureCache()
-    fv_c = FeatureFactory.compute(bars, "SPY", "5m", cache_c, _make_cfg(swing_momentum_confirm_n=2))
-    cache_d = FeatureCache()
-    fv_d = FeatureFactory.compute(bars, "SPY", "5m", cache_d, _make_cfg(swing_momentum_confirm_n=5))
-    diffs = [getattr(fv_c, f) != getattr(fv_d, f) for f in _SWING_MOMENTUM_FIELDS]
-    assert any(
-        diffs
-    ), "no swing-momentum field changed with swing_momentum_confirm_n -- APR key may be shadowed"
-
-    cache_e = FeatureCache()
-    fv_e = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_e, _make_cfg(fib_cluster_atr_divisor=2.0)
-    )
-    cache_f = FeatureCache()
-    fv_f = FeatureFactory.compute(
-        bars, "SPY", "5m", cache_f, _make_cfg(fib_cluster_atr_divisor=200.0)
-    )
-    if fv_e.fib_cluster_strength is not None and fv_f.fib_cluster_strength is not None:
-        assert fv_f.fib_cluster_strength <= fv_e.fib_cluster_strength, (
-            "fib_cluster_strength increased as fib_cluster_atr_divisor grew -- "
-            "should be monotone non-increasing (a smaller threshold can only reduce clustering)"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -860,27 +438,6 @@ _SESSION_LEVEL_FIELDS = (
 _PHASE_165_FIELDS = (
     _SWING_FIELDS + _TREND_FIELDS + _SWING_MOMENTUM_FIELDS + _FIB_FIELDS + _SESSION_LEVEL_FIELDS
 )
-
-
-def test_per_bar_compute_equals_the_single_call_replay(session_bars, cfg):
-    """live_last calls compute() once, on the last bar. That equals the live
-    pipeline's per-bar loop only if compute() leaves no state behind, in the cache or anywhere
-    else; this drives the per-bar loop over a prefix that crosses a session rollover and
-    requires every FeatureVector field to match exactly."""
-    prefix = session_bars[:100]
-    per_bar = live_per_bar(prefix, cfg)[-1]
-    single = live_last(prefix, cfg)
-
-    def same(a: object, b: object) -> bool:
-        both_nan = isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b)
-        return both_nan or a == b
-
-    differ = [
-        f.name
-        for f in dataclasses.fields(FeatureVector)
-        if not same(getattr(per_bar, f.name), getattr(single, f.name))
-    ]
-    assert not differ, f"per-bar and single-call live vectors differ on {differ}"
 
 
 _SESSION_N_DAYS = 8
@@ -974,21 +531,6 @@ def _build_session_atr_pin_bars() -> list[dict]:
     return bars_local
 
 
-def test_session_levels_dist_in_atr_units(cfg):
-    """prior_session_high_dist_atr must equal the raw price difference between
-    the prior session's high and the final close within 1e-6 -- pins the ATR
-    conversion rather than merely asserting finiteness."""
-    bars_local = _build_session_atr_pin_bars()
-    fv = live_last(bars_local, cfg)
-
-    assert fv.prior_session_high_dist_atr is not None
-    day1_high = max(b["high"] for b in bars_local[:5])
-    close_ = bars_local[-1]["close"]
-    atr_val = 1.0
-    expected = (day1_high - close_) / atr_val
-    assert math.isclose(fv.prior_session_high_dist_atr, expected, abs_tol=1e-6)
-
-
 # ---------------------------------------------------------------------------
 # (d) Weekly pivot pin -- exact formula off the PRIOR COMPLETED week only
 # ---------------------------------------------------------------------------
@@ -1020,64 +562,6 @@ def _build_weekly_pivot_bars(mid_step: float = 0.5, range_half_width: float = 0.
         }
         for m, ts in zip(mids, tss)
     ]
-
-
-def test_session_levels_weekly_pivot_pinned(cfg):
-    """Weekly pivot/R1/R2/S1/S2 must equal the hand-computed formulas off the
-    PRIOR COMPLETED week's high/low/close within 1e-9 on the final bar, and
-    must be None on every bar of the first week (no prior week exists yet)."""
-    bars_local = _build_weekly_pivot_bars()
-    results = live_per_bar(bars_local, cfg)
-
-    # Bars index 1..6 (week 1; index 0 is never mutator-visited, matching both
-    # compute()/compute_batch()'s own i=1..n-1 convention) -- all None, no
-    # prior week exists yet.
-    for fv in results[:6]:
-        assert fv.weekly_pivot_dist_atr is None, "weekly_pivot_dist_atr must be None in week 1"
-
-    week1_bars = bars_local[1:7]
-    ph = max(b["high"] for b in week1_bars)
-    pl = min(b["low"] for b in week1_bars)
-    pc = week1_bars[-1]["close"]
-    wp = (ph + pl + pc) / 3.0
-    r1 = 2.0 * wp - pl
-    r2 = wp + (ph - pl)
-    s1 = 2.0 * wp - ph
-    s2 = wp - (ph - pl)
-    close_ = bars_local[-1]["close"]
-    atr_val = 1.0
-
-    final_fv = results[-1]
-    assert final_fv.weekly_pivot_dist_atr is not None
-    assert math.isclose(final_fv.weekly_pivot_dist_atr, (close_ - wp) / atr_val, abs_tol=1e-9)
-    assert math.isclose(final_fv.weekly_r1_dist_atr, (r1 - close_) / atr_val, abs_tol=1e-9)
-    assert math.isclose(final_fv.weekly_r2_dist_atr, (r2 - close_) / atr_val, abs_tol=1e-9)
-    assert math.isclose(final_fv.weekly_s1_dist_atr, (close_ - s1) / atr_val, abs_tol=1e-9)
-    assert math.isclose(final_fv.weekly_s2_dist_atr, (close_ - s2) / atr_val, abs_tol=1e-9)
-
-
-def test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded(cfg):
-    """todo 237 regression: a legitimately-positive but numerically-tiny ATR (BIL-style
-    flat period) must gate weekly_r1/r2_dist_atr to None via _is_valid_atr's
-    min_atr_pct floor, not let (level - close_) / atr_val explode to an implausible
-    magnitude (confirmed pre-fix: up to 96,512 for weekly_r1_dist_atr)."""
-    bars_local = _build_weekly_pivot_bars(mid_step=0.0000001, range_half_width=0.00001)
-    results = live_per_bar(bars_local, cfg)
-
-    final_fv = results[-1]
-    # Gated to None, not an exploded ratio -- the whole point of the floor.
-    assert final_fv.weekly_pivot_dist_atr is None
-    assert final_fv.weekly_r1_dist_atr is None
-    assert final_fv.weekly_r2_dist_atr is None
-    assert final_fv.weekly_s1_dist_atr is None
-    assert final_fv.weekly_s2_dist_atr is None
-
-    # Sanity: prove the gate is actually about the FLOOR, not some other cold-start
-    # condition -- disabling the floor (min_atr_pct=0.0) on the SAME tiny-ATR bars
-    # recovers real (non-None) values, matching pre-fix `atr_val > 0` behavior.
-    cfg_unfloored = dataclasses.replace(cfg, atr_normalization_min_pct=0.0)
-    results_unfloored = live_per_bar(bars_local, cfg_unfloored)
-    assert results_unfloored[-1].weekly_r1_dist_atr is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1164,40 +648,6 @@ def _build_gap_fill_bars() -> list[dict]:
 # ---------------------------------------------------------------------------
 # (i) field-set cross-check: dataclass, domain registry, concept_registry
 # ---------------------------------------------------------------------------
-
-
-def test_phase165_field_set_matches_registry():
-    """All 41 Phase 165 fields must be real FeatureVector fields, tagged
-    'structural' in FEATURE_VECTOR_DOMAIN, and present in concept_registry
-    (domain='feature') with added_phase='165' -- skips cleanly if the live DB is
-    unreachable so this test stays CI-clean (house pattern, matches
-    tests/unit/test_spread_leg_pair_validity.py)."""
-    fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(_PHASE_165_FIELDS) == 36
-    assert set(_PHASE_165_FIELDS) <= fv_fields
-
-    for field in _PHASE_165_FIELDS:
-        assert FEATURE_VECTOR_DOMAIN[field] == "structural", f"{field} not tagged 'structural'"
-
-    try:
-        conn = psycopg.connect("postgresql://postgres:postgres@localhost:5432/indicagent")
-    except Exception:
-        pytest.skip("Cannot connect to the live indicagent DB")
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT name FROM concept_registry WHERE domain = 'feature' "
-                "AND added_phase = '165' AND status <> 'deprecated'"
-            )
-            registry_names = {row[0] for row in cur.fetchall()}
-    finally:
-        conn.close()
-
-    assert registry_names == set(_PHASE_165_FIELDS), (
-        f"concept_registry(domain='feature') added_phase='165' mismatch. "
-        f"Missing from registry: {set(_PHASE_165_FIELDS) - registry_names}; "
-        f"extra in registry: {registry_names - set(_PHASE_165_FIELDS)}"
-    )
 
 
 def test_every_1d_not_applicable_output_is_missing(session_bars, session_batch_5m, cfg):

@@ -12,12 +12,10 @@ from __future__ import annotations
 import inspect
 import math
 from datetime import UTC, datetime
-from functools import lru_cache
 
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.causality_probe import (
     causality_probe,
     memory_check,
@@ -31,17 +29,10 @@ from src.intelligence.features.contract.registry import (
     compute_kernels,
     default_registry,
 )
-from src.intelligence.features.external_inputs import (
-    cross_tf_kernel_inputs,
-    daily_records_kernel_inputs,
-    macro_kernel_inputs,
-)
 from src.intelligence.features.feature_vector_persistence import (
-    _ALL_COLUMN_NAMES,
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
-from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence import kernel_parity_reference as ref
 from tests.unit.intelligence.daily_grid_fixtures import (
     daily_grid_inputs,
@@ -209,46 +200,6 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
 def _intraday_outputs() -> list[str]:
     """Outputs of the kernels that run on the intraday row grid (not regime, not daily-grid)."""
     return [o for k in intraday_kernels(default_registry().kernels) for o in k.outputs]
-
-
-@lru_cache(maxsize=1)
-def _synthetic_case():
-    inputs, config = ref.synthetic_inputs()
-    bars = ref._bars_from_arrays(
-        *(inputs[f] for f in ("ts", "open", "high", "low", "close", "volume"))
-    )
-    results = FeatureFactory.compute_batch(
-        bars, "SPY", "5m", FeatureCache(), config, warm_up_bars=0
-    )
-    inputs = {
-        **inputs,
-        "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
-        "tf": np.array(["5m"] * len(inputs["ts"]), dtype=object),
-        # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
-        **macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
-        **cross_tf_kernel_inputs(
-            inputs["ts"],
-            "5m",
-            FeatureCache(),
-            None,
-        ),
-        # the item-8 daily families have no live-cache branch: every row reads NaN
-        **daily_records_kernel_inputs(inputs["ts"], "5m", None),
-    }
-    batch = {
-        name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)
-        for name in _ALL_COLUMN_NAMES
-        if hasattr(results[0][1], name)
-    }
-    kernels = compute_kernels(default_registry(), inputs, config, outputs=_intraday_outputs())
-    return kernels, batch, len(inputs["ts"])
-
-
-def test_feature_columns_are_persisted_columns():
-    columns = set(default_registry().feature_columns()) - set(KERNEL_ONLY_COLUMNS)
-    assert columns
-    assert columns <= set(_ALL_COLUMN_NAMES) | REGIME_COLUMNS
-    assert not set(KERNEL_ONLY_COLUMNS) & set(_ALL_COLUMN_NAMES)
 
 
 # The legacy FeatureVector fields are non-nullable floats, so compute_batch writes 0.0 where the

@@ -29,7 +29,6 @@ from services.backfill_feature_factory import (
     get_target_timeframes,
 )
 from src.config.config_service import ConfigService
-from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.registry import (
     compute_kernels,
     constant_volume_basis,
@@ -538,41 +537,6 @@ def test_get_target_timeframes_refuses_an_unknown_timeframe_at_load() -> None:
 # ---------------------------------------------------------------------------
 # Test 8: FeatureFactory.compute() integration with synthetic bars (no network/DB)
 # ---------------------------------------------------------------------------
-
-
-def test_feature_factory_compute_returns_valid_vector() -> None:
-    """FeatureFactory.compute() with 50 synthetic bars returns a valid FeatureVector."""
-    config = _make_config()
-    cache = FeatureCache()
-    bars = _make_bars(50)
-
-    fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
-
-    # Check it's a FeatureVector
-    assert isinstance(fv, FeatureVector)
-
-    # All required fields are finite floats; Optional cross-sectional fields may be None.
-    import dataclasses
-    import math
-
-    for field in dataclasses.fields(fv):
-        val = getattr(fv, field.name)
-        # Optional fields (momentum_rank_z, volume_rank_z, volatility_rank_z) are
-        # None until batch cross-sectional enrichment; skip them.
-        if val is None:
-            continue
-        assert isinstance(val, float), f"{field.name} should be float, got {type(val)}"
-        assert math.isfinite(val), f"{field.name} should be finite, got {val}"
-
-
-def test_feature_factory_cold_start_returns_vector() -> None:
-    """FeatureFactory.compute() with only 1 bar returns cold-start defaults (no crash)."""
-    config = _make_config()
-    cache = FeatureCache()
-    bars = _make_bars(1)
-
-    fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
-    assert isinstance(fv, FeatureVector)
 
 
 # ---------------------------------------------------------------------------

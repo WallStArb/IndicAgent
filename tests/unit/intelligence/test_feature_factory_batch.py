@@ -535,22 +535,6 @@ class TestTheoryMotivatedInteractionProducts:
         """A product with a missing parent is missing (todo 463, D1 rule 1)."""
         return None if left is None or right is None else left * right
 
-    def test_live_path_products_match_parents(self) -> None:
-        from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels._cache_state import FeatureCache
-
-        config = _make_config_for_min_window()
-        cache = FeatureCache()
-        bars = _make_bars_dicts(80)
-        fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
-
-        for compound, (p1, p2) in self._PAIRS.items():
-            expected = self._product(getattr(fv, p1), getattr(fv, p2))
-            actual = getattr(fv, compound)
-            assert actual == pytest.approx(
-                expected, abs=1e-12
-            ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
-
     # No cross-path (live vs batch) parity test for these 10 compounds:
     # momentum_trend_product/reversion_hurst_product depend on cache.adx/
     # cache.hurst, which are populated by compute_batch()'s periodic
@@ -570,43 +554,10 @@ class TestGuardCountedTripwire:
     clamp; these tests exercise the tripwire directly with contrived
     non-finite inputs rather than trying to organically overflow real data."""
 
-    def test_finite_value_passes_through_unchanged(self) -> None:
-        from src.intelligence.feature_factory import _guard_counted
-
-        assert _guard_counted(3.14, "momentum_vol_regime_product") == 3.14
-
-    def test_nonfinite_value_is_missing_and_increments_counter(self) -> None:
-        from src.intelligence.feature_factory import (
-            _GUARD_COUNTED_SUBSTITUTIONS,
-            _guard_counted,
-        )
-
-        _GUARD_COUNTED_SUBSTITUTIONS.clear()
-        result = _guard_counted(float("inf"), "momentum_vol_regime_product")
-        assert result is None
-        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 1
-
-        # A second firing on the same compound (this time -inf) increments again.
-        result2 = _guard_counted(float("-inf"), "momentum_vol_regime_product")
-        assert result2 is None
-        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
-
-        # nan on a DIFFERENT compound increments its own independent counter.
-        _guard_counted(float("nan"), "vix_reversion_product")
-        assert _GUARD_COUNTED_SUBSTITUTIONS["vix_reversion_product"] == 1
-        assert _GUARD_COUNTED_SUBSTITUTIONS["momentum_vol_regime_product"] == 2
-
-        _GUARD_COUNTED_SUBSTITUTIONS.clear()
-
 
 class TestStreamingNoFill:
     """A value the streaming factory cannot compute is missing (None), never a fabricated 0.0,
     1.0, 0.5 or canary constant (no_fill; todo 614 row 8)."""
-
-    def test_the_fallback_guard_is_gone(self) -> None:
-        from src.intelligence import feature_factory
-
-        assert not hasattr(feature_factory, "_guard")
 
 
 class TestGuardCountedReport:

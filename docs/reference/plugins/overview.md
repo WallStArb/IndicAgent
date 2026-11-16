@@ -5,7 +5,7 @@
 **Status:** current
 **Last Updated:** 2026-09-04
 
-> **ARCHIVED SYSTEM (v2.x, no live consumer since 2026-07-02).** This describes the I1-I7 plugin pipeline. It is not the compute path for the live v3.0 system — that is Feature Factory (`src/intelligence/feature_factory.py`, run by the retired feature-vector pipeline module, the retired feature-vector pipeline, `active running`). `register_plugins.py` (below) has no live consumer either: the only in-repo callers are `services/shadow_validator.py` (a weekly, promotion-only oneshot) and internal plugin-DAG infrastructure (`plugins/base.py`, `plugin_validator.py`, `pipeline/executor.py`) — not `feature_vector_pipeline.py`, which imports Feature Factory directly and never touches this registry. Content below is accurate as a description of the archived system's structure — kept for historical reference and in case the subsystem is ever formally reactivated or ported. Do not cite plugin counts or tier behavior here as describing what computes signals today. See `src/intelligence/CLAUDE.md` for the fuller archived-system banner and `src/intelligence/register_plugins.py` for the authoritative source.
+> **ARCHIVED SYSTEM (v2.x, no live consumer since 2026-07-02).** This describes the I1-I7 plugin pipeline. It is not the compute path for the live v3.0 system — that is Feature Factory (`src/intelligence/features/kernels/`, run by the retired feature-vector pipeline module, the retired feature-vector pipeline, `active running`). `register_plugins.py` (below) has no live consumer either: the only in-repo callers are `services/shadow_validator.py` (a weekly, promotion-only oneshot) and internal plugin-DAG infrastructure (`plugins/base.py`, `plugin_validator.py`, `pipeline/executor.py`) — not `feature_vector_pipeline.py`, which imports Feature Factory directly and never touches this registry. Content below is accurate as a description of the archived system's structure — kept for historical reference and in case the subsystem is ever formally reactivated or ported. Do not cite plugin counts or tier behavior here as describing what computes signals today. See `src/intelligence/CLAUDE.md` for the fuller archived-system banner and `src/intelligence/register_plugins.py` for the authoritative source.
 
 Plugin counts and tier lists below are read directly from the `TIER_I1`…`TIER_I7` constants in `src/intelligence/register_plugins.py`, verified 2026-09-04.
 
@@ -60,4 +60,4 @@ The signal aggregator (`aggregator.py`) uses CISScorer (multi-bucket weighted sc
 ---
 
 **Archived-system detail:** `src/intelligence/CLAUDE.md`
-**Live compute path:** the retired feature-vector pipeline module, `src/intelligence/feature_factory.py`
+**Live compute path:** the retired feature-vector pipeline module, `src/intelligence/features/kernels/`

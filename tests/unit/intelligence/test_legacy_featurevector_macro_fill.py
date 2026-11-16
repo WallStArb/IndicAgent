@@ -1,10 +1,8 @@
-"""The legacy FeatureVector path keeps a missing macro value missing (todo 463, D1 rules 1 and 5).
+"""The row builder keeps a missing macro value missing (todo 463, D1 rules 1 and 5).
 
 Rows reach feature_vectors through `feature_vector_row_values`, which maps a missing macro
 value (the kernels' NaN before the first daily record, 186 review F9/B5a) to NULL, never 0.0 and
-never the text NaN. The legacy `FeatureFactory._build_feature_vector` that serves the live
-pipeline until the 186-27 swap now does the same: the macro fields and the two macro products are
-`float | None`, None where the input is undefined. The rebuild never runs through it.
+never the text NaN.
 """
 
 from __future__ import annotations
@@ -13,71 +11,15 @@ from pathlib import Path
 
 import numpy as np
 
-from src.intelligence import feature_factory as ff
-from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_row_values,
     feature_vectors_numeric_columns,
 )
-from src.intelligence.features.kernels._cache_state import FeatureCache
-from src.intelligence.features.kernels.macro import (
-    CROSS_ASSET_SYMBOLS,
-    build_cross_asset_series,
-    build_symbol_beta_series,
-)
 from tests.unit.intelligence import test_macro_alignment as tma
-
-_GUARDED_MACRO_FIELDS = (
-    "vix_z",
-    "flight_quality",
-    "yield_slope_z",
-    "tip_tlt_ret_z",
-    "hyg_lqd_ret_z",
-    "sb_corr_fast",
-    "sb_corr_slow",
-    "sb_corr_z",
-)
-_PRODUCTS = ("yield_slope_momentum_product", "vix_reversion_product")
-
-
-def _early_history_case():
-    """Intraday sessions 70-74 have no daily record yet (records start at session 75)."""
-    bars, daily = tma._intraday(), tma._daily_bars()
-    late = {s: series[tma.TARGET_SESSION :] for s, series in daily.items()}
-    n_early = tma.BARS_PER_SESSION * (tma.TARGET_SESSION - tma.INTRADAY_SESSIONS.start)
-    return bars, late, n_early
-
-
-def _legacy_batch(bars, late):
-    cross = build_cross_asset_series(*(late[s] for s in CROSS_ASSET_SYMBOLS), tma.CONFIG)
-    beta = build_symbol_beta_series(
-        late[tma.SYMBOL], late["SPY"], late["TLT"], tma.SYMBOL, tma.CONFIG
-    )
-    ff._GUARD_COUNTED_SUBSTITUTIONS.clear()
-    results = FeatureFactory.compute_batch(
-        bars,
-        tma.SYMBOL,
-        "5m",
-        FeatureCache(),
-        tma.CONFIG,
-        cross_asset_by_date=cross,
-        beta_by_date=beta,
-    )
-    return results
-
-
-def test_the_tripwire_still_fires_when_the_inputs_are_finite_and_the_product_is_not():
-    ff._GUARD_COUNTED_SUBSTITUTIONS.clear()
-    assert ff._missing_product(float("inf"), "vix_reversion_product", (1.0, 2.0)) is None
-    assert ff._GUARD_COUNTED_SUBSTITUTIONS == {"vix_reversion_product": 1}
-    assert ff._missing_product(float("nan"), "vix_reversion_product", (float("nan"), 2.0)) is None
-    assert ff._GUARD_COUNTED_SUBSTITUTIONS == {"vix_reversion_product": 1}
-    ff._GUARD_COUNTED_SUBSTITUTIONS.clear()
 
 
 def test_the_rebuild_row_builder_writes_the_early_nan_as_null_not_zero():
-    """The v2 row builder maps the kernels' NaN to None (NULL after COPY); the legacy
-    path no longer fabricates a 0.0 either, and the rebuild never calls it."""
+    """The row builder maps the kernels' NaN to None (NULL after COPY)."""
     numeric_names = feature_vectors_numeric_columns()
     numeric = [1.0] * len(numeric_names)
     for name in ("vix_z", "tip_tlt_ret_z", "hyg_lqd_ret_z", "equity_beta_z"):
@@ -95,9 +37,3 @@ def test_the_rebuild_row_builder_writes_the_early_nan_as_null_not_zero():
     forbidden = ("FeatureFactory.compute", "build_feature_vector_row", "validate_feature_vector")
     for needle in forbidden:
         assert needle not in rebuild_source, needle
-
-
-def test_an_undefined_beta_stays_none_on_the_legacy_vector():
-    assert ff._missing_if_nan(float("nan")) is None
-    assert ff._missing_if_nan(None) is None
-    assert ff._missing_if_nan(0.0) == 0.0

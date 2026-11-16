@@ -3,7 +3,7 @@
 Ring 0: no domain vocabulary, portable infrastructure only. Extracted from
 services/ic_engine.py's `_derive_worker_rng_seed` (2026-07-29 /simplify pass, todo
 203) after the identical "MD5 hex-digest-first-N-chars-as-int" idiom was independently
-re-derived in src/intelligence/feature_factory.py's `_canary_sub_seed` -- two
+re-derived in the deleted streaming feature_factory's `_canary_sub_seed` -- two
 hand-copied implementations of the same primitive, each combining it with its own
 caller-specific seed-mixing formula. This module holds only the shared hash step;
 callers keep their own combination formula (`base_seed + hash % N`, or whatever theirs

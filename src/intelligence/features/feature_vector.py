@@ -1,12 +1,12 @@
-"""FeatureVector, the per-bar output of the streaming FeatureFactory, and FeatureVectorRecord,
-its Kafka envelope. The rebuild writer's row contract
-(`features/feature_vector_persistence.py`) takes its field order from FeatureVector.
+"""FeatureVector: the 285-field column schema of feature_vectors, as a dataclass. The kernel
+registry computes the columns; this dataclass keeps the schema order that ic_measure and the
+row contract (`features/feature_vector_persistence.py`) read through `dataclasses.fields`, so
+the field order is load-bearing and must not change.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime
 
 
 @dataclasses.dataclass(frozen=True)
@@ -748,24 +748,3 @@ class FeatureVector:
     choch_direction: float | None = None
     smc_trend_direction: float | None = None
     bars_since_last_shift: float | None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class FeatureVectorRecord:
-    """Wire envelope for Kafka transport: FeatureVector + persistence metadata.
-
-    Published by IntelligencePipeline after FeatureFactory.compute().
-    Consumed by feature_writer for persistence to feature_vectors hypertable.
-
-    regime_label_source is always 'filtered' per D-07 (forward Viterbi only;
-    backward smoother banned to prevent lookahead bias in IC measurement).
-    """
-
-    symbol: str
-    tf: str
-    bar_ts: datetime  # UTC bar open timestamp
-    pipeline_version: str  # e.g. "3.0.0"
-    feature_factory_version: str  # e.g. "1.0.0"; bump on any compute algorithm change
-    regime: str | None  # HMM state label: "ranging", "trending_up", "trending_down"
-    regime_label_source: str  # always "filtered" (D-07)
-    vector: FeatureVector

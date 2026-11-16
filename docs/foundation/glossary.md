@@ -339,7 +339,7 @@ A base feature computed as a deterministic, stateless, O(1) function of the bar 
 **Banned:** temporal coordinate primitive, temporal primitive, time feature, seasonality feature
 **Status:** active
 
-**Code surface:** `concept_registry` rows with `metadata->>'composition' = 'base'` and `group_name = 'calendar'` (domain='feature'; `feature_registry`, the table this used to live in, was retired by migration 311, Phase 170); calendar helpers in `src/intelligence/feature_factory.py`.
+**Code surface:** `concept_registry` rows with `metadata->>'composition' = 'base'` and `group_name = 'calendar'` (domain='feature'; `feature_registry`, the table this used to live in, was retired by migration 311, Phase 170); calendar helpers in `src/intelligence/features/kernels/`.
 
 ---
 
@@ -1164,7 +1164,7 @@ FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most 
 
 **Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by the feature pipeline.
 
-**Code location:** `src/intelligence/feature_factory.py`
+**Code location:** `src/intelligence/features/kernels/`
 **Status:** active — live; runs inside the retired feature-vector pipeline
 
 ---

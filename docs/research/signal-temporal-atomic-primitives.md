@@ -119,7 +119,7 @@ layer stays clean, and theory enters only where the design forces it to be falsi
 ## Existing Inventory (22 registered; 21 true calendar primitives)
 
 All rows live in `feature_registry` with `tier='0_atomic'`, `group_name='calendar'`,
-`status='active'`. Formulas verified against `src/intelligence/feature_factory.py`
+`status='active'`. Formulas verified against `src/intelligence/features/kernels/`
 (2026-07-13), not restated from the superseded doc; one formula below corrects the old doc.
 
 | Feature | Formula (live code) | Cycle / note |
@@ -344,5 +344,5 @@ sense. That collision predates this review and deserves its own reconciliation p
   the event-flag tests
 - `docs/plans/methodology-change-ledger.md` E6 - the overlapping-observation fix whose logic
   extends to feature-cycle block lengths here
-- `src/intelligence/feature_factory.py` - live implementations verified for every formula in
+- `src/intelligence/features/kernels/` - live implementations verified for every formula in
   the inventory table (2026-07-13)

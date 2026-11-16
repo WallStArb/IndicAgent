@@ -4,7 +4,7 @@
 
 **Goal:** Fix the confirmed canary RNG seeding bug (todo 203 — `canary_noise_gaussian`/`canary_noise_uniform`/`canary_near_constant` are bit-identical across every symbol at a given timestamp, defeating their purpose as cross-sectional negative controls), build a read-only audit that empirically classifies which of the 244 active features share this same "broadcast" (symbol-invariant) exposure, and correctly scope/document a second, independently-discovered anomaly (`canary_acausal_placebo` not clearing its POOLED gate) that must NOT be guess-fixed without its own diagnosis.
 
-**Architecture:** Three independent, non-overlapping changes. (1) A pure-function seed-derivation fix in `src/intelligence/feature_factory.py`, mirroring `ic_engine.py`'s existing `_derive_worker_rng_seed` hashing pattern exactly (DRY — don't invent a second seeding convention). (2) A new, self-contained, read-only diagnostic script (`ops_broadcast_feature_audit.py`), following the exact house style of `ops_canary_integrity_assert.py`/`ops_lookahead_horizon_response.py` (no persistence, no config_state writes, exit 0). (3) Documentation-only changes to `.planning/todos/` correcting a factual error from this session (the "no live canary check" claim was wrong — `ops_canary_integrity_assert.py` already exists and is already firing) and filing a new, separate todo for the undiagnosed anomaly it surfaced.
+**Architecture:** Three independent, non-overlapping changes. (1) A pure-function seed-derivation fix in `(deleted in R2 item 5b) src/intelligence/features/kernels/`, mirroring `ic_engine.py`'s existing `_derive_worker_rng_seed` hashing pattern exactly (DRY — don't invent a second seeding convention). (2) A new, self-contained, read-only diagnostic script (`ops_broadcast_feature_audit.py`), following the exact house style of `ops_canary_integrity_assert.py`/`ops_lookahead_horizon_response.py` (no persistence, no config_state writes, exit 0). (3) Documentation-only changes to `.planning/todos/` correcting a factual error from this session (the "no live canary check" claim was wrong — `ops_canary_integrity_assert.py` already exists and is already firing) and filing a new, separate todo for the undiagnosed anomaly it surfaced.
 
 **Tech Stack:** Python 3.14, PostgreSQL/TimescaleDB (asyncpg), pytest, numpy.
 
@@ -20,7 +20,7 @@
 ## Task 1: Fix `_canary_sub_seed` to include `symbol` — the confirmed bug (todo 203)
 
 **Files:**
-- Modify: `src/intelligence/feature_factory.py:1778-1811` (`_canary_sub_seed`, `_canary_noise_gaussian`, `_canary_noise_uniform`, `_canary_near_constant`), `:1` region imports (add `hashlib`), `:6337-6339` (`compute()` call site), `:7093-7095` (`compute_batch()` call site)
+- Modify: `(deleted in R2 item 5b) src/intelligence/features/kernels/:1778-1811` (`_canary_sub_seed`, `_canary_noise_gaussian`, `_canary_noise_uniform`, `_canary_near_constant`), `:1` region imports (add `hashlib`), `:6337-6339` (`compute()` call site), `:7093-7095` (`compute_batch()` call site)
 - Test: `tests/unit/test_canary_predictors.py` (extensive existing coverage of the old signature — every call site needs updating, plus new tests for the actual property that matters)
 
 **Interfaces:**
@@ -93,7 +93,7 @@ Expected: FAIL with `TypeError: _canary_sub_seed() got an unexpected keyword arg
 
 - [ ] **Step 3: Add `hashlib` import**
 
-In `src/intelligence/feature_factory.py`, the import block currently reads (line 29-36):
+In `(deleted in R2 item 5b) src/intelligence/features/kernels/`, the import block currently reads (line 29-36):
 
 ```python
 import bisect
@@ -216,7 +216,7 @@ def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> floa
 
 - [ ] **Step 5: Update the 2 production call sites**
 
-`src/intelligence/feature_factory.py:6337-6339` (inside `compute()`, `symbol` is already the function's own parameter), replace:
+`(deleted in R2 item 5b) src/intelligence/features/kernels/:6337-6339` (inside `compute()`, `symbol` is already the function's own parameter), replace:
 
 ```python
         canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
@@ -232,7 +232,7 @@ with:
         canary_near_constant_val = _canary_near_constant(bar_ts, symbol, config.canary_rng_seed)
 ```
 
-`src/intelligence/feature_factory.py:7093-7095` (inside `compute_batch()`, `symbol` is already the function's own parameter), replace:
+`(deleted in R2 item 5b) src/intelligence/features/kernels/:7093-7095` (inside `compute_batch()`, `symbol` is already the function's own parameter), replace:
 
 ```python
             canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
@@ -334,7 +334,7 @@ Expected: All PASS, including the 6 new `TestCanarySymbolDifferentiation` tests 
 - [ ] **Step 8: Run the full unit suite to catch any other call site**
 
 Run: `grep -rn "_canary_sub_seed(\|_canary_noise_gaussian(\|_canary_noise_uniform(\|_canary_near_constant(" src/ services/ tests/ scripts/`
-Expected: every match is either inside `src/intelligence/feature_factory.py` (the definitions/call sites just fixed) or `tests/unit/test_canary_predictors.py` (just fixed) — no other caller exists.
+Expected: every match is either inside `(deleted in R2 item 5b) src/intelligence/features/kernels/` (the definitions/call sites just fixed) or `tests/unit/test_canary_predictors.py` (just fixed) — no other caller exists.
 
 Run: `.venv/bin/pytest tests/unit/ -q`
 Expected: 0 failures.
@@ -342,7 +342,7 @@ Expected: 0 failures.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/intelligence/feature_factory.py tests/unit/test_canary_predictors.py
+git add (deleted in R2 item 5b) src/intelligence/features/kernels/ tests/unit/test_canary_predictors.py
 git commit -m "fix(feature_factory): seed canary noise predictors per-symbol (todo 203)"
 ```
 
@@ -832,7 +832,7 @@ Expected: 0 failures.
 - [ ] **Step 2: Run `/simplify` on the changed files**
 
 Per this project's Done-Coding SOP, invoke `/simplify` on
-`src/intelligence/feature_factory.py`, `scripts/ops/alpha/ops_broadcast_feature_audit.py`
+`(deleted in R2 item 5b) src/intelligence/features/kernels/`, `scripts/ops/alpha/ops_broadcast_feature_audit.py`
 before review.
 
 - [ ] **Step 3: Run `/review`**

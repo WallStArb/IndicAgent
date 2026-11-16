@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import math
-import re
 from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import (
-    FEATURE_VECTOR_DOMAIN,
-    FeatureFactory,
-    FeatureFactoryConfig,
-)
-from src.intelligence.features.feature_vector import FeatureVector
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import _pearson_acf1, _skewness
 from src.intelligence.features.kernels.calendar import (
@@ -35,8 +28,6 @@ from src.intelligence.features.kernels.price import (
     _rsi,
 )
 from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
-
-UTC = UTC
 
 
 def _make_cfg(**overrides) -> FeatureFactoryConfig:
@@ -157,6 +148,9 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
     return FeatureFactoryConfig(**defaults)
 
 
+UTC = UTC
+
+
 def _bars(n: int, start: float = 100.0, step: float = 0.1) -> list[dict]:
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     return [
@@ -257,14 +251,6 @@ def test_aroon_cold_start():
 # ---------------------------------------------------------------------------
 # OFI divergence (via full compute)
 # ---------------------------------------------------------------------------
-
-
-def test_ofi_div_in_feature_vector():
-    cfg = _make_cfg()
-    cache = FeatureCache()
-    bars = _bars(50)
-    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
-    assert math.isfinite(fv.ofi_div)
 
 
 # ---------------------------------------------------------------------------
@@ -414,70 +400,6 @@ def test_wk_vwap_resets_on_new_week():
     pre_vol = cache._wk_vol_sum
     cache.update_wk_vwap(ts_w2, 101.0, 99.0, 100.0, 1000.0)
     assert cache._wk_vol_sum < pre_vol  # reset then one bar added
-
-
-# ---------------------------------------------------------------------------
-# FEATURE_VECTOR_DOMAIN completeness
-# ---------------------------------------------------------------------------
-
-
-def test_feature_vector_domain_complete():
-    """61 baseline + 18 Plan 01 + 22 Plan 02 + 12 Plan 05 + 21 Plan 03 + 8 Plan 04
-    + 8 Plan 05.5 Renaissance primitives = 150 (new_high_flag/new_low_flag removed
-    2026-07-09 as redundant with dist_from_high/dist_from_low, migration 211)
-    + 5 canary/control predictors (Phase 143.1 Plan 02, todo 068) = 155, + 17
-    structural VP/SR fields (Phase 163 Plan 01, migration 255) = 172, + 36
-    SMC institutional-footprint fields (Phase 164 Plan 01, migration 266) = 208,
-    + 41 swing/fib/trend/session structure fields (Phase 165 Plan 01,
-    migration 267) = 249, + 6 calendar cycle/TDOM/minute + 4 velocity
-    primitives (Phase 151 Plan 01) = 259, + 11 recency/statistical atomics
-    (Phase 151 Plan 03) = 270, + 7 cross-asset spread/beta atomics
-    (Phase 151 Plan 04) = 277, + 5 Named Interaction Primitives (3 cross-TF
-    divergences + 2 calendar event flags, Phase 151 Plan 05) = 282, + 10
-    Theory-Motivated Interactions (Phase 151 Plan 06) = 292, + 6 Velocity
-    Primitives Extension fields (todo 320) = 298, + 2 Earnings-Season
-    Calendar Primitive fields (Phase 176 Plan 03, todo 353) = 300."""
-    fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 285
-    assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
-
-
-# ---------------------------------------------------------------------------
-# feature_vector_to_insert_params length (the row serializer; the rebuild writer's
-# _vector_to_params delegate was deleted with the old compute path in 186-25)
-# ---------------------------------------------------------------------------
-
-
-def test_feature_vector_to_insert_params_length():
-    """Row width must match FEATURE_VECTOR_INSERT_SQL's placeholder count exactly.
-
-    Deriving the expectation from the SQL contract (rather than a hardcoded
-    number) is deliberate: this is the test that should have caught the
-    2026-07-08 91-column silent-NULL persistence bug, and didn't, because it
-    hardcoded 70 and was never updated when migration 206 widened the contract.
-    """
-    from src.intelligence.features.feature_vector_persistence import (
-        FEATURE_VECTOR_INSERT_SQL,
-        feature_vector_to_insert_params,
-    )
-
-    cfg = _make_cfg()
-    cache = FeatureCache()
-    bars = _bars(50)
-    ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
-    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
-    row = feature_vector_to_insert_params(
-        symbol="SPY",
-        tf="1m",
-        bar_ts=ts,
-        pipeline_version="v3.0.0",
-        feature_factory_version="test",
-        regime=None,
-        regime_label_source="filtered",
-        vector=fv,
-    )
-    expected = len(set(re.findall(r"\$\d+", FEATURE_VECTOR_INSERT_SQL)))
-    assert len(row) == expected, f"Expected {expected}, got {len(row)}"
 
 
 # ---------------------------------------------------------------------------

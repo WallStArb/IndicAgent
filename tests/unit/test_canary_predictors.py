@@ -21,13 +21,8 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import (
-    FeatureFactory,
-    FeatureFactoryConfig,
-    _cold_start_vector,
-)
+from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
 from src.intelligence.features.feature_vector import FeatureVector
-from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.control import (
     _CANARY_CONSTANT_VALUE,
     _canary_acausal_placebo,
@@ -465,24 +460,6 @@ class TestAcausalPlaceboCanary:
 
 
 class TestFeatureFactoryIntegration:
-    def test_compute_live_path_has_no_future_acausal_leak(self) -> None:
-        """The live single-bar compute() path has no future bars by
-        definition -- canary_acausal_placebo must be inert (0.0) there."""
-        bars = _make_bars(60)
-        config = _make_config()
-        cache = FeatureCache()
-        fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
-        assert fv.canary_acausal_placebo == 0.0
-
-    def test_compute_live_path_populates_noise_and_constant_canaries(self) -> None:
-        bars = _make_bars(60)
-        config = _make_config()
-        cache = FeatureCache()
-        fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
-        assert math.isfinite(fv.canary_noise_gaussian)
-        assert 0.0 <= fv.canary_noise_uniform < 1.0
-        assert fv.canary_constant == _CANARY_CONSTANT_VALUE
-        assert abs(fv.canary_near_constant - _CANARY_CONSTANT_VALUE) < 1e-3
 
     def test_series_acausal_placebo_is_genuinely_forward_shifted(self) -> None:
         """The corpus-rerun path has the full-history closes array in scope: the acausal placebo
@@ -507,31 +484,6 @@ class TestFeatureFactoryIntegration:
         second = series_columns(bars, "SPY", "5m", _make_config())
         for name in ("canary_noise_gaussian", "canary_noise_uniform"):
             assert np.array_equal(first[name], second[name], equal_nan=True), name
-
-    def test_cold_start_vector_returns_all_canary_fields(self) -> None:
-        """142.5 cold-start-crash precedent: _cold_start_vector must be
-        updated for every new field or cold-start crashes."""
-        cache = FeatureCache()
-        fv = _cold_start_vector(cache, "5m")
-        assert fv.canary_noise_gaussian == 0.0
-        assert fv.canary_noise_uniform == 0.0
-        assert fv.canary_constant == _CANARY_CONSTANT_VALUE
-        assert fv.canary_near_constant == _CANARY_CONSTANT_VALUE
-        assert fv.canary_acausal_placebo == 0.0
-        # No crash, and no missing field -- full dataclass construction succeeded.
-        # 155 prior to Phase 163 Plan 01's 17 new structural VP/SR fields (migration
-        # 255) = 172, +36 SMC institutional-footprint fields (Phase 164 Plan 01,
-        # migration 266) = 208, +41 swing/fib/trend/session structure fields
-        # (Phase 165 Plan 01, migration 267) = 249, +6 calendar cycle/TDOM/minute
-        # fields (Phase 151 Plan 01 Task 1) = 255, +4 velocity primitives
-        # (Phase 151 Plan 01 Task 2) = 259, +11 recency/statistical atomics
-        # (Phase 151 Plan 03) = 270, +7 cross-asset spread/beta atomics
-        # (Phase 151 Plan 04) = 277, +5 Named Interaction Primitives
-        # (Phase 151 Plan 05) = 282, +10 Theory-Motivated Interactions
-        # (Phase 151 Plan 06) = 292, +6 Velocity Primitives Extension fields
-        # (todo 320) = 298, +2 Earnings-Season Calendar Primitive fields
-        # (Phase 176 Plan 03, todo 353) = 300.
-        assert len(dataclasses.fields(fv)) == 285
 
 
 # ---------------------------------------------------------------------------

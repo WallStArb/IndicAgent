@@ -45,7 +45,7 @@ even though they're computed downstream of Stage 1/2 internals, because from the
 outer pipeline's perspective they're still just columns on the vector, same as
 `body_ratio` or `dollar_vol_z`.
 
-**Current mechanism:** ~61 pure Python functions in `src/intelligence/feature_factory.py`,
+**Current mechanism:** ~61 pure Python functions in `src/intelligence/features/kernels/`,
 organized by cadence (bar-level, session-level, regime-level, cross-asset,
 calendar). See `docs/research/archive/feature-registry.md` for the proposed
 `0_atomic`/`1_interaction`/`2_theory` sub-classification within this layer —

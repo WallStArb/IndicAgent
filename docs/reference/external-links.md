@@ -148,7 +148,7 @@ Add new links here as you discover useful resources — keeps everything in one 
 | Resource | URL | Notes |
 |----------|-----|-------|
 | GARCH Model | https://www.investopedia.com/terms/g/garch.asp | Conditional heteroskedasticity, volatility clustering |
-| arch Python Library | https://arch.readthedocs.io/en/latest/ | GARCH(1,1) formula reference — not a live dependency; `arch` is absent from `requirements.txt`, GARCH is hand-implemented directly in `src/intelligence/feature_factory.py` (`garch_ratio`), verified 2026-09-04 |
+| arch Python Library | https://arch.readthedocs.io/en/latest/ | GARCH(1,1) formula reference — not a live dependency; `arch` is absent from `requirements.txt`, GARCH is hand-implemented directly in `src/intelligence/features/kernels/` (`garch_ratio`), verified 2026-09-04 |
 | Kalman Filter Explained | https://www.kalmanfilter.net/default.aspx | State estimation, trend filtering |
 | HMM (Hidden Markov Models) | https://en.wikipedia.org/wiki/Hidden_Markov_model | Regime detection: the walk-forward HMM regime kernels (`src/intelligence/features/kernels/_hmm.py`, `regime.py`), run by the rebuild writer |
 | hmmlearn Library | https://hmmlearn.readthedocs.io/en/latest/ | GaussianHMM for regime detection |

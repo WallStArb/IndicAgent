@@ -22,7 +22,7 @@ Both satisfy the same invariant: per-bar cost must not scale with total history 
 
 ## How IndicAgent Applies It
 
-`FeatureFactory.compute()` (`src/intelligence/feature_factory.py`) is a stateless pure function — no `__init__`, no stored config, zero I/O, deterministic given its inputs (D-08 contract). It is called once per bar per (symbol, timeframe) with:
+`FeatureFactory.compute()` (`src/intelligence/features/kernels/`) is a stateless pure function — no `__init__`, no stored config, zero I/O, deterministic given its inputs (D-08 contract). It is called once per bar per (symbol, timeframe) with:
 
 - `bars` — the bounded window for that (symbol, tf) from `BarHistory` (`src/core/bar_history.py`), a per-key deque capped at `maxlen` (default 200). Appending a new bar evicts the oldest automatically — the window never grows past its cap, so recompute cost is flat regardless of how much history exists in the database.
 - `cache: FeatureCache` — the small set of fields that genuinely need to persist across calls rather than being re-derived from the window each time: HMM regime (refreshed every `regime_cache_refresh_bars`, not every bar — cheaper than even O(1)-per-bar), cross-asset state (`vix_z`, `flight_quality`, `yield_slope_z`, populated by `update_cross_asset()`), and simple counters (`hmm_duration`, `above_wk_vwap`) incremented or reset by the caller each bar.

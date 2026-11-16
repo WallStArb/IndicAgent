@@ -49,7 +49,7 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 
 | Component | Ring | Pattern | Location | Naming Rationale |
 |----------|------|---------|----------|-------------------|
-| `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/feature_factory.py` | Pure function library, no daemon loop |
+| `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/features/kernels/` | Pure function library, no daemon loop |
 | `FeatureCache` | 1 | `PascalCase(concept)` | `src/intelligence/feature_cache.py` | State container, not autonomous |
 | `ICMeasure` | 2 | `PascalCase(concept)` + role suffix | `services/ic_measure.py` | Batch compute service, autonomous (the old `ICEngine`/`services/ic_engine.py` was deleted in phase 186 plan 23) |
 | `AlphaEngine` | 2 (plain role noun) | `PascalCase(concept)` | Architecture concept (not a class) | The overall IC + ensemble system, entirety of v3.0 Layer 1 (Prediction) |
