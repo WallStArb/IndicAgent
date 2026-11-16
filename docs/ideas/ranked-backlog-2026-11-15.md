@@ -15,14 +15,15 @@
 
 | Rank | Item | Ledger row | Data | Looks | Path to a counted test |
 |---|---|---|---|---|---|
-| 1 | Residual short-term reversal | Family 4, todo 423 | 1d members, S1 residuals | 3 at h5 (1-week, 1-month, one-bar-skip), 6 later | Pre-registration only; kernel is one rolling sum |
-| 2 | 52-week-high anchoring | Family 9 | 1d, `panel.total_return` | 2 at h5, 4 later | Pre-registration with the sign stated; features are named stored columns |
+| 1 | Residual short-term reversal | Family 4, todo 423 | 1d members, S1 residuals | 6 series (R1 to R3 on two panels), already inside the daily residual family's 10 | Already registered as R1 to R3 in `docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md`; waits on amendment A1 (universe) and the data gate, no new prereg |
+| 2 | 52-week-high anchoring | Family 9 | 1d, `panel.total_return` | 1 member, 2 series at h5 | Draft prereg: `docs/plans/2026-11-15-family9-52week-high-prereg-draft.md` (E26) |
 | 3 | Industry momentum and daily sector lead-lag | Family 11 remainder, todo 441 | 1d plus the point-in-time classification | 3 at h5 | Registration beside the residual-momentum prereg; needs classification coverage checked for dead names |
 | 4 | Dividend month premium and ex-dividend day pricing | Corporate-action row, todo 428 | Stored dividend events; covered names only | 1 to 2, monthly so later | Needs todo 547 for the monthly form and a coverage-restricted panel |
 | 5 | Survivorship measured, not assumed | `.planning/IDEAS.md` (2026-11-09) | Stage 2 membership table | 0 selection looks if it never feeds StepM | Rides on whichever family runs first; a disclosure, not an edge test |
 
 ### 1. Residual short-term reversal
 
+- Correction 2026-11-15: this item is already registered. Todo 423 folded into the daily residual family as R1 (5 sessions), R2 (21 sessions) and R3 (5 sessions with a one-session skip) at h5, with the B1 holdout of the screen's names and its disclosure in section 6; B2 size cells have run on the stale S1 vintage (todo 547). The remaining path is A1 (stage 2 universe) and the data gate. The rest of this entry stands as the ledger check.
 - Ledger check: design only. A seen-data hint exists: the 2026-09-13 TSMOM screen found a consistently negative `ctf_momentum` IC that is short-term reversal territory (ledger section 5), so the registration must disclose it and exclude that screen's 231 names and window from its evidence, which the ledger row already requires. No recorded null.
 - Musk step 1: the requirement is "the cheapest S1 residual member that shows whether the residual cross-section carries a short-horizon edge at all"; it doubles as the control against which residual momentum is read. Keep, and declare overlap with family 11 so one reversal edge is not counted twice.
 - Data: 1d for the point-in-time universe and the constant core. Published (as cited in todo 423, not rechecked here): Jegadeesh 1990 and Lehmann 1990. Our inference: the effect is largest in small, illiquid names and turns over fastest, so the costed construction, not the IC, is the binding question; the stage 2 floor of $1M median dollar volume makes that sharper.
@@ -31,13 +32,13 @@
 ### 2. 52-week-high anchoring
 
 - Ledger check: design only. Adjacent seen data to disclose: the pooled corpus IC look (section 5) found `high_52w_dist` at -0.058 at 1d h10 with 0 or 1 of 227 names FDR-passing, the opposite sign to George and Hwang (2004), and the cross-sectional `bars_since_high_fast_xs_ls_h5` verdict is DEAD (net-negative, 2026-09-11). The registration states the expected sign before any run.
-- Musk step 1: the requirement is one test of whether price position inside its 52-week range predicts beyond residual momentum; the seven pending members collapse to two (`high_52w_dist`, `dist_from_high_slow`) because the corpus shows they are one mechanism.
+- Musk step 1: the requirement is one test of whether price position inside its 52-week range predicts beyond residual momentum; the seven pending members collapse to one (the George and Hwang ratio over 252 sessions) because the corpus shows they are one mechanism, and the stored columns are not read (price-only, partial-window warmup).
 - Data: 1d with `panel.total_return`; a price-only high manufactures a false signal on high-yield names (the guard in `tests/unit/research/test_dividends.py`).
-- Looks: 2 at h5. Overlap with items 1 and shortlist item 1 is high; StepM's joint bootstrap prices it.
+- Looks: 1 member, 2 series (primary and core panels) at h5. Overlap with item 1 and shortlist item 1 is high; StepM's joint bootstrap prices it.
 
 ### 3. Industry momentum and daily sector lead-lag
 
-- Ledger check: design only (todo 441, text still says 931 names; the panel is now the stage 2 universe). Residual momentum is the section 2 reopen of the TSMOM FAIL and is the base of shortlist item 1; the pairs-based forms are DEAD and closed, which this item does not touch.
+- Ledger check: design only (todo 441, corrected 2026-11-15: the panel is the stage 2 universe, not 931 names; its sector lead-lag leg is the 5m or 15m family 3, while ledger family 11 names a daily sector lead-lag). Residual momentum is the section 2 reopen of the TSMOM FAIL and is the base of shortlist item 1; the pairs-based forms are DEAD and closed, which this item does not touch.
 - Musk step 1: the requirement is "does industry membership carry information the S1 sector residual removes"; delete the lead-lag leg first if the classification does not cover dead names, since a lead-lag between 11 sectors adds 1 to 2 series and no breadth.
 - Data: 1d plus `ClassificationService`. Open check before registration: the stage 2 docs do not state that dead-name securities get a point-in-time classification, so industry momentum may be limited to classified names.
 - Looks: 3 at h5.

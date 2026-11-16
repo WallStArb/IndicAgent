@@ -16,8 +16,9 @@ Everything below is pending an owner decision; the lead recommends adopting each
 | 3 | A1, universe amendment | Moves the daily residual family from `daily_unseen` to the membership and core panels | daily residual prereg section 10 (draft) | Adopt |
 | 4 | A2, sixth member | Adds the information-discreteness member M3 to the daily residual family | daily residual prereg section 10 (draft) and H-A here | Adopt |
 | 5 | E23 ledger entry | Records the counted design choices for the three families (12 series) before any result | section 6 here | Adopt |
+| 6 | Family 9 registration (52-week-high anchoring) and ledger entry E26 | Registers one member on both panels (2 series) before any result; E25 is reserved for item 5, E27 stays free | `docs/plans/2026-11-15-family9-52week-high-prereg-draft.md` section 8 | Adopt |
 
-Items 3 and 4 depend on 2; none of the five moves a recorded spec hash.
+Items 3 and 4 depend on 2; none of the six moves a recorded spec hash.
 
 ## 1. Which three, and why
 

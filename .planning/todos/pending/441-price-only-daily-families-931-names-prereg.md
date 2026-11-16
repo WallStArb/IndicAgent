@@ -5,7 +5,7 @@ filed: 2026-09-26
 source: adopted unified design (todo 436), section 6 attempts 3-4; Fable review item 14
 ---
 
-# Pre-register the price-only families on the 931 names: residual and industry momentum, sector lead-lag
+# Pre-register the price-only families on the stage 2 universe: residual and industry momentum, sector lead-lag
 
 ## What
 
@@ -13,7 +13,8 @@ The shortest path to a tradeable verdict runs on data that needs no feature pipe
 todo 423 (residual short-term reversal on the names the 2026-09-13 screen never saw), pre-register:
 
 1. Residual momentum (12-1 month on S1 residual returns) and industry momentum (SCH industry
-   groups), daily, on the 931 names.
+   groups), daily, on the stage 2 universe (the 931-name panel of the original text is superseded; the file name keeps
+   the old count so links resolve).
 2. Sector-ETF-leads-constituent lead-lag at 5m or 15m (ledger family 3), sectors from SCH,
    restricted to constituents with intraday bars.
 
@@ -73,3 +74,16 @@ Left, in order, after the 186-27 swap and the fresh S1 vintage: a fresh pre-regi
 seed base, declared before the run) -> battery cells rerun on the fresh vintage -> B3 power ->
 registration (ledger families 4 and 11 move from design-only once numbers exist) -> the five
 counted member evidence runs. h = 21 still waits on todo 547's horizon-lag amendment.
+
+## Status 2026-11-15 (indicagent-65)
+
+- Universe: the panel is the stage 2 membership (`universe_membership` and the 90-percent core panel, about 4,150
+  members at a typical month-end), not 931 names; draft amendment A1 of the daily residual prereg (section 10) moves
+  residual momentum there, pending the owner. Residual reversal (R1 to R3) is registered in the same family, so todo 423
+  needs no separate prereg.
+- Open question, industry momentum: the stage 2 docs do not say that dead-name securities get a point-in-time
+  classification (`ClassificationService`, scheme `indicagent_v1`). Check classification coverage of the membership
+  before registering industry momentum; if dead names are unclassified the member runs on the classified names only and
+  says so, or waits for a classification load. Sector lead-lag below is the ledger's family 3 (5m or 15m, this todo's
+  item 2), not a daily clock; ledger family 11's "daily sector lead-lag" is a different, daily construction and would be
+  its own registration.
