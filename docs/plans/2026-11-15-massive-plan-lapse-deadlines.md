@@ -10,7 +10,7 @@
 | Date | What |
 |---|---|
 | Today to about 2026-11-17 | Part C and D1 to D4 finish; nothing in this doc runs before D5 |
-| 2026-11-30 | Last NYSE month-end inside the plan; the stage 2 membership needs its ticker list (item 9c) |
+| 2026-11-30 | Last NYSE month-end inside the plan; its ticker list is raw evidence only, because L stays 2026-11-09 (ruling 2026-11-16) |
 | 2026-12-01 | Filings sizing decision due (item 7) |
 | About 2026-12-07 | Final reference capture, file catch-up and verification (item 9) |
 | About 2026-12-10 | The plan lapses (todo 600 item 9, STATE). The exact date is not recorded in the repo: read it off the Massive account page and replace "about" here |
@@ -72,7 +72,7 @@ Exit 0 on both; any defect names the file, and the plan still serves it until th
 .venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --captured-at 20261207
 ```
 
-5. Month-end ticker lists for 2026-11-30 (and any later NYSE month-end before the lapse), about 5 minutes for the earlier 6,132 files so seconds for these:
+5. Month-end ticker lists for 2026-11-30 (and any later NYSE month-end before the lapse), kept as raw evidence: the one-time pit install anchors at 2026-11-09 and the planner does not extend an installed map (ruling 2026-11-16), so these lists do not change membership unless a later amendment adds an extend-only planner. About 5 minutes for the earlier 6,132 files, so seconds for these:
 
 ```bash
 .venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --pit-snapshots --pit-dates 2026-11-30

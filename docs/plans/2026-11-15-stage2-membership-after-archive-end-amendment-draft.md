@@ -6,7 +6,7 @@
 
 ## The problem
 
-The preregistered rule reads Massive's point-in-time ticker reference as captured: the active and inactive ticker lists at each NYSE month-end, from which a security gets its type (common stock, ADR or ETF) and its identity key (composite FIGI, else CIK plus share class plus type). The captures run to 2026-11-09 (6,132 files, 2026-11-13) and, if the lapse checklist is followed, to 2026-11-30. The plan lapses about 2026-12-10, so a month-end list for 2026-12-31 and later cannot be captured. The rule needs a stated source for those months, written before anyone builds them.
+The preregistered rule reads Massive's point-in-time ticker reference as captured: the active and inactive ticker lists at each NYSE month-end, from which a security gets its type (common stock, ADR or ETF) and its identity key (composite FIGI, else CIK plus share class plus type). The captures run to 2026-11-09 (6,132 files, 2026-11-13). The lapse checklist may add the 2026-11-30 list as raw evidence, but it does not move L (below). The plan lapses about 2026-12-10, so a month-end list for 2026-12-31 and later cannot be captured. The rule needs a stated source for those months, written before anyone builds them.
 
 What the lapse does not touch: the bars. After the archive end (2026-11-16) canonical 1d and 5m come from Alpaca SIP, the same consolidated basis, so price, volume, dollar volume and session history are available without Massive.
 
@@ -29,7 +29,7 @@ The discovery vintage ends before `alpha.validation.oos_start` (2025-12-24), and
 
 > Amendment 2026-11-15 (membership after the last captured Massive list; pre-look, no return-based look at the universe has happened).
 >
-> Let L be the date of the last Massive month-end ticker list captured before the plan lapses (2026-11-30 if the lapse checklist is completed, else the last date in `pit_snapshots/20261113`). At a month-end t after L, membership is a closed list:
+> Let L be 2026-11-09, the last month-end ticker list in `pit_snapshots/20261113` and the anchor of the one-time pit install (lead ruling 2026-11-16: install after D4 at this anchor; the planner is not additive, so a later list cannot extend an installed map without rewriting installed spans). At a month-end t after L, membership is a closed list:
 >
 > 1. Candidates are exactly the securities placed on the list at L (type and identity key as captured; never changed after L). A security absent from that list is not a member at any later t, whatever its bars show. Names unplaced at L stay unplaced.
 > 2. Every other condition of the preregistration holds unchanged and is evaluated on Alpaca SIP bars: close at or above $1 on t, at least 60 sessions of the security's own bars, the trailing 60-session median of close times volume at or above $1M to enter and held down to $0.5M to stay, hysteresis carried month to month. A name whose bars stop has an undefined or falling median and leaves by the same rule that governed it before L; no separate delisting rule is added.
@@ -37,7 +37,7 @@ The discovery vintage ends before `alpha.validation.oos_start` (2025-12-24), and
 > 4. Disclosure at every book freeze and every forward confirmation: the member count at each month-end after L, and the count of securities in the Alpaca active asset list on that date that are absent from the list at L (the excluded newcomers), so the decay of breadth is a number and not an assumption.
 > 5. Entrants enter only through a later dated amendment that names a point-in-time source for type and identity, with its measured placement rate recorded first. Until then the universe after L only shrinks.
 >
-> Plan renewal: if the Massive plan is renewed and the month-end list for t is captured with the same tool, the original rule applies to t unchanged and this amendment is not used for that month.
+> Plan renewal: if the Massive plan is renewed, an additive planner and a new amendment are needed before a later list can be used; until then this closed-list rule applies after L whether or not the plan is renewed.
 
 ## Why a closed list and not Alpaca-based entrants
 
@@ -55,6 +55,6 @@ Alternative considered and not recommended: carry the last list forward as an op
 
 ## Open points
 
-- L is 2026-11-30 only if the lapse checklist captures it. The dry run of the tool for that date lists two units and exits 0 (read-only check, 2026-11-15): `--pit-dates` takes any date and does not refuse one past the last file day, so no tool change is needed. The capture must run on or after 2026-11-30 and before the lapse.
+- L is 2026-11-09. A 2026-11-30 list, if captured (dry run lists two units and exits 0; `--pit-dates` takes any date), is raw evidence only. Letting a later list extend the installed map (extend only, never rewriting installed spans) needs an additive planner and its own amendment; it is not built.
 - Ticker reuse after L is not detectable without B-A; the amendment accepts that for the forward span and the disclosure of item 4 does not cover it.
 - Owner adoption line: adopt the closed-list rule for months after L (this draft). Lead recommendation: adopt. It adds no look and no series.
