@@ -53,3 +53,10 @@ After 8a and step 7: write the preregistration (rule, thresholds, type source) a
 ## Blocker I2: the 5m tier and the intraday corpus universe (draft 2026-11-15)
 
 The corpus universe (every name ever a member) must not feed the 5m data gate: a 1d-only name would fail its 5m term. Draft amendment (5m tier: member and 60-session median at or above $25M in, $12.5M out), the intraday variant of `corpus_universe`, the gate change with exact files and code-key impact, and the order against I1 and the corpus rerun pin: `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`. Not applied; owner adoption comes first.
+
+## Status 2026-11-16 (indicagent-65)
+
+- Pit-anchor identity map and the stage 2 instrument writer (gaps G1 and G2) are built, independently reviewed and fixed in the held worktree `wt-pit-map`. Review fixes: a single missing month-end inside a listing is bridged, a span with no delisting date ends at the first absent month-end (the final bars of a delisting are inside it), and renames of names with no composite FIGI are counted (`bridged_months`, `cik_renames_split`). Design and the dated revision: `docs/plans/2026-11-15-pit-anchor-map-and-stage2-instruments.md`.
+- Rulings (lead, 2026-11-16): install after D4 at the 2026-11-09 anchor, with a rolled-back rehearsal first; the planner is not additive, so L = 2026-11-09 for the closed-list membership rule (`docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md`, pending adoption).
+- `run_609.sh`: s2 builds the scratch map, s3 rehearses then applies the install, s4b measures the unplaced share of rows at or above the $1M floor by year and type (`scripts/ops/bars/ops_pit_unplaced_share.py`) and shows it to the owner before membership (s5) is built. They run only after the branch lands.
+- Index migration for the identity-trigger probe: numbered 601 in the worktree (599 is the R2 cluster's); renumber at landing. Owner gates: `docs/plans/2026-11-16-609-owner-gates-summary.md`.

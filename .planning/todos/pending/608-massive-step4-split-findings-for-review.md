@@ -98,3 +98,7 @@ fetches would stay current. Recommended fix before any recapture applies: the ov
 supersedes a same-event `massive_reference` row with its `nightly_overlap` row (one row, the
 stale meaning, Massive still divided once), or the reference writer refuses rows executed after
 the incumbents' last fetch. Not live: no reference capture is scheduled.
+
+## Status 2026-11-16 (indicagent-65)
+
+CTVA (1,875 Massive 1d slots) and SCCO (5,299) are held by the daily stage (`daily_rebuild.tsv`, outcome held, unclassified_rescale) and have no canonical 1d after step 7. The D1 expectation now excludes them and prints them as their own disclosed line (`logs/massive_step7/delta_post_policy/held.json`). They stay held and are disclosed under the todo 512 rule; releasing them is a decision for this todo after step 7, not part of it.
