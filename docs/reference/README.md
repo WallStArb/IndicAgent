@@ -19,22 +19,6 @@ Real-time Server-Sent Events streams
 
 ---
 
-## Plugin Reference
-
-**ARCHIVED (v2.x, no live consumer since 2026-07-02).** The I1-I7 plugin pipeline below is not the platform's live compute path — that's Feature Factory (`src/intelligence/features/kernels/`, run by the retired feature-vector pipeline). Kept for historical reference.
-
-**[Plugin Overview](plugins/overview.md)**
-Plugin protocol, registration, lifecycle, tier source-code locations — archived system, described accurately as of 2026-09-04
-
-**[Plugin Catalog](plugins/catalog.md)**
-Full tier catalog with counts and design rationale — archived system, historical reference
-
-Per-tier plugin directories (`i1-indicators.md`, `i3-structure.md`, `i4-context.md`, `i5-patterns.md`, `i6-smart-money.md`, `i7-trading.md`) referenced by earlier versions of this index **do not exist** in `docs/reference/plugins/` (verified via `ls`, 2026-09-04) — removed rather than left broken. Tier detail lives in `plugins/overview.md` and `plugins/catalog.md` instead; deeper archived-system detail is in `src/intelligence/CLAUDE.md`.
-
-**Total:** 133 registered plugins across I1-I7 + SMC (authoritative count: `len(TIER_I1)`…`len(TIER_I7)` in `src/intelligence/register_plugins.py`, verified 2026-09-04). This counts what's in the archived registry's source, not anything computing signals live today — see `plugins/overview.md` for why `register_plugins.py` itself has no live consumer.
-
----
-
 ## Service Reference
 
 **[Service Overview](services/overview.md)**
