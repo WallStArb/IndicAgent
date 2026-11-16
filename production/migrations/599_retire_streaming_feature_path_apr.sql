@@ -9,6 +9,9 @@
 -- literal key. The dated fixture tests/integration/fixtures/seed_config_2026-11-05.sql keeps its
 -- snapshot rows.
 --
+-- One-way: this deletes the config_history rows of the five retired keys, so their audit trail is
+-- gone; the dated seed fixture above is the restore source.
+--
 -- Rerun semantics: the DELETEs match nothing. No table is rewritten, so no VACUUM clause is owed.
 
 BEGIN;
