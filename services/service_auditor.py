@@ -63,10 +63,6 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,  # priority 3: downstream of provider-merger (2)
     "indicagent-bar-auditor": 3,  # priority 3: parallel with bar-aggregator (3)
-    # Layer 3 — intelligence pipeline (I1-I7)
-    "indicagent-feature-vector-pipeline": 6,  # priority 6: downstream of bar-aggregator (4); upstream of feature/signal writers (7+)
-    # Layer 4 — persistence writers (parallel, all consume pipeline output)
-    "indicagent-feature-vector-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
@@ -116,8 +112,6 @@ _DAG_ORDER: dict[str, int] = {
 # because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py.
 _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator": "indicagent-bar-aggregator",
-    "feature_vector_pipeline": "indicagent-feature-vector-pipeline",
-    "feature_vector_writer": "indicagent-feature-vector-writer",
     "bar_auditor": "indicagent-bar-auditor",
     "provider_merger": "indicagent-provider-merger",
     "bar_replay_provider": "indicagent-bar-replay",
@@ -266,7 +260,7 @@ class ServiceAuditor(BaseDaemon):
         updates arrive.
 
         Key format in config_state: 'alert.lag.<unit-name-kebab>'
-        (e.g., 'alert.lag.feature-vector-writer' -> 'indicagent-feature-vector-writer': int).
+        (e.g., 'alert.lag.bar-auditor' -> 'indicagent-bar-auditor': int).
         """
         try:
             result: dict[str, int] = {}

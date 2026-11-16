@@ -1165,7 +1165,7 @@ FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most 
 **Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by the feature pipeline.
 
 **Code location:** `src/intelligence/feature_factory.py`
-**Status:** active — live; runs inside `indicagent-feature-vector-pipeline.service`
+**Status:** active — live; runs inside the retired feature-vector pipeline
 
 ---
 

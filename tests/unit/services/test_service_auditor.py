@@ -40,8 +40,6 @@ def test_dag_order_covers_required_services():
         "indicagent-provider-merger",
         "indicagent-bar-aggregator",
         "indicagent-bar-auditor",
-        "indicagent-feature-vector-pipeline",
-        "indicagent-feature-vector-writer",
         # indicagent-parity-auditor and indicagent-feature-snapshot-writer removed:
         # these services do not exist in the live system (not in /etc/systemd/system/).
     }
@@ -60,13 +58,6 @@ def test_dag_order_sources_before_sinks():
 
     assert _DAG_ORDER["indicagent-bar-replay"] < _DAG_ORDER["indicagent-provider-merger"]
     assert _DAG_ORDER["indicagent-provider-merger"] < _DAG_ORDER["indicagent-bar-aggregator"]
-    assert (
-        _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-feature-vector-pipeline"]
-    )
-    assert (
-        _DAG_ORDER["indicagent-feature-vector-pipeline"]
-        < _DAG_ORDER["indicagent-feature-vector-writer"]
-    )
 
 
 # -- systemctl parsing ─────────────────────────────────────────────────────────
@@ -104,7 +95,7 @@ async def test_discover_services_returns_sorted_list():
     mock_stdout = (
         b"indicagent-bar-auditor.service loaded active running\n"
         b"indicagent-bar-replay.service loaded active running\n"
-        b"indicagent-feature-vector-pipeline.service loaded active running\n"
+        b"indicagent-api.service loaded active running\n"
     )
 
     mock_proc = AsyncMock()
@@ -113,11 +104,11 @@ async def test_discover_services_returns_sorted_list():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = await agent._discover_services()
 
-    # Should be sorted by DAG order: bar-replay (1) < bar-auditor (3) < intelligence (5)
+    # Should be sorted by DAG order: bar-replay (1) < bar-auditor (3) < api (10)
     # Unit names are normalized (stripped of .service suffix) to match _DAG_ORDER keys
     assert result[0] == "indicagent-bar-replay"
     assert result[1] == "indicagent-bar-auditor"
-    assert result[2] == "indicagent-feature-vector-pipeline"
+    assert result[2] == "indicagent-api"
 
 
 @pytest.mark.asyncio
@@ -180,15 +171,6 @@ def test_all_live_services_in_dag_order():
     # API / dashboard: priority 10
     assert _DAG_ORDER["indicagent-api"] == 10
     assert _DAG_ORDER["indicagent-dashboard"] == 10
-
-
-def test_feature_vector_pipeline_priority_is_6():
-    """feature-vector-pipeline must be priority 6 (after bar-aggregator=3, before writers=7)."""
-    from services.service_auditor import _DAG_ORDER
-
-    assert _DAG_ORDER["indicagent-feature-vector-pipeline"] == 6
-    # feature-vector-writer is 7 (downstream)
-    assert _DAG_ORDER["indicagent-feature-vector-writer"] == 7
 
 
 @pytest.mark.asyncio
@@ -261,15 +243,6 @@ def test_lag_thresholds_cover_consumers():
     # graduation-writer and signal-metrics-writer ARE Kafka consumers
     assert "alert.lag.graduation-writer" in migration_sql
     assert "alert.lag.signal-metrics-writer" in migration_sql
-
-
-def test_agent_id_to_unit_feature_writer_key():
-    """_AGENT_ID_TO_UNIT uses the auto-derived key feature_vector_writer (renamed from feature_writer in 138-P0)."""
-    from services.service_auditor import _AGENT_ID_TO_UNIT
-
-    assert _AGENT_ID_TO_UNIT["feature_vector_writer"] == "indicagent-feature-vector-writer"
-    assert "feature_writer" not in _AGENT_ID_TO_UNIT
-    assert "feature_writer_agent" not in _AGENT_ID_TO_UNIT
 
 
 def test_service_auditor_has_unique_highest_priority():

@@ -11,9 +11,6 @@ set -euo pipefail
 DLQ_TOPICS=(
   bar.aggregator.dlq
   gap_fill.dlq
-  intelligence.signal.dlq
-  intelligence.pipeline.dlq
-  intelligence.feature_vectors.dlq
   intelligence.service_auditor.journal.dlq
 )
 

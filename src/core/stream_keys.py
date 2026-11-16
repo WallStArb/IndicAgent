@@ -92,15 +92,6 @@ def topic_system_events(env_name: str) -> str:
     return f"{env_prefix(env_name)}system.events"
 
 
-def topic_feature_vectors(env_name: str) -> str:
-    """Kafka topic for FeatureVectorRecord per bar.
-
-    Published by IntelligencePipeline after FeatureFactory.compute().
-    Consumed by feature_writer for persistence to feature_vectors hypertable.
-    """
-    return f"{env_prefix(env_name)}intelligence.feature_vectors"
-
-
 def topic_market_bars_raw(env_name: str, provider: str) -> str:
     """Raw bars from a single provider before merger routing.
 
@@ -119,11 +110,6 @@ def topic_health_events(env_name: str) -> str:
 def topic_health_events_dlq(env_name: str) -> str:
     """DLQ for services that exceed the escalation restart threshold."""
     return f"{env_prefix(env_name)}intelligence.service_auditor.journal.dlq"
-
-
-def topic_signal_dlq(env_name: str) -> str:
-    """DLQ for bars feature_vector_pipeline could not process (parse failure or bar timeout)."""
-    return f"{env_prefix(env_name)}intelligence.signal.dlq"
 
 
 def topic_market_data_quality(env_name: str) -> str:
@@ -210,20 +196,6 @@ def topic_bar_aggregator_dlq(env_name: str) -> str:
     Pattern: DLQ per domain (AGG-DLQ).
     """
     return f"{env_prefix(env_name)}bar.aggregator.dlq"
-
-
-def topic_feature_vectors_dlq(env_name: str) -> str:
-    """Dead letter queue for feature_vector_writer unparseable FeatureVectorRecord payloads.
-
-    Published by feature_vector_writer when a FeatureVectorRecord cannot be deserialized
-    or inserted into feature_vectors. Enables investigation without data loss.
-    """
-    return f"{env_prefix(env_name)}intelligence.feature_vectors.dlq"
-
-
-def topic_intelligence_pipeline_dlq(env_name: str) -> str:
-    """Dead letter queue for IntelligencePipeline unparseable payloads."""
-    return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
 
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:

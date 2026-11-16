@@ -65,7 +65,7 @@ shared file set.
 
 Files: `src/intelligence/features/kernels/smc.py`, `feature_factory.py`, `schemas.py`, kernel
 modules, `contract/registry.py`, `services/backfill_feature_factory.py`,
-`services/feature_vector_pipeline.py`, `production/migrations/`, the 584 row.
+the retired feature-vector pipeline module, `production/migrations/`, the 584 row.
 
 - [ ] 1a. /simplify gate debt over item 6 (`1f917b6ed^..47f35b440`).
 - [ ] 1b. Item 6c: retire `sweep_detected` (rate 0.997-1.000 at 15m/1h, lead measurement) and drop

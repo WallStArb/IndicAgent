@@ -23,8 +23,6 @@ from pathlib import Path
 
 from services.batch_support.bulk_load import SOLE_BULK_LOAD_WRITERS
 from services.batch_support.write_session import _WRITE_SESSION_HARDENED_TABLES
-from services.feature_vector_writer import _REQUIRED_COLUMNS
-from src.intelligence.features.feature_vector_persistence import feature_vectors_columns
 from tests.unit._source_grep_helpers import (
     assert_allow_list_has_no_stale_entries,
     assert_no_unlisted_references,
@@ -42,10 +40,9 @@ _ALLOW_LIST: dict[str, str] = {
         "that finds a leftover COPY backend."
     ),
     "src/intelligence/features/feature_vector_persistence.py": (
-        "DORMANT: FEATURE_VECTOR_INSERT_SQL, the legacy v1 contract of the disabled "
-        "indicagent-feature-vector-writer; it cannot write the kernel table (its startup schema "
-        "check requires pipeline_version, pinned below), and reactivation needs the kernel row "
-        "contract first (docs/operations/operations-infrastructure.md)."
+        "DORMANT: FEATURE_VECTOR_INSERT_SQL, the legacy v1 contract of the retired streaming "
+        "writer (R2 item 5a); nothing runs it, and it goes with the FeatureVector dataclass in "
+        "the next step of the retirement."
     ),
 }
 
@@ -86,10 +83,3 @@ def test_sole_writer_names_are_the_writers_own_constants() -> None:
 
 def test_no_in_place_write_session_can_open_on_feature_vectors() -> None:
     assert "feature_vectors" not in _WRITE_SESSION_HARDENED_TABLES
-
-
-def test_the_dormant_streaming_writer_refuses_the_kernel_table() -> None:
-    """Its startup check requires a v1-only column the kernel table never has, so it refuses
-    before any INSERT."""
-    assert "pipeline_version" in _REQUIRED_COLUMNS
-    assert "pipeline_version" not in feature_vectors_columns()

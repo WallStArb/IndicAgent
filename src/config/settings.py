@@ -32,26 +32,6 @@ _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     # General
     env_name: str = Field(default="", validation_alias="INDICAGENT_ENV")
-    feature_vector_pipeline_symbol_filter: list[str] = Field(
-        default_factory=list,
-        alias="FEATURE_VECTOR_PIPELINE_SYMBOL_FILTER",
-        description="Symbol filter for feature vector pipeline sharding. Empty = all active contracts.",
-    )
-    intelligence_output_drain_batch_size: int = Field(
-        default=20,
-        alias="INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE",
-        description="Max items drained per OutputQueue iteration (PERF-06, Plan 03). Increased from 10→20 (Phase 107) to reduce output_queue.full_blocking warnings during high throughput.",
-    )
-    output_queue_drain_ratio: int = Field(
-        default=5,
-        alias="OUTPUT_QUEUE_DRAIN_RATIO",
-        description="Weighted-fair drain ratio: drain up to RATIO high-priority items per 1 low-priority item (Phase 112 task 4-3). Default 5 prevents journal traffic from starving signals.",
-    )
-    feature_vector_pipeline_queue_maxsize: int = Field(
-        default=100,
-        alias="FEATURE_VECTOR_PIPELINE_QUEUE_MAXSIZE",
-        description="Per-key worker queue depth; controls back-pressure on the bar ingestion path (PERF-07, Plan 06).",
-    )
     replay_batch_size: int = Field(
         default=100,
         validation_alias="REPLAY_BATCH_SIZE",

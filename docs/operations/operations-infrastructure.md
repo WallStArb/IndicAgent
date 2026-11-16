@@ -47,7 +47,7 @@ indicagent-bar-aggregator indicagent-bar-auditor`), verify bars flow to `market.
 the aggregator's HTF output, and re-check `_DAG_ORDER` lag thresholds.
 
 **Streaming feature writer is disabled and has no table (todo 584 item 3, 2026-11-04):**
-`indicagent-feature-vector-writer` persists the legacy v1 FeatureVector contract, and migration
+the retired feature-vector writer persists the legacy v1 FeatureVector contract, and migration
 570 dropped the only table that matched it; `feature_vectors` is now the kernel-registry table
 the rebuild writer fills through `bulk_load`. Its producer, `feature_vector_pipeline`, computes
 with the v2.x feature factory, not the kernels, so its rows would mix two compute definitions in
@@ -205,10 +205,8 @@ L3  Bar processing
     indicagent-bar-aggregator, indicagent-bar-auditor
 
 L5  Compute pipeline
-    indicagent-feature-vector-pipeline
 
 L6  Persistence writers
-    indicagent-feature-vector-writer
 
 L7  Oneshot analytics (timers or fetcher-triggered; inactive between runs is correct)
     indicagent-feature-parity-auditor, indicagent-ic-measure,
@@ -263,7 +261,6 @@ the job with status `failure`. Change the list through `config_state` with a `co
 systemctl list-units --all | grep indicagent
 
 # Single service status
-systemctl status indicagent-feature-vector-pipeline
 
 # Start/stop/restart
 sudo systemctl start indicagent-<service>
@@ -443,8 +440,6 @@ git pull origin main
    sleep 10
 
    # L5-L6: compute and writers
-   sudo systemctl restart indicagent-feature-vector-pipeline \
-                       indicagent-feature-vector-writer
    sleep 10
 
    # L9: top-level
@@ -574,10 +569,8 @@ sudo systemctl restart indicagent-<service>
 journalctl -u indicagent-provider-merger --since "2 minutes ago" | grep "routed"
 
 # 3. Check pipeline processing
-journalctl -u indicagent-feature-vector-pipeline --since "2 minutes ago" | grep "bars processed"
 
 # 4. Check writer persisting
-journalctl -u indicagent-feature-vector-writer --since "2 minutes ago" | grep "batch written"
 ```
 
 ### High Consumer Lag

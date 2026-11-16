@@ -5,7 +5,7 @@ permanent D1 fixture append, and a self-cleaning live write. Two conftest guards
 tests/unit/conftest.py now hold the class closed, and this file holds their honesty:
 
 - subprocess.run/Popen/call/check_* naming a live writer (bar_derivation,
-  feature_vector_pipeline, scripts/ops) raise unless the test carries
+  scripts/ops) raise unless the test carries
   `pytest.mark.live_writer_subprocess`;
 - a connection a unit test opens to the live database (the `indicagent` database, not
   `indicagent_test`) is forced read-only unless the test carries `pytest.mark.live_db`.
@@ -122,5 +122,5 @@ def test_the_guards_are_in_the_unit_conftest():
     conftest = (_REPO_UNIT / "conftest.py").read_text()
     assert "_refuse_live_writer_spawns" in conftest
     assert "_live_dsn_connections_are_read_only" in conftest
-    for token in ("bar_derivation", "feature_vector_pipeline", "scripts/ops", "scripts.ops"):
+    for token in ("bar_derivation", "scripts/ops", "scripts.ops"):
         assert token in conftest, f"guarded writer token {token!r} missing from the conftest"

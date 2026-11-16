@@ -29,7 +29,7 @@ def _skip_decompress_headroom_preflight(request, monkeypatch):
 # substring: `git cat-file <sha>:scripts/ops/...` mentions a writer path without spawning it.
 # A writer shape is the script path as its own token, the -m module form, or a scripts/ops
 # path token.
-_LIVE_WRITER_MODULES = ("bar_derivation", "feature_vector_pipeline")
+_LIVE_WRITER_MODULES = ("bar_derivation",)
 
 
 def _names_live_writer(pieces: list[str]) -> bool:

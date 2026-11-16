@@ -317,63 +317,7 @@
           "legendFormat": "{{ agent_id }}"
         }
       ],
-      "title": "Consumer Lag \u2014 All Writers",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 200
-              },
-              {
-                "color": "red",
-                "value": 400
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 17
-      },
-      "id": 32,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "intelligence_pipeline_output_buffer_depth",
-          "refId": "A",
-          "legendFormat": "buffer depth"
-        }
-      ],
-      "title": "Output Buffer Depth (Intelligence Pipeline)",
+      "title": "Consumer Lag — All Writers",
       "type": "timeseries"
     },
     {

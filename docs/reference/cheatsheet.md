@@ -25,7 +25,6 @@ for f in production/migrations/*.sql; do PGPASSWORD=postgres psql -U postgres -h
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-provider-merger
 sudo systemctl restart indicagent-bar-aggregator
-sudo systemctl restart indicagent-feature-vector-writer   # v3.0 writer; indicagent-feature-writer.service does not exist
 sudo systemctl restart indicagent-api
 
 # The streaming path (provider-merger, bar-aggregator and the other compute daemons) is
@@ -34,7 +33,6 @@ sudo systemctl restart indicagent-api
 # from Massive and Alpaca (2026-11-16); the v2.x units (intelligence-pipeline, signal-writer, signal-tracker-compute,
 # llm-writer, narrative-compute, alpha-swarm) were removed in 185-45 / todo 509.
 
-journalctl -u indicagent-feature-vector-writer -f   # live logs (print() only; structured logs in logs/<service>.log)
 
 # Health / metrics -- all agents emit via the OTel SDK (src/observability/metrics.py) to a
 # single OTel Collector, which exposes one Prometheus exporter for every service (per-service
@@ -55,8 +53,6 @@ cd production && docker compose up -d prometheus grafana
 # Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
 
 # Direct invocation (debugging only)
-.venv/bin/python services/feature_vector_pipeline.py
-.venv/bin/python services/feature_vector_writer.py
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 

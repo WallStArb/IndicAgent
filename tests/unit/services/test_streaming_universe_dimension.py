@@ -23,7 +23,6 @@ _REPO = Path(__file__).resolve().parents[3]
 # lookup table is deliberately the widest dimension: it maps, it does not choose a universe.
 _EXPECTED_DIMENSION = {
     "src/providers/base_provider_agent.py": "live",
-    "services/feature_vector_pipeline.py": "live",
     "services/bar_auditor.py": "live",
     "services/provider_merger.py": "backfill",
 }

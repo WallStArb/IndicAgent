@@ -194,7 +194,6 @@ Every factual claim in a `current` doc must be traceable. The citation format:
 
 ```markdown
 The feature vector writer flushes at a 5-second interval or 50 records, whichever comes first (APR-backed, `threshold.feature_writer.batch_size`).
-<!-- src: services/feature_vector_writer.py:299-301 -->
 ```
 
 For schema claims: `<!-- src: production/migrations/099_signal_ledger_split.sql -->`

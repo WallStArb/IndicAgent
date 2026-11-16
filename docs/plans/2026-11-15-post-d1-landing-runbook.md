@@ -102,7 +102,6 @@ Code lands on main, not in a running process. Oneshot units load the new code at
 | Landing | Units whose code moved | Action |
 |---|---|---|
 | Stack (step 1), R2 (step 4), L1 (step 2) | `indicagent-api` (enabled; `src/api`, `src/config`, `src/core` changed) | `sudo systemctl restart indicagent-api` after the fast-forward |
-| same | `indicagent-feature-vector-pipeline` (enabled; `services/feature_vector_pipeline.py`, `batch_support`, factory kernels changed) | `sudo systemctl restart indicagent-feature-vector-pipeline` |
 | same | oneshots and timers: `bar-derivation-daily`, `bar-derivation-grid`, `bar-reconciliation-audit`, `dividend-event-writer`, `economic-series-writer`, `regime-coverage-auditor`, `feature-parity-auditor`, `research-ledger-render`, `alpaca-nightly`, `ic-measure` | none while stopped; they start on the new code at D5. If D5 runs first, nothing to restart |
 | same | `service-auditor` (started by hand at D5; its `_DAG_ORDER` moved with the R2 deletions) | start it after step 8 so it reads the new registry |
 | L3 (step 5) | `corpus_rerun`, `backfill_feature_factory`, the universe writer (oneshot, run by hand) | none; no unit runs them. `ic-measure` reads the same factory modules: confirm it is stopped until the rerun's `ic_measure` step |

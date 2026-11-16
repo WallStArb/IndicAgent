@@ -51,9 +51,6 @@ _LEGACY = (
 # (file, reason): every `feature_vectors` reference in the tree must appear here.
 _ALLOW_LIST: dict[str, str] = {
     # Writers and the write path.
-    "services/feature_vector_writer.py": (
-        "WRITER: the streaming persistence writer; checks the table's columns at startup."
-    ),
     "services/backfill_feature_factory.py": (
         "WRITER: the rebuild writer; names its target table feature_vectors."
     ),

@@ -162,7 +162,6 @@ systemctl list-units --all | grep indicagent
 systemctl list-timers --all | grep indicagent
 
 # Specific service
-systemctl status indicagent-feature-vector-pipeline
 
 # Docker containers
 docker ps

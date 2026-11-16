@@ -227,45 +227,6 @@ groups:
           severity: high
           contact_point: discord-ops
 
-      - uid: output_buffer_pressure_uid
-        title: output_buffer_pressure
-        condition: C
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange:
-              from: 600
-              to: 0
-            model:
-              expr: intelligence_pipeline_output_buffer_depth
-              intervalMs: 60000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: "__expr__"
-            model:
-              conditions:
-                - evaluator:
-                    params: [400]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    type: last
-              type: classic_conditions
-              refId: C
-        noDataState: NoData
-        execErrState: Error
-        for: 1m
-        annotations:
-          summary: "Intelligence pipeline output buffer > 400 depth"
-          description: "intelligence_pipeline_output_buffer_depth > 400. Writer is falling behind."
-        labels:
-          severity: high
-          contact_point: discord-ops
-
       - uid: gap_fill_dlq_growing_uid
         title: gap_fill_dlq_growing
         condition: C

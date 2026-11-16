@@ -7,7 +7,6 @@
 Description=IndicAgent Wave 4 gate - analytics, audit, and top-level services
 Requires=indicagent-infrastructure.target
 After=indicagent-wave3.target
-After=indicagent-feature-vector-writer.service
 
 [Install]
 WantedBy=multi-user.target

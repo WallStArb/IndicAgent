@@ -191,7 +191,7 @@ A quantity may also use standard field-specific vocabulary instead of a generic 
 indicagent-<concept>.service
 ```
 
-`concept` is the daemon's `snake_case` concept name. Examples: `indicagent-bar-aggregator.service`, `indicagent-feature-vector-pipeline.service`
+`concept` is the daemon's `snake_case` concept name. Examples: `indicagent-bar-aggregator.service`, the retired feature-vector pipeline
 
 Not every unit is a bare `<concept>` — e.g. `signal_tracker`'s live unit is `indicagent-signal-tracker-compute.service` (a `-compute` qualifier appended, not the pure pattern above). Check `production/systemd/` for the live name rather than assuming the mechanical derivation when precision matters.
 

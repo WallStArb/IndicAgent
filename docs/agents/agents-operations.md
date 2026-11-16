@@ -29,7 +29,7 @@ This document describes how the system of agents is managed: the service auditor
 
 systemd provides process liveness (WatchdogSec kills hung processes). Prometheus provides metrics and lag. Neither alone gives graduated, DAG-aware response. The `ServiceAuditor` adds the third layer: it reads both systemd unit state and Prometheus consumer-lag metrics, then applies a graduated response policy — DEGRADED (log), RESTART (systemctl), ESCALATE (DLQ + stop retrying) — in dependency order.
 
-Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indicagent-feature-vector-pipeline` would keep running but receive no bars, look healthy to systemd, and silently produce no output. The auditor detects the lag stall and restarts the right service in the right order.
+Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: the retired feature-vector pipeline would keep running but receive no bars, look healthy to systemd, and silently produce no output. The auditor detects the lag stall and restarts the right service in the right order.
 
 ### Why `_DAG_ORDER` Is the Single Source of Truth
 
@@ -37,7 +37,7 @@ Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indi
 
 ### Why Layered Restart (Not Random)
 
-Restarting services in random order causes thundering-herd failures: if `indicagent-feature-vector-pipeline` (priority 6 in the auditor's numbering) restarts before `indicagent-bar-aggregator` (priority 3) is healthy, the pipeline starts with empty state and processes zero messages. Restart order follows `_DAG_ORDER` priority: lower number restarts first.
+Restarting services in random order causes thundering-herd failures: if the retired feature-vector pipeline (priority 6 in the auditor's numbering) restarts before `indicagent-bar-aggregator` (priority 3) is healthy, the pipeline starts with empty state and processes zero messages. Restart order follows `_DAG_ORDER` priority: lower number restarts first.
 
 ### Why Lag-Based Health (Not Just Process Liveness)
 
@@ -94,8 +94,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-provider-merger": 2,
     "indicagent-bar-aggregator": 3,
     "indicagent-bar-auditor": 3,
-    "indicagent-feature-vector-pipeline": 6,
-    "indicagent-feature-vector-writer": 7,
     "indicagent-signal-tracker-compute": 7,
     "indicagent-signal-writer": 7,
     "indicagent-lifecycle-writer": 7,
@@ -166,8 +164,6 @@ The `PERSISTENCE_CONSUMER_LAG` metric uses `agent_id` label whose value comes fr
 ```python
 _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator":                "indicagent-bar-aggregator",
-    "feature_vector_pipeline":       "indicagent-feature-vector-pipeline",
-    "feature_vector_writer":         "indicagent-feature-vector-writer",
     "signal_tracker":                "indicagent-signal-tracker-compute",
     "signal_writer":                 "indicagent-signal-writer",
     "llm_writer":                    "indicagent-llm-writer",
@@ -310,7 +306,7 @@ The service auditor handles this automatically for most services. Manual interve
 
 ### Diagnosing Startup Cascade Failures
 
-If `indicagent-feature-vector-pipeline` fails to start, check in layer order:
+If the retired feature-vector pipeline fails to start, check in layer order:
 
 1. Is Redpanda healthy? `docker exec redpanda rpk cluster health`
 2. Is TimescaleDB accepting connections? `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT 1"`
@@ -328,8 +324,6 @@ defaults to `BaseDaemon._to_snake_case(ClassName)` unless the constructor passes
 
 | Service | Log file |
 |---------|---------|
-| `indicagent-feature-vector-writer` | `logs/feature_vector_writer.log` |
-| `indicagent-feature-vector-pipeline` | `logs/feature_vector_pipeline.log` |
 | `indicagent-alpha-swarm` | `logs/alpha_swarm.log` |
 | `indicagent-narrative-compute` | `logs/NarrativeSynthesizer.log` (worker class name, not the coordinator's) |
 

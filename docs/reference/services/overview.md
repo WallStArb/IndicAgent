@@ -34,7 +34,6 @@ Live IBKR ingestion is stalled (frozen since 2026-08-12 per project memory, todo
 
 | Service | Unit | File | Consumes | Publishes To |
 |---------|------|------|----------|---------------|
-| Feature Vector Pipeline | `indicagent-feature-vector-pipeline` | `services/feature_vector_pipeline.py` | `market.bars`, `market.bars.htf`, `system_events` | `feature_vectors` (Kafka topic, `topic_feature_vectors`) |
 
 Computes via `src/intelligence/feature_factory.py` — **not** `register_plugins.py`/the I1-I7 plugin DAG. Live 2026-09-04 (`active running`). DB-ignorant compute; persistence goes through the writer below (DAG Invariant 3). See `docs/architecture/architecture-dag-topology.md` §2 for wiring detail.
 
@@ -42,7 +41,6 @@ Computes via `src/intelligence/feature_factory.py` — **not** `register_plugins
 
 | Service | Unit | File | Consumes | Writes To |
 |---------|------|------|----------|-----------|
-| Feature Vector Writer | `indicagent-feature-vector-writer` | `services/feature_vector_writer.py` | `feature_vectors` topic | `feature_vectors` hypertable |
 
 Removed in 185-45: signal, lifecycle, lineage, graduation and LLM writers and the signal tracker. Live 2026-10-08: `feature-vector-writer` `active running`.
 
