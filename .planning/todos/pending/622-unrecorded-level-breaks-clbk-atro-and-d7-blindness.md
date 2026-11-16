@@ -37,3 +37,9 @@ dividends, not splits (never record); CBSH, SITM, SNDK, VIXM fall after the data
 
 The next D4 run is green with the row recorded; the A3 sweep lists no unexplained lone break on an active
 name; recorded rows carry the witness in `detail`.
+
+## Lead ruling 2026-11-16
+
+Not a D4, D5 or Part F gate: the D4 rerun and D5 proceed as scripted. Scope items 1 and 2 run after `PARTD4 DONE` inside the
+A3 split sweep window (witness first, then the `--apply-massive` record and reselect for CLBK; ATRO on its witness alone).
+Scope item 3 (the gate on lone breaks) is decided with the todo 592 owner before the first counted test.
