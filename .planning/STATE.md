@@ -44,9 +44,12 @@ Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca,
 leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
 survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
 
-In flight: step 7 Part C, started 2026-11-15 18:21Z through `logs/massive_step7/run_partc.sh` (do not touch it or its logs):
-C5 5m rebuild at window 73 of 95 (the preflight state is `rebuild_state.json`), then C6 1d, C7 grid, C8 finish; Part C+D
-ETA about 14 to 20 h, finishing around midday 2026-11-16. B4 passed on the slim gate (load_hole 0, 1d 3,427 and 5m
+In flight: step 7 stopped at the D4 gate (2026-11-16T13:00Z, `PARTD4 GATE FAILED`). Parts C and D1 to D3 passed; D4's
+`split_horizon_fresh` is green on 1,529 names and the only new reds are `split_continuity` ITA, MTUM and QUAL (1d): Massive's
+flat file serves 2026-11-04 on the pre-split scale (ITA 212.84 against 70.95 at Alpaca and IBKR) for the three splits recorded
+2026-11-03. A worker is finding the root cause and fix in a detached worktree; D5 and Part F wait for `PARTD4 DONE`. Part C ran
+from 2026-11-15 18:21Z through `logs/massive_step7/run_partc.sh` (do not touch its logs).
+B4 passed on the slim gate (load_hole 0, 1d 3,427 and 5m
 95,546 unexplained residue disclosed as one total per timeframe); map `20261115_6195ae11abff` is installed; A10 quiesce
 holds (the Alpaca nightly, derivation, audit, dividend and regime timers and both auditors are disabled until D5);
 `reference_raw` holds the pit_snapshots month-end ticker lists (6,132 rows). Part D and F are scripted and not yet run:
@@ -70,7 +73,7 @@ feature and IC work can start; every session and worker assignment is picked by 
 clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
 
 Next, in order:
-1. Part C finishes (`PARTC DONE`), then `run_partd.sh`, `run_partd4.sh`, `run_partd5.sh --apply` (D6 docs after D4), then
+1. Fix the ITA, MTUM and QUAL late-split bars, rerun `run_partd4.sh` to `PARTD4 DONE`, then `run_partd5.sh --apply` (D6 docs after D4), then
    `run_partf.sh` (the lead launches each; `docs/operations/massive-step7-runbook.md`).
 2. The held post-D1 landings in the landing runbook's order.
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
