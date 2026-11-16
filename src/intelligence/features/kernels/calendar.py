@@ -373,9 +373,9 @@ def _compute_events(inputs, config):
 
 
 def _compute_above_wk_vwap(inputs, config):
-    """Replay of FeatureCache's weekly VWAP exactly as compute_batch drives it.
+    """Replay of FeatureCache's weekly VWAP exactly as the production series drives it.
 
-    compute_batch reads the flag before it advances the cache with the same bar, and never
+    The production series reads the flag before it advances the cache with the same bar, and never
     advances for row 0, so the value at row i reflects bars 1..i-1 and row 0 holds the cache's
     initial 0.0. One implementation of the weekly VWAP math.
     """

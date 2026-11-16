@@ -2,8 +2,6 @@ expected_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enfo
 actual_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:34)
 _._last_reset  # unused attribute (services/bar_aggregator.py:99)
 _._last_reset  # unused attribute (services/bar_aggregator.py:121)
-_._live_quotes  # unused attribute (services/feature_vector_pipeline.py:186)
-_._feature_factory  # unused attribute (services/feature_vector_pipeline.py:208)
 _._config_loaded  # unused attribute (src/config/config_consumer.py:79)
 _._config_loaded  # unused attribute (src/config/config_consumer.py:170)
 default_value  # unused variable (src/config/config_schema.py:21)
@@ -385,9 +383,6 @@ _.verify_prerequisites  # unused method (src/observability/corpus_manifest.py:23
 get_vocabulary  # unused function (src/api/routes/vocabulary.py:30)
 _.update_cross_asset  # unused method (src/intelligence/features/kernels/_cache_state.py:562)
 reset_vocabulary_service_for_test  # unused function (src/core/vocabulary_access.py:56) - test-only helper, real caller is tests/unit/core/test_vocabulary_access.py, invisible to vulture's src/services/scripts-only scan paths (todo 327 final review, renamed todo 330)
-_._vocabulary_service  # unused attribute (services/feature_vector_pipeline.py:208) - same as above
-_vix_symbol  # unused attribute (services/feature_vector_pipeline.py:240) - newly exposed by todo 328's deletion of src/intelligence/pipeline/feature_pipeline_executor.py; a real cascading-dead-code question for the broader I1-I7 audit (todo 223), not re-triaged here
-get_all_states_for  # unused method (src/intelligence/pipeline/state_manager.py:103) - same as above
 get_lock  # unused method (src/intelligence/pipeline/state_manager.py:111) - same as above
 update_batch  # unused method (src/intelligence/pipeline/state_manager.py:138) - same as above
 to_dataframe  # unused method (src/core/bar_history.py:64) - same as above
@@ -444,7 +439,7 @@ content_key  # unused method (src/core/agent/base_batch.py:119) - static SHA-256
 # 185-45: fields of the archived typed bus records (IntelligenceEvent tiers in src/intelligence/schemas.py,
 # the ML feature schema in src/core/ml/features.py, the signal_events repository row) whose only readers
 # were the removed AI stack (src/intelligence/ai/context.py and the alpha agents). The records stay while
-# feature_vector_pipeline and the API import them (185-45 rule 4).
+# the API imports them (185-45 rule 4).
 l  # unused variable (src/intelligence/schemas.py:77)
 rsi_14  # unused variable (src/intelligence/schemas.py:96)
 adx_14  # unused variable (src/intelligence/schemas.py:116)
@@ -452,10 +447,9 @@ i4  # unused variable (src/intelligence/schemas.py:949)
 i5  # unused variable (src/intelligence/schemas.py:950)
 smc  # unused variable (src/intelligence/schemas.py:951)
 # 185-45 (v2.x removal): names whose only users were the removed v2.x services and plugin
-# duplicates. They live in modules kept by 185-45 rule 4 (reached by feature_vector_pipeline through
-# src.intelligence.pipeline, or by the API): record and model fields, BaseDaemon.get_config, and
+# duplicates. They live in modules kept by 185-45 rule 4 (reached by the API): record and model fields, BaseDaemon.get_config, and
 # trading/ helpers that the excluded src/intelligence/archive/ copies call. Retire them with the
-# feature_vector_pipeline decoupling and the dashboard v2.x surface follow-up.
+# dashboard v2.x surface follow-up.
 point_value  # unused variable (src/api/routes/instruments.py:63)
 point_value  # unused variable (src/api/routes/instruments.py:81)
 replay_batch_size  # unused variable (src/config/settings.py:77)
@@ -1108,35 +1102,4 @@ active_demand_zones  # unused variable (src/intelligence/schemas.py:742)
 active_supply_zones  # unused variable (src/intelligence/schemas.py:743)
 bar_close_ts  # unused variable (src/intelligence/schemas.py:899)
 constant_volume_basis  # unused function (src/intelligence/features/contract/registry.py:60)
-_canary_noise_gaussian  # unused function (src/intelligence/features/kernels/control.py:55)
-_range_to_close  # unused function (src/intelligence/features/kernels/price.py:388)
-_canary_noise_uniform  # unused function (src/intelligence/features/kernels/control.py:62)
-_canary_near_constant  # unused function (src/intelligence/features/kernels/control.py:70)
-_dollar_vol_z  # unused function (src/intelligence/features/kernels/volume.py:104)
-_product  # unused function (src/intelligence/features/kernels/price.py:468)
 bar_close_ts  # unused function (src/core/service_utils.py:69)
-_range_pct  # unused function (src/intelligence/features/kernels/price.py:260)
-_overnight_gap_z  # unused function (src/intelligence/features/kernels/price.py:167)
-_updown_ratio  # unused function (src/intelligence/features/kernels/price.py:338)
-_vol_std_z  # unused function (src/intelligence/features/kernels/volume.py:215)
-_true_range_pct  # unused function (src/intelligence/features/kernels/price.py:395)
-_rel_volume  # unused function (src/intelligence/features/kernels/volume.py:42)
-_vol_ratio  # unused function (src/intelligence/features/kernels/price.py:77)
-_stoch_k  # unused function (src/intelligence/features/kernels/price.py:270)
-_vol_acceleration  # unused function (src/intelligence/features/kernels/volume.py:90)
-_vol_persistence  # unused function (src/intelligence/features/kernels/volume.py:201)
-_efficiency_ratio  # unused function (src/intelligence/features/kernels/price.py:299)
-_cci  # unused function (src/intelligence/features/kernels/price.py:520)
-_aroon_osc  # unused function (src/intelligence/features/kernels/price.py:537)
-_vol_trend_ratio  # unused function (src/intelligence/features/kernels/volume.py:140)
-_bb_pct_b  # unused function (src/intelligence/features/kernels/price.py:450)
-_vol_percentile  # unused function (src/intelligence/features/kernels/volume.py:183)
-_obv_z  # unused function (src/intelligence/features/kernels/volume.py:262)
-_realized_var_ratio  # unused function (src/intelligence/features/kernels/price.py:369)
-_range_position  # unused function (src/intelligence/features/kernels/price.py:57)
-_streak_length  # unused function (src/intelligence/features/kernels/price.py:349)
-_ret_autocorr  # unused function (src/intelligence/features/kernels/price.py:316)
-_variance_ratio  # unused function (src/intelligence/features/kernels/price.py:408)
-_up_vol_ratio  # unused function (src/intelligence/features/kernels/volume.py:157)
-_vol_range_ratio  # unused function (src/intelligence/features/kernels/volume.py:112)
-_mfi  # unused function (src/intelligence/features/kernels/volume.py:226)

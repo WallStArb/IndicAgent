@@ -40,7 +40,6 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **Topic naming**: dots only (not colons). Always via `src/core/stream_keys.py`.
 - **`INDICAGENT_ENV` consistency**: mixed env prefixes → services subscribe to different topics → zero data flow.
-- **`feature_vector_pipeline` subscribes to** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 
 ## structlog
 

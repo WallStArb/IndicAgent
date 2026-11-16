@@ -534,7 +534,7 @@ def test_get_target_timeframes_refuses_an_unknown_timeframe_at_load() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 8: FeatureFactory.compute() integration with synthetic bars (no network/DB)
+# Test 8: kernel-path integration with synthetic bars (no network/DB)
 # ---------------------------------------------------------------------------
 
 
@@ -678,7 +678,7 @@ class TestBuildCrossAssetSeries:
 
 
 # ---------------------------------------------------------------------------
-# Test 10: compute_batch external state injection
+# Test 10: external input injection
 # ---------------------------------------------------------------------------
 
 

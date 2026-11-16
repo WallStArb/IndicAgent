@@ -16,6 +16,11 @@ from src.intelligence.features.kernels import _primitives, control
 from src.intelligence.features.kernels import calendar as cal
 from src.intelligence.features.kernels._primitives import unique_datetimes
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.scalar_oracles import (
+    canary_near_constant,
+    canary_noise_gaussian,
+    canary_noise_uniform,
+)
 from tests.unit.intelligence.test_feature_kernels import MANIFEST
 
 
@@ -118,13 +123,13 @@ def test_noise_kernel_equals_public_noise_functions():
             got,
             {
                 "canary_noise_gaussian": [
-                    control._canary_noise_gaussian(dts[i], sym_of(i), seed) for i in range(n)
+                    canary_noise_gaussian(dts[i], sym_of(i), seed) for i in range(n)
                 ],
                 "canary_noise_uniform": [
-                    control._canary_noise_uniform(dts[i], sym_of(i), seed) for i in range(n)
+                    canary_noise_uniform(dts[i], sym_of(i), seed) for i in range(n)
                 ],
                 "canary_near_constant": [
-                    control._canary_near_constant(dts[i], sym_of(i), seed) for i in range(n)
+                    canary_near_constant(dts[i], sym_of(i), seed) for i in range(n)
                 ],
             },
         )

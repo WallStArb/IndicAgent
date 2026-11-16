@@ -16,12 +16,10 @@ Clamping the underflow tail to 0.0 is the mathematically correct value at this p
 an approximation being papered over. The overflow tail is symmetric defensive coverage.
 
 2026-09-22 (underflow-7symbol-real-column debug session): promoted out of
-the batch bulk-update helper (since deleted), where it originally lived as a private helper. feature_vector_persistence.py's feature_vector_to_insert_params() -- the
-single shared row-serializer for both the live asyncpg write path (feature_vector_writer.py)
-and the batch psycopg write path (backfill_feature_factory.py) -- hit the identical Postgres
-error class on a different write primitive (raw INSERT, not bulk_update_by_key's COPY+UPDATE)
-that never got todo 312's fix. Shared here instead of duplicated so the two implementations
-can't drift.
+the batch bulk-update helper (since deleted), where it originally lived as a private helper.
+The feature_vectors row serializer hit the identical Postgres error class on a different write
+primitive (raw INSERT, not bulk_update_by_key's COPY+UPDATE) that never got todo 312's fix.
+Shared here instead of duplicated so every write primitive clamps the same way.
 """
 
 from __future__ import annotations

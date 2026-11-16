@@ -257,7 +257,7 @@ _REBUILD_BLOCK_ROWS_DEFAULT: int = 10_000
 # build_symbol_beta_series -- single definition project-wide).
 
 # CTF (cross-timeframe) higher-timeframe source mapping (config.ctf_higher_tf_map,
-# feature.ctf.higher_tf_map, todo 242) is shared with feature_vector_pipeline.py's
+# feature.ctf.higher_tf_map, todo 242) was shared with the deleted feature_vector_pipeline.py's
 # live-path update (todo 241). 1d uses itself as HTF: CTF at bar T computed from daily
 # bars up to T (causal; bisect_right selects the current bar's CTF which is valid since
 # the bar has closed at computation time).
@@ -742,7 +742,7 @@ def _series_kernel_inputs(
     htf_bars: list[dict],
     daily_records: DailySeriesRecord | None = None,
 ) -> dict[str, np.ndarray]:
-    """The bar arrays and every external input of one series, built as compute_batch builds them
+    """The bar arrays and every external input of one series, built as the kernel path needs them
     (the same three helpers, so one definition of each alignment): the symbol and tf constants,
     the ten daily macro columns as-of the bar end (NaN before the first record, no_fill), and the
     higher-timeframe externals. `bars` holds ts (UTC nanoseconds), open, high, low, close,

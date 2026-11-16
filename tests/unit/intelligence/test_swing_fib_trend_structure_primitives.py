@@ -24,7 +24,7 @@ from tests.unit.intelligence.production_series import series_columns
 N = 250
 RNG = np.random.default_rng(7)
 
-# Swing/Trend FeatureVector fields shared between live compute() and batch compute_batch()
+# Swing/Trend feature_vectors columns
 _SWING_FIELDS = (
     "swing_high_dist_atr",
     "swing_low_dist_atr",
@@ -252,11 +252,14 @@ def _build_swing_micro_case_bars() -> list[dict]:
     up = np.arange(0, 17) * step
     down = up[1:-1][::-1]
     period = np.concatenate([up, down])
-    n_cycles = 5
+    # 14 whole cycles lead the final arm: the swing and S/R kernels declare 399 bars of
+    # effective memory, and a row inside it is masked (no_fill), so the pinned last row must
+    # sit past it. Every cycle repeats the same peak, so the geometry below is unchanged.
+    n_cycles = 16
     wave = np.tile(period, n_cycles)
     mid = 98.0 + wave
 
-    cut = 32 * 2 + 15
+    cut = 32 * 14 + 15
     mid = mid[:cut]
     assert abs(mid[-1] - 101.5) < 1e-9, f"micro-case construction bug: mid[-1]={mid[-1]}"
 
@@ -685,3 +688,141 @@ def test_every_1d_not_applicable_output_is_missing(session_bars, session_batch_5
         assert np.isfinite(
             session_batch_5m[name]
         ).any(), f"{name} never populated at tf='5m' -- fixture too short"
+
+
+# ---------------------------------------------------------------------------
+# Restored through the production path (R2 item 5c): ATR units, no-object series,
+# fib zone boundaries, S/R. The last row of the series is the row under test.
+# ---------------------------------------------------------------------------
+
+
+def _last_row(bars_local: list[dict], cfg_local, tf: str = "5m") -> dict[str, float]:
+    columns = series_columns(bars_local, "SPY", tf, cfg_local)
+    return {name: float(col[-1]) for name, col in columns.items()}
+
+
+def _flat_series_bars(n: int = 450) -> list[dict]:
+    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
+    return [
+        {
+            "open": 100.0,
+            "high": 100.0,
+            "low": 100.0,
+            "close": 100.0,
+            "volume": 1_000.0,
+            "ts": base_ts + timedelta(minutes=i),
+        }
+        for i in range(n)
+    ]
+
+
+def test_swing_high_distance_is_in_atr_units(cfg):
+    """A confirmed swing high exactly 1 ATR above the close reads swing_high_dist_atr == 1.0."""
+    micro_bars = _build_swing_micro_case_bars()
+    row = _last_row(micro_bars, cfg)
+    expected = (102.5 - micro_bars[-1]["close"]) / 1.0
+    assert math.isclose(row["swing_high_dist_atr"], expected, abs_tol=1e-4)
+    assert math.isclose(row["swing_high_dist_atr"], 1.0, abs_tol=1e-4)
+
+
+def test_nearest_fib_distance_is_in_atr_units(cfg):
+    """Swing 97.5 to 102.5, close 101.5: the nearest of the five levels is 0.786 at 101.43."""
+    row = _last_row(_build_swing_micro_case_bars(), cfg)
+    low, high = 97.5, 102.5
+    levels = [low + ratio * (high - low) for ratio in (0.236, 0.382, 0.500, 0.618, 0.786)]
+    expected = min(abs(101.5 - level) for level in levels)
+    assert math.isclose(row["nearest_fib_dist_atr"], expected, abs_tol=1e-4)
+    assert math.isclose(row["nearest_fib_ratio"], 0.786, abs_tol=1e-4)
+
+
+def test_flat_series_has_no_swing_trend_or_fib_object(cfg):
+    """No confirmed pivot on a flat series: every swing, trend and fib column is missing (NaN),
+    never a fabricated neutral."""
+    row = _last_row(_flat_series_bars(), cfg)
+    for field in _SWING_FIELDS + _TREND_FIELDS + _FIB_FIELDS:
+        assert math.isnan(row[field]), f"{field} is not missing on a flat (pivotless) series"
+
+
+def test_trend_structure_and_swing_momentum_stay_bounded(cfg):
+    rng = np.random.default_rng(11)
+    n = 800  # past the 399-bar effective memory of the swing structure kernel
+    t = np.arange(n)
+    closes = 100.0 + np.sin(t / 3.0) * 3.5 + np.sin(t / 11.0) * 1.5
+    closes = closes + np.cumsum(rng.normal(0, 0.18, n))
+    spread = np.abs(rng.normal(0.10, 0.03, n)) + 0.03
+    opens = closes + rng.normal(0, 0.03, n)
+    highs = np.maximum(closes + spread, np.maximum(opens, closes))
+    lows = np.minimum(closes - spread, np.minimum(opens, closes))
+    base_ts = datetime(2023, 1, 3, 14, 0, tzinfo=UTC)
+    long_bars = [
+        {
+            "open": float(opens[i]),
+            "high": float(highs[i]),
+            "low": float(lows[i]),
+            "close": float(closes[i]),
+            "volume": float(rng.uniform(1e4, 1e6)),
+            "ts": base_ts + timedelta(minutes=i),
+        }
+        for i in range(n)
+    ]
+    columns = series_columns(long_bars, "SPY", "5m", cfg)
+    integrity = columns["structure_integrity"][np.isfinite(columns["structure_integrity"])]
+    position = columns["price_position"][np.isfinite(columns["price_position"])]
+    assert integrity.size and np.all(integrity >= 0.0) and np.all(integrity <= 1.0)
+    assert position.size and np.all(position >= 0.0) and np.all(position <= 1.0)
+    bias = columns["swing_velocity_bias"][np.isfinite(columns["swing_velocity_bias"])]
+    assert set(np.unique(bias)) <= {-1.0, 0.0, 1.0}
+
+
+def test_fib_discount_zone_flips_at_the_band_edges():
+    """in_fib_discount_zone is 1.0 inside [0.500, 0.786] of the swing range and 0.0 on both
+    sides, on a swing 100 to 110."""
+    from src.intelligence.features.kernels.vp_sr import _compute_fib_zones
+
+    local_cfg = _make_cfg()
+    swing_fields = {"swing_high_price": 110.0, "swing_low_price": 100.0}
+    inside = _compute_fib_zones(105.0 + 0.5, 1.0, swing_fields, local_cfg)
+    below = _compute_fib_zones(105.0 - 0.5, 1.0, swing_fields, local_cfg)
+    above = _compute_fib_zones(107.86 + 0.5, 1.0, swing_fields, local_cfg)
+    assert inside["in_fib_discount_zone"] == 1.0, inside
+    assert below["in_fib_discount_zone"] == 0.0, below
+    assert above["in_fib_discount_zone"] == 0.0, above
+
+
+def test_support_resistance_distance_is_in_atr_units(cfg):
+    """A resistance level exactly 1 ATR above the close reads sr_resist_dist == 1.0 (the
+    percent-distance formula would not)."""
+    micro_bars = _build_swing_micro_case_bars()
+    row = _last_row(micro_bars, cfg)
+    assert math.isclose(row["sr_resist_dist"], 102.5 - micro_bars[-1]["close"], abs_tol=1e-4)
+    assert math.isclose(row["sr_resist_dist"], 1.0, abs_tol=1e-4)
+
+
+def test_support_resistance_with_an_invalid_atr_is_unmeasured_not_empty(cfg):
+    """The cluster tolerance scales with ATR, so ATR == 0 leaves the detection unmeasurable:
+    every output including sr_level_count is NaN, where a valid ATR measures clusters."""
+    from src.intelligence.features.kernels.vp_sr import _compute_sr_dist_atr
+
+    high, low, close_ = _random_walk_arrays(n=200)
+    volume = np.random.default_rng(5).uniform(1e5, 2e5, 200)
+    valid = _compute_sr_dist_atr(high, low, close_, 1.0, volume, "5m", cfg)
+    invalid = _compute_sr_dist_atr(high, low, close_, 0.0, volume, "5m", cfg)
+    assert valid["sr_level_count"] > 0.0, "fixture guard: the walk must form clusters"
+    assert math.isnan(invalid["sr_level_count"])
+    for key in (
+        "sr_support_dist",
+        "sr_resist_dist",
+        "resistance_strength",
+        "support_strength",
+        "resistance_age_bars",
+        "support_age_bars",
+    ):
+        assert math.isnan(invalid[key]), key
+
+
+def test_prior_session_high_distance_is_in_atr_units(cfg):
+    """prior_session_high_dist_atr equals the raw price gap to the prior session's high."""
+    bars_local = _build_session_atr_pin_bars()
+    row = _last_row(bars_local, cfg)
+    expected = max(b["high"] for b in bars_local[:5]) - bars_local[-1]["close"]
+    assert math.isclose(row["prior_session_high_dist_atr"], expected, abs_tol=1e-4)

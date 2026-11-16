@@ -28,8 +28,8 @@ No human defines what feature combinations constitute edge. The ensemble finds i
 
 ## What replaced it
 
-- `FeatureFactory.compute()` (`src/intelligence/features/kernels/`): one stateless pure function
-  producing the `FeatureVector` columns; no per-feature plugin files, no self-registration lists.
+- The feature kernel registry (`src/intelligence/features/kernels/`): stateless pure kernels
+  producing the `feature_vectors` columns; no per-feature plugin files, no self-registration lists.
 - **Extensibility is a schema migration, not a registration:** write the kernel, add the
   `feature_vectors` column by migration, insert the `concept_registry` row. Evidence gates
   promotion (UCR lifecycle), not a startup validator.

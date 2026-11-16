@@ -1,10 +1,9 @@
-"""Registered feature kernels against compute_batch and the causality probe (186-12, D-25, D-26).
+"""Registered feature kernels: column ownership, the NaN contract of the series helpers and the
+causality probe (186-12, D-25, D-26).
 
-(a) every registered feature column is a persisted FeatureVector column;
-(b) each kernel output equals the compute_batch column on the 500-bar synthetic fixture;
-    the regime kernels are probed on their own short series and covered by test_regime_kernel.py;
-(c) compute_batch no longer calls the moved scalar helpers;
-(d) the causality probe and memory check pass every kernel under two configs.
+(a) every registered feature column is owned by a kernel or listed as unowned;
+(b) the regime kernels are probed on their own short series and covered by test_regime_kernel.py;
+(c) the causality probe and memory check pass every kernel under two configs.
 """
 
 from __future__ import annotations
@@ -44,6 +43,7 @@ from tests.unit.intelligence.regime_kernel_fixtures import (
     regime_kernels,
     regime_probe_case,
 )
+from tests.unit.intelligence.scalar_oracles import aroon_osc, cci
 
 MANIFEST = ref.load_manifest()
 PROBE_ROWS = np.array([700, 1200, 1800, 2400, 2999])
@@ -70,79 +70,6 @@ PATH_DEPENDENT = {
     "hmm_volatility_label",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
-
-# compute_batch calls none of these helpers by name any more; it reads registry outputs.
-DELEGATED_HELPERS = (
-    "_in_ny_session",
-    "_in_overlap",
-    "_power_hour",
-    "_opening_range",
-    "_session_time_pos",
-    "_dow_encoding",
-    "_month_position",
-    "_quarter_position",
-    "_days_to_month_end_fraction",
-    "_quarter_cycle_encoding",
-    "_tdom_encoding",
-    "_minute_of_hour_encoding",
-    "_hour_of_day_sin",
-    "_hour_of_day_cos",
-    "_week_of_month_sin",
-    "_week_of_month_cos",
-    "_day_of_month_sin",
-    "_day_of_month_cos",
-    "_week_of_year_sin",
-    "_week_of_year_cos",
-    "_month_sin",
-    "_month_cos",
-    "_opex_flag",
-    "_quad_witching_flag",
-    "_earnings_season_flag",
-    "_days_since_quarter_end",
-    "_canary_noise_gaussian",
-    "_canary_noise_uniform",
-    "_canary_near_constant",
-    "_canary_acausal_placebo",
-    "_bar_close_pos",
-    "_range_position",
-    "_vol_ratio",
-    "_body_ratio",
-    "_upper_wick_ratio",
-    "_lower_wick_ratio",
-    "_range_vs_atr",
-    "_close_vs_open_direction",
-    "_overnight_gap",
-    "_range_efficiency",
-    "_ret_lag_1",
-    "_ret_lag_2",
-    "_ret_lag_3",
-    "_ret_lag_fast",
-    "_ret_lag_mid",
-    "_ret_lag_slow",
-    "_open_ret",
-    "_intraday_ret",
-    "_open_vs_intraday",
-    "_cci",
-    "_aroon_osc",
-    "_ret_vol_ratio",
-    "_informed_flow",
-    "_cmf",
-    "_product",
-    "_up_vol_body_diff",
-    "_rolling_poc_price",
-    "_compute_sr_dist_atr",
-    "_compute_swing_structure",
-    "_compute_trend_structure",
-    "_compute_swing_momentum",
-    "_compute_fib_zones",
-    "_compute_order_blocks",
-    "_compute_fvg",
-    "_compute_liquidity_sweeps",
-    "_compute_liquidity_pools",
-    "_compute_supply_demand_zones",
-    "_compute_bos_choch",
-)
-
 
 REGIME_COLUMNS = frozenset(
     (*REGIME_WRITER_OWNED_COLUMN_NAMES, *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
@@ -202,12 +129,12 @@ def _intraday_outputs() -> list[str]:
     return [o for k in intraday_kernels(default_registry().kernels) for o in k.outputs]
 
 
-# The legacy FeatureVector fields are non-nullable floats, so compute_batch writes 0.0 where the
+# The legacy FeatureVector fields are non-nullable floats, so the retired compute_batch wrote 0.0 where the
 # kernel is NaN (todo 555: amihud_illiq_z is NaN until its window is warm and after a basis
 # change). The rebuild reads the kernel arrays directly and keeps the NaN (no_fill).
 _LEGACY_NAN_TO_ZERO = frozenset({"amihud_illiq_z", "illiquidity_momentum_product"})
 # The cache z-scores are NaN until their history holds a full window (todo 564), and so are the
-# products that read them; compute_batch guards that warmup to 0.0. Exempt only the leading NaN
+# products that read them; the retired compute_batch guarded that warmup to 0.0. Exempt only the leading NaN
 # run: a NaN after the first finite value is a regression the legacy guard would hide.
 _LEGACY_WARMUP_NAN_TO_ZERO = frozenset(
     {
@@ -220,7 +147,7 @@ _LEGACY_WARMUP_NAN_TO_ZERO = frozenset(
         "vix_reversion_product",
         "yield_slope_momentum_product",
         # todo 584 4c: the kernel layer NaNs cold/degenerate correlation and
-        # persistence windows (D1 rule 5); compute_batch still guards them to 0.0
+        # persistence windows (D1 rule 5); the retired compute_batch guarded them to 0.0
         "abs_ret_autocorr_1",
         "ret_autocorr_1",
         "ret_autocorr_5",
@@ -550,36 +477,24 @@ def test_group1_ratio_helpers_are_nan_where_undefined() -> None:
     from src.intelligence.features.kernels.price import (
         _hv_ratio_series_full,
         _intraday_noise_ratio_series_full,
-        _realized_var_ratio,
         _realized_var_ratio_series_full,
-        _updown_ratio,
         _updown_ratio_series_full,
-        _variance_ratio,
         _variance_ratio_series_full,
     )
     from src.intelligence.features.kernels.volume import (
-        _vol_acceleration,
         _vol_acceleration_series_full,
     )
 
     flat = np.full(12, 100.0)
-    assert math.isnan(_updown_ratio(np.array([0.01, 0.02, 0.03])))  # no down bars
     assert np.isnan(_updown_ratio_series_full(flat, 5)).all()  # no down bars anywhere
     assert math.isnan(_updown_ratio_series_full(np.array([100.0]), 5)[0])
-    assert math.isnan(_realized_var_ratio(flat, 3, 8))  # zero slow variance
-    assert math.isnan(_realized_var_ratio(np.array([1.0, 2.0]), 3, 8))  # w_fast < 2
     assert np.isnan(_realized_var_ratio_series_full(flat, 3, 8)).all()
-    assert math.isnan(_variance_ratio(flat, 4))  # zero 1-period variance
-    assert math.isnan(_variance_ratio(np.array([1.0, 2.0, 3.0]), 4))  # m < n + 1
     assert np.isnan(_variance_ratio_series_full(flat, 4)).all()
     assert np.isnan(_hv_ratio_series_full(flat, 5, 5)).all()  # flat window, mean HV 0
     assert math.isnan(_hv_ratio_series_full(np.array([100.0]), 5, 5)[0])
     noise = _intraday_noise_ratio_series_full(flat, 6)  # net progress zero
     assert np.isnan(noise).all()
     assert np.isnan(_intraday_noise_ratio_series_full(np.array([1.0, 2.0]), 6)).all()  # warmup
-    assert math.isnan(_vol_acceleration(np.array([100.0])))  # no prior bar
-    assert _vol_acceleration(np.array([100.0, 0.0])) == 0.0  # zero CURRENT volume: measured
-    assert math.isnan(_vol_acceleration(np.array([0.0, 100.0])))  # zero prior volume
     va = _vol_acceleration_series_full(np.array([0.0, 100.0, 0.0]))
     assert np.isnan(va[:2]).all()  # prior volume zero (or no prior bar)
     assert va[2] == 0.0  # zero CURRENT volume over a positive prior is measured
@@ -591,29 +506,21 @@ def test_group2_oscillator_helpers_are_nan_where_undefined() -> None:
     statistic; genuine measurements (flat-window aroon 0.0, symmetric
     vol_asymmetry 1.0, zero-rising-flow mfi 0.0) stay."""
     from src.intelligence.features.kernels.price import (
-        _aroon_osc,
         _aroon_windowed,
         _bar_close_pos,
-        _bb_pct_b,
         _bb_pct_b_series_full,
         _body_ratio,
-        _cci,
         _cci_windowed,
-        _efficiency_ratio,
         _efficiency_ratio_series_full,
         _lower_wick_ratio,
-        _price_percentile,
         _price_percentile_series_full,
-        _stoch_k,
         _stoch_k_series_full,
         _upper_wick_ratio,
         _vol_asymmetry_ratio,
         _vol_asymmetry_z_series_full,
     )
     from src.intelligence.features.kernels.volume import (
-        _mfi,
         _mfi_series_full,
-        _vol_range_ratio,
         _vol_range_ratio_series_full,
     )
 
@@ -627,41 +534,29 @@ def test_group2_oscillator_helpers_are_nan_where_undefined() -> None:
     assert math.isnan(_lower_wick_ratio(10.0, 10.0, 10.0, 10.0))
 
     # stoch_k: degenerate rolling range is 0/0
-    assert math.isnan(_stoch_k(100.0, flat, flat))
     assert np.isnan(_stoch_k_series_full(flat, flat, flat, 5)).all()
 
     # price_percentile: cold and all-equal windows define no rank
-    assert math.isnan(_price_percentile(100.0, np.array([100.0])))
-    assert math.isnan(_price_percentile(100.0, flat))
     pp = _price_percentile_series_full(flat, 5)
     assert np.isnan(pp).all()
-    # a varied window keeps a measured rank
-    assert 0.0 < _price_percentile(101.0, np.array([99.0, 100.0, 101.0, 102.0])) <= 1.0
 
     # efficiency_ratio: zero movement is 0/0 (updown_ratio precedent)
-    assert math.isnan(_efficiency_ratio(np.array([100.0])))
-    assert math.isnan(_efficiency_ratio(flat))
     assert np.isnan(_efficiency_ratio_series_full(flat, 5)).all()
-    assert _efficiency_ratio(rising) == 1.0  # perfectly linear: measured
 
     # bb_pct_b: degenerate band is 0/0
-    assert math.isnan(_bb_pct_b(np.array([100.0])))
-    assert math.isnan(_bb_pct_b(flat))
     assert np.isnan(_bb_pct_b_series_full(flat, 5)).all()
 
     # cci: zero MAD defines no channel; cold is NaN
-    assert math.isnan(_cci(flat, flat, flat, 7))
+    assert math.isnan(cci(flat, flat, flat, 7))
     assert np.isnan(_cci_windowed((flat + flat + flat) / 3.0, 7)).all()
 
     # aroon: cold rows NaN; a flat FULL window keeps its measured 0.0
-    assert math.isnan(_aroon_osc(flat[:6], flat[:6], 7))  # fewer than period + 1 bars
+    assert math.isnan(aroon_osc(flat[:6], flat[:6], 7))  # fewer than period + 1 bars
     aw = _aroon_windowed(flat, flat, 7)
     assert np.isnan(aw[:7]).all()
     assert (aw[7:] == 0.0).all()
 
     # mfi: cold and zero-flow NaN; flat tp with positive volume is a measured 0.0
-    assert math.isnan(_mfi(flat[:1], flat[:1], flat[:1], np.array([100.0]), 5))
-    assert math.isnan(_mfi(flat, flat, flat, np.zeros(12), 5))
     mf = _mfi_series_full(flat, flat, flat, np.full(12, 100.0), 5)
     assert math.isnan(mf[0])
     assert (mf[1:] == 0.0).all()
@@ -672,7 +567,6 @@ def test_group2_oscillator_helpers_are_nan_where_undefined() -> None:
     lo = np.full(8, 99.0)
     h[4] = lo[4] = 100.0
     vr = _vol_range_ratio_series_full(v, h, lo, 3)
-    assert math.isnan(_vol_range_ratio(v[:5], h[:5], lo[:5], 3))  # window holds bar 4
     assert np.isnan(vr[4:7]).all()  # degenerate bar inside the trailing window
     assert vr[7] == 1.0  # window fully past the bad bar: measured again
 

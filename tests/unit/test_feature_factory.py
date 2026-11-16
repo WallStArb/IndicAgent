@@ -626,8 +626,7 @@ class TestCrossAssetProxies:
 # ---------------------------------------------------------------------------
 
 # Canonical list of all 89 new field names, grouped by category in plan order.
-# Used by test_compute_batch_parity to guard against per-bar/vectorized
-# divergence (M1) once these fields exist.
+# Canonical grouping of the field names, kept as the reference list for the field-coverage tests.
 RENAISSANCE_PRIMITIVE_FIELDS: tuple[str, ...] = (
     # Bar Anatomy (8)
     "body_ratio",
@@ -790,17 +789,11 @@ _ZERO_STATE_COLUMNS = (
 def test_price_volume_interaction_helpers_direct() -> None:
     """Direct unit coverage of the price-volume-interaction helper functions
     (exact products/ratios + epsilon-guard edge cases), independent of the
-    FeatureFactory.compute() integration test above.
+    kernel integration tests.
     """
-    from src.intelligence.features.kernels.price import _product, _ret_vol_ratio, _up_vol_body_diff
+    from src.intelligence.features.kernels.price import _ret_vol_ratio, _up_vol_body_diff
     from src.intelligence.features.kernels.volume import _price_vol_corr_series_full
 
-    # Test 1-3, 6: _product returns a * b (pure product) -- shared by
-    # vol_body_product, ret_vol_product_fast, range_vol_product, vol_skew_product.
-    assert _product(0.4, 2.0) == pytest.approx(0.8)
-    assert _product(0.02, -1.5) == pytest.approx(-0.03)
-    assert _product(1.2, 0.5) == pytest.approx(0.6)
-    assert _product(-0.3, 1.1) == pytest.approx(-0.33)
     # Test 4: _up_vol_body_diff returns up_vol_ratio - body_ratio, bounded ~[-1, 1].
     assert _up_vol_body_diff(0.7, 0.4) == pytest.approx(0.3)
     assert _up_vol_body_diff(0.0, 1.0) == pytest.approx(-1.0)
@@ -812,9 +805,8 @@ def test_price_volume_interaction_helpers_direct() -> None:
     # Test 7/8: _price_vol_corr_series_full's last element — bounded [-1, 1]
     # on warm input; 0.0 on insufficient history and on degenerate (constant
     # volume / constant returns) input. (No standalone scalar wrapper exists
-    # for this primitive — compute()/compute_batch() both read this same
-    # vectorized series directly, so testing its last element IS testing the
-    # production code path, not a parallel reimplementation of it.)
+    # for this primitive — the kernel reads this same vectorized series
+    # directly, so testing its last element IS testing the production code path, not a parallel reimplementation of it.)
     rng = np.random.default_rng(7)
     closes = np.cumprod(1.0 + rng.normal(0, 0.01, 60)) * 100.0
     volumes = rng.uniform(1e5, 1e6, 60)

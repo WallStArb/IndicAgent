@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections import deque
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -24,7 +23,6 @@ from src.intelligence.features.kernels._primitives import (
     _pearson_acf1,
     _percentile_rank,
     _rolling_std_series,
-    _zscore_last,
     bounded_window_bars,
     none_mask_name,
 )
@@ -37,19 +35,6 @@ from src.intelligence.features.kernels.price import (
 
 if TYPE_CHECKING:
     pass
-
-
-def _rel_volume(volume: float, vol_history: deque, window: int) -> float:
-    """Relative volume: volume / mean(volume over window).
-
-    Returns 1.0 on cold start (neutral).
-    """
-    vol_history.append(volume)
-    if len(vol_history) < 2:
-        return 1.0
-    arr = np.array(list(vol_history)[-window:])
-    mean_vol = float(arr.mean())
-    return volume / mean_vol if mean_vol > 1e-10 else 1.0
 
 
 def _informed_flow(open_price: float, close: float, atr: float, min_atr_pct: float) -> float:
@@ -85,196 +70,6 @@ def _cmf(
     mfv = mfm * v
     vol_sum = float(np.sum(v))
     return float(np.sum(mfv)) / vol_sum if vol_sum > 1e-10 else 0.0
-
-
-def _vol_acceleration(volumes: np.ndarray, eps: float = EPS) -> float:
-    """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
-
-    NaN on insufficient history or a near-zero prior volume: the ratio is
-    undefined, not 1.0 (D1 rule 5, todo 584).
-    """
-    if len(volumes) < 2:
-        return math.nan
-    prev = float(volumes[-2])
-    if prev < eps:
-        return math.nan
-    return float(volumes[-1]) / prev
-
-
-def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float:
-    """Z-score of dollar volume (V * C) over the trailing window. Returns 0.0 on cold start."""
-    if len(volumes) < 2:
-        return 0.0
-    dollar_vol = volumes.astype(float) * closes.astype(float)
-    return _zscore_last(dollar_vol, window)
-
-
-def _vol_range_ratio(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
-) -> float:
-    """Volume per unit of price range, normalized against its own trailing average.
-
-    raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
-    Unbounded positive. NaN on a degenerate bar (H == L): volume over a range
-    that does not exist is undefined, and a trailing window holding such a bar
-    defines no mean either (windows entirely past the bad bar recover; the
-    _cumsum_window_moments convention, D1 rule 5, todo 584). NaN on cold start
-    and on a zero/empty mean (0/0).
-    """
-    n = len(volumes)
-    if n < 1:
-        return float("nan")
-    ranges = highs.astype(float) - lows.astype(float)
-    degenerate = ranges <= eps
-    raw = np.where(degenerate, np.nan, volumes.astype(float) / np.where(degenerate, 1.0, ranges))
-    w = min(window, n)
-    window_raw = raw[-w:]
-    if not np.all(np.isfinite(window_raw)):
-        return float("nan")
-    mean_raw = float(np.mean(window_raw))
-    if mean_raw < eps:
-        return float("nan")
-    return float(raw[-1]) / mean_raw
-
-
-def _vol_trend_ratio(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = EPS
-) -> float:
-    """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
-
-    Returns 1.0 (neutral) on cold start (fewer than slow_window bars); NaN on a zero-volume
-    slow window, where the ratio is undefined (D1 rule 5, todo 584 4c).
-    """
-    n = len(volumes)
-    if n < slow_window:
-        return 1.0
-    v = volumes.astype(float)
-    ma_fast = float(np.mean(v[-fast_window:]))
-    ma_slow = float(np.mean(v[-slow_window:]))
-    return ma_fast / ma_slow if ma_slow > eps else float("nan")
-
-
-def _up_vol_ratio(
-    volumes: np.ndarray,
-    opens: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    eps: float = EPS,
-) -> float:
-    """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
-
-    Bounded [0, 1]. Returns 0.5 (neutral) on cold start or near-zero total volume.
-    Shared implementation for up_vol_ratio_fast/slow (different window arguments).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 1:
-        return 0.5
-    v = volumes[-w:].astype(float)
-    o = opens[-w:].astype(float)
-    c = closes[-w:].astype(float)
-    total = float(np.sum(v))
-    if total < eps:
-        return 0.5
-    up_vol = float(np.sum(np.where(c > o, v, 0.0)))
-    return up_vol / total
-
-
-def _vol_percentile(volumes: np.ndarray, window: int) -> float:
-    """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
-
-    NaN on cold start (fewer than 2 bars in the window) and on an all-equal
-    window: the rank of a value among identical values is a tie-break
-    convention, not a measurement (the price_percentile precedent, D1 rule 5,
-    todo 584).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return float("nan")
-    hist = volumes[-w:].astype(float)
-    if float(hist.max()) - float(hist.min()) < EPS:
-        return float("nan")
-    return _percentile_rank(hist, float(hist[-1]))
-
-
-def _vol_persistence(volumes: np.ndarray, window: int) -> float:
-    """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
-
-    NaN on cold start (fewer than 2 bars) or a zero-spread window: the
-    autocorrelation of constant volume is undefined (D1 rule 5, todo 584 4c).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return float("nan")
-    hist = volumes[-w:].astype(float)
-    return _pearson_acf1(hist)
-
-
-def _vol_std_z(volumes: np.ndarray, window: int) -> float:
-    """Z-score of rolling std(V) over the trailing window (single-window design:
-    the same `window` both computes the rolling std series and z-scores its last
-    value). Returns 0.0 on cold start.
-    """
-    if len(volumes) < 2:
-        return 0.0
-    std_series = _rolling_std_series(volumes.astype(float), window)
-    return _zscore_last(std_series, window)
-
-
-def _mfi(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = EPS,
-) -> float:
-    """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
-
-    tp = (H + L + C) / 3. Bounded [0, 100]. NaN on cold start (no pair of
-    typical prices) or zero total money flow: the rising share of a flow that
-    does not exist is 0/0 (D1 rule 5, todo 584). A flat-tp window with positive
-    volume keeps its measured 0.0 (no flow on rising bars). Shared
-    implementation for mfi_fast/slow.
-    """
-    n = len(closes)
-    w = min(window, n - 1) if n >= 2 else 0
-    if w < 1:
-        return float("nan")
-    tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
-        -(w + 1) :
-    ].astype(float)
-    tp_full = tp_full / 3.0
-    v_full = volumes[-(w + 1) :].astype(float)
-    tp = tp_full[1:]
-    prev_tp = tp_full[:-1]
-    v = v_full[1:]
-    money_flow = tp * v
-    total = float(np.sum(money_flow))
-    if total < eps:
-        return float("nan")
-    rising_flow = float(np.sum(money_flow[tp > prev_tp]))
-    return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
-
-
-def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
-    """Z-score of On-Balance Volume (cumulative +V on up bars, -V on down bars).
-
-    Returns 0.0 on cold start (fewer than 2 bars).
-    """
-    n = len(closes)
-    if n < 2:
-        return 0.0
-    diffs = np.diff(closes.astype(float))
-    signed_vol = np.where(
-        diffs > 0,
-        volumes[1:].astype(float),
-        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
-    )
-    obv = np.cumsum(signed_vol)
-    return _zscore_last(obv, window)
 
 
 def _volume_z_series_full(volumes: np.ndarray, zscore_window: int) -> np.ndarray:
@@ -424,7 +219,7 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = EPS) -> np.ndarray:
-    """result[i] == streaming _vol_acceleration at bar i. NaN at index 0 (no
+    """result[i] equals the retired per-bar _vol_acceleration at bar i. NaN at index 0 (no
     prior bar) and wherever the prior volume is near zero, matching the
     scalar's rule-5 semantics."""
     n = len(volumes)
@@ -439,7 +234,7 @@ def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = EPS) -> np.n
 
 
 def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _dollar_vol_z at bar i."""
+    """result[i] equals the retired per-bar _dollar_vol_z at bar i."""
     dollar_vol = volumes.astype(float) * closes.astype(float)
     return _fixed_window_zscore_series(dollar_vol, window)
 
@@ -447,7 +242,7 @@ def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: i
 def _vol_range_ratio_series_full(
     volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum.
+    """result[i] equals the retired per-bar _vol_range_ratio at bar i. O(n) via cumsum.
 
     A degenerate bar (H == L) makes raw NaN; a trailing window holding one is
     NaN and recovers once the bar leaves the window (the _cumsum_window_moments
@@ -482,7 +277,7 @@ def _vol_range_ratio_series_full(
 def _vol_trend_ratio_series_full(
     volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _vol_trend_ratio at bar i. O(n) via cumsum."""
+    """result[i] equals the retired per-bar _vol_trend_ratio at bar i. O(n) via cumsum."""
     n = len(volumes)
     result = np.ones(n, dtype=float)
     v = volumes.astype(float)
@@ -505,7 +300,7 @@ def _up_vol_ratio_series_full(
     window: int,
     eps: float = EPS,
 ) -> np.ndarray:
-    """result[i] == streaming _up_vol_ratio at bar i. O(n) via cumsum."""
+    """result[i] equals the retired per-bar _up_vol_ratio at bar i. O(n) via cumsum."""
     n = len(volumes)
     result = np.full(n, 0.5, dtype=float)
     v = volumes.astype(float)
@@ -523,7 +318,7 @@ def _up_vol_ratio_series_full(
 
 
 def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_percentile at bar i. O(n x window).
+    """result[i] equals the retired per-bar _vol_percentile at bar i. O(n x window).
 
     NaN on cold rows and all-equal windows, matching the scalar (D1 rule 5)."""
     n = len(volumes)
@@ -543,7 +338,7 @@ def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_persistence at bar i. O(n x window)."""
+    """result[i] equals the retired per-bar _vol_persistence at bar i. O(n x window)."""
     n = len(volumes)
     result = np.full(n, np.nan)
     if n < 2:
@@ -559,7 +354,7 @@ def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray
 
 
 def _vol_std_z_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_std_z at bar i. O(n) total."""
+    """result[i] equals the retired per-bar _vol_std_z at bar i. O(n) total."""
     std_series = _rolling_std_series(volumes.astype(float), window)
     return _fixed_window_zscore_series(std_series, window)
 
@@ -572,7 +367,7 @@ def _mfi_series_full(
     window: int,
     eps: float = EPS,
 ) -> np.ndarray:
-    """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
+    """result[i] equals the retired per-bar _mfi at bar i. O(n) via cumsum (rising-flag is
     fixed per bar regardless of window; only the rolling sums need cumsum).
     Cold rows and zero-flow windows are NaN, matching the scalar (D1 rule 5,
     todo 584).
@@ -599,7 +394,7 @@ def _mfi_series_full(
 
 
 def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _obv_z at bar i. Index 0 padded with 0.0 (cold start)."""
+    """result[i] equals the retired per-bar _obv_z at bar i. Index 0 padded with 0.0 (cold start)."""
     n = len(closes)
     if n < 2:
         return np.zeros(n, dtype=float)
@@ -793,7 +588,7 @@ def _compute_price_vol_corr(x, config):
 
 
 def _compute_cmf(x, config):
-    """CMF over compute_batch's bounded window: row i reads rows [max(0, i - n), i]."""
+    """CMF over the bounded window: row i reads rows [max(0, i - n), i]."""
     h, lo, c, v = x["high"], x["low"], x["close"], x["volume"]
     window = bounded_window_bars(config)
     out = np.empty(len(c))
@@ -855,7 +650,7 @@ def _recency_kernels() -> tuple[Kernel, ...]:
 
 
 def _compute_flow_products(x, config):
-    """Window-free products with a volume-origin parent, operand order as in compute_batch."""
+    """Window-free products with a volume-origin parent, operand order fixed by the kernel contract."""
     up_vol_body = np.array(
         [
             _up_vol_body_diff(a, b)

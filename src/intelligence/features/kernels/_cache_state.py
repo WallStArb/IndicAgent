@@ -7,15 +7,15 @@ and the legacy cache-driven loop imports from here, not the reverse. No kernel m
 anything from outside the kernels package for this state.
 
 Holds regime-level, session-level, cross-asset, and CTF state that
-compute() reads per bar. Updated by the caller (IntelligencePipeline or
-backfill job), never mutated inside FeatureFactory.compute().
+the kernels read per bar. Updated by the caller (the rebuild writer's
+backfill job), never mutated inside a kernel.
 
 Cross-asset proxy instruments (D-08, confirmed at planning time):
 - vix_z: SPY trailing realized volatility z-score (VXX/VIXY absent from the
   58-ETF universe; SPY realized-vol is the available proxy).
 - flight_quality: TLT/SPY relative-return divergence (positive = risk-off).
 - yield_slope_z: z-score of TLT/SHY return ratio (2Y-10Y curve proxy).
-All three are populated via update_cross_asset() and read by compute().
+All three are populated via update_cross_asset() and read by the kernels.
 Phase 138 IC will judge these proxies.
 """
 
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class FeatureCache:
-    """Mutable state container for FeatureFactory.compute().
+    """Mutable state container the kernels read.
 
     Regime-level fields are refreshed every regime_cache_refresh_bars bars
     via refresh_regime(). CTF fields are updated when an HTF bar arrives.
@@ -260,8 +260,8 @@ class FeatureCache:
     ) -> None:
         """Update weekly VWAP state and set above_wk_vwap from current bar.
 
-        Resets accumulators at ISO week boundary. Called by the pipeline or backfill
-        once per bar, after FeatureFactory.compute().
+        Resets accumulators at ISO week boundary. Called by the backfill
+        once per bar, after the kernels read the bar.
 
         Also tracks weekly high/low/close and the prior-completed-week
         snapshot (Phase 165 Plan 04, D-09) inside this SAME reset block,
@@ -481,9 +481,9 @@ class FeatureCache:
         close: float,
         volume: float,
     ) -> None:
-        """Update all per-bar mutable state after FeatureFactory.compute().
+        """Update all per-bar mutable state after the kernels read the bar.
 
-        Called once per bar by the pipeline and backfill. Encapsulates:
+        Called once per bar by the backfill. Encapsulates:
         - Weekly VWAP accumulation and above_wk_vwap flag
 
         hmm_duration counter increment removed 2026-07-30 (todo 207): its only
@@ -598,7 +598,7 @@ class FeatureCache:
 # ---------------------------------------------------------------------------
 # Cross-asset broadcast state (todo 222) -- a minimal sibling of FeatureCache for
 # callers that need only vix_z/flight_quality/yield_slope_z (e.g.
-# feature_vector_pipeline.py's shared per-tf broadcast state, computed once per
+# the deleted streaming pipeline's shared per-tf broadcast state, computed once per
 # genuinely-new SPY/TLT/SHY bar and copied onto every symbol's own FeatureCache)
 # rather than paying for FeatureCache's other ~87 unrelated fields. Declares the
 # same 5 fields as FeatureCache directly (not shared via inheritance -- 5 field
@@ -814,8 +814,8 @@ def _compute_session_directional_nodes(
 # NOTE: the CTF (cross-timeframe) higher-timeframe source mapping formerly lived here
 # as a hardcoded module constant (_CTF_HIGHER_TF). Migrated to APR (todo 242, migration
 # 305) -- now FeatureFactoryConfig.ctf_higher_tf_map (the deleted streaming feature_factory,
-# feature.ctf.higher_tf_map). backfill_feature_factory.py and feature_vector_pipeline.py
-# both read it from their own FeatureFactoryConfig instance, not from this module.
+# feature.ctf.higher_tf_map). backfill_feature_factory.py
+# reads it from its FeatureFactoryConfig instance, not from this module.
 
 
 def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:

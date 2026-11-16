@@ -74,7 +74,7 @@ def wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
 
 
 def bounded_window_bars(config) -> int:
-    """compute_batch's per-bar window: the longest look-back of the bounded-window scalars
+    """The per-bar window: the longest look-back of the bounded-window scalars
     (CCI slow, Aroon slow, long volatility ratio, CMF), so each reads rows [i - n, i]."""
     return max(
         config.cci_slow_period,
@@ -235,8 +235,7 @@ def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
 def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
     """Trailing rolling std series (expanding until `window` bars, then fixed window).
 
-    O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
-    _vol_std_z_series_full (batch).
+    O(n) via cumulative sums. Shared building block for _vol_std_z_series_full.
     """
     if len(arr) == 0:
         return np.zeros(0, dtype=float)

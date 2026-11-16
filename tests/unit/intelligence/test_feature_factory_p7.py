@@ -20,14 +20,13 @@ from src.intelligence.features.kernels.calendar import (
     _quad_witching_flag,
 )
 from src.intelligence.features.kernels.price import (
-    _aroon_osc,
-    _cci,
     _high_52w_dist_series_full,
     _ret_acf1_z_series_full,
     _ret_skew_z_series_full,
     _rsi,
 )
 from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
+from tests.unit.intelligence.scalar_oracles import aroon_osc, cci
 
 
 def _make_cfg(**overrides) -> FeatureFactoryConfig:
@@ -204,14 +203,14 @@ def test_cci_uniform_prices():
     lo = np.full(30, 99.0)
     c = np.full(30, 100.0)
     # zero MAD defines no channel: NaN, not 0.0 (D1 rule 5, todo 584)
-    assert math.isnan(_cci(h, lo, c, 20))
+    assert math.isnan(cci(h, lo, c, 20))
 
 
 def test_cci_cold_start():
     h = np.array([101.0, 102.0])
     lo = np.array([99.0, 100.0])
     c = np.array([100.0, 101.0])
-    assert math.isnan(_cci(h, lo, c, 10))
+    assert math.isnan(cci(h, lo, c, 10))
 
 
 def test_cci_finite():
@@ -219,7 +218,7 @@ def test_cci_finite():
     h = 100.0 + rng.uniform(0, 2, 50)
     lo = 100.0 - rng.uniform(0, 2, 50)
     c = 100.0 + rng.uniform(-1, 1, 50)
-    assert math.isfinite(_cci(h, lo, c, 20))
+    assert math.isfinite(cci(h, lo, c, 20))
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +229,7 @@ def test_cci_finite():
 def test_aroon_monotone_rise():
     h = np.linspace(100.0, 115.0, 30)
     lo = np.linspace(99.0, 114.0, 30)
-    result = _aroon_osc(h, lo, 14)
+    result = aroon_osc(h, lo, 14)
     assert result == 1.0
 
 
@@ -238,14 +237,14 @@ def test_aroon_range():
     rng = np.random.default_rng(3)
     h = 100.0 + rng.uniform(0, 3, 40)
     lo = 100.0 - rng.uniform(0, 3, 40)
-    result = _aroon_osc(h, lo, 14)
+    result = aroon_osc(h, lo, 14)
     assert -1.0 <= result <= 1.0
 
 
 def test_aroon_cold_start():
     h = np.array([101.0, 102.0])
     lo = np.array([99.0, 100.0])
-    assert math.isnan(_aroon_osc(h, lo, 14))
+    assert math.isnan(aroon_osc(h, lo, 14))
 
 
 # ---------------------------------------------------------------------------

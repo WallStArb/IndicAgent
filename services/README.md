@@ -40,5 +40,5 @@ bar rows in plan 191-20.
 
 The v2.x I1-I7 signal path and the I8 AI stack (signal tracker and writers, swarm, narrative, LLM
 writer and the rest) were removed in plan 185-45; the pre-removal tree is the local git tag
-`archive/v2x-ai-stack-2026-10`. What still depends on v2.x code (`feature_vector_pipeline.py`, the
+`archive/v2x-ai-stack-2026-10`. What still depends on v2.x code (the
 API's signal routes, the ML batch chain) is listed in todo 509.

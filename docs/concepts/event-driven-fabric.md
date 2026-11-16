@@ -28,7 +28,7 @@ Key design decisions:
 - **The `KafkaProducerClient.publish()` kwarg is `msg=`** (not `value=`). Wrong kwarg silently fails at flush.
 
 ```
-Bar arrives → FeatureVectorPipeline (FeatureFactory.compute()) → topic_feature_vectors
+Bar arrives → (streaming feature path deleted in R2 item 5b; the rebuild writer computes the kernels in batch)
 
 topic_feature_vectors → FeatureVectorWriter (consumer group feature_vector_writer_group)
                        → TimescaleDB (feature_vectors hypertable)

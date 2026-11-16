@@ -6,7 +6,7 @@
 
 All services extend `BaseAgent`/`BaseDaemon` (`src/core/agent/base.py`). For role taxonomy and lifecycle contract see `docs/agents/agents-foundation.md`. For service mesh and DAG topology see `docs/agents/agents-operations.md`.
 
-**This describes the live v3.0 topology.** The v2.x I1-I7 plugin pipeline (`indicagent-intelligence-pipeline.service`, `ExecStart=services/intelligence_pipeline.py`) is **archived** — that file was renamed to `feature_vector_pipeline.py` in commit `911a1668c` ("rename(v3.0): IntelligencePipeline -> FeatureVectorPipeline"), and the deployed unit is `failed` (confirmed via `systemctl status`, 2026-09-04: `Active: failed ... since Thu 2026-08-13`). Do not cite it as a running compute stage. Full archived-system detail: `src/intelligence/CLAUDE.md`.
+**This describes the live v3.0 topology.** The v2.x I1-I7 plugin pipeline (`indicagent-intelligence-pipeline.service`, `ExecStart=services/intelligence_pipeline.py`) is **archived** — that file was renamed to `feature_vector_pipeline.py` in commit `911a1668c` and deleted in R2 item 5b; the deployed unit was `failed` (confirmed via `systemctl status`, 2026-09-04: `Active: failed ... since Thu 2026-08-13`). Do not cite it as a running compute stage. Full archived-system detail: `src/intelligence/CLAUDE.md`.
 
 Boot ordering runs through four `indicagent-waveN.target` gates (`indicagent-infrastructure.target` → `wave1` data ingestion → `wave2` intelligence pipeline → `wave3` persistence writers → `wave4` analytics/AI/audit/top-level) — all four targets verified `active` 2026-09-04.
 

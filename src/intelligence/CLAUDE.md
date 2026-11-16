@@ -20,8 +20,7 @@ Package docstrings in each `__init__.py` are the source of truth for details.
 
 ## v2.x remainder (do not build on it)
 
-`pipeline/` keeps three primitives `services/feature_vector_pipeline.py` still runs on
-(OutputQueue, PerKeyWorkerManager, PluginStateManager). Todo 509 removed the executor, the signal stages, the plugin tier,
+`pipeline/` and the `feature_vector_pipeline` service are deleted. Todo 509 removed the executor, the signal stages, the plugin tier,
 `archive/`, `composites/` and `context/` (item 1, 2026-10-26); the dashboard signal surface and the
 ML batch chain (items 2 and 3) were deleted on 2026-10-26. The I1-I7 signal path, the typed bus and the
 I8 AI stack were removed in plan 185-45; the archive is the local git tag

@@ -12,14 +12,11 @@ import pytest
 from src.intelligence.features.kernels import price
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.price import (
-    _aroon_osc,
-    _cci,
     _compute_bar_statistics_refresh,
     _compute_bounded_window_scalars,
-    _range_position,
-    _vol_ratio,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.scalar_oracles import aroon_osc, cci, range_position, vol_ratio
 
 
 def _reference_bounded(x, config):
@@ -43,13 +40,13 @@ def _reference_bounded(x, config):
         start = max(0, i - window)
         w_h, w_l, w_c = h[start : i + 1], lo[start : i + 1], c[start : i + 1]
         rb = min(config.momentum_window_mid, i + 1 - start)
-        out["range_position"][i] = _range_position(float(c[i]), w_h[-rb:], w_l[-rb:])
-        out["vol_ratio"][i] = _vol_ratio(w_c, config.vol_short_bars, config.vol_long_bars)
-        out["cci_fast"][i] = _cci(w_h, w_l, w_c, config.cci_fast_period)
-        out["cci_mid"][i] = _cci(w_h, w_l, w_c, config.cci_mid_period)
-        out["cci_slow"][i] = _cci(w_h, w_l, w_c, config.cci_slow_period)
-        out["aroon_fast"][i] = _aroon_osc(w_h, w_l, config.aroon_fast_period)
-        out["aroon_slow"][i] = _aroon_osc(w_h, w_l, config.aroon_slow_period)
+        out["range_position"][i] = range_position(float(c[i]), w_h[-rb:], w_l[-rb:])
+        out["vol_ratio"][i] = vol_ratio(w_c, config.vol_short_bars, config.vol_long_bars)
+        out["cci_fast"][i] = cci(w_h, w_l, w_c, config.cci_fast_period)
+        out["cci_mid"][i] = cci(w_h, w_l, w_c, config.cci_mid_period)
+        out["cci_slow"][i] = cci(w_h, w_l, w_c, config.cci_slow_period)
+        out["aroon_fast"][i] = aroon_osc(w_h, w_l, config.aroon_fast_period)
+        out["aroon_slow"][i] = aroon_osc(w_h, w_l, config.aroon_slow_period)
     return out
 
 

@@ -1,7 +1,6 @@
 """Regression: session-VP FeatureVector fields are non-constant and live==batch (todo 153).
 
-Phase 163 Plan 02 wires FeatureCache.update_session_vp() (Plan 01's mutator) into both
-FeatureFactory.compute() (live) and compute_batch() (backfill), deriving the 14
+Phase 163 Plan 02 wires FeatureCache.update_session_vp() (Plan 01's mutator) into the series path, deriving the 14
 ATR-normalized/bounded VP FeatureVector fields (poc_dist_atr, va_position, + 12 new
 structural fields) from the cache's raw session levels. Before this plan, poc_dist_atr
 and va_position were permanently frozen at their 0.0/0.5 defaults in both paths (the
@@ -28,7 +27,7 @@ from src.intelligence.features.feature_vector import FeatureVector
 N = 90
 RNG = np.random.default_rng(163)
 
-# VP FeatureVector fields shared between live compute() and batch compute_batch()
+# VP feature_vectors columns
 _VP_FIELDS = (
     "poc_dist_atr",
     "va_position",
@@ -164,7 +163,7 @@ def _make_cfg() -> FeatureFactoryConfig:
         # session_vp_rolling_window overridden well below N=90: the production
         # default (480) exceeds the whole test session, so the rolling and
         # session-anchored tracks would only ever differ by the single bar
-        # (bar 0) the session accumulator excludes (compute_batch's loop
+        # (bar 0) the session accumulator excludes (the series loop
         # starts at i=1) -- degenerate for exercising divergence. A window of
         # 15 gives a genuine trailing subset once the session has more than
         # 15 bars, so poc_rolling_dist_atr/poc_session_rolling_divergence_atr

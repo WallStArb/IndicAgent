@@ -83,7 +83,7 @@ def _rolling_poc_price(
 
     The caller passes the last config.session_vp_rolling_window bars (inclusive
     of the current bar). Intermediate value only -- never persisted as a raw
-    column (D-16); Plan 02's compute()/compute_batch() call sites use it solely
+    column (D-16); the kernel call sites use it solely
     to derive poc_rolling_dist_atr/poc_session_rolling_divergence_atr. Reuses
     the same profile/value-area helpers as the session-anchored track
     (FeatureCache.update_session_vp) for identical bucket/tie-break semantics.
@@ -121,7 +121,7 @@ def _derive_session_vp(
     """Derive the 14 ATR-normalized/bounded VP FeatureVector fields.
 
     Reads FeatureCache's raw session levels (set by update_session_vp(), called
-    once per bar by the caller before compute()/inside compute_batch()'s loop)
+    once per bar by the caller before the kernels read it)
     plus the compute-path atr_val -- no raw price level is ever returned or
     persisted (D-16). A field whose object does not exist is None; one whose
     object exists but whose atr_val is unavailable (cold start / degenerate
@@ -401,7 +401,7 @@ _SWING_FALLBACK: dict[str, float | None] = {
 # swing_low_indices/n_bars) are in-memory-only intermediates for
 # _compute_trend_structure/_compute_fib_zones and must never reach
 # _build_feature_vector (see _compute_swing_structure's docstring). Both
-# compute() and compute_batch() filter through this set instead of hand-
+# the kernels filter through this set instead of hand-
 # listing the 7 names a second (and third) time.
 _SWING_STRUCTURE_OUTPUT_KEYS = frozenset(_SWING_FALLBACK)
 
@@ -765,7 +765,7 @@ def _detect_swing_extremes(
     Vectorized via the same shifted-array neighbor-comparison technique as
     find_peaks/find_troughs (src/intelligence/utils/core.py) instead of a
     per-bar Python loop with an np.max/np.min call over each bar's window --
-    this runs once per bar in both compute() and compute_batch(), so an
+    this runs once per bar in the production series, so an
     O(n_bars) Python loop here is O(n_bars) extra numpy dispatch overhead
     per bar across the whole corpus. Not a call to find_peaks/find_troughs
     itself (see module docstring above): the >=/<= comparison here has no
@@ -955,7 +955,7 @@ _FIB_RATIOS: tuple[float, ...] = (0.236, 0.382, 0.500, 0.618, 0.786)
 # ICT discount-zone bounds, referenced by value (not position) so a future
 # reorder/extension of _FIB_RATIOS can't silently redefine the zone. Indices
 # resolved once at import time (not per bar in _compute_fib_zones, which
-# runs once per bar across the whole historical corpus in compute_batch()).
+# runs once per bar across the whole historical corpus in the production series).
 _FIB_DISCOUNT_ZONE_LO = 0.500
 _FIB_DISCOUNT_ZONE_HI = 0.786
 _FIB_DISCOUNT_LO_IDX = _FIB_RATIOS.index(_FIB_DISCOUNT_ZONE_LO)
@@ -982,7 +982,7 @@ def _compute_fib_zones(
     this bar. This IS D-05's fix: the archived plugin's cross-plugin read
     plus its rolling-high/low fallback existed only because the old
     wave-based pipeline could not guarantee the swing-detector plugin ran
-    first in the same pass; v3's compute()/compute_batch() calls this
+    first in the same pass; the production series calls this
     function AFTER the shared swing pass on the same bar, so the swing
     prices are simply already available as local values. No fallback
     branch is reimplemented here -- no rolling-high/low substitute over the

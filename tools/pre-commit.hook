@@ -50,7 +50,7 @@ check_plugin_class_naming() {
     STATUS=$?
     echo "$OUTPUT" | sed 's/^OK:/  OK/; s/^FAIL:/  FAILED:/'
     if [ $STATUS -ne 0 ]; then
-        echo "  Remediation: rename class to an approved suffix (e.g., 'MACDPlugin', 'FeatureVectorRecord')"
+        echo "  Remediation: rename class to an approved suffix (e.g., 'MACDPlugin', 'FeatureVectorRow')"
         return 1
     fi
     return 0

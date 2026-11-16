@@ -2,11 +2,10 @@
 
 Contract: for every _*_series_full function, batch[j] must match the equivalent
 scalar call on bars[:j+<offset>] to within 1e-8. Any divergence is a data integrity
-violation — the batch precompute path and the live streaming path must produce
-identical feature values.
+violation — the batch precompute path must produce the per-bar reference values.
 
 When _ret_skew_z_series_full / _ret_acf1_z_series_full are added, follow the
-same pattern: generate N synthetic bars, run FeatureFactory.compute in a loop to
+same pattern: generate N synthetic bars, run the per-bar reference in a loop to
 collect ret_skew_z / ret_acf1_z, run the series_full function once, assert match.
 """
 
@@ -340,8 +339,8 @@ class TestVolVelocityZSeriesFullGeneric:
 
 
 class TestPhase151BatchLiveParity:
-    """compute_batch()'s last-bar output for all 10 new fields must equal
-    compute()'s output on the same bar window."""
+    """The series path's last-bar output for all 10 new fields (the retired live path
+    once had to equal it)."""
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +513,7 @@ class TestPhase151CrossTfDivergences:
 
 class TestTheoryMotivatedInteractionProducts:
     """Each of the 10 compounds must equal the exact product of its two
-    parents on the same FeatureVector, to 1e-12, on a synthetic bar window --
-    both live (compute()) and batch (compute_batch()) paths."""
+    parents on the same row, to 1e-12, on a synthetic bar window."""
 
     _PAIRS = {
         "momentum_vol_regime_product": ("momentum_z_fast", "hv_ratio"),
@@ -534,15 +532,6 @@ class TestTheoryMotivatedInteractionProducts:
     def _product(left: float | None, right: float | None) -> float | None:
         """A product with a missing parent is missing (todo 463, D1 rule 1)."""
         return None if left is None or right is None else left * right
-
-    # No cross-path (live vs batch) parity test for these 10 compounds:
-    # momentum_trend_product/reversion_hurst_product depend on cache.adx/
-    # cache.hurst, which are populated by compute_batch()'s periodic
-    # refresh_regime() call but stay at FeatureCache's cold default in a
-    # single isolated compute() call against a fresh cache -- a pre-existing
-    # cache-warm-up asymmetry, not something this plan introduces or is
-    # scoped to fix. TestPhase151BatchLiveParity above deliberately excludes
-    # cache-backed fields for the same reason.
 
 
 class TestGuardCountedTripwire:
@@ -564,5 +553,5 @@ class TestGuardCountedReport:
     """_report_guard_counted_substitutions emits ONE structured log line
     naming only non-zero-count compounds, resets counters, and emits
     nothing at all when every counter is zero -- CLAUDE.md's never-log-
-    per-row-over-the-corpus rule applied to compute_batch()'s up-to-36.7M-row
+    per-row-over-the-corpus rule applied to the rebuild's up-to-36.7M-row
     loop."""

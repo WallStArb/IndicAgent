@@ -29,7 +29,6 @@ from src.intelligence.features.kernels._primitives import (
     _sliding_rolling_max,
     _sliding_rolling_min,
     _trailing_window_sums,
-    _zscore_last,
     bounded_window_bars,
     none_mask_name,
     wilder_memory_bars,
@@ -52,40 +51,6 @@ def _bar_close_pos(high: float, low: float, close: float, eps: float = EPS) -> f
     if hl < eps:
         return float("nan")
     return (close - low) / hl
-
-
-def _range_position(
-    close: float,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    eps: float = EPS,
-) -> float:
-    """Close position within N-bar high-low range.
-
-    Formula: (close - min(low_N)) / (max(high_N) - min(low_N))
-    NaN on a degenerate (zero) range: the close's position inside a range that
-    does not exist is 0/0 (the bar_close_pos precedent, D1 rule 5, todo 584).
-    """
-    range_low = float(np.min(lows))
-    range_high = float(np.max(highs))
-    rng = range_high - range_low
-    if rng < eps:
-        return float("nan")
-    return (close - range_low) / (rng + eps)
-
-
-def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
-    """Realized volatility ratio: std(short) / std(long).
-
-    Returns 1.0 on cold start or degenerate std.
-    """
-    if len(closes) < long_bars + 1:
-        return 1.0
-    long_returns = np.diff(np.log(np.maximum(closes[-(long_bars + 1) :], 1e-10)))
-    short_returns = long_returns[-short_bars:]
-    vol_short = float(np.std(short_returns))
-    vol_long = float(np.std(long_returns))
-    return vol_short / vol_long if vol_long > 1e-10 else 1.0
 
 
 def _body_ratio(
@@ -155,7 +120,7 @@ def _overnight_gap_series_full(
 ) -> np.ndarray:
     """Raw overnight_gap value per bar index i (i >= 1); index 0 is 0.0 (no previous close).
 
-    result[i] == streaming _overnight_gap(opens[i], closes[i-1]) for i >= 1.
+    result[i] equals the retired per-bar _overnight_gap(opens[i], closes[i-1]) for i >= 1.
     Batch precompute helper — used only to feed _overnight_gap_z_series_full below;
     the raw per-bar overnight_gap value itself is O(1) via _overnight_gap() directly.
     """
@@ -164,23 +129,12 @@ def _overnight_gap_series_full(
     return np.where(prev_close > eps, (opens - prev_close) / prev_close, 0.0)
 
 
-def _overnight_gap_z(opens: np.ndarray, closes: np.ndarray, window: int, eps: float = EPS) -> float:
-    """Z-score of overnight_gap over a trailing window of bars (streaming path).
-
-    `_overnight_gap_series_full` is the one definition of the gap array; this z-scores its
-    last value against the trailing `window`, matching _zscore_last semantics. NaN on
-    insufficient history (fewer than `window` gap observations) and on a window that does
-    not spread (D1 rules 1 and 5, todo 584).
-    """
-    return _zscore_last(_overnight_gap_series_full(opens, closes, eps)[1:], window)
-
-
 def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
     """Z-scored overnight_gap series (batch path). result[i] == streaming
-    _overnight_gap_z(opens[:i+1], closes[:i+1], window) for i >= 1.
+    the retired per-bar _overnight_gap_z(opens[:i+1], closes[:i+1], window) for i >= 1.
 
-    O(n) total — required because _overnight_gap_z rebuilds the full gap array per
-    call; looping compute_batch() calling the streaming version would be O(n^2).
+    O(n) total — required because the retired per-bar _overnight_gap_z rebuilt the full gap array per
+    call; looping the per-bar scalar version would be O(n^2).
     Bar 0 has no gap and is NaN, never a 0.0 fill (D1 rule 5, todo 584).
     """
     result = np.full(len(closes), np.nan)
@@ -257,179 +211,6 @@ def _open_vs_intraday(open_ret: float, intraday_ret: float) -> float:
     return open_ret - intraday_ret
 
 
-def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = EPS) -> float:
-    """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
-
-    Unbounded non-negative. Returns 0.0 when close is near zero.
-    """
-    if close < eps:
-        return 0.0
-    return (float(np.max(highs)) - float(np.min(lows))) / close
-
-
-def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = EPS) -> float:
-    """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
-
-    NaN on a degenerate range (H_N == L_N): the close's position inside a range
-    that does not exist is 0/0 (D1 rule 5, todo 584), not 0.5.
-    """
-    rolling_high = float(np.max(highs))
-    rolling_low = float(np.min(lows))
-    rng = rolling_high - rolling_low
-    if rng < eps:
-        return float("nan")
-    return (close - rolling_low) / rng
-
-
-def _price_percentile(close: float, closes: np.ndarray) -> float:
-    """Rolling percentile rank of the current close within its trailing window.
-
-    Bounded [0, 1]. NaN on cold start (fewer than 2 bars) and on an all-equal
-    window: the rank of a value among identical values is a pure convention of
-    the weak/strict tie-break, not a measurement (D1 rule 5, todo 584).
-    Reuses _percentile_rank (scipy percentileofscore with manual fallback).
-    """
-    if len(closes) < 2:
-        return float("nan")
-    if float(np.max(closes)) - float(np.min(closes)) < EPS:
-        return float("nan")
-    return _percentile_rank(closes, close)
-
-
-def _efficiency_ratio(closes: np.ndarray, eps: float = EPS) -> float:
-    """Kaufman efficiency ratio: |C_t - C_{t-N}| / sum(|C_i - C_{i-1}|) over the window.
-
-    Bounded [0, 1] (0 = pure chop, 1 = perfectly linear trend). NaN for fewer
-    than 2 bars or a zero-movement window: net move 0 over path length 0 is 0/0,
-    and a window with no movement defines no efficiency (updown_ratio precedent,
-    D1 rule 5, todo 584).
-    """
-    if len(closes) < 2:
-        return float("nan")
-    net = abs(float(closes[-1]) - float(closes[0]))
-    total = float(np.sum(np.abs(np.diff(closes))))
-    if total < eps:
-        return float("nan")
-    return float(np.clip(net / total, 0.0, 1.0))
-
-
-def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
-    """Lag-k Pearson autocorrelation of log returns, computed over ALL
-    available return history (expanding window, not a rolling APR window).
-
-    The lag itself is a definitional constant (1 or 5), matching the
-    ret_lag_1/2/3 convention of fixed-lag primitives with no tunable window
-    (source spec: "Number (definitional)"). Bounded [-1, 1] by construction.
-    Returns 0.0 when fewer than lag + 2 return observations exist.
-    """
-    if len(closes) < lag + 3:
-        return 0.0
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    if len(log_rets) < lag + 2:
-        return 0.0
-    x = log_rets[:-lag] - log_rets[:-lag].mean()
-    y = log_rets[lag:] - log_rets[lag:].mean()
-    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(x, y) / denom)
-
-
-def _updown_ratio(rets: np.ndarray, eps: float = EPS) -> float:
-    """count(up bars) / count(down bars) over the given return window.
-
-    NaN when the window has no down bars, including an empty window: the ratio
-    is undefined (D1 rule 5, todo 584), not 1.0.
-    """
-    up = int(np.sum(rets > eps))
-    down = int(np.sum(rets < -eps))
-    return float(up) / down if down > 0 else math.nan
-
-
-def _streak_length(signs: np.ndarray) -> float:
-    """Current signed directional streak length ending at the last element:
-    positive for an up-streak, negative for a down-streak, magnitude = number
-    of consecutive same-sign observations. Returns 0.0 for empty input or a
-    zero-return final bar (streak reset).
-    """
-    if len(signs) == 0:
-        return 0.0
-    last_sign = signs[-1]
-    if last_sign == 0:
-        return 0.0
-    streak = 0
-    for s in signs[::-1]:
-        if s == last_sign:
-            streak += 1
-        else:
-            break
-    return float(streak) if last_sign > 0 else -float(streak)
-
-
-def _realized_var_ratio(closes: np.ndarray, fast_window: int, slow_window: int) -> float:
-    """Ratio of realized return variance across two window scales:
-    var(ret, fast) / var(ret, slow). Uses expanding windows
-    (min(window, available)) for consistency with the batch series
-    precompute. NaN on insufficient history in either window or a near-zero
-    slow-window variance (the ratio is undefined, D1 rule 5).
-    """
-    if len(closes) < 2:
-        return math.nan
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    w_slow = min(slow_window, len(log_rets))
-    w_fast = min(fast_window, len(log_rets))
-    if w_slow < 2 or w_fast < 2:
-        return math.nan
-    var_slow = float(np.var(log_rets[-w_slow:]))
-    var_fast = float(np.var(log_rets[-w_fast:]))
-    return var_fast / var_slow if var_slow > 1e-14 else math.nan
-
-
-def _range_to_close(high: float, low: float, close: float, eps: float = EPS) -> float:
-    """Rolling range as a fraction of price: (H - L) / C. Unbounded non-negative.
-    Returns 0.0 when close is near zero.
-    """
-    return (high - low) / close if close > eps else 0.0
-
-
-def _true_range_pct(
-    high: float, low: float, prev_close: float, close: float, eps: float = EPS
-) -> float:
-    """True range as a fraction of price: TR / C, where
-    TR = max(H-L, |H-prev_C|, |L-prev_C|). Unbounded non-negative.
-    Returns 0.0 when close is near zero.
-    """
-    if close < eps:
-        return 0.0
-    tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-    return tr / close
-
-
-def _variance_ratio(closes: np.ndarray, n: int) -> float:
-    """Lo-MacKinlay variance ratio: Var(N-period return) / (N * Var(1-period
-    return)), using overlapping N-period sums computed over ALL available
-    return history (the classic full-sample VR specification-test estimator
-    — no separate sample-window APR key). Under a random walk, VR -> 1.0.
-    NaN when insufficient history exists for either variance estimate or the
-    1-period variance is zero (the ratio is undefined, D1 rule 5).
-    """
-    if len(closes) < 2 or n < 1:
-        return math.nan
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    m = len(log_rets)
-    if m < n + 1:
-        return math.nan
-    var_1 = float(np.var(log_rets))
-    if var_1 < 1e-14:
-        return math.nan
-    cs = np.concatenate([[0.0], np.cumsum(log_rets)])
-    agg = cs[n:] - cs[:-n]
-    if len(agg) < 2:
-        return math.nan
-    var_n = float(np.var(agg))
-    return var_n / (n * var_1)
-
-
 def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = EPS) -> float:
     """Ratio of up-bar return std to down-bar return std within the window:
     std(ret | ret > 0) / std(ret | ret < 0). NaN when fewer than 2 up or 2 down
@@ -445,33 +226,6 @@ def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = EPS) -> float:
     if std_down < eps:
         return float("nan")
     return std_up / std_down
-
-
-def _bb_pct_b(closes_window: np.ndarray, eps: float = EPS) -> float:
-    """Bollinger %B: (C - lower_band) / (upper_band - lower_band), where the
-    bands are SMA +/- 2*std over the window. NaN on cold start (fewer than
-    2 bars) and on a degenerate (near-zero-std) band: the position of the
-    close inside a band that does not exist is 0/0 (D1 rule 5, todo 584).
-    """
-    if len(closes_window) < 2:
-        return float("nan")
-    mean = float(np.mean(closes_window))
-    std = float(np.std(closes_window))
-    if std < eps:
-        return float("nan")
-    upper = mean + 2.0 * std
-    lower = mean - 2.0 * std
-    c = float(closes_window[-1])
-    return (c - lower) / (upper - lower)
-
-
-def _product(a: float, b: float) -> float:
-    """Pure product of two already-computed parent scalars -- no new window.
-    Shared by vol_body_product, ret_vol_product_fast, range_vol_product, and
-    vol_skew_product (all four were byte-identical `a * b` bodies). Unbounded,
-    symmetric around 0.
-    """
-    return a * b
 
 
 def _up_vol_body_diff(up_vol_ratio: float, body_ratio: float) -> float:
@@ -515,40 +269,6 @@ def _rsi_wilder(gains: np.ndarray, losses: np.ndarray, period: int) -> float:
         return 100.0 if avg_gain > 0 else 50.0
     rs = avg_gain / avg_loss
     return float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-
-
-def _cci(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """Commodity Channel Index: (typical - SMA_typical) / (0.015 * MAD).
-
-    NaN when MAD < 1e-10 (a zero-MAD window defines no channel: 0/0, D1 rule 5,
-    todo 584) or on insufficient bars (cold).
-    Unbounded — typically in [-200, +200] but can exceed in extreme moves.
-    """
-    if len(closes) < period:
-        return float("nan")
-    typical = (highs[-period:] + lows[-period:] + closes[-period:]) / 3.0
-    sma = float(np.mean(typical))
-    mad = float(np.mean(np.abs(typical - sma)))
-    if mad < 1e-10:
-        return float("nan")
-    return float((float(typical[-1]) - sma) / (0.015 * mad))
-
-
-def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
-    """Aroon Oscillator = (aroon_up - aroon_down) / 100, range [-1.0, 1.0].
-
-    NaN on insufficient bars (< period + 1, cold). A perfectly flat window
-    stays a measured 0.0: up and down pick the same bar under any tie-break
-    convention (np.argmax/argmin take the first occurrence), so the difference
-    is a symmetry invariant, not a convention (verified, todo 584 4b-2).
-    """
-    if len(highs) < period + 1:
-        return float("nan")
-    window_h = highs[-(period + 1) :]
-    window_l = lows[-(period + 1) :]
-    aroon_up = int(np.argmax(window_h)) / period * 100.0
-    aroon_down = int(np.argmin(window_l)) / period * 100.0
-    return float(np.clip((aroon_up - aroon_down) / 100.0, -1.0, 1.0))
 
 
 def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int) -> np.ndarray:
@@ -794,7 +514,7 @@ def _dist_from_low_series_full(
 def _range_pct_series_full(
     closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _range_pct at bar i."""
+    """result[i] equals the retired per-bar _range_pct at bar i."""
     rolling_high = _sliding_rolling_max(highs, window)
     rolling_low = _sliding_rolling_min(lows, window)
     c = closes.astype(float)
@@ -806,7 +526,7 @@ def _range_pct_series_full(
 def _stoch_k_series_full(
     closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _stoch_k at bar i. NaN on a degenerate range (D1 rule 5)."""
+    """result[i] equals the retired per-bar _stoch_k at bar i. NaN on a degenerate range (D1 rule 5)."""
     rolling_high = _sliding_rolling_max(highs, window)
     rolling_low = _sliding_rolling_min(lows, window)
     rng = rolling_high - rolling_low
@@ -816,7 +536,7 @@ def _stoch_k_series_full(
 
 
 def _price_percentile_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _price_percentile at bar i. O(n x window).
+    """result[i] equals the retired per-bar _price_percentile at bar i. O(n x window).
 
     NaN on cold rows (window < 2) and all-equal windows, matching the scalar
     (D1 rule 5, todo 584)."""
@@ -837,7 +557,7 @@ def _price_percentile_series_full(closes: np.ndarray, window: int) -> np.ndarray
 
 
 def _efficiency_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
-    """result[i] == streaming _efficiency_ratio at bar i. O(n) via cumsum of |diffs|.
+    """result[i] equals the retired per-bar _efficiency_ratio at bar i. O(n) via cumsum of |diffs|.
 
     NaN on cold rows and zero-movement windows (0/0), matching the scalar
     (D1 rule 5, todo 584)."""
@@ -884,7 +604,7 @@ def _ret_kurtosis_z_series_full(
 def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = False) -> np.ndarray:
     """Expanding-window lag-k Pearson autocorrelation of log returns, computed
     over ALL available history up to each bar. result[i] == streaming
-    _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
+    the retired per-bar _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
     (one new pair added per bar, no window to re-sum). NaN until lag+2 pairs
     exist and wherever either side has no spread (D1 rule 5, todo 584 4c).
 
@@ -930,7 +650,7 @@ def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = Fals
 
 
 def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
-    """result[i] == streaming _updown_ratio over the trailing `window` returns
+    """result[i] equals the retired per-bar _updown_ratio over the trailing `window` returns
     ending at bar i. O(n) via cumulative up/down bar counts. NaN where the
     trailing window has no down bars or no returns yet (bar 0), matching the
     scalar's rule-5 semantics.
@@ -957,7 +677,7 @@ def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS)
 
 def _streak_length_series_full(closes: np.ndarray) -> np.ndarray:
     """Full signed streak-length series. O(n) single forward pass (does NOT
-    call _streak_length per bar — that would be O(n^2); this maintains the
+    call the retired per-bar _streak_length at each bar — that would be O(n^2); this maintains the
     running streak incrementally instead). result[i] is the streak ending at
     bar i (i >= 1); index 0 padded with 0.0.
     """
@@ -991,7 +711,7 @@ def _streak_z_series_full(closes: np.ndarray, streak_window: int) -> np.ndarray:
 def _realized_var_ratio_series_full(
     closes: np.ndarray, fast_window: int, slow_window: int
 ) -> np.ndarray:
-    """result[i] == streaming _realized_var_ratio(closes[:i+1], fast_window,
+    """result[i] equals the retired per-bar _realized_var_ratio(closes[:i+1], fast_window,
     slow_window). O(n) via cumsum of returns and squared returns. NaN where
     the scalar is undefined (no returns yet, a window under 2, or a near-zero
     slow variance), matching its rule-5 semantics.
@@ -1029,7 +749,7 @@ def _realized_var_ratio_series_full(
 def _range_to_close_series_full(
     highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _range_to_close at bar i. Fully vectorized O(n)."""
+    """result[i] equals the retired per-bar _range_to_close at bar i. Fully vectorized O(n)."""
     c = closes.astype(float)
     safe_c = np.where(c > eps, c, 1.0)
     raw = (highs.astype(float) - lows.astype(float)) / safe_c
@@ -1039,7 +759,7 @@ def _range_to_close_series_full(
 def _true_range_pct_series_full(
     highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
-    """result[i] == streaming _true_range_pct at bar i. Fully vectorized O(n).
+    """result[i] equals the retired per-bar _true_range_pct at bar i. Fully vectorized O(n).
     Index 0 padded with 0.0 (no prev close available).
     """
     n = len(closes)
@@ -1085,7 +805,7 @@ def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int)
 
 
 def _variance_ratio_series_full(closes: np.ndarray, n_window: int) -> np.ndarray:
-    """result[i] == streaming _variance_ratio(closes[:i+1], n_window). O(n)
+    """result[i] equals the retired per-bar _variance_ratio(closes[:i+1], n_window). O(n)
     via prefix sums of the 1-period return series and its N-period
     overlapping aggregate (both expanding over ALL available history, no
     bounded rolling sample — matches the full-sample Lo-MacKinlay estimator).
@@ -1147,7 +867,7 @@ def _vol_asymmetry_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
-    """result[i] == streaming _bb_pct_b over the trailing (expanding until
+    """result[i] equals the retired per-bar _bb_pct_b over the trailing (expanding until
     saturated) `window` bars ending at bar i. O(n * window) via per-window sums of price and
     squared price (exact per-window sums). NaN on cold rows (w < 2) and degenerate bands (D1 rule 5).
     """
@@ -1912,7 +1632,7 @@ def _window_blocks(arr: np.ndarray, length: int):
 
 
 def _cci_windowed(typical: np.ndarray, period: int) -> np.ndarray:
-    """`_cci` at every row with a full window; the earlier rows and any
+    """The retired per-bar `_cci` at every row with a full window; the earlier rows and any
     zero-MAD window are NaN (cold and 0/0, D1 rule 5, todo 584)."""
     out = np.full(len(typical), np.nan)
     for row, tw in _window_blocks(typical, period):
@@ -1925,7 +1645,7 @@ def _cci_windowed(typical: np.ndarray, period: int) -> np.ndarray:
 
 
 def _aroon_windowed(highs: np.ndarray, lows: np.ndarray, period: int) -> np.ndarray:
-    """`_aroon_osc` at every row with a full window; the earlier rows are NaN
+    """The retired per-bar `_aroon_osc` at every row with a full window; the earlier rows are NaN
     (cold, D1 rule 5, todo 584). A flat full window keeps its measured 0.0."""
     out = np.full(len(highs), np.nan)
     for (row, hw), (_, lw) in zip(
@@ -1938,7 +1658,7 @@ def _aroon_windowed(highs: np.ndarray, lows: np.ndarray, period: int) -> np.ndar
 
 
 def _vol_ratio_windowed(closes: np.ndarray, short_bars: int, long_bars: int) -> np.ndarray:
-    """`_vol_ratio` at every row with long_bars + 1 closes; the earlier rows are 1.0."""
+    """The retired per-bar `_vol_ratio` at every row with long_bars + 1 closes; the earlier rows are 1.0."""
     out = np.ones(len(closes))
     logs = np.log(np.maximum(closes, 1e-10))
     for row, lw in _window_blocks(logs, long_bars + 1):
@@ -1953,7 +1673,7 @@ def _vol_ratio_windowed(closes: np.ndarray, short_bars: int, long_bars: int) -> 
 
 
 def _compute_bounded_window_scalars(x, config):
-    """range_position, vol_ratio, CCI and Aroon over compute_batch's bounded window.
+    """range_position, vol_ratio, CCI and Aroon over the bounded window.
 
     Row i reads rows [max(0, i - n), i] with n = bounded_window_bars(config), so memory is n.
     Each kernel needs a trailing window of m rows; it has one at row i iff m - 1 <= min(i, n),
@@ -2004,7 +1724,7 @@ def _compute_ret_vol_ratio_fast(x, config):
 
 
 def _compute_price_only_products(x, config):
-    """Window-free products of price-origin parents, in the operand order compute_batch uses."""
+    """Window-free products of price-origin parents, in the operand order the kernel contract fixes."""
     return {
         "momentum_vol_regime_product": x["momentum_z_fast"] * x["hv_ratio"],
         "quarter_momentum_product": x["quarter_position"] * x["momentum_z_fast"],
@@ -2060,7 +1780,7 @@ def _bar_statistics_warmup(config) -> dict[str, int]:
 
 
 def _compute_bar_statistics_refresh(x, config):
-    """Replay of FeatureCache.refresh_regime at compute_batch's cadence on a fresh cache.
+    """Replay of FeatureCache.refresh_regime at the production cadence on a fresh cache.
 
     The cache refreshes at rows i >= 1 with i % regime_cache_refresh_bars == 0 on bars
     [max(0, i - hurst_window), i], then the loop reads the five values at that same row; row 0

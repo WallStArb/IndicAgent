@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
 
 import numpy as np
 
@@ -20,59 +19,10 @@ _CANARY_CONSTANT_VALUE: float = 1.0
 _CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
 
 
-def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int) -> int:
-    """Deterministic per-(symbol, bar) sub-seed derived from symbol + bar_ts +
-    the APR base seed + a per-canary offset.
-
-    2026-07-29 fix (todo 203): previously omitted `symbol` entirely -- every
-    symbol received the IDENTICAL "random" draw at a given bar_ts, confirmed
-    live in feature_vectors (bit-identical canary_noise_gaussian/uniform/
-    near_constant across every pooled symbol at the same timestamp). Any
-    cross-sectional measurement pooling multiple symbols (this project's own
-    ic_engine.py _compute_cross_sectional_tf, or an ad hoc diagnostic doing the
-    same) saw severe pseudo-replication as a result -- the true independent
-    draw count per bar_ts was 1, not n_symbols, defeating these negative
-    controls' entire purpose.
-
-    The symbol component uses hash_key_to_int (src/core/rng.py) -- the shared
-    Ring-0 primitive also used by ic_engine.py's _derive_worker_rng_seed(cell_key,
-    bootstrap_seed) (extracted 2026-07-29 /simplify pass after this function
-    independently re-derived the same MD5-hash-to-int idiom) -- stable across
-    processes/interpreter versions (PYTHONHASHSEED-independent), required for
-    ProcessPoolExecutor workers and the "same bar inputs + seed -> same value"
-    determinism contract. The bar_ts/offset arithmetic component is unchanged from
-    the original (still pure arithmetic, no hash() there either).
-    """
-    return _canary_seed(int(bar_ts.timestamp() * 1000), hash_key_to_int(symbol), base_seed, offset)
-
-
 def _canary_seed(ts_int: int, symbol_hash: int, base_seed: int, offset: int) -> int:
-    """`_canary_sub_seed` from its two per-row ingredients, so a caller hashes a symbol and
-    converts a timestamp once instead of once per canary."""
+    """The per-(symbol, bar) canary seed from its two per-row ingredients, so a caller hashes a
+    symbol and converts a timestamp once instead of once per canary."""
     return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
-
-
-def _canary_noise_gaussian(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Gaussian noise, N(0, 1) (offset=0). Negative control: must never
-    carry IC."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=0))
-    return float(rng.standard_normal())
-
-
-def _canary_noise_uniform(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Uniform[0, 1) noise (offset=1), independently seeded from the
-    Gaussian canary. Two distributionally-distinct RNG sources both agreeing
-    they are null is stronger pipeline-integrity evidence than one alone."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=1))
-    return float(rng.uniform(0.0, 1.0))
-
-
-def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """_CANARY_CONSTANT_VALUE plus tiny deterministic epsilon noise
-    (offset=2) -- verifies degenerate near-zero-variance input handling
-    without being bit-identical to the pure constant canary."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=2))
-    return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
 
 
 def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = EPS) -> float:
@@ -84,8 +34,8 @@ def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = EPS) -> flo
     peaks at h = 2 (1d pooled: ~0.32 at h=1, ~0.64 at h=2) and a small h = 1
     cell can miss significance. Detection checks gate on the containing
     lookahead (phase 179 V5). Falls back to 0.0 when the future bars don't exist yet (end of
-    the batch series, or the live single-bar compute() path, which by
-    definition has no future data -- see FeatureFactory.compute() docstring).
+    the batch series, or the deleted live single-bar path, which by
+    definition had no future data).
     """
     if i + 2 >= len(closes) or closes[i + 1] <= eps or closes[i + 2] <= eps:
         return 0.0

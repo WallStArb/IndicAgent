@@ -49,10 +49,9 @@ the aggregator's HTF output, and re-check `_DAG_ORDER` lag thresholds.
 **Streaming feature writer is disabled and has no table (todo 584 item 3, 2026-11-04):**
 the retired feature-vector writer persists the legacy v1 FeatureVector contract, and migration
 570 dropped the only table that matched it; `feature_vectors` is now the kernel-registry table
-the rebuild writer fills through `bulk_load`. Its producer, `feature_vector_pipeline`, computes
-with the v2.x feature factory, not the kernels, so its rows would mix two compute definitions in
-one table. The unit stays disabled and the code stays with the streaming block. It must not be
-re-enabled as is: on feed return it first needs a producer that emits kernel outputs and a writer
+the rebuild writer fills through `bulk_load`. Its former producer, `feature_vector_pipeline`, computed
+with the v2.x feature factory, not the kernels (deleted in R2 item 5b). On feed return it
+first needs a producer that emits kernel outputs and on feed return it first needs a producer that emits kernel outputs and a writer
 that persists them through `FEATURE_VECTORS_COLUMNS` and `feature_vector_row_values` (its startup
 schema check refuses the new table until then).
 

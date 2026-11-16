@@ -267,7 +267,7 @@ tail -100 logs/<name>.log
 Log output is JSON (structlog). Key fields: `event` (log message), `agent` (agent name), `timestamp`. For grep:
 
 ```bash
-grep '"level":"error"' logs/feature_vector_pipeline.log | tail -20
+grep '"level":"error"' logs/backfill_feature_factory.log | tail -20
 ```
 
 ---

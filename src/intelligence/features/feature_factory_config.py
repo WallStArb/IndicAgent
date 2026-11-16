@@ -1,7 +1,6 @@
 """FeatureFactoryConfig: the frozen APR-backed parameter container every feature kernel reads.
 
-Built once by a production entrypoint (the rebuild writer `services/backfill_feature_factory.py`,
-the streaming `services/feature_vector_pipeline.py`) from ConfigService through `from_values`
+Built once by a production entrypoint (the rebuild writer `services/backfill_feature_factory.py`) from ConfigService through `from_values`
 and `FEATURE_APR_FIELDS`, the one table of field, APR key, cast and default, and passed to every
 kernel compute. It lives outside the streaming `feature_factory` so the rebuild code key hashes
 the fields and defaults that shape a stored value without hashing the streaming path.
@@ -19,7 +18,7 @@ from src.intelligence.features.kernels._hmm import HmmConfig
 
 @dataclass(frozen=True)
 class FeatureFactoryConfig:
-    """Frozen APR-backed parameter container for FeatureFactory.compute().
+    """Frozen APR-backed parameter container for the feature kernels.
 
     Built once from ConfigService by a production entrypoint and passed to every kernel
     compute. APR keys (feature.* namespace) map directly to these fields.
@@ -339,18 +338,18 @@ class FeatureFactoryConfig:
     factor_beta_zscore_window: int  # feature.factor_beta.zscore_window
     # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
     # both noise canaries (Gaussian and Uniform draw independent sub-seeds
-    # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
+    # from this one base seed -- see control._canary_seed). Defaulted (unlike
     # every other field in this dataclass) so the ~6 pre-existing direct
     # FeatureFactoryConfig(...) construction sites across the test suite and
-    # services/*.py don't all require updating in this plan; the 2 real
-    # production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire this from ConfigService.
+    # services/*.py don't all require updating in this plan; the real
+    # production entrypoint (backfill_feature_factory.py)
+    # explicitly wires this from ConfigService.
     canary_rng_seed: int = 90042  # alpha.ic.canary_rng_seed [initial_estimate]
     # Session Volume Profile (Phase 163 Plan 01, D-03/D-13). Defaulted for the
     # same reason as canary_rng_seed above (avoid updating every pre-existing
-    # direct FeatureFactoryConfig(...) construction site); the 2 real production
-    # entrypoints (backfill_feature_factory.py, feature_vector_pipeline.py)
-    # explicitly wire these from ConfigService.
+    # direct FeatureFactoryConfig(...) construction site); the real production
+    # entrypoint (backfill_feature_factory.py)
+    # explicitly wires these from ConfigService.
     session_vp_value_area_pct: float = 0.70  # feature.session_vp.value_area_pct
     session_vp_n_buckets: int = 50  # feature.session_vp.n_buckets
     session_vp_hvn_threshold: float = 0.80  # feature.session_vp.hvn_threshold
@@ -366,8 +365,8 @@ class FeatureFactoryConfig:
     # SMC Institutional Footprint (Phase 164 Plan 01, contract-only -- consumed by
     # Plans 02-04's compute logic). Same defaulting rationale as above (avoid
     # updating every pre-existing direct FeatureFactoryConfig(...) construction
-    # site); the 2 real production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire these from ConfigService. All
+    # site); the real production entrypoint (backfill_feature_factory.py)
+    # explicitly wires these from ConfigService. All
     # values [conventional] -- copied verbatim from the archived smc_context
     # plugins' own hardcoded defaults (164-RESEARCH.md).
     smc_order_blocks_lookback: int = 100  # feature.smc.order_blocks.lookback
@@ -428,9 +427,9 @@ class FeatureFactoryConfig:
     # Swing/Fib/Trend/Session Structure (Phase 165 Plan 01, contract-only --
     # consumed by Plans 02-04's compute logic). Same defaulting rationale as
     # above (avoid updating every pre-existing direct FeatureFactoryConfig(...)
-    # construction site); the 2 real production entrypoints
-    # (backfill_feature_factory.py, feature_vector_pipeline.py) explicitly
-    # wire these from ConfigService. All values [conventional] -- copied
+    # construction site); the real production entrypoint
+    # (backfill_feature_factory.py) explicitly
+    # wires these from ConfigService. All values [conventional] -- copied
     # verbatim from the archived i3_structure plugins' own hardcoded defaults
     # (165-RESEARCH.md).
     swing_pivot_window: int = 5  # feature.swing.pivot_window
@@ -452,7 +451,7 @@ class FeatureFactoryConfig:
     atr_normalization_min_pct: float = 0.0001  # feature.atr_normalization.min_atr_pct
     # CTF (cross-timeframe) higher-timeframe source mapping (todo 242, migration 305).
     # Single source of truth for both backfill_feature_factory.py's batch
-    # _build_ctf_series() and feature_vector_pipeline.py's live per-HTF-bar update --
+    # _build_ctf_series() (the only production path) --
     # do not duplicate this dict. Formerly a hardcoded module constant
     # (feature_cache._CTF_HIGHER_TF); "1d" is self-referential (no timeframe above 1d
     # exists in this corpus) -- ctf_momentum degenerates into a same-tf RSI oscillator
@@ -477,13 +476,13 @@ class FeatureFactoryConfig:
     # Earnings-Season Calendar Primitive (Phase 176 Plan 03, todo 353). Same
     # defaulting rationale as canary_rng_seed above (avoid updating every
     # pre-existing direct FeatureFactoryConfig(...) construction site); the 2
-    # real production entrypoints (backfill_feature_factory.py,
-    # feature_vector_pipeline.py) explicitly wire these from ConfigService.
+    # real production entrypoint (backfill_feature_factory.py)
+    # explicitly wires these from ConfigService.
     earnings_season_start_days: int = 14  # feature.earnings_season.start_days
     earnings_season_end_days: int = 42  # feature.earnings_season.end_days
     # Spread estimators (todo 553, kernels/liquidity.py, migration 526). Same defaulting
-    # rationale as earnings_season_* above; backfill_feature_factory.py and
-    # feature_vector_pipeline.py wire both from ConfigService.
+    # rationale as earnings_season_* above; backfill_feature_factory.py wires
+    # both from ConfigService.
     high_low_spread_window: int = 21  # feature.high_low_spread.window
     roll_spread_window: int = 252  # feature.roll_spread.window
     # Amihud z-score (todo 555, migration 534): the share of the window that must hold a valid
@@ -495,8 +494,7 @@ class FeatureFactoryConfig:
     # defaults: every value changes stored regime labels and the live APR values differ from
     # any value a default could carry. None means "not wired": the regime kernels raise on it.
     # Every production entrypoint that runs them loads this with
-    # `HmmConfig.from_values(config_service.get_sync)` (backfill_feature_factory.py,
-    # feature_vector_pipeline.py). Changing any value invalidates every stored regime label.
+    # `HmmConfig.from_values(config_service.get_sync)` (backfill_feature_factory.py). Changing any value invalidates every stored regime label.
     # `infra.hmm.rolling_block_rows` is not here: it changes no output, and the regime writer
     # and the rebuild pass it to the kernels as an argument.
     hmm: HmmConfig | None = None

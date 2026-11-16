@@ -36,7 +36,7 @@ class FeatureVectorRecord:
     vector: FeatureVector
 ```
 
-**Topic:** `topic_feature_vectors(env)` → `{env}.intelligence.feature_vectors`. **Published by** `IntelligencePipeline`/`FeatureVectorPipeline` after `FeatureFactory.compute()`. **Consumed by** `FeatureVectorWriter` (batch INSERT to `feature_vectors` hypertable; consumer group `feature_vector_writer_group`). **Status: Operational, live.**
+**Topic:** `topic_feature_vectors(env)` → `{env}.intelligence.feature_vectors`. **Published by** nothing today (`FeatureVectorPipeline` and `FeatureFactory.compute()` were deleted in R2 item 5b). **Consumed by** `FeatureVectorWriter` (batch INSERT to `feature_vectors` hypertable; consumer group `feature_vector_writer_group`). **Status: Operational, live.**
 
 The `alpha.events` topic and its `alpha_events` payload were removed in phase 186 plan 19 with `AlphaPublisher`; no publisher or consumer remains.
 

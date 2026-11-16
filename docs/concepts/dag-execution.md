@@ -10,8 +10,8 @@
 > **v2.x → v3.0 note:** The Plugin DAG level below (I1-I7, 132 plugins, one topological sort
 > per bar via Kahn's algorithm) describes the ARCHIVED v2.x `IntelligencePipeline`, with no live
 > consumer since 2026-07-02. It has **no v3.0 successor** — the v3.0 compute path
-> (`FeatureFactory.compute()` in `src/intelligence/features/kernels/`, called from
-> `FeatureVectorPipeline`) is a single monolithic computation, not a declared-input/output DAG
+> (the kernel registry in `src/intelligence/features/kernels/`, run by the rebuild writer
+> `services/backfill_feature_factory.py`) is a single monolithic computation, not a declared-input/output DAG
 > with per-plugin cycle detection or wave-parallel execution. The per-bar topological-sort
 > mechanism described here is a historical design pattern, kept for its design rationale, not a
 > description of live behavior. The Service DAG level (`_DAG_ORDER` in `service_auditor.py`) is

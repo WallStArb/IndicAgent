@@ -62,7 +62,7 @@ Plugins declare:
 
 ## What Replaced It in v3.0
 
-`register_plugins.py` and the `TIER_I1`..`TIER_I7` lists are gone with the rest of I5/I6/I7 — "no transitional shims, no parallel operation" (`docs/intelligence/intelligence-alphaengine.md`). What computes intelligence now is `FeatureFactory.compute()` (`src/intelligence/features/kernels/`): a single stateless, pure function spanning roughly 8,600 lines that produces all ~298 `FeatureVector` fields from one call. There is no per-feature file, no self-registration list, no declared per-unit `inputs`/`outputs`, and no per-unit try/except shell — a handful of inline numeric guards (`_guard_counted`) substitute degenerate values, but nothing isolates one feature's bug from corrupting the whole `FeatureVector` row the way a plugin exception used to be caught and skipped.
+`register_plugins.py` and the `TIER_I1`..`TIER_I7` lists are gone with the rest of I5/I6/I7 — "no transitional shims, no parallel operation" (`docs/intelligence/intelligence-alphaengine.md`). What computes intelligence now is the kernel registry (`src/intelligence/features/kernels/`): stateless pure kernels that produce the `feature_vectors` columns (the monolithic `FeatureFactory.compute()` was deleted in R2 item 5b). There is no per-feature file, no self-registration list, no declared per-unit `inputs`/`outputs`, and no per-unit try/except shell — a handful of inline numeric guards (`_guard_counted`) substitute degenerate values, but nothing isolates one feature's bug from corrupting the whole `FeatureVector` row the way a plugin exception used to be caught and skipped.
 
 This is a deliberate trade, not an oversight, and it maps onto why the plugin pattern was rejected rather than reimplemented:
 

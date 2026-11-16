@@ -687,8 +687,8 @@ class FeatureVector:
     # this pipeline can detect look-ahead leakage. See ops_canary_integrity_assert.py.
     # Defaulted (unlike the rest of this dataclass) purely to avoid a blast
     # radius across every pre-existing hardcoded FeatureVector(...) test
-    # constructor in the suite -- every real compute path (compute()/
-    # compute_batch()/_cold_start_vector()) always supplies an explicit value.
+    # constructor in the suite -- every real compute path (the production
+    # series) always supplies an explicit value.
     canary_noise_gaussian: float | None = (
         0.0  # seeded N(0,1) (APR: alpha.ic.canary_rng_seed), negative control
     )

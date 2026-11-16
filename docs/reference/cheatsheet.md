@@ -121,6 +121,4 @@ docker exec redpanda rpk group list
 docker exec redpanda rpk group describe <group-name> --topic <topic>
 docker exec redpanda rpk group reset-offset <group> --topic <topic> --to-earliest
 
-# Feature pipeline lag
-docker exec redpanda rpk group describe feature_vector_pipeline_group -t
 ```
