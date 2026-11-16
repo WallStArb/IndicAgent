@@ -62,6 +62,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -158,12 +159,11 @@ POST_POLICY_FIELDS = (*DELTA_FIELDS, "alpaca_gap_raw", "alpaca_after_end_raw", "
 GAP_RAW_FIELDS = ("timeframe", "symbol", "month", "n", "whole_month")
 ALPACA_KIND = "sip_rth"
 _VOLUME_CLAUSE = {"1d": " AND coalesce(volume, 0) > 0"}  # 5m keeps its zero-volume bars
-_NY_DAY = f'("timestamp" {_NY})::date'
 #: Alpaca raw slots at the gap-row names in one UTC stamp month, per session date: the regular-hours
 #: grid for 5m, as selection takes it, with a zero-volume 5m bar kept (it is in canonical, the
 #: tradeable view drops it) and a zero-volume Alpaca 1d bar not selected (the daily rule; canonical 1d holds no zero-volume Alpaca row).
 _ALPACA_GAP_SQL = f"""
-SELECT symbol, {_NY_DAY} AS d, count(*) FROM ohlcv_raw
+SELECT symbol, {_RAW_DAY} AS d, count(*) FROM ohlcv_raw
 WHERE timeframe = %(tf)s AND vendor = 'alpaca' AND kind = '{ALPACA_KIND}'
   AND symbol = ANY(%(symbols)s)
   AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{{grid}}{{volume}}
@@ -174,11 +174,11 @@ _ALPACA_AFTER_END_SQL = f"""
 SELECT count(*) FROM ohlcv_raw
 WHERE timeframe = %(tf)s AND vendor = 'alpaca' AND kind = '{ALPACA_KIND}'
   AND symbol <> ALL(%(held)s)
-  AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{{grid}}{{volume}} AND {_NY_DAY} >= %(end)s
+  AND "timestamp" >= %(lo)s AND "timestamp" < %(hi)s{{grid}}{{volume}} AND {_RAW_DAY} >= %(end)s
 """
 #: A held name's Massive 1d slots per session date.
 _HELD_MASSIVE_SQL = f"""
-SELECT symbol, {_NY_DAY} AS d, count(*) FROM ohlcv_raw
+SELECT symbol, {_RAW_DAY} AS d, count(*) FROM ohlcv_raw
 WHERE timeframe = '1d' AND vendor = 'massive' AND kind = 'sip_flat' AND symbol = ANY(%s)
 GROUP BY 1, 2
 """
@@ -284,6 +284,14 @@ def month_bounds(month: date) -> tuple[datetime, datetime]:
         datetime(month.year, month.month, 1, tzinfo=UTC),
         datetime(nxt.year, nxt.month, 1, tzinfo=UTC),
     )
+
+
+def gap_identity(gap_rows: Iterable[GapRow]) -> Identity:
+    """An Identity that knows the gap rows only (no spans, no listing ends)."""
+    by_gap: dict[str, list[GapRow]] = defaultdict(list)
+    for g in gap_rows:
+        by_gap[g.symbol].append(g)
+    return Identity(dict(by_gap), {}, {})
 
 
 def read_identity(conn: Any, gaps: Sequence[GapRow]) -> Identity:
@@ -513,6 +521,12 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+@lru_cache(maxsize=4)
+def _grid_stamps(timeframe: str, year: int) -> list[datetime]:
+    """The regular-hours stamps around a year, sorted, built once per (timeframe, year)."""
+    return sorted(rth_grid_stamps(timeframe, year - 1, year + 1))
+
+
 def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
     """``--post-policy``: the expectation after the policy switch, into a NEW directory."""
     delta_dir = args.post_policy.resolve()
@@ -527,10 +541,7 @@ def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
         return 2
     base = _read_csv(delta_dir / "switch_delta.csv")
     gap_rows = read_gap_list(Path(args.gap_list))
-    gaps: dict[str, list[GapRow]] = defaultdict(list)
-    for g in gap_rows:
-        gaps[g.symbol].append(g)
-    identity = Identity(dict(gaps), {}, {})
+    identity = gap_identity(gap_rows)
     held_rows = read_held(Path(args.daily_rebuild))
     held = frozenset(h["symbol"] for h in held_rows)
     gap_symbols = sorted(
@@ -544,27 +555,28 @@ def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
         with conn.cursor() as cur:
             cur.execute("SET statement_timeout = 0")
             cur.execute(_HELD_MASSIVE_SQL, (sorted(held),))
-            held_by_month = held_massive_slots(
-                [(sym, day, n) for sym, day, n in cur.fetchall()], identity, archive_end
-            )
+            held_by_month = held_massive_slots(cur.fetchall(), identity, archive_end)
+        held_by_ym: Counter[tuple[int, int]] = Counter()
+        held_slots: Counter[str] = Counter()
+        for (symbol, year, mon), n in held_by_month.items():
+            held_by_ym[(year, mon)] += n
+            held_slots[symbol] += n
         for row in base:
             tf, month = row["timeframe"], date.fromisoformat(row["month"])
             lo, hi = month_bounds(month)
             gap_n = after_end_n = 0
-            grid = _GRID_CLAUSE if tf in RTH_GRID_STEP_MINUTES else ""
+            sql_parts = {"grid": "", "volume": _VOLUME_CLAUSE.get(tf, "")}
             params: dict[str, Any] = {"tf": tf, "lo": lo, "hi": hi}
             if tf in RTH_GRID_STEP_MINUTES:
-                params["grid"] = sorted(rth_grid_stamps(tf, lo.year - 1, lo.year + 1))
+                sql_parts["grid"] = _GRID_CLAUSE
+                params["grid"] = [s for s in _grid_stamps(tf, lo.year) if lo <= s < hi]
             if hi.date() > ALPACA_FIRST_DAY and lo.date() < archive_end and gap_symbols:
                 with conn.cursor() as cur:
                     cur.execute(
-                        _ALPACA_GAP_SQL.format(grid=grid, volume=_VOLUME_CLAUSE.get(tf, "")),
+                        _ALPACA_GAP_SQL.format(**sql_parts),
                         {**params, "symbols": gap_symbols},
                     )
-                    per_symbol = alpaca_gap_slots(
-                        [(sym, day, n) for sym, day, n in cur.fetchall()],
-                        identity, archive_end, held, tf,
-                    )  # fmt: skip
+                    per_symbol = alpaca_gap_slots(cur.fetchall(), identity, archive_end, held, tf)
                 gap_n = sum(per_symbol.values())
                 raw_groups += [
                     {"timeframe": tf, "symbol": sym, "month": month.isoformat(), "n": n,
@@ -574,19 +586,11 @@ def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
             if hi.date() > archive_end:
                 with conn.cursor() as cur:
                     cur.execute(
-                        _ALPACA_AFTER_END_SQL.format(grid=grid, volume=_VOLUME_CLAUSE.get(tf, "")),
+                        _ALPACA_AFTER_END_SQL.format(**sql_parts),
                         {**params, "end": archive_end, "held": sorted(held) if tf == "1d" else []},
                     )
                     after_end_n = cur.fetchone()[0]
-            held_n = (
-                sum(
-                    n
-                    for (_, y, m), n in held_by_month.items()
-                    if (y, m) == (month.year, month.month)
-                )
-                if tf == "1d"
-                else 0
-            )
+            held_n = held_by_ym[(month.year, month.month)] if tf == "1d" else 0
             new_rows.append(post_policy_row(row, gap_n, after_end_n, held_n))
             print(
                 f"{tf} {month}: B4 {row['expected_after']} -> {new_rows[-1]['expected_after']}",
@@ -595,9 +599,6 @@ def run_post_policy(args: argparse.Namespace, archive_end: date) -> int:
     out.mkdir(parents=True, exist_ok=True)
     _write_csv(out / "switch_delta.csv", POST_POLICY_FIELDS, new_rows)
     _write_csv(out / "gap_raw_groups.csv", GAP_RAW_FIELDS, raw_groups)
-    held_slots = Counter[str]()
-    for (symbol, _, _), n in held_by_month.items():
-        held_slots[symbol] += n
     held_report = [
         {**h, "massive_1d_slots_not_expected": held_slots[h["symbol"]]} for h in held_rows
     ]
@@ -654,17 +655,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.post_policy:
         return run_post_policy(args, archive_end)
     if args.verify:
-        with (args.out / "switch_delta.csv").open(newline="") as handle:
-            deltas = list(csv.DictReader(handle))
-        gaps: dict[str, list[GapRow]] = defaultdict(list)
-        for g in read_gap_list(Path(args.gap_list)):
-            gaps[g.symbol].append(g)
+        deltas = _read_csv(args.out / "switch_delta.csv")
         gap_raw_path, held_path = args.out / "gap_raw_groups.csv", args.out / "held.json"
         report = verify(
             read_card(args.verify[0]),
             read_card(args.verify[1]),
             deltas,
-            Identity(dict(gaps), {}, {}),
+            gap_identity(read_gap_list(Path(args.gap_list))),
             archive_end,
             _read_csv(gap_raw_path) if gap_raw_path.exists() else None,
             json.loads(held_path.read_text()) if held_path.exists() else (),

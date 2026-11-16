@@ -2,17 +2,32 @@
 
 from __future__ import annotations
 
+import argparse
 from datetime import UTC, date, datetime
+
+import pytest
 
 from scripts.ops.bars.ops_massive_policy_plan import GapRow
 from scripts.ops.bars.ops_massive_switch_delta import (
+    _ALPACA_AFTER_END_SQL,
+    _ALPACA_GAP_SQL,
+    _VOLUME_CLAUSE,
     DELTA_FIELDS,
     Group,
     Identity,
+    alpaca_gap_slots,
     classify_loss,
+    held_massive_slots,
+    main,
     month_bounds,
+    month_params,
+    month_sql,
+    post_policy_row,
+    run_post_policy,
     summarize,
     tally,
+    verify,
+    whole_month_gap_row,
 )
 
 END = date(2026, 11, 10)
@@ -96,7 +111,6 @@ def test_month_bounds_roll_over_the_year():
 
 
 def test_verify_checks_counts_ibkr_and_the_gap_row_alpaca_groups():
-    from scripts.ops.bars.ops_massive_switch_delta import verify
 
     def card(tf, sym, vendor, month, n, digest="d"):
         return {"timeframe": tf, "symbol": sym, "vendor": vendor, "kind": "k", "month": month,
@@ -129,7 +143,6 @@ def test_verify_wants_every_before_card_month_and_fails_an_unpredicted_one():
     # The months wanted are the union of the before card's months and the delta rows': a month
     # canonical never held but the rebuild fills is a delta row and passes at its expectation;
     # a month the after card holds that delta skipped fails as expected-zero, never silently.
-    from scripts.ops.bars.ops_massive_switch_delta import verify
 
     def card(tf, sym, month, n, digest="d"):
         return {"timeframe": tf, "symbol": sym, "vendor": "massive", "kind": "k",
@@ -156,7 +169,6 @@ def test_an_out_of_session_stamp_cannot_inflate_expected_after():
     # 5m keeps only the regular-hours grid stamps selection can take (the same filter
     # selection applies to sip_flat_agg); 08:30 New York is off grid, 09:35 is on it. 1d has
     # no stamp grid.
-    from scripts.ops.bars.ops_massive_switch_delta import month_params, month_sql
 
     grid = month_params("5m", date(2016, 1, 1))["grid"]
     assert datetime(2016, 1, 4, 13, 30, tzinfo=UTC) not in grid  # 08:30 New York
@@ -170,7 +182,6 @@ def test_a_stamp_just_after_utc_midnight_buckets_by_its_utc_month_not_its_new_yo
     # 2016-07-01 00:15 UTC is the June 30 late session in New York: the card buckets by UTC
     # month, so both join sides are scoped by the stamp and nothing re-filters by the session
     # date (a 1d New York midnight stamp shares its stamp's UTC date).
-    from scripts.ops.bars.ops_massive_switch_delta import month_params, month_sql
 
     stamp = datetime(2016, 7, 1, 0, 15, tzinfo=UTC)
     for month, inside in ((date(2016, 6, 1), False), (date(2016, 7, 1), True)):
@@ -186,7 +197,6 @@ def test_a_stamp_just_after_utc_midnight_buckets_by_its_utc_month_not_its_new_yo
 
 
 def test_post_policy_gap_slots_are_the_alpaca_raw_slots_of_gap_row_names_inside_the_window():
-    from scripts.ops.bars.ops_massive_switch_delta import alpaca_gap_slots
 
     groups = [
         ("GAP", date(2020, 5, 4), 78),  # inside a gap row: selected whatever vendor held it before
@@ -206,7 +216,6 @@ def test_post_policy_gap_slots_are_the_alpaca_raw_slots_of_gap_row_names_inside_
 
 
 def test_held_massive_slots_are_those_the_b4_delta_counted_as_massive():
-    from scripts.ops.bars.ops_massive_switch_delta import held_massive_slots
 
     groups = [
         ("HELD", date(2005, 10, 21), 1),
@@ -220,7 +229,6 @@ def test_held_massive_slots_are_those_the_b4_delta_counted_as_massive():
 
 
 def test_post_policy_row_replaces_expected_after_and_keeps_the_b4_columns():
-    from scripts.ops.bars.ops_massive_switch_delta import post_policy_row
 
     base = {"massive": "100", "gap_alpaca": "6", "after_end_alpaca": "8", "expected_after": "114"}
     row = post_policy_row(base, alpaca_gap_raw=40, alpaca_after_end_raw=10, held_massive=3)
@@ -229,7 +237,6 @@ def test_post_policy_row_replaces_expected_after_and_keeps_the_b4_columns():
 
 
 def test_verify_against_a_post_policy_directory_compares_gap_groups_with_their_raw_counts():
-    from scripts.ops.bars.ops_massive_switch_delta import verify
 
     def card(sym, vendor, n, digest="d"):
         return {"timeframe": "1d", "symbol": sym, "vendor": vendor, "kind": "k",
@@ -267,9 +274,6 @@ def test_verify_against_a_post_policy_directory_compares_gap_groups_with_their_r
 
 
 def test_post_policy_refuses_the_b4_directory_and_a_non_empty_output(tmp_path):
-    import argparse
-
-    from scripts.ops.bars.ops_massive_switch_delta import run_post_policy
 
     b4 = tmp_path / "delta"
     b4.mkdir()
@@ -283,11 +287,6 @@ def test_post_policy_refuses_the_b4_directory_and_a_non_empty_output(tmp_path):
 
 
 def test_the_zero_volume_rule_differs_by_timeframe_in_the_alpaca_queries():
-    from scripts.ops.bars.ops_massive_switch_delta import (
-        _ALPACA_AFTER_END_SQL,
-        _ALPACA_GAP_SQL,
-        _VOLUME_CLAUSE,
-    )
 
     assert "volume" in _VOLUME_CLAUSE["1d"] and "5m" not in _VOLUME_CLAUSE
     for sql in (_ALPACA_GAP_SQL, _ALPACA_AFTER_END_SQL):
@@ -296,9 +295,6 @@ def test_the_zero_volume_rule_differs_by_timeframe_in_the_alpaca_queries():
 
 
 def test_post_policy_refuses_an_output_inside_the_b4_directory(tmp_path):
-    import argparse
-
-    from scripts.ops.bars.ops_massive_switch_delta import run_post_policy
 
     b4 = tmp_path / "delta"
     b4.mkdir()
@@ -308,9 +304,6 @@ def test_post_policy_refuses_an_output_inside_the_b4_directory(tmp_path):
 
 
 def test_post_policy_and_verify_are_separate_runs(tmp_path):
-    import pytest
-
-    from scripts.ops.bars.ops_massive_switch_delta import main
 
     with pytest.raises(SystemExit):
         main(["--gap-list", "g", "--out", str(tmp_path), "--post-policy", str(tmp_path / "b"),
@@ -318,7 +311,6 @@ def test_post_policy_and_verify_are_separate_runs(tmp_path):
 
 
 def test_a_post_policy_gap_group_the_before_card_held_complete_must_stay_byte_identical():
-    from scripts.ops.bars.ops_massive_switch_delta import verify
 
     def card(n, digest):
         return {"timeframe": "1d", "symbol": "GAP", "vendor": "alpaca", "kind": "sip_rth",
@@ -343,7 +335,6 @@ def test_a_post_policy_gap_group_the_before_card_held_complete_must_stay_byte_id
 
 
 def test_whole_month_is_false_for_the_seam_month_and_the_archive_end_month():
-    from scripts.ops.bars.ops_massive_switch_delta import whole_month_gap_row
 
     ident = Identity({"G": [GapRow("G", "instrument", "x", None, None)]}, {}, {})
     assert whole_month_gap_row(ident, "G", date(2020, 5, 1), END)
