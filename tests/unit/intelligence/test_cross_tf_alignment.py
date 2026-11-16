@@ -8,7 +8,7 @@ in `compute_batch` enforced that (it took any dict; this file's first version sh
 dict passing through and a 5m row reading the unfinished 1h bar). `ctf_series_by_close` now
 builds and keys in one step and `compute_batch` and `ctf_row_inputs` accept only its `CtfSeries`.
 
-Columns under test: ctf_momentum, ctf_vwap_align, ctf_regime_align, ret_div_5m_1h,
+Columns under test: ctf_momentum, ctf_vwap_align, ret_div_5m_1h,
 ret_div_1h_1d.
 """
 
@@ -34,7 +34,7 @@ from tests.unit.intelligence.production_series import series_rows
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
 SYMBOL = "SPY"
-CTF_COLUMNS = ("ctf_momentum", "ctf_vwap_align", "ctf_regime_align")
+CTF_COLUMNS = ("ctf_momentum", "ctf_vwap_align")
 HOUR = timedelta(hours=1)
 FIVE_MIN = timedelta(minutes=5)
 SESSION_OPEN_UTC = (13, 30)  # 09:30 EDT, in June
@@ -277,7 +277,7 @@ def test_a_plain_dict_is_refused_by_ctf_row_inputs():
     plain = {
         ns: CtfRecord(*vals)
         for ns, *vals in zip(
-            series.close_ns.tolist(), *series.asof(series.close_ns)[:4], strict=True
+            series.close_ns.tolist(), *series.asof(series.close_ns)[:3], strict=True
         )
     }
     with pytest.raises(TypeError, match="CtfSeries"):
@@ -310,8 +310,8 @@ def test_ctf_series_is_an_immutable_close_keyed_object():
     with pytest.raises(ValueError, match="distinct"):
         CtfSeries.from_close_keyed(
             {
-                datetime(2022, 6, 1, 14): CtfRecord(0.0, 0.0, 0.0, 0.0),
-                datetime(2022, 6, 1, 14, tzinfo=UTC): CtfRecord(1.0, 1.0, 1.0, 1.0),
+                datetime(2022, 6, 1, 14): CtfRecord(0.0, 0.0, 0.0),
+                datetime(2022, 6, 1, 14, tzinfo=UTC): CtfRecord(1.0, 1.0, 1.0),
             }
         )
 
@@ -337,7 +337,6 @@ def _bisect_reference(series_by_close: dict[datetime, CtfRecord], row_ts: list[d
             value = series_by_close[keys[idx]]
             out["ctf_momentum"][i] = value.ctf_momentum
             out["ctf_vwap_align"][i] = value.ctf_vwap_align
-            out["ctf_regime_align"][i] = value.ctf_regime_align
             out["ext_htf_last_log_ret"][i] = value.htf_last_log_ret
     return out
 
@@ -371,7 +370,7 @@ def test_asof_equals_the_bisect_reference_on_the_scenarios(scenario):
     got = ctf_row_inputs(row_ns, series)
     for want_name, got_name in zip(
         (*CTF_COLUMNS, "ext_htf_last_log_ret"),
-        ("ext_ctf_momentum", "ext_ctf_vwap_align", "ext_ctf_regime_align", "ext_htf_last_log_ret"),
+        ("ext_ctf_momentum", "ext_ctf_vwap_align", "ext_htf_last_log_ret"),
         strict=True,
     ):
         assert want[want_name].tobytes() == got[got_name].tobytes(), (scenario, want_name)
@@ -382,7 +381,7 @@ def test_asof_equals_the_bisect_reference_on_random_keys_and_naive_rows():
     base = datetime(2022, 6, 1, 13, 30, tzinfo=UTC)
     offsets = np.unique(rng.integers(0, 10**7, size=200))
     keys = [base + timedelta(seconds=int(o)) for o in offsets]
-    records = {k: CtfRecord(*map(float, rng.normal(size=4))) for k in keys}
+    records = {k: CtfRecord(*map(float, rng.normal(size=3))) for k in keys}
     series = CtfSeries.from_close_keyed(records)
     row_ts = [base + timedelta(seconds=int(o)) for o in rng.integers(-1000, 10**7 + 1000, size=500)]
     row_ts += keys[:50]
@@ -392,7 +391,7 @@ def test_asof_equals_the_bisect_reference_on_random_keys_and_naive_rows():
     assert want["ext_htf_last_log_ret"].tobytes() == got["ext_htf_last_log_ret"].tobytes()
     naive = [t.replace(tzinfo=None) for t in row_ts]
     again = ctf_row_inputs(np.array([bar_ts_ns(t) for t in naive], dtype=np.int64), series)
-    assert again["ext_ctf_regime_align"].tobytes() == got["ext_ctf_regime_align"].tobytes()
+    assert again["ext_ctf_vwap_align"].tobytes() == got["ext_ctf_vwap_align"].tobytes()
 
 
 def test_an_empty_series_reads_zeros_and_nan():
@@ -477,11 +476,11 @@ def test_ctf_series_survives_pickle_copy_and_deepcopy_and_stays_immutable():
 
 
 def test_a_rebuilt_series_keeps_the_builders_validation():
-    bad = (np.array([2, 1], dtype=np.int64), *([np.zeros(2)] * 4))
+    bad = (np.array([2, 1], dtype=np.int64), *([np.zeros(2)] * 3))
     with pytest.raises(ValueError, match="distinct|increasing|length"):
         CtfSeries._reconstruct(*bad)
     with pytest.raises(ValueError, match="distinct|increasing|length"):
-        CtfSeries._reconstruct(np.array([1, 2], dtype=np.int64), *([np.zeros(3)] * 4))
+        CtfSeries._reconstruct(np.array([1, 2], dtype=np.int64), *([np.zeros(3)] * 3))
 
 
 # ---- ctf_vwap_align: rolling VWAP window (todo 584 6b) -------------------------------------

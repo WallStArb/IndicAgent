@@ -117,12 +117,11 @@ RSI and CCI test different mean-reversion hypotheses: RSI uses range normalizati
 | `dow_cos` | Day-of-week cyclical encoding (cos) |
 | `month_position` | Position within month [0,1] |
 
-**Cross-timeframe (3)**
+**Cross-timeframe (2)**
 | Column | Character |
 |--------|-----------|
 | `ctf_momentum` | HTF/LTF momentum divergence |
 | `ctf_vwap_align` | Cross-TF VWAP alignment |
-| `ctf_regime_align` | Cross-TF HMM regime agreement |
 
 **Statistical process / liquidity (4)**
 | Column | Character |

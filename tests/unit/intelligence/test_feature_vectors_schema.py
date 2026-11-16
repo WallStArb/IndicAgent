@@ -37,7 +37,8 @@ DROPPED_COLUMNS: dict[str, str] = {
     "regime_rolling": "text column never computed, not a FeatureVector field",
     "days_to_month_end": "todo 115: exact duplicate of 1 - month_position",
 }
-# Columns the registry retired after migration 425 created the table (todo 584 item 6, D5): the
+# Columns the registry retired after migration 425 created the table (todo 584 item 6, D5; migration
+# 600 adds ctf_regime_align, R2 item 4): the
 # kernels are gone and the writers stop populating them, but the physical columns stay until the
 # rebuild's summary card is written (derived cache, no same-day DROP).
 RETIRED_COLUMNS: dict[str, str] = {
@@ -56,6 +57,7 @@ RETIRED_COLUMNS: dict[str, str] = {
         "ret_div_1m_5m",
         "sweep_detected",
         "hmm_vol_prob_elevated",
+        "ctf_regime_align",
     )
 }
 METADATA_DROPPED: dict[str, str] = {

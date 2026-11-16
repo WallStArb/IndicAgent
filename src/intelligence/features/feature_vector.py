@@ -407,10 +407,9 @@ class FeatureVector:
     efficiency_volume_product: (
         float | None
     )  # efficiency_ratio_fast * volume_z; directional efficiency confirmed by volume distinguishes a real trend from directionless drift
-    # Cross-timeframe (3)
+    # Cross-timeframe (2)
     ctf_momentum: float | None
     ctf_vwap_align: float | None
-    ctf_regime_align: float | None
     # Statistical / liquidity (4)
     amihud_illiq_z: float | None
     high_52w_dist: float | None

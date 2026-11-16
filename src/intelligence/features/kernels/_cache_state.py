@@ -1,8 +1,8 @@
 """FeatureCache — mutable state container for slow-changing features.
 
 Lives in the kernels package since phase 186 plan 25 (todo 476): the registry kernels replay a
-fresh FeatureCache and read these pure helpers (`_HMM_K`, `_hmm_forward_step`,
-`_z_or_nan`, the session value-area and profile helpers), so the kernels are the base
+fresh FeatureCache and read these pure helpers (`_z_or_nan`,
+the session value-area and profile helpers), so the kernels are the base
 and the legacy cache-driven loop imports from here, not the reverse. No kernel module imports
 anything from outside the kernels package for this state.
 
@@ -113,7 +113,6 @@ class FeatureCache:
     # CTF from HTF cached state (populated when HTF bar arrives)
     ctf_momentum: float = 0.0
     ctf_vwap_align: float = 0.0
-    ctf_regime_align: float = 0.0
 
     # Weekly VWAP (updated by caller per bar)
     above_wk_vwap: float = 0.0  # 1.0 if close > weekly VWAP, else 0.0
@@ -231,8 +230,7 @@ class FeatureCache:
         # regime_cache_refresh_bars cycle for a value nobody read was pure waste
         # (the mechanism this removed: _hmm_forward_2d, a Python-loop
         # forward-algorithm pass over the entire close series -- its lower-level
-        # helper _hmm_forward_step is kept, still used by
-        # backfill_feature_factory.py's unrelated ctf_regime_align computation).
+        # helper _hmm_forward_step was deleted with the ctf_regime_align column, R2 item 4).
         # The 4 now-inert fields (hmm_regime_prob, hmm_entropy, hmm_duration,
         # _hmm_regime_label) were deleted outright from FeatureCache 2026-08-13
         # (dead-code cleanup) -- this comment stays as the historical record of
@@ -904,71 +902,6 @@ def _garch_ratio(close: np.ndarray, window: int) -> float:
     garch_sigma = math.sqrt(max(sigma2, 0.0))
     realized_vol = float(np.std(list(realized_buf))) if len(realized_buf) >= 2 else garch_sigma
     return garch_sigma / realized_vol if realized_vol > 1e-10 else math.nan
-
-
-# HMM default parameters (forward-only, 2D). _hmm_forward_2d (the higher-level
-# refresh_regime() wrapper) and _hmm_entropy were removed 2026-07-30 (todo 207,
-# dead compute -- see refresh_regime()'s comment above), but _hmm_forward_step
-# and these 3 arrays + _HMM_K stay: services/backfill_feature_factory.py's
-# CTF regime-alignment computation (ctf_regime_align, a live FeatureVector
-# field, distinct from the removed hmm_regime_prob/hmm_entropy/hmm_duration)
-# imports and calls _hmm_forward_step directly on higher-timeframe bars, a
-# genuinely different consumer of the same low-level forward-algorithm step.
-_HMM_A = np.array(
-    [
-        [0.95, 0.025, 0.025],
-        [0.03, 0.94, 0.03],
-        [0.03, 0.03, 0.94],
-    ]
-)
-_HMM_MEANS_2D = np.array(
-    [
-        [0.0, 0.005],  # Ranging
-        [0.001, 0.008],  # Trending up
-        [-0.001, 0.012],  # Trending down
-    ]
-)
-_HMM_VARS_2D = np.array(
-    [
-        [0.0001, 0.001],
-        [0.0002, 0.002],
-        [0.0003, 0.003],
-    ]
-)
-_HMM_K = 3
-
-
-def _hmm_forward_step(obs: np.ndarray, alpha: np.ndarray) -> None:
-    """In-place forward algorithm step. Forward pass only (D-07).
-
-    Parameters
-    ----------
-    obs: 2D observation vector [log_return, realized_vol]
-    alpha: K-dim state probability vector (mutated in place)
-    """
-    means = _HMM_MEANS_2D
-    variances = _HMM_VARS_2D
-    D = len(obs)
-    diff = obs - means  # (K, D)
-    log_emit = -0.5 * np.sum(diff * diff / variances, axis=1)
-    log_emit -= 0.5 * np.sum(np.log(variances), axis=1)
-    log_emit -= 0.5 * D * math.log(2 * math.pi)
-
-    log_alpha = np.log(np.maximum(alpha, 1e-300))
-    log_alpha_new = np.zeros(_HMM_K)
-    for k in range(_HMM_K):
-        log_trans = log_alpha + np.log(np.maximum(_HMM_A[:, k], 1e-300))
-        max_lt = float(np.max(log_trans))
-        log_alpha_new[k] = max_lt + math.log(float(np.sum(np.exp(log_trans - max_lt))))
-    log_alpha_new += log_emit
-    # Normalize to get probabilities
-    max_val = float(np.max(log_alpha_new))
-    unnorm = np.exp(log_alpha_new - max_val)
-    total = float(np.sum(unnorm))
-    if total > 1e-300:
-        alpha[:] = unnorm / total
-    else:
-        alpha[:] = 1.0 / _HMM_K
 
 
 def _wma(series: np.ndarray, k: int) -> float:

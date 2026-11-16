@@ -327,7 +327,6 @@ def _make_zero_vector() -> FeatureVector:
         efficiency_volume_product=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
-        ctf_regime_align=0.0,
         amihud_illiq_z=0.0,
         high_52w_dist=0.0,
         ret_skew_z=0.0,

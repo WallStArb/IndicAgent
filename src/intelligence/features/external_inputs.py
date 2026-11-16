@@ -179,7 +179,6 @@ def cross_tf_kernel_inputs(
         out = {
             "ext_ctf_momentum": np.full(n, cache.ctf_momentum, dtype=np.float64),
             "ext_ctf_vwap_align": np.full(n, cache.ctf_vwap_align, dtype=np.float64),
-            "ext_ctf_regime_align": np.full(n, cache.ctf_regime_align, dtype=np.float64),
             "ext_htf_last_log_ret": np.full(n, np.nan),
         }
     return out

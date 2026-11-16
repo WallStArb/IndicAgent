@@ -12,7 +12,6 @@ only one.) The 1d self-referential case reads the row's own bar, available at th
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
@@ -26,7 +25,6 @@ from src.intelligence.features.contract.registry import (
     Kernel,
     require_finite_volume,
 )
-from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
 from src.intelligence.features.kernels._primitives import (
     undefined_on,
     wilder_rsi_series,
@@ -38,10 +36,11 @@ if TYPE_CHECKING:
 
 
 class CtfRecord(NamedTuple):
-    """4-field CTF payload keyed by HTF bar timestamp (Phase 151 Plan 05).
+    """3-field CTF payload keyed by HTF bar timestamp (Phase 151 Plan 05).
 
-    Extends the original 3-field ctf_momentum/ctf_vwap_align/ctf_regime_align
-    payload with htf_last_log_ret (the HTF bar's own causal log return),
+    Extends the original ctf_momentum/ctf_vwap_align payload (ctf_regime_align, a fixed-constant
+    pseudo-HMM, was deleted in R2 item 4) with htf_last_log_ret (the HTF bar's own causal log
+    return),
     consumed by the ret_div_5m_1h/ret_div_1h_1d cross-TF divergences.
     NamedTuple with keyword-construction-only at every call site (mirroring
     CrossAssetRecord, Phase 151 Plan 04) -- positional unpacking of a growing
@@ -51,7 +50,6 @@ class CtfRecord(NamedTuple):
 
     ctf_momentum: float
     ctf_vwap_align: float
-    ctf_regime_align: float
     htf_last_log_ret: float
 
 
@@ -61,7 +59,7 @@ def _build_ctf_series(
 ) -> dict:
     """Build {htf_bar_period_start: CtfRecord} in O(n).
 
-    Single-pass streaming computation: Wilder RSI + rolling-window VWAP + HMM forward
+    Single-pass streaming computation: Wilder RSI + rolling-window VWAP
     + causal HTF log return. Avoids O(n²) slice reprocessing. All values are
     causal — bar k uses only bars 0..k. Keys are period-start timestamps,
     matching `htf_bars[k]["ts"]` exactly; callers that need close-time keys (see
@@ -109,20 +107,8 @@ def _build_ctf_series(
         np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0)),
     )
 
-    # ctf_regime_align: HMM forward pass — 0.0 (ranging) or 1.0 (trending)
-    ctf_regime = np.zeros(n, dtype=float)
-    hmm_alpha = np.full(_HMM_K, 1.0 / _HMM_K, dtype=float)
     log_rets = np.diff(np.log(np.maximum(closes, 1e-10)))
     log_rets = np.where(np.isfinite(log_rets), log_rets, 0.0)
-    ret_buf: deque = deque(maxlen=20)
-    obs_buf = np.zeros(2, dtype=float)
-    for i, ret in enumerate(log_rets):
-        ret_buf.append(float(ret))
-        obs_buf[0] = float(ret)
-        obs_buf[1] = float(np.std(ret_buf)) if len(ret_buf) >= 2 else 0.005
-        _hmm_forward_step(obs_buf, hmm_alpha)
-        label = int(np.argmax(hmm_alpha))
-        ctf_regime[i + 1] = 0.0 if label == 0 else 1.0  # gradient-exempt: HMM state label
 
     # htf_last_log_ret (Phase 151 Plan 05): the HTF bar's own causal log
     # return, log(close[k] / close[k-1]), 0.0 at k=0 (no prior bar). Feeds
@@ -135,7 +121,6 @@ def _build_ctf_series(
         htf_bars[k]["ts"]: CtfRecord(
             ctf_momentum=float(ctf_mom[k]),
             ctf_vwap_align=float(ctf_vwap[k]),
-            ctf_regime_align=float(ctf_regime[k]),
             htf_last_log_ret=float(htf_last_log_ret[k]),
         )
         for k in range(n)
@@ -172,7 +157,7 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
 class CtfSeries:
     """CTF values keyed by the time their HTF bar closed (the next HTF bar's start).
 
-    Immutable: a sorted int64-ns close-time array and the four value arrays, read only through
+    Immutable: a sorted int64-ns close-time array and the three value arrays, read only through
     `asof`. `ctf_row_inputs` accepts only this type (the one type check, `require_ctf_series`),
     so a dict keyed by HTF period start, which would let a row read the bar still forming
     around it, is refused with TypeError rather than joined. Build one with
@@ -180,11 +165,10 @@ class CtfSeries:
     records (tests). Keys convert with `bar_ts_ns`: a naive datetime is taken as UTC.
     """
 
-    __slots__ = ("_close_ns", "_htf_last_log_ret", "_momentum", "_regime_align", "_vwap_align")
+    __slots__ = ("_close_ns", "_htf_last_log_ret", "_momentum", "_vwap_align")
     _close_ns: np.ndarray
     _momentum: np.ndarray
     _vwap_align: np.ndarray
-    _regime_align: np.ndarray
     _htf_last_log_ret: np.ndarray
     _TOKEN = object()
 
@@ -193,7 +177,6 @@ class CtfSeries:
         close_ns: ArrayLike,
         momentum: ArrayLike,
         vwap_align: ArrayLike,
-        regime_align: ArrayLike,
         htf_last_log_ret: ArrayLike,
         *,
         _token: object = None,
@@ -206,7 +189,6 @@ class CtfSeries:
             "_close_ns": np.array(close_ns, dtype=np.int64),
             "_momentum": np.array(momentum, dtype=np.float64),
             "_vwap_align": np.array(vwap_align, dtype=np.float64),
-            "_regime_align": np.array(regime_align, dtype=np.float64),
             "_htf_last_log_ret": np.array(htf_last_log_ret, dtype=np.float64),
         }
         if len({len(array) for array in arrays.values()}) != 1:
@@ -221,11 +203,9 @@ class CtfSeries:
         raise AttributeError("CtfSeries is immutable")
 
     @classmethod
-    def _reconstruct(cls, close_ns, momentum, vwap_align, regime_align, htf_last_log_ret):
-        """Rebuild from the five arrays through the constructor's validation (pickle, copy)."""
-        return cls(
-            close_ns, momentum, vwap_align, regime_align, htf_last_log_ret, _token=cls._TOKEN
-        )
+    def _reconstruct(cls, close_ns, momentum, vwap_align, htf_last_log_ret):
+        """Rebuild from the four arrays (close times and three values) through the constructor's validation (pickle, copy)."""
+        return cls(close_ns, momentum, vwap_align, htf_last_log_ret, _token=cls._TOKEN)
 
     def __reduce__(self):
         return (
@@ -234,7 +214,6 @@ class CtfSeries:
                 self._close_ns,
                 self._momentum,
                 self._vwap_align,
-                self._regime_align,
                 self._htf_last_log_ret,
             ),
         )
@@ -264,15 +243,12 @@ class CtfSeries:
             close_ns,
             [v.ctf_momentum for _, v in keyed],
             [v.ctf_vwap_align for _, v in keyed],
-            [v.ctf_regime_align for _, v in keyed],
             [v.htf_last_log_ret for _, v in keyed],
             _token=cls._TOKEN,
         )
 
-    def asof(
-        self, row_ns: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """(momentum, vwap_align, regime_align, htf_last_log_ret, valid) for each row time.
+    def asof(self, row_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """(momentum, vwap_align, htf_last_log_ret, valid) for each row time.
 
         A row reads the latest value whose close key is at or before the row's time (a row is
         never given a bar that closes after it starts). Where `valid` is False (no close yet)
@@ -283,12 +259,11 @@ class CtfSeries:
         valid = idx >= 0
         if not len(self):
             nan = np.full(len(row_ns), np.nan)
-            return nan, nan.copy(), nan.copy(), nan.copy(), valid
+            return nan, nan.copy(), nan.copy(), valid
         safe = np.where(valid, idx, 0)
         return (
             np.where(valid, self._momentum[safe], np.nan),
             np.where(valid, self._vwap_align[safe], np.nan),
-            np.where(valid, self._regime_align[safe], np.nan),
             np.where(valid, self._htf_last_log_ret[safe], np.nan),
             valid,
         )
@@ -314,17 +289,16 @@ def ctf_series_by_close(
 
 
 def ctf_row_inputs(row_ns: np.ndarray, ctf_by_ts: CtfSeries) -> dict[str, np.ndarray]:
-    """The four HTF externals on the row grid (`row_ns`: bar starts as UTC int64 nanoseconds).
+    """The three HTF externals on the row grid (`row_ns`: bar starts as UTC int64 nanoseconds).
 
     `ext_ctf_*` are 0.0 before the first HTF close (`ext_ctf_vwap_align` is also NaN while its
     rolling window is not full or holds no volume); `ext_htf_last_log_ret` is NaN there. A plain
     dict is refused with TypeError (see `CtfSeries`).
     """
-    momentum, vwap, regime, htf_ret, valid = require_ctf_series(ctf_by_ts).asof(row_ns)
+    momentum, vwap, htf_ret, valid = require_ctf_series(ctf_by_ts).asof(row_ns)
     return {
         "ext_ctf_momentum": np.where(valid, momentum, 0.0),
         "ext_ctf_vwap_align": np.where(valid, vwap, 0.0),
-        "ext_ctf_regime_align": np.where(valid, regime, 0.0),
         "ext_htf_last_log_ret": htf_ret,
     }
 
@@ -335,7 +309,6 @@ EXTERNAL_INPUTS = (
         for name in (
             "ext_ctf_momentum",
             "ext_ctf_vwap_align",
-            "ext_ctf_regime_align",
             "ext_htf_last_log_ret",
         )
     ),
@@ -344,7 +317,6 @@ EXTERNAL_INPUTS = (
 _CTF_SOURCE_OUTPUTS = (
     "_ctf_momentum_src",
     "_ctf_vwap_align_src",
-    "_ctf_regime_align_src",
     "_htf_last_log_ret_src",
 )
 
@@ -366,7 +338,6 @@ def _compute_ctf_source(x, config):
     for k, value in series.items():
         out["_ctf_momentum_src"][k] = value.ctf_momentum
         out["_ctf_vwap_align_src"][k] = value.ctf_vwap_align
-        out["_ctf_regime_align_src"][k] = value.ctf_regime_align
         out["_htf_last_log_ret_src"][k] = value.htf_last_log_ret
     return out
 
@@ -375,7 +346,6 @@ def _compute_ctf_passthrough(x, config):
     return {
         "ctf_momentum": np.asarray(x["ext_ctf_momentum"], dtype=np.float64).copy(),
         "ctf_vwap_align": np.asarray(x["ext_ctf_vwap_align"], dtype=np.float64).copy(),
-        "ctf_regime_align": np.asarray(x["ext_ctf_regime_align"], dtype=np.float64).copy(),
     }
 
 
@@ -398,12 +368,12 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_ctf_source,
         path_dependent=True,
-        path_dependent_reason=("the Wilder RSI and the HMM forward pass run from the series start"),
+        path_dependent_reason="the Wilder RSI runs from the series start",
     ),
     Kernel(
         name="ctf_passthrough",
-        outputs=("ctf_momentum", "ctf_vwap_align", "ctf_regime_align"),
-        inputs=("ext_ctf_momentum", "ext_ctf_vwap_align", "ext_ctf_regime_align"),
+        outputs=("ctf_momentum", "ctf_vwap_align"),
+        inputs=("ext_ctf_momentum", "ext_ctf_vwap_align"),
         memory=lambda config: 0,
         compute=_compute_ctf_passthrough,
     ),

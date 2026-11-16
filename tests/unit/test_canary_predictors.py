@@ -219,8 +219,8 @@ class TestFeatureVectorCanaryFields:
         # Velocity Primitives Extension fields (todo 320, added after this
         # test was written) = 298, +2 Earnings-Season Calendar Primitive
         # fields (Phase 176 Plan 03, todo 353, added after this test was
-        # written) = 300, minus the 11 universe-dead columns todo 584 item 6 (D5) retired = 289, minus the three never-computed rank_z columns todo 558 retired = 285.
-        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2 - 15
+        # written) = 300, minus the 11 universe-dead columns todo 584 item 6 (D5) retired = 289, minus the three never-computed rank_z columns todo 558 retired = 285, minus ctf_regime_align (R2 item 4) = 284.
+        assert total == 150 + 5 + 17 + 36 + 41 + 6 + 4 + 11 + 7 + 5 + 10 + 6 + 2 - 16
 
 
 # ---------------------------------------------------------------------------

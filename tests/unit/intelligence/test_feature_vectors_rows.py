@@ -38,7 +38,7 @@ _DROPPED_METADATA = (
 
 
 def test_column_count_and_order_match_the_migration() -> None:
-    assert len(FEATURE_VECTORS_COLUMNS) == 311
+    assert len(FEATURE_VECTORS_COLUMNS) == 310
     assert FEATURE_VECTORS_COLUMNS[:5] == (
         "symbol",
         "tf",
@@ -75,7 +75,7 @@ def test_column_count_and_order_match_the_migration() -> None:
 def test_numeric_columns_are_the_registry_derivation_never_typed() -> None:
     registry = default_registry()
     numeric = feature_vectors_numeric_columns()
-    assert len(numeric) == 306
+    assert len(numeric) == 305
     assert list(numeric) == [
         c
         for c in registry.feature_columns()
