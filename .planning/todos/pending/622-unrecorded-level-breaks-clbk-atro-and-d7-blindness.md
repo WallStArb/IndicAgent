@@ -43,3 +43,26 @@ name; recorded rows carry the witness in `detail`.
 Not a D4, D5 or Part F gate: the D4 rerun and D5 proceed as scripted. Scope items 1 and 2 run after `PARTD4 DONE` inside the
 A3 split sweep window (witness first, then the `--apply-massive` record and reselect for CLBK; ATRO on its witness alone).
 Scope item 3 (the gate on lone breaks) is decided with the todo 592 owner before the first counted test.
+
+## Scope 3 design: the gate is on the sweep output (draft 2026-11-17, indicagent-ca)
+
+Rule: `ops_split_calendar_audit --sweep --witness massive --strict --dispositions <csv>` exits 3 when a
+break with a row verdict (`unrecorded_split`, `inseries_rescale`, `junction_rescale`) on an active name has
+no current `corporate_action` row within 30 days of it and no line in the dispositions list (symbol, date,
+reason, evidence; `operator_list` format). `real_move` and `reported` stay disclosed, never gated.
+
+Why the sweep and not D7: the sweep already classifies breaks and runs about 70 s (2026-11-13 run); D7 is a
+77 minute audit whose modules timers import, so a new required check there waits for a quiet window and
+reclassifies every name's verdict. Revisit D7 only if a break class the sweep cannot see matters.
+
+Calibration, written before any run: no new tunable. The break size (|ln step| > 0.4), the lone-day cut (at
+most 20 names step), the scale tolerance and the 30 day window are the sweep's frozen constants, and the
+recorded-row window is the same 30 days. Expected result on the rebuilt canonical before any record: CLBK
+unresolved, the A3 2026-11-13 rows (CENT, GSAT recorded; HSIC, TMUS IBKR-era junctions) gone with the
+switch. A name that stays unresolved is fixed by a recorded row or a dispositions line with its witness,
+never by changing a constant.
+
+Known blind spot: a break below ln 0.4 (ATRO, ratio 1.2) is outside the sweep by definition; price cannot
+separate it from a move, so it stays a filing-witness item (scope 1) and is not gated.
+
+Landing: `scripts/` only, imported by no timer or service, so it needs no quiet window.

@@ -82,9 +82,9 @@ import statistics
 import sys
 import time
 from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -1442,22 +1442,49 @@ def _reported(symbol: str, day: date, step: float, why: str, base: Mapping[str, 
 WITNESSES = {"yahoo": "Yahoo", "massive": "Massive"}
 
 
+_RECORDED_SQL = "SELECT symbol, effective_date FROM corporate_action_current"
+
+
+def unresolved_breaks(
+    events: Iterable[SweepBreak],
+    recorded: Mapping[str, Sequence[date]],
+    ruled: Mapping[tuple[str, date], str],
+) -> list[SweepBreak]:
+    """The row-verdict breaks nothing explains (todo 622 scope 3): a break the sweep reads as a
+    missing split or rescale that has no current corporate_action row within the sweep's calendar
+    window of it and no operator disposition. Same window as the classifier; no new tunable."""
+    window = timedelta(days=_SWEEP_CALENDAR_WINDOW)
+    return [
+        event
+        for event in events
+        if event.verdict in _SWEEP_ROW_VERDICTS
+        and (event.symbol, event.break_date) not in ruled
+        and not any(
+            abs(effective - event.break_date) <= window
+            for effective in recorded.get(event.symbol, ())
+        )
+    ]
+
+
 def sweep(
     settings: Settings,
     out: Path,
     rows_out: Path | None,
     symbols: Sequence[str] | None,
     witness: str = "yahoo",
+    dispositions: Path | None = None,
 ) -> dict[str, int]:
     """Read-only: every lone break classified into --out, the rescale rows of the row verdicts
     into --rows-out. Returns verdict counts. witness picks the continuity witness: Yahoo's
     adjusted close, or Massive's route (todo 600: raw Massive day bars on today's scale, which
     cover what ohlcv_raw holds). Every rescalable raw series and the Massive route are measured
-    on their own either way."""
+    on their own either way. The count "unresolved" is the row-verdict breaks on active names with
+    no recorded action and no disposition (`unresolved_breaks`; the gate of --strict)."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
     counts: dict[str, int] = {}
+    row_events: list[SweepBreak] = []
     with psycopg.connect(settings.database_url) as conn:
         params = _apr(conn)
         lone: dict[str, list[tuple[date, float, str, str, str, str]]] = {}
@@ -1507,6 +1534,7 @@ def sweep(
                     writer.writerow(asdict(event))
                     counts[event.verdict] = counts.get(event.verdict, 0) + 1
                     if event.verdict in _SWEEP_ROW_VERDICTS:
+                        row_events.append(event)
                         rows_writer.writerow(
                             {
                                 "symbol": event.symbol,
@@ -1519,6 +1547,14 @@ def sweep(
                                 "evidence": event.evidence,
                             }
                         )
+        active = {symbol for (symbol,) in conn.execute(_ACTIVE_SQL)}
+        recorded: dict[str, list[date]] = {}
+        for symbol, effective in conn.execute(_RECORDED_SQL):
+            recorded.setdefault(symbol, []).append(effective)
+    ruled = operator_list(dispositions) if dispositions else {}
+    counts["unresolved"] = len(
+        unresolved_breaks([e for e in row_events if e.symbol in active], recorded, ruled)
+    )
     return counts
 
 
@@ -1565,6 +1601,17 @@ def main(argv: list[str] | None = None) -> int:
         default="yahoo",
         help="--sweep: the continuity witness, Yahoo's adjusted close or Massive's route",
     )
+    parser.add_argument(
+        "--dispositions",
+        type=Path,
+        help="--sweep: operator list (symbol, date, reason, evidence) of breaks ruled not splits",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="--sweep: exit 3 when a row-verdict break on an active name has no recorded action "
+        "and no disposition (todo 622: an unrecorded level break must reach a gate)",
+    )
     add_write_mode_args(
         parser,
         dry_run="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: report what "
@@ -1577,7 +1624,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.out is None:
             raise SystemExit("--audit/--sweep need --out")
         if args.sweep:
-            print(sweep(settings, args.out, args.rows_out, args.symbols, args.witness))
+            counts = sweep(
+                settings, args.out, args.rows_out, args.symbols, args.witness, args.dispositions
+            )
+            print(counts)
+            return 3 if args.strict and counts["unresolved"] else 0
         else:
             print(audit(settings, args.symbols, args.out))
         return 0

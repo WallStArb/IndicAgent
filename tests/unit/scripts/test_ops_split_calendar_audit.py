@@ -1172,3 +1172,23 @@ def test_a_split_ending_before_the_first_massive_bar_is_no_event():
     closes = [(date(2024, 1, 2), 50.0), (date(2024, 1, 3), 51.0)]
     witness = audit.massive_witness(closes, [SplitFactor(date(2023, 6, 1), 2.0)])
     assert [f for _d, _c, f in witness] == [0.0, 0.0]
+
+
+def _break(symbol, day, verdict):
+    return audit.SweepBreak(symbol, day, -0.79, verdict)
+
+
+def test_an_unrecorded_row_verdict_break_is_unresolved_and_the_rest_are_not():
+    day = date(2026, 7, 21)
+    events = [
+        _break("CLBK", day, "unrecorded_split"),  # nothing recorded: unresolved
+        _break("DONE", day, "unrecorded_split"),  # a row 20 days off: recorded
+        _break("FAR", day, "unrecorded_split"),  # a row 31 days off: outside the window
+        _break("RULED", day, "inseries_rescale"),  # an operator disposition
+        _break("MOVE", day, "real_move"),  # not a row verdict
+        _break("REP", day, "reported"),  # disclosed, not gated
+    ]
+    recorded = {"DONE": [day - timedelta(days=20)], "FAR": [day + timedelta(days=31)]}
+    ruled = {("RULED", day): "continuous in the vendor close"}
+    left = audit.unresolved_breaks(events, recorded, ruled)
+    assert [e.symbol for e in left] == ["CLBK", "FAR"]
