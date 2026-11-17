@@ -53,17 +53,20 @@ import os
 import re
 import shutil
 from collections import Counter
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 import asyncpg
+import psycopg
 
+from src.config.instrument_onboarding import Stage2Instrument, onboard_stage2_instruments
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.canonical_json import canonical_json
+from src.intelligence.bars import ticker_entity_map_pit as pit
 from src.intelligence.bars.ticker_entity_map import (
     SPAN_SCHEME,
     Answer,
@@ -1255,6 +1258,16 @@ class TickerEntityMapDocumentary(BaseBatch):
 
 INSTALL_REASON = "ticker_map_install"
 ROLLBACK_REASON = "ticker_map_rollback"
+PIT_KIND = "pit_anchor"  # the map_install lineage kind of a pit-anchor install
+_PIT_RETIRE_IDENTIFIERS_SQL = """
+UPDATE security_identifier SET retired_reason = $2
+ WHERE symbol = ANY($1::text[]) AND retired_at IS NULL
+RETURNING security_identifier_id
+"""
+_FOREIGN_SPANS_SQL = """
+SELECT count(*) FROM ticker_event
+ WHERE security_identifier_id = ANY($1::uuid[]) AND NOT (ticker_event_id = ANY($2::uuid[]))
+"""
 MAP_FILES = (
     "gap_list.csv", "spans.csv", "pinned_spans.csv", "span_accounting.csv", "map_diff.json",
 )  # fmt: skip
@@ -1342,6 +1355,8 @@ class RollbackPlan:
     restore: tuple[HistoryRow, ...]  # the rows the install retired, to insert back as copies
     pre_install_sha256: str
     map_dir: str
+    # symbols whose instrument rows a pit install created: their identifiers retire with the spans
+    new_symbols: tuple[str, ...] = ()
 
 
 def require_reconciled(reconciliation: Mapping[str, Any] | None) -> None:
@@ -1568,6 +1583,7 @@ def plan_rollback(install_id: str, rows: Sequence[HistoryRow]) -> RollbackPlan:
         tuple(sorted(retired, key=lambda r: r.key)),
         lineage["pre_install_sha256"],
         lineage["map_dir"],
+        tuple(sorted({r.symbol for r in live_inserted})) if lineage.get("kind") == PIT_KIND else (),
     )
 
 
@@ -1837,77 +1853,540 @@ class TickerEntityMapInstaller(BaseBatch):
         async with pool.acquire() as conn:
             try:
                 async with conn.transaction():
-                    await conn.execute(_LOCK_SQL)
-                    await require_massive_quiet(conn)
-                    rows = [
-                        HistoryRow(r["id"], r["security_identifier_id"], r["symbol"], r["ticker"],
-                                   r["valid_from"], r["valid_to"], r["reference_raw_id"],
-                                   r["evidence"], r["retired_reason"])
-                        for r in await conn.fetch(
-                            _INSTALL_ROWS_SQL, install_id, f"{INSTALL_REASON} {install_id} "
-                        )
-                    ]  # fmt: skip
-                    plan = plan_rollback(install_id, rows)
-                    loaded = await loads_citing(
-                        conn,
-                        [(r.symbol, r.ticker_event_id) for r in rows
-                         if r.ticker_event_id in plan.retire_ids],
-                    )  # fmt: skip
-                    if loaded and not self._args.accept_loaded_rows:
-                        raise InstallRefused(
-                            f"Massive load rows cite spans this install inserted: {loaded}; "
-                            "rolling back leaves that raw under retired spans. Read the "
-                            "counts, pass --accept-loaded-rows, then reload that raw under the "
-                            "restored spans"
-                        )
-                    live_before = await conn.fetch(_LIVE_SQL)
-                    before_keys = {_row_key(r) for r in live_before}
-                    reason = f"{ROLLBACK_REASON} {install_id}: restores the rows it retired"
-                    await _retire(conn, plan.retire_ids, [reason] * len(plan.retire_ids))
-                    await conn.execute(
-                        _INSERT_SPANS_SQL,
-                        [r.security_identifier_id for r in plan.restore],
-                        [r.symbol for r in plan.restore],
-                        [r.ticker for r in plan.restore],
-                        [r.start for r in plan.restore],
-                        [r.end for r in plan.restore],
-                        [r.reference_raw_id for r in plan.restore],
-                        [canonical_json(r.evidence) for r in plan.restore],
+                    report = await rollback_in_transaction(
+                        conn, install_id, self._args.accept_loaded_rows
                     )
-                    live_after = await conn.fetch(_LIVE_SQL)
-                    inserted_keys = {r.key for r in rows if r.ticker_event_id in plan.retire_ids}
-                    expected = (before_keys - inserted_keys) | {r.key for r in plan.restore}
-                    after_sha = content_sha256(live_after)
-                    after_keys = [_row_key(r) for r in live_after]
-                    if set(after_keys) != expected or len(after_keys) != len(expected):
-                        raise InstallRefused("rollback row balance does not reconcile")
-                    if after_sha != plan.pre_install_sha256:
-                        raise InstallRefused(
-                            f"the rows after the rollback (sha256 {after_sha}) are not the rows "
-                            f"before the install ({plan.pre_install_sha256})"
-                        )
                     if not self._apply:
                         raise _Rehearsal
                 outcome = "rolled_back_install"
             except _Rehearsal:
                 outcome = "rehearsed_rollback"
         if outcome == "rolled_back_install":
-            source = self._out_root / plan.map_dir
+            source = self._out_root / report["map_dir"]
             if source.exists():
                 self._rolled_back_root.mkdir(parents=True, exist_ok=True)
-                os.rename(source, self._rolled_back_root / f"{plan.map_dir}__{install_id}")
-        return {
-            "mode": "rollback", "install_id": install_id, "apply": self._apply,
-            "outcome": outcome, "rows_retired": len(plan.retire_ids),
-            "rows_restored": len(plan.restore), "live_before": len(live_before),
-            "live_after": len(live_after), "post_rollback_sha256": after_sha,
-            "pre_install_sha256": plan.pre_install_sha256,
-            "loaded_rows_citing_inserted": loaded, "accepted_loaded_rows": bool(loaded),
-        }  # fmt: skip
+                os.rename(source, self._rolled_back_root / f"{report['map_dir']}__{install_id}")
+        return {"mode": "rollback", "apply": self._apply, "outcome": outcome, **report}
+
+
+async def retire_install_identifiers(
+    conn: asyncpg.Connection, symbols: Sequence[str], span_ids: Sequence[str], reason: str
+) -> int:
+    """Retire the identifiers of a pit install's symbols. The retire matches by symbol, so it must
+    not take an identifier the install did not create: every span on a retired identifier is one
+    of ``span_ids`` (the spans the rollback just retired), else the transaction is refused."""
+    retired = [
+        r["security_identifier_id"]
+        for r in await conn.fetch(_PIT_RETIRE_IDENTIFIERS_SQL, list(symbols), reason)
+    ]
+    foreign = await conn.fetchval(_FOREIGN_SPANS_SQL, retired, list(span_ids))
+    if foreign:
+        raise InstallRefused(
+            f"rollback would retire identifiers that {foreign} spans outside the install still "
+            "use; nothing was written"
+        )
+    return len(retired)
+
+
+async def rollback_in_transaction(
+    conn: asyncpg.Connection, install_id: str, accept_loaded_rows: bool
+) -> dict[str, Any]:
+    """The body of ``--rollback``, inside the caller's transaction and table lock: retire the rows
+    the install inserted (a pit install's identifiers after its spans, the trigger refuses an
+    identifier a live span still uses), insert back the rows it retired, and refuse unless the
+    live rows then hash to the pre-install value. The pit install's rehearsal runs this inside
+    its own transaction to prove the rollback before it rolls everything back."""
+    await conn.execute(_LOCK_SQL)
+    await require_massive_quiet(conn)
+    rows = [
+        HistoryRow(r["id"], r["security_identifier_id"], r["symbol"], r["ticker"],
+                   r["valid_from"], r["valid_to"], r["reference_raw_id"],
+                   r["evidence"], r["retired_reason"])
+        for r in await conn.fetch(_INSTALL_ROWS_SQL, install_id, f"{INSTALL_REASON} {install_id} ")
+    ]  # fmt: skip
+    plan = plan_rollback(install_id, rows)
+    loaded = await loads_citing(
+        conn,
+        [(r.symbol, r.ticker_event_id) for r in rows if r.ticker_event_id in plan.retire_ids],
+    )  # fmt: skip
+    if loaded and not accept_loaded_rows:
+        raise InstallRefused(
+            f"Massive load rows cite spans this install inserted: {loaded}; "
+            "rolling back leaves that raw under retired spans. Read the "
+            "counts, pass --accept-loaded-rows, then reload that raw under the "
+            "restored spans"
+        )
+    live_before = await conn.fetch(_LIVE_SQL)
+    before_keys = {_row_key(r) for r in live_before}
+    reason = f"{ROLLBACK_REASON} {install_id}: restores the rows it retired"
+    await _retire(conn, plan.retire_ids, [reason] * len(plan.retire_ids))
+    await conn.execute(
+        _INSERT_SPANS_SQL,
+        [r.security_identifier_id for r in plan.restore],
+        [r.symbol for r in plan.restore],
+        [r.ticker for r in plan.restore],
+        [r.start for r in plan.restore],
+        [r.end for r in plan.restore],
+        [r.reference_raw_id for r in plan.restore],
+        [canonical_json(r.evidence) for r in plan.restore],
+    )
+    identifiers_retired = 0
+    if plan.new_symbols:
+        identifiers_retired = await retire_install_identifiers(
+            conn, plan.new_symbols, plan.retire_ids, reason
+        )
+    live_after = await conn.fetch(_LIVE_SQL)
+    inserted_keys = {r.key for r in rows if r.ticker_event_id in plan.retire_ids}
+    expected = (before_keys - inserted_keys) | {r.key for r in plan.restore}
+    after_sha = content_sha256(live_after)
+    after_keys = [_row_key(r) for r in live_after]
+    if set(after_keys) != expected or len(after_keys) != len(expected):
+        raise InstallRefused("rollback row balance does not reconcile")
+    if after_sha != plan.pre_install_sha256:
+        raise InstallRefused(
+            f"the rows after the rollback (sha256 {after_sha}) are not the rows "
+            f"before the install ({plan.pre_install_sha256})"
+        )
+    return {
+        "install_id": install_id, "map_dir": plan.map_dir, "rows_retired": len(plan.retire_ids),
+        "rows_restored": len(plan.restore), "identifiers_retired": identifiers_retired,
+        "live_before": len(live_before), "live_after": len(live_after),
+        "post_rollback_sha256": after_sha, "pre_install_sha256": plan.pre_install_sha256,
+        "loaded_rows_citing_inserted": loaded, "accepted_loaded_rows": bool(loaded),
+    }  # fmt: skip
 
 
 class _Rehearsal(Exception):
     """Raised inside the transaction to roll it back on a run without --apply."""
+
+
+# ---------------------------------------------------------------------------------------------
+# Pit anchor (todo 609, stage 2; docs/plans/2026-11-15-pit-anchor-map-and-stage2-instruments.md).
+# --pit-anchor builds a scratch map version from the captured point-in-time ticker lists and
+# writes no table. --pit-install recomputes the same plan from the live tables under the table
+# locks, refuses unless it equals the scratch directory byte for byte, then writes the stage 2
+# instrument rows, identifiers and spans in one transaction (rehearsal unless --apply; the
+# rehearsal also proves the rollback and a reinstall of the same plan before it rolls back).
+# --rollback undoes an install (rollback_in_transaction).
+# ---------------------------------------------------------------------------------------------
+
+_PIT_PAGES_SQL = """
+SELECT as_of, request_key, page, reference_raw_id::text AS id, body::text AS body
+  FROM reference_raw_current
+ WHERE vendor = 'massive' AND endpoint = 'pit_snapshots'
+ ORDER BY as_of, request_key, page
+"""
+_PIT_FILES_SQL = """
+SELECT reference_raw_id::text AS id, file_sha256
+  FROM reference_raw_current
+ WHERE vendor = 'massive' AND endpoint = 'pit_snapshots' ORDER BY 1
+"""
+_PIT_LIVE_SPANS_SQL = """
+SELECT e.ticker_event_id, e.symbol, e.ticker, e.valid_from, e.valid_to,
+       e.reference_raw_id::text AS reference_raw_id, e.evidence, e.security_identifier_id,
+       COALESCE(i.value, '') AS composite_figi
+  FROM ticker_event_current e
+  LEFT JOIN security_identifier_current i
+    ON i.security_identifier_id = e.security_identifier_id AND i.scheme = 'composite_figi'
+ WHERE e.vendor = 'massive'
+"""
+_PIT_LIVE_IDENTIFIERS_SQL = "SELECT scheme, value, symbol FROM security_identifier_current"
+_PIT_INSTRUMENT_SYMBOLS_SQL = "SELECT symbol FROM instruments"
+_PIT_STAGE2_SQL = """
+SELECT symbol, contract_details->'provider_meta'->>'key_kind' AS key_kind,
+       contract_details->'provider_meta'->>'key' AS key
+  FROM instruments
+ WHERE universe_cohort = 'stage2_pit' AND contract_details->'provider_meta'->>'key' IS NOT NULL
+"""
+_PIT_INSERT_IDENTIFIERS_SQL = """
+INSERT INTO security_identifier (symbol, scheme, value, valid_from, valid_to, reference_raw_id)
+SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::date[], $5::date[], $6::uuid[])
+RETURNING security_identifier_id, symbol, scheme
+"""
+_PIT_LOCK_IDENTIFIERS_SQL = "LOCK TABLE security_identifier IN SHARE ROW EXCLUSIVE MODE"
+
+
+def iter_pit_snapshots(dsn: str) -> Iterator[pit.PitSnapshot]:
+    """The captured month-end lists in date order, one snapshot at a time (a server-side cursor,
+    so the planner never holds more than one month of records)."""
+    kinds = ("active", "inactive")
+    with psycopg.connect(dsn) as conn, conn.cursor(name="pit_pages") as cur:
+        cur.itersize = 100
+        cur.execute(_PIT_PAGES_SQL)
+        current: date | None = None
+        pages: dict[str, list[tuple[int, str, Any]]] = {k: [] for k in kinds}
+
+        def snapshot(as_of: date) -> pit.PitSnapshot:
+            return pit.PitSnapshot(
+                as_of,
+                pit.records_from_pages(as_of, "active", pages["active"]),
+                pit.records_from_pages(as_of, "inactive", pages["inactive"]),
+            )
+
+        for as_of, request_key, page, raw_id, body in cur:
+            kind = request_key.split("@")[1]
+            if kind not in kinds:
+                raise pit.PitPlanError(f"pit snapshot request key {request_key!r}")
+            if current is not None and as_of != current:
+                yield snapshot(current)
+                pages = {k: [] for k in kinds}
+            current = as_of
+            pages[kind].append((page, raw_id, json.loads(body)))
+        if current is not None:
+            yield snapshot(current)
+
+
+def pit_by_year(plan: pit.PitPlan) -> list[dict[str, Any]]:
+    """The owner's report (amendment item 7): per year, month-end ticker records placed, unplaced
+    for want of a key, unplaced because a composite FIGI was claimed twice, left to the live map,
+    clipped by a live span, and the placed (CIK, ticker) records of a multi-class issuer. Counted
+    by observation (one ticker at one month-end); no bar, price or return is read."""
+    years: dict[int, Counter[str]] = {}
+    for (year, _typ, reason), n in plan.residual.items():
+        years.setdefault(year, Counter())[reason] += n
+    out = []
+    for year in sorted(set(years) | set(plan.ambiguous_cik_ticker)):
+        c = years.get(year, Counter())
+        out.append({
+            "year": year,
+            "placed": c[pit.PLACED] + c[pit.PLACED_PARTIAL],
+            "unplaced_no_key": c[pit.NO_KEY] + c[pit.BAD_TICKER],
+            "unplaced_figi_collision": c[pit.CLAIMED_TWICE],
+            "left_to_live_map": c[pit.ALREADY_LIVE],
+            "clipped_by_live_span": c[pit.CLIPPED_BY_LIVE_SPAN],
+            "ambiguous_cik_ticker": plan.ambiguous_cik_ticker.get(year, 0),
+        })  # fmt: skip
+    return out
+
+
+def pit_stage2_rows(plan: pit.PitPlan) -> list[Stage2Instrument]:
+    return [
+        Stage2Instrument(
+            s.symbol, s.name, s.exchange, s.key_kind, s.key_value, s.cik, s.first.isoformat(),
+            s.last.isoformat() if s.last else None, s.types, pit.PIT_RULE_ID,
+        )
+        for s in plan.securities
+    ]  # fmt: skip
+
+
+def render_pit_map(
+    old_spans: Sequence[OldSpan],
+    plan: pit.PitPlan,
+    inputs: Mapping[str, Any],
+    gap_bytes: bytes,
+    version_date: str,
+) -> tuple[str, dict[str, bytes]]:
+    """The scratch map version: the pinned map's gap list and spans unchanged plus the pit spans
+    (origin ``pit``). The name is ``<version_date>_<gap list digest>``, so it carries the digest
+    of the map it extends. No clock is read."""
+    kept = [
+        NewSpan(s.symbol, s.ticker, s.start, s.end, "kept", s.composite_figi,
+                s.reference_raw_id, s.evidence)
+        for s in old_spans
+    ]  # fmt: skip
+    ids = {(s.symbol, s.key_kind): s.key_value for s in plan.securities}
+    added = [
+        NewSpan(
+            s.symbol, s.ticker, s.start, s.end or _OPEN, "pit",
+            ids.get((s.symbol, pit.COMPOSITE_FIGI), ""), s.reference_raw_id, s.evidence,
+        )
+        for s in plan.spans
+    ]  # fmt: skip
+    spans = sorted([*kept, *added], key=lambda s: (s.symbol, s.start, s.ticker))
+    spans_bytes = spans_csv(spans)
+    pinned = spans_csv(old_spans)
+    accounting = [
+        {"kind": "span", "symbol": s.symbol, "ticker": s.ticker, "valid_from": _iso(s.start),
+         "valid_to": _iso(s.end), "disposition": "kept", "reason": "", "pieces": ""}
+        for s in old_spans
+    ]  # fmt: skip
+    accounting += list(plan.accounting)
+    by_kind = Counter(s.key_kind for s in plan.securities)
+    doc = {
+        "kind": PIT_KIND,
+        "inputs": dict(inputs),
+        "pinned_spans_sha256": hashlib.sha256(pinned).hexdigest(),
+        "gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
+        "spans_sha256": hashlib.sha256(spans_bytes).hexdigest(),
+        "diff": {
+            "old_spans": len(old_spans), "new_spans": len(spans), "span_rows_removed": 0,
+            "span_rows_added": len(added), "old_spans_by_disposition": {"kept": len(old_spans)},
+            "new_securities": len(plan.securities), "new_identifiers": len(plan.identifiers),
+            "new_securities_by_key_kind": dict(sorted(by_kind.items())),
+            "suffixed_symbols": sum("~" in s.symbol for s in plan.securities),
+            "names_changed": [],
+        },  # fmt: skip
+        "reconciliation": None,
+        "pit": {
+            "rule": pit.PIT_RULE_ID, "map_version": pit.PIT_MAP_VERSION,
+            "snapshots": plan.snapshots, "first_as_of": plan.first_as_of.isoformat(),
+            "last_as_of": plan.last_as_of.isoformat(), "by_year": pit_by_year(plan),
+            "bridged_months": plan.bridged_months, "cik_renames_split": plan.cik_renames_split,
+            "residual": plan.residual_report(), "plan_pins": pit.pins(plan),
+        },  # fmt: skip
+    }
+    files = {
+        "gap_list.csv": gap_bytes,
+        "spans.csv": spans_bytes,
+        "pinned_spans.csv": pinned,
+        "span_accounting.csv": _csv_bytes(ACCOUNT_FIELDS, accounting),
+        "map_diff.json": (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode(),
+    }
+    return f"{version_date}_{hashlib.sha256(gap_bytes).hexdigest()[:12]}", files
+
+
+@dataclass(frozen=True)
+class PitBuild:
+    name: str
+    files: Mapping[str, bytes]
+    plan: pit.PitPlan
+    old_spans: Sequence[OldSpan]
+
+
+async def build_pit_map(
+    conn: asyncpg.Connection,
+    dsn: str,
+    gap_bytes: bytes,
+    pinned_map: str,
+    version_date: str,
+    pinned_spans_sha256: str | None,
+) -> PitBuild:
+    """Read the live tables and the pit capture, plan, render. Reads only; the caller holds the
+    locks when this runs inside an install."""
+    old_spans = live_old_spans(await conn.fetch(_PIT_LIVE_SPANS_SQL))
+    live_sha = hashlib.sha256(spans_csv(old_spans)).hexdigest()
+    if pinned_spans_sha256 and pinned_spans_sha256 != live_sha:
+        raise InstallRefused(f"live spans sha256 {live_sha} is not {pinned_spans_sha256}")
+    stage2 = {(r["key_kind"], r["key"]): r["symbol"] for r in await conn.fetch(_PIT_STAGE2_SQL)}
+    live = pit.LiveState(
+        frozenset(r["symbol"] for r in await conn.fetch(_PIT_INSTRUMENT_SYMBOLS_SQL)),
+        {(r["scheme"], r["value"]): r["symbol"] for r in await conn.fetch(_PIT_LIVE_IDENTIFIERS_SQL)},
+        [(s.ticker, s.start, None if s.end == _OPEN else s.end) for s in old_spans],
+        stage2,
+        frozenset(s.symbol for s in old_spans),
+    )  # fmt: skip
+    plan = await asyncio.to_thread(pit.plan_pit_map, iter_pit_snapshots(dsn), live)
+    # the capture is append-only; the pin is read after the plan so it describes what was read
+    files_pin = hashlib.sha256(
+        "".join(
+            f"{r['id']} {r['file_sha256']}\n" for r in await conn.fetch(_PIT_FILES_SQL)
+        ).encode()
+    ).hexdigest()
+    inputs = {
+        "pinned_map": pinned_map,
+        "pinned_map_gap_list_sha256": hashlib.sha256(gap_bytes).hexdigest(),
+        "pit_snapshots_sha256": files_pin,
+        "live_spans_sha256": live_sha,
+        "live_identifiers_sha256": hashlib.sha256(
+            canonical_json(sorted(f"{k[0]}|{k[1]}|{v}" for k, v in live.identifiers.items())).encode()
+        ).hexdigest(),
+        "rule": pit.PIT_RULE_ID,
+    }  # fmt: skip
+    name, files = render_pit_map(old_spans, plan, inputs, gap_bytes, version_date)
+    return PitBuild(name, files, plan, old_spans)
+
+
+def _pit_report(build: PitBuild) -> dict[str, Any]:
+    doc = json.loads(build.files["map_diff.json"])
+    return {
+        "map": build.name,
+        "install_spans_sha256": manifest_sha256(build.files),
+        "diff": doc["diff"],
+        "pit": doc["pit"],
+    }
+
+
+class TickerEntityMapPitBuilder(BaseBatch):
+    """The --pit-anchor run: a scratch map version from the pit capture; writes no table."""
+
+    job_name = _JOB
+    compute_version = "1.0.0"
+
+    def __init__(self, db_dsn: str, args: argparse.Namespace, out_root: Path = _OUT_ROOT):
+        super().__init__(db_dsn)
+        self._dsn = db_dsn
+        self._args = args
+        self._out_root = out_root
+
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        args = self._args
+        refuse_install_path(args.out, self._out_root)
+        gap_bytes = (args.map_dir / "gap_list.csv").read_bytes()
+        check_pinned_map(args.map_dir.name, gap_bytes, args.pinned_map_digest)
+        if args.version_date == args.map_dir.name.split("_")[0]:
+            raise ValueError(
+                f"--version-date {args.version_date} names the pinned map's own directory"
+            )
+        async with pool.acquire() as conn:
+            build = await build_pit_map(
+                conn, self._dsn, gap_bytes, args.map_dir.name, args.version_date,
+                args.pinned_spans_sha256,
+            )  # fmt: skip
+        write_map_files(args.out / build.name, build.files)
+        self.logger.info("ticker_entity_map.pit_done", out=str(args.out / build.name))
+        print(json.dumps({"out": str(args.out / build.name), **_pit_report(build)},
+                         indent=2, sort_keys=True))  # fmt: skip
+
+
+async def install_pit_plan(
+    conn: asyncpg.Connection, build: PitBuild, lineage: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Write the plan in the caller's transaction: instrument rows (the stage 2 exception),
+    identifiers, then spans. Refuses unless the live spans are then exactly the pinned spans plus
+    the plan's and every instrument row the plan names exists."""
+    plan = build.plan
+    before = {_row_key(r) for r in await conn.fetch(_LIVE_SQL)}
+    result = await onboard_stage2_instruments(conn, pit_stage2_rows(plan))
+    idents = plan.identifiers
+    got = await conn.fetch(
+        _PIT_INSERT_IDENTIFIERS_SQL, [i.symbol for i in idents], [i.scheme for i in idents],
+        [i.value for i in idents], [i.valid_from for i in idents], [i.valid_to for i in idents],
+        [i.reference_raw_id for i in idents],
+    )  # fmt: skip
+    if len(got) != len(idents):
+        raise InstallRefused(f"{len(got)} identifiers written, {len(idents)} planned")
+    sid = {(r["symbol"], r["scheme"]): r["security_identifier_id"] for r in got}
+    kind = {s.symbol: s.key_kind for s in plan.securities}
+    spans = [
+        NewSpan(s.symbol, s.ticker, s.start, s.end or _OPEN, "pit", "", s.reference_raw_id,
+                s.evidence)
+        for s in plan.spans
+    ]  # fmt: skip
+    await conn.execute(
+        _INSERT_SPANS_SQL,
+        [sid[(s.symbol, kind[s.symbol])] for s in spans],
+        [s.symbol for s in spans], [s.ticker for s in spans], [s.start for s in spans],
+        [None if s.end == _OPEN else s.end for s in spans],
+        [s.reference_raw_id for s in spans], [install_evidence(s, lineage) for s in spans],
+    )  # fmt: skip
+    after = {_row_key(r) for r in await conn.fetch(_LIVE_SQL)}
+    want = before | {(s.symbol, s.ticker, s.start, s.end) for s in spans}
+    if after != want or len(after) != len(before) + len(spans):
+        raise InstallRefused("row balance: the live spans are not the pinned spans plus the plan's")
+    return {
+        "instruments_inserted": result.inserted, "instruments_already_present": result.already_present,
+        "identifiers_inserted": len(got), "spans_inserted": len(spans),
+        "live_spans_after": len(after),
+    }  # fmt: skip
+
+
+class TickerEntityMapPitInstaller(BaseBatch):
+    """The --pit-install run. One transaction, both tables locked, rehearsal unless --apply."""
+
+    job_name = _JOB
+    compute_version = "1.0.0"
+
+    def __init__(self, db_dsn: str, args: argparse.Namespace, out_root: Path = _OUT_ROOT):
+        super().__init__(db_dsn)
+        self._dsn = db_dsn
+        self._args = args
+        self._apply = args.apply
+        self._out_root = out_root
+
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        args = self._args
+        files = read_map_dir(args.pit_install)
+        if files.digest != args.install_digest:
+            raise InstallRefused(
+                f"the map is {files.digest}, --install-digest says {args.install_digest}"
+            )
+        if files.manifest_sha256 != args.install_spans_sha256:
+            raise InstallRefused(
+                f"the map's files hash to {files.manifest_sha256}, --install-spans-sha256 says "
+                f"{args.install_spans_sha256}"
+            )
+        if files.diff.get("kind") != PIT_KIND:
+            raise InstallRefused(f"{files.name} is not a pit-anchor map")
+        version_date = files.name.split("_")[0]
+        pinned_map = files.diff["inputs"]["pinned_map"]
+        target = self._out_root / files.name
+        present = check_install_target(target, files.raw)
+        install_id = new_install_id(files.digest, datetime.now(UTC))
+        copy = self._apply and not present
+        outcome = "rolled_back"
+        proof: dict[str, Any] = {}
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    await conn.execute(_LOCK_SQL)
+                    await conn.execute(_PIT_LOCK_IDENTIFIERS_SQL)
+                    build = await build_pit_map(
+                        conn, self._dsn, files.raw["gap_list.csv"], pinned_map, version_date,
+                        files.pinned_sha256 and hashlib.sha256(files.raw["pinned_spans.csv"]).hexdigest(),
+                    )  # fmt: skip
+                    if dict(build.files) != dict(files.raw):
+                        differ = sorted(n for n in MAP_FILES if build.files[n] != files.raw[n])
+                        raise InstallRefused(
+                            f"the plan recomputed from the live tables is not this map: {differ} differ"
+                        )
+                    await require_massive_quiet(conn)
+                    pre_sha = content_sha256(await conn.fetch(_LIVE_SQL))
+                    lineage = {
+                        "install_id": install_id, "map_digest": files.digest,
+                        "map_dir": files.name, "pre_install_sha256": pre_sha,
+                        "rows_retired": 0, "rows_inserted": len(build.plan.spans),
+                        "kind": PIT_KIND,
+                    }  # fmt: skip
+                    written = await install_pit_plan(conn, build, lineage)
+                    if not self._apply:
+                        proof = await self._prove_rollback(conn, build, files, install_id, pre_sha)
+                        raise _Rehearsal
+                outcome = "installed"
+            except _Rehearsal:
+                outcome = "rolled_back"
+        if copy and outcome == "installed":
+            self.logger.info("ticker_entity_map.pit_install_committed", install_id=install_id)
+            staging = self._out_root.parent / f".staging_{install_id}"
+            _stage(staging, files.raw)
+            self._out_root.mkdir(parents=True, exist_ok=True)
+            os.rename(staging, target)
+        print(json.dumps({
+            "mode": "pit_install", "apply": self._apply, "outcome": outcome,
+            "install_id": install_id, "map": files.name, "written": written,
+            "by_year": pit_by_year(build.plan), "rollback_proof": proof,
+        }, indent=2, sort_keys=True, default=str))  # fmt: skip
+
+    async def _prove_rollback(
+        self,
+        conn: asyncpg.Connection,
+        build: PitBuild,
+        files: MapFiles,
+        install_id: str,
+        pre_sha: str,
+    ) -> dict[str, Any]:
+        """Inside the rehearsal transaction: roll the install back, require the live rows to hash
+        to their pre-install value, plan again from the tables as the rollback left them (the
+        inactive instrument rows stay; the plan reuses their symbols) and require the same files
+        byte for byte, then install that plan again and check the balance."""
+        rolled = await rollback_in_transaction(conn, install_id, False)
+        again = await build_pit_map(
+            conn, self._dsn, files.raw["gap_list.csv"], files.diff["inputs"]["pinned_map"],
+            files.name.split("_")[0], hashlib.sha256(files.raw["pinned_spans.csv"]).hexdigest(),
+        )  # fmt: skip
+        differ = sorted(n for n in MAP_FILES if again.files[n] != files.raw[n])
+        same = not differ
+        if not same:
+            raise InstallRefused(
+                f"a plan after the rollback is not the plan that was installed: {differ} differ"
+            )
+        lineage = {
+            "install_id": f"{install_id}-reinstall", "map_digest": files.digest,
+            "map_dir": files.name, "pre_install_sha256": pre_sha, "rows_retired": 0,
+            "rows_inserted": len(again.plan.spans), "kind": PIT_KIND,
+        }  # fmt: skip
+        if rolled["identifiers_retired"] != len(build.plan.identifiers):
+            raise InstallRefused(
+                f"the rollback retired {rolled['identifiers_retired']} identifiers, the install "
+                f"inserted {len(build.plan.identifiers)}"
+            )
+        reinstall = await install_pit_plan(conn, again, lineage)
+        return {
+            "rollback": rolled,
+            "pre_install_sha256": pre_sha,
+            "live_rows_equal_pre_install": rolled["post_rollback_sha256"] == pre_sha,
+            "replan_files_identical": same,
+            "reinstall": reinstall,
+        }
 
 
 def main() -> None:
@@ -1961,7 +2440,28 @@ def main() -> None:
         help="--install: comma-separated names the plan must not touch (may be empty)",
     )
     parser.add_argument("--rollback", metavar="INSTALL_ID", help="undo a recorded install")
+    parser.add_argument(
+        "--pit-anchor", action="store_true",
+        help="build a scratch map version from the pit snapshots (needs --map-dir, "
+        "--pinned-map-digest, --pinned-spans-sha256, --out, --version-date); writes no table",
+    )  # fmt: skip
+    parser.add_argument(
+        "--pit-install",
+        type=Path,
+        help="install a pit-anchor scratch map (needs --install-digest, --install-spans-sha256)",
+    )
     args = parser.parse_args()
+    if args.pit_anchor and (args.pit_install or args.install or args.rollback or args.documentary):
+        parser.error("--pit-anchor is a run of its own")
+    if args.pit_anchor:
+        needed = ("map_dir", "pinned_map_digest", "pinned_spans_sha256", "out", "version_date")
+        if args.apply or [n for n in needed if not getattr(args, n)]:
+            parser.error(f"--pit-anchor needs {needed} and takes no --apply")
+    if args.pit_install:
+        if args.install or args.rollback or args.documentary or args.amend:
+            parser.error("--pit-install is a run of its own")
+        if not (args.install_digest and args.install_spans_sha256):
+            parser.error("--pit-install needs --install-digest and --install-spans-sha256")
     if args.install and args.rollback:
         parser.error("--install and --rollback are separate runs")
     if (args.install or args.rollback) and (args.documentary or args.amend):
@@ -1992,7 +2492,11 @@ def main() -> None:
         pass
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    if args.install or args.rollback:
+    if args.pit_anchor:
+        asyncio.run(TickerEntityMapPitBuilder(db_dsn, args).run())
+    elif args.pit_install:
+        asyncio.run(TickerEntityMapPitInstaller(db_dsn, args).run())
+    elif args.install or args.rollback:
         asyncio.run(TickerEntityMapInstaller(db_dsn, args).run())
     elif args.documentary:
         asyncio.run(TickerEntityMapDocumentary(db_dsn, args).run())

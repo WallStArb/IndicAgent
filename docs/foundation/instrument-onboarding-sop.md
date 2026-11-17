@@ -113,6 +113,19 @@ snapshot.
 > and the raw loads under todo 609 (Stage 2 universe), and nothing onboards a name until it
 > lands.
 
+> **Stage 2 exception, 2026-11-15 (lead ruling, draft until the owner adopts the
+> preregistration amendment):** the names the pit-anchor map places and the 1,529-name list does
+> not hold (dead, merged and never-listed-by-us names, todo 609 gate 4) enter through
+> `onboard_stage2_instruments()` in `src/config/instrument_onboarding.py`, not through
+> `onboard_instrument()`. It differs in exactly four ways: qualified by the pit map's placement
+> and not by IBKR; `is_active` false with every eligibility flag false and `universe_cohort`
+> `stage2_pit` (no name becomes a capture target by this path); no classification, tag or
+> metadata rows, because the vendor serves no sector for a dead name and a guessed one would be a
+> hand-written fact (the provenance sits in `contract_details.provider_meta`); and a rerun
+> accepts a row this path already wrote for the same key and refuses any other existing symbol.
+> Nothing is deleted or deactivated, so rule 6 holds. Design:
+> `docs/plans/2026-11-15-pit-anchor-map-and-stage2-instruments.md`.
+
 Run every command from the main checkout (`/home/bg/dev/indicagent`). IBKR must be up:
 `docker ps | grep ib-gateway`, and remember the weekly 2FA logout (todo 395). IBKR client IDs:
 35 is the provider, 40 the history fetcher, 45 the gateway probe, 46 the manifest qualifier; pick

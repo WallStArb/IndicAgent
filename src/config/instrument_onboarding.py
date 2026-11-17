@@ -143,6 +143,121 @@ async def load_compute_timeframes(conn: asyncpg.Connection) -> list[str]:
     )
 
 
+# ---------------------------------------------------------------------------------------------
+# Stage 2 exception (todo 609, preregistration gate 4; docs/plans/2026-11-15-pit-anchor-map-and-
+# stage2-instruments.md, section 4). The names the pit-anchor map places that are not in the
+# 1,529-name list enter here, not through onboard_instrument(): that path asks IBKR to qualify a
+# contract, requires a sector-level classification and sets is_active true, and none of that
+# exists for a dead name. The exception is exactly these differences: qualified by the pit map's
+# placement (the caller passes only planned securities), is_active false with every eligibility
+# flag false (the check constraint requires it, and the Alpaca nightly reads active names only),
+# no classification, tag or metadata rows (the vendor serves no sector for a dead name and a
+# guessed one would be a hand-written fact), the provenance on the row, and rerun-safe for a
+# row this path already wrote. Nothing is deleted or deactivated.
+# ---------------------------------------------------------------------------------------------
+
+STAGE2_COHORT = "stage2_pit"
+STAGE2_SOURCE = "massive_pit_snapshots"
+
+_SELECT_STAGE2_SQL = """
+SELECT symbol, universe_cohort,
+       contract_details->'provider_meta'->>'key_kind' AS key_kind,
+       contract_details->'provider_meta'->>'key' AS key
+  FROM instruments WHERE symbol = ANY($1::text[])
+"""
+
+_INSERT_STAGE2_SQL = """
+INSERT INTO instruments (
+    symbol, base, contract_details, is_active, compute_eligible, compute_eligible_1d,
+    live_tradeable, universe_entry_date, universe_cohort
+)
+SELECT u.symbol, u.symbol, u.details::jsonb, false, false, false, false,
+       (now() AT TIME ZONE 'UTC')::date, $1
+  FROM unnest($2::text[], $3::text[]) AS u(symbol, details)
+ON CONFLICT (symbol) DO NOTHING
+"""
+
+
+@dataclass(frozen=True)
+class Stage2Instrument:
+    """One security the pit-anchor map places: its symbol and the evidence the row carries."""
+
+    symbol: str
+    name: str | None
+    exchange: str | None
+    key_kind: str
+    key: str
+    cik: str | None
+    first: str  # ISO date of the first span
+    last: str | None  # ISO date the last span ends, None when open
+    types: tuple[str, ...]
+    rule: str
+
+
+@dataclass(frozen=True)
+class Stage2Result:
+    inserted: int
+    already_present: int
+
+
+def stage2_contract_details(row: Stage2Instrument) -> dict[str, Any]:
+    """The ten-key contract_details shape (migration 296) with the pit provenance on the row."""
+    return {
+        "symbol": row.symbol,
+        "base": row.symbol,
+        "name": row.name or row.symbol,
+        "asset_class": "equity",
+        "exchange": row.exchange or "",
+        "tick_size": 0.01,
+        "session_id": "nyse",
+        "point_value": 1.0,
+        "provider_meta": {
+            "source": STAGE2_SOURCE, "key_kind": row.key_kind, "key": row.key, "cik": row.cik,
+            "first": row.first, "last": row.last, "types": list(row.types), "rule": row.rule,
+        },
+    }  # fmt: skip
+
+
+async def onboard_stage2_instruments(
+    conn: asyncpg.Connection, rows: Sequence[Stage2Instrument]
+) -> Stage2Result:
+    """Insert the stage 2 instrument rows in the caller's transaction (no transaction of its own).
+
+    A symbol that already has a row is accepted only when this path wrote it for the same key;
+    any other existing row refuses the run, so a stage 2 symbol can never take over another
+    name. Raises OnboardingRejected before writing anything on a duplicate symbol in ``rows``
+    or on such a clash."""
+    symbols = [r.symbol for r in rows]
+    if len(set(symbols)) != len(symbols):
+        raise OnboardingRejected("onboard_stage2_instruments: a symbol appears twice in the plan")
+    existing = {r["symbol"]: r for r in await conn.fetch(_SELECT_STAGE2_SQL, symbols)}
+    wanted = {r.symbol: r for r in rows}
+    clash = sorted(
+        s
+        for s, found in existing.items()
+        if found["universe_cohort"] != STAGE2_COHORT
+        or (found["key_kind"], found["key"]) != (wanted[s].key_kind, wanted[s].key)
+    )
+    if clash:
+        raise OnboardingRejected(
+            f"onboard_stage2_instruments: {len(clash)} symbols already name another instrument "
+            f"(first: {clash[:5]}); the stage 2 path never overwrites or re-keys a row"
+        )
+    fresh = [r for r in rows if r.symbol not in existing]
+    if fresh:
+        status = await conn.execute(
+            _INSERT_STAGE2_SQL,
+            STAGE2_COHORT,
+            [r.symbol for r in fresh],
+            [json.dumps(stage2_contract_details(r)) for r in fresh],
+        )
+        if status != f"INSERT 0 {len(fresh)}":
+            raise OnboardingRejected(
+                f"onboard_stage2_instruments: {status!r} written for {len(fresh)} rows"
+            )
+    return Stage2Result(inserted=len(fresh), already_present=len(existing))
+
+
 def _inserted(status: str) -> bool:
     """True if an asyncpg INSERT command tag reports one row written ("INSERT 0 1")."""
     return status.split()[-1] == "1"
