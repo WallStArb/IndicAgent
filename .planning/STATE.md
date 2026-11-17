@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-11-15T23:20:00.000Z"
+last_updated: "2026-11-17T04:00:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 3
@@ -47,7 +47,7 @@ survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fa
 Step 7 done through D4 (2026-11-16): canonical is rebuilt from raw under d2-v6 (rows after: 5m 452,992,974, 1d 6,308,315,
 15m 158,174,558, 1h 43,631,204; 1m and 4h empty). D1 `--verify` exited 0; the 5m selection gate met the B3 criteria (exit 3: no residue other than 290 unreviewed basis flags); the archive-end seam witness left no name unexplained (1d and 5m: 0 of 1,403 names, all one_sided); the NVDA canaries read
 canonical_matches_massive at 2024-06-10 5m (gate PASS) and at 2007-09-12 1d (informational); D4 `split_horizon_fresh` 1,529 pass, 0 fail with 0
-new red `split_continuity` or `canonical_recompute` rows (198 other new red rows: 93 `session_coverage`, 93 `proven_start_1d`, 9 `slot_coverage`, 3 `alpaca_basis_run`; dispositioned in the runbook's D4 section: all new with the rebuild, none a standing defect; three classes tied to the 2026-11-16 session or to the Massive-only policy, the ITA, MTUM and QUAL rows to the split dating). B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
+new red `split_continuity` or `canonical_recompute` rows (198 other new red rows: 93 `session_coverage`, 93 `proven_start_1d`, 9 `slot_coverage`, 3 `alpaca_basis_run`; dispositioned in the runbook's D4 section: all new with the rebuild, none a standing defect; the `alpaca_basis_run` check is retired since, todo 623). B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
 as one total per timeframe); map `20261115_6195ae11abff` is installed. D5 (timers, compression auditor, service auditor by hand, Alpaca nightly
 last) is done 2026-11-16; Part F (IBKR raw delete, `run_partf.sh`) is pending. Real-data compute
 may start now that D1 `--verify` exited 0 and the B3 criteria passed, subject to the owner's clean-data lift and the stage 2 gates.
@@ -70,10 +70,16 @@ clean-data rule (E21) still holds: no real-data hypothesis test until the data g
 Next, in order:
 1. Part F (`run_partf.sh`; dry run clean 2026-11-17: 364,679,171 raw, 4,349,018 revision, 98,399 ask rows to delete; owner's go, then `PARTF_CONFIRM=delete-ibkr-raw` detached;
    `docs/operations/massive-step7-runbook.md`).
-2. Held landings still open: wt-pit-map (601; rehearsal 2 first, with the install integration test e609cb20c), the A3 sweep gate (`--strict`, in review),
-   the dead-code commit, todo 623 (`alpaca_basis_run`) and todo 624 (reused tickers). Landed 2026-11-17: the r2rest stack (a5ec69f47) and the doc and data cleanup (5554d2319).
+2. Data layer state: the pit ticker map migration 601 is applied and its rehearsal 2 passed (the apply of the stage 2
+   instrument writer is not run; decide when stage 2 is ready). The A3 sweep gate (`--strict`, Yahoo witness; the Massive
+   witness is refused) is on main with `config/corporate_actions/sweep_dispositions.csv`. Vulture and the CI mypy
+   baseline filter exit 0. Todo 623 is closed: `alpaca_basis_run` is retired and migration 602 is applied (ITA, MTUM and QUAL
+   clear on a clean D7 rerun). Split rows that name a raw series unadjusted (`detail.unadjusted_routes`) now rescale
+   that series in selection, and `split_horizon_fresh` judges them (todo 625 closed); the CLBK 2026-07-20 row (2.2) is
+   applied and CLBK 5m is continuous; ATRO 2026-06-15 is a Class B distribution with a disposition and no row.
+   Open: todo 624 (reused tickers, the pit map owns identity), todo 626 (route row double scaling and a 5m seam check).
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
-4. A3 split sweep against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
+4. A3 sweep run (`ops_split_calendar_audit --sweep --witness yahoo --strict --dispositions config/corporate_actions/sweep_dispositions.csv`) against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
 
 Timers: live since D5 (2026-11-16): the standby probe every 5 min, Alpaca

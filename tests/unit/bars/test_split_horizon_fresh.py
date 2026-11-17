@@ -104,3 +104,13 @@ def test_routed_series_bars_must_equal_raw_over_the_routed_scale():
     other = np.array(["named", "named"], dtype=object)
     assert routed_horizon_stale(ts, stale, raw, vendor, other, routed) == 0
     assert routed_horizon_stale(ts, fresh, np.array([np.nan, 11.08]), vendor, kind, routed) == 1
+
+
+def test_the_same_kind_under_another_vendor_is_not_the_routed_series():
+    # a route names (vendor, kind): matching on kind alone would count this ibkr sip_rth bar
+    ts = np.array([datetime(2026, 7, 20, 19, 55, tzinfo=UTC).timestamp()])
+    routed = {("alpaca", "sip_rth"): [SplitFactor(date(2026, 7, 20), 2.2)]}
+    args = (ts, np.array([24.5]), np.array([24.5]))
+    ibkr = np.array(["ibkr"], dtype=object)
+    sip_rth = np.array(["sip_rth"], dtype=object)
+    assert routed_horizon_stale(*args, ibkr, sip_rth, routed) == 0

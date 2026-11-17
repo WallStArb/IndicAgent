@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: completed
 priority: P1
 filed: 2026-11-17
 source: step 7 D4 disposition; lead ruling 2026-11-17 (indicagent-77): the check cannot be satisfied once IBKR raw is gone
@@ -63,3 +63,7 @@ script) and the daily rule's `fallback_basis_*` keys.
 
 D7 rerun with ITA, MTUM and QUAL ready; no other name's verdict changes except through the ruling; the unit
 suite exit code; independent review.
+
+## Closed
+
+Closed 2026-11-17: the check is retired (664375714), migration 602 is applied; MTUM and QUAL ready through the verdict gate, ITA pending a clean D7 rerun (its canonical_recompute flip was a derivation running mid-audit).

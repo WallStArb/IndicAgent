@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: completed
 priority: P1
 filed: 2026-11-17
 source: independent review of bd278686c (route-named split rows rescale non-Massive winners in selection)
@@ -42,3 +42,7 @@ audit timer imports the module, so it lands in a quiet window.
 ## Built 2026-11-17
 
 `split_rescale.split_row` is the one definition of a split row (market fact and routes) for selection and the audit; `integrity_checks.routed_horizon_stale` counts canonical bars of a route-named series that are not raw close over the routed scale, added to the `split_horizon_fresh` count in `judge_name_intraday`. Live read-only check at the build: CLBK, UHAL and SPY 0 stale. Lands in a quiet window (the 06:00Z audit imports it); the todo closes with the landing.
+
+## Closed
+
+Closed 2026-11-17: landed in 3d87a0dbe (`split_row`, `routed_horizon_stale`); CLBK, UHAL and SPY read 0 stale.
