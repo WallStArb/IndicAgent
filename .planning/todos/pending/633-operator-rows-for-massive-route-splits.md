@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: applied
 priority: P1
 filed: 2026-11-17
 source: todo 629 triage (c2ed64b58): seven real splits no writer can record
@@ -57,3 +57,7 @@ ENOV,2022-04-04,0.333333333333,massive/sip_flat,0.047553,1-for-3 reverse split a
 
 Unit suite exit code; independent review; the sweep lists none of the seven after the apply; `ops_selection_gate --compare`
 differs only on the seven names. The audit is imported by timers: quiet window.
+
+## Applied 2026-11-17
+
+HON typo fixed (-0.7123). `--apply-rows ... --commit` wrote 6 of 6 rows. Reselected ENOV MSI HON HLT MDU: 1d (exit 0), 5m `--reselect-only --valid-from 2003-09-01` (59,365 bars replaced; its gate: 0 real differences, exit 3 only from unreviewed basis flags on other series), grid (exit 0). The four pending dispositions moved into `sweep_dispositions.csv`. Sweep after: 12 undecided breaks (see 629).

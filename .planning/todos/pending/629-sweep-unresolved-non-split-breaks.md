@@ -263,7 +263,7 @@ alone, not Yahoo's fully adjusted step. Corrected as: ENOV -0.5088 and HON -0.71
 and not for the distribution, steps across the effective date); MSI -0.4832 and HLT -0.3475 (no split-only incumbent series;
 Yahoo's adjusted step less `ln(calendar_factor / factor)`, `calendar_factor` filled in the file). UNIT stays in its own rows file.
 The matching distribution dispositions (ENOV 2022-04-05, MSI 2011-01-04, HLT 2017-01-04, HON 2026-06-29) are in
-`config/corporate_actions/sweep_dispositions_pending_massive_route_rows.csv`, deliberately not in `sweep_dispositions.csv`: they
+the pending dispositions file (moved into `sweep_dispositions.csv` on 2026-11-17), deliberately not in `sweep_dispositions.csv`: they
 move there in the same commit that applies the six rows, never before (a disposition alone hides the unrecorded reverse split).
 Todo 633 scope 2 is therefore down to apply, reselect and the sweep rerun.
 
@@ -287,3 +287,7 @@ POWI 2006-10-30 (the last has no IBKR bars to lose at Part F; the hole is Massiv
 
 Unresolved with reason: RTX 2020-04-03 (Alpaca level, 624), FAF, SSB, THRM, SNEX, SVRA x3, SW, SN x2, HLT 2016-12-13 (identity or seam
 cases, ticketed in 624 with witnesses); the six Massive-route rows plus UNIT await the apply.
+
+## Result 2026-11-17 (after the 633 apply)
+
+The six Massive-route rows are applied. The disposition file had seven duplicate keys (ACVA, CNO, ECHO, ROKU, SIRI, OII, UAMY) that made the loader raise; the later copies are dropped. Strict sweep: 12 undecided of 610 breaks: FAF 2010-06-02, RTX 2020-04-03, SN 2018-12-06, SN 2023-07-31, SNEX 2020-07-06, SSB 2004-03-09, SVRA x3, THRM 2012-06-13, UNIT 2025-08-04 (all reported) and SW 2016-05-16 (unrecorded_split). The UNIT 0.6029 rows file is not applied: no independent review of it is recorded. Unused dispositions: ATRO 2026-06-15, HLT 2017-01-04 (its break is gone after the HLT row).
