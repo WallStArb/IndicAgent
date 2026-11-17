@@ -29,7 +29,6 @@ from collections.abc import AsyncGenerator, Callable
 import orjson
 import structlog
 from confluent_kafka import (
-    OFFSET_BEGINNING,
     OFFSET_END,
     Consumer,
     KafkaException,
@@ -258,18 +257,6 @@ class KafkaConsumerClient:
         Only relevant when enable_auto_commit=False.
         """
         await asyncio.to_thread(self._consumer.commit)
-
-    async def seek_to_beginning(self) -> None:
-        """Seek all assigned partitions to the earliest offset.
-
-        Call after start() to replay all topic history regardless of any previously
-        committed offsets. For a subscribed consumer the seek is applied once
-        partitions are assigned by the group coordinator.
-        """
-        partitions = await asyncio.to_thread(self._consumer.assignment)
-        for tp in partitions:
-            tp.offset = OFFSET_BEGINNING
-            await asyncio.to_thread(self._consumer.seek, tp)
 
     async def seek_to_end(self) -> None:
         """Seek all assigned partitions to the latest offset.

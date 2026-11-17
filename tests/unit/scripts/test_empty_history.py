@@ -15,9 +15,6 @@ def _dt(y, m, d):
     return datetime(y, m, d, tzinfo=UTC)
 
 
-_EMPTY = eh.EmptyRange(_dt(2006, 9, 28), _dt(2024, 3, 26), _dt(2026, 9, 23), 2)
-
-
 _OBSERVED = EmptyHistory(_dt(2023, 6, 1), _dt(2024, 3, 26), 2, False)
 _WINDOW = (_dt(2006, 9, 28), _dt(2024, 3, 26))
 _SLIVER = (_dt(2024, 3, 28), _dt(2024, 4, 5))  # after the prior range, before the first bar

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -41,14 +40,6 @@ _REVERIFY_DAYS_KEY = "infra.backfill.empty_history_reverify_days"
 _VENUE_EXCHANGES_KEY = "infra.ibkr.venue_fallback.exchanges"
 _VENUE_TIMEFRAMES_KEY = "infra.ibkr.venue_fallback.timeframes"
 _SMART_ROUTE = "SMART"
-
-
-@dataclass(frozen=True)
-class EmptyRange:
-    empty_from: datetime
-    empty_through: datetime
-    verified_at: datetime
-    n_confirming_chunks: int
 
 
 def has_bar_between(

@@ -20,14 +20,13 @@ for 1m/4h; 1d moved to D1 in task 1b.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Iterable, Sequence
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Iterable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from scripts.infrastructure.backfill._empty_history import EmptyRange
 from src.intelligence.bars.gap_plan import (
     ALPACA_COVERAGE_ROUTE,
     ALPACA_COVERAGE_SOURCE,
@@ -39,10 +38,8 @@ from src.intelligence.bars.gap_plan import (
     LOAD_COVERAGE_OUTCOMES,
     LOAD_COVERAGE_SOURCES,
     AnsweredWindows,
-    fresh_empty_span,
     live_partials,
     load_range_windows,
-    plan_gaps,
     request_ts,
 )
 from src.intelligence.bars.sources import GRID_SOURCE_TF
@@ -323,61 +320,9 @@ SELECT "timestamp", served_at FROM ohlcv_raw
 WHERE symbol = %s AND timeframe = '1d' AND vendor = %s AND kind <> ALL(%s)
   AND "timestamp" >= %s AND "timestamp" < %s
 """
-_1D_INTERVAL = timedelta(days=1)
-
-
-def midnight_utc(day: date) -> datetime:
-    """A 1d slot is its session date stamped at midnight UTC (the grid's 1d
-    convention); bar_date rows arrive as dates from psycopg."""
-    return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
 def _aware(ts: datetime) -> datetime:
     """psycopg naive timestamps are UTC by contract; stamp them (same rule as gap_plan's
     request_ts, which also parses ISO strings for the partial-bar stamps)."""
     return request_ts(ts)
-
-
-def _gated_spans(
-    empty: EmptyRange | None,
-    now: datetime | None,
-    reverify_days: int | None,
-    min_confirmations: int | None,
-) -> list[tuple[datetime, datetime]]:
-    """The empty-history spans the shared freshness gate admits (one rule,
-    gap_plan.fresh_empty_span, shared with bar_auditor and apply_empty_range)."""
-    if empty is None or now is None or reverify_days is None or min_confirmations is None:
-        return []
-    span = fresh_empty_span(
-        empty.empty_from,
-        empty.empty_through,
-        empty.verified_at,
-        empty.n_confirming_chunks,
-        now=now,
-        reverify_days=reverify_days,
-        min_confirmations=min_confirmations,
-    )
-    return [span] if span is not None else []
-
-
-def _plan_with_empty_gate(
-    slots: list[datetime],
-    stored: list[datetime],
-    answered: AnsweredWindows,
-    interval: timedelta,
-    *,
-    run_end: datetime,
-    empty: EmptyRange | None,
-    now: datetime | None,
-    reverify_days: int | None,
-    min_confirmations: int | None,
-    on_skip: Callable[[EmptyRange], None] | None,
-) -> list[tuple[datetime, datetime]]:
-    """plan_gaps with the shared empty-history gate folded in; `on_skip` fires
-    when the gated span actually changed the plan (double-plan comparison)."""
-    spans = _gated_spans(empty, now, reverify_days, min_confirmations)
-    plan = plan_gaps(slots, stored, answered, interval, run_end=run_end, empty_ranges=spans)
-    if spans and on_skip is not None:
-        if plan_gaps(slots, stored, answered, interval, run_end=run_end) != plan:
-            on_skip(empty)
-    return plan
