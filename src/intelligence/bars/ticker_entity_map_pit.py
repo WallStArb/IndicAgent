@@ -348,8 +348,8 @@ def build_runs(
         seen: set[str] = set()
         unkeyed: set[str] = set()  # tickers whose record this month has no usable key or ticker
         by_ticker: dict[str, list[PitRecord]] = {}
-        for ticker, gone in list(pending.items()):  # missing two month-ends running: closed
-            if gone.absent_at != previous:
+        for ticker, waiting in list(pending.items()):  # missing two month-ends running: closed
+            if waiting.absent_at != previous:
                 runs.append(pending.pop(ticker))
         for rec in snap.active:
             typ = rec.type or "none"
@@ -551,14 +551,14 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
     # sequential runs of one ticker, and runs of one security, never overlap
     held: dict[str, list[Interval]] = {}
     for key in sorted(pieces):
-        group = sorted(pieces[key], key=lambda rp: rp[1])
-        for (ra, (a0, a1)), (rb, (b0, b1)) in pairwise(group):
+        placed = sorted(pieces[key], key=lambda rp: rp[1])
+        for (ra, (a0, a1)), (rb, (b0, b1)) in pairwise(placed):
             if b0 < a1:
                 raise PitPlanError(f"security {key} holds {ra.ticker} and {rb.ticker} at once")
-        for run, interval in group:
+        for run, interval in placed:
             held.setdefault(run.ticker, []).append(interval)
-    for ticker, intervals in held.items():
-        ordered = sorted(intervals)
+    for ticker, ticker_intervals in held.items():
+        ordered = sorted(ticker_intervals)
         for (a0, a1), (b0, b1) in pairwise(ordered):
             if b0 < a1:
                 raise PitPlanError(f"ticker {ticker} is given to two securities over {b0}")
@@ -576,8 +576,8 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
 
     for key in sorted(pieces, key=order):
         kind, value = key
-        group = sorted(pieces[key], key=lambda rp: rp[1])
-        runs_of = [r for r, _ in group]
+        placed = sorted(pieces[key], key=lambda rp: rp[1])
+        runs_of = [r for r, _ in placed]
         last_run = max(runs_of, key=lambda r: (r.last, r.ticker))
         if key in reused:
             symbol = reused[key]
@@ -589,8 +589,8 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
             raise PitPlanError(f"symbol {symbol} for {key} is already taken")
         taken.add(symbol)
         assigned.add(symbol)
-        first_start = min(iv[0] for _, iv in group)
-        end = None if any(iv[1] == date.max for _, iv in group) else max(iv[1] for _, iv in group)
+        first_start = min(iv[0] for _, iv in placed)
+        end = None if any(iv[1] == date.max for _, iv in placed) else max(iv[1] for _, iv in placed)
         composite = next((r.composite for r in runs_of if r.composite), None)
         share_class = next((r.share_class for r in runs_of if r.share_class), None)
         cik = next((r.cik for r in runs_of if r.cik), None)
@@ -601,7 +601,7 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
                 types, first_start, end, tuple(sorted({r.ticker for r in runs_of})),
             )
         )  # fmt: skip
-        ref = group[0][0].first_ref
+        ref = placed[0][0].first_ref
         identifiers.append(PitIdentifier(symbol, kind, value, first_start, end, ref))
         if (
             kind == COMPOSITE_FIGI
@@ -611,7 +611,7 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
             identifiers.append(
                 PitIdentifier(symbol, SHARE_CLASS_FIGI, share_class, first_start, end, ref)
             )
-        for run, (s0, s1) in group:
+        for run, (s0, s1) in placed:
             spans.append(
                 PitSpan(
                     symbol, run.ticker, s0, None if s1 == date.max else s1, run.first_ref,

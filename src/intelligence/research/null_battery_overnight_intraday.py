@@ -30,6 +30,8 @@ from __future__ import annotations
 import dataclasses
 import math
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -43,7 +45,7 @@ from src.intelligence.research.timing import timing_test
 
 # Members as registered (research/specs/family2_overnight_intraday.yaml): name, function,
 # params, slot history (the E17 memory).
-MEMBERS = (
+MEMBERS: tuple[tuple[str, Callable[..., Any], dict[str, int], int], ...] = (
     ("intraday_persistence_20", f2.intraday_persistence, {"window_sessions": 20}, 20),
     ("intraday_persistence_60", f2.intraday_persistence, {"window_sessions": 60}, 60),
     ("overnight_to_intraday_20", f2.overnight_to_intraday, {"window_sessions": 20}, 21),
@@ -85,7 +87,7 @@ def _legs(sc: LegsScenario, rng: np.random.Generator) -> np.ndarray:
     """[S, 3, m] leg returns under H0 (leg noise sd about 1). Stresses come from
     null_panels, the shared generator (todo 546)."""
     s_n, m = sc.sessions, sc.names
-    u = null_panels.noise(rng, (s_n, LEGS, m), sc.t4_noise)
+    u: np.ndarray = null_panels.noise(rng, (s_n, LEGS, m), sc.t4_noise)
     if sc.vol_clustering:
         u = null_panels.vol_clustering(u, rng)
     u = u + np.asarray(sc.leg_means)[None, :, None]
@@ -198,11 +200,15 @@ def simulate(sc: LegsScenario, seed: int) -> dict[str, tuple[float, float]]:
     return out
 
 
+def _doubled(legs: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (2 * legs[0], 2 * legs[1], 2 * legs[2])
+
+
 def scenarios() -> tuple[LegsScenario, ...]:
     """Gating cells at twice the measured leg means and static sizes; diagnostics at 0.3."""
-    means = tuple(2 * a for a in MEASURED_LEG_MEANS)
-    static = tuple(2 * v for v in MEASURED_STATIC_SD)
-    other = dict(
+    means = _doubled(MEASURED_LEG_MEANS)
+    static = _doubled(MEASURED_STATIC_SD)
+    other: dict[str, Any] = dict(
         t4_noise=True, factor_sd=0.5, vol_clustering=True, late_fraction=0.4, late_name=True
     )
     at_03 = (0.3, 0.3, 0.3)

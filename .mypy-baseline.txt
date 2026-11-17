@@ -196,7 +196,6 @@ src/intelligence/research/null_battery.py:0: error: Argument 4 to
 src/intelligence/research/null_battery.py:0: error: Argument 4 to
 src/intelligence/research/null_battery.py:0: error: Incompatible types in
 src/intelligence/research/null_battery.py:0: error: Value expression in
-src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 1
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
@@ -223,7 +222,6 @@ src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 4
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 5
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 5
 src/intelligence/research/null_battery_daily_residual.py:0: error: Need type
-src/intelligence/research/null_battery_overnight_intraday.py:0: error: Need
 src/intelligence/research/null_battery_persistent.py:0: error: Argument
 src/intelligence/research/null_battery_persistent.py:0: error: Argument
 src/intelligence/research/null_battery_persistent.py:0: error: Argument 1 to

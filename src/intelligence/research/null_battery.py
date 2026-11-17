@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from typing import Literal
+from typing import Literal, Protocol
 
 import numpy as np
 
@@ -78,7 +78,22 @@ def _slot_returns(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
     return u
 
 
-def listing_mask(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
+class _Listing(Protocol):
+    """The scenario fields a listing mask reads; NullScenario and the legs scenarios have them."""
+
+    @property
+    def sessions(self) -> int: ...
+    @property
+    def names(self) -> int: ...
+    @property
+    def late_fraction(self) -> float: ...
+    @property
+    def late_name(self) -> bool: ...
+    @property
+    def bars_per_session(self) -> int: ...
+
+
+def listing_mask(sc: _Listing, rng: np.random.Generator) -> np.ndarray:
     """bool [n, m]: False before each name lists."""
     starts = null_panels.listing_starts(rng, sc.sessions, sc.names, sc.late_fraction, sc.late_name)
     return null_panels.listing_mask(starts, sc.sessions, sc.names, sc.bars_per_session)
