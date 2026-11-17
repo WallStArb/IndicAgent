@@ -108,3 +108,93 @@ def test_splits_are_applied_whatever_their_order_in_the_input():
         [SplitFactor(date(2024, 6, 7), 10.0), SplitFactor(date(2022, 7, 15), 20.0)],
     )
     assert forward == backward == {date(2022, 1, 1): pytest.approx(200.0)}
+
+
+# --- a split row naming a raw series unadjusted rescales that series (CLBK share exchange) ---
+
+from src.intelligence.bars.split_rescale import (  # noqa: E402
+    SplitRow,
+    routed_splits_known_at,
+    split_row_routes,
+    splits_known_at,
+)
+
+ALPACA = ("alpaca", "sip_rth")
+CLBK_LAST_OLD = datetime(2026, 7, 20, 19, 55, tzinfo=UTC)  # 15:55 ET, last old-scale session
+CLBK_FIRST_NEW = datetime(2026, 7, 21, 13, 30, tzinfo=UTC)
+HORIZON = datetime(2026, 11, 17, 12, 0, tzinfo=UTC)
+RECORDED = datetime(2026, 11, 17, 3, 0, tzinfo=UTC)
+
+
+def _row(*, market_fact=False, routes=frozenset({ALPACA}), effective=date(2026, 7, 20)):
+    return SplitRow(effective, 2.2, RECORDED, market_fact, routes)
+
+
+def _alpaca(stamp, close=24.5, volume=1000):
+    return _bar("CLBK", stamp, close, close, close, close, volume, kind="sip_rth", vendor="alpaca")
+
+
+def _canonical(winners, rows, horizon=HORIZON):
+    return canonicalize_winners(
+        winners,
+        {"CLBK": splits_known_at(rows, horizon)},
+        {"CLBK": routed_splits_known_at(rows, horizon)},
+    )
+
+
+def test_a_route_named_row_rescales_the_named_series_through_its_effective_date_only():
+    old, new = _canonical([_alpaca(CLBK_LAST_OLD), _alpaca(CLBK_FIRST_NEW, 11.08, 5000)], [_row()])
+    assert (old.close, old.volume, old.kind, old.vendor) == (
+        pytest.approx(24.5 / 2.2),
+        2200,
+        "sip_rth",
+        "alpaca",
+    )
+    assert (new.close, new.volume) == (11.08, 5000)  # the next session is untouched
+
+
+def test_the_boundary_session_is_the_last_old_scale_session():
+    first_session_bar = datetime(2026, 7, 20, 13, 30, tzinfo=UTC)
+    (bar,) = _canonical([_alpaca(first_session_bar)], [_row()])
+    assert bar.close == pytest.approx(24.5 / 2.2)
+    (after,) = _canonical([_alpaca(datetime(2026, 7, 21, 13, 30, tzinfo=UTC))], [_row()])
+    assert after.close == 24.5
+
+
+def test_a_series_the_row_does_not_name_keeps_its_scale():
+    other = _bar(
+        "CLBK", CLBK_LAST_OLD, 24.5, 24.5, 24.5, 24.5, 1000, kind="smart_trades", vendor="ibkr"
+    )
+    assert _canonical([other], [_row()]) == [other]
+
+
+def test_a_row_without_routes_or_not_yet_known_changes_nothing():
+    bar = _alpaca(CLBK_LAST_OLD)
+    assert _canonical([bar], [_row(routes=frozenset())]) == [bar]
+    unexecuted = _row(effective=date(2026, 12, 1))
+    assert _canonical([bar], [unexecuted]) == [bar]
+    assert routed_splits_known_at([_row()], datetime(2026, 11, 17, 2, 0, tzinfo=UTC)) == {}
+
+
+def test_a_market_row_without_routes_still_rescales_only_massive():
+    market = _row(market_fact=True, routes=frozenset())
+    massive = _bar("CLBK", CLBK_LAST_OLD, 24.5, 24.5, 24.5, 24.5, 1000)
+    alpaca = _alpaca(CLBK_LAST_OLD)
+    out_massive, out_alpaca = _canonical([massive, alpaca], [market])
+    assert (out_massive.kind, out_massive.close) == ("sip_flat_adj", pytest.approx(24.5 / 2.2))
+    assert out_alpaca == alpaca
+
+
+def test_a_second_run_over_the_same_raw_gives_the_same_rows():
+    winners = [_alpaca(CLBK_LAST_OLD), _alpaca(CLBK_FIRST_NEW, 11.08, 5000)]
+    assert _canonical(winners, [_row()]) == _canonical(winners, [_row()])
+
+
+def test_route_parsing_reads_the_jsonb_list_or_its_text_and_refuses_a_bad_one():
+    assert split_row_routes(None) == frozenset()
+    assert split_row_routes('[{"vendor": "alpaca", "kind": "sip_rth"}]') == {ALPACA}
+    assert split_row_routes([{"vendor": "alpaca", "kind": "sip_rth"}]) == {ALPACA}
+    with pytest.raises(ValueError):
+        split_row_routes([{"vendor": "alpaca"}])
+    with pytest.raises(ValueError):
+        split_row_routes({"vendor": "alpaca", "kind": "sip_rth"})

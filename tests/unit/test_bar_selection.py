@@ -138,7 +138,8 @@ class FakeCursor:
                 for c in self.raw
             ]
         elif "FROM corporate_action_current" in sql:
-            self._result = self.splits
+            # (effective_date, factor, recorded_at, inferred_by, rows_file[, unadjusted_routes])
+            self._result = [(*row, None) if len(row) == 5 else row for row in self.splits]
         elif "FROM market_data_ohlcv" in sql:
             self._result = self.canonical
         else:
@@ -628,7 +629,73 @@ def test_a_split_row_of_unknown_meaning_refuses_the_selection():
         _massive_run(_massive_conn([unknown]), datetime(2024, 7, 1, tzinfo=UTC))
 
 
-def test_splits_are_read_only_when_a_massive_winner_exists():
-    conn = FakeConn([_cand("ibkr", "named")])
+def test_a_selection_with_no_winner_reads_no_split_rows():
+    conn = FakeConn([])
     _run(conn)
     assert not any("corporate_action_current" in sql for sql, _ in conn.cur.executed)
+
+
+# A route-named row (todo 592 operator row, CLBK 2026-07-20): the named series is divided by its
+# factor before the effective date; the daily rule keeps its own 1d path.
+CLBK_OLD_BAR = datetime(2026, 7, 20, 19, 55, tzinfo=UTC)
+CLBK_ROUTE_ROW = (
+    date(2026, 7, 20),
+    2.2,
+    datetime(2026, 11, 17, 3, 0, tzinfo=UTC),
+    "calendar_audit",
+    True,
+    [{"vendor": "alpaca", "kind": "sip_rth"}],
+)
+
+
+def _clbk_run(conn, horizon):
+    return select_and_write(
+        conn,
+        symbols=["CLBK"],
+        timeframe="5m",
+        start=CLBK_OLD_BAR - timedelta(days=1),
+        end=CLBK_OLD_BAR + timedelta(days=1),
+        policy_rows=[PolicyRow("5m", None, date(2020, 1, 1), None, "alpaca", None)],
+        kind_order=KIND_ORDER,
+        batch_rows=1000,
+        horizon=horizon,
+    )
+
+
+def _alpaca_bar():
+    return Candidate(CLBK_OLD_BAR, "CLBK", "5m", "alpaca", "sip_rth", 22.0, 24.5, 22.0, 24.5, 1000)
+
+
+def test_an_alpaca_winner_named_by_a_route_row_is_written_rescaled_and_stable():
+    first, second = FakeConn([_alpaca_bar()], splits=[CLBK_ROUTE_ROW]), FakeConn(
+        [_alpaca_bar()], splits=[CLBK_ROUTE_ROW]
+    )
+    _clbk_run(first, datetime(2026, 11, 17, 12, 0, tzinfo=UTC))
+    _clbk_run(second, datetime(2026, 11, 17, 12, 0, tzinfo=UTC))
+    row = _written(first)
+    assert row[3:7] == pytest.approx([10.0, 24.5 / 2.2, 10.0, 24.5 / 2.2])
+    assert row[7:] == [2200, "alpaca", "sip_rth"]
+    assert row == _written(second)
+
+
+def test_the_same_alpaca_winner_is_unchanged_without_the_route_row_or_before_it_is_recorded():
+    none = FakeConn([_alpaca_bar()])
+    _clbk_run(none, datetime(2026, 11, 17, 12, 0, tzinfo=UTC))
+    early = FakeConn([_alpaca_bar()], splits=[CLBK_ROUTE_ROW])
+    _clbk_run(early, datetime(2026, 11, 17, 2, 0, tzinfo=UTC))
+    assert _written(none)[3:] == [22.0, 24.5, 22.0, 24.5, 1000, "alpaca", "sip_rth"]
+    assert _written(early) == _written(none)
+
+
+def test_selection_refuses_1d_so_the_daily_rule_keeps_its_own_route_path():
+    with pytest.raises(ValueError):
+        select_and_write(
+            FakeConn([]),
+            symbols=["CLBK"],
+            timeframe="1d",
+            start=CLBK_OLD_BAR,
+            end=CLBK_OLD_BAR + timedelta(days=1),
+            policy_rows=[],
+            kind_order=KIND_ORDER,
+            batch_rows=1000,
+        )

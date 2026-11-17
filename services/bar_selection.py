@@ -60,6 +60,8 @@ from src.intelligence.bars.split_rescale import (
     SplitRow,
     canonicalize_winners,
     needs_canonicalization,
+    routed_splits_known_at,
+    split_row_routes,
     splits_known_at,
 )
 from src.intelligence.bars.vendor_kind import BAR_VENDORS
@@ -90,7 +92,8 @@ _ONE_US = timedelta(microseconds=1)
 # Every split a series has ever had; the pure `splits_known_at` applies the horizon, so the rule
 # lives in one place (the gate shares both).
 _READ_SPLITS_SQL = (
-    "SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' "
+    "SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file', "
+    "detail->'unadjusted_routes' "
     "FROM corporate_action_current "
     "WHERE symbol = %s AND action_type IN ('split', 'reverse_split')"
 )
@@ -101,8 +104,14 @@ def read_split_rows(cur: Any, symbol: str) -> list[SplitRow]:
     (corporate_actions.is_market_split, which raises on an inferred_by it does not know)."""
     cur.execute(_READ_SPLITS_SQL, (symbol,))
     return [
-        SplitRow(day, factor, recorded_at, is_market_split(by, operator_rows_file=rows_file))
-        for day, factor, recorded_at, by, rows_file in cur.fetchall()
+        SplitRow(
+            day,
+            factor,
+            recorded_at,
+            is_market_split(by, operator_rows_file=rows_file),
+            split_row_routes(routes),
+        )
+        for day, factor, recorded_at, by, rows_file, routes in cur.fetchall()
     ]
 
 
@@ -262,9 +271,11 @@ def select_and_write(
                 cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, vendors))
                 n_dropped += cur.rowcount
             winners = [w for w in outcome.winners if w.timestamp not in exclude]
-            if needs_canonicalization(winners):
-                splits = splits_known_at(read_split_rows(cur, symbol), horizon)
-                winners = canonicalize_winners(winners, {symbol: splits})
+            split_rows = read_split_rows(cur, symbol) if winners else []
+            routed = routed_splits_known_at(split_rows, horizon)
+            if needs_canonicalization(winners) or routed:
+                splits = splits_known_at(split_rows, horizon)
+                winners = canonicalize_winners(winners, {symbol: splits}, {symbol: routed})
             if not winners:
                 continue
             cur.execute(_READ_CANONICAL_SQL, (symbol, timeframe, start, end))

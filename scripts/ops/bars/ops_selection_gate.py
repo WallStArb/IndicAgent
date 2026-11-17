@@ -91,6 +91,7 @@ from src.intelligence.bars.split_rescale import (  # noqa: E402
     SplitFactor,
     canonicalize_winners,
     needs_canonicalization,
+    routed_splits_known_at,
     splits_known_at,
 )
 from src.intelligence.bars.vendor_kind import (  # noqa: E402
@@ -242,17 +243,23 @@ def selected_rows(
     kind_order: Mapping[str, int],
     choices_out: list[ChoiceRecord] | None = None,
     splits: Sequence[SplitFactor] = (),
+    routed: Mapping[tuple[str, str], Sequence[SplitFactor]] | None = None,
 ) -> tuple[dict[datetime, Row], dict[str, int]]:
     """The rows the live writer would write: winners with a volume (a NULL-volume winner is
     skipped and counted, as bar_selection does), one vendor per session. `choices_out` receives
     the session choices as the rows bar_session_choice must hold. An unadjusted Massive winner
     is rescaled by `splits` (the series' splits known at the run's horizon) into the canonical
-    sip_flat_adj row, exactly as the writer does; the series is one symbol."""
+    sip_flat_adj row, and a winner a split row names unadjusted by `routed` (by (vendor, kind)),
+    exactly as the writer does; the series is one symbol."""
     outcome = select_slots(candidates, policy_rows, kind_order)
     winners = outcome.winners
-    if needs_canonicalization(winners):
+    if needs_canonicalization(winners) or routed:
         symbols = {w.symbol for w in winners}
-        winners = canonicalize_winners(winners, {symbol: splits for symbol in symbols})
+        winners = canonicalize_winners(
+            winners,
+            {symbol: splits for symbol in symbols},
+            {symbol: routed or {} for symbol in symbols},
+        )
     if choices_out is not None:
         choices_out.extend(choice_record(c) for c in outcome.choices)
     rows: dict[datetime, Row] = {}
@@ -938,17 +945,19 @@ def compare_window(
     candidates = read_candidates(cur, symbol, timeframe, window)
     if not canonical and not candidates and not unmapped:
         return None
+    split_rows = read_split_rows(cur, symbol) if candidates else []
     splits = (
-        splits_known_at(read_split_rows(cur, symbol), horizon)
+        splits_known_at(split_rows, horizon)
         if any(c.vendor == VENDOR_MASSIVE for c in candidates)
         else []
     )
+    routed = routed_splits_known_at(split_rows, horizon)
     sessions = tuple(session_date(edge) for edge in window)
     cur.execute(_CHOICES_SQL, (symbol, timeframe, *sessions))
     recorded = [tuple(r) for r in cur.fetchall()]
     expected: list[ChoiceRecord] = []
     selected, counts = selected_rows(
-        candidates, policy, kind_order, choices_out=expected, splits=splits
+        candidates, policy, kind_order, choices_out=expected, splits=splits, routed=routed
     )
     diff = compare_series(
         symbol, timeframe, canonical, selected, sample_limit=sample_limit, counts=counts
