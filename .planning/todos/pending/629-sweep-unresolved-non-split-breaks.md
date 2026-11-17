@@ -211,8 +211,23 @@ todo 624 is fixed). The HLT 2016-12-13 seam remains until the Alpaca/Massive lev
 ### Rows file and dry run
 
 `config/corporate_actions/split_rescale_rows_2026_11_17_t629.csv` (UNIT 2025-08-01, factor 0.6029, route `alpaca/sip_rth`): dry
-run, "dry run, would write 1 of 1 decided rows". Not applied. After the write: reselect UNIT 1d (the Alpaca bars of 2025-07 and
-earlier rise by 1/0.6029), then the sweep should no longer list UNIT.
+run, "dry run, would write 1 of 1 decided rows". Applied 2026-11-17 after an independent recompute (below).
+
+Independent review (indicagent worker, from `ohlcv_raw`, not the prior worker's numbers): 1d closes per vendor. Alpaca sip_rth over
+2,409 shared sessions up to 2025-08-01: Alpaca / IBKR smart_trades median 0.6029 (min 0.6017, max 0.6042, the spread is IBKR's
+two-decimal rounding), no session outside 0.005 of 0.6029 in 2025-07; from 2025-08-04 the ratio is 1.0000 (0.9991 to 1.0031, 320
+sessions). Alpaca closes 5.32, 4.91, then 8.09 on 2025-08-04 (step +0.499); IBKR, which is already on the new scale throughout,
+reads 8.82, 8.14, 8.09 (step -0.006, the real move, equal to the row's calendar step -0.006162). Massive's UNIT 1d starts
+2025-08-04, so it holds nothing on the old scale and needs no rescale. Direction: Alpaca closes up to 2025-08-01 rise by
+1/0.6029 (4.91 becomes 8.144 against IBKR 8.14). The 8-K evidence in the row (0.6029 shares of new Uniti per old share, effective
+2025-08-01) matches; effective_date 2025-08-01 is the last old-scale session as the loader defines it. Verdict ACCEPT.
+
+Run: `--apply-rows ... --commit` wrote 1 of 1 rows (exit 0); `services.bar_derivation --stage daily --apply --symbols UNIT` (exit 0);
+`ops_source_policy --reselect-only --timeframe 5m --valid-from 2003-09-01 --symbols UNIT --apply` (accepts `--symbols`; gate exit 3
+from unreviewed basis flags only, as for the other names); `--stage grid --apply --symbols UNIT` (exit 0). Canonical 1d now reads
+9.338, 8.824, 8.144, 8.09 across the event; 5m last pre-event bar 8.127, first post-event 7.775. The strict sweep with
+`--dispositions config/corporate_actions/sweep_dispositions.csv` reads 11 unresolved (was 12), no `recorded_unapplied` or
+`recorded_double_adjusted`: FAF, RTX, SN x2, SNEX, SSB, SVRA x3, THRM (todo 624) and SW 2016-05-16 (`unrecorded_split`).
 
 ### Data-integrity follow-up for the lead
 
