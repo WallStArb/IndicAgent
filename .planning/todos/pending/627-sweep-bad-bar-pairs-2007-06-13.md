@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_review
 priority: P2
 filed: 2026-11-17
 source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; the unresolved list is the run's _unresolved.csv)
@@ -41,3 +41,25 @@ archive file for that day. If it is the file, fix by class (one quarantine rule 
 ## Gates
 
 The sweep lists none of these ten rows; the D7 verdict set is unchanged except through the listing; unit suite exit code.
+
+## Measured 2026-11-17 (indicagent-55, read-only)
+
+Class: one Massive day-file defect on 2007-06-13, in one vendor. The Massive `sip_flat` 1d row of that day carries a
+shared bad print in sixteen names: low 22.29 in fourteen (close also 25.55 in eight: ACGL, ACTG, IDCC, IDXX, SHEN,
+SIGI, SIRI, SLAB; high or open 25.55 for ACTG and SIRI; low 22.29 only for ADBE, ADSK, AMZN, FCFS, FCNCA, LKQ,
+LRCX, POOL). The same constants appear in no other Massive 1d row of any day (a scan of every date for four or more
+names sharing a low under 0.6 of the close, and of shared closes under 0.6 or over 1.6 of the open, finds only this
+day). IBKR smart_trades is clean for each name that day (low over close 0.96 to 0.99 against Massive's 0.11 to 0.54 on
+the eight whose range is visibly off) and Massive reads normally on 2007-06-12 and 2007-06-14, so the defect is that
+day's Massive file, not canonical's processing. Canonical carries all sixteen bars (Massive is primary); the sweep
+sees five (step above 0.4: ACGL, ACTG, IDXX, SHEN, SIRI, each with an equal and opposite step the next day), IDCC, SIGI
+and SLAB sit below its threshold, and the other eight carry a wrong low only. `vol_scaled_jump` flags seven but is not a
+quarantine rule. None of the sixteen was in `operator_bad_bars.csv`.
+
+Prepared (not applied): sixteen `operator_bad_bars.csv` rows (the whole bar is quarantined, the evidence cites this
+todo). Finding on the way: `--quarantine-unconfirmed` refused the whole list since the step 7 rebuild, because 109 of
+the 131 earlier listed bars (APLD, BMNR, RCAT, FRHC, IDR and others, plus SIRI 2002 and SNEX 2002) exist only in IBKR
+raw now (Massive starts later for those names or begins 2003-09-10). A listed bar raw holds but canonical does not is
+counted as moot; a bar in no series still raises. Dry run on the audit of the sixteen: 39 bars would be quarantined, 109
+moot. The quarantine rewrites each rule's flags globally, so applying it also rewrites the 38 stored earlier bars.
+Gates: unit suite exit code, `tools/gate.py`.
