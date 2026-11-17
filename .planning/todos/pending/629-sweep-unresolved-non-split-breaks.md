@@ -251,3 +251,39 @@ sip_flat, Alpaca sip_rth, IBKR smart_trades, volume above zero), against what ca
 Order for the next worker: (1) write `real move` disposition lines for the seven real-move rows above; (2) Class A and
 A2 filings in batches of ten; (3) FAF, SSB and HON filings; (4) the seam rows into todo 624; (5) NESR, POWI, THRM
 into the coverage list. The lead session (indicagent-77) was not reachable when this was written.
+
+## Worker pass 2026-11-17 (steps 2 to 5; prepared, nothing applied, no DB write)
+
+Class A: all eleven distribution rows already carry a disposition (the 24 of the triage above); RTX 2020-04-03 stays with the Alpaca
+level error in todo 624. Class A2 and the Massive-route splits: the six rows are in
+`config/corporate_actions/split_rescale_rows_2026_11_17_massive_route.csv` (ENOV, MSI, HON, HLT, MDU x2); `--apply-rows` dry run on
+the writer of todo 633: "dry run, would write 6 of 6 decided rows". The draft `calendar_adjusted_step` values were wrong for
+the combined-factor lines (ENOV read "conflict", HON "adjusted", HLT "conflict"): the column is the real move net of the split
+alone, not Yahoo's fully adjusted step. Corrected as: ENOV -0.5088 and HON -0.7113 (Alpaca sip_rth, adjusted for the reverse split
+and not for the distribution, steps across the effective date); MSI -0.4832 and HLT -0.3475 (no split-only incumbent series;
+Yahoo's adjusted step less `ln(calendar_factor / factor)`, `calendar_factor` filled in the file). UNIT stays in its own rows file.
+The matching distribution dispositions (ENOV 2022-04-05, MSI 2011-01-04, HLT 2017-01-04, HON 2026-06-29) are in
+`config/corporate_actions/sweep_dispositions_pending_massive_route_rows.csv`, deliberately not in `sweep_dispositions.csv`: they
+move there in the same commit that applies the six rows, never before (a disposition alone hides the unrecorded reverse split).
+Todo 633 scope 2 is therefore down to apply, reselect and the sweep rerun.
+
+Step 3: HON is decided by its row (above). FAF 2010-06-02: the pit snapshots name FIRST AMERICAN CORP (THE), CIK 0000855182, at every
+month-end to 2010-05-31 and FIRST AMERICAN FINANCIAL CORPORATION, CIK 0001472787, from 2010-06-30, so the pre-event Massive bars
+are the parent (CoreLogic) and the series is an identity seam (todo 624). SSB 2004-03-09: the pit snapshots name the ticker
+CITIGRP GLB MKTS HLDGS INC STREET.COM SECTOR 06 (a structured note, delisted 2006-05-31) from 2003-12-31 to 2010, and South
+State Corp only from 2020; Massive's 801 canonical bars to 2006-12-29 are not SouthState (IBKR holds 30 throughout since 1999),
+so also an identity seam (624).
+
+Step 5: THRM 2012-06-13 is an identity seam, not a hole alone: the pit snapshots read THERMAGE, INC. (delisted 2009-01-12) at
+2006-12-29 to 2011-12-30 and GENTHERM INC (CIK 0000903129) from 2012-12-31 (Gentherm took the ticker from Amerigon, ARGN, on the
+break date); canonical holds Thermage bars 2006-11-10 to 2009-01-09 and then nothing until 2012-06-13 (todo 624). POWI 2006-10-30:
+canonical lineage is Massive alone on both sides at one adjusted scale (6.90 then 10.86, raw / 2), the same issuer by the pit names,
+a two-bar raw span between 2006-08-01 and 2006-10-30, and no second vendor before 2007-08-13: disposed as a coverage hole in
+`sweep_dispositions.csv`. NESR 2024-10-22 already has its coverage disposition (with GSAT, PMTS, SMCI; todo 632 owns the bar-days
+ahead of Part F).
+
+Coverage list (disposed as returns across a hole, not rescales): GSAT 2014-04-21, NESR 2024-10-22, PMTS 2021-08-05, SMCI 2020-01-14,
+POWI 2006-10-30 (the last has no IBKR bars to lose at Part F; the hole is Massive's own).
+
+Unresolved with reason: RTX 2020-04-03 (Alpaca level, 624), FAF, SSB, THRM, SNEX, SVRA x3, SW, SN x2, HLT 2016-12-13 (identity or seam
+cases, ticketed in 624 with witnesses); the six Massive-route rows plus UNIT await the apply.

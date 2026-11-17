@@ -90,3 +90,13 @@ names the security's span.
   earlier issuer's.
 - HLT 2016-12-13 (-0.70): Alpaca 54.13 against Massive 26.38 (ratio 2.052, the 1-for-3 reverse split times the spin-off value),
   already listed above; resolves with the Massive-route reverse split row in 629.
+
+## Identity witnesses from the 629 worker pass (2026-11-17; Massive `pit_snapshots`, read-only)
+
+- FAF: CIK 0000855182 (First American Corp, CoreLogic after 2010-06-01) at month-ends to 2010-05-31, CIK 0001472787 (First American
+  Financial) from 2010-06-30; canonical's pre-2010-06-02 Massive bars belong to the first.
+- SSB: the ticker is a Citigroup Global Markets structured note (STREET.COM SECTOR 06, delisted 2006-05-31) in the snapshots of
+  2003-12-31 to 2010; South State Corp (CIK 0000764038) appears from 2020. Canonical holds 801 Massive 1d bars 2003-09-11 to
+  2006-12-29 under SSB that are not SouthState (IBKR holds 30 throughout since 1999).
+- THRM: Thermage, Inc. (delisted 2009-01-12) to 2011-12-30, Gentherm Inc (CIK 0000903129, formerly Amerigon, ARGN) from
+  2012-12-31 and from the break date 2012-06-13. Canonical holds Thermage bars 2006-11-10 to 2009-01-09, then nothing until 2012-06-13.
