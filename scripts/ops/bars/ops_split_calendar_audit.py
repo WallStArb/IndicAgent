@@ -83,7 +83,7 @@ import sys
 import time
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -1117,7 +1117,7 @@ _SWEEP_SCALE_TOL = 0.1
 _SWEEP_CALENDAR_WINDOW = 30
 
 # One pass over tradeable 1d: every step with its serving routes, then the days few names step.
-_SWEEP_STEPS_SQL = """
+_SWEEP_STEPS_CTE = """
 WITH steps AS (
     SELECT symbol, ("timestamp" AT TIME ZONE 'UTC')::date AS d, close, vendor, kind,
            ln(close / lag(close) OVER (PARTITION BY symbol ORDER BY "timestamp")) AS step,
@@ -1129,10 +1129,23 @@ WITH steps AS (
 big AS (
     SELECT * FROM steps WHERE step IS NOT NULL AND abs(step) > %s
 )
-SELECT symbol, d, round(step::numeric, 6), pv, pk, vendor, kind FROM big
+"""
+_SWEEP_STEPS_SQL = (
+    _SWEEP_STEPS_CTE + """SELECT symbol, d, round(step::numeric, 6), pv, pk, vendor, kind FROM big
 WHERE d IN (SELECT d FROM big GROUP BY d HAVING count(DISTINCT symbol) <= %s)
 ORDER BY symbol, d
 """
+)
+# The days the sweep cannot see: more than _SWEEP_MAX_LONE_NAMES names step at once, so no break
+# of the day is lone. --strict fails on any such day that is not on _MARKET_WIDE_DATES.
+_SWEEP_CROWDED_SQL = _SWEEP_STEPS_CTE + """SELECT d, count(DISTINCT symbol) FROM big GROUP BY d
+HAVING count(DISTINCT symbol) > %s ORDER BY d
+"""
+# Crowded days ruled market-wide, frozen before the first gate run (todo 622, Sweep gate
+# parameters): 2020-03-09 (22 names beyond the break size on the day of the March 2020 crash,
+# measured on canonical 2026-11-16, the only crowded day). A day is added only by a dated
+# amendment to the todo, never to make a run pass.
+_MARKET_WIDE_DATES = frozenset({date(2020, 3, 9)})
 
 # Verdicts that carry a rescale row (junction_rescale, inseries_rescale, unrecorded_split).
 _SWEEP_ROW_VERDICTS = frozenset({"junction_rescale", "inseries_rescale", "unrecorded_split"})
@@ -1444,23 +1457,40 @@ WITNESSES = {"yahoo": "Yahoo", "massive": "Massive"}
 
 _RECORDED_SQL = "SELECT symbol, effective_date, factor FROM corporate_action_current"
 
-# What the strict gate reads: the rescale verdicts and every break the sweep could not decide.
-_GATED_VERDICTS = _SWEEP_ROW_VERDICTS | {"reported"}
+# What the strict gate reads: the rescale verdicts, every break the sweep could not decide, and
+# the one-bar scale errors (a bad bar the quarantine has not taken out of the tradeable view).
+_GATED_VERDICTS = _SWEEP_ROW_VERDICTS | {"reported", "single_bar_reversal"}
+# A recorded row, or a listed bad bar, does not resolve a break the sweep still reads: the sweep
+# steps over what canonical serves, so the break is still there. These classes name that state;
+# only an operator disposition rules them.
+RECORDED_UNAPPLIED = "recorded_unapplied"  # D7 "unadjusted": canonical steps -log f
+RECORDED_DOUBLE_ADJUSTED = "recorded_double_adjusted"  # D7 "double_adjusted": it steps +log f
 UNRESOLVED_COLUMNS = ("symbol", "break_date", "verdict", "step")
+GATE_COUNTS = (
+    "unresolved",
+    "recorded_unapplied",
+    "recorded_double_adjusted",
+    "witness_error",
+    "breaks_read",
+    "active_names",
+    "crowded_days",
+    "unused_dispositions",
+)
 
 
-def _recorded_explains(event: SweepBreak, recorded: Iterable[tuple[date, float]]) -> bool:
-    """A current corporate_action row within the sweep's calendar window of the break whose factor
-    is the break's own scale (|ln factor + step| inside the sweep's scale tolerance; a split drops
-    the close by 1/factor, a reverse split lifts it). A row of another size explains nothing."""
+def _recorded_class(event: SweepBreak, recorded: Iterable[tuple[date, float]]) -> str | None:
+    """The D7 state of a recorded row of the break's own size inside the sweep's calendar window
+    (|ln factor -/+ step| inside the sweep's scale tolerance; a split drops the close by 1/factor,
+    a reverse split lifts it), or None when no such row exists."""
     window = timedelta(days=_SWEEP_CALENDAR_WINDOW)
-    return any(
-        abs(effective - event.break_date) <= window
-        and math.isfinite(factor)
-        and factor > 0
-        and abs(math.log(factor) + event.step) <= _SWEEP_SCALE_TOL
-        for effective, factor in recorded
-    )
+    for effective, factor in recorded:
+        if abs(effective - event.break_date) > window or not (math.isfinite(factor) and factor > 0):
+            continue
+        if abs(math.log(factor) + event.step) <= _SWEEP_SCALE_TOL:
+            return RECORDED_UNAPPLIED
+        if abs(math.log(factor) - event.step) <= _SWEEP_SCALE_TOL:
+            return RECORDED_DOUBLE_ADJUSTED
+    return None
 
 
 def unresolved_breaks(
@@ -1468,19 +1498,23 @@ def unresolved_breaks(
     recorded: Mapping[str, Sequence[tuple[date, float]]],
     ruled: Mapping[tuple[str, date], str],
     active: Collection[str],
+    bad_bars: Collection[tuple[str, date]] = (),
 ) -> list[SweepBreak]:
-    """The breaks nothing explains (todo 622 scope 3), on active names only: a rescale verdict or
-    an undecided ("reported") break with no current corporate_action row of its own size within
-    the sweep's calendar window and no operator disposition. Same window and tolerance as the
-    classifier; no new tunable."""
-    return [
-        event
-        for event in events
-        if event.symbol in active
-        and event.verdict in _GATED_VERDICTS
-        and (event.symbol, event.break_date) not in ruled
-        and not _recorded_explains(event, recorded.get(event.symbol, ()))
-    ]
+    """The breaks nothing rules (todo 622 scope 3), on active names only: a gated verdict with no
+    operator disposition. The sweep reads canonical, so a break it finds is still in canonical:
+    a recorded row of its size (or a listed bad bar) means the record was not applied (reselect,
+    quarantine), and the break is relabelled `recorded_unapplied` or `recorded_double_adjusted`
+    but never resolved. Same window and tolerance as the classifier; no new tunable."""
+    left = []
+    for event in events:
+        key = (event.symbol, event.break_date)
+        if event.symbol not in active or event.verdict not in _GATED_VERDICTS or key in ruled:
+            continue
+        label = _recorded_class(event, recorded.get(event.symbol, ()))
+        if event.verdict == "single_bar_reversal" and key in bad_bars:
+            label = RECORDED_UNAPPLIED
+        left.append(replace(event, verdict=label) if label else event)
+    return left
 
 
 def unused_dispositions(
@@ -1492,17 +1526,26 @@ def unused_dispositions(
 
 
 def strict_failure(counts: Mapping[str, int]) -> list[str]:
-    """Why --strict fails, empty when it passes. An empty read never passes: no active name or
-    no lone break at all means the sweep saw nothing, not that nothing is wrong."""
+    """Why --strict fails, empty when it passes. Every count is indexed directly: a missing one
+    raises, never reads as zero. An empty read never passes: no active name or no lone break at
+    all means the sweep saw nothing, not that nothing is wrong."""
     reasons = []
-    if not counts.get("active_names"):
+    if not counts["active_names"]:
         reasons.append("no active names read")
-    if not counts.get("breaks_read"):
+    if not counts["breaks_read"]:
         reasons.append("no lone breaks read (an empty sweep cannot pass)")
-    if counts.get("witness_error"):
+    if counts["witness_error"]:
         reasons.append(f"{counts['witness_error']} breaks the witness could not read")
-    if counts.get("unresolved"):
-        reasons.append(f"{counts['unresolved']} unresolved breaks")
+    if counts["unresolved"]:
+        reasons.append(
+            f"{counts['unresolved']} unresolved breaks ({counts['recorded_unapplied']} recorded "
+            f"but still stepping in canonical, {counts['recorded_double_adjusted']} recorded and "
+            "double adjusted)"
+        )
+    if counts["crowded_days"]:
+        reasons.append(
+            f"{counts['crowded_days']} days too crowded to see, not on the market-wide list"
+        )
     return reasons
 
 
@@ -1533,13 +1576,15 @@ def sweep(
     on their own either way. "unresolved" counts the gated breaks on active names with no recorded
     action of their size and no disposition (`unresolved_breaks`, written to the CSV beside
     --out); "witness_error" counts the breaks the witness could not read (always `reported`);
-    "breaks_read" and "active_names" size what the sweep saw; "unused_dispositions" counts
+    "breaks_read" and "active_names" size what the sweep saw; "crowded_days" counts the days with
+    more than _SWEEP_MAX_LONE_NAMES stepping names (unseen) that are not on _MARKET_WIDE_DATES; "unused_dispositions" counts
     disposition lines that match no break. `strict_failure` reads these."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
     ruled = operator_list(dispositions) if dispositions else {}  # validated before the work
-    counts: dict[str, int] = {}
+    bad_bars = set(operator_list(OPERATOR_BAD_BARS))
+    counts: dict[str, int] = dict.fromkeys(GATE_COUNTS, 0)
     events: list[SweepBreak] = []
     with psycopg.connect(settings.database_url) as conn:
         params = _apr(conn)
@@ -1548,6 +1593,12 @@ def sweep(
             _SWEEP_STEPS_SQL, (_SWEEP_BREAK_STEP, _SWEEP_MAX_LONE_NAMES)
         ):
             lone.setdefault(symbol, []).append((day, float(step), pv, pk, vendor, kind))
+        crowded = {
+            day: int(n)
+            for day, n in conn.execute(
+                _SWEEP_CROWDED_SQL, (_SWEEP_BREAK_STEP, _SWEEP_MAX_LONE_NAMES)
+            )
+        }
         names = list(symbols) if symbols is not None else sorted(lone)
         with (
             out.open("w", newline="") as fh,
@@ -1609,15 +1660,24 @@ def sweep(
         recorded: dict[str, list[tuple[date, float]]] = {}
         for symbol, effective, factor in conn.execute(_RECORDED_SQL):
             recorded.setdefault(symbol, []).append((effective, float(factor)))
-    unresolved = unresolved_breaks(events, recorded, ruled, active)
+    unresolved = unresolved_breaks(events, recorded, ruled, active, bad_bars)
     write_unresolved(unresolved_path(out), unresolved)
     unused = unused_dispositions(events, ruled)
     for symbol, day in unused:
         print(f"unused disposition: {symbol} {day} matches no break of this sweep", file=sys.stderr)
+    unseen = {day: n for day, n in crowded.items() if day not in _MARKET_WIDE_DATES}
+    for day, n in crowded.items():
+        listed = "market-wide list" if day in _MARKET_WIDE_DATES else "NOT on the market-wide list"
+        print(
+            f"crowded day {day}: {n} names stepped, none of them swept ({listed})", file=sys.stderr
+        )
     counts.update(
         unresolved=len(unresolved),
+        recorded_unapplied=sum(e.verdict == RECORDED_UNAPPLIED for e in unresolved),
+        recorded_double_adjusted=sum(e.verdict == RECORDED_DOUBLE_ADJUSTED for e in unresolved),
         breaks_read=len(events),
         active_names=len(active),
+        crowded_days=len(unseen),
         unused_dispositions=len(unused),
     )
     return counts

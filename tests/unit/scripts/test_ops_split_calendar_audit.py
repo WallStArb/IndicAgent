@@ -1181,35 +1181,60 @@ def _break(symbol, day, verdict, step=-0.79):
 DAY = date(2026, 7, 21)
 
 
-def test_a_break_is_resolved_only_by_a_recorded_row_of_its_own_size_inside_the_window():
+ACTIVE = {"CLBK", "DONE", "FAR", "WRONG", "REVERSE", "DOUBLE", "EDGE", "SBR", "SBRLISTED", "REP"}
+
+
+def test_a_recorded_row_relabels_the_break_it_never_resolves_it():
+    """The sweep reads canonical, so a break it finds is still there: a row of its own size inside
+    the window is a record not applied (D7 unadjusted), a row of the opposite sign is D7
+    double_adjusted, and a row of another size or outside the window explains nothing."""
     events = [
         _break("CLBK", DAY, "unrecorded_split"),  # nothing recorded
         _break("DONE", DAY, "unrecorded_split"),  # a 2.2 row 20 days off
         _break("FAR", DAY, "unrecorded_split"),  # a 2.2 row 31 days off: outside the window
+        _break("EDGE", DAY, "unrecorded_split"),  # a 2.2 row exactly 30 days off: inside
         _break("WRONG", DAY, "unrecorded_split"),  # a 4.0 row 20 days off: another event
         _break("REVERSE", DAY, "unrecorded_split", step=0.69),  # a 0.5 row: its own size
+        _break("DOUBLE", DAY, "unrecorded_split", step=0.79),  # a 2.2 row, the step the other way
     ]
     recorded = {
         "DONE": [(DAY - timedelta(days=20), 2.2)],
         "FAR": [(DAY + timedelta(days=31), 2.2)],
+        "EDGE": [(DAY - timedelta(days=30), 2.2)],
         "WRONG": [(DAY - timedelta(days=20), 4.0)],
         "REVERSE": [(DAY, 0.5)],
+        "DOUBLE": [(DAY, 2.2)],
     }
-    left = audit.unresolved_breaks(events, recorded, {}, {e.symbol for e in events})
-    assert [e.symbol for e in left] == ["CLBK", "FAR", "WRONG"]
+    left = audit.unresolved_breaks(events, recorded, {}, ACTIVE)
+    assert [(e.symbol, e.verdict) for e in left] == [
+        ("CLBK", "unrecorded_split"),
+        ("DONE", "recorded_unapplied"),
+        ("FAR", "unrecorded_split"),
+        ("EDGE", "recorded_unapplied"),
+        ("WRONG", "unrecorded_split"),
+        ("REVERSE", "recorded_unapplied"),
+        ("DOUBLE", "recorded_double_adjusted"),
+    ]
 
 
-def test_an_undecided_break_on_an_active_name_is_gated_unless_ruled():
+def test_an_undecided_break_or_a_bad_bar_on_an_active_name_is_gated_unless_ruled():
     events = [
-        _break("REP", DAY, "reported"),  # undecided: unresolved
+        _break("REP", DAY, "reported"),  # undecided: gated
         _break("REPRULED", DAY, "reported"),  # undecided, ruled by an operator line
         _break("RULED", DAY, "inseries_rescale"),
+        _break("SBR", DAY, "single_bar_reversal"),  # an unquarantined bad bar: gated
+        _break("SBRLISTED", DAY, "single_bar_reversal"),  # listed, quarantine not applied
         _break("MOVE", DAY, "real_move"),  # decided: not gated
         _break("INACTIVE", DAY, "unrecorded_split"),  # not an active name
     ]
     ruled = {("REPRULED", DAY): "continuous", ("RULED", DAY): "continuous"}
-    active = {"REP", "REPRULED", "RULED", "MOVE"}
-    assert [e.symbol for e in audit.unresolved_breaks(events, {}, ruled, active)] == ["REP"]
+    active = {"REP", "REPRULED", "RULED", "SBR", "SBRLISTED", "MOVE"}
+    left = audit.unresolved_breaks(events, {}, ruled, active, {("SBRLISTED", DAY)})
+    assert [(e.symbol, e.verdict) for e in left] == [
+        ("REP", "reported"),
+        ("SBR", "single_bar_reversal"),
+        ("SBRLISTED", "recorded_unapplied"),
+    ]
 
 
 def test_a_disposition_matching_no_break_is_reported_unused():
@@ -1222,16 +1247,39 @@ def test_a_disposition_matching_no_break_is_reported_unused():
 
 
 def _counts(**over):
-    return {"active_names": 1500, "breaks_read": 40, "unresolved": 0, "witness_error": 0} | over
+    return dict.fromkeys(audit.GATE_COUNTS, 0) | {"active_names": 1500, "breaks_read": 40} | over
 
 
 def test_strict_passes_only_a_sweep_that_read_something_and_left_nothing():
     assert audit.strict_failure(_counts()) == []
     assert audit.strict_failure(_counts(unresolved=2))
     assert audit.strict_failure(_counts(witness_error=1))
+    assert audit.strict_failure(_counts(crowded_days=1))
     assert audit.strict_failure(_counts(breaks_read=0)), "an empty sweep must not pass"
     assert audit.strict_failure(_counts(active_names=0)), "no active names must not pass"
-    assert audit.strict_failure({}), "a missing count must not pass"
+
+
+@pytest.mark.parametrize(
+    "missing", ["active_names", "breaks_read", "witness_error", "unresolved", "crowded_days"]
+)
+def test_a_missing_gate_count_raises_and_never_reads_as_zero(missing):
+    counts = _counts()
+    del counts[missing]
+    with pytest.raises(KeyError):
+        audit.strict_failure(counts)
+
+
+def test_the_class_counts_the_failure_message_reports_must_be_present_too():
+    counts = _counts(unresolved=1)
+    del counts["recorded_unapplied"]
+    with pytest.raises(KeyError):
+        audit.strict_failure(counts)
+
+
+def test_the_frozen_market_wide_list_is_the_one_recorded_in_the_todo():
+    todo = next((audit.project_root / ".planning/todos/pending").glob("622-*.md")).read_text()
+    assert audit._MARKET_WIDE_DATES == {date(2020, 3, 9)}
+    assert all(day.isoformat() in todo for day in audit._MARKET_WIDE_DATES)
 
 
 def _main_with(monkeypatch, tmp_path, counts, argv):
@@ -1303,3 +1351,103 @@ def test_dispositions_are_validated_before_the_database_is_opened(monkeypatch, t
         audit.sweep(
             type("S", (), {"database_url": "x"})(), tmp_path / "o.csv", None, None, "yahoo", bad
         )
+
+
+class _SweepConn:
+    """The sweep's queries answered from canned rows, keyed by the SQL the script runs."""
+
+    def __init__(self, *, steps, crowded, active, recorded):
+        self._rows = {
+            audit._SWEEP_STEPS_SQL: steps,
+            audit._SWEEP_CROWDED_SQL: crowded,
+            audit._ACTIVE_SQL: [(s,) for s in active],
+            audit._RECORDED_SQL: recorded,
+        }
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        return list(self._rows.get(sql, []))
+
+
+def _drive_sweep(monkeypatch, tmp_path, conn, events, errors=(), dispositions=None):
+    """Run sweep() end to end on a fake connection; classify_breaks is stubbed to `events`."""
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "_apr", lambda c: type("P", (), {"route_sessions": 3})())
+    monkeypatch.setattr(audit, "_raw_series", lambda c, symbol: {})
+    monkeypatch.setattr(
+        audit, "_fetch_calendar", lambda symbol: ([], "boom" if symbol in errors else None)
+    )
+    monkeypatch.setattr(
+        audit,
+        "classify_breaks",
+        lambda symbol, canonical, calendar, raw, breaks, route_sessions, witness: [
+            e for e in events if e.symbol == symbol
+        ],
+    )
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", tmp_path / "bad_bars.csv")
+    (tmp_path / "bad_bars.csv").write_text("symbol,date,reason,evidence\n")
+    settings = type("S", (), {"database_url": "x"})()
+    out = tmp_path / "sweep.csv"
+    return audit.sweep(settings, out, None, None, "yahoo", dispositions), out
+
+
+def test_sweep_counts_what_it_gates_and_writes_the_unresolved_breaks(monkeypatch, tmp_path):
+    """The wiring: every gate count comes out of the sweep itself, and strict_failure reads them."""
+    day = DAY
+    steps = [  # (symbol, day, step, prev vendor, prev kind, vendor, kind): the lone breaks read
+        ("CLBK", day, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+        ("DONE", day, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+        ("SBR", day, -0.5, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+        ("INACT", day, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+        ("WERR", day, -0.6, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+        ("RULED", day, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj"),
+    ]
+    events = [
+        _break("CLBK", day, "unrecorded_split"),
+        _break("DONE", day, "unrecorded_split"),
+        _break("SBR", day, "single_bar_reversal"),
+        _break("INACT", day, "unrecorded_split"),
+        _break("RULED", day, "inseries_rescale"),
+    ]
+    disp = tmp_path / "disp.csv"
+    disp.write_text(
+        "symbol,date,reason,evidence\n"
+        f"RULED,{day},continuous in the vendor close,filing\n"
+        f"STRAY,{day},typo,none\n"
+    )
+    conn = _SweepConn(
+        steps=steps,
+        crowded=[(date(2020, 3, 9), 22), (date(2021, 5, 5), 25)],  # one listed, one not
+        active=["CLBK", "DONE", "SBR", "WERR", "RULED"],
+        recorded=[("DONE", day - timedelta(days=5), 2.2)],
+    )
+    counts, out = _drive_sweep(
+        monkeypatch, tmp_path, conn, events, errors={"WERR"}, dispositions=disp
+    )
+    assert counts["breaks_read"] == 6  # five classified events plus the witness-error break
+    assert counts["active_names"] == 5
+    assert counts["witness_error"] == 1
+    assert counts["recorded_unapplied"] == 1 and counts["recorded_double_adjusted"] == 0
+    assert counts["unresolved"] == 4  # CLBK, DONE (recorded, unapplied), SBR, WERR (reported)
+    assert counts["crowded_days"] == 1  # 2021-05-05 only; 2020-03-09 is on the frozen list
+    assert counts["unused_dispositions"] == 1  # STRAY
+    listed = list(csv.DictReader(audit.unresolved_path(out).open()))
+    assert {r["symbol"]: r["verdict"] for r in listed} == {
+        "CLBK": "unrecorded_split",
+        "DONE": "recorded_unapplied",
+        "SBR": "single_bar_reversal",
+        "WERR": "reported",
+    }
+    assert audit.strict_failure(counts)
+
+
+def test_a_sweep_that_reads_nothing_is_not_clean(monkeypatch, tmp_path):
+    conn = _SweepConn(steps=[], crowded=[], active=[], recorded=[])
+    counts, _ = _drive_sweep(monkeypatch, tmp_path, conn, [])
+    assert counts["unresolved"] == 0
+    assert audit.strict_failure(counts), "an empty read must fail the gate"

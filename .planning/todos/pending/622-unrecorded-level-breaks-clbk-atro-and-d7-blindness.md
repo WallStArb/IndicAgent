@@ -44,38 +44,26 @@ Not a D4, D5 or Part F gate: the D4 rerun and D5 proceed as scripted. Scope item
 A3 split sweep window (witness first, then the `--apply-massive` record and reselect for CLBK; ATRO on its witness alone).
 Scope item 3 (the gate on lone breaks) is decided with the todo 592 owner before the first counted test.
 
-## Scope 3 design: the gate is on the sweep output (draft 2026-11-17, indicagent-ca)
+## Scope 3 design: the gate is on the sweep output (draft 2026-11-16, indicagent-ca; parameters revised 2026-11-16)
 
-Rule: `ops_split_calendar_audit --sweep --witness massive --strict --dispositions <csv>` exits 3 when a
-break with a row verdict (`unrecorded_split`, `inseries_rescale`, `junction_rescale`) on an active name has
-no current `corporate_action` row within 30 days of it and no line in the dispositions list (symbol, date,
-reason, evidence; `operator_list` format). `real_move` and `reported` stay disclosed, never gated.
+Rule: `ops_split_calendar_audit --sweep --witness massive --strict --dispositions <csv>` exits 3 on any condition in "Sweep gate parameters" below. It never changes a constant to pass.
 
 Why the sweep and not D7: the sweep already classifies breaks and runs about 70 s (2026-11-13 run); D7 is a
 77 minute audit whose modules timers import, so a new required check there waits for a quiet window and
 reclassifies every name's verdict. Revisit D7 only if a break class the sweep cannot see matters.
-
-Calibration, written before any run: no new tunable. The break size (|ln step| > 0.4), the lone-day cut (at
-most 20 names step), the scale tolerance and the 30 day window are the sweep's frozen constants, and the
-recorded-row window is the same 30 days. Expected result on the rebuilt canonical before any record: CLBK
-unresolved, the A3 2026-11-13 rows (CENT, GSAT recorded; HSIC, TMUS IBKR-era junctions) gone with the
-switch. A name that stays unresolved is fixed by a recorded row or a dispositions line with its witness,
-never by changing a constant.
 
 Known blind spot: a break below ln 0.4 (ATRO, ratio 1.2) is outside the sweep by definition; price cannot
 separate it from a move, so it stays a filing-witness item (scope 1) and is not gated.
 
 Landing: `scripts/` only, imported by no timer or service, so it needs no quiet window.
 
-Known limits of the gate (review 2026-11-17, accepted): a recorded row of any type or factor within 30 days
-counts as the explanation (a loose match; a factor check waits for a case that needs it); breaks on inactive
-names are not counted; the witness failing on a name makes `--strict` fail (`witness_error`), never pass.
+## Sweep gate parameters (frozen 2026-11-16, before any run of the gate)
 
-## Sweep gate parameters (recorded 2026-11-16, before any run of the gate)
+`--strict` reuses the classifier's constants and adds none: break size |ln step| > 0.4, lone-day cut at most 20 names, scale tolerance 0.1 (`_SWEEP_SCALE_TOL`), calendar window 30 days (`_SWEEP_CALENDAR_WINDOW`). A name that stays unresolved is fixed by a disposition with its witness, never by changing a constant. Expected result on the rebuilt canonical before any record: CLBK unresolved.
 
-`ops_split_calendar_audit --sweep --strict` is the scope 3 gate on the sweep output. Its frozen constants, all reused from the classifier and written here before the first run, no new tunable:
-
-- Explanation window: a break is explained by a current `corporate_action` row within 30 days of it (`_SWEEP_CALENDAR_WINDOW`), and only when the row's factor is the break's own scale: `|ln(factor) + step| <= 0.1` (`_SWEEP_SCALE_TOL`; a split drops the close by 1/factor, a reverse split lifts it). The "no row of any type within 15 days" wording above was the evidence for CLBK only, not the gate's window.
+- Canonical is what the sweep reads, so a break it finds is still in canonical. A current `corporate_action` row within 30 days of the break whose factor is the break's own scale (`|ln(factor) + step| <= 0.1`; a split drops the close by 1/factor, a reverse split lifts it) does not resolve it: it relabels it `recorded_unapplied` (D7 "unadjusted": the row is recorded and canonical still steps by -log f; reselect it), and a row of size `|ln(factor) - step| <= 0.1` relabels it `recorded_double_adjusted` (D7 "double_adjusted"). Only an operator disposition (symbol, date, reason, evidence) rules either class, or the break leaving canonical. The "no row of any type within 15 days" wording in the CLBK evidence above was evidence for that name only, not the gate's window.
+- Gated breaks: the rescale verdicts (`junction_rescale`, `inseries_rescale`, `unrecorded_split`), every `reported` break (the witness cannot decide or bracket), and every `single_bar_reversal`. A single-bar reversal in canonical is a one-bar scale error the `operator_bad_bars` quarantine has not taken out of the tradeable view (the quarantine removes the bar and the break); a (symbol, break date) on that list relabels it `recorded_unapplied`. `real_move` is not gated (two witnesses carry the step). A witness error always fails `--strict`.
 - Active-only: only names with `instruments.is_active` are gated, as the Gates section says ("an active name"). Inactive names, including the stage 2 inactive rows, are swept and written to the CSV but never fail the gate.
-- Gated breaks: the rescale verdicts (`junction_rescale`, `inseries_rescale`, `unrecorded_split`) and every `reported` break (the witness cannot decide, the ATRO shape), unless an operator disposition (symbol, date, reason, evidence) rules it. A witness error always fails `--strict`.
-- An empty read never passes: no active names or no lone breaks read fails, and `--strict` refuses `--symbols`. The unresolved breaks are written beside `--out` as `<out stem>_unresolved.csv` and printed on failure; disposition lines that match no break are reported.
+- An empty read never passes: no active names or no lone breaks read fails, `--strict` refuses `--symbols`, and a missing count raises.
+- Crowded days: a day on which more than 20 names step beyond the break size has no lone break, so the sweep cannot see its names. `--strict` counts and prints them and fails unless the date is on the frozen market-wide list. Measured on canonical 2026-11-16 (read-only, before any gate run) there is one: 2020-03-09 (22 names, the March 2020 crash day), which is the whole list (`_MARKET_WIDE_DATES`). A date is added only by a dated amendment here. Names on a listed day are not examined by the gate (known limit).
+- Output: the unresolved breaks are written beside `--out` as `<out stem>_unresolved.csv` and printed on failure; disposition lines that match no break are reported, not failed.
