@@ -1478,11 +1478,13 @@ def sweep(
     into --rows-out. Returns verdict counts. witness picks the continuity witness: Yahoo's
     adjusted close, or Massive's route (todo 600: raw Massive day bars on today's scale, which
     cover what ohlcv_raw holds). Every rescalable raw series and the Massive route are measured
-    on their own either way. The count "unresolved" is the row-verdict breaks on active names with
-    no recorded action and no disposition (`unresolved_breaks`; the gate of --strict)."""
+    on their own either way. "unresolved" counts the row-verdict breaks on active names with no
+    recorded action and no disposition (`unresolved_breaks`); "witness_error" counts the breaks
+    the witness could not judge (always `reported`); --strict fails on either."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
+    ruled = operator_list(dispositions) if dispositions else {}  # validated before the work
     counts: dict[str, int] = {}
     row_events: list[SweepBreak] = []
     with psycopg.connect(settings.database_url) as conn:
@@ -1518,6 +1520,7 @@ def sweep(
                         )
                         writer.writerow(asdict(event))
                         counts["reported"] = counts.get("reported", 0) + 1
+                        counts["witness_error"] = counts.get("witness_error", 0) + 1
                     continue
                 canonical = [
                     (d, float(c), v, k) for d, c, v, k in conn.execute(_CANONICAL_SQL, (symbol,))
@@ -1551,7 +1554,6 @@ def sweep(
         recorded: dict[str, list[date]] = {}
         for symbol, effective in conn.execute(_RECORDED_SQL):
             recorded.setdefault(symbol, []).append(effective)
-    ruled = operator_list(dispositions) if dispositions else {}
     counts["unresolved"] = len(
         unresolved_breaks([e for e in row_events if e.symbol in active], recorded, ruled)
     )
@@ -1610,7 +1612,8 @@ def main(argv: list[str] | None = None) -> int:
         "--strict",
         action="store_true",
         help="--sweep: exit 3 when a row-verdict break on an active name has no recorded action "
-        "and no disposition (todo 622: an unrecorded level break must reach a gate)",
+        "and no disposition, or a witness could not judge a break (todo 622: an unrecorded "
+        "level break must reach a gate)",
     )
     add_write_mode_args(
         parser,
@@ -1619,6 +1622,8 @@ def main(argv: list[str] | None = None) -> int:
         commit="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: write",
     )
     args = parser.parse_args(argv)
+    if (args.strict or args.dispositions) and not args.sweep:
+        parser.error("--strict and --dispositions apply to --sweep only")
     settings = Settings()
     if args.audit or args.sweep:
         if args.out is None:
@@ -1628,7 +1633,8 @@ def main(argv: list[str] | None = None) -> int:
                 settings, args.out, args.rows_out, args.symbols, args.witness, args.dispositions
             )
             print(counts)
-            return 3 if args.strict and counts["unresolved"] else 0
+            blind = counts["unresolved"] or counts.get("witness_error", 0)
+            return 3 if args.strict and blind else 0
         else:
             print(audit(settings, args.symbols, args.out))
         return 0

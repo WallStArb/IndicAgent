@@ -66,3 +66,7 @@ Known blind spot: a break below ln 0.4 (ATRO, ratio 1.2) is outside the sweep by
 separate it from a move, so it stays a filing-witness item (scope 1) and is not gated.
 
 Landing: `scripts/` only, imported by no timer or service, so it needs no quiet window.
+
+Known limits of the gate (review 2026-11-17, accepted): a recorded row of any type or factor within 30 days
+counts as the explanation (a loose match; a factor check waits for a case that needs it); breaks on inactive
+names are not counted; the witness failing on a name makes `--strict` fail (`witness_error`), never pass.
