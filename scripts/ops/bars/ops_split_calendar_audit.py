@@ -1573,12 +1573,13 @@ def sweep(
     into --rows-out. Returns verdict counts. witness picks the continuity witness: Yahoo's
     adjusted close, or Massive's route (todo 600: raw Massive day bars on today's scale, which
     cover what ohlcv_raw holds). Every rescalable raw series and the Massive route are measured
-    on their own either way. "unresolved" counts the gated breaks on active names with no recorded
-    action of their size and no disposition (`unresolved_breaks`, written to the CSV beside
-    --out); "witness_error" counts the breaks the witness could not read (always `reported`);
-    "breaks_read" and "active_names" size what the sweep saw; "crowded_days" counts the days with
-    more than _SWEEP_MAX_LONE_NAMES stepping names (unseen) that are not on _MARKET_WIDE_DATES; "unused_dispositions" counts
-    disposition lines that match no break. `strict_failure` reads these."""
+    on their own either way. "unresolved" counts the gated breaks on active names that no
+    --dispositions line rules (`unresolved_breaks`, written to the CSV beside --out; a recorded row
+    of a break's size only relabels it); "witness_error" counts the breaks the witness could not
+    read (always `reported`); "breaks_read" and "active_names" size what the sweep saw;
+    "crowded_days" counts the days with more than _SWEEP_MAX_LONE_NAMES stepping names (unseen)
+    that are not on _MARKET_WIDE_DATES; "unused_dispositions" counts disposition lines that match
+    no break. `strict_failure` reads these."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
@@ -1734,9 +1735,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="--sweep: exit 3 when a row-verdict break on an active name has no recorded action "
-        "and no disposition, or a witness could not judge a break (todo 622: an unrecorded "
-        "level break must reach a gate)",
+        help="--sweep: exit 3 unless every break on an active name is ruled: a rescale verdict, "
+        "an undecided (reported) break, a single-bar reversal, or a recorded row not yet applied "
+        "(recorded_unapplied, recorded_double_adjusted) with no --dispositions line; a break the "
+        "witness could not read; a crowded day not on the market-wide list; or an empty read (no "
+        "active names, no breaks). Needs the whole universe (no --symbols) and the Yahoo witness "
+        "(todo 622: an unrecorded level break must reach a gate)",
     )
     add_write_mode_args(
         parser,
@@ -1749,6 +1753,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--strict and --dispositions apply to --sweep only")
     if args.strict and args.symbols is not None:
         parser.error("--strict gates the whole universe: drop --symbols")
+    if args.strict and args.witness != "yahoo":
+        parser.error(
+            "--strict needs --witness yahoo: the Massive witness is the series canonical serves, "
+            "so it cannot witness a break on a Massive-served bar against itself"
+        )
     settings = Settings()
     if args.audit or args.sweep:
         if args.out is None:

@@ -1331,6 +1331,18 @@ def test_strict_refuses_a_partial_universe(monkeypatch, tmp_path, argv):
     assert stopped.value.code == 2
 
 
+def test_strict_refuses_the_massive_witness_that_cannot_witness_its_own_tape(monkeypatch, tmp_path):
+    """Under --witness massive a break on a Massive-served bar reads real_move by construction (the
+    witness is raw Massive divided by the scales selection applies), so an unrecorded split there
+    would pass; strict needs the independent Yahoo witness."""
+    with pytest.raises(SystemExit) as stopped:
+        _main_with(monkeypatch, tmp_path, _counts(), ["--strict", "--witness", "massive"])
+    assert stopped.value.code == 2
+    assert _main_with(monkeypatch, tmp_path, _counts(), ["--strict", "--witness", "yahoo"])[0] == 0
+    # the Massive witness stays available to the ungated sweep
+    assert _main_with(monkeypatch, tmp_path, _counts(), ["--witness", "massive"])[0] == 0
+
+
 @pytest.mark.parametrize("flag", [["--strict"], ["--dispositions", "d.csv"]])
 def test_the_sweep_flags_need_a_sweep(monkeypatch, tmp_path, flag):
     monkeypatch.setattr(audit, "Settings", lambda: object())
