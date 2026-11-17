@@ -2420,6 +2420,7 @@ def _massive_name(split_recorded_at):
             "recorded_at": split_recorded_at,
             "inferred_by": "massive_reference",
             "rows_file": False,
+            "routes": None,
         }
     ]
     return name
@@ -2437,6 +2438,59 @@ def test_a_split_recorded_after_the_selection_fails_split_horizon_fresh():
 def test_a_split_recorded_after_the_run_start_is_not_yet_known_and_passes():
     run = _intraday(_IntradayConn({"AAA": _massive_name(_I_NOW + timedelta(hours=1))}))
     assert _verdict(run, "AAA|5m", "split_horizon_fresh")[5] is True
+
+
+def _route_named_name(recorded_at, *, rescaled, routes=({"vendor": "alpaca", "kind": "sip_rth"},)):
+    """A name whose 5m bars are Alpaca sip_rth, with a 2:1 operator row on the last session that names
+    alpaca/sip_rth unadjusted (todo 625); `rescaled` says whether selection already divided them."""
+    _, rows = _intraday_series()
+    bars = [
+        {
+            **r,
+            "vendor": "alpaca",
+            "kind": "sip_rth",
+            "raw_close": r["close"],
+            "close": r["close"] / 2.0 if rescaled else r["close"],
+        }
+        for r in rows
+    ]
+    name = _agreeing_name(bars)
+    name["splits"] = [
+        {
+            "effective_date": _I_DAYS[-1],
+            "factor": 2.0,
+            "recorded_at": recorded_at,
+            "inferred_by": "calendar_audit",
+            "rows_file": True,
+            "routes": list(routes),
+        }
+    ]
+    return name
+
+
+def test_a_route_row_recorded_after_the_selection_fails_split_horizon_fresh():
+    # CLBK before its reselect: the row is recorded, the Alpaca 5m bars still sit on the old scale
+    name = _route_named_name(datetime(2025, 6, 3, 22, tzinfo=UTC), rescaled=False)
+    verdict = _verdict(_intraday(_IntradayConn({"AAA": name})), "AAA|5m", "split_horizon_fresh")
+    assert verdict[5] is False and verdict[3] == float(len(_intraday_series()[1]))
+
+
+def test_a_route_row_passes_once_the_series_is_reselected():
+    name = _route_named_name(datetime(2025, 6, 3, 22, tzinfo=UTC), rescaled=True)
+    verdict = _verdict(_intraday(_IntradayConn({"AAA": name})), "AAA|5m", "split_horizon_fresh")
+    assert verdict[5] is True and verdict[3] == 0.0
+
+
+def test_a_route_row_not_yet_known_or_naming_another_series_is_not_judged():
+    late = _route_named_name(_I_NOW + timedelta(hours=1), rescaled=False)
+    other = _route_named_name(
+        datetime(2025, 6, 3, 22, tzinfo=UTC),
+        rescaled=False,
+        routes=({"vendor": "ibkr", "kind": "smart_trades"},),
+    )
+    for name in (late, other):
+        run = _intraday(_IntradayConn({"AAA": name}))
+        assert _verdict(run, "AAA|5m", "split_horizon_fresh")[5] is True
 
 
 def test_a_name_without_massive_bars_passes_split_horizon_fresh_with_zero_metric():

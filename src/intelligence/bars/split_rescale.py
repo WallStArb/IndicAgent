@@ -23,6 +23,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
+from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.selection import SESSION_TZ, Candidate, session_date
 from src.intelligence.bars.vendor_kind import (
     KIND_MASSIVE_1D,
@@ -60,6 +61,26 @@ class SplitRow:
     recorded_at: datetime
     market_fact: bool
     routes: frozenset[tuple[str, str]] = frozenset()
+
+
+def split_row(
+    effective_date: date,
+    factor: float,
+    recorded_at: datetime,
+    inferred_by: str,
+    rows_file: bool,
+    unadjusted_routes: object,
+) -> SplitRow:
+    """One corporate_action_current split row as selection and the late-split monitor read it: the
+    one definition of which rows rescale what (corporate_actions.is_market_split, which raises on
+    an inferred_by it does not know, and the routes the row names)."""
+    return SplitRow(
+        effective_date,
+        factor,
+        recorded_at,
+        is_market_split(inferred_by, operator_rows_file=rows_file),
+        split_row_routes(unadjusted_routes),
+    )
 
 
 def split_row_routes(unadjusted_routes: object) -> frozenset[tuple[str, str]]:

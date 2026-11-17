@@ -762,6 +762,36 @@ def rebucket_5m(
     }
 
 
+def routed_horizon_stale(
+    ts_seconds: np.ndarray,
+    close: np.ndarray,
+    raw_close: np.ndarray,
+    vendor: np.ndarray,
+    kind: np.ndarray,
+    routed: Mapping[tuple[str, str], Sequence[SplitFactor]],
+) -> int:
+    """How many canonical bars of a series a split row names unadjusted (detail.unadjusted_routes,
+    split_rescale.routed_splits_known_at over the caller's rows at now) do not carry that row's
+    scale: the late-split monitor for route rescales (todo 625). Selection divides such a bar by
+    the product of the named rows' factors through their effective dates, so the check counts bars
+    whose canonical close is not exactly raw close / scale; a bar whose raw row is missing (NaN)
+    counts. A series no row names is not judged here. Pure; arrays aligned per bar."""
+    stale = 0
+    for (route_vendor, route_kind), splits in routed.items():
+        idx = np.flatnonzero((vendor == route_vendor) & (kind == route_kind))
+        if not idx.size:
+            continue
+        midnights = (
+            pd.to_datetime(ts_seconds[idx], unit="s", utc=True).tz_convert(SESSION_TZ).normalize()
+        )
+        _, first, inverse = np.unique(midnights.asi8, return_index=True, return_inverse=True)
+        days = [midnights[i].date() for i in first]
+        scales = scales_for_sessions(days, splits)
+        scale = np.array([scales[d] for d in days], dtype=np.float64)[inverse]
+        stale += int(np.count_nonzero(raw_close[idx] / scale != close[idx]))  # NaN counts
+    return stale
+
+
 def split_horizon_stale(
     ts_seconds: np.ndarray,
     close: np.ndarray,

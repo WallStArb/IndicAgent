@@ -81,3 +81,26 @@ def test_a_massive_bar_under_a_raw_kind_or_the_adjusted_kind_under_another_vendo
     assert (
         split_horizon_stale(ts[:1], close[:1], raw[:1], massive[:1], _NVDA, only_raw_kind[:1]) == 1
     )
+
+
+# --- routed_horizon_stale: a series a split row names unadjusted (todo 625) ---
+
+from src.intelligence.bars.integrity_checks import routed_horizon_stale  # noqa: E402
+
+
+def test_routed_series_bars_must_equal_raw_over_the_routed_scale():
+    old = datetime(2026, 7, 20, 19, 55, tzinfo=UTC).timestamp()
+    new = datetime(2026, 7, 21, 13, 30, tzinfo=UTC).timestamp()
+    ts = np.array([old, new])
+    raw = np.array([24.5, 11.08])
+    vendor = np.array(["alpaca", "alpaca"], dtype=object)
+    kind = np.array(["sip_rth", "sip_rth"], dtype=object)
+    routed = {("alpaca", "sip_rth"): [SplitFactor(date(2026, 7, 20), 2.2)]}
+    stale = np.array([24.5, 11.08])
+    fresh = np.array([24.5 / 2.2, 11.08])
+    assert routed_horizon_stale(ts, stale, raw, vendor, kind, routed) == 1  # the old-scale bar
+    assert routed_horizon_stale(ts, fresh, raw, vendor, kind, routed) == 0
+    assert routed_horizon_stale(ts, stale, raw, vendor, kind, {}) == 0  # no row names it
+    other = np.array(["named", "named"], dtype=object)
+    assert routed_horizon_stale(ts, stale, raw, vendor, other, routed) == 0
+    assert routed_horizon_stale(ts, fresh, np.array([np.nan, 11.08]), vendor, kind, routed) == 1

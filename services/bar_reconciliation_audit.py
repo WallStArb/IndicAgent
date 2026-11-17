@@ -54,7 +54,7 @@ import math
 import statistics
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from pathlib import Path
@@ -95,7 +95,6 @@ from src.core.bar_accumulator import _TF_MINUTES
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.market_calendar import get_market_calendar
 from src.core.models import AssetClass
-from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
@@ -130,6 +129,7 @@ from src.intelligence.bars.integrity_checks import (
     grid_parity,
     judge_name_1d,
     rebucket_5m,
+    routed_horizon_stale,
     slot_coverage_by_year,
     split_horizon_stale,
     superseded_archive_buckets,
@@ -144,7 +144,12 @@ from src.intelligence.bars.sources import (
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
 )
-from src.intelligence.bars.split_rescale import SplitFactor, SplitRow, splits_known_at
+from src.intelligence.bars.split_rescale import (
+    SplitFactor,
+    routed_splits_known_at,
+    split_row,
+    splits_known_at,
+)
 from src.intelligence.bars.vendor_kind import (
     DERIVED_PAIR,
     KIND_MASSIVE_CANONICAL,
@@ -1431,7 +1436,8 @@ _PARITY_VENDOR = VENDOR_IBKR
 # Every split row of a name, as selection reads them (services/bar_selection.read_split_rows):
 # split_horizon_fresh replays selection's rescale with the splits known at the run start.
 _SELECT_SPLIT_ROWS_SQL = """
-SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' AS rows_file
+SELECT effective_date, factor, recorded_at, inferred_by, detail ? 'rows_file' AS rows_file,
+       detail->'unadjusted_routes' AS routes
 FROM corporate_action_current
 WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
 """
@@ -1568,6 +1574,8 @@ class _FiveMinute:
     massive: np.ndarray  # bool per bar: a rescaled Massive bar (canonical kind sip_flat_adj)
     raw_close: np.ndarray  # the joined raw row's close, NaN when it has none
     massive_vendor: np.ndarray  # bool per bar: vendor massive, whatever its kind
+    vendor: np.ndarray  # str per bar: the canonical row's vendor (route rescales, todo 625)
+    kind: np.ndarray  # str per bar: the canonical row's kind
 
     @classmethod
     def from_rows(
@@ -1603,6 +1611,8 @@ class _FiveMinute:
                 dtype=np.float64,
             ),
             np.array([r["vendor"] == VENDOR_MASSIVE for r in kept], dtype=bool),
+            np.array([r["vendor"] for r in kept], dtype=object),
+            np.array([r.get("kind") for r in kept], dtype=object),
         )
 
 
@@ -1626,9 +1636,10 @@ class _IntradayInputs:
     stray: Mapping[str, int]
     # The recorded last session (listing_end_current); None while listed.
     listing_end: date | None = None
-    # The market splits known at the run start (split_rescale.splits_known_at); read only for a
-    # name holding Massive 5m bars.
+    # The market splits known at the run start (split_rescale.splits_known_at) and the splits a row
+    # names a raw series unadjusted for (routed_splits_known_at, by (vendor, kind)).
     splits: Sequence[SplitFactor] = ()
+    routed: Mapping[tuple[str, str], Sequence[SplitFactor]] = field(default_factory=dict)
 
 
 class _IntradayVerdict(NamedTuple):
@@ -1868,6 +1879,8 @@ def judge_name_intraday(
     started = perf_counter()
     stale = split_horizon_stale(
         five.ts, five.close, five.raw_close, five.massive, inputs.splits, five.massive_vendor
+    ) + routed_horizon_stale(
+        five.ts, five.close, five.raw_close, five.vendor, five.kind, inputs.routed
     )
     verdicts.append(
         _IntradayVerdict(GRID_SOURCE_TF, CHECK_SPLIT_HORIZON_FRESH, stale == 0, float(stale), 0.0)
@@ -2931,18 +2944,21 @@ class BarReconciliationAudit(BaseBatch):
         five = _FiveMinute.from_rows(
             await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
         )
-        splits: list[SplitFactor] = []
-        if five.massive.any():  # the vendor/kind mismatch count needs no split
-            rows = [
-                SplitRow(
-                    r["effective_date"],
-                    r["factor"],
-                    r["recorded_at"],
-                    is_market_split(r["inferred_by"], operator_rows_file=r["rows_file"]),
-                )
-                for r in await conn.fetch(_SELECT_SPLIT_ROWS_SQL, symbol)
-            ]
-            splits = splits_known_at(rows, horizon)
+        # Every split row as selection reads it (split_rescale.split_row): the market splits that
+        # rescale Massive bars and the rows that name a raw series unadjusted (todo 625).
+        split_rows = [
+            split_row(
+                r["effective_date"],
+                r["factor"],
+                r["recorded_at"],
+                r["inferred_by"],
+                r["rows_file"],
+                r["routes"],
+            )
+            for r in await conn.fetch(_SELECT_SPLIT_ROWS_SQL, symbol)
+        ]
+        splits = splits_known_at(split_rows, horizon)
+        routed = routed_splits_known_at(split_rows, horizon)
         answered = await _answered_windows_5m(conn, symbol, match_s)
         archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
         archive_served: dict[str, dict[datetime, datetime | None]] = defaultdict(dict)
@@ -2973,6 +2989,7 @@ class BarReconciliationAudit(BaseBatch):
             stray=stray,
             listing_end=listing_end,
             splits=splits,
+            routed=routed,
         )
 
     @staticmethod

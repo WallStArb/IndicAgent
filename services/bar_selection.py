@@ -46,7 +46,6 @@ from typing import Any
 
 import structlog
 
-from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.selection import (
     SESSION_TZ,
     Candidate,
@@ -61,7 +60,7 @@ from src.intelligence.bars.split_rescale import (
     canonicalize_winners,
     needs_canonicalization,
     routed_splits_known_at,
-    split_row_routes,
+    split_row,
     splits_known_at,
 )
 from src.intelligence.bars.vendor_kind import BAR_VENDORS
@@ -103,16 +102,7 @@ def read_split_rows(cur: Any, symbol: str) -> list[SplitRow]:
     """Every split row of the symbol, each marked market split or incumbent route correction
     (corporate_actions.is_market_split, which raises on an inferred_by it does not know)."""
     cur.execute(_READ_SPLITS_SQL, (symbol,))
-    return [
-        SplitRow(
-            day,
-            factor,
-            recorded_at,
-            is_market_split(by, operator_rows_file=rows_file),
-            split_row_routes(routes),
-        )
-        for day, factor, recorded_at, by, rows_file, routes in cur.fetchall()
-    ]
+    return [split_row(*row) for row in cur.fetchall()]
 
 
 logger = structlog.get_logger(__name__)
