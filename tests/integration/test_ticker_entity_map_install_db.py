@@ -1,7 +1,7 @@
-"""The ticker-entity map's --install and --rollback against a throwaway Postgres database.
+"""The ticker-entity map's --install, --rollback and pit install against a throwaway Postgres database.
 
-The schema is migration 586 itself (ticker_event, its retire-only trigger and the exclusion
-constraints), on minimal stand-ins for the tables it references. Each test creates the database
+The schema is migrations 586 and 598 themselves (ticker_event, its retire-only trigger and the
+exclusion constraints, the cik_ticker scheme), on minimal stand-ins for the tables they reference. Each test creates the database
 ``ticker_install_test``, seeds a small fixture and drops the database afterwards; the live
 ``indicagent`` database is never opened. Skips when no local Postgres answers (CI has none).
 
@@ -17,6 +17,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+import asyncpg
 import psycopg
 import pytest
 
@@ -24,33 +25,45 @@ import services.ticker_entity_map_writer as writer
 from services.ticker_entity_map_writer import (
     _DOC_SPANS_SQL,
     _LIVE_SQL,
+    _LOCK_SQL,
+    _PIT_LOCK_IDENTIFIERS_SQL,
+    PIT_KIND,
     DocPlacement,
     InstallRefused,
+    PitBuild,
     ReconcileInputs,
     TickerEntityMapInstaller,
     WitnessRegion,
     content_sha256,
+    install_pit_plan,
     live_old_spans,
     plan_documentary_map,
     reconcile_coverage,
     render_documentary_map,
+    rollback_in_transaction,
     write_map_files,
 )
 from src.core.database_manager import connect_with_codecs, create_pool
+from src.intelligence.bars import ticker_entity_map_pit as pit
 
 pytestmark = pytest.mark.integration
 
 DB_NAME = f"ticker_install_test_{os.getpid()}"
 MAINTENANCE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
 DSN = f"postgresql://postgres:postgres@localhost:5432/{DB_NAME}"
-MIGRATION = (
-    Path(__file__).resolve().parents[2] / "production/migrations/586_massive_admission_schema.sql"
+_MIGRATIONS = Path(__file__).resolve().parents[2] / "production/migrations"
+MIGRATIONS = (
+    _MIGRATIONS / "586_massive_admission_schema.sql",
+    _MIGRATIONS / "598_security_identifier_cik_ticker_scheme.sql",
 )
 D = date.fromisoformat
 
 # stand-ins for what migration 586 references and the installer's load-row checks read
 PREREQUISITES = """
-CREATE TABLE instruments (symbol text PRIMARY KEY);
+CREATE TABLE instruments (
+    symbol text PRIMARY KEY, base text, contract_details jsonb, is_active boolean,
+    compute_eligible boolean, compute_eligible_1d boolean, live_tradeable boolean,
+    universe_entry_date date, universe_cohort text);
 CREATE TABLE controlled_vocabulary (
     namespace text, code text, label text, description text, sort_order int,
     UNIQUE (namespace, code));
@@ -90,7 +103,8 @@ def db():
         try:
             with psycopg.connect(DSN, autocommit=True) as conn:
                 conn.execute(PREREQUISITES)
-                conn.execute(MIGRATION.read_text())
+                for migration in MIGRATIONS:
+                    conn.execute(migration.read_text())
                 _seed(conn)
             yield DSN
         finally:
@@ -326,3 +340,168 @@ def test_the_database_is_dropped_after_the_tests():
     with admin:
         left = admin.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,)).fetchone()
     assert left is None
+
+
+# ---------------------------------------------------------------------------------------------
+# The pit install and its rollback (retire_install_identifiers), on the real schema
+# ---------------------------------------------------------------------------------------------
+
+PIT_FIRST, PIT_LAST = D("2015-01-30"), D("2019-06-28")
+PIT_EVIDENCE = '{"pit": 1}'
+
+
+def _pit_plan(raw: str) -> pit.PitPlan:
+    """Two new securities, one keyed by composite FIGI and one by (CIK, ticker), one span each."""
+    figi, cik_key = "BBG000000101", "0000000002:PITB"
+    securities = tuple(
+        pit.PitSecurity(symbol, kind, key, cik, composite, None, symbol, "XNYS", ("CS",),
+                        PIT_FIRST, PIT_LAST, (symbol,))
+        for symbol, kind, key, cik, composite in (
+            ("PITA", pit.COMPOSITE_FIGI, figi, None, figi),
+            ("PITB", pit.CIK_TICKER, cik_key, "0000000002", None),
+        )
+    )  # fmt: skip
+    return pit.PitPlan(
+        securities,
+        tuple(
+            pit.PitIdentifier(s.symbol, s.key_kind, s.key_value, PIT_FIRST, None, raw)
+            for s in securities
+        ),
+        tuple(
+            pit.PitSpan(s.symbol, s.symbol, PIT_FIRST, D("2019-07-01"), raw, PIT_EVIDENCE)
+            for s in securities
+        ),
+        (), {}, {}, 1, PIT_FIRST, PIT_LAST,
+    )  # fmt: skip
+
+
+async def _state(conn: asyncpg.Connection) -> dict:
+    """The live-span hash and the row counts of the four tables an install writes."""
+    counts = {
+        table: await conn.fetchval(f"SELECT count(*) FROM {table}")
+        for table in ("instruments", "security_identifier", "ticker_event")
+    }
+    counts["identifiers_live"] = await conn.fetchval(
+        "SELECT count(*) FROM security_identifier_current"
+    )
+    return {"live": content_sha256(await conn.fetch(_LIVE_SQL)), **counts}
+
+
+def _lineage(plan: pit.PitPlan, install_id: str, pre_install_sha256: str) -> dict:
+    return {
+        "install_id": install_id, "map_digest": "d", "map_dir": "20261116_d",
+        "pre_install_sha256": pre_install_sha256, "rows_retired": 0,
+        "rows_inserted": len(plan.spans), "kind": PIT_KIND,
+    }  # fmt: skip
+
+
+async def _install(conn: asyncpg.Connection, plan: pit.PitPlan, install_id: str, pre: str) -> dict:
+    async with conn.transaction():
+        await conn.execute(_LOCK_SQL)
+        await conn.execute(_PIT_LOCK_IDENTIFIERS_SQL)
+        return await install_pit_plan(
+            conn, PitBuild("20261116_d", {}, plan, ()), _lineage(plan, install_id, pre)
+        )
+
+
+@pytest.fixture
+async def pit_conn(db, monkeypatch):
+    monkeypatch.setattr(writer, "massive_load_pids", lambda: [])
+    conn = await connect_with_codecs(DSN)
+    try:
+        yield conn, _pit_plan(
+            str(await conn.fetchval("SELECT reference_raw_id FROM reference_raw"))
+        )
+    finally:
+        await conn.close()
+
+
+async def test_a_pit_rollback_retires_the_identifiers_the_install_inserted_and_restores_the_rows(
+    pit_conn,
+):
+    conn, plan = pit_conn
+    before = await _state(conn)
+    written = await _install(conn, plan, "pit-1", before["live"])
+    assert written["identifiers_inserted"] == 2 and written["spans_inserted"] == 2
+    installed = await _state(conn)
+    assert (
+        installed["live"] != before["live"]
+        and installed["identifiers_live"] == before["identifiers_live"] + 2
+    )
+    async with conn.transaction():
+        report = await rollback_in_transaction(conn, "pit-1", False)
+    assert report["identifiers_retired"] == 2 and report["rows_retired"] == 2
+    assert report["post_rollback_sha256"] == report["pre_install_sha256"] == before["live"]
+    after = await _state(conn)
+    assert (
+        after["live"] == before["live"] and after["identifiers_live"] == before["identifiers_live"]
+    )
+    # the inactive instrument rows, the identifiers and the spans stay as retired history
+    assert after["instruments"] == before["instruments"] + 2
+    assert after["security_identifier"] == before["security_identifier"] + 2
+    assert after["ticker_event"] == before["ticker_event"] + 2
+
+
+async def test_a_rehearsal_that_installs_and_rolls_back_leaves_every_table_as_it_was(pit_conn):
+    conn, plan = pit_conn
+    before = await _state(conn)
+
+    class Rehearsal(Exception):
+        pass
+
+    with pytest.raises(Rehearsal):
+        async with conn.transaction():
+            await install_pit_plan(
+                conn, PitBuild("20261116_d", {}, plan, ()), _lineage(plan, "pit-2", before["live"])
+            )
+            await rollback_in_transaction(conn, "pit-2", False)
+            raise Rehearsal
+    assert await _state(conn) == before
+
+
+@pytest.mark.parametrize(
+    ("foreign_span_retired", "error", "message"),
+    [
+        (True, InstallRefused, "outside the install"),
+        (False, asyncpg.exceptions.CheckViolationError, "retire them first"),
+    ],
+)
+async def test_a_pit_rollback_refuses_and_writes_nothing_when_a_retired_identifier_has_a_foreign_span(
+    pit_conn, foreign_span_retired, error, message
+):
+    """The identifier retire matches by symbol. An older identifier of an install symbol (the
+    instrument row is a stage 2 row an earlier install left) that a span outside the install
+    resolves to must stop the rollback: by the assertion when that span is retired, by the
+    identity trigger when it is live. Either way the transaction leaves every table as it was."""
+    conn, plan = pit_conn
+    raw = plan.identifiers[0].reference_raw_id
+    details = {"provider_meta": {"key_kind": pit.CIK_TICKER, "key": "0000000002:PITB"}}
+    await conn.execute(
+        "INSERT INTO instruments (symbol, universe_cohort, contract_details) "
+        "VALUES ('PITB', 'stage2_pit', $1::jsonb)", details,
+    )  # fmt: skip
+    older = await conn.fetchval(
+        "INSERT INTO security_identifier (symbol, scheme, value, valid_from, reference_raw_id) "
+        "VALUES ('PITB', 'isin', 'US0000000002', '2010-01-04', $1::uuid) "
+        "RETURNING security_identifier_id", raw,
+    )  # fmt: skip
+    await conn.execute(
+        "INSERT INTO ticker_event (security_identifier_id, symbol, vendor, ticker, valid_from, "
+        "valid_to, reference_raw_id, evidence) VALUES ($1, 'PITB', 'massive', 'PITBOLD', "
+        "'2010-01-04', '2011-01-03', $2::uuid, '{\"foreign\": 1}')", older, raw,
+    )  # fmt: skip
+    if foreign_span_retired:
+        await conn.execute(
+            "UPDATE ticker_event SET retired_reason = 'test' WHERE ticker = 'PITBOLD'"
+        )
+    before = await _state(conn)
+    await _install(conn, plan, "pit-3", before["live"])
+    installed = await _state(conn)
+    with pytest.raises(error, match=message):
+        async with conn.transaction():
+            await rollback_in_transaction(conn, "pit-3", False)
+    assert await _state(conn) == installed
+    assert await conn.fetchval(
+        "SELECT retired_at IS NULL FROM security_identifier WHERE security_identifier_id = $1",
+        older,
+    )  # fmt: skip
