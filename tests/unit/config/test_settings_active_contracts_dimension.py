@@ -281,36 +281,6 @@ def test_cache_hit_within_ttl_issues_one_query():
 
 
 # ---------------------------------------------------------------------------
-# Case 7: invalidation clears all dimensions
-# ---------------------------------------------------------------------------
-
-
-def test_invalidation_clears_all_dimensions():
-    mock_settings = _make_settings()
-    recorder: list[str] = []
-    rows_by_dimension = {
-        "compute": [_nf_row("C1")],
-        "backfill": [_nf_row("B1"), _nf_row("B2")],
-    }
-
-    def _connect(_dsn):
-        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
-
-    with patch("psycopg.connect", side_effect=_connect) as mock_connect:
-        get_active_contracts(mock_settings, dimension="compute")
-        get_active_contracts(mock_settings, dimension="backfill")
-        assert mock_connect.call_count == 2
-
-        settings_mod.invalidate_active_contracts_cache()
-
-        get_active_contracts(mock_settings, dimension="compute")
-        get_active_contracts(mock_settings, dimension="backfill")
-        assert (
-            mock_connect.call_count == 4
-        ), "invalidation must force re-query for every previously-warm dimension"
-
-
-# ---------------------------------------------------------------------------
 # Case 8: cold-start error path is dimension-scoped
 # ---------------------------------------------------------------------------
 
@@ -507,31 +477,6 @@ def test_compute_1d_is_cache_isolated_from_other_dimensions():
         assert (
             len(distinct_lists) == 4
         ), f"expected four distinct cached lists, got {distinct_lists}"
-
-
-# ---------------------------------------------------------------------------
-# Case 13 (Plan 174-13, D-09): invalidate_active_contracts_cache() clears compute_1d too.
-# ---------------------------------------------------------------------------
-
-
-def test_invalidation_clears_compute_1d_too():
-    mock_settings = _make_settings()
-    recorder: list[str] = []
-    rows_by_dimension = {"compute_1d": [_nf_row("D1")]}
-
-    def _connect(_dsn):
-        return _FakeConnection(_FakeCursor(recorder, rows_by_dimension))
-
-    with patch("psycopg.connect", side_effect=_connect) as mock_connect:
-        get_active_contracts(mock_settings, dimension="compute_1d")
-        assert mock_connect.call_count == 1
-
-        settings_mod.invalidate_active_contracts_cache()
-
-        get_active_contracts(mock_settings, dimension="compute_1d")
-        assert (
-            mock_connect.call_count == 2
-        ), "invalidation must force re-query for compute_1d as well as the other dimensions"
 
 
 # ---------------------------------------------------------------------------

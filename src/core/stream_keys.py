@@ -82,16 +82,6 @@ def topic_gap_requests(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.events.gap_requests"
 
 
-def topic_intelligence(env_name: str) -> str:
-    """Kafka topic for I3–I6 intelligence pipeline output (IntelligenceEvent)."""
-    return f"{env_prefix(env_name)}intelligence"
-
-
-def topic_system_events(env_name: str) -> str:
-    """Kafka topic for system-level events (roll detection, pipeline control)."""
-    return f"{env_prefix(env_name)}system.events"
-
-
 def topic_market_bars_raw(env_name: str, provider: str) -> str:
     """Raw bars from a single provider before merger routing.
 

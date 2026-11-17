@@ -5,7 +5,7 @@ migration's `ALTER TABLE ... ADD COLUMN` under the table's name at that migratio
 feature_vectors_v2 before migration 570 renamed it, feature_vectors from then on (526, todo 553,
 is one such addition). Before 570, `ALTER TABLE feature_vectors` is the dropped v1 table and never
 counts. The expectation is
-derived from `default_registry()` and `UNOWNED_COLUMNS`, never from a hardcoded list, so a later
+derived from `default_registry()`, never from a hardcoded list, so a later
 registry change fails here instead of silently skewing the rebuilt table against what the
 kernels compute (train-serve skew for 186-25 and 186-27).
 """
@@ -16,7 +16,7 @@ import json
 import re
 from pathlib import Path
 
-from src.intelligence.features.contract.registry import UNOWNED_COLUMNS, default_registry
+from src.intelligence.features.contract.registry import default_registry
 
 _ROOT = Path(__file__).resolve().parents[3]
 _MIGRATIONS = _ROOT / "production" / "migrations"
@@ -71,7 +71,7 @@ METADATA_DROPPED: dict[str, str] = {
 
 def expected_columns() -> set[str]:
     """Registry-derived column set of feature_vectors."""
-    feature = set(default_registry().feature_columns()) | set(UNOWNED_COLUMNS)
+    feature = set(default_registry().feature_columns())
     return (feature - set(DROPPED_COLUMNS)) | set(KEYS) | set(REGIME_TEXT)
 
 
@@ -171,11 +171,10 @@ def test_migration_columns_equal_registry_derivation() -> None:
     )
 
 
-def test_dropped_columns_absent_and_unowned_contract_intact() -> None:
+def test_dropped_columns_absent_and_retired_contract_intact() -> None:
     columns = set(parsed_columns())
     for name in {**DROPPED_COLUMNS, **METADATA_DROPPED}:
         assert name not in columns, name
-    assert not UNOWNED_COLUMNS  # todo 558: the three rank columns were the last entries
     assert not set(RETIRED_COLUMNS) & columns  # migration 577 dropped them from the empty table
     assert set(RETIRED_COLUMNS) <= set(dropped_columns())
     assert not set(RETIRED_COLUMNS) & expected_columns()

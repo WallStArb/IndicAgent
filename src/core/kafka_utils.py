@@ -33,7 +33,6 @@ from confluent_kafka import (
     Consumer,
     KafkaException,
     Producer,
-    TopicPartition,
 )
 from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract, inject
@@ -268,99 +267,6 @@ class KafkaConsumerClient:
         for tp in partitions:
             tp.offset = OFFSET_END
             await asyncio.to_thread(self._consumer.seek, tp)
-
-    async def skip_lag_if_needed(self, max_lag: int) -> int:
-        """Seek to end if total committed lag exceeds max_lag.
-
-        Call after start(). Triggers a short poll to force partition assignment,
-        then checks end_offset - position for each partition. If total lag
-        exceeds max_lag, seeks all partitions to end and logs the skip.
-
-        Returns the lag found (0 if already caught up or assignment failed).
-        Why: live pipeline services seed state from DB at startup; old Kafka
-        messages are redundant and cause hours-long reprocessing after restarts.
-        """
-        partitions = await asyncio.to_thread(self._consumer.assignment)
-        if not partitions:
-            await asyncio.to_thread(self._consumer.poll, 2.0)
-            partitions = await asyncio.to_thread(self._consumer.assignment)
-        if not partitions:
-            return 0
-
-        total_lag = await self._calculate_lag(partitions)
-
-        if total_lag > max_lag:
-            # commit() with no explicit offsets commits the consumer's last-polled
-            # position, NOT wherever seek() last pointed it -- seek() alone doesn't
-            # update that position until another poll() actually fetches from it
-            # (confirmed empirically: a bare commit() after seek(OFFSET_END) silently
-            # committed the pre-seek position instead). Resolve OFFSET_END to its real
-            # numeric high-watermark and commit that explicitly per partition.
-            offsets_to_commit = []
-            for tp in partitions:
-                _low, high = await asyncio.to_thread(
-                    self._consumer.get_watermark_offsets, tp, timeout=10.0
-                )
-                tp.offset = OFFSET_END
-                await asyncio.to_thread(self._consumer.seek, tp)
-                offsets_to_commit.append(TopicPartition(tp.topic, tp.partition, high))
-            await asyncio.to_thread(self._consumer.commit, offsets=offsets_to_commit)
-
-            # Verify the seek actually persisted by re-checking lag
-            post_seek_lag = await self._calculate_lag(partitions)
-
-            if post_seek_lag > max_lag:
-                logger.critical(
-                    "kafka_consumer.lag_skip_failed",
-                    pre_seek_lag=total_lag,
-                    post_seek_lag=post_seek_lag,
-                    max_lag=max_lag,
-                    error="seek_to_end+commit did not persist — consumer will reprocess from old offset",
-                )
-                raise RuntimeError(
-                    f"skip_lag_if_needed failed: lag was {total_lag}, still {post_seek_lag} after seek_to_end+commit. "
-                    "Check Redpanda connectivity and consumer group state."
-                )
-
-            logger.info(
-                "kafka_consumer.lag_skip",
-                lag=total_lag,
-                max_lag=max_lag,
-                action="seeked_to_end_verified",
-                post_seek_lag=post_seek_lag,
-            )
-
-        return total_lag
-
-    async def _calculate_lag(self, partitions: list[TopicPartition]) -> int:
-        """Calculate total lag across partitions.
-
-        Returns sum of (end_offset - committed_offset) for all assigned partitions.
-        Uses committed() rather than position() deliberately: position() reflects the
-        consumer's last actual fetch and does NOT update just because seek() was
-        called (confirmed empirically -- it stays stale until another poll() actually
-        fetches from the new position), so it can't verify a seek+commit took effect.
-        committed() is also the semantically correct check for this method's purpose
-        (what a restart will resume from), not just a seek-verification workaround.
-        Returns 0 if partition assignment fails or offset queries fail.
-        """
-        total_lag = 0
-        for tp in partitions:
-            try:
-                # Independent RPCs per partition -- run concurrently rather than serially.
-                (_low, high), committed = await asyncio.gather(
-                    asyncio.to_thread(self._consumer.get_watermark_offsets, tp, timeout=10.0),
-                    asyncio.to_thread(self._consumer.committed, [tp], 10.0),
-                )
-                current = committed[0].offset if committed and committed[0].offset >= 0 else _low
-                total_lag += max(0, high - current)
-            except Exception as e:
-                logger.warning(
-                    "kafka_consumer.position_failed",
-                    topic_partition=tp,
-                    error=str(e),
-                )
-        return total_lag
 
     def _consume_loop_blocking(
         self,

@@ -1,4 +1,4 @@
-"""Unit tests for DB-backed get_active_contracts() and get_active_symbols().
+"""Unit tests for DB-backed get_active_contracts().
 
 Tests:
 - get_active_contracts() queries contract_metadata (futures) AND instruments (non-futures)
@@ -7,7 +7,6 @@ Tests:
 - DB error (warm cache): returns cached value
 - Cache: second call within 60s returns cached result
 - Return type: list[Instrument] (NOT list[str])
-- get_active_symbols(): returns list[str]
 - Returned Instruments have populated exchange/point_value/tick_size/session_id
 """
 
@@ -16,7 +15,7 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
-from src.config.settings import get_active_contracts, get_active_symbols
+from src.config.settings import get_active_contracts
 from src.core.models import AssetClass, Instrument
 
 # ---------------------------------------------------------------------------
@@ -146,28 +145,6 @@ class TestGetActiveContractsAlwaysOn:
         with patch("psycopg.connect", side_effect=Exception("DB connection refused")):
             result = get_active_contracts(mock_settings, dimension="compute")
         assert result == []
-
-    def test_get_active_symbols_returns_strings(self):
-        """get_active_symbols() convenience wrapper must return list[str]."""
-        mock_settings = _make_settings()
-        conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg.connect", return_value=conn):
-            result = get_active_symbols(mock_settings, dimension="compute")
-        assert isinstance(result, list)
-        for item in result:
-            assert isinstance(item, str), f"Expected str, got {type(item)}"
-
-    def test_get_active_symbols_matches_instrument_symbols(self):
-        """get_active_symbols() must return the same symbol strings as get_active_contracts()."""
-        mock_settings = _make_settings()
-        conn1 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        conn2 = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg.connect", return_value=conn1):
-            instruments = get_active_contracts(mock_settings, dimension="compute")
-        _reset_cache()
-        with patch("psycopg.connect", return_value=conn2):
-            symbols = get_active_symbols(mock_settings, dimension="compute")
-        assert symbols == [i.symbol for i in instruments]
 
 
 # ---------------------------------------------------------------------------
@@ -336,22 +313,6 @@ class TestGetActiveContractsReturnType:
             assert not isinstance(
                 result[0], str
             ), "get_active_contracts() must return list[Instrument], not list[str]"
-
-    def test_get_active_symbols_returns_list_of_str(self):
-        """get_active_symbols() must return list[str]."""
-        mock_settings = _make_settings()
-        conn = _make_mock_db_conn([("ESM6", "ES", "CME")], [_EURUSD_NF_ROW])
-        with patch("psycopg.connect", return_value=conn):
-            result = get_active_symbols(mock_settings, dimension="compute")
-        assert isinstance(result, list)
-        if result:
-            assert isinstance(result[0], str)
-
-    def test_get_active_symbols_function_exists(self):
-        """get_active_symbols must be importable from src.config.settings."""
-        from src.config.settings import get_active_symbols as _fn
-
-        assert callable(_fn)
 
 
 class TestSectorFromClassification:

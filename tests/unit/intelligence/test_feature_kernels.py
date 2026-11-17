@@ -23,7 +23,6 @@ from src.intelligence.features.contract.causality_probe import (
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import (
     KERNEL_ONLY_COLUMNS,
-    UNOWNED_COLUMNS,
     KernelRegistry,
     compute_kernels,
     default_registry,
@@ -87,8 +86,7 @@ def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_unowned():
     assert set(KERNEL_ONLY_COLUMNS) <= owned
     assert not set(KERNEL_ONLY_COLUMNS) & numeric
     legacy = owned - set(KERNEL_ONLY_COLUMNS)
-    assert (legacy - (REGIME_COLUMNS - numeric)) | set(UNOWNED_COLUMNS) == numeric
-    assert not owned & set(UNOWNED_COLUMNS)
+    assert legacy - (REGIME_COLUMNS - numeric) == numeric
 
 
 def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:

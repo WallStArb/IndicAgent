@@ -6,7 +6,6 @@ DB-error-to-HTTPException translation.
 """
 
 import functools
-import json
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
@@ -47,20 +46,3 @@ def translate_db_errors[T](
             raise HTTPException(status_code=500, detail="Database error") from error
 
     return wrapper
-
-
-def parse_jsonb(value: Any, *, default: Any = None) -> Any:
-    """Parse asyncpg JSONB field to Python object.
-
-    Returns `default` when value is None or unparseable.
-    Pass default={} for tier expansion (features route).
-    Pass default=None for optional JOIN data (signals route).
-    """
-    if value is None:
-        return default
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            return default
-    return value  # already dict (asyncpg may parse automatically)

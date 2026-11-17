@@ -20,7 +20,7 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     list/dict defaults are also special-cased (todo 187): `type(default)(val)` against
     a raw JSON-array/object string is a documented-broken cast (e.g.
     `list("[1,3,5,10]")` splits into individual characters, not the parsed list) --
-    already fixed for dict defaults via `get_dict_config` below, generalized here so
+    generalized here so
     `cfg()` itself is safe for any json-typed default instead of every list-typed
     caller needing its own local `json.loads` workaround.
     """
@@ -53,7 +53,7 @@ alpha.ic_measure.horizons."""
 
 
 def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:
-    """Shared implementation behind `get_dict_config`/`get_list_config`: read a
+    """Shared implementation behind `get_list_config`: read a
     JSON-typed APR key via `ConfigService.get_sync()`, tolerating either a pre-parsed
     dict/list (the normal case -- `load_config_service_sync`'s `_parse_value` already
     `json.loads()`s `value_type='json'` keys at cache-load time) or a raw JSON string
@@ -69,12 +69,6 @@ def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict |
     return default
 
 
-def get_dict_config(cfg_service: ConfigService, key: str, default: dict) -> dict:
-    """Read a JSON-object APR key -- see `_get_json_typed_config`."""
-    return _get_json_typed_config(cfg_service, key, default)
-
-
 def get_list_config(cfg_service: ConfigService, key: str, default: list) -> list:
-    """Read a JSON-array APR key -- see `_get_json_typed_config`. Sibling of
-    `get_dict_config` above."""
+    """Read a JSON-array APR key -- see `_get_json_typed_config`."""
     return _get_json_typed_config(cfg_service, key, default)

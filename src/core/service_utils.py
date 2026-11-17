@@ -33,28 +33,6 @@ import structlog
 # - Errors are always recorded (no sampling) for safety and full audit coverage.
 PLUGIN_METRICS_SAMPLE_RATE: int = 10
 
-# Seed lookback multiplier: bars_needed * tf_seconds * this = time window for DB seed queries.
-# 48× gives ~2 days for 1m bars, covering IBKR maintenance gaps and weekend crypto outages.
-SEED_LOOKBACK_MULTIPLIER: int = 48
-
-# Minimum unique bars required before publishing per timeframe.
-# 1m uses 120 (2 hours) for plugin warm-up quality.
-# All higher TFs use 26 — enough for EMA-26 and Stochastic-14.
-_MIN_BARS_FOR_TF: dict[str, int] = {
-    "1m": 120,
-    "5m": 26,
-    "15m": 26,
-    "1h": 26,
-    "4h": 26,
-    "1d": 26,
-}
-
-
-def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
-    """Return minimum unique bars required before emitting output for a given TF."""
-    return _MIN_BARS_FOR_TF.get(timeframe, default)
-
-
 # Seconds per bar for each configured timeframe.
 # Used for cooldown / elapsed-bar calculations across services.
 TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}

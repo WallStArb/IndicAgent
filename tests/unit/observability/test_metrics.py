@@ -38,8 +38,8 @@ class TestLatencyMetricInstrumentTypes:
     Using .add() on a histogram is incorrect — histograms measure distributions
     (latency, response time), not cumulative totals.
 
-    Regression: PLUGIN_DURATION_MS and PERSISTENCE_BATCH_LATENCY must use .record()
-    at their call sites, and the instrument must expose this method.
+    Regression: PLUGIN_DURATION_MS must use .record() at its call sites, and the
+    instrument must expose this method.
     """
 
     def test_plugin_duration_ms_exposes_record(self):
@@ -50,11 +50,3 @@ class TestLatencyMetricInstrumentTypes:
             "for latency distribution measurement"
         )
         PLUGIN_DURATION_MS.record(5.0, {"plugin_name": "test", "tier": "i1"})
-
-    def test_persistence_batch_latency_exposes_record(self):
-        from src.observability.metrics import PERSISTENCE_BATCH_LATENCY
-
-        assert hasattr(
-            PERSISTENCE_BATCH_LATENCY, "record"
-        ), "PERSISTENCE_BATCH_LATENCY must be a histogram (expose .record())"
-        PERSISTENCE_BATCH_LATENCY.record(0.05, {"agent_id": "test"})

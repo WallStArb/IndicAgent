@@ -1,11 +1,10 @@
-"""Unit tests for roll chain derivation and system events topic builder.
+"""Unit tests for roll chain derivation.
 
 Tests:
 - derive_roll_chain: quarterly, monthly, grain cycle futures
 - derive_roll_chain: roll_from/roll_to linkage correctness
 - derive_roll_chain: chronological ordering
 - derive_roll_chain: ValueError for unknown symbol
-- topic_system_events: naming convention
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from src.config.contracts import FUTURES_ROLL_CYCLES, MONTH_CODE_TO_NUM, derive_roll_chain
-from src.core.stream_keys import topic_system_events
 
 # ---------------------------------------------------------------------------
 # derive_roll_chain — basic contract structure
@@ -268,31 +266,3 @@ class TestMonthCodeToNum:
 
     def test_f_is_january(self):
         assert MONTH_CODE_TO_NUM["F"] == 1
-
-
-# ---------------------------------------------------------------------------
-# topic_system_events — stream key builder
-# ---------------------------------------------------------------------------
-
-
-class TestTopicSystemEvents:
-    def test_development_prefix(self):
-        """topic_system_events('development') → 'development.system.events'"""
-        result = topic_system_events("development")
-        assert result == "development.system.events"
-
-    def test_empty_prefix(self):
-        """topic_system_events('') → 'system.events'"""
-        result = topic_system_events("")
-        assert result == "system.events"
-
-    def test_prod_prefix(self):
-        """topic_system_events('prod') → 'prod.system.events'"""
-        result = topic_system_events("prod")
-        assert result == "prod.system.events"
-
-    def test_uses_dots_not_colons(self):
-        """Kafka topic names use dots, not colons."""
-        result = topic_system_events("dev")
-        assert ":" not in result
-        assert "." in result

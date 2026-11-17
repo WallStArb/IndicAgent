@@ -200,17 +200,6 @@ def dimension_where_clause(dimension: str, alias: str | None = None) -> str:
     return " AND ".join(f"{alias}.{term}" for term in clause.split(" AND "))
 
 
-def invalidate_active_contracts_cache() -> None:
-    """Force next get_active_contracts() call to re-query the database.
-
-    Invalidates every dimension. Called by the instruments NOTIFY listener so a contract change
-    is seen on the next call instead of after the ~60s TTL.
-    """
-    global _active_contracts_last_refresh  # noqa: PLW0603
-    with _settings_lock:
-        _active_contracts_last_refresh = {}
-
-
 def _default_settings() -> Settings:
     """Lazily create a module-level Settings instance.
 
@@ -506,12 +495,3 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
         _active_contracts_cache[dimension] = result
         _active_contracts_last_refresh[dimension] = now
     return result
-
-
-def get_active_symbols(settings: Settings | None = None, *, dimension: str) -> list[str]:
-    """Return active contract symbol strings (e.g. ['ESM6', 'NQM6', ...]).
-
-    Convenience wrapper for call sites that only need symbol strings.
-    Delegates to get_active_contracts() for DB-backed resolution.
-    """
-    return [c.symbol for c in get_active_contracts(settings, dimension=dimension)]

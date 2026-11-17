@@ -74,11 +74,6 @@ def counter(name: str, documentation: str):
     return _meter.create_counter(name, description=documentation)
 
 
-def gauge(name: str, documentation: str):
-    """Create a named OTel up_down_counter. Use .add(delta) for cumulative tracking."""
-    return _meter.create_up_down_counter(name, description=documentation)
-
-
 def point_gauge(name: str, documentation: str):
     """Create a named OTel gauge for point-in-time absolute values. Use .set(value)."""
     return _meter.create_gauge(name, description=documentation)
@@ -116,11 +111,6 @@ LANGGRAPH_WORKFLOW_DURATION = _meter.create_histogram(
 # Persistence metrics
 # ---------------------------------------------------------------------------
 
-PERSISTENCE_BATCH_LATENCY = _meter.create_histogram(
-    "persistence_batch_latency_seconds",
-    description="Time taken to persist batch to database in seconds",
-    unit="s",
-)
 PERSISTENCE_CONSUMER_LAG = _meter.create_gauge(
     "persistence_consumer_lag_records",
     description="Current consumer lag in records",
@@ -444,15 +434,6 @@ KAFKA_PUBLISH_SECONDS = _meter.create_histogram(
     "kafka_publish_seconds",
     description="Kafka producer send_and_wait latency",
     unit="s",
-)
-
-# ---------------------------------------------------------------------------
-# Pipeline backpressure (Phase hardening)
-# ---------------------------------------------------------------------------
-
-PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_backpressure_drop_total",
-    description="Bars dropped by backpressure circuit breaker (queue depth exceeded)",
 )
 
 # ---------------------------------------------------------------------------

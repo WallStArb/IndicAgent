@@ -98,7 +98,7 @@ key. Procedure: `docs/operations/corpus-rerun-runbook.md`.
 ## Observability / Metrics
 
 - **Two-tier OTel metric pattern**: `src/observability/metrics.py` is for shared/cross-cutting metrics (shadow promotion stats, persistence latency, circuit breaker state). Service-local counters (`_COMPUTE_CYCLES`, `_BARS_WRITTEN`, etc.) belong inline in the service file using `_xxx_meter = _otel_metrics.get_meter("indicagent")`. Do not add service-local counters to `metrics.py`; do not mix both patterns in the same file.
-- **Label keys:** `agent_last_message_timestamp_seconds` and `PERSISTENCE_BATCH_LATENCY` use `agent_id` (query with `r["metric"].get("agent_id")`), not `agent`; `agent_crash_total` is the exception and uses `agent`.
+- **Label keys:** `agent_last_message_timestamp_seconds` uses `agent_id` (query with `r["metric"].get("agent_id")`), not `agent`; `agent_crash_total` is the exception and uses `agent`.
 - **API health router prefix is `/health`**, not `/api/health` (`/health/system`, `/health/database`, ...).
 
 ## Systemd

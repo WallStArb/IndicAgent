@@ -28,14 +28,6 @@ def test_default_settings_singleton_under_threads():
     assert len(set(ids)) == 1, f"Expected 1 unique Settings instance, got {len(set(ids))}"
 
 
-def test_invalidate_active_contracts_cache_is_lock_protected():
-    """Verify invalidate_active_contracts_cache acquires _settings_lock before writing."""
-    src = inspect.getsource(settings_mod.invalidate_active_contracts_cache)
-    assert (
-        "with _settings_lock:" in src
-    ), "invalidate_active_contracts_cache must wrap the write in 'with _settings_lock:'"
-
-
 def test_get_active_contracts_uses_double_checked_locking():
     """Verify get_active_contracts uses _settings_lock blocks outside the DB query.
 

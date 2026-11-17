@@ -74,14 +74,14 @@ setup_otlp_logging(service_name="my-service")    # OTLP log bridge (additive to 
 ### Creating Metrics
 
 ```python
-from src.observability.metrics import counter, gauge
+from src.observability.metrics import counter, point_gauge
 
 # Create instruments (module-level, avoid duplicate registration)
 my_counter = counter("my_metric", "Documentation")
 my_counter.add(1, {"label_key": "value"})
 
-my_gauge = gauge("my_gauge", "Documentation")
-my_gauge.add(delta, {"label_key": "value"})
+my_gauge = point_gauge("my_gauge", "Documentation")
+my_gauge.set(value, {"label_key": "value"})
 ```
 
 Services do not start a `/metrics` HTTP server. All metrics are pushed via OTLP gRPC to the OTel Collector (`:4317`).
@@ -97,7 +97,6 @@ enforces it.
 
 | Metric | Type | Labels | Purpose |
 |--------|------|--------|---------|
-| `persistence_batch_latency_seconds` | Histogram | **agent_id** | Time to persist batch |
 | `persistence_consumer_lag_records` | Gauge | **agent_id** | Current consumer lag |
 
 **Important:** The `agent_id` label (not `agent` or `name`) is the canonical label for persistence metrics.

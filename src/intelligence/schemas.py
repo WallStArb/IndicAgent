@@ -19,13 +19,9 @@ Field names are extracted from each plugin's outputs frozenset — no guesswork.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
-
-from src.core.schemas.bar_message import SessionType
 
 
 class OHLCVBar(BaseModel):
@@ -868,62 +864,3 @@ class I6Confluence(BaseModel):
     ctf_orderflow_alignment: float | None = None  # [-1, +1] OFI/CVD alignment
     # Regime: aligned_bull/aligned_bear/mostly_bull/mostly_bear/divergent/missing_data
     ctf_orderflow_regime: str | None = None
-
-
-FEATURE_SCHEMA_VERSION: int = 2
-"""Version integer stamped on every freshly-produced row in intelligence_features
-and signal_ledger.  Pre-fix rows remain NULL.  Downstream training queries filter
-with WHERE feature_schema_version >= 2 to exclude contaminated data."""
-
-
-class IntelligenceEvent(BaseModel):
-    """Canonical typed intelligence event published to intelligence:SYMBOL:TF Redis stream.
-
-    Publishers construct this model from plugin outputs and call model_dump_json()
-    to produce the stream payload. Consumers call model_validate_json() to deserialize.
-
-    Stream format: single field {"event": "<json_string>"}
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["1.0"] = "1.0"
-    ts: datetime
-    symbol: str
-    tf: str
-    platform: str = "futures"  # Multi-platform prep; always "futures" for now
-    source: Literal["live", "backfill"] = "live"
-
-    # Pipeline timing fields — enable lag measurement from bar close to signal.
-    # bar_close_ts is always set (live + backfill); computed_at fields are live-only.
-    bar_close_ts: datetime | None = None  # Actual close (differs from ts for 5m+)
-    i1_computed_at: datetime | None = None  # When indicator_service finished I1
-    computed_at: datetime | None = None  # When market_analysis_service built event
-
-    bar: OHLCVBar
-    i1: I1Indicators
-    i2: I2Events = I2Events()
-    i3: I3Structure
-    i4: I4Context
-    i5: I5Patterns
-    smc: SMCContext
-    i6: I6Confluence
-
-    # Feature pipeline enrichment fields (D-22, Phase 44.1)
-    # session_type: trading session at bar close, carried from BarMessage ingestion
-    # pipeline_latency_ms: wall-clock ms from bar_close_ts to IntelligenceEvent publish
-    session_type: SessionType = SessionType.RTH
-    pipeline_latency_ms: float = 0.0
-
-    # bar_id: unique UUID tracing back to the BarMessage that generated this event.
-    # None during transition period (backward compat for pre-68-03 events).
-    # Phase 68-03 — end-to-end bar traceability.
-    bar_id: UUID | None = None
-
-    # Contamination boundary marker (Phase 112).  Every freshly-produced event
-    # carries FEATURE_SCHEMA_VERSION = 2 via the field default.
-    # feature_writer persists this into intelligence_features.feature_schema_version;
-    # signal_ledger_repository persists it into signal_ledger.feature_schema_version.
-    # Downstream training queries filter WHERE feature_schema_version >= 2 to exclude
-    # pre-fix contaminated rows (which remain NULL in the DB, written before this deploy).
-    feature_schema_version: int = FEATURE_SCHEMA_VERSION

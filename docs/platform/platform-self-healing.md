@@ -221,7 +221,7 @@ Plugin-level circuit breakers prevent cascading failures.
 
 ```python
 # src/observability/circuit_breaker.py
-intelligence_pipeline_plugin_cb_state = gauge(
+intelligence_pipeline_plugin_cb_state = point_gauge(
     "intelligence_pipeline_plugin_cb_state",
     "Plugin circuit breaker state: 0=closed, 1=open, 2=half-open"
 )

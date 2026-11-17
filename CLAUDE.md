@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.21
+Version: 5.63.22
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -59,7 +59,7 @@ Judge any test run by its exit code or summary line (`exit=${PIPESTATUS[0]}`), n
 - **Contracts:** always `get_active_contracts(settings)` (module-level in `settings.py`), never hardcoded. Never `os.environ`; use `src/config/Settings`.
 - **IBKR (removed, owner 2026-11-13):** the code, gateway container, units and APR keys are deleted (2026-11-13); only the vendor-label logic (arbitration, daily rule) and the `vendor = 'ibkr'` raw rows remain. Canonical no longer selects IBKR (step 7 rebuild done 2026-11-16); Part F deletes the raw rows at or after 2003-09-10 with no export (`docs/operations/massive-step7-runbook.md`, Part F; the 672,245 earlier 1d rows stay, ledger E22). Capture today is the Alpaca nightly: `scripts/ops/bars/ops_bar_nightly.py` (raw only, through the load engine); gotchas: `docs/reference/gotchas.md`.
 - **Instrument onboarding:** `docs/foundation/instrument-onboarding-sop.md`. Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name.
-- **Key modules:** `src/core/stream_keys.py` (all topic keys) · `src/core/database_manager.py` · `src/core/service_utils.py` (`setup_service_logging()`, `format_iso_ts()`, `parse_iso_ts()`, `min_bars_for_tf()`).
+- **Key modules:** `src/core/stream_keys.py` (all topic keys) · `src/core/database_manager.py` · `src/core/service_utils.py` (`setup_service_logging()`, `format_iso_ts()`, `parse_iso_ts()`).
 - **Server:** roles: `ubuntu1` primary, `192.168.68.60` (fixed address; green prompt; 64 GB, 24 threads), Claude Code is meant to run ON it; `ubuntu2` standby and backup, `192.168.68.65` (red prompt: streaming standby, WAL archive, base backups). Remote SSH via Cloudflare: `ssh1.indicagent.com` / `ssh2.indicagent.com` (laptop aliases `ia1` / `ia2`); update this line on a promotion. Run `hostname` at session start; a session on `ubuntu2` sees stale data and services, so stop and restart Claude Code on `ubuntu1`. Never SSH to the host you are on; runtime configs use `localhost`. Docker: `cd production && docker compose up -d`; keep the log caps. More: `docs/operations/operations-infrastructure.md`.
 
 ## Adaptive Parameter Registry (APR)

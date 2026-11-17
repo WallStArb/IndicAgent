@@ -37,42 +37,6 @@
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 12,
-        "y": 1
-      },
-      "id": 4,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, rate(persistence_batch_latency_seconds_bucket{agent_id=\"feature_writer\"}[5m]))",
-          "refId": "A",
-          "legendFormat": "feature_writer p95"
-        }
-      ],
-      "title": "DB Write Latency p95 (Feature Writer)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
         "x": 18,
         "y": 1
       },

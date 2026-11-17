@@ -15,16 +15,6 @@ import pytest
 
 from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.intelligence.schemas import (
-    I1Indicators,
-    I3Structure,
-    I4Context,
-    I5Patterns,
-    I6Confluence,
-    IntelligenceEvent,
-    OHLCVBar,
-    SMCContext,
-)
 
 
 def _make_bar(**overrides) -> dict:
@@ -158,23 +148,6 @@ def _make_bar_with_id(**overrides) -> BarMessage:
     )
 
 
-def _make_intelligence_event(**overrides) -> IntelligenceEvent:
-    defaults = dict(
-        ts="2026-04-12T12:00:00+00:00",
-        symbol="ES",
-        tf="1m",
-        bar=OHLCVBar(o=5800.0, h=5801.0, l=5799.0, c=5800.5, v=1000),
-        i1=I1Indicators(),
-        i3=I3Structure(),
-        i4=I4Context(),
-        i5=I5Patterns(),
-        smc=SMCContext(),
-        i6=I6Confluence(),
-    )
-    defaults.update(overrides)
-    return IntelligenceEvent(**defaults)
-
-
 def test_bar_id_auto_generated():
     assert _make_bar_with_id().bar_id is not None
 
@@ -202,17 +175,3 @@ def test_bar_id_in_json_serialization():
 def test_explicit_bar_id_preserved():
     explicit_id = uuid4()
     assert _make_bar_with_id(bar_id=explicit_id).bar_id == explicit_id
-
-
-def test_intelligence_event_accepts_bar_id():
-    bar = _make_bar_with_id()
-    event = _make_intelligence_event(bar_id=bar.bar_id)
-    assert event.bar_id == bar.bar_id
-
-
-def test_intelligence_event_bar_id_defaults_none():
-    assert _make_intelligence_event().bar_id is None
-
-
-def test_intelligence_event_bar_id_none_explicit():
-    assert _make_intelligence_event(bar_id=None).bar_id is None

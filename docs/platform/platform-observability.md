@@ -40,7 +40,7 @@ IndicAgent uses a **push-only** model. Each service pushes OTLP gRPC batches to 
 |------|-----------|----------|--------------|
 | Counter | `Counter` | Monotonically increasing events (bars processed, errors, signals fired) | `.add(1, {"label": val})` |
 | Histogram | `Histogram` | Latency distributions, byte sizes | `.record(val, {"label": val})` |
-| Up-down gauge | `UpDownCounter` via `create_up_down_counter` | Delta-tracked values (queue depth, active connections, consumer lag) | `.add(delta, {"label": val})` |
+| Up-down counter | `UpDownCounter` via `_meter.create_up_down_counter` | Delta-tracked values (queue depth, active connections) | `.add(delta, {"label": val})` |
 | Point gauge | `Gauge` via `create_gauge` | Absolute point-in-time values (health flags, state indicators) | `.set(value, {"label": val})` |
 
 ### Why span instrumentation matters
@@ -87,29 +87,25 @@ Services (all)
 All instruments are created via factory functions in this module. Create instruments at **module level** (not inside functions) to avoid duplicate registration warnings.
 
 ```python
-from src.observability.metrics import counter, histogram, gauge
+from src.observability.metrics import counter, point_gauge
 
 # Counter
 bars_processed = counter("bars_processed_total", "Total bars processed")
 bars_processed.add(1, {"symbol": symbol, "tf": tf})
 
-# Histogram
-batch_latency = histogram("persistence_batch_latency_seconds", "Batch write time")
-batch_latency.record(elapsed, {"agent_id": "feature_writer"})
-
-# Up-down gauge (consumer lag, queue depth)
-consumer_lag = gauge("persistence_consumer_lag_records", "Consumer lag")
-consumer_lag.add(delta, {"agent_id": "feature_writer"})
+# Point gauge (consumer lag, queue depth)
+consumer_lag = point_gauge("my_consumer_lag_records", "Consumer lag")
+consumer_lag.set(lag, {"agent_id": "my_writer"})
 ```
 
 ### Spans module — `src/observability/spans.py`
 
 ```python
-from src.observability.spans import observed_span, ATTR_PLUGIN_NAME, ATTR_SYMBOL
+from src.observability.spans import observed_span, ATTR_PLUGIN_NAME
 
 with observed_span("plugin_compute", attributes={
     ATTR_PLUGIN_NAME: plugin.name,
-    ATTR_SYMBOL: symbol
+    "symbol": symbol,
 }):
     result = plugin.compute(bar, features)
 ```
@@ -193,10 +189,6 @@ The `job` label must match the systemd unit `%n` suffix exactly (kebab-case). Em
 
 The label key is `agent_id` (not `agent` or `name`). When querying from Prometheus: `r["metric"].get("agent_id")`.
 
-### `PERSISTENCE_BATCH_LATENCY` label key
-
-The label key is `agent_id` (not `agent=`).
-
 ### Grafana SLO alerts (D-27)
 
 | Alert | Metric | Condition | Severity |
@@ -252,7 +244,7 @@ Without `NotifyAccess=main`, `sd_notify()` calls fail silently and `watchdog_not
 1. Open `src/observability/metrics.py` (or define in the service module if service-specific).
 2. Create the instrument at **module level**:
    ```python
-   from src.observability.metrics import counter, histogram, gauge
+   from src.observability.metrics import counter, point_gauge
 
    MY_COUNTER = counter("my_events_total", "Total my events")
    ```
@@ -265,14 +257,14 @@ Without `NotifyAccess=main`, `sd_notify()` calls fail silently and `watchdog_not
 ### Adding a new span
 
 ```python
-from src.observability.spans import observed_span, ATTR_SYMBOL
+from src.observability.spans import observed_span
 
 async def _compute(self, bar):
-    with observed_span("my_compute_step", attributes={ATTR_SYMBOL: bar.symbol}):
+    with observed_span("my_compute_step", attributes={"symbol": bar.symbol}):
         return self._do_work(bar)
 ```
 
-Use `ATTR_*` constants. Add new constants to `src/observability/spans.py` if none exists for your label.
+Use an `ATTR_*` constant where `src/observability/spans.py` has one for your label (`ATTR_PLUGIN_NAME`, `ATTR_TIER`, ...); otherwise pass the plain key.
 
 ---
 

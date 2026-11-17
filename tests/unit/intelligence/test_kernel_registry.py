@@ -275,10 +275,9 @@ def test_registry_covers_every_d25_origin():
     assert D25_ORIGINS <= origins, sorted(D25_ORIGINS - origins)
 
 
-def test_feature_columns_plus_unowned_equal_schema():
-    """Every numeric FeatureVector column is a kernel output or a listed, reasoned exception,
-    exactly: nothing unowned is unlisted and nothing listed is also owned."""
-    from src.intelligence.features.contract.registry import KERNEL_ONLY_COLUMNS, UNOWNED_COLUMNS
+def test_feature_columns_equal_schema():
+    """Every numeric FeatureVector column is a kernel output, exactly."""
+    from src.intelligence.features.contract.registry import KERNEL_ONLY_COLUMNS
     from src.intelligence.features.feature_vector_persistence import (
         REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
         REGIME_WRITER_OWNED_COLUMN_NAMES,
@@ -298,9 +297,7 @@ def test_feature_columns_plus_unowned_equal_schema():
     assert all(
         isinstance(reason, str) and reason.strip() for reason in KERNEL_ONLY_COLUMNS.values()
     )
-    assert (owned & numeric) | set(UNOWNED_COLUMNS) == numeric
-    assert not owned & set(UNOWNED_COLUMNS)
-    assert all(isinstance(reason, str) and reason.strip() for reason in UNOWNED_COLUMNS.values())
+    assert owned & numeric == numeric
 
 
 # ---------------------------------------------------------------------------

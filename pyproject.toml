@@ -35,7 +35,6 @@ ignore = [
 "tests/integration/*.py" = ["E402"]
 "tests/unit/indicators/test_incremental_manager.py" = ["E402"]
 "src/intelligence/schemas.py" = ["E741"]  # 'l' is intentional for OHLCVBar low field
-"src/core/bar_history_seeder.py" = ["E402"]  # deferred imports after async helpers
 "tests/unit/providers/test_base.py" = ["E402"]
 
 [tool.ruff.lint.isort]

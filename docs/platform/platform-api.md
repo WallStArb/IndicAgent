@@ -179,11 +179,11 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));
 2. Add the route function with asyncpg DB access or Kafka consumer as appropriate.
 3. Add OTel instrumentation — `FastAPIInstrumentor` auto-instruments HTTP metrics, but add custom spans for expensive operations:
    ```python
-   from src.observability.spans import observed_span, ATTR_SYMBOL
+   from src.observability.spans import observed_span
 
    @router.get("/api/v1/expensive")
    async def expensive_query(symbol: str):
-       with observed_span("expensive_query", attributes={ATTR_SYMBOL: symbol}):
+       with observed_span("expensive_query", attributes={"symbol": symbol}):
            async with get_connection(settings) as conn:
                return await conn.fetch(...)
    ```

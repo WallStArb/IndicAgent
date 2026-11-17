@@ -17,7 +17,7 @@ import functools
 import importlib
 import math
 import pkgutil
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -560,15 +560,6 @@ def default_registry() -> KernelRegistry:
     return discover_kernels()
 
 
-# Numeric FeatureVector columns no kernel owns, each with the reason. The pipeline refuses to
-# start when a numeric column is neither a registry feature column nor listed here, and a test
-# holds `feature_columns() + UNOWNED_COLUMNS` equal to the numeric schema, so a dropped or
-# forgotten column is loud (D-28, T-186-15-07). Empty since todo 558 retired the three
-# cross-sectional `*_rank_z` columns (never computed; a rank needs the whole universe per bar, so
-# it cannot be a per-series kernel); a column added here needs the same written reason.
-UNOWNED_COLUMNS: Mapping[str, str] = {}
-
-
 # Registry feature columns the legacy FeatureVector (the dormant streaming contract) does not
 # carry, each with the reason: only the kernel path computes them and only feature_vectors stores
 # them. The legacy contract is not extended, so a test that holds the registry against
@@ -587,14 +578,6 @@ KERNEL_ONLY_COLUMNS: Mapping[str, str] = {
     "size_proxy": "todo 584 item 8 (D2): add-list, migration 559",
     "dividend_yield": "todo 584 item 8 (D2): add-list, migration 559",
 }
-
-
-def registry_column_gaps(
-    numeric_columns: Iterable[str], registry: KernelRegistry | None = None
-) -> list[str]:
-    """Numeric columns that are neither a registry feature column nor in `UNOWNED_COLUMNS`."""
-    owned = set((registry if registry is not None else default_registry()).feature_columns())
-    return sorted(c for c in numeric_columns if c not in owned and c not in UNOWNED_COLUMNS)
 
 
 def feature_memory_bars(

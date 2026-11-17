@@ -87,28 +87,6 @@ class DatabaseManager:
         async with self.get_connection() as conn:
             return await conn.execute(command, *args)
 
-    async def execute_batch(self, statement: str, params: list[list[Any]] | list[tuple]) -> None:
-        """Execute a batched statement within a single transaction.
-
-        Args:
-            statement: SQL statement with positional parameters
-            params: Sequence of parameter tuples/lists
-        """
-        if not params:
-            return
-        async with self.get_connection() as conn:
-            tr = conn.transaction()
-            await tr.start()
-            try:
-                await conn.executemany(statement, params)
-                await tr.commit()
-            except Exception as error:
-                try:
-                    await tr.rollback()
-                except Exception:
-                    pass  # rollback failed; re-raise original exception
-                raise error
-
     async def health_check(self) -> bool:
         """Check database health."""
         try:
@@ -128,18 +106,3 @@ class DatabaseManager:
         """Compatibility method for API routes - returns single row or None."""
         async with self.get_connection() as conn:
             return await conn.fetchrow(query, *args)
-
-    async def instruments_trigger_exists(self) -> bool:
-        """Check whether the instruments pg_notify trigger is installed.
-
-        Read-only — the trigger itself is schema bootstrap, installed via migration
-        213 (`production/migrations/213_instruments_notify_trigger.sql`), not created
-        here. Compute daemons (e.g. FeatureVectorPipeline) call this at startup and
-        fail loudly if it returns False rather than silently degrading to a listener
-        that will never receive a notification (DAG Invariants 2/3).
-        """
-        row = await self.fetchrow(
-            "SELECT 1 FROM pg_trigger WHERE tgname = 'trg_instruments_notify' "
-            "AND tgrelid = 'instruments'::regclass"
-        )
-        return row is not None

@@ -24,18 +24,18 @@ Both satisfy the same invariant: per-bar cost must not scale with total history 
 
 The feature kernels (`src/intelligence/features/kernels/`; the streaming `FeatureFactory.compute()` was deleted in R2 item 5b) are stateless pure functions — no `__init__`, no stored config, zero I/O, deterministic given its inputs (D-08 contract). It is called once per bar per (symbol, timeframe) with:
 
-- `bars` — the bounded window for that (symbol, tf) from `BarHistory` (`src/core/bar_history.py`), a per-key deque capped at `maxlen` (default 200). Appending a new bar evicts the oldest automatically — the window never grows past its cap, so recompute cost is flat regardless of how much history exists in the database.
+- `bars` — the bounded window for that (symbol, tf) that the feature pipeline holds (a deque capped at `maxlen`, default 200; the store class that held it was deleted with the streaming path). Appending a new bar evicts the oldest automatically — the window never grows past its cap, so recompute cost is flat regardless of how much history exists in the database.
 - `cache: FeatureCache` — the small set of fields that genuinely need to persist across calls rather than being re-derived from the window each time: HMM regime (refreshed every `regime_cache_refresh_bars`, not every bar — cheaper than even O(1)-per-bar), cross-asset state (`vix_z`, `flight_quality`, `yield_slope_z`, populated by `update_cross_asset()`), and simple counters (`hmm_duration`, `above_wk_vwap`) incremented or reset by the caller each bar.
 - `config: FeatureFactoryConfig` — a frozen dataclass built once by the caller and passed explicitly on every call; never stored on the class.
 
 So most of the 298 features are bounded-window recompute (the window is the state boundary), and a handful of genuinely stateful fields live in `FeatureCache` as true incremental state. This is architecturally the old doc's "window plugin" strategy generalized to the whole feature set, with the old doc's "incremental plugin" pattern surviving only for the few fields where re-deriving from a window would be wasteful or impossible (e.g. a duration counter has no window-based reconstruction).
 
-**Checkpointing (historical; the streaming pipeline and `PluginStateManager` were deleted in R2 item 5):** the pipeline checkpointed `last_bar_offset` (the Kafka replay position), not the window contents or `FeatureCache` fields themselves — on restart, `BarHistory` is repopulated from DB warmup/Kafka replay rather than deserialized from a state file. This differs from the old plugin-tier model, which serialized full per-plugin state to `cache/plugin_states.json`.
+**Checkpointing (historical; the streaming pipeline and `PluginStateManager` were deleted in R2 item 5):** the pipeline checkpointed `last_bar_offset` (the Kafka replay position), not the window contents or `FeatureCache` fields themselves — on restart, the bar window was repopulated from DB warmup/Kafka replay rather than deserialized from a state file. This differs from the old plugin-tier model, which serialized full per-plugin state to `cache/plugin_states.json`.
 
 ## Invariants
 
 - Each kernel must remain a pure function of `(bars, symbol, tf, cache, config)` — no I/O, no `ConfigService.get()` calls, no Kafka, no `async`/`await` inside it.
-- `BarHistory`'s per-key deque is capped (`maxlen`); nothing appends without eviction. Per-bar cost must never scale with total corpus history length.
+- Any per-key bar window is capped (`maxlen`); nothing appends without eviction. Per-bar cost must never scale with total corpus history length.
 - Fields promoted into `FeatureCache` must be fields that cannot be cheaply re-derived from the bounded window alone — don't add a cache field for something a window recompute already gives you.
 - All tunable window sizes come from `FeatureFactoryConfig`, itself sourced from APR (`feature.*` namespace) — zero inline magic numbers in primitive bodies (SC-9).
 

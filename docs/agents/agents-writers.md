@@ -117,15 +117,6 @@ success and never reaches the DLQ. Subclasses using `payload_model` (a pydantic 
 `ClassVar` on the writer) get an extra pre-validation pass in the base `_run()` loop — a
 `ValidationError` there routes straight to the DLQ before `_parse_payload` is even called.
 
-### `PERSISTENCE_BATCH_LATENCY`
-
-The label key is `agent_id`, not `agent`. This is enforced by the canonical metric in `src/observability/metrics.py`. Using the wrong label key causes Grafana panels to show no data.
-
-```python
-from src.observability.metrics import PERSISTENCE_BATCH_LATENCY
-PERSISTENCE_BATCH_LATENCY.record((time.monotonic() - t0) * 1000, {"agent_id": self.name})
-```
-
 ### `PERSISTENCE_CONSUMER_LAG`
 
 `BaseWriter` overrides `_report_consumer_lag()` to report `len(self._buffer)` as the lag gauge. This runs every 15 seconds as a background task. The service auditor reads this metric (via `_AGENT_ID_TO_UNIT` in `service_auditor.py`) to detect stalled writers and trigger restarts.

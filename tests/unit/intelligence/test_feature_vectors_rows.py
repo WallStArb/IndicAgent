@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import pytest
 
 from src.intelligence.features import feature_vector_persistence as persistence
-from src.intelligence.features.contract.registry import UNOWNED_COLUMNS, default_registry
+from src.intelligence.features.contract.registry import default_registry
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTORS_COLUMNS,
     FEATURE_VECTORS_DROPPED_FEATURE_COLUMNS,
@@ -97,7 +97,6 @@ def test_dropped_columns_absent_and_pinned_to_the_evidence_file() -> None:
     # days_to_month_end is a registry column, so it is the one the derivation excludes explicitly.
     assert "days_to_month_end" in default_registry().feature_columns()
     for name in ("momentum_rank_z", "volume_rank_z", "volatility_rank_z"):
-        assert name not in UNOWNED_COLUMNS
         assert name not in default_registry().feature_columns()
         assert name not in FEATURE_VECTORS_COLUMNS
     assert not {"asian_session_high_dist_atr", "asian_session_low_dist_atr"} & set(

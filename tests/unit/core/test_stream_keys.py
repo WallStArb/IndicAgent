@@ -3,7 +3,6 @@
 from src.core.stream_keys import (
     env_prefix,
     message_key,
-    topic_intelligence,
     topic_market_bars,
 )
 
@@ -22,10 +21,6 @@ def test_env_prefix_empty() -> None:
 
 def test_topic_market_bars_with_env() -> None:
     assert topic_market_bars("dev") == "dev.market.bars"
-
-
-def test_topic_intelligence_with_env() -> None:
-    assert topic_intelligence("dev") == "dev.intelligence"
 
 
 def test_message_key_with_timeframe() -> None:

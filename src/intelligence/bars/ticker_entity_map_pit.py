@@ -253,7 +253,6 @@ class _Run:
     start_hint: date | None = None  # a first-snapshot run starts after another holder's delisting
     end_hint: date | None = None  # a delisting date inside (last, next snapshot]
     open: bool = False
-    next_as_of: date | None = None
     absent_at: date | None = None  # the first month-end the ticker was missing from the placed set
     bridged: int = 0  # single missing month-ends the run bridges
     absent_unkeyed: bool = False  # another record with no key held the ticker at absent_at
@@ -351,7 +350,6 @@ def build_runs(
         by_ticker: dict[str, list[PitRecord]] = {}
         for ticker, gone in list(pending.items()):  # missing two month-ends running: closed
             if gone.absent_at != previous:
-                gone.next_as_of = gone.absent_at
                 runs.append(pending.pop(ticker))
         for rec in snap.active:
             typ = rec.type or "none"
@@ -383,11 +381,9 @@ def build_runs(
                 open_runs[rec.ticker] = gone
                 continue
             if gone is not None:
-                gone.next_as_of = gone.absent_at
                 runs.append(gone)
             if run is not None:
                 _delisting_hint(run, snap, by_ticker)
-                run.next_as_of = snap.as_of
                 runs.append(run)
             new = _new_run(rec, snap.as_of, first == snap.as_of)
             if new.starts_at_capture:
@@ -404,7 +400,6 @@ def build_runs(
     if previous is None or first is None:
         raise PitPlanError("no snapshots")
     for run in pending.values():
-        run.next_as_of = run.absent_at
         runs.append(run)
     for run in open_runs.values():
         run.open = True

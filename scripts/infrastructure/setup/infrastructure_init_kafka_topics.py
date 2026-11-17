@@ -27,10 +27,7 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
     ("market.events.gap_requests", 1, _BUFFER_MS, "delete"),
     ("market.data.quality", 1, _BUFFER_MS, "delete"),
-    # --- Intelligence ---
-    ("intelligence", 1, _BUFFER_MS, "delete"),
     # --- System ---
-    ("system.events", 1, _BUFFER_MS, "delete"),
     ("system.health.events", 1, _BUFFER_MS, "delete"),
     # --- Alerting ---
     ("alert.requests", 1, _BUFFER_MS, "delete"),
