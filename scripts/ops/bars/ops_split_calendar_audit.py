@@ -1150,6 +1150,14 @@ WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
 """
 _QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'"
 _FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
+# A listed bar canonical no longer holds (the step 7 rebuild selects Massive from 2003-09-10, so an
+# IBKR-only bar of a name Massive starts later is absent) is moot, not mistyped, when raw has the date.
+_RAW_BAR_SQL = """
+SELECT 1 FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
+   OR (symbol = $1 AND timeframe = '1d' AND ("timestamp" AT TIME ZONE 'America/New_York')::date = $2::date)
+LIMIT 1
+"""
 _BAR_SQL = """
 SELECT "timestamp" FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
@@ -1201,7 +1209,7 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
     Each rule is this tool's alone, so it is replaced globally (a name flagged today but absent
     from the files is cleared) and a re-run writes the same rows. Refuses unless both rules
     quarantine (APR list), and when a candidate has no bar after its date or a listed bad bar is
-    not stored."""
+    in no stored series (a bar only raw holds is counted, not flagged)."""
     from services.bar_derivation_batch import close_batch, open_batch
     from services.bar_scrub import FlagRow, write_flags
 
@@ -1235,10 +1243,14 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
             if stamp is None:
                 raise ValueError(f"{c['symbol']} has no canonical bar after {c['effective_date']}")
             add(UNCONFIRMED_RULE, c["symbol"], stamp, c["detail"])
+        moot = 0
         for (symbol, day), reason in sorted(operator_list(OPERATOR_BAD_BARS).items()):
             stamp = await conn.fetchval(_BAR_SQL, symbol, day)
             if stamp is None:
-                raise ValueError(f"listed bad bar {symbol} {day} is not a stored 1d bar")
+                if await conn.fetchval(_RAW_BAR_SQL, symbol, day) is None:
+                    raise ValueError(f"listed bad bar {symbol} {day} is not a stored 1d bar")
+                moot += 1  # raw holds it, canonical selects another series: nothing to quarantine
+                continue
             add(BAD_BAR_RULE, symbol, stamp, {"reason": reason, "list": OPERATOR_BAD_BARS.name})
         batch_id = await open_batch(
             conn,
@@ -1269,6 +1281,7 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
     else:
         await tx.rollback()
     print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} bars")
+    print(f"{moot} listed bars are in raw only (not in canonical): nothing to quarantine")
     return written
 
 
