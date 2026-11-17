@@ -68,9 +68,10 @@ feature and IC work can start; every session and worker assignment is picked by 
 clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
 
 Next, in order:
-1. D5 and Part F if still pending (`run_partd5.sh --apply`, then `run_partf.sh`; the lead launches each;
+1. Part F (`run_partf.sh`; dry run clean 2026-11-17: 364,679,171 raw, 4,349,018 revision, 98,399 ask rows to delete; owner's go, then `PARTF_CONFIRM=delete-ibkr-raw` detached;
    `docs/operations/massive-step7-runbook.md`).
-2. The held post-D1 landings in the landing runbook's order.
+2. Held landings still open: wt-pit-map (601; rehearsal 2 first, with the install integration test e609cb20c), the A3 sweep gate (`--strict`, in review),
+   the dead-code commit, todo 623 (`alpaca_basis_run`) and todo 624 (reused tickers). Landed 2026-11-17: the r2rest stack (a5ec69f47) and the doc and data cleanup (5554d2319).
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
 4. A3 split sweep against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
