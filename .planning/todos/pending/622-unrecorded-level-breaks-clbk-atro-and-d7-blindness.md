@@ -38,6 +38,39 @@ dividends, not splits (never record); CBSH, SITM, SNDK, VIXM fall after the data
 The next D4 run is green with the row recorded; the A3 sweep lists no unexplained lone break on an active
 name; recorded rows carry the witness in `detail`.
 
+## Witnesses and rulings 2026-11-17 (scope 1 done; indicagent-55 sourced, indicagent-77 ruled)
+
+CLBK 2026-07-21 (Massive ratio 2.2): a share exchange in Columbia Financial's second-step conversion and
+Northfield acquisition. The completion release (2026-07-20, GlobeNewswire on Yahoo,
+https://finance.yahoo.com/markets/stocks/articles/columbia-financial-inc-announces-completion-232100333.html)
+states each public share "was exchanged for 2.2000 shares" and that the new shares begin trading on Nasdaq on
+Tuesday 2026-07-21; the merger proxy (https://www.sec.gov/Archives/edgar/data/0001723596/000119312526234433/d147282ddefm14a.htm)
+gives the public ratio range 1.8729 to 2.5340. Last old-scale session 2026-07-20. Raw: Alpaca sip_rth is the only
+1d series before 2026-07-21 (24.50 on 2026-07-20, 11.08 on 2026-07-21; Massive sip_flat starts 2026-07-21 with
+the new shares), so the row names the route alpaca/sip_rth. The day's real move is
+ln(11.08 / (24.50 / 2.2)) = -0.005066.
+
+Path correction: `--apply-massive` refuses CLBK. 2.2 = 11/5 and the split ratio rule
+(`infra.backfill.split_ratio_max_denominator` 4) recognises no denominator 5, so the Massive proposed row reads
+`not_a_split_ratio` (review_rows.csv). The row goes through `--apply-rows` (the operator rows file, whose only
+factor bound is 1/50 to 50), file `config/corporate_actions/split_rescale_rows_2026_11_17_clbk.csv`. Dry run:
+"dry run, would write 1 of 1 decided rows". After the write: `services.bar_derivation --stage daily --symbols CLBK
+--apply`, then the grid and the 5m reselect; the 5m raw before 2026-07-21 is Alpaca sip_rth too (last pre-event
+5m close 24.465, first post 10.915), so check the 5m step after the reselect and do not assume the rescale reaches it.
+
+ATRO 2026-06-15 (ratio 1.2): Astronics' 8-K of 2026-06-01 (Item 7.01,
+https://www.sec.gov/Archives/edgar/data/0000008063/000000806326000032/atro-20260601.htm) announces a 20% stock
+distribution of Class B Stock to holders of Common and Class B: one Class B share per five held, record date
+2026-06-15, distributed on or about 2026-06-29, fractions in cash (OCC memo 59143,
+https://infomemo.theocc.com/infomemos?number=59143, ex-distribution 2026-06-15). Holders of Common receive a
+separate class, so the Common line is not split. Alpaca and Massive closes: 96.00 on 2026-06-12, 75.69 on
+2026-06-15 (step 0.788, log -0.238; volume 880k to 965k, no 1.2x), history not restated; IBKR smart_adjusted reads
+79.83 on 2026-06-12 (96.00 / 1.2), so the 0.948 step is IBKR's adjusted series, not Alpaca's or Massive's. Ruling:
+no corporate_action row. The step is below the sweep's ln 0.4 threshold, so the sweep never lists it and the
+disposition line (`config/corporate_actions/sweep_dispositions.csv`) will read as unused; it is the record. Known
+consequence: a return computed on the ATRO line across 2026-06-15 carries the value of the distributed Class B
+share as a price drop; total return needs a distribution event, which no table holds.
+
 ## Lead ruling 2026-11-16
 
 Not a D4, D5 or Part F gate: the D4 rerun and D5 proceed as scripted. Scope items 1 and 2 run after `PARTD4 DONE` inside the
