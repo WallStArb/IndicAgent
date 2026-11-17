@@ -463,6 +463,68 @@ def test_a_listed_bad_bar_only_raw_holds_is_counted_not_refused(tmp_path, monkey
     assert conn.events == ["begin", "rollback"]
 
 
+def _patched_scrub(monkeypatch):
+    import services.bar_derivation_batch as batch
+    import services.bar_scrub as scrub
+
+    async def fake_write_flags(conn, **kw):
+        return len(kw["flags"])
+
+    async def fake_open(conn, **kw):
+        return "b"
+
+    async def fake_close(conn, *a, **kw):
+        return None
+
+    monkeypatch.setattr(scrub, "write_flags", fake_write_flags)
+    monkeypatch.setattr(batch, "open_batch", fake_open)
+    monkeypatch.setattr(batch, "close_batch", fake_close)
+
+
+def test_a_listed_bar_inside_the_canonical_series_is_never_moot(tmp_path, monkeypatch):
+    # Canonical starts 2001-01-02, before the listed day: the missing bar is a typo or a gap,
+    # not a series that starts later, so raw holding the date does not excuse it.
+    path = _write(tmp_path / "audit.csv", [{"symbol": "MSFT", "verdict": "adjusted"}])
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
+    _patched_scrub(monkeypatch)
+    conn = _AsyncConn('["unconfirmed_split", "operator_bad_bar"]')
+
+    async def in_gap(sql, *args):
+        if "quarantine_rules" in sql:
+            return conn.rules
+        if "min(" in sql:
+            return datetime(2001, 1, 2, tzinfo=UTC)
+        return 1 if "FROM ohlcv_raw" in sql else None
+
+    conn.fetchval = in_gap
+    with pytest.raises(ValueError, match="not a stored 1d bar"):
+        asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=True))
+
+
+def test_a_candidate_with_no_canonical_bar_in_its_window_is_moot(tmp_path, monkeypatch):
+    # The series starts after the event window (rebuild): the first-bar query is bounded to the
+    # calendar date plus SAME_EVENT_DAYS and finds nothing, so no later bar is quarantined.
+    path = _write(tmp_path / "audit.csv", [{"symbol": "OKE", "verdict": "excluded_spin_off"}])
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
+    _patched_scrub(monkeypatch)
+    conn = _AsyncConn('["unconfirmed_split", "operator_bad_bar"]')
+    seen = []
+
+    async def window_empty(sql, *args):
+        if "quarantine_rules" in sql:
+            return conn.rules
+        if sql == audit._FIRST_NEW_SCALE_SQL:
+            seen.append(args)
+            return None
+        return datetime(2005, 2, 28, tzinfo=UTC)
+
+    conn.fetchval = window_empty
+    assert asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False)) == 1  # the bad bar
+    [(symbol, effective, calendar_day, days)] = seen
+    assert days == audit.SAME_EVENT_DAYS and calendar_day >= effective
+    assert "$3::date + $4::int" in audit._FIRST_NEW_SCALE_SQL
+
+
 def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
     # The list changes only through review. Structure, not a frozen literal: every bar's
     # evidence cites the todo that reviewed it, no (symbol, date) appears twice, the pinned

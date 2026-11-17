@@ -1140,6 +1140,7 @@ _FIRST_NEW_SCALE_SQL = """
 SELECT min("timestamp") FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND volume > 0
   AND "timestamp" >= (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+  AND "timestamp" < (($3::date + $4::int + 1)::timestamp AT TIME ZONE 'UTC')
 """
 # A market split already recorded near a candidate decides it (the quarantine is the stopgap for the
 # undecided): corporate_actions.is_market_split reads the row's meaning.
@@ -1151,8 +1152,19 @@ WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
 _QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'"
 _FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
 # A listed bar canonical no longer holds (the step 7 rebuild selects Massive from 2003-09-10, so an
-# IBKR-only bar of a name Massive starts later is absent) is moot, not mistyped, when raw has the date.
+# IBKR-only bar of a name Massive starts later is absent) is moot, not mistyped, when raw has the date
+# and the day precedes the name's first canonical bar; a date inside a canonical gap still raises.
 _RAW_BAR_SQL = """
+SELECT 1 FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = '1d'
+  AND ("timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
+       OR ("timestamp" AT TIME ZONE 'America/New_York')::date = $2::date)
+LIMIT 1
+"""
+_FIRST_CANONICAL_SQL = """
+SELECT min("timestamp") FROM market_data_ohlcv WHERE symbol = $1 AND timeframe = '1d'
+"""
+_BAR_SQL = """
 SELECT 1 FROM ohlcv_raw
 WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
    OR (symbol = $1 AND timeframe = '1d' AND ("timestamp" AT TIME ZONE 'America/New_York')::date = $2::date)
@@ -1208,8 +1220,9 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
     - operator_bad_bar on every bar of operator_bad_bars.csv.
     Each rule is this tool's alone, so it is replaced globally (a name flagged today but absent
     from the files is cleared) and a re-run writes the same rows. Refuses unless both rules
-    quarantine (APR list), and when a candidate has no bar after its date or a listed bad bar is
-    in no stored series (a bar only raw holds is counted, not flagged)."""
+    quarantine (APR list), and when a listed bad bar is in no stored series
+    (a bar only raw holds before the series starts is counted, not flagged); a candidate with no
+    canonical bar within SAME_EVENT_DAYS of its calendar date is counted as moot."""
     from services.bar_derivation_batch import close_batch, open_batch
     from services.bar_scrub import FlagRow, write_flags
 
@@ -1230,6 +1243,7 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
                 FlagRow(stamp, rule, UNCONFIRMED_RULE_VERSION, _UNCONFIRMED_FIELDS, True, detail)
             )
 
+        moot_candidates = 0
         for c in unconfirmed_candidates(path):
             recorded = await conn.fetch(
                 _RECORDED_MARKET_SPLIT_SQL, c["symbol"], c["effective_date"], SAME_EVENT_DAYS
@@ -1239,17 +1253,26 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
                 for r in recorded
             ):
                 continue  # a recorded market split decides the event
-            stamp = await conn.fetchval(_FIRST_NEW_SCALE_SQL, c["symbol"], c["effective_date"])
+            stamp = await conn.fetchval(
+                _FIRST_NEW_SCALE_SQL,
+                c["symbol"],
+                c["effective_date"],
+                date.fromisoformat(c["detail"]["calendar_date"]),
+                SAME_EVENT_DAYS,
+            )
             if stamp is None:
-                raise ValueError(f"{c['symbol']} has no canonical bar after {c['effective_date']}")
+                moot_candidates += 1  # series starts after the event's window
+                continue
             add(UNCONFIRMED_RULE, c["symbol"], stamp, c["detail"])
         moot = 0
         for (symbol, day), reason in sorted(operator_list(OPERATOR_BAD_BARS).items()):
             stamp = await conn.fetchval(_BAR_SQL, symbol, day)
             if stamp is None:
-                if await conn.fetchval(_RAW_BAR_SQL, symbol, day) is None:
+                first = await conn.fetchval(_FIRST_CANONICAL_SQL, symbol)
+                before_series = first is None or day < first.date()
+                if not before_series or await conn.fetchval(_RAW_BAR_SQL, symbol, day) is None:
                     raise ValueError(f"listed bad bar {symbol} {day} is not a stored 1d bar")
-                moot += 1  # raw holds it, canonical selects another series: nothing to quarantine
+                moot += 1  # raw holds it, canonical starts later: nothing to quarantine
                 continue
             add(BAD_BAR_RULE, symbol, stamp, {"reason": reason, "list": OPERATOR_BAD_BARS.name})
         batch_id = await open_batch(
@@ -1281,7 +1304,10 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
     else:
         await tx.rollback()
     print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} bars")
-    print(f"{moot} listed bars are in raw only (not in canonical): nothing to quarantine")
+    print(
+        f"{moot} listed bars are in raw only (before the canonical series): nothing to quarantine"
+    )
+    print(f"{moot_candidates} unconfirmed candidates have no canonical bar in their window: moot")
     return written
 
 
