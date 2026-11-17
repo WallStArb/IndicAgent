@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: P1
 filed: 2026-11-17
 source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; the unresolved list is the run's _unresolved.csv)
@@ -81,3 +81,36 @@ a split row through `--apply-rows`, or an identity fix under todo 624 (reused ti
 
 The sweep lists none of these rows unresolved after one rerun; no `recorded_unapplied` or
 `recorded_double_adjusted` row appears; unit suite exit code.
+
+## Triage 2026-11-17 (indicagent-55; sweep output, Yahoo calendar via `--audit`, raw closes)
+
+Rows left after todos 627, 628 and 630: 41. Each break was matched to the Yahoo calendar event within 10 days. Primary
+documents were read, from search results naming the filings, only for the first batch; the rest is evidence from the
+calendar and prices, labelled as such.
+
+Batch 1 (dispositions prepared in `sweep_dispositions.csv`): APTV 2017-12-05 (Delphi Technologies, 1 per 3), PNR
+2018-05-01 (nVent, 1 per 1), SNX 2020-12-02 (Concentrix, 1 per 1; the record date 2020-11-17 rests on a press report).
+The sweep read APTV and PNR as `inseries_rescale`: the calendar adjusted them by 1.193 and 1.489, not split ratios, so
+they are distributions, not canonical scale errors.
+
+Class A, calendar lists a non-split-ratio event on the break day, the incumbents adjust by it (distributions; 16 rows; a
+disposition each once its filing is read, never a row): BAX 2015-07-01 (calendar 1.841), DD 2025-11-03 (2.390), EBAY
+2015-07-20 (2.376), ENSG 2014-06-03 (1.833), EQT 2018-11-13 (1.837), MDU 2024-11-01 (1.805), NI 2015-07-02 (2.545), RTX
+2020-04-03 (1.589), SLM 2014-05-01 (2.798), SPXC 2015-09-28 (3.971, unmeasured), VIAV 2015-08-04 (1.758), XPO 2022-11-01
+(1.683). Class A2, calendar factor under 1 (a reverse split or a consolidation combined with a distribution; read the
+filing before choosing between a row and a disposition): ENOV 2022-04-05 (0.581), HLT 2017-01-04 (0.487), MSI 2011-01-04
+(0.247), UNIT 2025-08-04 (0.602).
+
+Class B, no calendar event (22 rows): ACVA 2025-11-06 (-0.47), CNO 2008-09-17 (single-bar reversal), ECHO 2008-01-02
+(+0.55), FAF 2010-06-02 (-0.82), GSAT 2014-04-21 (+1.90), HON 2026-06-15 (-0.66), NESR 2024-10-22 (+1.27,
+`unrecorded_split`), OII 2020-03-10 (-0.58), PMTS 2021-08-05 (+3.14), POWI 2006-10-30 (+0.45), ROKU 2017-11-09 (+0.44),
+SIRI 2009-02-11 (-0.73), SMCI 2020-01-14 (+0.55), SNEX 2020-07-06 (+0.47), SSB 2004-03-09 (+1.33), SVRA 2016-02-10
+(-0.59) and 2016-09-21 (-1.57), SW 2016-05-16 (-1.86, `unrecorded_split`), THRM 2012-06-13 (+2.02), UAMY 2020-10-08
+(+0.63), SN 2018-12-06 and 2023-07-31 (reused ticker, todo 624). Large positive steps with no calendar event are
+reverse splits Yahoo lacks or a different security under the ticker; negative ones are a distribution or a split Yahoo
+lacks; moves of 0.4 to 0.6 can be real (earnings, squeezes). NESR is not a reverse split: the only October 2024 event
+found is the Nasdaq uplisting on 2024-10-22 (8-A of 2024-10-18), so its +1.27 is a seam or an identity case.
+
+Next: read the primary filing for each Class A and A2 row (batches of at most 10), write the dispositions or the rows;
+for Class B measure each row's raw series across the break (does every vendor step together, then it is a real move:
+disposition; does one vendor step alone, then a seam: todo 624) before a filing is sought.
