@@ -46,6 +46,13 @@ ENOV,2022-04-04,0.333333333333,massive/sip_flat,0.047553,1-for-3 reverse split a
    a number; HLT's spin-off-adjusted Alpaca bars are todo 624), dry run, apply, reselect 1d, 5m and the grid for the names, then land
    the distribution dispositions in the same commit and run the A3 sweep once.
 
+## Review follow-ups (independent review of 5b6c78f4a: nothing material; low-confidence items for the next touch)
+
+- Require Massive as the canonical vendor on both bars in `_judge_massive_row` (select vendor and kind in `_NEXT_CANONICAL_SQL`).
+- Validate `calendar_factor` (finite, positive, line named on error); refuse the column on an incumbent-route line.
+- Update the allow-list reason at `tests/unit/test_market_data_ohlcv_boundary.py:34` to cover the raw read in `_NEXT_CANONICAL_SQL`.
+- Tests: assert the written factor is exactly 1/3 and `detail.canonical_step`; add `match=` to the refusal test; cover the Massive-has-not-served-the-span refusal.
+
 ## Gates
 
 Unit suite exit code; independent review; the sweep lists none of the seven after the apply; `ops_selection_gate --compare`
