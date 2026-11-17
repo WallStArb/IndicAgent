@@ -179,11 +179,22 @@ def split_continuity(canonical_step: float, factor: float, rel_tol: float) -> Sp
 #   stales the incumbent observations fetched before it (D-21);
 # - a calendar_audit row names the incumbent routes it rescales (todo 587);
 # - a massive_reference row is the vendor reference's record of a market split (todo 600 step
-#   4): the incumbents are adjusted for it as served, so it neither stales nor rescales them.
+#   4): the incumbents are adjusted for it as served, so it neither stales nor rescales them;
+# - a calendar_market row is a market split the Yahoo calendar lists, the incumbents carry adjusted
+#   and Massive's reference omits (todo 630): the same meaning as massive_reference, recorded from
+#   the calendar audit's three-witness evidence instead of a reference page.
 RESTATEMENT_SOURCES = frozenset({"seam_audit", "nightly_overlap", "tradier_refetch", "operator"})
 CALENDAR_AUDIT_SOURCE = "calendar_audit"
 MASSIVE_REFERENCE_SOURCE = "massive_reference"
-SPLIT_SOURCES = RESTATEMENT_SOURCES | {CALENDAR_AUDIT_SOURCE, MASSIVE_REFERENCE_SOURCE}
+CALENDAR_MARKET_SOURCE = "calendar_market"
+# A reference row records a market split the incumbents carry adjusted: it neither stales nor rescales them
+# and is never superseded or held as a rescale (the one named set the guards and the revision waiver read).
+MARKET_REFERENCE_SOURCES = frozenset({MASSIVE_REFERENCE_SOURCE, CALENDAR_MARKET_SOURCE})
+SPLIT_SOURCES = RESTATEMENT_SOURCES | {
+    CALENDAR_AUDIT_SOURCE,
+    MASSIVE_REFERENCE_SOURCE,
+    CALENDAR_MARKET_SOURCE,
+}
 
 
 def is_market_split(inferred_by: str, *, operator_rows_file: bool) -> bool:

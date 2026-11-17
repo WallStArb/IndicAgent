@@ -359,8 +359,8 @@ class _AsyncTx:
 
 
 class _AsyncConn:
-    def __init__(self, rules):
-        self.rules, self.events = rules, []
+    def __init__(self, rules, recorded=()):
+        self.rules, self.events, self.recorded = rules, [], list(recorded)
 
     def transaction(self):
         return _AsyncTx(self)
@@ -371,6 +371,8 @@ class _AsyncConn:
         return datetime(2005, 2, 28, tzinfo=UTC)
 
     async def fetch(self, sql, *args):
+        if "corporate_action_current" in sql:
+            return self.recorded
         return [{"symbol": "GONE"}]
 
 
@@ -1463,3 +1465,295 @@ def test_a_sweep_that_reads_nothing_is_not_clean(monkeypatch, tmp_path):
     counts, _ = _drive_sweep(monkeypatch, tmp_path, conn, [])
     assert counts["unresolved"] == 0
     assert audit.strict_failure(counts), "an empty read must fail the gate"
+
+
+# --- calendar_market (todo 630): a calendar-listed market split on a Massive-served series ---
+
+_MASSIVE = ("massive", "sip_flat_adj")
+
+
+def _massive_case(on=_ON, factor=2.0, incumbents=({_IBKR: True},), canonical_pair=_MASSIVE):
+    """XHE-shaped: canonical (Massive, unadjusted) steps by 1/factor on `on`; each incumbent raw
+    series is adjusted (flat against the calendar) or, when its flag is False, unadjusted."""
+    canonical, calendar, _ = _series(on, factor, pair=canonical_pair)
+    raw = {}
+    for pair, adjusted in incumbents[0].items() if incumbents else []:
+        raw[pair] = _series(on, factor, adjusted=adjusted)[2]
+    return canonical, calendar, raw
+
+
+def test_a_massive_split_the_incumbents_carry_adjusted_is_market_unadjusted():
+    canonical, calendar, raw = _massive_case()
+    [event] = _judge("XHE", canonical, calendar, raw)
+    assert (event.verdict, event.ratio, event.effective_date) == (
+        "market_unadjusted",
+        2.0,
+        date(2005, 2, 25),
+    )
+    assert json.loads(event.route_steps) == {"ibkr/smart_trades": 0.0}
+    assert event.unadjusted_routes == ""
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        {"incumbents": ({},)},  # no incumbent measured (MDU 2003): a report, not a row
+        {"incumbents": ({_IBKR: False},)},  # an incumbent unadjusted too: conflict stays a report
+        {"canonical_pair": ("ibkr", "named")},  # canonical is not Massive
+        {"factor": 1.046},  # no recognised split ratio
+    ],
+)
+def test_every_guard_keeps_the_event_a_report(case):
+    canonical, calendar, raw = _massive_case(**case)
+    [event] = _judge("XHE", canonical, calendar, raw)
+    assert event.verdict != "market_unadjusted"
+
+
+def test_a_break_not_on_the_calendar_day_stays_a_report():
+    # the calendar lists the Saturday; canonical's first new-scale session is the Monday
+    saturday = date(2005, 2, 26)
+    canonical, calendar, raw = _massive_case(on=date(2005, 2, 28))
+    calendar = [(d, c, f if d == date(2005, 2, 28) else 0.0) for d, c, f in calendar]
+    calendar.append((saturday, 50.0, 2.0))
+    calendar.sort()
+    events = _judge("XHE", canonical, calendar, raw)
+    assert all(e.verdict != "market_unadjusted" for e in events if e.calendar_date == saturday)
+
+
+_MARKET_LINE = {
+    "symbol": "XHE",
+    "canonical_vendor": "massive",
+    "canonical_kind": "sip_flat_adj",
+    "route_steps": '{"ibkr/smart_trades": 0.0}',
+    "unadjusted_routes": "",
+    "verdict": "market_unadjusted",
+}
+
+
+def test_market_rows_re_judge_each_line_and_carry_the_evidence(tmp_path):
+    path = _write(tmp_path / "audit.csv", [_MARKET_LINE, {}])
+    rows = audit.market_rows(path, _PARAMS, excluded=set())
+    assert [(r["symbol"], r["action_type"], r["factor"]) for r in rows] == [("XHE", "split", 2.0)]
+    detail = rows[0]["detail"]
+    assert detail["canonical_route"] == {"vendor": "massive", "kind": "sip_flat_adj"}
+    assert detail["route_steps"] == {"ibkr/smart_trades": 0.0} and detail["todo"] == 630
+    assert "unadjusted_routes" not in detail and len(detail["audit_sha256"]) == 64
+    assert audit.market_rows(path, _PARAMS, excluded=set()) == rows  # idempotent
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"route_steps": '{"ibkr/smart_trades": -0.693147}'},  # an incumbent unadjusted
+        {"route_steps": '{"ibkr/smart_trades": null}'},  # an unmeasured incumbent
+        {"route_steps": "{}"},  # nothing measured
+        {"canonical_vendor": "ibkr"},
+        {"effective_date": "2005-02-10"},  # not the session before the calendar day
+        {"canonical_step": "-0.3"},  # the calendar no longer confirms the step
+    ],
+)
+def test_a_market_line_the_current_apr_would_not_accept_raises(tmp_path, edit):
+    path = _write(tmp_path / "audit.csv", [{**_MARKET_LINE, **edit}])
+    with pytest.raises(ValueError):
+        audit.market_rows(path, _PARAMS, excluded=set())
+
+
+def test_a_market_line_the_spin_off_list_names_raises(tmp_path):
+    path = _write(tmp_path / "audit.csv", [{**_MARKET_LINE, "symbol": "XHE"}])
+    with pytest.raises(ValueError):
+        audit.market_rows(path, _PARAMS, excluded={("XHE", date(2005, 2, 28))})
+
+
+def test_apply_market_inserts_calendar_market_rows_and_rolls_back_unless_commit(
+    tmp_path, monkeypatch
+):
+    path = _write(tmp_path / "audit.csv", [_MARKET_LINE])
+    monkeypatch.setattr(audit, "_apr", lambda conn: _PARAMS)
+    monkeypatch.setattr(audit, "_with_canonical_closes", lambda conn, rows: list(rows))
+    monkeypatch.setattr(audit, "operator_list", lambda p: {})
+    conn = _Conn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    assert audit.main(["--apply-market", str(path)]) == 0
+    assert (conn.committed, conn.rolled_back) == (0, 1)
+    assert any("'calendar_market'" in s for s in conn.statements)
+
+
+def test_calendar_market_means_what_massive_reference_means():
+    from services.bar_derivation import split_record
+    from src.intelligence.bars.corporate_actions import SPLIT_SOURCES, is_market_split
+
+    assert "calendar_market" in SPLIT_SOURCES
+    assert is_market_split("calendar_market", operator_rows_file=False)
+    record = split_record(
+        {
+            "effective_date": date(2015, 9, 10),
+            "recorded_at": datetime(2026, 11, 18, tzinfo=UTC),
+            "factor": 2.0,
+            "evidence_request_ids": [],
+            "inferred_by": "calendar_market",
+            "unadjusted_routes": None,
+            "calendar_adjusted_step": 0.004568,
+            "operator_rows_file": False,
+        }
+    )
+    # rescales Massive (a market split), rescales and stales no incumbent
+    assert record.market_fact and not record.stales and not record.rescale_routes
+
+
+@pytest.mark.parametrize(
+    ("closes", "factor"),
+    [
+        ((93.91, 47.17), 2.0),  # XHE 2015-09-10 and 2015-09-11
+        ((33.98, 22.61), 1.5),  # AAON 2013-07-02 and 2013-07-03
+        ((57.37, 38.23), 1.5),  # ROL 2018-12-10 and 2018-12-11
+    ],
+)
+def test_a_reselect_after_recording_makes_the_massive_series_continuous(closes, factor):
+    from src.intelligence.bars.selection import Candidate
+    from src.intelligence.bars.split_rescale import canonicalize_winners, split_row, splits_known_at
+
+    old = Candidate(
+        datetime(2015, 9, 10, 19, 55, tzinfo=UTC),
+        "XHE",
+        "5m",
+        "massive",
+        "sip_flat_agg",
+        closes[0],
+        closes[0],
+        closes[0],
+        closes[0],
+        1000,
+    )
+    new = Candidate(
+        datetime(2015, 9, 11, 13, 30, tzinfo=UTC),
+        "XHE",
+        "5m",
+        "massive",
+        "sip_flat_agg",
+        closes[1],
+        closes[1],
+        closes[1],
+        closes[1],
+        1000,
+    )
+    row = split_row(
+        date(2015, 9, 10),
+        factor,
+        datetime(2026, 11, 18, tzinfo=UTC),
+        "calendar_market",
+        False,
+        None,
+    )
+    splits = splits_known_at([row], datetime(2026, 11, 18, 12, tzinfo=UTC))
+    first, second = canonicalize_winners([old, new], {"XHE": splits})
+    assert abs(math.log(second.close / first.close)) < 0.01  # continuous within a real day's move
+    assert first.close == pytest.approx(closes[0] / factor)
+
+
+def _quarantine_fakes(monkeypatch):
+    import services.bar_derivation_batch as batch
+    import services.bar_scrub as scrub
+
+    written = []
+
+    async def fake_write_flags(conn, **kw):
+        written.append((kw["symbol"], kw["rules_evaluated"], [f.quarantine for f in kw["flags"]]))
+        return len(kw["flags"])
+
+    async def fake_open(conn, **kw):
+        return "b"
+
+    async def fake_close(conn, *a, **kw):
+        return None
+
+    monkeypatch.setattr(scrub, "write_flags", fake_write_flags)
+    monkeypatch.setattr(batch, "open_batch", fake_open)
+    monkeypatch.setattr(batch, "close_batch", fake_close)
+    return written
+
+
+@pytest.mark.parametrize("verdict", ["route_conflict", "market_unadjusted", "conflict"])
+def test_a_candidate_with_a_recorded_market_split_nearby_is_not_quarantined(
+    tmp_path, monkeypatch, verdict
+):
+    written = _quarantine_fakes(monkeypatch)
+    path = _write(tmp_path / "audit.csv", [{"symbol": "XHE", "verdict": verdict}])
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
+    both = '["unconfirmed_split", "operator_bad_bar"]'
+    market = [{"inferred_by": "calendar_market", "rows_file": False}]
+    conn = _AsyncConn(both, recorded=market)
+    asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False))
+    assert not any(
+        s == "XHE" and r == frozenset({"unconfirmed_split"}) and q for s, r, q in written
+    )
+    written.clear()
+    route_fix = [
+        {"inferred_by": "calendar_audit", "rows_file": True}
+    ]  # an operator route correction
+    asyncio.run(
+        audit.quarantine_unconfirmed(_AsyncConn(both, recorded=route_fix), path, commit=False)
+    )
+    assert any(s == "XHE" and r == frozenset({"unconfirmed_split"}) and q for s, r, q in written)
+
+
+class _CloseCur:
+    def __init__(self, closes):
+        self.closes = closes
+
+    def execute(self, sql, params):
+        self.params = params
+
+    def fetchall(self):
+        return self.closes
+
+
+class _CloseConn:
+    def __init__(self, closes):
+        self.cur = _CloseCur(closes)
+
+    def cursor(self):
+        return self.cur
+
+
+def _market_row(effective=date(2015, 9, 10), step=-0.688579):
+    return {
+        "symbol": "XHE",
+        "effective_date": effective,
+        "detail": {"calendar_date": "2015-09-11", "canonical_step": step},
+    }
+
+
+def test_the_canonical_closes_must_be_the_effective_date_and_the_calendar_day():
+    good = _CloseConn([(date(2015, 9, 10), 93.91), (date(2015, 9, 11), 47.17)])
+    [row] = audit._with_canonical_closes(good, [_market_row()])
+    assert row["detail"]["canonical_closes"] == {"2015-09-10": 93.91, "2015-09-11": 47.17}
+    # MGEE shape: effective Friday, calendar Monday
+    mgee = _market_row(date(2014, 2, 7), round(math.log(36.81 / 55.25), 6))
+    mgee["detail"]["calendar_date"] = "2014-02-10"
+    [row] = audit._with_canonical_closes(
+        _CloseConn([(date(2014, 2, 7), 55.25), (date(2014, 2, 10), 36.81)]), [mgee]
+    )
+    assert len(row["detail"]["canonical_closes"]) == 2
+
+
+@pytest.mark.parametrize(
+    "closes",
+    [
+        [(date(2015, 9, 10), 93.91)],  # the calendar day is missing
+        [(date(2015, 9, 9), 92.84), (date(2015, 9, 11), 47.17)],  # dated one session early
+        [(date(2015, 9, 10), 93.91), (date(2015, 9, 11), 93.9)],  # canonical already continuous
+    ],
+)
+def test_a_row_one_session_off_or_already_continuous_is_refused(closes):
+    with pytest.raises(ValueError):
+        audit._with_canonical_closes(_CloseConn(closes), [_market_row()])
+
+
+def test_the_reference_sources_are_one_named_set_every_guard_reads():
+    from services import bar_derivation
+    from src.intelligence.bars.corporate_actions import MARKET_REFERENCE_SOURCES
+
+    assert MARKET_REFERENCE_SOURCES == {"massive_reference", "calendar_market"}
+    assert "'calendar_market'" in bar_derivation._SELECT_REVISION_WAIVER_SQL
+    assert "'massive_reference'" in bar_derivation._SELECT_REVISION_WAIVER_SQL

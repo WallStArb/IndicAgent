@@ -52,6 +52,15 @@ Two steps, with the evidence a reviewed, committed file between them:
     restatement-source row instead of being blocked by it: the new row's `supersedes` names it,
     so the current view shows only the vendor-dated row (check_redate). --commit is refused unless the consumers know the code
     (MASSIVE_REFERENCE_CONSUMERS_READY, from corporate_actions.SPLIT_SOURCES; d2-v6 reads it).
+--apply-market CSV [--commit]: insert an audit's market_unadjusted lines (todo 630) as
+    corporate_action rows, inferred_by calendar_market: a market split the Yahoo calendar lists,
+    canonical (Massive, served unadjusted) steps by in full, at least one incumbent (IBKR, Alpaca)
+    is measured and every measured one reads adjusted by the same ratio, and the break day is the
+    calendar's day; Massive's reference omits it. Every line is re-judged under the current APR;
+    detail carries the evidence and the canonical closes; same transaction and existing-row guard
+    as --apply, an operator route correction nearby never blocks it. The row means what a
+    massive_reference row means (it rescales Massive, stales and rescales no incumbent). Dry run
+    unless --commit.
 --sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
     Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
     most the sweep's name cap steps, so market-wide crash days stay out - classified by the
@@ -100,6 +109,7 @@ from scripts.ops.bars.ops_split_detect import SPLIT_RULE_KEYS, split_rule_from_a
 from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.corporate_actions import (  # noqa: E402
+    CALENDAR_MARKET_SOURCE,
     MASSIVE_REFERENCE_SOURCE,
     RESTATEMENT_SOURCES,
     SPLIT_SOURCES,
@@ -119,6 +129,7 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     rescale_routes,
 )
 from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions  # noqa: E402
+from src.intelligence.bars.vendor_kind import VENDOR_MASSIVE  # noqa: E402
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
@@ -186,6 +197,23 @@ VALUES (%s, %s, %s, %s, 'calendar_audit', '{}'::uuid[], %s::jsonb)
 """
 
 
+# A calendar_market row (todo 630): a market split Massive's reference omits, recorded from the calendar audit's evidence.
+_INSERT_MARKET_SQL = """
+INSERT INTO corporate_action
+    (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids, detail)
+VALUES (%s, %s, %s, %s, 'calendar_market', '{}'::uuid[], %s::jsonb)
+"""
+# The canonical 1d closes either side of the break, read when the row is built (its evidence).
+_CANONICAL_CLOSES_SQL = """
+SELECT ("timestamp" AT TIME ZONE 'UTC')::date, close FROM market_data_ohlcv
+WHERE symbol = %s AND timeframe = '1d' AND volume > 0
+  AND ("timestamp" AT TIME ZONE 'UTC')::date IN (%s::date, %s::date)
+ORDER BY "timestamp"
+"""
+# The audit rounds its steps to six decimals; the recorded step must match the stored closes' own.
+_CLOSE_STEP_TOL = 2e-6
+
+
 # A Massive-reference row (todo 600): recorded_at is the capture's serve time, never now().
 _INSERT_MASSIVE_SQL = """
 INSERT INTO corporate_action
@@ -205,6 +233,7 @@ MASSIVE_SPLITS_ENDPOINTS = ("/v3/reference/splits", "splits")
 # meanings, corporate_actions.SPLIT_SOURCES (the daily read and selection raise on a code outside
 # it), so the writer derives its gate from the same table instead of a hand-flipped switch.
 MASSIVE_REFERENCE_CONSUMERS_READY = MASSIVE_REFERENCE_SOURCE in SPLIT_SOURCES
+CALENDAR_MARKET_CONSUMERS_READY = CALENDAR_MARKET_SOURCE in SPLIT_SOURCES
 
 
 # Raw Massive day bars, session-dated in New York (window_start is midnight New York), the load's
@@ -319,6 +348,25 @@ def _final_verdict(
     return "confirmed", unadjusted
 
 
+def market_unadjusted(
+    canonical_vendor: str | None,
+    route_steps: Mapping[str, float | None],
+    ratio: float,
+    rel_tol: float,
+) -> bool:
+    """Todo 630's three-witness rule for a split the calendar lists, canonical (Massive, served
+    unadjusted) steps by in full, and Massive's reference omits: at least one incumbent series is
+    measured and every measured one reads adjusted by the same ratio (an unmeasured, unadjusted or
+    conflicting incumbent keeps it a report). Pure; market_rows re-runs it on the recorded numbers.
+    """
+    if canonical_vendor != VENDOR_MASSIVE or not route_steps:
+        return False
+    return all(
+        step is not None and scale_step(step, ratio, rel_tol) == "adjusted"
+        for step in route_steps.values()
+    )
+
+
 def judge_events(
     symbol: str,
     canonical: Sequence[tuple[date, float, str, str]],
@@ -374,6 +422,12 @@ def judge_events(
                     rel_tol,
                     excluded,
                 )
+                if (
+                    verdict == "route_conflict"
+                    and market_unadjusted(vendor, route_steps, ratio, rel_tol)
+                    and canonical[c[1]][0] == day  # the break day is the calendar's day
+                ):
+                    verdict, unadjusted = "market_unadjusted", []
             else:
                 unadjusted = _unadjusted(route_steps, ratio, rel_tol)
         events.append(
@@ -676,6 +730,100 @@ def confirmed_rows(
     return rows
 
 
+def market_rows(
+    path: Path, params: AuditParams, excluded: Collection[tuple[str, date]] | None = None
+) -> list[dict[str, Any]]:
+    """The audit CSV's market_unadjusted lines as calendar_market rows (todo 630; factor =
+    old/new-scale price). Each line is re-judged from its recorded numbers under the current APR
+    and the current spin-off list: the calendar price-confirms the split, no series conflicts, the
+    canonical vendor is Massive, every measured incumbent reads adjusted by the same ratio, and
+    the last old-scale session is the one just before the calendar day. detail carries the
+    evidence beside the file's sha256."""
+    digest = file_sha256(path)
+    if excluded is None:
+        excluded = operator_list(SPIN_OFF_EXCLUSIONS)
+    rows = []
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            if line["verdict"] != "market_unadjusted":
+                continue
+            where = f"{line['symbol']} {line['calendar_date']}"
+            verdict, ratio = judge_calendar_split(
+                float(line["calendar_factor"]),
+                float(line["canonical_step"]),
+                float(line["calendar_adjusted_step"]),
+                params.rule,
+                params.rel_tol,
+            )
+            if verdict != "confirmed" or not math.isclose(ratio or 0.0, float(line["ratio"])):
+                raise ValueError(f"{where}: {verdict} under the current APR")
+            assert ratio is not None
+            route_steps = json.loads(line["route_steps"])
+            calendar_date = date.fromisoformat(line["calendar_date"])
+            effective = date.fromisoformat(line["effective_date"])
+            if not 0 < (calendar_date - effective).days <= 4:
+                raise ValueError(f"{where}: last old-scale session {effective} is not adjacent")
+            if (line["symbol"], calendar_date) in excluded:
+                raise ValueError(f"{where}: an operator-listed spin-off, never a split row")
+            if not market_unadjusted(line["canonical_vendor"], route_steps, ratio, params.rel_tol):
+                raise ValueError(f"{where}: not three-witness evidence under the current APR")
+            rows.append(
+                {
+                    "symbol": line["symbol"],
+                    "action_type": "split" if ratio > 1 else "reverse_split",
+                    "effective_date": effective,
+                    "factor": ratio,
+                    "detail": {
+                        "calendar": "yahoo",
+                        "calendar_date": line["calendar_date"],
+                        "calendar_factor": float(line["calendar_factor"]),
+                        "canonical_step": float(line["canonical_step"]),
+                        "calendar_adjusted_step": float(line["calendar_adjusted_step"]),
+                        "canonical_route": {
+                            "vendor": line["canonical_vendor"],
+                            "kind": line["canonical_kind"],
+                        },
+                        "route_steps": route_steps,
+                        "audit_file": path.name,
+                        "audit_sha256": digest,
+                        "rule": asdict(params.rule),
+                        "rel_tol": params.rel_tol,
+                        "route_sessions": params.route_sessions,
+                        "todo": 630,
+                    },
+                }
+            )
+    return rows
+
+
+def _with_canonical_closes(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each row's detail gains the canonical closes of the last old-scale session and the
+    calendar day (read on the writing connection), so the recorded evidence holds the prices it
+    judged. Exactly two closes must exist, the first dated the row's effective_date and the second
+    the calendar date, and their log step must be the recorded canonical_step: a row dated a
+    session off, or a canonical already rescaled, is refused."""
+    out = []
+    for row in rows:
+        where = f"{row['symbol']} {row['effective_date']}"
+        calendar_date = date.fromisoformat(row["detail"]["calendar_date"])
+        cur = conn.cursor()
+        cur.execute(_CANONICAL_CLOSES_SQL, (row["symbol"], row["effective_date"], calendar_date))
+        found = [(day, float(close)) for day, close in cur.fetchall()]
+        if [day for day, _ in found] != [row["effective_date"], calendar_date]:
+            days = [str(day) for day, _ in found]
+            raise ValueError(
+                f"{where}: canonical closes on {days}, not the effective date and {calendar_date}"
+            )
+        step = math.log(found[1][1] / found[0][1])
+        if abs(step - row["detail"]["canonical_step"]) > _CLOSE_STEP_TOL:
+            raise ValueError(
+                f"{where}: stored step {step:.6f} is not the recorded {row['detail']['canonical_step']}"
+            )
+        closes = {str(day): close for day, close in found}
+        out.append({**row, "detail": {**row["detail"], "canonical_closes": closes}})
+    return out
+
+
 def check_redate(row: Mapping[str, Any], current: Sequence[Any] | None) -> None:
     """Refuse a redate unless the row it replaces is a current restatement-source split of the
     same symbol, factor and event: a recorded date that is off by sessions (todo 608 item 7) is
@@ -761,6 +909,23 @@ def _apply_decided(
 def apply(settings: Settings, path: Path, *, commit: bool) -> int:
     """One transaction: every confirmed row whose event is undecided; rolled back unless commit."""
     return _apply_decided(settings, lambda conn: confirmed_rows(path, _apr(conn)), commit=commit)
+
+
+def apply_market(settings: Settings, path: Path, *, commit: bool) -> int:
+    """One transaction: every market_unadjusted line whose event is undecided, as calendar_market
+    rows (todo 630); an operator route correction nearby never blocks it (market_splits_only).
+    Rolled back unless commit; --commit is refused unless the consumers know the code."""
+    if commit and not CALENDAR_MARKET_CONSUMERS_READY:
+        raise SystemExit(
+            "--apply-market --commit is refused: calendar_market is not in SPLIT_SOURCES"
+        )
+    return _apply_decided(
+        settings,
+        lambda conn: _with_canonical_closes(conn, market_rows(path, _apr(conn))),
+        commit=commit,
+        insert_sql=_INSERT_MARKET_SQL,
+        market_splits_only=True,
+    )
 
 
 # Unlike --apply's re-judgment, nothing in the file itself proves the named series really carries
@@ -967,12 +1132,21 @@ UNCONFIRMED_RULE = "unconfirmed_split"
 # The operator's listed bad bars (operator_bad_bars.csv) are quarantined in the same step.
 BAD_BAR_RULE = "operator_bad_bar"
 UNCONFIRMED_RULE_VERSION = "split-calendar-audit"
-_UNCONFIRMED_VERDICTS = frozenset({"excluded_spin_off", "route_conflict", "conflict"})
+_UNCONFIRMED_VERDICTS = frozenset(
+    {"excluded_spin_off", "route_conflict", "conflict", "market_unadjusted"}
+)
 _UNCONFIRMED_FIELDS = ("open", "high", "low", "close")
 _FIRST_NEW_SCALE_SQL = """
 SELECT min("timestamp") FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND volume > 0
   AND "timestamp" >= (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+"""
+# A market split already recorded near a candidate decides it (the quarantine is the stopgap for the
+# undecided): corporate_actions.is_market_split reads the row's meaning.
+_RECORDED_MARKET_SPLIT_SQL = """
+SELECT inferred_by, detail ? 'rows_file' AS rows_file FROM corporate_action_current
+WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
+  AND effective_date BETWEEN $2::date - $3::int AND $2::date + $3::int
 """
 _QUARANTINE_RULES_SQL = "SELECT config_value FROM config_state WHERE config_key = 'threshold.bar_scrub.quarantine_rules'"
 _FLAGGED_SQL = "SELECT DISTINCT symbol FROM bar_quality_flag WHERE timeframe = '1d' AND rule = $1"
@@ -1049,6 +1223,14 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
             )
 
         for c in unconfirmed_candidates(path):
+            recorded = await conn.fetch(
+                _RECORDED_MARKET_SPLIT_SQL, c["symbol"], c["effective_date"], SAME_EVENT_DAYS
+            )
+            if any(
+                is_market_split(r["inferred_by"], operator_rows_file=r["rows_file"])
+                for r in recorded
+            ):
+                continue  # a recorded market split decides the event
             stamp = await conn.fetchval(_FIRST_NEW_SCALE_SQL, c["symbol"], c["effective_date"])
             if stamp is None:
                 raise ValueError(f"{c['symbol']} has no canonical bar after {c['effective_date']}")
@@ -1708,6 +1890,12 @@ def main(argv: list[str] | None = None) -> int:
         help="write ops_massive_split_audit's proposed rows as massive_reference rows (todo 600)",
     )
     mode.add_argument(
+        "--apply-market",
+        type=Path,
+        metavar="CSV",
+        help="write an audit's market_unadjusted lines as calendar_market rows (todo 630)",
+    )
+    mode.add_argument(
         "--quarantine-unconfirmed",
         type=Path,
         metavar="CSV",
@@ -1786,6 +1974,8 @@ def main(argv: list[str] | None = None) -> int:
         return apply_rows(settings, args.apply_rows, commit=args.commit)
     if args.apply_massive:
         return apply_massive(settings, args.apply_massive, commit=args.commit)
+    if args.apply_market:
+        return apply_market(settings, args.apply_market, commit=args.commit)
     if args.quarantine_unconfirmed:
         return asyncio.run(_quarantine(settings, args.quarantine_unconfirmed, commit=args.commit))
     return apply(settings, args.apply, commit=args.commit)

@@ -95,7 +95,11 @@ from services.batch_support.config import cfg as _cfg
 from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
-from src.intelligence.bars.corporate_actions import RESTATEMENT_SOURCES, is_market_split
+from src.intelligence.bars.corporate_actions import (
+    MARKET_REFERENCE_SOURCES,
+    RESTATEMENT_SOURCES,
+    is_market_split,
+)
 from src.intelligence.bars.daily_rule import (
     CALENDAR_AUDIT,
     FLAG_FALLBACK_SEAM,
@@ -595,13 +599,15 @@ EXISTS (
 # (_LAST_DAILY_LOAD_CTE), or a snapshot restore (plan 185-38, since removed; its recorded loads still
 # count) after it: the restore is a recorded operator rollback, and the re-derivation that follows re-applies the reviewed state.
 # Narrow on purpose: a vendor revision on a name with no such record stays refused.
+# The reference sources never explain a vendor revision (corporate_actions.MARKET_REFERENCE_SOURCES).
+_MARKET_REFERENCE_SQL = ", ".join(f"'{code}'" for code in sorted(MARKET_REFERENCE_SOURCES))
 _SELECT_REVISION_WAIVER_SQL = f"""
 /* revision_waiver */
 WITH {_LAST_DAILY_LOAD_CTE}
 SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
                WHERE c.symbol = $1 AND c.recorded_at > l.at
-                 AND c.inferred_by <> 'massive_reference')
+                 AND c.inferred_by NOT IN ({_MARKET_REFERENCE_SQL}))
     OR EXISTS (SELECT 1 FROM bar_source_policy_changes p, last_load l
                WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
                  AND {_POLICY_CHANGED_AT.format(p='p')} > l.at)

@@ -1,0 +1,10 @@
+symbol,calendar_date,calendar_factor,verdict,ratio,effective_date,canonical_step,calendar_adjusted_step,canonical_vendor,canonical_kind,route_steps,unadjusted_routes,error
+XHE,2015-09-11,2.0,market_unadjusted,2.0,2015-09-10,-0.688579,0.004568,massive,sip_flat_adj,"{""ibkr/smart_trades"": -0.0}",,
+XHS,2015-09-11,2.0,market_unadjusted,2.0,2015-09-10,-0.685761,0.007386,massive,sip_flat_adj,"{""ibkr/smart_trades"": -0.0}",,
+XSW,2015-09-11,2.0,market_unadjusted,2.0,2015-09-10,-0.694985,-0.001869,massive,sip_flat_adj,"{""ibkr/smart_trades"": -0.0}",,
+XTN,2015-09-11,2.0,market_unadjusted,2.0,2015-09-10,-0.691013,0.002135,massive,sip_flat_adj,"{""ibkr/smart_trades"": -0.0}",,
+ALK,2014-07-10,2.0,market_unadjusted,2.0,2014-07-09,-0.681242,0.011905,massive,sip_flat_adj,"{""ibkr/smart_trades"": -0.0}",,
+PENG,2022-02-02,2.0,market_unadjusted,2.0,2022-02-01,-0.71727,-0.024123,massive,sip_flat_adj,"{""alpaca/sip_rth"": -0.0, ""ibkr/smart_trades"": -0.0}",,
+AAON,2013-07-03,1.5,market_unadjusted,1.5,2013-07-02,-0.40738,-0.001915,massive,sip_flat_adj,"{""ibkr/smart_trades"": 1.7e-05}",,
+MGEE,2014-02-10,1.5,market_unadjusted,1.5,2014-02-07,-0.409892,-0.004427,massive,sip_flat_adj,"{""ibkr/smart_trades"": 0.0}",,
+ROL,2018-12-11,1.5,market_unadjusted,1.5,2018-12-10,-0.405901,-0.000436,massive,sip_flat_adj,"{""alpaca/sip_rth"": 0.0, ""ibkr/smart_trades"": 0.0}",,

@@ -34,7 +34,7 @@ import structlog
 
 from services import bar_hold
 from src.intelligence.bars.corporate_actions import (
-    MASSIVE_REFERENCE_SOURCE,
+    MARKET_REFERENCE_SOURCES,
     SplitRatioRule,
     recognised_split_ratio,
 )
@@ -185,10 +185,12 @@ async def supersede(
         raise ValueError(f"--supersede takes rows of one symbol, got {sorted(symbols)}")
     # An operator row stales the incumbents (corporate_actions.RESTATEMENT_SOURCES); a reference
     # row records a market split they carry adjusted, so replacing it here would change its
-    # meaning. It is corrected by --void and a new --apply-massive line (todo 600).
-    reference = [r["action_id"] for r in rows if r.get("inferred_by") == MASSIVE_REFERENCE_SOURCE]
+    # meaning. It is corrected by --void and a new --apply-massive or --apply-market line.
+    reference = [r["action_id"] for r in rows if r.get("inferred_by") in MARKET_REFERENCE_SOURCES]
     if reference:
-        raise ValueError(f"--supersede cannot replace massive_reference rows {reference}")
+        raise ValueError(
+            f"--supersede cannot replace {sorted(MARKET_REFERENCE_SOURCES)} rows {reference}"
+        )
     (symbol,) = symbols
     found = {
         r["request_id"] for r in await conn.fetch(_EVIDENCE_SQL, symbol, list(evidence_request_ids))
@@ -240,9 +242,11 @@ async def hold_rescale(
     from D1 against the canonical bars). One transaction; the plan, written when apply."""
     _need_reason(reason)
     (row,) = await _current_rows(conn, [action_id])
-    if row.get("inferred_by") == MASSIVE_REFERENCE_SOURCE:
+    if row.get("inferred_by") in MARKET_REFERENCE_SOURCES:
         # A reference row records a market split, never a vendor rescale to hold (todo 600).
-        raise ValueError(f"--hold-rescale cannot take massive_reference row {action_id}")
+        raise ValueError(
+            f"--hold-rescale cannot take a {sorted(MARKET_REFERENCE_SOURCES)} row {action_id}"
+        )
     last = row["effective_date"]
     ratios = await bar_hold.vendor_rescale_ratios(
         conn, row["symbol"], None, last, rel_tol=split_rule.rel_tol

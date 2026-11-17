@@ -97,7 +97,8 @@ Split sources (d2-v6, corporate_actions.SPLIT_SOURCES): a split row's inferred_b
 does. Only a restatement split (seam audit, nightly overlap, Tradier refetch, operator) stales;
 a calendar_audit split rescales its named routes; a massive_reference split, the vendor
 reference's record of a market split the incumbents already carry adjusted, does neither to an
-incumbent observation. The daily read refuses a code it does not know (bar_derivation.split_record),
+incumbent observation, and a calendar_market split (todo 630: the Yahoo calendar lists it, the
+incumbents read adjusted, Massive's reference omits it) means the same. The daily read refuses a code it does not know (bar_derivation.split_record),
 so a row inserted by hand under a new code fails loudly instead of being read as a stale split.
 
 Massive (d2-v6, todo 600, admission design section 5): Massive's served day bar (massive,
