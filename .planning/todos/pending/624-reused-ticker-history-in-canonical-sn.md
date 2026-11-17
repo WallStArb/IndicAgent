@@ -65,3 +65,28 @@ or an identity question, not a split row:
   bar); reads as a merger or listing event under one ticker.
 
 Each needs the pit ticker map's span for the security before a mechanism is chosen.
+
+## Further seam and identity cases from the 629 triage (2026-11-17, read-only DB; the sweep lists each as unresolved)
+
+Raw first and last dates per vendor and the step per vendor decide them; no row and no disposition applies until the identity map
+names the security's span.
+
+- FAF 2010-06-02 (-0.82): canonical starts 2010-05-24 with Massive bars at 33 to 34 that belong to the parent First American
+  Corporation (renamed CoreLogic on 2010-06-01; First American Financial 8-K https://www.sec.gov/Archives/edgar/data/0001472787/000095013010002251/d8k.htm,
+  distribution 2010-06-01, record 2010-05-26); IBKR holds 14.10 for the new FAF the day before. The spin-off distributes the new
+  FAF, so the pre-2010-06-02 canonical bars are another security.
+- RTX 2020-04-03 (-1.24): Alpaca sits at 3.391 x IBKR smart_trades on every session from 2016 to 2020-04-02 and about twice the
+  as-traded UTC close, equal to Massive and IBKR from 2020-04-03; IBKR steps -0.016, Massive starts that day. A level error in the
+  Alpaca route before the event; the Carrier and Otis distribution is then a disposition (prepared in 629).
+- SNEX 2020-07-06 (+0.47): canonical joins Alpaca (before) to Massive (from 2020-07-06); Alpaca to 2023-11 is exactly 2/3 of IBKR
+  and of the Massive adjusted series (its route step at the recorded 2023-11-24 split reads +0.405 where IBKR reads -0.0001).
+  Which side holds the extra 3:2 is open; an Alpaca-route rescale (factor 0.6667, effective 2023-11-24) is the candidate row.
+- SSB 2004-03-09 (+1.33): Massive 8.45 on 2004-03-05 and 32.00 on 2004-03-09 while IBKR holds 30 to 31 throughout; Massive's
+  earlier bars are another security under the ticker.
+- SVRA 2016-02-10 (-0.59), 2016-09-21 (-1.57), 2017-01-09 (+0.42): Massive and IBKR smart_trades start 2017-04-28; the 2016 to
+  2017-04 Alpaca bars (4.9 to 45.6) and the IBKR venue series are a prior issuer's, so the three steps are inside that history.
+- SW 2016-05-16 (-1.86): Alpaca only (255.5 to 39.63 on volume x10); IBKR starts 2024-07-08, Massive holds no SW; no second witness.
+- THRM 2012-06-13 (+2.02): Massive 1.54 on 2009-01-09, then 11.62 on 2012-06-13, the first IBKR bar; the 2006 to 2009 bars are an
+  earlier issuer's.
+- HLT 2016-12-13 (-0.70): Alpaca 54.13 against Massive 26.38 (ratio 2.052, the 1-for-3 reverse split times the spin-off value),
+  already listed above; resolves with the Massive-route reverse split row in 629.

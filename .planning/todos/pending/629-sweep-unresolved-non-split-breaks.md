@@ -114,3 +114,109 @@ found is the Nasdaq uplisting on 2024-10-22 (8-A of 2024-10-18), so its +1.27 is
 Next: read the primary filing for each Class A and A2 row (batches of at most 10), write the dispositions or the rows;
 for Class B measure each row's raw series across the break (does every vendor step together, then it is a real move:
 disposition; does one vendor step alone, then a seam: todo 624) before a filing is sought.
+
+## Triage of the 45 unresolved rows 2026-11-17 (worker, read-only DB, EDGAR documents opened)
+
+Source: the A3 strict sweep's unresolved list (45 rows after 627, 628, 630 and the first batch). Per row, raw 1d closes per vendor
+and kind around the break were compared with canonical (`market_data_ohlcv_tradeable`). Result: 24 dispositions written to
+`config/corporate_actions/sweep_dispositions.csv`, 1 rows file prepared (UNIT), 7 breaks that need a Massive-route market split
+the loader cannot write yet, 12 seam or identity cases for todo 624, 1 residual. The strict sweep rerun from the worktree reads
+21 unresolved (was 45): exactly the 24 dispositioned rows left, nothing else moved, no new row, `recorded_unapplied` 0,
+`recorded_double_adjusted` 0, one unused disposition (ATRO, by design, todo 622).
+
+Mechanical classes: (a) every unadjusted vendor steps together while IBKR smart_trades is continuous: a real event all vendors
+carry unadjusted (distributions, real moves); (b) one vendor alone: seam or identity; (c) incumbents continuous while Massive
+steps by the full ratio: an unrecorded market split; (d) volume signature, read with the others.
+
+| Row | Class | Evidence | Decision |
+|---|---|---|---|
+| ACVA 2025-11-06 | a, real move | all three Alpaca/IBKR series 8.15 to 5.09, volume x4; Q3 8-K of 2025-11-05 cuts the outlook | disposition |
+| BAX 2015-07-01 | a, distribution | Baxalta 1:1, record 2015-06-17; Massive -0.588, IBKR +0.022 | disposition |
+| CNO 2008-09-17 | a, real move | Massive and IBKR agree, volume x4.7, next session 7.95; no document | disposition |
+| DD 2025-11-03 | a, distribution | Qnity 1:2, record 2025-10-22, regular-way 2025-11-03 | disposition |
+| EBAY 2015-07-20 | a, distribution | PayPal 1:1, record 2015-07-08 | disposition |
+| ECHO 2008-01-02 | a, event open | EchoStar spin-off from DISH completed 2008-01-01, first regular session; both vendors +0.55 | disposition |
+| ENOV 2022-03-21 | c, Massive route | Alpaca = 3.0008 x Massive to 2022-04-04, equal after: the 1-for-3 reverse split | row, loader gap (below) |
+| ENOV 2022-04-05 | a, distribution | ESAB 1:3 (record 2022-03-22) after the reverse split | disposition line prepared, lands with the row |
+| ENSG 2014-06-03 | a, distribution | CareTrust 1:1, record 2014-05-22 | disposition |
+| EQT 2018-11-13 | a, distribution | ETRN 0.80, record 2018-11-01 | disposition |
+| FAF 2010-06-02 | b, identity | Massive pre-bars (32.84) are the parent First American Corporation (renamed CoreLogic); IBKR 14.10 is the new FAF; canonical starts 2010-05-24 | seam, todo 624 |
+| GSAT 2014-04-21 | gap | no canonical bar 2012-12-20 to 2014-04-21; IBKR continuous 5.7 to 39.8 | disposition (coverage hole) |
+| GSAT 2021-02-10 | a, real move | 18.45, 30.15, 36.00 on all vendors, volume x10; canonical lacks 2021-02-09 | disposition |
+| HLT 2016-12-13 | b, seam | Alpaca 54.13 against Massive 26.38 (2.052, not a split ratio) | seam, todo 624 (already listed) |
+| HLT 2017-01-04 | c, Massive route | 1-for-3 reverse split plus Park and HGV spin-offs, completed 2017-01-03; Massive 27.39 to 58.00 | row (reverse split) plus disposition line, loader gap; the Alpaca bars are also spin-adjusted, see 624 |
+| HON 2026-06-15 | c, Massive route | Alpaca = 2.000 x Massive from 2026-06-15; 1-for-2 reverse split 2026-06-29 (8-K opened) | row, loader gap |
+| MDU 2003-10-30 | c, Massive route | Massive alone, -0.4036 against ln(1/1.5); 3-for-2 split distributed 2003-10-29 (10-Q opened) | row, loader gap |
+| MDU 2006-07-27 | c, Massive route | same, 3-for-2 distributed 2006-07-26 (10-Q opened) | row, loader gap |
+| MDU 2024-11-01 | a, distribution | Everus 1:4, record 2024-10-21 | disposition |
+| MSI 2011-01-04 | c, Massive route | 1-for-7 reverse split plus Mobility 1:8 (8-K opened); Massive 9.11 to 39.77 | row plus disposition line, loader gap |
+| NESR 2024-10-22 | gap | canonical empty 2023-04-27 to 2024-10-21 (Alpaca zero-volume 2.65); IBKR continuous 3.05 to 9.14 | disposition (coverage hole) |
+| NI 2015-07-02 | a, distribution | CPG 1:1, record 2015-06-19 | disposition |
+| OII 2020-03-10 | a, real move | OPEC impasse crash of 2020-03-09 (-38.8 percent), Massive and IBKR agree | disposition |
+| PMTS 2021-08-05 | gap | canonical empty 2020-01-16 to 2021-08-04 (Alpaca zero-volume 0.799); IBKR continuous 0.90 to 22.2 | disposition (coverage hole) |
+| POWI 2006-10-30 | gap, single vendor | Massive has one bar in 2006-08 and two in 2006-10, nothing between; no second vendor before 2007-08 | residual |
+| ROKU 2017-11-09 | a, real move | first earnings 2017-11-08 after close; Alpaca and IBKR agree | disposition |
+| RTX 2020-04-03 | b, seam | Alpaca before 2020-04-03 is 3.391 x IBKR on every session since 2016 and about twice the as-traded UTC close; IBKR -0.016, Massive starts that day; the Carrier and Otis distribution (1 and 0.5 per share, record 2020-03-19, 8-K opened) is real but sits under the level error | seam, todo 624; distribution line prepared |
+| SIRI 2009-02-11 | a, real move | bankruptcy-preparation reports, both vendors, volume x5; the CNN page returned 503, Reuters text read from a search summary | disposition |
+| SLM 2014-05-01 | a, distribution | Navient 1:1, record 2014-04-22 | disposition |
+| SMCI 2020-01-14 | gap | canonical empty 2018-08-22 to 2020-01-13 (Alpaca zero-volume 1.565); IBKR continuous 1.94 to 2.69 | disposition (coverage hole) |
+| SN 2018-12-06, 2023-07-31 | b, identity | Sanchez Energy under SharkNinja | seam, todo 624 (already owned) |
+| SNEX 2020-07-06 | b, seam | Alpaca route steps +0.405 (= ln 1.5) at the recorded 2023-11-24 split where IBKR is flat; Alpaca to 2023-11 sits at 2/3 of IBKR and Massive; canonical joins Alpaca to Massive at this date | seam, todo 624 |
+| SPXC 2015-09-28 | a, distribution | SPX FLOW 1:1, record 2015-09-16 | disposition |
+| SSB 2004-03-09 | b, identity | Massive 8.45 to 32.00 while IBKR holds 30 throughout; Massive pre-bars are another security | seam, todo 624 |
+| SVRA 2016-02-10, 2016-09-21, 2017-01-09 | b, identity | Massive and IBKR smart_trades start 2017-04-28; Alpaca 2016 to 2017-04 is a prior issuer's history | seam, todo 624 |
+| SW 2016-05-16 | b, identity | Alpaca only (255 to 39.6); IBKR starts 2024-07-08; no second witness | seam, todo 624 |
+| THRM 2012-06-13 | b, identity | Massive 1.5 (2009-01) then 11.6 (2012-06-13); IBKR and the new security start 2012-06-13 | seam, todo 624 |
+| UAMY 2020-10-08 | a, real move | 0.3241, 0.506, 0.5837 on all vendors, volume x12; canonical lacks 2020-10-07; no news found | disposition |
+| UNIT 2025-08-04 | c, Alpaca route | exchange 0.6029 at the merger closing 2025-08-01 (8-K opened); Alpaca 4.91 / 0.6029 = 8.144 against IBKR 8.14 | row prepared |
+| VIAV 2015-08-04 | a, distribution | Lumentum 1:5, record 2015-07-27 | disposition |
+| XPO 2022-11-01 | a, distribution | RXO 1:1, record 2022-10-20 | disposition |
+| ZWS 2021-10-05 | a, distribution | PMC spin-off with the Regal merger, closed 2021-10-04 | disposition |
+
+Counts: disposition 24 (12 distributions, ECHO, 7 real moves, 4 coverage holes); row prepared 1 (UNIT); row blocked by a loader gap
+7 (ENOV x2, HLT 2017-01-04, HON, MDU x2, MSI); seam or identity 12 (FAF, HLT 2016-12-13, RTX, SN x2, SNEX, SSB, SVRA x3, SW,
+THRM); residual 1 (POWI).
+
+### Finding: the operator rows path cannot write a Massive-route split
+
+`--apply-rows` accepts only the rescalable series `ibkr/smart_trades` and `alpaca/sip_rth`; `massive/sip_flat` raises "no
+rescalable 1d series". A market split divides the Massive route only through `massive_reference` or `calendar_market` rows
+(`daily_rule._rescales`), and `--apply-market` needs the three-witness rule on a Yahoo calendar factor that is a recognised split
+ratio. The seven breaks above are splits the incumbents already carry adjusted and Massive's reference omits, but Yahoo lists
+them as a combined factor (reverse split times distribution: ENOV 0.581, HLT 0.487, MSI 0.247, HON 0.9535) or, for MDU, with no
+incumbent series to witness (`route_conflict`). The audit therefore does not qualify any of them. Decision needed for the code
+owner (a `src/` or script change, outside this docs-and-data pass): let an operator rows line name `massive/sip_flat` and write a
+`calendar_market` row, keeping the filing as the witness. Until then the rows below stay here, ready to move into a rows file.
+Their dispositions (the distribution dates) must land in the same commit as the rows, never before: a disposition alone would
+hide the unrecorded reverse split from the gate.
+
+```
+symbol,effective_date,factor,route,calendar_adjusted_step,witness
+ENOV,2022-04-04,0.333333333333,massive/sip_flat,0.047553,1-for-3 reverse split of Colfax after the ESAB distribution (ir.enovis.com/node/17521 from a search result, not opened; the 8-K d240014d8k.htm was opened and omits it); Alpaca/Massive ratio 3.0008
+MSI,2011-01-03,0.142857142857,massive/sip_flat,0.064427,Motorola 8-K https://www.sec.gov/Archives/edgar/data/68505/000110465911001040/a11-1944_18k.htm (opened), 1-for-7 at 6:00 a.m. ET 2011-01-04
+HON,2026-06-26,0.5,massive/sip_flat,-0.066332,Honeywell 8-K https://www.sec.gov/Archives/edgar/data/773840/000077384026000084/hon-20260625.htm (opened), 1-for-2 at 12:02 a.m. ET 2026-06-29
+HLT,2017-01-03,0.333333333333,massive/sip_flat,(IBKR 56.20 to 58.00 = 0.0315),Hilton press release https://www.sec.gov/Archives/edgar/data/0001585689/000119312517001901/d302894dex991.htm (opened: 1-for-3 reverse split); spin-offs completed 2017-01-03 per Hilton's 10-K
+MDU,2003-10-29,1.5,massive/sip_flat,0.001895,10-Q https://www.sec.gov/Archives/edgar/data/67716/000006771604000097/mdu10q.txt (opened)
+MDU,2006-07-26,1.5,massive/sip_flat,-0.009236,10-Q https://www.sec.gov/Archives/edgar/data/67716/000006771607000097/mdu1stqtr10q.htm (opened)
+```
+
+Prepared dispositions for the same commit: ENOV 2022-04-05 (ESAB 1:3, record 2022-03-22, Enovis 8-K
+https://www.sec.gov/Archives/edgar/data/1877322/000119312522100373/d240014d8k.htm opened), MSI 2011-01-04 (Motorola Mobility 1:8,
+record 2010-12-21, same 8-K as the row), HLT 2017-01-04 (Park and HGV spin-offs completed 2017-01-03, regular-way 2017-01-04;
+the opened press release gives no ratio), HON 2026-06-29 (Aerospace 1:2, record 2026-06-15, effective 12:01 a.m. 2026-06-29;
+the break exists only after the row lands) and RTX 2020-04-03 (Carrier 1 and Otis 0.5 per UTC share, record 2020-03-19,
+https://www.sec.gov/Archives/edgar/data/101829/000114036120008397/nc10010681x2_8k.htm opened; only after the Alpaca level in
+todo 624 is fixed). The HLT 2016-12-13 seam remains until the Alpaca/Massive level (2.052) is explained.
+
+### Rows file and dry run
+
+`config/corporate_actions/split_rescale_rows_2026_11_17_t629.csv` (UNIT 2025-08-01, factor 0.6029, route `alpaca/sip_rth`): dry
+run, "dry run, would write 1 of 1 decided rows". Not applied. After the write: reselect UNIT 1d (the Alpaca bars of 2025-07 and
+earlier rise by 1/0.6029), then the sweep should no longer list UNIT.
+
+### Data-integrity follow-up for the lead
+
+The four coverage-hole dispositions (GSAT 2014, NESR, PMTS, SMCI) have real bars only in IBKR raw, which is deleted at step 7
+Part F with no export, while canonical holds none for the holes (Alpaca zero-volume carry-forward rows are excluded by the
+tradeable view). The evidence is recorded in the disposition lines; whether those spans should be filled before Part F is a
+separate call.
