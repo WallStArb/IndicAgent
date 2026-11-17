@@ -176,7 +176,7 @@ amendment through the methodology ledger, never a mask change.
 The universe was chosen today, so every result whose sample includes 5m history before the Alpaca
 era is survivorship-biased: names that stopped trading before today are absent (todo 534 owner
 decision 2026-11-04, code `survivorship_pre_alpaca_era_5m`). The pre-era is read from the 5m
-`bar_source_policy_current` rows in force, so it is IBKR before step 7 and Massive after it. The data gate's pass writes it to `corpus_run.caveats` with its
+`bar_source_policy_current` rows in force, so it is Massive since step 7 (2026-11-16) and was IBKR before it. The data gate's pass writes it to `corpus_run.caveats` with its
 counts, in the same transaction as the result; the array is append only (migration 578) and a
 retried step never duplicates it. The `ic_measure` and `canary` step summaries carry
 `corpus_run.caveats` verbatim. Any result read from this run discloses it.

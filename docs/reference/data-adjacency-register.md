@@ -39,8 +39,8 @@ property of a row, not of a source.
 
 ### Massive flat files (`us_stocks_sip/minute_aggs_v1`)
 
-Admission pending the owner's call (`docs/plans/2026-11-10-massive-admission-db-design.md`);
-the files are downloaded, nothing below is loaded yet. Column units, timestamp timezone and price scale
+Admitted and loaded (`docs/plans/2026-11-10-massive-admission-db-design.md`; every raw load 2026 to 2003 done 2026-11-11,
+canonical rebuilt from it at step 7, 2026-11-16). Column units, timestamp timezone and price scale
 were measured from the files (archived step 0: nanosecond `window_start`, `.csv.gz`), not taken from docs.
 
 | Field | Availability time | History start | Retrieval cost | License note | Stored | Base features enabled | Status |
@@ -66,7 +66,7 @@ were measured from the files (archived step 0: nanosecond `window_start`, `.csv.
 
 | Field | Availability time | History start | Retrieval cost | License note | Stored | Base features enabled | Status |
 |---|---|---|---|---|---|---|---|
-| open, high, low, close, volume (5m pre-2016, 1d) | bar close; nightly gateway restart looks like an outage | pre-2016 5m (the 534 fallback until Massive is admitted) | nightly fetcher, about 1M bars/h at concurrency 4 | captured under the capture law | yes (`ohlcv_raw`, vendor `ibkr`) | the existing bar kernels | stored |
+| open, high, low, close, volume (5m pre-2016, 1d) | bar close; nightly gateway restart looks like an outage | pre-2016 5m (superseded: Massive serves it from 2003-09-10; the 534 campaign ended 2026-11-12) | nightly fetcher, about 1M bars/h at concurrency 4 | captured under the capture law | yes (`ohlcv_raw`, vendor `ibkr`) | the existing bar kernels | stored |
 | borrow availability | 16:30 ET timer snapshot | unverified | captured already (timer) | captured under the capture law | yes (`borrow_availability_snapshots`) | crowding, squeeze state; whether any base feature reads it is unverified, check before counting it | captured-not-used (verify) |
 
 ## Corporate actions and events

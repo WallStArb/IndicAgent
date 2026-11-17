@@ -51,7 +51,7 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `ohlcv_raw` | The single raw store of vendor answers (todo 533): every bar a supplier served, under its `(vendor, kind)` label, one row per (symbol, timeframe, vendor, kind, timestamp), any timeframe | `services/ohlcv_raw_writer.py` (single writer) |
 | `ohlcv_load`, `ohlcv_revision` | The write record of every bar writer (ingress write contract, migration 448; raw-first since phase 191): one `ohlcv_load` row per series written, with `caller`, `destination` (`raw` or `market_data_ohlcv`; `d1` and `archive` on older rows), `batch_id`, `n_new`, `n_changed`, `n_unchanged`, `n_removed`, `n_superseded`; the old values of any bar a write replaced in `ohlcv_revision`, with `origin` (`raw`, `superseded`; `load`, `archive_segment` on older rows). Both are permanent lineage | every bar writer through the contract (`bar_derivation` stages, the fetch paths, the load engine) |
 | `bar_source_policy` | Dated source policy per timeframe and per symbol exception, `[valid_from, valid_to)`, `ingress_mode`, `primary_source`, `fallback_source`, reason, evidence; a row is closed or retired (migration 520), never edited. Read through `bar_source_policy_current` (live rows; a guard test forbids reading the table) | `scripts/ops/bars/ops_source_policy.py` |
-| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25), labeled `vendor` and `kind`. 1d: `(alpaca, sip_rth)` primary with `(ibkr, named)` fallback (D-191-Q; the Tradier rows were deleted by migration 589 on 2026-11-12 and the stored build still predates the d2-v6 Massive rebuild pending step 7); 5m: `(alpaca, sip_rth)` from 2016-01-04 and `(ibkr, named)` by policy (D-191-P); 15m/1h: `(derived, 5m_grid)` | 1d, 15m, 1h: `bar_derivation`; 5m, 1m, 4h: `services/bar_selection.py`, called by the ingress contract after each raw write |
+| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25), labeled `vendor` and `kind`. 1d: `(massive, sip_flat_adj)` from 2003-09-10 to the archive end (2026-11-16), `(alpaca, sip_rth)` after it, no fallback (d2-v6, rebuilt in one pass at step 7, 2026-11-16; the Tradier rows were deleted by migration 589 on 2026-11-12); 5m: Massive then Alpaca on the same seam; 15m/1h: `(derived, 5m_grid)`; 1m and 4h are not canonical | 1d, 15m, 1h: `bar_derivation`; 5m, 1m, 4h: `services/bar_selection.py`, called by the ingress contract after each raw write |
 | `bar_session_choice` | One row per non-trivial 5m/1m/4h session choice (a fallback session, a session no vendor holds completely), migration 480 | `services/bar_selection.py` |
 | `ohlcv_coverage` | Per (symbol, timeframe, provider) bounds, row count and last fetch status: the fetcher's ranking cache, derived and rebuildable (`--rebuild-coverage`) | the fetch paths (`services/ohlcv_coverage_writer.py`) |
 | `listing_end` | A name's recorded last session after a merger, buyout or delisting (migration 518); `freshness_1d` judges the name up to it. Read `listing_end_current` | migration only |
@@ -108,13 +108,11 @@ Readers of the raw layer exclude rows a test wrote: `ohlcv_request.caller NOT LI
 
 Four timers. Sources are chosen per date by `bar_source_policy_current`:
 
-- 1d (D-191-Q, landed): Alpaca SIP (`sip_rth`) primary from 2016-01-04 with IBKR fallback only
-  where Alpaca has no tradeable bar, IBKR alone before; a zero-volume bar never serves;
-  spin-off and ticker-reuse exceptions are per-name rows. The stored canonical build predates
-  the d2-v6 Massive route; step 7 rebuilds 1d in one pass (docs/operations/massive-step7-runbook.md),
-  after which the daily-rule arbitration logic retires.
-- 5m (D-191-P, done 2026-10-27): Alpaca SIP (`sip_rth`) from 2016-01-04 with IBKR fallback,
-  IBKR alone before. `iex_rth` is raw only and never selected.
+- 1d (d2-v6, rebuilt at step 7, 2026-11-16): Massive from 2003-09-10 to the archive end,
+  Alpaca SIP (`sip_rth`) after it, no fallback and no IBKR; a zero-volume bar never serves
+  (docs/operations/massive-step7-runbook.md).
+- 5m (same rule and seam): Massive minute files to the archive end, Alpaca SIP (`sip_rth`) after it.
+  `iex_rth` and extended-hours bars are raw only and never selected.
 
 1. `indicagent-alpaca-nightly.timer` (04:40 UTC) runs `scripts/ops/bars/ops_bar_nightly.py
    --vendor alpaca --apply`: every active name's recent 5m and 1d SIP window

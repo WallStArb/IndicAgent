@@ -64,6 +64,9 @@ State them in the README entry for the batch; research discloses them through ph
   the selection date, and their history back to 2006 is history of survivors (todo 376). IBKR
   serves no delisted names. Forward capture of delistings (185 D8) was descoped by the owner
   2026-09-26: few names in this universe delist, and rule 6 keeps any that do in the panels.
+  Update after step 7 (2026-11-16): history now reaches 2003-09-10 from Massive, which is depth, not
+  universe; survivorship lifts only at stage 2 (todo 609), when dead names enter as instruments with
+  point-in-time membership through the stage 2 exception.
 - **Current-cap selection.** Batch 1 and wave 2 chose names by today's market-cap rank from
   current index holdings. Today's rank reflects past returns, so it is an outcome-conditioned
   selector. A size or momentum claim needs point-in-time cap, never the holdings rank. The entry
@@ -72,10 +75,9 @@ State them in the README entry for the batch; research discloses them through ph
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
   The former venues' answers are kept in `ohlcv_raw` but stay out of canonical bars (the 185 D3
   venue study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6)
-  records the move. Alpaca SIP is consolidated, so its history from 2016-01-04 has no venue
-  truncation; once D-191-Q lands (plan 191-20, todo 545) a moved name's canonical 1d is short
-  only before 2016. Until then a name onboarded since 2026-10-07 has IBKR 1d only, and a name's
-  Tradier history before 2026-10-07 covers the truncation until plan 191-20 deletes Tradier.
+  records the move. Since step 7 (2026-11-16) canonical 1d and 5m come from Massive (consolidated, from
+  2003-09-10) and then Alpaca, so a moved name has no venue truncation in canonical; the IBKR and
+  Tradier history this bullet described is gone from canonical.
 - **Scrubbed, not cleaned.** Bad prints are flagged, never edited: the daily derivation runs the
   D2a scrub rules and a quarantined bar disappears from `market_data_ohlcv_tradeable` while the
   stored bar stays. The 1d dry run on 2026-09-26 found 45 corrupt bars across the 932 names.

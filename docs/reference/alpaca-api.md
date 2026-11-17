@@ -13,7 +13,9 @@ numbers and constraints a plan or review would otherwise have to re-derive.
 Anything marked **unverified** gets measured in the pilot before it enters a
 plan.
 
-## Role in the pipeline (current 2026-10-27)
+## Role in the pipeline (current after step 7, 2026-11-16)
+
+Since the Massive step 7 rebuild, canonical 1d and 5m are Massive to the archive end (2026-11-16) and Alpaca SIP after it, with no IBKR fallback; before the archive end the Alpaca answers are raw only. The bullets below describe the 2026-10-27 design that step 7 superseded (D-191-P and D-191-Q, IBKR fallback and the pre-2016 IBKR source); the Alpaca facts, kinds and capture mechanics in them still hold.
 
 The 2026-10-09 roles (shallow nightly writer, nightly verifier under d2-v3) are superseded by
 the phase 191 raw-capture design (`docs/plans/2026-10-12-unified-raw-bar-table-design.md`):

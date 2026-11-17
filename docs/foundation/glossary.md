@@ -2004,46 +2004,42 @@ writer module went with the table)
 
 The one bar per (symbol, timeframe, timestamp) that research reads, stored in
 `market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar is
-selected by the one 1d rule (d2-v3 in the stored canonical) from the `ohlcv_raw` answers of the
+selected by the one 1d rule (d2-v6 since the step 7 rebuild, 2026-11-16) from the `ohlcv_raw` answers of the
 name's `daily source` for that date, with its lineage in the `canonical_bar_lineage` view. 15m
-and 1h canonical bars are the derived grid; 5m, 1m and 4h are a selection from `ohlcv_raw` by
-policy, each session whole from one vendor (`services/bar_selection.py`). Canonical is
+and 1h canonical bars are the derived grid; 5m is a selection from `ohlcv_raw` by
+policy, each session whole from one vendor (`services/bar_selection.py`); 1m and 4h are not canonical (Massive holds neither, so step 7 left none). Canonical is
 rebuildable from raw plus policy; `scripts/ops/bars/ops_selection_gate.py --compare` is the
 standing proof. **Not:** a raw answer (a row of `ohlcv_raw`) or a quarantined bar (stored,
 hidden from readers). **Banned:** (none)
-**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38; d2-v3 since 185-52;
-selection from raw since phase 191)
+**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38; d2-v6 since the step 7
+rebuild, 2026-11-16; selection from raw since phase 191)
 **Code surface:** `services/bar_derivation.py --stage daily`, `src/intelligence/bars/daily_rule.py`,
 `services/bar_selection.py`, `src/intelligence/bars/selection.py`
+
+### `archive end`
+
+The first NYSE session after the last file day of the Massive manifest (`archive_end_of` in
+`scripts/ops/bars/ops_massive_policy_plan.py`): canonical takes Massive before it and Alpaca from it. Step 7
+pinned one fixed date, 2026-11-16, so a file added to the manifest later does not move the seam.
+**Not:** the last day a Massive file covers, or the `listing end` of a name. **Banned:** (none)
+**Status:** active (step 7, 2026-11-16)
+**Code surface:** `scripts/ops/bars/ops_massive_policy_plan.py`, `scripts/ops/bars/ops_seam_witness.py`
 
 ### `daily source`
 
 The vendor whose raw answers make a name's canonical 1d bar on one date, chosen per date by the
 `bar_source_policy_current` row that covers it (a symbol row beats the timeframe default).
-Today: Tradier before D = 2026-10-07 (the closed default row, IBKR fallback; Tradier's answers
-end at 2026-10-06), IBKR SMART TRADES from D (the open default row, no fallback), and per-symbol
-exception rows (185-38 IBKR-primary rows, 185-37 bounded rows, 185-49 head rows, the 185-47 hold
-rows that keep MOD and QRVO on Tradier primary). Decided, lands with plan 191-20 (todo 545):
-D-191-Q makes Alpaca SIP (`(alpaca, sip_rth)`, split-adjusted) the daily source from 2016-01-04
-with IBKR fallback only where Alpaca has no tradeable bar, and IBKR alone before 2016, the same
-seam as 5m (D-191-P). Without Tradier, IBKR alone would leave canonical 1d on a
-non-consolidated volume basis and short of sessions Alpaca holds. Under rule d2-v4 a zero-volume
-bar never serves, from either vendor. Exceptions (spin-off-adjusted history, ticker reuse) are
-dated per-name policy rows decided by a one-time three-vendor arbitration (Alpaca, IBKR,
-Tradier) run before plan 191-20 deletes Tradier; spans where all three disagree go to the
-owner. After a split recorded once Tradier stopped
-answering, a date whose Tradier answer is on the stale scale takes IBKR's re-fetched answer as
-`ibkr_fallback` when the basis over the nearest common sessions (the stale Tradier close divided
-by the split factor, a measurement only) is within the interior fallback tolerance; otherwise the
-stale bar stays, flagged `pre_split_unrefetched` and quarantined (d2-v3, plan 185-52). A frozen name is one whose canonical 1d series
-stops at its last Tradier bar because the source its open row names does not answer it after D
-(IBKR cannot qualify the contract, or the fallback is refused); it fails `freshness_1d` once it
-is more than the allowed sessions behind, and it stays active. **Not:** the provider of a request (an observation's route), a held name (a rewrite
+Since the step 7 rebuild (2026-11-16, rule d2-v6): Massive from 2003-09-10 to the `archive end`, then Alpaca
+SIP (`(alpaca, sip_rth)`), no fallback and no IBKR; per-symbol rows remain only for the Alpaca gap spans of the step 7 gap list, and a
+zero-volume bar never serves, from either vendor. Tradier and IBKR as
+daily sources, the D-191-Q seam of 2016-01-04 and the arbitration exceptions are history (git and
+`docs/plans/2026-10-12-unified-raw-bar-table-design.md`). A frozen name is one whose canonical 1d series
+stops because the source its row names does not answer it; it fails `freshness_1d` once it is more
+than the allowed sessions behind, and it stays active. **Not:** the provider of a request (an observation's route), a held name (a rewrite
 waiting on a decision), or a name's listing venue. **Banned:** (none)
-**Avoid:** "Tradier-owned" for a name (the open-policy predicate of 185-38, deleted in 185-48; say
-which dates Tradier is the daily source for)
-**Status:** active (migration 438 Tradier default; migration 456 IBKR default from D, plan 185-47;
-row retirement, migration 520; D-191-Q decided 2026-10-27, not yet in the policy)
+**Avoid:** "Tradier-owned" for a name (the open-policy predicate of 185-38, deleted in 185-48)
+**Status:** active (row retirement, migration 520; the Massive default and the Alpaca default after the
+`archive end` since step 7, 2026-11-16)
 **Code surface:** `bar_source_policy`, `bar_source_policy_current`, `scripts/ops/bars/ops_source_policy.py`, `src/intelligence/bars/daily_rule.py`
 
 ### `derived grid`
@@ -2272,8 +2268,9 @@ table, an append log of every request, or a store of derived bars. **Banned:** d
 
 ### `bar_vendor`
 
-The CVR namespace of who served a bar: `ibkr`, `alpaca`, `tradier` (stored history only) and
-`derived` (the 15m/1h grid, never served by a vendor). A new vendor is a CVR row, a
+The CVR namespace of who served a bar: `massive` (the canonical vendor to the `archive end`), `alpaca`,
+`ibkr` (raw only until step 7 Part F deletes its rows at or after 2003-09-10), `tradier` (retired, no
+rows since migration 589) and `derived` (the 15m/1h grid, never served by a vendor). A new vendor is a CVR row, a
 `history_leaf`, a `VendorIngress` row and APR seeds, never a migration. **Not:** the bar
 `source` label (which mixes vendor and kind) or `ohlcv_load.source`.
 **Status:** active (migration 472)
@@ -2545,7 +2542,7 @@ and disclosed (presence by era, the names missing), never a gate. **Not:** `hist
 back a present name's bars reach), `survivorship bias` (signal corpus) in its retired ML sense, or
 the `listing end` record, which marks a name's last session and keeps it in the universe.
 **Banned:** (none)
-**Status:** active as a disclosure rule; the caveat wording moves with the admission step 7a commit
+**Status:** active as a disclosure rule; the caveat wording moves with the L3 landing (`docs/plans/2026-11-15-post-d1-landing-runbook.md`); step 7 deepened history to 2003-09-10 and left the universe at current names
 **Code surface:** caveat strings in `services/corpus_rerun_data_gate.py` and
 `services/corpus_rerun.py` (the owner of the wording), `docs/foundation/instrument-onboarding-sop.md`
 

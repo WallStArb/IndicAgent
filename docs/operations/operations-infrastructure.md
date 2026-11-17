@@ -40,7 +40,7 @@ IndicAgent runs on a single server (`192.168.68.60`, a fixed address set in netp
 `bar_replay_provider` and `bar_aggregator` stay installed with their units
 disabled. The real-time feed is down and today's data arrives by nightly batch, but the feed
 returns: Alpaca is the streaming candidate and the endgame is real-time trading, so this block
-is the eventual real-time path, not dead weight. `bar_writer` was deleted (2026-11-14, todo 614 row 7): it wrote 1m rows to canonical past raw (law 528) and 1m leaves canonical at step 7, so a returning feed persists through the raw ingress, not a Kafka-to-canonical writer. Do not retire the rest in cleanup passes; audits
+is the eventual real-time path, not dead weight. `bar_writer` was deleted (2026-11-14, todo 614 row 7): it wrote 1m rows to canonical past raw (law 528) and 1m left canonical at step 7 (2026-11-16), so a returning feed persists through the raw ingress, not a Kafka-to-canonical writer. Do not retire the rest in cleanup passes; audits
 that flag it as dormant should close on this note. Reactivation on feed return: enable the
 remaining units in wave order (`systemctl start indicagent-bar-replay
 indicagent-bar-aggregator indicagent-bar-auditor`), verify bars flow to `market.bars` topics and

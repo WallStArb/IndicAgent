@@ -44,19 +44,14 @@ Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca,
 leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
 survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
 
-In flight: step 7 stopped at the D4 gate (2026-11-16T13:00Z, `PARTD4 GATE FAILED`). Parts C and D1 to D3 passed; D4's
-`split_horizon_fresh` is green on 1,529 names and the only new reds are `split_continuity` ITA, MTUM and QUAL (1d): Massive's
-flat file serves 2026-11-04 on the pre-split scale (ITA 212.84 against 70.95 at Alpaca and IBKR) for the three splits recorded
-2026-11-03. A worker is finding the root cause and fix in a detached worktree; D5 and Part F wait for `PARTD4 DONE`. Part C ran
-from 2026-11-15 18:21Z through `logs/massive_step7/run_partc.sh` (do not touch its logs).
-B4 passed on the slim gate (load_hole 0, 1d 3,427 and 5m
-95,546 unexplained residue disclosed as one total per timeframe); map `20261115_6195ae11abff` is installed; A10 quiesce
-holds (the Alpaca nightly, derivation, audit, dividend and regime timers and both auditors are disabled until D5);
-`reference_raw` holds the pit_snapshots month-end ticker lists (6,132 rows). Part D and F are scripted and not yet run:
-`run_partd.sh` (D1 to D3), `run_partd4.sh` (D4 audit, detached), `run_partd5.sh` (D5 restart list; dry run, then `--apply`
-with `SUDO_PASS`), `run_partf.sh` (IBKR raw delete; dry run, then `PARTF_CONFIRM=delete-ibkr-raw ... --apply`); run order
-and markers are in the runbook header. Real-data compute starts only after D1 `--verify` exits 0 and the selection gate
-B3 criteria pass. Low-value names (owner 2026-11-15) get no more effort: unplaced or excluded under todo 512.
+Step 7 done through D4 (2026-11-16): canonical is rebuilt from raw under d2-v6 (rows after: 5m 452,992,974, 1d 6,308,315,
+15m 158,174,558, 1h 43,631,204; 1m and 4h empty). D1 `--verify` exited 0; the 5m selection gate met the B3 criteria (exit 3: no residue other than 290 unreviewed basis flags); the archive-end seam witness left no name unexplained (1d and 5m: 0 of 1,403 names, all one_sided); the NVDA canaries read
+canonical_matches_massive at 2024-06-10 5m (gate PASS) and at 2007-09-12 1d (informational); D4 `split_horizon_fresh` 1,529 pass, 0 fail with 0
+new red `split_continuity` or `canonical_recompute` rows. B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
+as one total per timeframe); map `20261115_6195ae11abff` is installed. D5 (timers, compression auditor, service auditor by hand, Alpaca nightly
+last) is done 2026-11-16; Part F (IBKR raw delete, `run_partf.sh`) is pending. Real-data compute
+may start now that D1 `--verify` exited 0 and the B3 criteria passed, subject to the owner's clean-data lift and the stage 2 gates.
+Low-value names (owner 2026-11-15) get no more effort: unplaced or excluded under todo 512.
 Held post-D1 landings (lead ruling 2026-11-15): the `wt-refactor-land` stack (supersedes `wt-refactor-batch`),
 `wt-l1-kernels`, `wt-r2-prodpin`, the L3 universe projection fix (`agent-a9b86b958ee414b2e`) and the `wt-i2-tier`
 doc; the landing order, gates and owners are in `docs/plans/2026-11-15-post-d1-landing-runbook.md`. Never land them
@@ -73,14 +68,14 @@ feature and IC work can start; every session and worker assignment is picked by 
 clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
 
 Next, in order:
-1. Fix the ITA, MTUM and QUAL late-split bars, rerun `run_partd4.sh` to `PARTD4 DONE`, then `run_partd5.sh --apply` (D6 docs after D4), then
-   `run_partf.sh` (the lead launches each; `docs/operations/massive-step7-runbook.md`).
+1. D5 and Part F if still pending (`run_partd5.sh --apply`, then `run_partf.sh`; the lead launches each;
+   `docs/operations/massive-step7-runbook.md`).
 2. The held post-D1 landings in the landing runbook's order.
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
 4. A3 split sweep against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
 
-Timers: quiesced for step 7 until D5 (see above). Running through it: the standby probe every 5 min. After D5: Alpaca
+Timers: quiesced for step 7 until D5 (done 2026-11-16). Running through it: the standby probe every 5 min. After D5: Alpaca
 nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends 06:30Z. The IBKR fetcher is gone. Dated: the
 Massive plan lapses about 2026-12-10; the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer` there,
 04:30Z, `/home/bg/mirror`, no `--delete`, current through the previous night) and no off-site copy by owner decision
@@ -92,7 +87,8 @@ the runbook sets `SEAM=2026-11-16`). Step 7 pins one fixed seam date before B4 i
 checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
 reference capture (after an entitlement probe) and a final file catch-up with `massive_download --verify`.
 Before 2026-12-10: the plan renewal decision (owner) and the HX370 copy named in todo 600 item 1 (owner to confirm or drop, since nothing else goes off-site). The Massive nightly leaf
-(`ops_massive_nightly`, worker worktree, unpushed) stays off until the renewal call.
+(`ops_massive_nightly`, on main, timer not installed) stays off until the renewal call; under a lapse it is never installed
+(`docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`).
 
 Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly,
 bar_derivation, D7, shared writers, the dashboard) works in a detached worktree off origin/main; nothing unpushed

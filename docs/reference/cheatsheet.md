@@ -30,8 +30,8 @@ sudo systemctl restart indicagent-api
 
 # The streaming path (provider-merger, bar-aggregator and the other compute daemons) is
 # DORMANT while the live feed is down; today's data arrives by nightly batch backfill.
-# indicagent-ibkr-provider is disabled (2026-11-10) and the IBKR lane is on the step-7
-# deletion list; the v2.x units (intelligence-pipeline, signal-writer, signal-tracker-compute,
+# the IBKR lane (provider, fetcher, gateway) was deleted 2026-11-13; step 7 rebuilt canonical
+# from Massive and Alpaca (2026-11-16); the v2.x units (intelligence-pipeline, signal-writer, signal-tracker-compute,
 # llm-writer, narrative-compute, alpha-swarm) were removed in 185-45 / todo 509.
 
 journalctl -u indicagent-feature-vector-writer -f   # live logs (print() only; structured logs in logs/<service>.log)

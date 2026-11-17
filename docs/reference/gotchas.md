@@ -134,7 +134,7 @@ key. Procedure: `docs/operations/corpus-rerun-runbook.md`.
 
 ## OHLCV prices are split-adjusted
 
-`market_data_ohlcv` holds IBKR `TRADES` bars, which are split-adjusted back through history
+Before step 7 (2026-11-16) `market_data_ohlcv` held IBKR `TRADES` bars, split-adjusted back through history; read the adjustment basis of the vendor's kind before relying on a stored absolute price
 (NVDA closes at 8.81 on 2020-06-01, when it traded near 350; AAPL at 108.94 on 2020-08-03, before
 its 4:1 split). Returns and ratios are unaffected. Anything that depends on the absolute price
 level at the time (option strikes, round-number levels, tick-size regimes, "price below $5"
@@ -200,7 +200,7 @@ reserved 404 to 408) never reaches the test database. Check this before trusting
 ## Moved from CLAUDE.md (5.60.0 trim): data and code patterns
 
 - Dividends (todo 428): stored bars are price-only. `dividend_events` (Yahoo daily, owner-approved; IBKR cross-check comes with phase 185 D5) is read through `dividend_events_reconciled`; outside `dividend_event_coverage` a name's dividends are unknown, never zero. Any research spec that holds across a session boundary declares `panel.total_return` (`src/intelligence/research/dividends.py`); intraday-only families do not.
-- Raw `market_data_ohlcv` is a continuous calendar grid with synthetic-fill and IBKR flat-carry-forward placeholder bars (~82% of intraday rows). Raw-table access outside the allow-list needs a `tests/unit/test_market_data_ohlcv_boundary.py` entry with a reason; deleting an allow-listed script requires removing its entry in the same commit.
+- Raw `market_data_ohlcv` was a continuous calendar grid with synthetic-fill and IBKR flat-carry-forward placeholder bars (~82% of intraday rows) before the 185-25 swap and the step 7 rebuild (2026-11-16); the table now holds real rows only, and the tradeable view still filters `volume > 0`. Raw-table access outside the allow-list needs a `tests/unit/test_market_data_ohlcv_boundary.py` entry with a reason; deleting an allow-listed script requires removing its entry in the same commit.
 - Instrument filters: `instruments.contract_details->>'asset_class'` is `'equity'` (ETFs), `'futures'` or `'fx'`; there is no top-level column. Eligibility dimensions `compute_eligible` / `compute_eligible_1d` / `live_tradeable` (migration 337) are read via `get_active_contracts(dimension=)`; `is_active` alone conflates backfill, compute and live scope.
 - Onboarding instruments: `docs/foundation/instrument-onboarding-sop.md`. Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name (185 D8).
 - asyncpg: JSONB comes back as `dict` only on a pooled connection from `BaseBatch`'s `create_pool()` (codec registered). A bare `asyncpg.connect()` returns raw JSON text; call `src.core.database_manager._setup_codecs(conn)` first. UUIDs go through `str()` before Kafka. Derive column dtypes from `conn.prepare(sql).get_attributes()`, never from fetched rows (an all-NULL early chunk silently mistypes and a downstream `dtype.kind in "fc"` filter drops the column with no error).

@@ -148,3 +148,7 @@ Items 5, 7, 9 and 10 are laid out with dated steps, commands, what cannot be rec
 
 Lead ruling 2026-11-15 (indicagent-52, on the lapse checklist): no filings capture from Massive. If filings are ever needed, EDGAR direct is the source (free, acceptance timestamps, does not lapse), as its own todo. Item 7 closes on this ruling once the owner's renew-or-lapse call is recorded.
 
+## Status after step 7 (D6, 2026-11-16)
+
+Items 2 and 3 (the admission call and execution) and the canonical part of item 4 are done: step 7 rebuilt canonical from raw under d2-v6 through D4, and the seam is pinned at 2026-11-16 (item 8). Item 4's data deletion is Part F (pending). Still open and dated: item 1 (off-site copy decision, owner), item 5 (measured decisions), item 7 (filings sizing by 2026-12-01), item 9 (the deadline list before about 2026-12-10, including the renewal call) and item 10 (the nightly leaf, off until the renewal call). This todo stays pending until those close; it moves to completed with the last of them.
+

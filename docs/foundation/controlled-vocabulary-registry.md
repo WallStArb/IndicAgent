@@ -64,7 +64,7 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `namespace`, `group_name`, `code` | TEXT NOT NULL | Composite PK |
 | FK | `(namespace, code)` → `controlled_vocabulary`, `(namespace, group_name)` → `vocabulary_group` | Referential integrity — a membership row can never reference a code or group that doesn't exist |
 
-### Live namespaces (7, per D-01/D-03/D-04/D-04b)
+### Live namespaces (10, per D-01/D-03/D-04/D-04b; `reference_vendor`, `bar_vendor` and `bar_kind` added later)
 
 | Namespace | Live codes | Source column it governs |
 |-----------|-----------|----------------------------|
@@ -75,6 +75,8 @@ Three tables (Phase 161), one read-side service, one drift auditor. No dashboard
 | `timeframe` | 6 | `market_data_ohlcv_tradeable.timeframe` |
 | `asset_class` | 3 | `instruments.contract_details->>'asset_class'` |
 | `tier` | 3 | `concept_registry.metadata->>'tier'` (`domain='feature'`) |
+| `bar_vendor` | 5 | `ohlcv_raw.vendor`, `market_data_ohlcv.vendor` (`ibkr`, `alpaca`, `tradier`, `derived`, `massive`; migration 472, `massive` added with the Massive ingress; raw only for `ibkr` until step 7 Part F, no `tradier` rows since migration 589) |
+| `bar_kind` | 20 | `ohlcv_raw.kind`, `market_data_ohlcv.kind` (what a vendor served within one vendor; the `massive` kinds are `sip_flat` for 1d as served, `sip_flat_agg` for 5m and the canonical-only `sip_flat_adj` for split-rescaled 1d; `fallback` is a canonical-only outcome, never written to raw; migration 472) |
 | `reference_vendor` | 3 | `reference_raw.vendor` (`massive`, `ibkr`, `openfigi`; migration 587, checked by `services/reference_raw_writer.py` at load) |
 
 Archived-SLA namespaces (`signal_outcome`, `entry_type`, `signal_status`, `session_type`) were explicitly deferred at build time — not seeded, since the tables they'd govern are themselves archived (v2.x, no live consumer).
