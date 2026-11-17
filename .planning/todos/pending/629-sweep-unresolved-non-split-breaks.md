@@ -2,18 +2,18 @@
 status: pending
 priority: P1
 filed: 2026-11-17
-source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; crowded day 2020-03-09 on the market-wide list; ATRO disposition unused as expected). Unresolved list: the run's _unresolved.csv
+source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; the unresolved list is the run's _unresolved.csv)
 ---
 
 # Sweep: unresolved breaks that are not clean ratios, rescale verdicts, and reused tickers
 
 ## What
 
-Unresolved breaks whose size is not a simple split ratio (spin-offs and distributions leave a level step at
-an arbitrary ratio; large positive steps are reverse splits or a different security under the same ticker),
-plus the sweep's rescale verdicts. Two rows carry  (NESR 2024-10-22, SW 2016-05-16) and two
- (APTV 2017-12-05, PNR 2018-05-01), which the sweep itself reads as a rescale of canonical.
-SNX 2020-12-02 is the day after the Concentrix spin-off already in 
+Unresolved breaks whose size is not a simple split ratio (spin-offs and distributions leave a level step at an
+arbitrary ratio; large positive steps are reverse splits or a different security under the same ticker), plus
+the sweep's rescale verdicts. Two rows carry `unrecorded_split` (NESR 2024-10-22, SW 2016-05-16) and two
+`inseries_rescale` (APTV 2017-12-05, PNR 2018-05-01), which the sweep reads as a scale error in canonical.
+SNX 2020-12-02 is the day after the Concentrix spin-off already in `config/corporate_actions/spin_off_exclusions.csv`
 (2020-12-01): the break needs its disposition at the break date.
 
 - ACVA 2025-11-06 (-0.47, reported)
@@ -57,28 +57,27 @@ SNX 2020-12-02 is the day after the Concentrix spin-off already in
 - XPO 2021-08-02 (-0.50, reported)
 - XPO 2022-11-01 (-0.46, reported)
 
-Reused tickers (todo 624 owns the mechanism, the pit ticker map): SN reads two breaks, the 2018-12-06 end of
-the earlier issuer's bars and the 2023-07-31 start of SharkNinja.
+Reused tickers (todo 624 owns the mechanism, the pit ticker map): SN reads two breaks, the 2018-12-06 end of the
+earlier issuer's bars and the 2023-07-31 start of SharkNinja.
 
 - SN 2018-12-06 (-0.55, reported)
 - SN 2023-07-31 (+4.76, reported)
 
 ## Requirement first (Musk step 1)
 
-Which of these rows reflect canonical's own series versus the vendor's economics? A spin-off or distribution
-is a real price event for the holder, never a split row (, ); the
-sweep needs only a disposition (symbol, break date, reason, evidence URL). Decide per row: disposition, a split
-row through , or an identity fix under todo 624 (reused ticker, positive steps over 1.0).
+A spin-off or distribution is a real price event for the holder, never a split row (`spin_off_exclusions.csv`);
+the sweep needs only a disposition (symbol, break date, reason, evidence URL). Decide per row: a disposition,
+a split row through `--apply-rows`, or an identity fix under todo 624 (reused ticker, large positive steps).
 
 ## Scope
 
-1. Classify each row with a non-price witness (filing or exchange notice), batch by event type.
-2. Write dispositions to , split rows through the operator
+1. Classify each row with a non-price witness (filing or exchange notice), batched by event type.
+2. Write dispositions to `config/corporate_actions/sweep_dispositions.csv`, split rows through the operator
    path, and hand the reused-ticker rows to todo 624.
-3. The two  and two  rows first: the sweep reads them as scale errors in
+3. The two `inseries_rescale` and two `unrecorded_split` rows first: the sweep reads them as scale errors in
    canonical that research would read as fabricated returns.
 
 ## Gates
 
-The sweep lists none of these rows unresolved after one rerun; no  or 
-row appears; unit suite exit code.
+The sweep lists none of these rows unresolved after one rerun; no `recorded_unapplied` or
+`recorded_double_adjusted` row appears; unit suite exit code.

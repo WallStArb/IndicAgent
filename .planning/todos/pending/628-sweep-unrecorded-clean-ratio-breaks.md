@@ -2,7 +2,7 @@
 status: pending
 priority: P1
 filed: 2026-11-17
-source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; crowded day 2020-03-09 on the market-wide list; ATRO disposition unused as expected). Unresolved list: the run's _unresolved.csv
+source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; the unresolved list is the run's _unresolved.csv)
 ---
 
 # Sweep: unresolved breaks that read as clean split ratios
@@ -10,7 +10,7 @@ source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --wit
 ## What
 
 20 unresolved breaks whose size is a simple ratio (2:1, 3:2, 3:1, 1:2, 2:3, within 3 percent) and which the
-Yahoo witness could not decide (): no recorded split within 30 days of the break, no disposition. By
+Yahoo witness could not decide (`reported`): no recorded split within 30 days of the break, no disposition. By
 size alone these are unrecorded splits, but a spin-off or a distribution can land on the same size, so each
 needs a non-price witness (a filing or an exchange notice) before a row or a disposition.
 
@@ -37,17 +37,17 @@ needs a non-price witness (a filing or an exchange notice) before a row or a dis
 
 ## Requirement first (Musk step 1)
 
-Is a per-name filing witness the right unit? The four 2015-09-11 sector ETFs (XHE, XHS, XSW, XTN) move together
-by 2:1 on one date, so one issuer notice settles all four. Group the rest by event type (split, spin-off,
-reverse split) before reading filings.
+Is a per-name filing witness the right unit? The four 2015-09-11 sector ETFs (XHE, XHS, XSW, XTN) move
+together by 2:1 on one date, so one issuer notice settles all four. Group the rest by event type (split,
+spin-off, reverse split) before reading filings.
 
 ## Scope
 
 1. A witness per group (event type, ratio, effective date, URL), as todo 622 did for CLBK and ATRO.
-2. Rows through  where the ratio is not a recognised ratio (the split ratio rule's denominator
-   bound is 4) and  where it is; spin-offs and distributions get a disposition, never a row.
+2. Rows through `--apply-rows` where the ratio is not a recognised ratio (the split ratio rule's denominator
+   bound is 4) and `--apply-massive` where it is; spin-offs and distributions get a disposition, never a row.
 3. Rerun the sweep once.
 
 ## Gates
 
-The sweep lists none of these rows unresolved; recorded rows carry the witness in ; unit suite exit code.
+The sweep lists none of these rows unresolved; recorded rows carry the witness in `detail`; unit suite exit code.
