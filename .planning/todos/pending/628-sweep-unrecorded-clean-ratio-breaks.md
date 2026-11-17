@@ -51,3 +51,28 @@ spin-off, reverse split) before reading filings.
 ## Gates
 
 The sweep lists none of these rows unresolved; recorded rows carry the witness in `detail`; unit suite exit code.
+
+## Evidence pass 2026-11-17 (indicagent-55; read-only, Yahoo calendar via `--audit`, raw closes)
+
+Classes of the 20 rows:
+
+- Real forward splits, Yahoo calendar lists the split, Massive served unadjusted, incumbents adjusted (11 rows,
+  10 names): XHE, XHS, XSW, XTN (2:1, 2015-09-11), ALK (2:1, 2014-07-10), PENG (2:1, 2022-02-02), AAON (3:2,
+  2013-07-03), MDU (3:2, 2003-10-30 and 2006-07-27), MGEE (3:2, 2014-02-10), ROL (3:2, 2018-12-11). No writer
+  records these: todo 630 owns the mechanism and the rows.
+- Distributions where the calendar factor is not a split ratio (ABT 2.084, DELL 1.973, HPQ 2.202, POST 1.528,
+  XPO 1.718; the audit verdict is `not_a_split_ratio` and the incumbents read adjusted by the same factor): a
+  spin-off or separation by size; each needs a filing witness and a disposition, never a row. Value leaves the
+  holder's line at the break, so returns across it are understated by the distributed value; no table holds
+  the distribution (the ATRO precedent in todo 622); promotion-grade total returns need a distribution table first.
+- Not splits by the raw series: GSAT 2021-02-10 (+0.67): IBKR, Alpaca and the rescaled Massive all move
+  18.45 to 31.2 (2021-02-09) to 36.0 (2021-02-10) with 17 to 300 times normal volume, the same move in every
+  vendor, so a real move across two sessions; the 2021-02-08 operator row (factor 0.609687, Alpaca route, todo
+  592) is then suspect and needs a review, it does not rescale canonical (Massive serves 2021). HLT 2016-12-13
+  (Massive's series starts that day at 26.38 against 54.13 at the incumbents) and ENOV 2022-03-21 (Massive
+  starts that day at 39.69 against Alpaca 119.07, IBKR 68.26) are Massive series that begin on the break
+  date at another scale: identity or vendor-seam class, with todo 624 and the pit map, not a split row.
+  SVRA 2017-01-09 (+0.42, volume 62k to 1.46M, Alpaca only) reads as a merger or listing event.
+
+Rows and dispositions are not prepared here: the split rows wait on todo 630, the distributions on witnesses
+(each is a filing read), and the not-split rows on the ruling above.
