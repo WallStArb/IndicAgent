@@ -220,3 +220,34 @@ The four coverage-hole dispositions (GSAT 2014, NESR, PMTS, SMCI) have real bars
 Part F with no export, while canonical holds none for the holes (Alpaca zero-volume carry-forward rows are excluded by the
 tradeable view). The evidence is recorded in the disposition lines; whether those spans should be filled before Part F is a
 separate call.
+
+## Class B mechanical test, run 2026-11-17 (read-only; raw 1d closes per vendor across each break)
+
+Method: log step of each vendor's close from the last session before the break to the first on or after it (Massive
+sip_flat, Alpaca sip_rth, IBKR smart_trades, volume above zero), against what canonical holds on the same days.
+
+- Real moves, every vendor with data steps together (disposition `real move, all vendors agree`, no row): ACVA
+  2025-11-06 (Alpaca -0.47, IBKR -0.47), CNO 2008-09-17 (Massive -0.55, IBKR -0.57), ECHO 2008-01-02 (+0.55 both),
+  ROKU 2017-11-09 (+0.44 both), SIRI 2009-02-11 (Massive -0.73, IBKR -0.61; the 0.12 gap is the vendors' own
+  closes, not a scale). OII 2020-03-10 and UAMY 2020-10-08 are real moves read on a volatile neighbouring session: OII
+  falls 8.17, 4.81, 4.57, 3.57 across 2020-03-06 to 2020-03-11 (the oil crash, canonical Massive) while the vendors read
+  -0.05 on the break day itself; UAMY goes 0.324, 0.580, 0.608, 0.420 in canonical with every vendor flat on the break day.
+- Massive alone steps, IBKR flat (the incumbents carry an adjustment Massive's unadjusted series does not; the
+  `calendar_market` class without a Yahoo event, so a filing decides row or disposition): FAF 2010-06-02 (Massive -0.82,
+  IBKR +0.03; a distribution by size), SSB 2004-03-09 (Massive +1.33, IBKR +0.02; reverse-split-like).
+  HON 2026-06-15 reads the same way (Alpaca 440 on 2026-06-12, Massive 227 on 2026-06-15, Alpaca and IBKR flat) but
+  Massive's series starts that day, so it is also the seam class below; read the filing first.
+- Massive's series starts on the break date, canonical joins an earlier series to it at another level (identity or seam,
+  todo 624 with the pit map): GSAT 2014-04-21 (canonical Massive 40.05 against IBKR near 1.5 at the incumbents' scale),
+  PMTS 2021-08-05, SMCI 2020-01-14, SNEX 2020-07-06 (Alpaca 7.33 to Massive 11.70), with HLT and ENOV of todo 628.
+- Canonical hole, no price event: NESR 2024-10-22 (canonical holds no bar before 2024-10-22; the sweep step is against an
+  older bar across a gap; every vendor is flat, +0.00; no reverse split exists: the only event is the Nasdaq uplisting).
+  File with the coverage holes (todo 624's NESR note, `session_coverage`).
+- Alpaca-only history, no second vendor to test against: SVRA 2016-02-10 (-0.59), SVRA 2016-09-21 (-1.57), SW
+  2016-05-16 (-1.86): thin microcap histories; needs the filing or the identity map before any ruling.
+- No volume-bearing raw bar from any vendor in the window: POWI 2006-10-30, THRM 2012-06-13: canonical's neighbours come
+  from a series the raw window does not show (or a hole); trace canonical lineage for the two dates first.
+
+Order for the next worker: (1) write `real move` disposition lines for the seven real-move rows above; (2) Class A and
+A2 filings in batches of ten; (3) FAF, SSB and HON filings; (4) the seam rows into todo 624; (5) NESR, POWI, THRM
+into the coverage list. The lead session (indicagent-77) was not reachable when this was written.
