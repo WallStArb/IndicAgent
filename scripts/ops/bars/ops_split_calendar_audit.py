@@ -61,6 +61,13 @@ Two steps, with the evidence a reviewed, committed file between them:
     as --apply, an operator route correction nearby never blocks it. The row means what a
     massive_reference row means (it rescales Massive, stales and rescales no incumbent). Dry run
     unless --commit.
+    A line whose only route is massive/sip_flat (todo 633) is a market split of a Massive-served
+    series and lands as a calendar_market row: factor is the filing's split ratio alone, an
+    optional calendar_factor column keeps Yahoo's combined factor as evidence, and the line is
+    refused unless the factor is a recognised ratio and canonical's stored step less
+    calendar_adjusted_step reads unadjusted. Example, a 1-for-3 reverse split inside a combined
+    event (columns symbol,effective_date,factor,unadjusted_routes,calendar_adjusted_step,reason,
+    evidence,calendar_factor): ENOV,2022-04-04,0.333333333333,massive/sip_flat,0.047553,<reason>,<filing>,0.581
 --sweep --out CSV [--rows-out CSV] [--symbols ...]: read-only (todo 592, the class emerged).
     Every lone break of canonical 1d - a |ln step| over the sweep threshold on a day when at
     most the sweep's name cap steps, so market-wide crash days stay out - classified by the
@@ -584,6 +591,10 @@ OPERATOR_ROWS_COLUMNS = (
     "reason",
     "evidence",
 )
+# Optional: Yahoo's calendar factor when the event is combined (a reverse split times a
+# distribution); recorded as evidence, never applied.
+OPERATOR_ROWS_OPTIONAL = ("calendar_factor",)
+MASSIVE_ROUTE = f"{VENDOR_MASSIVE}/sip_flat"
 
 
 # The factor plausibility bound (corporate_actions._MAX_SPLIT_TERMS's interface bound): a
@@ -604,7 +615,13 @@ def operator_rows(path: Path) -> list[dict[str, Any]]:
     one, each named once, the rule raises without). calendar_adjusted_step is the day's real
     move at the effective date (Yahoo's adjusted close, or the witnessing series' own continuous
     step), what D7 judges the date against. detail carries all of it, the reason, the evidence,
-    and the file's sha256. The symbol is stripped; every rejection names its line."""
+    and the file's sha256. The symbol is stripped; every rejection names its line.
+
+    A line whose only route is massive/sip_flat is a market split (todo 633): a calendar_market
+    row, the same meaning as massive_reference, for a Massive-served series no incumbent route
+    writer can record. Its factor is the filing's split ratio alone (a recognised ratio,
+    re-judged against the stored canonical step at apply time); a combined event's calendar_factor
+    column is evidence only, and the distribution part stays a real move (its own disposition)."""
     digest = file_sha256(path)
     rows: list[dict[str, Any]] = []
     decided: set[tuple[str, date]] = set()
@@ -625,37 +642,53 @@ def operator_rows(path: Path) -> list[dict[str, Any]]:
             step = float(line["calendar_adjusted_step"])
             if not math.isfinite(step):
                 raise ValueError(f"{where}: unusable calendar_adjusted_step {step!r}")
+            named = [key.strip() for key in line["unadjusted_routes"].split(";")]
+            massive = MASSIVE_ROUTE in named
+            if massive and named != [MASSIVE_ROUTE]:
+                # A market split and an incumbent route correction are different facts.
+                raise ValueError(f"{where}: {MASSIVE_ROUTE} must be the only route on its line")
             routes = []
-            for key in line["unadjusted_routes"].split(";"):
+            for key in () if massive else named:
                 try:
-                    route = _route(key.strip())
+                    route = _route(key)
                 except ValueError:
-                    raise ValueError(f"{where}: malformed route {key.strip()!r}") from None
+                    raise ValueError(f"{where}: malformed route {key!r}") from None
                 # Raises on a series the rule cannot rescale.
                 rescale_routes(route["vendor"], route["kind"])
                 if route in routes:
-                    raise ValueError(f"{where}: {key.strip()} named twice")
+                    raise ValueError(f"{where}: {key} named twice")
                 routes.append(route)
             if (symbol, day) in decided:
                 raise ValueError(f"{where}: decided twice in {path.name}")
             decided.add((symbol, day))
-            rows.append(
-                {
-                    "symbol": symbol,
-                    "action_type": "split" if factor > 1 else "reverse_split",
-                    "effective_date": day,
-                    "factor": factor,
-                    "detail": {
-                        "unadjusted_routes": routes,
-                        "calendar_adjusted_step": step,
-                        "reason": line["reason"].strip(),
-                        "evidence": line["evidence"].strip(),
-                        "rows_file": path.name,
-                        "rows_sha256": digest,
-                        "todo": 592,
-                    },
-                }
-            )
+            detail: dict[str, Any] = {
+                "calendar_adjusted_step": step,
+                "reason": line["reason"].strip(),
+                "evidence": line["evidence"].strip(),
+                "rows_file": path.name,
+                "rows_sha256": digest,
+                "todo": 592,
+            }
+            row: dict[str, Any] = {
+                "symbol": symbol,
+                "action_type": "split" if factor > 1 else "reverse_split",
+                "effective_date": day,
+                "factor": factor,
+                "detail": detail,
+            }
+            if massive:
+                # A market split the vendor serves unadjusted (todo 633): factor is the filing's
+                # split alone; a combined calendar factor is evidence, never the applied factor.
+                row["inferred_by"] = CALENDAR_MARKET_SOURCE
+                detail["canonical_route"] = _route(MASSIVE_ROUTE)
+                detail["todo"] = 633
+                combined = (line.get("calendar_factor") or "").strip()
+                if combined:
+                    detail["calendar_factor"] = float(combined)
+                    detail["residual_factor"] = float(combined) / factor
+            else:
+                detail["unadjusted_routes"] = routes
+            rows.append(row)
     return rows
 
 
@@ -852,6 +885,7 @@ def _apply_decided(
     commit: bool,
     insert_sql: str = _INSERT_SQL,
     market_splits_only: bool = False,
+    enrich: Callable[[Any, dict[str, Any]], dict[str, Any]] | None = None,
 ) -> int:
     """One connection, one transaction: build_rows reads what it needs on the same connection,
     every decided row whose event is undecided is inserted, and the transaction rolls back
@@ -860,7 +894,9 @@ def _apply_decided(
     market_splits_only (the massive_reference path, lead ruling 2026-11-11): an existing row
     that is no market split (corporate_actions.is_market_split: a todo 592 operator row that
     corrects one incumbent route) decides nothing about the market's split, so it never blocks
-    one; any other row, current, superseded or void, still does."""
+    one; any other row, current, superseded or void, still does. A row naming inferred_by
+    calendar_market takes that insert and that guard whatever the caller's default. enrich runs
+    on a row only after the existing-row guard passed (a re-apply skips before it re-judges)."""
     with psycopg.connect(settings.database_url) as conn:
         rows = build_rows(conn)
         cur = conn.cursor()
@@ -877,17 +913,23 @@ def _apply_decided(
                     raise ValueError(f"{row['symbol']} {day}: supersedes needs a recorded_at row")
                 cur.execute(_CURRENT_SQL, (replaced,))
                 check_redate(row, cur.fetchone())
+            market_row = row.get("inferred_by") == CALENDAR_MARKET_SOURCE
             existing = [
                 e
                 for e in nearby
-                if (not market_splits_only or is_market_split(e[3], operator_rows_file=e[4]))
+                if (
+                    not (market_splits_only or market_row)
+                    or is_market_split(e[3], operator_rows_file=e[4])
+                )
                 and not (replaced and e[5] == replaced)
             ]
             if existing:
                 print(f"skipped {row['symbol']} {day} x{row['factor']}: decided by {existing}")
                 continue
+            if enrich:
+                row = enrich(conn, row)
             cur.execute(
-                insert_sql,
+                _INSERT_MARKET_SQL if market_row else insert_sql,
                 (
                     row["symbol"],
                     row["action_type"],
@@ -946,7 +988,7 @@ def _routes_served(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, 
     effective date (a silent no-op row would leave the span unadjusted)."""
     with conn.cursor() as cur:
         for row in rows:
-            for route in row["detail"]["unadjusted_routes"]:
+            for route in row["detail"].get("unadjusted_routes", ()):
                 cur.execute(
                     _ROUTE_SERVED_SQL,
                     (
@@ -965,12 +1007,74 @@ def _routes_served(conn: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, 
     return rows
 
 
+_NEXT_CANONICAL_SQL = """
+SELECT ("timestamp" AT TIME ZONE 'UTC')::date, close FROM market_data_ohlcv
+WHERE symbol = %s AND timeframe = '1d' AND volume > 0
+  AND ("timestamp" AT TIME ZONE 'UTC')::date BETWEEN %s::date AND %s::date + 4
+ORDER BY "timestamp" LIMIT 2
+"""
+
+
+def _judge_massive_row(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    """A Massive-route operator row (todo 633), re-judged on the writing connection: its factor
+    is a recognised split ratio (a combined factor never is), Massive served the span, and
+    canonical's stored step across the date, less the recorded real move, is the unadjusted
+    -log(ratio). A canonical already rescaled, or a wrong factor, fails the last check, so the
+    row never double scales."""
+    where = f"{row['symbol']} {row['effective_date']}"
+    params = _apr(conn)
+    ratio = recognised_split_ratio(row["factor"], params.rule)
+    if ratio is None or not math.isclose(ratio, row["factor"], rel_tol=1e-6):
+        raise ValueError(f"{where}: factor {row['factor']} is not a recognised split ratio")
+    day = row["effective_date"]
+    with conn.cursor() as cur:
+        zone = RAW_DAILY_SESSION_ZONE[(VENDOR_MASSIVE, "sip_flat")]
+        cur.execute(_ROUTE_SERVED_SQL, (row["symbol"], VENDOR_MASSIVE, "sip_flat", zone, day))
+        if cur.fetchone() != (True,):
+            raise ValueError(f"{where}: no raw 1d observations of {MASSIVE_ROUTE} on or before it")
+        cur.execute(_NEXT_CANONICAL_SQL, (row["symbol"], day, day))
+        found = [(d, float(close)) for d, close in cur.fetchall()]
+    if len(found) != 2 or found[0][0] != day:
+        raise ValueError(f"{where}: canonical 1d closes {found} do not start on the effective date")
+    step = math.log(found[1][1] / found[0][1])
+    excess = step - row["detail"]["calendar_adjusted_step"]
+    reading = scale_step(excess, ratio, params.rel_tol)
+    if reading != "unadjusted":
+        raise ValueError(
+            f"{where}: canonical step {step:.6f} less the real move leaves {excess:.6f}, "
+            f"which reads {reading} against ratio {ratio}"
+        )
+    detail = {
+        **row["detail"],
+        "canonical_step": step,
+        "canonical_closes": {str(d): close for d, close in found},
+        "rule": asdict(params.rule),
+        "rel_tol": params.rel_tol,
+    }
+    return {**row, "factor": ratio, "detail": detail}
+
+
+def _enrich_operator_row(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    return (
+        _judge_massive_row(conn, row) if row.get("inferred_by") == CALENDAR_MARKET_SOURCE else row
+    )
+
+
 def apply_rows(settings: Settings, path: Path, *, commit: bool) -> int:
     """One transaction: the operator rows file's rows whose event is undecided (todo 592),
-    every recorded route checked to carry the span; rolled back unless commit."""
-    return _apply_decided(
-        settings, lambda conn: _routes_served(conn, operator_rows(path)), commit=commit
-    )
+    every recorded route checked to carry the span; rolled back unless commit. Massive-route
+    lines are calendar_market rows (todo 633), re-judged after the existing-row guard."""
+
+    def build(conn: Any) -> list[dict[str, Any]]:
+        rows = operator_rows(path)
+        market = any(r.get("inferred_by") == CALENDAR_MARKET_SOURCE for r in rows)
+        if commit and market and not CALENDAR_MARKET_CONSUMERS_READY:
+            raise SystemExit(
+                "--apply-rows --commit is refused: calendar_market is not in SPLIT_SOURCES"
+            )
+        return _routes_served(conn, rows)
+
+    return _apply_decided(settings, build, commit=commit, enrich=_enrich_operator_row)
 
 
 # The proposed rows file's columns (todo 600), owned here so the audit that writes the file and

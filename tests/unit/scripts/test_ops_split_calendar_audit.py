@@ -1849,3 +1849,123 @@ def test_the_reference_sources_are_one_named_set_every_guard_reads():
     assert MARKET_REFERENCE_SOURCES == {"massive_reference", "calendar_market"}
     assert "'calendar_market'" in bar_derivation._SELECT_REVISION_WAIVER_SQL
     assert "'massive_reference'" in bar_derivation._SELECT_REVISION_WAIVER_SQL
+
+
+# ---------------- Massive-route operator rows (todo 633) ----------------
+
+_ROW633_LINE = {
+    "symbol": "ENOV",
+    "effective_date": "2022-04-04",
+    "factor": "0.333333333333",
+    "unadjusted_routes": "massive/sip_flat",
+    "calendar_adjusted_step": "0.047553",
+    "reason": "1-for-3 reverse split after the ESAB distribution",
+    "evidence": "filing; Alpaca/Massive ratio 3.0008",
+}
+
+
+def _row633_file(tmp_path, line=None, combined="0.581"):
+    path = tmp_path / "rows.csv"
+    cols = (*audit.OPERATOR_ROWS_COLUMNS, *audit.OPERATOR_ROWS_OPTIONAL)
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=cols)
+        writer.writeheader()
+        writer.writerow({**_ROW633_LINE, "calendar_factor": combined, **(line or {})})
+    return path
+
+
+def test_a_massive_route_line_is_a_calendar_market_row_with_the_combined_factor_as_evidence(
+    tmp_path,
+):
+    [row] = audit.operator_rows(_row633_file(tmp_path))
+    assert row["inferred_by"] == "calendar_market" and row["action_type"] == "reverse_split"
+    assert row["factor"] == pytest.approx(1 / 3)  # the split alone, never the combined 0.581
+    detail = row["detail"]
+    assert "unadjusted_routes" not in detail and detail["todo"] == 633
+    assert detail["calendar_factor"] == 0.581
+    assert detail["residual_factor"] == pytest.approx(0.581 * 3)
+    assert detail["canonical_route"] == {"vendor": "massive", "kind": "sip_flat"}
+
+
+def test_an_incumbent_line_stays_a_calendar_audit_row_and_a_file_without_the_column_parses(
+    tmp_path,
+):
+    [row] = audit.operator_rows(_write_rows(tmp_path / "rows.csv", [{}]))
+    assert "inferred_by" not in row and row["detail"]["unadjusted_routes"]
+    [row] = audit.operator_rows(_row633_file(tmp_path, combined=""))
+    assert "calendar_factor" not in row["detail"]
+
+
+def test_the_massive_route_never_shares_a_line_with_an_incumbent_route(tmp_path):
+    line = {"unadjusted_routes": "massive/sip_flat;alpaca/sip_rth"}
+    with pytest.raises(ValueError, match="only route"):
+        audit.operator_rows(_row633_file(tmp_path, line))
+
+
+def _row633_conn(closes, existing=()):
+    class Cursor(_Cursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "LIMIT 2" in sql:
+                self._rows = list(closes)
+            if "BETWEEN" in sql and "corporate_action" in sql:
+                self._rows = list(existing)
+
+    class Conn(_Conn):
+        def cursor(self):
+            return Cursor(self)
+
+    return Conn()
+
+
+def _apply_row633(monkeypatch, conn, path, *extra):
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    return audit.main(["--apply-rows", str(path), *extra])
+
+
+# ENOV: the day's real move 0.047553 plus the 1-for-3 step ln 3 = 1.098612
+_ROW633_CLOSES = [(date(2022, 4, 4), 20.0), (date(2022, 4, 5), 20.0 * math.exp(1.146165))]
+
+
+def test_apply_rows_writes_a_massive_route_split_as_calendar_market(tmp_path, monkeypatch):
+    conn = _row633_conn(_ROW633_CLOSES)
+    assert _apply_row633(monkeypatch, conn, _row633_file(tmp_path), "--commit") == 0
+    assert conn.committed == 1
+    assert any("'calendar_market'" in s for s in conn.statements)
+    assert not any("'calendar_audit'" in s for s in conn.statements)
+
+
+def test_a_combined_factor_applied_as_one_step_is_refused(tmp_path, monkeypatch):
+    path = _row633_file(tmp_path, {"factor": "0.581"})
+    with pytest.raises(ValueError, match="recognised split ratio"):
+        _apply_row633(monkeypatch, _row633_conn(_ROW633_CLOSES), path)
+
+
+@pytest.mark.parametrize(
+    "closes",
+    [
+        [(date(2022, 4, 4), 20.0), (date(2022, 4, 5), 20.0 * math.exp(0.047553))],  # rescaled
+        [(date(2022, 4, 1), 20.0), (date(2022, 4, 4), 60.0)],  # not the effective date
+        [(date(2022, 4, 4), 20.0)],  # no next session
+    ],
+)
+def test_a_massive_row_the_stored_canonical_does_not_confirm_is_refused(
+    tmp_path, monkeypatch, closes
+):
+    with pytest.raises(ValueError):
+        _apply_row633(monkeypatch, _row633_conn(closes), _row633_file(tmp_path))
+
+
+def test_reapplying_a_massive_row_is_skipped_before_it_is_re_judged(tmp_path, monkeypatch):
+    decided = [("reverse_split", date(2022, 4, 4), 1 / 3, "calendar_market", True, "id")]
+    conn = _row633_conn([], existing=decided)  # canonical already rescaled: would raise
+    assert _apply_row633(monkeypatch, conn, _row633_file(tmp_path), "--commit") == 0
+    assert not any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+def test_an_incumbent_route_correction_nearby_never_blocks_a_massive_row(tmp_path, monkeypatch):
+    nearby = [("reverse_split", date(2022, 4, 4), 1 / 3, "calendar_audit", True, "id")]
+    conn = _row633_conn(_ROW633_CLOSES, existing=nearby)
+    assert _apply_row633(monkeypatch, conn, _row633_file(tmp_path)) == 0
+    assert any("INSERT INTO corporate_action" in s for s in conn.statements)
