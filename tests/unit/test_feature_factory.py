@@ -417,8 +417,6 @@ class TestAcausalCanaryExclusionCheck:
         for end in range(101, 101 + config.momentum_zscore_window - 1):
             cache.refresh_regime(bars[:end], config)
         assert math.isfinite(cache.hma_slope_z)
-        # bars_since_regime_refresh should be reset to 0
-        assert cache.bars_since_regime_refresh == 0
 
     def test_short_history_and_degenerate_windows_are_nan(self) -> None:
         """D1 rule 5 (todo 584): the four history-dependent statistics are NaN on a too-short

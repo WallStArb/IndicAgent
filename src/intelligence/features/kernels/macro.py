@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import bisect
 import math
-from bisect import bisect_right
 from collections import deque
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -81,12 +80,6 @@ def _bar_end_offset_seconds(tf: str) -> int:
         raise ValueError(f"unknown timeframe {tf!r}; known: 1m, {sorted(TF_DURATIONS)}") from None
 
 
-def require_supported_timeframes(timeframes: Sequence[str]) -> None:
-    """ValueError naming the first timeframe `daily_asof_index` has no bar duration for."""
-    for tf in timeframes:
-        _bar_end_offset_seconds(tf)
-
-
 def bar_ts_ns(bar_ts: datetime) -> int:
     """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
     if bar_ts.tzinfo is None:
@@ -109,23 +102,14 @@ def daily_close_availability(daily_dates: Sequence[date]) -> list[int]:
     return available
 
 
-def daily_asof_index(row_ts_ns: int, tf: str, available_ns: Sequence[int]) -> int:
-    """Index of the latest daily record available at the bar's end, else -1.
+def daily_asof_indices(row_ts_ns: np.ndarray, tf: str, available_ns: Sequence[int]) -> np.ndarray:
+    """Index of the latest daily record available at each row's bar end, else -1: an int64 array.
 
     The one availability rule for daily records: a record dated d is available from the 16:00 ET
-    close of d, and a row (bar start `row_ts_ns`, timeframe `tf`) can read it when that close is
-    at or before the row's bar end, `row_ts_ns` plus the bar duration. `daily_asof_indices` (batch)
-    and the live pipeline's cross-asset lookup both call this, so live and batch cannot drift.
-    """
-    return bisect_right(available_ns, row_ts_ns + _bar_end_offset_seconds(tf) * _NS_PER_S) - 1
-
-
-def daily_asof_indices(row_ts_ns: np.ndarray, tf: str, available_ns: Sequence[int]) -> np.ndarray:
-    """`daily_asof_index` for every row at once: an int64 array, -1 where no record is available.
-
-    Same rule and same result as the scalar (`searchsorted(..., side="right") - 1` over the
-    bar end), computed once per call so callers can gather any number of per-date columns with
-    one fancy index. A record dated d is available at the 16:00 ET close of d; keying a record
+    close of d, and a row (bar start, timeframe `tf`) can read it when that close is at or before
+    the row's bar end, the bar start plus the bar duration (`searchsorted(..., side="right") - 1`
+    over the bar end), computed once per call so callers can gather any number of per-date columns
+    with one fancy index. A record dated d is available at the 16:00 ET close of d; keying a record
     by the row's UTC date instead reads the same day's close from inside the session, which is
     lookahead on intraday rows. Half-day sessions close before 16:00 ET, so the rule is
     conservative on those days: it only withholds a record that was already available, never

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import math
+from bisect import bisect_right
 from datetime import UTC, datetime
 
 import numpy as np
@@ -75,7 +76,7 @@ REGIME_COLUMNS = frozenset(
 )
 
 
-def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_unowned():
+def test_every_numeric_column_is_owned_by_a_kernel():
     numeric = set(MANIFEST["numeric_columns"])
     owned = set(default_registry().feature_columns())
     # The regime kernels own 16 persisted columns; the parity manifest's numeric set holds the
@@ -438,7 +439,7 @@ def _asof_case(tf: str):
 @pytest.mark.parametrize("tf", ASOF_TFS)
 def test_daily_asof_index_is_causal_and_needs_no_memory_on_a_ragged_grid(tf):
     from src.intelligence.features.contract.registry import Kernel
-    from src.intelligence.features.kernels.macro import daily_asof_index, daily_asof_indices
+    from src.intelligence.features.kernels.macro import daily_asof_indices
 
     ts, _dates, values, available = _asof_case(tf)
     column = np.append(values, np.nan)  # the trailing default is what index -1 reads
@@ -457,12 +458,12 @@ def test_daily_asof_index_is_causal_and_needs_no_memory_on_a_ragged_grid(tf):
     rows = np.unique(np.linspace(0, len(ts) - 1, 8).astype(int))
     causality_probe(kernel, {"ts": ts}, object(), rows)
     memory_check(kernel, {"ts": ts}, object(), rows)
-    # the vector form is the scalar rule row by row
-    scalar = [daily_asof_index(int(t), tf, available) for t in ts.tolist()]
-    assert scalar == daily_asof_indices(ts, tf, available).tolist()
-    # records that become available after row t's bar end do not change rows <= t
-    full = daily_asof_indices(ts, tf, available)
     duration_ns = {"1m": 0, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}[tf] * 1_000_000_000
+    # the vector form is the scalar rule row by row: the latest record closed by the bar end
+    scalar = [bisect_right(available, int(t) + duration_ns) - 1 for t in ts.tolist()]
+    full = daily_asof_indices(ts, tf, available)
+    assert scalar == full.tolist()
+    # records that become available after row t's bar end do not change rows <= t
     for t in rows:
         known = [a for a in available if a <= int(ts[t]) + duration_ns]
         np.testing.assert_array_equal(daily_asof_indices(ts[: t + 1], tf, known), full[: t + 1])

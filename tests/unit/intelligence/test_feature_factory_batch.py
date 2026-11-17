@@ -109,19 +109,19 @@ def _make_bars_dicts(n: int, seed: int = 0) -> list[dict]:
 
 
 class TestWilderRsiSeries:
-    def test_terminal_value_matches_rsi_simple(self) -> None:
-        """_wilder_rsi_series[-1] must equal _rsi_simple for every prefix length."""
-        from src.intelligence.features.kernels._cache_state import _rsi_simple, _wilder_rsi_series
+    def test_series_value_is_causal_prefix_by_prefix(self) -> None:
+        """The series value at bar n-1 equals the terminal value of the series over closes[:n]."""
+        from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         rng = np.random.default_rng(42)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 200))
         period = 14
 
-        series = _wilder_rsi_series(closes, period)
+        series = wilder_rsi_series(closes, period)
         assert len(series) == len(closes)
 
         for n in range(2, len(closes) + 1):
-            scalar = _rsi_simple(closes[:n], period)
+            scalar = float(wilder_rsi_series(closes[:n], period)[-1])
             batch = float(series[n - 1])
             agree = abs(batch - scalar) < 1e-8 or (math.isnan(batch) and math.isnan(scalar))
             assert (
@@ -135,42 +135,28 @@ class TestWilderRsiSeries:
         the average loss 1/3, RS = 3 and RSI = 100 - 100 / 4 = 75.0 at index 3. Bars 0-2 have
         fewer than `period` changes and are NaN (D1 rule 5, todo 584).
         """
-        from src.intelligence.features.kernels._cache_state import _rsi_simple, _wilder_rsi_series
         from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         closes = np.array([10.0, 11.0, 10.0, 12.0])
         want = np.array([math.nan, math.nan, math.nan, 75.0])
-        np.testing.assert_allclose(_wilder_rsi_series(closes, 3), want, equal_nan=True)
         np.testing.assert_allclose(wilder_rsi_series(closes, 3), want, equal_nan=True)
-        assert _rsi_simple(closes, 3) == 75.0
-
-    def test_cache_wrapper_is_the_kernel_primitive(self) -> None:
-        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
-        from src.intelligence.features.kernels._primitives import wilder_rsi_series
-
-        rng = np.random.default_rng(3)
-        for n in (0, 1, 5, 14, 15, 16, 40, 400):
-            closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, n))
-            for period in (3, 14, 50):
-                np.testing.assert_array_equal(
-                    _wilder_rsi_series(closes, period), wilder_rsi_series(closes, period)
-                )
+        assert float(wilder_rsi_series(closes, 3)[-1]) == 75.0
 
     def test_cold_start_is_nan(self) -> None:
-        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
+        from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         closes = np.array([100.0, 101.0, 102.0], dtype=float)
-        series = _wilder_rsi_series(closes, period=14)
+        series = wilder_rsi_series(closes, period=14)
         assert math.isnan(series[0])
         assert math.isnan(series[1])
         assert math.isnan(series[2])  # only 3 bars, period=14 → all cold (D1 rule 5)
 
     def test_values_in_range(self) -> None:
-        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
+        from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         rng = np.random.default_rng(7)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.02, 500))
-        series = _wilder_rsi_series(closes, period=14)
+        series = wilder_rsi_series(closes, period=14)
         defined = series[~np.isnan(series)]
         assert np.all(defined >= 0.0) and np.all(defined <= 100.0)
 

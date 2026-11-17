@@ -33,7 +33,6 @@ from src.core.bar_accumulator import _ET, _RTH_OPEN_ET
 from src.intelligence.features.kernels._primitives import (
     _corr_or_nan,
     _z_or_nan,
-    wilder_rsi_series,
 )
 
 if TYPE_CHECKING:
@@ -58,7 +57,6 @@ class FeatureCache:
     garch_ratio: float = math.nan
     hma_slope_z: float = math.nan
     adx: float = math.nan
-    bars_since_regime_refresh: int = 0
 
     # Cross-asset cached from cross-asset ETF bars (updated via update_cross_asset()).
     # Same 5 fields, same _compute_cross_asset() implementation, as CrossAssetState
@@ -205,7 +203,6 @@ class FeatureCache:
             Frozen config with all tunable parameters from APR.
         """
         if len(bars) < config.min_bars_warmup:
-            self.bars_since_regime_refresh = 0
             return
 
         closes = np.array([b["close"] for b in bars], dtype=float)
@@ -247,8 +244,6 @@ class FeatureCache:
         # --- ADX (raw value, 0-100) ---
         adx_val = _adx(highs, lows, closes, config.adx_period)
         self.adx = adx_val
-
-        self.bars_since_regime_refresh = 0
 
     def update_wk_vwap(
         self,
@@ -816,19 +811,6 @@ def _compute_session_directional_nodes(
 # 305) -- now FeatureFactoryConfig.ctf_higher_tf_map (the deleted streaming feature_factory,
 # feature.ctf.higher_tf_map). backfill_feature_factory.py
 # reads it from its FeatureFactoryConfig instance, not from this module.
-
-
-def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
-    """Wilder RSI at every bar index (length == len(closes); the cold start and a window that
-    has never moved are NaN, D1 rule 5, todo 584): the kernel primitive, so the live cache,
-    the batch CTF series builder and the rsi_* kernel columns share one definition.
-    _rsi_simple is a thin wrapper."""
-    return wilder_rsi_series(closes, period)
-
-
-def _rsi_simple(closes: np.ndarray, period: int) -> float:
-    """Terminal Wilder RSI scalar. Thin wrapper over _wilder_rsi_series."""
-    return float(_wilder_rsi_series(closes, period)[-1])
 
 
 def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
