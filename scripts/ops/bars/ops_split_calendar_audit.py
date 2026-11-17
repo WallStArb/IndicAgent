@@ -1442,28 +1442,80 @@ def _reported(symbol: str, day: date, step: float, why: str, base: Mapping[str, 
 WITNESSES = {"yahoo": "Yahoo", "massive": "Massive"}
 
 
-_RECORDED_SQL = "SELECT symbol, effective_date FROM corporate_action_current"
+_RECORDED_SQL = "SELECT symbol, effective_date, factor FROM corporate_action_current"
+
+# What the strict gate reads: the rescale verdicts and every break the sweep could not decide.
+_GATED_VERDICTS = _SWEEP_ROW_VERDICTS | {"reported"}
+UNRESOLVED_COLUMNS = ("symbol", "break_date", "verdict", "step")
+
+
+def _recorded_explains(event: SweepBreak, recorded: Iterable[tuple[date, float]]) -> bool:
+    """A current corporate_action row within the sweep's calendar window of the break whose factor
+    is the break's own scale (|ln factor + step| inside the sweep's scale tolerance; a split drops
+    the close by 1/factor, a reverse split lifts it). A row of another size explains nothing."""
+    window = timedelta(days=_SWEEP_CALENDAR_WINDOW)
+    return any(
+        abs(effective - event.break_date) <= window
+        and math.isfinite(factor)
+        and factor > 0
+        and abs(math.log(factor) + event.step) <= _SWEEP_SCALE_TOL
+        for effective, factor in recorded
+    )
 
 
 def unresolved_breaks(
     events: Iterable[SweepBreak],
-    recorded: Mapping[str, Sequence[date]],
+    recorded: Mapping[str, Sequence[tuple[date, float]]],
     ruled: Mapping[tuple[str, date], str],
+    active: Collection[str],
 ) -> list[SweepBreak]:
-    """The row-verdict breaks nothing explains (todo 622 scope 3): a break the sweep reads as a
-    missing split or rescale that has no current corporate_action row within the sweep's calendar
-    window of it and no operator disposition. Same window as the classifier; no new tunable."""
-    window = timedelta(days=_SWEEP_CALENDAR_WINDOW)
+    """The breaks nothing explains (todo 622 scope 3), on active names only: a rescale verdict or
+    an undecided ("reported") break with no current corporate_action row of its own size within
+    the sweep's calendar window and no operator disposition. Same window and tolerance as the
+    classifier; no new tunable."""
     return [
         event
         for event in events
-        if event.verdict in _SWEEP_ROW_VERDICTS
+        if event.symbol in active
+        and event.verdict in _GATED_VERDICTS
         and (event.symbol, event.break_date) not in ruled
-        and not any(
-            abs(effective - event.break_date) <= window
-            for effective in recorded.get(event.symbol, ())
-        )
+        and not _recorded_explains(event, recorded.get(event.symbol, ()))
     ]
+
+
+def unused_dispositions(
+    events: Iterable[SweepBreak], ruled: Mapping[tuple[str, date], str]
+) -> list[tuple[str, date]]:
+    """Disposition lines that match no break of this sweep (a typo or a stale line)."""
+    seen = {(event.symbol, event.break_date) for event in events}
+    return sorted(key for key in ruled if key not in seen)
+
+
+def strict_failure(counts: Mapping[str, int]) -> list[str]:
+    """Why --strict fails, empty when it passes. An empty read never passes: no active name or
+    no lone break at all means the sweep saw nothing, not that nothing is wrong."""
+    reasons = []
+    if not counts.get("active_names"):
+        reasons.append("no active names read")
+    if not counts.get("breaks_read"):
+        reasons.append("no lone breaks read (an empty sweep cannot pass)")
+    if counts.get("witness_error"):
+        reasons.append(f"{counts['witness_error']} breaks the witness could not read")
+    if counts.get("unresolved"):
+        reasons.append(f"{counts['unresolved']} unresolved breaks")
+    return reasons
+
+
+def unresolved_path(out: Path) -> Path:
+    return out.with_name(f"{out.stem}_unresolved.csv")
+
+
+def write_unresolved(path: Path, events: Sequence[SweepBreak]) -> None:
+    with path.open("w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(UNRESOLVED_COLUMNS)
+        for event in events:
+            writer.writerow([event.symbol, event.break_date, event.verdict, event.step])
 
 
 def sweep(
@@ -1478,15 +1530,17 @@ def sweep(
     into --rows-out. Returns verdict counts. witness picks the continuity witness: Yahoo's
     adjusted close, or Massive's route (todo 600: raw Massive day bars on today's scale, which
     cover what ohlcv_raw holds). Every rescalable raw series and the Massive route are measured
-    on their own either way. "unresolved" counts the row-verdict breaks on active names with no
-    recorded action and no disposition (`unresolved_breaks`); "witness_error" counts the breaks
-    the witness could not judge (always `reported`); --strict fails on either."""
+    on their own either way. "unresolved" counts the gated breaks on active names with no recorded
+    action of their size and no disposition (`unresolved_breaks`, written to the CSV beside
+    --out); "witness_error" counts the breaks the witness could not read (always `reported`);
+    "breaks_read" and "active_names" size what the sweep saw; "unused_dispositions" counts
+    disposition lines that match no break. `strict_failure` reads these."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
     ruled = operator_list(dispositions) if dispositions else {}  # validated before the work
     counts: dict[str, int] = {}
-    row_events: list[SweepBreak] = []
+    events: list[SweepBreak] = []
     with psycopg.connect(settings.database_url) as conn:
         params = _apr(conn)
         lone: dict[str, list[tuple[date, float, str, str, str, str]]] = {}
@@ -1519,6 +1573,7 @@ def sweep(
                             symbol, day, step, "reported", evidence=f"{label} witness: {error}"
                         )
                         writer.writerow(asdict(event))
+                        events.append(event)
                         counts["reported"] = counts.get("reported", 0) + 1
                         counts["witness_error"] = counts.get("witness_error", 0) + 1
                     continue
@@ -1535,9 +1590,9 @@ def sweep(
                     witness=label,
                 ):
                     writer.writerow(asdict(event))
+                    events.append(event)
                     counts[event.verdict] = counts.get(event.verdict, 0) + 1
                     if event.verdict in _SWEEP_ROW_VERDICTS:
-                        row_events.append(event)
                         rows_writer.writerow(
                             {
                                 "symbol": event.symbol,
@@ -1551,11 +1606,19 @@ def sweep(
                             }
                         )
         active = {symbol for (symbol,) in conn.execute(_ACTIVE_SQL)}
-        recorded: dict[str, list[date]] = {}
-        for symbol, effective in conn.execute(_RECORDED_SQL):
-            recorded.setdefault(symbol, []).append(effective)
-    counts["unresolved"] = len(
-        unresolved_breaks([e for e in row_events if e.symbol in active], recorded, ruled)
+        recorded: dict[str, list[tuple[date, float]]] = {}
+        for symbol, effective, factor in conn.execute(_RECORDED_SQL):
+            recorded.setdefault(symbol, []).append((effective, float(factor)))
+    unresolved = unresolved_breaks(events, recorded, ruled, active)
+    write_unresolved(unresolved_path(out), unresolved)
+    unused = unused_dispositions(events, ruled)
+    for symbol, day in unused:
+        print(f"unused disposition: {symbol} {day} matches no break of this sweep", file=sys.stderr)
+    counts.update(
+        unresolved=len(unresolved),
+        breaks_read=len(events),
+        active_names=len(active),
+        unused_dispositions=len(unused),
     )
     return counts
 
@@ -1624,6 +1687,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if (args.strict or args.dispositions) and not args.sweep:
         parser.error("--strict and --dispositions apply to --sweep only")
+    if args.strict and args.symbols is not None:
+        parser.error("--strict gates the whole universe: drop --symbols")
     settings = Settings()
     if args.audit or args.sweep:
         if args.out is None:
@@ -1633,8 +1698,18 @@ def main(argv: list[str] | None = None) -> int:
                 settings, args.out, args.rows_out, args.symbols, args.witness, args.dispositions
             )
             print(counts)
-            blind = counts["unresolved"] or counts.get("witness_error", 0)
-            return 3 if args.strict and blind else 0
+            print(
+                f"universe: {counts['active_names']} active names, "
+                f"{counts['breaks_read']} lone breaks read"
+            )
+            reasons = strict_failure(counts) if args.strict else []
+            if reasons:
+                print("strict: " + "; ".join(reasons))
+                listed = unresolved_path(args.out)
+                print(
+                    listed.read_text() if listed.exists() else f"{listed} was not written", end=""
+                )
+            return 3 if reasons else 0
         else:
             print(audit(settings, args.symbols, args.out))
         return 0

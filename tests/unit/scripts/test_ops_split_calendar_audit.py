@@ -1174,21 +1174,132 @@ def test_a_split_ending_before_the_first_massive_bar_is_no_event():
     assert [f for _d, _c, f in witness] == [0.0, 0.0]
 
 
-def _break(symbol, day, verdict):
-    return audit.SweepBreak(symbol, day, -0.79, verdict)
+def _break(symbol, day, verdict, step=-0.79):
+    return audit.SweepBreak(symbol, day, step, verdict)
 
 
-def test_an_unrecorded_row_verdict_break_is_unresolved_and_the_rest_are_not():
-    day = date(2026, 7, 21)
+DAY = date(2026, 7, 21)
+
+
+def test_a_break_is_resolved_only_by_a_recorded_row_of_its_own_size_inside_the_window():
     events = [
-        _break("CLBK", day, "unrecorded_split"),  # nothing recorded: unresolved
-        _break("DONE", day, "unrecorded_split"),  # a row 20 days off: recorded
-        _break("FAR", day, "unrecorded_split"),  # a row 31 days off: outside the window
-        _break("RULED", day, "inseries_rescale"),  # an operator disposition
-        _break("MOVE", day, "real_move"),  # not a row verdict
-        _break("REP", day, "reported"),  # disclosed, not gated
+        _break("CLBK", DAY, "unrecorded_split"),  # nothing recorded
+        _break("DONE", DAY, "unrecorded_split"),  # a 2.2 row 20 days off
+        _break("FAR", DAY, "unrecorded_split"),  # a 2.2 row 31 days off: outside the window
+        _break("WRONG", DAY, "unrecorded_split"),  # a 4.0 row 20 days off: another event
+        _break("REVERSE", DAY, "unrecorded_split", step=0.69),  # a 0.5 row: its own size
     ]
-    recorded = {"DONE": [day - timedelta(days=20)], "FAR": [day + timedelta(days=31)]}
-    ruled = {("RULED", day): "continuous in the vendor close"}
-    left = audit.unresolved_breaks(events, recorded, ruled)
-    assert [e.symbol for e in left] == ["CLBK", "FAR"]
+    recorded = {
+        "DONE": [(DAY - timedelta(days=20), 2.2)],
+        "FAR": [(DAY + timedelta(days=31), 2.2)],
+        "WRONG": [(DAY - timedelta(days=20), 4.0)],
+        "REVERSE": [(DAY, 0.5)],
+    }
+    left = audit.unresolved_breaks(events, recorded, {}, {e.symbol for e in events})
+    assert [e.symbol for e in left] == ["CLBK", "FAR", "WRONG"]
+
+
+def test_an_undecided_break_on_an_active_name_is_gated_unless_ruled():
+    events = [
+        _break("REP", DAY, "reported"),  # undecided: unresolved
+        _break("REPRULED", DAY, "reported"),  # undecided, ruled by an operator line
+        _break("RULED", DAY, "inseries_rescale"),
+        _break("MOVE", DAY, "real_move"),  # decided: not gated
+        _break("INACTIVE", DAY, "unrecorded_split"),  # not an active name
+    ]
+    ruled = {("REPRULED", DAY): "continuous", ("RULED", DAY): "continuous"}
+    active = {"REP", "REPRULED", "RULED", "MOVE"}
+    assert [e.symbol for e in audit.unresolved_breaks(events, {}, ruled, active)] == ["REP"]
+
+
+def test_a_disposition_matching_no_break_is_reported_unused():
+    events = [_break("A", DAY, "reported")]
+    ruled = {("A", DAY): "x", ("A", DAY + timedelta(days=1)): "typo", ("B", DAY): "stale"}
+    assert audit.unused_dispositions(events, ruled) == [
+        ("A", DAY + timedelta(days=1)),
+        ("B", DAY),
+    ]
+
+
+def _counts(**over):
+    return {"active_names": 1500, "breaks_read": 40, "unresolved": 0, "witness_error": 0} | over
+
+
+def test_strict_passes_only_a_sweep_that_read_something_and_left_nothing():
+    assert audit.strict_failure(_counts()) == []
+    assert audit.strict_failure(_counts(unresolved=2))
+    assert audit.strict_failure(_counts(witness_error=1))
+    assert audit.strict_failure(_counts(breaks_read=0)), "an empty sweep must not pass"
+    assert audit.strict_failure(_counts(active_names=0)), "no active names must not pass"
+    assert audit.strict_failure({}), "a missing count must not pass"
+
+
+def _main_with(monkeypatch, tmp_path, counts, argv):
+    monkeypatch.setattr(audit, "Settings", lambda: object())
+    seen = {}
+
+    def fake_sweep(settings, out, rows_out, symbols, witness, dispositions):
+        seen["args"] = (symbols, witness, dispositions)
+        audit.write_unresolved(
+            audit.unresolved_path(out), [_break("CLBK", DAY, "unrecorded_split")]
+        )
+        return counts
+
+    monkeypatch.setattr(audit, "sweep", fake_sweep)
+    return audit.main(["--sweep", "--out", str(tmp_path / "sweep.csv"), *argv]), seen
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        _counts(unresolved=1),
+        _counts(witness_error=1),
+        _counts(breaks_read=0),
+        _counts(active_names=0),
+    ],
+)
+def test_strict_exits_3_on_a_gated_sweep_and_names_the_unresolved_breaks(
+    monkeypatch, tmp_path, counts, capsys
+):
+    code, _ = _main_with(monkeypatch, tmp_path, counts, ["--strict"])
+    out = capsys.readouterr().out
+    assert code == 3 and "strict:" in out and "CLBK" in out and "unrecorded_split" in out
+
+
+def test_without_strict_the_same_sweep_exits_0_and_a_clean_strict_sweep_exits_0(
+    monkeypatch, tmp_path
+):
+    assert _main_with(monkeypatch, tmp_path, _counts(unresolved=3), [])[0] == 0
+    assert _main_with(monkeypatch, tmp_path, _counts(), ["--strict"])[0] == 0
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--strict", "--symbols", "AAPL"], ["--symbols", "AAPL", "--strict"]],
+)
+def test_strict_refuses_a_partial_universe(monkeypatch, tmp_path, argv):
+    with pytest.raises(SystemExit) as stopped:
+        _main_with(monkeypatch, tmp_path, _counts(), argv)
+    assert stopped.value.code == 2
+
+
+@pytest.mark.parametrize("flag", [["--strict"], ["--dispositions", "d.csv"]])
+def test_the_sweep_flags_need_a_sweep(monkeypatch, tmp_path, flag):
+    monkeypatch.setattr(audit, "Settings", lambda: object())
+    with pytest.raises(SystemExit) as stopped:
+        audit.main(["--audit", "--out", str(tmp_path / "o.csv"), *flag])
+    assert stopped.value.code == 2
+
+
+def test_dispositions_are_validated_before_the_database_is_opened(monkeypatch, tmp_path):
+    bad = tmp_path / "disp.csv"
+    bad.write_text("symbol,date,reason,evidence\nCLBK,2026-07-21,,\n")
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the database was opened before the dispositions were read")
+
+    monkeypatch.setattr(audit.psycopg, "connect", refuse)
+    with pytest.raises(ValueError, match="needs one line with reason and evidence"):
+        audit.sweep(
+            type("S", (), {"database_url": "x"})(), tmp_path / "o.csv", None, None, "yahoo", bad
+        )

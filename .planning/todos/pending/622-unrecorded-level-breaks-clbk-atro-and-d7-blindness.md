@@ -70,3 +70,12 @@ Landing: `scripts/` only, imported by no timer or service, so it needs no quiet 
 Known limits of the gate (review 2026-11-17, accepted): a recorded row of any type or factor within 30 days
 counts as the explanation (a loose match; a factor check waits for a case that needs it); breaks on inactive
 names are not counted; the witness failing on a name makes `--strict` fail (`witness_error`), never pass.
+
+## Sweep gate parameters (recorded 2026-11-16, before any run of the gate)
+
+`ops_split_calendar_audit --sweep --strict` is the scope 3 gate on the sweep output. Its frozen constants, all reused from the classifier and written here before the first run, no new tunable:
+
+- Explanation window: a break is explained by a current `corporate_action` row within 30 days of it (`_SWEEP_CALENDAR_WINDOW`), and only when the row's factor is the break's own scale: `|ln(factor) + step| <= 0.1` (`_SWEEP_SCALE_TOL`; a split drops the close by 1/factor, a reverse split lifts it). The "no row of any type within 15 days" wording above was the evidence for CLBK only, not the gate's window.
+- Active-only: only names with `instruments.is_active` are gated, as the Gates section says ("an active name"). Inactive names, including the stage 2 inactive rows, are swept and written to the CSV but never fail the gate.
+- Gated breaks: the rescale verdicts (`junction_rescale`, `inseries_rescale`, `unrecorded_split`) and every `reported` break (the witness cannot decide, the ATRO shape), unless an operator disposition (symbol, date, reason, evidence) rules it. A witness error always fails `--strict`.
+- An empty read never passes: no active names or no lone breaks read fails, and `--strict` refuses `--symbols`. The unresolved breaks are written beside `--out` as `<out stem>_unresolved.csv` and printed on failure; disposition lines that match no break are reported.
