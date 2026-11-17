@@ -76,3 +76,14 @@ Classes of the 20 rows:
 
 Rows and dispositions are not prepared here: the split rows wait on todo 630, the distributions on witnesses
 (each is a filing read), and the not-split rows on the ruling above.
+
+## Rulings 2026-11-17 (lead, indicagent-77, on the evidence pass)
+
+- The eleven real splits go through todo 630 (`calendar_market`); the five distributions have dispositions
+  (`sweep_dispositions.csv`, filings read from the search summaries and URLs named: ABT, DELL, HPQ, POST,
+  XPO) and the returns policy in `docs/research/2026-11-17-returns-across-distributions.md`.
+- GSAT 2021-02-10: no row; a real move. The 2021-02-08 operator row (factor 0.609687, Alpaca route) should be
+  voided in a todo, not now: it rescales the Alpaca series before 2021-02-08 by 1/0.609687 while Alpaca, IBKR
+  and Massive agree on the move (18.45 to 31.2 to 36.0), so the row manufactures a step in Alpaca's own series;
+  canonical is Massive in 2021 and unaffected. Void it with the next batch of operator-row reviews.
+- HLT, ENOV, SVRA: todo 624 (seam and identity cases).

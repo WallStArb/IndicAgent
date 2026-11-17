@@ -49,3 +49,19 @@ security's first date and canonical selection starts there.
 
 SN canonical starts 2023-07-31 and `session_coverage` and `proven_start_1d` pass without a floor; no name's
 series crosses two CIKs by the map; independent review; unit suite exit code.
+
+## Further seam and identity cases from the A3 sweep (2026-11-17, todo 628 evidence pass)
+
+Massive's series begins on the break date at another scale than the incumbents' series, so the break is a seam
+or an identity question, not a split row:
+
+- HLT 2016-12-13: Massive starts at 26.38 where Alpaca and IBKR read 54.13 on the same day (ratio 2.05); the
+  sweep reads -0.70. The Massive reference holds a reverse split of 1/3 at 2017-01-03 (`tape_conflict`) and the
+  sweep reads +0.75 at 2017-01-04 (todo 629): the Hilton spin-offs and reverse split of January 2017 interact
+  with where Massive's history starts. Decide which entity the Massive series before 2017-01-03 belongs to.
+- ENOV 2022-03-21: Massive starts at 39.69 where Alpaca reads 119.07 and IBKR 68.26; ENOV +0.59 at 2022-04-05
+  follows (todo 629). A ticker whose security changed in March and April 2022.
+- SVRA 2017-01-09 (+0.42): volume 62,829 to 1,456,548 on one session, Alpaca only (IBKR and Massive hold no
+  bar); reads as a merger or listing event under one ticker.
+
+Each needs the pit ticker map's span for the security before a mechanism is chosen.
