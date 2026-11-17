@@ -47,7 +47,7 @@ survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fa
 Step 7 done through D4 (2026-11-16): canonical is rebuilt from raw under d2-v6 (rows after: 5m 452,992,974, 1d 6,308,315,
 15m 158,174,558, 1h 43,631,204; 1m and 4h empty). D1 `--verify` exited 0; the 5m selection gate met the B3 criteria (exit 3: no residue other than 290 unreviewed basis flags); the archive-end seam witness left no name unexplained (1d and 5m: 0 of 1,403 names, all one_sided); the NVDA canaries read
 canonical_matches_massive at 2024-06-10 5m (gate PASS) and at 2007-09-12 1d (informational); D4 `split_horizon_fresh` 1,529 pass, 0 fail with 0
-new red `split_continuity` or `canonical_recompute` rows. B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
+new red `split_continuity` or `canonical_recompute` rows (198 other new red rows: 93 `session_coverage`, 93 `proven_start_1d`, 9 `slot_coverage`, 3 `alpaca_basis_run`, from the switch to Massive; `partd4_new_red_all.tsv`). B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
 as one total per timeframe); map `20261115_6195ae11abff` is installed. D5 (timers, compression auditor, service auditor by hand, Alpaca nightly
 last) is done 2026-11-16; Part F (IBKR raw delete, `run_partf.sh`) is pending. Real-data compute
 may start now that D1 `--verify` exited 0 and the B3 criteria passed, subject to the owner's clean-data lift and the stage 2 gates.
@@ -75,7 +75,7 @@ Next, in order:
 4. A3 split sweep against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
 
-Timers: quiesced for step 7 until D5 (done 2026-11-16). Running through it: the standby probe every 5 min. After D5: Alpaca
+Timers: live since D5 (2026-11-16): the standby probe every 5 min, Alpaca
 nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends 06:30Z. The IBKR fetcher is gone. Dated: the
 Massive plan lapses about 2026-12-10; the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer` there,
 04:30Z, `/home/bg/mirror`, no `--delete`, current through the previous night) and no off-site copy by owner decision
