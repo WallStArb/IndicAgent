@@ -45,7 +45,6 @@ def test_required_checks_match_the_design():
         "canonical_recompute",
         "digest_fresh",
         "unexplained_seam",
-        "alpaca_basis_run",
         "split_continuity",
     }
     assert REQUIRED_CHECKS["5m"] == {
@@ -152,6 +151,13 @@ def test_stray_vendor_rows_gates_only_when_asked():
     ]
     result = _gate(rows, timeframes=["15m", "1h"], extra_checks=frozenset({"stray_vendor_rows"}))
     assert result == {"AAA": ["1h:stray_vendor_rows failed"]}
+
+
+def test_a_failing_check_outside_the_required_set_does_not_fail_a_name():
+    # alpaca_basis_run was retired (todo 623): its old rows stay in integrity_monitor and must not gate
+    stale = [VerdictRow("AAA", "1d", "alpaca_basis_run", False, NOW - timedelta(hours=1))]
+    assert "alpaca_basis_run" not in REQUIRED_CHECKS["1d"]
+    assert _gate([*_rows("AAA", "1d"), *stale]) == {}
 
 
 def test_an_unknown_extra_check_is_refused():

@@ -57,7 +57,11 @@ def test_header_names_the_reader_and_the_zero_tolerance_definitions():
         assert check in header, check
 
 
-def test_d7_reads_every_key():
+# migration 602 retired this key with the alpaca_basis_run check (todo 623); 449 still seeds it
+_RETIRED = {"threshold.bar_integrity.vendor_ratio_run_min_sessions"}
+
+
+def test_d7_reads_every_key_still_in_force():
     source = read_source("services", "bar_reconciliation_audit.py")
     for key, _, _ in _KEYS:
-        assert f'"{key}"' in source, key
+        assert (f'"{key}"' in source) != (key in _RETIRED), key

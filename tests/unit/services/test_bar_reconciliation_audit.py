@@ -600,7 +600,7 @@ def test_a_name_without_history_is_judged_failing_not_missing():
     coverage 0, failed), never an absent verdict the gate would hold as missing."""
     conn, run = _run({"EEE": {"observations": [], "stored": []}})
     rows = [f for f in run.facts if f[1] == "EEE|1d"]
-    assert len(rows) == 14  # ten verdicts plus four informational facts
+    assert len(rows) == 13  # nine verdicts plus four informational facts
     coverage = next(f for f in rows if f[2] == "session_coverage")
     assert coverage[5] is False and coverage[3] == 0.0  # judged, with a named failing check
 
@@ -612,7 +612,7 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
 
     async def spy(self, conn, integ, window, names, seam_samples, run_start, **kw):
         captured["names"] = names
-        run = audit._VerdictRun([], {}, {}, {}, 0, [], [], ())
+        run = audit._VerdictRun([], {}, {}, {}, 0, [], ())
         return run
 
     monkeypatch.setattr(audit.BarReconciliationAudit, "_verdict_report_1d", spy)
@@ -780,14 +780,14 @@ def _run(names, seam_samples=()):
     return conn, run
 
 
-def test_each_name_gets_ten_verdict_rows_and_four_informational_rows():
+def test_each_name_gets_nine_verdict_rows_and_four_informational_rows():
     conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
     rows = [f for f in run.facts if f[1] == "AAA|1d"]
-    assert len(rows) == 14
+    assert len(rows) == 13
     assert {f[0] for f in run.facts} == {"bar_integrity"}
-    assert [f[2] for f in rows][:10] == list(audit.CHECKS_1D)
+    assert [f[2] for f in rows][:9] == list(audit.CHECKS_1D)
     assert "freshness_1d" in audit.CHECKS_1D
-    assert [f[2] for f in rows][10:] == [
+    assert [f[2] for f in rows][9:] == [
         "refused_head_1d",
         "unserved_primary_1d",
         "proven_start_1d",  # design D4: where the name's rebuild and panel begin

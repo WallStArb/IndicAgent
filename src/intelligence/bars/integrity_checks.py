@@ -10,7 +10,7 @@ import time
 from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import NamedTuple, Protocol
 
@@ -29,15 +29,12 @@ from src.intelligence.bars.daily_rule import (
     primary_pair,
     resolve_policy,
     servable_primary_dates,
-    vendor_basis_closes,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
 from src.intelligence.bars.selection import SESSION_TZ
 from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions
-from src.intelligence.bars.vendor_arbitration import ARBITRATED_THROUGH
-from src.intelligence.bars.vendor_basis import BasisRun, find_basis_runs
 from src.intelligence.bars.write_contract import BarValues, classify
 
 
@@ -80,49 +77,6 @@ def proven_start(
         elif (len(sessions) - i - missing) / (len(sessions) - i) >= min_coverage:
             start = sessions[i]  # scanning backwards, the last hit is the earliest start
     return start
-
-
-def alpaca_basis_runs(
-    observations: Sequence[Observation],
-    splits: Sequence[SplitRecord],
-    policy_rows: Sequence[PolicyRow],
-    *,
-    symbol: str,
-    since: date,
-    tolerance_bp: float,
-    min_sessions: int,
-) -> list[BasisRun]:
-    """Runs of at least min_sessions sessions after `since` where IBKR's and Alpaca's 1d closes
-    (current scale, session dates, zero-volume Alpaca bars dropped) differ by more than
-    tolerance_bp, and nothing recorded explains them (todo 545 step 5a; the successor of the
-    retired Tradier-against-IBKR vendor_basis_run check). Such a run is a spin-off, split or
-    ticker event since the D-191-Q arbitration. Explained, and not reported: a corporate action whose effective date
-    falls inside the run or on the first common session after it (the event that ends it; a
-    recorded spin-off factor is the judge), or an IBKR symbol row covering
-    the whole run."""
-    closes = vendor_basis_closes(observations, splits)
-    alpaca, ibkr = closes["alpaca"], closes["ibkr"]
-    pairs = [(d, ibkr[d], alpaca[d]) for d in sorted(ibkr.keys() & alpaca.keys()) if d > since]
-    common = [d for d, _i, _a in pairs]
-
-    def explained(run: BasisRun) -> bool:
-        after = next((d for d in common if d > run.end), None)
-        if any(
-            run.start <= s.effective_date and (after is None or s.effective_date <= after)
-            for s in splits
-        ):
-            return True
-        return any(
-            r.timeframe == TIMEFRAME_1D
-            and r.symbol == symbol
-            and r.primary_source == "ibkr"
-            and r.valid_from <= run.start
-            and (r.valid_to is None or r.valid_to > run.end)
-            for r in policy_rows
-        )
-
-    runs = find_basis_runs(pairs, tolerance_bp=tolerance_bp, min_sessions=min_sessions)
-    return [run for run in runs if not explained(run)]
 
 
 def policy_conformance(
@@ -172,7 +126,6 @@ CHECKS_1D = (
     "canonical_recompute",
     "digest_fresh",
     "unexplained_seam",
-    "alpaca_basis_run",
     "split_continuity",
     "report_age",
     CHECK_FRESHNESS_1D,
@@ -196,7 +149,6 @@ class IntegrityThresholds(Protocol):
     """The APR-sourced thresholds the 1d report reads (D7's _IntegrityParams satisfies it)."""
 
     session_coverage_min: float
-    vendor_run_min_sessions: int
     report_max_age_hours: int
     basis_window_sessions: int
     basis_tolerance_bp: float
@@ -248,8 +200,6 @@ class NameReport1d:
     refused_head: int
     # sessions the primary did not answer and no fallback covers (by design, todo 566 class B)
     unserved_primary: int = 0
-    # unexplained Alpaca/IBKR runs after the arbitration (alpaca_basis_run)
-    alpaca_runs: list[BasisRun] = field(default_factory=list)
     # earliest session whose coverage to the last session passes session_coverage (design D4)
     proven_start: date | None = None
 
@@ -555,19 +505,6 @@ def judge_name_1d(
     )
 
     started = time.perf_counter()
-    alpaca_runs = alpaca_basis_runs(
-        inputs.observations,
-        inputs.splits,
-        inputs.policy_rows,
-        symbol=symbol,
-        since=ARBITRATED_THROUGH,
-        tolerance_bp=thresholds.basis_tolerance_bp,
-        min_sessions=thresholds.vendor_run_min_sessions,
-    )
-    verdicts.append(verdict("alpaca_basis_run", not alpaca_runs, len(alpaca_runs), 0.0))
-    timed("alpaca_basis_run", started)
-
-    started = time.perf_counter()
     discontinuous = split_discontinuities(
         inputs.stored,
         inputs.splits,
@@ -606,7 +543,6 @@ def judge_name_1d(
         verdicts,
         len(derived.refused_head),
         len(derived.unserved_primary),
-        alpaca_runs,
         proven_start=proven,
     )
 

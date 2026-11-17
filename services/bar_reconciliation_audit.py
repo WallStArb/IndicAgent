@@ -34,8 +34,7 @@ with the venue study):
   active name (the backfill dimension; todo 502 — a promotion candidate is judged, never
   absent): session_coverage, policy_conformance, lineage_missing, canonical_recompute
   (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam,
-  alpaca_basis_run (Alpaca/IBKR runs after the D-191-Q arbitration, todo 545 step 5a) and
-  report_age, plus refused_head_1d as an informational row. The pure judgement is
+  split_continuity and report_age, plus refused_head_1d as an informational row. The pure judgement is
   src/intelligence/bars/integrity_checks.judge_name_1d; the gates (185-41) read the rows.
 
 Observability only, the classification-coverage contract: a finding is reported loudly
@@ -1242,7 +1241,6 @@ class _VerdictRun(NamedTuple):
     timings: dict[str, float]
     untraced_hidden: _Judged
     n_names: int
-    blocking_samples: list[str]
     # Held names failing freshness_1d, with the hold's cause (plan 185-51).
     held_stale: tuple[str, ...] = ()
 
@@ -1306,7 +1304,6 @@ class _IntegrityParams:
     freshness_1d; basis keys are 185-36's)."""
 
     session_coverage_min: float
-    vendor_run_min_sessions: int
     report_max_age_hours: int
     basis_window_sessions: int
     basis_tolerance_bp: float
@@ -1345,9 +1342,6 @@ class _IntegrityParams:
             ),
             session_coverage_min=float(
                 _cfg(apr, "threshold.bar_integrity.session_coverage_min_1d", 0.999)
-            ),
-            vendor_run_min_sessions=int(
-                _cfg(apr, "threshold.bar_integrity.vendor_ratio_run_min_sessions", 5)
             ),
             report_max_age_hours=int(_cfg(apr, "threshold.bar_integrity.report_max_age_hours", 30)),
             basis_window_sessions=int(
@@ -2503,7 +2497,6 @@ class BarReconciliationAudit(BaseBatch):
         failing: dict[str, int] = defaultdict(int)
         passing: dict[str, int] = defaultdict(int)
         timings: dict[str, float] = {}
-        blocking_samples: list[str] = []
         held_stale: list[str] = []
         holds = holds or {}
         twe = window.training_window_end
@@ -2598,12 +2591,6 @@ class BarReconciliationAudit(BaseBatch):
                     f"{symbol}: freshness_1d {stale.metric_value:.0f} sessions behind; held: "
                     + "; ".join(h.cause() for h in name_holds)
                 )
-            # alpaca_basis_run (todo 545 step 5a): an Alpaca/IBKR level run after the D-191-Q
-            # arbitration that no corporate action or policy row explains.
-            blocking_samples.extend(
-                f"{symbol}|{run.start}..{run.end}|alpaca_vs_ibkr|{run.median_ratio:.4f}"
-                for run in report.alpaca_runs
-            )
         n_hidden = sum(hidden.values())
         untraced = _Judged(
             CheckResult(n_hidden, tuple(f"{s}={n}" for s, n in sorted(hidden.items()))),
@@ -2616,7 +2603,6 @@ class BarReconciliationAudit(BaseBatch):
             timings,
             untraced,
             len(names),
-            blocking_samples,
             tuple(held_stale),
         )
 
@@ -3145,8 +3131,6 @@ class BarReconciliationAudit(BaseBatch):
             passing_by_check=run.passing_by_check,
             seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
         )
-        if run.blocking_samples:
-            logger.error("bar_integrity.blocking_basis_runs", runs=run.blocking_samples)
         if run.held_stale:
             logger.error("bar_integrity.freshness_1d_held", names=list(run.held_stale))
         print("\n# 1d verdict report (bar_integrity)\n")
