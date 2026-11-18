@@ -125,8 +125,10 @@ s2)
 import asyncio, hashlib, asyncpg
 from src.config.settings import Settings
 import services.ticker_entity_map_writer as w
+from src.core.database_manager import _setup_codecs
 async def main():
     conn = await asyncpg.connect(Settings().database_url.replace("postgresql+asyncpg://", "postgresql://"))
+    await _setup_codecs(conn)  # JSONB as dict, the way the builder's pooled connection reads it
     rows = await conn.fetch(w._PIT_LIVE_SPANS_SQL)
     await conn.close()
     print(hashlib.sha256(w.spans_csv(w.live_old_spans(rows))).hexdigest())
