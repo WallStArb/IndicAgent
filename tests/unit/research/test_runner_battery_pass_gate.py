@@ -31,23 +31,54 @@ def test_a_synthetic_replay_is_exempt_and_a_real_run_without_a_record_is_refused
 def test_a_real_run_with_a_current_record_gets_the_gate(monkeypatch):
     spec = _spec()
     module = runner.family_module(spec)
-    names = [s.name for s in __import__(module.NULL_BATTERY, fromlist=["x"]).scenarios()]
-    record = battery_pass.make_record(
-        [
+    cells = battery_pass.battery_scenarios(module.NULL_BATTERY)
+    driver = {
+        "schema": battery_pass.SCHEMA,
+        "battery": module.NULL_BATTERY,
+        "sims_per_cell": 1000,
+        "scenarios": cells,
+        "report": [
             {
-                "schema": battery_pass.SCHEMA,
-                "battery": module.NULL_BATTERY,
-                "sims_per_cell": 1000,
-                "scenarios": [{"name": n} for n in names],
-                "failures": [],
+                "cell": c["name"],
+                "arm": "a",
+                "sims": 1000,
+                "levels": {"0.05": {"rejected": 1, "bound": 67}},
             }
+            for c in cells
         ],
-        binding={
-            "family": spec.family,
-            "battery_input_hash": battery_pass.battery_input_hash(spec),
-            "battery_code_key": battery_pass.battery_code_key(module.NULL_BATTERY, module.__name__),
-        },
-        scenario_names=names,
+        "failures": [],
+        "commit": "abc",
+    }
+    record = battery_pass.make_record(
+        [driver],
+        spec=spec,
+        spec_hashes=[],
+        battery_module=module.NULL_BATTERY,
+        family_module=module.__name__,
+        driver_commit="abc",
+        input_hash_then=battery_pass.battery_input_hash(spec),
+        code_key_then=battery_pass.battery_code_key(module.NULL_BATTERY, module.__name__),
+        dirty=[],
+        recorded="2026-11-18",
     )
     monkeypatch.setattr(battery_pass, "load_records", lambda *a, **k: [record])
     assert runner.static_gate(spec, require_pass=True).battery == module.NULL_BATTERY
+
+
+def test_every_static_gate_call_in_the_runner_passes_the_mode_not_a_constant():
+    """A real or exploration run must reach the pass check: run_family and run_book call
+    static_gate with require_pass=real (the run's own mode flag). A constant False here would pass
+    every other test."""
+    import ast
+
+    tree = ast.parse(Path(runner.__file__).read_text())
+    calls = {}
+    for fn in tree.body:
+        if isinstance(fn, ast.AsyncFunctionDef | ast.FunctionDef):
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "static_gate":
+                    kw = {k.arg: k.value for k in node.keywords}
+                    calls.setdefault(fn.name, []).append(kw.get("require_pass"))
+    assert set(calls) == {"run_family", "run_book"}, calls
+    for name, values in calls.items():
+        assert all(isinstance(v, ast.Name) and v.id == "real" for v in values), name

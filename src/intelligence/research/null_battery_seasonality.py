@@ -20,8 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
+from src.intelligence.research import battery_pass, static_sizes
 from src.intelligence.research import null_battery_daily_residual as daily
-from src.intelligence.research import static_sizes
 from src.intelligence.research.combiner import EqualWeight
 from src.intelligence.research.families.common import SESSION_DATES
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
@@ -142,6 +142,14 @@ def scenarios() -> tuple[DailyScenario, ...]:
         ),
         DailyScenario("seasonal_hostile_stress", static_sd=_STRESS_STATIC_SD, **base, **other),
     )
+
+
+def inputs_mismatch(spec) -> list[str]:
+    """This battery reads its members and settings from research/specs/seasonality_h5.yaml; a spec
+    other than that file's inputs is not what it simulated (battery_pass.make_record refuses)."""
+    if battery_pass.battery_input_hash(spec) != battery_pass.battery_input_hash(_spec()):
+        return [f"inputs differ from {SPEC_PATH}"]
+    return []
 
 
 def static_gate() -> static_sizes.StaticGate:

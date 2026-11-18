@@ -44,8 +44,8 @@ from src.intelligence.features.contract import causality_probe as truncation
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import KernelRegistryError, default_registry
 from src.intelligence.research import (
-    battery_pass,
     align,
+    battery_pass,
     certificate,
     clock,
     contribution,

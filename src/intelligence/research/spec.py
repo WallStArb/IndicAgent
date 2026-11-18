@@ -611,6 +611,11 @@ def _family_dump(model: FamilySpec) -> dict:
     return data
 
 
+def family_spec_hash(model: FamilySpec) -> str:
+    """The spec hash of a family spec model, as `LoadedSpec.spec_hash` computes it."""
+    return _sha(canonical_json(_family_dump(model)))
+
+
 def _book_dump(model: BookSpec) -> dict:
     data = model.model_dump(mode="json")
     _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)

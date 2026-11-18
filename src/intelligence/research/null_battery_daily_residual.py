@@ -28,6 +28,7 @@ Each simulation scores the six members at their declared memories and their equa
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import numpy as np
 
@@ -221,6 +222,31 @@ def scenarios() -> tuple[DailyScenario, ...]:
 
 
 DIAGNOSTIC_CELLS = frozenset({"daily_static_vol_stress", "daily_hostile_stress"})
+
+
+def inputs_mismatch(spec) -> list[str]:
+    """What this battery simulates that the family spec does not say (battery_pass.make_record
+    refuses a bind while this is non-empty): its members, horizon, coverage floor, vol window and
+    warmup are module constants, so a spec edit does not reach them."""
+    out = []
+    mine = [(n, f"{f.__module__}.{f.__name__}", dict(p), h) for n, f, p, h in MEMBERS]
+    theirs = [(m.name, m.signal, dict(m.params), m.slot_history_sessions) for m in spec.members]
+    if mine != theirs:
+        out.append("members")
+    c = spec.construction
+    checks = {
+        "horizon": (HORIZON, spec.horizon),
+        "coverage_floor": (_COVERAGE_FLOOR, c.coverage_floor),
+        "vol_window_sessions": (_VOL_WINDOW_SESSIONS, c.vol_window_sessions),
+        "vol_min_finite": (
+            _VOL_WINDOW_SESSIONS // 2,
+            math.ceil(c.vol_min_finite_fraction * c.vol_window_sessions),
+        ),
+        "warmup_sessions": (_WARMUP_SESSIONS, spec.scoring.warmup_sessions),
+        "direction": (1, c.direction),
+    }
+    out += [name for name, (battery, registered) in checks.items() if battery != registered]
+    return out
 
 
 def static_gate() -> static_sizes.StaticGate:
