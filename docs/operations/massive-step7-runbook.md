@@ -54,7 +54,7 @@ The lists behind these counts (1d and 5m, one row per name-session or bar with i
 | `scripts/ops/bars/ops_identity_witness.py` | the design 8c identity witness for gap-list spans (IBKR stored raw used once as evidence before its deletion) | files only |
 | `scripts/ops/bars/ops_canonical_rebuild.py` | `--preflight`, `--rebuild` (span-major, chunk-aligned selection, compress as it goes, resumable), `--finish` | canonical (through `select_and_write`) |
 | `scripts/ops/bars/ops_seam_witness.py` | level continuity across a seam against Massive's own split-adjusted raw | files only |
-| D7 `split_horizon_fresh` | every canonical Massive 5m bar carries the splits known now | integrity_monitor |
+| D7 `split_horizon_fresh` | every canonical Massive 5m bar carries the splits known now, and every route row's canonical 5m seam is continuous (todo 626) | integrity_monitor |
 
 Set once per session:
 

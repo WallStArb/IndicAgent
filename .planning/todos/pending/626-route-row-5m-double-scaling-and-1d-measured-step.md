@@ -20,6 +20,16 @@ direct timeframe in selection (bd278686c). Two gaps:
 2. The row asserts nothing about 5m: CLBK's 5m was checked by hand (24.465 to 10.915 before the reselect,
    about 11.12 to 10.915 after).
 
+## Status 2026-11-17
+
+Landed: `routed_seam_breaks` in `split_horizon_fresh` counts a route row whose canonical 5m seam at the
+effective date reads double_adjusted (the last named-series bar to the first canonical bar after it,
+which is Massive for the live rows; live CLBK, RTX, UHAL read 0). Ruling: the unadjusted reading is not
+counted because a real drop at the date has the same shape (RTX 2020-04-03 spin-off); an unrescaled
+series is judged by `routed_horizon_stale` and the 1d guard. Open: a restatement of only part of the
+old span breaks at the window's edges inside the span, not at the effective date; judge the named
+series' raw request boundaries inside the routed span as the 1d path does (`request_boundaries`).
+
 ## Requirement first (Musk step 1)
 
 Decide whether the exposure needs a mechanism: how often does a vendor restate after a corporate action

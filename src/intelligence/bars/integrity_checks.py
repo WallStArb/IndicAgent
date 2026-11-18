@@ -792,6 +792,57 @@ def routed_horizon_stale(
     return stale
 
 
+def routed_seam_breaks(
+    ts_seconds: np.ndarray,
+    open_: np.ndarray,
+    close: np.ndarray,
+    vendor: np.ndarray,
+    kind: np.ndarray,
+    routed: Mapping[tuple[str, str], Sequence[SplitFactor]],
+    rel_tol: float,
+) -> int:
+    """How many route rows leave canonical 5m discontinuous at their effective date (todo 626).
+
+    routed_horizon_stale replays selection's own division, so it cannot see a vendor that restated
+    a named series after the row was written: raw is then already on the new scale, selection
+    divides it again and canonical 5m steps up by the factor. This judges the one seam per row
+    instead: the log step from the last bar of the named series on or before the effective
+    session to the first canonical bar of any series after it (canonical hands over to Massive,
+    already on the current scale, at the date), and counts it when split_continuity reads
+    double_adjusted (a step of +ln f: the series was divided twice). The unadjusted reading is not
+    counted: it is the shape of a real drop at the date (RTX 2020-04-03, the Carrier and Otis
+    distribution reads -0.52 against -0.69 for a x2 row), and an unrescaled series is what
+    routed_horizon_stale and the 1d guard already judge. A seam with no bar on either side within _SPLIT_BRACKET_MAX_DAYS is not
+    measurable here and is skipped. Not judged: a restatement of only part of the old span (its
+    break sits at the window's edges, inside the span), and the day's real move is not subtracted,
+    so a real overnight rise near the factor's size would read as a break (loud, never silent). Pure;
+    arrays aligned per bar, ascending in time."""
+    if not ts_seconds.size:
+        return 0
+    days = pd.to_datetime(ts_seconds, unit="s", utc=True).tz_convert(SESSION_TZ).normalize().date
+    breaks = 0
+    for (route_vendor, route_kind), splits in routed.items():
+        named = np.flatnonzero((vendor == route_vendor) & (kind == route_kind))
+        if not named.size:
+            continue
+        for split in splits:
+            if not (math.isfinite(split.factor) and split.factor > 0 and split.factor != 1):
+                continue
+            old = named[days[named] <= split.effective_date]
+            new = np.flatnonzero(days > split.effective_date)
+            if not (old.size and new.size):
+                continue
+            last, first = old[-1], new[0]
+            if (days[first] - days[last]).days > _SPLIT_BRACKET_MAX_DAYS:
+                continue
+            if not (close[last] > 0 and open_[first] > 0):
+                continue
+            step = math.log(open_[first] / close[last])
+            if split_continuity(step, split.factor, rel_tol) == "double_adjusted":
+                breaks += 1
+    return breaks
+
+
 def split_horizon_stale(
     ts_seconds: np.ndarray,
     close: np.ndarray,

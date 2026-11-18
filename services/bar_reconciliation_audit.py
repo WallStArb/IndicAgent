@@ -130,6 +130,7 @@ from src.intelligence.bars.integrity_checks import (
     judge_name_1d,
     rebucket_5m,
     routed_horizon_stale,
+    routed_seam_breaks,
     slot_coverage_by_year,
     split_horizon_stale,
     superseded_archive_buckets,
@@ -150,6 +151,7 @@ from src.intelligence.bars.split_rescale import (
     split_row,
     splits_known_at,
 )
+from src.intelligence.bars.vendor_basis import BP
 from src.intelligence.bars.vendor_kind import (
     DERIVED_PAIR,
     KIND_MASSIVE_CANONICAL,
@@ -184,7 +186,6 @@ _SWITCH_VERDICT_TF = {"venue_bars_1d": "1d", "venue_bars_intraday": "5m"}
 
 # MAD to standard deviation under normality (a mathematical constant).
 _MAD_TO_SIGMA = 1.4826
-_BP = 1e4
 
 
 class CheckResult(NamedTuple):
@@ -195,7 +196,7 @@ class CheckResult(NamedTuple):
 
 
 def _bp(a: float, b: float) -> float:
-    return abs(a / b - 1.0) * _BP
+    return abs(a / b - 1.0) * BP
 
 
 # ---------------------------------------------------------------------------
@@ -1760,6 +1761,7 @@ def judge_name_intraday(
     calendar: _SessionCalendar,
     end: datetime,
     min_slot_coverage: float,
+    split_continuity_rel_tol: float,
     *,
     timings: dict[str, float] | None = None,
 ) -> list[_IntradayVerdict]:
@@ -1769,7 +1771,10 @@ def judge_name_intraday(
 
     grid_parity is a vendor cross-check (digest_fresh already proves the derivation): it compares
     only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count
-    outside the D7 dated exceptions, None when no bucket was comparable."""
+    outside the D7 dated exceptions, None when no bucket was comparable.
+
+    split_horizon_fresh also counts a route row's canonical 5m seam that is not continuous
+    (routed_seam_breaks, todo 626): the guard against a vendor restating a named series."""
 
     def timed(check: str, started: float) -> None:
         if timings is not None:
@@ -1877,10 +1882,22 @@ def judge_name_intraday(
         verdicts.append(_IntradayVerdict(tf, "stray_vendor_rows", n == 0, float(n), 0.0))
 
     started = perf_counter()
-    stale = split_horizon_stale(
-        five.ts, five.close, five.raw_close, five.massive, inputs.splits, five.massive_vendor
-    ) + routed_horizon_stale(
-        five.ts, five.close, five.raw_close, five.vendor, five.kind, inputs.routed
+    stale = (
+        split_horizon_stale(
+            five.ts, five.close, five.raw_close, five.massive, inputs.splits, five.massive_vendor
+        )
+        + routed_horizon_stale(
+            five.ts, five.close, five.raw_close, five.vendor, five.kind, inputs.routed
+        )
+        + routed_seam_breaks(
+            five.ts,
+            five.open,
+            five.close,
+            five.vendor,
+            five.kind,
+            inputs.routed,
+            split_continuity_rel_tol,
+        )
     )
     verdicts.append(
         _IntradayVerdict(GRID_SOURCE_TF, CHECK_SPLIT_HORIZON_FRESH, stale == 0, float(stale), 0.0)
@@ -2874,7 +2891,12 @@ class BarReconciliationAudit(BaseBatch):
                 horizon=run_start,
             )
             for v in judge_name_intraday(
-                inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
+                inputs,
+                calendar,
+                window.end,
+                integ.slot_coverage_min_intraday,
+                integ.split_continuity_rel_tol,
+                timings=timings,
             ):
                 record(symbol, v)
                 if v.check == "grid_parity":

@@ -114,3 +114,64 @@ def test_the_same_kind_under_another_vendor_is_not_the_routed_series():
     ibkr = np.array(["ibkr"], dtype=object)
     sip_rth = np.array(["sip_rth"], dtype=object)
     assert routed_horizon_stale(*args, ibkr, sip_rth, routed) == 0
+
+
+# --- routed_seam_breaks: a restated routed series is divided twice (todo 626) ---
+
+from src.intelligence.bars.integrity_checks import routed_seam_breaks  # noqa: E402
+
+
+def _seam(close_old: float, open_new: float, *, new_vendor: str = "massive"):
+    """Canonical 5m as it is stored: the named Alpaca series up to the effective date, then
+    Massive (sip_flat_adj, already on the current scale) from the next session."""
+    ts = np.array(
+        [
+            datetime(2026, 7, 20, 19, 55, tzinfo=UTC).timestamp(),
+            datetime(2026, 7, 21, 13, 30, tzinfo=UTC).timestamp(),
+        ]
+    )
+    names = np.array(["alpaca", new_vendor], dtype=object)
+    kinds = np.array(["sip_rth", "sip_flat_adj"], dtype=object)
+    return ts, np.array([close_old, open_new]), np.array([close_old, open_new]), names, kinds
+
+
+ROUTED = {("alpaca", "sip_rth"): [SplitFactor(date(2026, 7, 20), 2.2)]}
+
+
+def test_a_continuous_routed_seam_passes():
+    ts, o, c, v, k = _seam(11.12, 10.915)  # the CLBK shape after the rescale
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3) == 0
+
+
+def test_a_restated_series_divided_twice_steps_up_by_the_factor_and_fails():
+    ts, o, c, v, k = _seam(24.465 / 2.2 / 2.2, 10.915)  # old side divided twice, new side as served
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3) == 1
+
+
+def test_an_undivided_old_side_is_not_counted_here():
+    # the unadjusted shape equals a real drop (RTX 2020-04-03 spin-off, 86.01 to 51.0 under a x2
+    # row); routed_horizon_stale and the 1d guard judge an unrescaled series
+    ts, o, c, v, k = _seam(24.465, 10.915)
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3) == 0
+    rtx = {("alpaca", "sip_rth"): [SplitFactor(date(2026, 7, 20), 2.0)]}
+    ts, o, c, v, k = _seam(86.01, 51.0)
+    assert routed_seam_breaks(ts, o, c, v, k, rtx, 0.3) == 0
+
+
+def test_the_same_series_on_both_sides_is_judged_too():
+    ts, o, c, v, k = _seam(24.465 / 2.2 / 2.2, 10.915, new_vendor="alpaca")
+    k[1] = "sip_rth"
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3) == 1
+
+
+def test_an_unmeasurable_seam_or_an_unnamed_series_is_not_judged():
+    ts, o, c, v, k = _seam(24.465 / 2.2 / 2.2, 10.915)
+    assert routed_seam_breaks(ts[:1], o[:1], c[:1], v[:1], k[:1], ROUTED, 0.3) == 0  # no after
+    assert routed_seam_breaks(ts[1:], o[1:], c[1:], v[1:], k[1:], ROUTED, 0.3) == 0  # no before
+    assert routed_seam_breaks(ts, o, c, v, k, {}, 0.3) == 0
+    other = {("alpaca", "other_kind"): ROUTED[("alpaca", "sip_rth")]}
+    assert routed_seam_breaks(ts, o, c, v, k, other, 0.3) == 0
+    gap = ts.copy()
+    gap[1] += 10 * 86400  # beyond the bracket
+    assert routed_seam_breaks(gap, o, c, v, k, ROUTED, 0.3) == 0
+    assert routed_seam_breaks(ts[:0], o[:0], c[:0], v[:0], k[:0], ROUTED, 0.3) == 0
