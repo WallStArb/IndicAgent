@@ -53,11 +53,11 @@ import structlog
 
 from scripts.infrastructure.massive import massive_download as md
 from scripts.ops.bars import ops_massive_load as loader
-from scripts.ops.bars.ops_massive_policy_plan import last_file_day
 from services.ticker_entity_map_writer import InstallRefused, require_massive_quiet
 from src.config.settings import get_settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.bars.capture_freshness import session_date_of
+from src.intelligence.bars.vendor_ingress import last_file_day
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
     JOB_DURATION_SECONDS,

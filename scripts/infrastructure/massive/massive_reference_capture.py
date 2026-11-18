@@ -73,6 +73,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.bars.massive_reference import PIT_SNAPSHOTS
+from src.intelligence.bars.vendor_ingress import ArchiveManifestError, last_file_day
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -686,24 +687,6 @@ def run(
         f"denied endpoints {sorted(ctx.denied)}; manifest {manifest_path}"
     )
     return 1 if failed or ctx.denied else 0
-
-
-class ArchiveManifestError(ValueError):
-    """The Massive downloader manifest is missing or holds no file day."""
-
-
-def last_file_day(manifest: bytes) -> date:
-    """The archive's last file day: the latest date stamp of the downloader manifest's keys (the
-    rule of ops_massive_policy_plan.archive_end_of, which still holds its own copy until step 7
-    is quiet; todo 614 row 17 merges them)."""
-    stamps = [
-        date.fromisoformat(Path(json.loads(line)["key"]).name.removesuffix(".csv.gz"))
-        for line in manifest.decode().splitlines()
-        if line.strip()
-    ]
-    if not stamps:
-        raise ArchiveManifestError("the archive manifest is empty")
-    return max(stamps)
 
 
 def pit_days(args: argparse.Namespace) -> list[date]:

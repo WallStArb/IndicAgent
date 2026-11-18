@@ -241,7 +241,8 @@ def test_the_quiet_check_is_asked_again_before_the_load_and_refuses_it():
 
 
 def test_last_file_day_is_per_dataset():
-    from scripts.ops.bars.ops_massive_policy_plan import archive_end_of, last_file_day
+    from scripts.ops.bars.ops_massive_policy_plan import archive_end_of
+    from src.intelligence.bars.vendor_ingress import last_file_day
 
     manifest = (
         b'{"key": "us_stocks_sip/day_aggs_v1/2026/11/2026-11-13.csv.gz"}\n'

@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -167,6 +167,28 @@ ALPACA_5M = VendorIngress(
 #: The downloader's manifest (one JSON record per download; the latest record of a key is its
 #: current state) and the files root its ``path`` field is relative to.
 MASSIVE_MANIFEST = Path("data/massive/manifest/manifest.jsonl")
+
+
+class ArchiveManifestError(ValueError):
+    """The Massive downloader manifest is missing or holds no file day."""
+
+
+def last_file_day(manifest: bytes, dataset: str | None = None) -> date:
+    """The newest file day in the downloader manifest (its key's date stamp, the load path's rule),
+    over one dataset (``minute_aggs_v1``, ``day_aggs_v1``) or all of them: the one definition of
+    the archive's last file day (todo 614 row 17)."""
+    stamps = [
+        date.fromisoformat(Path(key).name.removesuffix(".csv.gz"))
+        for line in manifest.decode().splitlines()
+        if line.strip()
+        for key in [json.loads(line)["key"]]
+        if dataset is None or f"/{dataset}/" in key
+    ]
+    if not stamps:
+        raise ArchiveManifestError("the archive manifest is empty")
+    return max(stamps)
+
+
 MASSIVE_FILES_ROOT = Path("data/massive/files")
 
 

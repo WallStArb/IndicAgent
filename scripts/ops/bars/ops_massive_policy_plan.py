@@ -58,6 +58,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 from src.intelligence.bars.vendor_arbitration import SEAM as ALPACA_FIRST_DAY  # noqa: E402
+from src.intelligence.bars.vendor_ingress import last_file_day  # noqa: E402
 
 FAR_PAST = date(1990, 1, 1)
 MASSIVE, ALPACA, IBKR = "massive", "alpaca", "ibkr"
@@ -110,21 +111,6 @@ def read_gap_list(path: Path) -> list[GapRow]:
             GapRow(r["symbol"], r["scope"], r["reason"], day(r["valid_from"]), day(r["valid_to"]))
             for r in csv.DictReader(handle)
         ]
-
-
-def last_file_day(manifest: bytes, dataset: str | None = None) -> date:
-    """The newest file day in the manifest (its key's date stamp, the load path's rule), over one
-    dataset (``minute_aggs_v1``, ``day_aggs_v1``) or all of them."""
-    stamps = [
-        date.fromisoformat(Path(key).name.removesuffix(".csv.gz"))
-        for line in manifest.decode().splitlines()
-        if line.strip()
-        for key in [json.loads(line)["key"]]
-        if dataset is None or f"/{dataset}/" in key
-    ]
-    if not stamps:
-        raise ValueError("the archive manifest is empty")
-    return max(stamps)
 
 
 def archive_end_of(manifest: bytes) -> date:
