@@ -25,14 +25,17 @@ def test_the_primary_and_core_specs_differ_only_in_the_universe_comments_aside(p
     assert a.model_copy(update={"panel": b.panel}) == b
 
 
-def test_the_daily_residual_spec_has_six_members_and_no_flag_universe():
+def test_the_daily_residual_spec_has_four_members_and_no_flag_universe():
     spec = _spec("daily_residual_h5")
     assert [m.name for m in spec.members][:3] == [
         "residual_momentum_12_1",
         "residual_momentum_12_1_z",
         "residual_momentum_12_1_continuity",
     ]
-    assert len(spec.members) == 6 and spec.panel.members_universe is None
+    assert [m.name for m in spec.members][3:] == [
+        "reversal_21"
+    ]  # A3 dropped the two 5-session arms
+    assert len(spec.members) == 4 and spec.panel.members_universe is None
     m3 = next(m for m in spec.members if m.name.endswith("continuity"))
     assert (m3.slot_history_sessions, m3.declared_memory_rows) == (
         252,

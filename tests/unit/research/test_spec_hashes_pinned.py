@@ -27,10 +27,11 @@ PINNED = {
         "b828c285a369b97f35790585327e7a8d8ae98af2db65ec059204603fae172466"
     ),
     # Amended 2026-11-18 (prereg section 10, A1 universe and A2 sixth member) before any real-data
-    # number, so no recorded run holds the old hash; the amendment moved it on purpose.
-    "daily_residual_h5.yaml": "02c53a19695a4d2ff03231188495659915e4c57cdc92b8d59933620fd452e133",
+    # number, so no recorded run holds the old hash; the amendment moved it on purpose. A3 (2026-11-18)
+    # dropped the two 5-session reversal members, again before any real-data number.
+    "daily_residual_h5.yaml": "db98b163991f6e87ebddbef0a43e5e2ad0d226f4a80303ff2f5d1b77ee74c434",
     "daily_residual_h5_core.yaml": (
-        "63cecb29dec9b0e151a8fb6ac933dc185b3cb4eb8279ae2305b44e9c2bdabaf3"
+        "b60895832c3d8d444f7c5902a7346282b2a59632e5f275cf6706af889d5b642e"
     ),
     "seasonality_h5.yaml": "94257654b7ab3a1bb047d7245262662ea5e81c32680b34895713de4e52ae4b75",
     "seasonality_h5_core.yaml": (

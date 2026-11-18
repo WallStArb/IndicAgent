@@ -244,5 +244,6 @@ not IBKR coverage.
 | [619](pending/619-run-directory-lifecycle-and-scratch-location-rule.md) | New 2026-11-15, P3 proposed. Measured 2026-11-15: ordinary clutter is about 10 MB against 2.2 GB of protected run dirs, so the GC leaf is dropped (step 1) and replaced by a scratch location rule and a run-directory end-of-life convention in gotchas. |
 | [621](pending/621-collapse-massive-step7-evidence-after-part-f.md) | New 2026-11-15, P3, gated on step 7 Part F. Collapse `logs/massive_step7` (718 MB) to a summary card plus the sha256 files and the evidence the card cites. |
 | [637](pending/637-rerun-legacy-batteries-for-true-pass-records.md) | New 2026-11-18, P2. The legacy E17 batteries (family 1, intraday periodicity, family 2) have passes that are ledger prose, and research_run is empty so no waiver applies: each needs a rerun and a bound pass record before its first real run (todo 635 review). |
+| [638](pending/638-reversal-5-session-arms-mean-t-shift.md) | New 2026-11-18, P3. The dropped 5-session reversal arms carry a mean t of about +0.035 under the battery's own statistic (5.6 percent at 0.05); find the source. Not blocking: amendment A3 dropped the arms. |
 
 **Not in this list:** `deferred/` (phase-gated or recompute-batched) and `completed/`.

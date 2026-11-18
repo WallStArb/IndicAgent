@@ -456,9 +456,23 @@ def test_a_family_with_a_declared_replication_binds_only_pooled_over_its_declare
         _make([_block(1)])  # a single block, even a clean one
     with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
         _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 2_000_000])
-    record = _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
-    assert record["blocks"][1]["seed_base_recorded"] is False
-    assert record["sims_per_cell"] == 2000
+    with pytest.raises(bp.BatteryPassRefused, match="must record its seed base"):
+        _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
+    first, second = {**_block(1), "seed_base": 0}, {**_block(2), "seed_base": 1_000_000}
+    record = _make([first], replication_blocks=[[second]], seed_bases=[0, 1_000_000])
+    assert record["blocks"][1]["seed_base_recorded"] is True
+    assert record["sims_per_cell"] == 2000 and record["seed_bases"] == [0, 1_000_000]
+
+
+def test_a_declared_single_block_must_prove_its_seed_base(monkeypatch):
+    monkeypatch.setattr(bp, "DECLARED_REPLICATIONS", {"seasonality": (2_000_000,)})
+    with pytest.raises(bp.BatteryPassRefused, match="must record its seed base"):
+        _make([_block(1)], seed_bases=[2_000_000])
+    old_block = {**_block(1), "seed_base": 0}  # an earlier run cannot stand in for the fresh one
+    with pytest.raises(bp.BatteryPassRefused, match="not the claimed 2000000"):
+        _make([old_block], seed_bases=[2_000_000])
+    record = _make([{**_block(1), "seed_base": 2_000_000}], seed_bases=[2_000_000])
+    assert record["seed_bases"] == [2_000_000]
 
 
 def test_a_new_spec_validator_or_field_does_not_stale_the_key_but_resolving_members_does(

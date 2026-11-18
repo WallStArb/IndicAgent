@@ -21,7 +21,7 @@ equity drift of about 4 bps over a 2% idiosyncratic sd is 0.02). static_sizes.me
 spec's own panel must come in under them, or the run refuses and the battery reruns at twice
 the measured sizes. Cells at 0.3 document the limit and are diagnostics.
 
-Each simulation scores the six members at their declared memories and their equal-weight book
+Each simulation scores the four members at their declared memories and their equal-weight book
 (memory 252, the members' largest) through R1 and timing.timing_test. Compute only.
 """
 
@@ -46,9 +46,7 @@ MEMBERS = (
     ("residual_momentum_12_1", fam.residual_momentum, {}, 252),
     ("residual_momentum_12_1_z", fam.residual_momentum_z, {}, 252),
     ("residual_momentum_12_1_continuity", fam.residual_momentum_continuity, {}, 252),
-    ("reversal_5", fam.residual_reversal, {"window_sessions": 5}, 5),
     ("reversal_21", fam.residual_reversal, {"window_sessions": 21}, 21),
-    ("reversal_5_skip1", fam.residual_reversal, {"window_sessions": 5, "skip_sessions": 1}, 6),
 )
 HORIZON = 5  # the spec's target horizon in sessions
 GATE_STATIC_SD = 0.06  # provisional gating sizes (docstring); a change needs a rerun

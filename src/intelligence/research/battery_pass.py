@@ -92,7 +92,7 @@ LEGACY_WAIVERS: dict[tuple[str, str], str] = {}
 # family -> the seed bases of its pre-declared replication (todo 636): a family listed here can only be
 # bound pooled over exactly these blocks, so a favourable single block can never be bound alone. A new
 # entry is a reviewed commit made BEFORE the replication launches, like the declaration it mirrors.
-DECLARED_REPLICATIONS: dict[str, tuple[int, ...]] = {"daily_residual": (0, 1_000_000)}
+DECLARED_REPLICATIONS: dict[str, tuple[int, ...]] = {"daily_residual": (3_000_000,)}
 SEED_STRIDE = 10_000  # the driver's seed = seed_base + SEED_STRIDE * cell_index + simulation
 
 
@@ -395,6 +395,21 @@ def make_record(
             "failures": [f for r in block for f in r.get("failures", [])],
         }
 
+    if seed_bases or declared is not None:
+        if len(seed_bases) != len(blocks):
+            raise BatteryPassRefused("one seed base per block is needed")
+        for i, block in enumerate(blocks):
+            for part in block:
+                claimed = part.get("seed_base")
+                if claimed is None and declared is not None:
+                    raise BatteryPassRefused(
+                        f"family {spec.family} has a declared replication: block {i + 1} must record "
+                        f"its seed base (todo 636)"
+                    )
+                if claimed is not None and claimed != seed_bases[i]:
+                    raise BatteryPassRefused(
+                        f"block {i + 1} ran on seed base {claimed}, not the claimed {seed_bases[i]}"
+                    )
     per_block = [merge(b) for b in blocks]
     if len(per_block) > 1:
         cells_ = battery_scenarios(battery_module)
@@ -407,13 +422,6 @@ def make_record(
             raise BatteryPassRefused("the blocks report different (cell, arm) sets")
         if len({json.dumps(m["report"], sort_keys=True) for m in per_block}) < len(per_block):
             raise BatteryPassRefused("two blocks have identical reports: a block was replayed")
-        for i, block in enumerate(blocks):
-            for part in block:
-                claimed = part.get("seed_base")
-                if claimed is not None and claimed != seed_bases[i]:
-                    raise BatteryPassRefused(
-                        f"block {i + 1} ran on seed base {claimed}, not the claimed {seed_bases[i]}"
-                    )
     if (
         len(
             {
@@ -428,6 +436,7 @@ def make_record(
         **per_block[0],
         "diagnostic_cells": sorted(battery.DIAGNOSTIC_CELLS),
         "commit": driver_commit,
+        "seed_bases": [int(b) for b in seed_bases],
     }
     if len(per_block) > 1:
         merged["report"] = _pool_reports([m["report"] for m in per_block])
