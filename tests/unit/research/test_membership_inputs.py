@@ -187,3 +187,12 @@ def test_the_member_array_round_trips_through_save_and_load_inside_the_hash(tmp_
     other = panel_mod.save(dataclasses.replace(base, member=~member), tmp_path / "b")
     assert store.verify(path) != store.verify(other)
     assert panel_mod.load(panel_mod.save(base, tmp_path / "c")).member is None
+
+
+def test_the_corpus_tier_list_and_the_research_tier_rows_share_one_predicate():
+    from src.intelligence import universe_membership as um
+
+    assert um.TIER_5M_PREDICATE in um.EVER_TIER_5M_SQL
+    assert um.TIER_5M_PREDICATE in snapshot._TIER_ROWS_SQL
+    assert snapshot._TIER_ROWS_SQL == um.TIER_MEMBER_ROWS_SQL
+    assert um.EVER_TIER_5M_SQL.endswith(f"WHERE {um.TIER_5M_PREDICATE}")

@@ -27,8 +27,9 @@ def test_1d_reads_the_membership_and_returns_its_inputs(monkeypatch):
     assert calls == [("postgresql://unused", "universe_membership", {})]
 
 
+@pytest.mark.parametrize("tf", ["5m", "15m", "1h"])
 def test_an_intraday_timeframe_reads_the_5m_tier_and_an_explicit_list_is_an_unmasked_subset(
-    monkeypatch,
+    monkeypatch, tf
 ):
     inputs = snapshot.MembershipInputs(["T"], {}, {"membership": {"rule_id": "r"}})
     seen = []
@@ -38,9 +39,9 @@ def test_an_intraday_timeframe_reads_the_5m_tier_and_an_explicit_list_is_an_unma
         return inputs
 
     monkeypatch.setattr(snapshot, "membership_inputs", fake)
-    assert ic_measure.IcMeasure._universe(_self(), "5m") == (["T"], inputs)
+    assert ic_measure.IcMeasure._universe(_self(), tf) == (["T"], inputs)
     assert seen == ["universe_membership_5m"]
-    assert ic_measure.IcMeasure._universe(_self(["Z", "Y"]), "5m") == (["Y", "Z"], None)
+    assert ic_measure.IcMeasure._universe(_self(["Z", "Y"]), tf) == (["Y", "Z"], None)
     assert seen == ["universe_membership_5m"]  # the explicit list read nothing
 
 

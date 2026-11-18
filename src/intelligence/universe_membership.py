@@ -63,7 +63,14 @@ LEDGER_SUMMARY_SQL = (
 )
 LEDGER_RULE_ID_SQL = "SELECT min(rule_id) FROM universe_membership_build"
 EVER_MEMBER_SQL = "SELECT symbol FROM universe_membership"
-EVER_TIER_5M_SQL = "SELECT symbol FROM universe_membership WHERE tier_5m"
+# The one tier predicate: the corpus's ever-in-the-tier list and the research tier rows are both built
+# from it, so a change to it moves both (a test compares them).
+TIER_5M_PREDICATE = "tier_5m"
+EVER_TIER_5M_SQL = f"SELECT symbol FROM universe_membership WHERE {TIER_5M_PREDICATE}"
+TIER_MEMBER_ROWS_SQL = (
+    f"SELECT as_of, symbol FROM universe_membership WHERE {TIER_5M_PREDICATE} "
+    "ORDER BY as_of, symbol"
+)
 
 # First day of the Massive archive; the first month-end considered.
 ARCHIVE_START = date(2003, 9, 10)

@@ -418,7 +418,7 @@ async def _seen_names_exclusion(pool: asyncpg.Pool) -> list[str]:
 
 
 # Per timeframe, the reader this module offers for the corpus universe (check_ic_universe_aligned
-# reads it). 5m has none until the 5m tier universe is wired (todo 609 blocker I2).
+# reads it): the membership on 1d, its 5m tier on the intraday timeframes (todo 609 blocker I2).
 UNIVERSE_SOURCE: dict[str, Callable[..., Awaitable[Any]]] = {}
 
 
@@ -440,11 +440,9 @@ class MembershipInputs:
 
 _LEDGER_ROWS_SQL = "SELECT as_of FROM universe_membership_build ORDER BY as_of"
 _MEMBER_ROWS_SQL = "SELECT as_of, symbol FROM universe_membership ORDER BY as_of, symbol"
-# The 5m tier (amendment 2026-11-15): the members whose trailing median dollar volume is in the tier,
-# nested in the membership by construction (universe_membership.tier_5m).
-_TIER_ROWS_SQL = (
-    "SELECT as_of, symbol FROM universe_membership WHERE tier_5m ORDER BY as_of, symbol"
-)
+# The 5m tier rows (amendment 2026-11-15) share their predicate with the corpus's tier list
+# (universe_membership.TIER_5M_PREDICATE), so the corpus and the IC panel read one tier.
+_TIER_ROWS_SQL = universe_membership.TIER_MEMBER_ROWS_SQL
 
 
 async def membership_inputs(
@@ -458,7 +456,7 @@ async def membership_inputs(
     """The point-in-time membership for a `universe_membership*` spec.
 
     Refuses an empty ledger and a ledger built under more than one rule id (the same refusals as
-    services/corpus_universe.py, which reads the same SQL constants). The core universe keeps the
+    services/corpus_universe.py, which reads the same ledger constant and the same tier predicate). The core universe keeps the
     names that are members at 90 percent or more of the built month-ends inside the span (which
     it then requires: `start` and `end_exclusive`). A pinned
     exclusion is dropped from both the columns and every month's members, and its id, size and

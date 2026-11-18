@@ -804,7 +804,7 @@ def check_ic_universe_aligned(import_module: Callable[[str], Any] = importlib.im
     module-level `UNIVERSE_SOURCE` mapping timeframe to reader, where a timeframe's universe comes
     from; for every corpus timeframe it must be `snapshot.membership_inputs`, the reader of the
     point-in-time membership mask. A module that cannot be imported, has no mapping, or lacks a
-    timeframe (5m until the tier universe is wired, blocker I2) or declares another reader fails
+    timeframe or declares another reader fails
     with the module and timeframe named; the check never raises."""
     from services import rebuild_preconditions as rp
     from src.intelligence.research.snapshot import membership_inputs
