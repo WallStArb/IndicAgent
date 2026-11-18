@@ -154,3 +154,24 @@ refuses any existing row within SAME_EVENT_DAYS, and the 1.5 market row is one. 
 dishonest (a vendor level error). Proposal (code, not made here): in `_apply_decided`, a row that names `unadjusted_routes` and
 is a non-market operator row is blocked only by an existing row that names the same route, not by an unrelated market row; or
 the operator rows path passes `market_splits_only` inverted. Needs review, tests, then apply and reselect SNEX only.
+
+## Result 2026-11-17 (A3 sweep residue: SNEX done, RTX and SW listed)
+
+SNEX: `_apply_decided` takes `route_scoped` for `--apply-rows` (commit 2c9eb5ca8): an operator route row is blocked only by an
+existing row naming one of its routes (any state), never by an unrelated market split; a same-route row still blocks, tests
+cover both. The prepared row was applied (one row), canonical SNEX 1d reselected, 5m reselected, grid rerun. Canonical is now
+continuous across 2020-07-06 (10.989 to 11.698) and 2023-11-24 (17.68 to 18.57 to 18.29). Strict sweep after: 2 unresolved of
+608 (RTX 2020-04-03, SW 2016-05-16); the SNEX break is gone.
+
+RTX 2020-04-03, Alpaca level explained: the Massive flat files (`data/massive/files/day_aggs_v1`, not touched by Part F)
+hold UTX as-traded daily bars under ticker UTX (2019-12-31 close 149.76, 2020-04-02 close 86.01). Alpaca's RTX close is
+exactly 2.000 x the UTX as-traded close on all 1,070 sessions 2016-01-04 to 2020-04-02 (min 2.0000, max 2.0061, median 2.0000).
+So the 3.391 against IBKR smart_trades is Alpaca's 2.0 x the as-traded level against IBKR's adjusted level (as-traded / 1.6955);
+no corporate event explains a factor 2.0, so it is an Alpaca vendor level error, and the as-traded witness survives Part F in
+the flat files (UTX is not in ohlcv_raw). The IBKR export of todo 632 covers only rows absent from canonical, so it is not the
+witness. Candidate record, not applied: an Alpaca-route rescale x0.5 effective 2020-04-03 plus the Carrier and Otis
+distribution disposition in 629. The owner or lead rules; the break is still listed.
+
+SW 2016-05-16: verdict `unrecorded_split`, so an identity line cannot rule it and the identity rule is not weakened. The
+ticker did not exist before 2024-07-08 (CIK 0002005951), so the honest record is an exclusion of Alpaca's SW bars before
+2024-07-08 by the pit map span (this todo's mechanism, after Part F); the break stays listed against this ticket until then.
