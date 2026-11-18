@@ -1090,6 +1090,17 @@ when this was found.
   runs. The weak power of a 2,000-simulation bound (a true 6.45 percent size at 0.05 is caught about 17 percent of the
   time) is why single arms are settled by this check, not by the bound.
 
+- **Second correction 2026-11-18 (the cause of the disagreement; todo 636).** The correction above attributes the
+  4.85 percent diagnostic to a reimplementation of the arm. A line-by-line and seed-by-seed reconciliation shows that is
+  wrong: on identical seeds the reimplementation and the battery's `simulate` give bit-identical t and p (largest
+  difference 0.0 over 200 seeds, and the same 674, 157 and 39 rejections over all 12,000), so the battery is the correct
+  E17 daily statistic. The 4.85 percent came from a different seed draw. Across seed sets the rejection rate of the two
+  five-session reversal arms at 0.05 runs from about 4.6 to 5.6 percent, with a persistent mean t of about +0.035 (about 4
+  standard errors pooled), which alone gives about 5.4 percent: a small real size excess, not caused by static means (a
+  paired run with static sd 0.06 and 0 gives the same mean t) and not isolated further. The conclusion stands (the excess is
+  real, the family-wise gate is not in force, no bind); the stated reason for the earlier diagnostic's different number is
+  corrected here.
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),
