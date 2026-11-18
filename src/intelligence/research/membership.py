@@ -19,7 +19,8 @@ import numpy as np
 CORE_SHARE = 0.9
 
 
-def _last_day_of_next_month(as_of: dt.date) -> dt.date:
+def covered_through(as_of: dt.date) -> dt.date:
+    """The last session date a ledger built through `as_of` covers: the end of the next month."""
     first = as_of.replace(day=1)
     after = (first + dt.timedelta(days=62)).replace(day=1)  # first of the month after next
     return after - dt.timedelta(days=1)
@@ -41,7 +42,7 @@ def member_mask(
         raise ValueError("member_mask: the membership ledger is empty")
     as_ofs = sorted(members_by_as_of)
     ledger_days = np.array(as_ofs, dtype="datetime64[D]")
-    covered_to = np.datetime64(_last_day_of_next_month(as_ofs[-1]), "D")
+    covered_to = np.datetime64(covered_through(as_ofs[-1]), "D")
     if sessions.size and sessions.max() > covered_to:
         raise ValueError(
             f"membership is built through {as_ofs[-1]} (covers sessions to {covered_to}); "
