@@ -3,7 +3,8 @@
     .venv/bin/python scripts/research/bind_battery_pass.py --battery <module> \\
         --spec research/specs/<primary>.yaml [--spec <core twin>.yaml] \\
         --driver run_part1.json [--driver run_part2.json] --driver-commit <sha> \
-        [--replication-driver block2.json --seed-base 0 --seed-base 1000000]
+        [--replication-driver block2.json] [--seed-base 0 [--seed-base 1000000]]  (one --seed-base per block; a
+        family in battery_pass.DECLARED_REPLICATIONS must give exactly its declared bases, even for one block)
 
 The driver commit (--driver-commit, the commit each driver JSON records) need not be HEAD: the code
 key and the input hash are computed from the sources and the spec files as of that commit and again at

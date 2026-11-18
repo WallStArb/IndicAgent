@@ -173,7 +173,8 @@ def test_every_listed_runner_function_exists():
 def test_problems_names_each_way_a_driver_record_fails():
     cells = _cells()
     assert bp.problems(_driver(), cells) == []
-    assert "failure" in bp.problems(_driver(failures=["cell/arm at 0.05: 90 > 67"]), cells)[0]
+    # the driver's own failure list is advisory (a subset run judges a smaller family of tests)
+    assert bp.problems(_driver(failures=["cell/arm at 0.05: 90 > 67"]), cells) == []
     assert "below 1000" in bp.problems(_driver(sims=300), cells)[0]
     assert "not run" in bp.problems(_driver(cells=cells[:-1]), cells)[0]
     assert "schema" in bp.problems({**_driver(), "schema": "other"}, cells)[0]
@@ -203,8 +204,10 @@ def test_a_battery_run_in_parts_is_merged_and_judged_together():
     assert record["commit"] == "abc" and record["binding"]["family"] == "seasonality"
     with pytest.raises(bp.BatteryPassRefused, match="not run"):
         _make([part_a])
-    with pytest.raises(bp.BatteryPassRefused, match="failure"):
-        _make([part_a, _driver(cells=cells[-1:], failures=["f"])])
+    failing = _driver(cells=cells[-1:])
+    failing["report"] = _report(cells, rejected=90)
+    with pytest.raises(bp.BatteryPassRefused, match="> "):
+        _make([part_a, failing])
 
 
 def test_the_bind_refuses_parts_from_other_commits_or_batteries_and_a_dirty_tree():
@@ -255,8 +258,8 @@ def test_a_record_for_other_inputs_or_other_code_is_refused_with_the_reason():
 
 def test_a_record_that_no_longer_passes_is_refused():
     record = _record()
-    record["failures"] = ["cell/arm at 0.05: 90 > 67"]
-    with pytest.raises(bp.BatteryPassRefused, match="failure"):
+    record["report"] = _report(_cells(), rejected=90)
+    with pytest.raises(bp.BatteryPassRefused, match="> "):
         _require(records=[record])
 
 
@@ -351,7 +354,7 @@ def test_the_pinned_alphas_and_bound_quantile_are_the_drivers():
 
     assert tuple(ALPHAS) == bp.ALPHAS
     source = (ROOT / "scripts/research/e17_null_battery.py").read_text()
-    assert f"_BOUND_QUANTILE = {bp.BOUND_QUANTILE}" in source
+    assert f"_FAMILY_ALPHA = {bp.FAMILY_ALPHA}" in source
 
 
 def test_a_part_run_from_a_dirty_tree_or_without_recording_it_is_refused():
@@ -400,22 +403,41 @@ def _block(rejected_deepest, commit="abc"):
     return {**_driver(commit=commit), "report": report}
 
 
+def _deep_bound(sims):
+    """The bound at alpha 0.00167 for the fixture battery's own family of tests (two arms)."""
+    from scipy.stats import binom
+
+    n_tests = len(bp.ALPHAS) * 2 * len(_cells())
+    return int(binom.ppf(bp.bound_quantile(n_tests), sims, 0.00167))
+
+
 def test_a_block_that_fails_alone_passes_when_the_pooled_counts_hold_and_both_blocks_are_kept():
-    first, second = _block(6), _block(1)  # 6 > 5 alone at n=1000; pooled 7 <= 8 at n=2000
-    with pytest.raises(bp.BatteryPassRefused, match="> 5"):
+    first_n = _deep_bound(1000) + 1  # over the bound alone at n=1000
+    first, second = _block(first_n), _block(0)
+    assert first_n <= _deep_bound(2000)  # and inside it pooled at n=2000
+    with pytest.raises(bp.BatteryPassRefused, match=f"> {first_n - 1}"):
         _make([first])
     record = _make([first], replication_blocks=[[second]], seed_bases=[0, 1_000_000])
     assert record["sims_per_cell"] == 2000
     assert [b["seed_base"] for b in record["blocks"]] == [0, 1_000_000]
-    assert record["blocks"][0]["report"][0]["levels"]["0.00167"]["rejected"] == 6
+    assert record["blocks"][0]["report"][0]["levels"]["0.00167"]["rejected"] == first_n
     pooled = record["report"][0]
-    assert pooled["sims"] == 2000 and pooled["levels"]["0.00167"]["rejected"] == 7
+    assert pooled["sims"] == 2000 and pooled["levels"]["0.00167"]["rejected"] == first_n
     assert _require(records=[record]) == "record"
 
 
 def test_the_pooled_run_fails_when_the_pooled_counts_exceed_the_pooled_bound():
-    with pytest.raises(bp.BatteryPassRefused, match="9 > 8"):
-        _make([_block(6)], replication_blocks=[[_block(3)]], seed_bases=[0, 1_000_000])
+    over = _deep_bound(2000) + 1
+    with pytest.raises(bp.BatteryPassRefused, match=f"{over} > {over - 1}"):
+        _make([_block(over - 1)], replication_blocks=[[_block(1)]], seed_bases=[0, 1_000_000])
+
+
+def test_the_bound_is_bonferroni_over_the_gating_tests():
+    assert bp.bound_quantile(126) == pytest.approx(1 - 0.01 / 126)
+    # the 636 daily battery: 126 tests, n = 2,000: the pooled counts that failed at 0.99 hold
+    from scipy.stats import binom
+
+    assert int(binom.ppf(bp.bound_quantile(126), 2000, 0.05)) >= 129
 
 
 def test_a_replication_needs_non_overlapping_seed_ranges_the_same_cells_and_settings():
@@ -456,9 +478,23 @@ def test_a_family_with_a_declared_replication_binds_only_pooled_over_its_declare
         _make([_block(1)])  # a single block, even a clean one
     with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
         _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 2_000_000])
-    record = _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
-    assert record["blocks"][1]["seed_base_recorded"] is False
-    assert record["sims_per_cell"] == 2000
+    with pytest.raises(bp.BatteryPassRefused, match="must record its seed base"):
+        _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
+    first, second = {**_block(1), "seed_base": 0}, {**_block(2), "seed_base": 1_000_000}
+    record = _make([first], replication_blocks=[[second]], seed_bases=[0, 1_000_000])
+    assert record["blocks"][1]["seed_base_recorded"] is True
+    assert record["sims_per_cell"] == 2000 and record["seed_bases"] == [0, 1_000_000]
+
+
+def test_a_declared_single_block_must_prove_its_seed_base(monkeypatch):
+    monkeypatch.setattr(bp, "DECLARED_REPLICATIONS", {"seasonality": (2_000_000,)})
+    with pytest.raises(bp.BatteryPassRefused, match="must record its seed base"):
+        _make([_block(1)], seed_bases=[2_000_000])
+    old_block = {**_block(1), "seed_base": 0}  # an earlier run cannot stand in for the fresh one
+    with pytest.raises(bp.BatteryPassRefused, match="not the claimed 2000000"):
+        _make([old_block], seed_bases=[2_000_000])
+    record = _make([{**_block(1), "seed_base": 2_000_000}], seed_bases=[2_000_000])
+    assert record["seed_bases"] == [2_000_000]
 
 
 def test_a_new_spec_validator_or_field_does_not_stale_the_key_but_resolving_members_does(

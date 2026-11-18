@@ -1054,6 +1054,26 @@ when this was found.
   only under a battery cell `equal_weight_in_fold_signs`. No recorded spec uses the field, so
   nothing moves.
 
+- **Amendment 2026-11-18 (the battery size gate is family-wise; todo 636; decided AFTER the daily residual
+  battery failed under the old gate, ruled by the lead on an independent Opus analysis).** The H0 battery
+  judged every (cell, arm, alpha) test against the upper 0.99 binomial quantile. A battery has 126 such tests
+  (daily residual: 6 gating cells x 7 arms x 3 levels), so a correct statistic fails it somewhere about 60
+  percent of the time. The pooled daily residual run (2,000 simulations per cell) failed in `daily_static_means`
+  at 0.05 for `reversal_5` (127, bound 123) and `reversal_5_skip1` (129). Fresh-seed simulation of that arm at the
+  same code path (17,000 runs with the battery's) gives 4.99 percent at 0.05, a ratio of true spread to estimated
+  standard error of 0.999 and no growth with the static-mean size, so the statistic is calibrated and the
+  exceedance is sampling noise caught by a gate with a high false-alarm rate. The two arms share four of five
+  inputs and fail at different levels in the two blocks.
+  The gate becomes Bonferroni: a test fails when its rejections exceed the quantile 1 - 0.01 / n_tests of
+  Binomial(sims, alpha), n_tests the gating cells x arms x alphas of the battery (the same pattern as the
+  StepM battery). Recomputed by `battery_pass.problems` from the report; the driver's own failure list is
+  advisory. The statistic, the cells and the arms do not change, so no frozen verdict moves. The H-C and
+  seasonality passes held under the old per-test 0.99 gate, which is stricter per test, and still hold. Because the amendment follows a failure, the
+  daily residual pass is not taken from the old blocks: the whole battery reruns once on fresh seed base
+  2,000,000 with 2,000 simulations per cell, declared here and pinned in `DECLARED_REPLICATIONS` before it
+  launches; blocks 1 and 2 stay in the todo as history. A looser per-test gate can hide a small real excess;
+  the diagnostic above bounds any excess in the failing cell under about 0.4 points at 0.05.
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),
