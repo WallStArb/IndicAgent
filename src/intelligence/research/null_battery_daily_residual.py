@@ -44,6 +44,7 @@ from src.intelligence.research.timing import e17_memory, timing_test
 MEMBERS = (
     ("residual_momentum_12_1", fam.residual_momentum, {}, 252),
     ("residual_momentum_12_1_z", fam.residual_momentum_z, {}, 252),
+    ("residual_momentum_12_1_continuity", fam.residual_momentum_continuity, {}, 252),
     ("reversal_5", fam.residual_reversal, {"window_sessions": 5}, 5),
     ("reversal_21", fam.residual_reversal, {"window_sessions": 21}, 21),
     ("reversal_5_skip1", fam.residual_reversal, {"window_sessions": 5, "skip_sessions": 1}, 6),

@@ -26,7 +26,16 @@ PINNED = {
     "family1_intraday_periodicity.yaml": (
         "b828c285a369b97f35790585327e7a8d8ae98af2db65ec059204603fae172466"
     ),
-    "daily_residual_h5.yaml": "30ba50bf93a4215f54b691f516f1f24f0cfbe3d94b1ad104688d3f630a4fc04a",
+    # Amended 2026-11-18 (prereg section 10, A1 universe and A2 sixth member) before any real-data
+    # number, so no recorded run holds the old hash; the amendment moved it on purpose.
+    "daily_residual_h5.yaml": "02c53a19695a4d2ff03231188495659915e4c57cdc92b8d59933620fd452e133",
+    "daily_residual_h5_core.yaml": (
+        "63cecb29dec9b0e151a8fb6ac933dc185b3cb4eb8279ae2305b44e9c2bdabaf3"
+    ),
+    "seasonality_h5.yaml": "1b429ecc954489476033c6b3c8bfe97f1e723f983e33b0619e08b62675638576",
+    "seasonality_h5_core.yaml": (
+        "077cc09e58329678f57e5990d026ec095913cbd022e340e6ee9fb22b85a1ac86"
+    ),
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"
     ),

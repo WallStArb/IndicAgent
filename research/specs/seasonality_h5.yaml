@@ -1,0 +1,63 @@
+# Same-calendar-month return seasonality (published-prior family H-C; Heston and Sadka 2008;
+# Keloharju, Linnainmaa and Nyberg 2016). Pre-registration:
+# docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md (section 2 frame, H-C).
+# This file is the machine form of that pre-registration, recorded 2026-11-18 before any real-data
+# number. Editing any value after a real run is a new spec hash, a new recorded run and, per the
+# prereg, a methodology change. This is the primary panel; the core panel is seasonality_h5_core.yaml.
+# Dates are quoted and floats carry a decimal point: the loader is strict (spec.py).
+kind: family
+family: seasonality
+prior_source: docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md
+horizon: 5  # prereg 4: row d signal, enter at d+1's open, exit at d+6's open
+factor_spec: vintage_1  # prereg 2: S1 vintage 1 on the members' universe
+panel:
+  universe: universe_membership  # the stage 2 point-in-time membership (core panel: seasonality_h5_core.yaml)
+  universe_exclusion: seen_names  # the screen's names and the TSMOM sleeve, a pinned holdout (daily residual prereg B1, plan item B-U)
+  tf: "1d"
+  bars_per_session: 1
+  start: "2005-01-03"  # amended 2026-10-29 from 2000-01-03: the NYSE calendar starts 2005-01-01 (prereg 10)
+  end_exclusive: "2025-12-24"  # alpha.validation.oos_start; the forward span is never read
+  total_return: {suspect_yield: 0.10}  # prereg 2: total-return prices (todo 428)
+members:  # H-C; slot history = slot_history_sessions(60) = 1403 sessions (the 60-month read), declared memory = that + S1's 252 + 21
+  - name: seasonal_same_month_5  # H-C1: mean of the monthly residual sums at m-12 .. m-60, at least 3 finite, sign +1
+    signal: src.intelligence.research.families.seasonality.seasonal_same_month
+    params: {lags: 5, min_lags: 3, max_missing_fraction: 0.25}
+    slot_history_sessions: 1403
+    declared_memory_rows: 1676
+  - name: seasonal_other_months_5  # H-C2: mean over m-1 .. m-60 less the same calendar month, at least half finite, sign -1
+    signal: src.intelligence.research.families.seasonality.seasonal_other_months
+    params: {window_months: 60, max_missing_fraction: 0.25}
+    slot_history_sessions: 1403
+    declared_memory_rows: 1676
+construction:  # prereg 4, R1
+  name: rank_vol_neutral
+  direction: 1  # member signs are applied inside each member (prereg 3)
+  coverage_floor: 20
+  vol_window_sessions: 60  # prereg 4: 60 sessions of residuals, at least half finite
+  vol_min_finite_fraction: 0.5
+scoring:
+  timing_statistic: e17  # methodology-change-ledger E17 incl. the 2026-10-27 amendment (L = memory + h)
+  session_scoring: true  # one P&L per session
+  trading_start: "2009-03-02"  # H-C: the first reliable signal with three finite lags and S1 from 2005 (drafts H-C; the first-finite-row report may replace it by an amendment before any real-data number)
+  sub_periods:  # reported, not voted on
+    - ["2009-03-02", "2014-12-31"]
+    - ["2015-01-01", "2019-12-31"]
+    - ["2020-01-01", "2025-12-23"]
+  min_shift: 63
+  bootstrap_mean_block: 21
+  bootstrap_reps: 2000
+  seed: 183
+  warmup_sessions: 252
+  calibration_refit_sessions: 21
+  coverage_fraction: 0.95
+  ridge_epsilon_fraction: 0.10
+  mv_condition_max: 1000.0
+  ic_shrinkage_k: 100.0
+guards:
+  seed: 183
+  n_random: 4
+  max_rows: 12
+  s1_probe_sessions: 330
+costs:  # diagnostics only, never a gate (prereg 4)
+  bps_low: 1.0
+  bps_high: 5.0
