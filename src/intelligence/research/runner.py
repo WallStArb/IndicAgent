@@ -53,6 +53,7 @@ from src.intelligence.research import (
     feature_inputs,
     guards,
     kernel_source,
+    membership,
     null_battery_persistent,
     power,
     provenance,
@@ -258,10 +259,26 @@ def compute_residuals(
     transform: PanelTransform = transforms.IDENTITY,
 ) -> Residuals:
     """S1 twice, as the panel's transform defines it: residual bar returns (the members' input)
-    and the residual forward target."""
+    and the residual forward target.
+
+    On a membership panel (todo 609 I1) S1 sees only names seen as members on or before each
+    date (prices NaN before a name's first membership, so no name enters a date's market mean,
+    clusters or PCs because of a later membership), and the target is then NaN for a non-member:
+    membership gates alpha (compute_members) and target only."""
+    if panel.member is None:
+        return Residuals(
+            bar=transform.s1_bar(panel, factor_spec),
+            fwd=transform.s1_target(panel, horizon, factor_spec),
+        )
+    seen = membership.seen_member_mask(panel.member)
+    open_, close = membership.apply_seen_prices(
+        panel.open, panel.close, seen, panel.bars_per_session
+    )
+    s1_panel = dataclasses.replace(panel, open=open_, close=close)
+    fwd = transform.s1_target(s1_panel, horizon, factor_spec)
     return Residuals(
-        bar=transform.s1_bar(panel, factor_spec),
-        fwd=transform.s1_target(panel, horizon, factor_spec),
+        bar=transform.s1_bar(s1_panel, factor_spec),
+        fwd=membership.apply_member_mask(fwd, panel.member, panel.bars_per_session),
     )
 
 
@@ -284,10 +301,17 @@ def compute_members(
     """S2: every member on its declared input: the S1 residual bar returns (unchanged for every
     resid_bar member) or, for a feature or kernel member, the source value S2b aligned to the
     book clock (`panel` carries the S0 sources)."""
-    return {
+    out = {
         m.name: _member_fn(spec, m, bars_per_session)(member_input(spec, m, panel, resid_bar))
         for m in spec.members
     }
+    if panel is not None and panel.member is not None:
+        # Membership gates the alpha: a non-member cell is NaN, so it is out of the cross-section.
+        out = {
+            name: membership.apply_member_mask(alpha, panel.member, bars_per_session)
+            for name, alpha in out.items()
+        }
+    return out
 
 
 def _sub_panel(panel: Panel, sessions: int) -> Panel:
