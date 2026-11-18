@@ -24,7 +24,11 @@ _PRICE_FIELDS = ("open", "close", "volume")
 OPTIONAL_BAR_FIELDS = ("high", "low")  # [n, m], NaN where missing, like the price fields
 SECTOR_PIT = "sector_pit"  # [n_sessions, m] int16: index into manifest["sector_codes"], -1 none
 CLOSES_AT = "closes_at"  # [n] datetime64[ns]: each row's availability time (plan 184-06)
-OPTIONAL_ARRAY_FIELDS = (*OPTIONAL_BAR_FIELDS, SECTOR_PIT, CLOSES_AT)
+# todo 609 I1: bool [n_sessions, m], True where the name is a member of the point-in-time universe
+# for that session (research/membership.py). Prices stay unmasked; the mask gates the IC
+# cross-section only.
+MEMBER = "member"
+OPTIONAL_ARRAY_FIELDS = (*OPTIONAL_BAR_FIELDS, SECTOR_PIT, CLOSES_AT, MEMBER)
 
 
 def present(panel: Panel, names: tuple[str, ...] = OPTIONAL_ARRAY_FIELDS) -> dict[str, np.ndarray]:
@@ -55,6 +59,8 @@ class Panel:
     sector_pit: np.ndarray | None = None
     # Per-row (not per-name): the time each row's bar is known, for aligning inputs from another tf.
     closes_at: np.ndarray | None = None
+    # Point-in-time membership, per session (not per row): see MEMBER.
+    member: np.ndarray | None = None
     # Plan 184-10: where S2b reads the source arrays of a feature or kernel member (the runner's
     # InputSources). Run plumbing, not data: never saved, hashed or compared.
     sources: object | None = dataclasses.field(default=None, compare=False, repr=False)
@@ -79,6 +85,13 @@ class Panel:
             raise ValueError(
                 f"closes_at must be datetime64[ns] of shape {(n,)}, got "
                 f"{self.closes_at.dtype} {self.closes_at.shape}"
+            )
+        if self.member is not None and (
+            self.member.shape != (n // self.bars_per_session, m) or self.member.dtype != np.bool_
+        ):
+            raise ValueError(
+                f"member must be bool of shape {(n // self.bars_per_session, m)}, got "
+                f"{self.member.dtype} {self.member.shape}"
             )
         if self.sector_pit is not None:
             if self.sector_pit.shape != (n // self.bars_per_session, m):

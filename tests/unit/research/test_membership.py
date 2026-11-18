@@ -81,3 +81,28 @@ def test_apply_member_mask_nans_non_members_and_leaves_members_untouched():
 def test_apply_member_mask_refuses_a_misfit():
     with pytest.raises(ValueError, match="does not fit"):
         mem.apply_member_mask(np.zeros((3, 2)), np.ones((2, 2), dtype=bool), 2)
+
+
+def test_seen_mask_is_true_from_first_membership_and_never_before():
+    member = np.array([[False, True], [True, False], [False, False]])
+    seen = mem.seen_member_mask(member)
+    assert seen.tolist() == [[False, True], [True, True], [True, True]]
+    # a name whose first membership is after t is never in the set at t
+    first = np.argmax(member, axis=0)
+    for j in range(member.shape[1]):
+        assert not seen[: first[j], j].any()
+
+
+def test_seen_mask_does_not_move_when_a_later_membership_list_changes():
+    base = np.array([[True, False, False], [True, True, False], [True, True, False]])
+    longer = np.concatenate([base, [[True, True, True]]])
+    assert np.array_equal(mem.seen_member_mask(longer)[:3], mem.seen_member_mask(base))
+
+
+def test_apply_seen_prices_nans_rows_before_first_membership():
+    seen = np.array([[False], [True]])
+    open_, close = np.ones((4, 1)), np.ones((4, 1))
+    o, c = mem.apply_seen_prices(open_, close, seen, 2)
+    assert (
+        np.isnan(o).ravel().tolist() == [True, True, False, False] == np.isnan(c).ravel().tolist()
+    )

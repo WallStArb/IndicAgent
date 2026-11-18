@@ -84,3 +84,30 @@ def apply_member_mask(array: np.ndarray, member: np.ndarray, bars_per_session: i
         raise ValueError(f"member mask {member.shape} does not fit array {array.shape}")
     rows = np.repeat(member, bars_per_session, axis=0)
     return np.where(rows, array, np.nan)
+
+
+def seen_member_mask(member: np.ndarray) -> np.ndarray:
+    """bool [n_sessions, m]: True from a name's first membership session onward, member or not.
+
+    S1 is fitted on the names in this mask at each date and no others, so no name enters a
+    date's market mean, clustering or principal components because of a membership that begins
+    later (point_in_time: selection on future liquidity). A name that has left the membership
+    stays in: its exit is known at the exit, and its returns after it are facts at t.
+    """
+    return np.maximum.accumulate(member, axis=0)
+
+
+def apply_seen_prices(
+    open_: np.ndarray, close: np.ndarray, seen: np.ndarray, bars_per_session: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """`open_` and `close` with NaN before each name's first membership session.
+
+    The only panel handed to S1 (residual bar returns and forward target): its return at row t is
+    NaN for a name not yet seen as a member at t, so the name is out of every cross-sectional
+    statistic of that date without any change to S1. Costs an entrant its pre-entry residual
+    history inside member windows (they warm from first membership), a disclosed design choice.
+    """
+    return (
+        apply_member_mask(open_, seen, bars_per_session),
+        apply_member_mask(close, seen, bars_per_session),
+    )
