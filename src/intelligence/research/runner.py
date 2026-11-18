@@ -1626,7 +1626,12 @@ async def run_family(
                 trade,
                 bars_per_session=bps,
                 warmup_sessions=cfg.warmup_sessions,
-                memory_sessions=e17_memory(memories[m.name].sessions, spec.horizon, bps),
+                memory_sessions=e17_memory(
+                    memories[m.name].sessions,
+                    spec.horizon,
+                    bps,
+                    spec.construction.vol_window_sessions,
+                ),
                 overlap_sessions=spec.horizon - 1 if bps == 1 else None,
             )
             series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
@@ -2026,7 +2031,15 @@ async def run_book(
         alpha_level, budget_m = ctx.budget.screen_alpha, ctx.budget.budget_m
         bar = alpha_level / budget_m
         combiner = _combiner(book, member_keys, bps, fam0.horizon)
-        mem = book_memory(slot_histories, memories, fam0.horizon, combiner, horizon_rule, bps)
+        mem = book_memory(
+            slot_histories,
+            memories,
+            fam0.horizon,
+            combiner,
+            horizon_rule,
+            bps,
+            book.construction.vol_window_sessions,
+        )
         row_session_dates = np.repeat(snapshot.session_dates(panel), bps)
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
@@ -2266,6 +2279,7 @@ def _refit_subset(
         combiner,
         horizon_rule,
         bps,
+        book.construction.vol_window_sessions,
     )
     return book_timing(
         stack[:, :, cols],

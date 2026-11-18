@@ -167,9 +167,20 @@ def test_timing_test_record():
 def test_e17_memory_adds_a_daily_targets_cross_session_reach():
     from src.intelligence.research.timing import e17_memory
 
-    assert e17_memory(5, 5, 1) == 10
-    assert e17_memory(20, 1, 1) == 21  # open[r+2] is the overnight move into the exit session
-    assert e17_memory(20, 26, 26) == 20  # intraday targets end inside their entry session
+    assert e17_memory(5, 5, 1, 1) == 10
+    assert e17_memory(20, 1, 1, 1) == 21  # open[r+2] is the overnight move into the exit session
+    assert e17_memory(20, 26, 26, 1) == 20  # intraday targets end inside their entry session
+
+
+def test_e17_memory_covers_the_weights_vol_window_when_it_is_longer():
+    """The weights read the vol window as well as the signal window (E17 amendment 2026-11-18):
+    L is the longer of the two plus the target's reach, and a shorter vol window changes nothing."""
+    from src.intelligence.research.timing import e17_memory
+
+    assert e17_memory(5, 5, 1, 60) == 65  # 5-session reversal under a 60-session vol window
+    assert e17_memory(21, 5, 1, 60) == 65
+    assert e17_memory(257, 5, 1, 60) == 262  # momentum: the signal window already covers it
+    assert e17_memory(1, 26, 26, 20) == 20  # intraday: reach 0, vol window in sessions
 
 
 def test_fbar_never_reads_a_target_that_overlaps_the_signals_inputs():
@@ -181,7 +192,7 @@ def test_fbar_never_reads_a_target_that_overlaps_the_signals_inputs():
 
     for m in (1, 5, 6, 21, 252):
         for h in (1, 5, 21):
-            lag = e17_memory(m, h, 1)
+            lag = e17_memory(m, h, 1, 1)
             s = 1000
             r = s - lag - 1  # the newest row fbar_L reads
             exit_open_session = r + 1 + h

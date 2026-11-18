@@ -116,15 +116,21 @@ def test_e17_memory_over_member_memory_on_daily_panel(horizon):
     ]
     sessions = [m.sessions for m in members]
     mem = book_memory(
-        sessions, [m.rows for m in members], horizon, EqualWeight((1.0, 1.0)), HorizonRule(1.0), 1
+        sessions,
+        [m.rows for m in members],
+        horizon,
+        EqualWeight((1.0, 1.0)),
+        HorizonRule(1.0),
+        1,
+        1,
     )
-    assert mem.sessions == e17_memory(max(sessions), horizon, 1)
+    assert mem.sessions == e17_memory(max(sessions), horizon, 1, 1)
     assert mem.sessions == max(sessions) + horizon
 
 
 def test_e17_memory_over_member_memory_on_intraday_panel():
     member = feature_member_memory(**_kw(book_bars_per_session=26))
     mem = book_memory(
-        [member.sessions], [member.rows], 26, EqualWeight((1.0,)), HorizonRule(1.0), 26
+        [member.sessions], [member.rows], 26, EqualWeight((1.0,)), HorizonRule(1.0), 26, 1
     )
-    assert mem.sessions == e17_memory(member.sessions, 26, 26) == member.sessions
+    assert mem.sessions == e17_memory(member.sessions, 26, 26, 1) == member.sessions

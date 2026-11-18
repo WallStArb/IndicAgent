@@ -42,7 +42,7 @@ def _book_text(replicates=4):
           name: rank_vol_neutral
           direction: 1
           coverage_floor: 20
-          vol_window_sessions: 20
+          vol_window_sessions: 5
           vol_min_finite_fraction: 0.5
         scoring:
           session_scoring: true

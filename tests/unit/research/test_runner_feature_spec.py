@@ -368,8 +368,8 @@ def test_e17_l_is_timing_e17_memory_over_member_sessions(tf, bps):
         )
     ]
     assert [mm.sessions] == rows_sessions
-    book = book_memory([mm.sessions], [mm.rows], 1, EqualWeight((1.0,)), HorizonRule(), bps)
-    assert book.member == e17_memory(mm.sessions, 1, bps)
+    book = book_memory([mm.sessions], [mm.rows], 1, EqualWeight((1.0,)), HorizonRule(), bps, 1)
+    assert book.member == e17_memory(mm.sessions, 1, bps, 1)
 
 
 # --- pins ---------------------------------------------------------------------------------

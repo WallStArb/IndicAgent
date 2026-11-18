@@ -7,8 +7,9 @@ For each tested session s, the book's timing P&L:
 w is the book's final weight (after construction and scaling; 0 where the row carries no
 position), fwd its forward return (a missing return contributes 0, as in the construction),
 and fbar_L[s, pos, j] the mean of the finite forward returns at bar position `pos` of symbol j
-over the scored sessions with index below s - L. L is the signal's memory in sessions, read from
-the spec (a member's slot_history_sessions; a book's largest over its members), so under H0 the
+over the scored sessions with index below s - L. L is the weights' memory in sessions (e17_memory): the longer of the signal's
+slot history (a member's slot_history_sessions; a book's largest over its members) and the
+construction rule's vol window, plus a daily target's reach, so under H0 the
 weight, built from the last L sessions, and fbar_L share no inputs (a weight on a session's last
 bar, placed for the next session's first slot, reads sessions up to its own, still above s - L): D_s has zero mean even when every
 (bar-of-session, symbol) cell has its own static mean return, which fbar_L removes. A cell
@@ -42,9 +43,19 @@ from src.intelligence.statistics.hac import HacTestResult, hac_mean_test, hac_to
 MIN_HISTORY_SESSIONS = 60
 
 
-def e17_memory(slot_history_sessions: int, horizon: int, bars_per_session: int) -> int:
+def e17_memory(
+    slot_history_sessions: int,
+    horizon: int,
+    bars_per_session: int,
+    weight_history_sessions: int,
+) -> int:
     """L for a signal of `slot_history_sessions` sessions and its target. fbar_L may only read
-    forward returns whose price interval ends at or before the signal's first input begins. An
+    forward returns whose price interval ends at or before the first input of the weights.
+    The weights read the signal window and also the trailing volatility window of the
+    construction rule (`weight_history_sessions`, spec.construction.vol_window_sessions), so the
+    history is the longer of the two: a vol window past the signal window lets fbar_L and |w|
+    share inputs (a 5-session reversal member under a 60-session vol window, null mean t +0.02
+    to +0.025; methodology-change-ledger E17 amendment 2026-11-18). An
     intraday target ends inside its entry session (forward_returns exits at the close), so L is
     the slot history. A daily target at row r runs open[r+1] .. open[r+1+horizon], fwd_span
     rows past r, and the signal's oldest input starts at close[s-L]; so L adds fwd_span - 1 =
@@ -52,7 +63,7 @@ def e17_memory(slot_history_sessions: int, horizon: int, bars_per_session: int) 
     (methodology-change-ledger E17 amendment 2026-10-27; under H0 a 5-session reversal member
     scored with L = 5 had mean t +0.55 and rejected 15% at 0.05)."""
     reach = fwd_span(horizon) - 1 if bars_per_session == 1 else 0
-    return slot_history_sessions + reach
+    return max(slot_history_sessions, weight_history_sessions) + reach
 
 
 def timing_series(

@@ -126,7 +126,12 @@ def test_every_declared_sub_period_has_tested_sessions_under_the_specs_own_e17_m
     )
     n = len(sessions)
     trade = sessions >= np.datetime64(spec.scoring.trading_start)
-    memory = e17_memory(max(m.slot_history_sessions for m in spec.members), spec.horizon, 1)
+    memory = e17_memory(
+        max(m.slot_history_sessions for m in spec.members),
+        spec.horizon,
+        1,
+        spec.construction.vol_window_sessions,
+    )
     series = timing_series(
         np.ones((n, 2)),
         np.full((n, 2), 0.001),

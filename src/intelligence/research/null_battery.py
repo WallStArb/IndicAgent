@@ -28,7 +28,7 @@ from src.intelligence.research.families.intraday_periodicity import SLOT_BARS, s
 from src.intelligence.research.horizon import HorizonRule
 from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
-from src.intelligence.research.timing import TimingResult, timing_test
+from src.intelligence.research.timing import TimingResult, e17_memory, timing_test
 
 ALPHAS = (0.05, 0.01, 0.00167)
 MEMBER_WINDOWS = (1, 5, 20, 40)  # family 1's slot histories
@@ -198,7 +198,14 @@ def simulate_timings(sc: NullScenario, seed: int) -> dict[str, TimingResult]:
         weights, has = rank_vol_neutral_weights(
             alpha, vol=vol, direction=1.0, coverage_floor=_COVERAGE_FLOOR
         )
-        out[f"mean{w}"] = timing_test(weights, target, has, trade, memory_sessions=w, **kw)
+        out[f"mean{w}"] = timing_test(
+            weights,
+            target,
+            has,
+            trade,
+            memory_sessions=e17_memory(w, SLOT_BARS, bps, _VOL_WINDOW_SESSIONS),
+            **kw,
+        )
     stack = np.stack(members, axis=2)
     if sc.combiner == "ridge":
         combiner = RidgeSpec(
@@ -223,7 +230,13 @@ def simulate_timings(sc: NullScenario, seed: int) -> dict[str, TimingResult]:
     rule = HorizonRule(sc.kappa)
     weights, has = rule.apply(weights, has)
     memory = book_memory(
-        MEMBER_WINDOWS, [w * bps for w in MEMBER_WINDOWS], SLOT_BARS, combiner, rule, bps
+        MEMBER_WINDOWS,
+        [w * bps for w in MEMBER_WINDOWS],
+        SLOT_BARS,
+        combiner,
+        rule,
+        bps,
+        _VOL_WINDOW_SESSIONS,
     )
     out[_book_arm(sc)] = timing_test(
         weights, target, has, trade, memory_sessions=memory.sessions, **kw

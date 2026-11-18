@@ -96,11 +96,13 @@ def book_memory(
     combiner: Combiner,
     horizon_rule: HorizonRule,
     bars_per_session: int,
+    weight_history_sessions: int,
 ) -> BookMemory:
-    """The one source of a book's L; no caller computes it by hand."""
+    """The one source of a book's L; no caller computes it by hand. `weight_history_sessions` is
+    the construction rule's vol window (timing.e17_memory)."""
     reach = horizon_rule.reach_rows
     return BookMemory(
-        member=e17_memory(max(member_sessions), horizon, bars_per_session),
+        member=e17_memory(max(member_sessions), horizon, bars_per_session, weight_history_sessions),
         combiner_rows=combiner.training_rows,
         horizon_rows=reach,
         bars_per_session=bars_per_session,

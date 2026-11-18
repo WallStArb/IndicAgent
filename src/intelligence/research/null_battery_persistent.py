@@ -313,6 +313,7 @@ def cell_memory_sessions(sc: PersistentScenario) -> int:
         EqualWeight((1.0,) * len(sc.members)),
         HorizonRule(),
         bk,
+        _VOL_WINDOW_SESSIONS,
     ).sessions
 
 

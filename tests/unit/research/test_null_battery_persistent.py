@@ -107,6 +107,7 @@ def test_cell_memory_is_book_memory_over_the_one_member_memory_function():
             EqualWeight((1.0,)),
             HorizonRule(),
             bk,
+            b._VOL_WINDOW_SESSIONS,
         ).sessions
         assert b.cell_memory_sessions(c) == want
     # a daily target adds its reach (timing.e17_memory); an hourly target does not

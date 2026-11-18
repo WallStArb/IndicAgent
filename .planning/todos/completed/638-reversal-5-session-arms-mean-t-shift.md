@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-11-18
 source: todo 636 (daily residual battery), amendment A3
@@ -18,3 +18,7 @@ The source is named with a paired experiment on the battery's own path, and eith
 ## Why it matters
 
 It does not block a counted test (A3 dropped the arms); it protects the E17 statistic for any later short-window member.
+
+## Outcome 2026-11-18
+
+Source named: E17's L counted the signal window while the weights also read the 60-session vol window (ledger E17 amendment 2026-11-18 (b)). Fixed in `timing.e17_memory`; `repro_frozen` result and the paired numbers are in the landing commit. Re-registering the two arms is a separate counted amendment.

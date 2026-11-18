@@ -41,7 +41,7 @@ from src.intelligence.research.legs import LEGS, SIGNAL_LEG
 from src.intelligence.research.null_battery import listing_mask
 from src.intelligence.research.panel import Panel
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
-from src.intelligence.research.timing import timing_test
+from src.intelligence.research.timing import e17_memory, timing_test
 
 # Members as registered (research/specs/family2_overnight_intraday.yaml): name, function,
 # params, slot history (the E17 memory).
@@ -171,7 +171,7 @@ def _score(alpha, vol, target, trade, memory: int) -> tuple[float, float]:
         trade,
         bars_per_session=LEGS,
         warmup_sessions=_WARMUP_SESSIONS,
-        memory_sessions=memory,
+        memory_sessions=e17_memory(memory, 1, LEGS, _VOL_WINDOW_SESSIONS),
     ).hac
     return res.t, res.p
 

@@ -107,8 +107,8 @@ def test_an_anchored_fold_refits_on_the_calendar_grid():
 def test_training_rows_enter_the_book_memory():
     ew = EqualWeight((None, 1.0), fold=FOLD)
     assert ew.training_rows == FOLD.window_rows + FOLD.embargo
-    mem = book_memory([5], [5 * BPS], 1, ew, HorizonRule(), BPS)
-    fixed = book_memory([5], [5 * BPS], 1, EqualWeight((1.0, 1.0)), HorizonRule(), BPS)
+    mem = book_memory([5], [5 * BPS], 1, ew, HorizonRule(), BPS, 5)
+    fixed = book_memory([5], [5 * BPS], 1, EqualWeight((1.0, 1.0)), HorizonRule(), BPS, 5)
     assert mem.combiner_rows == ew.training_rows
     assert mem.rows - fixed.rows == ew.training_rows
     assert mem.sessions > fixed.sessions
