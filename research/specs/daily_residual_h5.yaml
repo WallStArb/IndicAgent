@@ -3,7 +3,8 @@
 # This file is the machine form of that pre-registration. Editing any value after a real run is
 # a new spec hash, a new recorded run and, per the prereg, a methodology change.
 # Dates are quoted and floats carry a decimal point: the loader is strict (spec.py).
-# Amended 2026-11-18 (prereg section 10, A1 and A2, recorded before any real-data number): the
+# Amended 2026-11-18 (prereg section 10, A1 and A2, staged before any real-data number and effective
+# when the lead records the adoption in the ledger): the
 # members' universe is the stage 2 membership with the seen-name holdout (A1), and a sixth member,
 # residual_momentum_12_1_continuity, joins (A2). The core panel is daily_residual_h5_core.yaml.
 kind: family

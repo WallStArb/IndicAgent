@@ -21,7 +21,7 @@ equity drift of about 4 bps over a 2% idiosyncratic sd is 0.02). static_sizes.me
 spec's own panel must come in under them, or the run refuses and the battery reruns at twice
 the measured sizes. Cells at 0.3 document the limit and are diagnostics.
 
-Each simulation scores the five members at their declared memories and their equal-weight book
+Each simulation scores the six members at their declared memories and their equal-weight book
 (memory 252, the members' largest) through R1 and timing.timing_test. Compute only.
 """
 
