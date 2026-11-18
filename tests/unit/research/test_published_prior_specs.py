@@ -61,11 +61,11 @@ def test_the_null_battery_lists_every_registered_daily_residual_member():
     assert [name for name, *_ in battery.MEMBERS] == registered
 
 
-def test_seasonality_has_no_battery_yet_so_a_run_is_refused_before_the_ledger():
+def test_the_seasonality_family_is_covered_by_its_battery():
     from src.intelligence.research import runner
 
-    with pytest.raises(runner.RunRefused, match="no E17 H0 battery covers"):
-        runner.static_gate(_spec("seasonality_h5"))
+    gate = runner.static_gate(_spec("seasonality_h5"))
+    assert gate.battery == "src.intelligence.research.null_battery_seasonality"
 
 
 def test_the_core_universe_never_selects_or_admits_a_name_into_the_primary_panel(monkeypatch):

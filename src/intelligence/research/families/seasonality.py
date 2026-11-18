@@ -25,6 +25,9 @@ import numpy as np
 from src.intelligence.research.families.common import needs_session_dates
 from src.intelligence.research.families.daily_residual import _daily, _place
 
+# The E17 H0 battery that gates this family (runner.static_gate); a name, since it imports us.
+NULL_BATTERY = "src.intelligence.research.null_battery_seasonality"
+
 # The longest session count in a calendar month; bounds how many sessions a read of N months can
 # reach back (declared memory = slot history + S1's reach, common.declared_memory_rows).
 MAX_SESSIONS_PER_MONTH = 23
