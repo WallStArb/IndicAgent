@@ -1074,6 +1074,22 @@ when this was found.
   launches; blocks 1 and 2 stay in the todo as history. A looser per-test gate can hide a small real excess;
   the diagnostic above bounds any excess in the failing cell under about 0.4 points at 0.05.
 
+- **Correction 2026-11-18 (retracts the calibration claim of the amendment above; todo 636; lead ruling, the
+  ratification is withdrawn).** The amendment said the statistic is calibrated for `reversal_5` (4.99 percent over
+  17,000 simulations). That diagnostic reimplemented the arm instead of running the battery's own path, so it did not
+  test the battery's statistic. The check with the pass rule fixed before it ran (`scripts/research/e17_arm_calibration.py`,
+  commit e93ea8252: the one-sided 95 percent upper bound of the rate at 0.05 below 5.5 percent; the battery's own
+  `simulate`, cell `daily_static_means`, 12,000 simulations, seed base 77,000,000; record
+  `research/calibrations/e17_reversal_static_means_2026-11-18.json`) FAILS for both arms: `reversal_5` 674 rejections at
+  0.05 (5.62 percent, upper bound 5.97), 157 at 0.01 (1.31) and 39 at 0.00167 (0.32); `reversal_5_skip1` 676 (5.63), 149 (1.24)
+  and 31 (0.26). The controls hold (`reversal_21` 4.78, M3 4.14, book 4.47, M1 3.18). The excess is real. The family-wise
+  gate is therefore not in force: the gate code is reverted to the per-test 0.99 bound (the code key of the H-C record is
+  unchanged by the revert, checked), no pass record is bound under it, and the daily residual family waits (a failure
+  postpones, never a verdict). The statistic, cells and verdicts did not change. The amendment's own text stays as written
+  (append-only). Lesson: a calibration diagnostic runs the battery's own path, and the pass rule is written down before it
+  runs. The weak power of a 2,000-simulation bound (a true 6.45 percent size at 0.05 is caught about 17 percent of the
+  time) is why single arms are settled by this check, not by the bound.
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),

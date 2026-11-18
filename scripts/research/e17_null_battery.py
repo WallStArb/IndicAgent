@@ -5,11 +5,8 @@ arm, the rejection rate of the one-sided HAC test at 0.05, 0.01 and 0.00167 and 
 of t. The default module is src/intelligence/research/null_battery.py (family 1's members and
 equal-weight book); any module with scenarios(), simulate(scenario, seed) -> {arm: (t, p)} and
 DIAGNOSTIC_CELLS works, so a family with its own panel shape brings its own cells. Size holds at
-a level when the rejection count is at most the binomial quantile 1 - 0.01 / n_tests under that level,
-n_tests being the gating cells x arms x alphas run (a Bonferroni bound; a one-sided check: an undersized
-test is conservative, an oversized one is not). A run of a subset of cells (--cells) judges against its own
-smaller n_tests, so its failure list is advisory; battery_pass.problems recomputes the bound over the whole
-battery from the report. Cells in
+a level when the rejection count is at most the upper 99% binomial quantile under that level (a
+one-sided check: an undersized test is conservative, an oversized one is not). Cells in
 DIAGNOSTIC_CELLS are reported but do not gate (a documented limit, not a size claim). Writes one
 JSON record to the output path.
 
@@ -36,7 +33,7 @@ from services.batch_support.pool import make_worker_pool  # noqa: E402
 from src.intelligence.research import certificate as cert  # noqa: E402
 from src.intelligence.research.null_battery import ALPHAS  # noqa: E402
 
-_FAMILY_ALPHA = 0.01
+_BOUND_QUANTILE = 0.99
 
 
 def _run(args: tuple) -> tuple[str, dict]:
@@ -96,15 +93,13 @@ def main() -> int:
             for arm, tp in out.items():
                 draws.setdefault((name, arm), []).append(tp)
     report, failures = [], []
-    n_tests = len(ALPHAS) * sum(name not in diagnostic for name, _ in draws)
-    quantile = 1.0 - _FAMILY_ALPHA / max(n_tests, 1)
     for (name, arm), tps in sorted(draws.items()):
         ts = [t for t, _ in tps]
         n = len(tps)
         levels = {}
         for a in ALPHAS:
             rejected = sum(p < a for _, p in tps)
-            bound = int(binom.ppf(quantile, n, a))
+            bound = int(binom.ppf(_BOUND_QUANTILE, n, a))
             levels[str(a)] = {"rate": rejected / n, "rejected": rejected, "bound": bound}
             if rejected > bound and name not in diagnostic:
                 failures.append(f"{name}/{arm} at {a}: {rejected} > {bound}")
@@ -140,8 +135,7 @@ def main() -> int:
         "dirty_tracked": _git("status", "--porcelain", "--untracked-files=no").split(),
         "seed_base": args.seed_base,
         "sims_per_cell": args.sims,
-        "family_alpha": _FAMILY_ALPHA,
-        "bound_quantile": quantile,
+        "bound_quantile": _BOUND_QUANTILE,
         "scenarios": [dataclasses.asdict(sc) for sc in cells],
         "report": report,
         "failures": failures,
