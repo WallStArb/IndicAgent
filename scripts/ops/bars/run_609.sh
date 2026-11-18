@@ -16,7 +16,7 @@
 #   s4 all-ticker 1d load   s4b unplaced share of liquid rows by year and type (owner-visible)   s5 membership (rehearsal, then apply)   s6 member and tier counts by year (owner, gate 5)
 #   s7 5m tier cost estimate   s8 rerun pin prerequisites (plan-only; the writing steps are printed, never run)
 set -u
-cd /home/bg/dev/indicagent || exit 2
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.." || exit 2
 PY=.venv/bin/python
 D=logs/massive_step7/post_step7_readiness_20261115
 S=$D/run_609_status.txt
@@ -60,7 +60,8 @@ Commands the docs name that do not exist yet, or whose flags could not be confir
     says the writer logs members and tier members by year; the exact log line is not confirmed here (s6 greps the rehearsal
     log for 'tier' and prints it; read it, do not trust the grep).
  G5 RESOLVED 2026-11-17: ops_massive_load exits 3 and stops after a year with unselected slots or basis-change flags
-    (year_gate_failure). The compare half (0 real differences, canonical unchanged for names already in canonical) is still read
+    (year_gate_failure; the basis flag counts only restatements found in that run, so a rerun does not re-trip it: the review
+    gate for a flagged series is ops_selection_gate). The compare half (0 real differences, canonical unchanged for names already in canonical) is still read
     from the printed report.
  G6 modules that exist only in the held L3 worktree today: services/universe_membership_writer.py, services/corpus_universe.py,
     src/intelligence/universe_membership.py, production/migrations/597_universe_membership.sql. s0 refuses until they are on
@@ -170,7 +171,9 @@ s3)
 
 s4)
   need s3; quiet_host
-  # preregistration gate 3: all-ticker 1d load, newest year first, gated per year; --gap-list pinned (the default sorts by digest, not time)
+  # preregistration gate 3: all-ticker 1d load, newest year first, gated per year. Expect a year at or after 2016 to exit 3 for
+  # names with per-symbol Alpaca-only 1d policy rows (derived from the old gap list) that the new map places: replan those policy
+  # rows against the new map before s4 or the unselected slots stop the run; --gap-list pinned (the default sorts by digest, not time)
   [ -n "${RUN609_NEWMAP:-}" ] && [ -f "$RUN609_NEWMAP/gap_list.csv" ] || die "set RUN609_NEWMAP to the map directory s2 produced (its gap_list.csv)"
   YEARS=$(seq "${RUN609_LAST_YEAR:-2026}" -1 2003 | tr '\n' ' ')
   if confirm; then
@@ -178,7 +181,7 @@ s4)
     note "609_s4 DONE"
   else
     run load_1d_dry $PY -m scripts.ops.bars.ops_massive_load --timeframe 1d --years $YEARS --all-tickers --gap-list "$RUN609_NEWMAP/gap_list.csv" --out "$D/all_tickers_1d"
-    echo "DRY RUN done: read each year's line in $D/run_609_s4_load_1d_dry.log: compare 0 real differences, canonical unchanged for names already in canonical (an unselected or basis-flagged year exits 3; the compare half is not in the exit code). Apply is the same command with --apply (resumable)."
+    echo "DRY RUN done: read each year's line in $D/run_609_s4_load_1d_dry.log: compare 0 real differences, canonical unchanged for names already in canonical (with --apply an unselected or basis-flagged year exits 3; the compare half is not in the exit code). Apply is the same command with --apply (resumable)."
     echo "expected: about 50M raw rows for the all-ticker 1d set (preregistration); a dead name with neither a span nor a gap row refuses the run"
   fi ;;
 

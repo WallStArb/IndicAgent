@@ -21,7 +21,9 @@ transactions of whole series-chunks. Each year starts with a disk headroom check
 recompression of ohlcv_raw's partial chunks. Rerunning the same command is the resume.
 
 With `--apply` a year whose load leaves unselected slots or basis-change flags exits 3 and starts no later
-year (`year_gate_failure`); the load is resumable, so the rerun picks up after the fix.
+year (`year_gate_failure`); the load is resumable. Unselected slots recur on a rerun until the policy is
+fixed; a basis flag counts only restatements found in that run, so the review gate for it is
+ops_selection_gate, not this exit code.
 
 The loader fails loudly, before reading a file, when an active instrument has neither a span nor
 a gap-list row.
