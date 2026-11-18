@@ -187,3 +187,13 @@ against IBKR 1.6953 to 1.6962 (IBKR is adjusted). From 2020-04-03 Alpaca, IBKR a
 distribution; its disposition (real_move class, 8-K evidence, when-issued arithmetic 86.01 - 32.06 = 53.95 against 49.93) is in
 `sweep_dispositions.csv`. Strict sweep after: 1 unresolved of 608 (SW 2016-05-16). The route guard now reads routes through
 `split_row_routes` (one definition, commit fc651170c).
+
+## SLM identity contradiction (2026-11-17, parked until the pit map owns identity)
+
+The installed map keeps an open span for SLM from 2003-09-10, while its gap row `ticker_claimed_by_other_security`
+says another security held the ticker 2005-07-11 to 2011-12-16 (security id b0b4501b). The two cannot both be right, and
+the policy plan clipped the whole range to Alpaca-only (per-symbol 1d and 5m rows over 2016-01-04 to 2026-11-16), so a
+Massive row of the open span in that window would have no canonical winner. Lead ruling 2026-11-17 (indicagent-75): leave
+the rows alone, one low-value name; revisit with the pit map's identity for SLM. Canonical today: Massive to 2015-12-31,
+then Alpaca. The same class check ran over all 268 per-symbol policy names; only ARES (also overlapping; its Alpaca row is
+re-windowed to 2018-11-26 after the s3 install) and SLM have a map span inside their Alpaca-only window.
