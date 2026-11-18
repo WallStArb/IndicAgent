@@ -262,6 +262,26 @@ def battery_scenarios(battery_module: str) -> list[dict]:
     return [dataclasses.asdict(s) for s in importlib.import_module(battery_module).scenarios()]
 
 
+def _pool_reports(reports: Sequence[Sequence[Mapping]]) -> list[dict]:
+    """Sum simulations and rejections per (cell, arm, alpha) over blocks; the bound is dropped (it is
+    recomputed at the pooled n)."""
+    pooled: dict[tuple, dict] = {}
+    for report in reports:
+        for row in report:
+            key = (row["cell"], row["arm"])
+            out = pooled.setdefault(
+                key,
+                {"cell": row["cell"], "arm": row["arm"], "sims": 0, "levels": {}},
+            )
+            out["sims"] += int(row["sims"])
+            for alpha, level in row["levels"].items():
+                out["levels"][alpha] = out["levels"].get(alpha, 0) + int(level["rejected"])
+    return [
+        {**row, "levels": {a: {"rejected": n} for a, n in row["levels"].items()}}
+        for row in pooled.values()
+    ]
+
+
 def make_record(
     driver_records: Sequence[Mapping],
     *,
@@ -274,13 +294,22 @@ def make_record(
     code_key_then: str,
     dirty: Sequence[str],
     recorded: str,
+    replication_blocks: Sequence[Sequence[Mapping]] = (),
+    seed_bases: Sequence[int] = (),
 ) -> dict:
     """One pass record from the driver JSON(s) of one battery (a battery may be run in parts, as
     the S1 cell is). The `*_then` values were computed from the sources and the spec as of
     `driver_commit` (sources_at); the record binds the current inputs and code, and refuses unless
     they equal the ones the driver ran at, the working tree is clean, every part names this
     battery and ran at `driver_commit`, the battery's own inputs match the spec, and the merged
-    result is a pass."""
+    result is a pass.
+
+    `replication_blocks` are further complete runs of the whole battery on other seed blocks (a
+    pre-declared replication, todo 636): all blocks' parts get the same checks, every block must run
+    the same cells, `seed_bases` (one per block, first the main one) must be distinct, and the pass
+    criterion is the POOLED counts (simulations and rejections summed per cell, arm and alpha)
+    against the same binomial bound at the pooled n. Every block is kept in the record, and the
+    pooled report is what `problems` judges; no block is judged alone."""
     if not driver_records:
         raise BatteryPassRefused("no driver record to bind")
     battery = importlib.import_module(battery_module)
@@ -291,10 +320,19 @@ def make_record(
         raise BatteryPassRefused(f"the battery's own inputs differ from the spec: {mismatch}")
     if dirty:
         raise BatteryPassRefused(f"uncommitted change(s) in the checkout: {sorted(dirty)[:5]}")
-    names = [c.get("name") for part in driver_records for c in part.get("scenarios", [])]
-    if len(set(names)) != len(names):
-        raise BatteryPassRefused("a cell appears in more than one driver part")
-    for part in driver_records:
+    blocks = [list(driver_records), *(list(b) for b in replication_blocks)]
+    if len(blocks) > 1 and len(set(seed_bases)) != len(blocks):
+        raise BatteryPassRefused("a replication needs one distinct seed base per block")
+    for block in blocks:
+        names = [c.get("name") for part in block for c in part.get("scenarios", [])]
+        if len(set(names)) != len(names):
+            raise BatteryPassRefused("a cell appears in more than one driver part")
+    if (
+        len({frozenset(c.get("name") for p in b for c in p.get("scenarios", [])) for b in blocks})
+        > 1
+    ):
+        raise BatteryPassRefused("the blocks did not run the same cells")
+    for part in (p for block in blocks for p in block):
         if part.get("dirty_tracked") is None or part["dirty_tracked"]:
             raise BatteryPassRefused(
                 f"a part ran with uncommitted changes or without recording them: "
@@ -311,16 +349,40 @@ def make_record(
         raise BatteryPassRefused("the battery's inputs changed since the driver ran")
     if code_key != code_key_then:
         raise BatteryPassRefused("the battery's code changed since the driver ran")
+
+    def merge(block: Sequence[Mapping]) -> dict:
+        return {
+            "schema": block[0].get("schema"),
+            "battery": battery_module,
+            "sims_per_cell": min(int(r.get("sims_per_cell", 0)) for r in block),
+            "scenarios": [s for r in block for s in r.get("scenarios", [])],
+            "report": [c for r in block for c in r.get("report", [])],
+            "failures": [f for r in block for f in r.get("failures", [])],
+        }
+
+    per_block = [merge(b) for b in blocks]
+    if (
+        len(
+            {
+                json.dumps(sorted(m["scenarios"], key=lambda c: c["name"]), sort_keys=True)
+                for m in per_block
+            }
+        )
+        > 1
+    ):
+        raise BatteryPassRefused("the blocks ran the cells with different settings")
     merged = {
-        "schema": driver_records[0].get("schema"),
-        "battery": battery_module,
-        "sims_per_cell": min(int(r.get("sims_per_cell", 0)) for r in driver_records),
-        "scenarios": [s for r in driver_records for s in r.get("scenarios", [])],
-        "report": [c for r in driver_records for c in r.get("report", [])],
-        "failures": [f for r in driver_records for f in r.get("failures", [])],
+        **per_block[0],
         "diagnostic_cells": sorted(battery.DIAGNOSTIC_CELLS),
         "commit": driver_commit,
     }
+    if len(per_block) > 1:
+        merged["report"] = _pool_reports([m["report"] for m in per_block])
+        merged["sims_per_cell"] = sum(m["sims_per_cell"] for m in per_block)
+        merged["failures"] = (
+            []
+        )  # the pooled counts are judged by problems(), not a block's own list
+        merged["blocks"] = [{"seed_base": seed_bases[i], **m} for i, m in enumerate(per_block)]
     bad = problems(merged, battery_scenarios(battery_module))
     if bad:
         raise BatteryPassRefused("; ".join(bad))

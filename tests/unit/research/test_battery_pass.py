@@ -387,3 +387,43 @@ def test_sources_at_refuses_a_module_outside_the_repository_and_does_not_nest(tm
         with pytest.raises(bp.BatteryPassRefused, match="does not nest"):
             with bp.sources_at("HEAD", ROOT):
                 pass
+
+
+# -- a pre-declared replication: pooled counts (todo 636) ----------------------------------------
+
+
+def _block(rejected_deepest, commit="abc"):
+    cells = _cells()
+    report = _report(cells)
+    for row in report:
+        row["levels"]["0.00167"]["rejected"] = rejected_deepest
+    return {**_driver(commit=commit), "report": report}
+
+
+def test_a_block_that_fails_alone_passes_when_the_pooled_counts_hold_and_both_blocks_are_kept():
+    first, second = _block(6), _block(1)  # 6 > 5 alone at n=1000; pooled 7 <= 8 at n=2000
+    with pytest.raises(bp.BatteryPassRefused, match="> 5"):
+        _make([first])
+    record = _make([first], replication_blocks=[[second]], seed_bases=[0, 1_000_000])
+    assert record["sims_per_cell"] == 2000
+    assert [b["seed_base"] for b in record["blocks"]] == [0, 1_000_000]
+    assert record["blocks"][0]["report"][0]["levels"]["0.00167"]["rejected"] == 6
+    pooled = record["report"][0]
+    assert pooled["sims"] == 2000 and pooled["levels"]["0.00167"]["rejected"] == 7
+    assert _require(records=[record]) == "record"
+
+
+def test_the_pooled_run_fails_when_the_pooled_counts_exceed_the_pooled_bound():
+    with pytest.raises(bp.BatteryPassRefused, match="9 > 8"):
+        _make([_block(6)], replication_blocks=[[_block(3)]], seed_bases=[0, 1_000_000])
+
+
+def test_a_replication_needs_distinct_seeds_the_same_cells_and_the_same_settings():
+    with pytest.raises(bp.BatteryPassRefused, match="distinct seed base"):
+        _make([_block(1)], replication_blocks=[[_block(1)]], seed_bases=[0, 0])
+    partial = {**_block(1), "scenarios": _cells()[:-1], "report": _report(_cells()[:-1])}
+    with pytest.raises(bp.BatteryPassRefused, match="same cells"):
+        _make([_block(1)], replication_blocks=[[partial]], seed_bases=[0, 1])
+    short = {**_block(1), "scenarios": [{**c, "sessions": 300} for c in _cells()]}
+    with pytest.raises(bp.BatteryPassRefused, match="different settings"):
+        _make([_block(1)], replication_blocks=[[short]], seed_bases=[0, 1])

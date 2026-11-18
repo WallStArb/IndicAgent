@@ -2,7 +2,8 @@
 
     .venv/bin/python scripts/research/bind_battery_pass.py --battery <module> \\
         --spec research/specs/<primary>.yaml [--spec <core twin>.yaml] \\
-        --driver run_part1.json [--driver run_part2.json]
+        --driver run_part1.json [--driver run_part2.json] --driver-commit <sha> \
+        [--replication-driver block2.json --seed-base 0 --seed-base 1000000]
 
 The driver commit (--driver-commit, the commit each driver JSON records) need not be HEAD: the code
 key and the input hash are computed from the sources and the spec files as of that commit and again at
@@ -39,6 +40,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--battery", required=True)
     parser.add_argument("--spec", action="append", required=True, type=Path)
     parser.add_argument("--driver", action="append", required=True, type=Path)
+    parser.add_argument(
+        "--replication-driver",
+        action="append",
+        type=Path,
+        default=[],
+        help="driver JSON(s) of ONE pre-declared replication block (whole battery, other seed base); "
+        "the pass is judged on the pooled counts",
+    )
+    parser.add_argument(
+        "--seed-base",
+        action="append",
+        type=int,
+        default=[],
+        help="the driver's --seed-base of each block, the main block first (with a replication)",
+    )
     parser.add_argument("--driver-commit", required=True)
     parser.add_argument("--out-dir", type=Path, default=battery_pass.RECORD_DIR)
     args = parser.parse_args(argv)
@@ -63,6 +79,12 @@ def main(argv: list[str] | None = None) -> int:
             spec_hashes=[item.spec_hash for item in loaded],
             battery_module=args.battery,
             family_module=family_module,
+            replication_blocks=(
+                [[json.loads(p.read_text()) for p in args.replication_driver]]
+                if args.replication_driver
+                else []
+            ),
+            seed_bases=args.seed_base,
             driver_commit=_git("rev-parse", args.driver_commit).strip(),
             input_hash_then=input_hash_then,
             code_key_then=code_key_then,
