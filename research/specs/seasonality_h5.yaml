@@ -39,10 +39,10 @@ scoring:
   timing_statistic: e17  # methodology-change-ledger E17 incl. the 2026-10-27 amendment (L = memory + h)
   session_scoring: true  # one P&L per session
   trading_start: "2009-03-02"  # H-C: the first reliable signal with three finite lags and S1 from 2005 (drafts H-C; the first-finite-row report may replace it by an amendment before any real-data number)
-  sub_periods:  # reported, not voted on
-    - ["2009-03-02", "2014-12-31"]
-    - ["2015-01-01", "2019-12-31"]
-    - ["2020-01-01", "2025-12-23"]
+  sub_periods:  # reported, not voted on; amended 2026-11-18 from the draft's 2009 to 2014, 2015 to 2019, 2020 to 2025: E17 L = 1,408 sessions, so the first tested session is 2014-12-29 and each period must hold tested sessions
+    - ["2015-01-02", "2018-12-31"]
+    - ["2019-01-01", "2022-12-31"]
+    - ["2023-01-01", "2025-12-23"]
   min_shift: 63
   bootstrap_mean_block: 21
   bootstrap_reps: 2000

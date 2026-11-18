@@ -32,9 +32,9 @@ PINNED = {
     "daily_residual_h5_core.yaml": (
         "63cecb29dec9b0e151a8fb6ac933dc185b3cb4eb8279ae2305b44e9c2bdabaf3"
     ),
-    "seasonality_h5.yaml": "1b429ecc954489476033c6b3c8bfe97f1e723f983e33b0619e08b62675638576",
+    "seasonality_h5.yaml": "94257654b7ab3a1bb047d7245262662ea5e81c32680b34895713de4e52ae4b75",
     "seasonality_h5_core.yaml": (
-        "077cc09e58329678f57e5990d026ec095913cbd022e340e6ee9fb22b85a1ac86"
+        "57c0072c4ab37d49b45e7d2f2280659d3e040e100c7b5c4a9da5a5fa8fa2f563"
     ),
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"

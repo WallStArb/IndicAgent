@@ -99,3 +99,41 @@ def test_the_core_universe_never_selects_or_admits_a_name_into_the_primary_panel
     monkeypatch.setattr(snapshot, "read_only_pool", pool)
     got = asyncio.run(snapshot.membership_inputs("x", "universe_membership"))
     assert got.symbols == ["A"] and not called
+
+
+MIN_TESTED_SESSIONS = 126  # half a year: a sub-period with fewer is not a disclosure
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["daily_residual_h5", "daily_residual_h5_core", "seasonality_h5", "seasonality_h5_core"],
+)
+def test_every_declared_sub_period_has_tested_sessions_under_the_specs_own_e17_memory(name):
+    """timing_series tests a session only after 60 scored sessions older than s - L (L = slot
+    history + horizon). A memory longer than the span before a sub-period would leave it empty
+    (the H-C draft's 2009 to 2014 period did, found in review 2026-11-18)."""
+    import numpy as np
+
+    from src.intelligence.research.combiner import exchange_sessions
+    from src.intelligence.research.timing import e17_memory, timing_series
+
+    spec = _spec(name)
+    sessions = exchange_sessions(
+        np.datetime64(spec.panel.start), np.datetime64(spec.panel.end_exclusive) - 1
+    )
+    n = len(sessions)
+    trade = sessions >= np.datetime64(spec.scoring.trading_start)
+    memory = e17_memory(max(m.slot_history_sessions for m in spec.members), spec.horizon, 1)
+    series = timing_series(
+        np.ones((n, 2)),
+        np.full((n, 2), 0.001),
+        np.ones(n, dtype=bool),
+        trade,
+        bars_per_session=1,
+        warmup_sessions=spec.scoring.warmup_sessions,
+        memory_sessions=memory,
+    )
+    tested = sessions[np.isfinite(series)]
+    for start, end in spec.scoring.sub_periods:
+        inside = (tested >= np.datetime64(start)) & (tested <= np.datetime64(end))
+        assert inside.sum() >= MIN_TESTED_SESSIONS, (name, start, end, int(inside.sum()))
