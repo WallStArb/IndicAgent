@@ -1,0 +1,721 @@
+{
+  "battery": "src.intelligence.research.null_battery_seasonality",
+  "binding": {
+    "battery_code_key": "e0a561fb076d23e5229df8d636df0e3cb8ea38b8832f9f6cf1f54d640e8c9a3d",
+    "battery_input_hash": "bcc393ede515d8a52f3bf2d70d5242a069ed8f31d7a49dd71449639e0495af82",
+    "family": "seasonality",
+    "recorded": "2026-11-18",
+    "spec_hashes": [
+      "57c0072c4ab37d49b45e7d2f2280659d3e040e100c7b5c4a9da5a5fa8fa2f563",
+      "94257654b7ab3a1bb047d7245262662ea5e81c32680b34895713de4e52ae4b75"
+    ]
+  },
+  "commit": "e20c908c21932bca6ac476ba367a7610f9b93eb1",
+  "diagnostic_cells": [
+    "seasonal_hostile_stress",
+    "seasonal_static_vol_stress"
+  ],
+  "failures": [],
+  "report": [
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_gaussian",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.004,
+          "rejected": 4
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.038,
+          "rejected": 38
+        }
+      },
+      "mean_t": -0.054626203436278796,
+      "sd_t": 0.9501828067104642,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_gaussian",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.003,
+          "rejected": 3
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.026,
+          "rejected": 26
+        }
+      },
+      "mean_t": -0.003167220768410269,
+      "sd_t": 0.8251267004524905,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_gaussian",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.05,
+          "rejected": 50
+        }
+      },
+      "mean_t": -0.03866770881258293,
+      "sd_t": 0.9659305001425031,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.046,
+          "rejected": 46
+        }
+      },
+      "mean_t": -0.03242142276664183,
+      "sd_t": 0.9608391897882946,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.047,
+          "rejected": 47
+        }
+      },
+      "mean_t": 0.00037278024551468765,
+      "sd_t": 0.9486987162835687,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.052,
+          "rejected": 52
+        }
+      },
+      "mean_t": -0.010153328050509747,
+      "sd_t": 0.9613285890937099,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.039,
+          "rejected": 39
+        }
+      },
+      "mean_t": 0.01855624636677269,
+      "sd_t": 0.9376154448983646,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.028,
+          "rejected": 28
+        }
+      },
+      "mean_t": 0.015265935145019312,
+      "sd_t": 0.8542829504362849,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.009,
+          "rejected": 9
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.05,
+          "rejected": 50
+        }
+      },
+      "mean_t": 0.0406741638178657,
+      "sd_t": 0.9501618403096228,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.005,
+          "rejected": 5
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.035,
+          "rejected": 35
+        }
+      },
+      "mean_t": -0.04801370506220262,
+      "sd_t": 0.9977923503228289,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.002,
+          "rejected": 2
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.014,
+          "rejected": 14
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.053,
+          "rejected": 53
+        }
+      },
+      "mean_t": 0.011755879654170907,
+      "sd_t": 1.02212731604433,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.008,
+          "rejected": 8
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.052,
+          "rejected": 52
+        }
+      },
+      "mean_t": -0.025235312778117004,
+      "sd_t": 1.025917322788751,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_late_listings",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.043,
+          "rejected": 43
+        }
+      },
+      "mean_t": -0.021355666353406525,
+      "sd_t": 0.9512280541973633,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_late_listings",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.004,
+          "rejected": 4
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.026,
+          "rejected": 26
+        }
+      },
+      "mean_t": 0.007250550684099085,
+      "sd_t": 0.8506856648088176,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_late_listings",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.008,
+          "rejected": 8
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.044,
+          "rejected": 44
+        }
+      },
+      "mean_t": -0.00923082226151849,
+      "sd_t": 0.9735184655171661,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_static_means",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.002,
+          "rejected": 2
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.009,
+          "rejected": 9
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.043,
+          "rejected": 43
+        }
+      },
+      "mean_t": -0.053543367781439255,
+      "sd_t": 0.9835526493137278,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_static_means",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.008,
+          "rejected": 8
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.052,
+          "rejected": 52
+        }
+      },
+      "mean_t": -0.027243792907413713,
+      "sd_t": 0.968775864948113,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_static_means",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.009,
+          "rejected": 9
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.051,
+          "rejected": 51
+        }
+      },
+      "mean_t": 0.014164085290672139,
+      "sd_t": 1.010775283560698,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.046,
+          "rejected": 46
+        }
+      },
+      "mean_t": 0.0053455985358220005,
+      "sd_t": 1.0056286452824916,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.01,
+          "rejected": 10
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.051,
+          "rejected": 51
+        }
+      },
+      "mean_t": 0.04162891186121818,
+      "sd_t": 0.9599496781130417,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.039,
+          "rejected": 39
+        }
+      },
+      "mean_t": -0.04388874556499905,
+      "sd_t": 0.9613790966086774,
+      "sims": 1000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "seasonal_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.037,
+          "rejected": 37
+        }
+      },
+      "mean_t": -0.010481779858507526,
+      "sd_t": 0.9763520464993467,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_other_months_5",
+      "cell": "seasonal_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.051,
+          "rejected": 51
+        }
+      },
+      "mean_t": 0.022144441760636978,
+      "sd_t": 0.9781619319546535,
+      "sims": 1000
+    },
+    {
+      "arm": "seasonal_same_month_5",
+      "cell": "seasonal_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.002,
+          "rejected": 2
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.017,
+          "rejected": 17
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.053,
+          "rejected": 53
+        }
+      },
+      "mean_t": -0.018701022488593743,
+      "sd_t": 1.0476837031022541,
+      "sims": 1000
+    }
+  ],
+  "scenarios": [
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "seasonal_gaussian",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "seasonal_static_means",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "seasonal_late_listings",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "seasonal_hostile",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "seasonal_hostile_no_static",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "seasonal_static_vol_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.3,
+      "t4_noise": false,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "seasonal_hostile_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "seasonal_s1_hostile",
+      "names": 100,
+      "s1": true,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    }
+  ],
+  "schema": "e17_null_battery_v1",
+  "sims_per_cell": 1000
+}
