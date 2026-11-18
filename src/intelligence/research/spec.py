@@ -124,6 +124,15 @@ class PanelSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _membership_is_daily(self) -> PanelSpec:
+        if self.universe.startswith("universe_membership") and self.bars_per_session != 1:
+            raise ValueError(
+                f"{self.universe!r} is the 1d membership; an intraday panel needs the 5m tier "
+                "universe (todo 609 blocker I2), not yet wired"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _transform_needs_intraday(self) -> PanelSpec:
         if self.transform is not None and self.bars_per_session < 2:
             raise ValueError(f"transform {self.transform!r} needs an intraday source panel")

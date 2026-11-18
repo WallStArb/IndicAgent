@@ -493,6 +493,7 @@ def _load(monkeypatch, spec, manifest, *, closes=True):
         symbols=("A",),
         manifest=manifest,
         closes_at=np.zeros(1, dtype="datetime64[ns]") if closes else None,
+        member=None,
     )
     monkeypatch.setattr(store, "verify", lambda path: "digest")
     monkeypatch.setattr(panel_mod, "load", lambda path: stub)
@@ -508,6 +509,20 @@ def test_match_accepts_a_snapshot_built_for_the_spec(monkeypatch, certs):
     certs(cert())
     spec = make_spec([feature_member()])
     _load(monkeypatch, spec, _manifest(spec))
+
+
+def test_match_refuses_a_membership_spec_whose_snapshot_lacks_the_exclusion_and_the_mask(
+    monkeypatch, certs
+):
+    certs(cert())
+    spec = make_spec([feature_member()])
+    panel = spec.panel.model_copy(
+        update={"universe": "universe_membership", "universe_exclusion": "seen_names"}
+    )
+    spec = spec.model_copy(update={"panel": panel})
+    manifest = _manifest(spec)  # a snapshot built without membership inputs: no exclusion, no mask
+    with pytest.raises(ValueError, match="universe_exclusion.*member_mask"):
+        _load(monkeypatch, spec, manifest)
 
 
 @pytest.mark.parametrize(

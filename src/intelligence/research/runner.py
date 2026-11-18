@@ -265,21 +265,24 @@ def compute_residuals(
     date (prices NaN before a name's first membership, so no name enters a date's market mean,
     clusters or PCs because of a later membership), and the target is then NaN for a non-member:
     membership gates alpha (compute_members) and target only."""
+    s1_panel = _s1_input(panel)
+    fwd = transform.s1_target(s1_panel, horizon, factor_spec)
+    if panel.member is not None:
+        fwd = membership.apply_member_mask(fwd, panel.member, panel.bars_per_session)
+    return Residuals(bar=transform.s1_bar(s1_panel, factor_spec), fwd=fwd)
+
+
+def _s1_input(panel: Panel) -> Panel:
+    """The panel S1 fits on: on a membership panel, prices NaN before each name's first
+    membership (so no name is in a date's S1 statistics because of a later membership); any other
+    panel as it is. The S3 probes call S1 through this too, so they test the production path."""
     if panel.member is None:
-        return Residuals(
-            bar=transform.s1_bar(panel, factor_spec),
-            fwd=transform.s1_target(panel, horizon, factor_spec),
-        )
+        return panel
     seen = membership.seen_member_mask(panel.member)
     open_, close = membership.apply_seen_prices(
         panel.open, panel.close, seen, panel.bars_per_session
     )
-    s1_panel = dataclasses.replace(panel, open=open_, close=close)
-    fwd = transform.s1_target(s1_panel, horizon, factor_spec)
-    return Residuals(
-        bar=transform.s1_bar(s1_panel, factor_spec),
-        fwd=membership.apply_member_mask(fwd, panel.member, panel.bars_per_session),
-    )
+    return dataclasses.replace(panel, open=open_, close=close)
 
 
 def _member_fn(spec: FamilySpec, member, bars_per_session: int):
@@ -371,10 +374,11 @@ def real_guards(
     sub = _sub_panel(panel, g.s1_probe_sessions)
     h = spec.horizon
 
-    bar_fn = functools.partial(transform.s1_bar, factor_spec=factor_spec)
+    def bar_fn(p: Panel) -> np.ndarray:
+        return transform.s1_bar(_s1_input(p), factor_spec)
 
     def target_fn(p: Panel) -> np.ndarray:
-        return transform.s1_target(p, h, factor_spec)
+        return transform.s1_target(_s1_input(p), h, factor_spec)
 
     sub_rows = _probe_rows(sub, g, transform)
     if transform.probe is not None:
@@ -1325,6 +1329,14 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, st
         "start": (manifest.get("start"), spec.panel.start),
         "end_exclusive": (manifest.get("end_exclusive"), spec.panel.end_exclusive),
         "universe": (manifest.get("universe"), spec.panel.universe),
+        "universe_exclusion": (
+            (manifest.get("membership") or {}).get("exclusion"),
+            spec.panel.universe_exclusion,
+        ),
+        "member_mask": (
+            panel.member is not None,
+            spec.panel.universe in snapshot.MEMBERSHIP_UNIVERSES,
+        ),
         "dividends": (grid is not None, spec.panel.total_return is not None),
         **_source_match(spec, panel),
     }

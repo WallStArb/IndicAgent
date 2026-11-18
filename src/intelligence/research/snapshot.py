@@ -495,11 +495,20 @@ async def membership_inputs(
         core = membership.core_symbols(in_span)
         members = {as_of: names & core for as_of, names in members.items()}
     symbols = sorted(set().union(*members.values()))
+    # The member rows themselves are pinned, not only their count: a ledger rebuilt under the same
+    # rule id and months but with different rows is a different universe (ic_measure's unit
+    # identity reads this; a research snapshot also holds the mask in its content hash).
+    rows_digest = hashlib.sha256(
+        "\n".join(
+            f"{a.isoformat()}|{s}" for a in sorted(members) for s in sorted(members[a])
+        ).encode()
+    ).hexdigest()
     manifest = {
         "membership": {
             "rule_id": rule_id,
             "built_months": int(months),
             "last_as_of": last.isoformat(),
+            "members_sha256": rows_digest,
             "exclusion": exclusion,
             "excluded_names": len(excluded),
             "exclusion_sha256": (

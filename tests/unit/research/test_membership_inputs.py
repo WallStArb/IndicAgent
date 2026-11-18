@@ -59,12 +59,16 @@ ROWS = [(LEDGER[0], "A"), (LEDGER[0], "OLD"), (LEDGER[1], "A"), (LEDGER[1], "B")
 
 def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(monkeypatch):
     got = _read(monkeypatch, _Pool(LEDGER, ROWS))
+    mem_digest = hashlib.sha256(
+        "2024-01-31|A\n2024-01-31|OLD\n2024-02-29|A\n2024-02-29|B".encode()
+    ).hexdigest()
     assert got.symbols == ["A", "B", "OLD"]
     assert got.members_by_as_of[LEDGER[1]] == frozenset({"A", "B"})
     assert got.manifest["membership"] == {
         "rule_id": "rule-x",
         "built_months": 2,
         "last_as_of": "2024-02-29",
+        "members_sha256": mem_digest,
         "exclusion": None,
         "excluded_names": 0,
         "exclusion_sha256": None,
@@ -136,3 +140,27 @@ def test_the_new_spec_values_and_field_validate_and_an_old_spec_is_unchanged():
         _panel(universe="compute_eligible_1d", universe_exclusion="seen_names")
     with pytest.raises(ValueError):
         _panel(universe_exclusion="other_list")
+
+
+def test_an_intraday_membership_spec_is_refused_until_the_tier_universe_exists():
+    with pytest.raises(ValueError, match="needs the 5m tier universe"):
+        _panel(tf="5m", bars_per_session=78)
+
+
+def test_the_member_array_round_trips_through_save_and_load_inside_the_hash(tmp_path):
+    import dataclasses
+
+    import numpy as np
+
+    from src.intelligence.research import panel as panel_mod
+    from src.intelligence.research import store
+
+    close = np.full((4, 2), 10.0)
+    base = panel_mod.daily_panel(close, opens=close, volume=np.ones((4, 2)))
+    member = np.array([[True, False], [True, True], [False, True], [False, True]])
+    path = panel_mod.save(dataclasses.replace(base, member=member), tmp_path / "a")
+    loaded = panel_mod.load(path)
+    assert loaded.member.dtype == np.bool_ and np.array_equal(loaded.member, member)
+    other = panel_mod.save(dataclasses.replace(base, member=~member), tmp_path / "b")
+    assert store.verify(path) != store.verify(other)
+    assert panel_mod.load(panel_mod.save(base, tmp_path / "c")).member is None
