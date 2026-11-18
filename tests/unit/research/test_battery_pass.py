@@ -418,12 +418,44 @@ def test_the_pooled_run_fails_when_the_pooled_counts_exceed_the_pooled_bound():
         _make([_block(6)], replication_blocks=[[_block(3)]], seed_bases=[0, 1_000_000])
 
 
-def test_a_replication_needs_distinct_seeds_the_same_cells_and_the_same_settings():
-    with pytest.raises(bp.BatteryPassRefused, match="distinct seed base"):
-        _make([_block(1)], replication_blocks=[[_block(1)]], seed_bases=[0, 0])
+def test_a_replication_needs_non_overlapping_seed_ranges_the_same_cells_and_settings():
+    for bases in ([0, 0], [0, 1], [0, 50_000]):
+        with pytest.raises(bp.BatteryPassRefused, match="overlap"):
+            _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=bases)
+    with pytest.raises(bp.BatteryPassRefused, match="one seed base per block"):
+        _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0])
     partial = {**_block(1), "scenarios": _cells()[:-1], "report": _report(_cells()[:-1])}
     with pytest.raises(bp.BatteryPassRefused, match="same cells"):
-        _make([_block(1)], replication_blocks=[[partial]], seed_bases=[0, 1])
+        _make([_block(1)], replication_blocks=[[partial]], seed_bases=[0, 1_000_000])
     short = {**_block(1), "scenarios": [{**c, "sessions": 300} for c in _cells()]}
-    with pytest.raises(bp.BatteryPassRefused, match="different settings"):
-        _make([_block(1)], replication_blocks=[[short]], seed_bases=[0, 1])
+    with pytest.raises(bp.BatteryPassRefused, match="other settings"):
+        _make([_block(1)], replication_blocks=[[short]], seed_bases=[0, 1_000_000])
+
+
+def test_a_replayed_block_and_a_block_with_other_arms_or_a_wrong_claimed_seed_are_refused():
+    first = _block(1)
+    with pytest.raises(bp.BatteryPassRefused, match="replayed"):
+        _make([first], replication_blocks=[[first]], seed_bases=[0, 1_000_000])
+    fewer_arms = {**_block(2), "report": _report(_cells(), arms=("a",))}
+    with pytest.raises(bp.BatteryPassRefused, match="different \\(cell, arm\\) sets"):
+        _make([_block(1)], replication_blocks=[[fewer_arms]], seed_bases=[0, 1_000_000])
+    claimed = {**_block(2), "seed_base": 7}
+    with pytest.raises(bp.BatteryPassRefused, match="not the claimed"):
+        _make([_block(1)], replication_blocks=[[claimed]], seed_bases=[0, 1_000_000])
+    no_levels = _block(2)
+    del no_levels["report"][0]["levels"]["0.05"]
+    with pytest.raises(bp.BatteryPassRefused, match="block 2: .*levels"):
+        _make([_block(1)], replication_blocks=[[no_levels]], seed_bases=[0, 1_000_000])
+
+
+def test_a_family_with_a_declared_replication_binds_only_pooled_over_its_declared_seeds(
+    monkeypatch,
+):
+    monkeypatch.setattr(bp, "DECLARED_REPLICATIONS", {"seasonality": (0, 1_000_000)})
+    with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
+        _make([_block(1)])  # a single block, even a clean one
+    with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
+        _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 2_000_000])
+    record = _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
+    assert record["blocks"][1]["seed_base_recorded"] is False
+    assert record["sims_per_cell"] == 2000

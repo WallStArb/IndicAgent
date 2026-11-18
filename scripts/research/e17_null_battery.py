@@ -133,6 +133,7 @@ def main() -> int:
         # The whole tracked tree at the run: a stored pass record (research/battery_passes) refuses a
         # run made with an uncommitted edit anywhere.
         "dirty_tracked": _git("status", "--porcelain", "--untracked-files=no").split(),
+        "seed_base": args.seed_base,
         "sims_per_cell": args.sims,
         "bound_quantile": _BOUND_QUANTILE,
         "scenarios": [dataclasses.asdict(sc) for sc in cells],

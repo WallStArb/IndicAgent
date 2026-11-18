@@ -83,6 +83,13 @@ EXTRA_ENTRIES = (
 LEGACY_WAIVERS: dict[tuple[str, str], str] = {}
 
 
+# family -> the seed bases of its pre-declared replication (todo 636): a family listed here can only be
+# bound pooled over exactly these blocks, so a favourable single block can never be bound alone. A new
+# entry is a reviewed commit made BEFORE the replication launches, like the declaration it mirrors.
+DECLARED_REPLICATIONS: dict[str, tuple[int, ...]] = {"daily_residual": (0, 1_000_000)}
+SEED_STRIDE = 10_000  # the driver's seed = seed_base + SEED_STRIDE * cell_index + simulation
+
+
 class BatteryPassRefused(RuntimeError):
     """No recorded pass covers this family at these inputs and this code."""
 
@@ -197,7 +204,9 @@ def sources_at(commit: str, repo_root: Path):
             code_identity.source_path = original
 
 
-def problems(record: Mapping, scenarios: Sequence[Mapping]) -> list[str]:
+def problems(
+    record: Mapping, scenarios: Sequence[Mapping], *, judge_bounds: bool = True
+) -> list[str]:
     """Why a driver record does not count as a pass (empty when it does). `scenarios` are the
     battery's current cells as dicts (`dataclasses.asdict`); the record must have run each of them
     exactly (a shortened panel is another cell), and the result is recomputed from the report, not
@@ -205,7 +214,7 @@ def problems(record: Mapping, scenarios: Sequence[Mapping]) -> list[str]:
     out = []
     if record.get("schema") != SCHEMA:
         out.append(f"schema {record.get('schema')!r} is not {SCHEMA!r}")
-    if record.get("failures"):
+    if judge_bounds and record.get("failures"):
         out.append(
             f"{len(record['failures'])} non-diagnostic failure(s), e.g. {record['failures'][0]}"
         )
@@ -243,7 +252,7 @@ def problems(record: Mapping, scenarios: Sequence[Mapping]) -> list[str]:
                     f"{name}/{row.get('arm')}: levels {sorted(levels)} are not {list(ALPHAS)}"
                 )
                 continue
-            for alpha in ALPHAS:
+            for alpha in ALPHAS if judge_bounds else ():
                 rejected = int(levels[str(alpha)]["rejected"])
                 bound = int(binom.ppf(BOUND_QUANTILE, sims, alpha))
                 if rejected > bound:
@@ -309,7 +318,11 @@ def make_record(
     the same cells, `seed_bases` (one per block, first the main one) must be distinct, and the pass
     criterion is the POOLED counts (simulations and rejections summed per cell, arm and alpha)
     against the same binomial bound at the pooled n. Every block is kept in the record, and the
-    pooled report is what `problems` judges; no block is judged alone."""
+    pooled report is what `problems` judges; no block is judged alone. A family in
+    DECLARED_REPLICATIONS can only be bound pooled over exactly its declared seed bases. Limits:
+    the driver JSON of a block run before the driver recorded `seed_base` cannot prove its seeds
+    (`seed_base_recorded` False in the record), and that several runs of a block were made and one
+    kept is not visible in the JSON; both rest on the pinned declaration and the run logs."""
     if not driver_records:
         raise BatteryPassRefused("no driver record to bind")
     battery = importlib.import_module(battery_module)
@@ -321,8 +334,23 @@ def make_record(
     if dirty:
         raise BatteryPassRefused(f"uncommitted change(s) in the checkout: {sorted(dirty)[:5]}")
     blocks = [list(driver_records), *(list(b) for b in replication_blocks)]
-    if len(blocks) > 1 and len(set(seed_bases)) != len(blocks):
-        raise BatteryPassRefused("a replication needs one distinct seed base per block")
+    declared = DECLARED_REPLICATIONS.get(spec.family)
+    if declared is not None and tuple(seed_bases) != declared:
+        raise BatteryPassRefused(
+            f"family {spec.family} has a pre-declared replication on seed bases {declared}; bind "
+            f"it pooled over exactly those blocks, not {tuple(seed_bases)} (todo 636)"
+        )
+    if len(blocks) > 1:
+        if len(seed_bases) != len(blocks):
+            raise BatteryPassRefused("a replication needs one seed base per block")
+        spans = []
+        for base, block in zip(seed_bases, blocks, strict=True):
+            cells = max(len(p.get("scenarios", [])) for p in block)
+            sims = max(int(p.get("sims_per_cell", 0)) for p in block)
+            spans.append((base, base + SEED_STRIDE * (cells - 1) + sims))
+        spans.sort()
+        if any(a[1] > b[0] for a, b in zip(spans, spans[1:], strict=False)):
+            raise BatteryPassRefused(f"the blocks' seed ranges overlap: {spans}")
     for block in blocks:
         names = [c.get("name") for part in block for c in part.get("scenarios", [])]
         if len(set(names)) != len(names):
@@ -361,6 +389,24 @@ def make_record(
         }
 
     per_block = [merge(b) for b in blocks]
+    if len(per_block) > 1:
+        cells_ = battery_scenarios(battery_module)
+        for i, m in enumerate(per_block):
+            bad_block = problems(m, cells_, judge_bounds=False)
+            if bad_block:
+                raise BatteryPassRefused(f"block {i + 1}: " + "; ".join(bad_block))
+        shapes = {frozenset((r["cell"], r["arm"]) for r in m["report"]) for m in per_block}
+        if len(shapes) > 1:
+            raise BatteryPassRefused("the blocks report different (cell, arm) sets")
+        if len({json.dumps(m["report"], sort_keys=True) for m in per_block}) < len(per_block):
+            raise BatteryPassRefused("two blocks have identical reports: a block was replayed")
+        for i, block in enumerate(blocks):
+            for part in block:
+                claimed = part.get("seed_base")
+                if claimed is not None and claimed != seed_bases[i]:
+                    raise BatteryPassRefused(
+                        f"block {i + 1} ran on seed base {claimed}, not the claimed {seed_bases[i]}"
+                    )
     if (
         len(
             {
@@ -382,7 +428,16 @@ def make_record(
         merged["failures"] = (
             []
         )  # the pooled counts are judged by problems(), not a block's own list
-        merged["blocks"] = [{"seed_base": seed_bases[i], **m} for i, m in enumerate(per_block)]
+        merged["blocks"] = [
+            {
+                "seed_base": seed_bases[i],
+                # The driver JSON of a block run before the driver recorded `seed_base` cannot
+                # prove its seeds; the claim then rests on the pinned declaration and the run log.
+                "seed_base_recorded": all("seed_base" in p for p in blocks[i]),
+                **m,
+            }
+            for i, m in enumerate(per_block)
+        ]
     bad = problems(merged, battery_scenarios(battery_module))
     if bad:
         raise BatteryPassRefused("; ".join(bad))
