@@ -24,15 +24,16 @@ def _cells():
     return bp.battery_scenarios(BATTERY)
 
 
-def _report(cells, rejected=1, bound=67, sims=1000):
+def _report(cells, rejected=1, sims=1000, arms=("a", "b")):
     return [
         {
             "cell": c["name"],
-            "arm": "a",
+            "arm": arm,
             "sims": sims,
-            "levels": {"0.05": {"rejected": rejected, "bound": bound}},
+            "levels": {str(a): {"rejected": rejected, "bound": 999} for a in bp.ALPHAS},
         }
         for c in cells
+        for arm in arms
     ]
 
 
@@ -46,6 +47,7 @@ def _driver(sims=1000, failures=(), cells=None, commit="abc", report=None):
         "report": _report(cells) if report is None else report,
         "failures": list(failures),
         "commit": commit,
+        "dirty_tracked": [],
     }
 
 
@@ -185,8 +187,8 @@ def test_a_shortened_panel_is_another_cell_even_with_the_same_name():
 
 def test_the_result_is_recomputed_from_the_report_not_read_from_the_failure_list():
     cells = _cells()
-    over = _report(cells, rejected=90, bound=67)
-    assert "90 > 67" in bp.problems(_driver(report=over), cells)[0]
+    over = _report(cells, rejected=90)  # the record's own "bound" of 999 is ignored
+    assert "> " in bp.problems(_driver(report=over), cells)[0]
     few = _report(cells, sims=100)
     assert "100 sims" in bp.problems(_driver(report=few), cells)[0]
     # a diagnostic cell may exceed its bound
@@ -330,3 +332,58 @@ def test_committed_records_are_current_passes_for_a_registered_spec():
             bp.require(matches[0], battery_module=battery, family_module=module, records=[record])
             == "record"
         )
+
+
+def test_report_coverage_is_required_for_every_gating_cell():
+    cells = _cells()
+    gating = [c for c in cells if c["name"] not in bp.importlib_diagnostic(BATTERY)]
+    missing = [r for r in _report(cells) if r["cell"] != gating[0]["name"]]
+    assert "no report rows" in bp.problems(_driver(report=missing), cells)[0]
+    dup = _report(cells) + [_report(cells)[0]]
+    assert any("duplicate arm" in p for p in bp.problems(_driver(report=dup), cells))
+    one_level = _report(cells)
+    one_level[0]["levels"] = {"0.05": {"rejected": 0, "bound": 1}}
+    assert any("levels" in p for p in bp.problems(_driver(report=one_level), cells))
+
+
+def test_the_pinned_alphas_and_bound_quantile_are_the_drivers():
+    from src.intelligence.research.null_battery import ALPHAS
+
+    assert tuple(ALPHAS) == bp.ALPHAS
+    source = (ROOT / "scripts/research/e17_null_battery.py").read_text()
+    assert f"_BOUND_QUANTILE = {bp.BOUND_QUANTILE}" in source
+
+
+def test_a_part_run_from_a_dirty_tree_or_without_recording_it_is_refused():
+    with pytest.raises(bp.BatteryPassRefused, match="uncommitted changes or without recording"):
+        _make([{**_driver(), "dirty_tracked": [" M src/x.py"]}])
+    part = _driver()
+    del part["dirty_tracked"]
+    with pytest.raises(bp.BatteryPassRefused, match="uncommitted changes or without recording"):
+        _make([part])
+
+
+def test_a_cell_in_two_parts_is_refused():
+    with pytest.raises(bp.BatteryPassRefused, match="more than one driver part"):
+        _make([_driver(), _driver()])
+
+
+def test_the_key_covers_what_the_hashed_runner_functions_call():
+    closure = code_identity.import_closure(
+        [BATTERY, FAMILY_MODULE, *bp.EXTRA_ENTRIES], io_boundary=bp.OPAQUE
+    )
+    for module in ("membership", "align", "smoothing", "transforms", "factors"):
+        assert f"src.intelligence.research.{module}" in closure
+    assert "src.intelligence.research.runner" in closure  # named, not hashed
+    assert "member_input" in bp.RUNNER_STATISTIC_FUNCTIONS
+
+
+def test_sources_at_refuses_a_module_outside_the_repository_and_does_not_nest(tmp_path):
+    with pytest.raises(bp.BatteryPassRefused, match="outside the repository"):
+        with bp.sources_at("HEAD", tmp_path):
+            bp.battery_code_key(BATTERY, FAMILY_MODULE)
+    assert code_identity.source_path.__name__ == "source_path"  # restored after the error
+    with bp.sources_at("HEAD", ROOT):
+        with pytest.raises(bp.BatteryPassRefused, match="does not nest"):
+            with bp.sources_at("HEAD", ROOT):
+                pass

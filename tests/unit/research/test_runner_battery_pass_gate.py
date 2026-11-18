@@ -42,12 +42,13 @@ def test_a_real_run_with_a_current_record_gets_the_gate(monkeypatch):
                 "cell": c["name"],
                 "arm": "a",
                 "sims": 1000,
-                "levels": {"0.05": {"rejected": 1, "bound": 67}},
+                "levels": {str(a): {"rejected": 1, "bound": 999} for a in battery_pass.ALPHAS},
             }
             for c in cells
         ],
         "failures": [],
         "commit": "abc",
+        "dirty_tracked": [],
     }
     record = battery_pass.make_record(
         [driver],

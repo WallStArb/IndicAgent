@@ -34,17 +34,25 @@ import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
+from scipy.stats import binom
+
 from src.core import code_identity
 from src.intelligence.research.spec import family_spec_hash
 
 SCHEMA = "e17_null_battery_v1"
 MIN_SIMS = 1000
+# The driver's binomial bound (scripts/research/e17_null_battery.py): a cell fails when it rejects more
+# than the BOUND_QUANTILE quantile of Binomial(sims, alpha). Pinned here, not read from the record.
+BOUND_QUANTILE = 0.99
+ALPHAS = (0.05, 0.01, 0.00167)
 RECORD_DIR = Path(__file__).resolve().parents[3] / "research" / "battery_passes"
 RUNNER = "src.intelligence.research.runner"
 SELF = "src.intelligence.research.battery_pass"
-# Named but not hashed: the runner (its S1 and mask functions are hashed separately) and this module
+SNAPSHOT = "src.intelligence.research.snapshot"
+# Named but not hashed: the runner and the snapshot reader (the functions the statistic calls are
+# hashed separately; the rest is plumbing and database reads) and this module
 # (the key's own machinery is not the statistic a battery certifies).
-OPAQUE = (RUNNER, SELF)
+OPAQUE = (RUNNER, SNAPSHOT, SELF)
 # Runner functions that feed S1 (the seen-member prices), the member and target masks, the members'
 # call and the vol: an edit to any of them stales every pass. Plumbing and logging are not listed.
 RUNNER_STATISTIC_FUNCTIONS = (
@@ -52,12 +60,22 @@ RUNNER_STATISTIC_FUNCTIONS = (
     "_s1_input",
     "compute_members",
     "_member_fn",
+    "member_input",
     "_vol",
 )
+# Functions of other opaque-or-large modules the runner functions above call.
+SNAPSHOT_STATISTIC_FUNCTIONS = ("session_dates",)
 # Module-level runner values the batteries read (the S1 factor vintages): hashed like the functions.
 RUNNER_STATISTIC_ASSIGNMENTS = ("FACTOR_SPECS",)
 # Modules the S1 cells reach only through the runner's lazy import or through the transform table.
-EXTRA_ENTRIES = ("src.intelligence.research.transforms", "src.intelligence.research.factors")
+EXTRA_ENTRIES = (
+    "src.intelligence.research.transforms",
+    "src.intelligence.research.factors",
+    # What the hashed runner functions call: the masks, the input alignment and smoothing.
+    "src.intelligence.research.membership",
+    "src.intelligence.research.align",
+    "src.intelligence.research.smoothing",
+)
 
 # (family, spec hash) -> the ledger entry that records its E17 battery pass. Filled from research_run
 # once DB reads are allowed (todo 635 follow-up); a test fails on a row with no recorded real run.
@@ -134,6 +152,7 @@ def battery_code_key(battery_module: str, family_module: str) -> str:
     digest.update(
         function_key(RUNNER, RUNNER_STATISTIC_FUNCTIONS, RUNNER_STATISTIC_ASSIGNMENTS).encode()
     )
+    digest.update(function_key(SNAPSHOT, SNAPSHOT_STATISTIC_FUNCTIONS).encode())
     return digest.hexdigest()
 
 
@@ -142,6 +161,8 @@ def sources_at(commit: str, repo_root: Path):
     """Within the block every module source read through code_identity is the file as of `commit`
     (git show), so a key computed inside is the key of the code a past run used."""
     original = code_identity.source_path
+    if getattr(original, "_battery_pass_at_commit", False):
+        raise BatteryPassRefused("sources_at does not nest")
     with tempfile.TemporaryDirectory(prefix="battery_pass_") as tmp:
         cache: dict[Path, Path] = {}
 
@@ -151,8 +172,11 @@ def sources_at(commit: str, repo_root: Path):
                 return cache[path]
             try:
                 rel = path.resolve().relative_to(repo_root.resolve())
-            except ValueError:
-                return path
+            except ValueError as error:
+                raise BatteryPassRefused(
+                    f"{name} resolves to {path}, outside the repository {repo_root}: its source "
+                    "as of the commit is unknown"
+                ) from error
             body = subprocess.run(
                 ["git", "show", f"{commit}:{rel.as_posix()}"],
                 cwd=repo_root,
@@ -165,6 +189,7 @@ def sources_at(commit: str, repo_root: Path):
             cache[path] = copy
             return copy
 
+        at_commit._battery_pass_at_commit = True
         code_identity.source_path = at_commit
         try:
             yield
@@ -194,18 +219,43 @@ def problems(record: Mapping, scenarios: Sequence[Mapping]) -> list[str]:
         elif ran[name] != dict(cell):
             out.append(f"scenario {name} was run with other settings than the battery's own")
     diagnostic = set(record.get("diagnostic_cells", ()))
+    gating = [c["name"] for c in scenarios if c["name"] not in diagnostic]
+    rows: dict[str, list[Mapping]] = {}
     for row in record.get("report", []):
-        if row.get("cell") in diagnostic:
+        rows.setdefault(row.get("cell"), []).append(row)
+    arms_by_cell = {}
+    for name in gating:
+        cell_rows = rows.get(name, [])
+        arms = [r.get("arm") for r in cell_rows]
+        if not cell_rows:
+            out.append(f"{name}: no report rows")
             continue
-        if int(row.get("sims", 0)) < MIN_SIMS:
-            out.append(f"{row.get('cell')}/{row.get('arm')}: {row.get('sims')} sims")
-        for alpha, level in row.get("levels", {}).items():
-            if level["rejected"] > level["bound"]:
+        if len(set(arms)) != len(arms):
+            out.append(f"{name}: duplicate arm rows")
+        arms_by_cell[name] = set(arms)
+        for row in cell_rows:
+            sims = int(row.get("sims", 0))
+            if sims < MIN_SIMS:
+                out.append(f"{name}/{row.get('arm')}: {sims} sims")
+            levels = row.get("levels", {})
+            if {str(a) for a in ALPHAS} != set(levels):
                 out.append(
-                    f"{row.get('cell')}/{row.get('arm')} at {alpha}: "
-                    f"{level['rejected']} > {level['bound']}"
+                    f"{name}/{row.get('arm')}: levels {sorted(levels)} are not {list(ALPHAS)}"
                 )
+                continue
+            for alpha in ALPHAS:
+                rejected = int(levels[str(alpha)]["rejected"])
+                bound = int(binom.ppf(BOUND_QUANTILE, sims, alpha))
+                if rejected > bound:
+                    out.append(f"{name}/{row.get('arm')} at {alpha}: {rejected} > {bound}")
+    if len({frozenset(a) for a in arms_by_cell.values()}) > 1:
+        out.append("the gating cells do not all report the same arms")
     return out
+
+
+def importlib_diagnostic(battery_module: str) -> frozenset[str]:
+    """The battery's diagnostic cells (documented limits, never gating)."""
+    return frozenset(importlib.import_module(battery_module).DIAGNOSTIC_CELLS)
 
 
 def battery_scenarios(battery_module: str) -> list[dict]:
@@ -241,7 +291,15 @@ def make_record(
         raise BatteryPassRefused(f"the battery's own inputs differ from the spec: {mismatch}")
     if dirty:
         raise BatteryPassRefused(f"uncommitted change(s) in the checkout: {sorted(dirty)[:5]}")
+    names = [c.get("name") for part in driver_records for c in part.get("scenarios", [])]
+    if len(set(names)) != len(names):
+        raise BatteryPassRefused("a cell appears in more than one driver part")
     for part in driver_records:
+        if part.get("dirty_tracked") is None or part["dirty_tracked"]:
+            raise BatteryPassRefused(
+                f"a part ran with uncommitted changes or without recording them: "
+                f"{part.get('dirty_tracked')}"
+            )
         if part.get("battery") != battery_module:
             raise BatteryPassRefused(f"a part ran {part.get('battery')}, not {battery_module}")
         if part.get("commit") != driver_commit:
