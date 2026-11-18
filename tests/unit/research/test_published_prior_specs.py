@@ -64,7 +64,7 @@ def test_the_null_battery_lists_every_registered_daily_residual_member():
 def test_the_seasonality_family_is_covered_by_its_battery():
     from src.intelligence.research import runner
 
-    gate = runner.static_gate(_spec("seasonality_h5"))
+    gate = runner.static_gate(_spec("seasonality_h5"), require_pass=False)
     assert gate.battery == "src.intelligence.research.null_battery_seasonality"
 
 

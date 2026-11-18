@@ -44,6 +44,7 @@ from src.intelligence.features.contract import causality_probe as truncation
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import KernelRegistryError, default_registry
 from src.intelligence.research import (
+    battery_pass,
     align,
     certificate,
     clock,
@@ -1416,9 +1417,13 @@ def _shift_diagnostic(
     return res, len(shifts)
 
 
-def static_gate(spec: FamilySpec) -> static_sizes.StaticGate:
+def static_gate(spec: FamilySpec, *, require_pass: bool) -> static_sizes.StaticGate:
     """The H0 battery gate for a family's module, before the ledger: a family no battery
-    covers is refused without real data, never charged (E17 option C)."""
+    covers is refused without real data, never charged (E17 option C). `require_pass` (no default)
+    is true for a real or exploration run: the family then also needs a recorded battery pass for
+    its inputs and the battery's current code (battery_pass.require), or a legacy waiver. A
+    synthetic replay passes false: it charges nothing and must keep reproducing recorded verdicts.
+    """
     module = family_module(spec)
     if not hasattr(module, "NULL_BATTERY"):
         raise RunRefused(
@@ -1426,7 +1431,15 @@ def static_gate(spec: FamilySpec) -> static_sizes.StaticGate:
             "family's measured static sizes must pass first (methodology-change-ledger E17)"
         )
     if module.NULL_BATTERY == null_battery_persistent.__name__:
+        # Routed through the route certificates (null_battery_persistent.admit), not a pass record.
         return null_battery_persistent.static_gate(_member_certificates(spec))
+    if require_pass:
+        try:
+            battery_pass.require(
+                spec, battery_module=module.NULL_BATTERY, family_module=module.__name__
+            )
+        except battery_pass.BatteryPassRefused as error:
+            raise RunRefused(str(error)) from error
     return static_sizes.gate_for(module)
 
 
@@ -1493,7 +1506,7 @@ async def run_family(
         raise TypeError("run_family needs a family spec")
     real = mode in ("real", "exploration")
     exploring = mode == "exploration"
-    gate = static_gate(spec)
+    gate = static_gate(spec, require_pass=real)
     run_ids: dict[str, str | None] = {m.name: None for m in spec.members}
     code_commit = None
     if real:
@@ -1907,7 +1920,7 @@ async def run_book(
     )
     if refusal is not None:
         raise RunRefused(refusal)
-    gates = {fam.family: static_gate(fam) for fam in families}
+    gates = {fam.family: static_gate(fam, require_pass=real) for fam in families}
     subject = f"book.{book.book}"
     run_id = None
     code_commit = None

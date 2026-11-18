@@ -233,4 +233,4 @@ def test_a_broken_battery_is_not_reported_as_missing(repo, monkeypatch):  # noqa
     monkeypatch.setattr(nb1, "static_gate", broken)
     loaded = load_spec_from_head(repo, SPEC_PATH)
     with pytest.raises(AttributeError, match="typo"):
-        runner_mod.static_gate(loaded.model)
+        runner_mod.static_gate(loaded.model, require_pass=False)

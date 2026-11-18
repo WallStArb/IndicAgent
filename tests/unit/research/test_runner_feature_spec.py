@@ -258,7 +258,7 @@ def test_not_applicable_column_is_refused_per_tf():
 
 def test_static_gate_admits_the_features_family():
     spec = make_spec([feature_member()])
-    assert runner_mod.static_gate(spec).battery == nbp.__name__
+    assert runner_mod.static_gate(spec, require_pass=False).battery == nbp.__name__
 
 
 # --- certificate --------------------------------------------------------------------------
@@ -703,7 +703,7 @@ def test_part_b_a_composition_is_exactly_its_members(monkeypatch):
 def test_part_b_static_gate_of_a_composition_is_the_weakest_route(monkeypatch):
     spec = _two_routes(monkeypatch)
     spec = spec.model_copy(update={"family": "features"})
-    gate = runner_mod.static_gate(spec)
+    gate = runner_mod.static_gate(spec, require_pass=False)
     assert gate.static_sd == (0.0,) and gate.time_of_day == (0.0,)
 
 
@@ -768,10 +768,10 @@ def test_b1_the_static_gate_is_the_members_certificate_only(certs, monkeypatch):
         nbp, "static_gate", lambda certificates=None: seen.append(certificates) or "gate"
     )
     certs(cert())
-    assert runner_mod.static_gate(spec) == "gate"
+    assert runner_mod.static_gate(spec, require_pass=False) == "gate"
     assert seen == [[cert()]]
     certs()  # an uncovered member adds no certificate; admission refuses it with a reason
-    runner_mod.static_gate(spec)
+    runner_mod.static_gate(spec, require_pass=False)
     assert seen[-1] == []
 
 
@@ -781,7 +781,7 @@ def test_b1_the_real_gate_is_the_ceiling_the_certificates_own_cells_held(certs):
     spec = make_spec([feature_member(tf="1h", bps=1)])
     real = nbp.PASSING_CERTIFICATES[0]
     certs(real)
-    gate = runner_mod.static_gate(spec)
+    gate = runner_mod.static_gate(spec, require_pass=False)
     assert gate.static_sd == (pytest.approx(2 * MEASURED_STATIC_CELL_SD),)
     assert gate.time_of_day == (pytest.approx(2 * MEASURED_SLOT_EFFECT_SD),)
     unstressed = nbp.static_gate([dataclasses.replace(real, window=7)])

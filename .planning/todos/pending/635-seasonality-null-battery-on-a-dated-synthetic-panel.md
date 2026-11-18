@@ -25,3 +25,7 @@ session calendar, so the monthly sums and the month labels are the production on
 ## Why it matters
 
 A precondition of the H-C registration (E23). Without it the family cannot be charged a look.
+
+## Result and gate (2026-11-18)
+
+The battery landed (`null_battery_seasonality.py`). H-C does not register or run until `s1.json` shows SIZE HOLDS for the S1 cell, and both results (the seven non-S1 cells, which held, and the S1 cell) are recorded with the E23 entry. A real run is now refused by `runner.static_gate` unless a battery pass record for the family's inputs and the battery's current code exists under `research/battery_passes/` (`battery_pass.require`); the record is bound from the driver JSON of both parts when the S1 cell finishes.

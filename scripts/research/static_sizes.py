@@ -35,7 +35,8 @@ async def _main(args: argparse.Namespace) -> int:
     dsn = Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     root = repo_root(Path.cwd())
     spec = load_spec_from_head(root, args.spec).model
-    gate = static_gate(spec)
+    # A measurement of the panel's static sizes, never a counted run: no pass record needed.
+    gate = static_gate(spec, require_pass=False)
     ctx = RunContext(
         root=root,
         budget=BudgetConfig("static_sizes", 1, 0.05),
