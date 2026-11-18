@@ -310,3 +310,6 @@ The six Massive-route rows are applied. The disposition file had seven duplicate
 ## Result 2026-11-17 (todo 624 dispositions applied)
 
 The 9 prepared lines (FAF, SN x2, SSB, SVRA x3, SW, THRM; classes identity and real_move) moved into `sweep_dispositions.csv`. Strict sweep: 3 undecided of 609 breaks: RTX 2020-04-03 (open, untouched), SNEX 2020-07-06 (route row blocked by the existing-row guard; code proposal in todo 624) and SW 2016-05-16 (`unrecorded_split`, an identity line cannot rule it). Counts: identity 6, real_move 562.
+
+RTX 2020-04-03 closed 2026-11-17: Alpaca x0.5 route row applied (todo 624) and the Carrier and Otis distribution disposition added
+to `sweep_dispositions.csv`; strict sweep leaves only SW 2016-05-16.

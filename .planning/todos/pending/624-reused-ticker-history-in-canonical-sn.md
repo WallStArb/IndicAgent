@@ -175,3 +175,15 @@ distribution disposition in 629. The owner or lead rules; the break is still lis
 SW 2016-05-16: verdict `unrecorded_split`, so an identity line cannot rule it and the identity rule is not weakened. The
 ticker did not exist before 2024-07-08 (CIK 0002005951), so the honest record is an exclusion of Alpaca's SW bars before
 2024-07-08 by the pit map span (this todo's mechanism, after Part F); the break stays listed against this ticket until then.
+
+## Result 2026-11-17 (RTX applied; SW is the only sweep residue)
+
+Independent recompute (flat files `day_aggs_v1` UTX, `ohlcv_raw` read-only): Alpaca's RTX close is 2.0000 x the as-traded UTX
+close on 1,070 of 1,070 sessions 2016-01-04 to 2020-04-02 (max 2.0061); against ibkr/smart_trades 3.3906 to 3.4027, and UTX
+against IBKR 1.6953 to 1.6962 (IBKR is adjusted). From 2020-04-03 Alpaca, IBKR and Massive agree (49.93). So Alpaca's span to
+2020-04-02 is 2x too high and nothing after it. Row `split_rescale_rows_2026_11_17_624_rtx.csv` (factor 2, route
+`alpaca/sip_rth`, effective 2020-04-02, the last bad session) dry-ran "would write 1 of 1", was applied (one row), and RTX 1d,
+5m and grid were reselected. Canonical 1d is now 86.01 (2020-04-02, the as-traded UTX level) then 49.93, the Carrier and Otis
+distribution; its disposition (real_move class, 8-K evidence, when-issued arithmetic 86.01 - 32.06 = 53.95 against 49.93) is in
+`sweep_dispositions.csv`. Strict sweep after: 1 unresolved of 608 (SW 2016-05-16). The route guard now reads routes through
+`split_row_routes` (one definition, commit fc651170c).
