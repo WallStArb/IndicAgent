@@ -1,7 +1,7 @@
 # Stage 2: the 5m tier, the intraday corpus universe, and their sequencing
 
 Author: worker indicagent-c6 for the lead, 2026-11-15. Resolves todo 609 blocker I2.
-Status: DRAFT. Part 1 is an amendment text for `2026-11-13-stage2-universe-preregistration.md`; it is not applied and changes nothing until the owner adopts it, before any return-based look at the universe. Parts 2 and 3 are the design and the order.
+Status: Part 1 is ADOPTED 2026-11-18 (owner decision taken through the lead): the 5m tier amendment of `2026-11-13-stage2-universe-preregistration.md` (recorded there as Amendment 2026-11-18), adopted before any return-based look at the universe. Parts 2 and 3 are the design and the order.
 
 ## The problem
 
@@ -66,7 +66,7 @@ Unit suite exit code, ruff, black, glossary, the duplicate-test check, independe
 
 ## Part 3: sequencing
 
-1. Owner adopts the Part 1 amendment (a design choice, counted under E18, before any look). Until then L3 stays as is.
+1. Part 1 amendment: ADOPTED 2026-11-18 (owner decision taken through the lead), a design choice counted under E18 before any look.
 2. Step 7 Part C and D1 finish (running). Nothing in this plan touches what step 7 imports.
 3. Fold Part 2 items 1 to 3 into the L3 branch while 597 is unapplied, with the amendment's `RULE_ID`; fold items 4 to 9 in the same branch. One independent review of the lot, then land after D1, with the L3 hold.
 4. Load the reference snapshots into `reference_raw`, apply 597, run the identity-map rebuild and the dead-name instrument rows (preregistration gates 3 and 4 in their amended order), then the membership rehearsal. The owner sees the member and tier counts by year (gate 5) before any compute.

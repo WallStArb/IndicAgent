@@ -1,6 +1,6 @@
 # Owner decisions for the stage 2 universe and the first counted tests
 
-**Status:** Summary, 2026-11-16. Every item below is a draft or an open call; nothing is adopted, built or run, and no real-data number exists for any family. The recommendations are the lead's (indicagent-52); this page only gathers them in one place.
+**Status:** Summary, 2026-11-16. Items 1 to 4 were ADOPTED 2026-11-18 (owner decision taken through the lead); items 5 to 9 are recorded in E23, E24, E26 and the A1, A2 amendments. Item 10 is open. As written 2026-11-16, every item below was a draft or an open call; nothing is adopted, built or run, and no real-data number exists for any family. The recommendations are the lead's (indicagent-52); this page only gathers them in one place.
 **Author:** indicagent-65 for the lead. Sources are named in the last column of each table; nothing here replaces them.
 
 ## What the owner is deciding, in one paragraph

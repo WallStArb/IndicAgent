@@ -1,7 +1,7 @@
 # Pit-anchor identity map and stage 2 instrument rows
 
 Author: worker indicagent-7d for the lead, 2026-11-15. Resolves todo 609 gaps G1 and G2.
-Status: DRAFT. Section 1 is an amendment text for `2026-11-13-stage2-universe-preregistration.md`; it changes nothing until the lead adopts it, before any return-based look at the universe. Sections 2 to 6 are the implementation design. Nothing here has run against live data except read-only profiles.
+Status: Section 1, with its 2026-11-16 revision, is ADOPTED 2026-11-18 (owner decision taken through the lead): the identity amendment of `2026-11-13-stage2-universe-preregistration.md` (recorded there as Amendment 2026-11-18), adopted before any return-based look at the universe. Sections 2 to 6 are the implementation design. Nothing here has run against live data except read-only profiles.
 
 ## 0. Measured facts (2026-11-15, read-only, 558 snapshots)
 

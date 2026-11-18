@@ -114,7 +114,7 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
-- Adopted 2026-11-18 (owner decision through the lead, ledger entries written): A1, A2 (daily residual), E23, E24, E26. Still to record: the pit-anchor identity amendment, the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout and the closed-list membership amendment after archive end (`docs/plans/2026-11-16-609-owner-gates-summary.md`, items 1 to 4; lead recommends adopt for each). The family 10 and 9 and the published-prior families still need their E17 battery passes and the E21 lift before any run.
+- Adopted 2026-11-18 (owner decision through the lead, ledger entries written): A1, A2 (daily residual), E23, E24, E26. Also adopted 2026-11-18 and recorded as Amendment 2026-11-18 of the stage 2 preregistration: the pit-anchor identity amendment, the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout and the closed-list membership amendment after archive end (`docs/plans/2026-11-16-609-owner-gates-summary.md`, items 1 to 4). The family 10 and 9 and the published-prior families still need their E17 battery passes and the E21 lift before any run.
 - Todo 600 item 1: keep or drop the HX370 copy of the Massive archive.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members
   (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.

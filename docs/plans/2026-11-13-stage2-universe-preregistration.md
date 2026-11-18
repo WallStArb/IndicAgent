@@ -63,3 +63,11 @@ Gate order and the meaning of "canonical unchanged". Review of the `--all-ticker
 - Gate 4 (dead-name instrument rows) and the identity-map rebuild on the pit anchor (`--pit-snapshots`) come before gate 3. The load already covers every span in `ticker_event`; `--all-tickers` widens only the completeness check, and a dead name exists as an instrument only after gate 4, so run in the old order it loads nothing extra. The flag now exits 2 when no name outside the active set has a span.
 - Gate 3's "canonical unchanged" means unchanged for every name already in canonical, proven by the per-year compare. New names necessarily gain canonical rows, because after step 7 Massive is ranked for 1d and `--apply` selects into canonical every slot it wins.
 Effective gate order: 1, 2, 4 with the map rebuild on the pit anchor, 3, 5, 6.
+
+## Amendment 2026-11-18 (ADOPTED 2026-11-18, owner decision taken through the lead; pre-look: no return-based look at the universe has happened)
+
+Four amendments drafted 2026-11-15 and 2026-11-16 are adopted as written, each a dated design choice under E18. None adds a counted look or series, and none moves a recorded spec hash. The text lives in the named documents, which this section does not restate.
+- Pit-anchor identity details (key kinds, one key per record, runs and bridging of a single missing month, securities, span boundaries and the absent-month end rule, additive-only install, the unplaced report), including the 2026-11-16 revision: `docs/plans/2026-11-15-pit-anchor-map-and-stage2-instruments.md`, section 1.
+- Membership after the last Massive list (L = 2026-11-09): a closed list, no entrants, rule id `stage2-closed-list`, disclosure of the member count and the excluded newcomers at every freeze and confirmation: `docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md`, Part 1.
+- The 5m tier ($25M entry, $12.5M exit, nested in the membership, `RULE_ID` bumped): `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`, Part 1.
+- The seen-name holdout (the 231 names of the 2026-09-13 screen and the cross-asset set, excluded from both panels by a pinned list): `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, section 2; its counted choices are in ledger E23.

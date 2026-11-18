@@ -1,6 +1,6 @@
 # Stage 2 amendment draft: membership for months after the last Massive reference list
 
-**Status:** DRAFT 2026-11-15, unapplied. It changes nothing until the owner adopts it, and it must be adopted before `universe_membership` is built for any month-end after the last captured Massive list. No return-based look at the universe has happened.
+**Status:** ADOPTED 2026-11-18 (owner decision taken through the lead); Part 1 is recorded in the preregistration as Amendment 2026-11-18. Drafted 2026-11-15. It was adopted before `universe_membership` is built for any month-end after the last captured Massive list; the build requirements below are still to land. No return-based look at the universe has happened.
 **Author:** Claude (indicagent-65), 2026-11-15, on the lead's brief (follow-up to `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`).
 **Amends:** `docs/plans/2026-11-13-stage2-universe-preregistration.md` (adopted and frozen 2026-11-13; amendments are dated and counted as design choices under E18). Text in Part 1 is the amendment to append if adopted.
 
@@ -57,4 +57,4 @@ Alternative considered and not recommended: carry the last list forward as an op
 
 - L is 2026-11-09. A 2026-11-30 list, if captured (dry run lists two units and exits 0; `--pit-dates` takes any date), is raw evidence only. Letting a later list extend the installed map (extend only, never rewriting installed spans) needs an additive planner and its own amendment; it is not built.
 - Ticker reuse after L is not detectable without B-A; the amendment accepts that for the forward span and the disclosure of item 4 does not cover it.
-- Owner adoption line: adopt the closed-list rule for months after L (this draft). Lead recommendation: adopt. It adds no look and no series.
+- Adoption line: the closed-list rule for months after L is ADOPTED 2026-11-18 (owner decision taken through the lead). It adds no look and no series.
