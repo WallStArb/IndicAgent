@@ -118,3 +118,29 @@ def test_the_module_reads_no_bar_table_and_writes_nothing():
     source = inspect.getsource(rep)
     for forbidden in ("ohlcv", "INSERT", "UPDATE ", "DELETE", "COPY ", "TRUNCATE"):
         assert forbidden not in source.split('"""', 2)[2], forbidden
+
+
+def test_cold_start_share_is_exact_on_a_hand_computed_membership():
+    days = np.arange(np.datetime64("2020-02-03"), np.datetime64("2020-02-29"))
+    sessions = days[(days.astype(int) + 3) % 7 < 5]  # Mon to Fri: 20 sessions after the as_of
+    ledger = [(D(2020, 1, 31), RULE_ID, 1)]
+    rows = [(D(2020, 1, 31), "A", "CS", False)]
+    report = rep.build_report(
+        ledger,
+        rows,
+        {D(2020, 1, 31): frozenset({"A"})},
+        sessions,
+        memories=(3, 10),
+        unplaced=None,
+        ever_after_holdout=1,
+        core_members=1,
+    )
+    (year,) = report.years
+    assert len(sessions) == 20
+    assert year.cold_start == {3: 3 / 20, 10: 10 / 20}
+
+
+def test_memories_are_the_declared_rows_of_the_registered_specs():
+    memories = rep._memories()
+    assert 525 in memories and 1676 in memories  # M1's and the seasonality members'
+    assert all(m > 252 or m in (278, 279, 294) for m in memories)

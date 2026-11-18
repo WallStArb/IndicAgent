@@ -37,7 +37,7 @@ from src.intelligence.research.spec import load_spec_from_file
 from src.intelligence.universe_membership import ARCHIVE_START, RULE_ID
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# The registered daily specs the cold-start memory and the span are read from.
+# The registered daily specs the cold-start memory (declared_memory_rows) and the span are read from.
 _PRIMARY_SPEC = "research/specs/daily_residual_h5.yaml"
 _MEMORY_SPECS = (_PRIMARY_SPEC, "research/specs/seasonality_h5.yaml")
 
@@ -170,6 +170,9 @@ def render(report: Report) -> str:
     head = ["year", "members", *types, "tier_5m"]
     head += [f"cold_{m}" for m in report.memories] + ["unplaced"]
     lines = [
+        "cold_<n>: share of member-days with fewer than n sessions since first membership; n is a "
+        "registered member's declared memory rows. The mask starts at the archive start, so 2003 "
+        "and 2004 entrants count as cold here although the panel starts 2005-01-03.",
         f"rule {report.rule_id}; {report.months} month-ends {report.first_as_of} to {report.last_as_of}",
         f"ever members {report.ever_members}; after the seen-name holdout "
         f"{report.ever_members_after_holdout}; core panel {report.core_members}",
@@ -197,12 +200,13 @@ def _read(dsn: str):
 
 
 def _memories() -> tuple[int, ...]:
-    """The slot histories of the registered specs' members: the memories a family needs of residual
-    history after entry."""
+    """The declared memory rows of the registered specs' members (slot history plus S1's loading
+    reach): the residual history a family needs after a name's first membership, because S1 gives an
+    entrant no loadings until it has finite rows in its window and the next refit."""
     found = set()
     for rel in _MEMORY_SPECS:
         spec = load_spec_from_file(REPO_ROOT / rel, root=REPO_ROOT).model
-        found |= {m.slot_history_sessions for m in spec.members}
+        found |= {m.declared_memory_rows for m in spec.members}
     return tuple(sorted(found))
 
 
