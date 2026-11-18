@@ -51,9 +51,6 @@ def test_import_failure_is_a_failed_check_not_a_traceback():
     assert not result.ok and "cannot be imported" in result.detail and IC in result.detail
 
 
-def test_the_live_tree_is_blocked_for_5m_until_the_tier_universe_is_wired():
+def test_the_live_tree_reads_the_membership_universe_for_every_corpus_timeframe():
     result = cr.check_ic_universe_aligned()
-    assert not result.ok
-    assert "services.ic_measure declares no 5m universe" in result.detail
-    assert "src.intelligence.research.snapshot declares no 5m universe" in result.detail
-    assert "1d universe" not in result.detail
+    assert result.ok, result.detail

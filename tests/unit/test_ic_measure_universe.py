@@ -27,17 +27,28 @@ def test_1d_reads_the_membership_and_returns_its_inputs(monkeypatch):
     assert calls == [("postgresql://unused", "universe_membership", {})]
 
 
-def test_5m_still_reads_the_flag_and_an_explicit_list_is_an_unmasked_subset(monkeypatch):
-    async def flag(dsn, dimension):
-        return [dimension]
+def test_an_intraday_timeframe_reads_the_5m_tier_and_an_explicit_list_is_an_unmasked_subset(
+    monkeypatch,
+):
+    inputs = snapshot.MembershipInputs(["T"], {}, {"membership": {"rule_id": "r"}})
+    seen = []
 
-    monkeypatch.setattr(snapshot, "universe_symbols", flag)
-    assert ic_measure.IcMeasure._universe(_self(), "5m") == (["compute_eligible"], None)
-    assert ic_measure.IcMeasure._universe(_self(["Z", "Y"]), "1d") == (["Y", "Z"], None)
+    async def fake(dsn, universe, **kwargs):
+        seen.append(universe)
+        return inputs
+
+    monkeypatch.setattr(snapshot, "membership_inputs", fake)
+    assert ic_measure.IcMeasure._universe(_self(), "5m") == (["T"], inputs)
+    assert seen == ["universe_membership_5m"]
+    assert ic_measure.IcMeasure._universe(_self(["Z", "Y"]), "5m") == (["Y", "Z"], None)
+    assert seen == ["universe_membership_5m"]  # the explicit list read nothing
 
 
-def test_the_module_declares_only_the_1d_reader_so_the_rerun_check_fails_for_5m():
-    assert ic_measure.UNIVERSE_SOURCE == {"1d": snapshot.membership_inputs}
+def test_the_module_declares_the_membership_reader_for_both_corpus_timeframes():
+    assert ic_measure.UNIVERSE_SOURCE == {
+        "1d": snapshot.membership_inputs,
+        "5m": snapshot.membership_inputs,
+    }
 
 
 @pytest.mark.parametrize("membership", [None, {"rule_id": "r", "built_months": 2}])

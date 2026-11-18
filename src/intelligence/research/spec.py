@@ -82,6 +82,8 @@ class PanelSpec(BaseModel):
         "live_tradeable",
         "universe_membership",
         "universe_membership_core",
+        "universe_membership_5m",
+        "universe_membership_5m_core",
     ]
     tf: str
     bars_per_session: int = Field(ge=1)  # the S0 source panel's
@@ -124,11 +126,16 @@ class PanelSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _membership_is_daily(self) -> PanelSpec:
-        if self.universe.startswith("universe_membership") and self.bars_per_session != 1:
+    def _membership_matches_the_clock(self) -> PanelSpec:
+        """The membership universes are daily; the 5m tier universes are intraday (amendment
+        2026-11-15): a spec on the wrong clock would run the wrong name set."""
+        if not self.universe.startswith("universe_membership"):
+            return self
+        tier = "_5m" in self.universe
+        if tier != (self.bars_per_session > 1):
             raise ValueError(
-                f"{self.universe!r} is the 1d membership; an intraday panel needs the 5m tier "
-                "universe (todo 609 blocker I2), not yet wired"
+                f"{self.universe!r} needs a {'5m tier panel with bars_per_session above 1' if tier else '1d panel'}, "
+                f"got bars_per_session {self.bars_per_session}"
             )
         return self
 

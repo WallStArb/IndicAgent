@@ -49,10 +49,11 @@ RECORD_DIR = Path(__file__).resolve().parents[3] / "research" / "battery_passes"
 RUNNER = "src.intelligence.research.runner"
 SELF = "src.intelligence.research.battery_pass"
 SNAPSHOT = "src.intelligence.research.snapshot"
-# Named but not hashed: the runner and the snapshot reader (the functions the statistic calls are
+SPEC = "src.intelligence.research.spec"
+# Named but not hashed: the runner, the snapshot reader and the spec module (the functions the statistic calls are
 # hashed separately; the rest is plumbing and database reads) and this module
 # (the key's own machinery is not the statistic a battery certifies).
-OPAQUE = (RUNNER, SNAPSHOT, SELF)
+OPAQUE = (RUNNER, SNAPSHOT, SPEC, SELF)
 # Runner functions that feed S1 (the seen-member prices), the member and target masks, the members'
 # call and the vol: an edit to any of them stales every pass. Plumbing and logging are not listed.
 RUNNER_STATISTIC_FUNCTIONS = (
@@ -65,6 +66,11 @@ RUNNER_STATISTIC_FUNCTIONS = (
 )
 # Functions of other opaque-or-large modules the runner functions above call.
 SNAPSHOT_STATISTIC_FUNCTIONS = ("session_dates",)
+# The spec module is opaque too: the battery reads a spec only to resolve each member's function, and
+# what the spec says is covered by battery_input_hash, so a new spec field or validator must not
+# stale every pass. The member resolution is hashed.
+SPEC_STATISTIC_FUNCTIONS = ("resolve_member", "_check_member_path")
+SPEC_STATISTIC_ASSIGNMENTS = ("MEMBER_PREFIX",)
 # Module-level runner values the batteries read (the S1 factor vintages): hashed like the functions.
 RUNNER_STATISTIC_ASSIGNMENTS = ("FACTOR_SPECS",)
 # Modules the S1 cells reach only through the runner's lazy import or through the transform table.
@@ -160,6 +166,7 @@ def battery_code_key(battery_module: str, family_module: str) -> str:
         function_key(RUNNER, RUNNER_STATISTIC_FUNCTIONS, RUNNER_STATISTIC_ASSIGNMENTS).encode()
     )
     digest.update(function_key(SNAPSHOT, SNAPSHOT_STATISTIC_FUNCTIONS).encode())
+    digest.update(function_key(SPEC, SPEC_STATISTIC_FUNCTIONS, SPEC_STATISTIC_ASSIGNMENTS).encode())
     return digest.hexdigest()
 
 

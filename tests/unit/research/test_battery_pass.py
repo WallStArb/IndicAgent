@@ -459,3 +459,32 @@ def test_a_family_with_a_declared_replication_binds_only_pooled_over_its_declare
     record = _make([_block(1)], replication_blocks=[[_block(2)]], seed_bases=[0, 1_000_000])
     assert record["blocks"][1]["seed_base_recorded"] is False
     assert record["sims_per_cell"] == 2000
+
+
+def test_a_new_spec_validator_or_field_does_not_stale_the_key_but_resolving_members_does(
+    monkeypatch, tmp_path
+):
+    base = bp.battery_code_key(BATTERY, FAMILY_MODULE)
+    spec_path = Path(code_identity.source_path(bp.SPEC))
+    original = code_identity.source_path
+
+    def variant(edit):
+        fake = tmp_path / "spec_variant.py"
+        fake.write_text(edit(spec_path.read_text()))
+        monkeypatch.setattr(
+            code_identity, "source_path", lambda n: fake if n == bp.SPEC else original(n)
+        )
+
+    variant(
+        lambda t: t.replace(
+            "class TotalReturnSpec(BaseModel):",
+            "UNRELATED = 1\n\n\nclass TotalReturnSpec(BaseModel):",
+            1,
+        )
+    )
+    assert bp.battery_code_key(BATTERY, FAMILY_MODULE) == base
+    monkeypatch.undo()
+    variant(
+        lambda t: t.replace("_check_member_path(dotted)\n    module, _, attr", "module, _, attr", 1)
+    )
+    assert bp.battery_code_key(BATTERY, FAMILY_MODULE) != base

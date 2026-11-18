@@ -13,8 +13,8 @@ D = dt.date
 
 
 class _Pool:
-    def __init__(self, ledger, rows, seen=("OLD",), summary=None):
-        self.ledger, self.rows, self.seen = ledger, rows, seen
+    def __init__(self, ledger, rows, seen=("OLD",), summary=None, tier_rows=()):
+        self.ledger, self.rows, self.seen, self.tier_rows = ledger, rows, seen, tier_rows
         self.summary = summary or (len(ledger), 1, max(ledger, default=None))
 
     async def fetchrow(self, sql, *args):
@@ -26,8 +26,10 @@ class _Pool:
     async def fetch(self, sql, *args):
         if sql == snapshot._LEDGER_ROWS_SQL:
             return [{"as_of": d} for d in self.ledger]
-        if sql == snapshot._MEMBER_ROWS_SQL:
-            return [{"as_of": d, "symbol": s} for d, s in self.rows]
+        if sql in (snapshot._MEMBER_ROWS_SQL, snapshot._TIER_ROWS_SQL):
+            self.last_member_sql = sql
+            rows = self.tier_rows if sql == snapshot._TIER_ROWS_SQL else self.rows
+            return [{"as_of": d, "symbol": s} for d, s in rows]
         return [{"symbol": s} for s in self.seen]  # the seen-names query
 
     async def close(self):
@@ -65,6 +67,7 @@ def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(mon
     assert got.symbols == ["A", "B", "OLD"]
     assert got.members_by_as_of[LEDGER[1]] == frozenset({"A", "B"})
     assert got.manifest["membership"] == {
+        "universe": "universe_membership",
         "rule_id": "rule-x",
         "built_months": 2,
         "last_as_of": "2024-02-29",
@@ -142,9 +145,29 @@ def test_the_new_spec_values_and_field_validate_and_an_old_spec_is_unchanged():
         _panel(universe_exclusion="other_list")
 
 
-def test_an_intraday_membership_spec_is_refused_until_the_tier_universe_exists():
-    with pytest.raises(ValueError, match="needs the 5m tier universe"):
+def test_a_membership_universe_must_match_its_clock():
+    with pytest.raises(ValueError, match="needs a 1d panel"):
         _panel(tf="5m", bars_per_session=78)
+    with pytest.raises(ValueError, match="5m tier panel"):
+        _panel(universe="universe_membership_5m")
+    ok = _panel(universe="universe_membership_5m", tf="5m", bars_per_session=78)
+    assert ok.universe == "universe_membership_5m"
+    core = _panel(universe="universe_membership_5m_core", tf="5m", bars_per_session=78)
+    assert core.universe == "universe_membership_5m_core"
+
+
+def test_the_5m_tier_universe_reads_the_tier_rows_and_its_core_is_over_the_tier(monkeypatch):
+    ledger = [D(2024, m, 28) for m in range(1, 11)]
+    all_rows = [(d, "A") for d in ledger] + [(d, "B") for d in ledger]
+    tier_rows = [(d, "A") for d in ledger] + [(d, "B") for d in ledger[:3]]
+    pool = _Pool(ledger, all_rows, tier_rows=tier_rows)
+    got = _read(monkeypatch, pool, universe="universe_membership_5m")
+    assert pool.last_member_sql == snapshot._TIER_ROWS_SQL
+    assert got.symbols == ["A", "B"] and got.manifest["membership"]["universe"].endswith("_5m")
+    core = _read(monkeypatch, pool, universe="universe_membership_5m_core")
+    assert core.symbols == ["A"]  # B is in the tier at 3 of 10 month-ends, in the membership at all
+    primary = _read(monkeypatch, pool, universe="universe_membership")
+    assert pool.last_member_sql == snapshot._MEMBER_ROWS_SQL and primary.symbols == ["A", "B"]
 
 
 def test_the_member_array_round_trips_through_save_and_load_inside_the_hash(tmp_path):

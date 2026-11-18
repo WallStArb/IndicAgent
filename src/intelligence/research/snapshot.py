@@ -132,7 +132,12 @@ _VERDICTS_SQL = (
 # so a column name never comes from caller text.
 UNIVERSE_DIMENSIONS = ("compute_eligible", "compute_eligible_1d", "live_tradeable")
 # The stage 2 point-in-time universes (todo 609 I1); read by membership_inputs, not by a flag.
-MEMBERSHIP_UNIVERSES = ("universe_membership", "universe_membership_core")
+MEMBERSHIP_UNIVERSES = (
+    "universe_membership",
+    "universe_membership_core",
+    "universe_membership_5m",
+    "universe_membership_5m_core",
+)
 
 # ts[ns UTC], o, c, v, then one array per requested optional bar field (high, low) in order.
 Bars = dict[str, tuple[np.ndarray, ...]]
@@ -435,6 +440,11 @@ class MembershipInputs:
 
 _LEDGER_ROWS_SQL = "SELECT as_of FROM universe_membership_build ORDER BY as_of"
 _MEMBER_ROWS_SQL = "SELECT as_of, symbol FROM universe_membership ORDER BY as_of, symbol"
+# The 5m tier (amendment 2026-11-15): the members whose trailing median dollar volume is in the tier,
+# nested in the membership by construction (universe_membership.tier_5m).
+_TIER_ROWS_SQL = (
+    "SELECT as_of, symbol FROM universe_membership WHERE tier_5m ORDER BY as_of, symbol"
+)
 
 
 async def membership_inputs(
@@ -470,7 +480,7 @@ async def membership_inputs(
             raise ValueError(f"universe_membership_build mixes {rules} rule ids (last {last})")
         rule_id = await pool.fetchval(universe_membership.LEDGER_RULE_ID_SQL)
         built = [r["as_of"] for r in await pool.fetch(_LEDGER_ROWS_SQL)]
-        rows = await pool.fetch(_MEMBER_ROWS_SQL)
+        rows = await pool.fetch(_TIER_ROWS_SQL if "_5m" in universe else _MEMBER_ROWS_SQL)
         excluded = [] if exclusion is None else await EXCLUSIONS[exclusion](pool)
     finally:
         await pool.close()
@@ -480,7 +490,7 @@ async def membership_inputs(
         if r["symbol"] not in drop:
             by_month[r["as_of"]].add(r["symbol"])
     members = {as_of: frozenset(names) for as_of, names in by_month.items()}
-    if universe == "universe_membership_core":
+    if universe.endswith("_core"):
         if start is None or end_exclusive is None:
             raise ValueError(
                 "the core universe is defined over a span: pass start and end_exclusive"
@@ -505,6 +515,7 @@ async def membership_inputs(
     ).hexdigest()
     manifest = {
         "membership": {
+            "universe": universe,
             "rule_id": rule_id,
             "built_months": int(months),
             "last_as_of": last.isoformat(),
@@ -519,7 +530,7 @@ async def membership_inputs(
     return MembershipInputs(symbols, members, manifest)
 
 
-UNIVERSE_SOURCE["1d"] = membership_inputs
+UNIVERSE_SOURCE["1d"] = UNIVERSE_SOURCE["5m"] = membership_inputs
 
 
 async def us_session_equity_symbols(dsn: str) -> list[str]:

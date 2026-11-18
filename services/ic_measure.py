@@ -145,10 +145,9 @@ from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E
 _logger = structlog.get_logger(__name__)
 
 # Per timeframe, the universe reader this module uses for the corpus universe
-# (services.corpus_rerun.check_ic_universe_aligned compares it with the membership reader). 5m has
-# none until the tier universe is wired (todo 609 blocker I2), so the rerun check fails loudly
-# for 5m: no default, no silent skip.
-UNIVERSE_SOURCE = {"1d": snapshot.membership_inputs}
+# (services.corpus_rerun.check_ic_universe_aligned compares it with the membership reader): the
+# membership on 1d, its 5m tier on the intraday timeframes (todo 609 blocker I2).
+UNIVERSE_SOURCE = {"1d": snapshot.membership_inputs, "5m": snapshot.membership_inputs}
 
 # Service identity and schema identifiers: APR-exempt (CLAUDE.md exempt list).
 _JOB = "ic-measure"
@@ -1178,17 +1177,16 @@ class IcMeasure:
 
     def _universe(self, tf: str) -> tuple[list[str], snapshot.MembershipInputs | None]:
         """(symbols, membership inputs): the 1d universe is the stage 2 membership (every name
-        ever a member, each session gated by its member mask); 5m still reads the eligibility
-        flag until the tier universe is wired (blocker I2), and the corpus rerun refuses while
-        that is so (check_ic_universe_aligned). An explicit --symbols list is a diagnostic
-        subset, never a corpus measurement: it is unmasked and logged."""
+        ever a member, each session gated by its member mask); an intraday timeframe reads the 5m
+        tier (every name ever in the tier, gated by the tier mask), the same lists the corpus
+        computes (corpus_universe, intraday). An explicit --symbols list is a diagnostic subset,
+        never a corpus measurement: it is unmasked and logged."""
         if self.args.symbols:
             _logger.warning("ic_measure.symbols_override_unmasked", tf=tf)
             return sorted(self.args.symbols), None
-        if tf == "1d":
-            inputs = asyncio.run(snapshot.membership_inputs(self.dsn, "universe_membership"))
-            return inputs.symbols, inputs
-        return asyncio.run(snapshot.universe_symbols(self.dsn, "compute_eligible")), None
+        universe = "universe_membership" if tf == "1d" else "universe_membership_5m"
+        inputs = asyncio.run(snapshot.membership_inputs(self.dsn, universe))
+        return inputs.symbols, inputs
 
     def _start(self, read_conn: Any, tf: str, symbols: Sequence[str]) -> datetime:
         if self.args.start:
