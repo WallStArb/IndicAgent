@@ -132,11 +132,11 @@ Open questions (lead or owner):
    known pit gap for SSB. Also the pit lists CIK 0000935113 for AMERIGON in three 2012 snapshots against Gentherm 0000903129
    (THRM); the identity key needs the CIK of the entity, not the name.
 
-Gate finding: `sweep_dispositions.csv` has no identity class. `operator_list` returns (symbol, date) to reason and any line with a
-reason and evidence rules the break, so an identity line silences the sweep while the cross-issuer series stays in canonical (the
-failure this todo exists to prevent). Minimal change (built 2026-11-17, no mechanism flag: `disposition_classes`, counts `identity_dispositions` and `unused_identity_dispositions`; a stale identity line fails `--strict` at once, the live file holds none): an optional `class` column read for the
-sweep dispositions only (`real_move` default, `identity`); `GATE_COUNTS` gains `identity_dispositions`, printed and not a failure
-while the mechanism is unbuilt; once the map cut lands, an identity line whose break is gone is an `unused_dispositions` entry
-that fails `--strict`, which forces the lines out. Tests: a line with an unknown class raises; an identity line rules its break and
-is counted; an unused identity line fails strict after the mechanism flag is set. Strict passes with all 11 ruled except RTX
+Gate finding: `sweep_dispositions.csv` had no identity class: any line with a reason and evidence ruled its break, so an identity
+line would silence the sweep while the cross-issuer series stays in canonical (the failure this todo exists to prevent). Built
+2026-11-17: an optional `class` column on the sweep dispositions (`real_move` default, a blank or absent cell too; `identity`),
+read by `sweep_dispositions` through the same validation as `operator_list`. `GATE_COUNTS` gains `identity_dispositions` and
+`unused_identity_dispositions`. An identity line rules only an undecided (`reported`) break; a witness-confirmed rescale or a
+one-bar reversal on its day stays unresolved. An identity line whose break is gone fails `--strict` at once (remove the line); the
+live file holds none. Tests cover an unknown class raising, the verdict restriction, the counts and the strict exit 3. Strict passes with all 11 ruled except RTX
 (open) and SNEX (row applied first): 9 dispositions plus the SNEX row leave RTX as the sole undecided break.

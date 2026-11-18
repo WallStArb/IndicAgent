@@ -98,7 +98,7 @@ import statistics
 import sys
 import time
 from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -456,36 +456,43 @@ def judge_events(
     return events
 
 
-def operator_list(path: Path) -> dict[tuple[str, date], str]:
-    """An operator list (the spin-off exclusions, the bad bars): (symbol, date) -> reason. Every
-    line needs a reason and its evidence; a malformed or duplicated line raises."""
-    out: dict[tuple[str, date], str] = {}
+def _operator_rows(path: Path) -> Iterator[tuple[tuple[str, date], dict[str, str]]]:
+    """The validated lines of an operator list: ((symbol, date), line). Every line needs a reason
+    and its evidence; a malformed or duplicated line raises."""
+    seen: set[tuple[str, date]] = set()
     with path.open() as fh:
         for line in csv.DictReader(fh):
             key = (line["symbol"], date.fromisoformat(line["date"]))
-            if not line["reason"].strip() or not line["evidence"].strip() or key in out:
+            if (
+                not (line["reason"] or "").strip()
+                or not (line["evidence"] or "").strip()
+                or key in seen
+            ):
                 raise ValueError(f"{path.name} {key}: needs one line with reason and evidence")
-            out[key] = line["reason"]
-    return out
+            seen.add(key)
+            yield key, line
+
+
+def operator_list(path: Path) -> dict[tuple[str, date], str]:
+    """An operator list (the spin-off exclusions, the bad bars): (symbol, date) -> reason."""
+    return {key: line["reason"] for key, line in _operator_rows(path)}
 
 
 DISPOSITION_CLASSES = ("real_move", "identity")
 
 
-def disposition_classes(path: Path) -> dict[tuple[str, date], str]:
-    """The optional `class` column of a sweep disposition file: (symbol, date) -> `real_move`
-    (the default, a column or blank cell absent) or `identity` (todo 624: the break is a
-    cross-issuer or cross-security seam that stays in canonical until the identity map cuts it, so
-    the line records the seam and must leave once the break is gone). Any other value raises."""
+def sweep_dispositions(path: Path) -> dict[tuple[str, date], str]:
+    """A sweep disposition file: (symbol, date) -> class, from the optional `class` column:
+    `real_move` (the default, a column or a blank cell absent) or `identity` (todo 624: the break
+    is a cross-issuer or cross-security seam that stays in canonical until the identity map cuts
+    it, so the line records the seam and must leave once the break is gone). Any other value
+    raises; the lines are validated as `operator_list` validates them."""
     out: dict[tuple[str, date], str] = {}
-    with path.open() as fh:
-        for line in csv.DictReader(fh):
-            kind = (line.get("class") or "real_move").strip()
-            if kind not in DISPOSITION_CLASSES:
-                raise ValueError(
-                    f"{path.name} {line['symbol']} {line['date']}: unknown class {kind!r}"
-                )
-            out[(line["symbol"], date.fromisoformat(line["date"]))] = kind
+    for key, line in _operator_rows(path):
+        kind = (line.get("class") or "").strip() or "real_move"
+        if kind not in DISPOSITION_CLASSES:
+            raise ValueError(f"{path.name} {key}: unknown class {kind!r}")
+        out[key] = kind
     return out
 
 
@@ -1805,6 +1812,12 @@ _RECORDED_SQL = "SELECT symbol, effective_date, factor FROM corporate_action_cur
 # What the strict gate reads: the rescale verdicts, every break the sweep could not decide, and
 # the one-bar scale errors (a bad bar the quarantine has not taken out of the tradeable view).
 _GATED_VERDICTS = _SWEEP_ROW_VERDICTS | {"reported", "single_bar_reversal"}
+# The verdicts each disposition class rules. An `identity` line records a seam the witness cannot
+# adjust through (a cross-issuer or cross-security join), which reads as an undecided break: a
+# witness-confirmed rescale or a one-bar reversal on the same day is a different finding and
+# stays unresolved.
+DISPOSITION_RULES = {"real_move": _GATED_VERDICTS, "identity": frozenset({"reported"})}
+assert set(DISPOSITION_RULES) == set(DISPOSITION_CLASSES)
 # A recorded row, or a listed bad bar, does not resolve a break the sweep still reads: the sweep
 # steps over what canonical serves, so the break is still there. These classes name that state;
 # only an operator disposition rules them.
@@ -1848,14 +1861,17 @@ def unresolved_breaks(
     bad_bars: Collection[tuple[str, date]] = (),
 ) -> list[SweepBreak]:
     """The breaks nothing rules (todo 622 scope 3), on active names only: a gated verdict with no
-    operator disposition. The sweep reads canonical, so a break it finds is still in canonical:
+    operator disposition (`ruled`: (symbol, date) -> class; a class rules only the
+    verdicts of `DISPOSITION_RULES`). The sweep reads canonical, so a break it finds is still in canonical:
     a recorded row of its size (or a listed bad bar) means the record was not applied (reselect,
     quarantine), and the break is relabelled `recorded_unapplied` or `recorded_double_adjusted`
     but never resolved. Same window and tolerance as the classifier; no new tunable."""
     left = []
     for event in events:
         key = (event.symbol, event.break_date)
-        if event.symbol not in active or event.verdict not in _GATED_VERDICTS or key in ruled:
+        if event.symbol not in active or event.verdict not in _GATED_VERDICTS:
+            continue
+        if key in ruled and event.verdict in DISPOSITION_RULES[ruled[key]]:
             continue
         label = _recorded_class(event, recorded.get(event.symbol, ()))
         if event.verdict == "single_bar_reversal" and key in bad_bars:
@@ -1931,14 +1947,13 @@ def sweep(
     read (always `reported`); "breaks_read" and "active_names" size what the sweep saw;
     "crowded_days" counts the days with more than _SWEEP_MAX_LONE_NAMES stepping names (unseen)
     that are not on _MARKET_WIDE_DATES; "unused_dispositions" counts disposition lines that match
-    no break; "identity_dispositions" counts the lines of class `identity` (`disposition_classes`)
+    no break; "identity_dispositions" counts the lines of class `identity` (`sweep_dispositions`)
     and "unused_identity_dispositions" those of them with no break, which fail --strict (a stale
     seam line must leave). `strict_failure` reads these."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
-    ruled = operator_list(dispositions) if dispositions else {}  # validated before the work
-    classes = disposition_classes(dispositions) if dispositions else {}
+    ruled = sweep_dispositions(dispositions) if dispositions else {}  # validated before the work
     bad_bars = set(operator_list(OPERATOR_BAD_BARS))
     counts: dict[str, int] = dict.fromkeys(GATE_COUNTS, 0)
     events: list[SweepBreak] = []
@@ -2035,8 +2050,8 @@ def sweep(
         active_names=len(active),
         crowded_days=len(unseen),
         unused_dispositions=len(unused),
-        identity_dispositions=sum(kind == "identity" for kind in classes.values()),
-        unused_identity_dispositions=sum(classes[key] == "identity" for key in unused),
+        identity_dispositions=sum(kind == "identity" for kind in ruled.values()),
+        unused_identity_dispositions=sum(ruled[key] == "identity" for key in unused),
     )
     return counts
 
@@ -2093,7 +2108,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dispositions",
         type=Path,
-        help="--sweep: operator list (symbol, date, reason, evidence) of breaks ruled not splits",
+        help="--sweep: operator list (symbol, date, reason, evidence, optional class) of breaks ruled "
+        "not splits; class is real_move (default) or identity (a seam kept until the identity map "
+        "cuts it, rules only an undecided break, and fails --strict once its break is gone)",
     )
     parser.add_argument(
         "--strict",
@@ -2101,7 +2118,7 @@ def main(argv: list[str] | None = None) -> int:
         help="--sweep: exit 3 unless every break on an active name is ruled: a rescale verdict, "
         "an undecided (reported) break, a single-bar reversal, or a recorded row not yet applied "
         "(recorded_unapplied, recorded_double_adjusted) with no --dispositions line; a break the "
-        "witness could not read; a crowded day not on the market-wide list; or an empty read (no "
+        "witness could not read; an identity disposition whose break is gone; a crowded day not on the market-wide list; or an empty read (no "
         "active names, no breaks). Needs the whole universe (no --symbols) and the Yahoo witness "
         "(todo 622: an unrecorded level break must reach a gate)",
     )

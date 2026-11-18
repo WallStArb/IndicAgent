@@ -1321,7 +1321,7 @@ def test_an_undecided_break_or_a_bad_bar_on_an_active_name_is_gated_unless_ruled
         _break("MOVE", DAY, "real_move"),  # decided: not gated
         _break("INACTIVE", DAY, "unrecorded_split"),  # not an active name
     ]
-    ruled = {("REPRULED", DAY): "continuous", ("RULED", DAY): "continuous"}
+    ruled = {("REPRULED", DAY): "real_move", ("RULED", DAY): "real_move"}
     active = {"REP", "REPRULED", "RULED", "SBR", "SBRLISTED", "MOVE"}
     left = audit.unresolved_breaks(events, {}, ruled, active, {("SBRLISTED", DAY)})
     assert [(e.symbol, e.verdict) for e in left] == [
@@ -1343,21 +1343,22 @@ def test_a_disposition_matching_no_break_is_reported_unused():
 def test_disposition_class_defaults_to_real_move_and_rejects_unknown(tmp_path):
     old = tmp_path / "old.csv"
     old.write_text(f"symbol,date,reason,evidence\nA,{DAY},r,e\n")
-    assert audit.disposition_classes(old) == {("A", DAY): "real_move"}
+    assert audit.sweep_dispositions(old) == {("A", DAY): "real_move"}
     new = tmp_path / "new.csv"
     new.write_text(
         f"symbol,date,class,reason,evidence\nA,{DAY},identity,r,e\nB,{DAY},,r,e\n"
-        f"C,{DAY},real_move,r,e\n"
+        f"C,{DAY},real_move,r,e\nD,{DAY}, ,r,e\n"
     )
-    assert audit.disposition_classes(new) == {
+    assert audit.sweep_dispositions(new) == {
         ("A", DAY): "identity",
         ("B", DAY): "real_move",
         ("C", DAY): "real_move",
+        ("D", DAY): "real_move",
     }
     bad = tmp_path / "bad.csv"
     bad.write_text(f"symbol,date,class,reason,evidence\nA,{DAY},identiy,r,e\n")
     with pytest.raises(ValueError, match="unknown class"):
-        audit.disposition_classes(bad)
+        audit.sweep_dispositions(bad)
 
 
 def test_an_unused_identity_disposition_fails_strict_but_a_live_one_does_not():
@@ -1579,7 +1580,7 @@ def test_sweep_counts_what_it_gates_and_writes_the_unresolved_breaks(monkeypatch
 
 def test_sweep_counts_identity_dispositions_and_the_stale_ones(monkeypatch, tmp_path):
     steps = [("LIVE", DAY, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj")]
-    events = [_break("LIVE", DAY, "unrecorded_split")]
+    events = [_break("LIVE", DAY, "reported")]
     disp = tmp_path / "disp.csv"
     disp.write_text(
         "symbol,date,class,reason,evidence\n"
@@ -1592,7 +1593,29 @@ def test_sweep_counts_identity_dispositions_and_the_stale_ones(monkeypatch, tmp_
     assert counts["identity_dispositions"] == 2
     assert counts["unused_dispositions"] == 2
     assert counts["unused_identity_dispositions"] == 1  # GONE only; STRAY is real_move
+    assert counts["unresolved"] == 0  # the undecided LIVE break is ruled by its identity line
     assert any("identity dispositions" in r for r in audit.strict_failure(counts))
+
+
+def test_an_identity_line_rules_only_an_undecided_break():
+    events = [
+        _break("UND", DAY, "reported"),
+        _break("CONF", DAY, "unrecorded_split"),
+        _break("RES", DAY, "inseries_rescale"),
+        _break("SBR", DAY, "single_bar_reversal"),
+    ]
+    ruled = {(e.symbol, DAY): "identity" for e in events}
+    left = audit.unresolved_breaks(events, {}, ruled, {e.symbol for e in events})
+    assert [e.symbol for e in left] == ["CONF", "RES", "SBR"]
+    as_move = {key: "real_move" for key in ruled}
+    assert audit.unresolved_breaks(events, {}, as_move, {e.symbol for e in events}) == []
+
+
+def test_a_stale_identity_line_exits_3_under_strict(monkeypatch, tmp_path, capsys):
+    code, _ = _main_with(
+        monkeypatch, tmp_path, _counts(unused_identity_dispositions=1), ["--strict"]
+    )
+    assert code == 3 and "identity dispositions" in capsys.readouterr().out
 
 
 def test_a_sweep_that_reads_nothing_is_not_clean(monkeypatch, tmp_path):
