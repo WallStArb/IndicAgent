@@ -660,28 +660,50 @@ def test_operator_rows_roll_back_unless_commit(tmp_path, monkeypatch):
     assert (conn2.committed, conn2.rolled_back) == (1, 0)
 
 
+_IBKR_ROUTE = [{"vendor": "ibkr", "kind": "smart_trades"}]
+
+
+def _apply_rows_against(tmp_path, monkeypatch, nearby):
+    """--apply-rows --commit for the FBIZ line (route ibkr/smart_trades) with `nearby` as
+    _EXISTING_SQL's rows: (type, effective, factor, inferred_by, rows_file, id, routes)."""
+
+    class _NearbyCursor(_Cursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "BETWEEN" in sql:
+                self._rows = nearby
+
+    class _NearbyConn(_Conn):
+        def cursor(self):
+            return _NearbyCursor(self)
+
+    conn = _NearbyConn()
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
+    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
+    path = _write_rows(tmp_path / "rows.csv", [{}])
+    assert audit.main(["--apply-rows", str(path), "--commit"]) == 0
+    return any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+_NEARBY = ("split", date(2015, 8, 19), 2.0, "calendar_audit", True, "id")
+
+
 def test_apply_rows_skips_a_row_the_name_has_already_decided(tmp_path, monkeypatch):
     """The existing-row guard is --apply-rows' only double-decide protection (review 2026-11-09):
     a decided event is skipped, not inserted a second time."""
+    assert not _apply_rows_against(tmp_path, monkeypatch, [(*_NEARBY, _IBKR_ROUTE)])
 
-    class _DecidedCursor(_Cursor):
-        def execute(self, sql, params=None):
-            super().execute(sql, params)
-            if "BETWEEN" in sql:  # _EXISTING_SQL: the name has a row near the date
-                self._rows = [("split",)]
 
-    class _DecidedConn(_Conn):
-        def cursor(self):
-            return _DecidedCursor(self)
+def test_apply_rows_a_same_route_row_of_any_kind_still_blocks(tmp_path, monkeypatch):
+    market_named = ("split", date(2015, 8, 19), 2.0, "calendar_audit", False, "id")
+    nearby = [(*market_named, [*_IBKR_ROUTE, {"vendor": "alpaca", "kind": "sip_rth"}])]
+    assert not _apply_rows_against(tmp_path, monkeypatch, nearby)
 
-    conn = _DecidedConn()
-    monkeypatch.setattr(audit.psycopg, "connect", lambda *a, **k: conn)
-    monkeypatch.setattr(audit, "Settings", lambda: type("S", (), {"database_url": "x"})())
-    assert (
-        audit.main(["--apply-rows", str(_write_rows(tmp_path / "rows.csv", [{}])), "--commit"]) == 0
-    )
-    assert (conn.committed, conn.rolled_back) == (1, 0)
-    assert not any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+def test_apply_rows_an_unrelated_market_row_or_other_route_never_blocks(tmp_path, monkeypatch):
+    market = ("split", date(2015, 8, 19), 2.0, "nightly_overlap", False, "id", None)
+    other_route = (*_NEARBY, [{"vendor": "alpaca", "kind": "sip_rth"}])
+    assert _apply_rows_against(tmp_path, monkeypatch, [market, other_route])
 
 
 def test_apply_rows_refuses_a_route_that_never_served_the_span(tmp_path, monkeypatch):

@@ -188,7 +188,8 @@ _RAW_SERIES_OF = {
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
-SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file', action_id::text
+SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file', action_id::text,
+       detail -> 'unadjusted_routes'
 FROM corporate_action
 WHERE symbol = %s AND effective_date BETWEEN %s::date - %s AND %s::date + %s
 """
@@ -905,6 +906,22 @@ def check_redate(row: Mapping[str, Any], current: Sequence[Any] | None) -> None:
         raise ValueError(f"{where} is dated {effective}, outside the same event")
 
 
+def _route_keys(routes: Sequence[Mapping[str, str]] | None) -> set[tuple[str, str]]:
+    """The (vendor, kind) pairs a row's detail.unadjusted_routes names; none when it names none."""
+    return {(r["vendor"], r["kind"]) for r in routes or ()}
+
+
+def _decides(
+    existing: Sequence[Any], named: set[tuple[str, str]], route_scoped: bool, market_only: bool
+) -> bool:
+    """Whether an _EXISTING_SQL row blocks the insert: a route-scoped row is blocked by a row
+    naming one of its routes (a row naming none, or others, decides nothing about them); else
+    by any row, or by a market split only when market_only."""
+    if route_scoped:
+        return bool(named & _route_keys(existing[6]))
+    return not market_only or is_market_split(existing[3], operator_rows_file=existing[4])
+
+
 def _apply_decided(
     settings: Settings,
     build_rows: Callable[[Any], Sequence[dict[str, Any]]],
@@ -912,6 +929,7 @@ def _apply_decided(
     commit: bool,
     insert_sql: str = _INSERT_SQL,
     market_splits_only: bool = False,
+    route_scoped: bool = False,
     enrich: Callable[[Any, dict[str, Any]], dict[str, Any]] | None = None,
 ) -> int:
     """One connection, one transaction: build_rows reads what it needs on the same connection,
@@ -923,7 +941,12 @@ def _apply_decided(
     corrects one incumbent route) decides nothing about the market's split, so it never blocks
     one; any other row, current, superseded or void, still does. A row naming inferred_by
     calendar_market takes that insert and that guard whatever the caller's default. enrich runs
-    on a row only after the existing-row guard passed (a re-apply skips before it re-judges)."""
+    on a row only after the existing-row guard passed (a re-apply skips before it re-judges).
+
+    route_scoped (--apply-rows, todo 624): a row that corrects named routes decides only those
+    routes, so it is blocked only by an existing row naming one of the same routes (current,
+    superseded or void), never by an unrelated market split nearby. A calendar_market row keeps
+    its own guard."""
     with psycopg.connect(settings.database_url) as conn:
         rows = build_rows(conn)
         cur = conn.cursor()
@@ -941,14 +964,14 @@ def _apply_decided(
                 cur.execute(_CURRENT_SQL, (replaced,))
                 check_redate(row, cur.fetchone())
             market_row = row.get("inferred_by") == CALENDAR_MARKET_SOURCE
+            named = _route_keys(row["detail"].get("unadjusted_routes"))
             existing = [
                 e
                 for e in nearby
-                if (
-                    not (market_splits_only or market_row)
-                    or is_market_split(e[3], operator_rows_file=e[4])
+                if not (replaced and e[5] == replaced)
+                and _decides(
+                    e, named, route_scoped and not market_row, market_splits_only or market_row
                 )
-                and not (replaced and e[5] == replaced)
             ]
             if existing:
                 print(f"skipped {row['symbol']} {day} x{row['factor']}: decided by {existing}")
@@ -1101,7 +1124,9 @@ def apply_rows(settings: Settings, path: Path, *, commit: bool) -> int:
             )
         return _routes_served(conn, rows)
 
-    return _apply_decided(settings, build, commit=commit, enrich=_enrich_operator_row)
+    return _apply_decided(
+        settings, build, commit=commit, route_scoped=True, enrich=_enrich_operator_row
+    )
 
 
 # The proposed rows file's columns (todo 600), owned here so the audit that writes the file and
