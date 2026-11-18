@@ -16,8 +16,8 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
-from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,6 +28,7 @@ import pandas as pd
 from src.config.classification_service import DEFAULT_SCHEME, SECTOR_LEVEL
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
+from src.intelligence import universe_membership
 from src.intelligence.bars.label_inputs import load_label_inputs
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.features.contract.registry import default_registry
@@ -37,6 +38,7 @@ from src.intelligence.research import (
     data_quality,
     feature_inputs,
     kernel_source,
+    membership,
     store,
 )
 from src.intelligence.research import dividends as dividends_mod
@@ -129,6 +131,8 @@ _VERDICTS_SQL = (
 # instruments' universe eligibility columns (migration 337). universe_symbols accepts only these,
 # so a column name never comes from caller text.
 UNIVERSE_DIMENSIONS = ("compute_eligible", "compute_eligible_1d", "live_tradeable")
+# The stage 2 point-in-time universes (todo 609 I1); read by membership_inputs, not by a flag.
+MEMBERSHIP_UNIVERSES = ("universe_membership", "universe_membership_core")
 
 # ts[ns UTC], o, c, v, then one array per requested optional bar field (high, low) in order.
 Bars = dict[str, tuple[np.ndarray, ...]]
@@ -380,19 +384,119 @@ async def daily_unseen_symbols(dsn: str) -> list[str]:
     names no longer reproduce exactly."""
     pool = await read_only_pool(dsn)
     try:
-        # Midnight UTC, whatever the session's TimeZone.
+        await _seen_names(pool)
         cutoff = datetime.fromisoformat(DAILY_UNSEEN_CUTOFF).replace(tzinfo=UTC)
-        seen = [r["symbol"] for r in await pool.fetch(_DAILY_SEEN_SQL, cutoff)]
         rows = await pool.fetch(_DAILY_UNSEEN_SQL, cutoff, list(DAILY_SEEN_SLEEVE))
     finally:
         await pool.close()
+    return [r["symbol"] for r in rows]
+
+
+async def _seen_names(pool: asyncpg.Pool) -> list[str]:
+    """Every instrument created before the 2026-09-13 screen, sorted; raises when the set no
+    longer reproduces the pinned hash (B1)."""
+    # Midnight UTC, whatever the session's TimeZone.
+    cutoff = datetime.fromisoformat(DAILY_UNSEEN_CUTOFF).replace(tzinfo=UTC)
+    seen = [r["symbol"] for r in await pool.fetch(_DAILY_SEEN_SQL, cutoff)]
     digest = hashlib.sha256("\n".join(seen).encode()).hexdigest()
     if digest != DAILY_SEEN_BEFORE_CUTOFF_SHA256:
         raise ValueError(
             f"the {len(seen)} instruments created before {DAILY_UNSEEN_CUTOFF} are not the pinned "
             "set: the daily_unseen rule no longer excludes the screen exactly (B1)"
         )
-    return [r["symbol"] for r in rows]
+    return seen
+
+
+async def _seen_names_exclusion(pool: asyncpg.Pool) -> list[str]:
+    """The seen-name holdout (B-U): the screen's names plus the TSMOM sleeve, sorted."""
+    return sorted({*await _seen_names(pool), *DAILY_SEEN_SLEEVE})
+
+
+# Pinned exclusion lists a spec names by id (PanelSpec.universe_exclusion). The id is the only
+# thing that comes from the spec; the list is read by pinned SQL and its hash is recorded.
+EXCLUSIONS: dict[str, Callable[[asyncpg.Pool], Awaitable[list[str]]]] = {
+    "seen_names": _seen_names_exclusion
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class MembershipInputs:
+    """What a membership panel needs from the database, read once and pinned in the manifest."""
+
+    symbols: list[str]  # the panel's columns, sorted: every name ever a member, less exclusions
+    members_by_as_of: dict[date, frozenset[str]]  # per built month-end, exclusions removed
+    manifest: dict  # rule id, ledger months and last as_of, exclusion id, size and hash
+
+
+_LEDGER_ROWS_SQL = "SELECT as_of FROM universe_membership_build ORDER BY as_of"
+_MEMBER_ROWS_SQL = "SELECT as_of, symbol FROM universe_membership ORDER BY as_of, symbol"
+
+
+async def membership_inputs(
+    dsn: str,
+    universe: str,
+    *,
+    start: str,
+    end_exclusive: str,
+    exclusion: str | None = None,
+) -> MembershipInputs:
+    """The point-in-time membership for a `universe_membership*` spec.
+
+    Refuses an empty ledger and a ledger built under more than one rule id (the same refusals as
+    services/corpus_universe.py, which reads the same SQL constants). The core universe keeps the
+    names that are members at 90 percent or more of the built month-ends inside the span. A pinned
+    exclusion is dropped from both the columns and every month's members, and its id, size and
+    hash go into the manifest, so the exclusion is inside the snapshot hash.
+    """
+    if universe not in MEMBERSHIP_UNIVERSES:
+        raise ValueError(f"{universe!r} is not a membership universe: {MEMBERSHIP_UNIVERSES}")
+    if exclusion is not None and exclusion not in EXCLUSIONS:
+        raise ValueError(f"unknown universe exclusion {exclusion!r}; one of {sorted(EXCLUSIONS)}")
+    pool = await read_only_pool(dsn)
+    try:
+        months, rules, last, rule_id = await pool.fetchrow(universe_membership.LEDGER_SUMMARY_SQL)
+        if not months:
+            raise ValueError(
+                "universe_membership has no built month-end; run "
+                "services.universe_membership_writer before a membership panel"
+            )
+        if rules != 1:
+            raise ValueError(f"universe_membership_build mixes {rules} rule ids (last {last})")
+        built = [r["as_of"] for r in await pool.fetch(_LEDGER_ROWS_SQL)]
+        rows = await pool.fetch(_MEMBER_ROWS_SQL)
+        excluded = [] if exclusion is None else await EXCLUSIONS[exclusion](pool)
+    finally:
+        await pool.close()
+    drop = set(excluded)
+    by_month: dict[date, set[str]] = {as_of: set() for as_of in built}
+    for r in rows:
+        if r["symbol"] not in drop:
+            by_month[r["as_of"]].add(r["symbol"])
+    members = {as_of: frozenset(names) for as_of, names in by_month.items()}
+    in_span = {
+        as_of: names
+        for as_of, names in members.items()
+        if date.fromisoformat(start) <= as_of < date.fromisoformat(end_exclusive)
+    }
+    if universe == "universe_membership_core":
+        if not in_span:
+            raise ValueError(f"no built month-end inside {start} to {end_exclusive}")
+        core = membership.core_symbols(in_span)
+        members = {as_of: names & core for as_of, names in members.items()}
+    symbols = sorted(set().union(*members.values()))
+    manifest = {
+        "membership": {
+            "rule_id": rule_id,
+            "built_months": int(months),
+            "last_as_of": last.isoformat(),
+            "exclusion": exclusion,
+            "excluded_names": len(excluded),
+            "exclusion_sha256": (
+                hashlib.sha256("\n".join(excluded).encode()).hexdigest() if exclusion else None
+            ),
+        }
+    }
+    return MembershipInputs(symbols, members, manifest)
 
 
 async def us_session_equity_symbols(dsn: str) -> list[str]:
@@ -858,6 +962,7 @@ async def build_panel(
     fields: tuple[str, ...] = (),
     warmup_sessions: int = 0,
     sources: Sequence[SourceRequest] | None = None,
+    membership_inputs: MembershipInputs | None = None,
 ) -> Path:
     """Fetch, grid, and write a content-hashed panel directory; returns its path.
     `manifest_extra` (for example the universe dimension) is merged into the manifest.
@@ -871,7 +976,9 @@ async def build_panel(
     (plan 184-08) adds each source tf's gated feature and kernel inputs under the one verified
     config per tf: arrays of a source at or coarser than the book's clock (a child dir per coarser
     tf), and for a finer source compact evidence plus an align_index source-row index. Without
-    `sources` the bytes are those of every earlier snapshot."""
+    `sources` the bytes are those of every earlier snapshot. `membership_inputs` (todo 609 I1)
+    adds the per-session member mask and the rule, ledger and exclusion to the manifest; without
+    it the bytes are those of every earlier snapshot."""
     registry = default_registry()
     sources = tuple(sources or ())
     _check_requests(sources, registry)
@@ -1039,5 +1146,13 @@ async def build_panel(
                 info["sha256"] = store.verify(path)
         manifest["sources"] = source_info
         extra = {**(extra or {}), **source_arrays}
-    grid = dataclasses.replace(grid, manifest=manifest, sector_pit=sector_pit, closes_at=closes_at)
+    member = None
+    if membership_inputs is not None:
+        member = membership.member_mask(
+            session_dates(grid), grid.symbols, membership_inputs.members_by_as_of
+        )
+        manifest.update(membership_inputs.manifest)
+    grid = dataclasses.replace(
+        grid, manifest=manifest, sector_pit=sector_pit, closes_at=closes_at, member=member
+    )
     return panel_mod.save(grid, Path(out_dir), extra)

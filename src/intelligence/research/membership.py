@@ -111,3 +111,30 @@ def apply_seen_prices(
         apply_member_mask(open_, seen, bars_per_session),
         apply_member_mask(close, seen, bars_per_session),
     )
+
+
+def cold_start_share_by_year(
+    member: np.ndarray, years: np.ndarray, memory_sessions: int
+) -> dict[int, float]:
+    """Per calendar year, the share of member-days whose residual window is not yet warm because
+    of entry: fewer than `memory_sessions` sessions since the name's first membership.
+
+    The price of the seen-names rule (apply_seen_prices): an entrant's residual history starts at
+    first membership. Measured at the membership build and shown to the owner with the member
+    counts; a large share is answered by a counted amendment, never by a quiet change.
+    `years` is the calendar year of each session, [n_sessions].
+    """
+    if memory_sessions < 1:
+        raise ValueError(f"memory_sessions must be at least 1, got {memory_sessions}")
+    n = member.shape[0]
+    if years.shape != (n,):
+        raise ValueError(f"years has shape {years.shape}, expected {(n,)}")
+    first = np.where(member.any(axis=0), np.argmax(member, axis=0), n)
+    cold = member & ((np.arange(n)[:, None] - first[None, :]) < memory_sessions)
+    out: dict[int, float] = {}
+    for year in np.unique(years).tolist():
+        rows = years == year
+        days = int(member[rows].sum())
+        if days:
+            out[int(year)] = float(cold[rows].sum()) / days
+    return out

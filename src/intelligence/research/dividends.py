@@ -239,6 +239,7 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
         symbols=tuple(names),
         **out,
         **({} if sector_pit is None else {"sector_pit": sector_pit}),
+        **({} if panel.member is None else {"member": panel.member[:, cols]}),
         sectors=tuple(panel.sectors[j] for j, _ in take) if panel.sectors else (),
         valid=np.isfinite(out["close"]).any(axis=1),
         manifest={

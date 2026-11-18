@@ -55,6 +55,16 @@ from src.intelligence.bars.split_rescale import SplitFactor
 # this id; the build ledger refuses to extend a build made under another id.
 RULE_ID = "stage2-2026-11-15"
 
+# One definition of "ever a member" and of the build ledger, read by the corpus universe
+# (services/corpus_universe.py) and by the research snapshot (research/snapshot.py), so the
+# corpus and the IC panel cannot diverge on the name set (todo 609 I1).
+LEDGER_SUMMARY_SQL = (
+    "SELECT count(*), count(DISTINCT rule_id), max(as_of), min(rule_id) "
+    "FROM universe_membership_build"
+)
+EVER_MEMBER_SQL = "SELECT symbol FROM universe_membership"
+EVER_TIER_5M_SQL = "SELECT symbol FROM universe_membership WHERE tier_5m"
+
 # First day of the Massive archive; the first month-end considered.
 ARCHIVE_START = date(2003, 9, 10)
 

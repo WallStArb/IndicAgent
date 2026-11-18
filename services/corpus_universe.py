@@ -16,18 +16,22 @@ from typing import Any
 
 from src.config.classification_service import current_level_name_sql
 from src.config.settings import Instrument, instrument_from_instruments_row
+from src.intelligence.universe_membership import (
+    EVER_MEMBER_SQL,
+    EVER_TIER_5M_SQL,
+    LEDGER_SUMMARY_SQL,
+)
 
 
 class UniverseMembershipEmptyError(RuntimeError):
     """`universe_membership` holds no built month-end (the writer has not run)."""
 
 
-_LEDGER_SQL = "SELECT count(*), count(DISTINCT rule_id), max(as_of) FROM universe_membership_build"
 _INSTRUMENTS_SQL = (
     "SELECT symbol, base, contract_details, "
     f"{current_level_name_sql('instruments')} "
     "FROM instruments "
-    "WHERE symbol IN (SELECT symbol FROM universe_membership{tier}) "
+    "WHERE symbol IN ({members}) "
     "ORDER BY symbol"
 )
 
@@ -44,8 +48,8 @@ def corpus_universe(conn: Any, *, intraday: bool = False) -> list[Instrument]:
     (a data defect, never guessed around). Dead names are included: `is_active` is not read.
     """
     with conn.cursor() as cur:
-        cur.execute(_LEDGER_SQL)
-        months, rules, last = cur.fetchone()
+        cur.execute(LEDGER_SUMMARY_SQL)
+        months, rules, last, _ = cur.fetchone()
         if not months:
             raise UniverseMembershipEmptyError(
                 "universe_membership has no built month-end; run "
@@ -53,7 +57,9 @@ def corpus_universe(conn: Any, *, intraday: bool = False) -> list[Instrument]:
             )
         if rules != 1:
             raise RuntimeError(f"universe_membership_build mixes {rules} rule ids (last {last})")
-        cur.execute(_INSTRUMENTS_SQL.format(tier=" WHERE tier_5m" if intraday else ""))
+        cur.execute(
+            _INSTRUMENTS_SQL.format(members=EVER_TIER_5M_SQL if intraday else EVER_MEMBER_SQL)
+        )
         rows = cur.fetchall()
     if not rows:
         raise UniverseMembershipEmptyError(

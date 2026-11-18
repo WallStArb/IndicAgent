@@ -96,7 +96,7 @@ from src.intelligence.research.member_memory import (
     feature_member_memory,
     warmup_prefix_sessions,
 )
-from src.intelligence.research.panel import SECTOR_PIT, Panel, fwd_span, present
+from src.intelligence.research.panel import MEMBER, SECTOR_PIT, Panel, fwd_span, present
 from src.intelligence.research.portfolio import RANK_VOL_NEUTRAL_ARM, trailing_vol
 from src.intelligence.research.recipe import RecipeContent
 from src.intelligence.research.spec import (
@@ -152,13 +152,29 @@ class LedgerPort(Protocol):
     async def start_subset_refits(self, parent_run_id: str, refits, author: str) -> dict: ...
 
 
-async def _source_configs(
+async def _universe(
     dsn: str, spec: FamilySpec
-) -> tuple[list[str], list, dict[str, FeatureFactoryConfig]]:
-    """(universe symbols, source requests, verified FeatureFactoryConfig per source tf) for a
+) -> tuple[list[str], snapshot.MembershipInputs | None]:
+    """(S0 symbols, membership inputs) for the spec's universe: a flag column for the eligibility
+    universes, the point-in-time membership ledger for the stage 2 ones."""
+    if spec.panel.universe in snapshot.MEMBERSHIP_UNIVERSES:
+        inputs = await snapshot.membership_inputs(
+            dsn,
+            spec.panel.universe,
+            start=spec.panel.start,
+            end_exclusive=spec.panel.end_exclusive,
+            exclusion=spec.panel.universe_exclusion,
+        )
+        return inputs.symbols, inputs
+    return await snapshot.universe_symbols(dsn, spec.panel.universe), None
+
+
+async def _source_configs(
+    dsn: str, spec: FamilySpec, symbols: list[str]
+) -> tuple[list, dict[str, FeatureFactoryConfig]]:
+    """(source requests, verified FeatureFactoryConfig per source tf) over `symbols` for a
     spec with input members, read before any bar is fetched (B1c, B1f). The member memory and
     the certificate's memory bound are checked on them, so a refusal needs no snapshot."""
-    symbols = await snapshot.universe_symbols(dsn, spec.panel.universe)
     sources = _source_requests(spec)
     configs: dict[str, FeatureFactoryConfig] = {}
     if sources:
@@ -167,7 +183,7 @@ async def _source_configs(
         )
         configs = {tf: entry["config"] for tf, entry in found.items()}
         _check_member_memory(spec, configs)
-    return symbols, sources, configs
+    return sources, configs
 
 
 async def preflight_member_memory(spec: FamilySpec, ctx: RunContext) -> None:
@@ -180,11 +196,13 @@ async def preflight_member_memory(spec: FamilySpec, ctx: RunContext) -> None:
     if ctx.snapshot is not None:
         _check_member_memory(spec, _manifest_configs(store.read_meta(ctx.snapshot)["manifest"]))
     elif ctx.build_snapshot is None and ctx.dsn is not None:
-        await _source_configs(ctx.dsn, spec)
+        symbols, _ = await _universe(ctx.dsn, spec)
+        await _source_configs(ctx.dsn, spec, symbols)
 
 
 async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
-    symbols, sources, configs = await _source_configs(dsn, spec)
+    symbols, membership_inputs = await _universe(dsn, spec)
+    sources, configs = await _source_configs(dsn, spec, symbols)
     inputs: dict = {}
     if sources:
         inputs = {
@@ -201,6 +219,7 @@ async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
         manifest_extra={"universe": spec.panel.universe},
         dividends=spec.panel.total_return is not None,
         fields=_build_fields(spec),
+        membership_inputs=membership_inputs,
         **inputs,
     )
 
@@ -275,7 +294,7 @@ def _sub_panel(panel: Panel, sessions: int) -> Panel:
     kept = min(sessions, panel.n_sessions)
     rows = slice(0, kept * panel.bars_per_session)
     optional = {
-        name: np.asarray(array[:kept] if name == SECTOR_PIT else array[rows])
+        name: np.asarray(array[:kept] if name in (SECTOR_PIT, MEMBER) else array[rows])
         for name, array in present(panel).items()
     }
     return dataclasses.replace(

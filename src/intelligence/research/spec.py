@@ -73,7 +73,16 @@ class TotalReturnSpec(BaseModel):
 
 class PanelSpec(BaseModel):
     model_config = _STRICT
-    universe: Literal["compute_eligible", "compute_eligible_1d", "live_tradeable"]
+    # universe_membership and universe_membership_core (todo 609 I1): the stage 2 point-in-time
+    # membership and its core (members at 90 percent or more of the built month-ends). A new
+    # allowed value moves no recorded spec hash.
+    universe: Literal[
+        "compute_eligible",
+        "compute_eligible_1d",
+        "live_tradeable",
+        "universe_membership",
+        "universe_membership_core",
+    ]
     tf: str
     bars_per_session: int = Field(ge=1)  # the S0 source panel's
     start: IsoDate
@@ -86,6 +95,10 @@ class PanelSpec(BaseModel):
     members_universe: Literal["us_session_equity", "daily_unseen"] | None = None
     # todo 428. Optional, absent from every earlier spec, so their hashes are unchanged.
     total_return: TotalReturnSpec | None = None
+    # todo 609 I1 (B-U): a pinned name list (snapshot.EXCLUSIONS) dropped from a membership
+    # universe before S0 and recorded in the manifest with its hash. Optional, absent from every
+    # earlier spec, so their hashes are unchanged.
+    universe_exclusion: Literal["seen_names"] | None = None
     # Plan 187-15: optional S0 arrays (high and low bars, each name's point-in-time SCH sector);
     # absent from every earlier spec, so their hashes are unchanged.
     # Plan 184-06: closes_at, each row's availability time (clock.closes_at), for aligned inputs.
@@ -98,6 +111,17 @@ class PanelSpec(BaseModel):
             raise ValueError(f"panel fields must be non-empty and unique: {value}")
         # One canonical order, so the same request never hashes two ways.
         return None if value is None else sorted(value)
+
+    @model_validator(mode="after")
+    def _exclusion_needs_membership(self) -> PanelSpec:
+        if self.universe_exclusion is not None and not self.universe.startswith(
+            "universe_membership"
+        ):
+            raise ValueError(
+                f"universe_exclusion {self.universe_exclusion!r} applies to the membership "
+                f"universes, not {self.universe!r}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _transform_needs_intraday(self) -> PanelSpec:
@@ -530,7 +554,13 @@ def _sha(text: str) -> str:
 
 # PanelSpec fields added after specs were run: left out of the canonical form while unset, so
 # every spec written before them keeps its recorded hash (family 1, book_v1).
-_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe", "total_return", "fields")
+_OPTIONAL_PANEL_FIELDS = (
+    "transform",
+    "members_universe",
+    "total_return",
+    "fields",
+    "universe_exclusion",
+)
 # The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
 # Plan 184-06: per-member fields, left out of each member's canonical form while unset.

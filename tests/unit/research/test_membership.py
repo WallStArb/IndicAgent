@@ -106,3 +106,23 @@ def test_apply_seen_prices_nans_rows_before_first_membership():
     assert (
         np.isnan(o).ravel().tolist() == [True, True, False, False] == np.isnan(c).ravel().tolist()
     )
+
+
+def test_cold_start_share_counts_member_days_inside_the_memory_of_entry():
+    # A is a member throughout; B enters at session 2. Memory 2 sessions: B is cold at 2 and 3.
+    member = np.array(
+        [[True, False], [True, False], [True, True], [True, True], [True, True], [True, True]]
+    )
+    years = np.array([2020, 2020, 2020, 2020, 2021, 2021])
+    share = mem.cold_start_share_by_year(member, years, 2)
+    # A is cold at its first two member-days too: 2 + 2 cold of 4 + 2 member-days in 2020.
+    assert share == {2020: 4 / 6, 2021: 0.0}
+
+
+def test_cold_start_share_skips_years_without_members_and_refuses_bad_input():
+    member = np.array([[False], [True]])
+    assert mem.cold_start_share_by_year(member, np.array([2019, 2020]), 5) == {2020: 1.0}
+    with pytest.raises(ValueError, match="at least 1"):
+        mem.cold_start_share_by_year(member, np.array([2019, 2020]), 0)
+    with pytest.raises(ValueError, match="years has shape"):
+        mem.cold_start_share_by_year(member, np.array([2019]), 1)
