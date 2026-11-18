@@ -14,6 +14,16 @@ import numpy as np
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.portfolio import average_ranks
 
+SESSION_DATES = "session_dates"
+
+
+def needs_session_dates(fn):
+    """Marks a member whose statistic depends on the calendar (month labels): the runner binds
+    `session_dates` (datetime64[D] [n_sessions], the panel's own sessions) as a keyword. The
+    member stays a pure function of arrays; the dates are data, never read from a clock."""
+    fn.needs_session_dates = True
+    return fn
+
 
 def centred_rank(alpha: np.ndarray, *, coverage_floor: int) -> np.ndarray:
     """Per row, 0-based average rank over finite values scaled to rank / (n_valid - 1) - 0.5

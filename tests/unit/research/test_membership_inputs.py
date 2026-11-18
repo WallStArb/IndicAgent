@@ -60,7 +60,7 @@ ROWS = [(LEDGER[0], "A"), (LEDGER[0], "OLD"), (LEDGER[1], "A"), (LEDGER[1], "B")
 def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(monkeypatch):
     got = _read(monkeypatch, _Pool(LEDGER, ROWS))
     mem_digest = hashlib.sha256(
-        "2024-01-31|A\n2024-01-31|OLD\n2024-02-29|A\n2024-02-29|B".encode()
+        b"2024-01-31|A\n2024-01-31|OLD\n2024-02-29|A\n2024-02-29|B"
     ).hexdigest()
     assert got.symbols == ["A", "B", "OLD"]
     assert got.members_by_as_of[LEDGER[1]] == frozenset({"A", "B"})

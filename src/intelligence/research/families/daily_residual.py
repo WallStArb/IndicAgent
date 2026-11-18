@@ -97,3 +97,28 @@ def residual_reversal(
     """R1/R2/R3: -sum of residual returns over d-skip-window+1 .. d-skip."""
     e = _daily(resid_bar_returns, bars_per_session)
     return _place(-_sum(e, window_sessions, skip_sessions), e, coverage_floor)
+
+
+def residual_momentum_continuity(
+    resid_bar_returns: np.ndarray, *, bars_per_session: int, coverage_floor: int
+) -> np.ndarray:
+    """M3 (amendment A2, drafts H-A): M1's sum times the centred rank of continuity.
+
+    Over M1's window (d-251 .. d-21) PRET is the sum of e and ID = sign(PRET) x (share of finite
+    sessions with e < 0 minus share with e > 0); a zero residual counts in neither share. NaN
+    when PRET is zero or fewer than half the window is finite (M1's rule). Continuity c is the
+    centred cross-sectional rank of -ID on row d over the names with a finite ID; the member
+    value is PRET x c, +1: continuous winners long, discrete winners short (Da, Gurun and
+    Warachka 2014). Declared memory is M1's (slot history 252)."""
+    e = _daily(resid_bar_returns, bars_per_session)
+    count, total, _ = _window(e, MOMENTUM_SESSIONS, MOMENTUM_SKIP_SESSIONS)
+    finite = np.isfinite(e)
+    negative = np.where(finite, (e < 0).astype(float), np.nan)
+    positive = np.where(finite, (e > 0).astype(float), np.nan)
+    _, neg_days, _ = _window(negative, MOMENTUM_SESSIONS, MOMENTUM_SKIP_SESSIONS)
+    _, pos_days, _ = _window(positive, MOMENTUM_SESSIONS, MOMENTUM_SKIP_SESSIONS)
+    usable = (count >= (MOMENTUM_SESSIONS + 1) // 2) & (total != 0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        discreteness = np.where(usable, np.sign(total) * (neg_days - pos_days) / count, np.nan)
+    continuity = centred_rank(-discreteness, coverage_floor=coverage_floor)
+    return _place(np.where(usable, total, np.nan) * continuity, e, coverage_floor)

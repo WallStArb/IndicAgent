@@ -82,7 +82,7 @@ from src.intelligence.research.evidence import (
 )
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families import features as features_family
-from src.intelligence.research.families.common import declared_memory_rows
+from src.intelligence.research.families.common import SESSION_DATES, declared_memory_rows
 from src.intelligence.research.horizon import HorizonRule
 from src.intelligence.research.ledger import (
     AttemptSeries,
@@ -285,11 +285,18 @@ def _s1_input(panel: Panel) -> Panel:
     return dataclasses.replace(panel, open=open_, close=close)
 
 
-def _member_fn(spec: FamilySpec, member, bars_per_session: int):
+def _member_fn(spec: FamilySpec, member, bars_per_session: int, panel: Panel | None = None):
+    fn = resolve_member(member.signal)
+    dates = {}
+    if getattr(fn, "needs_session_dates", False):
+        if panel is None or panel.bars_per_session != 1:
+            raise ValueError(f"member {member.name} needs the daily panel's session dates")
+        dates = {SESSION_DATES: snapshot.session_dates(panel)}
     return functools.partial(
-        resolve_member(member.signal),
+        fn,
         bars_per_session=bars_per_session,
         coverage_floor=spec.construction.coverage_floor,
+        **dates,
         **member.params,
     )
 
@@ -305,7 +312,9 @@ def compute_members(
     resid_bar member) or, for a feature or kernel member, the source value S2b aligned to the
     book clock (`panel` carries the S0 sources)."""
     out = {
-        m.name: _member_fn(spec, m, bars_per_session)(member_input(spec, m, panel, resid_bar))
+        m.name: _member_fn(spec, m, bars_per_session, panel)(
+            member_input(spec, m, panel, resid_bar)
+        )
         for m in spec.members
     }
     if panel is not None and panel.member is not None:
@@ -361,7 +370,7 @@ def real_guards(
     reach = {}
     input_reports = {}
     for m in spec.members:
-        fn = _member_fn(spec, m, bps)
+        fn = _member_fn(spec, m, bps, panel)
         if m.input is not None:
             reach[m.name], input_reports[m.name] = _guard_input_member(spec, m, panel, fn, rows)
             continue
