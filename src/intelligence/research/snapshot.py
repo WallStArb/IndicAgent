@@ -412,6 +412,11 @@ async def _seen_names_exclusion(pool: asyncpg.Pool) -> list[str]:
     return sorted({*await _seen_names(pool), *DAILY_SEEN_SLEEVE})
 
 
+# Per timeframe, the reader this module offers for the corpus universe (check_ic_universe_aligned
+# reads it). 5m has none until the 5m tier universe is wired (todo 609 blocker I2).
+UNIVERSE_SOURCE: dict[str, Callable[..., Awaitable[Any]]] = {}
+
+
 # Pinned exclusion lists a spec names by id (PanelSpec.universe_exclusion). The id is the only
 # thing that comes from the spec; the list is read by pinned SQL and its hash is recorded.
 EXCLUSIONS: dict[str, Callable[[asyncpg.Pool], Awaitable[list[str]]]] = {
@@ -436,15 +441,16 @@ async def membership_inputs(
     dsn: str,
     universe: str,
     *,
-    start: str,
-    end_exclusive: str,
+    start: str | None = None,
+    end_exclusive: str | None = None,
     exclusion: str | None = None,
 ) -> MembershipInputs:
     """The point-in-time membership for a `universe_membership*` spec.
 
     Refuses an empty ledger and a ledger built under more than one rule id (the same refusals as
     services/corpus_universe.py, which reads the same SQL constants). The core universe keeps the
-    names that are members at 90 percent or more of the built month-ends inside the span. A pinned
+    names that are members at 90 percent or more of the built month-ends inside the span (which
+    it then requires: `start` and `end_exclusive`). A pinned
     exclusion is dropped from both the columns and every month's members, and its id, size and
     hash go into the manifest, so the exclusion is inside the snapshot hash.
     """
@@ -473,12 +479,16 @@ async def membership_inputs(
         if r["symbol"] not in drop:
             by_month[r["as_of"]].add(r["symbol"])
     members = {as_of: frozenset(names) for as_of, names in by_month.items()}
-    in_span = {
-        as_of: names
-        for as_of, names in members.items()
-        if date.fromisoformat(start) <= as_of < date.fromisoformat(end_exclusive)
-    }
     if universe == "universe_membership_core":
+        if start is None or end_exclusive is None:
+            raise ValueError(
+                "the core universe is defined over a span: pass start and end_exclusive"
+            )
+        in_span = {
+            as_of: names
+            for as_of, names in members.items()
+            if date.fromisoformat(start) <= as_of < date.fromisoformat(end_exclusive)
+        }
         if not in_span:
             raise ValueError(f"no built month-end inside {start} to {end_exclusive}")
         core = membership.core_symbols(in_span)
@@ -497,6 +507,9 @@ async def membership_inputs(
         }
     }
     return MembershipInputs(symbols, members, manifest)
+
+
+UNIVERSE_SOURCE["1d"] = membership_inputs
 
 
 async def us_session_equity_symbols(dsn: str) -> list[str]:

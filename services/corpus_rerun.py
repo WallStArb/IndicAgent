@@ -794,18 +794,20 @@ def module_files() -> list[str]:
 
 _IC_UNIVERSE_READERS = ("services.ic_measure", "src.intelligence.research.snapshot")
 _UNIVERSE_SOURCE_ATTR = "UNIVERSE_SOURCE"
+# The corpus computes both timeframes over the membership (1d) and its 5m tier (5m).
+_CORPUS_TIMEFRAMES = ("1d", "5m")
 
 
 def check_ic_universe_aligned(import_module: Callable[[str], Any] = importlib.import_module) -> Any:
     """Blocks the corpus rerun while the IC measurement reads another universe than the corpus
-    computes (todo 609 blocker I1). ic_measure and research S0 each declare their universe source
-    as a module-level `UNIVERSE_SOURCE`; it must be `services.corpus_universe.corpus_universe`.
-    A module that cannot be imported, or has no such attribute (the state today: both read the
-    `compute_eligible*` flags), or declares another source, fails with the module named; the
-    check never raises. Wiring the readers (a research-side change under repro_frozen, after
-    step 7) clears it."""
+    computes (todo 609 blocker I1), per timeframe. ic_measure and research S0 each declare, as a
+    module-level `UNIVERSE_SOURCE` mapping timeframe to reader, where a timeframe's universe comes
+    from; for every corpus timeframe it must be `snapshot.membership_inputs`, the reader of the
+    point-in-time membership mask. A module that cannot be imported, has no mapping, or lacks a
+    timeframe (5m until the tier universe is wired, blocker I2) or declares another reader fails
+    with the module and timeframe named; the check never raises."""
     from services import rebuild_preconditions as rp
-    from services.corpus_universe import corpus_universe
+    from src.intelligence.research.snapshot import membership_inputs
 
     problems: list[str] = []
     for name in _IC_UNIVERSE_READERS:
@@ -814,12 +816,17 @@ def check_ic_universe_aligned(import_module: Callable[[str], Any] = importlib.im
         except Exception as error:
             problems.append(f"{name} cannot be imported ({type(error).__name__}: {error})")
             continue
-        if not hasattr(module, _UNIVERSE_SOURCE_ATTR):
+        declared = getattr(module, _UNIVERSE_SOURCE_ATTR, None)
+        if not isinstance(declared, dict):
             problems.append(f"{name} declares no {_UNIVERSE_SOURCE_ATTR} (reads the flags)")
-        elif getattr(module, _UNIVERSE_SOURCE_ATTR) is not corpus_universe:
-            problems.append(f"{name}.{_UNIVERSE_SOURCE_ATTR} is not corpus_universe")
+            continue
+        for tf in _CORPUS_TIMEFRAMES:
+            if tf not in declared:
+                problems.append(f"{name} declares no {tf} universe (reads the flags)")
+            elif declared[tf] is not membership_inputs:
+                problems.append(f"{name}.{_UNIVERSE_SOURCE_ATTR}[{tf!r}] is not membership_inputs")
     detail = (
-        "ic_measure and research S0 read the corpus universe"
+        "ic_measure and research S0 read the membership universe for every corpus timeframe"
         if not problems
         else "; ".join(problems) + " (todo 609 blocker I1: the IC universe differs from the "
         "corpus universe)"

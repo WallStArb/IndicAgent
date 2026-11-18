@@ -19,6 +19,7 @@ import numpy as np
 
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.research import snapshot
+from src.intelligence.research.membership import apply_member_mask
 from src.intelligence.research.panel import Panel, forward_returns
 
 
@@ -34,10 +35,14 @@ def check_horizon(tf: str, bars_per_session: int, horizon: int) -> None:
 
 
 def chunk_targets(panel: Panel, horizon: int) -> np.ndarray:
-    """[n, m] kernel targets of one panel; intraday targets never cross a session."""
+    """[n, m] kernel targets of one panel; intraday targets never cross a session. On a
+    membership panel a non-member cell is NaN (no_fill), so it is out of every cross-section."""
     check_horizon(panel.tf, panel.bars_per_session, horizon)
     session = panel.session if panel.bars_per_session > 1 else None
-    return forward_returns(np.asarray(panel.open), horizon, session=session)
+    targets = forward_returns(np.asarray(panel.open), horizon, session=session)
+    if panel.member is None:
+        return targets
+    return apply_member_mask(targets, panel.member, panel.bars_per_session)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -179,13 +184,15 @@ async def build_target_panels(
     end_exclusive: str,
     oos_start: str,
     params: MeasureParams,
+    membership_inputs: snapshot.MembershipInputs | None = None,
 ) -> list[Path]:
     """Build one read-only S0 panel per symbol chunk; returns the panel paths.
 
     The caller passes `end_exclusive = oos_start` (read from `alpha.validation.oos_start`). That
     is what makes D-19 hold by construction: the kernel leaves the last `1 + horizon` rows NaN,
     so no target window reaches oos_start. Later than oos_start is refused before any fetch
-    (S0 refuses again).
+    (S0 refuses again). `membership_inputs` (todo 609 I1) gives every chunk panel its per-session
+    member mask, so `chunk_targets` leaves a non-member NaN.
     """
     if _utc(end_exclusive) > _utc(oos_start):
         raise ValueError(f"end_exclusive {end_exclusive} is later than oos_start {oos_start}")
@@ -201,6 +208,7 @@ async def build_target_panels(
                 tf=tf,
                 start=start,
                 end_exclusive=end_exclusive,
+                membership_inputs=membership_inputs,
             )
         )
     return paths

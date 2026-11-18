@@ -144,6 +144,12 @@ from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E
 
 _logger = structlog.get_logger(__name__)
 
+# Per timeframe, the universe reader this module uses for the corpus universe
+# (services.corpus_rerun.check_ic_universe_aligned compares it with the membership reader). 5m has
+# none until the tier universe is wired (todo 609 blocker I2), so the rerun check fails loudly
+# for 5m: no default, no silent skip.
+UNIVERSE_SOURCE = {"1d": snapshot.membership_inputs}
+
 # Service identity and schema identifiers: APR-exempt (CLAUDE.md exempt list).
 _JOB = "ic-measure"
 TARGET_TABLE = "feature_ic_scores"
@@ -280,14 +286,22 @@ def apr_keys_read(tf: str) -> list[str]:
 
 
 def identity_snapshot(
-    apr: Mapping[str, Any], tf: str, horizons: Sequence[int], oos_start: datetime
+    apr: Mapping[str, Any],
+    tf: str,
+    horizons: Sequence[int],
+    oos_start: datetime,
+    membership: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The unit's apr_snapshot: computational values only. The horizons are this tf's own list
     (the full `alpha.ic_measure.horizons` mapping would re-key a tf when another tf's horizons
-    change); operational keys are deliberately absent."""
+    change); operational keys are deliberately absent. `membership` (the universe rule id, the
+    built months and the last month-end of a membership run, todo 609 I1) puts the universe inside
+    the pin, so a different rule or ledger is a different unit identity."""
     snapshot_keys = {k: apr[k] for k in computational_keys(tf)}
     snapshot_keys[_OOS_START_KEY] = format_iso_ts(oos_start)
     snapshot_keys[f"{HORIZONS_KEY}[{tf}]"] = list(horizons)
+    if membership is not None:
+        snapshot_keys["universe.membership"] = dict(membership)
     return snapshot_keys
 
 
@@ -1162,11 +1176,19 @@ class IcMeasure:
             finally:
                 write.close()
 
-    def _symbols(self, tf: str) -> list[str]:
+    def _universe(self, tf: str) -> tuple[list[str], snapshot.MembershipInputs | None]:
+        """(symbols, membership inputs): the 1d universe is the stage 2 membership (every name
+        ever a member, each session gated by its member mask); 5m still reads the eligibility
+        flag until the tier universe is wired (blocker I2), and the corpus rerun refuses while
+        that is so (check_ic_universe_aligned). An explicit --symbols list is a diagnostic
+        subset, never a corpus measurement: it is unmasked and logged."""
         if self.args.symbols:
-            return sorted(self.args.symbols)
-        dimension = "compute_eligible_1d" if tf == "1d" else "compute_eligible"
-        return asyncio.run(snapshot.universe_symbols(self.dsn, dimension))
+            _logger.warning("ic_measure.symbols_override_unmasked", tf=tf)
+            return sorted(self.args.symbols), None
+        if tf == "1d":
+            inputs = asyncio.run(snapshot.membership_inputs(self.dsn, "universe_membership"))
+            return inputs.symbols, inputs
+        return asyncio.run(snapshot.universe_symbols(self.dsn, "compute_eligible")), None
 
     def _start(self, read_conn: Any, tf: str, symbols: Sequence[str]) -> datetime:
         if self.args.start:
@@ -1193,7 +1215,7 @@ class IcMeasure:
         t0 = time.monotonic()
         horizons = horizons_for(apr, tf)  # aborts a cross-session horizon before any fetch
         params = load_params(apr, tf)
-        symbols = self._symbols(tf)
+        symbols, membership_inputs = self._universe(tf)
         start = self._start(read_conn, tf, symbols)
         chunk_rows = int(apr[_FETCH_CHUNK_KEY])
         before = bar_content_digests(read_conn, tf, symbols, start, oos_start)
@@ -1209,6 +1231,7 @@ class IcMeasure:
                     oos_start.isoformat(),
                     oos_start.isoformat(),
                     params,
+                    membership_inputs,
                 )
             )
             after = bar_content_digests(read_conn, tf, symbols, start, oos_start)
@@ -1232,7 +1255,13 @@ class IcMeasure:
                 oos_start=oos_start,
                 chunk_rows=chunk_rows,
                 bar_digests={s: before[s] for s in used},
-                snapshot=identity_snapshot(apr, tf, horizons, oos_start),
+                snapshot=identity_snapshot(
+                    apr,
+                    tf,
+                    horizons,
+                    oos_start,
+                    None if membership_inputs is None else membership_inputs.manifest["membership"],
+                ),
                 run_id=self.args.run_id,
             )
             names = feature_names(read_conn, self.args.feature_table)
