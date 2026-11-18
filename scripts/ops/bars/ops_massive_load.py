@@ -20,6 +20,9 @@ of each file, the ticker_events used, untraded rows, the volume definition epoch
 transactions of whole series-chunks. Each year starts with a disk headroom check and ends with a
 recompression of ohlcv_raw's partial chunks. Rerunning the same command is the resume.
 
+With `--apply` a year whose load leaves unselected slots or basis-change flags exits 3 and starts no later
+year (`year_gate_failure`); the load is resumable, so the rerun picks up after the fix.
+
 The loader fails loudly, before reading a file, when an active instrument has neither a span nor
 a gap-list row.
 
@@ -362,6 +365,20 @@ def verdict_table(verdicts: list[SpanVerdict]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def year_gate_failure(loaded: LoadResult) -> str | None:
+    """Why an applied year fails its gate, else None: a landed slot with no canonical winner
+    (`UNSELECTED`) or a series flagged with a basis-change restatement (`PARTIAL`) is the
+    status word `load_status` reports, and a status word is not an exit code. A deferred
+    selection (vendor unranked) is RAW-ONLY, measured by ops_selection_gate --compare, not a
+    failure here."""
+    reasons = []
+    if loaded.n_unselected:
+        reasons.append(f"{loaded.n_unselected} landed slots have no canonical winner")
+    if loaded.n_basis_flagged:
+        reasons.append(f"{loaded.n_basis_flagged} series carry a basis-change restatement flag")
+    return "; ".join(reasons) or None
+
+
 def run(args: argparse.Namespace) -> int:
     # structlog to logs/, never stdout: selection and flag lines are per series
     setup_service_logging(str(_LOG_DIR / "ops_massive_load.log"))
@@ -438,6 +455,14 @@ def run(args: argparse.Namespace) -> int:
                 )
                 print(f"{year} {args.timeframe} load: {word} {loaded}", flush=True)
                 recompress_raw(conn)
+                failure = year_gate_failure(loaded)
+                if failure:
+                    # the rows are in raw (last-wins, resumable); the next year must not stack on
+                    # a year whose canonical winners or basis flags are unresolved (todo 609 G5)
+                    _print_year(args.timeframe, year, reports[year], time.monotonic() - t0)
+                    print(f"FAIL: {year} gate: {failure}; later years not started", flush=True)
+                    status = 3
+                    break
             _print_year(args.timeframe, year, reports[year], time.monotonic() - t0)
         _write_report(args, reports, verdicts)
     finally:

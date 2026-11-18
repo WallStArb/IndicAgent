@@ -364,3 +364,16 @@ def test_all_tickers_parses_with_1d(monkeypatch):
     monkeypatch.setattr(loader, "run", lambda args: seen.append(args) or 0)
     assert loader.main(["--timeframe", "1d", "--years", "2010", "--all-tickers"]) == 0
     assert seen[0].all_tickers and seen[0].timeframe == "1d"
+
+
+def test_a_year_with_unselected_slots_or_basis_flags_fails_its_gate():
+    # the status word is not an exit code (todo 609 G5): the run refuses loudly and stops
+    from scripts.ops.bars.ops_massive_load import year_gate_failure
+    from services.bar_load import LoadResult
+
+    assert year_gate_failure(LoadResult()) is None
+    assert year_gate_failure(LoadResult(n_selection_deferred=3)) is None  # RAW-ONLY, not a failure
+    unselected = year_gate_failure(LoadResult(n_unselected=2))
+    assert unselected is not None and "2 landed slots" in unselected
+    flagged = year_gate_failure(LoadResult(n_unselected=1, n_basis_flagged=4))
+    assert flagged is not None and "1 landed slots" in flagged and "4 series" in flagged
