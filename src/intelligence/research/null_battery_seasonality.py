@@ -14,8 +14,8 @@ Compute only.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
+import math
 from pathlib import Path
 
 import numpy as np
@@ -24,8 +24,9 @@ from src.intelligence.research import null_battery_daily_residual as daily
 from src.intelligence.research import static_sizes
 from src.intelligence.research.combiner import EqualWeight
 from src.intelligence.research.families.common import SESSION_DATES
-from src.intelligence.research.portfolio import trailing_vol
+from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
 from src.intelligence.research.spec import load_spec_from_file, resolve_member
+from src.intelligence.research.timing import e17_memory, timing_test
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 SPEC_PATH = "research/specs/seasonality_h5.yaml"
@@ -34,19 +35,48 @@ SPEC_PATH = "research/specs/seasonality_h5.yaml"
 SESSIONS = 3200
 _START = np.datetime64("2000-01-03")
 
+# This battery's own gating sizes (provisional, chosen before any panel is measured, in units of the
+# idiosyncratic daily sd; the same values as the daily residual battery, pinned here so a rerun of
+# that battery at other sizes does not move this gate silently). A change needs a rerun.
+GATE_STATIC_SD = 0.06
+GATE_MARKET_MEAN = 0.04
+_STRESS_STATIC_SD = 0.3  # diagnostic cells document the limit
+
 DailyScenario = daily.DailyScenario
-DIAGNOSTIC_CELLS = frozenset(
-    {f"seasonal_{name.removeprefix('daily_')}" for name in daily.DIAGNOSTIC_CELLS}
-)
+DIAGNOSTIC_CELLS = frozenset({"seasonal_static_vol_stress", "seasonal_hostile_stress"})
 
 
 @functools.lru_cache(maxsize=1)
+def _spec():
+    return load_spec_from_file(_REPO_ROOT / SPEC_PATH, root=_REPO_ROOT).model
+
+
 def members() -> tuple[tuple[str, object, dict, int], ...]:
     """(name, function, params, slot history) of every registered member, in spec order."""
-    spec = load_spec_from_file(_REPO_ROOT / SPEC_PATH, root=_REPO_ROOT).model
     return tuple(
         (m.name, resolve_member(m.signal), dict(m.params), m.slot_history_sessions)
-        for m in spec.members
+        for m in _spec().members
+    )
+
+
+def _score(alpha, vol, target, trade, memory: int):
+    """R1 and the E17 timing test with the spec's own construction, warmup and horizon."""
+    spec = _spec()
+    weights, has = rank_vol_neutral_weights(
+        alpha,
+        vol=vol,
+        direction=float(spec.construction.direction),
+        coverage_floor=spec.construction.coverage_floor,
+    )
+    return timing_test(
+        weights,
+        target,
+        has,
+        trade,
+        bars_per_session=1,
+        warmup_sessions=spec.scoring.warmup_sessions,
+        memory_sessions=e17_memory(memory, spec.horizon, 1),
+        overlap_sessions=spec.horizon - 1,
     )
 
 
@@ -56,29 +86,31 @@ def session_dates(sessions: int) -> np.ndarray:
 
 
 def _arms(sc: DailyScenario, seed: int):
+    spec = _spec()
     resid, target = daily.null_panel(sc, seed)
     dates = session_dates(len(resid))
+    window = spec.construction.vol_window_sessions
     vol = trailing_vol(
-        resid, window_rows=daily._VOL_WINDOW_SESSIONS, min_finite=daily._VOL_WINDOW_SESSIONS // 2
+        resid,
+        window_rows=window,
+        min_finite=math.ceil(spec.construction.vol_min_finite_fraction * window),
     )
     trade = np.zeros(len(resid), dtype=bool)
-    trade[daily._WARMUP_SESSIONS :] = True
+    trade[spec.scoring.warmup_sessions :] = True
     registered = members()
     alphas = []
     for name, fn, params, memory in registered:
         alpha = fn(
             resid,
             bars_per_session=1,
-            coverage_floor=daily._COVERAGE_FLOOR,
+            coverage_floor=spec.construction.coverage_floor,
             **{SESSION_DATES: dates},
             **params,
         )
         alphas.append(alpha)
-        yield name, daily._score(alpha, vol, target, trade, memory, sc.horizon)
+        yield name, _score(alpha, vol, target, trade, memory)
     book = EqualWeight((1.0,) * len(registered)).combine(np.stack(alphas, axis=2), None)
-    yield "book_equal", daily._score(
-        book, vol, target, trade, max(m[3] for m in registered), sc.horizon
-    )
+    yield "book_equal", _score(book, vol, target, trade, max(m[3] for m in registered))
 
 
 def simulate(sc: DailyScenario, seed: int) -> dict[str, tuple[float, float]]:
@@ -92,17 +124,29 @@ def simulate_series(sc: DailyScenario, seed: int) -> dict[str, np.ndarray]:
 
 
 def scenarios() -> tuple[DailyScenario, ...]:
-    """The daily residual cells on panels long enough for the 60-month reads."""
-    return tuple(
-        dataclasses.replace(
-            sc, name=f"seasonal_{sc.name.removeprefix('daily_')}", sessions=SESSIONS
-        )
-        for sc in daily.scenarios()
+    """The daily residual battery's cells (null_battery_daily_residual.scenarios) at this
+    battery's sizes, on panels long enough for the 60-month reads."""
+    base = dict(market_mean=GATE_MARKET_MEAN, sessions=SESSIONS, horizon=_spec().horizon)
+    other = dict(
+        t4_noise=True, factor_sd=0.5, vol_clustering=True, late_fraction=0.4, late_name=True
+    )
+    return (
+        DailyScenario("seasonal_gaussian", **base),
+        DailyScenario("seasonal_static_means", static_sd=GATE_STATIC_SD, **base),
+        DailyScenario("seasonal_late_listings", late_fraction=0.4, late_name=True, **base),
+        DailyScenario("seasonal_hostile", static_sd=GATE_STATIC_SD, **base, **other),
+        DailyScenario("seasonal_hostile_no_static", **base, **other),
+        DailyScenario("seasonal_s1_hostile", static_sd=GATE_STATIC_SD, s1=True, **base, **other),
+        DailyScenario(
+            "seasonal_static_vol_stress", static_sd=_STRESS_STATIC_SD, vol_clustering=True, **base
+        ),
+        DailyScenario("seasonal_hostile_stress", static_sd=_STRESS_STATIC_SD, **base, **other),
     )
 
 
 def static_gate() -> static_sizes.StaticGate:
-    """The sizes every gating cell holds at, as the daily residual battery's (same panels)."""
+    """The sizes every gating cell holds at: static per-name sd and the market mean (in absolute
+    value), one cell row per session."""
     return static_sizes.gate_from_cells(
         __name__,
         1,
