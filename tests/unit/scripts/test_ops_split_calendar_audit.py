@@ -1340,6 +1340,31 @@ def test_a_disposition_matching_no_break_is_reported_unused():
     ]
 
 
+def test_disposition_class_defaults_to_real_move_and_rejects_unknown(tmp_path):
+    old = tmp_path / "old.csv"
+    old.write_text(f"symbol,date,reason,evidence\nA,{DAY},r,e\n")
+    assert audit.disposition_classes(old) == {("A", DAY): "real_move"}
+    new = tmp_path / "new.csv"
+    new.write_text(
+        f"symbol,date,class,reason,evidence\nA,{DAY},identity,r,e\nB,{DAY},,r,e\n"
+        f"C,{DAY},real_move,r,e\n"
+    )
+    assert audit.disposition_classes(new) == {
+        ("A", DAY): "identity",
+        ("B", DAY): "real_move",
+        ("C", DAY): "real_move",
+    }
+    bad = tmp_path / "bad.csv"
+    bad.write_text(f"symbol,date,class,reason,evidence\nA,{DAY},identiy,r,e\n")
+    with pytest.raises(ValueError, match="unknown class"):
+        audit.disposition_classes(bad)
+
+
+def test_an_unused_identity_disposition_fails_strict_but_a_live_one_does_not():
+    assert audit.strict_failure(_counts(identity_dispositions=3)) == []
+    assert audit.strict_failure(_counts(identity_dispositions=3, unused_identity_dispositions=1))
+
+
 def _counts(**over):
     return dict.fromkeys(audit.GATE_COUNTS, 0) | {"active_names": 1500, "breaks_read": 40} | over
 
@@ -1550,6 +1575,24 @@ def test_sweep_counts_what_it_gates_and_writes_the_unresolved_breaks(monkeypatch
         "WERR": "reported",
     }
     assert audit.strict_failure(counts)
+
+
+def test_sweep_counts_identity_dispositions_and_the_stale_ones(monkeypatch, tmp_path):
+    steps = [("LIVE", DAY, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj")]
+    events = [_break("LIVE", DAY, "unrecorded_split")]
+    disp = tmp_path / "disp.csv"
+    disp.write_text(
+        "symbol,date,class,reason,evidence\n"
+        f"LIVE,{DAY},identity,seam,witness\n"
+        f"GONE,{DAY},identity,seam,witness\n"
+        f"STRAY,{DAY},real_move,typo,none\n"
+    )
+    conn = _SweepConn(steps=steps, crowded=[], active=["LIVE"], recorded=[])
+    counts, _ = _drive_sweep(monkeypatch, tmp_path, conn, events, dispositions=disp)
+    assert counts["identity_dispositions"] == 2
+    assert counts["unused_dispositions"] == 2
+    assert counts["unused_identity_dispositions"] == 1  # GONE only; STRAY is real_move
+    assert any("identity dispositions" in r for r in audit.strict_failure(counts))
 
 
 def test_a_sweep_that_reads_nothing_is_not_clean(monkeypatch, tmp_path):

@@ -469,6 +469,26 @@ def operator_list(path: Path) -> dict[tuple[str, date], str]:
     return out
 
 
+DISPOSITION_CLASSES = ("real_move", "identity")
+
+
+def disposition_classes(path: Path) -> dict[tuple[str, date], str]:
+    """The optional `class` column of a sweep disposition file: (symbol, date) -> `real_move`
+    (the default, a column or blank cell absent) or `identity` (todo 624: the break is a
+    cross-issuer or cross-security seam that stays in canonical until the identity map cuts it, so
+    the line records the seam and must leave once the break is gone). Any other value raises."""
+    out: dict[tuple[str, date], str] = {}
+    with path.open() as fh:
+        for line in csv.DictReader(fh):
+            kind = (line.get("class") or "real_move").strip()
+            if kind not in DISPOSITION_CLASSES:
+                raise ValueError(
+                    f"{path.name} {line['symbol']} {line['date']}: unknown class {kind!r}"
+                )
+            out[(line["symbol"], date.fromisoformat(line["date"]))] = kind
+    return out
+
+
 @dataclass(frozen=True)
 class AuditParams:
     """The audit's APR (raises KeyError on a missing key: migrations 461, 567 and 571 seed them)."""
@@ -1800,6 +1820,8 @@ GATE_COUNTS = (
     "active_names",
     "crowded_days",
     "unused_dispositions",
+    "identity_dispositions",
+    "unused_identity_dispositions",
 )
 
 
@@ -1867,6 +1889,11 @@ def strict_failure(counts: Mapping[str, int]) -> list[str]:
             f"but still stepping in canonical, {counts['recorded_double_adjusted']} recorded and "
             "double adjusted)"
         )
+    if counts["unused_identity_dispositions"]:
+        reasons.append(
+            f"{counts['unused_identity_dispositions']} identity dispositions whose break is gone "
+            "(remove the line)"
+        )
     if counts["crowded_days"]:
         reasons.append(
             f"{counts['crowded_days']} days too crowded to see, not on the market-wide list"
@@ -1904,11 +1931,14 @@ def sweep(
     read (always `reported`); "breaks_read" and "active_names" size what the sweep saw;
     "crowded_days" counts the days with more than _SWEEP_MAX_LONE_NAMES stepping names (unseen)
     that are not on _MARKET_WIDE_DATES; "unused_dispositions" counts disposition lines that match
-    no break. `strict_failure` reads these."""
+    no break; "identity_dispositions" counts the lines of class `identity` (`disposition_classes`)
+    and "unused_identity_dispositions" those of them with no break, which fail --strict (a stale
+    seam line must leave). `strict_failure` reads these."""
     if witness not in WITNESSES:
         raise ValueError(f"unknown witness {witness!r}")
     label = WITNESSES[witness]
     ruled = operator_list(dispositions) if dispositions else {}  # validated before the work
+    classes = disposition_classes(dispositions) if dispositions else {}
     bad_bars = set(operator_list(OPERATOR_BAD_BARS))
     counts: dict[str, int] = dict.fromkeys(GATE_COUNTS, 0)
     events: list[SweepBreak] = []
@@ -2005,6 +2035,8 @@ def sweep(
         active_names=len(active),
         crowded_days=len(unseen),
         unused_dispositions=len(unused),
+        identity_dispositions=sum(kind == "identity" for kind in classes.values()),
+        unused_identity_dispositions=sum(classes[key] == "identity" for key in unused),
     )
     return counts
 

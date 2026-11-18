@@ -134,7 +134,7 @@ Open questions (lead or owner):
 
 Gate finding: `sweep_dispositions.csv` has no identity class. `operator_list` returns (symbol, date) to reason and any line with a
 reason and evidence rules the break, so an identity line silences the sweep while the cross-issuer series stays in canonical (the
-failure this todo exists to prevent). Minimal change (specified, not implemented): an optional `class` column read for the
+failure this todo exists to prevent). Minimal change (built 2026-11-17, no mechanism flag: `disposition_classes`, counts `identity_dispositions` and `unused_identity_dispositions`; a stale identity line fails `--strict` at once, the live file holds none): an optional `class` column read for the
 sweep dispositions only (`real_move` default, `identity`); `GATE_COUNTS` gains `identity_dispositions`, printed and not a failure
 while the mechanism is unbuilt; once the map cut lands, an identity line whose break is gone is an `unused_dispositions` entry
 that fails `--strict`, which forces the lines out. Tests: a line with an unknown class raises; an identity line rules its break and
