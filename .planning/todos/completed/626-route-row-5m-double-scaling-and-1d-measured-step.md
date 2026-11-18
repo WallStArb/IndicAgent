@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-17
 source: independent review of bd278686c
@@ -26,9 +26,12 @@ Landed: `routed_seam_breaks` in `split_horizon_fresh` counts a route row whose c
 effective date reads double_adjusted (the last named-series bar to the first canonical bar after it,
 which is Massive for the live rows; live CLBK, RTX, UHAL read 0). Ruling: the unadjusted reading is not
 counted because a real drop at the date has the same shape (RTX 2020-04-03 spin-off); an unrescaled
-series is judged by `routed_horizon_stale` and the 1d guard. Open: a restatement of only part of the
-old span breaks at the window's edges inside the span, not at the effective date; judge the named
-series' raw request boundaries inside the routed span as the 1d path does (`request_boundaries`).
+series is judged by `routed_horizon_stale` and the 1d guard. Landed (2026-11-18): `routed_seam_breaks` also takes the serving request id per bar (`_FiveMinute.request`)
+and judges the same step at every request boundary of the named series inside the routed span, as the 1d
+path does (`request_boundaries`); a partial restatement ends in a +ln f step and is counted. Ruling: the
+existing guards plus this check are the mechanism (scope item 2, the cheap seam check); no timeframe-named
+route and no 5m-measured step are required. Residual: a boundary step is not net of the day's real move,
+so a real rise near the factor reads as a break (loud).
 
 ## Requirement first (Musk step 1)
 

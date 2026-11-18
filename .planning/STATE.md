@@ -80,7 +80,7 @@ Next, in order:
    5m compare gate 0 real differences); the A3 sweep (2026-11-17) leaves 1 undecided break: SW 2016-05-16
    (unrecorded_split, waits for the pit map cut at 2024-07-08); SNEX (route row) and RTX (Alpaca x0.5 route row effective 2020-04-02,
    Carrier and Otis distribution disposition) are applied and reselected; UNIT 2025-08-04 closed by an independently reviewed 0.6029 row, reselected; nine 624 dispositions applied.
-   Open: todo 624 (reused tickers, the pit map owns identity), todo 626 (route row double scaling and a 5m seam check).
+   Open: todo 624 (reused tickers, the pit map owns identity). Todo 626 (route row 5m seam and request-boundary check) closed 2026-11-18.
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
 4. A3 sweep run (`ops_split_calendar_audit --sweep --witness yahoo --strict --dispositions config/corporate_actions/sweep_dispositions.csv`) against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
    corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.

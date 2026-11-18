@@ -175,3 +175,54 @@ def test_an_unmeasurable_seam_or_an_unnamed_series_is_not_judged():
     gap[1] += 10 * 86400  # beyond the bracket
     assert routed_seam_breaks(gap, o, c, v, k, ROUTED, 0.3) == 0
     assert routed_seam_breaks(ts[:0], o[:0], c[:0], v[:0], k[:0], ROUTED, 0.3) == 0
+
+
+def _span(closes, requests):
+    """Named Alpaca 5m bars on consecutive sessions up to the effective date (2026-07-20), then
+    one Massive bar after it on the current scale, with the serving request id per bar."""
+    n = len(closes)
+    days = [datetime(2026, 7, 20 - (n - 1 - i), 19, 55, tzinfo=UTC) for i in range(n)]
+    ts = np.array(
+        [d.timestamp() for d in days] + [datetime(2026, 7, 21, 13, 30, tzinfo=UTC).timestamp()]
+    )
+    c = np.array([*closes, 10.915])
+    v = np.array(["alpaca"] * n + ["massive"], dtype=object)
+    k = np.array(["sip_rth"] * n + ["sip_flat_adj"], dtype=object)
+    return ts, c, c, v, k, np.array([*requests, "m"], dtype=object)
+
+
+def test_a_partly_restated_span_breaks_at_the_window_edge_inside_the_span():
+    f = 2.2
+    # the middle window was restated on the new scale and divided again (11.1 / 2.2); the tail
+    # is correctly scaled: the window ends with a step of +ln f at the request boundary
+    ts, o, c, v, k, req = _span([11.1, 11.1 / f, 11.1 / f, 11.1, 11.1], ["a", "b", "b", "a", "a"])
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3, req) == 1
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3) == 0  # no request ids, not judged
+
+
+def test_a_clean_span_across_request_boundaries_passes():
+    ts, o, c, v, k, req = _span([11.1, 11.12, 11.08, 11.1, 11.12], ["a", "b", "b", "c", "d"])
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3, req) == 0
+
+
+def test_null_request_ids_are_the_production_shape():
+    f = 2.2
+    # most raw rows carry no request id: None against None is no boundary, None against an id is
+    ts, o, c, v, k, req = _span(
+        [11.1, 11.1 / f, 11.1 / f, 11.1, 11.1], [None, "r", "r", None, None]
+    )
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3, req) == 1
+    ts, o, c, v, k, req = _span([11.1, 11.12, 11.1, 11.1, 11.12], [None] * 5)
+    assert routed_seam_breaks(ts, o, c, v, k, ROUTED, 0.3, req) == 0
+
+
+def test_a_window_restated_before_two_rows_is_judged_against_their_product_once():
+    two = {
+        ("alpaca", "sip_rth"): [
+            SplitFactor(date(2026, 7, 18), 2.0),
+            SplitFactor(date(2026, 7, 20), 2.0),
+        ]
+    }
+    # bars 0-1 restated on the current scale and divided by both rows (/4), then the old series
+    ts, o, c, v, k, req = _span([11.1 / 4, 11.1 / 4, 11.1, 11.1, 11.1], ["b", "b", "a", "a", "a"])
+    assert routed_seam_breaks(ts, o, c, v, k, two, 0.3, req) == 1

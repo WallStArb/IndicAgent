@@ -792,6 +792,42 @@ def routed_horizon_stale(
     return stale
 
 
+def _is_scaling(split: SplitFactor) -> bool:
+    return math.isfinite(split.factor) and split.factor > 0 and split.factor != 1
+
+
+def _routed_boundary_breaks(
+    named: np.ndarray,
+    days: np.ndarray,
+    open_: np.ndarray,
+    close: np.ndarray,
+    request: np.ndarray,
+    splits: Sequence[SplitFactor],
+    rel_tol: float,
+) -> int:
+    """The request boundaries of one named series, up to its last row's effective date, whose
+    step reads double_adjusted against any contiguous run of the factors dated on or after the
+    boundary (run_products, as split_discontinuities judges the 1d boundaries): a window
+    restated before two rows is divided by both. Each boundary counts once."""
+    if not splits:
+        return 0
+    ordered = sorted(splits, key=lambda sp: sp.effective_date)
+    inside = named[days[named] <= ordered[-1].effective_date]
+    breaks = 0
+    for a, b in zip(inside[:-1], inside[1:], strict=True):
+        if request[a] == request[b] or not (close[a] > 0 and open_[b] > 0):
+            continue
+        if (days[b] - days[a]).days > _SPLIT_BRACKET_MAX_DAYS:
+            continue
+        edge = math.log(open_[b] / close[a])
+        later = [sp.factor for sp in ordered if sp.effective_date >= days[a]]
+        if any(
+            split_continuity(edge, p, rel_tol) == "double_adjusted" for p in run_products(later)
+        ):
+            breaks += 1
+    return breaks
+
+
 def routed_seam_breaks(
     ts_seconds: np.ndarray,
     open_: np.ndarray,
@@ -800,8 +836,10 @@ def routed_seam_breaks(
     kind: np.ndarray,
     routed: Mapping[tuple[str, str], Sequence[SplitFactor]],
     rel_tol: float,
+    request: np.ndarray | None = None,
 ) -> int:
-    """How many route rows leave canonical 5m discontinuous at their effective date (todo 626).
+    """How many route rows leave canonical 5m discontinuous at their effective date, or at a
+    request boundary of the named series inside the routed span (todo 626).
 
     routed_horizon_stale replays selection's own division, so it cannot see a vendor that restated
     a named series after the row was written: raw is then already on the new scale, selection
@@ -813,10 +851,15 @@ def routed_seam_breaks(
     counted: it is the shape of a real drop at the date (RTX 2020-04-03, the Carrier and Otis
     distribution reads -0.52 against -0.69 for a x2 row), and an unrescaled series is what
     routed_horizon_stale and the 1d guard already judge. A seam with no bar on either side within
-    _SPLIT_BRACKET_MAX_DAYS is not measurable here and is skipped. Not judged: a restatement of only part of the old span (its
-    break sits at the window's edges, inside the span), and the day's real move is not subtracted,
-    so a real overnight rise near the factor's size would read as a break (loud, never silent).
-    Pure; arrays aligned per bar, ascending in time."""
+    _SPLIT_BRACKET_MAX_DAYS is not measurable here and is skipped.
+
+    With `request` (the serving request id per bar), a vendor that restated only part of the old
+    span (last-wins raw) is judged too, as request_boundaries does at 1d: where consecutive bars of
+    the named series on or before the effective session come from different requests, the same
+    step is judged and counted when it reads double_adjusted (the restated window ends and the
+    still-old series resumes: +ln f). A window running to the effective date is the seam above.
+    The day's real move is not subtracted, so a real overnight rise near the factor's size would
+    read as a break (loud, never silent). Pure; arrays aligned per bar, ascending in time."""
     if not ts_seconds.size:
         return 0
     days = pd.to_datetime(ts_seconds, unit="s", utc=True).tz_convert(SESSION_TZ).normalize().date
@@ -826,7 +869,7 @@ def routed_seam_breaks(
         if not named.size:
             continue
         for split in splits:
-            if not (math.isfinite(split.factor) and split.factor > 0 and split.factor != 1):
+            if not _is_scaling(split):
                 continue
             old = named[days[named] <= split.effective_date]
             new = np.flatnonzero(days > split.effective_date)
@@ -840,6 +883,16 @@ def routed_seam_breaks(
             step = math.log(open_[first] / close[last])
             if split_continuity(step, split.factor, rel_tol) == "double_adjusted":
                 breaks += 1
+        if request is not None:
+            breaks += _routed_boundary_breaks(
+                named,
+                days,
+                open_,
+                close,
+                request,
+                [sp for sp in splits if _is_scaling(sp)],
+                rel_tol,
+            )
     return breaks
 
 

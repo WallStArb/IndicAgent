@@ -1421,7 +1421,7 @@ _FIVE_MINUTES = timedelta(minutes=5)
 _MASSIVE_RAW_5M = raw_kind_for_canonical(VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL, "5m")
 _SELECT_5M_SQL = f"""
 SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor, m.kind,
-       r.served_at, r.close AS raw_close
+       r.served_at, r.close AS raw_close, r.request_id
 FROM market_data_ohlcv_tradeable m
 LEFT JOIN ohlcv_raw r
   ON r.symbol = m.symbol AND r.timeframe = m.timeframe
@@ -1577,6 +1577,7 @@ class _FiveMinute:
     massive_vendor: np.ndarray  # bool per bar: vendor massive, whatever its kind
     vendor: np.ndarray  # str per bar: the canonical row's vendor (route rescales, todo 625)
     kind: np.ndarray  # str per bar: the canonical row's kind
+    request: np.ndarray  # per bar: the serving raw row's request id (None without one; todo 626)
 
     @classmethod
     def from_rows(
@@ -1614,6 +1615,7 @@ class _FiveMinute:
             np.array([r["vendor"] == VENDOR_MASSIVE for r in kept], dtype=bool),
             np.array([r["vendor"] for r in kept], dtype=object),
             np.array([r.get("kind") for r in kept], dtype=object),
+            np.array([r.get("request_id") for r in kept], dtype=object),
         )
 
 
@@ -1897,6 +1899,7 @@ def judge_name_intraday(
             five.kind,
             inputs.routed,
             split_continuity_rel_tol,
+            five.request,
         )
     )
     verdicts.append(
