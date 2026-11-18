@@ -306,3 +306,7 @@ cases, ticketed in 624 with witnesses); the six Massive-route rows plus UNIT awa
 ## Result 2026-11-17 (after the 633 apply)
 
 The six Massive-route rows are applied. The disposition file had seven duplicate keys (ACVA, CNO, ECHO, ROKU, SIRI, OII, UAMY) that made the loader raise; the later copies are dropped. Strict sweep: 12 undecided of 610 breaks: FAF 2010-06-02, RTX 2020-04-03, SN 2018-12-06, SN 2023-07-31, SNEX 2020-07-06, SSB 2004-03-09, SVRA x3, THRM 2012-06-13, UNIT 2025-08-04 (all reported) and SW 2016-05-16 (unrecorded_split). The UNIT 0.6029 rows file is not applied: no independent review of it is recorded. Unused dispositions: ATRO 2026-06-15, HLT 2017-01-04 (its break is gone after the HLT row).
+
+## Result 2026-11-17 (todo 624 dispositions applied)
+
+The 9 prepared lines (FAF, SN x2, SSB, SVRA x3, SW, THRM; classes identity and real_move) moved into `sweep_dispositions.csv`. Strict sweep: 3 undecided of 609 breaks: RTX 2020-04-03 (open, untouched), SNEX 2020-07-06 (route row blocked by the existing-row guard; code proposal in todo 624) and SW 2016-05-16 (`unrecorded_split`, an identity line cannot rule it). Counts: identity 6, real_move 562.

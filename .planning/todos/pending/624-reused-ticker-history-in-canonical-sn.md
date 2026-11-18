@@ -104,8 +104,9 @@ names the security's span.
 ## Rulings for the 11 strict A3 sweep breaks (2026-11-17, read-only measurement)
 
 Method: per-vendor raw closes and volumes (Alpaca, IBKR, Massive), Massive `pit_snapshots` names and CIKs, Massive `events`
-ticker_change, and filings or releases. Prepared, not applied: `config/corporate_actions/sweep_dispositions_prepared_2026_11_17_624.csv`
-(9 lines, with a `class` column) and `config/corporate_actions/split_rescale_rows_2026_11_17_624_prepared.csv` (SNEX).
+ticker_change, and filings or releases. The 9 dispositions (with a `class` column) are in `config/corporate_actions/sweep_dispositions.csv` (applied 2026-11-17; the live
+file gained the `class` column, existing lines blank = real_move); the SNEX row file
+`config/corporate_actions/split_rescale_rows_2026_11_17_624_prepared.csv` stays prepared, not applied (see SNEX below).
 
 | Break | Ruling | Basis |
 |---|---|---|
@@ -138,5 +139,18 @@ line would silence the sweep while the cross-issuer series stays in canonical (t
 read by `sweep_dispositions` through the same validation as `operator_list`. `GATE_COUNTS` gains `identity_dispositions` and
 `unused_identity_dispositions`. An identity line rules only an undecided (`reported`) break; a witness-confirmed rescale or a
 one-bar reversal on its day stays unresolved. An identity line whose break is gone fails `--strict` at once (remove the line); the
-live file holds none. Tests cover an unknown class raising, the verdict restriction, the counts and the strict exit 3. Strict passes with all 11 ruled except RTX
-(open) and SNEX (row applied first): 9 dispositions plus the SNEX row leave RTX as the sole undecided break.
+live file holds none. Tests cover an unknown class raising, the verdict restriction, the counts and the strict exit 3. 
+Result 2026-11-17 (strict sweep after the 9 lines): 3 undecided of 609 breaks, 6 identity dispositions counted. Still listed:
+RTX 2020-04-03 (open, untouched), SNEX 2020-07-06 and SW 2016-05-16. SW is an `unrecorded_split` verdict, so its identity line
+does not rule it (an identity line rules only `reported`); the line stays in the file as the evidence record and the break stays
+listed until the identity map cuts at 2024-07-08.
+
+SNEX: canonical now reads Alpaca to 2020-07-02 (7.326, 2/3 of IBKR 11.7) then Massive adjusted from 2020-07-06 (11.698); across
+2023-11-24 canonical is continuous (Massive adjusted 18.566 to 18.287), so the existing massive_reference 1.5 row is correct for
+the Massive span and the only defect is Alpaca's pre-2020-07-06 level, one extra 3-for-2. The prepared route row (factor
+0.6667, unadjusted_routes alpaca/sip_rth, effective 2023-11-24) is the right record (it is how a wrongly adjusted route is
+recorded, `detail.unadjusted_routes`, as for CLBK) but `--apply-rows --commit` dry-runs "would write 0 of 1": `_apply_decided`
+refuses any existing row within SAME_EVENT_DAYS, and the 1.5 market row is one. An identity or real_move disposition would be
+dishonest (a vendor level error). Proposal (code, not made here): in `_apply_decided`, a row that names `unadjusted_routes` and
+is a non-market operator row is blocked only by an existing row that names the same route, not by an unrelated market row; or
+the operator rows path passes `market_splits_only` inverted. Needs review, tests, then apply and reselect SNEX only.

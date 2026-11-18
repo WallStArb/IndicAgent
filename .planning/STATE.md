@@ -78,8 +78,9 @@ Next, in order:
    that series in selection, and `split_horizon_fresh` judges them (todo 625 closed); the CLBK 2026-07-20 row (2.2) is
    applied and CLBK 5m is continuous; ATRO 2026-06-15 is a Class B distribution with a disposition and no row.
    The six Massive-route rows (ENOV, MSI, HON, HLT, MDU x2; todo 633) are applied and the five names reselected (1d, 5m, grid;
-   5m compare gate 0 real differences); the A3 sweep (2026-11-17) leaves 11 undecided breaks, 10 reported (identity and seam
-   cases of todo 624; UNIT 2025-08-04 closed by an independently reviewed 0.6029 row, reselected) and one unrecorded_split (SW 2016-05-16).
+   5m compare gate 0 real differences); the A3 sweep (2026-11-17) leaves 3 undecided breaks: RTX 2020-04-03 (open),
+   SNEX 2020-07-06 (Alpaca double adjustment; route row blocked by the existing-row guard, code proposal in todo 624) and SW 2016-05-16
+   (unrecorded_split); UNIT 2025-08-04 closed by an independently reviewed 0.6029 row, reselected; nine 624 dispositions applied.
    Open: todo 624 (reused tickers, the pit map owns identity), todo 626 (route row double scaling and a 5m seam check).
 3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
 4. A3 sweep run (`ops_split_calendar_audit --sweep --witness yahoo --strict --dispositions config/corporate_actions/sweep_dispositions.csv`) against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
