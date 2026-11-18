@@ -59,9 +59,9 @@ RULE_ID = "stage2-2026-11-15"
 # (services/corpus_universe.py) and by the research snapshot (research/snapshot.py), so the
 # corpus and the IC panel cannot diverge on the name set (todo 609 I1).
 LEDGER_SUMMARY_SQL = (
-    "SELECT count(*), count(DISTINCT rule_id), max(as_of), min(rule_id) "
-    "FROM universe_membership_build"
+    "SELECT count(*), count(DISTINCT rule_id), max(as_of) FROM universe_membership_build"
 )
+LEDGER_RULE_ID_SQL = "SELECT min(rule_id) FROM universe_membership_build"
 EVER_MEMBER_SQL = "SELECT symbol FROM universe_membership"
 EVER_TIER_5M_SQL = "SELECT symbol FROM universe_membership WHERE tier_5m"
 

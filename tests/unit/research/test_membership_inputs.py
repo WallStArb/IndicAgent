@@ -15,10 +15,13 @@ D = dt.date
 class _Pool:
     def __init__(self, ledger, rows, seen=("OLD",), summary=None):
         self.ledger, self.rows, self.seen = ledger, rows, seen
-        self.summary = summary or (len(ledger), 1, max(ledger, default=None), "rule-x")
+        self.summary = summary or (len(ledger), 1, max(ledger, default=None))
 
     async def fetchrow(self, sql, *args):
         return self.summary
+
+    async def fetchval(self, sql, *args):
+        return "rule-x"
 
     async def fetch(self, sql, *args):
         if sql == snapshot._LEDGER_ROWS_SQL:
@@ -103,9 +106,9 @@ def test_core_keeps_names_that_are_members_at_ninety_percent_of_the_span(monkeyp
 
 def test_an_empty_ledger_refuses_and_so_does_a_mixed_rule_ledger(monkeypatch):
     with pytest.raises(ValueError, match="no built month-end"):
-        _read(monkeypatch, _Pool([], [], summary=(0, 0, None, None)))
+        _read(monkeypatch, _Pool([], [], summary=(0, 0, None)))
     with pytest.raises(ValueError, match="mixes 2 rule ids"):
-        _read(monkeypatch, _Pool(LEDGER, ROWS, summary=(2, 2, LEDGER[1], "rule-x")))
+        _read(monkeypatch, _Pool(LEDGER, ROWS, summary=(2, 2, LEDGER[1])))
 
 
 def test_unknown_universe_and_exclusion_refuse(monkeypatch):

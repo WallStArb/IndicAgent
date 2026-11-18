@@ -49,7 +49,7 @@ def corpus_universe(conn: Any, *, intraday: bool = False) -> list[Instrument]:
     """
     with conn.cursor() as cur:
         cur.execute(LEDGER_SUMMARY_SQL)
-        months, rules, last, _ = cur.fetchone()
+        months, rules, last = cur.fetchone()
         if not months:
             raise UniverseMembershipEmptyError(
                 "universe_membership has no built month-end; run "

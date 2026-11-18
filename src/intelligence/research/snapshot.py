@@ -460,7 +460,7 @@ async def membership_inputs(
         raise ValueError(f"unknown universe exclusion {exclusion!r}; one of {sorted(EXCLUSIONS)}")
     pool = await read_only_pool(dsn)
     try:
-        months, rules, last, rule_id = await pool.fetchrow(universe_membership.LEDGER_SUMMARY_SQL)
+        months, rules, last = await pool.fetchrow(universe_membership.LEDGER_SUMMARY_SQL)
         if not months:
             raise ValueError(
                 "universe_membership has no built month-end; run "
@@ -468,6 +468,7 @@ async def membership_inputs(
             )
         if rules != 1:
             raise ValueError(f"universe_membership_build mixes {rules} rule ids (last {last})")
+        rule_id = await pool.fetchval(universe_membership.LEDGER_RULE_ID_SQL)
         built = [r["as_of"] for r in await pool.fetch(_LEDGER_ROWS_SQL)]
         rows = await pool.fetch(_MEMBER_ROWS_SQL)
         excluded = [] if exclusion is None else await EXCLUSIONS[exclusion](pool)
