@@ -100,3 +100,43 @@ names the security's span.
   2006-12-29 under SSB that are not SouthState (IBKR holds 30 throughout since 1999).
 - THRM: Thermage, Inc. (delisted 2009-01-12) to 2011-12-30, Gentherm Inc (CIK 0000903129, formerly Amerigon, ARGN) from
   2012-12-31 and from the break date 2012-06-13. Canonical holds Thermage bars 2006-11-10 to 2009-01-09, then nothing until 2012-06-13.
+
+## Rulings for the 11 strict A3 sweep breaks (2026-11-17, read-only measurement)
+
+Method: per-vendor raw closes and volumes (Alpaca, IBKR, Massive), Massive `pit_snapshots` names and CIKs, Massive `events`
+ticker_change, and filings or releases. Prepared, not applied: `config/corporate_actions/sweep_dispositions_prepared_2026_11_17_624.csv`
+(9 lines, with a `class` column) and `config/corporate_actions/split_rescale_rows_2026_11_17_624_prepared.csv` (SNEX).
+
+| Break | Ruling | Basis |
+|---|---|---|
+| FAF 2010-06-02 | identity (reused ticker, spin-off child) | parent CIK 0000855182 bars to 2010-06-01; FAF is CIK 0001472787 from 2010-06-02 |
+| SN 2018-12-06, 2023-07-31 | identity (reused ticker) | Sanchez Energy 0001528837 vs SharkNinja 0001957132; both steps vanish at the cut 2023-07-31 |
+| THRM 2012-06-13 | identity (reused ticker) | Thermage bars 2006-11 to 2009-01; Gentherm 0000903129 from 2012-06-13 |
+| SW 2016-05-16 | identity (no existence before 2024-07-08) | Smurfit Westrock plc 0002005951 listed 2024-07-08; Alpaca's earlier SW bars are other issuers (a 255 series, then a WestRock-like series; WRK holds no bars here, so not provable) |
+| SSB 2004-03-09 | identity for 2003-09-11 to 2004-03-08 only; open question 2 | note bars at 8.4 (volume 300 to 2100); from 2004-03-09 Massive equals IBKR, the South State series |
+| SVRA 2016-02-10, 2016-09-21, 2017-01-09 | real moves, not identity | same CIK 0001160308 (Mast renamed Savara, 1-for-70, MSTX to SVRA 2017-04-28); 2016-09-21 is the EPIC trial failure, 2017-01-09 the merger announcement; 2016-02-10 has no catalyst found; Alpaca and IBKR venue_arca agree on all three |
+| SNEX 2020-07-06 | not identity; vendor level error, row prepared | same CIK 0000913760; Alpaca is 0.6667 of IBKR on 1,987 sessions before 2023-11-24, equal after; Massive and IBKR agree with the calendar; Alpaca holds one extra 3-for-2 |
+| RTX 2020-04-03 | not identity; open question 1 | same CIK 0000101829 (UTX renamed, ticker change 2020-04-03); Alpaca is 3.391 x IBKR on 1,070 sessions (3.3906 to 3.4027) |
+
+Open questions (lead or owner):
+
+1. RTX: no row is prepared. The constant 3.391 is not the reverse split (1.589) times anything an event explains here, UTX holds
+   no raw bars, and Massive starts 2020-04-03, so no second witness exists for Alpaca's 2016 to 2020-04-02 level once IBKR is
+   deleted at Part F. A rescale by the measured ratio would also absorb the Carrier and Otis distribution, which the
+   spin-off rule says stays a real move. Recommendation: before Part F, fetch the as-traded UTX closes (a filing or exchange
+   source), decide whether Alpaca's pre-2020-04-03 bars are usable; if not, exclude them through the identity map's span for
+   RTX (start 2020-04-03) and record the loss. Then the distribution disposition prepared in 629 applies.
+2. SSB: the pit map lists the structured note as the SSB holder to 2014-05-30 and South State from 2014-06-30, which contradicts
+   ten years of matching Massive and IBKR South State prices (24.90 in 2009, 71.81 in 2016). If the map owns the cut literally,
+   it would exclude valid history. Recommendation: the span source is the bar evidence, cut 2004-03-09, and the map records a
+   known pit gap for SSB. Also the pit lists CIK 0000935113 for AMERIGON in three 2012 snapshots against Gentherm 0000903129
+   (THRM); the identity key needs the CIK of the entity, not the name.
+
+Gate finding: `sweep_dispositions.csv` has no identity class. `operator_list` returns (symbol, date) to reason and any line with a
+reason and evidence rules the break, so an identity line silences the sweep while the cross-issuer series stays in canonical (the
+failure this todo exists to prevent). Minimal change (specified, not implemented): an optional `class` column read for the
+sweep dispositions only (`real_move` default, `identity`); `GATE_COUNTS` gains `identity_dispositions`, printed and not a failure
+while the mechanism is unbuilt; once the map cut lands, an identity line whose break is gone is an `unused_dispositions` entry
+that fails `--strict`, which forces the lines out. Tests: a line with an unknown class raises; an identity line rules its break and
+is counted; an unused identity line fails strict after the mechanism flag is set. Strict passes with all 11 ruled except RTX
+(open) and SNEX (row applied first): 9 dispositions plus the SNEX row leave RTX as the sole undecided break.
