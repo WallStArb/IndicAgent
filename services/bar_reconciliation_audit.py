@@ -1773,7 +1773,7 @@ def judge_name_intraday(
     only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count
     outside the D7 dated exceptions, None when no bucket was comparable.
 
-    split_horizon_fresh also counts a route row's canonical 5m seam that is not continuous
+    split_horizon_fresh also counts a route row's canonical 5m seam that reads double adjusted
     (routed_seam_breaks, todo 626): the guard against a vendor restating a named series."""
 
     def timed(check: str, started: float) -> None:

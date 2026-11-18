@@ -169,6 +169,9 @@ ALPACA_5M = VendorIngress(
 MASSIVE_MANIFEST = Path("data/massive/manifest/manifest.jsonl")
 
 
+MASSIVE_FILES_ROOT = Path("data/massive/files")
+
+
 class ArchiveManifestError(ValueError):
     """The Massive downloader manifest is missing or holds no file day."""
 
@@ -187,9 +190,6 @@ def last_file_day(manifest: bytes, dataset: str | None = None) -> date:
     if not stamps:
         raise ArchiveManifestError("the archive manifest is empty")
     return max(stamps)
-
-
-MASSIVE_FILES_ROOT = Path("data/massive/files")
 
 
 def massive_day_file(artifact: Path) -> Path:

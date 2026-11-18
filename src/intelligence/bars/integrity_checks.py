@@ -812,11 +812,11 @@ def routed_seam_breaks(
     double_adjusted (a step of +ln f: the series was divided twice). The unadjusted reading is not
     counted: it is the shape of a real drop at the date (RTX 2020-04-03, the Carrier and Otis
     distribution reads -0.52 against -0.69 for a x2 row), and an unrescaled series is what
-    routed_horizon_stale and the 1d guard already judge. A seam with no bar on either side within _SPLIT_BRACKET_MAX_DAYS is not
-    measurable here and is skipped. Not judged: a restatement of only part of the old span (its
+    routed_horizon_stale and the 1d guard already judge. A seam with no bar on either side within
+    _SPLIT_BRACKET_MAX_DAYS is not measurable here and is skipped. Not judged: a restatement of only part of the old span (its
     break sits at the window's edges, inside the span), and the day's real move is not subtracted,
-    so a real overnight rise near the factor's size would read as a break (loud, never silent). Pure;
-    arrays aligned per bar, ascending in time."""
+    so a real overnight rise near the factor's size would read as a break (loud, never silent).
+    Pure; arrays aligned per bar, ascending in time."""
     if not ts_seconds.size:
         return 0
     days = pd.to_datetime(ts_seconds, unit="s", utc=True).tz_convert(SESSION_TZ).normalize().date
