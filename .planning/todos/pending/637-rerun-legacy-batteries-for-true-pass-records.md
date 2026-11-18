@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P3
+priority: P2
 filed: 2026-11-18
 source: stored battery pass records (todo 635 review, lead ruling 2026-11-18): the legacy families run under a waiver table, not a record
 ---
@@ -9,7 +9,7 @@ source: stored battery pass records (todo 635 review, lead ruling 2026-11-18): t
 
 ## What
 
-`runner.static_gate` now requires, for a real or exploration run, a recorded battery pass (`research/battery_passes/`, `battery_pass.require`). Family 1 (four specs), the intraday periodicity family and family 2 have recorded real runs whose E17 batteries passed, but the evidence is ledger prose with no result file, so they run under `battery_pass.LEGACY_WAIVERS` (one row per spec input hash, each citing its ledger E17 entry).
+`runner.static_gate` now requires, for a real or exploration run, a recorded battery pass (`research/battery_passes/`, `battery_pass.require`). Family 1 (four specs), the intraday periodicity family and family 2 have E17 batteries whose passes are ledger prose with no result file, so they have no pass record; under `battery_pass.LEGACY_WAIVERS` (one row per spec input hash, each citing its ledger E17 entry).
 
 ## Done when
 
@@ -18,4 +18,4 @@ source: stored battery pass records (todo 635 review, lead ruling 2026-11-18): t
 
 ## Not before
 
-The cores are free. Not on the critical path: the waivers keep every recorded family runnable until then, and an amended or new spec never gets a waiver.
+A real run of any of these families. Not on the critical path of the first counted daily family (the daily residual and H-C records come from todos 636 and 635); the first real run of family 1, periodicity or family 2 needs its record first.
