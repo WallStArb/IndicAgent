@@ -1314,3 +1314,29 @@ IBKR raw. A pre-2003 tape question has only the retained rows.
 
 **Pre-registered?** Yes. It is a retention decision made before the delete runs and not a response to a result of the
 machinery it modifies; it adds no look and changes no gate, threshold or return definition.
+
+
+### E23: 2026-11-18 (ADOPTED 2026-11-18, owner decision taken through the lead): registration of three published-prior families on the stage 2 universe (12 series)
+
+- **Source:** `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`.
+- **Entry:** Registration of three published-prior families on the stage 2 universe. Counted design choices: the `universe_membership` and core panels as the family universe (two series per member), the seen-name holdout, h = 5 only, the S1-residual transfers of H-A and H-C, the pinned directions, StepM detection at 0.05 as the only pass. Looks declared: 12 series (section 4). Pre-registered by construction: no real-data number exists. Moves no recorded spec hash; `repro_frozen` bit-identical. Further counted design choices recorded 2026-11-18 (build items I1, B-U, B-H): S1 is fitted on the names seen as members on or before each date (first membership onward), membership gates alpha and target only, and non-member same-day returns of already-seen names enter S1's market and group means (point in time); an entrant's residual history starts at its first membership, and the share of member-days not yet warm because of entry is measured per year and disclosed at the membership build; `universe_membership_core` is defined over the span's month-ends, so a name's core status at t depends on months after t: core is a fixed robustness panel and never a selection basis for a counted family, and a family registered on core alone needs a separate counted amendment; M3's continuity rank is taken over every name with a finite ID on row d, including a name whose residual is NaN on d or that is not a member that day (masked afterwards); the H-C pinned values are max_missing_fraction 0.25, lags 5, min_lags 3, window_months 60, with declared memory read from `seasonality.slot_history_sessions(60)` (1,403 sessions) plus S1's 273, so the "about 1,260 plus 273" estimate above is superseded by the measured reach (1,324 and 1,297 sessions); the effective tested span is about 11 years, not 17, because E17's memory L = 1,408 sessions delays the first tested session to 2014-12-29, and the H-C sub-periods are 2015-01-02 to 2018-12-31, 2019 to 2022 and 2023-01-01 to 2025-12-23.
+- **Adoption note:** recorded before any real-data number exists. It moves no recorded spec hash. A run still needs the E17 battery pass for its inputs and the E21 clean-data lift.
+
+### E24: 2026-11-18 (ADOPTED 2026-11-18, owner decision taken through the lead): registration of family 10, the daily volume-shock members (4 series)
+
+- **Source:** `docs/plans/2026-11-15-family10-volume-shock-prereg-draft.md`.
+- **Entry:** Registration of family 10's two daily-clock volume-shock members on the stage 2 universe. Counted design choices: the 50-session and 5-session windows, the cross-sectional orthogonalization to the same-session return and its absolute value (a transfer of the paper's condition), the 40-of-50 positive-volume rule, the membership and core panels (two series per member), the seen-name holdout, h = 5 only, StepM detection at 0.05 as the only pass. Looks declared: 4 series (section 5). Pre-registered by construction: no real-data number exists. Moves no recorded spec hash.
+- **Adoption note:** recorded before any real-data number exists. It moves no recorded spec hash. A run still needs the E17 battery pass for its inputs and the E21 clean-data lift.
+
+### E26: 2026-11-18 (ADOPTED 2026-11-18, owner decision taken through the lead): registration of family 9, 52-week-high anchoring (1 member, 2 series)
+
+- **Source:** `docs/plans/2026-11-15-family9-52week-high-prereg-draft.md`.
+- **Entry:** Registration of family 9's one 52-week-high member on the stage 2 universe. Counted design choices: the single member F1 (the ledger's seven pending members reduced to one by Musk step 1), the 252-session window and the 240-of-252 finite rule, the total-return close, the pinned positive sign against the seen opposite-sign corpus look, the membership and core panels (two series), the seen-name holdout, h = 5 only, StepM detection at 0.05 as the only pass. Looks declared: 2 series (section 5). Pre-registered by construction: no real-data number exists. Moves no recorded spec hash.
+- **Adoption note:** recorded before any real-data number exists. It moves no recorded spec hash. A run still needs the E17 battery pass for its inputs and the E21 clean-data lift.
+
+### Amendments A1 and A2 to the daily residual family: 2026-11-18 (ADOPTED 2026-11-18, adoption delegated to the lead)
+
+- **Source:** `docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md` section 10 and `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md` (H-A).
+- **A1:** the family universe moves from `daily_unseen` (1,269 names) to the stage 2 membership panels, primary `universe_membership` and core `universe_membership_core`, each member a counted series on each panel; the seen-name list stays a pinned exclusion. **A2:** a sixth member M3 `residual_momentum_12_1_continuity` (sign +1, slot history 252, declared memory 525). Attempts: six members times two panels, 12 looks.
+- **Machine form:** `research/specs/daily_residual_h5.yaml` and `daily_residual_h5_core.yaml`, spec hashes `de9bc2ac6d71` and `f97c5b4baa5e` (sha1 prefixes of the files at adoption).
+- **Status:** recorded before any real-data number exists. The family cannot run until its E17 battery pass is bound (todo 636, block3) and the E21 clean-data lift is given; A1 also depends on the membership build (todo 609). The size-gate history is the E17 amendment of 2026-11-18, not text in the prereg.

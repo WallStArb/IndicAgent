@@ -68,8 +68,7 @@ feature and IC work can start; every session and worker assignment is picked by 
 clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
 
 Next, in order:
-1. Part F (`run_partf.sh`; dry run clean 2026-11-17: 364,679,171 raw, 4,349,018 revision, 98,399 ask rows to delete; owner's go, then `PARTF_CONFIRM=delete-ibkr-raw` detached;
-   `docs/operations/massive-step7-runbook.md`).
+1. Part F is done (2026-11-18, lead): IBKR raw at or after 2003-09-10 is 0, the 672,245 earlier rows stay, the 5m selection gate met the B3 criteria; the closing card compare ran by hand with `--from 2003-09-01` and every difference is a 2026-11 Alpaca month or one of 18 names reselected after `card_after`. Timers restored; the Alpaca catch-up nightly and derivation re-run is in progress.
 2. Data layer state: the pit ticker map migration 601 is applied and its rehearsal 2 passed (the apply of the stage 2
    instrument writer is not run; decide when stage 2 is ready). The A3 sweep gate (`--strict`, Yahoo witness; the Massive
    witness is refused) is on main with `config/corporate_actions/sweep_dispositions.csv`. Vulture and the CI mypy
@@ -115,11 +114,7 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
-- Pending adoptions (list in `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, lead recommends adopt for each):
-  the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout, A1 (daily residual universe), A2 (sixth member)
-  the E23 ledger entry for the three published-prior families, and the family 9 registration with E26
-  (`docs/plans/2026-11-15-family9-52week-high-prereg-draft.md`), and the stage 2 closed-list membership amendment for months after the
-  last Massive list (`docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md`). Nothing is built or run until adopted.
+- Adopted 2026-11-18 (owner decision through the lead, ledger entries written): A1, A2 (daily residual), E23, E24, E26. Still to record: the pit-anchor identity amendment, the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout and the closed-list membership amendment after archive end (`docs/plans/2026-11-16-609-owner-gates-summary.md`, items 1 to 4; lead recommends adopt for each). The family 10 and 9 and the published-prior families still need their E17 battery passes and the E21 lift before any run.
 - Todo 600 item 1: keep or drop the HX370 copy of the Massive archive.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members
   (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
