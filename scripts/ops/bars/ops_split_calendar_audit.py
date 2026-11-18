@@ -135,7 +135,11 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     VENDOR_IBKR,
     rescale_routes,
 )
-from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions  # noqa: E402
+from src.intelligence.bars.split_rescale import (  # noqa: E402
+    SplitFactor,
+    scales_for_sessions,
+    split_row_routes,
+)
 from src.intelligence.bars.vendor_kind import VENDOR_MASSIVE  # noqa: E402
 from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
 
@@ -906,19 +910,17 @@ def check_redate(row: Mapping[str, Any], current: Sequence[Any] | None) -> None:
         raise ValueError(f"{where} is dated {effective}, outside the same event")
 
 
-def _route_keys(routes: Sequence[Mapping[str, str]] | None) -> set[tuple[str, str]]:
-    """The (vendor, kind) pairs a row's detail.unadjusted_routes names; none when it names none."""
-    return {(r["vendor"], r["kind"]) for r in routes or ()}
-
-
 def _decides(
-    existing: Sequence[Any], named: set[tuple[str, str]], route_scoped: bool, market_only: bool
+    existing: Sequence[Any],
+    named: frozenset[tuple[str, str]],
+    route_scoped: bool,
+    market_only: bool,
 ) -> bool:
     """Whether an _EXISTING_SQL row blocks the insert: a route-scoped row is blocked by a row
     naming one of its routes (a row naming none, or others, decides nothing about them); else
     by any row, or by a market split only when market_only."""
     if route_scoped:
-        return bool(named & _route_keys(existing[6]))
+        return bool(named & split_row_routes(existing[6]))
     return not market_only or is_market_split(existing[3], operator_rows_file=existing[4])
 
 
@@ -964,7 +966,7 @@ def _apply_decided(
                 cur.execute(_CURRENT_SQL, (replaced,))
                 check_redate(row, cur.fetchone())
             market_row = row.get("inferred_by") == CALENDAR_MARKET_SOURCE
-            named = _route_keys(row["detail"].get("unadjusted_routes"))
+            named = split_row_routes(row["detail"].get("unadjusted_routes"))
             existing = [
                 e
                 for e in nearby
