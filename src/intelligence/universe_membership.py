@@ -55,13 +55,17 @@ from src.intelligence.bars.split_rescale import SplitFactor
 # this id; the build ledger refuses to extend a build made under another id.
 RULE_ID = "stage2-2026-11-15"
 
+# Amendment 2026-11-18 (closed list): L is the last month-end ticker list Massive captured. A
+# month-end after L has no list of its own, so its candidates and their types are the ones the list
+# at L placed (an entrant is never admitted) and its ledger rows carry CLOSED_LIST_RULE_ID. L is a
+# pre-registered constant like the floors above, not an APR key; moving it is a dated amendment.
+LAST_LIST_DATE = date(2026, 11, 9)
+CLOSED_LIST_RULE_ID = "stage2-closed-list"
+
 # One definition of "ever a member" and of the build ledger, read by the corpus universe
 # (services/corpus_universe.py) and by the research snapshot (research/snapshot.py), so the
 # corpus and the IC panel cannot diverge on the name set (todo 609 I1).
-LEDGER_SUMMARY_SQL = (
-    "SELECT count(*), count(DISTINCT rule_id), max(as_of) FROM universe_membership_build"
-)
-LEDGER_RULE_ID_SQL = "SELECT min(rule_id) FROM universe_membership_build"
+LEDGER_ROWS_SQL = "SELECT as_of, rule_id FROM universe_membership_build ORDER BY as_of"
 EVER_MEMBER_SQL = "SELECT symbol FROM universe_membership"
 # The one tier predicate: the corpus's ever-in-the-tier list and the research tier rows are both built
 # from it, so a change to it moves both (a test compares them).
@@ -71,6 +75,38 @@ TIER_MEMBER_ROWS_SQL = (
     f"SELECT as_of, symbol FROM universe_membership WHERE {TIER_5M_PREDICATE} "
     "ORDER BY as_of, symbol"
 )
+
+
+def rule_id_for(as_of: date) -> str:
+    """The rule id a ledger row of month-end `as_of` carries: the Massive-listed rule at or before
+    L, the closed-list rule after it."""
+    return RULE_ID if as_of <= LAST_LIST_DATE else CLOSED_LIST_RULE_ID
+
+
+def type_list_date(as_of: date) -> date:
+    """The date of the ticker list that decides types and candidates at month-end `as_of`: its own
+    list up to L, the list at L after it."""
+    return min(as_of, LAST_LIST_DATE)
+
+
+def ledger_rule_problem(ledger: Iterable[tuple[date, str]]) -> str | None:
+    """Why the build ledger's rule ids are off the schedule (`rule_id_for` of each month-end), or
+    None. A closed-list month at or before L and a Massive-listed month after it are both refused.
+    """
+    for as_of, rule_id in ledger:
+        if rule_id != rule_id_for(as_of):
+            return (
+                f"ledger month {as_of} was built under rule {rule_id!r}, "
+                f"not the scheduled {rule_id_for(as_of)!r}"
+            )
+    return None
+
+
+def ledger_rule_label(ledger: Iterable[tuple[date, str]]) -> str:
+    """The rule ids of a ledger as one label: the single id of a one-rule ledger, else the sorted
+    distinct ids joined by '+' (what a snapshot manifest records)."""
+    return "+".join(sorted({rule_id for _, rule_id in ledger}))
+
 
 # First day of the Massive archive; the first month-end considered.
 ARCHIVE_START = date(2003, 9, 10)

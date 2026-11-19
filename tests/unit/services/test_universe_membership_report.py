@@ -39,8 +39,17 @@ def test_the_preregistered_ledger_passes():
 
 def test_another_rule_id_is_refused():
     other = [(m, "other-rule", n) for m, _, n in LEDGER]
-    with pytest.raises(rep.MembershipReportRefused, match="differ from the preregistered"):
+    with pytest.raises(rep.MembershipReportRefused, match="differs from the preregistered"):
         _check(other)
+
+
+def test_the_closed_list_rule_is_scheduled_after_L_and_refused_at_or_before_it():
+    from src.intelligence.universe_membership import LAST_LIST_DATE
+
+    before = [(m, "stage2-closed-list", n) for m, _, n in LEDGER[:1]]
+    assert LEDGER[0][0] <= LAST_LIST_DATE
+    with pytest.raises(rep.MembershipReportRefused, match="differs from the preregistered"):
+        _check(before + LEDGER[1:])
 
 
 def test_a_missing_or_extra_month_is_refused():

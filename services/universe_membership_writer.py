@@ -10,8 +10,11 @@ row per month-end in a single transaction.
 
 Inputs are pinned by `--through DAY`: every NYSE month-end up to and including DAY that is not
 yet in the ledger is built, in order, from bars strictly before DAY + 1. A resumed build seeds
-its hysteresis state from the last built month and refuses to extend a build made under another
-rule id. The run fails loudly, writing nothing, on: a month-end whose snapshot capture is not
+its hysteresis state from the last built month and refuses to extend a ledger whose rule ids are
+off the schedule (`rule_id_for`). A month-end after L = 2026-11-09 has no list of its own: its
+candidates and types are the list at L (the closed list, rule id `stage2-closed-list`, amendment
+2026-11-18), so a name that list did not place is never a member. Such a month is refused until a later canonical
+1d bar exists (its own bars may still be arriving). The run fails loudly, writing nothing, on: a month-end whose snapshot capture is not
 complete (both lists, contiguous pages, last page without next_url, status OK); no inactive name
 among the placed symbols (a survivor-only build); an empty month once any built month had
 members. The price test uses the as-traded close: canonical closes are un-adjusted by every
@@ -55,12 +58,16 @@ from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.split_rescale import SplitFactor
 from src.intelligence.universe_membership import (
     ARCHIVE_START,
+    LAST_LIST_DATE,
     RULE,
     RULE_ID,
     MembershipRow,
     SecurityHistory,
+    ledger_rule_problem,
     memberships_for_security,
     month_end_sessions,
+    rule_id_for,
+    type_list_date,
 )
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -109,6 +116,14 @@ SELECT ca.symbol, max(ca.recorded_at) AS latest_action, d.computed_at AS latest_
  GROUP BY ca.symbol, d.computed_at
 HAVING d.computed_at IS NULL OR max(ca.recorded_at) > d.computed_at
  ORDER BY ca.symbol
+"""
+# A month-end after L has no list of its own, so no capture check says its bars have arrived: a
+# later canonical 1d bar stands in for it (the nightly that loaded the next session also answered
+# the month-end's window), and the build refuses without one. Bars arrive per session, so a
+# half-loaded month-end would turn the names still missing a bar into non-members for good.
+_LATER_BAR_SQL = """
+SELECT EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable
+                WHERE timeframe = '1d' AND "timestamp" >= $1)
 """
 _MEMBERS_AT_SQL = "SELECT symbol, tier_5m FROM universe_membership WHERE as_of = $1"
 # Every page of the month-end's two snapshot lists (`<date>@active` and `<date>@inactive`).
@@ -246,9 +261,9 @@ class UniverseMembershipWriter(BaseBatch):
 
     async def _build_and_write(self, conn: asyncpg.Connection) -> bool:
         ledger = await conn.fetch(_LEDGER_SQL)
-        foreign = sorted({r["rule_id"] for r in ledger} - {RULE_ID})
-        if foreign:
-            raise RuntimeError(f"ledger holds months built under rule {foreign}, not {RULE_ID}")
+        problem = ledger_rule_problem((r["as_of"], r["rule_id"]) for r in ledger)
+        if problem:
+            raise RuntimeError(problem)
         built = [r["as_of"] for r in ledger]
         had_members = any(r["n_members"] > 0 for r in ledger)
         month_ends = month_ends_through(self._through)
@@ -261,6 +276,14 @@ class UniverseMembershipWriter(BaseBatch):
             self.logger.info("universe_membership.up_to_date", through=str(self._through))
             return False
 
+        after_l = [m for m in todo if m > LAST_LIST_DATE]
+        if after_l:
+            next_day = datetime.combine(after_l[-1] + timedelta(days=1), time.min, tzinfo=UTC)
+            if not await conn.fetchval(_LATER_BAR_SQL, next_day):
+                raise RuntimeError(
+                    f"no canonical 1d bar after month-end {after_l[-1]}: its bars may be "
+                    "incomplete, and a month built on them cannot be corrected; nothing written"
+                )
         types = await self._types(conn, todo)
         seed = {
             r["symbol"]: r["tier_5m"]
@@ -321,7 +344,7 @@ class UniverseMembershipWriter(BaseBatch):
             )
         await conn.executemany(
             "INSERT INTO universe_membership_build (as_of, rule_id, n_members) VALUES ($1, $2, $3)",
-            [(m, RULE_ID, counts[m]) for m in todo],
+            [(m, rule_id_for(m), counts[m]) for m in todo],
         )
         await conn.copy_records_to_table(
             "universe_membership",
@@ -410,18 +433,24 @@ class UniverseMembershipWriter(BaseBatch):
     async def _types(
         conn: asyncpg.Connection, month_ends: Sequence[date]
     ) -> dict[date, dict[str, str]]:
-        """Type by symbol for each month-end; a month-end with no captured snapshot raises."""
-        out: dict[date, dict[str, str]] = {}
+        """Type by symbol for each month-end, read from the list that decides it (its own, or the
+        list at L after L: the closed list). A list that was not captured completely raises."""
+        by_list: dict[date, dict[str, str]] = {}
         for as_of in month_ends:
-            problem = snapshot_problem(as_of, await conn.fetch(_SNAPSHOT_PAGES_SQL, as_of))
+            list_date = type_list_date(as_of)
+            if list_date in by_list:
+                continue
+            problem = snapshot_problem(list_date, await conn.fetch(_SNAPSHOT_PAGES_SQL, list_date))
             if problem:
-                raise RuntimeError(f"pit_snapshots for month-end {as_of}: {problem}")
+                raise RuntimeError(
+                    f"pit_snapshots for list {list_date} (month-end {as_of}): {problem}"
+                )
             found: dict[str, str] = {}
-            for row in await conn.fetch(_TYPES_SQL, as_of):
+            for row in await conn.fetch(_TYPES_SQL, list_date):
                 if row["security_type"]:
                     found.setdefault(row["symbol"], row["security_type"])
-            out[as_of] = found
-        return out
+            by_list[list_date] = found
+        return {as_of: by_list[type_list_date(as_of)] for as_of in month_ends}
 
 
 def main() -> None:

@@ -9,14 +9,21 @@ import pytest
 
 from src.intelligence.bars.split_rescale import SplitFactor
 from src.intelligence.universe_membership import (
+    CLOSED_LIST_RULE_ID,
     ELIGIBLE_TYPES,
+    LAST_LIST_DATE,
     RULE,
+    RULE_ID,
     MembershipRule,
     SecurityHistory,
     as_traded_close,
     decide,
+    ledger_rule_label,
+    ledger_rule_problem,
     memberships_for_security,
     month_end_sessions,
+    rule_id_for,
+    type_list_date,
 )
 
 START = date(2020, 1, 6)
@@ -270,3 +277,54 @@ def test_walk_seed_resumes_the_tier_state():
         0
     ].tier_5m
     assert not memberships_for_security(hist, [days[-1]], types, was_member=True)[0].tier_5m
+
+
+# --- closed list (amendment 2026-11-18) --------------------------------------------------------
+
+
+def test_L_and_the_closed_list_id_are_the_amendments_constants():
+    assert LAST_LIST_DATE == date(2026, 11, 9)
+    assert CLOSED_LIST_RULE_ID == "stage2-closed-list"
+    assert RULE_ID == "stage2-2026-11-15"  # the Massive-listed months keep their id
+
+
+@pytest.mark.parametrize(
+    "as_of, rule_id, list_date",
+    [
+        (date(2003, 9, 30), RULE_ID, date(2003, 9, 30)),
+        (date(2026, 10, 30), RULE_ID, date(2026, 10, 30)),
+        (LAST_LIST_DATE, RULE_ID, LAST_LIST_DATE),  # at L: the old rule
+        (date(2026, 11, 10), CLOSED_LIST_RULE_ID, LAST_LIST_DATE),
+        (date(2026, 11, 30), CLOSED_LIST_RULE_ID, LAST_LIST_DATE),
+        (date(2031, 1, 31), CLOSED_LIST_RULE_ID, LAST_LIST_DATE),
+    ],
+)
+def test_the_schedule_is_a_pure_function_of_the_month_end(as_of, rule_id, list_date):
+    assert rule_id_for(as_of) == rule_id
+    assert type_list_date(as_of) == list_date
+
+
+def test_ledger_rule_problem_accepts_the_schedule_and_names_the_first_violation():
+    ok = [(date(2026, 10, 30), RULE_ID), (date(2026, 11, 30), CLOSED_LIST_RULE_ID)]
+    assert ledger_rule_problem(ok) is None
+    assert ledger_rule_problem([]) is None
+    early = [(date(2026, 10, 30), CLOSED_LIST_RULE_ID)]
+    assert "2026-10-30" in ledger_rule_problem(early)
+    late = [(date(2026, 11, 30), RULE_ID)]
+    assert "stage2-closed-list" in ledger_rule_problem(late)
+
+
+def test_ledger_rule_label_is_the_single_id_or_the_sorted_join():
+    one = [(date(2024, 1, 31), RULE_ID), (date(2024, 2, 29), RULE_ID)]
+    assert ledger_rule_label(one) == RULE_ID  # what min(rule_id) returned
+    crossing = [(date(2026, 11, 30), CLOSED_LIST_RULE_ID), *one]
+    assert ledger_rule_label(crossing) == f"{RULE_ID}+{CLOSED_LIST_RULE_ID}"
+
+
+def test_decide_is_unchanged_by_the_closed_list_a_name_the_list_lacks_has_no_type():
+    days = np.array([np.datetime64("2026-08-03") + i for i in range(120)], dtype="datetime64[D]")
+    days = days[np.is_busday(days)][:90]
+    hist = SecurityHistory("X", days, np.full(len(days), 10.0), np.full(len(days), 3e5), splits=())
+    as_of = days[-1].astype(object)
+    assert decide(hist, as_of, "CS", False) is not None
+    assert decide(hist, as_of, None, False) is None  # absent from the list at L: no entrant

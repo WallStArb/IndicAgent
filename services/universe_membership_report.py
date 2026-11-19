@@ -34,7 +34,11 @@ from src.config.settings import Settings
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.research import membership, snapshot
 from src.intelligence.research.spec import load_spec_from_file
-from src.intelligence.universe_membership import ARCHIVE_START, RULE_ID
+from src.intelligence.universe_membership import (
+    ARCHIVE_START,
+    ledger_rule_label,
+    ledger_rule_problem,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # The registered daily specs the cold-start memory (declared_memory_rows) and the span are read from.
@@ -73,19 +77,15 @@ def check_ledger(
     ledger: Sequence[tuple[date, str, int]],
     row_counts: Mapping[date, int],
     *,
-    expected_rule_id: str = RULE_ID,
     month_ends: Sequence[date] | None = None,
 ) -> None:
     """Raise MembershipReportRefused unless the ledger is the preregistered build: every row under
-    `expected_rule_id`, one month-end per NYSE month from the archive start through the last built
+    the rule id scheduled for its month-end, one month-end per NYSE month from the archive start through the last built
     one with none missing or extra, and each ledger count equal to its rows."""
     if not ledger:
         raise MembershipReportRefused("universe_membership_build is empty: the writer has not run")
-    rules = sorted({rule for _, rule, _ in ledger})
-    if rules != [expected_rule_id]:
-        raise MembershipReportRefused(
-            f"ledger rule ids {rules} differ from the preregistered {expected_rule_id!r}"
-        )
+    if problem := ledger_rule_problem((as_of, rule) for as_of, rule, _ in ledger):
+        raise MembershipReportRefused(f"ledger differs from the preregistered rules: {problem}")
     built = [as_of for as_of, _, _ in ledger]
     expected = list(month_ends if month_ends is not None else month_ends_through(max(built)))
     missing, extra = sorted(set(expected) - set(built)), sorted(set(built) - set(expected))
@@ -153,7 +153,7 @@ def build_report(
     ]
     built = [as_of for as_of, _, _ in ledger]
     return Report(
-        rule_id=ledger[0][1],
+        rule_id=ledger_rule_label((as_of, rule) for as_of, rule, _ in ledger),
         months=len(ledger),
         first_as_of=min(built),
         last_as_of=max(built),

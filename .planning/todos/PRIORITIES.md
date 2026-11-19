@@ -249,5 +249,8 @@ not IBKR coverage.
 | [637](pending/637-rerun-legacy-batteries-for-true-pass-records.md) | New 2026-11-18, P2. The legacy E17 batteries (family 1, intraday periodicity, family 2) have passes that are ledger prose, and research_run is empty so no waiver applies: each needs a rerun and a bound pass record before its first real run (todo 635 review). |
 | [639](pending/639-recertify-fitted-book-certificate-after-e17-memory-fix.md) | New 2026-11-18, P2, owner lead. The fitted-book certificate is void on purpose after the E17 memory fix; rerun the battery and recertify. Not blocking: no first counted family uses a fitted book. |
 | [642](pending/642-delete-the-fetcher-lock-guards-the-ledger-lock-replaced.md) | New 2026-11-19, P3, owner lead. After 640 the ops_coverage_rebuild writer-unit refusal and the audit's fetcher-lock poll are redundant; delete them and their APR keys. |
+| [643](pending/643-alpaca-asset-list-witness-for-the-closed-list.md) | New 2026-11-19, P3, owner lead. B-A of the closed-list amendment: capture Alpaca's asset list nightly as a witness for ticker reuse after L (never an admission source); measure asset id stability first. |
+| [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | New 2026-11-19, P2, owner lead. B-C of the closed-list amendment: member count and excluded newcomers per month-end after L at every freeze and confirmation. |
+| [645](pending/645-pin-the-closed-list-candidate-set-at-L.md) | New 2026-11-19, P2, owner lead. Pin the closed list's candidate set at L (sha256 constant plus a writer refusal) so a later pit install or span write cannot add an entrant silently. |
 
 **Not in this list:** `deferred/` (phase-gated or recompute-batched) and `completed/`.

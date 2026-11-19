@@ -19,7 +19,8 @@ from src.config.settings import Instrument, instrument_from_instruments_row
 from src.intelligence.universe_membership import (
     EVER_MEMBER_SQL,
     EVER_TIER_5M_SQL,
-    LEDGER_SUMMARY_SQL,
+    LEDGER_ROWS_SQL,
+    ledger_rule_problem,
 )
 
 
@@ -44,19 +45,20 @@ def corpus_universe(conn: Any, *, intraday: bool = False) -> list[Instrument]:
     in the membership, so the intraday list is always a subset of the default one.
 
     Raises `UniverseMembershipEmptyError` when no month-end is built and RuntimeError when the
-    ledger mixes rule ids. A member whose `instruments` row cannot become an Instrument raises
+    ledger is off its rule schedule. A member whose `instruments` row cannot become an Instrument raises
     (a data defect, never guessed around). Dead names are included: `is_active` is not read.
     """
     with conn.cursor() as cur:
-        cur.execute(LEDGER_SUMMARY_SQL)
-        months, rules, last = cur.fetchone()
-        if not months:
+        cur.execute(LEDGER_ROWS_SQL)
+        ledger = cur.fetchall()
+        if not ledger:
             raise UniverseMembershipEmptyError(
                 "universe_membership has no built month-end; run "
                 "services.universe_membership_writer before the corpus rerun"
             )
-        if rules != 1:
-            raise RuntimeError(f"universe_membership_build mixes {rules} rule ids (last {last})")
+        months, last = len(ledger), ledger[-1][0]
+        if problem := ledger_rule_problem(ledger):
+            raise RuntimeError(f"universe_membership_build is off its rule schedule: {problem}")
         cur.execute(
             _INSTRUMENTS_SQL.format(members=EVER_TIER_5M_SQL if intraday else EVER_MEMBER_SQL)
         )

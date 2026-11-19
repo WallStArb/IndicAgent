@@ -438,7 +438,6 @@ class MembershipInputs:
     manifest: dict  # rule id, ledger months and last as_of, exclusion id, size and hash
 
 
-_LEDGER_ROWS_SQL = "SELECT as_of FROM universe_membership_build ORDER BY as_of"
 _MEMBER_ROWS_SQL = "SELECT as_of, symbol FROM universe_membership ORDER BY as_of, symbol"
 # The 5m tier rows (amendment 2026-11-15) share their predicate with the corpus's tier list
 # (universe_membership.TIER_5M_PREDICATE), so the corpus and the IC panel read one tier.
@@ -455,8 +454,8 @@ async def membership_inputs(
 ) -> MembershipInputs:
     """The point-in-time membership for a `universe_membership*` spec.
 
-    Refuses an empty ledger and a ledger built under more than one rule id (the same refusals as
-    services/corpus_universe.py, which reads the same ledger constant and the same tier predicate). The core universe keeps the
+    Refuses an empty ledger and a ledger whose rule ids are off the schedule (the corpus universe
+    refuses the same). The core universe keeps the
     names that are members at 90 percent or more of the built month-ends inside the span (which
     it then requires: `start` and `end_exclusive`). A pinned
     exclusion is dropped from both the columns and every month's members, and its id, size and
@@ -468,16 +467,20 @@ async def membership_inputs(
         raise ValueError(f"unknown universe exclusion {exclusion!r}; one of {sorted(EXCLUSIONS)}")
     pool = await read_only_pool(dsn)
     try:
-        months, rules, last = await pool.fetchrow(universe_membership.LEDGER_SUMMARY_SQL)
-        if not months:
+        ledger = [
+            (r["as_of"], r["rule_id"])
+            for r in await pool.fetch(universe_membership.LEDGER_ROWS_SQL)
+        ]
+        if not ledger:
             raise ValueError(
                 "universe_membership has no built month-end; run "
                 "services.universe_membership_writer before a membership panel"
             )
-        if rules != 1:
-            raise ValueError(f"universe_membership_build mixes {rules} rule ids (last {last})")
-        rule_id = await pool.fetchval(universe_membership.LEDGER_RULE_ID_SQL)
-        built = [r["as_of"] for r in await pool.fetch(_LEDGER_ROWS_SQL)]
+        if problem := universe_membership.ledger_rule_problem(ledger):
+            raise ValueError(f"universe_membership_build is off its rule schedule: {problem}")
+        months, last = len(ledger), ledger[-1][0]
+        rule_id = universe_membership.ledger_rule_label(ledger)
+        built = [as_of for as_of, _ in ledger]
         rows = await pool.fetch(_TIER_ROWS_SQL if "_5m" in universe else _MEMBER_ROWS_SQL)
         excluded = [] if exclusion is None else await EXCLUSIONS[exclusion](pool)
     finally:

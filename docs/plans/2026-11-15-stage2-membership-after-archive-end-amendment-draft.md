@@ -1,6 +1,6 @@
 # Stage 2 amendment draft: membership for months after the last Massive reference list
 
-**Status:** ADOPTED 2026-11-18 (owner decision taken through the lead); Part 1 is recorded in the preregistration as Amendment 2026-11-18. Drafted 2026-11-15. It was adopted before `universe_membership` is built for any month-end after the last captured Massive list; the build requirements below are still to land. No return-based look at the universe has happened.
+**Status:** ADOPTED 2026-11-18 (owner decision taken through the lead); Part 1 is recorded in the preregistration as Amendment 2026-11-18. Drafted 2026-11-15. It was adopted before `universe_membership` is built for any month-end after the last captured Massive list; B-L is built (`universe_membership.py` schedule, the writer and the three readers; no push until the s5 apply exits); B-A and B-C are todos 643 and 644. No return-based look at the universe has happened.
 **Author:** Claude (indicagent-65), 2026-11-15, on the lead's brief (follow-up to `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`).
 **Amends:** `docs/plans/2026-11-13-stage2-universe-preregistration.md` (adopted and frozen 2026-11-13; amendments are dated and counted as design choices under E18). Text in Part 1 is the amendment to append if adopted.
 
@@ -49,7 +49,7 @@ Alternative considered and not recommended: carry the last list forward as an op
 
 ## Build requirements
 
-- B-L: the universe membership writer of the held L3 landing (a file not yet on main, so no path here) refuses any `as_of` after L unless the rule id is `stage2-closed-list`, and refuses that rule id at or before L. A test pins both. This edits a module the corpus rerun key reads, so it lands in the post-D1 landing runbook order (`docs/plans/2026-11-15-post-d1-landing-runbook.md`), not before D1.
+- B-L (built): `services/universe_membership_writer.py` refuses any `as_of` after L unless the rule id is `stage2-closed-list`, and refuses that rule id at or before L. A test pins both. This edits a module the corpus rerun key reads, so it lands in the post-D1 landing runbook order (`docs/plans/2026-11-15-post-d1-landing-runbook.md`), not before D1.
 - B-A (optional, a witness only): capture Alpaca's asset list nightly into raw with its capture time, so a symbol change or a ticker reuse after L shows as a changed asset id or name. It is never an admission source. It needs a short measurement that the Alpaca asset id is stable across ticker changes before it is relied on (unverified here).
 - B-C: the disclosure of item 4 added to the freeze and confirmation reports.
 

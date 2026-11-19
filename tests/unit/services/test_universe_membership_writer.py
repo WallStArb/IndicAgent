@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import math
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -143,6 +144,8 @@ class _Conn:
         seed=(),
         seed_tier=(),
         stale=(),
+        types_by_list=None,
+        later_bar=True,
     ):
         self.ledger = list(ledger)
         self.pages = pages if pages is not None else {m: _pages(m) for m in month_ends}
@@ -151,6 +154,9 @@ class _Conn:
         self.bars, self.splits, self.spans = bars or {}, list(splits), list(spans)
         self.seed, self.seed_tier = list(seed), set(seed_tier)
         self.stale = list(stale)
+        self.types_by_list = types_by_list or {}
+        self.type_lists: list[date] = []
+        self.later_bar, self.later_bar_asked = later_bar, []
         self.executemany = AsyncMock()
         self.copy_records_to_table = AsyncMock()
 
@@ -164,7 +170,9 @@ class _Conn:
         if sql == w._MEMBERS_AT_SQL:
             return [{"symbol": s, "tier_5m": s in self.seed_tier} for s in self.seed]
         if sql == w._TYPES_SQL:
-            return [{"symbol": s, "security_type": t} for s, t in self.types.items()]
+            self.type_lists.append(args[0])
+            types = self.types_by_list.get(args[0], self.types)
+            return [{"symbol": s, "security_type": t} for s, t in types.items()]
         if sql == w._BARS_SQL:
             return [(s, d, c, v) for s, rows in self.bars.items() for d, c, v in rows]
         if sql == w._SPLITS_SQL:
@@ -178,6 +186,9 @@ class _Conn:
     async def fetchval(self, sql, *args):
         if sql == w._INACTIVE_PLACED_SQL:
             return self.inactive
+        if sql == w._LATER_BAR_SQL:
+            self.later_bar_asked.append(args[0])
+            return self.later_bar
         raise AssertionError(sql)
 
 
@@ -397,28 +408,148 @@ async def test_operator_correction_rows_are_not_undone(tmp_path):
     assert await w.UniverseMembershipWriter._splits(conn, ["X"]) == {}
 
 
-def _cursor_conn(ledger_row, instruments=()):
+def _cursor_conn(ledger, instruments=()):
     cur = MagicMock()
-    cur.fetchone.return_value = ledger_row
-    cur.fetchall.return_value = list(instruments)
+    cur.fetchall.side_effect = itertools.cycle([list(ledger), list(instruments)])
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value = cur
     return conn
 
 
+# --- closed list (amendment 2026-11-18): months after L=2026-11-09 admit no entrant -----------
+
+OCT30, NOV30, DEC30 = date(2026, 10, 30), date(2026, 11, 30), date(2026, 12, 31)
+L = date(2026, 11, 9)  # the amendment's L, spelled out so a moved constant fails here
+DAYS_2026 = _weekdays(date(2026, 7, 1), 135)  # 60+ own sessions before every month-end below
+CLOSED = "stage2-closed-list"
+
+
+def _closed_conn(**kw):
+    ledger = [{"as_of": OCT30, "rule_id": w.RULE_ID, "n_members": 1}]
+    bars = {s: _bars([d for d in DAYS_2026 if d <= DEC30]) for s in ("AAA", "NEW", "PFDLATER")}
+    return _Conn(
+        ledger=ledger,
+        month_ends=[L],
+        pages={L: _pages(L)},
+        symbols=("AAA", "NEW", "PFDLATER", "DEAD"),
+        seed=["AAA", "PFDLATER"],
+        bars=bars,
+        types_by_list={L: {"AAA": "CS", "PFDLATER": "PFD"}},
+        **kw,
+    )
+
+
+async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_path):
+    conn = _closed_conn()
+    assert await _writer(DEC30, tmp_path)._build_and_write(conn) is True
+    records = conn.copy_records_to_table.call_args.kwargs["records"]
+    # NEW is liquid with 60+ sessions but the list at L did not place it: never a member.
+    # PFDLATER was a member at the last Massive-listed month but L types it ineligible: it leaves.
+    assert [(r[0], r[1], r[6]) for r in records] == [(NOV30, "AAA", False), (DEC30, "AAA", False)]
+    ledger = conn.executemany.call_args.args[1]
+    assert [(m, rule) for m, rule, _ in ledger] == [(NOV30, CLOSED), (DEC30, CLOSED)]
+    assert set(conn.type_lists) == {L}  # only the list at L was read, once
+
+
+async def test_a_month_at_or_before_L_reads_its_own_list_and_keeps_the_old_rule(tmp_path):
+    ledger = [{"as_of": date(2026, 9, 30), "rule_id": w.RULE_ID, "n_members": 1}]
+    bars = {s: _bars([d for d in DAYS_2026 if d <= OCT30]) for s in ("AAA", "NEW")}
+    conn = _Conn(
+        ledger=ledger,
+        month_ends=[OCT30],
+        symbols=("AAA", "NEW", "DEAD"),
+        seed=["AAA"],
+        bars=bars,
+        types_by_list={OCT30: {"AAA": "CS", "NEW": "CS"}},
+    )
+    assert await _writer(OCT30, tmp_path)._build_and_write(conn) is True
+    records = conn.copy_records_to_table.call_args.kwargs["records"]
+    assert [(r[1], r[6]) for r in records] == [("AAA", False), ("NEW", True)]  # NEW enters
+    assert [rule for _, rule, _ in conn.executemany.call_args.args[1]] == [w.RULE_ID]
+    assert conn.type_lists == [OCT30]
+
+
+async def test_a_month_after_L_is_not_built_before_a_later_bar_has_landed(tmp_path):
+    conn = _closed_conn(later_bar=False)
+    with pytest.raises(RuntimeError, match="no canonical 1d bar after month-end 2026-12-31"):
+        await _writer(DEC30, tmp_path)._build_and_write(conn)
+    conn.copy_records_to_table.assert_not_called()
+    assert conn.later_bar_asked == [datetime(2027, 1, 1, tzinfo=UTC)]
+
+
+async def test_a_build_that_straddles_L_uses_each_months_own_rule_and_list(tmp_path):
+    ledger = [{"as_of": date(2026, 9, 30), "rule_id": w.RULE_ID, "n_members": 1}]
+    bars = {"AAA": _bars([d for d in DAYS_2026 if d <= NOV30])}
+    conn = _Conn(
+        ledger=ledger,
+        pages={OCT30: _pages(OCT30), L: _pages(L)},
+        symbols=("AAA", "DEAD"),
+        seed=["AAA"],
+        bars=bars,
+        types_by_list={OCT30: {"AAA": "CS"}, L: {"AAA": "CS"}},
+    )
+    assert await _writer(NOV30, tmp_path)._build_and_write(conn) is True
+    ledger_rows = conn.executemany.call_args.args[1]
+    assert [(m, rule) for m, rule, _ in ledger_rows] == [(OCT30, w.RULE_ID), (NOV30, CLOSED)]
+    assert conn.type_lists == [OCT30, L]  # each list read once, Nov 30 from the list at L
+    assert len(conn.later_bar_asked) == 1  # only the month after L asks for a later bar
+
+
+async def test_a_build_at_or_before_L_never_asks_for_a_later_bar(tmp_path):
+    conn = _Conn(
+        ledger=[{"as_of": date(2026, 9, 30), "rule_id": w.RULE_ID, "n_members": 1}],
+        month_ends=[OCT30],
+        symbols=("AAA", "DEAD"),
+        seed=["AAA"],
+        bars={"AAA": _bars([d for d in DAYS_2026 if d <= OCT30])},
+        types_by_list={OCT30: {"AAA": "CS"}},
+        later_bar=False,
+    )
+    assert await _writer(OCT30, tmp_path)._build_and_write(conn) is True
+    assert conn.later_bar_asked == []
+
+
+async def test_a_month_after_L_needs_a_complete_list_at_L(tmp_path):
+    conn = _closed_conn()
+    conn.pages = {L: _pages(L, inactive={"next_url": "more"})}
+    with pytest.raises(RuntimeError, match="truncated"):
+        await _writer(DEC30, tmp_path)._build_and_write(conn)
+    conn.copy_records_to_table.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "as_of, rule_id",
+    [(OCT30, CLOSED), (L, CLOSED), (NOV30, w.RULE_ID), (DEC30, "other")],
+)
+async def test_a_ledger_off_the_rule_schedule_refuses_extension(tmp_path, as_of, rule_id):
+    conn = _Conn(ledger=[{"as_of": as_of, "rule_id": rule_id, "n_members": 5}])
+    with pytest.raises(RuntimeError, match="was built under rule"):
+        await _writer(DEC30, tmp_path)._build_and_write(conn)
+
+
 def test_corpus_universe_empty_ledger_fails_loudly():
     with pytest.raises(cu.UniverseMembershipEmptyError):
-        cu.corpus_universe(_cursor_conn((0, 0, None)))
+        cu.corpus_universe(_cursor_conn([]))
 
 
 def test_corpus_universe_ledger_without_rows_fails_loudly():
     with pytest.raises(cu.UniverseMembershipEmptyError):
-        cu.corpus_universe(_cursor_conn((3, 1, date(2020, 3, 31)), []))
+        cu.corpus_universe(_cursor_conn(_RULED, []))
 
 
-def test_corpus_universe_mixed_rule_ids_fail():
-    with pytest.raises(RuntimeError, match="mixes 2 rule ids"):
-        cu.corpus_universe(_cursor_conn((3, 2, date(2020, 3, 31))))
+_RULED = [(date(2020, m, 28), w.RULE_ID) for m in (1, 2, 3)]
+
+
+def test_corpus_universe_ledger_off_the_rule_schedule_fails():
+    off = [*_RULED, (date(2020, 4, 30), CLOSED)]  # the closed-list id at or before L
+    with pytest.raises(RuntimeError, match="off its rule schedule"):
+        cu.corpus_universe(_cursor_conn(off))
+
+
+def test_corpus_universe_accepts_a_ledger_that_crosses_L(monkeypatch):
+    crossing = [(OCT30, w.RULE_ID), (NOV30, CLOSED)]
+    monkeypatch.setattr(cu, "instrument_from_instruments_row", lambda *row: row[0])
+    assert cu.corpus_universe(_cursor_conn(crossing, [("AAA", "AAA", {}, None)])) == ["AAA"]
 
 
 def test_corpus_universe_builds_instruments(monkeypatch):
@@ -427,7 +558,7 @@ def test_corpus_universe_builds_instruments(monkeypatch):
         cu, "instrument_from_instruments_row", lambda *row: seen.append(row) or row[0]
     )
     rows = [("AAA", "AAA", {"session_id": "nyse"}, None), ("ZZZ", "ZZZ", {}, None)]
-    out = cu.corpus_universe(_cursor_conn((3, 1, date(2020, 3, 31)), rows))
+    out = cu.corpus_universe(_cursor_conn(_RULED, rows))
     assert out == ["AAA", "ZZZ"] and len(seen) == 2
 
 
@@ -449,7 +580,7 @@ async def test_resume_seeds_the_tier_state_and_the_record_carries_it(tmp_path):
 
 def test_corpus_universe_intraday_reads_only_the_tier(monkeypatch):
     monkeypatch.setattr(cu, "instrument_from_instruments_row", lambda *row: row[0])
-    conn = _cursor_conn((3, 1, date(2020, 3, 31)), [("AAA", "AAA", {}, None)])
+    conn = _cursor_conn(_RULED, [("AAA", "AAA", {}, None)])
     assert cu.corpus_universe(conn, intraday=True) == ["AAA"]
     executed = [
         c.args[0] for c in conn.cursor.return_value.__enter__.return_value.execute.call_args_list
@@ -463,4 +594,4 @@ def test_corpus_universe_intraday_reads_only_the_tier(monkeypatch):
 
 def test_corpus_universe_intraday_with_no_tier_member_fails_loudly():
     with pytest.raises(cu.UniverseMembershipEmptyError, match="5m tier"):
-        cu.corpus_universe(_cursor_conn((3, 1, date(2020, 3, 31)), []), intraday=True)
+        cu.corpus_universe(_cursor_conn(_RULED, []), intraday=True)

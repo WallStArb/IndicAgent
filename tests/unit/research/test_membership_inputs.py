@@ -3,9 +3,11 @@
 import asyncio
 import datetime as dt
 import hashlib
+import json
 
 import pytest
 
+from src.intelligence import universe_membership
 from src.intelligence.research import snapshot
 from src.intelligence.research.spec import PanelSpec
 
@@ -13,19 +15,13 @@ D = dt.date
 
 
 class _Pool:
-    def __init__(self, ledger, rows, seen=("OLD",), summary=None, tier_rows=()):
+    def __init__(self, ledger, rows, seen=("OLD",), rules=None, tier_rows=()):
         self.ledger, self.rows, self.seen, self.tier_rows = ledger, rows, seen, tier_rows
-        self.summary = summary or (len(ledger), 1, max(ledger, default=None))
-
-    async def fetchrow(self, sql, *args):
-        return self.summary
-
-    async def fetchval(self, sql, *args):
-        return "rule-x"
+        self.rules = rules or [universe_membership.rule_id_for(d) for d in ledger]
 
     async def fetch(self, sql, *args):
-        if sql == snapshot._LEDGER_ROWS_SQL:
-            return [{"as_of": d} for d in self.ledger]
+        if sql == universe_membership.LEDGER_ROWS_SQL:
+            return [{"as_of": d, "rule_id": r} for d, r in zip(self.ledger, self.rules)]
         if sql in (snapshot._MEMBER_ROWS_SQL, snapshot._TIER_ROWS_SQL):
             self.last_member_sql = sql
             rows = self.tier_rows if sql == snapshot._TIER_ROWS_SQL else self.rows
@@ -68,7 +64,7 @@ def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(mon
     assert got.members_by_as_of[LEDGER[1]] == frozenset({"A", "B"})
     assert got.manifest["membership"] == {
         "universe": "universe_membership",
-        "rule_id": "rule-x",
+        "rule_id": "stage2-2026-11-15",
         "built_months": 2,
         "last_as_of": "2024-02-29",
         "members_sha256": mem_digest,
@@ -76,6 +72,26 @@ def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(mon
         "excluded_names": 0,
         "exclusion_sha256": None,
     }
+
+
+# The manifest of the pool above as origin/main 333ac0282 (before the closed-list rule) produced it:
+# a one-rule ledger's manifest, and so every snapshot hash that carries it, does not move.
+_PRE_CLOSED_LIST_MANIFEST_SHA256 = (
+    "d69568d63763a71ef940f12af2f2b054ce4c3c02c6080495fc71cc014ed89236"
+)
+
+
+def test_a_one_rule_ledger_leaves_the_recorded_manifest_hash_unmoved(monkeypatch):
+    got = _read(monkeypatch, _Pool(LEDGER, ROWS))
+    digest = hashlib.sha256(json.dumps(got.manifest, sort_keys=True).encode()).hexdigest()
+    assert digest == _PRE_CLOSED_LIST_MANIFEST_SHA256
+
+
+def test_a_ledger_that_crosses_L_records_both_rule_ids_in_the_manifest(monkeypatch):
+    crossing = [D(2026, 10, 30), D(2026, 11, 30)]
+    rows = [(d, "A") for d in crossing]
+    got = _read(monkeypatch, _Pool(crossing, rows))
+    assert got.manifest["membership"]["rule_id"] == "stage2-2026-11-15+stage2-closed-list"
 
 
 def test_the_seen_names_exclusion_drops_the_listed_names_and_pins_the_list(monkeypatch):
@@ -113,9 +129,9 @@ def test_core_keeps_names_that_are_members_at_ninety_percent_of_the_span(monkeyp
 
 def test_an_empty_ledger_refuses_and_so_does_a_mixed_rule_ledger(monkeypatch):
     with pytest.raises(ValueError, match="no built month-end"):
-        _read(monkeypatch, _Pool([], [], summary=(0, 0, None)))
-    with pytest.raises(ValueError, match="mixes 2 rule ids"):
-        _read(monkeypatch, _Pool(LEDGER, ROWS, summary=(2, 2, LEDGER[1])))
+        _read(monkeypatch, _Pool([], []))
+    with pytest.raises(ValueError, match="off its rule schedule"):
+        _read(monkeypatch, _Pool(LEDGER, ROWS, rules=[universe_membership.RULE_ID, "other"]))
 
 
 def test_unknown_universe_and_exclusion_refuse(monkeypatch):

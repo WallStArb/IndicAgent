@@ -76,21 +76,21 @@ def test_the_core_universe_never_selects_or_admits_a_name_into_the_primary_panel
     primary universe must never call the core rule."""
     import asyncio
 
+    from src.intelligence import universe_membership
     from src.intelligence.research import membership, snapshot
 
     called = []
     monkeypatch.setattr(membership, "core_symbols", lambda *a, **k: called.append(1))
 
     class Pool:
-        async def fetchrow(self, sql, *a):
-            return (1, 1, __import__("datetime").date(2024, 1, 31))
-
-        async def fetchval(self, sql, *a):
-            return "r"
-
         async def fetch(self, sql, *a):
-            if sql == snapshot._LEDGER_ROWS_SQL:
-                return [{"as_of": __import__("datetime").date(2024, 1, 31)}]
+            if sql == universe_membership.LEDGER_ROWS_SQL:
+                return [
+                    {
+                        "as_of": __import__("datetime").date(2024, 1, 31),
+                        "rule_id": universe_membership.RULE_ID,
+                    }
+                ]
             return [{"as_of": __import__("datetime").date(2024, 1, 31), "symbol": "A"}]
 
         async def close(self):
