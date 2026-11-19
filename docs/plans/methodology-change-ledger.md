@@ -1387,3 +1387,7 @@ machinery it modifies; it adds no look and changes no gate, threshold or return 
 - **Reruns:** every stored battery pass whose code closure includes the statistic is stale by design: the seasonality battery is rerun at the landing commit on the same seeds (base 0; L is unchanged there, so the counts reproduce) and its record rebound; the daily residual and H-C batteries rerun after landing on seeds the lead declares. The restoration of `reversal_5` and `reversal_5_skip1` (A3) is a separate counted amendment; this entry does not restore them.
 - **Status:** recorded before any real-data number exists. The decision uses the null battery only.
 
+
+## Daily residual battery rerun after the E17 memory fix, declared 2026-11-19 (lead ruling, before launch)
+
+The seed base 3,000,000 run of the four-member family failed on `reversal_21` while the statistic still counted L = 26 against a 60-session vol window (amendment 2026-11-18 b). The statistic changed, so the family is not bound from that run. Pre-declared: the whole battery of the four-member family (M1, M2, M3, `reversal_21`, two panels) reruns once, one driver call, seed base 4,000,000, 2,000 simulations per cell, under the per-test 0.99 bound of E17, at the commit that pins `DECLARED_REPLICATIONS["daily_residual"] = (4_000_000,)`. A failure postpones and is never a verdict. The bound is not changed and no arm is picked after the result. `reversal_5` and `reversal_5_skip1` stay dropped (amendment A3); restoring them is a separate counted amendment.

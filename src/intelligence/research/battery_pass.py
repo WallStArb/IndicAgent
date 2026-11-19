@@ -92,7 +92,7 @@ LEGACY_WAIVERS: dict[tuple[str, str], str] = {}
 # family -> the seed bases of its pre-declared replication (todo 636): a family listed here can only be
 # bound pooled over exactly these blocks, so a favourable single block can never be bound alone. A new
 # entry is a reviewed commit made BEFORE the replication launches, like the declaration it mirrors.
-DECLARED_REPLICATIONS: dict[str, tuple[int, ...]] = {"daily_residual": (3_000_000,)}
+DECLARED_REPLICATIONS: dict[str, tuple[int, ...]] = {"daily_residual": (4_000_000,)}
 SEED_STRIDE = 10_000  # the driver's seed = seed_base + SEED_STRIDE * cell_index + simulation
 
 
