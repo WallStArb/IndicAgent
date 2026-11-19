@@ -190,6 +190,8 @@ not IBKR coverage.
 | [512](pending/512-exclude-or-replace-names-whose-data-defect-is-not-worth-fixing.md) | New 2026-10-08, owner policy relayed (confirmation pending). Names whose data defect needs per-name hand work leave the compute set with a reason code and date; raw data stays; replacement only by a pre-fixed liquidity-rank rule through the onboarding SOP. Disclose in D0's survivorship bound. |
 | [513](pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md) | New 2026-10-08. D7 must report an incomplete fetch run as unjudged, not as data failures; document the nightly stage contract with markers; add a pull digest of last night while alerts are off; separate lane budgets. |
 | [641](pending/641-vixm-reverse-split-2026-11-19-needs-a-split-row.md) | New 2026-11-19, P0. VIXM 1-for-2 reverse split ex 2026-11-19: Alpaca serves 2026-11-16 on the new scale, canonical steps 2x; the sweep needs Yahoo to restate before it gives a row verdict. |
+| [646](pending/646-record-splits-for-the-stage-2-names-before-the-pin.md) | New 2026-11-19, P0, owner lead. The stage 2 names have no split rows, so their canonical 1d is as traded; record splits (ops_split_detect plus review) before the 584 pin. |
+| [647](pending/647-audit-universe-covers-only-active-names.md) | New 2026-11-19, P2, owner lead. The audit and the daily derivation see only is_active names; the 33,850 stage 2 instruments are unaudited after the one derivation run. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
