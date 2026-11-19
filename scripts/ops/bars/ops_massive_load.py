@@ -56,6 +56,7 @@ from typing import Any
 import numpy as np
 import psycopg
 import pyarrow.csv as pacsv
+import structlog
 
 from services.bar_load import (
     CHUNK_ROWS,
@@ -71,7 +72,12 @@ from services.ohlcv_raw_writer import RawBatch, build_raw_batch, datetime_to_us
 from src.config.config_service import ConfigService
 from src.config.settings import get_settings
 from src.core.service_utils import setup_service_logging
-from src.intelligence.bars.massive_flat import FlatBars, file_trading_date
+from src.intelligence.bars.massive_flat import (
+    FlatBars,
+    file_trading_date,
+    served_misstamped_rows,
+    split_misstamped_day_rows,
+)
 from src.intelligence.bars.massive_symbol_map import (
     SpanVerdict,
     TickerSpan,
@@ -87,6 +93,7 @@ from src.intelligence.bars.vendor_ingress import (
     vendor_ingress,
 )
 
+log = structlog.get_logger("ops_massive_load")
 _INCUMBENT_VENDORS = ("ibkr", "alpaca")
 _MAP_ROOT = Path("data/ticker_entity_map")
 _LOG_DIR = Path("logs")
@@ -105,6 +112,7 @@ class DayReport:
     bars_out: int = 0  # bars of mapped tickers
     bars_unmapped: int = 0  # bars of tickers with no loadable span that day, excluded and counted
     untraded_rows: int = 0
+    misstamped_rows: int = 0  # 1d rows stamped at another session than their file's, excluded
     massive_only: int = 0  # mapped bars no incumbent vendor holds: the expected unselected
     unmapped_sample: list[str] = field(default_factory=list)
 
@@ -410,6 +418,7 @@ def run(args: argparse.Namespace) -> int:
         reports: dict[int, list[DayReport]] = {}
         verdicts: dict[int, list[SpanVerdict]] = {}
         status = 0
+        misstamped: list[dict[str, object]] = []
         for year in args.years:
             refusal = disk_headroom_refusal() if args.apply else None
             if refusal:
@@ -438,9 +447,15 @@ def run(args: argparse.Namespace) -> int:
             reports[year] = []
             for path in year_files(args.timeframe, year, month=args.month):
                 day = file_trading_date(path)
-                bars = _read(args.timeframe, path)
+                bars, excluded = _read_session(args.timeframe, path, day)
+                if excluded:
+                    log.warning(
+                        "massive_load.misstamped_rows_excluded", file=path.name, n=len(excluded)
+                    )
+                    misstamped.extend({"file": path.name, **row} for row in excluded)
                 mapping = tickers_on(loadable, day)
                 reports[year].append(account_day(day, bars, mapping, slots.of(day), args.timeframe))
+                reports[year][-1].misstamped_rows = len(excluded)
                 if args.apply:
                     if batch.month != (day.year, day.month):
                         batch, loaded = _flush(conn, ingress, batch, loaded)
@@ -466,7 +481,7 @@ def run(args: argparse.Namespace) -> int:
                     status = 3
                     break
             _print_year(args.timeframe, year, reports[year], time.monotonic() - t0)
-        _write_report(args, reports, verdicts)
+        _write_report(args, reports, verdicts, misstamped)
     finally:
         conn.close()
     return status
@@ -529,6 +544,18 @@ def disk_headroom_refusal() -> str | None:
     if refusal is None:
         print(f"disk headroom: {usage.free / 1e9:.0f} GB free on {path}", flush=True)
     return refusal
+
+
+def _read_session(
+    timeframe: str, path: Path, day: date
+) -> tuple[FlatBars, list[dict[str, object]]]:
+    """One day's bars and the rows the file stamps at another session (1d only, never loaded),
+    the latter exactly as served."""
+    bars = _read(timeframe, path)
+    if timeframe == "5m":
+        return bars, []
+    bars, excluded = split_misstamped_day_rows(bars, day)
+    return bars, served_misstamped_rows(path, day) if excluded else []
 
 
 def _read(timeframe: str, path: Path) -> FlatBars:
@@ -649,6 +676,7 @@ def _print_year(timeframe: str, year: int, days: list[DayReport], seconds: float
         f"bars out {total('bars_out')} | unmapped bars excluded {total('bars_unmapped')} "
         f"(max {max((d.unmapped_tickers for d in days), default=0)} tickers/day) | "
         f"untraded rows {total('untraded_rows')} | "
+        f"mis-stamped rows excluded {total('misstamped_rows')} | "
         f"expected unselected (Massive-only slots) {total('massive_only')}",
         flush=True,
     )
@@ -672,7 +700,10 @@ def _trimmed_entry(v: SpanVerdict, window: tuple[date, date]) -> dict[str, Any]:
 
 
 def _write_report(
-    args, reports: dict[int, list[DayReport]], verdicts: dict[int, list[SpanVerdict]]
+    args,
+    reports: dict[int, list[DayReport]],
+    verdicts: dict[int, list[SpanVerdict]],
+    misstamped: Sequence[Mapping[str, object]] = (),
 ) -> None:
     out = (
         args.out
@@ -708,6 +739,14 @@ def _write_report(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=1, default=str))
     print(f"report: {out}")
+    if misstamped:
+        # the excluded rows verbatim, the one record of what the rule removed (reload restores)
+        evidence = out.with_name(f"{out.stem}_misstamped_rows.csv")
+        with evidence.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(misstamped[0]))
+            writer.writeheader()
+            writer.writerows(misstamped)
+        print(f"mis-stamped rows excluded: {len(misstamped)}, evidence: {evidence}")
 
 
 def main(argv: list[str] | None = None) -> int:

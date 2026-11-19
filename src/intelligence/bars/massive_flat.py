@@ -243,6 +243,59 @@ def extended_bounds_ns(trading_date: date) -> tuple[int, int]:
     return at(trading_date), at(trading_date + timedelta(days=1)) - 60 * 1_000_000_000
 
 
+def split_misstamped_day_rows(
+    bars: FlatBars, trading_date: date
+) -> tuple[FlatBars, list[dict[str, object]]]:
+    """A day file's rows split into those stamped at its own session and those that are not.
+
+    A day bar of a file is stamped at midnight New York of the file's date. A row with another
+    stamp contradicts its own file (the 2019-08-12 file holds 29 rows stamped 2019-08-13, each
+    contradicting the 2019-08-13 file's row for the same ticker): it is returned in the second
+    element as read (volume rounded to whole shares; `served_misstamped_rows` gives the served
+    row) and left out of the first, so a caller can report it and the writer never sees two
+    answers for one key. A file with none returns `bars` itself. 1d only: the minute reader
+    already refuses a stamp outside the file's New York day.
+    """
+    bad = bars.t_ns != extended_bounds_ns(trading_date)[0]
+    if not bad.any():
+        return bars, []
+    excluded = [
+        {
+            "ticker": str(bars.tickers[bars.ticker_index[i]]),
+            "window_start_ns": int(bars.t_ns[i]),
+            "open": float(bars.open[i]),
+            "high": float(bars.high[i]),
+            "low": float(bars.low[i]),
+            "close": float(bars.close[i]),
+            "volume": int(bars.volume[i]),
+        }
+        for i in np.flatnonzero(bad).tolist()
+    ]
+    keep = ~bad
+    used, index = np.unique(bars.ticker_index[keep], return_inverse=True)
+    clean = FlatBars(
+        tickers=bars.tickers[used],
+        ticker_index=index.astype(bars.ticker_index.dtype),
+        t_ns=bars.t_ns[keep],
+        open=bars.open[keep],
+        high=bars.high[keep],
+        low=bars.low[keep],
+        close=bars.close[keep],
+        volume=bars.volume[keep],
+        n_untraded_rows=bars.n_untraded_rows,
+        traded_minutes=None if bars.traded_minutes is None else bars.traded_minutes[used],
+    )
+    return clean, excluded
+
+
+def served_misstamped_rows(path: Path, trading_date: date) -> list[dict[str, object]]:
+    """The rows of a day file stamped at another session, exactly as served (every column, the
+    served float volume): the evidence record of what `split_misstamped_day_rows` leaves out."""
+    table = pacsv.read_csv(path)
+    mid = extended_bounds_ns(trading_date)[0]
+    return [row for row in table.to_pylist() if row["window_start"] != mid]
+
+
 def file_trading_date(path: Path) -> date:
     """The trading date a ``YYYY-MM-DD.csv.gz`` flat file is named for."""
     match = _FILE_DATE.search(path.name)

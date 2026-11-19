@@ -46,6 +46,7 @@ from src.intelligence.bars.massive_flat import (
     read_day_file,
     read_minute_file,
     session_bounds_ns,
+    split_misstamped_day_rows,
 )
 from src.intelligence.bars.sources import SOURCE_ALPACA, SOURCE_MASSIVE
 from src.intelligence.bars.vendor_kind import (
@@ -251,8 +252,17 @@ def _read_massive_5m(artifact: Path, symbols: list[str] | None = None) -> dict[s
 
 
 def _read_massive_1d(artifact: Path, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
-    """One Massive day aggregate file as served (unadjusted) -> canonical 1d frames."""
-    return read_day_file(massive_day_file(artifact)).frames(symbols)
+    """One Massive day aggregate file as served (unadjusted) -> canonical 1d frames. A file that
+    stamps a row at another session refuses: `ops_massive_load` excludes such rows with evidence
+    (ledger E27), this generic path has no evidence channel and never offers them as bars."""
+    path = massive_day_file(artifact)
+    bars, excluded = split_misstamped_day_rows(read_day_file(path), file_trading_date(path))
+    if excluded:
+        raise ValueError(
+            f"{path}: {len(excluded)} row(s) stamped at another session than the file's; "
+            "load the file with ops_massive_load, which excludes them with evidence"
+        )
+    return bars.frames(symbols)
 
 
 MASSIVE_5M = VendorIngress(

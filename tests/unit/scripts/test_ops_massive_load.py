@@ -377,3 +377,61 @@ def test_a_year_with_unselected_slots_or_basis_flags_fails_its_gate():
     assert unselected is not None and "2 landed slots" in unselected
     flagged = year_gate_failure(LoadResult(n_unselected=1, n_basis_flagged=4))
     assert flagged is not None and "1 landed slots" in flagged and "4 series" in flagged
+
+
+def _write_day_file(path, rows):
+    import csv
+
+    with gzip.open(path, "wt", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["ticker", "volume", "open", "close", "high", "low", "window_start", "transactions"]
+        )
+        writer.writerows(rows)
+
+
+def test_the_loader_excludes_a_row_its_file_stamps_at_another_session_and_counts_it(tmp_path):
+    from src.intelligence.bars.massive_flat import extended_bounds_ns
+
+    own = extended_bounds_ns(date(2019, 8, 12))[0]
+    other = extended_bounds_ns(date(2019, 8, 13))[0]
+    path = tmp_path / "2019-08-12.csv.gz"
+    _write_day_file(
+        path, [["AAA", 5, 1.0, 1.1, 1.2, 0.9, own, 1], ["BBB", 0, 2.0, 2.0, 2.0, 2.0, other, 0]]
+    )
+    bars, excluded = loader._read_session("1d", path, date(2019, 8, 12))
+    assert list(bars.tickers) == ["AAA"] and len(bars) == 1
+    assert excluded == [  # exactly as served: every column, nothing rounded or dropped
+        {
+            "ticker": "BBB",
+            "volume": 0,
+            "open": 2.0,
+            "close": 2.0,
+            "high": 2.0,
+            "low": 2.0,
+            "window_start": other,
+            "transactions": 0,
+        }
+    ]
+    clean = tmp_path / "2019-08-13.csv.gz"
+    _write_day_file(clean, [["AAA", 6, 1.0, 1.1, 1.2, 0.9, other, 1]])
+    again, none = loader._read_session("1d", clean, date(2019, 8, 13))
+    assert len(again) == 1 and none == []
+
+
+def test_the_year_line_and_the_evidence_csv_report_the_excluded_rows(tmp_path, capsys):
+    day = loader.DayReport(date(2019, 8, 12), misstamped_rows=2)
+    loader._print_year("1d", 2019, [day, loader.DayReport(date(2019, 8, 13))], 1.0)
+    assert "mis-stamped rows excluded 2" in capsys.readouterr().out
+    out = tmp_path / "report.json"
+    args = type("A", (), {"out": out, "timeframe": "1d", "years": [2019], "apply": False})()
+    rows = [{"file": "2019-08-12.csv.gz", "ticker": "BBB", "window_start": 5, "volume": 0}]
+    loader._write_report(args, {2019: [day]}, {}, rows)
+    evidence = tmp_path / "report_misstamped_rows.csv"
+    assert evidence.read_text().splitlines() == [
+        "file,ticker,window_start,volume",
+        "2019-08-12.csv.gz,BBB,5,0",
+    ]
+    assert "mis-stamped rows excluded: 1" in capsys.readouterr().out
+    loader._write_report(args, {2019: []}, {}, [])  # a clean run leaves the old evidence alone
+    assert evidence.exists() and "BBB" in evidence.read_text()

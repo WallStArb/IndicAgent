@@ -251,3 +251,74 @@ def test_whole_2024_day_throughput():
     bars = mf.read_minute_file(path)
     assert len(bars) > 100_000
     assert time.perf_counter() - start < 3.0
+
+
+def _day_bars(tickers, index, stamps):
+    n = len(index)
+    return mf.FlatBars(
+        tickers=np.array(tickers),
+        ticker_index=np.array(index, dtype=np.int32),
+        t_ns=np.array(stamps, dtype=np.int64),
+        open=np.arange(n, dtype=float) + 1,
+        high=np.arange(n, dtype=float) + 2,
+        low=np.arange(n, dtype=float),
+        close=np.arange(n, dtype=float) + 1.5,
+        volume=np.arange(n, dtype=np.int64) * 10,
+    )
+
+
+def test_a_day_file_stamped_at_its_own_session_is_returned_untouched():
+    day = date(2019, 8, 13)
+    own = mf.extended_bounds_ns(day)[0]
+    bars = _day_bars(["AAA", "BBB"], [0, 1], [own, own])
+    clean, excluded = mf.split_misstamped_day_rows(bars, day)
+    assert clean is bars and excluded == []
+
+
+def test_rows_stamped_at_another_session_are_split_off_verbatim_and_never_kept():
+    day = date(2019, 8, 12)
+    own, next_day = mf.extended_bounds_ns(day)[0], mf.extended_bounds_ns(date(2019, 8, 13))[0]
+    bars = _day_bars(["AAA", "BBB", "CCC"], [0, 1, 2], [own, next_day, own])
+    clean, excluded = mf.split_misstamped_day_rows(bars, day)
+    assert list(clean.tickers) == ["AAA", "CCC"] and list(clean.tickers[clean.ticker_index]) == [
+        "AAA",
+        "CCC",
+    ]
+    assert np.all(clean.t_ns == own) and len(clean) == 2
+    assert excluded == [
+        {
+            "ticker": "BBB",
+            "window_start_ns": next_day,
+            "open": 2.0,
+            "high": 3.0,
+            "low": 1.0,
+            "close": 2.5,
+            "volume": 10,
+        }
+    ]
+
+
+def test_the_stamp_is_midnight_new_york_so_daylight_saving_does_not_shift_it():
+    for day in (date(2019, 1, 15), date(2019, 7, 15)):  # 05:00Z in winter, 04:00Z in summer
+        own = mf.extended_bounds_ns(day)[0]
+        clean, excluded = mf.split_misstamped_day_rows(_day_bars(["AAA"], [0], [own]), day)
+        assert len(clean) == 1 and excluded == []
+
+
+def test_the_generic_massive_1d_reader_refuses_a_file_with_a_misstamped_row(tmp_path):
+    import csv
+    import gzip
+
+    from src.intelligence.bars.vendor_ingress import _read_massive_1d
+
+    day = date(2019, 8, 12)
+    own, other = mf.extended_bounds_ns(day)[0], mf.extended_bounds_ns(date(2019, 8, 13))[0]
+    path = tmp_path / "2019-08-12.csv.gz"
+    header = ["ticker", "volume", "open", "close", "high", "low", "window_start", "transactions"]
+    with gzip.open(path, "wt", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerow(["AAA", 5, 1.0, 1.1, 1.2, 0.9, own, 1])
+        writer.writerow(["BBB", 0, 2.0, 2.0, 2.0, 2.0, other, 0])
+    with pytest.raises(ValueError, match="stamped at another session"):
+        _read_massive_1d(path)
