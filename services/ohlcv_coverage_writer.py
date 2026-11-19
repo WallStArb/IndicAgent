@@ -350,8 +350,11 @@ def rebuild_from_stored_state(
     consecutive_failures is never touched: it counts the fetcher's own item outcomes.
 
     `symbols` scopes the rebuild (tests use a synthetic symbol); None rebuilds every series.
-    Run under SET LOCAL ROLE bar_derivation_writer while holding the fetcher lock, so no
-    persist_chunk_atomically delta can interleave. Returns rows inserted or updated.
+    Run under SET LOCAL ROLE bar_derivation_writer. The fetcher lock is not enough to keep
+    persist_chunk_atomically deltas out: the Alpaca nightly and the loaders upsert the ledger
+    without it (todo 640), so the caller must also stop them (`ops_coverage_rebuild` refuses
+    while one runs); a delta committed after this aggregate is overwritten. Returns rows
+    inserted or updated.
     """
     if provider is None:
         symbol_arg = None if symbols is None else list(symbols)
