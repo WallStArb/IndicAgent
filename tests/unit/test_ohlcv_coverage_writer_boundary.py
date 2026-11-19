@@ -141,4 +141,5 @@ def test_the_writer_functions_are_the_listed_set():
         "rebuild_from_stored_state",
         "count_new_slots",  # the incremental row_count in distinct slots, as the rebuild counts
         "fetch_status_for_outcome",  # the rebuild's outcome CASE, for incremental status writes
+        "take_ledger_lock",  # orders every delta against the rebuild (todo 640)
     }

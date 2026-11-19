@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-19
 source: 609 audit disposition (coverage_cache) and the review of `ops_coverage_rebuild`
@@ -23,3 +23,7 @@ One of: (a) the nightly, `bar_load` and the Massive loaders take the fetcher loc
 ## Not blocking
 
 The audit's `coverage_cache` check clears with one committed rebuild run while no writer is active.
+
+## Resolution
+
+Option (b), done 2026-11-19: `services/ohlcv_coverage_writer.py` takes a transaction-scoped advisory ledger lock (`LEDGER_LOCK_NAME`). Every delta writer (`upsert_coverage`, `record_fetch_outcome`, `refresh_1d_bounds`) takes it shared; `rebuild_from_stored_state` takes it exclusive, so a rebuild waits for in-flight deltas and none can commit until the rebuild's transaction ends. The server releases it at COMMIT or ROLLBACK. The audit's `coverage_cache_drift` and `ops_coverage_rebuild` take it exclusive before their first ledger read, so their before-snapshot cannot miss a delta. Proof: `test_a_rebuild_waits_for_an_open_delta_and_does_not_overwrite_it` (live DB, fails to `1 != 2` with the lock disabled). The `ops_coverage_rebuild` writer-unit refusal and the audit's fetcher-lock poll stay as belt and braces; deleting them is a follow-up.

@@ -13,10 +13,13 @@ import pytest
 from services.ohlcv_coverage_writer import (
     FETCH_STATUSES,
     REBUILD_PROVIDERS,
+    CoverageDelta,
     count_new_slots,
     fetch_status_for_outcome,
     rebuild_from_stored_state,
+    record_fetch_outcome,
     refresh_1d_bounds,
+    upsert_coverage,
 )
 
 
@@ -25,9 +28,13 @@ class _Cursor:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+        self.locks: list[str] = []  # the ledger lock statements, kept apart from the ledger SQL
 
     def execute(self, sql: str, params: object = None) -> None:
-        self.calls.append((sql, params))
+        if "pg_advisory_xact_lock" in sql:
+            self.locks.append(sql)
+        else:
+            self.calls.append((sql, params))
 
 
 def test_rebuild_reads_only_the_providers_vendor_rows_of_raw():
@@ -167,3 +174,38 @@ def test_a_stored_stamp_that_is_not_a_chunk_key_raises_instead_of_counting_zero(
     naive = _S0.replace(tzinfo=None)
     with pytest.raises(KeyError):
         count_new_slots(_HeldCursor([(naive, 1)]), "AAA", "5m", "alpaca", [_S0])
+
+
+def test_the_rebuild_takes_the_ledger_lock_exclusive_before_its_aggregate():
+    cur = _Cursor()
+    rebuild_from_stored_state(cur, ["AAA"], provider="ibkr")
+    assert cur.locks == ["SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"]
+
+
+def test_every_delta_writer_takes_the_ledger_lock_shared():
+    shared = ["SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"]
+    now = datetime(2026, 11, 19, tzinfo=UTC)
+    cur = _Cursor()
+    upsert_coverage(
+        cur,
+        CoverageDelta("AAA", "5m", "raw", now, "alpaca"),
+        earliest=now,
+        latest=now,
+        n_new_rows=1,
+    )
+    assert cur.locks == shared
+    cur = _Cursor()
+    record_fetch_outcome(cur, "AAA", "5m", "ok", now)
+    assert cur.locks == shared
+    cur = _Cursor()
+    refresh_1d_bounds(cur, ["AAA"])
+    assert cur.locks == shared
+
+
+def test_a_call_that_writes_nothing_takes_no_lock():
+    cur = _Cursor()
+    rebuild_from_stored_state(cur, [])
+    refresh_1d_bounds(cur, [])
+    with pytest.raises(ValueError):
+        rebuild_from_stored_state(cur, ["AAA"], provider="tradier")
+    assert cur.locks == [] and cur.calls == []

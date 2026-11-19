@@ -427,8 +427,12 @@ def test_coverage_write_is_the_third_write_inside_the_same_transaction(contract)
         "<copy done>",
     ]
     assert inside[6] == "SET LOCAL ROLE bar_derivation_writer"
-    held, upsert = inside[7:]
-    assert "FROM ohlcv_raw" in held and upsert.lstrip().startswith("INSERT INTO ohlcv_coverage")
+    held, lock, upsert = inside[7:]
+    assert (
+        "FROM ohlcv_raw" in held
+        and lock == "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"
+    )
+    assert upsert.lstrip().startswith("INSERT INTO ohlcv_coverage")
 
 
 def test_no_coverage_means_no_coverage_sql(contract):
@@ -585,7 +589,7 @@ def test_upsert_labels_the_row_from_the_delta_provider():
         latest=_T1,
         n_new_rows=2,
     )
-    ((sql, _),) = conn.statements
+    _lock, (sql, _) = conn.statements
     assert "provider" in sql.split("INSERT INTO ohlcv_coverage (")[1].split(")")[0]
     assert "ON CONFLICT (symbol, timeframe, provider)" in sql
     params = conn.params[sql]
@@ -603,7 +607,7 @@ def test_record_fetch_outcome_never_increments_on_no_data():
     """CD-05 at the SQL level: only an error adds to consecutive_failures."""
     conn = FakeConn()
     record_fetch_outcome(conn.cursor(), "SPY", "15m", "no_data", _FETCHED_AT)
-    ((sql, _),) = conn.statements
+    _lock, (sql, _) = conn.statements
     params = conn.params[sql]
     assert "WHEN EXCLUDED.last_fetch_status = 'error'" in sql
     assert "ohlcv_coverage.consecutive_failures + 1" in sql
@@ -611,7 +615,7 @@ def test_record_fetch_outcome_never_increments_on_no_data():
     assert params[-1] == "ibkr"  # the stored-state provider default labels the row
     conn = FakeConn()
     record_fetch_outcome(conn.cursor(), "SPY", "15m", "error", _FETCHED_AT)
-    assert conn.params[conn.statements[0][0]][-2] == 1
+    assert conn.params[conn.statements[-1][0]][-2] == 1
 
 
 def test_fetch_statuses_are_the_ledger_check_values():

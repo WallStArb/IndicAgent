@@ -35,8 +35,11 @@ class _Cursor:
     def __exit__(self, *exc: object) -> None:
         return None
 
-    def execute(self, sql: str) -> None:
-        self._events.append("read" if sql.lstrip().startswith("SELECT") else sql)
+    def execute(self, sql: str, params: object = None) -> None:
+        if "pg_advisory_xact_lock" in sql:
+            self._events.append("ledger_lock")
+        else:
+            self._events.append("read" if sql.lstrip().startswith("SELECT") else sql)
 
     def fetchall(self) -> list[tuple]:
         self._reads += 1
@@ -85,6 +88,7 @@ def test_apply_locks_sets_the_writer_role_rebuilds_commits_once_and_unlocks_last
     assert _run(events, apply=True) == {"ibkr": 1}
     assert events == [
         "lock",
+        "ledger_lock",
         "read",
         "SET LOCAL ROLE bar_derivation_writer",
         "rebuild",

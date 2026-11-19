@@ -18,6 +18,7 @@ symbol. That bypass is test-only; production code never deletes a request.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -375,3 +376,44 @@ def test_rebuild_zeroes_a_provider_row_with_no_raw_and_no_requests(live):
         "consecutive_failures FROM ohlcv_coverage WHERE symbol = %s AND provider = 'ibkr'",
         (symbol,),
     ).fetchone() == (None, None, 0, "error", 6)
+
+
+def _rebuilder(symbol: str, started: threading.Event, finished: threading.Event) -> None:
+    with psycopg.connect(TEST_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            started.set()
+            rebuild_from_stored_state(cur, [symbol], provider="alpaca")
+    finished.set()
+
+
+def test_a_rebuild_waits_for_an_open_delta_and_does_not_overwrite_it(live):
+    """The ledger lock (todo 640): a delta's raw row and coverage upsert are uncommitted when a
+    rebuild starts. Without the lock the rebuild's snapshot misses the raw row, blocks on the
+    ledger row, and after the delta commits overwrites its row_count with the stale aggregate
+    (1 instead of 2). With it the rebuild waits for the delta to commit, then counts both."""
+    conn, symbol = live
+    hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    first, second = hour + timedelta(minutes=5), hour + timedelta(minutes=10)
+    with conn.transaction():
+        _insert_raw(conn, symbol, "5m", "alpaca", "sip_rth", [first])
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            rebuild_from_stored_state(cur, [symbol], provider="alpaca")  # the row exists: 1
+    started, finished = threading.Event(), threading.Event()
+    rebuilder = threading.Thread(target=_rebuilder, args=(symbol, started, finished))
+    with conn.transaction():
+        _insert_raw(conn, symbol, "5m", "alpaca", "sip_rth", [second])
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            delta = CoverageDelta(symbol, "5m", "raw", datetime.now(UTC), "alpaca")
+            upsert_coverage(cur, delta, earliest=first, latest=second, n_new_rows=1)
+            rebuilder.start()
+            assert started.wait(10)
+            assert not finished.wait(1.0), "the rebuild ran while a delta was open"
+    rebuilder.join(timeout=10)
+    assert finished.is_set()
+    assert conn.execute(
+        "SELECT row_count FROM ohlcv_coverage WHERE symbol = %s AND provider = 'alpaca'", (symbol,)
+    ).fetchone() == (2,)

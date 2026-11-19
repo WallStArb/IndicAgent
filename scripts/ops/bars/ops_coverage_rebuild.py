@@ -37,7 +37,10 @@ from scripts.infrastructure.backfill._fetcher_lock import (  # noqa: E402
     FetcherLock,
     FetcherLockHeld,
 )
-from services.ohlcv_coverage_writer import rebuild_from_stored_state  # noqa: E402
+from services.ohlcv_coverage_writer import (  # noqa: E402
+    rebuild_from_stored_state,
+    take_ledger_lock,
+)
 from src.config.settings import get_settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 
@@ -93,6 +96,7 @@ def rebuild_ledger(
         conn = connect(dsn)
         try:
             with conn.cursor() as cur:
+                take_ledger_lock(cur, exclusive=True)  # before the read, so no delta slips between
                 cur.execute(_ROWS_SQL)
                 before = {(r[0], r[1], r[2]): tuple(r[3:]) for r in cur.fetchall()}
                 cur.execute(_WRITER_ROLE_SQL)

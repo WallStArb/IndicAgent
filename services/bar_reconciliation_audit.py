@@ -88,7 +88,7 @@ from services.bar_hold import Hold
 from services.bar_hold import held as read_held
 from services.batch_support.config import cfg as _cfg
 from services.batch_support.db import load_apr_dict_async
-from services.ohlcv_coverage_writer import rebuild_from_stored_state
+from services.ohlcv_coverage_writer import rebuild_from_stored_state, take_ledger_lock
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
@@ -1955,6 +1955,7 @@ def coverage_cache_drift(
         conn = connect(dsn)
         try:
             with conn.cursor() as cur:
+                take_ledger_lock(cur, exclusive=True)  # before the read, so no delta slips between
                 cur.execute(_COVERAGE_ROWS_SQL, (list(symbols),))
                 committed = {(r[0], r[1], r[2]): tuple(r[3:]) for r in cur.fetchall()}
                 cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")

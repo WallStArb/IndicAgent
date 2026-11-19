@@ -14,9 +14,12 @@ tests/unit/test_ohlcv_coverage_writer_boundary.py), from two places:
   --reset-failures flag, so operators never hand-write the table;
 - refresh_1d_bounds, from the fetcher after its 1d answers landed (a 1d answer carries no
   coverage delta, so its bounds are recomputed from the vendor's raw rows);
-- rebuild_from_stored_state, from the fetcher's --rebuild-coverage flag under its lock, which
-  recomputes every row from the vendor's raw rows when another writer stored bars around the
-  ledger.
+- rebuild_from_stored_state, from `ops_coverage_rebuild` and the audit's coverage_cache check,
+  which recomputes every row from the vendor's raw rows when another writer stored bars around
+  the ledger.
+
+Every writer takes the ledger lock (LEDGER_LOCK_NAME): shared for a delta, exclusive for the
+rebuild.
 
 Coverage is per source (phase 191 plan 06): a row (symbol, timeframe, provider) describes what
 that vendor holds in ohlcv_raw, counted in distinct slots, whether or not another vendor's rows
@@ -43,6 +46,22 @@ from datetime import datetime
 from typing import Any
 
 from src.intelligence.bars.gap_plan import DAILY_NOT_COVERAGE_KINDS
+
+# The ledger lock (todo 640): shared for deltas, exclusive for the rebuild, released at COMMIT or
+# ROLLBACK. The key is hashtextextended of the name, as the sibling writers derive theirs.
+LEDGER_LOCK_NAME = "ohlcv_coverage_ledger"
+_LEDGER_LOCK_SHARED_SQL = "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"
+_LEDGER_LOCK_EXCLUSIVE_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+
+
+def take_ledger_lock(cur: Any, *, exclusive: bool) -> None:
+    """Take the ledger lock to the end of the cursor's transaction. A reader that compares the
+    ledger with a rebuild takes it exclusive before its first read, so no delta commits between
+    the snapshot it compares against and the rebuild's aggregate."""
+    cur.execute(
+        _LEDGER_LOCK_EXCLUSIVE_SQL if exclusive else _LEDGER_LOCK_SHARED_SQL, (LEDGER_LOCK_NAME,)
+    )
+
 
 # The ledger's CHECK values (migration 432). 'no_data' is a correct empty answer, never a
 # failure (CD-05); only 'error' counts toward infra.backfill.max_consecutive_failures.
@@ -150,6 +169,7 @@ def upsert_coverage(
     """
     if n_new_rows < 0:
         raise ValueError(f"n_new_rows must be >= 0, got {n_new_rows}")
+    take_ledger_lock(cur, exclusive=False)
     cur.execute(
         _UPSERT_SQL,
         (
@@ -183,6 +203,7 @@ def record_fetch_outcome(
     if status not in FETCH_STATUSES:
         raise ValueError(f"unknown fetch status {status!r}; expected one of {FETCH_STATUSES}")
     initial_failures = 1 if status == _ERROR_STATUS else 0
+    take_ledger_lock(cur, exclusive=False)
     cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures, provider))
 
 
@@ -260,6 +281,7 @@ def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
+    take_ledger_lock(cur, exclusive=False)
     cur.execute(_REFRESH_1D_SQL, (provider, provider, list(DAILY_NOT_COVERAGE_KINDS), symbol_list))
     written = int(cur.rowcount)
     cur.execute(
@@ -350,10 +372,11 @@ def rebuild_from_stored_state(
     consecutive_failures is never touched: it counts the fetcher's own item outcomes.
 
     `symbols` scopes the rebuild (tests use a synthetic symbol); None rebuilds every series.
-    Run under SET LOCAL ROLE bar_derivation_writer. The fetcher lock is not enough to keep
-    persist_chunk_atomically deltas out: the Alpaca nightly and the loaders upsert the ledger
-    without it (todo 640), so the caller must also stop them (`ops_coverage_rebuild` refuses
-    while one runs); a delta committed after this aggregate is overwritten. Returns rows
+    Run under SET LOCAL ROLE bar_derivation_writer. Takes the ledger lock exclusive (todo 640):
+    it waits for every in-flight delta writer to commit, and none can write until this
+    transaction ends, so a delta is never overwritten with a stale aggregate. The lock lasts to
+    the caller's COMMIT or ROLLBACK, so a caller that rebuilds and then idles blocks every
+    delta writer; commit or roll back promptly. Returns rows
     inserted or updated.
     """
     if provider is None:
@@ -366,7 +389,11 @@ def rebuild_from_stored_state(
             f"unknown coverage provider {provider!r}; expected one of {sorted(_REBUILD_FILTERS)}"
         )
     request_filter = _REBUILD_FILTERS[provider]
-    if symbols is None:
+    symbol_list = None if symbols is None else sorted(set(symbols))
+    if symbol_list == []:
+        return 0
+    take_ledger_lock(cur, exclusive=True)
+    if symbol_list is None:
         sql = _REBUILD_SQL.format(where="", request_where=request_filter)
         cur.execute(sql, {"provider": provider, "not_coverage": _NOT_COVERAGE})
         written = int(cur.rowcount)
@@ -375,9 +402,6 @@ def rebuild_from_stored_state(
             {"provider": provider, "not_coverage": _NOT_COVERAGE},
         )
         return written + int(cur.rowcount)
-    symbol_list = sorted(set(symbols))
-    if not symbol_list:
-        return 0
     sql = _REBUILD_SQL.format(
         where="AND symbol = ANY(%(symbols)s)",
         request_where=f"{request_filter} AND symbol = ANY(%(symbols)s)",
