@@ -464,6 +464,36 @@ def test_a_family_with_a_declared_replication_binds_only_pooled_over_its_declare
     assert record["sims_per_cell"] == 2000 and record["seed_bases"] == [0, 1_000_000]
 
 
+def test_the_daily_residual_declaration_is_two_fresh_disjoint_blocks_bound_only_in_that_order(
+    monkeypatch,
+):
+    declared = bp.DECLARED_REPLICATIONS["daily_residual"]
+    assert declared == (5_000_000, 6_000_000)
+    used = (0, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 9_000_000, 77_000_000)
+    daily = bp.battery_scenarios("src.intelligence.research.null_battery_daily_residual")
+    span = bp.SEED_STRIDE * (len(daily) - 1) + 2_000  # the driver draws base + stride * cell + sim
+    ranges = [(b, b + span) for b in (*used, *declared)]
+    ranges.sort()
+    assert all(a[1] <= b[0] for a, b in zip(ranges, ranges[1:], strict=False))
+    monkeypatch.setattr(bp, "DECLARED_REPLICATIONS", {"seasonality": declared})
+    blocks = (
+        [{**_block(1), "seed_base": declared[0]}],
+        [[{**_block(2), "seed_base": declared[1]}]],
+    )
+    for bad in (
+        [declared[0]],
+        [declared[1], declared[0]],
+        [declared[0], 3_000_000],
+        [*declared, 7_000_000],
+    ):
+        with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
+            _make(blocks[0], replication_blocks=list(blocks[1]), seed_bases=bad)
+    with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
+        _make(blocks[0])  # one block alone, even a clean one
+    record = _make(blocks[0], replication_blocks=list(blocks[1]), seed_bases=list(declared))
+    assert record["seed_bases"] == list(declared) and record["sims_per_cell"] == 2000
+
+
 def test_a_declared_single_block_must_prove_its_seed_base(monkeypatch):
     monkeypatch.setattr(bp, "DECLARED_REPLICATIONS", {"seasonality": (2_000_000,)})
     with pytest.raises(bp.BatteryPassRefused, match="must record its seed base"):
