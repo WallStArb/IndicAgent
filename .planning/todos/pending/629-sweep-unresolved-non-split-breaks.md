@@ -31,6 +31,10 @@ The gate covers witnessed breaks that are split-shaped or wrong-scale in the nam
 - One-bar wrong scale, refused corrections (Yahoo has no split for a dead name): VIP, ACGN, ETS, and CETV 2003-11 (two sessions late, out of scope); ZSL 2015-10 is a coverage hole (no bars 2013-03-15 to 2015-10-30) needing a disposition. NCT and SIX have no Yahoo data. SW 2016-05-16: an identity line cannot rule an `unrecorded_split` verdict; waits on the pit map (todo 624).
 - Evidence files: `logs/f3_a2/pin_gating_candidates.csv`, `logs/sweep_strict_members_20261120b/in_scope_C.csv`.
 
+## Scoped rerun result (2026-11-20, `logs/sweep_strict_members_20261120c`)
+
+Strict exits 3 by design (25,149 breaks read, 19,342 with no Yahoo history, 4,084 unresolved). I launched it without `--dispositions`, so the tool did not apply `sweep_dispositions.csv`; the unresolved list was filtered by the dispositions file and the bad-bar list offline (the same rule the tool applies), leaving 4,033 (`sweep_unresolved_with_dispositions.csv`). In scope (C 1d, B 5m) 266 witnessed breaks remain (72 in B), all disclosed classes: not_bracketable 180, route rows with no calendar event 41, five calendar-ratio mismatches, and 34 split-shaped route rows with a matching calendar ratio. Those 34 are exactly the disclosed lists above plus SNX, whose Concentrix spin-off disposition moved from 2020-12-02 to 2020-12-01 after the rederivation (the stale identity line SN 2023-07-31 was removed; the tool counts an unused identity line as a strict failure). Nothing in scope is undecided and split-shaped outside the disclosure. Per-row: `scoped_remainder.csv` in the run directory. The members added by the type fix (missing security types drop about 700 members in 2008 and 2012, 47) are not in this sweep: a non-strict delta sweep over them follows the membership rebuild.
+
 ## Done when
 
-The scoped strict sweep rerun (`logs/sweep_strict_members_20261120c`) is reported: exit code, what remains split-shaped or wrong-scale in scope, and the disclosure above updated with its counts. Then the 584 pin readiness row for the strict sweep closes.
+The delta sweep over the names the rebuilt universe adds is reported; then the 584 pin readiness row for the strict sweep closes.
