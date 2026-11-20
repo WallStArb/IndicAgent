@@ -419,18 +419,63 @@ def test_the_quarantine_writes_through_bar_scrub_and_rolls_back_unless_commit(
             asyncio.run(audit.quarantine_unconfirmed(_AsyncConn(rules), path, commit=True))
 
 
-def test_a_listed_bad_bar_that_is_not_stored_refuses_the_quarantine(tmp_path, monkeypatch):
+def test_a_listed_bar_in_neither_canonical_nor_raw_is_listed_as_moot_and_the_rest_quarantine(
+    tmp_path, monkeypatch, capsys
+):
+    # A typo'd line (or a reused ticker's old history) is moot but never silent: it is printed
+    # with its reason and written to the evidence csv; the stored bar still quarantines.
     path = _write(tmp_path / "audit.csv", [{"symbol": "MSFT", "verdict": "adjusted"}])
-    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", _write_bad_bars(tmp_path))
+    bad = tmp_path / "bad.csv"
+    bad.write_text(
+        "symbol,date,reason,evidence\n"
+        "CMCSA,2017-02-17,jump,flat on Yahoo\n"
+        "TYPO,2017-02-17,jump,flat on Yahoo\n"
+        "RAWONLY,2005-01-03,jump,flat on Yahoo\n"
+    )
+    monkeypatch.setattr(audit, "OPERATOR_BAD_BARS", bad)
+    written = []
+    import services.bar_derivation_batch as batch
+    import services.bar_scrub as scrub
+
+    async def fake_write_flags(conn, **kw):
+        written.append((kw["symbol"], kw["rules_evaluated"], len(kw["flags"])))
+        return len(kw["flags"])
+
+    async def fake_open(conn, **kw):
+        return "b"
+
+    async def fake_close(conn, *a, **kw):
+        return None
+
+    monkeypatch.setattr(scrub, "write_flags", fake_write_flags)
+    monkeypatch.setattr(batch, "open_batch", fake_open)
+    monkeypatch.setattr(batch, "close_batch", fake_close)
     conn = _AsyncConn('["unconfirmed_split", "operator_bad_bar"]')
 
-    async def no_bar(sql, *args):
-        return conn.rules if "quarantine_rules" in sql else None
+    async def by_symbol(sql, *args):
+        if "quarantine_rules" in sql:
+            return conn.rules
+        if sql == audit._BAR_SQL:
+            return datetime(2017, 2, 17, tzinfo=UTC) if args[0] == "CMCSA" else None
+        if sql == audit._RAW_BAR_SQL:
+            return 1 if args[0] == "RAWONLY" else None
+        if sql == audit._FIRST_CANONICAL_SQL:
+            return datetime(2010, 1, 4, tzinfo=UTC)  # RAWONLY's day is before the series
+        return datetime(2005, 2, 28, tzinfo=UTC)
 
-    conn.fetchval = no_bar
-    with pytest.raises(ValueError, match="not a stored 1d bar"):
-        asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=True))
-    assert conn.events == ["begin", "rollback"]
+    conn.fetchval = by_symbol
+    moot_out = tmp_path / "moot.csv"
+    asyncio.run(audit.quarantine_unconfirmed(conn, path, commit=False, moot_out=moot_out))
+    assert ("CMCSA", frozenset({"operator_bad_bar"}), 1) in written
+    out = capsys.readouterr().out
+    assert "moot listed bar TYPO 2017-02-17: " + audit.MOOT_ABSENT in out
+    assert "moot listed bar RAWONLY 2005-01-03: " + audit.MOOT_RAW_ONLY in out
+    assert "2 listed bars are moot" in out
+    assert moot_out.read_text().splitlines() == [
+        "symbol,date,reason",
+        f"RAWONLY,2005-01-03,{audit.MOOT_RAW_ONLY}",
+        f"TYPO,2017-02-17,{audit.MOOT_ABSENT}",
+    ]
 
 
 def test_a_listed_bad_bar_only_raw_holds_is_counted_not_refused(tmp_path, monkeypatch):
@@ -530,7 +575,8 @@ def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
     # evidence cites the todo that reviewed it, no (symbol, date) appears twice, the pinned
     # core from 587 and 592 is always present, and the count matches the reviewed-batch
     # constant (bump it in the same review commit that adds bars; the 592 sweep's 123
-    # single-bar-reversal quarantines took it to 131 on 2026-11-10, the 2007-06-13 day-file class of todo 627 to 147).
+    # single-bar-reversal quarantines took it to 131 on 2026-11-10, the 2007-06-13 day-file class of todo 627 to 147,
+    # the lane A2 IMVP and SUNE bars of 2026-11-20 to 149).
     import re
 
     bad = audit.operator_list(audit.OPERATOR_BAD_BARS)
@@ -546,9 +592,9 @@ def test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars():
     }
     assert pinned_core <= set(bad)
     assert len(bad) == len(set(bad)), "duplicate (symbol, date) in the bad-bars list"
-    assert len(bad) == 147, "bump the reviewed count in the same review commit"
+    assert len(bad) == 149, "bump the reviewed count in the same review commit"
     rows = audit.OPERATOR_BAD_BARS.read_text().splitlines()[1:]
-    assert len(rows) == 147
+    assert len(rows) == 149
     uncited = [row.split(",")[0] for row in rows if not re.search(r"todo \d{3}", row)]
     assert not uncited, f"bars with no todo citation in their evidence: {uncited}"
 

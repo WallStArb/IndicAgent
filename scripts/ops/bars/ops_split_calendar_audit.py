@@ -1602,12 +1602,6 @@ _FIRST_CANONICAL_SQL = """
 SELECT min("timestamp") FROM market_data_ohlcv WHERE symbol = $1 AND timeframe = '1d'
 """
 _BAR_SQL = """
-SELECT 1 FROM ohlcv_raw
-WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
-   OR (symbol = $1 AND timeframe = '1d' AND ("timestamp" AT TIME ZONE 'America/New_York')::date = $2::date)
-LIMIT 1
-"""
-_BAR_SQL = """
 SELECT "timestamp" FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND "timestamp" = ($2::date::timestamp AT TIME ZONE 'UTC')
 """
@@ -1650,16 +1644,26 @@ def unconfirmed_candidates(
         ]
 
 
-async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
+MOOT_ABSENT = "in neither canonical nor raw"
+MOOT_RAW_ONLY = "raw only before the canonical series"
+MOOT_COLUMNS = ("symbol", "date", "reason")
+
+
+async def quarantine_unconfirmed(
+    conn: Any, path: Path, *, commit: bool, moot_out: Path | None = None
+) -> int:
     """One transaction, one scrub batch, through bar_scrub.write_flags; rolled back unless commit:
     - unconfirmed_split on the first traded canonical bar after each unconfirmed candidate's
       effective_date (the raw table, so a re-run finds the same bar once it is quarantined);
     - operator_bad_bar on every bar of operator_bad_bars.csv.
     Each rule is this tool's alone, so it is replaced globally (a name flagged today but absent
     from the files is cleared) and a re-run writes the same rows. Refuses unless both rules
-    quarantine (APR list), and when a listed bad bar is in no stored series
-    (a bar only raw holds before the series starts is counted, not flagged); a candidate with no
-    canonical bar within SAME_EVENT_DAYS of its calendar date is counted as moot."""
+    quarantine (APR list). A listed bad bar with no canonical bar is moot, never flagged and never
+    silent: each such line is printed with its reason and written to `moot_out` (a typo in a new
+    line shows up there). Moot is "in neither canonical nor raw" (a reused ticker's old history)
+    or "raw only before the canonical series"; a bar raw holds inside the canonical series with
+    no canonical bar conflicts with what is stored and raises. A candidate with no canonical bar
+    within SAME_EVENT_DAYS of its calendar date is counted as moot."""
     from services.bar_derivation_batch import close_batch, open_batch
     from services.bar_scrub import FlagRow, write_flags
 
@@ -1701,17 +1705,21 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
                 moot_candidates += 1  # series starts after the event's window
                 continue
             add(UNCONFIRMED_RULE, c["symbol"], stamp, c["detail"])
-        moot = 0
+        moot: list[tuple[str, date, str]] = []
         for (symbol, day), reason in sorted(operator_list(OPERATOR_BAD_BARS).items()):
             stamp = await conn.fetchval(_BAR_SQL, symbol, day)
-            if stamp is None:
+            if stamp is not None:
+                add(BAD_BAR_RULE, symbol, stamp, {"reason": reason, "list": OPERATOR_BAD_BARS.name})
+            elif await conn.fetchval(_RAW_BAR_SQL, symbol, day) is None:
+                moot.append((symbol, day, MOOT_ABSENT))
+            else:
                 first = await conn.fetchval(_FIRST_CANONICAL_SQL, symbol)
-                before_series = first is None or day < first.date()
-                if not before_series or await conn.fetchval(_RAW_BAR_SQL, symbol, day) is None:
-                    raise ValueError(f"listed bad bar {symbol} {day} is not a stored 1d bar")
-                moot += 1  # raw holds it, canonical starts later: nothing to quarantine
-                continue
-            add(BAD_BAR_RULE, symbol, stamp, {"reason": reason, "list": OPERATOR_BAD_BARS.name})
+                if first is not None and day >= first.date():
+                    raise ValueError(
+                        f"listed bad bar {symbol} {day} is not a stored 1d bar, but raw holds it "
+                        "inside the canonical series"
+                    )
+                moot.append((symbol, day, MOOT_RAW_ONLY))
         batch_id = await open_batch(
             conn,
             stage="scrub",
@@ -1741,9 +1749,14 @@ async def quarantine_unconfirmed(conn: Any, path: Path, *, commit: bool) -> int:
     else:
         await tx.rollback()
     print(f"{'quarantined' if commit else 'dry run, would quarantine'} {written} bars")
-    print(
-        f"{moot} listed bars are in raw only (before the canonical series): nothing to quarantine"
-    )
+    for symbol, day, why in moot:
+        print(f"moot listed bar {symbol} {day}: {why}")
+    print(f"{len(moot)} listed bars are moot (nothing to quarantine)")
+    if moot_out is not None:
+        with moot_out.open("w", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(MOOT_COLUMNS)
+            writer.writerows(moot)
     print(f"{moot_candidates} unconfirmed candidates have no canonical bar in their window: moot")
     return written
 
@@ -1754,7 +1767,9 @@ async def _quarantine(settings: Settings, path: Path, *, commit: bool) -> int:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(dsn)
     try:
-        await quarantine_unconfirmed(conn, path, commit=commit)
+        await quarantine_unconfirmed(
+            conn, path, commit=commit, moot_out=path.with_name(f"{path.stem}_moot_bad_bars.csv")
+        )
     finally:
         await conn.close()
     return 0
