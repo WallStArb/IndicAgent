@@ -84,7 +84,7 @@ s0)
   [ $need_marks -ne 2 ] || { note "609_s0 BLOCKED: L3 not landed"; exit 3; }
   echo "== pit snapshots in reference_raw (readiness: 6,132 rows)"
   q "select count(*), count(distinct as_of) from reference_raw_current where endpoint = 'pit_snapshots'" | tee "$D/run_609_s0_pit.txt"
-  echo "== tier amendment text in the preregistration (adoption marker): $(grep -c 'Amendment 2026-11-15' docs/plans/2026-11-13-stage2-universe-preregistration.md)"
+  echo "== tier amendment text in the preregistration (adoption marker): $(grep -c '^- The 5m tier (\$25M entry' docs/plans/2026-11-13-stage2-universe-preregistration.md)"
   echo "== instruments: active, inactive"
   q "select is_active, count(*) from instruments group by 1 order by 1"
   [ $need_marks -eq 0 ] || echo "(warnings above: Part D4 or D5 marker missing; s0 still records DONE, the lead decides)"
@@ -288,7 +288,7 @@ s8)
   echo "597 tables: $(q "select coalesce(to_regclass('public.universe_membership')::text,'-')")"
   echo "== I1 (IC wiring) landed? UNIVERSE_SOURCE in readers (gap G6): $(grep -l 'UNIVERSE_SOURCE' services/ic_measure.py src/intelligence/research/snapshot.py 2>/dev/null | tr '\n' ' ')"
   grep -q 'UNIVERSE_SOURCE' services/ic_measure.py 2>/dev/null || echo "WARN: I1 not on main; check_ic_universe_aligned blocks the rerun until both readers declare corpus_universe"
-  echo "== adoption markers: tier amendment text $(grep -c 'Amendment 2026-11-15' docs/plans/2026-11-13-stage2-universe-preregistration.md), E23 entry $(grep -c '^### E23' docs/plans/methodology-change-ledger.md) (the tier load needs the first; the first counted test needs E23)"
+  echo "== adoption markers: tier amendment text $(grep -c '^- The 5m tier (\$25M entry' docs/plans/2026-11-13-stage2-universe-preregistration.md), E23 entry $(grep -c '^### E23' docs/plans/methodology-change-ledger.md) (the tier load needs the first; the first counted test needs E23)"
   echo "== corpus_run rows (readiness: 0): $(q "select count(*) from corpus_run")"
   echo "== 584 manifest: lines marked landed vs pending (the lead reads every row against git log; this count is not the check)"
   grep -ci "landed" .planning/todos/pending/584-corpus-rerun-fix-manifest.md; grep -ci "pending" .planning/todos/pending/584-corpus-rerun-fix-manifest.md
