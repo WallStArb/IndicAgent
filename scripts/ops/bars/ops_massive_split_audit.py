@@ -60,7 +60,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fractions import Fraction
 from functools import cache
 from pathlib import Path
@@ -192,6 +192,15 @@ FROM ticker_event t
 WHERE t.retired_at IS NULL AND t.symbol = ANY(%s)
 ORDER BY t.symbol, t.valid_from
 """
+# A dead name's identity ends with its data: its last canonical 1d session. ticker_event leaves
+# the last span open (valid_to NULL) for most dead names, and a later holder of the same string
+# would otherwise be attributed to the dead name (deterministic: a function of canonical).
+_MEMBER_LAST_SESSION_SQL = """
+SELECT symbol, max(("timestamp" AT TIME ZONE 'UTC')::date)
+FROM market_data_ohlcv_tradeable
+WHERE timeframe = '1d' AND symbol = ANY(%s)
+GROUP BY symbol
+"""
 _SPLITS_SQL = """
 SELECT reference_raw_id::text, endpoint, served_at, body
 FROM reference_raw_current
@@ -256,14 +265,24 @@ class Reference:
         return self.active | self.members
 
 
+def clip_span(span: StringSpan, last_session: dict[str, date]) -> StringSpan:
+    """The span ended at the member's last canonical 1d session (an exclusive end the day after);
+    a member with no bars holds nothing. Pure."""
+    last = last_session.get(span.symbol)
+    end = last + timedelta(days=1) if last else span.valid_from
+    stop = end if span.valid_to is None else min(span.valid_to, end)
+    return StringSpan(span.symbol, span.string, span.valid_from, max(stop, span.valid_from))
+
+
 def load_reference(conn: Any) -> Reference:
     active = frozenset(r[0] for r in conn.execute(_ACTIVE_SQL))
     member_rows = conn.execute(_MEMBERS_SQL).fetchall()
     members = frozenset(sym for sym, _tier in member_rows)
     tier = frozenset(sym for sym, is_tier in member_rows if is_tier)
+    last_session = dict(conn.execute(_MEMBER_LAST_SESSION_SQL, (sorted(members),)).fetchall())
     spans: dict[str, list[StringSpan]] = defaultdict(list)
     for symbol, ticker, start, stop in conn.execute(_MEMBER_SPANS_SQL, (sorted(members),)):
-        spans[symbol].append(StringSpan(symbol, ticker, start, stop))
+        spans[symbol].append(clip_span(StringSpan(symbol, ticker, start, stop), last_session))
     rows, served = [], {}
     pages = Counter()
     for raw_id, endpoint, served_at, body in conn.execute(
@@ -742,6 +761,24 @@ def level_census(
 # ---------------------------------------------------------------- main
 
 
+def attribute_all(
+    splits: list[VendorSplit], index: IdentityIndex
+) -> tuple[list[tuple], list[tuple], list[VendorSplit]]:
+    """(own, excluded, outside_span): each split to the instrument it concerns, or to nobody
+    when its string is held but not on that day (a reused ticker). Pure."""
+    own, excluded, outside_span = [], [], []
+    for split in splits:
+        hit = attribute(split, index)
+        if hit is None:
+            labels = [t for t in (split.bulk_ticker, split.v3_ticker) if t is not None]
+            if any(ticker_key(t) in index.spans for t in labels):
+                outside_span.append(split)
+            continue
+        symbol, how = hit
+        (own if how in OWN_ATTRIBUTIONS else excluded).append((split, symbol, how))
+    return own, excluded, outside_span
+
+
 def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Path) -> dict:
     t0 = time.monotonic()
     with psycopg.connect(settings.database_url) as conn:
@@ -775,16 +812,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     )
 
     # (1) Attribution and reconciliation.
-    own, excluded, outside_span = [], [], []
-    for split in ref.splits:
-        hit = attribute(split, index)
-        if hit is None:
-            labels = [t for t in (split.bulk_ticker, split.v3_ticker) if t is not None]
-            if any(ticker_key(t) in index.spans for t in labels):
-                outside_span.append(split)  # a held string, but not on that day: reused ticker
-            continue
-        symbol, how = hit
-        (own if how in OWN_ATTRIBUTIONS else excluded).append((split, symbol, how))
+    own, excluded, outside_span = attribute_all(ref.splits, index)
     own, duplicates = collapse_vendor_duplicates(own, SAME_EVENT_DAYS)
     # The market-split meaning selection and the daily rule apply (corporate_actions).
     recorded = [

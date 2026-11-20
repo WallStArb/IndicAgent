@@ -1510,12 +1510,12 @@ def test_dispositions_are_validated_before_the_database_is_opened(monkeypatch, t
 class _SweepConn:
     """The sweep's queries answered from canned rows, keyed by the SQL the script runs."""
 
-    def __init__(self, *, steps, crowded, active, recorded):
+    def __init__(self, *, steps, crowded, active, recorded, members=()):
         self._rows = {
             audit._SWEEP_STEPS_SQL: steps,
             audit._SWEEP_CROWDED_SQL: crowded,
             audit._ACTIVE_SQL: [(s,) for s in active],
-            audit._GATE_SCOPE_SQL: [(s,) for s in active],
+            audit._GATE_SCOPE_SQL: [(s,) for s in [*active, *members]],
             audit._RECORDED_SQL: recorded,
         }
 
@@ -2058,6 +2058,16 @@ def test_an_incumbent_route_correction_nearby_never_blocks_a_massive_row(tmp_pat
     conn = _row633_conn(_ROW633_CLOSES, existing=nearby)
     assert _apply_row633(monkeypatch, conn, _row633_file(tmp_path)) == 0
     assert any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+def test_an_unresolved_break_on_an_inactive_universe_member_is_gated(monkeypatch, tmp_path):
+    day = DAY
+    steps = [("DEADM", day, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj")]
+    events = [_break("DEADM", day, "unrecorded_split")]
+    conn = _SweepConn(steps=steps, crowded=[], active=[], recorded=[], members=["DEADM"])
+    counts, out = _drive_sweep(monkeypatch, tmp_path, conn, events)
+    assert counts["unresolved"] == 1 and counts["active_names"] == 1
+    assert [r["symbol"] for r in csv.DictReader(audit.unresolved_path(out).open())] == ["DEADM"]
 
 
 def test_the_sweep_gate_scope_is_active_names_and_universe_members():

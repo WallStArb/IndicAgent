@@ -12,8 +12,10 @@ from scripts.ops.bars import ops_massive_split_audit as audit
 from src.intelligence.bars.corporate_actions import SplitRatioRule
 from src.intelligence.bars.level_seams import RecordedFactor
 from src.intelligence.bars.split_reconciliation import (
+    IdentityIndex,
     ReconciledSplit,
     RecordedSplit,
+    StringSpan,
     VendorSplit,
 )
 
@@ -121,3 +123,56 @@ def test_group_counts_split_tier_non_tier_and_active():
     assert out["tier_5m_ever"]["proposed_rows"] == 1
     assert out["non_tier_member"]["review_by_status"] == {"tape_flat": 1}
     assert out["active"]["events_attributed"] == 1 and out["active"]["proposed_names"] == 1
+
+
+def _split(day, ticker="DEAD", event_id="e1"):
+    return VendorSplit(event_id, day, 2.0, ticker, ticker, None, frozenset({"bulk"}), ("r",))
+
+
+class _ReferenceConn:
+    """load_reference's queries answered from canned rows keyed by the SQL text."""
+
+    def __init__(self, rows):
+        page = {"status": "OK", "results": []}
+        self.rows = {
+            audit._MEMBERS_SQL: [("DEAD", True)],
+            audit._SPLITS_SQL: [
+                (f"p{i}", ep, None, page) for i, ep in enumerate(audit._FAMILY_OF_ENDPOINT)
+            ],
+        } | rows
+
+    def execute(self, sql, params=None):
+        return _Rows(self.rows.get(sql, []))
+
+
+class _Rows(list):
+    def fetchall(self):
+        return list(self)
+
+
+def test_a_dead_names_open_span_ends_at_its_last_session_and_a_reused_ticker_is_nobodys():
+    # ticker_event leaves the last span open; the same string is reused after the death.
+    conn = _ReferenceConn(
+        {
+            audit._MEMBER_SPANS_SQL: [("DEAD", "DEAD", date(2010, 1, 4), None)],
+            audit._MEMBER_LAST_SESSION_SQL: [("DEAD", date(2015, 6, 30))],
+        }
+    )
+    ref = audit.load_reference(conn)
+    (span,) = ref.member_spans["DEAD"]
+    assert span.valid_to == date(2015, 7, 1)  # exclusive: the last session is still held
+    index = IdentityIndex.build(
+        span and ref.member_spans["DEAD"], {"DEAD": span.valid_from}, label_symbols=()
+    )
+    on_last = _split(date(2015, 6, 30), event_id="a")
+    after = _split(date(2019, 3, 1), event_id="b")  # a new holder of the string splits
+    own, excluded, outside = audit.attribute_all([on_last, after], index)
+    assert [(s.event_id, sym) for s, sym, _ in own + excluded] == [("a", "DEAD")]
+    assert [s.event_id for s in outside] == ["b"]
+
+
+def test_a_member_with_no_bars_holds_nothing_and_a_closed_span_keeps_its_own_end():
+    open_span = StringSpan("X", "X", date(2010, 1, 4), None)
+    assert audit.clip_span(open_span, {}).valid_to == date(2010, 1, 4)
+    closed = StringSpan("X", "X", date(2010, 1, 4), date(2012, 1, 1))
+    assert audit.clip_span(closed, {"X": date(2020, 1, 1)}).valid_to == date(2012, 1, 1)
