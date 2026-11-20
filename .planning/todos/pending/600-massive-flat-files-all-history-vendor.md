@@ -169,5 +169,5 @@ Findings recorded in the idea docs: economy raw has no vintage or `available_at`
 
 ## Final verification (item 9 step 3, 2026-11-20)
 
-After the catch-up (11,672 keys), `massive_download --verify` exited 0 (11,672 records, 0 superseded, 0 defects) and `--verify-etag` exited 0, run one after the other from `logs/massive_verify_20261120/run.sh` (logs `verify.log`, `verify_etag.log`, exit codes in `exit_codes.txt`). Both finished in about 5 minutes together, not the 10 to 25 estimated. No file needed repair.
+After the catch-up (11,672 keys), `massive_download --verify` exited 0 (11,672 records, 0 superseded, 0 defects) and `--verify-etag` exited 0, run one after the other from `logs/massive_verify_20261120/run.sh` (logs `verify.log`, `verify_etag.log`, exit codes in `exit_codes.txt`). Both finished in about 2 minutes together (log timestamps 02:08Z to 02:10Z), not the 10 to 25 estimated. No file needed repair.
 
