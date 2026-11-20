@@ -25,6 +25,14 @@ the database. Outputs land in --out (default data/massive_split_audit/<capture d
   level_census.csv: every active instrument's canonical 1d spans whose level sits off Massive's;
 - summary.json: counts, parameters, input digests.
 
+Scope (todo 646): the active instruments plus the inactive names of universe_membership (the
+stage 2 members). A member's identity is its unretired ticker_event spans; an event is its own
+only when a span of that string holds the execution date, never by label (a reused ticker's
+event outside the spans is written to attribution_excluded.csv as outside_span). Members never
+take the current_label fallback. Tape-unconfirmed events stay unrecorded and are listed in
+review_rows.csv; proposed_rows.csv lists the 5m-tier members first. summary.json carries
+`stage2_members` (events, proposed and review counts per group).
+
 The archive is untrusted input: it is only read, through src/intelligence/bars/massive_flat.py,
 and this script is run as `python -I` from the repo root (never from inside data/).
 
@@ -115,6 +123,7 @@ from src.intelligence.bars.split_reconciliation import (  # noqa: E402
     partition_counts,
     proposal_status,
     reconcile,
+    ticker_key,
 )
 from src.intelligence.bars.split_rescale import SplitFactor, scales_for_sessions  # noqa: E402
 
@@ -169,6 +178,20 @@ NAMED_CASES: tuple[tuple[str, str, str], ...] = (
 
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
+# Stage 2 scope (todo 646): the inactive names of the universe membership, with their unretired
+# ticker_event spans (the point-in-time identity; a member is attributed by span, never by label).
+_MEMBERS_SQL = """
+SELECT m.symbol, bool_or(m.tier_5m)
+FROM universe_membership m JOIN instruments i USING (symbol)
+WHERE NOT i.is_active
+GROUP BY m.symbol ORDER BY m.symbol
+"""
+_MEMBER_SPANS_SQL = """
+SELECT t.symbol, t.ticker, t.valid_from, t.valid_to
+FROM ticker_event t
+WHERE t.retired_at IS NULL AND t.symbol = ANY(%s)
+ORDER BY t.symbol, t.valid_from
+"""
 _SPLITS_SQL = """
 SELECT reference_raw_id::text, endpoint, served_at, body
 FROM reference_raw_current
@@ -216,6 +239,9 @@ class Reference:
     """Everything the audit reads from the database, once."""
 
     active: frozenset[str]
+    members: frozenset[str]  # inactive universe members, in scope beside the active names
+    tier: frozenset[str]  # the members that were ever in the 5m tier
+    member_spans: dict[str, tuple[StringSpan, ...]]  # member -> ticker_event spans, ascending
     splits: list[VendorSplit]
     conflicts: list[Any]
     served_at: dict[str, datetime]  # reference_raw_id -> served_at
@@ -225,9 +251,19 @@ class Reference:
     actions: list[tuple]  # every corporate_action row (current or not), _ACTIONS_SQL order
     apr: dict[str, Any]
 
+    @property
+    def scope(self) -> frozenset[str]:
+        return self.active | self.members
+
 
 def load_reference(conn: Any) -> Reference:
     active = frozenset(r[0] for r in conn.execute(_ACTIVE_SQL))
+    member_rows = conn.execute(_MEMBERS_SQL).fetchall()
+    members = frozenset(sym for sym, _tier in member_rows)
+    tier = frozenset(sym for sym, is_tier in member_rows if is_tier)
+    spans: dict[str, list[StringSpan]] = defaultdict(list)
+    for symbol, ticker, start, stop in conn.execute(_MEMBER_SPANS_SQL, (sorted(members),)):
+        spans[symbol].append(StringSpan(symbol, ticker, start, stop))
     rows, served = [], {}
     pages = Counter()
     for raw_id, endpoint, served_at, body in conn.execute(
@@ -262,7 +298,18 @@ def load_reference(conn: Any) -> Reference:
     actions = list(conn.execute(_ACTIONS_SQL))
     apr = dict(conn.execute(_APR_SQL, ([*SPLIT_RULE_KEYS, REL_TOL_KEY],)).fetchall())
     return Reference(
-        active, splits, conflicts, served, chains, list_dates, dict(delisted), actions, apr
+        active,
+        members,
+        tier,
+        {s: tuple(v) for s, v in spans.items()},
+        splits,
+        conflicts,
+        served,
+        chains,
+        list_dates,
+        dict(delisted),
+        actions,
+        apr,
     )
 
 
@@ -712,16 +759,29 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     identities = {
         s: build_identity(s, ref.chains.get(s), ref.list_dates.get(s)) for s in sorted(ref.active)
     }
+    # An inactive member's identity is its ticker_event spans; a member with none has no identity
+    # and no event is attributed to it (counted in the summary).
+    for symbol, spans in ref.member_spans.items():
+        identities[symbol] = Identity(spans, "ticker_event")
+    list_dates = {s: ref.list_dates.get(s) for s in ref.active} | {
+        s: spans[0].valid_from for s, spans in ref.member_spans.items()
+    }
+    # Only an active name's label names an event outside its spans (current_label); a dead
+    # name's label outside its spans is a reused ticker.
     index = IdentityIndex.build(
         (span for ident in identities.values() for span in ident.spans),
-        {s: ref.list_dates.get(s) for s in ref.active},
+        list_dates,
+        label_symbols=ref.active,
     )
 
     # (1) Attribution and reconciliation.
-    own, excluded = [], []
+    own, excluded, outside_span = [], [], []
     for split in ref.splits:
         hit = attribute(split, index)
         if hit is None:
+            labels = [t for t in (split.bulk_ticker, split.v3_ticker) if t is not None]
+            if any(ticker_key(t) in index.spans for t in labels):
+                outside_span.append(split)  # a held string, but not on that day: reused ticker
             continue
         symbol, how = hit
         (own if how in OWN_ATTRIBUTIONS else excluded).append((split, symbol, how))
@@ -732,7 +792,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
             aid, sym, eff, float(fac), by, not is_market_split(by, operator_rows_file=rows_file)
         )
         for aid, sym, kind, eff, fac, by, rows_file, current in ref.actions
-        if current and kind != "void" and sym in ref.active
+        if current and kind != "void" and sym in ref.scope
     ]
     calendar = sorted(nyse_sessions(date(1970, 1, 2), max(capture_date, sessions[-1])))
     served_on = {i: t.astimezone(SESSION_ZONE).date() for i, t in ref.served_at.items()}
@@ -804,6 +864,10 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
             for split, symbol, how in excluded
         ]
         + [
+            {**vendor_cols(split), "symbol": "", "attribution": "outside_span"}
+            for split in outside_span
+        ]
+        + [
             {
                 "symbol": "",
                 "attribution": "family_conflict",
@@ -864,6 +928,8 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         for m, row in member_rows
         if redate_ok(m, row["tape"], params.ratio_rule)
     ]
+    # The tier names first (lead ruling, todo 646: the derivation run order follows the file).
+    proposed.sort(key=lambda r: (r["symbol"] not in ref.tier, r["symbol"], r["effective_date"]))
     write_csv(out / "proposed_rows.csv", proposed, PROPOSED_COLUMNS)
     write_csv(out / "redate_rows.csv", redate, REDATE_COLUMNS)
     write_csv(out / "review_rows.csv", review, PROPOSED_COLUMNS)
@@ -952,6 +1018,9 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         },
         "identity": dict(Counter(i.chain for i in identities.values())),
         "active": len(ref.active),
+        "stage2_members": group_counts(ref, own, proposed, review),
+        "stage2_members_without_spans": len(ref.members - ref.member_spans.keys()),
+        "outside_span_events": len(outside_span),
         "active_with_massive_series": len(stitched),
         "corporate_action_rows_active": len(recorded),
         "partition": partition_counts(members),
@@ -1002,6 +1071,37 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     print(json.dumps(summary, indent=2, sort_keys=True, default=str))
     print(f"outputs in {out}")
     return summary
+
+
+def group_counts(
+    ref: Reference,
+    own: Sequence[tuple[VendorSplit, str, str]],
+    proposed: Sequence[Mapping[str, Any]],
+    review: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Per scope group (todo 646: 5m-tier members ever, the other inactive members, the active
+    names): attributed events and names, proposed rows and names, review rows by status."""
+
+    def group(symbol: str) -> str:
+        if symbol in ref.tier:
+            return "tier_5m_ever"
+        return "non_tier_member" if symbol in ref.members else "active"
+
+    out: dict[str, dict[str, Any]] = {}
+    for g in ("tier_5m_ever", "non_tier_member", "active"):
+        events = [(sym, how) for _x, sym, how in own if group(sym) == g]
+        prop = [r["symbol"] for r in proposed if group(r["symbol"]) == g]
+        rev = [r for r in review if group(r["symbol"]) == g]
+        out[g] = {
+            "events_attributed": len(events),
+            "events_names": len({s for s, _h in events}),
+            "proposed_rows": len(prop),
+            "proposed_names": len(set(prop)),
+            "review_rows": len(rev),
+            "review_names": len({r["symbol"] for r in rev}),
+            "review_by_status": dict(Counter(r["status"] for r in rev)),
+        }
+    return out
 
 
 def vendor_cols(split: VendorSplit) -> dict[str, Any]:

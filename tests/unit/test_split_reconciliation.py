@@ -239,3 +239,47 @@ def test_an_announcement_is_judged_against_its_own_pages_serve_date():
     )
     (member,) = reconcile([(early, "X", "span")], [], params)
     assert member.outcome == "announced"
+
+
+# Stage 2 members (todo 646): an inactive name is attributed by its ticker_event spans only.
+def _member_index():
+    # DEAD held "ABC" 2005-2010; ACTV (active) holds "ABC" from 2015.
+    spans = [
+        StringSpan("DEAD", "ABC", date(2005, 1, 3), date(2010, 6, 1)),
+        StringSpan("ACTV", "ABC", date(2015, 1, 2), None),
+    ]
+    list_dates = {"DEAD": date(2005, 1, 3), "ACTV": date(2015, 1, 2)}
+    return IdentityIndex.build(spans, list_dates, label_symbols=["ACTV"])
+
+
+def test_a_reused_ticker_goes_to_the_entity_whose_span_holds_the_date():
+    index = _member_index()
+    assert attribute(_split("a", date(2008, 3, 3), 2.0, bulk="ABC"), index) == ("DEAD", "span")
+    assert attribute(_split("b", date(2020, 3, 2), 2.0, bulk="ABC"), index) == ("ACTV", "span")
+
+
+def test_a_member_event_outside_every_span_is_attributed_to_nobody():
+    index = _member_index()
+    # 2012 and 2003: ABC was held by no in-scope entity; the dead name's symbol must not claim it.
+    assert attribute(_split("c", date(2012, 5, 1), 2.0, bulk="ABC"), index) is None
+    assert attribute(_split("d", date(2003, 5, 1), 2.0, bulk="ABC"), index) is None
+
+
+def test_a_member_never_takes_the_current_label_fallback():
+    spans = [StringSpan("DEAD", "DEAD", date(2005, 1, 3), date(2010, 6, 1))]
+    members_only = IdentityIndex.build(spans, {"DEAD": date(2005, 1, 3)}, label_symbols=[])
+    assert attribute(_split("e", date(2018, 1, 2), 2.0, bulk="DEAD"), members_only) is None
+    # The default (every list_dates key) keeps the active-name behaviour.
+    legacy = IdentityIndex.build(spans, {"DEAD": date(2005, 1, 3)})
+    assert attribute(_split("e", date(2018, 1, 2), 2.0, bulk="DEAD"), legacy) == (
+        "DEAD",
+        "current_label",
+    )
+
+
+def test_a_tape_unconfirmed_member_event_is_not_proposed():
+    split = _split("f", date(2008, 3, 3), 2.0, bulk="ABC")
+    member = ReconciledSplit("DEAD", "massive_only", split, "span", None, date(2008, 3, 2), -1)
+    assert proposal_status(member, "tape_step", RULE) == "proposed"
+    for tape in ("tape_flat", "tape_conflict", "no_tape"):
+        assert proposal_status(member, tape, RULE) == tape

@@ -1515,6 +1515,7 @@ class _SweepConn:
             audit._SWEEP_STEPS_SQL: steps,
             audit._SWEEP_CROWDED_SQL: crowded,
             audit._ACTIVE_SQL: [(s,) for s in active],
+            audit._GATE_SCOPE_SQL: [(s,) for s in active],
             audit._RECORDED_SQL: recorded,
         }
 
@@ -2057,3 +2058,8 @@ def test_an_incumbent_route_correction_nearby_never_blocks_a_massive_row(tmp_pat
     conn = _row633_conn(_ROW633_CLOSES, existing=nearby)
     assert _apply_row633(monkeypatch, conn, _row633_file(tmp_path)) == 0
     assert any("INSERT INTO corporate_action" in s for s in conn.statements)
+
+
+def test_the_sweep_gate_scope_is_active_names_and_universe_members():
+    sql = audit._GATE_SCOPE_SQL
+    assert "is_active" in sql and "universe_membership" in sql

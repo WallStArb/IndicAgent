@@ -190,6 +190,12 @@ _RAW_SERIES_OF = {
     PRIMARY_PAIR[VENDOR_ALPACA]: (VENDOR_ALPACA, "sip_rth"),
 }
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
+# The sweep gate's scope (todo 646, lead ruling): the active names and the inactive members of the
+# universe membership, permanently.
+_GATE_SCOPE_SQL = """
+SELECT symbol FROM instruments WHERE is_active
+UNION SELECT symbol FROM universe_membership
+"""
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
 SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file', action_id::text,
@@ -1887,7 +1893,7 @@ def unresolved_breaks(
     active: Collection[str],
     bad_bars: Collection[tuple[str, date]] = (),
 ) -> list[SweepBreak]:
-    """The breaks nothing rules (todo 622 scope 3), on active names only: a gated verdict with no
+    """The breaks nothing rules (todo 622 scope 3), on the gate scope only (active names and inactive universe members): a gated verdict with no
     operator disposition (`ruled`: (symbol, date) -> class; a class rules only the
     verdicts of `DISPOSITION_RULES`). The sweep reads canonical, so a break it finds is still in canonical:
     a recorded row of its size (or a listed bad bar) means the record was not applied (reselect,
@@ -2054,7 +2060,7 @@ def sweep(
                                 "evidence": event.evidence,
                             }
                         )
-        active = {symbol for (symbol,) in conn.execute(_ACTIVE_SQL)}
+        active = {symbol for (symbol,) in conn.execute(_GATE_SCOPE_SQL)}
         recorded: dict[str, list[tuple[date, float]]] = {}
         for symbol, effective, factor in conn.execute(_RECORDED_SQL):
             recorded.setdefault(symbol, []).append((effective, float(factor)))
@@ -2175,7 +2181,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(counts)
             print(
-                f"universe: {counts['active_names']} active names, "
+                f"universe: {counts['active_names']} scope names (active and universe members), "
                 f"{counts['breaks_read']} lone breaks read"
             )
             reasons = strict_failure(counts) if args.strict else []

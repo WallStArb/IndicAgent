@@ -104,3 +104,20 @@ def test_only_a_tape_confirmed_restatement_row_is_redated():
     )
     assert not audit.redate_ok(_offset_pair(outcome="ratio_disagree"), "tape_step", _RULE)
     assert not audit.redate_ok(_offset_pair(factor=1.391), "tape_step", _RULE)
+
+
+def test_group_counts_split_tier_non_tier_and_active():
+    from types import SimpleNamespace
+
+    ref = SimpleNamespace(tier=frozenset({"T"}), members=frozenset({"T", "N"}))
+
+    def vs(i):
+        return VendorSplit(i, date(2020, 1, 2), 2.0, "X", "X", None, frozenset({"bulk"}), ())
+
+    own = [(vs("1"), "T", "span"), (vs("2"), "N", "span"), (vs("3"), "A", "span")]
+    proposed = [{"symbol": "T"}, {"symbol": "A"}]
+    review = [{"symbol": "N", "status": "tape_flat"}]
+    out = audit.group_counts(ref, own, proposed, review)
+    assert out["tier_5m_ever"]["proposed_rows"] == 1
+    assert out["non_tier_member"]["review_by_status"] == {"tape_flat": 1}
+    assert out["active"]["events_attributed"] == 1 and out["active"]["proposed_names"] == 1

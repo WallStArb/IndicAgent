@@ -201,15 +201,22 @@ class IdentityIndex:
 
     @classmethod
     def build(
-        cls, spans: Iterable[StringSpan], list_dates: Mapping[str, date | None]
+        cls,
+        spans: Iterable[StringSpan],
+        list_dates: Mapping[str, date | None],
+        label_symbols: Iterable[str] | None = None,
     ) -> IdentityIndex:
+        """label_symbols are the instruments whose own symbol may name an event when no span holds
+        it (the current_label fallback); default every key of list_dates. A dead instrument
+        (an inactive universe member) is left out: its label outside its spans names a reused
+        ticker, never the instrument."""
         by_key: dict[str, list[StringSpan]] = {}
         for span in spans:
             by_key.setdefault(ticker_key(span.string), []).append(span)
         return cls(
             by_key,
             {ticker_key(s): d for s, d in list_dates.items()},
-            {ticker_key(s): s for s in list_dates},
+            {ticker_key(s): s for s in (list_dates if label_symbols is None else label_symbols)},
         )
 
     def held(self, ticker: str, day: date) -> set[str]:
