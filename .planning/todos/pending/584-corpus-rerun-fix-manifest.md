@@ -815,8 +815,8 @@ Items 1 to 12 stay landed. What stands between main and `--new-run`:
 | I1 universe wiring, tier amendment text, E23 | met | 2c84278ad, d141aca64; prereg and ledger entries present |
 | `corpus_run` empty, `universe_membership` built | met | 0 and 858,454 rows |
 | Strict sweep over members | open (lane A) | `logs/sweep_strict_members_20261120b`: exit 3, undecided APTV, PNR, SW; 4,086 reported breaks are disclosed, not gated, once lane A confirms |
-| Plan-only (span plan fits, data gate verdict) | span plan met, data gate FAIL | `logs/corpus_rerun_planonly_47_20261120T100759Z.log`: 1 span [2003, 2027), peak 891 GB against a 1,104 GB limit; data gate FAIL, 12,561 names, 5,684 failing name-years, 11,240 names without a proven start (the inactive members have no `proven_start_1d` fact); 5m massive/sip_flat_adj 627 of 1,169 names at depth, 542 partial |
-| `proven_start_1d` facts for inactive members | open (write) | `ops_member_history_audit --apply` writes them to `integrity_monitor` (a1d7610a8); the data gate cannot pass without them; rerun the plan-only after |
+| Plan-only (span plan fits, data gate verdict) | rerun pending | first run `logs/corpus_rerun_planonly_47_20261120T100759Z.log`: span plan fits (1 span [2003, 2027), peak 891 GB of 1,104 GB), data gate FAIL on 5,684 failing name-years and 11,240 names without a proven start. Second run (`..._47b_...`) was killed after 32 minutes in the 1d coverage read, fixed by 319525263 (names read in chunks of 250, full universe 68 s, results identical on 600 names); a third run follows the strict sweep |
+| `proven_start_1d` facts for inactive members | met | `ops_member_history_audit --apply` wrote 11,163 facts, none without a start (`data/member_history_audit/2026-11-20-f3-apply/`); the data gate's 11,240 names without a start were the inactive members |
 | 2004-2015 members below the 2,950 floor, three empty months in 2003 | owner | recommendation: disclose as a property of the early years, not a gate |
 | E21 clean-data lift | owner | STATE, decisions waiting on the owner |
 
