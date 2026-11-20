@@ -137,14 +137,12 @@ def test_a_rehearsal_rolls_back_and_writes_no_map_directory(tmp_path):
     writer.writeheader()
     writer.writerows(GAPS)
     gap.write_text(buf.getvalue())
-    manifest = tmp_path / "manifest.jsonl"
-    manifest.write_text('{"dataset": "day", "key": "x/2026-11-09.csv.gz"}\n')
     args = argparse.Namespace(
         amend=spans,
         amend_sha256=hashlib.sha256(SPANS_CSV).hexdigest(),
         amend_candidates=cands,
         gap_list=gap,
-        manifest=manifest,
+        archive_end=date(2026, 11, 10),  # an explicit rehearsal date, never the pin
     )
     out_root = tmp_path / "maps"
     amender = TickerEntityMapAmender("postgresql://unused", False, args, out_root=out_root)

@@ -91,10 +91,9 @@ Massive plan lapses about 2026-12-10; the archive has a second copy on ubuntu2 (
 04:30Z, `/home/bg/mirror`, no `--delete`, current through the previous night) and no off-site copy by owner decision
 2026-11-15 (todo 618 closed, accepted risk).
 
-Massive dated list (todo 600): the seam is the first NYSE session after the manifest's last file day
-(`archive_end_of`), so every file added to the manifest moves it (files now run to 2026-11-13, seam 2026-11-16;
-the runbook sets `SEAM=2026-11-16`). Step 7 pins one fixed seam date before B4 is re-ruled; the B4 evidence is
-checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
+Massive dated list (todo 600): the seam is the recorded pin `config/bars/massive_archive_end.json` (2026-11-16),
+read through `src/intelligence/bars/archive_end.py`; a file added to the manifest does not move it (files now run
+to 2026-11-18). The B4 evidence is checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
 reference capture (after an entitlement probe) and a final file catch-up with `massive_download --verify`.
 Before 2026-12-10: the plan renewal decision (owner) and the HX370 copy named in todo 600 item 1 (owner to confirm or drop, since nothing else goes off-site). The Massive nightly leaf
 (`ops_massive_nightly`, on main, timer not installed) stays off until the renewal call; under a lapse it is never installed

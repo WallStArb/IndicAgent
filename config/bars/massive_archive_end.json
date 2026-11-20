@@ -1,0 +1,9 @@
+{
+  "archive_end": "2026-11-16",
+  "pinned_on": "2026-11-16",
+  "ruling": "massive-step7-runbook SEAM override (D2, 2026-11-16): one fixed archive end, so a file added to the manifest never moves the Massive-to-Alpaca seam",
+  "last_file_day_when_ruled": "2026-11-13",
+  "manifest_sha256_at_record": "34d9f294d98a192331d11913289d10805537bbe42c0f79ad39d4bc1dfb7c4c8f",
+  "manifest_last_file_day_at_record": "2026-11-18",
+  "recorded_on": "2026-11-20"
+}

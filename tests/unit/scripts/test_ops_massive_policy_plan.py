@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date
 
 import pytest
@@ -10,7 +9,6 @@ import pytest
 from scripts.ops.bars.ops_massive_policy_plan import (
     GapRow,
     LiveRow,
-    archive_end_of,
     build_plan,
     build_restore_plan,
     ibkr_rows,
@@ -154,19 +152,6 @@ def test_derived_timeframes_and_an_empty_policy_refuse():
         _plan("15m")
     with pytest.raises(ValueError, match="no live default"):
         _plan("5m", live=[])
-
-
-def test_the_archive_end_is_the_first_session_after_the_manifest_s_last_day():
-    lines = [
-        {"dataset": "minute", "key": "us_stocks_sip/minute_aggs_v1/2003/09/2003-09-10.csv.gz"},
-        {"dataset": "day", "key": "us_stocks_sip/day_aggs_v1/2026/11/2026-11-09.csv.gz"},
-    ]
-    data = "".join(json.dumps(r) + "\n" for r in lines).encode()
-    assert archive_end_of(data) == date(2026, 11, 10)
-    friday = data.replace(b"2026-11-09", b"2026-11-06")
-    assert archive_end_of(friday) == date(2026, 11, 9)  # over the weekend
-    with pytest.raises(ValueError, match="empty"):
-        archive_end_of(b"")
 
 
 def test_read_gap_list_parses_both_scopes(tmp_path):

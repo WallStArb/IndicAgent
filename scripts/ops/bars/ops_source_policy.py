@@ -862,7 +862,13 @@ async def _main(args: argparse.Namespace) -> int:
             print(f"closed {n} row(s)")
             return 0 if n == 1 else 2
         if args.plan:
-            plan = parse_plan(json.loads(Path(args.plan).read_text()))
+            raw_plan = json.loads(Path(args.plan).read_text())
+            if args.apply and raw_plan.get("evidence", {}).get("archive_end_source") == "override":
+                raise SystemExit(
+                    "refused: this plan was built with an --archive-end rehearsal override, "
+                    "not the recorded pin (config/bars/massive_archive_end.json)"
+                )
+            plan = parse_plan(raw_plan)
             check_vendors(
                 await read_vendor_codes(conn),
                 *[

@@ -67,6 +67,7 @@ from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.canonical_json import canonical_json
 from src.intelligence.bars import ticker_entity_map_pit as pit
+from src.intelligence.bars.archive_end import add_archive_end_argument, resolve_archive_end
 from src.intelligence.bars.ticker_entity_map import (
     SPAN_SCHEME,
     Answer,
@@ -1004,7 +1005,6 @@ class TickerEntityMapAmender(BaseBatch):
         self._out_root = out_root
 
     async def execute(self, pool: asyncpg.Pool) -> None:
-        from scripts.ops.bars.ops_massive_policy_plan import archive_end_of
         from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START
 
         args = self._args
@@ -1013,7 +1013,11 @@ class TickerEntityMapAmender(BaseBatch):
         )
         gap_bytes = args.gap_list.read_bytes()
         gap_rows = list(csv.DictReader(io.StringIO(gap_bytes.decode())))
-        archive_end = archive_end_of(args.manifest.read_bytes())
+        if self._apply and args.archive_end is not None:
+            raise ValueError(
+                "--archive-end is a rehearsal override and cannot be combined with --apply"
+            )
+        archive_end = resolve_archive_end(args.archive_end)
         async with pool.acquire() as conn:
             identifiers: dict[str, dict[str, str]] = {}
             id_rows = {}
@@ -2396,9 +2400,7 @@ def main() -> None:
     parser.add_argument("--amend-sha256", help="--amend: the pinned sha256 of the spans CSV")
     parser.add_argument("--amend-candidates", type=Path, help="--amend: the candidates CSV")
     parser.add_argument("--gap-list", type=Path, help="--amend: the gap list the witness read")
-    parser.add_argument(
-        "--manifest", type=Path, default=_REPO_ROOT / "data/massive/manifest/manifest.jsonl"
-    )
+    add_archive_end_argument(parser)
     parser.add_argument("--documentary", type=Path, help="documentary_placements.csv (design 8c)")
     parser.add_argument("--documentary-sha256", help="--documentary: the pinned sha256")
     parser.add_argument("--regions", type=Path, help="--documentary: documentary_spans.csv")

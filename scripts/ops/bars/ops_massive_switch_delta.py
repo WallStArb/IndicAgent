@@ -74,12 +74,14 @@ import psycopg  # noqa: E402
 from scripts.ops.bars.ops_canonical_summary_card import read_card  # noqa: E402
 from scripts.ops.bars.ops_massive_policy_plan import (  # noqa: E402
     ALPACA_FIRST_DAY,
-    DEFAULT_MANIFEST,
     GapRow,
-    archive_end_of,
     read_gap_list,
 )
 from src.config.settings import get_settings  # noqa: E402
+from src.intelligence.bars.archive_end import (  # noqa: E402
+    add_archive_end_argument,
+    resolve_archive_end,
+)
 from src.intelligence.bars.selection import (  # noqa: E402
     RTH_GRID_STEP_MINUTES,
     rth_grid_stamps,
@@ -627,7 +629,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--timeframes", nargs="+", default=["1d", "5m"], choices=sorted(_KEYS))
     parser.add_argument("--gap-list", required=True, help="the pinned identity gap_list.csv")
-    parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    add_archive_end_argument(parser)
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument(
         "--verify",
@@ -651,7 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.post_policy and args.verify:
         parser.error("--post-policy and --verify are separate runs")
-    archive_end = archive_end_of(Path(args.manifest).read_bytes())
+    archive_end = resolve_archive_end(args.archive_end)
     if args.post_policy:
         return run_post_policy(args, archive_end)
     if args.verify:

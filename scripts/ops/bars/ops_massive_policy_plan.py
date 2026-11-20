@@ -3,11 +3,13 @@
 Owner rulings 2026-11-13 (todo 600, "IBKR is removed entirely", then "use Massive for every
 date it has"): canonical is Massive from its first file (2003-09-10) to the archive end and Alpaca
 from the archive end, with no IBKR default, symbol row or fallback anywhere and no fallback at
-all. The archive end is the first NYSE session after the manifest's last file day
-(``archive_end_of``). Runbook docs/operations/massive-step7-runbook.md. Read-only: this script
-reads the live policy rows, the archive manifest, the identity gap list (evidence only) and (1d)
-the raw fingerprint, and writes one JSON plan per timeframe. `ops_source_policy --plan FILE` (dry run,
-then --apply) is the writer; this script never writes the database.
+all. The archive end is the recorded pin (config/bars/massive_archive_end.json, read by
+``src.intelligence.bars.archive_end``), never derived from the manifest; the manifest is
+recorded in the plan for lineage only. Runbook docs/operations/massive-step7-runbook.md.
+Read-only: this script reads the live policy rows, the manifest (lineage), the identity gap list
+(evidence only) and (1d) the raw fingerprint, and writes one JSON plan per timeframe.
+`ops_source_policy --plan FILE` (dry run, then --apply) is the writer; this script never writes
+the database.
 
 The defaults per timeframe (``defaults_for``):
 
@@ -43,7 +45,7 @@ import json
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -55,10 +57,12 @@ import asyncpg  # noqa: E402
 from scripts.ops._common import file_sha256  # noqa: E402
 from scripts.ops.bars.ops_source_policy import parse_plan, read_raw_fingerprint  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
-from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
+from src.intelligence.bars.archive_end import (  # noqa: E402
+    add_archive_end_argument,
+    resolve_archive_end,
+)
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 from src.intelligence.bars.vendor_arbitration import SEAM as ALPACA_FIRST_DAY  # noqa: E402
-from src.intelligence.bars.vendor_ingress import last_file_day  # noqa: E402
 
 FAR_PAST = date(1990, 1, 1)
 MASSIVE, ALPACA, IBKR = "massive", "alpaca", "ibkr"
@@ -111,13 +115,6 @@ def read_gap_list(path: Path) -> list[GapRow]:
             GapRow(r["symbol"], r["scope"], r["reason"], day(r["valid_from"]), day(r["valid_to"]))
             for r in csv.DictReader(handle)
         ]
-
-
-def archive_end_of(manifest: bytes) -> date:
-    """The first NYSE session after the manifest's last file day: Massive serves before it,
-    Alpaca from it."""
-    last = last_file_day(manifest)
-    return min(nyse_sessions(last + timedelta(days=1), last + timedelta(days=15)))
 
 
 def defaults_for(timeframe: str, archive_end: date) -> list[dict[str, Any]]:
@@ -176,6 +173,7 @@ def build_plan(
     gap_list: Mapping[str, str],
     archive_end: date,
     manifest: Mapping[str, str],
+    archive_end_source: str = "pin",
 ) -> dict[str, Any]:
     """The plan JSON for one timeframe, without the 1d raw fingerprint (the caller adds it through
     ``through_needed``: the latest gap row end)."""
@@ -191,6 +189,7 @@ def build_plan(
             "no fallback"
         ),
         "archive_end": archive_end.isoformat(),
+        "archive_end_source": archive_end_source,  # "override" plans are refused by --apply
         "manifest": dict(manifest),
         "design": "docs/plans/2026-11-10-massive-admission-db-design.md",
         "runbook": "docs/operations/massive-step7-runbook.md",
@@ -396,7 +395,8 @@ async def _main(args: argparse.Namespace) -> int:
                 live=live,
                 gaps=read_gap_list(gap_path),
                 gap_list={"path": str(gap_path), "sha256": file_sha256(gap_path)},
-                archive_end=archive_end_of(manifest_bytes),
+                archive_end=resolve_archive_end(args.archive_end),
+                archive_end_source="pin" if args.archive_end is None else "override",
                 manifest={
                     "path": str(manifest),
                     "sha256": hashlib.sha256(manifest_bytes).hexdigest(),
@@ -438,8 +438,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--manifest",
         default=str(DEFAULT_MANIFEST),
-        help="--switch: the archive manifest; its last file day sets the archive end",
+        help="--switch: the archive manifest, recorded in the plan for lineage only",
     )
+    add_archive_end_argument(parser)
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     if args.switch and not args.gap_list:

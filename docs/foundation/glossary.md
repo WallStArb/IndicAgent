@@ -2019,12 +2019,13 @@ rebuild, 2026-11-16; selection from raw since phase 191)
 
 ### `archive end`
 
-The first NYSE session after the last file day of the Massive manifest (`archive_end_of` in
-`scripts/ops/bars/ops_massive_policy_plan.py`): canonical takes Massive before it and Alpaca from it. Step 7
-pinned one fixed date, 2026-11-16, so a file added to the manifest later does not move the seam.
+The first session canonical takes Alpaca instead of Massive: one recorded pin, 2026-11-16 (the first NYSE session
+after the manifest's last file day when it was ruled), in `config/bars/massive_archive_end.json` and read through
+`resolve_archive_end` in `src/intelligence/bars/archive_end.py`. It is never recomputed from the manifest, so a file
+added later does not move the seam.
 **Not:** the last day a Massive file covers, or the `listing end` of a name. **Banned:** (none)
 **Status:** active (step 7, 2026-11-16)
-**Code surface:** `scripts/ops/bars/ops_massive_policy_plan.py`, `scripts/ops/bars/ops_seam_witness.py`
+**Code surface:** `src/intelligence/bars/archive_end.py`, `scripts/ops/bars/ops_massive_policy_plan.py`, `scripts/ops/bars/ops_seam_witness.py`
 
 ### `daily source`
 

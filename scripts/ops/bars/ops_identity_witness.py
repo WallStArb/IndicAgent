@@ -51,12 +51,12 @@ sys.path.insert(0, str(project_root))
 
 import psycopg  # noqa: E402
 
-from scripts.ops.bars.ops_massive_policy_plan import (  # noqa: E402
-    DEFAULT_MANIFEST,
-    archive_end_of,
-)
 from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
+from src.intelligence.bars.archive_end import (  # noqa: E402
+    add_archive_end_argument,
+    resolve_archive_end,
+)
 from src.intelligence.bars.split_rescale import scales_for_sessions, splits_known_at  # noqa: E402
 from src.intelligence.bars.ticker_entity_map import MASSIVE_ARCHIVE_START  # noqa: E402
 
@@ -927,7 +927,7 @@ def evaluate_documentary(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--gap-list", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    add_archive_end_argument(parser)
     parser.add_argument("--day-dir", type=Path, default=DEFAULT_DAY_DIR)
     parser.add_argument(
         "--calibrate",
@@ -944,7 +944,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    archive_end = archive_end_of(args.manifest.read_bytes())
+    archive_end = resolve_archive_end(args.archive_end)
     args.out.mkdir(parents=True, exist_ok=True)
     dsn = get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     with psycopg.connect(dsn) as conn:
