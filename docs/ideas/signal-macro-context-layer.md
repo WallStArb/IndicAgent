@@ -341,3 +341,8 @@ Not reusable here: single-stock filings (Form 4, 13F, 13D/G, XBRL) and the secur
   pre-registered spec says otherwise.
 - Most ideas in this family have died on their first honest test (ledger). Each new series or event
   is a look counted against the vintage.
+
+## Massive economy endpoints (probed and captured 2026-11-20)
+
+The Massive plan serves treasury yields (daily, 1962-01-02 on), inflation (CPI, core CPI, PCE; monthly, 1947 on), inflation expectations (monthly, 1982 on) and labor market (unemployment, hourly earnings, job openings, participation; monthly, 1948 on). Raw capture: `data/massive/reference/economy/20261120/`. No payload carries a vintage, an `available_at` or a release date: each row is a `date` (the month start for the monthly series) plus as-revised values from one snapshot. A per-series release-lag rule is therefore required before any use (a monthly value stamped 2026-10-01 is not knowable on that day, and revised history leaks); the daily treasury yields are effectively point in time. The raw files are not loaded into the database.
+
