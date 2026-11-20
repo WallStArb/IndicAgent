@@ -138,6 +138,15 @@ _KEEP_TABLES: dict[str, str] = {
         "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "
         "reader is owed"
     ),
+    "universe_membership_pre605": (
+        "record of the stage 2 membership as built 2026-11-19 (858,454 rows), kept by migration 605 before "
+        "the reset for the pit-map placement amendment; insert only, read by hand for the before and after "
+        "counts, no code reads it (conclusions are records)"
+    ),
+    "universe_membership_build_pre605": (
+        "record of the stage 2 build ledger as built 2026-11-19 (278 month-ends), kept by migration 605 "
+        "beside universe_membership_pre605; insert only, no code reads it"
+    ),
     "macro_features": (
         "macro factor record; its writer (MacroAnalyzer, deleted in todo 614 row 5) was the only "
         "code that touched it. Kept with its rows until todo 509 decides whether a reader is owed"
