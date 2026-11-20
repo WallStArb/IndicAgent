@@ -152,3 +152,9 @@ Lead ruling 2026-11-15 (indicagent-52, on the lapse checklist): no filings captu
 
 Items 2 and 3 (the admission call and execution) and the canonical part of item 4 are done: step 7 rebuilt canonical from raw under d2-v6 through D4, and the seam is pinned at 2026-11-16 (item 8). Item 4's data deletion is Part F (pending). Still open and dated: item 1 (off-site copy decision, owner), item 5 (measured decisions), item 7 (filings sizing by 2026-12-01), item 9 (the deadline list before about 2026-12-10, including the renewal call) and item 10 (the nightly leaf, off until the renewal call). This todo stays pending until those close; it moves to completed with the last of them.
 
+
+## Catch-up of 2026-11-20 (item 9 steps 1 and 2 done, lead ruling on the seam)
+
+`--restat` checked 11,666 keys: 0 drifted, 6 new. The catch-up downloaded those 6 files (84.1 MB, exit 0): the day and minute files for 2026-11-16, 11-17 and 11-18. They sit on disk only; nothing is loaded into raw, and the seam stays pinned at 2026-11-16 until a deliberate re-ruling. `--verify` and `--verify-etag` are still to run (heavy slot).
+
+The manifest's last file day is now 2026-11-18, so `archive_end_of(manifest)` returns 2026-11-19, not the pinned 2026-11-16. Readers of the live manifest that would move: `ops_massive_policy_plan --switch`, `ops_massive_switch_delta`, `ops_identity_witness`, `ticker_entity_map_writer` (witness archive end) and the `ops_massive_nightly` leaf (not installed; no Massive unit or timer exists). `run_609.sh` does not read the manifest, and the installed selection policy rows are data, so canonical is unchanged. Until the archive end is a recorded input rather than derived from a mutable file, run those scripts only with `--manifest` pointing at a copy of the pre-catch-up manifest or an explicit seam override.
