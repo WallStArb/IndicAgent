@@ -183,7 +183,8 @@ class SeamVerdict:
 @lru_cache(maxsize=8)
 def _ratio_grid(rule: SplitRatioRule) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Every recognised split ratio p/q in lowest terms, both orientations: (ratio, ln ratio,
-    smaller term), cached per rule (the grid is a few hundred ratios, read once per step)."""
+    smaller term), cached per rule (the grid grows with the numerator cap: a few hundred ratios at 50, a few
+    thousand at the live cap of 1000; read once per step)."""
     terms = {
         (p, q)
         for q in range(1, rule.max_denominator + 1)
@@ -205,7 +206,7 @@ def simplest_split_ratio(
     Simplest is the smaller term first (q of a forward p:q, p of a reverse one; the
     recognised_split_ratio convention, smallest denominator wins), then the nearest within it: a
     4:1 reads as 4, not 3, though the scale tolerance admits both. Not the nearest overall: the
-    recognised grid (q up to 4, p up to 50) is dense enough that some ratio sits within a
+    recognised grid (q up to 4, p up to the numerator cap) is dense enough that some ratio sits within a
     fraction of a percent of any step, so nearness alone carries no evidence."""
     ratio, log_ratio, term = _ratio_grid(rule)
     gap = np.abs(level_step + log_ratio)

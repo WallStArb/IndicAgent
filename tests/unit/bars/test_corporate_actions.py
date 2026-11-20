@@ -176,8 +176,8 @@ def test_an_unusable_rule_raises() -> None:
 
 # --- todo 587: the split calendar audit and D7 split_continuity ---------------------------
 
-# The live APR rule (infra.backfill.split_ratio_*, migration 461) and tolerance (migration 567).
-_LIVE_RULE = SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002)
+# The live APR rule (infra.backfill.split_ratio_*, migrations 461 and 604) and tolerance (567).
+_LIVE_RULE = SplitRatioRule(max_numerator=1000, max_denominator=4, rel_tol=0.002)
 _TOL = 0.3
 
 
