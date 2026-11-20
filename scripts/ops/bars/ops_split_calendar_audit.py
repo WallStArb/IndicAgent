@@ -1285,6 +1285,279 @@ def apply_massive(settings: Settings, path: Path, *, commit: bool) -> int:
     )
 
 
+# --correct-massive (todo 646): a wrongly dated or sized market split row is replaced, never beside
+# a second row. The replacement supersedes the old row (the current view hides it; the unique
+# supersedes index allows one superseder, so a separate void row cannot also name it) and keeps
+# the old row's source and recorded_at, so a derivation horizon between the two sees one row.
+CORRECTABLE_SOURCES = frozenset({MASSIVE_REFERENCE_SOURCE, CALENDAR_MARKET_SOURCE})
+MAX_CORRECTIONS = 50
+CORRECTIONS_COLUMNS = ("old_action_id", "new_effective_date", "new_factor", "reason")
+EVIDENCE_COLUMNS = (
+    "symbol",
+    "old_action_id",
+    "old_effective_date",
+    "old_factor",
+    "new_effective_date",
+    "new_factor",
+    "new_action_id",
+    "reason",
+)
+YAHOO_WITNESS_CSV = project_root / "logs/split_audit_646/2026-11-10/yahoo_witness_3026.csv"
+CORRECTIONS_EVIDENCE_CSV = project_root / "logs/split_audit_646/2026-11-10/corrections_batch.csv"
+_OLD_ROW_SQL = """
+SELECT action_id::text, symbol, effective_date, factor, inferred_by, recorded_at,
+       detail ? 'unadjusted_routes' OR detail ? 'rows_file'
+FROM corporate_action_current WHERE action_id = %s::uuid
+"""
+_NEIGHBOUR_SQL = """
+SELECT action_id::text, action_type, effective_date, factor FROM corporate_action
+WHERE symbol = %s AND action_id <> %s::uuid AND effective_date BETWEEN %s::date - %s AND %s::date + %s
+"""
+_INSERT_CORRECTION_SQL = """
+INSERT INTO corporate_action
+    (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids, detail,
+     recorded_at, supersedes)
+VALUES (%s, %s, %s, %s, %s, '{}'::uuid[], %s::jsonb, %s, %s::uuid)
+RETURNING action_id::text
+"""
+
+
+def correction_lines(path: Path, rule: SplitRatioRule) -> list[dict[str, Any]]:
+    """The corrections file's lines, validated: every column filled, a well-formed old id named
+    once, a recognised new factor, at most MAX_CORRECTIONS lines. Every rejection names its line."""
+    with path.open() as fh:
+        lines = list(csv.DictReader(fh))
+    if len(lines) > MAX_CORRECTIONS:
+        raise ValueError(f"{path.name}: {len(lines)} lines, over the {MAX_CORRECTIONS} cap")
+    out: list[dict[str, Any]] = []
+    for number, line in enumerate(lines, start=2):
+        empty = [c for c in CORRECTIONS_COLUMNS if not (line.get(c) or "").strip()]
+        if empty:
+            raise ValueError(f"{path.name} line {number}: {empty} missing")
+        old_id = line["old_action_id"].strip()
+        try:
+            UUID(old_id)
+        except ValueError:
+            raise ValueError(f"{path.name} line {number}: old_action_id {old_id!r}") from None
+        if any(o["old_action_id"] == old_id for o in out):
+            raise ValueError(f"{path.name} line {number}: {old_id} corrected twice")
+        factor = float(line["new_factor"])
+        ratio = recognised_split_ratio(factor, rule) if math.isfinite(factor) else None
+        if ratio is None or not math.isclose(ratio, factor, rel_tol=1e-9):
+            raise ValueError(f"{path.name} line {number}: factor {factor!r} is no recognised ratio")
+        out.append(
+            {
+                "old_action_id": old_id,
+                "new_effective_date": date.fromisoformat(line["new_effective_date"]),
+                "new_factor": ratio,
+                "reason": line["reason"].strip(),
+            }
+        )
+    return out
+
+
+def yahoo_witness_lines(path: Path) -> dict[tuple[str, date], dict[str, str]]:
+    """The Yahoo witness CSV by (symbol, recorded effective date)."""
+    out: dict[tuple[str, date], dict[str, str]] = {}
+    with path.open() as fh:
+        for r in csv.DictReader(fh):
+            key = (r["symbol"], date.fromisoformat(r["effective_date"]))
+            if key in out:
+                raise ValueError(f"{path.name}: {key} listed twice")
+            out[key] = r
+    return out
+
+
+def judge_correction(
+    old: Mapping[str, Any],
+    new_day: date,
+    new_factor: float,
+    witness: Mapping[tuple[str, date], Mapping[str, str]],
+    tape: Sequence[tuple[date, float]],
+    params: AuditParams,
+) -> dict[str, Any]:
+    """The evidence of one correction, or ValueError naming the refusal (no override).
+
+    Yahoo: the witness line of the old row reads a split whose ratio matches new_factor (the
+    split-ratio tolerance) and whose ex-date is the first Massive session after new_day (the
+    effective date is the last day on the old scale). Tape: Massive's raw 1d (not canonical)
+    steps across new_day by -log(new_factor) within threshold.split_continuity.rel_tol, and fits
+    that ratio strictly better than the old row fits its own date and factor on the same tape,
+    so the loose tolerance cannot pass a row no better than the one it replaces. Pure."""
+    where = f"{old['symbol']} {old['effective_date']} x{old['factor']}"
+    if (new_day, new_factor) == (old["effective_date"], old["factor"]):
+        raise ValueError(f"{where}: the correction changes nothing")
+    if abs((new_day - old["effective_date"]).days) > SAME_EVENT_DAYS:
+        raise ValueError(f"{where}: {new_day} is outside the same event")
+    line = witness.get((old["symbol"], old["effective_date"]))
+    if line is None or not math.isclose(float(line["factor"]), old["factor"], rel_tol=1e-9):
+        raise ValueError(f"{where}: no Yahoo witness line of this row")
+    if not line.get("yahoo_ratio") or not line.get("yahoo_date"):
+        raise ValueError(f"{where}: the witness line carries no Yahoo split ({line['verdict']})")
+    yahoo_ratio, yahoo_day = float(line["yahoo_ratio"]), date.fromisoformat(line["yahoo_date"])
+    if not math.isclose(yahoo_ratio, new_factor, rel_tol=params.rule.rel_tol):
+        raise ValueError(f"{where}: Yahoo ratio {yahoo_ratio} is not the new factor {new_factor}")
+    days = [d for d, _c in tape]
+
+    def step_at(day: date) -> tuple[float, date] | None:
+        bracket = _bracket(days, day + timedelta(days=1))
+        if bracket is None:
+            return None
+        before, after = bracket
+        return math.log(tape[after][1] / tape[before][1]), days[after]
+
+    measured = step_at(new_day)
+    if measured is None:
+        raise ValueError(f"{where}: Massive raw 1d does not bracket {new_day}")
+    step, first_new = measured
+    if yahoo_day != first_new:
+        raise ValueError(f"{where}: Yahoo ex-date {yahoo_day} is not the tape's {first_new}")
+    if scale_step(step, new_factor, params.rel_tol) != "unadjusted":
+        raise ValueError(f"{where}: tape step {step:.6f} does not read an unadjusted {new_factor}")
+    new_misfit = abs(step + math.log(new_factor))
+    old_read = step_at(old["effective_date"])
+    old_misfit = None if old_read is None else abs(old_read[0] + math.log(old["factor"]))
+    if old_misfit is None:
+        raise ValueError(f"{where}: Massive raw 1d does not bracket the old date, no comparison")
+    if new_misfit >= old_misfit:
+        raise ValueError(
+            f"{where}: misfit {new_misfit:.4f} is no better than the old row's {old_misfit:.4f}"
+        )
+    return {
+        "yahoo_ratio": yahoo_ratio,
+        "yahoo_ex_date": yahoo_day.isoformat(),
+        "tape_step": step,
+        "tape_first_new_session": first_new.isoformat(),
+        "tape_misfit": new_misfit,
+        "old_row_tape_misfit": old_misfit,
+    }
+
+
+def _correct_one(
+    conn: Any,
+    line: Mapping[str, Any],
+    witness: Mapping[tuple[str, date], Mapping[str, str]],
+    params: AuditParams,
+    provenance: Mapping[str, Any],
+    *,
+    commit: bool,
+) -> dict[str, Any]:
+    """One row's transaction: judge, then insert the superseding row; rolled back unless commit."""
+    with conn.transaction(force_rollback=not commit):
+        cur = conn.cursor()
+        cur.execute(_OLD_ROW_SQL, (line["old_action_id"],))
+        found = cur.fetchone()
+        if found is None:
+            raise ValueError(f"{line['old_action_id']}: not a current corporate_action row")
+        action_id, symbol, old_day, old_factor, source, recorded_at, scoped = found
+        if source not in CORRECTABLE_SOURCES:
+            raise ValueError(f"{symbol} {action_id}: {source} rows are never corrected here")
+        if scoped:
+            raise ValueError(f"{symbol} {action_id}: a route-scoped row is never corrected here")
+        old = {"symbol": symbol, "effective_date": old_day, "factor": old_factor}
+        new_day, factor = line["new_effective_date"], line["new_factor"]
+        tape = [(d, float(c)) for d, c in conn.execute(_MASSIVE_RAW_SQL, (symbol,))]
+        evidence = judge_correction(old, new_day, factor, witness, tape, params)
+        cur.execute(
+            _NEIGHBOUR_SQL,
+            (symbol, action_id, new_day, SAME_EVENT_DAYS, new_day, SAME_EVENT_DAYS),
+        )
+        if neighbours := cur.fetchall():
+            raise ValueError(
+                f"{symbol} {new_day}: another row of the event or its neighbours: {neighbours}"
+            )
+        cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
+        detail = {
+            **evidence,
+            **provenance,
+            "reason": line["reason"],
+            "corrects": {
+                "action_id": action_id,
+                "effective_date": str(old_day),
+                "factor": old_factor,
+            },
+            "recorded_at_note": "kept from the corrected row, so a derivation horizon sees one row",
+            "todo": 646,
+        }
+        cur.execute(
+            _INSERT_CORRECTION_SQL,
+            (
+                symbol,
+                "split" if factor > 1 else "reverse_split",
+                new_day,
+                factor,
+                source,
+                json.dumps(detail, sort_keys=True),
+                recorded_at,
+                action_id,
+            ),
+        )
+        (new_id,) = cur.fetchone()
+    return {
+        "symbol": symbol,
+        "old_action_id": action_id,
+        "old_effective_date": old_day,
+        "old_factor": old_factor,
+        "new_effective_date": new_day,
+        "new_factor": factor,
+        "new_action_id": new_id,
+        "reason": line["reason"],
+    }
+
+
+def correct_massive(
+    settings: Settings,
+    path: Path,
+    *,
+    commit: bool,
+    witness_path: Path = YAHOO_WITNESS_CSV,
+    evidence_path: Path = CORRECTIONS_EVIDENCE_CSV,
+) -> int:
+    """Replace wrongly dated or sized massive_reference and calendar_market rows (todo 646), one
+    transaction per row, each judged against the Yahoo witness and Massive's raw tape. A refused
+    line prints its refusal and the exit code is 1; the others still land. The evidence CSV is
+    written when a row landed. Dry run (rolled back) unless commit."""
+    if commit and not (MASSIVE_REFERENCE_CONSUMERS_READY and CALENDAR_MARKET_CONSUMERS_READY):
+        raise SystemExit(
+            "--correct-massive --commit is refused: the consumers do not read both sources"
+        )
+    witness = yahoo_witness_lines(witness_path)
+    provenance = {
+        "corrections_file": path.name,
+        "corrections_sha256": file_sha256(path),
+        "witness_file": witness_path.name,
+        "witness_sha256": file_sha256(witness_path),
+    }
+    landed: list[dict[str, Any]] = []
+    refused = 0
+    with psycopg.connect(settings.database_url) as conn:
+        params = _apr(conn)
+        conn.commit()
+        # Autocommit, so each row's conn.transaction() is a real transaction (not a savepoint
+        # inside one open since the APR read) and SET LOCAL ROLE ends with it.
+        conn.autocommit = True
+        for line in correction_lines(path, params.rule):
+            try:
+                done = _correct_one(conn, line, witness, params, provenance, commit=commit)
+            except ValueError as error:
+                refused += 1
+                print(f"refused {line['old_action_id']}: {error}")
+                continue
+            landed.append(done)
+            print(
+                f"{'wrote' if commit else 'dry run, would write'} {done['symbol']} "
+                f"{done['old_effective_date']} x{done['old_factor']} -> "
+                f"{done['new_effective_date']} x{done['new_factor']}"
+            )
+    if commit and landed:
+        with evidence_path.open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=EVIDENCE_COLUMNS)
+            writer.writeheader()
+            writer.writerows(landed)
+    print(f"{len(landed)} corrected, {refused} refused")
+    return 1 if refused else 0
+
+
 # The loud flag of every calendar split left unconfirmed (lead ruling 2026-11-04): its first
 # new-scale canonical bar is quarantined (the rule is in threshold.bar_scrub.quarantine_rules,
 # migration 571), so no one-day fabricated return reaches research. Multi-day returns and rolling
@@ -2116,6 +2389,13 @@ def main(argv: list[str] | None = None) -> int:
         help="write ops_massive_split_audit's proposed rows as massive_reference rows (todo 600)",
     )
     mode.add_argument(
+        "--correct-massive",
+        type=Path,
+        metavar="CSV",
+        help="replace wrong massive_reference/calendar_market rows (todo 646): old_action_id, "
+        "new_effective_date, new_factor, reason; judged on the Yahoo witness and Massive's raw tape",
+    )
+    mode.add_argument(
         "--apply-market",
         type=Path,
         metavar="CSV",
@@ -2135,6 +2415,18 @@ def main(argv: list[str] | None = None) -> int:
         help="--sweep: the operator-rows CSV the row verdicts write (optional)",
     )
     parser.add_argument("--symbols", nargs="*", default=None)
+    parser.add_argument(
+        "--yahoo-witness-csv",
+        type=Path,
+        default=YAHOO_WITNESS_CSV,
+        help="--correct-massive: the Yahoo witness CSV a correction is judged against",
+    )
+    parser.add_argument(
+        "--evidence-out",
+        type=Path,
+        default=CORRECTIONS_EVIDENCE_CSV,
+        help="--correct-massive: the evidence CSV written when rows land",
+    )
     parser.add_argument(
         "--witness",
         choices=sorted(WITNESSES),
@@ -2162,7 +2454,7 @@ def main(argv: list[str] | None = None) -> int:
         parser,
         dry_run="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: report what "
         "would be written (default)",
-        commit="--apply/--apply-rows/--apply-massive/--quarantine-unconfirmed: write",
+        commit="--apply/--apply-rows/--apply-massive/--correct-massive/--quarantine-unconfirmed: write",
     )
     args = parser.parse_args(argv)
     if (args.strict or args.dispositions) and not args.sweep:
@@ -2203,6 +2495,14 @@ def main(argv: list[str] | None = None) -> int:
         return apply_rows(settings, args.apply_rows, commit=args.commit)
     if args.apply_massive:
         return apply_massive(settings, args.apply_massive, commit=args.commit)
+    if args.correct_massive:
+        return correct_massive(
+            settings,
+            args.correct_massive,
+            commit=args.commit,
+            witness_path=args.yahoo_witness_csv,
+            evidence_path=args.evidence_out,
+        )
     if args.apply_market:
         return apply_market(settings, args.apply_market, commit=args.commit)
     if args.quarantine_unconfirmed:

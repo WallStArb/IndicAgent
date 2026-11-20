@@ -2095,3 +2095,133 @@ def test_the_sweep_gates_an_active_only_a_member_only_and_a_both_symbol_once_eac
     assert (counts["active_names"], counts["member_names"]) == (2, 2)
     reported = [r["symbol"] for r in csv.DictReader(audit.unresolved_path(out).open())]
     assert sorted(reported) == ["BOTH", "ONLYACT", "ONLYMEM"]
+
+
+# --correct-massive (todo 646): the six recorded rows, on the real Massive raw tape.
+_D = date.fromisoformat
+_DIREXION_TAPE = [
+    (_D("2015-05-18"), 81.16),
+    (_D("2015-05-19"), 81.34),
+    (_D("2015-05-20"), 21.2),
+    (_D("2015-05-21"), 21.04),
+]
+_BVN_TAPE = [
+    (_D("2003-11-10"), 47.71),
+    (_D("2003-11-11"), 47.86),
+    (_D("2003-11-12"), 50.07),
+    (_D("2003-11-13"), 24.8),
+    (_D("2003-11-14"), 24.87),
+    (_D("2003-11-17"), 24.66),
+    (_D("2003-11-18"), 26.06),
+]
+_INDL_OLD = {"symbol": "INDL", "effective_date": _D("2015-05-19"), "factor": 5.0}
+_BVN_OLD = {"symbol": "BVN", "effective_date": _D("2003-11-17"), "factor": 2.0}
+
+
+def _witness(symbol, effective, factor, ratio, yahoo_day, verdict="ratio_mismatch"):
+    line = {
+        "symbol": symbol,
+        "effective_date": effective,
+        "factor": str(factor),
+        "verdict": verdict,
+        "yahoo_ratio": ratio,
+        "yahoo_date": yahoo_day,
+    }
+    return {(symbol, _D(effective)): line}
+
+
+_INDL_WITNESS = _witness("INDL", "2015-05-19", 5.0, "4.0", "2015-05-20")
+_BVN_WITNESS = _witness("BVN", "2003-11-17", 2.0, "2.0", "2003-11-13", "date_mismatch")
+
+
+def test_a_wrong_ratio_is_corrected_when_yahoo_and_the_tape_agree():
+    evidence = audit.judge_correction(
+        _INDL_OLD, _D("2015-05-19"), 4.0, _INDL_WITNESS, _DIREXION_TAPE, _PARAMS
+    )
+    assert evidence["yahoo_ex_date"] == "2015-05-20"
+    assert evidence["tape_misfit"] < evidence["old_row_tape_misfit"]
+
+
+def test_a_wrong_date_is_corrected_across_the_same_event_window():
+    evidence = audit.judge_correction(
+        _BVN_OLD, _D("2003-11-12"), 2.0, _BVN_WITNESS, _BVN_TAPE, _PARAMS
+    )
+    assert evidence["tape_first_new_session"] == "2003-11-13"
+    assert evidence["old_row_tape_misfit"] > 0.5
+
+
+@pytest.mark.parametrize(
+    ("old", "day", "factor", "witness", "tape", "why"),
+    [
+        (_INDL_OLD, "2015-05-18", 5.0, _INDL_WITNESS, _DIREXION_TAPE, "Yahoo ratio"),
+        (_INDL_OLD, "2015-05-19", 4.0, {}, _DIREXION_TAPE, "no Yahoo witness"),
+        (_BVN_OLD, "2003-11-13", 2.0, _BVN_WITNESS, _BVN_TAPE, "ex-date"),
+        (_BVN_OLD, "2003-11-17", 2.0, _BVN_WITNESS, _BVN_TAPE, "changes nothing"),
+        (_BVN_OLD, "2003-11-02", 2.0, _BVN_WITNESS, _BVN_TAPE, "outside the same event"),
+        (
+            _INDL_OLD,
+            "2015-05-19",
+            4.0,
+            _witness("INDL", "2015-05-19", 5.0, "", "", "yahoo_no_data"),
+            _DIREXION_TAPE,
+            "no Yahoo split",
+        ),
+        (
+            _INDL_OLD,
+            "2015-05-19",
+            4.0,
+            _INDL_WITNESS,
+            [(d, 81.0) for d, _ in _DIREXION_TAPE],
+            "does not read",
+        ),
+    ],
+)
+def test_a_correction_without_both_witnesses_is_refused(old, day, factor, witness, tape, why):
+    with pytest.raises(ValueError, match=why):
+        audit.judge_correction(old, _D(day), factor, witness, tape, _PARAMS)
+
+
+def _corrections(tmp_path, *lines):
+    path = tmp_path / "corrections.csv"
+    header = ",".join(audit.CORRECTIONS_COLUMNS)
+    path.write_text("\n".join([header, *lines]) + "\n")
+    return path
+
+
+_ID = "8c6701b2-e843-4ef4-9aa6-b9d81092b86a"
+
+
+def test_correction_lines_validate_every_column(tmp_path):
+    [line] = audit.correction_lines(
+        _corrections(tmp_path, f"{_ID},2015-05-19,4.0,tape and Yahoo"), _RULE
+    )
+    assert (line["new_factor"], line["new_effective_date"]) == (4.0, _D("2015-05-19"))
+    for bad in (
+        f"{_ID},2015-05-19,4.37,r",  # no recognised ratio
+        "not-a-uuid,2015-05-19,4.0,r",
+        f"{_ID},2015-05-19,4.0,",  # no reason
+    ):
+        with pytest.raises(ValueError):
+            audit.correction_lines(_corrections(tmp_path, bad), _RULE)
+    with pytest.raises(ValueError, match="corrected twice"):
+        audit.correction_lines(_corrections(tmp_path, *[f"{_ID},2015-05-19,4.0,r"] * 2), _RULE)
+
+
+def test_a_batch_over_the_cap_is_refused(tmp_path):
+    ids = [f"8c6701b2-e843-4ef4-9aa6-{n:012d}" for n in range(audit.MAX_CORRECTIONS + 1)]
+    path = _corrections(tmp_path, *[f"{i},2015-05-19,4.0,r" for i in ids])
+    with pytest.raises(ValueError, match="cap"):
+        audit.correction_lines(path, _RULE)
+
+
+def test_a_witness_file_listing_a_row_twice_is_refused(tmp_path):
+    path = tmp_path / "w.csv"
+    path.write_text("symbol,effective_date,factor\nINDL,2015-05-19,5.0\nINDL,2015-05-19,5.0\n")
+    with pytest.raises(ValueError, match="listed twice"):
+        audit.yahoo_witness_lines(path)
+
+
+def test_a_correction_needs_the_old_date_measurable_on_the_tape():
+    tape = [(d, c) for d, c in _BVN_TAPE if d < _D("2003-11-14")]
+    with pytest.raises(ValueError, match="old date|does not bracket"):
+        audit.judge_correction(_BVN_OLD, _D("2003-11-12"), 2.0, _BVN_WITNESS, tape, _PARAMS)
