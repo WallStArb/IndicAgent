@@ -167,3 +167,7 @@ Tapes (exact from the listing, 5,836 files each, 2003-09-10 to 2026-11-18): `tra
 
 Findings recorded in the idea docs: economy raw has no vintage or `available_at`, so a per-series release-lag rule is required before any use (`docs/ideas/signal-macro-context-layer.md`); news is testable only from 2016-06, mostly large caps, empty for dead names, so survivor-biased by construction, `published_utc` the only point-in-time field (`docs/ideas/signal-published-prior-shortlist.md`). Economy and news samples are raw files only (`data/massive/reference/economy/20261120/`, `news_sample_20261120/`), not loaded.
 
+## Final verification (item 9 step 3, 2026-11-20)
+
+After the catch-up (11,672 keys), `massive_download --verify` exited 0 (11,672 records, 0 superseded, 0 defects) and `--verify-etag` exited 0, run one after the other from `logs/massive_verify_20261120/run.sh` (logs `verify.log`, `verify_etag.log`, exit codes in `exit_codes.txt`). Both finished in about 5 minutes together, not the 10 to 25 estimated. No file needed repair.
+
