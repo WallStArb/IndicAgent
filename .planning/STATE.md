@@ -33,77 +33,24 @@ Replace stale bullets with current facts; no dated narrative.
 
 ## Handoff (standing lead; the loop is in CLAUDE.md)
 
-Position 2026-11-15: Massive is acquired and verified (11,658 files, 2003-09-10 to 2026-11-09, 82 GB), every raw
-load is done and gated (403.3M Massive rows in `ohlcv_raw`), the placed-span load and A11 witness gate are met
-(zero placed spans left; the installed map is `data/ticker_entity_map/20261115_6195ae11abff`, the one B4 read), and IBKR code, gateway, units and
-83 APR keys are deleted (migrations 590-592). IBKR raw rows stay until Part F (no export, owner 2026-11-13; the 672,245 rows before 2003-09-10 stay for good, ledger E22).
-The 8a load-check runner is archived (tags `archive/massive-8a-load-checks`, `archive/step7-plan-8a-input`); its
-outputs are the admission record and gate nothing.
+Goal (owner 2026-11-15): get the compute universe data optimal so the feature and IC work can start; pick every assignment by whether it shortens that path. The clean-data rule (E21) holds: no real-data hypothesis test and no corpus compute until the data gate passes.
 
-Canonical after step 7: Massive from 2003-09-10 to the archive end, then Alpaca, no fallback, no IBKR; 1m and 4h
-leave canonical. Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness);
-survivorship is measured and disclosed, never a gate; pre-2016 5m has no IBKR fallback; extended hours raw only.
+Position:
+- Data layer: the Massive archive (2003-09-10 to 2026-11-18, 82 GB, `--verify` and `--verify-etag` exit 0, a second copy on ubuntu2, no off-site copy by owner decision) is loaded raw. Canonical is Massive to the pinned seam 2026-11-16 (`config/bars/massive_archive_end.json`), then Alpaca; no IBKR (code, units and raw from 2003-09-10 deleted, the 672,245 earlier rows stay, ledger E22); 1m and 4h are not canonical. Step 7 rebuild, D5 timers and Part F are done.
+- Rulings in force: Massive is the yardstick (an incumbent-defect call needs a third witness); survivorship is measured and disclosed, never a gate; extended hours are raw only; low-value names (owner 2026-11-15) get no more effort.
+- Stage 2 universe (todo 609, s0 to s8 done): 12,561 securities ever, 4,938 in the tier; 2004-2015 holds about 2,000 members per month-end against the preregistered 2,950 floor and three months of 2003 are empty (owner decision below).
+- Splits and the A3 sweep: todo 646 landed 3,026 Massive reference rows plus 140 reverse splits, with corrections; the member history audit is clean (0 findings, proven starts written for 11,163 inactive members). The strict sweep is gated by materiality (owner 2026-11-20, CLAUDE.md): split-shaped or wrong-scale breaks in the name-years the compute reads (C for 1d, B for 5m); the rest is disclosed with class counts. Lane A2 landed 31 market split rows, 17 dispositions and two bad bars; the disclosure and the open lists are in todo 629.
+- E17 statistic memory fix landed (todo 638): the fitted-book certificate is void on purpose (todo 639); the daily residual and H-C batteries need a rerun and rebind. The `reversal_21` pooled replication is pre-declared (run after the pin; owner veto reserved).
 
-Step 7 done through D4 (2026-11-16): canonical is rebuilt from raw under d2-v6 (rows after: 5m 452,992,974, 1d 6,308,315,
-15m 158,174,558, 1h 43,631,204; 1m and 4h empty). D1 `--verify` exited 0; the 5m selection gate met the B3 criteria (exit 3: no residue other than 290 unreviewed basis flags); the archive-end seam witness left no name unexplained (1d and 5m: 0 of 1,403 names, all one_sided); the NVDA canaries read
-canonical_matches_massive at 2024-06-10 5m (gate PASS) and at 2007-09-12 1d (informational); D4 `split_horizon_fresh` 1,529 pass, 0 fail with 0
-new red `split_continuity` or `canonical_recompute` rows (198 other new red rows: 93 `session_coverage`, 93 `proven_start_1d`, 9 `slot_coverage`, 3 `alpaca_basis_run`; dispositioned in the runbook's D4 section: all new with the rebuild, none a standing defect; the `alpaca_basis_run` check is retired since, todo 623). B4 passed on the slim gate earlier (1d 3,427 and 5m 95,546 unexplained residue disclosed
-as one total per timeframe); map `20261115_6195ae11abff` is installed. D5 (timers, compression auditor, service auditor by hand, Alpaca nightly
-last) is done 2026-11-16; Part F (IBKR raw delete, `run_partf.sh`) is pending. Real-data compute
-may start now that D1 `--verify` exited 0 and the B3 criteria passed, subject to the owner's clean-data lift and the stage 2 gates.
-Low-value names (owner 2026-11-15) get no more effort: unplaced or excluded under todo 512.
-Held post-D1 landings (lead ruling 2026-11-15): the `wt-refactor-land` stack (supersedes `wt-refactor-batch`),
-`wt-l1-kernels`, `wt-r2-prodpin`, the L3 universe projection fix (`agent-a9b86b958ee414b2e`) and the `wt-i2-tier`
-doc; the landing order, gates and owners are in `docs/plans/2026-11-15-post-d1-landing-runbook.md`. Never land them
-before D1. The research lane has landed drafts only (published-prior shortlist `docs/ideas/signal-published-prior-shortlist.md`,
-top-three prereg drafts `docs/plans/2026-11-15-published-prior-top3-prereg-drafts.md`, 5m tier amendment
-`docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`); no real-data number exists for any of them.
-Landed outside step 7: todo 614 rows 4, 5, 7, 14, 18, 19, 21 (a)(d), 22; mypy baseline repaired (a86654717);
-migration 594 is applied live (verified 2026-11-15: `alert.lag.bar-writer` gone, `migration_594` history row present).
-Pending operator steps (sudo, after step 7): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and
-hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`.
+Next, in order: (1) the scoped strict sweep rerun and its disclosure (todo 629); (2) the plan-only data gate rerun and the 77 active members whose latest nightly `proven_start_1d` fact fails (check the 06:11Z audit); (3) the 584 pin readiness table (`.planning/todos/pending/584-corpus-rerun-fix-manifest.md`), a pilot at the new pin, then the corpus rerun (`docs/operations/corpus-rerun-runbook.md`); (4) the `reversal_21` pooled replication and the first counted tests (186-28). Prefix-sum port: not before the pin.
 
-Lead goal (owner 2026-11-15): get the compute universe data optimal (step 7 rebuild, B4 rulings, stage 2 universe) so the
-feature and IC work can start; every session and worker assignment is picked by whether it shortens that path. The
-clean-data rule (E21) still holds: no real-data hypothesis test until the data gate passes.
+Timers (live since D5): standby probe every 5 min, Alpaca nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends 06:30Z; the ubuntu2 mirror pulls at 04:30Z (`/home/bg/mirror`, no `--delete`).
 
-Next, in order:
-1. Part F is done (2026-11-18, lead): IBKR raw at or after 2003-09-10 is 0, the 672,245 earlier rows stay, the 5m selection gate met the B3 criteria; the closing card compare ran by hand with `--from 2003-09-01` and every difference is a 2026-11 Alpaca month or one of 18 names reselected after `card_after`. Timers restored; the catch-up nightly finished and the derivation re-run ends about 13:00Z. The lead runs the 609 chain (`scripts/ops/bars/run_609.sh`): s0, s1 (597 already applied), s2 (map `20261118_6195ae11abff`) and s3 are done; the s3 apply ran 14:39Z 2026-11-18 (+33,828 instruments, +47,565 identifiers, +36,352 spans). The last reconciliation audit finished 14:38Z (1,529 names; `slot_coverage` 744 and `coverage_cache` 1,528 failing, not yet dispositioned, so do not treat it as the clean audit). s4 (all-ticker 1d raw load, 29 misstamped 2019-08-12 rows excluded, ledger E27), s4b (unplaced share 0.0442) and s5 (membership applied 2026-11-19 23:23Z: 278 month-ends, rule stage2-2026-11-15, 12,561 securities ever, 4,938 tier) are done; s6 counts are in `logs/massive_step7/post_step7_readiness_20261115/members_tier_by_year.csv` (2004-2015 members about 2,000 per month-end, below the preregistered 2,950 floor; 2016 steps to about 3,800, then 3,900 to 5,800; 3 empty months 2003-09 to 2003-11; owner sees this before compute). s7 projects 49,596 tier whole-history name-years, about 0.97B 5m rows at the 19,470 median (planning figure 0.6 to 0.9B). Todo 646 split rows landed 2026-11-20 (audit e059ee9b7, 0ace5aa04; correction path `--correct-massive` 4140d1557): 3,026 Massive reference rows with a tape witness plus e8's 140 reverse splits under numerator cap 1000 (migration 604) in `corporate_action`; independent 100-row review (1 defect) and a Yahoo witness over all 3,026 (1,978 confirmed, 7 mismatches, 1,041 unverified, not counted as confirmed; no tape screen separates defects); six rows corrected (Direxion five 5.0 to 4.0, BVN date), QH 2022-08-11 disputed and left; 114 rows failing the adjacent-day check stay unrecorded. Evidence and ids: todo 646 and `logs/split_audit_646/2026-11-10/`. Canonical 1d re-derived for 1,758 + 534 + 125 names; VIXM (todo 641) closed 2026-11-20: row applied, reselected, `split_horizon_fresh` clean. Todo 647 is the one-shot member history audit (e8). The `reversal_21` pooled replication is pre-declared (f95f95da6, blocks 5M and 6M, run after the pin; owner veto reserved). Open before the pin: the strict sweep over members, gated by materiality (owner 2026-11-20: split-shaped or wrong-scale breaks in the name-years the compute reads; isolated single-bar and undecided breaks are disclosed with class counts, not gated; scope C for 1d, B for 5m; the 647 gate run is clean), then the 584 pin (lead f6 decides). The E17 statistic memory fix landed (e80615cb1, todo 638): L is the longer of the signal and vol windows plus reach; the fitted-book certificate is void on purpose (todo 639) and the battery code keys moved, so the daily residual and H-C batteries need a rerun and rebind; the seasonality pass is rebound.
-2. Data layer state: the pit ticker map migration 601 is applied and its rehearsal 2 passed (the apply of the stage 2
-   instrument writer is not run; decide when stage 2 is ready). The A3 sweep gate (`--strict`, Yahoo witness; the Massive
-   witness is refused) is on main with `config/corporate_actions/sweep_dispositions.csv`. Vulture and the CI mypy
-   baseline filter exit 0. Todo 623 is closed: `alpaca_basis_run` is retired and migration 602 is applied (ITA, MTUM and QUAL
-   clear on a clean D7 rerun). Split rows that name a raw series unadjusted (`detail.unadjusted_routes`) now rescale
-   that series in selection, and `split_horizon_fresh` judges them (todo 625 closed); the CLBK 2026-07-20 row (2.2) is
-   applied and CLBK 5m is continuous; ATRO 2026-06-15 is a Class B distribution with a disposition and no row.
-   The six Massive-route rows (ENOV, MSI, HON, HLT, MDU x2; todo 633) are applied and the five names reselected (1d, 5m, grid;
-   5m compare gate 0 real differences); the A3 sweep (2026-11-17) leaves 1 undecided break: SW 2016-05-16
-   (unrecorded_split, waits for the pit map cut at 2024-07-08); SNEX (route row) and RTX (Alpaca x0.5 route row effective 2020-04-02,
-   Carrier and Otis distribution disposition) are applied and reselected; UNIT 2025-08-04 closed by an independently reviewed 0.6029 row, reselected; nine 624 dispositions applied.
-   Open: todo 624 (reused tickers, the pit map owns identity). Todo 626 (route row 5m seam and request-boundary check) closed 2026-11-18.
-3. Todo 609 stage 2 point-in-time universe (preregistration `docs/plans/2026-11-13-stage2-universe-preregistration.md`).
-4. A3 sweep run (`ops_split_calendar_audit --sweep --witness yahoo --strict --dispositions config/corporate_actions/sweep_dispositions.csv`) against the rebuilt canonical, the pre-rerun window (todos 551/552/558/516), the 584 pin and the
-   corpus rerun (`docs/operations/corpus-rerun-runbook.md`), then 186-28 and the first counted tests.
+Massive dated list (todo 600): the plan lapses about 2026-12-10 (owner: renew or lapse; the lead recommends lapse after the capture). Final dated reference capture and file catch-up about 2026-12-07 (`docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`). No filings capture from Massive (EDGAR direct if ever needed). The Massive nightly leaf (`ops_massive_nightly`) stays off unless the plan renews.
 
-Timers: live since D5 (2026-11-16): the standby probe every 5 min, Alpaca
-nightly 04:40Z, derivation 05:20 and 05:45Z, audits 06:00Z, Yahoo dividends 06:30Z. The IBKR fetcher is gone. Dated: the
-Massive plan lapses about 2026-12-10; the archive has a second copy on ubuntu2 (`indicagent-data-mirror.timer` there,
-04:30Z, `/home/bg/mirror`, no `--delete`, current through the previous night) and no off-site copy by owner decision
-2026-11-15 (todo 618 closed, accepted risk).
+Held post-D1 landings (lead ruling 2026-11-15): `wt-refactor-land`, `wt-l1-kernels`, `wt-r2-prodpin`, the L3 universe projection fix and the `wt-i2-tier` doc; order and gates in `docs/plans/2026-11-15-post-d1-landing-runbook.md`. Pending operator steps (sudo): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`.
 
-Massive dated list (todo 600): the seam is the recorded pin `config/bars/massive_archive_end.json` (2026-11-16),
-read through `src/intelligence/bars/archive_end.py`; a file added to the manifest does not move it (files now run
-to 2026-11-18). The B4 evidence is checked against the seam it used. Before 2026-12-01: filings sizing decision. About 2026-12-07: final dated
-reference capture (after an entitlement probe) and a final file catch-up with `massive_download --verify`.
-Before 2026-12-10: the plan renewal decision (owner) and the HX370 copy named in todo 600 item 1 (owner to confirm or drop, since nothing else goes off-site). The Massive nightly leaf
-(`ops_massive_nightly`, on main, timer not installed) stays off until the renewal call; under a lapse it is never installed
-(`docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`).
-
-Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly,
-bar_derivation, D7, shared writers, the dashboard) works in a detached worktree off origin/main; nothing unpushed
-stays on shared main; every landing gets an independent review; measure a defect class and its base rate before
-naming a rule; judge tests by the summary line or exit code, never a tail; one heavy job at a time, detached;
-after a dashboard package change, `npm ci` before restarting `indicagent-dashboard`.
+Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly, bar_derivation, D7, shared writers, the dashboard) works in a detached worktree off origin/main; nothing unpushed stays on shared main; every landing gets an independent review; measure a defect class and its base rate before naming a rule; judge tests by the summary line or exit code, never a tail; one heavy job at a time, detached; after a dashboard package change, `npm ci` before restarting `indicagent-dashboard`.
 
 ## Starting a new session
 
@@ -113,14 +60,12 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
-- Adopted 2026-11-18 (owner decision through the lead, ledger entries written): A1, A2 (daily residual), E23, E24, E26. Also adopted 2026-11-18 and recorded as Amendment 2026-11-18 of the stage 2 preregistration: the pit-anchor identity amendment, the 5m tier amendment ($25M entry, $12.5M exit), the seen-name holdout and the closed-list membership amendment after archive end (`docs/plans/2026-11-16-609-owner-gates-summary.md`, items 1 to 4). The family 10 and 9 and the published-prior families still need their E17 battery passes and the E21 lift before any run.
-- Daily residual family (todo 636): waits on its E17 battery pass. Amendment A3 (2026-11-18, lead ruling, owner veto reserved) dropped `reversal_5` and `reversal_5_skip1` (small real size excess under the battery's own statistic, source open in todo 638); the four-member rerun (seed base 3,000,000, per-test 0.99 bound) failed on `reversal_21` at two cells (127 > 123 in `daily_gaussian`, 9 > 8 in `daily_static_means` at 0.00167). A failure postpones and is never a verdict; the next move (a pre-declared pooled replication or a gate proposal) is a lead and owner decision. The family-wise gate of 2026-11-18 was withdrawn (ledger E17 corrections). The H-C record is rebound.
-- Todo 600 item 1: keep or drop the HX370 copy of the Massive archive.
-- Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members
-  (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
+- Accept the 2004-2015 member shortfall (about 2,000 against the 2,950 floor, plus three empty months in 2003) as a disclosed property of the early years rather than a gate (lead recommendation: disclose).
+- The E21 clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names and the entity classes.
+- Todo 600: renew or lapse the Massive plan before about 2026-12-10, and keep or drop the HX370 copy of the archive.
+- Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
 - Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
-- The clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names, the entity classes,
-  the 185-49 reversal for the 587 rescale.
+- Daily residual family (todo 636): a failed battery postpones and is never a verdict; the next move after the pooled replication is a lead and owner decision. Adopted 2026-11-18 and no longer waiting: A1, A2, A3, E23, E24, E26 and the stage 2 amendments (`docs/plans/2026-11-16-609-owner-gates-summary.md`).
 - Concept-layer reset (todo 571) runs after the 186-26 rebuild and 584's batch.
 
 ## Open items that are not verdicts
