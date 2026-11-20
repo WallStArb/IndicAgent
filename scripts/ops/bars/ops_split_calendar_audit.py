@@ -141,7 +141,7 @@ from src.intelligence.bars.split_rescale import (  # noqa: E402
     split_row_routes,
 )
 from src.intelligence.bars.vendor_kind import VENDOR_MASSIVE  # noqa: E402
-from src.providers.yahoo import fetch_daily_close_and_splits  # noqa: E402
+from src.providers.yahoo import fetch_daily_close_and_splits, is_permanent_no_data  # noqa: E402
 
 REL_TOL_KEY = "threshold.split_continuity.rel_tol"
 ROUTE_SESSIONS_KEY = "threshold.split_calendar.route_sessions"
@@ -569,11 +569,14 @@ def _massive_calendar(conn: Any, symbol: str) -> tuple[list[tuple[date, float, f
 
 
 def _fetch_calendar(symbol: str) -> tuple[list[tuple[date, float, float]], str | None]:
-    """Yahoo's daily closes and split events, retried against its rate limit; (calendar, error)."""
+    """Yahoo's daily closes and split events, retried against its rate limit; (calendar, error).
+    A permanent no-data answer (a delisted name) returns at once: asking again changes nothing."""
     for attempt in range(_FETCH_ATTEMPTS):
         calendar, error = asyncio.run(fetch_daily_close_and_splits(symbol))
         if error is None:
             return calendar, None
+        if is_permanent_no_data(error):
+            return calendar, error
         time.sleep(_FETCH_RETRY_S * (attempt + 1))
     return calendar, error
 

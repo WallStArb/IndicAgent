@@ -24,6 +24,7 @@ from src.providers.economic_source import Series, SourceError
 SOURCE = "yahoo"
 INDEX_UNIT = "index"  # FRED's declared code for the same quantity
 _EXCHANGE_TZ = ZoneInfo("America/New_York")
+_NO_HISTORY = "no history returned"  # the error text of an empty answer
 
 
 def yahoo_symbol(symbol: str) -> str:
@@ -54,7 +55,7 @@ async def fetch_daily_close_and_dividends(
     except Exception as error:
         return [], f"{type(error).__name__}: {error}"[:200]
     if not rows:
-        return [], "no history returned"
+        return [], _NO_HISTORY
     return rows, None
 
 
@@ -83,8 +84,20 @@ async def fetch_daily_close_and_splits(
     except Exception as error:
         return [], f"{type(error).__name__}: {error}"[:200]
     if not rows:
-        return [], "no history returned"
+        return [], _NO_HISTORY
     return rows, None
+
+
+# Error texts (`fetch_*` returns `"<ExceptionName>: <message>"` or the empty-history text) that mean
+# Yahoo holds no data for the name, so asking again cannot change the answer. Everything else (rate
+# limit, timeout, connection, unknown) is transient or unclassified and stays retryable.
+_PERMANENT_NO_DATA_PREFIXES = ("YFTzMissingError", "YFPricesMissingError", _NO_HISTORY)
+_PERMANENT_NO_DATA_MARKER = "possibly delisted"
+
+
+def is_permanent_no_data(error: str) -> bool:
+    """True when a `fetch_*` error string says Yahoo has no history for the name (delisted)."""
+    return error.startswith(_PERMANENT_NO_DATA_PREFIXES) or _PERMANENT_NO_DATA_MARKER in error
 
 
 def index_series_id(ticker: str) -> str:
@@ -147,5 +160,5 @@ class YahooSource:
         except Exception as error:
             raise SourceError(f"{type(error).__name__}: {error}"[:200]) from None
         if not rows:
-            raise SourceError("no history returned")
+            raise SourceError(_NO_HISTORY)
         return {index_series_id(entry_id): Series(INDEX_UNIT, rows)}

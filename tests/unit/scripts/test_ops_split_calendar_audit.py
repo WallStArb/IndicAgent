@@ -2225,3 +2225,47 @@ def test_a_correction_needs_the_old_date_measurable_on_the_tape():
     tape = [(d, c) for d, c in _BVN_TAPE if d < _D("2003-11-14")]
     with pytest.raises(ValueError, match="old date|does not bracket"):
         audit.judge_correction(_BVN_OLD, _D("2003-11-12"), 2.0, _BVN_WITNESS, tape, _PARAMS)
+
+
+def _fetch_with(monkeypatch, error):
+    calls, sleeps = [], []
+
+    async def fake(symbol):
+        calls.append(symbol)
+        return [], error
+
+    monkeypatch.setattr(audit, "fetch_daily_close_and_splits", fake)
+    monkeypatch.setattr(audit.time, "sleep", sleeps.append)
+    return audit._fetch_calendar("XYZ"), calls, sleeps
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "YFTzMissingError: $XYZ: possibly delisted; no timezone found",
+        "YFPricesMissingError: $XYZ: possibly delisted; no price data found",
+        "no history returned",
+    ],
+)
+def test_fetch_calendar_permanent_no_data_is_fetched_once(monkeypatch, error):
+    result, calls, sleeps = _fetch_with(monkeypatch, error)
+    assert result == ([], error)
+    assert calls == ["XYZ"]
+    assert sleeps == []
+
+
+@pytest.mark.parametrize(
+    "error", ["YFRateLimitError: Too Many Requests", "ConnectionError: reset", "WeirdError: ?"]
+)
+def test_fetch_calendar_transient_or_unknown_is_retried(monkeypatch, error):
+    result, calls, sleeps = _fetch_with(monkeypatch, error)
+    assert result == ([], error)
+    assert len(calls) == audit._FETCH_ATTEMPTS
+    assert sleeps == [audit._FETCH_RETRY_S * (i + 1) for i in range(audit._FETCH_ATTEMPTS)]
+
+
+def test_is_permanent_no_data_marker_and_rate_limit():
+    from src.providers.yahoo import is_permanent_no_data
+
+    assert is_permanent_no_data("SomeError: $X: possibly delisted; no data")
+    assert not is_permanent_no_data("YFRateLimitError: Too Many Requests. Rate limited")
