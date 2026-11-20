@@ -229,3 +229,12 @@ reserved 404 to 408) never reaches the test database. Check this before trusting
 - Shift nulls have (sessions - L) / tau effective draws, not one per shift: a persistent signal (tau 40-60) gets about 60-90 and cannot resolve p < 0.00167.
 - Ad hoc multiprocess scripts: build the pool with `make_worker_pool(n, blas_threads_per_worker=1)` or export `OMP_NUM_THREADS=1`; a bare pool spawns 24 BLAS threads per numpy worker.
 - Removing a session worktree: its `data` entry is a symlink to the shared checkout's `data/`. Run `[ -L <wt>/data ] && rm <wt>/data` (never `rm -r`), then `git worktree remove <wt>`. Keep a worktree whose `logs/` holds unrecorded evidence or whose HEAD has commits not on origin/main.
+
+## Split row operations (A3 sweep, `ops_split_calendar_audit`)
+
+- `effective_date` is the last session on the old scale; `factor` uses the Yahoo calendar's orientation (forward split above 1, reverse split below 1).
+- `--apply-rows` takes the operator-rows format and refuses a ratio outside the recognised set and a row across a gap in canonical bars. `--apply-market` takes an audit CSV with a `verdict` column. `--correct-massive` supersedes a wrong `massive_reference` row and is judged on Yahoo, so it refuses dead names.
+- `--strict` takes no `--symbols`; scope (C for 1d, B for 5m) is applied to the unresolved list afterwards.
+- `--quarantine-unconfirmed` needs an audit CSV (a header-only file works) and reads the whole `operator_bad_bars.csv`. A listed bar in neither canonical nor raw is moot, printed per line and written to `<csv stem>_moot_bad_bars.csv`; a bar raw holds inside the canonical series still raises. A new line needs a `todo NNN` citation and bumps the count in `test_the_shipped_bad_bar_list_is_exactly_the_reviewed_bars`.
+- Config CSV edits under `config/corporate_actions/` are test-guarded: run `tests/unit/scripts/test_ops_split_calendar_audit.py` before pushing, or main goes red.
+- `setsid cmd &` forks, so `$!` is the wrapper PID; take the real PID from `pgrep -af` and record it.
