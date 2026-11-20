@@ -42,6 +42,7 @@ price test needs the as-traded close.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -61,6 +62,37 @@ RULE_ID = "stage2-2026-11-15"
 # pre-registered constant like the floors above, not an APR key; moving it is a dated amendment.
 LAST_LIST_DATE = date(2026, 11, 9)
 CLOSED_LIST_RULE_ID = "stage2-closed-list"
+# Amendment 2026-11-20 (todo 645): the closed list's candidate set is pinned. CLOSED_LIST_CANDIDATES_SHA256
+# is the digest (`candidates_digest`) of the 13,103 `symbol|type` lines the list at L places, taken from
+# the data on 2026-11-20 before any closed-list month was built. The writer refuses a month after L when
+# the live set at L no longer hashes to it, so a later pit install or `ticker_event` write cannot admit
+# an entrant silently; the membership report prints both digests. It pins the symbol-to-type map only:
+# the placed symbols, spans, bars and splits a month reads are checked as before. A pre-registered
+# constant, not an APR key: moving it is a dated amendment.
+CLOSED_LIST_CANDIDATES_SHA256 = "e13546aa78be46026b204ea5de46cbd09a181c177f6a14cc206cbbeaf3b1b29c"
+
+
+def candidates_digest(types: Mapping[str, str]) -> str:
+    """sha256 of the sorted `symbol|type` lines (each ending in a newline) of a list's candidates."""
+    lines = "".join(f"{symbol}|{kind}\n" for symbol, kind in sorted(types.items()))
+    return hashlib.sha256(lines.encode()).hexdigest()
+
+
+def closed_list_candidates_problem(
+    types: Mapping[str, str], pinned: str | None = None
+) -> str | None:
+    """Why the candidate set at L is not the pinned one, or None. The digest is the evidence; the
+    refusal names the counts and both digests, not the symbols that moved."""
+    pinned = CLOSED_LIST_CANDIDATES_SHA256 if pinned is None else pinned
+    live = candidates_digest(types)
+    if live == pinned:
+        return None
+    return (
+        f"the candidate set at L = {LAST_LIST_DATE} moved since it was pinned: {len(types)} "
+        f"symbol|type lines hash to {live}, the pinned digest is {pinned} (todo 645); a later pit "
+        "install or ticker_event write must not admit an entrant"
+    )
+
 
 # One definition of "ever a member" and of the build ledger, read by the corpus universe
 # (services/corpus_universe.py) and by the research snapshot (research/snapshot.py), so the

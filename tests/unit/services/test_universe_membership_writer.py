@@ -12,6 +12,7 @@ import pytest
 
 from services import corpus_universe as cu
 from services import universe_membership_writer as w
+from src.intelligence import universe_membership as um
 
 
 def _weekdays(start: date, n: int) -> list[date]:
@@ -439,7 +440,13 @@ def _closed_conn(**kw):
     )
 
 
-async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_path):
+def _pin_candidates(monkeypatch, types):
+    """Pin the candidate set at L to `types` (the real pin is the live 13,103-line set)."""
+    monkeypatch.setattr(um, "CLOSED_LIST_CANDIDATES_SHA256", um.candidates_digest(types))
+
+
+async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_path, monkeypatch):
+    _pin_candidates(monkeypatch, {"AAA": "CS", "PFDLATER": "PFD"})
     conn = _closed_conn()
     assert await _writer(DEC30, tmp_path)._build_and_write(conn) is True
     records = conn.copy_records_to_table.call_args.kwargs["records"]
@@ -449,6 +456,18 @@ async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_pat
     ledger = conn.executemany.call_args.args[1]
     assert [(m, rule) for m, rule, _ in ledger] == [(NOV30, CLOSED), (DEC30, CLOSED)]
     assert set(conn.type_lists) == {L}  # only the list at L was read, once
+
+
+async def test_a_closed_list_month_is_refused_when_the_candidate_set_at_L_moved(
+    tmp_path, monkeypatch
+):
+    # pinned with only AAA; the list at L now also places PFDLATER (a later install added a span)
+    _pin_candidates(monkeypatch, {"AAA": "CS"})
+    conn = _closed_conn()
+    with pytest.raises(RuntimeError, match="moved since it was pinned"):
+        await _writer(DEC30, tmp_path)._build_and_write(conn)
+    conn.copy_records_to_table.assert_not_called()  # nothing written
+    conn.executemany.assert_not_called()
 
 
 async def test_a_month_at_or_before_L_reads_its_own_list_and_keeps_the_old_rule(tmp_path):
@@ -477,7 +496,8 @@ async def test_a_month_after_L_is_not_built_before_a_later_bar_has_landed(tmp_pa
     assert conn.later_bar_asked == [datetime(2027, 1, 1, tzinfo=UTC)]
 
 
-async def test_a_build_that_straddles_L_uses_each_months_own_rule_and_list(tmp_path):
+async def test_a_build_that_straddles_L_uses_each_months_own_rule_and_list(tmp_path, monkeypatch):
+    _pin_candidates(monkeypatch, {"AAA": "CS"})
     ledger = [{"as_of": date(2026, 9, 30), "rule_id": w.RULE_ID, "n_members": 1}]
     bars = {"AAA": _bars([d for d in DAYS_2026 if d <= NOV30])}
     conn = _Conn(

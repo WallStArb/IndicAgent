@@ -16,7 +16,7 @@ A replica is not a backup: a destructive statement replicates at once. The backu
 | WAL archive (`indicagent-pg-wal-archive`, `pg_receivewal`, slot `ubuntu2_archive`) | point-in-time restore to any moment since the oldest kept base backup | continuous |
 | Base backup (`pg_base_backup.sh`, timer) | `pg_basebackup` tar, verified with `pg_verifybackup`, newest 3 kept, WAL older than the oldest kept backup pruned | Sunday 03:00 UTC |
 | Restore drill (`restore_drill.sh`) | newest base backup plus WAL recovered to an LSN in a scratch container, table counts compared with the primary | manual, after any change to the backup scripts and at least monthly |
-| Data mirror (`data_mirror.sh`, timer) | `~/dev` pulled to `~/mirror/dev` with a read-only key, no delete: untracked data, logs, `.env`, other projects, unpushed `.git` | daily 04:30 UTC |
+| Data mirror (`data_mirror.sh`, timer) | `~/dev` pulled to `~/mirror/dev` with a read-only key, no delete: untracked data, logs, `.env`, other projects, unpushed `.git`; `indicagent/data/massive/tapes` is excluded (2026-11-20: the cost-calibration tape slice, about 98 GB, lives on ubuntu1 only because ubuntu2 has 253 GB free; todo 600) | daily 04:30 UTC |
 
 The primary caps slot retention with `max_slot_wal_keep_size = 100GB`, so a dead archive cannot fill its disk. Off-site copy is an open owner decision (two machines in one room do not survive fire or theft).
 

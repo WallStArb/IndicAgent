@@ -153,3 +153,19 @@ def test_memories_are_the_declared_rows_of_the_registered_specs():
     memories = rep._memories()
     assert 525 in memories and 1676 in memories  # M1's and the seasonality members'
     assert all(m > 252 or m in (278, 279, 294) for m in memories)
+
+
+def test_the_report_prints_both_candidate_digests_and_says_match_or_mismatch():
+    from src.intelligence.universe_membership import CLOSED_LIST_CANDIDATES_SHA256 as pin
+
+    base = _report()
+    assert "closed list: 0 month-end(s) after L" in rep.render(base)
+    assert "live not read" in rep.render(base) and "NOT READ" in rep.render(base)
+    assert rep.candidates_status(None) == "NOT READ"
+    assert rep.candidates_status(pin) == "MATCH"
+    assert rep.candidates_status("0" * 64) == "MISMATCH"
+    from dataclasses import replace
+
+    text = rep.render(replace(base, candidates_live=pin, closed_list_months=2))
+    assert f"live {pin}, pinned {pin}: MATCH" in text and "2 month-end(s) after L" in text
+    assert "MISMATCH" in rep.render(replace(base, candidates_live="0" * 64))

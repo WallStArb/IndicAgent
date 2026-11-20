@@ -7,6 +7,7 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from src.intelligence import universe_membership as um
 from src.intelligence.bars.split_rescale import SplitFactor
 from src.intelligence.universe_membership import (
     CLOSED_LIST_RULE_ID,
@@ -328,3 +329,32 @@ def test_decide_is_unchanged_by_the_closed_list_a_name_the_list_lacks_has_no_typ
     as_of = days[-1].astype(object)
     assert decide(hist, as_of, "CS", False) is not None
     assert decide(hist, as_of, None, False) is None  # absent from the list at L: no entrant
+
+
+def test_candidates_digest_is_order_independent_and_moves_on_any_change():
+    a = {"BBB": "CS", "AAA": "ETF"}
+    assert um.candidates_digest(a) == um.candidates_digest(dict(reversed(list(a.items()))))
+    assert um.candidates_digest(a) != um.candidates_digest(a | {"CCC": "CS"})  # an entrant
+    assert um.candidates_digest(a) != um.candidates_digest({"BBB": "CS"})  # a leaver
+    assert um.candidates_digest(a) != um.candidates_digest(a | {"AAA": "CS"})  # a retyped name
+
+
+def test_the_pinned_candidate_digest_is_a_sha256_and_a_synthetic_set_does_not_match_it():
+    assert len(um.CLOSED_LIST_CANDIDATES_SHA256) == 64
+    assert um.closed_list_candidates_problem({"AAA": "CS"})  # the real pin is not this set
+
+
+def test_closed_list_problem_is_none_on_the_pinned_set_and_names_a_moved_one():
+    pinned_set = {"AAA": "CS", "BBB": "ETF"}
+    pin = um.candidates_digest(pinned_set)
+    assert um.closed_list_candidates_problem(pinned_set, pin) is None
+    problem = um.closed_list_candidates_problem(pinned_set | {"NEW": "CS"}, pin)
+    assert "moved since it was pinned" in problem and "3 symbol|type lines" in problem
+
+
+def test_the_digest_line_format_is_locked_to_a_known_hex():
+    # "AAA|CS\nBBB|ETF\n" hashed once by hand; a change of separator or newline breaks the pin
+    assert um.candidates_digest({"BBB": "ETF", "AAA": "CS"}) == (
+        "528d4a8f8d66cc40a4ed51e8c75dddb2bb9cef6f4163458dba93c2ddcafbab74"
+    )
+    assert um.closed_list_candidates_problem({"AAA": "CS"}, pinned="")  # an empty pin never matches

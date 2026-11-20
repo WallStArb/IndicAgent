@@ -191,7 +191,6 @@ not IBKR coverage.
 | [513](pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md) | New 2026-10-08. D7 must report an incomplete fetch run as unjudged, not as data failures; document the nightly stage contract with markers; add a pull digest of last night while alerts are off; separate lane budgets. |
 | [641](pending/641-vixm-reverse-split-2026-11-19-needs-a-split-row.md) | New 2026-11-19, P0. VIXM 1-for-2 reverse split ex 2026-11-19: Alpaca serves 2026-11-16 on the new scale, canonical steps 2x; the sweep needs Yahoo to restate before it gives a row verdict. |
 | [646](pending/646-record-splits-for-the-stage-2-names-before-the-pin.md) | New 2026-11-19, P0, owner lead. The stage 2 names have no split rows, so their canonical 1d is as traded; record splits (ops_split_detect plus review) before the 584 pin. Plan landed (`docs/plans/2026-11-19-stage2-split-rows-plan.md`, 0814ce71e); lead rulings 2026-11-19: tape-unconfirmed events stay unrecorded (evidence CSV), all 11,163 inactive members gate the pin, `--strict` covers them permanently; worker widening the audit, dry run next, apply by the lead. |
-| [647](pending/647-audit-universe-covers-only-active-names.md) | New 2026-11-19, P2, owner lead. The audit and the daily derivation see only is_active names; the 33,850 stage 2 instruments are unaudited after the one derivation run. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
@@ -251,6 +250,5 @@ not IBKR coverage.
 | [642](pending/642-delete-the-fetcher-lock-guards-the-ledger-lock-replaced.md) | New 2026-11-19, P3, owner lead. After 640 the ops_coverage_rebuild writer-unit refusal and the audit's fetcher-lock poll are redundant; delete them and their APR keys. |
 | [643](pending/643-alpaca-asset-list-witness-for-the-closed-list.md) | New 2026-11-19, P3, owner lead. B-A of the closed-list amendment: capture Alpaca's asset list nightly as a witness for ticker reuse after L (never an admission source); measure asset id stability first. |
 | [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | New 2026-11-19, P2, owner lead. B-C of the closed-list amendment: member count and excluded newcomers per month-end after L at every freeze and confirmation. |
-| [645](pending/645-pin-the-closed-list-candidate-set-at-L.md) | New 2026-11-19, P2, owner lead. Pin the closed list's candidate set at L (sha256 constant plus a writer refusal) so a later pit install or span write cannot add an entrant silently. |
 
 **Not in this list:** `deferred/` (phase-gated or recompute-batched) and `completed/`.

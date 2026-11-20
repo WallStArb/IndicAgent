@@ -75,3 +75,8 @@ Four amendments drafted 2026-11-15 and 2026-11-16 are adopted as written, each a
 ## Amendment 2026-11-19 (lead, correction, pre-look: no return-based look at the universe has happened)
 
 Where canonical 1d for the new names comes from. The 2026-11-14 amendment says `--apply` selects into canonical every slot Massive wins. That is not what the all-ticker 1d load does: the bulk path writes `ohlcv_raw` only, and canonical 1d is written by the daily stage of `services.bar_derivation` alone. The daily timer reads active instruments only, so the stage 2 names (inactive instruments) reach canonical through one explicit `--stage daily --symbols` run after gate 3, before membership is built. The s5 rehearsal of 2026-11-19 read canonical before that run and found 1,365 members at 2026, not about 4,150, which is how the gap showed. No rule, floor or threshold changes. Their splits are not recorded (todo 646), so their canonical closes are as traded.
+
+## Amendment 2026-11-20 (lead, enforcement of the closed list, pre-look: no return-based look at the universe has happened)
+
+The closed list's candidate set is pinned (todo 645). `CLOSED_LIST_CANDIDATES_SHA256 = e13546aa78be46026b204ea5de46cbd09a181c177f6a14cc206cbbeaf3b1b29c` is the sha256 of the sorted `symbol|type` lines, one per line with a trailing newline, that the list at L = 2026-11-09 places (13,103 lines), taken from the data on 2026-11-20 before any closed-list month was built. The membership writer refuses, writing nothing, any month after L when the live set at L no longer hashes to it, so a later pit install or `ticker_event` write cannot admit an entrant; moving the constant is a dated amendment. No rule, floor or threshold changes, and no counted look is added.
+

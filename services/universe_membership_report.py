@@ -26,16 +26,20 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+import asyncpg
 import numpy as np
 import psycopg
 
-from services.universe_membership_writer import month_ends_through
+from services.universe_membership_writer import candidates_at_l, month_ends_through
 from src.config.settings import Settings
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.research import membership, snapshot
 from src.intelligence.research.spec import load_spec_from_file
 from src.intelligence.universe_membership import (
     ARCHIVE_START,
+    CLOSED_LIST_CANDIDATES_SHA256,
+    CLOSED_LIST_RULE_ID,
+    candidates_digest,
     ledger_rule_label,
     ledger_rule_problem,
 )
@@ -71,6 +75,8 @@ class Report:
     ever_members_after_holdout: int
     core_members: int
     memories: tuple[int, ...]
+    closed_list_months: int = 0
+    candidates_live: str | None = None  # digest of the candidate set at L as the writer reads it
 
 
 def check_ledger(
@@ -122,6 +128,7 @@ def build_report(
     unplaced: Mapping[int, float] | None,
     ever_after_holdout: int,
     core_members: int,
+    candidates_live: str | None = None,
 ) -> Report:
     """Counts by year for a checked ledger. `rows` are (as_of, symbol, security_type, tier_5m) of
     the whole table; `members_by_as_of` is the family-facing membership (holdout removed) the
@@ -162,7 +169,28 @@ def build_report(
         ever_members_after_holdout=ever_after_holdout,
         core_members=core_members,
         memories=tuple(memories),
+        closed_list_months=sum(rule == CLOSED_LIST_RULE_ID for _, rule, _ in ledger),
+        candidates_live=candidates_live,
     )
+
+
+def candidates_status(live: str | None) -> str:
+    """MATCH when the live digest is the pinned one, MISMATCH when not, NOT READ without one."""
+    if live is None:
+        return "NOT READ"
+    return "MATCH" if live == CLOSED_LIST_CANDIDATES_SHA256 else "MISMATCH"
+
+
+async def _live_candidates_digest(dsn: str) -> str | None:
+    """The live digest, or None (printed NOT READ) when the list at L cannot be read in full."""
+    conn = await asyncpg.connect(dsn)
+    try:
+        return candidates_digest(await candidates_at_l(conn))
+    except RuntimeError as error:
+        print(f"candidate set at L not read: {error}", file=sys.stderr)
+        return None
+    finally:
+        await conn.close()
 
 
 def render(report: Report) -> str:
@@ -176,6 +204,9 @@ def render(report: Report) -> str:
         f"rule {report.rule_id}; {report.months} month-ends {report.first_as_of} to {report.last_as_of}",
         f"ever members {report.ever_members}; after the seen-name holdout "
         f"{report.ever_members_after_holdout}; core panel {report.core_members}",
+        f"closed list: {report.closed_list_months} month-end(s) after L; candidate set at L sha256 "
+        f"live {report.candidates_live or 'not read'}, pinned {CLOSED_LIST_CANDIDATES_SHA256}: "
+        f"{candidates_status(report.candidates_live)}",
         " ".join(f"{h:>9}" for h in head),
     ]
     for y in report.years:
@@ -261,12 +292,16 @@ def main(argv: list[str] | None = None) -> int:
         unplaced=unplaced,
         ever_after_holdout=len(held.symbols),
         core_members=len(core.symbols),
+        candidates_live=asyncio.run(_live_candidates_digest(dsn)),
     )
     text = render(report)
     print(text)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text + "\n")
+    if candidates_status(report.candidates_live) == "MISMATCH":
+        print("REFUSING: the candidate set at L moved since it was pinned", file=sys.stderr)
+        return 2
     return 0
 
 

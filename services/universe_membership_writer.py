@@ -63,6 +63,7 @@ from src.intelligence.universe_membership import (
     RULE_ID,
     MembershipRow,
     SecurityHistory,
+    closed_list_candidates_problem,
     ledger_rule_problem,
     memberships_for_security,
     month_end_sessions,
@@ -146,7 +147,7 @@ SELECT te.symbol, x->>'type' AS security_type
    AND te.valid_from <= r.as_of AND (te.valid_to IS NULL OR r.as_of < te.valid_to)
  WHERE r.vendor = 'massive' AND r.endpoint = 'pit_snapshots' AND r.as_of = $1
    AND r.http_status = 200
- ORDER BY (r.request_key LIKE '%@active') DESC, te.symbol
+ ORDER BY (r.request_key LIKE '%@active') DESC, te.symbol, x->>'type', x->>'ticker'
 """
 _BARS_SQL = """
 SELECT b.symbol, (b."timestamp" AT TIME ZONE 'UTC')::date AS day, b.close, b.volume
@@ -285,6 +286,10 @@ class UniverseMembershipWriter(BaseBatch):
                     "incomplete, and a month built on them cannot be corrected; nothing written"
                 )
         types = await self._types(conn, todo)
+        if after_l:  # a closed-list month reads the candidate set at L: it must be the pinned one
+            problem = closed_list_candidates_problem(types[after_l[0]])
+            if problem:
+                raise RuntimeError(f"{problem}; nothing written")
         seed = {
             r["symbol"]: r["tier_5m"]
             for r in (await conn.fetch(_MEMBERS_AT_SQL, built[-1]) if built else [])
@@ -451,6 +456,11 @@ class UniverseMembershipWriter(BaseBatch):
                     found.setdefault(row["symbol"], row["security_type"])
             by_list[list_date] = found
         return {as_of: by_list[type_list_date(as_of)] for as_of in month_ends}
+
+
+async def candidates_at_l(conn: asyncpg.Connection) -> dict[str, str]:
+    """The candidates (symbol -> type) the list at L places, read as a build reads them."""
+    return (await UniverseMembershipWriter._types(conn, [LAST_LIST_DATE]))[LAST_LIST_DATE]
 
 
 def main() -> None:

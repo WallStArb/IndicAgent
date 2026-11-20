@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-19
 source: lane 2 of the 609 chain, report of indicagent-0a
@@ -26,3 +26,8 @@ Requirement questioned (Musk step 1): the stage 2 dead names are in compute (tha
 4. After todo 645 lands, `universe_membership_writer` should import the shared staleness SQL from the new module instead of its private copy (not edited now: 645 lane).
 
 Caveat until the gate has run: the dead-name history is derived once and unaudited.
+
+## Landed 2026-11-20
+
+Built (643b41130): `scripts/ops/bars/ops_member_history_audit.py` with the pure checks in `src/intelligence/bars/member_history.py`. Clean run after the VIXM derivation, 2026-11-20 (exit 0): 12,561 members, 1,529 active names, 0 findings on every check (no member without a canonical 1d bar, no OHLC invariant or non-positive price, no split recorded after a newest 1d digest); outputs `data/member_history_audit/2026-11-20-final/` (summary.json, empty findings.csv). Positive control the same day: after the VIXM split row was recorded and before its derivation the same audit exited 1 with exactly one finding, `VIXM split_not_current`. Bar density disclosure (`coverage.csv`, 12,691 names; bars over NYSE sessions in the name's own span, measured, not a gate): members p01 0.758, p05 0.949, p25 0.9993, median 1.0; active names p01 0.932, p05 0.998, p25 0.9998, median 1.0. The dead-name tail (1 percent of members below 0.76) is thinner than the active tail; per-name values are in the csv. The audit is a gate before counted compute and reruns after any split row lands (about 21 s). The nightly repeat stays deleted: dead-name history is static, restatements go through an explicit scoped derivation.
+
