@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-11-19
 source: Alpaca nightly 2026-11-19 exited 1 (PARTIAL, one basis-change restatement flag, VIXM 5m)
@@ -29,3 +29,7 @@ Yahoo has restated: its 2026-11-13 close is 26.78 (2 x the stored 13.39), the sp
 ## 2026-11-20 check (lead f3, read-only)
 
 The VIXM reselect is already in canonical: 1d closes 26.44, 25.99, 26.34, 26.78 (2026-11-13), 27.46, 28.82, 28.30, and 5m closes are continuous across the 2026-11-16 seam (2026-11-13 max 26.81, 2026-11-16 min 26.81). Open: confirm `split_horizon_fresh` reads clean and mark the 09ea55d0 basis-change flag reviewed, then close this todo.
+
+## Closure 2026-11-20
+
+The 09ea55d0 flag was reviewed 2026-11-20 02:27Z. The bar reconciliation audit of 2026-11-20 07:11Z, after the row (committed 02:25Z) and the reselect, records `split_horizon_fresh` for `VIXM|5m` as passed with 0 stale bars; `ops_restatement_review` lists 0 unreviewed flags; the member history audit (todo 647) read 0 findings after the derivation. Done.
