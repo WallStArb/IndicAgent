@@ -27,3 +27,7 @@ Recorded: 3,026 Massive reference rows with a tape witness (2,357 level-step tra
 Evidence (all under `logs/split_audit_646/2026-11-10/`): independent 100-row stratified review `row_review_100.csv` and `row_review_100_summary.md` (99 correct, 1 wrong ratio: CURE~01R07BN0 recorded 5.0, true 4.0); Yahoo witness over all 3,026 rows `yahoo_witness_3026.csv` and `_summary.md` (1,978 confirmed, 7 mismatches, 1,041 unverified, never counted as confirmed). Corrections: five Direxion rows (CURE~01R07BN0, INDL, RETL, SPUU, MIDU, 2015-05-19, 5.0 to 4.0) and BVN (2003-11-17 to 2003-11-12) by void plus operator row; QH 2022-08-11 stays as recorded (tape x10.5 against Yahoo 1:100, disputed). Superseded ids and replacements go in `corrections_batch.csv`.
 
 Still open before the pin: the corrections batch, the one combined derivation for the corrected and cap 1000 names, the `--strict` sweep over members, the 647 member-history audit.
+
+## Gate scope ruling 2026-11-20 (lead 7c, owner veto reserved)
+
+The strict sweep over members is gated on the breaks that have a Yahoo witness. The 3,551 members' breaks with no Yahoo history (1,516 names, mostly dead names) are disclosed as unwitnessed, never counted as confirmed. A second witness counts only as tape plus a vendor agreeing. The five date corrections Yahoo cannot judge (ACGN, ETS, ICA, REV, VIP) stay refused and open; the witness rule is not loosened. Detail and class counts: todo 629.
