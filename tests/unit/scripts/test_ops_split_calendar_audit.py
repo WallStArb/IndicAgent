@@ -1389,7 +1389,11 @@ def test_an_unused_identity_disposition_fails_strict_but_a_live_one_does_not():
 
 
 def _counts(**over):
-    return dict.fromkeys(audit.GATE_COUNTS, 0) | {"active_names": 1500, "breaks_read": 40} | over
+    return (
+        dict.fromkeys(audit.GATE_COUNTS, 0)
+        | {"active_names": 1500, "member_names": 3000, "breaks_read": 40}
+        | over
+    )
 
 
 def test_strict_passes_only_a_sweep_that_read_something_and_left_nothing():
@@ -1399,6 +1403,8 @@ def test_strict_passes_only_a_sweep_that_read_something_and_left_nothing():
     assert audit.strict_failure(_counts(crowded_days=1))
     assert audit.strict_failure(_counts(breaks_read=0)), "an empty sweep must not pass"
     assert audit.strict_failure(_counts(active_names=0)), "no active names must not pass"
+    # members are counted apart: a populated membership cannot stand in for an empty active read
+    assert audit.strict_failure(_counts(member_names=0)), "no universe members must not pass"
 
 
 @pytest.mark.parametrize(
@@ -1515,7 +1521,7 @@ class _SweepConn:
             audit._SWEEP_STEPS_SQL: steps,
             audit._SWEEP_CROWDED_SQL: crowded,
             audit._ACTIVE_SQL: [(s,) for s in active],
-            audit._GATE_SCOPE_SQL: [(s,) for s in [*active, *members]],
+            audit._MEMBERS_SQL: [(s,) for s in members],
             audit._RECORDED_SQL: recorded,
         }
 
@@ -2066,10 +2072,26 @@ def test_an_unresolved_break_on_an_inactive_universe_member_is_gated(monkeypatch
     events = [_break("DEADM", day, "unrecorded_split")]
     conn = _SweepConn(steps=steps, crowded=[], active=[], recorded=[], members=["DEADM"])
     counts, out = _drive_sweep(monkeypatch, tmp_path, conn, events)
-    assert counts["unresolved"] == 1 and counts["active_names"] == 1
+    assert counts["unresolved"] == 1
+    assert (counts["active_names"], counts["member_names"]) == (0, 1)
     assert [r["symbol"] for r in csv.DictReader(audit.unresolved_path(out).open())] == ["DEADM"]
 
 
-def test_the_sweep_gate_scope_is_active_names_and_universe_members():
-    sql = audit._GATE_SCOPE_SQL
-    assert "is_active" in sql and "universe_membership" in sql
+def test_the_sweep_gates_an_active_only_a_member_only_and_a_both_symbol_once_each(
+    monkeypatch, tmp_path
+):
+    symbols = ("ONLYACT", "ONLYMEM", "BOTH")
+    steps = [(s, DAY, -0.79, "massive", "sip_flat_adj", "massive", "sip_flat_adj") for s in symbols]
+    events = [_break(s, DAY, "unrecorded_split") for s in symbols]
+    conn = _SweepConn(
+        steps=steps,
+        crowded=[],
+        active=["ONLYACT", "BOTH"],
+        recorded=[],
+        members=["ONLYMEM", "BOTH"],
+    )
+    counts, out = _drive_sweep(monkeypatch, tmp_path, conn, events)
+    assert counts["unresolved"] == 3
+    assert (counts["active_names"], counts["member_names"]) == (2, 2)
+    reported = [r["symbol"] for r in csv.DictReader(audit.unresolved_path(out).open())]
+    assert sorted(reported) == ["BOTH", "ONLYACT", "ONLYMEM"]

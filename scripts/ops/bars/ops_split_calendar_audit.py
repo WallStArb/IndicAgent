@@ -190,12 +190,9 @@ _RAW_SERIES_OF = {
     PRIMARY_PAIR[VENDOR_ALPACA]: (VENDOR_ALPACA, "sip_rth"),
 }
 _ACTIVE_SQL = "SELECT symbol FROM instruments WHERE is_active ORDER BY symbol"
-# The sweep gate's scope (todo 646, lead ruling): the active names and the inactive members of the
-# universe membership, permanently.
-_GATE_SCOPE_SQL = """
-SELECT symbol FROM instruments WHERE is_active
-UNION SELECT symbol FROM universe_membership
-"""
+# The sweep gate's scope (todo 646, lead ruling): the active names and the members of the
+# universe membership (inactive ones included), permanently. Read apart so each count can fail.
+_MEMBERS_SQL = "SELECT DISTINCT symbol FROM universe_membership"
 _APR_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)"
 _EXISTING_SQL = """
 SELECT action_type, effective_date, factor, inferred_by, detail ? 'rows_file', action_id::text,
@@ -1864,6 +1861,7 @@ GATE_COUNTS = (
     "witness_error",
     "breaks_read",
     "active_names",
+    "member_names",
     "crowded_days",
     "unused_dispositions",
     "identity_dispositions",
@@ -1890,10 +1888,11 @@ def unresolved_breaks(
     events: Iterable[SweepBreak],
     recorded: Mapping[str, Sequence[tuple[date, float]]],
     ruled: Mapping[tuple[str, date], str],
-    active: Collection[str],
+    scope: Collection[str],
     bad_bars: Collection[tuple[str, date]] = (),
 ) -> list[SweepBreak]:
-    """The breaks nothing rules (todo 622 scope 3), on the gate scope only (active names and inactive universe members): a gated verdict with no
+    """The breaks nothing rules (todo 622 scope 3), on the gate `scope` only (the active names and
+    the universe members): a gated verdict with no
     operator disposition (`ruled`: (symbol, date) -> class; a class rules only the
     verdicts of `DISPOSITION_RULES`). The sweep reads canonical, so a break it finds is still in canonical:
     a recorded row of its size (or a listed bad bar) means the record was not applied (reselect,
@@ -1902,7 +1901,7 @@ def unresolved_breaks(
     left = []
     for event in events:
         key = (event.symbol, event.break_date)
-        if event.symbol not in active or event.verdict not in _GATED_VERDICTS:
+        if event.symbol not in scope or event.verdict not in _GATED_VERDICTS:
             continue
         if key in ruled and event.verdict in DISPOSITION_RULES[ruled[key]]:
             continue
@@ -1923,11 +1922,13 @@ def unused_dispositions(
 
 def strict_failure(counts: Mapping[str, int]) -> list[str]:
     """Why --strict fails, empty when it passes. Every count is indexed directly: a missing one
-    raises, never reads as zero. An empty read never passes: no active name or no lone break at
-    all means the sweep saw nothing, not that nothing is wrong."""
+    raises, never reads as zero. An empty read never passes: no active name, no universe member or no lone break
+    at all means the sweep saw nothing, not that nothing is wrong."""
     reasons = []
     if not counts["active_names"]:
         reasons.append("no active names read")
+    if not counts["member_names"]:
+        reasons.append("no universe members read")
     if not counts["breaks_read"]:
         reasons.append("no lone breaks read (an empty sweep cannot pass)")
     if counts["witness_error"]:
@@ -2060,11 +2061,12 @@ def sweep(
                                 "evidence": event.evidence,
                             }
                         )
-        active = {symbol for (symbol,) in conn.execute(_GATE_SCOPE_SQL)}
+        active = {symbol for (symbol,) in conn.execute(_ACTIVE_SQL)}
+        members = {symbol for (symbol,) in conn.execute(_MEMBERS_SQL)}
         recorded: dict[str, list[tuple[date, float]]] = {}
         for symbol, effective, factor in conn.execute(_RECORDED_SQL):
             recorded.setdefault(symbol, []).append((effective, float(factor)))
-    unresolved = unresolved_breaks(events, recorded, ruled, active, bad_bars)
+    unresolved = unresolved_breaks(events, recorded, ruled, active | members, bad_bars)
     write_unresolved(unresolved_path(out), unresolved)
     unused = unused_dispositions(events, ruled)
     for symbol, day in unused:
@@ -2081,6 +2083,7 @@ def sweep(
         recorded_double_adjusted=sum(e.verdict == RECORDED_DOUBLE_ADJUSTED for e in unresolved),
         breaks_read=len(events),
         active_names=len(active),
+        member_names=len(members),
         crowded_days=len(unseen),
         unused_dispositions=len(unused),
         identity_dispositions=sum(kind == "identity" for kind in ruled.values()),
@@ -2181,7 +2184,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(counts)
             print(
-                f"universe: {counts['active_names']} scope names (active and universe members), "
+                f"universe: {counts['active_names']} active names, {counts['member_names']} universe "
+                "members (some are active), "
                 f"{counts['breaks_read']} lone breaks read"
             )
             reasons = strict_failure(counts) if args.strict else []

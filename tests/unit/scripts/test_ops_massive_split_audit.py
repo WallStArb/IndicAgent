@@ -17,6 +17,7 @@ from src.intelligence.bars.split_reconciliation import (
     RecordedSplit,
     StringSpan,
     VendorSplit,
+    ticker_key,
 )
 
 SESSIONS = [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3), date(2020, 1, 6)]
@@ -166,9 +167,27 @@ def test_a_dead_names_open_span_ends_at_its_last_session_and_a_reused_ticker_is_
     )
     on_last = _split(date(2015, 6, 30), event_id="a")
     after = _split(date(2019, 3, 1), event_id="b")  # a new holder of the string splits
-    own, excluded, outside = audit.attribute_all([on_last, after], index)
+    own, excluded, outside = audit.attribute_all([on_last, after], index, {ticker_key("DEAD")})
     assert [(s.event_id, sym) for s, sym, _ in own + excluded] == [("a", "DEAD")]
     assert [s.event_id for s in outside] == ["b"]
+
+
+def test_a_string_only_an_active_name_holds_is_not_outside_span():
+    active = StringSpan("ACT", "ACT", date(2010, 1, 4), date(2012, 1, 1))
+    index = IdentityIndex.build([active], {"ACT": active.valid_from}, label_symbols=())
+    after = _split(date(2019, 3, 1), event_id="late", ticker="ACT")  # outside the active span
+    own, excluded, outside = audit.attribute_all([after], index, member_keys=set())
+    assert (own, excluded, outside) == ([], [], [])
+
+
+def test_member_keys_match_across_share_class_spellings():
+    span = StringSpan("BRKB", "BRKB", date(2010, 1, 4), date(2012, 1, 1))
+    index = IdentityIndex.build([span], {"BRKB": span.valid_from}, label_symbols=())
+    late = _split(
+        date(2019, 3, 1), event_id="late", ticker="BRK.B"
+    )  # dotted spelling, after the span
+    _, _, outside = audit.attribute_all([late], index, {ticker_key("BRKB")})
+    assert [s.event_id for s in outside] == ["late"]
 
 
 def test_a_member_with_no_bars_holds_nothing_and_a_closed_span_keeps_its_own_end():

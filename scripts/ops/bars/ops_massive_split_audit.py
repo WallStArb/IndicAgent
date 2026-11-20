@@ -58,7 +58,7 @@ import sys
 import time
 from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from fractions import Fraction
@@ -762,16 +762,18 @@ def level_census(
 
 
 def attribute_all(
-    splits: list[VendorSplit], index: IdentityIndex
+    splits: list[VendorSplit], index: IdentityIndex, member_keys: Collection[str]
 ) -> tuple[list[tuple], list[tuple], list[VendorSplit]]:
     """(own, excluded, outside_span): each split to the instrument it concerns, or to nobody
-    when its string is held but not on that day (a reused ticker). Pure."""
+    when its string is held by a stage 2 member (`member_keys`, ticker keys of their spans) but
+    not on that day (a reused ticker). A string only an active name holds is not this audit's
+    outside_span. Pure."""
     own, excluded, outside_span = [], [], []
     for split in splits:
         hit = attribute(split, index)
         if hit is None:
             labels = [t for t in (split.bulk_ticker, split.v3_ticker) if t is not None]
-            if any(ticker_key(t) in index.spans for t in labels):
+            if any(ticker_key(t) in member_keys for t in labels):
                 outside_span.append(split)
             continue
         symbol, how = hit
@@ -812,7 +814,9 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
     )
 
     # (1) Attribution and reconciliation.
-    own, excluded, outside_span = attribute_all(ref.splits, index)
+    member_keys = {ticker_key(span.string) for spans in ref.member_spans.values() for span in spans}
+    own, excluded, outside_span = attribute_all(ref.splits, index, member_keys)
+    unattributed = len(ref.splits) - len(own) - len(excluded) - len(outside_span)
     own, duplicates = collapse_vendor_duplicates(own, SAME_EVENT_DAYS)
     # The market-split meaning selection and the daily rule apply (corporate_actions).
     recorded = [
@@ -1049,6 +1053,7 @@ def run(settings: Settings, out_root: Path, sweep_csv: Path | None, archive: Pat
         "stage2_members": group_counts(ref, own, proposed, review),
         "stage2_members_without_spans": len(ref.members - ref.member_spans.keys()),
         "outside_span_events": len(outside_span),
+        "unattributed_events": unattributed,  # no scope instrument holds the string (out of scope)
         "active_with_massive_series": len(stitched),
         "corporate_action_rows_active": len(recorded),
         "partition": partition_counts(members),
