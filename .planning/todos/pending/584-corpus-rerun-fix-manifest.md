@@ -802,6 +802,26 @@ so D1 plus D5 (items 2, 4 and 6, one implementer: the same kernels) starts after
 module (item 8) do not collide and run beside them. Item 3's fix waits for the 583 measurement.
 The D3 gate tool is independent and is built now.
 
+## Pin readiness (2026-11-20, lane B, indicagent-47)
+
+Items 1 to 12 stay landed. What stands between main and `--new-run`:
+
+| Precondition | State | Evidence |
+|---|---|---|
+| 646 split rows, corrections, one combined derivation | met | six corrections live and unsuperseded (`logs/split_audit_646/2026-11-10/corrections_batch.csv`); all six names have a 1d digest at 2026-11-20 02:22Z |
+| 641 VIXM | met | 2db266c01 |
+| 647 member-history audit | met | `data/member_history_audit/2026-11-20-final/` (exit 0, 12,561 members, 0 findings); rerun after any later split row |
+| 645 candidate-set pin | met | 17c9ca02f |
+| I1 universe wiring, tier amendment text, E23 | met | 2c84278ad, d141aca64; prereg and ledger entries present |
+| `corpus_run` empty, `universe_membership` built | met | 0 and 858,454 rows |
+| Strict sweep over members | open (lane A) | `logs/sweep_strict_members_20261120b`: exit 3, undecided APTV, PNR, SW; 4,086 reported breaks are disclosed, not gated, once lane A confirms |
+| Plan-only (span plan fits, data gate verdict) | span plan met, data gate FAIL | `logs/corpus_rerun_planonly_47_20261120T100759Z.log`: 1 span [2003, 2027), peak 891 GB against a 1,104 GB limit; data gate FAIL, 12,561 names, 5,684 failing name-years, 11,240 names without a proven start (the inactive members have no `proven_start_1d` fact); 5m massive/sip_flat_adj 627 of 1,169 names at depth, 542 partial |
+| `proven_start_1d` facts for inactive members | open (write) | `ops_member_history_audit --apply` writes them to `integrity_monitor` (a1d7610a8); the data gate cannot pass without them; rerun the plan-only after |
+| 2004-2015 members below the 2,950 floor, three empty months in 2003 | owner | recommendation: disclose as a property of the early years, not a gate |
+| E21 clean-data lift | owner | STATE, decisions waiting on the owner |
+
+Lead ruling 2026-11-20: no prefix-sum port (`volume.py`, `price.py`) before the pin; the pilot's G4 `--drift` decides, and a port follows only a measured failure.
+
 ## Done when
 
 1. Items 1-12 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
