@@ -1,0 +1,5 @@
+old_action_id,new_effective_date,new_factor,reason
+0348e25b-cf94-4649-8468-e3a9b89a8aa9,2016-09-15,2,"canonical 1d lone bar 2016-09-15 on the old scale (65.6 between 32.425 and 32.89): last old-scale session is 2016-09-15, not 2016-09-14 (todo 646 one-session date offset, sweep 2026-11-20)"
+57fb2c13-497e-46c7-9999-a558b3981f08,2021-04-30,1.5,"canonical 1d lone bar 2021-04-30 on the old scale (23.81 between 15.966666666666667 and 15.69): last old-scale session is 2021-04-30, not 2021-04-29 (todo 646 one-session date offset, sweep 2026-11-20)"
+9cc924a7-977d-4800-b889-0a3266f278a6,2010-11-12,1.5,"canonical 1d lone bar 2010-11-12 on the old scale (24.08 between 16.326666666666664 and 16.06): last old-scale session is 2010-11-12, not 2010-11-11 (todo 646 one-session date offset, sweep 2026-11-20)"
+e098838f-70d2-49cf-800c-f52c616d9bf9,2016-11-22,2,"canonical 1d lone bar 2016-11-22 on the old scale (125.45 between 62.75 and 62.9): last old-scale session is 2016-11-22, not 2016-11-21 (todo 646 one-session date offset, sweep 2026-11-20)"

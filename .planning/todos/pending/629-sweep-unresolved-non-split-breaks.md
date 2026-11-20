@@ -313,3 +313,18 @@ The 9 prepared lines (FAF, SN x2, SSB, SVRA x3, SW, THRM; classes identity and r
 
 RTX 2020-04-03 closed 2026-11-17: Alpaca x0.5 route row applied (todo 624) and the Carrier and Otis distribution disposition added
 to `sweep_dispositions.csv`; strict sweep leaves only SW 2016-05-16.
+
+## Result 2026-11-20 (strict sweep over all 12,561 members, lead lane A, f3)
+
+Run `logs/sweep_strict_members_20261120b` (exit 3): 25,189 breaks read, 19,342 witness errors (Yahoo has no history for most dead names), 4,086 unresolved. Per-row classes in `logs/sweep_strict_members_20261120b/triage.csv` (untracked):
+
+| Class | Rows | Names | Disposition |
+|---|---|---|---|
+| witness_no_data | 3,551 | 1,516 | open question: no Yahoo-only verdict exists; a second non-price witness or a stated scope rule is needed |
+| not_bracketable | 262 | 130 | open question: Yahoo adjusted close cannot be bracketed across the break |
+| route_not_rescalable | 219 | 179 | open question: the serving route cannot be rescaled |
+| single_bar_reversal | 38 | 37 | proposed: operator_bad_bars lines after a Yahoo bar check (not written) |
+| recorded_unapplied, recorded_double_adjusted | 8, 7 | 15 | one-session date offset in massive_reference split rows, below |
+| unrecorded_split | 1 | 1 | SW 2016-05-16: the identity line cannot rule this verdict (DISPOSITION_RULES); todo 624 |
+
+The 15 recorded rows are the lone-bar shape: the canonical bar on the session after the row's `effective_date` is on the old scale, between two correct bars (BMI 2016-09-15 close 65.6 between 32.4 and 32.9). The last old-scale session is the lone bar's date, one session after the row. A read-only scan of every massive_reference split row for that shape (close ratio near the factor, then back) finds nine: ACGN, BMI, BRBS, ETS, HCSG, ICA, REV, USNA, VIP. The `--correct-massive` dry run judges four correct (BMI, BRBS, HCSG, USNA: file `config/corporate_actions/split_corrections_2026_11_20_lone_bar.csv`, nothing applied) and refuses five for no Yahoo split (ACGN, ETS, ICA, REV, VIP, all dead names): open question, owner or lead call on a second witness. CETV 2003-11 and ZSL 2015-10 are not the lone-bar shape and stay open.
