@@ -63,7 +63,7 @@ from src.config.settings import Settings
 from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow, primary_pair
 from src.intelligence.bars.gap_plan import COVERAGE_EVIDENCE
-from src.intelligence.bars.vendor_kind import VENDOR_ALPACA
+from src.intelligence.bars.vendor_kind import VENDOR_ALPACA, raw_kind_for_canonical
 
 _logger = structlog.get_logger(__name__)
 
@@ -861,7 +861,9 @@ def iter_5m_session_bars(
     sessions: Sequence[Session],
 ) -> Iterator[tuple[str, date, int]]:
     """(symbol, session day, in-session bar count) for every session of the names' segments of
-    (vendor, kind) that holds any bar of it; streamed, never one corpus frame."""
+    (vendor, kind) that holds any bar of it; streamed, never one corpus frame. `kind` is the
+    canonical label of the segment (era); ohlcv_raw stores Massive 5m under its own raw kind
+    (`sip_flat_agg`), so the query translates it (never `r.kind` = the canonical kind)."""
     pair_segments = {
         s: [seg for seg in segs if (seg.vendor, seg.kind) == (vendor, kind)]
         for s, segs in segments.items()
@@ -883,7 +885,7 @@ def iter_5m_session_bars(
                 "closes": [x.close for x in in_range],
                 "tf": TF_5M,
                 "vendor": vendor,
-                "kind": kind,
+                "kind": raw_kind_for_canonical(vendor, kind, TF_5M),
                 "names": sorted(pair_segments),
                 "ts_lo": datetime.combine(lo, datetime.min.time(), tzinfo=UTC),
                 "ts_hi": datetime.combine(hi, datetime.min.time(), tzinfo=UTC),

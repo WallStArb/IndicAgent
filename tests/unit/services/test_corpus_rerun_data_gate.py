@@ -667,3 +667,42 @@ def test_1d_only_names_stay_out_of_the_survivorship_caveat(monkeypatch):
     world.add_name("ONLY1D", date(2015, 6, 1), full=False)
     result = world.run(monkeypatch)
     assert result.ok and result.caveat["counts"]["names_with_1d_before_alpaca_era"] == 1
+
+
+class _StreamConn:
+    """Records the parameters of the one streamed 5m query; yields no rows."""
+
+    def __init__(self) -> None:
+        self.params: dict = {}
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def stream(self, sql, params):
+        self.params = params
+        return iter(())
+
+
+@pytest.mark.parametrize(
+    ("vendor", "canonical_kind", "raw_kind"),
+    [
+        ("massive", "sip_flat_adj", "sip_flat_agg"),  # canonical label, raw stores sip_flat_agg
+        ("alpaca", "sip_rth", "sip_rth"),
+        ("ibkr", "named", "named"),
+    ],
+)
+def test_the_5m_query_asks_raw_for_its_raw_kind(vendor, canonical_kind, raw_kind):
+    day = date(2010, 1, 4)
+    session = gate.Session(
+        day, datetime(2010, 1, 4, 14, 30, tzinfo=UTC), datetime(2010, 1, 4, 21, 0, tzinfo=UTC)
+    )
+    segments = {"AAA": [gate.Segment(day, day + timedelta(days=1), vendor, canonical_kind)]}
+    conn = _StreamConn()
+    list(gate.iter_5m_session_bars(conn, vendor, canonical_kind, segments, [session]))
+    assert conn.params["vendor"] == vendor and conn.params["kind"] == raw_kind

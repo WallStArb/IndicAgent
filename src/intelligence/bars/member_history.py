@@ -12,7 +12,10 @@ import math
 from bisect import bisect_left, bisect_right
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+
+from src.intelligence.bars.integrity_checks import INFO_PROVEN_START, proven_start
+from src.intelligence.bars.verdict_gate import MONITOR_TYPE
 
 # The structural checks, one name each (the gate's failure reasons).
 NO_BARS = "no_canonical_1d_bar"
@@ -82,3 +85,45 @@ def coverage_quantiles(values: Sequence[float], points: Sequence[float]) -> dict
         f"p{round(p * 100):02d}": ordered[min(last, max(0, math.ceil(p * len(ordered)) - 1))]
         for p in points
     }
+
+
+def member_proven_start(
+    stats: MemberStats,
+    calendar: Sequence[date],
+    stored_dates: Collection[date],
+    empty_spans: Sequence[tuple[date, date]],
+    min_coverage: float,
+    *,
+    era_start: date,
+) -> date | None:
+    """A member's proven start (design D4, todo 532) over its own span: the sessions of the sorted
+    NYSE `calendar` from max(first canonical 1d bar, `era_start`) to its last bar. The 1d verdict
+    run ends the span at the calendar's last session, which a dead name never reaches (its start
+    is None by construction); here the span ends at the name's own last bar. Answered sessions are
+    the stored bars and the sessions inside an answered-empty span; a missing session is never
+    credited (no_fill), and only bars up to the last bar are read (point_in_time). The rule is
+    integrity_checks.proven_start, the 1d verdict's own; None when the span holds no session or
+    its last session is unanswered."""
+    first = max(stats.first, era_start)
+    span = calendar[bisect_left(calendar, first) : bisect_right(calendar, stats.last)]
+    answered = set(stored_dates).intersection(span)
+    answered.update(s for s in span if any(a <= s <= b for a, b in empty_spans))
+    return proven_start(span, answered, min_coverage)
+
+
+def proven_start_fact(
+    symbol: str, start: date | None, training_window_end: datetime
+) -> tuple[str, str, str, float, None, bool, datetime]:
+    """The `proven_start_1d` integrity_monitor fact of one name, the tuple the shared batch writer
+    (src.core.integrity_monitor.emit_integrity_facts_async) takes. The shape the 1d verdict run
+    writes (services.bar_reconciliation_audit): a name with no start is a failing fact (value 0),
+    so the reader (backfill_feature_factory.proven_starts) refuses it."""
+    return (
+        MONITOR_TYPE,
+        f"{symbol}|1d",
+        INFO_PROVEN_START,
+        float(start.toordinal()) if start else 0.0,
+        None,
+        start is not None,
+        training_window_end,
+    )

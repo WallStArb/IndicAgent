@@ -90,20 +90,42 @@ class _FakeConn:
             return [("M1",), ("M2",)]
         if "is_active" in sql:
             return [("M1",), ("ACT",)]
-        if "market_data_ohlcv_tradeable" in sql:
+        if "GROUP BY symbol" in sql and "market_data_ohlcv_tradeable" in sql:
             return self._stats
-        return []  # no stale splits
+        if "market_data_ohlcv_tradeable" in sql:  # the stored 1d dates of the inactive members
+            return [(r[0], d) for r in self._stats if r[0] in params["s"] for d in self.days.get(r[0], ())]  # type: ignore[index]
+        return []  # no stale splits, no empty spans
+
+    days: dict[str, list[date]] = {}
 
 
-def _run(monkeypatch, tmp_path, stats: list[tuple]) -> tuple[int, dict]:
+def _run(
+    monkeypatch, tmp_path, stats: list[tuple], *, apply: bool = False, days=None
+) -> tuple[int, dict]:
     import json
 
     from scripts.ops.bars import ops_member_history_audit as audit
 
-    monkeypatch.setattr(audit.psycopg, "connect", lambda _url: _FakeConn(stats))
+    conn = _FakeConn(stats)
+    conn.days = days or {}
+    monkeypatch.setattr(audit.psycopg, "connect", lambda _url: conn)
+
+    async def coverage_min() -> float:
+        return 0.999
+
+    monkeypatch.setattr(audit, "_read_coverage_min", coverage_min)
+    written: list[tuple] = []
+
+    async def write_facts(_settings, facts: list[tuple]) -> int:
+        written.extend(facts)
+        return len(facts)
+
+    monkeypatch.setattr(audit, "_write_facts", write_facts)
     settings = type("S", (), {"database_url": "x"})()
-    code = audit.run(settings, tmp_path)  # type: ignore[arg-type]
-    return code, json.loads((tmp_path / "summary.json").read_text())
+    code = audit.run(settings, tmp_path, apply=apply)  # type: ignore[arg-type]
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    summary["_written"] = written
+    return code, summary
 
 
 def test_run_fails_on_a_member_without_bars_and_writes_the_outputs(monkeypatch, tmp_path) -> None:
@@ -121,7 +143,172 @@ def test_run_passes_when_every_member_is_clean(monkeypatch, tmp_path) -> None:
     assert (code, summary["passed"]) == (0, True)
 
 
+def test_apply_writes_a_start_for_inactive_members_only(monkeypatch, tmp_path) -> None:
+    # M1 is active (and a member); M2 is inactive with bars; ACT is active, not a member.
+    sessions = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
+    row = lambda s: (s, 4, sessions[0], sessions[-1], 0, 0)  # noqa: E731
+    days = {"M2": sessions, "M1": sessions}
+    code, summary = _run(
+        monkeypatch, tmp_path, [row("M1"), row("M2"), row("ACT")], apply=True, days=days
+    )
+    assert code == 0
+    assert [f[1] for f in summary["_written"]] == ["M2|1d"]
+    assert summary["_written"][0][5] is True
+    assert summary["proven_starts"]["with_start"] == 1
+    assert summary["proven_starts"]["facts_written"] == 1
+    assert (tmp_path / "proven_starts.csv").read_text().splitlines()[1].startswith("M2,")
+
+
+def test_default_run_writes_nothing_and_a_name_without_a_start_is_a_failing_fact(
+    monkeypatch, tmp_path
+) -> None:
+    # M2's stored dates miss its last bar: no start, so a failing fact under --apply.
+    first, last = date(2024, 1, 2), date(2024, 1, 8)
+    row = ("M2", 3, first, last, 0, 0)
+    code, summary = _run(monkeypatch, tmp_path, [row], days={"M2": [first]})
+    assert summary["_written"] == [] and summary["proven_starts"]["without_start"] == 1
+    assert summary["proven_starts"]["applied"] is False
+    _, applied = _run(monkeypatch, tmp_path, [row], apply=True, days={"M2": [first]})
+    assert [f[5] for f in applied["_written"]] == [False]
+
+
 def test_run_with_no_bars_at_all_reports_instead_of_crashing(monkeypatch, tmp_path) -> None:
     code, summary = _run(monkeypatch, tmp_path, [])
     assert code == 1
     assert summary["findings_by_check"] == {NO_BARS: 2}
+
+
+# ---------------------------------------------------------------------------
+# member proven start (the dead names' start record, docs/plans/2026-11-20-member-proven-start.md)
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from scripts.ops.bars import ops_member_history_audit as audit_script  # noqa: E402
+from services import bar_reconciliation_audit as verdict_run  # noqa: E402
+from src.intelligence.bars.integrity_checks import INFO_PROVEN_START  # noqa: E402
+from src.intelligence.bars.member_history import (  # noqa: E402
+    member_proven_start,
+    proven_start_fact,
+)
+
+# Mon 2010-01-04 .. Fri 2010-03-05 weekdays stand in for NYSE sessions (a sorted date list).
+_CAL = [date(2010, 1, 4) + timedelta(days=i) for i in range(70) if (i % 7) < 5]
+_ERA = date(2000, 1, 3)
+
+
+def _span_stats(first: date, last: date) -> MemberStats:
+    return MemberStats("X", 1, first, last, 0, 0)
+
+
+def test_a_dead_names_start_is_judged_over_its_own_span_not_the_calendars_end() -> None:
+    sessions = _CAL[:20]
+    # The name dies on sessions[-1]; the calendar runs on for 40 more sessions. Judged to the
+    # calendar's end its last session would read unanswered (the verdict run's None).
+    start = member_proven_start(
+        _span_stats(sessions[0], sessions[-1]), _CAL, sessions, [], 0.999, era_start=_ERA
+    )
+    assert start == sessions[0]
+
+
+def test_a_hole_moves_the_start_after_it() -> None:
+    sessions = _CAL[:30]
+    stored = [s for s in sessions if s != sessions[5]]
+    start = member_proven_start(
+        _span_stats(sessions[0], sessions[-1]), _CAL, stored, [], 0.999, era_start=_ERA
+    )
+    assert start == sessions[6]
+
+
+def test_an_answered_empty_span_credits_only_its_sessions() -> None:
+    sessions = _CAL[:30]
+    stored = [s for s in sessions if s not in sessions[5:8]]
+    credited = member_proven_start(
+        _span_stats(sessions[0], sessions[-1]),
+        _CAL,
+        stored,
+        [(sessions[5], sessions[7])],
+        0.999,
+        era_start=_ERA,
+    )
+    assert credited == sessions[0]
+    short = member_proven_start(
+        _span_stats(sessions[0], sessions[-1]),
+        _CAL,
+        stored,
+        [(sessions[5], sessions[6])],  # sessions[7] stays a hole
+        0.999,
+        era_start=_ERA,
+    )
+    assert short == sessions[8]
+
+
+def test_a_span_before_the_calendar_era_is_clipped_to_it() -> None:
+    # Bars from before the era start: sessions before it are not judged (no calendar session).
+    start = member_proven_start(
+        _span_stats(date(1998, 1, 5), _CAL[10]),
+        _CAL,
+        _CAL[:11],
+        [],
+        0.999,
+        era_start=_CAL[3],
+    )
+    assert start == _CAL[3]
+
+
+def test_a_name_that_dies_before_the_calendar_has_no_start() -> None:
+    assert (
+        member_proven_start(
+            _span_stats(date(1998, 1, 5), date(1998, 6, 1)),
+            _CAL,
+            [date(1998, 1, 5)],
+            [],
+            0.999,
+            era_start=_ERA,
+        )
+        is None
+    )
+
+
+def test_a_name_whose_last_bar_is_not_a_stored_session_has_no_start() -> None:
+    sessions = _CAL[:10]
+    assert (
+        member_proven_start(
+            _span_stats(sessions[0], sessions[-1]), _CAL, sessions[:-1], [], 0.999, era_start=_ERA
+        )
+        is None
+    )
+
+
+def test_a_stored_date_outside_the_span_is_not_credited() -> None:
+    sessions = _CAL[:10]
+    start = member_proven_start(
+        _span_stats(sessions[2], sessions[-1]),
+        _CAL,
+        _CAL[:10] + _CAL[30:40],
+        [],
+        0.999,
+        era_start=_ERA,
+    )
+    assert start == sessions[2]
+
+
+def test_the_fact_has_the_verdict_runs_shape() -> None:
+    twe = datetime(2026, 11, 20, tzinfo=UTC)
+    assert proven_start_fact("AAA", date(2010, 1, 4), twe) == (
+        "bar_integrity",
+        "AAA|1d",
+        INFO_PROVEN_START,
+        float(date(2010, 1, 4).toordinal()),
+        None,
+        True,
+        twe,
+    )
+    assert proven_start_fact("AAA", None, twe)[3:6] == (0.0, None, False)
+
+
+def test_the_empty_span_sql_is_the_verdict_runs() -> None:
+    assert audit_script._EMPTY_SQL.split() == verdict_run._EMPTY_SESSIONS_SQL.split()
+
+
+def test_the_script_writes_through_the_verdict_runs_batch_writer() -> None:
+    assert audit_script.emit_integrity_facts_async is verdict_run.emit_integrity_facts_async
