@@ -67,6 +67,20 @@ from src.intelligence.bars.vendor_kind import VENDOR_ALPACA, raw_kind_for_canoni
 
 _logger = structlog.get_logger(__name__)
 
+# Names per read query. Every fetch below filters `symbol = ANY(<names>)` over a hypertable view or
+# a raw table. Measured on market_data_ohlcv_tradeable (1d): 200 names 1 s, 600 names 5 s, 1,000
+# names 14 s, 4,000 names over 170 s, a growth that follows rows x names (the array is tested per
+# row); the full universe stalled past the 30 minute statement timeout. Every query groups by
+# symbol, so reading the names in chunks returns the same rows (checked equal on 600 names).
+# Result-neutral, so not an APR key.
+_NAME_CHUNK = 250
+
+
+def _name_chunks(names: Sequence[str]) -> Iterator[list[str]]:
+    for lo in range(0, len(names), _NAME_CHUNK):
+        yield list(names[lo : lo + _NAME_CHUNK])
+
+
 TF_5M = "5m"
 TF_1D = "1d"
 _SLOT = timedelta(minutes=5)
@@ -776,21 +790,22 @@ def fetch_answers(
             if vendor not in evidence:
                 continue
             source, route, what = evidence[vendor]
-            cur.execute(
-                _COMPLETED_ASKS_SQL,
-                {
-                    "tf": TF_5M,
-                    "source": source,
-                    "route": route,
-                    "what": what,
-                    "names": list(names),
-                    "horizon": horizon,
-                },
-            )
             era = era_label(vendor, kind)
-            asks = (CompletedAsk(*row) for row in cur.fetchall())
-            for symbol, found in merge_answers(asks).items():
-                answers[(symbol, era)] = found
+            for chunk in _name_chunks(names):
+                cur.execute(
+                    _COMPLETED_ASKS_SQL,
+                    {
+                        "tf": TF_5M,
+                        "source": source,
+                        "route": route,
+                        "what": what,
+                        "names": chunk,
+                        "horizon": horizon,
+                    },
+                )
+                asks = (CompletedAsk(*row) for row in cur.fetchall())
+                for symbol, found in merge_answers(asks).items():
+                    answers[(symbol, era)] = found
     return answers
 
 
@@ -823,34 +838,34 @@ def _segment_arrays(segments: Mapping[str, Sequence[Segment]]) -> dict[str, list
 def fetch_1d_counts(
     conn: Any, segments: Mapping[str, Sequence[Segment]], days: Sequence[date], horizon: datetime
 ) -> dict[TallyKey, int]:
+    counts: dict[TallyKey, int] = {}
     with conn.cursor() as cur:
-        cur.execute(
-            _1D_COUNTS_SQL,
-            {
-                **_segment_arrays(segments),
-                "days": list(days),
-                "tf": TF_1D,
-                "names": sorted(segments),
-                "horizon": horizon,
-            },
-        )
-        return {(s, y, e): n for s, y, e, n in cur.fetchall()}
+        for chunk in _name_chunks(sorted(segments)):
+            cur.execute(
+                _1D_COUNTS_SQL,
+                {
+                    **_segment_arrays({s: segments[s] for s in chunk}),
+                    "days": list(days),
+                    "tf": TF_1D,
+                    "names": chunk,
+                    "horizon": horizon,
+                },
+            )
+            counts.update({(s, y, e): n for s, y, e, n in cur.fetchall()})
+    return counts
 
 
 def fetch_pre_calendar_1d(conn: Any, names: Sequence[str], first_session: date) -> dict[str, int]:
     """Tradeable 1d sessions before the calendar's first session, per name, from the start of its
     series: every proven start is at or after the first session (the 1d verdict judges from it),
     so counting from the start would report none of these bars."""
+    first = datetime.combine(first_session, datetime.min.time(), tzinfo=UTC)
+    counts: dict[str, int] = {}
     with conn.cursor() as cur:
-        cur.execute(
-            _PRE_CALENDAR_SQL,
-            {
-                "names": list(names),
-                "tf": TF_1D,
-                "first": datetime.combine(first_session, datetime.min.time(), tzinfo=UTC),
-            },
-        )
-        return dict(cur.fetchall())
+        for chunk in _name_chunks(names):
+            cur.execute(_PRE_CALENDAR_SQL, {"names": chunk, "tf": TF_1D, "first": first})
+            counts.update(cur.fetchall())
+    return counts
 
 
 def iter_5m_session_bars(
@@ -871,26 +886,27 @@ def iter_5m_session_bars(
     pair_segments = {s: segs for s, segs in pair_segments.items() if segs}
     if not pair_segments:
         return
-    arrays = _segment_arrays(pair_segments)
-    del arrays["eras"]
-    lo, hi = min(arrays["los"]), max(arrays["his"])
-    in_range = [x for x in sessions if lo <= x.day < hi]
-    with conn.cursor() as cur:
-        yield from cur.stream(
-            _5M_SESSION_BARS_SQL,
-            {
-                **arrays,
-                "days": [x.day for x in in_range],
-                "opens": [x.open for x in in_range],
-                "closes": [x.close for x in in_range],
-                "tf": TF_5M,
-                "vendor": vendor,
-                "kind": raw_kind_for_canonical(vendor, kind, TF_5M),
-                "names": sorted(pair_segments),
-                "ts_lo": datetime.combine(lo, datetime.min.time(), tzinfo=UTC),
-                "ts_hi": datetime.combine(hi, datetime.min.time(), tzinfo=UTC),
-            },
-        )
+    for chunk in _name_chunks(sorted(pair_segments)):
+        arrays = _segment_arrays({s: pair_segments[s] for s in chunk})
+        del arrays["eras"]
+        lo, hi = min(arrays["los"]), max(arrays["his"])
+        in_range = [x for x in sessions if lo <= x.day < hi]
+        with conn.cursor() as cur:
+            yield from cur.stream(
+                _5M_SESSION_BARS_SQL,
+                {
+                    **arrays,
+                    "days": [x.day for x in in_range],
+                    "opens": [x.open for x in in_range],
+                    "closes": [x.close for x in in_range],
+                    "tf": TF_5M,
+                    "vendor": vendor,
+                    "kind": raw_kind_for_canonical(vendor, kind, TF_5M),
+                    "names": chunk,
+                    "ts_lo": datetime.combine(lo, datetime.min.time(), tzinfo=UTC),
+                    "ts_hi": datetime.combine(hi, datetime.min.time(), tzinfo=UTC),
+                },
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -706,3 +706,75 @@ def test_the_5m_query_asks_raw_for_its_raw_kind(vendor, canonical_kind, raw_kind
     conn = _StreamConn()
     list(gate.iter_5m_session_bars(conn, vendor, canonical_kind, segments, [session]))
     assert conn.params["vendor"] == vendor and conn.params["kind"] == raw_kind
+
+
+class _ChunkConn:
+    """Records the names of every read query; the 1d counts answer one row per name."""
+
+    def __init__(self) -> None:
+        self.names: list[list[str]] = []
+        self.params: list[dict] = []
+        self._rows: list[tuple] = []
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params):
+        self.names.append(list(params["names"]))
+        self.params.append(params)
+        if "source" in params:  # the completed-asks read: no asks
+            self._rows = []
+        elif "symbols" in params:  # the 1d counts: one session per segment name
+            self._rows = [(s, 2020, "none/1d_only", 1) for s in sorted(set(params["symbols"]))]
+        else:  # the pre-calendar count
+            self._rows = [(n, 5) for n in params["names"]]
+
+    def fetchall(self):
+        return self._rows
+
+
+def test_the_name_reads_are_chunked_and_the_chunks_join_back_to_the_whole():
+    names = [f"N{i:04d}" for i in range(gate._NAME_CHUNK * 2 + 7)]
+    day = date(2020, 1, 2)
+    segments = {s: [gate.Segment(day, day + timedelta(days=1), "none", "1d_only")] for s in names}
+    conn = _ChunkConn()
+    counts = gate.fetch_1d_counts(conn, segments, [day], datetime(2021, 1, 1, tzinfo=UTC))
+    assert [len(c) for c in conn.names] == [gate._NAME_CHUNK, gate._NAME_CHUNK, 7]
+    assert [n for chunk in conn.names for n in chunk] == names
+    assert {key[0] for key in counts} == set(names)
+    assert all(set(p["symbols"]) == set(p["names"]) for p in conn.params)
+
+    conn = _ChunkConn()
+    pre = gate.fetch_pre_calendar_1d(conn, names, day)
+    assert [len(c) for c in conn.names] == [gate._NAME_CHUNK, gate._NAME_CHUNK, 7]
+    assert set(pre) == set(names)
+
+
+def test_the_5m_and_ask_reads_are_chunked_with_chunk_local_segments():
+    names = [f"N{i:04d}" for i in range(gate._NAME_CHUNK + 3)]
+    day = date(2010, 1, 4)
+    session = gate.Session(
+        day, datetime(2010, 1, 4, 14, 30, tzinfo=UTC), datetime(2010, 1, 4, 21, 0, tzinfo=UTC)
+    )
+    segments = {s: [gate.Segment(day, day + timedelta(days=1), "alpaca", "sip_rth")] for s in names}
+    streams: list[dict] = []
+
+    class _Conn(_StreamConn):
+        def stream(self, sql, params):
+            streams.append(params)
+            return iter(((params["symbols"][0], day, 3),))
+
+    rows = list(gate.iter_5m_session_bars(_Conn(), "alpaca", "sip_rth", segments, [session]))
+    assert [len(p["names"]) for p in streams] == [gate._NAME_CHUNK, 3]
+    assert all(set(p["symbols"]) == set(p["names"]) for p in streams)
+    assert [r[0] for r in rows] == [names[0], names[gate._NAME_CHUNK]]
+
+    conn = _ChunkConn()
+    gate.fetch_answers(conn, [("alpaca", "sip_rth")], names, datetime(2021, 1, 1, tzinfo=UTC))
+    assert [len(c) for c in conn.names] == [gate._NAME_CHUNK, 3]
