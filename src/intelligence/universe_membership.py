@@ -66,17 +66,17 @@ RULE_ID = "stage2-2026-11-21"
 # pre-registered constant like the floors above, not an APR key; moving it is a dated amendment.
 LAST_LIST_DATE = date(2026, 11, 9)
 CLOSED_LIST_RULE_ID = "stage2-closed-list"
-# Amendment 2026-11-20 (todo 645), re-pinned 2026-11-21 (todo 648, proposed): the closed list's candidate
-# set is pinned. CLOSED_LIST_CANDIDATES_SHA256 is the digest (`candidates_digest`) of the 13,103
-# `symbol|type` lines for the securities the list at L places, each with its `security_type` under
-# TYPE_RULE_ID, from a rolled-back rehearsal on the data of 2026-11-21 before any closed-list month
-# was built. The writer refuses a month after L when the live set no longer hashes to it, so a later
-# `security_type` build, pit install or `ticker_event` write cannot admit an entrant silently; the
-# membership report prints both digests. It pins the symbol-to-type map only: the spans, bars and
-# splits a month reads are checked as before. The placement install changes the spans, so the pin moves
-# once more after it (runbook step 7). A pre-registered constant, not an APR key: moving it is a dated
-# amendment.
-CLOSED_LIST_CANDIDATES_SHA256 = "730622aeeafca7eb60329980a979df1cfda8d334428aab0cde9a4913f1c2586b"
+# Amendment 2026-11-20 (todo 645), re-pinned 2026-11-21 (todo 648, adopted), re-pinned again 2026-11-21
+# after the placement install (amendment 2026-11-21b): the closed list's candidate set is pinned.
+# CLOSED_LIST_CANDIDATES_SHA256 is the digest (`candidates_digest`) of the 13,222 `symbol|type` lines
+# for the securities the list at L places, each with its `security_type` under TYPE_RULE_ID, read from
+# the live tables after the install, the `security_type` apply and the membership build, and before any
+# closed-list month was built. The writer refuses a month after L when the live set no longer hashes
+# to it, so a later `security_type` build, pit install or `ticker_event` write cannot admit an entrant
+# silently; the membership report prints both digests. It pins the symbol-to-type map only: the spans,
+# bars and splits a month reads are checked as before. A pre-registered constant, not an APR key:
+# moving it is a dated amendment.
+CLOSED_LIST_CANDIDATES_SHA256 = "af96da6793eff538b308c1b6b576e8b8659c4bd110a23a542d387ffd44cbb366"
 
 
 def candidates_digest(types: Mapping[str, str]) -> str:
