@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
@@ -38,6 +38,7 @@ from services.bar_reconciliation_audit import (  # noqa: E402
 )
 from services.batch_support.db import load_apr_dict_async  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.intelligence.bars.archive_end import read_archive_end_pin  # noqa: E402
 
 SEAM_CHUNK_NAMES = 1000  # the seam read is chunked: ANY(names) arrays go superlinear at full size
 
@@ -51,15 +52,24 @@ class MemberVerdictReport1d(BarReconciliationAudit):
 
     @staticmethod
     async def _membership_ends(conn: asyncpg.Connection) -> dict[str, date]:
-        """Each inactive member to its last membership month-end. The compute reads no bar after
-        that span end (the data gate's span), and an inactive name has no capture after the
-        archive end, so its verdicts are judged up to there. An active member is judged to the
-        last completed session, as the nightly audit does."""
+        """Each inactive member to the earliest of three ends: the month-end of its last effective
+        month (a membership row at as_of is effective for the following month, migration 597, so
+        the compute reads no bar after it), the day before the Massive archive end pin (the Alpaca
+        nightly captures active names only, so nothing is served after it), and its last stored
+        1d bar (a dead name's history ends there; a stale tail is not a defect, and a vendor
+        answer missing inside the history still fails session_coverage and canonical_recompute).
+        An active member is judged to the last completed session, as the nightly audit does."""
+        served_to = read_archive_end_pin().archive_end - timedelta(days=1)
         rows = await conn.fetch(
-            "SELECT m.symbol, max(m.as_of) AS last FROM universe_membership m "
-            "JOIN instruments i ON i.symbol = m.symbol WHERE NOT i.is_active GROUP BY m.symbol"
+            "SELECT m.symbol, "
+            "LEAST((date_trunc('month', max(m.as_of)) + interval '2 months' - interval '1 day')::date, "
+            "$1::date, (SELECT max(t.timestamp)::date FROM market_data_ohlcv_tradeable t "
+            "WHERE t.symbol = m.symbol AND t.timeframe = '1d')) AS last "
+            "FROM universe_membership m JOIN instruments i ON i.symbol = m.symbol "
+            "WHERE NOT i.is_active GROUP BY m.symbol",
+            served_to,
         )
-        return {r["symbol"]: r["last"] for r in rows}
+        return {r["symbol"]: r["last"] for r in rows if r["last"] is not None}
 
     async def execute(self, pool: asyncpg.Pool) -> None:
         now = datetime.now(UTC)
