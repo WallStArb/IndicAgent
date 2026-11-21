@@ -439,7 +439,9 @@ def judge_name_1d(
     proven: date | None = None
     # A name whose listing ended (or whose membership ended) is judged up to that last session,
     # never past it: a bar after it cannot exist and none is read.
-    judged_to = last_session if inputs.listing_end is None else min(last_session, inputs.listing_end)
+    judged_to = (
+        last_session if inputs.listing_end is None else min(last_session, inputs.listing_end)
+    )
     if stored:
         first = max(min(stored), era_start)
         span = [s for s in sessions if first <= s <= judged_to]
