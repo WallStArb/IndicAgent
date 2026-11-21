@@ -1482,3 +1482,54 @@ Pass rule, unchanged. Per cell, arm and alpha, the rejections of the two blocks 
 Failure rule. No automatic retry. A failure anywhere in the pool postpones the family and is not a verdict on the hypothesis; the two bases are spent; a further attempt, a change to the family, or any calibration question goes to the lead for a ruling and a new dated declaration before it runs.
 
 Pre-registered? Yes. It is declared before the reduced family's battery runs, after seeing the pooled failure above; both are stated here.
+
+## 2026-11-21d: Massive as a dividend coverage source for total-return panels (lead ruling, owner veto reserved)
+
+Recorded before any counted run on a total-return panel that reads Massive coverage.
+
+What changes. A total-return panel prices a symbol on a session only where its dividends are
+known. Until now only Yahoo's coverage decided that, and Yahoo covers the 1,529 names that were
+live when it was asked, so every dead member of the stage 2 universe was NaN and a total-return
+test ran on survivors. From this entry the research reader takes a session's dividend facts from
+one source, first match wins: Yahoo where its span covers the session (the reconciled Yahoo and
+IBKR facts, unchanged), else Massive where its claim (`massive-dividend-coverage-v1`, migration
+608, `docs/plans/2026-11-21-massive-dividend-coverage-rule.md`) covers it and no gap of the claim
+holds it. A Massive yield is the raw cash amount over the stored raw prior close; every Massive
+event is unconfirmed (one source), so `suspect_yield` splits the name at one above it, as at any
+one-source event; an event declared after its ex-date leaves its session unknown; a covered
+session after a hole inside coverage starts a new segment, so no return window spans unknown
+dividends.
+
+The coverage claim. A Massive claim runs from a name's first stored ex-date to its last plus
+0.75 payment intervals (capped at 400 days, the capture date 2026-11-10 and the end of the
+name's last ticker span), minus cadence holes (gaps over 1.5 intervals), the days between ticker
+spans and the ex-dates the writer could not store. Phase A measured it against Yahoo on live
+names (0.099% silent misses, spin-offs the material class) and against the price drop on dead
+names (no excess of unlisted dividend-sized drops); the dry run claimed 14,295 names and 52,296
+member-years, 36,339 of them dead. Measured on the real first counted panel (`daily_residual_h5`, snapshot rebuilt at `06d016a78`, 12,245 names): total-return coverage rises from 23.1 to 59.7 percent of member cells (18,930,885 cells); names with any coverage from 1,267 to 6,700 (member names 6,162 of 11,684); of 85,265 member-years, 51,423 have any covered member day and 43,651 are covered on every member day. The old per-year count was not kept, so the member-year gain is not stated; the cell share is the comparison. The Yahoo event count is unchanged at 53,277 (Massive adds 230,932 events over 6,529 symbols, with 10,534 gap rows in the manifest); array identity with the pre-load snapshot was not checked, because that snapshot was deleted, and is covered by the bit-for-bit test on Yahoo-only names.
+
+Disclosed residuals.
+- Survivorship. A dead member Massive lists no dividend for gets no claim and drops out of a
+  total-return panel: 4,738 dead members with no coverage at all on the loaded coverage (and 554 active names, which a total-return panel also drops). Dead non-payers are under-represented in total-return panels; a price-only panel
+  of the same spec keeps them.
+- Non-cash distributions. Massive carries cash only. A spin-off or return of capital in a
+  Massive span stays in the prices as a loss. No price-based guard: on the Yahoo-covered names,
+  98% of overnight drops above 10% (6,119 of 6,241 in 6,406,077 sessions) fall on no ex-date,
+  so a guard would split dead names at their earnings and news gaps and remove their crash
+  returns from the targets. The event-explained rate on live names, about 1.9 per 100,000
+  sessions, is an upper estimate of the missed class.
+- Look-ahead. Coverage never passes the capture date and no stored event lies after it; an
+  event declared after its ex-date is not applied at that ex-date.
+
+Unchanged. A name with only Yahoo coverage keeps its per-session dividend arrays bit for bit
+(tested); the snapshot manifest now records the coverage sources and the Massive lineage, so
+snapshot hashes move. `repro_frozen`: bit-identical at the landing commit. E17 battery code keys
+unchanged: daily residual `3632233bc6102594ed8f275b091de107c240bf1d3dc19d1f50807e99a187b320`,
+seasonality `ae9ff30d86e27d1b3c64e71a18e3c5258fd731dc4d0e1068e892254011f67d40` (the reader
+modules are outside both import closures). The feature factory and the reconciliation audit read
+only the Yahoo and IBKR sources, with output unchanged; a CI test refuses any new unfiltered
+`dividend_events` read.
+
+Pre-registered? Yes: the precedence, the yield, the unconfirmed rule, the declared_on rule, the
+hole split and the no-guard decision are fixed in code and in the design note before any counted
+run reads Massive coverage.
