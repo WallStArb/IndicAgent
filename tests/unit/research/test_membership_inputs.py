@@ -64,7 +64,7 @@ def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(mon
     assert got.members_by_as_of[LEDGER[1]] == frozenset({"A", "B"})
     assert got.manifest["membership"] == {
         "universe": "universe_membership",
-        "rule_id": "stage2-2026-11-15",
+        "rule_id": "stage2-2026-11-21",
         "built_months": 2,
         "last_as_of": "2024-02-29",
         "members_sha256": mem_digest,
@@ -74,10 +74,11 @@ def test_symbols_are_every_name_ever_a_member_and_the_manifest_pins_the_rule(mon
     }
 
 
-# The manifest of the pool above as origin/main 333ac0282 (before the closed-list rule) produced it:
-# a one-rule ledger's manifest, and so every snapshot hash that carries it, does not move.
+# The manifest of the pool above under RULE_ID stage2-2026-11-21 (todo 648; the rule id is part of
+# the manifest, so the bump moved the earlier recorded value d69568d6...): a one-rule ledger's
+# manifest, and so every snapshot hash that carries it, does not move again except by a new rule id.
 _PRE_CLOSED_LIST_MANIFEST_SHA256 = (
-    "d69568d63763a71ef940f12af2f2b054ce4c3c02c6080495fc71cc014ed89236"
+    "7910c4a80c06b724067e0a2079ae1b6474a3e16ee37c0a209844c3551af7344c"
 )
 
 
@@ -91,7 +92,7 @@ def test_a_ledger_that_crosses_L_records_both_rule_ids_in_the_manifest(monkeypat
     crossing = [D(2026, 10, 30), D(2026, 11, 30)]
     rows = [(d, "A") for d in crossing]
     got = _read(monkeypatch, _Pool(crossing, rows))
-    assert got.manifest["membership"]["rule_id"] == "stage2-2026-11-15+stage2-closed-list"
+    assert got.manifest["membership"]["rule_id"] == "stage2-2026-11-21+stage2-closed-list"
 
 
 def test_the_seen_names_exclusion_drops_the_listed_names_and_pins_the_list(monkeypatch):

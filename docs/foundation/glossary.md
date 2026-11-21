@@ -2368,6 +2368,19 @@ loaded and 5m features computed; 1d covers the whole stage 2 universe. **Not:** 
 `services/universe_membership_writer.py` (single writer), `services/corpus_universe.py` (the
 corpus compute universe, `intraday=True` for the tier)
 
+### `security type`
+
+The one resolved type of a security (symbol) in the table `security_type`, built once from every typed
+row the security holds in any captured Massive point-in-time ticker list, by the class mapping of
+`src/intelligence/security_type.py` (excluding labels first, then the ETF class, FUND, common stock,
+UNIT). The stage 2 universe reads it instead of the list row of each month-end, so a name's presence
+on a list no longer gates its membership. A security no list typed has no row (untyped, never
+guessed). The labels are Massive's as rebuilt in 2025, not point in time. **Not:** the `type` field of
+one list row, and not a name-pattern guess. **Banned:** (none)
+**Status:** built, not applied (migration 606, todo 648; the 2026-11-21 amendment awaits owner adoption)
+**Code surface:** `src/intelligence/security_type.py` (the rule), `services/security_type_writer.py`
+(single writer), `services/universe_membership_writer.py` (reader)
+
 ### `warmup prefix`
 
 The sessions S0 fetches before a snapshot's start so every member's declared memory is filled at

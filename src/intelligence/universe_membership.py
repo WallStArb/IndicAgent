@@ -9,7 +9,8 @@ here, never a `config_state` write.
 
 Rule at t, for one security (one identity, so a reused ticker is two securities upstream):
 
-- type: Massive reference type at t is common stock, ADR common or ETF (``ELIGIBLE_TYPES``);
+- type: the security's resolved type (`security_type`, one per security, amendment 2026-11-21) is
+  common stock, ADR common or ETF (``ELIGIBLE_TYPES``); an untyped security is ineligible;
 - bar on t: the security has a bar on t itself (a delisted or halted name has none, so it leaves
   at the first month-end after its last bar; no later data is read);
 - price: the AS-TRADED close on t at or above ``min_close``. Canonical closes are split-adjusted
@@ -53,23 +54,29 @@ import numpy as np
 from src.intelligence.bars.split_rescale import SplitFactor
 
 # Identifies the preregistered rule values. A dated amendment that changes any value below bumps
-# this id; the build ledger refuses to extend a build made under another id.
-RULE_ID = "stage2-2026-11-15"
+# this id; the build ledger refuses to extend a build made under another id. Amendment 2026-11-21
+# (todo 648, proposed): a security's type is resolved once per security (`security_type`), not read
+# from the list row of each month-end.
+RULE_ID = "stage2-2026-11-21"
 
 # Amendment 2026-11-18 (closed list): L is the last month-end ticker list Massive captured. A
-# month-end after L has no list of its own, so its candidates and their types are the ones the list
-# at L placed (an entrant is never admitted) and its ledger rows carry CLOSED_LIST_RULE_ID. L is a
+# month-end after L has no list of its own, so its candidates are the securities the list at L places,
+# each with its `security_type` (an entrant is never admitted), and its ledger rows carry
+# CLOSED_LIST_RULE_ID. L is a
 # pre-registered constant like the floors above, not an APR key; moving it is a dated amendment.
 LAST_LIST_DATE = date(2026, 11, 9)
 CLOSED_LIST_RULE_ID = "stage2-closed-list"
-# Amendment 2026-11-20 (todo 645): the closed list's candidate set is pinned. CLOSED_LIST_CANDIDATES_SHA256
-# is the digest (`candidates_digest`) of the 13,103 `symbol|type` lines the list at L places, taken from
-# the data on 2026-11-20 before any closed-list month was built. The writer refuses a month after L when
-# the live set at L no longer hashes to it, so a later pit install or `ticker_event` write cannot admit
-# an entrant silently; the membership report prints both digests. It pins the symbol-to-type map only:
-# the placed symbols, spans, bars and splits a month reads are checked as before. A pre-registered
-# constant, not an APR key: moving it is a dated amendment.
-CLOSED_LIST_CANDIDATES_SHA256 = "e13546aa78be46026b204ea5de46cbd09a181c177f6a14cc206cbbeaf3b1b29c"
+# Amendment 2026-11-20 (todo 645), re-pinned 2026-11-21 (todo 648, proposed): the closed list's candidate
+# set is pinned. CLOSED_LIST_CANDIDATES_SHA256 is the digest (`candidates_digest`) of the 13,103
+# `symbol|type` lines for the securities the list at L places, each with its `security_type` under
+# TYPE_RULE_ID, from a rolled-back rehearsal on the data of 2026-11-21 before any closed-list month
+# was built. The writer refuses a month after L when the live set no longer hashes to it, so a later
+# `security_type` build, pit install or `ticker_event` write cannot admit an entrant silently; the
+# membership report prints both digests. It pins the symbol-to-type map only: the spans, bars and
+# splits a month reads are checked as before. The placement install changes the spans, so the pin moves
+# once more after it (runbook step 7). A pre-registered constant, not an APR key: moving it is a dated
+# amendment.
+CLOSED_LIST_CANDIDATES_SHA256 = "730622aeeafca7eb60329980a979df1cfda8d334428aab0cde9a4913f1c2586b"
 
 
 def candidates_digest(types: Mapping[str, str]) -> str:
@@ -88,9 +95,9 @@ def closed_list_candidates_problem(
     if live == pinned:
         return None
     return (
-        f"the candidate set at L = {LAST_LIST_DATE} moved since it was pinned: {len(types)} "
-        f"symbol|type lines hash to {live}, the pinned digest is {pinned} (todo 645); a later pit "
-        "install or ticker_event write must not admit an entrant"
+        f"the typed candidate set moved since it was pinned: {len(types)} symbol|type lines hash "
+        f"to {live}, the pinned digest is {pinned} (todos 645 and 648); a later security_type build "
+        "or pit install must not admit an entrant"
     )
 
 
@@ -116,7 +123,7 @@ def rule_id_for(as_of: date) -> str:
 
 
 def type_list_date(as_of: date) -> date:
-    """The date of the ticker list that decides types and candidates at month-end `as_of`: its own
+    """The date of the ticker list whose capture must be complete for month-end `as_of`: its own
     list up to L, the list at L after it."""
     return min(as_of, LAST_LIST_DATE)
 

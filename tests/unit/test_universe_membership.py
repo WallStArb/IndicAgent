@@ -286,7 +286,7 @@ def test_walk_seed_resumes_the_tier_state():
 def test_L_and_the_closed_list_id_are_the_amendments_constants():
     assert LAST_LIST_DATE == date(2026, 11, 9)
     assert CLOSED_LIST_RULE_ID == "stage2-closed-list"
-    assert RULE_ID == "stage2-2026-11-15"  # the Massive-listed months keep their id
+    assert RULE_ID == "stage2-2026-11-21"  # amendment 2026-11-21: one resolved type per security
 
 
 @pytest.mark.parametrize(

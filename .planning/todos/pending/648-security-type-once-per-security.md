@@ -13,7 +13,7 @@ The stage 2 membership drops names whose pit snapshot row carries no `type` (`de
 
 ## Decision (lead 2026-11-20, owner framing: a security master normalization)
 
-One type per security in a table `security_type` (symbol, rule_id, security_type, class_conflict, evidence jsonb, source), append-only by trigger, one writer, deterministic from `reference_raw_current` pit snapshots, so the ticker's presence on a list no longer gates membership (1,289 symbols have gaps inside their span that reset hysteresis). Class mapping (reviewer, adopted): ETF class {ETF, INDEX, ETS, ETV}; excluding labels win in the order ETN, WARRANT, RIGHT, PFD, ADRP; then ETF class, then FUND, then CS or ADRC by row count, CS over UNIT, then any other label. The pure resolver is on branch `wip/security-type-648` (`src/intelligence/security_type.py`, commit cdfe2d75f). The amendment states that Massive rebuilt its lists in 2025 (the labels are not point in time) instead of a temporal-integrity caveat.
+One type per security in a table `security_type` (symbol, rule_id, security_type, class_conflict, evidence jsonb, source), append-only by trigger, one writer, deterministic from `reference_raw_current` pit snapshots, so the ticker's presence on a list no longer gates membership (1,289 symbols have gaps inside their span that reset hysteresis). Class mapping (reviewer, adopted): ETF class {ETF, INDEX, ETS, ETV}; excluding labels win in the order ETN, WARRANT, RIGHT, PFD, ADRP; then ETF class, then FUND, then CS or ADRC by row count, CS over UNIT, then any other label. The pure resolver is on branch `wip/security-type-648` (`src/intelligence/security_type.py`, commit cdfe2d75f). The amendment states that Massive rebuilt its lists in 2025 (the labels are not point in time) and the temporal-integrity and survivorship-direction disclosures.
 
 ## Measured
 
@@ -22,13 +22,17 @@ One type per security in a table `security_type` (symbol, rule_id, security_type
 - Name fallback, frozen before looking, bar precision 0.99 on typed securities: A (not excluded by a warrant, unit, right, preferred or note pattern) precision 0.925, fails. B (A plus a common-stock word: COM, COMMON, ORD, SHS, ADS, ADR, ETF) precision 0.9944, recall 0.575, passes in sample, but 0.9721 on 501 typed names whose last list is before 2013, and the untyped residual is earlier-era and dead, so B is not adopted without a decision: it would type 1,357 of the 6,026 untyped.
 - Reach of a capture: of the 6,026 untyped, 259 have a composite FIGI (OpenFIGI approved by the lead, about 260 requests, report hit rate), 0 have an ISIN, 5,971 have a cik, 4,870 have an overview with no type (the vendor's answer, no Massive sample).
 
-## Remaining (nothing applied; build only)
+## Built 2026-11-21 (nothing applied)
 
-1. Amendment to `docs/plans/2026-11-13-stage2-universe-preregistration.md` (class mapping, once per security, 2025 rebuild fact, carry disagreement counts 11 to 16 per date, per-year untyped remainder, ticker-only overview and name patterns ineligible unless B is adopted).
-2. Migration 606 `security_type` (check the number against main; no compressed table, no VACUUM clause) with CI-enforced contract test; `services/security_type_writer.py` (BaseBatch, one transaction, advisory lock, rehearsal rolls back); wire `UniverseMembershipWriter._types` to read the table for placed symbols and remove the alphabetical two-rows-one-date tie-break; new `RULE_ID` and test update (`tests/unit/test_universe_membership.py` pins the old id); keep the snapshot completeness guard.
-3. Re-pin `CLOSED_LIST_CANDIDATES_SHA256` (todo 645) with the new digest and its test; the pin moves again after the placement install in `docs/operations/stage2-membership-rebuild-runbook.md` step 5.
-4. Gates: /simplify, /review, tests by exit code, independent review. Re-derive member counts for 2008-06-30, 2012-06-29 and 2016-09-30 from the built table with hysteresis and compare with the estimates.
-5. OpenFIGI capture for the 259 securities through the existing capture path into `reference_raw` (send the lead the PID and log first); a second ranked source in the table.
-6. Sequencing: the apply precedes the 584 pin; f3 runs a non-strict `--sweep --symbols` delta over the new members once the table exists.
+1. Amendment 2026-11-21 appended to `docs/plans/2026-11-13-stage2-universe-preregistration.md`, marked proposed pending owner adoption (class mapping, once per security, the 2025 rebuild fact, carry disagreements, per-year untyped remainder disclosed, B not adopted, re-pin).
+2. Migration 606 `security_type` with `tests/unit/test_security_type_migration_contract.py`; `services/security_type_writer.py` (BaseBatch, one transaction, advisory lock, rehearsal rolls back, labels read one list date at a time); `UniverseMembershipWriter` reads the table (one read for every month-end, refuses an empty table, snapshot completeness check kept, tie-break removed); `RULE_ID` is `stage2-2026-11-21`. Runbook step 6b added.
+3. `CLOSED_LIST_CANDIDATES_SHA256` re-pinned to `730622aeeafca7eb60329980a979df1cfda8d334428aab0cde9a4913f1c2586b` (13,103 lines: the securities the list at L places with their resolved type; the full table is 29,204 securities, rehearsal). It moves again after the placement install (runbook step 7).
+4. Rehearsal in a rolled-back transaction (typed 29,204, CS 12,615, ETF 8,145, ADRC 532, 823 class conflicts, all as measured). Members with hysteresis from 2003-09 on the current spans: 3,007 (2008-06-30), 3,129 (2012-06-29), 3,824 (2016-09-30), against the estimates of about 2,900 and 2,760 (the 2012 estimate was low: carrying a name's type through its gaps keeps hysteresis that a per-date estimate reset). Highest count by year 1,988 (2003) to 3,913 (2015); 2003 to 2006 and 2009 stay under 2,950 and are disclosed, not chased.
 
-Scripts: `scratch/b3/b3.py` (analysis, one session, temp tables) and `scratch/b3/st.py` (resolver and fallback measurement) on the wip branch. Not blocking: nothing in the table is written until the owner adopts the amendment.
+## Dropped
+
+Item 5, the OpenFIGI capture (lead ruling 2026-11-21): it reaches 259 of the 6,026 untyped securities, all inactive and early-era, so by the materiality cost-benefit rule (owner 2026-11-20) the effort does not match the outcome. Name fallback B stays not adopted; the 2004 to 2015 shortfall against the 2,950 floor is disclosed, not gated.
+
+## Remaining
+
+- Owner adopts the amendment; then runbook step 6b (apply migration 606, run the writer, after the placement install) and the repin after step 7; f3 runs a non-strict `--sweep --symbols` delta over the new members once the table exists; the apply precedes the 584 pin.

@@ -3,17 +3,20 @@
 Stage 2 universe (todo 609, preregistration 2026-11-13). Oneshot batch. Reads the canonical 1d
 bars (`market_data_ohlcv_tradeable`, restricted to days a live `ticker_event` span places on the
 symbol, so a reused ticker is two securities and an unplaced span is never a member) and the
-captured Massive point-in-time ticker snapshots (`reference_raw_current`, endpoint
-`pit_snapshots`, one per NYSE month-end), applies the pure rule of
+resolved security type of each placed symbol (`security_type`, one per security, written by
+`services/security_type_writer.py`; amendment 2026-11-21, todo 648), checks that the captured Massive
+point-in-time ticker snapshots (`reference_raw_current`, endpoint `pit_snapshots`, one per NYSE
+month-end) are complete, applies the pure rule of
 `src.intelligence.universe_membership` per security, and appends the member rows and one ledger
 row per month-end in a single transaction.
 
 Inputs are pinned by `--through DAY`: every NYSE month-end up to and including DAY that is not
 yet in the ledger is built, in order, from bars strictly before DAY + 1. A resumed build seeds
 its hysteresis state from the last built month and refuses to extend a ledger whose rule ids are
-off the schedule (`rule_id_for`). A month-end after L = 2026-11-09 has no list of its own: its
-candidates and types are the list at L (the closed list, rule id `stage2-closed-list`, amendment
-2026-11-18), so a name that list did not place is never a member. Such a month is refused until a later canonical
+off the schedule (`rule_id_for`). A month-end after L = 2026-11-09 has no list of its own (the
+closed list, rule id `stage2-closed-list`, amendment 2026-11-18): its snapshot check reads the list
+at L, and a name `security_type` does not hold (one no list through L typed) is never a member.
+Such a month is refused until a later canonical
 1d bar exists (its own bars may still be arriving). The run fails loudly, writing nothing, on: a month-end whose snapshot capture is not
 complete (both lists, contiguous pages, last page without next_url, status OK); no inactive name
 among the placed symbols (a survivor-only build); an empty month once any built month had
@@ -33,7 +36,7 @@ and rolls the transaction back.
     (same command with --apply to write)
 
 Not to be run on real data before the step 7 data gate passes and the stage 2 load (preregistration
-gate 3) is done.
+gate 3) is done. `security_type` must be built first (`services.security_type_writer`).
 """
 
 from __future__ import annotations
@@ -56,6 +59,7 @@ from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.corporate_actions import is_market_split
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.split_rescale import SplitFactor
+from src.intelligence.security_type import TYPE_RULE_ID
 from src.intelligence.universe_membership import (
     ARCHIVE_START,
     LAST_LIST_DATE,
@@ -134,10 +138,13 @@ SELECT request_key, page, http_status, body->>'status' AS status, body->>'next_u
  WHERE vendor = 'massive' AND endpoint = 'pit_snapshots' AND as_of = $1
  ORDER BY request_key, page
 """
-# The type of each placed symbol on the month-end: the snapshot row of the ticker the symbol's
-# live span places on that day. `@active` answers sort before `@inactive` so they win a conflict.
-_TYPES_SQL = """
-SELECT te.symbol, x->>'type' AS security_type
+# The type of each security, resolved once from every list it appears on (todo 648). A symbol the
+# table does not hold is untyped, never guessed.
+_SECURITY_TYPES_SQL = "SELECT symbol, security_type FROM security_type WHERE rule_id = $1"
+# The symbols the list at L places (a row of the list whose ticker a live span puts on that symbol on
+# L), whatever the row's type: the closed list's candidates (amendment 2026-11-18, item 1).
+_PLACED_AT_L_SQL = """
+SELECT DISTINCT te.symbol
   FROM reference_raw_current r
  CROSS JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(r.body->'results') = 'array' THEN r.body->'results' ELSE '[]'::jsonb END
@@ -147,7 +154,6 @@ SELECT te.symbol, x->>'type' AS security_type
    AND te.valid_from <= r.as_of AND (te.valid_to IS NULL OR r.as_of < te.valid_to)
  WHERE r.vendor = 'massive' AND r.endpoint = 'pit_snapshots' AND r.as_of = $1
    AND r.http_status = 200
- ORDER BY (r.request_key LIKE '%@active') DESC, te.symbol, x->>'type', x->>'ticker'
 """
 _BARS_SQL = """
 SELECT b.symbol, (b."timestamp" AT TIME ZONE 'UTC')::date AS day, b.close, b.volume
@@ -438,29 +444,46 @@ class UniverseMembershipWriter(BaseBatch):
     async def _types(
         conn: asyncpg.Connection, month_ends: Sequence[date]
     ) -> dict[date, dict[str, str]]:
-        """Type by symbol for each month-end, read from the list that decides it (its own, or the
-        list at L after L: the closed list). A list that was not captured completely raises."""
-        by_list: dict[date, dict[str, str]] = {}
-        for as_of in month_ends:
-            list_date = type_list_date(as_of)
-            if list_date in by_list:
-                continue
+        """Type by symbol for each month-end, after checking that each list deciding a month-end
+        (its own, or the list at L after L) was captured completely. Up to L the map is the whole
+        `security_type` table (a name need not be on that month's list); after L it is the closed
+        list's candidates, the typed securities the list at L places. An incomplete list or an empty
+        table raises."""
+        for list_date in sorted({type_list_date(as_of) for as_of in month_ends}):
             problem = snapshot_problem(list_date, await conn.fetch(_SNAPSHOT_PAGES_SQL, list_date))
             if problem:
-                raise RuntimeError(
-                    f"pit_snapshots for list {list_date} (month-end {as_of}): {problem}"
-                )
-            found: dict[str, str] = {}
-            for row in await conn.fetch(_TYPES_SQL, list_date):
-                if row["security_type"]:
-                    found.setdefault(row["symbol"], row["security_type"])
-            by_list[list_date] = found
-        return {as_of: by_list[type_list_date(as_of)] for as_of in month_ends}
+                raise RuntimeError(f"pit_snapshots for list {list_date}: {problem}")
+        found = await security_types(conn)
+        closed = (
+            await candidates_at_l(conn, found)
+            if any(m > LAST_LIST_DATE for m in month_ends)
+            else {}
+        )
+        return {as_of: (closed if as_of > LAST_LIST_DATE else found) for as_of in month_ends}
 
 
-async def candidates_at_l(conn: asyncpg.Connection) -> dict[str, str]:
-    """The candidates (symbol -> type) the list at L places, read as a build reads them."""
-    return (await UniverseMembershipWriter._types(conn, [LAST_LIST_DATE]))[LAST_LIST_DATE]
+async def security_types(conn: asyncpg.Connection) -> dict[str, str]:
+    """The resolved type of every typed security under the current type rule; empty is an error,
+    because every placed name would read as untyped and the build would be near empty."""
+    found = {
+        row["symbol"]: row["security_type"]
+        for row in await conn.fetch(_SECURITY_TYPES_SQL, TYPE_RULE_ID)
+    }
+    if not found:
+        raise RuntimeError(
+            f"security_type holds no row for rule {TYPE_RULE_ID}: run services.security_type_writer "
+            "--apply first"
+        )
+    return found
+
+
+async def candidates_at_l(
+    conn: asyncpg.Connection, found: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The closed list's candidates (symbol -> type): the typed securities the list at L places."""
+    found = await security_types(conn) if found is None else found
+    placed = {row["symbol"] for row in await conn.fetch(_PLACED_AT_L_SQL, LAST_LIST_DATE)}
+    return {symbol: kind for symbol, kind in found.items() if symbol in placed}
 
 
 def main() -> None:

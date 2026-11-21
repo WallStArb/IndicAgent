@@ -76,7 +76,7 @@ class Report:
     core_members: int
     memories: tuple[int, ...]
     closed_list_months: int = 0
-    candidates_live: str | None = None  # digest of the candidate set at L as the writer reads it
+    candidates_live: str | None = None  # digest of the typed candidate set as the writer reads it
 
 
 def check_ledger(
@@ -182,12 +182,12 @@ def candidates_status(live: str | None) -> str:
 
 
 async def _live_candidates_digest(dsn: str) -> str | None:
-    """The live digest, or None (printed NOT READ) when the list at L cannot be read in full."""
+    """The live digest, or None (printed NOT READ) when the security_type table cannot be read."""
     conn = await asyncpg.connect(dsn)
     try:
         return candidates_digest(await candidates_at_l(conn))
-    except RuntimeError as error:
-        print(f"candidate set at L not read: {error}", file=sys.stderr)
+    except (RuntimeError, asyncpg.UndefinedTableError) as error:
+        print(f"candidate set not read: {error}", file=sys.stderr)
         return None
     finally:
         await conn.close()

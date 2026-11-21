@@ -13,6 +13,7 @@ import pytest
 from services import corpus_universe as cu
 from services import universe_membership_writer as w
 from src.intelligence import universe_membership as um
+from src.intelligence.security_type import TYPE_RULE_ID
 
 
 def _weekdays(start: date, n: int) -> list[date]:
@@ -145,7 +146,7 @@ class _Conn:
         seed=(),
         seed_tier=(),
         stale=(),
-        types_by_list=None,
+        placed_at_l=None,
         later_bar=True,
     ):
         self.ledger = list(ledger)
@@ -155,8 +156,10 @@ class _Conn:
         self.bars, self.splits, self.spans = bars or {}, list(splits), list(spans)
         self.seed, self.seed_tier = list(seed), set(seed_tier)
         self.stale = list(stale)
-        self.types_by_list = types_by_list or {}
-        self.type_lists: list[date] = []
+        # symbols the list at L places; by default every typed one
+        self.placed_at_l = list(self.types if placed_at_l is None else placed_at_l)
+        self.type_reads: list[str] = []
+        self.snapshot_reads: list[date] = []
         self.later_bar, self.later_bar_asked = later_bar, []
         self.executemany = AsyncMock()
         self.copy_records_to_table = AsyncMock()
@@ -165,15 +168,17 @@ class _Conn:
         if sql == w._LEDGER_SQL:
             return self.ledger
         if sql == w._SNAPSHOT_PAGES_SQL:
+            self.snapshot_reads.append(args[0])
             return self.pages.get(args[0], [])
         if sql == w._PLACED_SYMBOLS_SQL:
             return [{"symbol": s} for s in self.symbols]
         if sql == w._MEMBERS_AT_SQL:
             return [{"symbol": s, "tier_5m": s in self.seed_tier} for s in self.seed]
-        if sql == w._TYPES_SQL:
-            self.type_lists.append(args[0])
-            types = self.types_by_list.get(args[0], self.types)
-            return [{"symbol": s, "security_type": t} for s, t in types.items()]
+        if sql == w._PLACED_AT_L_SQL:
+            return [{"symbol": s} for s in self.placed_at_l]
+        if sql == w._SECURITY_TYPES_SQL:
+            self.type_reads.append(args[0])
+            return [{"symbol": s, "security_type": t} for s, t in self.types.items()]
         if sql == w._BARS_SQL:
             return [(s, d, c, v) for s, rows in self.bars.items() for d, c, v in rows]
         if sql == w._SPLITS_SQL:
@@ -435,17 +440,19 @@ def _closed_conn(**kw):
         symbols=("AAA", "NEW", "PFDLATER", "DEAD"),
         seed=["AAA", "PFDLATER"],
         bars=bars,
-        types_by_list={L: {"AAA": "CS", "PFDLATER": "PFD"}},
+        types={"AAA": "CS", "PFDLATER": "PFD"},
         **kw,
     )
 
 
 def _pin_candidates(monkeypatch, types):
-    """Pin the candidate set at L to `types` (the real pin is the live 13,103-line set)."""
+    """Pin the typed candidate set to `types` (the real pin is the live security_type set)."""
     monkeypatch.setattr(um, "CLOSED_LIST_CANDIDATES_SHA256", um.candidates_digest(types))
 
 
-async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_path, monkeypatch):
+async def test_a_month_after_L_admits_no_untyped_entrant_and_no_ineligible_type(
+    tmp_path, monkeypatch
+):
     _pin_candidates(monkeypatch, {"AAA": "CS", "PFDLATER": "PFD"})
     conn = _closed_conn()
     assert await _writer(DEC30, tmp_path)._build_and_write(conn) is True
@@ -455,13 +462,37 @@ async def test_a_month_after_L_reads_the_list_at_L_and_admits_no_entrant(tmp_pat
     assert [(r[0], r[1], r[6]) for r in records] == [(NOV30, "AAA", False), (DEC30, "AAA", False)]
     ledger = conn.executemany.call_args.args[1]
     assert [(m, rule) for m, rule, _ in ledger] == [(NOV30, CLOSED), (DEC30, CLOSED)]
-    assert set(conn.type_lists) == {L}  # only the list at L was read, once
+    assert conn.snapshot_reads == [L]  # only the list at L was checked, once
+    assert conn.type_reads == [TYPE_RULE_ID]  # the one resolved type per security, read once
+
+
+async def test_a_typed_security_the_list_at_L_does_not_place_is_no_candidate_after_L(
+    tmp_path, monkeypatch
+):
+    # GONE is typed CS in security_type (an old list) but the list at L does not place it
+    # (amendment 2026-11-18, item 1): a member before L, never a candidate after it.
+    _pin_candidates(monkeypatch, {"AAA": "CS"})
+    ledger = [{"as_of": OCT30, "rule_id": w.RULE_ID, "n_members": 2}]
+    bars = {s: _bars([d for d in DAYS_2026 if d <= DEC30]) for s in ("AAA", "GONE")}
+    conn = _Conn(
+        ledger=ledger,
+        month_ends=[L],
+        pages={L: _pages(L)},
+        symbols=("AAA", "GONE", "DEAD"),
+        seed=["AAA", "GONE"],
+        bars=bars,
+        types={"AAA": "CS", "GONE": "CS"},
+        placed_at_l=["AAA"],
+    )
+    assert await _writer(DEC30, tmp_path)._build_and_write(conn) is True
+    records = conn.copy_records_to_table.call_args.kwargs["records"]
+    assert {r[1] for r in records} == {"AAA"}
 
 
 async def test_a_closed_list_month_is_refused_when_the_candidate_set_at_L_moved(
     tmp_path, monkeypatch
 ):
-    # pinned with only AAA; the list at L now also places PFDLATER (a later install added a span)
+    # pinned with only AAA; security_type now also holds PFDLATER (a later build added a row)
     _pin_candidates(monkeypatch, {"AAA": "CS"})
     conn = _closed_conn()
     with pytest.raises(RuntimeError, match="moved since it was pinned"):
@@ -470,7 +501,7 @@ async def test_a_closed_list_month_is_refused_when_the_candidate_set_at_L_moved(
     conn.executemany.assert_not_called()
 
 
-async def test_a_month_at_or_before_L_reads_its_own_list_and_keeps_the_old_rule(tmp_path):
+async def test_a_month_at_or_before_L_checks_its_own_list_and_keeps_the_rule(tmp_path):
     ledger = [{"as_of": date(2026, 9, 30), "rule_id": w.RULE_ID, "n_members": 1}]
     bars = {s: _bars([d for d in DAYS_2026 if d <= OCT30]) for s in ("AAA", "NEW")}
     conn = _Conn(
@@ -479,13 +510,13 @@ async def test_a_month_at_or_before_L_reads_its_own_list_and_keeps_the_old_rule(
         symbols=("AAA", "NEW", "DEAD"),
         seed=["AAA"],
         bars=bars,
-        types_by_list={OCT30: {"AAA": "CS", "NEW": "CS"}},
+        types={"AAA": "CS", "NEW": "CS"},
     )
     assert await _writer(OCT30, tmp_path)._build_and_write(conn) is True
     records = conn.copy_records_to_table.call_args.kwargs["records"]
     assert [(r[1], r[6]) for r in records] == [("AAA", False), ("NEW", True)]  # NEW enters
     assert [rule for _, rule, _ in conn.executemany.call_args.args[1]] == [w.RULE_ID]
-    assert conn.type_lists == [OCT30]
+    assert conn.snapshot_reads == [OCT30]
 
 
 async def test_a_month_after_L_is_not_built_before_a_later_bar_has_landed(tmp_path):
@@ -506,12 +537,13 @@ async def test_a_build_that_straddles_L_uses_each_months_own_rule_and_list(tmp_p
         symbols=("AAA", "DEAD"),
         seed=["AAA"],
         bars=bars,
-        types_by_list={OCT30: {"AAA": "CS"}, L: {"AAA": "CS"}},
+        types={"AAA": "CS"},
     )
     assert await _writer(NOV30, tmp_path)._build_and_write(conn) is True
     ledger_rows = conn.executemany.call_args.args[1]
     assert [(m, rule) for m, rule, _ in ledger_rows] == [(OCT30, w.RULE_ID), (NOV30, CLOSED)]
-    assert conn.type_lists == [OCT30, L]  # each list read once, Nov 30 from the list at L
+    assert conn.snapshot_reads == [OCT30, L]  # each list checked once, Nov 30 against the list at L
+    assert conn.type_reads == [TYPE_RULE_ID]
     assert len(conn.later_bar_asked) == 1  # only the month after L asks for a later bar
 
 
@@ -522,7 +554,7 @@ async def test_a_build_at_or_before_L_never_asks_for_a_later_bar(tmp_path):
         symbols=("AAA", "DEAD"),
         seed=["AAA"],
         bars={"AAA": _bars([d for d in DAYS_2026 if d <= OCT30])},
-        types_by_list={OCT30: {"AAA": "CS"}},
+        types={"AAA": "CS"},
         later_bar=False,
     )
     assert await _writer(OCT30, tmp_path)._build_and_write(conn) is True
@@ -615,3 +647,31 @@ def test_corpus_universe_intraday_reads_only_the_tier(monkeypatch):
 def test_corpus_universe_intraday_with_no_tier_member_fails_loudly():
     with pytest.raises(cu.UniverseMembershipEmptyError, match="5m tier"):
         cu.corpus_universe(_cursor_conn(_RULED, []), intraday=True)
+
+
+# --- one resolved type per security (amendment 2026-11-21, todo 648) --------------------------
+
+
+async def test_a_type_does_not_depend_on_the_name_being_on_a_list_at_the_month_end(tmp_path):
+    # The snapshot pages carry no rows; AAA is still typed CS by the table and is a member.
+    conn = _Conn(month_ends=SEP_DEC, types={"AAA": "CS"}, bars={"AAA": _bars(DAYS_TO_DEC31)})
+    assert await _writer(DEC31, tmp_path)._build_and_write(conn) is True
+    records = conn.copy_records_to_table.call_args.kwargs["records"]
+    assert [(r[0], r[1], r[2]) for r in records] == [(DEC31, "AAA", "CS")]
+    assert conn.type_reads == [TYPE_RULE_ID]  # one read for every month-end
+
+
+async def test_an_untyped_security_is_never_a_member(tmp_path):
+    bars = {"AAA": _bars(DAYS_TO_DEC31), "UNTYPED": _bars(DAYS_TO_DEC31)}
+    conn = _Conn(month_ends=SEP_DEC, types={"AAA": "CS"}, bars=bars)
+    await _writer(DEC31, tmp_path)._build_and_write(conn)
+    records = conn.copy_records_to_table.call_args.kwargs["records"]
+    assert [r[1] for r in records] == ["AAA"]
+
+
+async def test_an_empty_security_type_table_refuses_the_build(tmp_path):
+    conn = _Conn(month_ends=SEP_DEC)
+    conn.types = {}
+    with pytest.raises(RuntimeError, match="security_type holds no row"):
+        await _writer(DEC31, tmp_path)._build_and_write(conn)
+    conn.copy_records_to_table.assert_not_called()

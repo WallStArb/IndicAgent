@@ -15,6 +15,7 @@ Domain code: pure functions over arrays, state at the edges. Ring rule, naming a
 | `regime_signals/` | Signal-type registry for regime modules. |
 | `concept_registry_service.py` | UCR; the only writer of a concept status. |
 | `universe_membership.py` | Stage 2 universe rule (pure, preregistered constants); writer is `services/universe_membership_writer.py`. |
+| `security_type.py` | Class mapping that resolves one type per security from its list labels; writer is `services/security_type_writer.py` (todo 648). |
 
 Package docstrings in each `__init__.py` are the source of truth for details.
 
