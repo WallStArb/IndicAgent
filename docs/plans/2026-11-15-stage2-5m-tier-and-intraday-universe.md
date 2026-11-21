@@ -40,6 +40,10 @@ Chosen from the 2026-11-12 sizing table (single floor, no hysteresis, day files)
 - Forward: the Alpaca nightly (`ops_bar_nightly.py`) reads every active instrument. A live tier name needs an active `instruments` row (the onboarding SOP's stage 2 exception, gate 4). The nightly's 5m volume is about the same as today's (the tier is the size of today's list), so its APR request budget is unchanged; a tier entrant mid-year is picked up by its instrument row and warmed from the archive.
 - The one dated dependency is the point-in-time reference capture (`--pit-snapshots`, done 2026-11-13, 6,132 files under `data/massive/reference/pit_snapshots/20261113/`, not yet loaded into `reference_raw`): the membership, and so the tier, cannot be built without it, and it is not re-capturable after the plan lapses.
 
+### Measured cost estimate, 2026-11-21 (recorded before the first tier load)
+
+Taken after the stage 2 membership rebuild under rule `stage2-2026-11-21` (`run_609.sh s7`; files in `logs/massive_step7/post_step7_readiness_20261115/`). Rows per name-year on a 60-name hash sample (910 name-years, 2004 to 2025): median 19,470, mean 18,129, p90 19,620. The tier holds 5,192 securities ever, 33,734 name-years while a tier member and at least 62,227 whole-history name-years. Projected 5m rows: 0.66 billion on member years only, 1.21 billion on whole histories (62,227 x 19,470). The planning figure above (46k whole-history name-years, 0.6 to 0.9 billion rows) is exceeded by about 35 percent in name-years. Storage at the canonical ratio (24 GB for 702.7M rows across all timeframes) is about 41 GB compressed. Feature-compute time per name-year is not estimated here; the corpus pilot measures it.
+
 ## Part 2: design (the intraday variant and the gate)
 
 Principle: one table, one writer, one rule for both. The tier is a column of the membership, never a second table.
