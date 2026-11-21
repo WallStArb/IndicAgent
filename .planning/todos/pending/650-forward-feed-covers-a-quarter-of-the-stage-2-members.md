@@ -12,6 +12,10 @@ owner: lead
 
 Stage 2 onboards its names as inactive instruments, and the Alpaca nightly reads only active ones. 4,615 members since 2026-09 are inactive, 4,590 of them with bars through 2026-11-12 or 13 (the Massive archive). Since the 2026-11-16 seam only 1,514 symbols have a new 1d bar (the 1,529 active names, through 2026-11-20). `is_active` is false by design for these; 80 of the 85 inactive 2026 members are live products with an open ticker span (BAR, PLTM, TSLY, NVDY, AMZY, GOOY, APLY, MSOX and others, mostly ETFs).
 
+Measured 2026-11-21 (indicagent-1a): of the 4,615 inactive members since 2026-09-01, none has a 1d bar after 2026-11-13 and 4,590 have one on 2026-11-12 or later, so the inactive flag is what stops the forward feed. The flag is also wrong for names that trade: recent ETFs such as ETHE, AIPO and ALLW are members to 2026-10-30 and have `instruments.is_active` false, so they never enter the panel's 2025-12-23 window and are counted among the uncovered dividend names below.
+
+Disclosure numbers for the first counted daily panel (window 2005-01-03 to 2025-12-23, snapshot hash prefix e28e6401): 5,292 member names have no dividend coverage on any session, all with `is_active` false. 5,192 have no dividend events, coverage row or gap row. The other 100 have a coverage row outside the window or fully dropped: 80 start after 2025-12-23, 17 end before 2005-01-03, 3 (NEPT, PRTK, SVA) are one event dropped by the rule (`dropped_ex_date`) so the span is exactly the gap.
+
 ## Requirement to question first (Musk step 1)
 
 A frozen book trades and is confirmed on its own forward span, so the forward feed needs every name a book can hold, not every member. Which members can a book hold at all is set by the tier and the construction rule, not by membership. Decide that set before changing any instrument row.
