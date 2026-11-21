@@ -1,15 +1,34 @@
 """The corpus rerun data gate (186-32, todo 593; the 584 rule, owner and lead 2026-11-04).
 
-No corpus compute runs until every corpus-universe name's history is continuous (the names ever in
-`universe_membership`, `services.corpus_universe`): for each name and
-year, every exchange-calendar session from the name's proven start to the horizon holds a
-tradeable 1d bar and 5m coverage from the policy primary of its era, within the APR tolerances.
-Continuity, not the earliest row: a name whose first 5m bar sits at its 1d start but with a hole
-mid-history fails.
+No corpus compute runs until every corpus-universe name's history is continuous where the compute
+reads it (the names ever in `universe_membership`, `services.corpus_universe`): for each judged
+name-year, every exchange-calendar session inside the name's membership span holds a tradeable 1d
+bar and 5m coverage from the policy primary of its era, within the APR tolerances. Continuity, not
+the earliest row: a name whose first 5m bar sits at its 1d start but with a hole mid-history fails.
+
+Scope (materiality ruling, owner 2026-11-20; lead ruling 2026-11-21). A gate judges only what a
+counted test can read, so a dead name is not charged for the years after it died:
+- Membership span of a name: from the first day of its first `universe_membership` month to its
+  last `as_of` (a month-end), inclusive. Sessions are counted only inside
+  [max(proven start, calendar first session, span start), min(horizon, span end)]; a name that
+  leaves and re-enters is counted over the whole span, so the gap years' sessions fall in years
+  that are not judged.
+- 1d term (scope C): a name-year is judged only if the name has a `universe_membership` row dated
+  in that year. A year with no row is not judged, whatever bars exist.
+- 5m term (scope B): judged only for a year in which the name has a `tier_5m` row, and (the
+  1d-first run) only when the run's scope is `all`. Under scope `1d` the 5m term is still computed
+  and reported (`failing_5m_not_gating`), but it does not gate and the record's `scope` says so;
+  the step runner then refuses the intraday stages (services/corpus_rerun.py).
+- A name whose proven start lies after its last membership month holds no readable session (the
+  compute starts a name at its proven start): it is neither judged nor refused, and the record
+  lists it in `names_member_before_proven_start`.
+- Thresholds are the pre-registered APR constants, unchanged. The names without a proven start,
+  sessions or 1d sessions are refused or held exactly as before.
 
 - Sessions are the exchange calendar's, keyed by contract_details session_id (resolved as
   src/core/bar_normalizer.py resolves it, never the contract's exchange, which is SMART for every
-  name), from max(proven start, the calendar's first session) to the horizon, so the 1d and 5m
+  name), from max(proven start, the calendar's first session) to the horizon, clipped to the
+  membership span (above), so the 1d and 5m
   checks share one session list and a missing 1d bar cannot hide a missing 5m session. 1d bars
   before the calendar's first session are counted per name, never dropped unreported.
 - The 5m (vendor, kind) of a session is its bar_source_policy_current primary (a symbol row beats
@@ -57,7 +76,7 @@ from services.backfill_feature_factory import (
     filter_etf_contracts,
     proven_starts,
 )
-from services.corpus_rerun_apr import CorpusRerunApr
+from services.corpus_rerun_apr import DATA_GATE_SCOPES, SCOPE_ALL, CorpusRerunApr
 from services.corpus_universe import corpus_universe
 from src.config.settings import Settings
 from src.core.market_calendar import MarketCalendar, get_market_calendar
@@ -131,6 +150,17 @@ class Segment:
     @property
     def era(self) -> str:
         return era_label(self.vendor, self.kind)
+
+
+@dataclass(frozen=True)
+class NameScope:
+    """What the compute reads of one name: the years with a `universe_membership` row (1d), the
+    years with a `tier_5m` row (5m), and its membership span [first, last] in days."""
+
+    years_1d: frozenset[int]
+    years_5m: frozenset[int]
+    first: date  # first day of the first membership month
+    last: date  # last as_of (a month-end), inclusive
 
 
 @dataclass(frozen=True)
@@ -264,12 +294,18 @@ class DataGateResult:
     eras: dict[str, EraCounts]
     names_without_proven_start: tuple[str, ...]
     names_with_zero_sessions: tuple[str, ...]
+    # Members whose proven start lies after their last membership month: the compute starts a
+    # name at its proven start, so it reads none of their membership years. Disclosed, not gated.
+    names_member_before_proven_start: tuple[str, ...]
     names_with_zero_1d_sessions: tuple[str, ...]
     held_names: dict[str, tuple[EmptySpan, ...]]
     failing_name_years: tuple[FailingNameYear, ...]
     pre_calendar_1d_sessions: dict[str, int]
     pre_calendar_1d_sessions_total: int
+    scope: str
     caveat: dict[str, Any] | None = None
+    # Name-years judged on the 5m term that fail it without failing the gate (scope `1d` only).
+    failing_5m_not_gating: tuple[FailingNameYear, ...] = ()
     intraday_names: int = (
         0  # names the 5m term judged (the 5m tier); the rest have the 1d term only
     )
@@ -416,6 +452,47 @@ def pre_era_keys(segments: Mapping[str, Sequence[Segment]], era_start: date) -> 
             f"{sorted(pre & post)[:5]}; the survivorship caveat cannot split them"
         )
     return frozenset(pre)
+
+
+def name_scopes(rows: Iterable[tuple[str, int, bool, date, date]]) -> dict[str, NameScope]:
+    """Per name, from (symbol, year, any tier_5m in the year, first as_of, last as_of of the year)
+    rows of `universe_membership`: the judged years and the membership span."""
+    years: dict[str, dict[int, bool]] = defaultdict(dict)
+    spans: dict[str, tuple[date, date]] = {}
+    for symbol, year, tier, lo, hi in rows:
+        years[symbol][year] = years[symbol].get(year, False) or tier
+        first, last = spans.get(symbol, (lo, hi))
+        spans[symbol] = (min(first, lo), max(last, hi))
+    return {
+        symbol: NameScope(
+            years_1d=frozenset(by_year),
+            years_5m=frozenset(y for y, tier in by_year.items() if tier),
+            first=spans[symbol][0].replace(day=1),
+            last=spans[symbol][1],
+        )
+        for symbol, by_year in years.items()
+    }
+
+
+def clip_segments(
+    segments: Mapping[str, Sequence[Segment]], scopes: Mapping[str, NameScope]
+) -> dict[str, list[Segment]]:
+    """Each name's segments cut to its membership span; a name without a membership row, or whose
+    span holds none of its segments, keeps none (so the gate reports it as having no sessions)."""
+    out: dict[str, list[Segment]] = {}
+    for symbol, segs in segments.items():
+        scope = scopes.get(symbol)
+        if scope is None:
+            continue
+        end = scope.last + timedelta(days=1)
+        clipped = [
+            replace(seg, lo=max(seg.lo, scope.first), hi=min(seg.hi, end))
+            for seg in segs
+            if max(seg.lo, scope.first) < min(seg.hi, end)
+        ]
+        if clipped:
+            out[symbol] = clipped
+    return out
 
 
 def _sessions_in(days: Sequence[date], lo: date, hi_inclusive: date) -> int:
@@ -584,17 +661,29 @@ def evaluate(
     first_session: date,
     era_start: date,
     pre_keys: frozenset[TallyKey],
+    scopes: Mapping[str, NameScope],
+    scope: str,
 ) -> DataGateResult:
-    """Judge the tallies. A name without a start, sessions or 1d sessions refuses unless held;
-    a name-year fails when its 1d-missing or 5m-uncovered share of sessions passes its APR
-    tolerance (a name whose only era is `ONE_D_ONLY_ERA` has no 5m term). On a pass the result carries the survivorship caveat with its counts.
+    """Judge the tallies of the judged name-years (see the module docstring for the scope). A name
+    without a start, sessions or 1d sessions refuses unless held; a name-year fails when its
+    1d-missing share of sessions passes its APR tolerance, or, under scope `all` and in a `tier_5m`
+    year, its 5m-uncovered share does (a name whose only era is `ONE_D_ONLY_ERA` has no 5m term).
+    On a pass the result carries the survivorship caveat with its counts.
     """
+    if scope not in DATA_GATE_SCOPES:
+        raise ValueError(f"data gate scope {scope!r} is not one of {DATA_GATE_SCOPES}")
+    tallies = {k: t for k, t in tallies.items() if k[0] in scopes and k[1] in scopes[k[0]].years_1d}
     by_name: dict[str, dict[TallyKey, NameYearTally]] = defaultdict(dict)
     for key, tally in tallies.items():
         by_name[key[0]][key] = tally
 
     without_start = sorted(s for s in universe if s not in starts)
-    zero_sessions = sorted(s for s in universe if s in starts and not by_name.get(s))
+    before_start = sorted(
+        s for s in universe if s in starts and s in scopes and starts[s] > scopes[s].last
+    )
+    zero_sessions = sorted(
+        s for s in universe if s in starts and not by_name.get(s) and s not in before_start
+    )
     zero_1d = sorted(
         s for s in universe if by_name.get(s) and not any(t.with_1d for t in by_name[s].values())
     )
@@ -606,12 +695,15 @@ def evaluate(
     tol_1d = apr.max_missing_1d_session_fraction
     eras: dict[str, EraCounts] = defaultdict(EraCounts)
     failing: list[FailingNameYear] = []
+    not_gating: list[FailingNameYear] = []
     for symbol in sorted(set(by_name) - refused_or_held):
+        years_5m = scopes[symbol].years_5m
         name_eras: dict[str, NameYearTally] = defaultdict(NameYearTally)
         years: dict[int, list[tuple[str, NameYearTally]]] = defaultdict(list)
         for (_, year, era), t in by_name[symbol].items():
             years[year].append((era, t))
-            name_eras[era].add(t)
+            if era == ONE_D_ONLY_ERA or year in years_5m:
+                name_eras[era].add(t)
         for era, t in name_eras.items():
             counts = eras[era]
             counts.names += 1
@@ -639,14 +731,18 @@ def evaluate(
             missing_1d = sessions - sum(t.with_1d for _, t in parts)
             partial = sum(t.partial for era, t in parts if era != ONE_D_ONLY_ERA)
             missing = sum(t.missing for era, t in parts if era != ONE_D_ONLY_ERA)
-            fails = missing_1d > tol_1d * sessions or partial + missing > tol_5m * sessions
+            fails_1d = missing_1d > tol_1d * sessions
+            fails_5m = year in years_5m and partial + missing > tol_5m * sessions
+            fails = fails_1d or (fails_5m and scope == SCOPE_ALL)
             for era, _ in parts:
-                eras[era].name_years += 1
-                eras[era].failing_name_years += fails
+                if era == ONE_D_ONLY_ERA or year in years_5m:  # era rows count what they judge
+                    eras[era].name_years += 1
+                    eras[era].failing_name_years += fails
+            entry = FailingNameYear(symbol, year, sessions, missing_1d, partial, missing)
             if fails:
-                failing.append(
-                    FailingNameYear(symbol, year, sessions, missing_1d, partial, missing)
-                )
+                failing.append(entry)
+            elif fails_5m:
+                not_gating.append(entry)
 
     ok = not refused and not failing
     pre_calendar_nonzero = {s: n for s, n in sorted(pre_calendar.items()) if n}
@@ -665,14 +761,22 @@ def evaluate(
         eras=dict(sorted(eras.items())),
         names_without_proven_start=tuple(without_start),
         names_with_zero_sessions=tuple(zero_sessions),
+        names_member_before_proven_start=tuple(before_start),
         names_with_zero_1d_sessions=tuple(zero_1d),
         held_names=held,
         failing_name_years=tuple(failing),
+        failing_5m_not_gating=tuple(not_gating),
+        scope=scope,
         pre_calendar_1d_sessions=pre_calendar_nonzero,
         pre_calendar_1d_sessions_total=sum(pre_calendar_nonzero.values()),
         caveat=(
             _survivorship_caveat(
-                {k: t for k, t in tallies.items() if k[0] not in refused_or_held}, pre_keys
+                {
+                    k: t
+                    for k, t in tallies.items()
+                    if k[0] not in refused_or_held and k[1] in scopes[k[0]].years_5m
+                },
+                pre_keys,
             )
             if ok
             else None
@@ -738,6 +842,11 @@ SELECT g.symbol, extract(year FROM b.day)::int, g.era, count(*)::int
 FROM bar b JOIN cal c ON c.day = b.day
 JOIN seg g ON g.symbol = b.symbol AND b.day >= g.lo AND b.day < g.hi
 GROUP BY 1, 2, 3
+"""
+
+_MEMBERSHIP_SQL = """
+SELECT symbol, extract(year FROM as_of)::int, bool_or(tier_5m), min(as_of), max(as_of)
+FROM universe_membership GROUP BY 1, 2
 """
 
 _PRE_CALENDAR_SQL = """
@@ -807,6 +916,13 @@ def fetch_answers(
                 for symbol, found in merge_answers(asks).items():
                     answers[(symbol, era)] = found
     return answers
+
+
+def fetch_membership(conn: Any) -> dict[str, NameScope]:
+    """The judged years and membership span of every name in `universe_membership`."""
+    with conn.cursor() as cur:
+        cur.execute(_MEMBERSHIP_SQL)
+        return name_scopes(cur.fetchall())
 
 
 def fetch_policy(conn: Any, timeframe: str) -> list[PolicyRow]:
@@ -919,10 +1035,14 @@ def run_data_gate(
     settings: Settings,
     apr: CorpusRerunApr,
     *,
+    scope: str,
     horizon: datetime | None = None,
     calendar: MarketCalendar | None = None,
 ) -> DataGateResult:
-    """Measure the corpus universe (universe_membership; the rebuild's own) against the 584 rule. Reads only."""
+    """Measure the corpus universe (universe_membership; the rebuild's own) against the 584 rule,
+    over the name-years the compute reads, under `scope` (`1d` or `all`). Reads only."""
+    if scope not in DATA_GATE_SCOPES:
+        raise ValueError(f"data gate scope {scope!r} is not one of {DATA_GATE_SCOPES}")
     started = time.monotonic()
     horizon = horizon or default_data_horizon()
     if horizon.tzinfo is None:
@@ -933,6 +1053,7 @@ def run_data_gate(
     key = resolve_calendar_key(universe, calendar)
     names = sorted({c.symbol for c in universe})
     starts = {s: ts.date() for s, ts in proven_starts(conn, names).items()}
+    scopes = fetch_membership(conn)
 
     first = calendar.first_session(key)
     sessions = calendar_sessions(calendar, key, horizon)
@@ -940,15 +1061,18 @@ def run_data_gate(
     end = days[-1] + timedelta(days=1) if days else first
     rows_5m, rows_1d = fetch_policy(conn, TF_5M), fetch_policy(conn, TF_1D)
     era_start = alpaca_5m_era_start(rows_5m)
-    segments = {
-        s: (
-            five_minute_segments(rows_5m, s, max(start, first), end, era_start)
-            if s in intraday
-            else one_d_only_segments(max(start, first), end)
-        )
-        for s, start in starts.items()
-        if max(start, first) < end
-    }
+    segments = clip_segments(
+        {
+            s: (
+                five_minute_segments(rows_5m, s, max(start, first), end, era_start)
+                if s in intraday
+                else one_d_only_segments(max(start, first), end)
+            )
+            for s, start in starts.items()
+            if max(start, first) < end
+        },
+        scopes,
+    )
     spans_5m, spans_1d = fetch_empty_spans(conn, TF_5M), fetch_empty_spans(conn, TF_1D)
 
     pairs = sorted(
@@ -995,6 +1119,8 @@ def run_data_gate(
         first_session=first,
         era_start=era_start,
         pre_keys=pre_era_keys(segments, era_start),
+        scopes=scopes,
+        scope=scope,
     )
     result = replace(result, intraday_names=len(intraday & set(starts)))
     _logger.info(
@@ -1002,7 +1128,9 @@ def run_data_gate(
         ok=result.ok,
         names=result.names_checked,
         intraday_names=result.intraday_names,
+        scope=scope,
         failing_name_years=len(result.failing_name_years),
+        failing_5m_not_gating=len(result.failing_5m_not_gating),
         refused=len(result.names_without_proven_start)
         + len(result.names_with_zero_sessions)
         + len(result.names_with_zero_1d_sessions)

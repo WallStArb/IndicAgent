@@ -10,7 +10,11 @@ corpus_run_step; the steps call the writers that own the data (run_rebuild_stage
 services/ic_measure.py) and the gates that judge it (186-32's data gate, the column screen, the
 pilot compute gate, the canary).
 
-- `data_gate`: 186-32's run_data_gate. On a pass, one transaction writes corpus_run.data_gate,
+- `data_gate`: 186-32's run_data_gate over the scope recorded in the run (`--data-gate-scope`,
+  required with --new-run, kept in corpus_run.measured; `1d` gates on the 1d term alone, `all` on
+  both). The scope is part of the stored verdict. `pilot` (its 1h unit) and the span steps compute
+  intraday features, so they refuse unless the stored data_gate verdict's scope is `all`: a 1d-only
+  verdict never unlocks them, and a verdict without a scope refuses too. On a pass, one transaction writes corpus_run.data_gate,
   appends the survivorship caveat unless a caveat with its code is already present, and completes
   the step; a refusal writes the counts and failing lists to the failed step's summary only.
 - `pin_gate` (re-run before every compute step): the process runs from the run's detached
@@ -81,7 +85,13 @@ from services.batch_support.bulk_load import (
     parse_run_id,
 )
 from services.batch_support.db import load_config_service_sync
-from services.corpus_rerun_apr import CorpusRerunApr, load_corpus_rerun_apr, load_quiesce_apr
+from services.corpus_rerun_apr import (
+    DATA_GATE_SCOPES,
+    SCOPE_ALL,
+    CorpusRerunApr,
+    load_corpus_rerun_apr,
+    load_quiesce_apr,
+)
 from services.corpus_rerun_budget import (
     STAGE_1D,
     BudgetInputs,
@@ -131,6 +141,7 @@ CANARY = Path("scripts/ops/alpha/ops_canary_integrity_assert.py")
 # ---------------------------------------------------------------------------
 
 DATA_GATE = "data_gate"
+DATA_GATE_SCOPE_KEY = "data_gate_scope"  # corpus_run.measured: the scope chosen at --new-run
 PIN_GATE = "pin_gate"
 PILOT = "pilot"
 FEATURE_COMPLETE = "feature_complete"
@@ -138,6 +149,8 @@ IC_MEASURE = "ic_measure"
 D19_BOUND = "d19_bound"
 CANARY_STEP = "canary"
 SPAN = "span"
+# Steps that compute intraday features: they need a data_gate verdict judged over scope `all`.
+INTRADAY_STEP_KINDS = frozenset({PILOT, SPAN})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -995,6 +1008,8 @@ class CorpusRerun:
                     f"step {name} refused: its upstream step {step.upstream} {state} "
                     f"under run {self.run.run_id}"
                 )
+        if step.kind in INTRADAY_STEP_KINDS:
+            self._require_intraday_verdict(step)
         self.store.begin(self.run.run_id, name)
         _logger.info("corpus_rerun.step_started", step=name, run_id=self.run.run_id)
         started = self.deps.monotonic()
@@ -1036,9 +1051,28 @@ class CorpusRerun:
 
     # -- data_gate -------------------------------------------------------------
 
+    def _require_intraday_verdict(self, step: Step) -> None:
+        """Refuse an intraday step unless the stored data_gate verdict was judged over scope
+        `all`; a 1d-only verdict, or one recorded without a scope, never unlocks 5m compute."""
+        verdict = self.store.step(self.run.run_id, DATA_GATE)
+        scope = verdict.summary.get("scope") if verdict is not None else None
+        if scope != SCOPE_ALL:
+            raise StepRefused(
+                f"step {step.name} refused: it computes intraday features and the data_gate "
+                f"verdict of run {self.run.run_id} was judged over scope {scope!r}, not "
+                f"{SCOPE_ALL!r}"
+            )
+
     def _step_data_gate(self, step: Step) -> Any:
+        scope = self.run.measured.get(DATA_GATE_SCOPE_KEY)
+        if scope not in DATA_GATE_SCOPES:
+            raise StepFailed(
+                f"run {self.run.run_id} records no valid data gate scope {scope!r}; "
+                f"create the run with --data-gate-scope {{{','.join(DATA_GATE_SCOPES)}}}",
+                {},
+            )
         result = self.deps.run_data_gate(
-            self.deps.conn, self.deps.settings, self.apr, horizon=self.run.horizon
+            self.deps.conn, self.deps.settings, self.apr, horizon=self.run.horizon, scope=scope
         )
         record = result.as_record()
         if not result.ok:
@@ -1751,16 +1785,18 @@ def _print_plan(plan: Plan) -> None:
     print(format_peaks(plan.peaks, plan.inputs.limit_bytes))
 
 
-def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime) -> None:
+def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime, scope: str) -> None:
     from services.corpus_rerun_data_gate import run_data_gate
 
     apr = load_corpus_rerun_apr(load_config_service_sync(conn))
-    result = run_data_gate(conn, settings, apr, horizon=horizon)
+    result = run_data_gate(conn, settings, apr, horizon=horizon, scope=scope)
     print(
-        f"data_gate: {'PASS' if result.ok else 'FAIL'}; names {result.names_checked} "
+        f"data_gate: {'PASS' if result.ok else 'FAIL'} (scope {result.scope}); names {result.names_checked} "
         f"(5m tier {result.intraday_names}); "
         f"failing name-years {len(result.failing_name_years)}; without a proven start "
-        f"{len(result.names_without_proven_start)}"
+        f"{len(result.names_without_proven_start)}; 5m-term failing name-years not gating "
+        f"{len(result.failing_5m_not_gating)}; members before their proven start "
+        f"{len(result.names_member_before_proven_start)}"
     )
     for era, counts in result.eras.items():
         print(
@@ -1769,7 +1805,7 @@ def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime) -> None
         )
 
 
-def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str) -> str:
+def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str, scope: str) -> str:
     """Plan the spans, create the pinned worktree and record the run; returns the run id."""
     plan = plan_run(conn, settings, horizon)
     _print_plan(plan)
@@ -1804,6 +1840,7 @@ def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str) -> st
             "apr_unseeded": identity["apr_unseeded"],
             "plan": [p.as_record() for p in plan.peaks],
             "wal_bytes_at_launch": plan.inputs.wal_bytes,
+            DATA_GATE_SCOPE_KEY: scope,
         },
     )
     RunStore(conn).create_run(run)
@@ -1839,12 +1876,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "the first day of the current UTC month)",
     )
     parser.add_argument("--commit", default="HEAD", help="with --new-run: the commit to pin")
+    parser.add_argument(
+        "--data-gate-scope",
+        choices=DATA_GATE_SCOPES,
+        help="with --new-run (required), plan-only too: `1d` gates on the 1d term alone and "
+        "never unlocks the intraday steps; `all` gates on 1d and 5m. Recorded in the run",
+    )
     which = parser.add_mutually_exclusive_group()
     which.add_argument("--step", help="with --run-id: run this one step")
     which.add_argument("--through", help="with --run-id: run every step up to and including this")
     args = parser.parse_args(argv)
     if args.run_id and not (args.step or args.through):
         parser.error("--run-id needs --step or --through")
+    if args.new_run and not args.data_gate_scope:
+        parser.error("--new-run needs --data-gate-scope (1d or all)")
+    if args.data_gate_scope and not args.new_run:
+        parser.error("--data-gate-scope applies to --new-run only (a run records its own)")
     return args
 
 
@@ -1906,10 +1953,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     _print_plan(plan_run(conn, settings, horizon))
                 except SpanPlanRefused as refused:
                     print(f"REFUSED: {refused}")
-                _data_gate_verdict(conn, settings, horizon)
+                _data_gate_verdict(conn, settings, horizon, args.data_gate_scope)
                 return 0
             try:
-                new_run(conn, settings, horizon, args.commit)
+                new_run(conn, settings, horizon, args.commit, args.data_gate_scope)
             except SpanPlanRefused as refused:
                 print(f"REFUSED: {refused}", file=sys.stderr)
                 return 1

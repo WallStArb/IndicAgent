@@ -73,7 +73,7 @@ def _run(**overrides) -> cr.CorpusRun:
         "spans": SPANS,
         "free_bytes_at_launch": 700 * 10**9,
         "caveats": (),
-        "measured": {"row_counts": _counts()},
+        "measured": {"row_counts": _counts(), "data_gate_scope": "all"},
     }
     values.update(overrides)
     return cr.CorpusRun(**values)
@@ -199,7 +199,12 @@ class FakeRebuild:
 
 
 def _result(ok=True, caveat=CAVEAT):
-    record = {"ok": ok, "names_checked": 3, "failing_name_years": [] if ok else [["X", 2010]]}
+    record = {
+        "ok": ok,
+        "names_checked": 3,
+        "scope": "all",
+        "failing_name_years": [] if ok else [["X", 2010]],
+    }
     return SimpleNamespace(ok=ok, caveat=caveat if ok else None, as_record=lambda: record)
 
 
@@ -246,7 +251,9 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         python="/venv/bin/python",
         worktree=WORKTREE,
         spool_root=Path("/main/logs/rebuild_spool"),
-        run_data_gate=lambda conn, settings, apr, horizon: state["gate"],
+        run_data_gate=lambda conn, settings, apr, horizon, scope: (
+            state.setdefault("scopes", []).append(scope) or state["gate"]
+        ),
         run_stage=rebuild,
         planned_units=lambda settings, conn, horizon: state["planned"],
         symbol_chunks=lambda tf="1d": state.get("chunks", {}).get(tf, [("AAA", "BBB")]),
@@ -284,7 +291,8 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
 
 def _complete(world: World, *names: str, **summary) -> None:
     for name in names:
-        world.store.steps[name] = cr.StepRow("completed", dict(summary))
+        done = {"scope": "all", **summary} if name == "data_gate" else dict(summary)
+        world.store.steps[name] = cr.StepRow("completed", done)
 
 
 def _through(world: World, name: str) -> None:
@@ -402,6 +410,46 @@ def test_a_passing_data_gate_without_a_caveat_fails():
     with pytest.raises(cr.StepFailed, match="no survivorship caveat"):
         world.runner.execute("data_gate")
     assert world.store.run.caveats == ()
+
+
+def test_the_data_gate_runs_over_the_scope_recorded_in_the_run():
+    world = _world(_run(measured={"row_counts": _counts(), "data_gate_scope": "1d"}))
+    world.runner.execute("data_gate")
+    assert world.state["scopes"] == ["1d"]
+
+
+@pytest.mark.parametrize("measured", [{"row_counts": []}, {"data_gate_scope": "both"}])
+def test_a_run_without_a_valid_data_gate_scope_fails_its_gate(measured):
+    world = _world(_run(measured=measured))
+    with pytest.raises(cr.StepFailed, match="data gate scope"):
+        world.runner.execute("data_gate")
+    assert "scopes" not in world.state
+
+
+@pytest.mark.parametrize("scope", ["1d", None])
+@pytest.mark.parametrize("step", ["pilot", "s1.1h", "s1.15m", "s1.5m", "s2.1h"])
+def test_a_verdict_not_judged_over_all_never_unlocks_the_intraday_steps(step, scope):
+    world = _world()
+    _through(world, step)
+    world.store.steps["data_gate"] = cr.StepRow(
+        "completed", {} if scope is None else {"scope": scope}
+    )
+    with pytest.raises(cr.StepRefused, match="intraday"):
+        world.runner.execute(step)
+    assert world.store.writes == []
+
+
+def test_the_new_run_needs_a_data_gate_scope_and_a_run_records_its_own():
+    assert cr._parse_args(["--new-run", "--data-gate-scope", "1d"]).data_gate_scope == "1d"
+    assert cr._parse_args(["--new-run", "--plan-only", "--data-gate-scope", "all"]).plan_only
+    with pytest.raises(SystemExit):
+        cr._parse_args(["--new-run"])
+    with pytest.raises(SystemExit):
+        cr._parse_args(["--new-run", "--plan-only"])
+    with pytest.raises(SystemExit):
+        cr._parse_args(["--new-run", "--data-gate-scope", "5m"])
+    with pytest.raises(SystemExit):
+        cr._parse_args(["--run-id", RUN, "--through", "canary", "--data-gate-scope", "all"])
 
 
 # ---------------------------------------------------------------------------

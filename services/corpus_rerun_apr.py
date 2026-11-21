@@ -14,6 +14,13 @@ from typing import Any
 
 from src.config.config_service import ConfigService
 
+# The scope of a data gate run (the runner's `--data-gate-scope`, recorded in the run): `1d` gates
+# on the 1d term alone and never unlocks the intraday stages; `all` gates on 1d and 5m. A choice
+# of the operator for the run, not a tunable number (it is not an APR key).
+SCOPE_1D = "1d"
+SCOPE_ALL = "all"
+DATA_GATE_SCOPES = (SCOPE_1D, SCOPE_ALL)
+
 MAX_DISK_FRACTION_KEY = "infra.corpus_rerun.max_disk_fraction"
 DISK_RESERVE_BYTES_KEY = "infra.corpus_rerun.disk_reserve_bytes"
 BYTES_PER_ROW_UNCOMPRESSED_KEY = "infra.corpus_rerun.bytes_per_row_uncompressed"

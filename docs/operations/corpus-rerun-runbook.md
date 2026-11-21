@@ -44,7 +44,7 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
 1. Dry plan, writes nothing:
 
    ```
-   .venv/bin/python -m services.corpus_rerun --new-run --plan-only [--horizon YYYY-MM-DD]
+   .venv/bin/python -m services.corpus_rerun --new-run --plan-only --data-gate-scope {1d,all} [--horizon YYYY-MM-DD]
    ```
 
    It prints the row counts per tf, the stored rows of units the run would adopt (the same
@@ -54,6 +54,12 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    (span rows, straddling chunk, compressed rest, 1d uncompressed and compressed, WAL, two
    spools of the largest group, since the next group spools while the previous one loads), then
    the data gate verdict. Its compressed terms use the 6.0 APR seed and are a preview only.
+
+   The gate judges only the name-years the compute reads: 1d for each year with a
+   `universe_membership` row, 5m for each `tier_5m` year, over sessions inside the name's
+   membership span (rule in the `corpus_rerun_data_gate` docstring). `--data-gate-scope 1d` gates
+   on the 1d term alone and reports the 5m term without gating; the run records the scope, and the
+   `pilot` and span steps refuse unless the stored verdict was judged over `all`.
 2. Quiesce the blocking timers:
 
    ```
@@ -69,7 +75,7 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
 3. Create the run from the commit to pin (default HEAD of the main checkout):
 
    ```
-   .venv/bin/python -m services.corpus_rerun --new-run [--commit <sha>] [--horizon YYYY-MM-DD]
+   .venv/bin/python -m services.corpus_rerun --new-run --data-gate-scope {1d,all} [--commit <sha>] [--horizon YYYY-MM-DD]
    ```
 
    It plans the spans (the smallest count whose largest peak fits the limit; it refuses with the

@@ -86,6 +86,10 @@ class Fixture:
     asks: list[tuple[str, gate.CompletedAsk, bool, bool]] = field(default_factory=list)
     pre_pair: tuple[str, str] = ("ibkr", "named")  # the (vendor, kind) serving before ERA
     tier: set[str] | None = None  # the 5m tier; None puts every name in it
+    # symbol -> (as_of, tier_5m) month-end rows of universe_membership; a name without an entry
+    # is a member at every month-end from its start's month to the horizon (tier per `tier`).
+    members: dict[str, list[tuple[date, bool]]] = field(default_factory=dict)
+    scope: str = "all"
 
     def add_name(self, symbol: str, start: date, *, full: bool = True) -> None:
         """A name whose every session from start to the horizon has its 1d bar and, when full,
@@ -190,7 +194,41 @@ class Fixture:
             return out
 
         monkeypatch.setattr(gate, "fetch_answers", answers)
-        return gate.run_data_gate(None, None, apr, horizon=HORIZON)
+
+        def membership(conn):
+            rows = []
+            for symbol in self.names:
+                months = self.members.get(symbol)
+                if months is None:
+                    in_tier = self.tier is None or symbol in self.tier
+                    months = [
+                        (d, in_tier)
+                        for d in _month_ends(
+                            self.starts.get(symbol, date(2015, 11, 2)), HORIZON.date()
+                        )
+                    ]
+                by_year: dict[int, list[tuple[date, bool]]] = {}
+                for as_of, tier in months:
+                    by_year.setdefault(as_of.year, []).append((as_of, tier))
+                for year, parts in by_year.items():
+                    dates = [d for d, _ in parts]
+                    rows.append((symbol, year, any(t for _, t in parts), min(dates), max(dates)))
+            return gate.name_scopes(rows)
+
+        monkeypatch.setattr(gate, "fetch_membership", membership)
+        return gate.run_data_gate(None, None, apr, scope=self.scope, horizon=HORIZON)
+
+
+def _month_ends(lo: date, hi: date) -> list[date]:
+    """Month-ends from lo's month up to (excluding) hi."""
+    out, year, month = [], lo.year, lo.month
+    while True:
+        nxt = date(year + (month == 12), month % 12 + 1, 1)
+        end = nxt - timedelta(days=1)
+        if end >= hi:
+            return out
+        out.append(end)
+        year, month = nxt.year, nxt.month
 
 
 def _failing(result: gate.DataGateResult) -> set[tuple[str, int]]:
@@ -778,3 +816,165 @@ def test_the_5m_and_ask_reads_are_chunked_with_chunk_local_segments():
     conn = _ChunkConn()
     gate.fetch_answers(conn, [("alpaca", "sip_rth")], names, datetime(2021, 1, 1, tzinfo=UTC))
     assert [len(c) for c in conn.names] == [gate._NAME_CHUNK, 3]
+
+
+# --------------------------------------------------------------------------- scope (materiality)
+
+START = date(2014, 3, 3)
+
+
+def _cut(world: Fixture, symbol: str, lo: date, hi: date) -> None:
+    """Remove a name's 1d and 5m bars on the sessions in [lo, hi)."""
+    world.days_1d[symbol] -= set(_sessions(lo, hi))
+    world.drop_5m(symbol, lo, hi)
+
+
+def _members(lo: date, hi: date, tier: bool = True) -> list[tuple[date, bool]]:
+    """Month-end rows for the months from lo's month up to (excluding) hi's month-end."""
+    return [(d, tier) for d in _month_ends(lo, hi)]
+
+
+def test_dead_name_passes_without_the_years_after_its_death(monkeypatch):
+    """AMZ-shaped: bars and membership end in 2014; every later year is out of scope."""
+    world = Fixture()
+    world.add_name("DEAD", START)
+    _cut(world, "DEAD", date(2014, 12, 13), HORIZON.date())
+    world.members["DEAD"] = _members(START, date(2014, 12, 1))  # 2014-03 .. 2014-11
+    result = world.run(monkeypatch)
+    assert result.ok and not result.failing_name_years
+    assert result.eras["ibkr/named"].sessions == len(_sessions(START, date(2014, 12, 1)))
+    assert result.scope == "all"
+
+
+def test_the_same_name_with_membership_through_the_horizon_fails_in_later_years(monkeypatch):
+    world = Fixture()
+    world.add_name("DEAD", START)
+    _cut(world, "DEAD", date(2014, 12, 13), HORIZON.date())
+    result = world.run(monkeypatch)
+    assert _failing(result) == {("DEAD", 2014), ("DEAD", 2015), ("DEAD", 2016)}
+
+
+def test_entry_year_is_judged_only_from_the_first_membership_month(monkeypatch):
+    world = Fixture()
+    world.add_name("NEW", date(2015, 6, 1))
+    _cut(world, "NEW", date(2015, 6, 1), date(2015, 11, 1))  # before the first member month
+    world.members["NEW"] = _members(date(2015, 11, 1), HORIZON.date())
+    result = world.run(monkeypatch)
+    assert result.ok
+    assert result.eras["ibkr/named"].sessions == len(_sessions(date(2015, 11, 1), ERA))
+    # a hole inside the member months of the entry year still fails it
+    world2 = Fixture()
+    world2.add_name("NEW", date(2015, 6, 1))
+    _cut(world2, "NEW", date(2015, 11, 9), date(2015, 11, 14))
+    world2.members["NEW"] = _members(date(2015, 11, 1), HORIZON.date())
+    assert _failing(world2.run(monkeypatch)) == {("NEW", 2015)}
+
+
+def test_re_entry_judges_the_years_with_a_row_over_the_whole_span(monkeypatch):
+    rows = _members(date(2014, 3, 1), date(2015, 1, 1)) + _members(date(2016, 1, 1), HORIZON.date())
+    world = Fixture()
+    world.add_name("BACK", START)
+    _cut(world, "BACK", date(2015, 1, 5), date(2015, 12, 20))  # the gap year: no row, no bars
+    world.members["BACK"] = rows
+    assert world.run(monkeypatch).ok
+    world2 = Fixture()
+    world2.add_name("BACK", START)
+    _cut(world2, "BACK", date(2015, 1, 5), date(2015, 12, 20))
+    _cut(world2, "BACK", date(2016, 2, 8), date(2016, 2, 13))  # a hole in a member year
+    world2.members["BACK"] = rows
+    assert _failing(world2.run(monkeypatch)) == {("BACK", 2016)}
+
+
+def test_5m_is_judged_only_in_tier_years(monkeypatch):
+    rows = _members(date(2015, 1, 1), date(2016, 1, 1), tier=False) + _members(
+        date(2016, 1, 1), HORIZON.date(), tier=True
+    )
+    world = Fixture()
+    world.add_name("T", date(2015, 1, 5))
+    world.drop_5m("T", date(2015, 3, 2), date(2015, 3, 9))  # 5m hole in a non-tier member year
+    world.members["T"] = rows
+    result = world.run(monkeypatch)
+    assert result.ok and not result.failing_5m_not_gating
+    world2 = Fixture()
+    world2.add_name("T", date(2015, 1, 5))
+    world2.drop_5m("T", date(2016, 2, 8), date(2016, 2, 13))  # in the tier year
+    world2.members["T"] = rows
+    assert _failing(world2.run(monkeypatch)) == {("T", 2016)}
+
+
+def test_a_1d_hole_in_a_non_tier_member_year_still_fails(monkeypatch):
+    rows = _members(date(2015, 1, 1), date(2016, 1, 1), tier=False) + _members(
+        date(2016, 1, 1), HORIZON.date(), tier=True
+    )
+    world = Fixture()
+    world.add_name("T", date(2015, 1, 5))
+    world.days_1d["T"] -= set(_sessions(date(2015, 3, 2), date(2015, 3, 9)))
+    world.members["T"] = rows
+    assert _failing(world.run(monkeypatch)) == {("T", 2015)}
+
+
+def test_a_name_without_a_membership_row_is_refused_with_no_judged_years(monkeypatch):
+    world = Fixture()
+    world.add_name("GHOST", START)
+    world.members["GHOST"] = []
+    result = world.run(monkeypatch)
+    assert not result.ok
+    assert result.names_with_zero_sessions == ("GHOST",)
+    assert not result.failing_name_years
+
+
+def test_scope_1d_reports_the_5m_term_without_gating_on_it(monkeypatch):
+    world = Fixture(scope="1d")
+    world.add_name("AAA", date(2015, 11, 2))
+    world.drop_5m("AAA", date(2015, 12, 7), date(2015, 12, 12))
+    result = world.run(monkeypatch)
+    assert result.ok and result.scope == "1d"
+    assert [(f.symbol, f.year, f.missing_5m) for f in result.failing_5m_not_gating] == [
+        ("AAA", 2015, 5)
+    ]
+    assert result.as_record()["scope"] == "1d"
+    assert not result.failing_name_years
+    world.scope = "all"
+    all_result = world.run(monkeypatch)
+    assert not all_result.ok and _failing(all_result) == {("AAA", 2015)}
+    assert not all_result.failing_5m_not_gating
+
+
+def test_scope_1d_still_fails_a_1d_hole(monkeypatch):
+    world = Fixture(scope="1d")
+    world.add_name("AAA", date(2015, 11, 2))
+    world.days_1d["AAA"] -= set(_sessions(date(2015, 12, 7), date(2015, 12, 12)))
+    assert _failing(world.run(monkeypatch)) == {("AAA", 2015)}
+
+
+def test_an_unknown_scope_raises(monkeypatch):
+    world = Fixture(scope="both")
+    world.add_name("AAA", date(2015, 11, 2))
+    with pytest.raises(ValueError, match="scope"):
+        world.run(monkeypatch)
+
+
+def test_name_scopes_and_clip_segments():
+    scope = gate.name_scopes(
+        [
+            ("A", 2014, False, date(2014, 3, 31), date(2014, 12, 31)),
+            ("A", 2016, True, date(2016, 1, 31), date(2016, 2, 29)),
+        ]
+    )["A"]
+    assert scope.years_1d == {2014, 2016} and scope.years_5m == {2016}
+    assert (scope.first, scope.last) == (date(2014, 3, 1), date(2016, 2, 29))
+    seg = gate.Segment(date(2013, 1, 1), date(2020, 1, 1), "v", "k")
+    assert gate.clip_segments({"A": [seg]}, {"A": scope}) == {
+        "A": [gate.Segment(date(2014, 3, 1), date(2016, 3, 1), "v", "k")]
+    }
+    assert gate.clip_segments({"B": [seg]}, {"A": scope}) == {}
+
+
+def test_a_member_whose_proven_start_follows_its_membership_is_disclosed_not_refused(monkeypatch):
+    world = Fixture()
+    world.add_name("LATE", date(2015, 11, 2))
+    world.members["LATE"] = _members(date(2014, 3, 1), date(2014, 12, 1))
+    result = world.run(monkeypatch)
+    assert result.ok and not result.names_with_zero_sessions
+    assert result.names_member_before_proven_start == ("LATE",)
+    assert not result.failing_name_years
