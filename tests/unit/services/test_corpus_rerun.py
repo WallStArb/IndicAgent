@@ -143,7 +143,8 @@ class FakeStore:
     def uncompressed_chunks(self, before):
         return [c for c in self.uncompressed if c[1] <= before]
 
-    def rows_reaching(self, oos_start):
+    def rows_reaching(self, oos_start, tfs=None):
+        self.reaching_tfs = tfs
         return self.reaching
 
     def unit_stats(self, keys):
@@ -255,7 +256,10 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
             state.setdefault("scopes", []).append(scope) or state["gate"]
         ),
         run_stage=rebuild,
-        planned_units=lambda settings, conn, horizon: state["planned"],
+        planned_units=lambda settings, conn, horizon, timeframes=None: (
+            state.setdefault("planned_tfs", []).append(timeframes) or state["planned"]
+        ),
+        member_months=lambda: state.get("member_months", {}),
         symbol_chunks=lambda tf="1d": state.get("chunks", {}).get(tf, [("AAA", "BBB")]),
         run_command=run_command,
         git_head=lambda path: state["head"],
@@ -309,13 +313,13 @@ def _through(world: World, name: str) -> None:
 
 
 def test_the_order_is_fixed_and_span_major():
-    names = [s.name for s in cr.build_steps(SPANS)]
+    names = [s.name for s in cr.build_steps(SPANS, "all")]
     assert names == [
         "data_gate", "pin_gate", "pilot", "stage_1d",
         "s1.1h", "s1.15m", "s1.5m", "s2.1h", "s2.15m", "s2.5m",
         "feature_complete", "ic_measure", "d19_bound", "canary",
     ]  # fmt: skip
-    steps = cr.build_steps(SPANS)
+    steps = cr.build_steps(SPANS, "all")
     assert all(b.upstream == a.name for a, b in zip(steps, steps[1:]))
     assert steps[0].upstream is None
 
@@ -413,17 +417,15 @@ def test_a_passing_data_gate_without_a_caveat_fails():
 
 
 def test_the_data_gate_runs_over_the_scope_recorded_in_the_run():
-    world = _world(_run(measured={"row_counts": _counts(), "data_gate_scope": "1d"}))
+    world = _world(_run(spans=(), measured={"row_counts": _counts(), "data_gate_scope": "1d"}))
     world.runner.execute("data_gate")
     assert world.state["scopes"] == ["1d"]
 
 
 @pytest.mark.parametrize("measured", [{"row_counts": []}, {"data_gate_scope": "both"}])
-def test_a_run_without_a_valid_data_gate_scope_fails_its_gate(measured):
-    world = _world(_run(measured=measured))
-    with pytest.raises(cr.StepFailed, match="data gate scope"):
-        world.runner.execute("data_gate")
-    assert "scopes" not in world.state
+def test_a_run_without_a_valid_scope_refuses_before_any_step(measured):
+    with pytest.raises(cr.StepRefused, match="valid scope"):
+        _world(_run(measured=measured))
 
 
 @pytest.mark.parametrize("scope", ["1d", None])
@@ -992,7 +994,10 @@ def test_a_new_run_over_a_dead_runs_rows_at_another_code_key_projects_them_as_gr
     unit: nothing is adoptable, so the stored rows are not subtracted and the plan counts the
     whole rewrite as growth."""
     conn = _StoredConn(True, completed={"old-key"}, stored_rows=[("5m", 0, date(2010, 1, 1), 999)])
-    planned = lambda settings, c, horizon: ([_unit("new-key")], set())  # noqa: E731
+    planned = lambda settings, c, horizon, timeframes=None: (  # noqa: E731
+        [_unit("new-key")],
+        set(),
+    )
     stored = cr.stored_row_counts(
         conn,
         object(),
@@ -1014,7 +1019,7 @@ def test_a_new_run_over_a_dead_runs_rows_at_another_code_key_projects_them_as_gr
 def test_only_the_rows_of_units_the_run_would_adopt_count_as_stored():
     rows = [("5m", 0, date(2010, 1, 1), 1000)]
     conn = _StoredConn(True, completed={"same-key"}, stored_rows=rows)
-    planned = lambda settings, c, horizon: (  # noqa: E731
+    planned = lambda settings, c, horizon, timeframes=None: (  # noqa: E731
         [_unit("same-key"), _unit("renamed", year=2011)],
         set(),
     )
@@ -1216,7 +1221,7 @@ def test_a_tier_unit_is_adopted_under_its_full_chunk_index():
 
 def test_stored_rows_of_an_adopted_intraday_unit_are_asked_for_the_tier_names_only():
     conn = _StoredConn(True, completed={"k"}, stored_rows=[])
-    planned = lambda settings, c, horizon: ([_unit("k")], set())  # noqa: E731
+    planned = lambda settings, c, horizon, timeframes=None: ([_unit("k")], set())  # noqa: E731
     cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, frozenset({"AAA"}), planned=planned)
     (params,) = conn.unit_queries
     assert params[0] == ["AAA"] and params[2] == ["5m"]  # BBB's old 5m rows are not counted

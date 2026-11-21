@@ -189,29 +189,39 @@ amendment through the methodology ledger, never a mask change.
 
 ## The 1d-first run (scope `1d`)
 
-Design note, lead ruling 2026-11-21, written before the code. A run at scope `1d` is a complete run
+Lead ruling 2026-11-21, implemented. A run at scope `1d` is a complete run
 restricted to the 1d timeframe, not a verdict-only run: the first counted tests read 1d, and the
 intraday tier load and its disk plan are not needed for them.
 
 - Chain: `data_gate`, `pin_gate`, `pilot`, `stage_1d`, `feature_complete`, `ic_measure`, `d19_bound`,
   `canary`. No span steps and no spans: the disk plan has the `stage_1d` term only, and
   `build_steps` takes the scope so a `1d` run cannot contain an intraday step. A run at scope `all`
-  is unchanged. A run with no recorded scope refuses.
+  is unchanged. A run with no recorded scope refuses at construction (`StepRefused`). `--new-run
+  --data-gate-scope 1d` plans with the 1d row counts alone and records no spans; the plan is
+  refused when stage_1d's peak alone does not fit the disk limit. The runner also refuses any stage
+  call at scope `1d` whose timeframes are not exactly `["1d"]`.
 - `pilot` at scope `1d`: stage_1d's chunk 0 only, no 1h unit. G1 to G3 (column screen), G4 to G5
   (pilot compute gate) and the G6 object gate run on the 1d units; the bytes per row, the
   stored-per-spool ratio and the compression ratio are measured on 1d rows; the extrapolated seconds
   and the re-projection cover `stage_1d` only (the intraday terms are not measured, so they are not
   judged). Same gates, same constants, nothing relaxed.
-- Later steps read the run's timeframes: `feature_complete` plans and checks 1d units only;
-  `ic_measure` needs POOLED rows for the 1d (tf, horizon) pairs only; `d19_bound` and the canary run
-  on 1d. A step never counts a unit of a timeframe outside the run's scope.
+- Later steps read the run's timeframes: `feature_complete` plans (`planned_units(..., ["1d"])`)
+  and checks 1d units only; `ic_measure` runs with `--tf 1d` and needs POOLED rows for the 1d (tf,
+  horizon) pairs only; `d19_bound` counts `feature_ic_scores` rows of the 1d tf; the canary runs
+  with `--tf 1d` and judges the 1d proposer unit. The pin gate skips the intraday rebuild
+  preconditions and the disk gate counts 1d rows only. A step never counts a unit of a timeframe
+  outside the run's scope. The pilot's data gate verdict for a `1d` run is scope `1d`; the
+  intraday verdict requirement applies to span steps and to the pilot of a scope `all` run.
 - Intraday follows as a second run at scope `all` (its own data gate verdict with the 5m term, its
   own pilot with the 1h unit, its spans) and adopts the completed 1d units by identity (see
   Adoption); no intraday unit exists in a `1d` run to be adopted into it.
 - Tests: a `1d` chain has no span step; a `1d` pilot computes no 1h unit and fails on a red 1d gate;
   no path in a `1d` run reaches an intraday stage; an `all` run is unchanged; a run without a scope
   refuses.
-- Pilot report line (proven start, owner disclosure): the pilot summary records the count and the
+- Pilot report line (proven start, owner disclosure; `proven_start_disclosure` in the pilot
+  summary: `names`, `names_in_5m_tier`, `member_months`, `member_months_total`, from the stored
+  data gate verdict's `names_member_before_proven_start` and `universe_membership`; scope `all`
+  pilots record it too): the pilot summary records the count and the
   member-months of names whose compute start is pushed past their dense history by the 0.999
   coverage rule of the proven start (587 members, 25 in the tier, 9,492 of 1,042,561 member-months,
   0.9 percent, all inactive, on 2026-11-21; RSX, BFX, SCOR and HHS are the pattern: a sparse tail

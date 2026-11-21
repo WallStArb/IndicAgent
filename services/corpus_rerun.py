@@ -3,6 +3,11 @@
     data_gate -> pin_gate -> pilot -> stage_1d -> for each span s: s.1h -> s.15m -> s.5m
       -> feature_complete -> ic_measure -> d19_bound -> canary
 
+A run of scope `1d` (`--data-gate-scope 1d`) has no span and no span step: data_gate, pin_gate,
+pilot, stage_1d, feature_complete, ic_measure, d19_bound, canary, every one of them restricted to
+the 1d timeframe (the intraday tier is a later run at scope `all`). A run records its scope; one
+without a valid scope refuses at construction.
+
 Each step refuses, loudly and before it writes anything, unless its upstream step of the same run
 is completed; no flag skips a step. A completed step re-invoked is a no-op that reports its stored
 outcome; a failed step retries once its cause is fixed. The runner writes only corpus_run and
@@ -14,7 +19,8 @@ pilot compute gate, the canary).
   required with --new-run, kept in corpus_run.measured; `1d` gates on the 1d term alone, `all` on
   both). The scope is part of the stored verdict. `pilot` (its 1h unit) and the span steps compute
   intraday features, so they refuse unless the stored data_gate verdict's scope is `all`: a 1d-only
-  verdict never unlocks them, and a verdict without a scope refuses too. On a pass, one transaction writes corpus_run.data_gate,
+  verdict never unlocks them, and a verdict without a scope refuses too. A `1d` run's pilot is 1d
+  only and needs no intraday verdict; its stages refuse any other timeframe. On a pass, one transaction writes corpus_run.data_gate,
   appends the survivorship caveat unless a caveat with its code is already present, and completes
   the step; a refusal writes the counts and failing lists to the failed step's summary only.
 - `pin_gate` (re-run before every compute step): the process runs from the run's detached
@@ -23,8 +29,10 @@ pilot compute gate, the canary).
   service not active; no live writer process; the rebuild preconditions pass with the span disk
   term; the growth since launch plus the next step's own increment (its tf's rows in its span not
   yet loaded under the run, the WAL, two group spools) stays inside the limit.
-- `pilot`: stage_1d's chunk 0 and one 1h unit of span 1 (ordinary units of the real stages, kept),
-  G1-G3 (column screen) and G4-G5 (pilot compute gate) on them, per-unit wall time and DB load,
+- `pilot`: stage_1d's chunk 0 and one 1h unit of span 1 (ordinary units of the real stages, kept;
+  at scope `1d` the 1d unit only, with every gate and projection on 1d alone, and the summary
+  records the proven-start disclosure), G1-G3 (column screen) and G4-G5 (pilot compute gate) on
+  them, per-unit wall time and DB load,
   the measured bytes per row, stored-per-spool ratio and compression ratio (the pilot's rows
   compressed in a dropped scratch hypertable) into corpus_run.measured; then the run's spans are
   re-projected with the larger bytes per row and the measured ratio, and the pilot fails if any
@@ -87,6 +95,7 @@ from services.batch_support.bulk_load import (
 from services.batch_support.db import load_config_service_sync
 from services.corpus_rerun_apr import (
     DATA_GATE_SCOPES,
+    SCOPE_1D,
     SCOPE_ALL,
     CorpusRerunApr,
     load_corpus_rerun_apr,
@@ -102,6 +111,7 @@ from services.corpus_rerun_budget import (
     daily_peak,
     format_peaks,
     overflowing,
+    plan_daily_only,
     plan_spans,
     project,
     span_peak,
@@ -150,7 +160,9 @@ D19_BOUND = "d19_bound"
 CANARY_STEP = "canary"
 SPAN = "span"
 # Steps that compute intraday features: they need a data_gate verdict judged over scope `all`.
+# The pilot computes its 1h unit only in a run of scope `all`; a `1d` run's pilot is 1d only.
 INTRADAY_STEP_KINDS = frozenset({PILOT, SPAN})
+DAILY_TF = "1d"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -162,15 +174,21 @@ class Step:
     span_index: int | None = None  # 0-based position in corpus_run.spans
 
 
-def build_steps(spans: Sequence[tuple[datetime, datetime]]) -> list[Step]:
-    """The fixed chain of a run with these spans; each step's upstream is the one before it."""
+def build_steps(spans: Sequence[tuple[datetime, datetime]], scope: str) -> list[Step]:
+    """The fixed chain of a run of this scope; each step's upstream is the one before it. A `1d`
+    run has no span step and no span (the intraday tier is a later run at scope `all`); a scope
+    that is neither is refused, and so is a `1d` run that carries spans."""
+    if scope not in DATA_GATE_SCOPES:
+        raise ValueError(f"run scope {scope!r} is not one of {DATA_GATE_SCOPES}")
+    if scope == SCOPE_1D and spans:
+        raise ValueError(f"a run of scope {SCOPE_1D!r} has no spans, got {len(spans)}")
     kinds: list[tuple[str, str, str | None, int | None]] = [
         (DATA_GATE, DATA_GATE, None, None),
         (PIN_GATE, PIN_GATE, None, None),
         (PILOT, PILOT, None, None),
         (STAGE_1D, STAGE_1D, "1d", None),
     ]
-    for k in range(len(spans)):
+    for k in range(len(spans)):  # none at scope `1d`
         kinds += [(f"s{k + 1}.{tf}", SPAN, tf, k) for tf in INTRADAY_ORDER]
     kinds += [(n, n, None, None) for n in (FEATURE_COMPLETE, IC_MEASURE, D19_BOUND, CANARY_STEP)]
     steps: list[Step] = []
@@ -310,7 +328,8 @@ SELECT chunk_name, range_end FROM timescaledb_information.chunks
 WHERE hypertable_name = %s AND NOT is_compressed AND range_end <= %s ORDER BY range_start
 """
 _REACHING_OOS_SQL = (
-    f"SELECT count(*), min(training_window_end) FROM {_IC_TABLE} " "WHERE training_window_end >= %s"
+    f"SELECT count(*), min(training_window_end) FROM {_IC_TABLE} "
+    "WHERE training_window_end >= %s AND (%s::text[] IS NULL OR tf = ANY(%s::text[]))"
 )
 _LOADED_ROWS_SQL = """
 SELECT COALESCE(sum(row_count), 0) FROM provenance_batch
@@ -461,8 +480,13 @@ class RunStore:
     def uncompressed_chunks(self, before: datetime) -> list[tuple[str, datetime]]:
         return [tuple(r) for r in self._all(_UNCOMPRESSED_CHUNKS_SQL, (_FEATURE_TABLE, before))]
 
-    def rows_reaching(self, oos_start: datetime) -> tuple[int, datetime | None]:
-        count, first = self._one(_REACHING_OOS_SQL, (oos_start,))
+    def rows_reaching(
+        self, oos_start: datetime, tfs: Sequence[str] | None = None
+    ) -> tuple[int, datetime | None]:
+        """Rows of feature_ic_scores whose training window reaches oos_start, in `tfs` (all tfs
+        when None)."""
+        tf_list = None if tfs is None else list(tfs)
+        count, first = self._one(_REACHING_OOS_SQL, (oos_start, tf_list, tf_list))
         return int(count), first
 
 
@@ -590,16 +614,18 @@ def stored_row_counts(
     chunks: Sequence[tuple[str, ...]],
     intraday: frozenset[str],
     planned: Callable[..., tuple[list[Any], set[str]]] | None = None,
+    timeframes: Sequence[str] | None = None,
 ) -> RowCounts:
     """The rows already stored that the run would adopt, as RowCounts (not growth). Plans the
-    full scope only when feature_vectors has a completed unit at all."""
+    full scope (the run's `timeframes` when given) only when feature_vectors has a completed unit
+    at all."""
     with conn.cursor() as cur:
         cur.execute(_ANY_COMPLETED_UNIT_SQL, (_FEATURE_TABLE,))
         if not cur.fetchone()[0]:
             return RowCounts({})
     if planned is None:
         from services.backfill_feature_factory import planned_units as planned
-    specs, _blind = planned(settings, conn, horizon)
+    specs, _blind = planned(settings, conn, horizon, timeframes)
     with conn.cursor() as cur:
         cur.execute(_COMPLETED_KEYS_SQL, ([spec.batch_key for spec in specs],))
         completed = {key for (key,) in cur.fetchall()}
@@ -908,7 +934,9 @@ class Deps:
     spool_root: Path
     run_data_gate: Callable[..., Any]
     run_stage: Callable[..., dict[str, Any]]
-    planned_units: Callable[..., tuple[list[Any], set[str]]]
+    planned_units: Callable[
+        ..., tuple[list[Any], set[str]]
+    ]  # (settings, conn, horizon, timeframes)
     symbol_chunks: Callable[[str], list[tuple[str, ...]]]  # by timeframe: the tier for intraday
     run_command: Callable[[Sequence[str], Path], tuple[int, str]]
     git_head: Callable[[Path], str]
@@ -928,6 +956,7 @@ class Deps:
     object_columns: frozenset[str]
     applicable: Callable[[str], frozenset[str]]
     read_json: Callable[[Path], Any]
+    member_months: Callable[[], Mapping[str, tuple[int, bool]]]  # symbol -> (months, ever in tier)
     monotonic: Callable[[], float] = time.monotonic
 
 
@@ -948,6 +977,18 @@ class StepFailed(RuntimeError):
         self.summary = {"error": message, **summary}
 
 
+def run_scope(run: CorpusRun) -> str:
+    """The scope the run records (`--data-gate-scope` at --new-run): it picks the chain, the
+    timeframes and the data gate. A run that records none, or an unknown one, refuses."""
+    scope = run.measured.get(DATA_GATE_SCOPE_KEY)
+    if scope not in DATA_GATE_SCOPES:
+        raise StepRefused(
+            f"run {run.run_id} records no valid scope {scope!r}; "
+            f"create the run with --data-gate-scope {{{','.join(DATA_GATE_SCOPES)}}}"
+        )
+    return str(scope)
+
+
 _SELF_COMPLETED = object()  # a handler that completed its own step (data_gate's transaction)
 
 
@@ -961,17 +1002,30 @@ class CorpusRerun:
     PILOT_HOURLY_TF = "1h"
     PILOT_TFS = (PILOT_DAILY_TF, PILOT_HOURLY_TF)
 
+    @property
+    def pilot_tfs(self) -> tuple[str, ...]:
+        """The tfs this run's pilot computes: 1d alone at scope `1d`, 1d and 1h at scope `all`."""
+        return (self.PILOT_DAILY_TF,) if self.scope == SCOPE_1D else self.PILOT_TFS
+
     def __init__(self, run: CorpusRun, store: RunStore, deps: Deps, apr: CorpusRerunApr):
         self.run = run
         self.store = store
         self.deps = deps
         self.apr = apr
-        self.steps = build_steps(run.spans)
+        self.scope = run_scope(run)
+        self.steps = build_steps(run.spans, self.scope)
         self.by_name = {step.name: step for step in self.steps}
         self.handlers = self._step_handlers()
         unhandled = sorted({step.kind for step in self.steps} - set(self.handlers))
         if unhandled:  # a step kind added to the DAG without a handler fails at construction
             raise ValueError(f"step kind(s) without a handler: {unhandled}")
+
+    @property
+    def run_tfs(self) -> list[str]:
+        """The timeframes this run computes and judges: 1d alone at scope `1d`, the APR target
+        set at scope `all`. Every step reads its tfs here, so a `1d` run never counts, plans or
+        measures an intraday unit."""
+        return [DAILY_TF] if self.scope == SCOPE_1D else self.apr_tfs()
 
     def _step_handlers(self) -> dict[str, Callable[[Step], Any]]:
         """The one table from a step kind to the method that runs it (never a name lookup, so a
@@ -1008,7 +1062,7 @@ class CorpusRerun:
                     f"step {name} refused: its upstream step {step.upstream} {state} "
                     f"under run {self.run.run_id}"
                 )
-        if step.kind in INTRADAY_STEP_KINDS:
+        if step.kind == SPAN or (step.kind in INTRADAY_STEP_KINDS and self.scope == SCOPE_ALL):
             self._require_intraday_verdict(step)
         self.store.begin(self.run.run_id, name)
         _logger.info("corpus_rerun.step_started", step=name, run_id=self.run.run_id)
@@ -1064,15 +1118,12 @@ class CorpusRerun:
             )
 
     def _step_data_gate(self, step: Step) -> Any:
-        scope = self.run.measured.get(DATA_GATE_SCOPE_KEY)
-        if scope not in DATA_GATE_SCOPES:
-            raise StepFailed(
-                f"run {self.run.run_id} records no valid data gate scope {scope!r}; "
-                f"create the run with --data-gate-scope {{{','.join(DATA_GATE_SCOPES)}}}",
-                {},
-            )
         result = self.deps.run_data_gate(
-            self.deps.conn, self.deps.settings, self.apr, horizon=self.run.horizon, scope=scope
+            self.deps.conn,
+            self.deps.settings,
+            self.apr,
+            horizon=self.run.horizon,
+            scope=self.scope,
         )
         record = result.as_record()
         if not result.ok:
@@ -1225,7 +1276,10 @@ class CorpusRerun:
             if upcoming.kind == SPAN and upcoming.span_index is not None
             else datetime(1970, 1, 1, tzinfo=UTC)
         )
-        tfs = ("1d", *INTRADAY_ORDER) if upcoming.kind != SPAN else INTRADAY_ORDER
+        if upcoming.kind == SPAN:
+            tfs: tuple[str, ...] = INTRADAY_ORDER
+        else:
+            tfs = (DAILY_TF, *INTRADAY_ORDER) if self.scope == SCOPE_ALL else (DAILY_TF,)
         remaining_rows = self._counts().rows(start, datetime(9999, 1, 1, tzinfo=UTC), tfs)
         disk = {
             "projected_compressed_bytes": int(
@@ -1247,7 +1301,8 @@ class CorpusRerun:
             }
         ]
         try:
-            results = self.deps.preconditions(upcoming.kind != STAGE_1D, disk)
+            intraday = upcoming.kind != STAGE_1D and self.scope == SCOPE_ALL
+            results = self.deps.preconditions(intraday, disk)
         except Exception as error:
             results = getattr(error, "results", None)
             if results is None:
@@ -1288,6 +1343,13 @@ class CorpusRerun:
     # -- the rebuild stages ----------------------------------------------------
 
     def _stage(self, **kwargs: Any) -> dict[str, Any]:
+        timeframes = kwargs.get("timeframes")
+        if self.scope == SCOPE_1D and (not timeframes or set(timeframes) != {DAILY_TF}):
+            # No path of a `1d` run reaches an intraday unit, whatever the caller asks.
+            raise StepRefused(
+                f"run {self.run.run_id} has scope {SCOPE_1D!r}: its stages compute {DAILY_TF} "
+                f"only, not {timeframes!r}"
+            )
         summary = self.deps.run_stage(
             settings=self.deps.settings,
             symbols=None,
@@ -1359,29 +1421,21 @@ class CorpusRerun:
         t0 = d.monotonic()
         daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=[0])
         t1 = d.monotonic()
-        span_start, span_end = self.run.spans[0]
-        hourly: dict[str, Any] | None = None
-        year = span_start.year
-        while datetime(year, 1, 1, tzinfo=UTC) < span_end:
-            # The first Jan-1 aligned year of span 1 holding a 1h unit of chunk 0; s1.1h later
-            # skips it as completed.
-            bounds = (datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC))
-            hourly = self._stage(timeframes=[self.PILOT_HOURLY_TF], span=bounds, chunk_indices=[0])
-            if hourly["units_total"]:
-                break
-            year += 1
+        hourly = self._pilot_hourly_unit() if self.scope == SCOPE_ALL else None
         t2 = d.monotonic()
         load_after = d.db_load()
         summary: dict[str, Any] = {
             "pin_checks": pins,
             "stage_1d_chunk0": daily,
-            "s1_1h_unit": hourly,
+            "proven_start_disclosure": self._proven_start_disclosure(),
         }
         problems = self.stage_problems(daily)
-        if hourly is None or not hourly["units_total"]:
-            problems.append("no 1h unit of symbol chunk 0 inside span 1")
-        else:
-            problems += self.stage_problems(hourly)
+        if self.scope == SCOPE_ALL:
+            summary["s1_1h_unit"] = hourly
+            if hourly is None or not hourly["units_total"]:
+                problems.append("no 1h unit of symbol chunk 0 inside span 1")
+            else:
+                problems += self.stage_problems(hourly)
         if not daily["units_total"]:
             problems.append("symbol chunk 0 has no 1d unit")
         if problems:
@@ -1389,15 +1443,15 @@ class CorpusRerun:
 
         # 1d runs the whole chunk 0; an intraday timeframe only its 5m-tier names, so the screen
         # and the compute gate never name a (symbol, tf) the stage did not compute.
-        chunk0_by_tf = {tf: d.symbol_chunks(tf)[0] for tf in self.PILOT_TFS}
+        chunk0_by_tf = {tf: d.symbol_chunks(tf)[0] for tf in self.pilot_tfs}
         # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
         # One screen per timeframe over the names that timeframe computed (all of chunk 0 for 1d).
         screens = [
             [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf]
             + [arg for symbol in chunk0_by_tf[tf] for arg in ("--symbol", symbol)]
-            for tf in self.PILOT_TFS
+            for tf in self.pilot_tfs
         ]
-        units = [f"{s}:{tf}" for tf in self.PILOT_TFS for s in chunk0_by_tf[tf]]
+        units = [f"{s}:{tf}" for tf in self.pilot_tfs for s in chunk0_by_tf[tf]]
         gates = {
             "G1-G3": _combined(d.run_command(argv, d.worktree) for argv in screens),
             "G4-G5": d.run_command(
@@ -1408,30 +1462,30 @@ class CorpusRerun:
             name: {"returncode": rc, "output": out} for name, (rc, out) in gates.items()
         }
 
-        measured = {
+        # The stages measured: 1d always, the 1h unit only at scope `all` (a `1d` run measures,
+        # extrapolates and re-projects stage_1d alone; its intraday terms are not judged).
+        stages = [daily] if hourly is None else [daily, hourly]
+        measured: dict[str, Any] = {
             "pilot_bytes_per_row_1d": daily["bytes_per_row_max"],
-            "pilot_bytes_per_row_intraday": hourly["bytes_per_row_max"],
-            "pilot_stored_per_spool": max(
-                daily["stored_per_spool_max"], hourly["stored_per_spool_max"]
-            ),
+            "pilot_stored_per_spool": max(s["stored_per_spool_max"] for s in stages),
             "pilot_seconds_1d_chunk": round(t1 - t0, 1),
-            "pilot_seconds_1h_unit": round(t2 - t1, 1),
         }
         counts = self._counts()
         every = (datetime(1970, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
         n_chunks = len(counts.chunks()) or 1
-        hourly_rows = max(hourly["rows_loaded"], 1)
-        measured["extrapolated_seconds"] = {
-            "stage_1d": round((t1 - t0) * n_chunks, 0),
-            **{
+        measured["extrapolated_seconds"] = {"stage_1d": round((t1 - t0) * n_chunks, 0)}
+        if hourly is not None:
+            hourly_rows = max(hourly["rows_loaded"], 1)
+            measured["pilot_bytes_per_row_intraday"] = hourly["bytes_per_row_max"]
+            measured["pilot_seconds_1h_unit"] = round(t2 - t1, 1)
+            measured["extrapolated_seconds"] |= {
                 tf: round((t2 - t1) / hourly_rows * counts.rows(*every, (tf,)), 0)
                 for tf in INTRADAY_ORDER
-            },
-        }
+            }
         # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
         # plan-only preview's fallback); the smaller of the 1d and 1h ratios is the conservative
         # one for every later projection.
-        compression = {tf: d.measure_compression(chunk0_by_tf[tf], tf) for tf in self.PILOT_TFS}
+        compression = {tf: d.measure_compression(chunk0_by_tf[tf], tf) for tf in self.pilot_tfs}
         measured["pilot_compression"] = compression
         ratios = [c["ratio"] for c in compression.values() if c.get("ratio")]
         if len(ratios) != len(compression):
@@ -1448,7 +1502,7 @@ class CorpusRerun:
         summary["measured"] = measured
 
         objects = self._object_gate(
-            [*daily["scope_batch_keys"], *hourly["scope_batch_keys"]], list(self.PILOT_TFS)
+            [k for stage in stages for k in stage["scope_batch_keys"]], list(self.pilot_tfs)
         )
         summary["gates"]["G6-objects"] = objects
         failed_gates = [name for name, (rc, _) in gates.items() if rc != 0]
@@ -1456,7 +1510,9 @@ class CorpusRerun:
             failed_gates.append("G6-objects")
         if failed_gates:
             raise StepFailed(f"pilot gates failed: {', '.join(failed_gates)}", summary)
-        larger = max(measured["pilot_bytes_per_row_1d"], measured["pilot_bytes_per_row_intraday"])
+        larger = max(
+            measured["pilot_bytes_per_row_1d"], measured.get("pilot_bytes_per_row_intraday", 0.0)
+        )
         inputs = self._inputs(
             bytes_per_row=larger, compression_ratio=measured[COMPRESSION_RATIO_MEASURED]
         )
@@ -1464,19 +1520,52 @@ class CorpusRerun:
         summary["reprojection"] = [p.as_record() for p in peaks]
         over = overflowing(peaks, inputs)
         if over:
+            remedy = (
+                "spans (spans are immutable: start a new run, which plans more spans)"
+                if self.run.spans
+                else "stage_1d peak (a 1d run has no spans: free disk, then start a new run)"
+            )
             raise StepFailed(
-                "the pilot's measured bytes per row and compression ratio overflow the run's "
-                "spans (spans are immutable: start a new run, which plans more spans):\n"
-                + format_peaks(peaks, inputs.limit_bytes),
+                f"the pilot's measured bytes per row and compression ratio overflow the run's "
+                f"{remedy}:\n" + format_peaks(peaks, inputs.limit_bytes),
                 summary,
             )
         return summary
+
+    def _pilot_hourly_unit(self) -> dict[str, Any] | None:
+        """One 1h unit of symbol chunk 0 in the first Jan-1 aligned year of span 1 that holds
+        one (scope `all` only); s1.1h later skips it as completed."""
+        span_start, span_end = self.run.spans[0]
+        hourly: dict[str, Any] | None = None
+        year = span_start.year
+        while datetime(year, 1, 1, tzinfo=UTC) < span_end:
+            bounds = (datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC))
+            hourly = self._stage(timeframes=[self.PILOT_HOURLY_TF], span=bounds, chunk_indices=[0])
+            if hourly["units_total"]:
+                break
+            year += 1
+        return hourly
+
+    def _proven_start_disclosure(self) -> dict[str, Any]:
+        """Owner disclosure (ledger 2026-11-21b): the names whose compute start is pushed past
+        their last membership month by the proven start's coverage rule, from the stored data
+        gate verdict's list and `universe_membership` (read only)."""
+        from services.corpus_rerun_data_gate import proven_start_disclosure
+
+        verdict = self.store.step(self.run.run_id, DATA_GATE)
+        names = (verdict.summary if verdict is not None else {}).get(
+            "names_member_before_proven_start", []
+        )
+        return proven_start_disclosure(names, self.deps.member_months())
 
     # -- feature_complete ---------------------------------------------------------
 
     def _step_feature_complete(self, step: Step) -> dict[str, Any]:
         d, run_id = self.deps, self.run.run_id
-        specs, blind = d.planned_units(d.settings, d.conn, self.run.horizon)
+        tfs = self.run_tfs
+        specs, blind = d.planned_units(
+            d.settings, d.conn, self.run.horizon, tfs if self.scope == SCOPE_1D else None
+        )
         keys = [spec.batch_key for spec in specs]
         rows = self.store.completed_rows(keys)
         adoptions = self.store.adoptions(run_id)
@@ -1493,7 +1582,7 @@ class CorpusRerun:
                 blind |= set((summary.get(part) or {}).get("digest_blind_symbols") or ())
         screens = {
             tf: d.run_command([d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf], d.worktree)
-            for tf in self.apr_tfs()
+            for tf in tfs
         }
         summary = {
             "units_planned": len(keys),
@@ -1517,7 +1606,7 @@ class CorpusRerun:
         failing = [tf for tf, (rc, _) in screens.items() if rc != 0]
         if failing:
             problems.append(f"column screen (G1-G3, G6 null share) fails on {failing}")
-        objects = self._object_gate(keys, self.apr_tfs())
+        objects = self._object_gate(keys, tfs)
         summary["object_share"] = objects
         if objects["failing"]:
             problems.append(f"{len(objects['failing'])} object or event column shares fail")
@@ -1565,6 +1654,8 @@ class CorpusRerun:
             "--report",
             str(report_path),
         ]
+        if self.scope == SCOPE_1D:  # ic_measure's default is every tf of its horizons APR
+            argv += [arg for tf in self.run_tfs for arg in ("--tf", tf)]
         rc, out = d.run_command(argv, d.worktree)
         summary: dict[str, Any] = {
             "pin_checks": pins,
@@ -1576,8 +1667,16 @@ class CorpusRerun:
         if rc != 0:
             raise StepFailed(f"ic_measure exited {rc}", summary)
         outcomes = {o["unit_key"]: o for o in d.read_json(report_path)["outcomes"]}
-        horizons = {tf: {int(h) for h in hs} for tf, hs in self._json_apr(_IC_HORIZONS_KEY).items()}
+        # Scope `all` judges every tf of the horizons APR (ic_measure's default); `1d` only 1d.
+        only = {DAILY_TF} if self.scope == SCOPE_1D else None
+        horizons = {
+            tf: {int(h) for h in hs}
+            for tf, hs in self._json_apr(_IC_HORIZONS_KEY).items()
+            if only is None or tf in only
+        }
         adopted, problems = [], []
+        if only and only - set(horizons):  # a scope tf without horizons would check nothing
+            problems.append(f"{sorted(only - set(horizons))} has no horizons in {_IC_HORIZONS_KEY}")
         for job in active_jobs(list(_DEFAULT_JOBS), []):
             for tf in horizons:
                 unit_key = bulk_load_unit_key(
@@ -1598,7 +1697,9 @@ class CorpusRerun:
                 problems.append(f"tf {tf}: no POOLED rows at lookaheads {sorted(expected - have)}")
             if have - expected:
                 problems.append(f"tf {tf}: unexpected lookaheads {sorted(have - expected)}")
-        summary["pooled_lookaheads"] = {tf: sorted(v) for tf, v in present.items()}
+        summary["pooled_lookaheads"] = {
+            tf: sorted(v) for tf, v in present.items() if only is None or tf in only
+        }
         if problems:
             raise StepFailed("ic_measure units: " + "; ".join(problems), summary)
         return summary
@@ -1642,7 +1743,9 @@ class CorpusRerun:
             if isinstance(oos, datetime)
             else datetime.fromisoformat(str(oos).replace("Z", "+00:00"))
         )
-        count, first = self.store.rows_reaching(oos_start)
+        count, first = self.store.rows_reaching(
+            oos_start, self.run_tfs if self.scope == SCOPE_1D else None
+        )
         summary = {"oos_start": oos_start.isoformat(), "rows_reaching": count, "first": first}
         if count:
             raise StepFailed(f"{count} {_IC_TABLE} rows reach oos_start (D-19)", summary)
@@ -1650,7 +1753,10 @@ class CorpusRerun:
 
     def _step_canary(self, step: Step) -> dict[str, Any]:
         d = self.deps
-        rc, out = d.run_command([d.python, str(CANARY), "--run-id", self.run.run_id], d.worktree)
+        argv = [d.python, str(CANARY), "--run-id", self.run.run_id]
+        if self.scope == SCOPE_1D:  # the canary's default is every tf of the target APR
+            argv += [arg for tf in self.run_tfs for arg in ("--tf", tf)]
+        rc, out = d.run_command(argv, d.worktree)
         summary = {"returncode": rc, "output": out, "caveats": self._caveats()}
         if rc != 0:
             raise StepFailed(f"canary exited {rc}", summary)
@@ -1703,6 +1809,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         run_data_gate=gate.run_data_gate,
         run_stage=factory.run_rebuild_stage,
         planned_units=factory.planned_units,
+        member_months=lambda: gate.fetch_member_months(conn),
         symbol_chunks=lambda tf: factory.symbol_chunks(settings, conn, tf),
         run_command=run_command,
         git_head=lambda path: _git(["rev-parse", "HEAD"], path),
@@ -1737,17 +1844,26 @@ class Plan:
     peaks: list[Peak]
 
 
-def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
-    """The span plan --new-run records: counts, free space, max_wal_size, the chunk interval."""
+def plan_run(conn: Any, settings: Settings, horizon: datetime, scope: str) -> Plan:
+    """The span plan --new-run records: counts, free space, max_wal_size, the chunk interval. A
+    `1d` run counts the 1d timeframe only and plans no span (the disk plan is stage_1d's term)."""
     from services import backfill_feature_factory as factory
 
+    if scope not in DATA_GATE_SCOPES:
+        raise ValueError(f"run scope {scope!r} is not one of {DATA_GATE_SCOPES}")
     cfg = load_config_service_sync(conn)
     apr = load_corpus_rerun_apr(cfg)
     ctx = factory._stage_context(settings, conn, None, None)
-    counts = fetch_row_counts(
-        conn, ctx.chunks, ctx.starts, horizon, ctx.all_timeframes, ctx.intraday
+    tfs = [DAILY_TF] if scope == SCOPE_1D else ctx.all_timeframes
+    counts = fetch_row_counts(conn, ctx.chunks, ctx.starts, horizon, tfs, ctx.intraday)
+    stored = stored_row_counts(
+        conn,
+        settings,
+        horizon,
+        ctx.chunks,
+        ctx.intraday,
+        timeframes=tfs if scope == SCOPE_1D else None,
     )
-    stored = stored_row_counts(conn, settings, horizon, ctx.chunks, ctx.intraday)
     inputs = BudgetInputs(
         free_bytes_at_launch=factory.database_free_bytes(cfg),
         max_disk_fraction=apr.max_disk_fraction,
@@ -1757,7 +1873,10 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime) -> Plan:
         wal_bytes=factory.max_wal_bytes(conn),
         chunk_interval=chunk_interval(conn),
     )
-    plan = plan_spans(counts, inputs, stored=stored)
+    if scope == SCOPE_1D:
+        plan = plan_daily_only(counts, inputs, stored=stored)
+    else:
+        plan = plan_spans(counts, inputs, stored=stored)
     return Plan(horizon, counts, stored, inputs, plan.spans, plan.peaks)
 
 
@@ -1781,7 +1900,11 @@ def _print_plan(plan: Plan) -> None:
         f"{plan.inputs.compression_ratio:g} is the APR seed, a preview only: the pilot measures "
         "the real ratio and re-projects the spans before stage_1d"
     )
-    print(f"{len(plan.spans)} spans: " + ", ".join(f"[{s:%Y}, {e:%Y})" for s, e in plan.spans))
+    print(
+        f"{len(plan.spans)} spans: " + ", ".join(f"[{s:%Y}, {e:%Y})" for s, e in plan.spans)
+        if plan.spans
+        else "no spans (scope 1d: stage_1d only)"
+    )
     print(format_peaks(plan.peaks, plan.inputs.limit_bytes))
 
 
@@ -1808,7 +1931,7 @@ def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime, scope: 
 
 def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str, scope: str) -> str:
     """Plan the spans, create the pinned worktree and record the run; returns the run id."""
-    plan = plan_run(conn, settings, horizon)
+    plan = plan_run(conn, settings, horizon, scope)
     _print_plan(plan)
     main_root = main_checkout_root()
     commit = _git(["rev-parse", "--verify", f"{commit}^{{commit}}"], main_root)
@@ -1951,7 +2074,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if args.plan_only:
                 try:
-                    _print_plan(plan_run(conn, settings, horizon))
+                    _print_plan(plan_run(conn, settings, horizon, args.data_gate_scope))
                 except SpanPlanRefused as refused:
                     print(f"REFUSED: {refused}")
                 _data_gate_verdict(conn, settings, horizon, args.data_gate_scope)
@@ -1968,8 +2091,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         run = store.load_run(args.run_id)
         apr = load_corpus_rerun_apr(load_config_service_sync(conn))
-        runner = CorpusRerun(run, store, real_deps(settings, conn, run_worktree(run.run_id)), apr)
         try:
+            runner = CorpusRerun(
+                run, store, real_deps(settings, conn, run_worktree(run.run_id)), apr
+            )
             if args.step:
                 runner.execute(args.step)
             else:

@@ -1070,6 +1070,17 @@ def test_a_hold_excuses_only_its_own_name_and_year(monkeypatch):
     assert _failing(other_year) == {("AAA", 2015)} and not other_year.held_name_years
 
 
+def test_the_proven_start_disclosure_counts_names_and_member_months():
+    months = {"RSX": (10, False), "BFX": (5, True), "AAA": (100, True)}
+    assert gate.proven_start_disclosure(["RSX", "BFX", "GONE"], months) == {
+        "names": 2,
+        "names_in_5m_tier": 1,
+        "member_months": 15,
+        "member_months_total": 115,
+    }
+    assert gate.proven_start_disclosure([], months)["names"] == 0
+
+
 def test_a_hold_on_a_name_year_that_does_not_fail_reports_nothing(monkeypatch):
     result = _year_2015_world(0).run(monkeypatch, _held(("AAA", 2015)))
     assert result.ok and not result.held_name_years

@@ -779,6 +779,21 @@ class TestCanaryGateJudgesOneRun:
         assert conn.isolation == ("repeatable_read", True)
         assert evaluate(rows)["n_rows_evaluated"] == 2 * len(self._TFS)
 
+    def test_a_narrower_run_judges_only_its_tfs_and_refuses_one_outside_the_apr_set(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import (
+            CanaryIntegrityViolation,
+            fetch_run_rows,
+        )
+
+        provenance = {_proposer_unit("1d"): _done()}
+        conn = _FakeGateConn(provenance, {tf: _cells(tf) for tf in self._TFS})
+        rows = asyncio.run(fetch_run_rows(conn, _FakeCfg(self._TFS), _RUN, ["1d"]))
+        assert {r["tf"] for r in rows} == {"1d"}
+        assert conn.queried_units == [_proposer_unit("1d")]  # no other tf was looked up
+        for bad in (["1w"], []):
+            with pytest.raises(CanaryIntegrityViolation, match="subset of the target"):
+                asyncio.run(fetch_run_rows(conn, _FakeCfg(self._TFS), _RUN, bad))
+
     def test_a_unit_completed_under_another_run_is_refused(self) -> None:
         from scripts.ops.alpha.ops_canary_integrity_assert import CanaryIntegrityViolation
 

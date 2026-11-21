@@ -18,7 +18,8 @@ counted test can read, so a dead name is not charged for the years after it died
 - 5m term (scope B): judged only for a year in which the name has a `tier_5m` row, and (the
   1d-first run) only when the run's scope is `all`. Under scope `1d` the 5m term is still computed
   and reported (`failing_5m_not_gating`), but it does not gate and the record's `scope` says so;
-  the step runner then refuses the intraday stages (services/corpus_rerun.py).
+  the step runner then refuses the intraday stages (services/corpus_rerun.py), and a `1d` run's
+  chain holds none (the 1d-first run, runbook).
 - A name whose proven start lies after its last membership month holds no readable session (the
   compute starts a name at its proven start): it is neither judged nor refused, and the record
   lists it in `names_member_before_proven_start`.
@@ -895,6 +896,10 @@ SELECT symbol, extract(year FROM as_of)::int, bool_or(tier_5m), min(as_of), max(
 FROM universe_membership GROUP BY 1, 2
 """
 
+_MEMBER_MONTHS_SQL = """
+SELECT symbol, count(*)::int, bool_or(tier_5m) FROM universe_membership GROUP BY 1
+"""
+
 _PRE_CALENDAR_SQL = """
 SELECT symbol, count(DISTINCT ("timestamp" AT TIME ZONE 'UTC')::date)::int
 FROM market_data_ohlcv_tradeable
@@ -969,6 +974,30 @@ def fetch_membership(conn: Any) -> dict[str, NameScope]:
     with conn.cursor() as cur:
         cur.execute(_MEMBERSHIP_SQL)
         return name_scopes(cur.fetchall())
+
+
+def fetch_member_months(conn: Any) -> dict[str, tuple[int, bool]]:
+    """Per name in `universe_membership`: its member-months (one row per month-end) and whether
+    it was ever in the 5m tier. Reads only."""
+    with conn.cursor() as cur:
+        cur.execute(_MEMBER_MONTHS_SQL)
+        return {symbol: (int(n), bool(tier)) for symbol, n, tier in cur.fetchall()}
+
+
+def proven_start_disclosure(
+    names_before_start: Iterable[str], member_months: Mapping[str, tuple[int, bool]]
+) -> dict[str, int]:
+    """The owner disclosure of ledger 2026-11-21b: the names whose proven start lies after their
+    last membership month (the gate's `names_member_before_proven_start`), so the compute starts
+    them past the months they were members, with their member-months and the share of all
+    member-months. A name with no membership row is not counted (the gate never lists one)."""
+    names = [s for s in names_before_start if s in member_months]
+    return {
+        "names": len(names),
+        "names_in_5m_tier": sum(member_months[s][1] for s in names),
+        "member_months": sum(member_months[s][0] for s in names),
+        "member_months_total": sum(n for n, _ in member_months.values()),
+    }
 
 
 def fetch_policy(conn: Any, timeframe: str) -> list[PolicyRow]:

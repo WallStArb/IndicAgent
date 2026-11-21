@@ -341,6 +341,23 @@ def plan_spans(
     )
 
 
+def plan_daily_only(
+    counts: RowCounts, inputs: BudgetInputs, stored: RowCounts | None = None
+) -> SpanPlan:
+    """The plan of a run with no spans (scope `1d`): stage_1d's peak alone, refused when it
+    overflows the disk limit. `stored` is subtracted as in plan_spans."""
+    if stored is not None:
+        counts = counts.minus(stored)
+    peaks = project([], counts, inputs)
+    if overflowing(peaks, inputs):
+        raise SpanPlanRefused(
+            f"the {STAGE_1D} peak does not fit {inputs.max_disk_fraction:.2f} x "
+            f"{inputs.free_bytes_at_launch / 1e9:,.0f} GB free = {inputs.limit_bytes / 1e9:,.0f} GB: "
+            f"{peaks[0].total / 1e9:,.0f} GB"
+        )
+    return SpanPlan([], peaks, inputs.limit_bytes)
+
+
 def format_peaks(peaks: Sequence[Peak], limit_bytes: float) -> str:
     """One line per step, in GB, for the runner's output and the runbook."""
     gb = 1e9

@@ -2359,6 +2359,12 @@ def test_an_intraday_group_plans_only_the_5m_tier_and_1d_plans_the_whole_chunk(m
     )
     module.planned_units(object(), object(), datetime(2026, 10, 1, tzinfo=UTC))
     assert planned == [("5m", ("AAA", "CCC")), ("1d", chunk)]
+    # a run of scope 1d plans the 1d units alone; a timeframe outside the APR set is an error
+    planned.clear()
+    module.planned_units(object(), object(), datetime(2026, 10, 1, tzinfo=UTC), ["1d"])
+    assert planned == [("1d", chunk)]
+    with pytest.raises(ValueError, match="not in feature.factory.target_timeframes"):
+        module.planned_units(object(), object(), datetime(2026, 10, 1, tzinfo=UTC), ["1h"])
 
 
 def test_an_intraday_stage_dispatches_and_loads_only_the_5m_tier(monkeypatch, tmp_path):

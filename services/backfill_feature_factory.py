@@ -1544,16 +1544,23 @@ def symbol_chunks(settings: Settings, db_conn: Any, tf: str = "1d") -> list[tupl
 
 
 def planned_units(
-    settings: Settings, db_conn: Any, horizon: datetime
+    settings: Settings,
+    db_conn: Any,
+    horizon: datetime,
+    timeframes: Sequence[str] | None = None,
 ) -> tuple[list[BulkLoadSpec], set[str]]:
-    """Every unit of the full rebuild scope (every universe chunk, every target tf) with the
-    identity a stage would give it now, and the digest-blind symbols; plans only, computes and
-    writes nothing (the corpus rerun's feature_complete check, 186-31)."""
+    """Every unit of the full rebuild scope (every universe chunk, every target tf; the
+    `timeframes` subset when given, e.g. a 1d-scope run's 1d) with the identity a stage would give
+    it now, and the digest-blind symbols of those units; plans only, computes and writes nothing
+    (the corpus rerun's feature_complete check, 186-31)."""
     ctx = _stage_context(settings, db_conn, None, None)
+    planned_tfs = _restrict_timeframes(
+        ctx.all_timeframes, None if timeframes is None else list(timeframes)
+    )
     specs: list[BulkLoadSpec] = []
     blind: set[str] = set()
     for chunk_index, chunk in enumerate(ctx.chunks):
-        for tf in ctx.all_timeframes:
+        for tf in planned_tfs:
             plan = _plan_group(
                 db_conn,
                 chunk_index,

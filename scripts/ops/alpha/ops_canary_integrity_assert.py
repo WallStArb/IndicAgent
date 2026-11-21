@@ -58,7 +58,7 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -178,11 +178,21 @@ def unit_run_problem(
     return f"tf {tf}: the proposer unit has no completed provenance row ({', '.join(statuses)})"
 
 
-async def fetch_run_rows(conn: Any, cfg: ConfigService, run_id: str) -> list[dict[str, Any]]:
-    """Every canary cell of the run's proposer units, one per APR tf, read in one snapshot so a
+async def fetch_run_rows(
+    conn: Any, cfg: ConfigService, run_id: str, only_tfs: Sequence[str] | None = None
+) -> list[dict[str, Any]]:
+    """Every canary cell of the run's proposer units, one per APR tf (or per tf of `only_tfs`, a
+    run of narrower scope; one outside the APR set is refused), read in one snapshot so a
     concurrent replace cannot slip between the provenance check and the cell read. Raises
     CanaryIntegrityViolation naming every tf whose unit is not the run's or holds no cell."""
     tfs = await target_timeframes(cfg)
+    if only_tfs is not None:
+        unknown = [tf for tf in only_tfs if tf not in tfs]
+        if unknown or not only_tfs:
+            raise CanaryIntegrityViolation(
+                f"--tf {list(only_tfs)!r} must be a non-empty subset of the target timeframes {tfs!r}"
+            )
+        tfs = [tf for tf in tfs if tf in only_tfs]
     rows: list[dict[str, Any]] = []
     problems: list[str] = []
     async with conn.transaction(isolation="repeatable_read", readonly=True):
@@ -441,6 +451,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="the corpus_run (uuid) whose ic_measure cells are judged; no other run's cells mix in",
     )
     parser.add_argument(
+        "--tf",
+        action="append",
+        help="judge only this timeframe (repeatable; a run of narrower scope); default: every "
+        "target timeframe",
+    )
+    parser.add_argument(
         "--fdr-alpha",
         type=float,
         default=_FDR_ALPHA_DEFAULT,
@@ -472,7 +488,7 @@ async def main(argv: list[str] | None = None) -> int:
 
     try:
         async with pool.acquire() as conn:
-            rows = await fetch_run_rows(conn, ConfigService(dsn, pool=pool), args.run_id)
+            rows = await fetch_run_rows(conn, ConfigService(dsn, pool=pool), args.run_id, args.tf)
         report = evaluate(
             rows,
             fdr_alpha=args.fdr_alpha,
