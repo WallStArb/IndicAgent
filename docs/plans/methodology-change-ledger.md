@@ -1426,3 +1426,13 @@ The A3 strict sweep over all 12,561 universe members cannot pass on a Yahoo-only
 ## 2026-11-20: strict sweep gate scope by timeframe (lead ruling, owner veto reserved)
 
 Amends the entry above, recorded before any real-data test. The strict sweep gate covers the witnessed breaks inside the name-years each timeframe's compute reads, taken from the fixed `universe_membership` rule and never from sweep results. The 1d scope is every member name-year (318 witnessed undecided breaks); the 5m scope is the tier_5m name-years (81 of those 318). 211 of the 529 undecided witnessed breaks fall in no member name-year and are disclosed with their class counts. Breaks Yahoo cannot bracket (`not_bracketable`) stay disclosed: no witness, no gate, no fix. The scope is not changed after a sweep result is read. List: `logs/sweep_strict_members_20261120b/in_scope_C.csv`.
+
+## 2026-11-21: stage 2 universe, security type once per security and placement of unplaced names (owner standing criterion, lead rulings)
+
+Two dated amendments to `docs/plans/2026-11-13-stage2-universe-preregistration.md`, adopted before any return-based look at the universe and before any counted test.
+
+What changed. (1) The security type is resolved once per security into the append-only `security_type` table (todo 648) instead of being read from the list row of each month-end; member counts at 2008-06-30, 2012-06-29 and 2016-09-30 are 3,007, 3,129 and 3,824 (label rule: 2,138, 2,023, 2,188), and the step at 2016-10 is gone. (2) Placement rule P1 attaches spans to about 110 current equities the pit map left unplaced (Agilent, Accenture, Aon and others); the candidate pin moves with each.
+
+What it costs. A disclosed early-era survivorship direction (a name typed only by a later list is a member back to 2003; the share of early-era member-days resting on a later list is not measured), 823 class conflicts counted not resolved, years 2003 to 2006 and 2009 under the 2,950 sizing and disclosed, and a point of no return after the Massive load for the new spans. No statistic, return definition, floor, window or gate threshold changes.
+
+Pre-registered? Yes. The owner ruled on 2026-11-21 in the lead's session: adopt if it is what Simons would do and its impact is material; the lead found both and records the adoption. Owner veto reserved.

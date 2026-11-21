@@ -80,9 +80,9 @@ Where canonical 1d for the new names comes from. The 2026-11-14 amendment says `
 
 The closed list's candidate set is pinned (todo 645). `CLOSED_LIST_CANDIDATES_SHA256 = e13546aa78be46026b204ea5de46cbd09a181c177f6a14cc206cbbeaf3b1b29c` is the sha256 of the sorted `symbol|type` lines, one per line with a trailing newline, that the list at L = 2026-11-09 places (13,103 lines), taken from the data on 2026-11-20 before any closed-list month was built. The membership writer refuses, writing nothing, any month after L when the live set at L no longer hashes to it, so a later pit install or `ticker_event` write cannot admit an entrant; moving the constant is a dated amendment. No rule, floor or threshold changes, and no counted look is added.
 
-## Amendment 2026-11-21 (PROPOSED, pending owner adoption; lead, security type once per security, pre-look: no return-based look at the universe has happened)
+## Amendment 2026-11-21 (ADOPTED 2026-11-21; lead, security type once per security, pre-look: no return-based look at the universe has happened)
 
-Status: proposed. Nothing is applied: migration 606 and the writer are built and rehearsed in a rolled-back transaction only. On adoption the lead records the owner ruling here and in the ledger. No frozen section above changes.
+Status: adopted. The owner ruled in the lead's session on 2026-11-21: adopt if it is what Jim Simons would do and its impact is material. Lead finding: both hold. The label rule let label coverage, not the market, decide membership (a step at 2016-10; 2008 members 2,138 under the label rule against 3,007); the resolver is deterministic and append-only and was fixed before any return-based look. Nothing is applied yet: migration 606 and the writer apply after the placement install (runbook step 6b). No frozen section above changes.
 
 Why. The membership decided eligibility from the `type` field of the list row of each month-end, so a name with no label on a list, or no row on that list, was ineligible that month and lost its hysteresis state. Measured 2026-11-20: labels are missing on 62 percent of the 2008 list rows, 50 percent of 2012 and 47 percent of June 2016; the member count steps from 2,188 to 3,640 at 2016-10 with the label coverage, not the market; 1,289 symbols have gaps inside their span. Massive rebuilt its lists in 2025 (rows of the 2005 and 2016 lists carry `last_updated_utc` 2025), so a label is not point in time: it does not time a real event and was not known at its date. A security's type is persistent metadata, so it is resolved once.
 
@@ -101,3 +101,14 @@ Disclosures (disclosed, none gated).
 
 No rule floor, window or price value changes, and no counted look or series is added.
 
+
+## Amendment 2026-11-21b: placement of unplaced names (P1), adopted (lead, owner standing criterion, owner veto reserved)
+
+Source and measurement: `docs/plans/2026-11-20-pit-map-unplaced-names-measurement-and-amendment-draft.md` (sections 1 to 4; no return-based look at the universe has happened). Criterion from the owner on 2026-11-21: adopt if it is what Simons would do and its impact is material. Finding: 128 names are unplaced at L (Agilent, Accenture, Aon, Aptiv and others), 88 above $25M and 61 above $100M a day, 35,495 ticker-months (3.25 percent), 728 name-years at tier entry; a universe without current large liquid names is not one to test on, and the fix attaches spans to identifiers the instruments already carry.
+
+Decisions (draft section 5):
+1. Adopt P1 as drafted: 110 names placed onto existing instruments, every run of the key, FIGI identity condition, no merge across a CIK change.
+2. The planner restricts `spanless` to equities (the ten futures-collision equities are placed as new securities). The three claimed-ticker names (ARES, CR, VLY) are placed under the claim-minus variant only if the review confirms each of the three; otherwise they join the residual. CRH, FTAI and the renamed-ticker runs are disclosed as residual (two names and about 90 months, below the materiality line); the eleven spanless equities with no identifiers are a separate item.
+3. The point of no return after the Massive 1d raw load is accepted; the membership tables reset and rebuild only after the canonical rebuild, and the candidate pin (`CLOSED_LIST_CANDIDATES_SHA256`, moved by 648 to `730622ae...`) is repinned once more from the post-install data, by a dated entry here, before any closed-list month is built.
+
+Order (runbook): P1 code and tests, scratch map, independent review, install rehearsal and apply, Massive 1d load and canonical rebuild, migration 605, then 6b (migration 606 and the writer), then rebuild and repin. No frozen section changes.
