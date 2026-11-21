@@ -17,10 +17,13 @@ import pytest
 from services.backfill_feature_factory import _spool_line
 from services.corpus_rerun_apr import (
     HELD_NAME_YEARS_KEY,
+    HELD_NAMES_KEY,
     CorpusRerunApr,
+    HeldName,
     HeldNameYear,
     load_corpus_rerun_apr,
     load_held_name_years,
+    load_held_names,
 )
 from src.config.config_service import ConfigService
 from src.intelligence.features.feature_vector_persistence import (
@@ -201,3 +204,55 @@ def test_an_unseeded_held_list_loads_empty_the_strict_side():
     assert load_corpus_rerun_apr(cfg).held_name_years == ()
     cfg._cache[HELD_NAME_YEARS_KEY] = cfg._parse_value(_seeded_held_json(), "json")
     assert len(load_corpus_rerun_apr(cfg).held_name_years) == 2
+
+
+_HOLDS_610 = " ".join(
+    re.sub(
+        r"--[^\n]*",
+        "",
+        read_source("production", "migrations", "610_corpus_rerun_data_gate_holds.sql"),
+    ).split()
+)
+
+
+def _json_after(marker: str) -> str:
+    return _HOLDS_610.split(marker, 1)[1].split("'", 1)[0]
+
+
+def test_migration_610_extends_the_held_years_to_23_and_seeds_the_held_names():
+    assert _HOLDS_610.startswith("BEGIN;") and _HOLDS_610.rstrip().endswith("COMMIT;")
+    years = load_held_name_years(_json_after("SET config_value = '"))
+    assert len(years) == 23 and len({(h.symbol, h.year) for h in years}) == 23
+    assert [(h.symbol, h.year) for h in years[:2]] == [("POWI", 2006), ("POWI", 2007)]
+    assert all(h.evidence for h in years)
+    assert "AND version = 1" in _HOLDS_610 and "version = 2" in _HOLDS_610
+    assert _HOLDS_610.count("'migration_610'") == 4
+    names = load_held_names(_json_after(f"('{HELD_NAMES_KEY}', 'json', '"))
+    assert [h.symbol for h in names] == [
+        "ACQR",
+        "CEP",
+        "DKA",
+        "ENGN",
+        "GGOV",
+        "KWT",
+        "PACQ~1726293",
+        "PRE",
+        "RRF",
+        "STNL",
+        "WTRE",
+    ]
+    assert "[user_preference]" in _HOLDS_610 and "2026-11-21g" in _HOLDS_610
+    assert _HOLDS_610.count("ON CONFLICT (config_key) DO NOTHING") == 2
+
+
+def test_held_names_are_pinned_and_the_loader_refuses_a_bad_entry():
+    from services.corpus_rerun import pinned_apr_keys
+    from services.corpus_rerun_apr import APR_KEYS
+
+    assert HELD_NAMES_KEY == "infra.corpus_rerun.data_gate.held_names"
+    assert HELD_NAMES_KEY in APR_KEYS and HELD_NAMES_KEY in pinned_apr_keys([])
+    assert load_held_names("[]") == ()
+    assert load_held_names([{"symbol": "X", "evidence": "why"}]) == (HeldName("X", "why"),)
+    for bad in ([{"symbol": "X"}], [{"symbol": "X", "evidence": ""}], {}):
+        with pytest.raises(ValueError, match="held_names"):
+            load_held_names(bad)

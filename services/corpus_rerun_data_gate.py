@@ -35,6 +35,10 @@ counted test can read, so a dead name is not charged for the years after it died
   `infra.corpus_rerun.data_gate.held_name_years` ({symbol, year, evidence}) that would otherwise
   fail does not gate, on either term, and is reported in `held_name_years` with its evidence. A
   held entry that would not fail is not reported; an entry for any other name-year excuses nothing.
+- Named holds of names without a proven start (ledger 2026-11-21g): a name in the APR list
+  `infra.corpus_rerun.data_gate.held_names` ({symbol, evidence}) that has no proven start is neither
+  judged nor refused and is reported in `held_names_by_list` with its evidence. Only the
+  no-proven-start refusal is excusable this way; an entry for a name that has a start excuses nothing.
 - The other thresholds are the pre-registered APR constants, unchanged. The names without a proven start,
   sessions or 1d sessions are refused or held exactly as before.
 
@@ -341,6 +345,9 @@ class DataGateResult:
     # constant, and the named exceptions with their evidence (module docstring).
     residual_1d_name_years: tuple[FailingNameYear, ...] = ()
     held_name_years: tuple[HeldNameYear, ...] = ()
+    # Names with no proven start held by the APR list `held_names` (ledger 2026-11-21g), by symbol
+    # with their evidence: neither judged nor refused.
+    held_names_by_list: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def as_record(self) -> dict[str, Any]:
         """The JSON-safe record the runner stores in corpus_run.data_gate."""
@@ -723,7 +730,9 @@ def evaluate(
     )
     refused_or_held = set(without_start) | set(zero_sessions) | set(zero_1d)
     held = {s: holds[s] for s in sorted(refused_or_held) if s in holds}
-    refused = refused_or_held - set(held)
+    listed = {h.symbol: h.evidence for h in apr.held_names}
+    held_by_list = {s: listed[s] for s in sorted(set(without_start) - set(held)) if s in listed}
+    refused = refused_or_held - set(held) - set(held_by_list)
 
     tol_5m = apr.max_missing_session_fraction
     tol_1d = apr.max_missing_1d_session_fraction
@@ -813,6 +822,7 @@ def evaluate(
         failing_5m_not_gating=tuple(not_gating),
         residual_1d_name_years=tuple(residual),
         held_name_years=tuple(held_failing),
+        held_names_by_list=held_by_list,
         scope=scope,
         pre_calendar_1d_sessions=pre_calendar_nonzero,
         pre_calendar_1d_sessions_total=sum(pre_calendar_nonzero.values()),
@@ -1209,7 +1219,8 @@ def run_data_gate(
         refused=len(result.names_without_proven_start)
         + len(result.names_with_zero_sessions)
         + len(result.names_with_zero_1d_sessions)
-        - len(result.held_names),
+        - len(result.held_names)
+        - len(result.held_names_by_list),
         seconds=round(time.monotonic() - started, 1),
     )
     return result

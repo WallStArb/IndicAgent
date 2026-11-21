@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import services.corpus_rerun_data_gate as gate
-from services.corpus_rerun_apr import CorpusRerunApr, HeldNameYear
+from services.corpus_rerun_apr import CorpusRerunApr, HeldName, HeldNameYear
 from src.core.market_calendar import get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow
 
@@ -444,6 +444,37 @@ def test_name_with_zero_1d_sessions_is_counted_and_fails(monkeypatch):
     assert not result.ok
     assert result.names_with_zero_1d_sessions == ("BBB",)
     assert all(f.symbol != "BBB" for f in result.failing_name_years)
+
+
+def _held_names(*symbols: str) -> CorpusRerunApr:
+    return CorpusRerunApr(
+        **{**APR.__dict__, "held_names": tuple(HeldName(s, f"evidence {s}") for s in symbols)}
+    )
+
+
+def test_a_listed_name_without_a_proven_start_is_held_not_refused(monkeypatch):
+    world = Fixture()
+    world.add_name("AAA", date(2016, 1, 4))
+    world.names.append("BBB")
+    result = world.run(monkeypatch, _held_names("BBB"))
+    assert result.ok
+    assert result.names_without_proven_start == ("BBB",)
+    assert result.held_names_by_list == {"BBB": "evidence BBB"}
+    assert result.as_record()["held_names_by_list"] == {"BBB": "evidence BBB"}
+
+
+def test_a_name_hold_excuses_only_the_listed_name_and_only_a_missing_start(monkeypatch):
+    world = Fixture()
+    world.add_name("AAA", date(2016, 1, 4))
+    world.names.append("BBB")
+    other = world.run(monkeypatch, _held_names("CCC"))
+    assert not other.ok and not other.held_names_by_list
+    zero = Fixture()
+    zero.add_name("AAA", date(2016, 1, 4))
+    zero.names.append("BBB")
+    zero.starts["BBB"] = HORIZON.date()  # a start with no sessions: not excusable by this list
+    result = zero.run(monkeypatch, _held_names("BBB"))
+    assert not result.ok and not result.held_names_by_list
 
 
 def _hold_world(alpaca_span_provider: str) -> Fixture:
