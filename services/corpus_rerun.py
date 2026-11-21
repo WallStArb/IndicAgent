@@ -901,8 +901,14 @@ def rebuild_precondition_results(
     ic_universe = check_ic_universe_aligned()
     try:
         results = rp.run_all(
-            bar_scan=rp.fetch_bar_verdict_inputs(conn, intraday_symbols, tfs),
-            empty_history_spans=rp.fetch_empty_history_spans(conn, tfs),
+            bar_scan=(
+                rp.fetch_bar_verdict_inputs(conn, intraday_symbols, tfs)
+                if includes_intraday
+                else None
+            ),
+            empty_history_spans=(
+                rp.fetch_empty_history_spans(conn, tfs) if includes_intraday else []
+            ),
             grid_marker_present=grid,
             grid_marker_detail="",
             d2_scan=rp.fetch_d2_inputs(conn, symbols),

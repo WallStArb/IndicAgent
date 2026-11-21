@@ -388,7 +388,7 @@ def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str)
 
 def run_all(
     *,
-    bar_scan: VerdictScan,
+    bar_scan: VerdictScan | None,
     empty_history_spans: Sequence[tuple[str, str, str]],
     grid_marker_present: bool,
     grid_marker_detail: str,
@@ -407,14 +407,24 @@ def run_all(
     naming EVERY failure when any check fails.
 
     `includes_intraday=False` is a 1d-only stage: the daily series reads neither the derived 15m/1h
-    grid nor the 5m backfill, so the two checks about those (`derived_grid_landed`, and the 189-11
-    part of `data_layer_final_landed`) are reported as not applicable instead of required. The
-    caller then passes `bar_scan` and `d2_scan` for the 1d verdicts of exactly the symbols it
-    rebuilds. A later intraday stage runs with the default and every gate."""
+    grid nor the 5m backfill, so the three checks about those (`bar_coverage`, `derived_grid_landed`,
+    and the 189-11 part of `data_layer_final_landed`) are reported as not applicable instead of
+    required, and `bar_scan` may be None (an intraday stage without it raises ValueError). The
+    caller passes `d2_scan` for the 1d verdicts of exactly the symbols it rebuilds. A later intraday stage runs with the default and every gate.
+    """
     if includes_intraday:
+        if bar_scan is None:
+            raise ValueError("an intraday stage needs the intraday bar verdict scan (bar_scan)")
+        bar_result = check_bar_coverage(bar_scan, empty_history_spans)
         grid_result = check_derived_grid_landed(grid_marker_present, grid_marker_detail)
         final_result = check_data_layer_final_landed(final_landed_markers)
     else:
+        bar_result = CheckResult(
+            "bar_coverage",
+            True,
+            "not applicable: the intraday verdicts judge 5m, 15m and 1h; a 1d-only stage is "
+            "judged by d2_landed",
+        )
         grid_result = CheckResult(
             "derived_grid_landed", True, "not applicable: a 1d-only stage reads no derived grid"
         )
@@ -427,7 +437,7 @@ def run_all(
             f"{landed.detail}; {BACKFILL_COMPLETE_SUMMARY} not applicable to a 1d-only stage",
         )
     results = [
-        check_bar_coverage(bar_scan, empty_history_spans),
+        bar_result,
         grid_result,
         check_d2_landed(d2_scan),
         final_result,

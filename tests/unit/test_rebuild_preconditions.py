@@ -719,3 +719,15 @@ def test_a_1d_only_stage_still_requires_every_other_summary_and_every_scan():
     message = str(excinfo.value)
     assert "185-42-SUMMARY.md" in message and "d2_landed" in message
     assert "missing SUMMARY files: 185-42-SUMMARY.md;" in message
+
+
+def test_a_1d_only_stage_reports_bar_coverage_not_applicable_and_needs_no_intraday_scan():
+    inputs = _all_passing_inputs()
+    inputs["bar_scan"] = VerdictScan({"SPY": ["5m:slot_coverage failed"]}, 3, _AT1, _AT2)
+    with pytest.raises(RebuildPreconditionFailure):
+        run_all(**inputs)
+    inputs["bar_scan"] = None
+    results = {r.name: r for r in run_all(**inputs, includes_intraday=False)}
+    assert results["bar_coverage"].ok and "not applicable" in results["bar_coverage"].detail
+    with pytest.raises(ValueError, match="bar_scan"):
+        run_all(**inputs)
