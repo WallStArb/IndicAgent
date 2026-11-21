@@ -2090,6 +2090,19 @@ symbol change or a listing-venue move. **Banned:** (none)
 corrections by 461: a void row supersedes and retracts a row, the current view hides both)
 **Code surface:** `scripts/ops/bars/ops_split_detect.py` (the plan 15 seam audit script was deleted in 185-42; its `seam_audit` rows stay)
 
+### `dividend coverage`
+
+The days on which a dividend source's silence is a claim of no dividend: inside the source's
+`dividend_event_coverage` span and outside every `dividend_event_coverage_gap` hole of that
+source. Outside it the dividend history is unknown, never zero. Yahoo's and IBKR's spans are
+contiguous; Massive's claim is built from each name's own cadence (first ex-date to a tail short
+of the next expected payment, holes at cadence gaps, between ticker spans and at dropped
+ex-dates; rule `massive-dividend-coverage-v1`, docs/plans/2026-11-21-massive-dividend-coverage-rule.md).
+**Not:** the span a fetch examined (`fetch coverage`), or a name's listing span. **Banned:** (none)
+**Status:** active (migration 376; holes and the Massive source by 608)
+**Code surface:** `dividend_event_coverage`, `dividend_event_coverage_gap`,
+`src/intelligence/bars/massive_dividends.py`
+
 ### `held name`
 
 A name whose canonical bars of a timeframe stay as they are until a decision releases it: it has

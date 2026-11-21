@@ -175,10 +175,16 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         Writer("services/bar_auditor.py", reason="the gap auditor (dormant streaming path)"),
     ),
     "dividend_events": (
-        Writer("services/dividend_event_writer.py", reason="Yahoo dividends (todo 428)"),
+        Writer(
+            "services/dividend_event_writer.py",
+            reason="Yahoo, IBKR-derived and Massive dividends (todo 428, migration 608)",
+        ),
     ),
     "dividend_event_coverage": (
         Writer("services/dividend_event_writer.py", reason="dividend coverage windows"),
+    ),
+    "dividend_event_coverage_gap": (
+        Writer("services/dividend_event_writer.py", reason="holes in a coverage window (608)"),
     ),
     "dividend_date_dispute": (
         Writer("services/dividend_event_writer.py", reason="dividend date disagreements"),

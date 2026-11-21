@@ -38,16 +38,27 @@ window unknown (the reader change is the phase 183 hand-off). Yield disagreement
 threshold.dividend_event.source_yield_rel_tolerance and each source's holes are logged and
 counted.
 
+Source "massive" (MassiveDividendWriter, run alone and by hand): the latest Massive dividend
+capture in reference_raw (endpoint dividends), mapped to symbols through ticker_event_current,
+USD cash only, amounts over the raw Massive prior close, with a coverage claim built from each
+name's own cadence plus its holes (dividend_event_coverage_gap). The rule is pure in
+src/intelligence/bars/massive_dividends.py; the measurement behind it is
+docs/plans/2026-11-21-massive-dividend-coverage-rule.md. The source is not reconciled against
+the other two here: rows carry their source label and the research reader decides.
+
 Usage:
-    python services/dividend_event_writer.py                          # both sources
+    python services/dividend_event_writer.py                          # yahoo and ibkr
     python services/dividend_event_writer.py --sources yahoo          # nightly-cheap
     python services/dividend_event_writer.py --sources ibkr --fetch-run-id <uuid>
+    python services/dividend_event_writer.py --sources massive --dry-run   # counts, no writes
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
+import collections
 import dataclasses
 import json
 import math
@@ -63,7 +74,9 @@ from services.batch_support.db import load_apr_dict_async
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base_batch import BaseBatch
 from src.core.models import AssetClass
+from src.intelligence.bars import massive_dividends
 from src.intelligence.bars.corporate_actions import disputed_dates
+from src.intelligence.bars.massive_symbol_map import TickerSpan
 from src.intelligence.research.dividends import DisputeRule, ibkr_rounding_bound
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -80,7 +93,12 @@ _OUTCOME_TOTAL = counter(
 )
 SOURCE_IBKR = "ibkr_adjusted_last_ratio"
 SOURCE_YAHOO = "yahoo"
-_CLI_SOURCES = {"ibkr": SOURCE_IBKR, "yahoo": SOURCE_YAHOO}
+SOURCE_MASSIVE = massive_dividends.SOURCE
+_CLI_SOURCES = {"ibkr": SOURCE_IBKR, "yahoo": SOURCE_YAHOO, "massive": SOURCE_MASSIVE}
+# The sources reconcile() compares; other sources' rows (massive) are not read by it.
+_RECONCILED_SOURCES = f"('{SOURCE_IBKR}', '{SOURCE_YAHOO}')"
+# The default run (no --sources) is the two original sources; massive runs alone, by hand.
+_DEFAULT_CLI_SOURCES = ["ibkr", "yahoo"]
 # ADJUSTED_LAST is quoted to the cent: half a cent of rounding per close.
 _HALF_TICK = 0.005
 # The rounding bound is attained exactly when an unrounded adjusted close ends in half a cent;
@@ -727,7 +745,7 @@ class DividendEventWriter(BaseBatch):
         ibkr_prev_close: dict[date, float] = {}
         for r in await conn.fetch(
             "SELECT source, ex_date, amount / prev_close AS y, prev_close FROM dividend_events "
-            "WHERE symbol = $1",
+            f"WHERE symbol = $1 AND source IN {_RECONCILED_SOURCES}",
             symbol,
         ):
             events[r["source"]][r["ex_date"]] = r["y"]
@@ -737,7 +755,7 @@ class DividendEventWriter(BaseBatch):
             r["source"]: (r["covered_from"], r["covered_to"])
             for r in await conn.fetch(
                 "SELECT source, covered_from, covered_to FROM dividend_event_coverage "
-                "WHERE symbol = $1",
+                f"WHERE symbol = $1 AND source IN {_RECONCILED_SOURCES}",
                 symbol,
             )
         }
@@ -752,10 +770,409 @@ class DividendEventWriter(BaseBatch):
         )
 
 
+# The latest capture of the full Massive dividend list (every page of one manifest).
+_MASSIVE_PAGES_SQL = """
+SELECT reference_raw_id, page, manifest_path, served_at, http_status FROM reference_raw_current
+WHERE vendor = 'massive' AND endpoint = 'dividends' AND request_key = 'all'
+ORDER BY page
+"""
+_MASSIVE_BODY_SQL = "SELECT body::text FROM reference_raw WHERE reference_raw_id = $1"
+_MASSIVE_SPANS_SQL = (
+    "SELECT ticker_event_id::text, symbol, ticker, valid_from, valid_to FROM ticker_event_current "
+    "WHERE vendor = 'massive'"
+)
+# Raw Massive 1d closes (session date = the UTC date of the bar's midnight-ET stamp) for a
+# chunk of symbols. Raw, not canonical: Massive's cash amount is in the units of its ex-date,
+# and so is the raw close before it (canonical is split-adjusted to today), so the yield is
+# unit-free. Read whole per symbol chunk: a per-event lateral lookup decompresses a chunk per
+# row (measured 2026-11-21: about 40 s per 5,000 events, an hour for the capture).
+_MASSIVE_RAW_CLOSES_SQL = """
+SELECT symbol, ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, close FROM ohlcv_raw
+WHERE symbol = ANY($1::text[]) AND timeframe = '1d' AND vendor = 'massive' AND kind = 'sip_flat'
+ORDER BY symbol, "timestamp"
+"""
+_MASSIVE_SYMBOL_CHUNK = 200  # symbols per raw read (ANY arrays go superlinear when large)
+_MEMBER_MONTHS_SQL = "SELECT symbol, as_of FROM universe_membership"
+_MASSIVE_STORED_CLAIMS_SQL = (
+    f"SELECT symbol FROM dividend_event_coverage WHERE source = '{SOURCE_MASSIVE}'"
+)
+# Readers of dividend_events that do not filter by source. Massive rows would change what they
+# return (backfill_feature_factory gets NULL amounts on Massive-only dates and is fingerprinted,
+# so it is not edited here), so a live Massive load is refused until Phase B fixes them.
+_MASSIVE_UNFILTERED_READERS = (
+    "services/backfill_feature_factory.py _DIVIDEND_AMOUNTS_SQL",
+    "services/bar_reconciliation_audit.py _EXPLAINED_DATES_SQL",
+)
+MASSIVE_READERS_READY = False
+
+
+@dataclasses.dataclass(frozen=True)
+class MassiveCapture:
+    """The capture a Massive load reads: its manifest, the date it was served (no ex-date
+    after it is knowable from it) and the reference_raw row of each page."""
+
+    manifest_path: str
+    capture_date: date
+    page_ids: dict[int, uuid.UUID]
+
+
+def massive_capture(rows: Sequence[Any]) -> MassiveCapture:
+    """Validate the page rows of the latest capture: one manifest, pages 1..N without a gap,
+    every answer HTTP 200. Raises RuntimeError otherwise (a partial capture would read as
+    missing dividends)."""
+    if not rows:
+        raise RuntimeError("no Massive dividend capture in reference_raw_current")
+    manifests = {r["manifest_path"] for r in rows}
+    pages = [r["page"] for r in rows]
+    if len(manifests) != 1:
+        raise RuntimeError(f"Massive dividend capture spans manifests {sorted(manifests)}")
+    if pages != list(range(1, len(rows) + 1)):
+        raise RuntimeError(f"Massive dividend capture pages are not 1..{len(rows)}")
+    bad = [r["page"] for r in rows if r["http_status"] != 200]
+    if bad:
+        raise RuntimeError(f"Massive dividend capture pages without HTTP 200: {bad}")
+    return MassiveCapture(
+        manifest_path=manifests.pop(),
+        capture_date=max(r["served_at"] for r in rows).astimezone(UTC).date(),
+        page_ids={r["page"]: r["reference_raw_id"] for r in rows},
+    )
+
+
+def prior_closes(
+    bars: Sequence[tuple[date, float]], ex_dates: Sequence[date], max_age_days: int
+) -> dict[date, float]:
+    """{ex_date: close of the last bar strictly before it} from (session date, close) bars
+    sorted by date, for the ex-dates whose prior bar is at most `max_age_days` calendar days
+    older. Pure."""
+    days = [d for d, _ in bars]
+    out = {}
+    for ex in ex_dates:
+        i = bisect.bisect_left(days, ex) - 1
+        if i >= 0 and (ex - days[i]).days <= max_age_days:
+            out[ex] = bars[i][1]
+    return out
+
+
+@dataclasses.dataclass(frozen=True)
+class MassiveSymbolLoad:
+    """One symbol's Massive rows: events with their raw prior close, and the coverage claim."""
+
+    symbol: str
+    events: list[tuple[massive_dividends.MassiveEvent, float]]
+    claim: massive_dividends.Coverage
+
+
+def plan_massive_loads(
+    collapsed: massive_dividends.Collapsed,
+    spans: massive_dividends.SpanIndex,
+    prev_close: dict[str, dict[date, float]],
+    instruments: set[str],
+    capture_date: date,
+) -> tuple[list[MassiveSymbolLoad], collections.Counter]:
+    """Per-symbol loads from collapsed events. Pure. An event without a prior close is dropped
+    and its ex-date becomes a hole; a symbol missing from instruments is dropped whole (its
+    rows could not reference it). Returns the loads (sorted by symbol) and the event-level
+    drop counts."""
+    drops: collections.Counter = collections.Counter()
+    loads = []
+    for symbol in sorted(collapsed.reported_dates):
+        events = collapsed.events.get(symbol, [])
+        if symbol not in instruments:
+            drops["no_instrument"] += len(events)
+            continue
+        kept = []
+        dropped = set(collapsed.dropped_dates.get(symbol, ()))
+        for event in events:
+            close = prev_close.get(symbol, {}).get(event.ex_date)
+            if close is None or not _positive(close):
+                drops[massive_dividends.DROP_NO_PREV_CLOSE] += 1
+                dropped.add(event.ex_date)
+            else:
+                kept.append((event, close))
+        claim = massive_dividends.coverage(
+            collapsed.reported_dates[symbol], dropped, spans.by_symbol[symbol], capture_date
+        )
+        if claim is None:  # unreachable: the symbol reported at least one ex-date
+            raise RuntimeError(f"{symbol}: reported ex-dates but no coverage claim")
+        loads.append(MassiveSymbolLoad(symbol, kept, claim))
+    return loads, drops
+
+
+def covered_member_months(
+    loads: Sequence[MassiveSymbolLoad], member_months: Sequence[Any]
+) -> list[tuple[str, date]]:
+    """The (symbol, month-end) universe members whose month-end date the claims cover. Pure."""
+    claims = {load.symbol: load.claim for load in loads}
+    return [
+        (r["symbol"], r["as_of"])
+        for r in member_months
+        if r["symbol"] in claims and claims[r["symbol"]].covers(r["as_of"])
+    ]
+
+
+class MassiveDividendWriter(BaseBatch):
+    """Batch service: the Massive dividend capture -> dividend_events, dividend_event_coverage
+    and dividend_event_coverage_gap (source massive). Idempotent: a rerun on the same capture
+    inserts nothing and rewrites each claim to the same values. --dry-run reads everything,
+    reports the counts and writes nothing."""
+
+    job_name = _JOB
+    compute_version = f"massive-1.0.0+{massive_dividends.RULE_ID}"
+
+    def __init__(self, db_dsn: str, symbols: list[str], dry_run: bool) -> None:
+        super().__init__(db_dsn)
+        self._symbols = set(symbols)
+        self._dry_run = dry_run
+
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        if not self._dry_run and not MASSIVE_READERS_READY:
+            raise RuntimeError(
+                "massive dividend rows would reach readers that do not filter by source "
+                f"({', '.join(_MASSIVE_UNFILTERED_READERS)}); only --dry-run until Phase B "
+                "makes them source-aware and sets MASSIVE_READERS_READY"
+            )
+        async with pool.acquire() as conn:
+            apr = await load_apr_dict_async(
+                conn, ["threshold.dividend_event.%", "threshold.dividend.%"]
+            )
+            max_age = int(_cfg(apr, "threshold.dividend_event.prev_close_max_age_days", 7))
+            max_failure_fraction = float(_cfg(apr, "threshold.dividend.max_failure_fraction", 0.05))
+            capture = massive_capture(await conn.fetch(_MASSIVE_PAGES_SQL))
+            spans = massive_dividends.SpanIndex(
+                TickerSpan(
+                    r["ticker_event_id"], r["symbol"], r["ticker"], r["valid_from"], r["valid_to"]
+                )
+                for r in await conn.fetch(_MASSIVE_SPANS_SQL)
+            )
+            instruments = {r["symbol"] for r in await conn.fetch("SELECT symbol FROM instruments")}
+            records: list[massive_dividends.DividendRecord] = []
+            for page, raw_id in sorted(capture.page_ids.items()):
+                body = json.loads(await conn.fetchval(_MASSIVE_BODY_SQL, raw_id))
+                records += massive_dividends.parse_page(body, page)
+            collapsed = massive_dividends.collapse_events(records, spans, capture.capture_date)
+            if self._symbols:
+                collapsed = _only_symbols(collapsed, self._symbols)
+            prev_close = await self._prev_closes(conn, collapsed, instruments, max_age)
+            loads, event_drops = plan_massive_loads(
+                collapsed, spans, prev_close, instruments, capture.capture_date
+            )
+            member_months = await conn.fetch(_MEMBER_MONTHS_SQL)
+
+        covered = covered_member_months(loads, member_months)
+        summary = {
+            "manifest": capture.manifest_path,
+            "capture_date": str(capture.capture_date),
+            "records": len(records),
+            "record_drops": dict(sorted(collapsed.drops.items())),
+            "event_drops": dict(sorted(event_drops.items())),
+            "events": sum(len(load.events) for load in loads),
+            "names": len(loads),
+            "holes": sum(len(load.claim.holes) for load in loads),
+            "member_months_covered": len(covered),
+            "member_years_covered": len({(s, d.year) for s, d in covered}),
+            "dry_run": self._dry_run,
+        }
+        self.logger.info("dividend_event_writer.massive_plan", **summary)
+        print(json.dumps(summary, indent=2, default=str))  # noqa: T201 - operator-facing counts
+        for reason, n in {**collapsed.drops, **event_drops}.items():
+            _OUTCOME_TOTAL.add(n, {"sources": SOURCE_MASSIVE, "outcome": f"dropped_{reason}"})
+        if self._dry_run:
+            self.completion_status = "dry_run"
+            return
+
+        failed: list[FailedSymbol] = []
+        inserted = moved = 0
+        for load in loads:
+            try:
+                async with pool.acquire() as conn, conn.transaction():
+                    n_new, n_moved = await self._write_symbol(
+                        conn, load, capture.manifest_path, capture.page_ids
+                    )
+            except _SymbolFailure as error:
+                self._record_failure(failed, load.symbol, str(error))
+                continue
+            inserted += n_new
+            moved += n_moved
+        # A stored claim whose symbol left the capture (spans retired or remapped) cannot be
+        # refreshed from it; it fails loud rather than standing on an old capture.
+        async with pool.acquire() as conn:
+            stored = {r["symbol"] for r in await conn.fetch(_MASSIVE_STORED_CLAIMS_SQL)}
+        loaded = {load.symbol for load in loads}
+        for symbol in sorted(stored - loaded):
+            if self._symbols and symbol not in self._symbols:
+                continue
+            self._record_failure(
+                failed,
+                symbol,
+                "stored massive claim, symbol no longer in the capture; resolve by hand",
+            )
+        self.logger.info(
+            "dividend_event_writer.massive_done",
+            names=len(loads),
+            inserted=inserted,
+            rederived_moved=moved,
+            failed=len(failed),
+        )
+        for outcome, n in {
+            "events": inserted,
+            "rederived_moved": moved,
+            "failed": len(failed),
+        }.items():
+            _OUTCOME_TOTAL.add(n, {"sources": SOURCE_MASSIVE, "outcome": outcome})
+        if failed:
+            attempted = len(loaded | {f.symbol for f in failed})
+            fraction = len(failed) / attempted
+            if fraction > max_failure_fraction:
+                raise RuntimeError(
+                    f"dividend_event_writer massive: {len(failed)}/{attempted} symbols failed "
+                    f"(fraction {fraction:.4f} exceeds threshold.dividend.max_failure_fraction "
+                    f"{max_failure_fraction}): {failed[:20]}"
+                )
+            self.logger.warning(
+                "dividend_event_writer.partial_run",
+                failed_symbols=len(failed),
+                symbols=attempted,
+                failure_fraction=round(fraction, 6),
+                max_failure_fraction=max_failure_fraction,
+            )
+            self.completion_status = "partial"
+
+    def _record_failure(self, failed: list[FailedSymbol], symbol: str, reason: str) -> None:
+        """Collect one symbol's failure and log it, as the Yahoo and IBKR path does."""
+        failed.append(FailedSymbol(symbol, SOURCE_MASSIVE, reason))
+        self.logger.warning(
+            "dividend_event_writer.symbol_failed",
+            symbol=symbol,
+            source=SOURCE_MASSIVE,
+            reason=reason,
+        )
+
+    @staticmethod
+    async def _prev_closes(
+        conn: asyncpg.Connection,
+        collapsed: massive_dividends.Collapsed,
+        instruments: set[str],
+        max_age: int,
+    ) -> dict[str, dict[date, float]]:
+        """{symbol: {ex_date: raw prior close}} for every storable collapsed event, one symbol
+        chunk at a time (only the chunk's bars are held)."""
+        symbols = sorted(s for s, events in collapsed.events.items() if events and s in instruments)
+        out: dict[str, dict[date, float]] = {}
+        for i in range(0, len(symbols), _MASSIVE_SYMBOL_CHUNK):
+            chunk = symbols[i : i + _MASSIVE_SYMBOL_CHUNK]
+            bars: dict[str, list[tuple[date, float]]] = {}
+            for r in await conn.fetch(_MASSIVE_RAW_CLOSES_SQL, chunk):
+                bars.setdefault(r["symbol"], []).append((r["bar_date"], r["close"]))
+            for symbol in chunk:
+                days = [e.ex_date for e in collapsed.events[symbol]]
+                out[symbol] = prior_closes(bars.get(symbol, []), days, max_age)
+        return out
+
+    async def _write_symbol(
+        self,
+        conn: asyncpg.Connection,
+        load: MassiveSymbolLoad,
+        manifest_path: str,
+        page_ids: dict[int, uuid.UUID],
+    ) -> tuple[int, int]:
+        """Insert new events, replace the claim and its holes, in the caller's transaction.
+        First derivation wins for events (a moved yield is logged, never overwritten); the
+        claim is a function of the capture, so it is replaced. Raises _SymbolFailure when a
+        stored event is no longer in the capture (a moved date would double count)."""
+        symbol = load.symbol
+        existing = {
+            r["ex_date"]: r["dividend_yield"]
+            for r in await conn.fetch(
+                "SELECT ex_date, amount / prev_close AS dividend_yield FROM dividend_events "
+                "WHERE symbol = $1 AND source = $2",
+                symbol,
+                SOURCE_MASSIVE,
+            )
+        }
+        current = {event.ex_date: event.amount / close for event, close in load.events}
+        vanished = sorted(set(existing) - set(current))
+        if vanished:
+            raise _SymbolFailure(
+                f"massive no longer reports stored ex-dates {[str(d) for d in vanished]}; "
+                "resolve by hand (a moved date would double count)"
+            )
+        moved = [d for d, y in existing.items() if not math.isclose(y, current[d], rel_tol=1e-9)]
+        if moved:
+            self.logger.warning(
+                "dividend_event_writer.rederived_yield_moved",
+                symbol=symbol,
+                source=SOURCE_MASSIVE,
+                ex_dates=[str(d) for d in sorted(moved)],
+            )
+        new = [(event, close) for event, close in load.events if event.ex_date not in existing]
+        await conn.executemany(
+            "INSERT INTO dividend_events (symbol, ex_date, source, amount, prev_close, "
+            "compute_version, declared_on, vendor_record_ids, reference_raw_ids) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            [
+                (
+                    symbol,
+                    event.ex_date,
+                    SOURCE_MASSIVE,
+                    event.amount,
+                    close,
+                    self.compute_version,
+                    event.declared_on,
+                    list(event.record_ids),
+                    [page_ids[p] for p in event.pages],
+                )
+                for event, close in new
+            ],
+        )
+        claim = load.claim
+        await conn.execute(
+            "INSERT INTO dividend_event_coverage (symbol, source, covered_from, covered_to, "
+            "checked_at, reference_capture, rule_id) VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "ON CONFLICT (symbol, source) DO UPDATE SET covered_from = EXCLUDED.covered_from, "
+            "covered_to = EXCLUDED.covered_to, checked_at = EXCLUDED.checked_at, "
+            "reference_capture = EXCLUDED.reference_capture, rule_id = EXCLUDED.rule_id",
+            symbol,
+            SOURCE_MASSIVE,
+            claim.covered_from,
+            claim.covered_to,
+            datetime.now(UTC),
+            manifest_path,
+            massive_dividends.RULE_ID,
+        )
+        await conn.execute(
+            "DELETE FROM dividend_event_coverage_gap WHERE symbol = $1 AND source = $2",
+            symbol,
+            SOURCE_MASSIVE,
+        )
+        await conn.executemany(
+            "INSERT INTO dividend_event_coverage_gap (symbol, source, gap_from, gap_to, reasons) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            [(symbol, SOURCE_MASSIVE, h.gap_from, h.gap_to, list(h.reasons)) for h in claim.holes],
+        )
+        return len(new), len(moved)
+
+
+def _only_symbols(
+    collapsed: massive_dividends.Collapsed, symbols: set[str]
+) -> massive_dividends.Collapsed:
+    """The collapsed capture restricted to `symbols` (a --symbols run); drop counts stay whole."""
+    return massive_dividends.Collapsed(
+        events={s: v for s, v in collapsed.events.items() if s in symbols},
+        reported_dates={s: v for s, v in collapsed.reported_dates.items() if s in symbols},
+        dropped_dates={s: v for s, v in collapsed.dropped_dates.items() if s in symbols},
+        drops=collapsed.drops,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Derive and reconcile dividend events")
     parser.add_argument(
-        "--sources", nargs="+", choices=sorted(_CLI_SOURCES), default=sorted(_CLI_SOURCES)
+        "--sources", nargs="+", choices=sorted(_CLI_SOURCES), default=_DEFAULT_CLI_SOURCES
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="massive only: read the capture and report the counts, write nothing",
     )
     parser.add_argument(
         "--fetch-run-id",
@@ -772,7 +1189,14 @@ def main() -> None:
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     sources = [_CLI_SOURCES[s] for s in args.sources]
-    writer = DividendEventWriter(db_dsn, settings, sources, args.fetch_run_id, args.symbols)
+    if SOURCE_MASSIVE in sources:
+        if len(sources) > 1:
+            parser.error("--sources massive runs alone")
+        writer: BaseBatch = MassiveDividendWriter(db_dsn, args.symbols, args.dry_run)
+    else:
+        if args.dry_run:
+            parser.error("--dry-run applies to --sources massive only")
+        writer = DividendEventWriter(db_dsn, settings, sources, args.fetch_run_id, args.symbols)
     asyncio.run(writer.run())
 
 
