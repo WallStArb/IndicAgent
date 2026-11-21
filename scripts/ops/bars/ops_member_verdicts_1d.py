@@ -49,6 +49,7 @@ class MemberVerdictReport1d(BarReconciliationAudit):
     job_name = "member-verdicts-1d"
     apply = False
     sample_every = 1
+    shard: tuple[int, int] = (0, 1)  # (index, count): a read-only dry run on every count-th member
 
     @staticmethod
     async def _membership_ends(conn: asyncpg.Connection) -> dict[str, date]:
@@ -86,6 +87,7 @@ class MemberVerdictReport1d(BarReconciliationAudit):
             span_end = await self._membership_ends(conn)
             if self.sample_every > 1:  # a read-only measurement on every k-th member
                 members = members[:: self.sample_every]
+            members = members[self.shard[0] :: self.shard[1]]
             seam_samples: list[str] = []
             for start in range(0, len(members), SEAM_CHUNK_NAMES):
                 chunk = members[start : start + SEAM_CHUNK_NAMES]
@@ -103,6 +105,9 @@ class MemberVerdictReport1d(BarReconciliationAudit):
             )
         print(f"members judged {len(members)}; rows {len(verdicts.facts)}")
         print(f"failing by check {dict(sorted(verdicts.failing_by_check.items()))}")
+        for fact in verdicts.facts:  # (monitor_type, subject, check, value, threshold, passed, _)
+            if not fact[5] and fact[2] in verdicts.failing_by_check:
+                print(f"FAIL {fact[1]} {fact[2]} {fact[3]}")
         print(f"seconds by check {({k: round(v) for k, v in sorted(verdicts.timings.items())})}")
         if not self.apply:
             print("dry run: nothing written (--apply writes the verdict rows)")
@@ -117,9 +122,12 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--apply", action="store_true", help="write the verdict rows")
     parser.add_argument("--sample-every", type=int, default=1, help="dry run on every k-th member")
+    parser.add_argument("--shard", default="0/1", help="dry run on shard i of n, as i/n")
     args = parser.parse_args(argv)
-    if args.apply and args.sample_every > 1:
-        parser.error("--apply judges every member; drop --sample-every")
+    index, count = (int(part) for part in args.shard.split("/"))
+    if args.apply and (args.sample_every > 1 or count > 1):
+        parser.error("--apply judges every member; drop --sample-every and --shard")
+    MemberVerdictReport1d.shard = (index, count)
     MemberVerdictReport1d.apply = args.apply
     MemberVerdictReport1d.sample_every = args.sample_every
     settings = Settings()
