@@ -416,3 +416,154 @@ def test_a_rename_of_a_name_with_no_composite_figi_is_counted_not_merged():
     p = plan(snaps)
     assert len(p.securities) == 2
     assert p.cik_renames_split == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# Placement rule P1: spans on an existing instrument that has none
+# ---------------------------------------------------------------------------------------------
+
+
+def p1_live(symbol="ACN", name="Accenture Plc-Cl A", figi=CF1, spans=()):
+    return LiveState(
+        frozenset({symbol}), {(COMPOSITE_FIGI, figi): symbol}, spans, {}, frozenset(),
+        p1_symbols=frozenset({symbol}), names={symbol: name}, ciks={symbol: CIK_A},
+    )  # fmt: skip
+
+
+def test_p1_places_a_cik_keyed_run_on_the_instrument_when_the_name_overlaps():
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE PLC")]) for i in range(3)]
+    p = plan([*snaps, snap(3)], p1_live())
+    assert p.securities == () and p.identifiers == ()
+    (span,) = p.spans
+    assert (span.symbol, span.ticker) == ("ACN", "ACN")
+    assert (span.start, span.end) == (MASSIVE_ARCHIVE_START, M[3])
+    assert p.attached_figi == {"ACN": CF1}
+    assert p.residual[(2003, "CS", PLACED)] == 3 and (2003, "CS", ALREADY_LIVE) not in p.residual
+    assert '"placement":"P1"' in span.evidence
+
+
+def test_p1_leaves_a_run_whose_name_does_not_overlap_the_instrument():
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="OTHER HOLDINGS")]) for i in range(2)]
+    p = plan(snaps, p1_live())
+    assert p.spans == () and p.attached_figi == {}
+    assert p.residual[(2003, "CS", ALREADY_LIVE)] == 2
+
+
+def test_p1_requires_a_run_composite_figi_to_equal_the_instruments():
+    bad = [snap(i, [rec("A", CIK_A, cf=CF2, typ="CS", name="AGILENT")]) for i in range(2)]
+    p = plan(bad, p1_live("A", "Agilent Technologies Inc"))
+    assert p.spans == () and p.residual[(2003, "CS", ALREADY_LIVE)] == 2
+    ok = [snap(i, [rec("A", CIK_A, cf=CF1, typ="CS", name="AGILENT")]) for i in range(2)]
+    assert [s.symbol for s in plan(ok, p1_live("A", "Agilent Technologies Inc")).spans] == ["A"]
+
+
+def test_p1_does_not_apply_to_an_instrument_off_the_gap_list():
+    live = LiveState(
+        frozenset({"ACN"}), {(COMPOSITE_FIGI, CF1): "ACN"}, (), {}, frozenset(),
+        names={"ACN": "Accenture"},
+    )  # fmt: skip
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")]) for i in range(2)]
+    assert plan(snaps, live).spans == ()
+
+
+def test_p1_needs_a_live_composite_figi_identifier_to_attach_to():
+    live = LiveState(
+        frozenset({"ACN"}), {}, (), {}, frozenset(),
+        p1_symbols=frozenset({"ACN"}), names={"ACN": "Accenture"},
+    )  # fmt: skip
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")]) for i in range(2)]
+    p = plan(snaps, live)
+    assert p.spans == () and p.residual[(2003, "CS", ALREADY_LIVE)] == 2
+
+
+def test_p1_places_every_run_of_the_key_not_only_the_latest_and_not_a_renamed_ticker():
+    def fiserv(ticker):
+        return [rec(ticker, cf=CF1, cik=CIK_A, typ="CS", name="FISERV INC")]
+
+    snaps = [snap(0, fiserv("FISV")), snap(1, fiserv("FISV")), snap(2), snap(3),
+             snap(4, fiserv("FISV")), snap(5, fiserv("FI"))]  # fmt: skip
+    p = plan(snaps, p1_live("FISV", "Fiserv Inc"))
+    assert [(s.symbol, s.ticker) for s in p.spans] == [("FISV", "FISV"), ("FISV", "FISV")]
+    assert p.residual[(2004, "CS", ALREADY_LIVE)] == 1  # the FI month is left alone
+
+
+def test_p1_places_the_run_minus_a_live_span_of_the_ticker():
+    live = p1_live(spans=(("ACN", date(2003, 10, 15), date(2003, 11, 15)),))
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")]) for i in range(4)]
+    p = plan(snaps, live)
+    assert [(s.start, s.end) for s in p.spans] == [
+        (MASSIVE_ARCHIVE_START, date(2003, 10, 15)),
+        (date(2003, 11, 15), None),
+    ]
+
+
+def test_spanless_holds_equity_instruments_only_so_a_futures_ticker_gets_a_new_security():
+    live = LiveState(
+        frozenset({"ES"}), {}, (), {}, frozenset(), non_equity_symbols=frozenset({"ES"})
+    )  # fmt: skip
+    p = plan([snap(0, [rec("ES", CIK_A, typ="CS")]), snap(1, [rec("ES", CIK_A, typ="CS")])], live)
+    assert [s.symbol for s in p.securities] == ["ES~1"]
+    assert [s.symbol for s in p.spans] == ["ES~1"]
+
+
+def test_p1_is_deterministic():
+    snaps = [snap(i, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE PLC")]) for i in range(3)]
+    assert pins(plan(snaps, p1_live())) == pins(plan(snaps, p1_live()))
+
+
+def test_p1_serves_an_instrument_that_holds_spans_for_earlier_years():
+    live = LiveState(
+        frozenset({"ARES"}), {(COMPOSITE_FIGI, CF1): "ARES"},
+        (("ARES", MASSIVE_ARCHIVE_START, M[1]),), {}, frozenset({"ARES"}),
+        p1_symbols=frozenset({"ARES"}), names={"ARES": "Ares Management Corp - A"},
+    )  # fmt: skip
+    snaps = [
+        snap(i, [rec("ARES", CIK_A, cf=CF1, typ="CS", name="ARES MANAGEMENT")]) for i in range(4)
+    ]
+    p = plan(snaps, live)
+    assert [(s.symbol, s.start, s.end) for s in p.spans] == [("ARES", M[1], None)]
+
+
+def test_p1_places_only_the_instruments_own_runs_when_another_issuer_held_the_ticker_between():
+    snaps = [
+        snap(0, [rec("XYZ", CIK_A, cf=CF1, typ="CS", name="XYZ")]),
+        snap(1, [rec("XYZ", CIK_B, typ="CS", name="OTHER")]),
+        snap(2, [rec("XYZ", CIK_A, cf=CF1, typ="CS", name="XYZ")]),
+        snap(3, [rec("XYZ", CIK_A, cf=CF1, typ="CS", name="XYZ")]),
+    ]
+    p = plan(snaps, p1_live("XYZ", "XYZ Inc"))
+    assert [s.start for s in p.spans if s.symbol == "XYZ"] == [MASSIVE_ARCHIVE_START, M[2]]
+    assert [s.symbol for s in p.spans if s.symbol != "XYZ"] == ["XYZ~2"]
+
+
+def test_p1_places_nothing_when_another_issuer_holds_the_ticker_last():
+    snaps = [
+        snap(0, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")]),
+        snap(1, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")]),
+        snap(2),
+        snap(3, [rec("ACN", CIK_B, typ="CS", name="ACCENTURE ENERGY")]),
+    ]
+    p = plan(snaps, p1_live())
+    assert [s.symbol for s in p.spans if s.symbol == "ACN"] == []
+
+
+def test_a_figi_less_run_must_carry_the_cik_of_the_instruments_overview():
+    live = p1_live("FAC", "First Alpha Capital")
+    other = [snap(i, [rec("FAC", CIK_B, typ="CS", name="FIRST ALPHA CAPITAL")]) for i in range(2)]
+    assert plan(other, live).spans == ()
+    own = [snap(i, [rec("FAC", CIK_A, typ="CS", name="FIRST ALPHA CAPITAL")]) for i in range(2)]
+    assert [s.symbol for s in plan(own, live).spans] == ["FAC"]
+    no_cik = LiveState(
+        live.symbols, live.identifiers, (), {}, frozenset(),
+        p1_symbols=live.p1_symbols, names=live.names,
+    )  # fmt: skip
+    assert plan(own, no_cik).spans == ()
+
+
+def test_two_live_composite_figis_on_one_symbol_refuse_the_plan():
+    live = LiveState(
+        frozenset({"ACN"}), {(COMPOSITE_FIGI, CF1): "ACN", (COMPOSITE_FIGI, CF2): "ACN"}, (), {},
+        frozenset(), p1_symbols=frozenset({"ACN"}), names={"ACN": "Accenture"},
+    )  # fmt: skip
+    with pytest.raises(PitPlanError, match="two live composite FIGIs"):
+        plan([snap(0, [rec("ACN", CIK_A, typ="CS", name="ACCENTURE")])], live)

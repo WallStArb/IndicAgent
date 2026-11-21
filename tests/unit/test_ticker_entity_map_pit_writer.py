@@ -19,6 +19,7 @@ from services.ticker_entity_map_writer import (
     HistoryRow,
     InstallRefused,
     OldSpan,
+    attached_identifier_ids,
     check_pinned_map,
     manifest_sha256,
     pit_by_year,
@@ -166,3 +167,45 @@ async def test_the_rollback_retires_only_identifiers_whose_spans_all_came_from_t
 async def test_the_rollback_refuses_an_identifier_a_span_outside_the_install_still_uses():
     with pytest.raises(InstallRefused, match="outside the install"):
         await retire_install_identifiers(_IdentifierConn(["a"], 1), ["S0"], ["n0"], "r")
+
+
+def test_a_pit_rollback_retires_only_the_identifiers_the_install_created():
+    rows = _history()
+    for r in rows:
+        r.evidence["map_install"]["new_symbols"] = ["S1"]
+    assert plan_rollback("i1", rows).new_symbols == ("S1",)
+
+
+def test_attached_identifier_ids_come_from_the_live_composite_figi_or_the_install_refuses():
+    rows = [{"symbol": "ACN", "value": CF1, "security_identifier_id": "sid-acn"}]
+    assert attached_identifier_ids(rows, {"ACN": CF1}) == {"ACN": "sid-acn"}
+    with pytest.raises(InstallRefused, match="ACN"):
+        attached_identifier_ids(rows, {"ACN": "BBG000B9XB24"})
+    with pytest.raises(InstallRefused, match="AON"):
+        attached_identifier_ids(rows, {"ACN": CF1, "AON": CF1})
+
+
+def test_a_span_on_an_existing_instrument_renders_with_its_composite_figi():
+    snaps = [
+        pit.PitSnapshot(M[0], (rec("OLDI", CIK_A, typ="CS"),), ()),
+        pit.PitSnapshot(M[1], (rec("OLDI", CIK_A, typ="CS"),), ()),
+    ]
+    live = pit.LiveState(
+        frozenset({"LIVE", "OLDI"}), {(pit.COMPOSITE_FIGI, CF1): "OLDI"}, (), {}, frozenset(),
+        p1_symbols=frozenset({"OLDI"}), names={"OLDI": "OLDI INC"}, ciks={"OLDI": CIK_A},
+    )  # fmt: skip
+    p = pit.plan_pit_map(snaps, live)
+    _, files = render_pit_map(OLD, p, INPUTS, GAP, "20261122")
+    doc = json.loads(files["map_diff.json"])
+    assert doc["diff"]["span_rows_added"] == 1 and doc["diff"]["new_securities"] == 0
+    assert doc["diff"]["spans_on_existing_instruments"] == 1
+    assert f",pit,{CF1}," in files["spans.csv"].decode()
+
+
+def test_two_live_composite_figis_on_one_symbol_refuse_the_attach():
+    rows = [
+        {"symbol": "ACN", "value": CF1, "security_identifier_id": "a"},
+        {"symbol": "ACN", "value": "BBG000B9XB24", "security_identifier_id": "b"},
+    ]
+    with pytest.raises(InstallRefused, match="two live composite FIGIs"):
+        attached_identifier_ids(rows, {"ACN": CF1})

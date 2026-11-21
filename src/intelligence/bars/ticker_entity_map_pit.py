@@ -27,6 +27,11 @@ The rules are the 2026-11-13 key rule and its 2026-11-15 details
   day after its last month-end when another holder took the ticker at that month-end. A run
   still present in the last snapshot is open. A bar between one holder's end and the next
   holder's first belongs to no span.
+* Placement rule P1 (amendment 2026-11-21b): an equity instrument the stage 1 gap list names for a
+  missing identity or a claimed ticker (``p1_symbols``) takes every run of its own ticker that
+  holds its key, as spans under its existing composite FIGI identifier, minus the days a live span
+  holds. A run with a composite FIGI must carry the instrument's; a
+  run with none must carry the CIK of the instrument's overview and overlap its name.
 * Additive: a run whose composite FIGI or share-class FIGI is a live identifier is left to the
   live map, and a window in which a live span holds the ticker is not given to a new security.
 """
@@ -36,7 +41,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from itertools import pairwise
@@ -61,6 +66,15 @@ CIK_TICKER = "cik_ticker"
 _FIGI = re.compile(r"[B-DF-HJ-NP-TV-Z]{2}G[B-DF-HJ-NP-TV-Z0-9]{8}[0-9]")
 _CIK = re.compile(r"[0-9]{10}")
 _TICKER = re.compile(r"\S+")
+
+# The share of the smaller name's tokens a run's latest name must share with the instrument's
+# name for a FIGI-less run to be that instrument (a design constant of the amendment, not APR).
+P1_NAME_OVERLAP = 0.5
+_P1_NOISE = frozenset(
+    "a b c cl class common company co corp corporation de inc incorporated limited ltd llc lp nv "
+    "ordinary plc sa se shares stock the".split()
+)  # fmt: skip
+P1_PLACEMENT = "P1"
 
 # Why a record or a run did not become a span (counted by year and served type).
 PLACED = "placed"
@@ -112,6 +126,13 @@ class LiveState:
     # symbols that hold at least one live span; an instrument outside this set (the stage 1 gap
     # list) has a ticker and no span, and the latest holder of that ticker is that instrument
     span_symbols: frozenset[str] = frozenset()
+    # instruments that are not equities (futures, fx): they never hold an equity pit run
+    non_equity_symbols: frozenset[str] = frozenset()
+    # equity instruments rule P1 may place spans on, and every instrument's name (for the check)
+    p1_symbols: frozenset[str] = frozenset()
+    names: Mapping[str, str] = field(default_factory=dict)
+    # symbol -> the CIK of the vendor's overview of that instrument (identity of a FIGI-less run)
+    ciks: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -169,6 +190,8 @@ class PitPlan:
     # continues under another ticker within 70 days (a rename the key rule does not link)
     bridged_months: int = 0
     cik_renames_split: int = 0
+    # symbol -> the live composite FIGI its P1 spans attach to (spans on an existing instrument)
+    attached_figi: Mapping[str, str] = field(default_factory=dict)
 
     def residual_report(self) -> list[dict[str, Any]]:
         rows: dict[tuple[int, str], dict[str, Any]] = {}
@@ -448,9 +471,11 @@ def _tag(kind: str, value: str) -> str:
     return value[-8:] if kind == COMPOSITE_FIGI else str(int(value.split(":", 1)[0]))
 
 
-def _evidence(run: _Run, kind: str, value: str, symbol: str) -> str:
+def _evidence(run: _Run, kind: str, value: str, symbol: str, placement: str | None = None) -> str:
+    extra = {"placement": placement} if placement else {}
     return canonical_json(
         {
+            **extra,
             "map_version": PIT_MAP_VERSION, "rule": PIT_RULE_ID, "anchor": "pit_snapshots",
             "key_kind": kind, "key": value, "symbol": symbol, "cik": run.cik,
             "composite_figi": run.composite, "share_class_figi": run.share_class,
@@ -468,6 +493,16 @@ def _account(kind: str, run: _Run, symbol: str, disposition: str, note: str) -> 
         "valid_from": run.first.isoformat(), "valid_to": run.last.isoformat(),
         "disposition": disposition, "reason": note, "pieces": str(run.n),
     }  # fmt: skip
+
+
+def _name_tokens(name: str | None) -> frozenset[str]:
+    # dots are dropped first so "N.V." and "S.A." read as the legal suffixes they are
+    return frozenset(re.findall(r"[a-z0-9]+", (name or "").lower().replace(".", ""))) - _P1_NOISE
+
+
+def _names_overlap(a: str | None, b: str | None) -> bool:
+    ta, tb = _name_tokens(a), _name_tokens(b)
+    return bool(ta and tb) and len(ta & tb) / min(len(ta), len(tb)) >= P1_NAME_OVERLAP
 
 
 def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
@@ -488,11 +523,16 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
     # same key. A second, inactive instrument under a suffixed symbol would split the name. An
     # instrument that has spans is handled by the clips and identifiers; a stage 2 symbol is ours.
     reused = dict(live.stage2_symbols)
-    spanless = live.symbols - live.span_symbols - set(reused.values())
-    latest: dict[str, _Run] = {}
-    for r in runs:
-        if r.ticker in spanless and (r.ticker not in latest or r.last >= latest[r.ticker].last):
-            latest[r.ticker] = r
+    spanless = live.symbols - live.span_symbols - live.non_equity_symbols - set(reused.values())
+
+    def latest_holders(tickers: Collection[str]) -> dict[str, _Run]:
+        latest: dict[str, _Run] = {}
+        for r in runs:
+            if r.ticker in tickers and (r.ticker not in latest or r.last >= latest[r.ticker].last):
+                latest[r.ticker] = r
+        return latest
+
+    latest = latest_holders(spanless)
     held_by_instrument: dict[tuple[str, str], str] = {}
     for r in runs:
         mine = latest.get(r.ticker)
@@ -501,9 +541,43 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
         # different keys, and each of them is still that instrument
         if mine is not None and (_key(r) == _key(mine) or (mine.cik and r.cik == mine.cik)):
             held_by_instrument[_key(r)] = r.ticker
+    # Rule P1: the composite FIGI an instrument carries is what its spans attach to
+    live_figi: dict[str, str] = {}
+    for (scheme, value), symbol in sorted(live.identifiers.items()):
+        if scheme == COMPOSITE_FIGI:
+            if live_figi.setdefault(symbol, value) != value:
+                raise PitPlanError(f"{symbol} carries two live composite FIGIs")
+    # An instrument rule P1 serves need not be spanless: ARES holds a span for its limited
+    # partnership years and none for the corporation, whose run carries its identifier.
+    latest_p1 = latest_holders(live.p1_symbols - live.non_equity_symbols - set(reused.values()))
+
+    def is_instrument(run: _Run) -> bool:
+        """The run is the instrument of its ticker: its composite FIGI is the instrument's, or,
+        with none, its CIK is the instrument's (the vendor's own overview) and its name overlaps
+        the instrument's."""
+        if run.composite:
+            return run.composite == live_figi.get(run.ticker)
+        cik = live.ciks.get(run.ticker)
+        return bool(cik and run.cik == cik) and _names_overlap(run.name, live.names.get(run.ticker))
+
+    p1_runs: set[int] = set()  # id(run) of the runs placed on the instrument of their ticker
+    for r in runs:
+        mine = latest_p1.get(r.ticker)
+        # the anchor (the latest holder of the string) must itself be the instrument: when
+        # another issuer took the ticker later, no run of it is placed on this instrument
+        if (
+            mine is not None and r.ticker in live_figi and is_instrument(mine)
+            and (_key(r) == _key(mine) or (mine.cik and r.cik == mine.cik))
+            and is_instrument(r)
+        ):  # fmt: skip
+            p1_runs.add(id(r))
     entities: dict[tuple[str, str], list[_Run]] = {}
+    p1_ordered: list[_Run] = []
     for run in sorted(runs, key=lambda r: (r.first, r.ticker)):
         kind, value = _key(run)
+        if id(run) in p1_runs:
+            p1_ordered.append(run)
+            continue
         if (kind, value) in held_by_instrument:
             drop(
                 run,
@@ -548,6 +622,21 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
             for (year, typ), n in run.obs.items():
                 residual[(year, typ, reason)] += n
 
+    # P1 runs take what a live span leaves of their ticker; a run that still overlaps another
+    # planned security fails the overlap check below, loudly
+    attached: list[tuple[_Run, Interval]] = []
+    for run in p1_ordered:
+        whole = _span_interval(run)
+        assert whole is not None
+        kept = _minus(whole, live_by_ticker.get(run.ticker, ()))
+        if not kept:
+            drop(run, CLIPPED_BY_LIVE_SPAN, "a live span holds the ticker throughout")
+            continue
+        attached.extend((run, piece) for piece in kept)
+        reason = PLACED if kept == [whole] else PLACED_PARTIAL
+        for (year, typ), n in run.obs.items():
+            residual[(year, typ, reason)] += n
+
     # sequential runs of one ticker, and runs of one security, never overlap
     held: dict[str, list[Interval]] = {}
     for key in sorted(pieces):
@@ -557,6 +646,8 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
                 raise PitPlanError(f"security {key} holds {ra.ticker} and {rb.ticker} at once")
         for run, interval in placed:
             held.setdefault(run.ticker, []).append(interval)
+    for run, interval in attached:
+        held.setdefault(run.ticker, []).append(interval)
     for ticker, ticker_intervals in held.items():
         ordered = sorted(ticker_intervals)
         for (a0, a1), (b0, b1) in pairwise(ordered):
@@ -627,6 +718,20 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
                     f"{s0.isoformat()} to {s1.isoformat() if s1 != date.max else 'open'}",
                 )
             )
+    for run, (s0, s1) in sorted(attached, key=lambda rp: (rp[0].ticker, rp[1])):
+        kind, value = _key(run)
+        spans.append(
+            PitSpan(
+                run.ticker, run.ticker, s0, None if s1 == date.max else s1, run.first_ref,
+                _evidence(run, kind, value, run.ticker, P1_PLACEMENT),
+            )
+        )  # fmt: skip
+        accounting.append(
+            _account(
+                "pit_span", run, run.ticker, "added",
+                f"P1 {s0.isoformat()} to {s1.isoformat() if s1 != date.max else 'open'}",
+            )
+        )  # fmt: skip
     # a share-class FIGI served under two planned securities identifies neither: it decides
     # nothing (amendment item 1), so it is not stored
     claimants = Counter(i.value for i in identifiers if i.scheme == SHARE_CLASS_FIGI)
@@ -639,6 +744,7 @@ def plan_pit_map(snapshots: Iterable[PitSnapshot], live: LiveState) -> PitPlan:
         tuple(securities), tuple(identifiers), tuple(sorted(spans, key=lambda s: (s.symbol, s.start, s.ticker))),
         tuple(accounting), dict(residual), dict(ambiguous), count, first_as_of, last_as_of,
         bridged, _cik_renames_split(pieces),
+        {run.ticker: live_figi[run.ticker] for run, _ in attached},
     )  # fmt: skip
 
 

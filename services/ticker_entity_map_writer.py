@@ -1552,6 +1552,19 @@ def retire_reason(install_id: str, digest: str, disposition: str) -> str:
     return f"{INSTALL_REASON} {install_id} map {digest}: old span {disposition}"
 
 
+def _install_new_symbols(
+    lineage: Mapping[str, Any], inserted: Sequence[HistoryRow]
+) -> tuple[str, ...]:
+    """The symbols whose identifiers a pit install created and a rollback retires. A P1 span sits
+    on an existing instrument whose identifier the install did not create, so the lineage names
+    them; an install recorded before P1 has no list and created every symbol it wrote."""
+    if lineage.get("kind") != PIT_KIND:
+        return ()
+    if "new_symbols" in lineage:
+        return tuple(sorted(lineage["new_symbols"]))
+    return tuple(sorted({r.symbol for r in inserted}))
+
+
 def plan_rollback(install_id: str, rows: Sequence[HistoryRow]) -> RollbackPlan:
     """Undo an install: retire the rows it inserted and insert back copies of the rows it
     retired (same content, new ids and a new recorded_at: the copy is recorded when restored). Refuses unless the table still holds exactly the install's result (a later install
@@ -1587,7 +1600,7 @@ def plan_rollback(install_id: str, rows: Sequence[HistoryRow]) -> RollbackPlan:
         tuple(sorted(retired, key=lambda r: r.key)),
         lineage["pre_install_sha256"],
         lineage["map_dir"],
-        tuple(sorted({r.symbol for r in live_inserted})) if lineage.get("kind") == PIT_KIND else (),
+        _install_new_symbols(lineage, live_inserted),
     )
 
 
@@ -1995,7 +2008,28 @@ SELECT e.ticker_event_id, e.symbol, e.ticker, e.valid_from, e.valid_to,
  WHERE e.vendor = 'massive'
 """
 _PIT_LIVE_IDENTIFIERS_SQL = "SELECT scheme, value, symbol FROM security_identifier_current"
-_PIT_INSTRUMENT_SYMBOLS_SQL = "SELECT symbol FROM instruments"
+_PIT_INSTRUMENTS_SQL = """
+SELECT symbol, contract_details->>'asset_class' AS asset_class,
+       contract_details->>'name' AS name
+  FROM instruments
+"""
+# Gap reasons of an instrument whose own pit runs rule P1 places (amendment 2026-11-21b): a
+# missing identity, or a ticker another security claimed (`no_span_survived`, which may leave the
+# instrument with spans for earlier years). The gap list names the instruments; no symbol is
+# listed here.
+P1_GAP_REASONS = frozenset(
+    {"massive_no_figi", "event_chain_head_mismatch", "events_malformed", "no_span_survived"}
+)
+_PIT_OVERVIEW_CIKS_SQL = """
+SELECT split_part(request_key, '@', 1) AS symbol, body->'results'->>'cik' AS cik
+  FROM reference_raw_current
+ WHERE vendor = 'massive' AND endpoint = 'overview' AND request_key LIKE '%@active'
+   AND split_part(request_key, '@', 1) = ANY($1::text[])
+"""
+_PIT_ATTACH_IDENTIFIERS_SQL = """
+SELECT symbol, value, security_identifier_id FROM security_identifier_current
+ WHERE scheme = 'composite_figi' AND symbol = ANY($1::text[])
+"""
 _PIT_STAGE2_SQL = """
 SELECT symbol, contract_details->'provider_meta'->>'key_kind' AS key_kind,
        contract_details->'provider_meta'->>'key' AS key
@@ -2092,7 +2126,8 @@ def render_pit_map(
     added = [
         NewSpan(
             s.symbol, s.ticker, s.start, s.end or _OPEN, "pit",
-            ids.get((s.symbol, pit.COMPOSITE_FIGI), ""), s.reference_raw_id, s.evidence,
+            ids.get((s.symbol, pit.COMPOSITE_FIGI)) or plan.attached_figi.get(s.symbol, ""),
+            s.reference_raw_id, s.evidence,
         )
         for s in plan.spans
     ]  # fmt: skip
@@ -2118,6 +2153,8 @@ def render_pit_map(
             "new_securities": len(plan.securities), "new_identifiers": len(plan.identifiers),
             "new_securities_by_key_kind": dict(sorted(by_kind.items())),
             "suffixed_symbols": sum("~" in s.symbol for s in plan.securities),
+            "spans_on_existing_instruments": sum(s.symbol in plan.attached_figi for s in plan.spans),
+            "existing_instruments_placed": len(plan.attached_figi),
             "names_changed": [],
         },  # fmt: skip
         "reconciliation": None,
@@ -2162,12 +2199,29 @@ async def build_pit_map(
     if pinned_spans_sha256 and pinned_spans_sha256 != live_sha:
         raise InstallRefused(f"live spans sha256 {live_sha} is not {pinned_spans_sha256}")
     stage2 = {(r["key_kind"], r["key"]): r["symbol"] for r in await conn.fetch(_PIT_STAGE2_SQL)}
+    instruments = await conn.fetch(_PIT_INSTRUMENTS_SQL)
+    p1_symbols = frozenset(
+        g.symbol
+        for g in read_gap_rows(gap_bytes)
+        if g.scope == "instrument" and g.reason in P1_GAP_REASONS
+    )
+    ciks = {
+        r["symbol"]: r["cik"]
+        for r in await conn.fetch(_PIT_OVERVIEW_CIKS_SQL, sorted(p1_symbols))
+        if r["cik"]
+    }
     live = pit.LiveState(
-        frozenset(r["symbol"] for r in await conn.fetch(_PIT_INSTRUMENT_SYMBOLS_SQL)),
+        frozenset(r["symbol"] for r in instruments),
         {(r["scheme"], r["value"]): r["symbol"] for r in await conn.fetch(_PIT_LIVE_IDENTIFIERS_SQL)},
         [(s.ticker, s.start, None if s.end == _OPEN else s.end) for s in old_spans],
         stage2,
         frozenset(s.symbol for s in old_spans),
+        non_equity_symbols=frozenset(
+            r["symbol"] for r in instruments if r["asset_class"] not in (None, "equity")
+        ),
+        p1_symbols=p1_symbols,
+        names={r["symbol"]: r["name"] for r in instruments if r["name"]},
+        ciks=ciks,
     )  # fmt: skip
     plan = await asyncio.to_thread(pit.plan_pit_map, iter_pit_snapshots(dsn), live)
     # the capture is append-only; the pin is read after the plan so it describes what was read
@@ -2184,6 +2238,7 @@ async def build_pit_map(
         "live_identifiers_sha256": hashlib.sha256(
             canonical_json(sorted(f"{k[0]}|{k[1]}|{v}" for k, v in live.identifiers.items())).encode()
         ).hexdigest(),
+        "p1_overview_ciks_sha256": hashlib.sha256(canonical_json(sorted(ciks.items())).encode()).hexdigest(),
         "rule": pit.PIT_RULE_ID,
     }  # fmt: skip
     name, files = render_pit_map(old_spans, plan, inputs, gap_bytes, version_date)
@@ -2232,6 +2287,27 @@ class TickerEntityMapPitBuilder(BaseBatch):
                          indent=2, sort_keys=True))  # fmt: skip
 
 
+def attached_identifier_ids(
+    rows: Sequence[Mapping[str, Any]], attached: Mapping[str, str]
+) -> dict[str, Any]:
+    """The live composite FIGI identifier row each P1 symbol's spans attach to. Refuses unless
+    every symbol has exactly the composite FIGI the plan named: nothing is attached to a guess."""
+    found: dict[str, Mapping[str, Any]] = {}
+    for r in rows:
+        if r["symbol"] in found:
+            raise InstallRefused(f"{r['symbol']} carries two live composite FIGIs")
+        found[r["symbol"]] = r
+    ids: dict[str, Any] = {}
+    for symbol, figi in sorted(attached.items()):
+        row = found.get(symbol)
+        if row is None or row["value"] != figi:
+            raise InstallRefused(
+                f"{symbol}: no live composite FIGI identifier {figi} to attach its spans to"
+            )
+        ids[symbol] = row["security_identifier_id"]
+    return ids
+
+
 async def install_pit_plan(
     conn: asyncpg.Connection, build: PitBuild, lineage: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -2251,6 +2327,10 @@ async def install_pit_plan(
         raise InstallRefused(f"{len(got)} identifiers written, {len(idents)} planned")
     sid = {(r["symbol"], r["scheme"]): r["security_identifier_id"] for r in got}
     kind = {s.symbol: s.key_kind for s in plan.securities}
+    attached = attached_identifier_ids(
+        await conn.fetch(_PIT_ATTACH_IDENTIFIERS_SQL, sorted(plan.attached_figi)),
+        plan.attached_figi,
+    )
     spans = [
         NewSpan(s.symbol, s.ticker, s.start, s.end or _OPEN, "pit", "", s.reference_raw_id,
                 s.evidence)
@@ -2258,7 +2338,10 @@ async def install_pit_plan(
     ]  # fmt: skip
     await conn.execute(
         _INSERT_SPANS_SQL,
-        [sid[(s.symbol, kind[s.symbol])] for s in spans],
+        [
+            attached[s.symbol] if s.symbol in attached else sid[(s.symbol, kind[s.symbol])]
+            for s in spans
+        ],
         [s.symbol for s in spans], [s.ticker for s in spans], [s.start for s in spans],
         [None if s.end == _OPEN else s.end for s in spans],
         [s.reference_raw_id for s in spans], [install_evidence(s, lineage) for s in spans],
@@ -2270,6 +2353,7 @@ async def install_pit_plan(
     return {
         "instruments_inserted": result.inserted, "instruments_already_present": result.already_present,
         "identifiers_inserted": len(got), "spans_inserted": len(spans),
+        "spans_on_existing_instruments": sum(s.symbol in attached for s in spans),
         "live_spans_after": len(after),
     }  # fmt: skip
 
@@ -2330,6 +2414,7 @@ class TickerEntityMapPitInstaller(BaseBatch):
                         "map_dir": files.name, "pre_install_sha256": pre_sha,
                         "rows_retired": 0, "rows_inserted": len(build.plan.spans),
                         "kind": PIT_KIND,
+                        "new_symbols": sorted(s.symbol for s in build.plan.securities),
                     }  # fmt: skip
                     written = await install_pit_plan(conn, build, lineage)
                     if not self._apply:
@@ -2377,6 +2462,7 @@ class TickerEntityMapPitInstaller(BaseBatch):
             "install_id": f"{install_id}-reinstall", "map_digest": files.digest,
             "map_dir": files.name, "pre_install_sha256": pre_sha, "rows_retired": 0,
             "rows_inserted": len(again.plan.spans), "kind": PIT_KIND,
+            "new_symbols": sorted(s.symbol for s in again.plan.securities),
         }  # fmt: skip
         if rolled["identifiers_retired"] != len(build.plan.identifiers):
             raise InstallRefused(
