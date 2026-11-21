@@ -65,9 +65,13 @@ Still open: apply 597 after step 7; real build and member count by year to the o
 
 ## Blocker I1 (review 2026-11-15): the IC universe differs from the corpus universe
 
+Status 2026-11-21: BUILT on main. `UNIVERSE_SOURCE` is set in `services/ic_measure.py:150` and `src/intelligence/research/snapshot.py:534` (both timeframes read `membership_inputs`); the text below is the original blocker, kept for provenance.
+
 The corpus now computes over `universe_membership` (`services/corpus_universe.py`), but the IC measurement still reads the `compute_eligible*` flags: `services/ic_measure.py:1158` (`_symbols` calls `snapshot.universe_symbols`) and `src/intelligence/research/snapshot.py` (`universe_symbols` and `_DAILY_UNSEEN_SQL`). A membership-universe corpus would be measured on another name set. `corpus_rerun.check_ic_universe_aligned` (a precondition in `rebuild_precondition_results`) imports both modules and fails loudly until each declares a module-level `UNIVERSE_SOURCE` that is `corpus_universe`. The fix edits `src/intelligence/research/snapshot.py`, so it waits for step 7 to finish and needs `repro_frozen` bit-identical (or a methodology-change entry), plus gating each date's IC panel on membership at that date.
 
 ## Blocker I2 (third review 2026-11-15): the corpus universe feeds the 5m data gate
+
+Status 2026-11-21: BUILT on main. `corpus_universe(conn, intraday=True)` (`services/corpus_universe.py:40`) returns the tier names and the data gate judges the 5m term on the tier only; the text below is the original blocker, kept for provenance.
 
 `corpus_universe` returns one list (every name ever a member, about 16,000) that `_stage_context`, `rebuild_precondition_results` and `run_data_gate` use for every timeframe. `evaluate` fails a name-year when its 5m-uncovered share passes `max_missing_session_fraction` (`services/corpus_rerun_data_gate.py`, the `fails` line), and the intraday verdict scan runs over the same list, but the preregistration loads 5m only for a top liquidity tier set by a later amendment. A 1d-only stage 2 name would fail the 5m term of the gate. Before the corpus rerun: define the 5m tier (an amendment, with the measured cost estimate), give `corpus_universe` an intraday variant (tier names nested in the membership), and have the data gate apply its 5m term and the intraday verdict scan to that variant only; the 1d term and the 1d stages run over the whole membership. Plan for I1 and the mask wiring: `docs/plans/2026-11-15-universe-ic-wiring-plan.md`.
 

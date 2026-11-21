@@ -24,7 +24,7 @@ One type per security in a table `security_type` (symbol, rule_id, security_type
 
 ## Built 2026-11-21 (nothing applied)
 
-1. Amendment 2026-11-21 appended to `docs/plans/2026-11-13-stage2-universe-preregistration.md`, marked proposed pending owner adoption (class mapping, once per security, the 2025 rebuild fact, carry disagreements, per-year untyped remainder disclosed, B not adopted, re-pin).
+1. Amendment 2026-11-21 appended to `docs/plans/2026-11-13-stage2-universe-preregistration.md`, adopted 2026-11-21 (e93b62f15; class mapping, once per security, the 2025 rebuild fact, carry disagreements, per-year untyped remainder disclosed, B not adopted, re-pin).
 2. Migration 606 `security_type` with `tests/unit/test_security_type_migration_contract.py`; `services/security_type_writer.py` (BaseBatch, one transaction, advisory lock, rehearsal rolls back, labels read one list date at a time); `UniverseMembershipWriter` reads the table (one read for every month-end, refuses an empty table, snapshot completeness check kept, tie-break removed); `RULE_ID` is `stage2-2026-11-21`. Runbook step 6b added.
 3. `CLOSED_LIST_CANDIDATES_SHA256` re-pinned to `730622aeeafca7eb60329980a979df1cfda8d334428aab0cde9a4913f1c2586b` (13,103 lines: the securities the list at L places with their resolved type; the full table is 29,204 securities, rehearsal). It moves again after the placement install (runbook step 7).
 4. Rehearsal in a rolled-back transaction (typed 29,204, CS 12,615, ETF 8,145, ADRC 532, 823 class conflicts, all as measured). Members with hysteresis from 2003-09 on the current spans: 3,007 (2008-06-30), 3,129 (2012-06-29), 3,824 (2016-09-30), against the estimates of about 2,900 and 2,760 (the 2012 estimate was low: carrying a name's type through its gaps keeps hysteresis that a per-date estimate reset). Highest count by year 1,988 (2003) to 3,913 (2015); 2003 to 2006 and 2009 stay under 2,950 and are disclosed, not chased.
@@ -35,4 +35,4 @@ Item 5, the OpenFIGI capture (lead ruling 2026-11-21): it reaches 259 of the 6,0
 
 ## Remaining
 
-- Owner adopts the amendment; then runbook step 6b (apply migration 606, run the writer, after the placement install) and the repin after step 7; f3 runs a non-strict `--sweep --symbols` delta over the new members once the table exists; the apply precedes the 584 pin.
+- Amendment adopted 2026-11-21 (e93b62f15) and the placement install applied (install id 6195ae11abff-20261121T094558Z); now runbook step 6b (apply migration 606, run the writer, after the placement install) and the repin after step 7; f3 runs a non-strict `--sweep --symbols` delta over the new members once the table exists; the apply precedes the 584 pin.
