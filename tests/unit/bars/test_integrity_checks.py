@@ -1045,6 +1045,24 @@ def test_a_split_on_a_spin_off_day_is_judged_against_the_calendars_real_move():
     assert split_discontinuities(stored, [no_move], 0.3) == [(d[1], "double_adjusted")]
 
 
+def test_a_market_route_split_is_judged_against_its_recorded_real_move():
+    """HON 2026-06-26 (todo 633): a 1-for-2 reverse split after the Aerospace separation. Canonical
+    drops 0.7123 (the separation), about the split's own ratio, so unless the row's recorded real
+    move is netted out it reads as a double adjustment."""
+    d = [date(2026, 6, 25), date(2026, 6, 26), date(2026, 6, 29), date(2026, 6, 30)]
+    stored = _closes_stored([(d[0], 462.48), (d[1], 464.42), (d[2], 227.8), (d[3], 223.9)])
+    split = SplitRecord(
+        d[1],
+        datetime(2026, 11, 17, tzinfo=UTC),
+        0.5,
+        calendar_adjusted_step=-0.7123,
+        market_fact=True,
+    )
+    assert split_discontinuities(stored, [split], 0.3) == []
+    no_move = replace(split, calendar_adjusted_step=0.0)
+    assert split_discontinuities(stored, [no_move], 0.3) == [(d[1], "double_adjusted")]
+
+
 def test_a_sub_window_restated_inside_a_rescaled_span_fails_at_its_request_boundary():
     """IBKR restates 2010-03 on the new scale (a later request, last-wins raw); the rule divides
     that window by the 2:1 factor a second time. Canonical is ibkr/named throughout, so no seam;

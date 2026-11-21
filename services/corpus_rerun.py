@@ -911,7 +911,7 @@ def rebuild_precondition_results(
             ),
             grid_marker_present=grid,
             grid_marker_detail="",
-            d2_scan=rp.fetch_d2_inputs(conn, symbols),
+            d2_scan=rp.fetch_d2_inputs(conn, symbols, held=rp.fetch_held_verdicts(conn)),
             final_landed_markers=rp.fetch_final_landed_markers(),
             todo445_decision=decision,
             configured_tfs=tfs,

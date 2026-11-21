@@ -49,6 +49,7 @@ class MemberVerdictReport1d(BarReconciliationAudit):
     job_name = "member-verdicts-1d"
     apply = False
     sample_every = 1
+    symbols: tuple[str, ...] = ()  # judge and write only these members (a repair re-judge)
     shard: tuple[int, int] = (0, 1)  # (index, count): a read-only dry run on every count-th member
 
     @staticmethod
@@ -88,6 +89,11 @@ class MemberVerdictReport1d(BarReconciliationAudit):
             if self.sample_every > 1:  # a read-only measurement on every k-th member
                 members = members[:: self.sample_every]
             members = members[self.shard[0] :: self.shard[1]]
+            if self.symbols:
+                unknown = sorted(set(self.symbols) - set(members))
+                if unknown:
+                    raise ValueError(f"not universe members: {unknown}")
+                members = sorted(set(self.symbols))
             seam_samples: list[str] = []
             for start in range(0, len(members), SEAM_CHUNK_NAMES):
                 chunk = members[start : start + SEAM_CHUNK_NAMES]
@@ -122,6 +128,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--apply", action="store_true", help="write the verdict rows")
     parser.add_argument("--sample-every", type=int, default=1, help="dry run on every k-th member")
+    parser.add_argument("--symbols", default="", help="comma list: judge (and write) only these")
     parser.add_argument("--shard", default="0/1", help="dry run on shard i of n, as i/n")
     args = parser.parse_args(argv)
     index, count = (int(part) for part in args.shard.split("/"))
@@ -130,6 +137,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.apply and (args.sample_every != 1 or count != 1):
         parser.error("--apply judges every member; drop --sample-every and --shard")
     MemberVerdictReport1d.shard = (index, count)
+    MemberVerdictReport1d.symbols = tuple(t.strip() for t in args.symbols.split(",") if t.strip())
     MemberVerdictReport1d.apply = args.apply
     MemberVerdictReport1d.sample_every = args.sample_every
     settings = Settings()

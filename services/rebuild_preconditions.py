@@ -24,6 +24,7 @@ next span's projected peak (services/corpus_rerun_budget.py), max_wal_size and t
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -34,6 +35,7 @@ from typing import Any
 from src.intelligence.bars.verdict_gate import (
     REPORT_MAX_AGE_APR_KEY,
     VerdictScan,
+    all_check_names,
     fetch_verdict_scan,
     load_report_max_age_hours,
 )
@@ -64,8 +66,14 @@ REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
     }
 )
 
-# Every APR key the checks read (the verdict freshness window); the corpus rerun pins it.
-APR_KEYS: tuple[str, ...] = (REPORT_MAX_AGE_APR_KEY,)
+# Behavioral list (migration 609, ledger 2026-11-21e): 1d verdicts d2_landed holds instead of
+# failing, a JSON list of {symbol, check, evidence}. Only a verdict that is judged and failing can
+# be held; a missing or stale one still fails.
+HELD_VERDICTS_APR_KEY = "infra.corpus_rerun.d2_landed.held_verdicts"
+
+# Every APR key the checks read (the verdict freshness window and the held list); the corpus rerun
+# pins them.
+APR_KEYS: tuple[str, ...] = (REPORT_MAX_AGE_APR_KEY, HELD_VERDICTS_APR_KEY)
 
 # Intraday timeframes the bar coverage verdicts judge. Stray vendor rows (15m, 1h) and
 # freshness_1d (1d, 185-46) gate the rebuild only, never promotion.
@@ -169,8 +177,11 @@ def _verdict_result(name: str, scan: VerdictScan, what: str) -> CheckResult:
         return CheckResult(name, False, _verdict_detail(scan))
     first, last = scan.first_evaluated_at, scan.last_evaluated_at
     window = f"{first:%Y-%m-%d %H:%M}Z..{last:%Y-%m-%d %H:%M}Z" if first and last else "no rows"
+    held = f"; {len(scan.held)} held: {'; '.join(scan.held)}" if scan.held else ""
     return CheckResult(
-        name, True, f"all {scan.n_symbols} symbols pass {what}; verdicts evaluated {window}"
+        name,
+        True,
+        f"all {scan.n_symbols} symbols pass {what}; verdicts evaluated {window}{held}",
     )
 
 
@@ -503,15 +514,86 @@ def fetch_coverage_inputs(
     return rows, spans
 
 
+@dataclasses.dataclass(frozen=True)
+class HeldVerdict:
+    """One named exception of d2_landed: a failing 1d verdict that does not gate, reported with
+    its evidence (docs/plans/methodology-change-ledger.md, 2026-11-21e)."""
+
+    symbol: str
+    check: str
+    evidence: str
+
+
+def load_held_verdicts(raw: Any) -> tuple[HeldVerdict, ...]:
+    """Parse the held list (a JSON document or an already parsed list). An entry without a symbol,
+    a check and an evidence string, or naming a check no gate requires, is a loud error."""
+    entries = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(entries, list):
+        raise ValueError(
+            f"{HELD_VERDICTS_APR_KEY} must be a JSON list, got {type(entries).__name__}"
+        )
+    known = all_check_names()
+    held = []
+    for entry in entries:
+        if not (
+            isinstance(entry, dict)
+            and isinstance(entry.get("symbol"), str)
+            and entry.get("check") in known
+            and isinstance(entry.get("evidence"), str)
+            and entry["evidence"]
+        ):
+            raise ValueError(
+                f"{HELD_VERDICTS_APR_KEY}: bad entry {entry!r} (symbol, check, evidence)"
+            )
+        held.append(HeldVerdict(entry["symbol"], entry["check"], entry["evidence"]))
+    return tuple(held)
+
+
+def fetch_held_verdicts(conn: Any) -> tuple[HeldVerdict, ...]:
+    """The held list from APR; unseeded it is empty, the strict side (nothing is excused)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = %s", (HELD_VERDICTS_APR_KEY,)
+        )
+        row = cur.fetchone()
+    return load_held_verdicts(row[0] if row else "[]")
+
+
+def excuse_held_verdicts(scan: VerdictScan, held: Sequence[HeldVerdict]) -> VerdictScan:
+    """The scan with each held `tf:check failed` reason moved out of the failures and into
+    `scan.held` with its evidence. A reason that is missing or stale, or has no entry, stays a
+    failure, and a symbol with no failing reason left no longer fails."""
+    by_key = {(h.symbol, h.check): h.evidence for h in held}
+    failures: dict[str, list[str]] = {}
+    excused: list[str] = []
+    for symbol, reasons in scan.failures.items():
+        kept = []
+        for reason in reasons:
+            subject, _, status = reason.partition(" ")
+            tf, _, check = subject.partition(":")
+            evidence = by_key.get((symbol, check)) if status == "failed" else None
+            if evidence is None:
+                kept.append(reason)
+            else:
+                excused.append(f"{symbol} {tf}:{check} ({evidence})")
+        if kept:
+            failures[symbol] = kept
+    return scan._replace(failures=failures, held=tuple(sorted(excused)))
+
+
 def fetch_d2_inputs(
-    conn: Any, symbols: Sequence[str], *, now: datetime | None = None
+    conn: Any,
+    symbols: Sequence[str],
+    *,
+    now: datetime | None = None,
+    held: Sequence[HeldVerdict] = (),
 ) -> VerdictScan:
     """The measured input of check_d2_landed: the 1d verdict gate over `symbols` (the latest
     verdicts and the latest changing 1d load per symbol, the freshness window from APR).
     Read-only. Since 185-41 it returns a VerdictScan, not (missing_lineage, missing_digest), and
     the `rule_version` argument is gone (lineage is a view and the rule is d2-v2 everywhere).
     The rebuild-only freshness_1d (185-46) is required too, so a stale series fails and is named."""
-    return fetch_verdict_scan(
+    scan = fetch_verdict_scan(
         conn,
         symbols,
         ("1d",),
@@ -519,6 +601,7 @@ def fetch_d2_inputs(
         extra_checks=REBUILD_EXTRA_CHECKS,
         now=now,
     )
+    return excuse_held_verdicts(scan, held)
 
 
 def fetch_bar_verdict_inputs(

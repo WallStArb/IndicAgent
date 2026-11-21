@@ -493,7 +493,7 @@ def split_record(r: Mapping[str, Any]) -> SplitRecord:
         factor=r["factor"],
         evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
         rescale_routes=routes,
-        calendar_adjusted_step=step if routes else 0.0,
+        calendar_adjusted_step=step if step is not None and math.isfinite(step) else 0.0,
         stales=inferred_by in RESTATEMENT_SOURCES,
         market_fact=market_fact,
     )

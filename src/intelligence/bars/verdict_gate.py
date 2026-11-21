@@ -245,6 +245,9 @@ class VerdictScan(NamedTuple):
     n_symbols: int
     first_evaluated_at: datetime | None
     last_evaluated_at: datetime | None
+    # Failing verdicts excused by a named hold, as "SYMBOL tf:check (evidence)"; never a missing or
+    # stale verdict (rebuild_preconditions.excuse_held_verdicts).
+    held: tuple[str, ...] = ()
 
 
 def load_report_max_age_hours(conn: Any) -> float:

@@ -1169,7 +1169,10 @@ def test_the_intraday_verdict_scan_takes_the_tier_and_the_1d_checks_the_whole_un
         rp, "fetch_bar_verdict_inputs", lambda conn, syms, tfs: seen.setdefault("bar", list(syms))
     )
     monkeypatch.setattr(rp, "fetch_empty_history_spans", lambda conn, tfs: None)
-    monkeypatch.setattr(rp, "fetch_d2_inputs", lambda conn, syms: seen.setdefault("d2", list(syms)))
+    monkeypatch.setattr(rp, "fetch_held_verdicts", lambda conn: ())
+    monkeypatch.setattr(
+        rp, "fetch_d2_inputs", lambda conn, syms, held: seen.setdefault("d2", list(syms))
+    )
     monkeypatch.setattr(rp, "fetch_final_landed_markers", lambda: {})
     monkeypatch.setattr(rp, "fetch_process_lines", lambda: [])
     monkeypatch.setattr(rp, "run_all", lambda **kw: [])

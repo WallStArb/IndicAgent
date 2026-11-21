@@ -284,9 +284,12 @@ def split_discontinuities(
     days = [day for day, _, _ in tradeable]
     ordered = sorted(splits, key=lambda s: s.effective_date)
     # The day's real move at a calendar_audit split's own date; 0 everywhere else.
-    real_move = {s.effective_date: s.calendar_adjusted_step for s in ordered if s.rescale_routes}
+    # A calendar_market row carries its day's real move too (todo 633: HON's separation drops the
+    # price by about the reverse split's own ratio, which reads as a double adjustment unless the
+    # recorded move is netted out).
+    real_move = {s.effective_date: s.calendar_adjusted_step for s in ordered}
     judged = {split.effective_date for split in ordered}
-    if real_move:
+    if any(s.rescale_routes for s in ordered):
         judged |= set(boundaries)
         judged |= {
             day

@@ -731,3 +731,78 @@ def test_a_1d_only_stage_reports_bar_coverage_not_applicable_and_needs_no_intrad
     assert results["bar_coverage"].ok and "not applicable" in results["bar_coverage"].detail
     with pytest.raises(ValueError, match="bar_scan"):
         run_all(**inputs)
+
+
+# ---------------------------------------------------------------------------
+# d2_landed held verdicts (ledger 2026-11-21e)
+# ---------------------------------------------------------------------------
+
+
+def test_a_held_failing_verdict_is_reported_not_gating():
+    from services.rebuild_preconditions import HeldVerdict, check_d2_landed, excuse_held_verdicts
+
+    scan = VerdictScan(
+        {
+            "AAA": ["1d:session_coverage failed"],
+            "BBB": ["1d:session_coverage failed", "1d:digest_fresh failed"],
+            "CCC": ["1d:session_coverage missing"],
+        },
+        4,
+        _AT1,
+        _AT2,
+    )
+    held = [
+        HeldVerdict("AAA", "session_coverage", "vendor hole"),
+        HeldVerdict("BBB", "session_coverage", "vendor hole"),
+        HeldVerdict("CCC", "session_coverage", "vendor hole"),
+    ]
+    out = excuse_held_verdicts(scan, held)
+    assert out.failures == {
+        "BBB": ["1d:digest_fresh failed"],
+        "CCC": ["1d:session_coverage missing"],
+    }
+    assert out.held == (
+        "AAA 1d:session_coverage (vendor hole)",
+        "BBB 1d:session_coverage (vendor hole)",
+    )
+    only_held = excuse_held_verdicts(
+        VerdictScan({"AAA": ["1d:session_coverage failed"]}, 1, _AT1, _AT2), held
+    )
+    result = check_d2_landed(only_held)
+    assert result.ok and "1 held" in result.detail and "vendor hole" in result.detail
+
+
+def test_load_held_verdicts_is_strict():
+    from services.rebuild_preconditions import load_held_verdicts
+
+    ok = '[{"symbol": "A", "check": "session_coverage", "evidence": "why"}]'
+    assert load_held_verdicts(ok)[0].symbol == "A"
+    assert load_held_verdicts("[]") == ()
+    for bad in (
+        "{}",
+        '[{"symbol": "A", "check": "nonsense", "evidence": "why"}]',
+        '[{"symbol": "A", "check": "session_coverage", "evidence": ""}]',
+        '[{"check": "session_coverage", "evidence": "why"}]',
+    ):
+        with pytest.raises(ValueError):
+            load_held_verdicts(bad)
+
+
+def test_migration_609_seeds_a_list_the_loader_accepts():
+    import re
+
+    from services.rebuild_preconditions import HELD_VERDICTS_APR_KEY, load_held_verdicts
+    from tests.unit._source_grep_helpers import read_source
+
+    text = read_source("production", "migrations", "609_d2_landed_held_verdicts.sql")
+    state = re.search(
+        r"\('" + re.escape(HELD_VERDICTS_APR_KEY) + r"', '(\[.*?\])', 1\)", text, re.S
+    )
+    assert state is not None
+    held = load_held_verdicts(state.group(1).replace("''", "'"))
+    assert len(held) == 24 and {h.check for h in held} == {
+        "split_continuity",
+        "unexplained_seam",
+        "session_coverage",
+        "freshness_1d",
+    }
