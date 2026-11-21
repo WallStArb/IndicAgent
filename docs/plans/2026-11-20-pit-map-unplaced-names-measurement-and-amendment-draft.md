@@ -1,6 +1,6 @@
 # Unplaced names in the pit map: measurement and amendment draft
 
-Status: DRAFT 2026-11-20, read-only measurement; nothing applied, no map or database change. Owner decision needed before any of Part 3 runs. Prereg context: `docs/plans/2026-11-13-stage2-universe-preregistration.md` (closed list, Amendment 2026-11-18; candidate pin, Amendment 2026-11-20); todo 624 (reused tickers); pit map `data/ticker_entity_map/20261118_6195ae11abff` (gap list, spans).
+Status: ADOPTED 2026-11-21 as preregistration Amendment 2026-11-21b (this text is the measurement and the rationale); P1 code on main `1309c2cd8`, scratch map built and reviewed 2026-11-21 (`docs/operations/stage2-membership-rebuild-runbook.md` steps 2 to 4); nothing installed, no database change yet. Built differences from the draft: P1 also places ARES, CR and VLY (113 names, 117 spans), a FIGI-less run needs the CIK of the instrument's vendor overview as well as the name match, and CRH and FTAI fail the FIGI condition and stay unplaced. Prereg context: `docs/plans/2026-11-13-stage2-universe-preregistration.md` (closed list, Amendment 2026-11-18; candidate pin, Amendment 2026-11-20); todo 624 (reused tickers); pit map `data/ticker_entity_map/20261118_6195ae11abff` (gap list, spans).
 
 ## 1. What is unplaced
 
