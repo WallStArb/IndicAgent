@@ -71,6 +71,7 @@ not IBKR coverage.
 
 | Todo | Why now |
 |---|---|
+| [649](pending/649-splits-after-the-massive-seam-need-a-detector.md) | P1. SNDK 8:1 split (ex-date 2026-11-20) failed the nightly on a basis-change flag; second post-seam split in two days after VIXM. Row file written and reviewed; measure the base rate, then decide a proposal-only detector from the Alpaca corporate-actions feed. |
 | [608](pending/608-massive-step4-split-findings-for-review.md) | P1, from todo 600 step 4. Held for review: 130 canonical-flat seam candidates (split or spin-off, a filing decides), 129 off-level canonical names, 40 identity-suspect steps. Known-accepted: D7 `split_continuity` reds CENT, RJF, SNEX. CTVA and SCCO are held by the daily stage (`unclassified_rescale`) and disclosed under the todo 512 rule; their release is this todo's decision. |
 | [609](pending/609-stage2-universe-from-massive-pit-liquidity-rule.md) | P1. Stage 2 point-in-time universe (preregistered). s0 to s8 are done: 12,561 securities ever, 4,938 in the tier; the 2004-2015 shortfall against the 2,950 floor is an owner decision (disclose, not gate). Left: the 584 pin and the corpus rerun on it. |
 | [614](pending/614-refactor-audit-2026-11-14.md) | New 2026-11-14, P1. Sixteen ranked refactor candidates from the lead audit. Rows 1, 2, 6, 8 and 12 (the rebuild code key hole, the survivorship caveat that reads zero after step 7, dead v2.x schema, zero-fill in the streaming path) land before the 584 run is created; 3, 9, 10, 11 and 13 after step 7 proves itself. |
