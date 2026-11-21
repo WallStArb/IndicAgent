@@ -802,25 +802,46 @@ so D1 plus D5 (items 2, 4 and 6, one implementer: the same kernels) starts after
 module (item 8) do not collide and run beside them. Item 3's fix waits for the 583 measurement.
 The D3 gate tool is independent and is built now.
 
-## Pin readiness (2026-11-20, lane B, indicagent-47)
+## Pin readiness (2026-11-21, indicagent-31; replaces the 2026-11-20 table)
 
-Items 1 to 12 stay landed. What stands between main and `--new-run`:
+Items 1 to 12 stay landed. The pin is called when every row below reads met. State cells were read on 2026-11-21 10:00 to 10:30Z (shared checkout at `91c77af37`, live DB read-only).
 
-| Precondition | State | Evidence |
-|---|---|---|
-| 646 split rows, corrections, one combined derivation | met | six corrections live and unsuperseded (`logs/split_audit_646/2026-11-10/corrections_batch.csv`); all six names have a 1d digest at 2026-11-20 02:22Z |
-| 641 VIXM | met | 2db266c01 |
-| 647 member-history audit | met | `data/member_history_audit/2026-11-20-final/` (exit 0, 12,561 members, 0 findings); rerun after any later split row |
-| 645 candidate-set pin | met | 17c9ca02f |
-| I1 universe wiring, tier amendment text, E23 | met | 2c84278ad, d141aca64; prereg and ledger entries present |
-| `corpus_run` empty, `universe_membership` built | met | 0 and 858,454 rows |
-| Strict sweep over members | open (lane A) | `logs/sweep_strict_members_20261120b`: exit 3, undecided APTV, PNR, SW; 4,086 reported breaks are disclosed, not gated, once lane A confirms |
-| Plan-only (span plan fits, data gate verdict) | rerun pending | first run `logs/corpus_rerun_planonly_47_20261120T100759Z.log`: span plan fits (1 span [2003, 2027), peak 891 GB of 1,104 GB), data gate FAIL on 5,684 failing name-years and 11,240 names without a proven start. Second run (`..._47b_...`) was killed after 32 minutes in the 1d coverage read, fixed by 319525263 (names read in chunks of 250, full universe 68 s, results identical on 600 names); a third run follows the strict sweep |
-| `proven_start_1d` facts for inactive members | met | `ops_member_history_audit --apply` wrote 11,163 facts, none without a start (`data/member_history_audit/2026-11-20-f3-apply/`); the data gate's 11,240 names without a start were the inactive members |
-| 2004-2015 members below the 2,950 floor, three empty months in 2003 | owner | recommendation: disclose as a property of the early years, not a gate |
-| E21 clean-data lift | owner | STATE, decisions waiting on the owner |
+Order of the remaining chain (one heavy job at a time, owner indicagent-66 until step 7 ends): s4 raw load (running) -> selection -> split audit -> daily derivation for the placed names -> 647 audit -> migration 605 -> migration 606 and `security_type_writer` -> s5 membership rebuild -> repin -> delta sweep and data gate -> plan-only -> `--quiesce` -> `--new-run` -> pilot. Steps are in `docs/operations/stage2-membership-rebuild-runbook.md`. Deadline inside the chain: migration 605 refuses once a 2026-11-30 closed-list month exists, so 605 through the repin finish before the first 2026-11-30 build.
 
-Lead ruling 2026-11-20: no prefix-sum port (`volume.py`, `price.py`) before the pin; the pilot's G4 `--drift` decides, and a port follows only a measured failure.
+| # | Precondition | Check | State now | Closes |
+|---|---|---|---|---|
+| 1 | Items 1 to 12 landed | this file, rows 1 to 12 | met | done |
+| 2 | 646 split rows, corrections, derivation; 641 VIXM; 645 candidate-set pin; I1 and I2 universe wiring (`UNIVERSE_SOURCE` in `ic_measure` and `snapshot`, `corpus_universe(intraday=True)`) | the 2026-11-20 table's commits; `grep UNIVERSE_SOURCE services/ic_measure.py src/intelligence/research/snapshot.py` | met (2c84278ad, fbf7721bc) | done |
+| 3 | Stage 2 placement P1 installed | `logs/stage2_p1_install_apply_20261121.log`: `outcome installed`, install id `6195ae11abff-20261121T094558Z`, 126 spans, `live_spans_after` 38,223 | met 09:45Z | done |
+| 4 | Massive 1d raw load for the new spans (runbook 5b) | `pgrep -af ops_massive_load`; `logs/ops_massive_load.log` | running, `run_609.sh s4 --apply`, pid 2242493, years 2026 down to 2003, at 2019 files at 10:07Z (about 50 min total) | indicagent-66 |
+| 5 | Canonical reselect, split audit, daily derivation for the placed names, 647 audit exit 0, `proven_start_1d` facts for the new members | `ops_selection_gate --compare` exit 0; `ops_massive_split_audit`; `services.bar_derivation --stage daily --symbols ... --apply`; `ops_member_history_audit` (21 s) | not started; waits on row 4 | indicagent-66, then f3 for the audit |
+| 6 | Migration 605 applied and committed (membership reset) | `select to_regclass('universe_membership_pre605')` is null now; after: `0 | 0 | 858454 | 278 | 4` | not applied (live build 858,454 rows, 278 month-ends); file on main | indicagent-66 |
+| 7 | Migration 606 and `security_type` populated (todo 648) | `select to_regclass('security_type')` is null now; writer rehearsal then `--apply`; a second run says `up_to_date`; expect typed 29,204, CS 12,615, ETF 8,145, ADRC 532, 823 conflicts | not applied; amendment 2026-11-21 is ADOPTED (preregistration line 83, commit e93b62f15) | indicagent-66 |
+| 8 | Membership rebuilt (s5 apply) and the closed-list pin moved | `.venv/bin/python -m services.universe_membership_report` prints MATCH; `CLOSED_LIST_CANDIDATES_SHA256` in `src/intelligence/universe_membership.py` (730622ae... now) is set to the live digest, the two tests updated, suite exit 0, pushed | not done; rehearsed counts 3,007 (2008-06-30), 3,129 (2012-06-29), 3,824 (2016-09-30); 2003 to 2006 and 2009 stay under the 2,950 floor, disclosed | indicagent-66 |
+| 9 | Member counts by year shown to the owner before any compute that counts | s6 and s7 outputs from `run_609.sh` | not done | lead, after row 8 |
+| 10 | Strict sweep over members (todo 629) | `logs/sweep_strict_members_20261120c`: 266 witnessed in-scope breaks, all disclosed classes, nothing undecided and split-shaped in scope. Open: the non-strict delta sweep (`--sweep --symbols`) over the names rows 5 to 8 add | scoped rerun met; delta sweep open | f3 (lane A2) |
+| 11 | Post-seam splits (todo 649): SNDK row applied, 1d and 5m reselected, flag reviewed | commit 91c77af37; `split_horizon_fresh` for SNDK|5m is open until the 06:00Z audit | open until the next 06:00Z audit reads clean; any new split row reruns the 647 audit | lead |
+| 12 | 77 active members whose latest nightly `proven_start_1d` fact fails (STATE next item 2) | the 06:11Z audit output | not read by me; recheck after rows 5 and 8 since the new members change the set | f3 |
+| 13 | Data gate rerun (plan-only) passes | `.venv/bin/python -m services.corpus_rerun --new-run --plan-only`; the 2026-11-20 run (`logs/corpus_rerun_planonly_47_20261120T100759Z.log`) failed on 5,684 name-years and 11,240 names without a start (since fixed: 11,163 facts written); it ran on the old universe, so it is void for the rebuilt one. A heavy read: slot after row 12 | not run on the new universe | lead launches, f3 reads |
+| 14 | Span plan fits the disk | same plan-only output; 2026-11-20: 1 span [2003, 2027), peak 891 GB against a 1,104 GB limit; `df` now shows 1.5 TB free of 1.9 TB | must be recomputed: the rebuilt membership adds names and the limit scales with free bytes at launch | lead |
+| 15 | Blocking timers quiesced, no live writer, FetcherLock free | `--quiesce` (needs `sudo -n systemctl`); `infra.corpus_rerun.blocking_timers` holds six timers (alpaca-nightly, bar-derivation daily and grid, bar-reconciliation-audit, dividend-event-writer-yahoo, regime-coverage-auditor), all enabled now | not done; done at launch, `--release` after | lead (sudo is an owner step if `-n` is refused) |
+| 16 | Owner rulings that gate the pin | STATE, decisions waiting on the owner | open: E21 clean-data lift for price-derived 1d families, the 27 `compute_eligible_1d=false` names and the entity classes. The 2004 to 2015 shortfall is listed as waiting in STATE, but the lead recommendation is disclose, not gate, and the 2026-11-20 materiality ruling covers it; confirm and remove it from the list | owner |
+| 17 | Pilot at the new pin passes G1 to G5 on every timeframe (the official pilot has never run; the 15m units and the G1-G3 screen on the pilot names were not run in the dry pilot) | `corpus_rerun --through pilot` in the run worktree | after rows 1 to 16 | lead |
+| 18 | Methodology-change entry or `repro_frozen` bit-identical for any research or statistics edit made before the pin | `python -m scripts.research.determinism.repro_frozen <scratch> --logs /home/bg/dev/indicagent/logs` | no pending edit known | any worker |
+
+Time-dependent items outside the chain: the Massive final dated capture and file catch-up about 2026-12-07 and the plan lapse about 2026-12-10 (owner call, todo 600). Nothing in the pin needs the Massive nightly leaf, but any 1d catch-up for the placed names must finish before the lapse.
+
+Lead ruling 2026-11-20 stands: no prefix-sum port (`volume.py`, `price.py`) before the pin; the pilot's G4 `--drift` decides, and a port follows only a measured failure.
+
+### Stale or contradicting statements found 2026-11-21
+
+- STATE.md (Handoff, stage 2) says todo 648 "waits on the owner adopting the 2026-11-21 amendment". The preregistration marks it ADOPTED 2026-11-21 and commit e93b62f15 recorded it. Todo 648 "Remaining" repeats the old wording.
+- STATE.md says "Step 7 rebuild ... done" (the Massive step 7) while todo 648 and the stage 2 runbook call the membership rebuild and repin "step 7". Two different step 7s; the table above uses runbook step names.
+- Todo 609 sections "Blocker I1" and "Blocker I2" read as open. Both are built on main (`UNIVERSE_SOURCE` set in `services/ic_measure.py:150` and `snapshot.py:534`; `corpus_universe(intraday=True)`, `services/corpus_universe.py:40`; the data gate judges the 5m term on the tier only).
+- This file's decision 1 still names IBKR 5m coverage as the data target; IBKR is removed and canonical is Massive to the 2026-11-16 seam, then Alpaca (`config/bars/massive_archive_end.json`). Todo 534 as the lane is superseded by the stage 2 chain above.
+- The corpus rerun runbook APR table says `infra.corpus_rerun.blocking_timers` holds "four bar-moving timers"; the live key holds six. Its hole-density note still says "pre-2016 IBKR 5m spans"; the pre-2016 source is Massive.
+- The 2026-11-20 pin table (replaced) showed `universe_membership` "built" at 858,454 rows as met. That build is the one migration 605 resets, and the 645 pin (`17c9ca02f`) is superseded by `730622ae` and moves again at the repin. Its strict sweep row ("undecided APTV, PNR, SW") predates the scoped rerun `20261120c`.
+- STATE.md says the Massive archive runs "to 2026-11-18"; that is the manifest's last file day. The pinned archive end and seam is 2026-11-16.
 
 ## Done when
 
