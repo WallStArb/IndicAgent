@@ -128,6 +128,7 @@ not IBKR coverage.
 
 | Todo | Why now |
 |---|---|
+| [650](pending/650-forward-feed-covers-a-quarter-of-the-stage-2-members.md) | New 2026-11-21, P2. The Alpaca nightly reads only the 1,529 active names; 4,615 stage 2 members are inactive instruments with no bars after the 2026-11-16 seam. Decide the set a book can hold, then the SOP exception or a separate feed; before the first book freeze, not before the pin. |
 | [616](pending/616-ohlcv-coverage-zero-no-raw-update-temp-spill.md) | New 2026-11-14, P2. The `ohlcv_coverage` zero-no-raw UPDATE writes 68 GB of temp files (60% of the database's spill); fix the query shape, not `work_mem`. Waits for step 7: `services/ohlcv_coverage_writer.py` is imported by it. |
 | [559](pending/559-cointegration-spread-family-preregistration.md) | New 2026-10-28, owner reopened the cointegration concept (ledger section 2). Pre-register a spread family tested on its trading statistic (static and Kalman hedge ratios, OU half-life), disclosing the 2026-08-07 pilot and the 471-pair screen as seen data; no look before the pre-registration. Placement and the draft are the assistant's (needs an Opus or Fable pass). |
 | [548](pending/548-style-spread-regime-slot-and-time-series-construction.md) | New 2026-10-27. The owner's participation-state idea (RSP/SPY and style spreads) cannot run through the runner: S7 has no regime input slot (part A) and the runner is R1 only (part B's time-series book). Part B's synthetic power check comes first and needs neither. |
