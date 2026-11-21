@@ -15,7 +15,13 @@ import numpy as np
 import pytest
 
 from services.backfill_feature_factory import _spool_line
-from services.corpus_rerun_apr import CorpusRerunApr, load_corpus_rerun_apr
+from services.corpus_rerun_apr import (
+    HELD_NAME_YEARS_KEY,
+    CorpusRerunApr,
+    HeldNameYear,
+    load_corpus_rerun_apr,
+    load_held_name_years,
+)
 from src.config.config_service import ConfigService
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_row_values,
@@ -131,3 +137,67 @@ def test_migration_582_seeds_the_null_share_gate_once():
     assert "[conventional]" in flat and "Not an ML learning target" in flat
     assert "('infra.corpus_rerun.max_null_fraction', '0.05', 1)" in flat
     assert flat.count("ON CONFLICT (config_key) DO NOTHING") == 2 and "'migration_582'" in flat
+
+
+_HELD_FLAT = " ".join(
+    re.sub(
+        r"--[^\n]*",
+        "",
+        read_source("production", "migrations", "607_corpus_rerun_held_name_years.sql"),
+    ).split()
+)
+
+
+def _seeded_held_json() -> str:
+    seed = _HELD_FLAT.split(f"('{HELD_NAME_YEARS_KEY}', 'json', '", 1)[1]
+    return seed.split("', NULL, NULL,", 1)[0]
+
+
+def test_migration_607_seeds_the_held_list_once_as_json_with_provenance():
+    assert HELD_NAME_YEARS_KEY == "infra.corpus_rerun.data_gate.held_name_years"
+    assert _HELD_FLAT.startswith("BEGIN;") and _HELD_FLAT.rstrip().endswith("COMMIT;")
+    assert _HELD_FLAT.count("ON CONFLICT (config_key) DO NOTHING") == 2
+    assert "'migration_607'" in _HELD_FLAT
+    assert "NOT EXISTS (SELECT 1 FROM config_history h" in _HELD_FLAT
+    description = _HELD_FLAT.split("NULL, NULL, '", 1)[1].split("')", 1)[0]
+    assert "[user_preference]" in description and "Not an ML learning target" in description
+    assert "2026-11-21b" in description
+    assert _seeded_held_json() in _HELD_FLAT.split("INSERT INTO config_state")[1]
+
+
+def test_the_seeded_held_list_is_the_two_powi_years_with_evidence():
+    held = load_held_name_years(_seeded_held_json())
+    assert [(h.symbol, h.year) for h in held] == [("POWI", 2006), ("POWI", 2007)]
+    assert all("Massive" in h.evidence for h in held)
+
+
+def test_held_list_is_pinned_in_the_run_apr_keys():
+    from services.corpus_rerun import pinned_apr_keys
+    from services.corpus_rerun_apr import APR_KEYS
+
+    assert HELD_NAME_YEARS_KEY in APR_KEYS and HELD_NAME_YEARS_KEY in pinned_apr_keys([])
+
+
+def test_held_list_loader_accepts_text_or_a_parsed_list_and_refuses_a_bad_entry():
+    entry = {"symbol": "X", "year": 2006, "evidence": "why"}
+    assert load_held_name_years(json.dumps([entry])) == (HeldNameYear("X", 2006, "why"),)
+    assert load_held_name_years([entry]) == (HeldNameYear("X", 2006, "why"),)
+    assert load_held_name_years("[]") == ()
+    for bad in (
+        [{"symbol": "X", "year": "2006", "evidence": "why"}],
+        [{"symbol": "X", "year": True, "evidence": "why"}],
+        [{"symbol": "X"}],
+        {},
+    ):
+        with pytest.raises(ValueError, match="held_name_years"):
+            load_held_name_years(bad)
+
+
+def test_an_unseeded_held_list_loads_empty_the_strict_side():
+    cfg = ConfigService(database_url="")
+    for key, value_type, value, _ in _KEYS:
+        cfg._cache[key] = cfg._parse_value(value, value_type)
+    cfg._cache["infra.corpus_rerun.max_null_fraction"] = 0.05
+    assert load_corpus_rerun_apr(cfg).held_name_years == ()
+    cfg._cache[HELD_NAME_YEARS_KEY] = cfg._parse_value(_seeded_held_json(), "json")
+    assert len(load_corpus_rerun_apr(cfg).held_name_years) == 2

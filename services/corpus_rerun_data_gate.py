@@ -22,7 +22,19 @@ counted test can read, so a dead name is not charged for the years after it died
 - A name whose proven start lies after its last membership month holds no readable session (the
   compute starts a name at its proven start): it is neither judged nor refused, and the record
   lists it in `names_member_before_proven_start`.
-- Thresholds are the pre-registered APR constants, unchanged. The names without a proven start,
+- 1d residual tolerance (ledger 2026-11-21b): a 1d name-year gates only when its missing share of
+  judged sessions is above BOTH the APR `max_missing_1d_session_fraction` and the pre-registered
+  constant RESIDUAL_1D_MISSING_FRACTION (5 percent), so the stricter of the two decides: with the
+  APR at 0.01 the 5 percent constant is the effective gate, and an APR raised above it is. A
+  name-year above the APR value and at or below the constant is a residual: reported in
+  `residual_1d_name_years` with its counts, never failing the verdict. The constant is a module
+  constant, not an APR key or a CLI argument (a tunable gate invites tuning after seeing results).
+  It applies to the 1d term only: the 5m term and its APR tolerance are untouched.
+- Named exceptions (ledger 2026-11-21b): a name-year in the APR list
+  `infra.corpus_rerun.data_gate.held_name_years` ({symbol, year, evidence}) that would otherwise
+  fail does not gate, on either term, and is reported in `held_name_years` with its evidence. A
+  held entry that would not fail is not reported; an entry for any other name-year excuses nothing.
+- The other thresholds are the pre-registered APR constants, unchanged. The names without a proven start,
   sessions or 1d sessions are refused or held exactly as before.
 
 - Sessions are the exchange calendar's, keyed by contract_details session_id (resolved as
@@ -62,6 +74,7 @@ is pure. Nothing is written: the step runner (186-31) persists the result to cor
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -99,6 +112,13 @@ def _name_chunks(names: Sequence[str]) -> Iterator[list[str]]:
     for lo in range(0, len(names), _NAME_CHUNK):
         yield list(names[lo : lo + _NAME_CHUNK])
 
+
+# Pre-registered gate constant (ledger 2026-11-21b, set after seeing the 31 failures and said so
+# there): a 1d name-year whose missing share of judged sessions is at or below this is a disclosed
+# residual and does not fail the verdict. Not an APR key and not a CLI argument: an operator-tunable
+# gate threshold invites tuning after seeing results. See the module docstring for how it
+# interacts with `max_missing_1d_session_fraction`.
+RESIDUAL_1D_MISSING_FRACTION = 0.05
 
 TF_5M = "5m"
 TF_1D = "1d"
@@ -283,6 +303,13 @@ class FailingNameYear:
 
 
 @dataclass(frozen=True)
+class HeldNameYear(FailingNameYear):
+    """A name-year that would fail but is held by a named exception, with its evidence."""
+
+    evidence: str
+
+
+@dataclass(frozen=True)
 class DataGateResult:
     ok: bool
     horizon: datetime
@@ -309,6 +336,10 @@ class DataGateResult:
     intraday_names: int = (
         0  # names the 5m term judged (the 5m tier); the rest have the 1d term only
     )
+    # Disclosed, not gating: 1d name-years above the APR tolerance and within the residual
+    # constant, and the named exceptions with their evidence (module docstring).
+    residual_1d_name_years: tuple[FailingNameYear, ...] = ()
+    held_name_years: tuple[HeldNameYear, ...] = ()
 
     def as_record(self) -> dict[str, Any]:
         """The JSON-safe record the runner stores in corpus_run.data_gate."""
@@ -666,9 +697,11 @@ def evaluate(
 ) -> DataGateResult:
     """Judge the tallies of the judged name-years (see the module docstring for the scope). A name
     without a start, sessions or 1d sessions refuses unless held; a name-year fails when its
-    1d-missing share of sessions passes its APR tolerance, or, under scope `all` and in a `tier_5m`
+    1d-missing share of sessions passes its APR tolerance and the residual constant (a share in
+    between is a disclosed residual), or, under scope `all` and in a `tier_5m`
     year, its 5m-uncovered share does (a name whose only era is `ONE_D_ONLY_ERA` has no 5m term).
-    On a pass the result carries the survivorship caveat with its counts.
+    A failing name-year named in `apr.held_name_years` is held, not failed. On a pass the result
+    carries the survivorship caveat with its counts.
     """
     if scope not in DATA_GATE_SCOPES:
         raise ValueError(f"data gate scope {scope!r} is not one of {DATA_GATE_SCOPES}")
@@ -694,8 +727,11 @@ def evaluate(
     tol_5m = apr.max_missing_session_fraction
     tol_1d = apr.max_missing_1d_session_fraction
     eras: dict[str, EraCounts] = defaultdict(EraCounts)
+    held_evidence = {(h.symbol, h.year): h.evidence for h in apr.held_name_years}
     failing: list[FailingNameYear] = []
     not_gating: list[FailingNameYear] = []
+    residual: list[FailingNameYear] = []
+    held_failing: list[HeldNameYear] = []
     for symbol in sorted(set(by_name) - refused_or_held):
         years_5m = scopes[symbol].years_5m
         name_eras: dict[str, NameYearTally] = defaultdict(NameYearTally)
@@ -731,18 +767,25 @@ def evaluate(
             missing_1d = sessions - sum(t.with_1d for _, t in parts)
             partial = sum(t.partial for era, t in parts if era != ONE_D_ONLY_ERA)
             missing = sum(t.missing for era, t in parts if era != ONE_D_ONLY_ERA)
-            fails_1d = missing_1d > tol_1d * sessions
+            over_1d = missing_1d > tol_1d * sessions
+            fails_1d = over_1d and missing_1d > RESIDUAL_1D_MISSING_FRACTION * sessions
             fails_5m = year in years_5m and partial + missing > tol_5m * sessions
             fails = fails_1d or (fails_5m and scope == SCOPE_ALL)
+            entry = FailingNameYear(symbol, year, sessions, missing_1d, partial, missing)
+            held_by = held_evidence.get((symbol, year))
+            if fails and held_by is not None:
+                held_failing.append(HeldNameYear(*dataclasses.astuple(entry), held_by))
+                fails = False
             for era, _ in parts:
                 if era == ONE_D_ONLY_ERA or year in years_5m:  # era rows count what they judge
                     eras[era].name_years += 1
                     eras[era].failing_name_years += fails
-            entry = FailingNameYear(symbol, year, sessions, missing_1d, partial, missing)
             if fails:
                 failing.append(entry)
-            elif fails_5m:
+            elif fails_5m and scope != SCOPE_ALL:
                 not_gating.append(entry)
+            if over_1d and not fails_1d:
+                residual.append(entry)
 
     ok = not refused and not failing
     pre_calendar_nonzero = {s: n for s, n in sorted(pre_calendar.items()) if n}
@@ -755,6 +798,7 @@ def evaluate(
         thresholds={
             "max_missing_session_fraction": tol_5m,
             "max_missing_1d_session_fraction": tol_1d,
+            "residual_1d_missing_fraction": RESIDUAL_1D_MISSING_FRACTION,
             "min_session_bar_fraction": apr.min_session_bar_fraction,
         },
         names_checked=len(universe),
@@ -766,6 +810,8 @@ def evaluate(
         held_names=held,
         failing_name_years=tuple(failing),
         failing_5m_not_gating=tuple(not_gating),
+        residual_1d_name_years=tuple(residual),
+        held_name_years=tuple(held_failing),
         scope=scope,
         pre_calendar_1d_sessions=pre_calendar_nonzero,
         pre_calendar_1d_sessions_total=sum(pre_calendar_nonzero.values()),

@@ -16,7 +16,7 @@ completed. There is no skip flag. A completed step re-invoked is a no-op that pr
 outcome. A failed step retries once its cause is fixed. Step state lives in `corpus_run_step`;
 the run's identity, spans, caveats, data gate result and measured figures live in `corpus_run`.
 
-## APR (migrations 579 and 582)
+## APR (migrations 579, 582 and 607)
 
 | Key | Seed | Used by |
 |---|---|---|
@@ -28,8 +28,18 @@ the run's identity, spans, caveats, data gate result and measured figures live i
 | `infra.corpus_rerun.data_gate.max_missing_session_fraction` | 0.01 | data gate, 5m sessions per name-year |
 | `infra.corpus_rerun.data_gate.max_missing_1d_session_fraction` | 0.01 | data gate, 1d sessions per name-year |
 | `infra.corpus_rerun.data_gate.min_session_bar_fraction` | 0.9 | data gate, a session's 5m bars over its own slots |
+| `infra.corpus_rerun.data_gate.held_name_years` | the two POWI years (migration 607) | data gate named exceptions: JSON list of `{symbol, year, evidence}`; a held name-year that would fail does not gate and is reported with its evidence. Unseeded it reads empty (the strict side) |
 | `infra.corpus_rerun.blocking_timers` | four bar-moving timers | pin gate |
 | `infra.corpus_rerun.max_null_fraction` | 0.05 | feature_complete's G6: post-warmup NULL share per (tf, column) (migration 582) |
+
+The 1d residual tolerance is not an APR key: `RESIDUAL_1D_MISSING_FRACTION` (5 percent) in
+`services/corpus_rerun_data_gate.py` is a pre-registered gate constant of the ledger entry
+2026-11-21b. A 1d name-year gates only when its missing share is above both the APR
+`max_missing_1d_session_fraction` and that constant (with the APR at 0.01 the constant decides);
+a share above the APR value and within the constant is reported in `residual_1d_name_years`
+and does not fail the verdict. The 5m term is unchanged. Migration 607 adds the held list to
+`APR_KEYS`, so it joins the apr hash of every run created after it (intended: a held list change is
+a change of the verdict's rule).
 
 The APR hash is part of the run's identity. It covers every APR key a step or gate reads, taken
 from each module's own list (`pinned_apr_keys` in `services/corpus_rerun.py`): the keys above,

@@ -29,6 +29,9 @@ STORED_BYTES_PER_SPOOL_BYTE_KEY = "infra.corpus_rerun.stored_bytes_per_spool_byt
 MAX_MISSING_SESSION_FRACTION_KEY = "infra.corpus_rerun.data_gate.max_missing_session_fraction"
 MAX_MISSING_1D_SESSION_FRACTION_KEY = "infra.corpus_rerun.data_gate.max_missing_1d_session_fraction"
 MIN_SESSION_BAR_FRACTION_KEY = "infra.corpus_rerun.data_gate.min_session_bar_fraction"
+# Behavioral list (migration 607): name-years the 1d term holds with their evidence, a JSON list of
+# {symbol, year, evidence}. Seeded with the two POWI years of the 2026-11-21b ledger entry.
+HELD_NAME_YEARS_KEY = "infra.corpus_rerun.data_gate.held_name_years"
 BLOCKING_TIMERS_KEY = "infra.corpus_rerun.blocking_timers"
 MAX_NULL_FRACTION_KEY = "infra.corpus_rerun.max_null_fraction"  # migration 582 (186-31)
 
@@ -46,9 +49,20 @@ APR_KEYS: tuple[str, ...] = (
     MAX_MISSING_SESSION_FRACTION_KEY,
     MAX_MISSING_1D_SESSION_FRACTION_KEY,
     MIN_SESSION_BAR_FRACTION_KEY,
+    HELD_NAME_YEARS_KEY,
     BLOCKING_TIMERS_KEY,
     MAX_NULL_FRACTION_KEY,
 )
+
+
+@dataclass(frozen=True)
+class HeldNameYear:
+    """One named exception of the data gate: the name-year does not gate, and the result reports
+    it as held with this evidence (docs/plans/methodology-change-ledger.md, 2026-11-21b)."""
+
+    symbol: str
+    year: int
+    evidence: str
 
 
 @dataclass(frozen=True)
@@ -63,11 +77,34 @@ class CorpusRerunApr:
     min_session_bar_fraction: float
     blocking_timers: tuple[str, ...]
     max_null_fraction: float
+    held_name_years: tuple[HeldNameYear, ...] = ()
+
+
+def load_held_name_years(raw: Any) -> tuple[HeldNameYear, ...]:
+    """Parse the held list (a JSON document or the list the config service already parsed). An
+    entry without a symbol, an integer year and an evidence string is a loud error, never skipped.
+    """
+    entries = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(entries, list):
+        raise ValueError(f"{HELD_NAME_YEARS_KEY} must be a JSON list, got {type(entries).__name__}")
+    held = []
+    for entry in entries:
+        if not (
+            isinstance(entry, dict)
+            and isinstance(entry.get("symbol"), str)
+            and type(entry.get("year")) is int
+            and isinstance(entry.get("evidence"), str)
+            and entry["evidence"]
+        ):
+            raise ValueError(f"{HELD_NAME_YEARS_KEY}: bad entry {entry!r} (symbol, year, evidence)")
+        held.append(HeldNameYear(entry["symbol"], entry["year"], entry["evidence"]))
+    return tuple(held)
 
 
 def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
     """Every rerun key, read with no default: a key migrations 579 and 582 did not seed is a
-    KeyError, never a silent fallback value."""
+    KeyError, never a silent fallback value. The held list (migration 607) is the one behavioral
+    list: unseeded it is empty, which is the strict side (no name-year is excused)."""
 
     def value(key: str) -> Any:
         seeded = cfg.get_sync(key)
@@ -86,6 +123,7 @@ def load_corpus_rerun_apr(cfg: ConfigService) -> CorpusRerunApr:
         min_session_bar_fraction=float(value(MIN_SESSION_BAR_FRACTION_KEY)),
         blocking_timers=tuple(json.loads(str(value(BLOCKING_TIMERS_KEY)))),
         max_null_fraction=float(value(MAX_NULL_FRACTION_KEY)),
+        held_name_years=load_held_name_years(cfg.get_sync(HELD_NAME_YEARS_KEY, "[]")),
     )
 
 

@@ -1795,8 +1795,9 @@ def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime, scope: 
         f"(5m tier {result.intraday_names}); "
         f"failing name-years {len(result.failing_name_years)}; without a proven start "
         f"{len(result.names_without_proven_start)}; 5m-term failing name-years not gating "
-        f"{len(result.failing_5m_not_gating)}; members before their proven start "
-        f"{len(result.names_member_before_proven_start)}"
+        f"{len(result.failing_5m_not_gating)}; 1d residual name-years (disclosed) "
+        f"{len(result.residual_1d_name_years)}; held name-years {len(result.held_name_years)}; "
+        f"members before their proven start {len(result.names_member_before_proven_start)}"
     )
     for era, counts in result.eras.items():
         print(

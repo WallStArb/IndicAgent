@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import services.corpus_rerun_data_gate as gate
-from services.corpus_rerun_apr import CorpusRerunApr
+from services.corpus_rerun_apr import CorpusRerunApr, HeldNameYear
 from src.core.market_calendar import get_market_calendar
 from src.intelligence.bars.daily_rule import PolicyRow
 
@@ -908,7 +908,7 @@ def test_a_1d_hole_in_a_non_tier_member_year_still_fails(monkeypatch):
     )
     world = Fixture()
     world.add_name("T", date(2015, 1, 5))
-    world.days_1d["T"] -= set(_sessions(date(2015, 3, 2), date(2015, 3, 9)))
+    world.days_1d["T"] -= set(_sessions(date(2015, 3, 2), date(2015, 3, 24)))  # 16 of 252
     world.members["T"] = rows
     assert _failing(world.run(monkeypatch)) == {("T", 2015)}
 
@@ -978,3 +978,98 @@ def test_a_member_whose_proven_start_follows_its_membership_is_disclosed_not_ref
     assert result.ok and not result.names_with_zero_sessions
     assert result.names_member_before_proven_start == ("LATE",)
     assert not result.failing_name_years
+
+
+# --------------------------------------------------------------------------- residual tolerance and holds
+# The 1d name-year of these tests is 2015 of a name that starts on 2015-01-02: 252 sessions, so the
+# residual constant (5 percent) is 12.6 sessions and the APR tolerance (1 percent) is 2.52.
+
+
+def _year_2015_world(missing_1d: int, scope: str = "1d", symbol: str = "AAA") -> Fixture:
+    world = Fixture(scope=scope)
+    world.add_name(symbol, date(2015, 1, 2))
+    gap = _sessions(date(2015, 3, 2), date(2015, 12, 1))[:missing_1d]
+    world.days_1d[symbol] -= set(gap)
+    return world
+
+
+def test_1d_residual_between_the_apr_tolerance_and_five_percent_is_disclosed_not_gating(
+    monkeypatch,
+):
+    result = _year_2015_world(12).run(monkeypatch)  # 12 of 252 = 4.8 percent, over the 1 percent
+    assert result.ok and not result.failing_name_years
+    assert [
+        (f.symbol, f.year, f.sessions, f.missing_1d) for f in result.residual_1d_name_years
+    ] == [("AAA", 2015, 252, 12)]
+    assert result.thresholds["residual_1d_missing_fraction"] == 0.05
+    assert result.as_record()["residual_1d_name_years"][0]["missing_1d"] == 12
+
+
+def test_1d_name_year_above_five_percent_still_fails(monkeypatch):
+    result = _year_2015_world(13).run(monkeypatch)  # 13 of 252 = 5.2 percent
+    assert _failing(result) == {("AAA", 2015)}
+    assert not result.residual_1d_name_years
+
+
+def test_1d_within_the_apr_tolerance_is_neither_failing_nor_residual(monkeypatch):
+    result = _year_2015_world(2).run(monkeypatch)  # 2 of 252 = 0.8 percent
+    assert result.ok and not result.residual_1d_name_years
+
+
+def test_an_apr_tolerance_above_five_percent_is_the_stricter_gate_that_stays_in_force(monkeypatch):
+    loose = CorpusRerunApr(**{**APR.__dict__, "max_missing_1d_session_fraction": 0.10})
+    assert _year_2015_world(20).run(monkeypatch, loose).ok  # 7.9 percent, under the APR 10
+    assert not _year_2015_world(26).run(monkeypatch, loose).ok  # 10.3 percent
+
+
+def test_the_residual_never_relaxes_the_5m_term(monkeypatch):
+    world = Fixture(scope="all")
+    world.add_name("AAA", date(2015, 1, 2))
+    world.drop_5m("AAA", date(2015, 3, 2), date(2015, 3, 12))  # 8 sessions, 3.2 percent
+    result = world.run(monkeypatch)
+    assert _failing(result) == {("AAA", 2015)}
+    assert not result.residual_1d_name_years
+
+
+def _held(*pairs: tuple[str, int]) -> CorpusRerunApr:
+    return CorpusRerunApr(
+        **{
+            **APR.__dict__,
+            "held_name_years": tuple(HeldNameYear(s, y, f"evidence {s} {y}") for s, y in pairs),
+        }
+    )
+
+
+def test_a_held_name_year_does_not_gate_and_is_reported_with_its_evidence(monkeypatch):
+    world = _year_2015_world(70)
+    result = world.run(monkeypatch, _held(("AAA", 2015)))
+    assert result.ok and not result.failing_name_years
+    [held] = result.held_name_years
+    assert (held.symbol, held.year, held.missing_1d, held.evidence) == (
+        "AAA",
+        2015,
+        70,
+        "evidence AAA 2015",
+    )
+    assert result.eras["ibkr/named"].failing_name_years == 0
+    assert result.as_record()["held_name_years"][0]["evidence"] == "evidence AAA 2015"
+
+
+def test_a_held_name_year_is_excused_on_the_5m_term_too(monkeypatch):
+    world = _year_2015_world(70, scope="all")
+    world.drop_5m("AAA", date(2015, 3, 2), date(2015, 12, 1))
+    result = world.run(monkeypatch, _held(("AAA", 2015)))
+    assert result.ok and len(result.held_name_years) == 1
+
+
+def test_a_hold_excuses_only_its_own_name_and_year(monkeypatch):
+    world = _year_2015_world(70)
+    other_name = world.run(monkeypatch, _held(("BBB", 2015)))
+    assert _failing(other_name) == {("AAA", 2015)} and not other_name.held_name_years
+    other_year = world.run(monkeypatch, _held(("AAA", 2016)))
+    assert _failing(other_year) == {("AAA", 2015)} and not other_year.held_name_years
+
+
+def test_a_hold_on_a_name_year_that_does_not_fail_reports_nothing(monkeypatch):
+    result = _year_2015_world(0).run(monkeypatch, _held(("AAA", 2015)))
+    assert result.ok and not result.held_name_years
