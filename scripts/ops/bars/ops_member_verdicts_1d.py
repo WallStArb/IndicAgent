@@ -125,7 +125,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--shard", default="0/1", help="dry run on shard i of n, as i/n")
     args = parser.parse_args(argv)
     index, count = (int(part) for part in args.shard.split("/"))
-    if args.apply and (args.sample_every > 1 or count > 1):
+    if count < 1 or not 0 <= index < count:
+        parser.error("--shard is i/n with 0 <= i < n")
+    if args.apply and (args.sample_every != 1 or count != 1):
         parser.error("--apply judges every member; drop --sample-every and --shard")
     MemberVerdictReport1d.shard = (index, count)
     MemberVerdictReport1d.apply = args.apply
