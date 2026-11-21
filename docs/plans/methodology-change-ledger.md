@@ -1533,3 +1533,5 @@ only the Yahoo and IBKR sources, with output unchanged; a CI test refuses any ne
 Pre-registered? Yes: the precedence, the yield, the unconfirmed rule, the declared_on rule, the
 hole split and the no-guard decision are fixed in code and in the design note before any counted
 run reads Massive coverage.
+
+Correction to 2026-11-21d, same day (the entry is append-only, so the correction is appended). The residual disclosed there as "4,738 dead members and 554 active names with no coverage" was mislabelled by an analysis script that took column labels from the manifest universe (12,626 symbols) instead of the panel's own 12,245. With the right labels, 5,292 member names have no covered day, all of them dead; no active member is uncovered. Of the 5,292, 5,192 have no dividend event, coverage row or gap row (non-payers or names neither source saw), 96 have events and coverage rows but no covered member day (under review, no reader bug found yet) and 4 have a coverage row and gap rows only. The coverage shares and member-year counts in the entry are index-based and unchanged.
