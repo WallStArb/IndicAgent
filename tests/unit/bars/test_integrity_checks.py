@@ -845,13 +845,15 @@ def test_freshness_counts_no_session_after_a_listing_end():
     assert (v.passed, v.metric_value) == (False, 2.0)
 
 
-def test_judge_name_1d_passes_the_listing_end_to_freshness():
+def test_judge_name_1d_passes_the_listing_end_to_freshness_and_session_coverage():
     clean = _clean()
     last_bar = max(b.timestamp for b in clean.stored[:3]).date()
     stopped = replace(clean, stored=list(clean.stored[:3]))
-    assert not _by_check(_judge(stopped))[CHECK_FRESHNESS_1D].passed
+    by = _by_check(_judge(stopped))
+    assert not by[CHECK_FRESHNESS_1D].passed and not by["session_coverage"].passed
     ended = replace(stopped, listing_end=last_bar)
-    assert _by_check(_judge(ended))[CHECK_FRESHNESS_1D].passed
+    by = _by_check(_judge(ended))
+    assert by[CHECK_FRESHNESS_1D].passed and by["session_coverage"].passed
 
 
 def test_judge_name_1d_reports_freshness_after_the_eight_checks():

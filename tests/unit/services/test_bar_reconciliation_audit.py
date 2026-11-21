@@ -880,6 +880,35 @@ def test_a_stale_name_fails_freshness_1d_and_is_counted():
     assert run.failing_by_check["freshness_1d"] == 2
 
 
+def test_last_sessions_end_a_names_judgement():
+    stale = _good_name()
+    stale["stored"] = stale["stored"][:1]
+    stale["observations"] = stale["observations"][:1]
+    stale["digests"] = []
+
+    class _Late(_Window):
+        last_session = date(2024, 1, 9)
+
+    import asyncio
+
+    def judge(last_sessions):
+        run = asyncio.run(
+            audit.BarReconciliationAudit._verdict_report_1d(
+                _FakeConn({"AAA": stale}),
+                audit._IntegrityParams.from_apr({}),
+                _Late(),
+                ["AAA"],
+                [],
+                _NOW,
+                last_sessions=last_sessions,
+            )
+        )
+        return {f[2]: f[5] for f in run.facts if f[1] == "AAA|1d"}
+
+    assert not judge(None)["freshness_1d"]
+    assert judge({"AAA": date(2024, 1, 2)})["freshness_1d"]  # the span ends at the last bar
+
+
 def test_alert_gauges_carry_freshness_1d_and_record_zero_when_it_clears(monkeypatch):
     gauges = _patched_gauges(monkeypatch)
     now = datetime(2026, 10, 8, 6, 0, tzinfo=UTC)

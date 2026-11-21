@@ -437,9 +437,12 @@ def judge_name_1d(
 
     started = time.perf_counter()
     proven: date | None = None
+    # A name whose listing ended (or whose membership ended) is judged up to that last session,
+    # never past it: a bar after it cannot exist and none is read.
+    judged_to = last_session if inputs.listing_end is None else min(last_session, inputs.listing_end)
     if stored:
         first = max(min(stored), era_start)
-        span = [s for s in sessions if first <= s <= last_session]
+        span = [s for s in sessions if first <= s <= judged_to]
         empty_dates = [s for s in span if _in_any(s, inputs.empty_spans)]
         proven = proven_start(span, set(stored) | set(empty_dates), thresholds.session_coverage_min)
         judged_sessions = [s for s in span if proven is not None and s >= proven]

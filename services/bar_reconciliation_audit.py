@@ -2497,6 +2497,7 @@ class BarReconciliationAudit(BaseBatch):
         run_start: datetime,
         *,
         holds: Mapping[str, Sequence[Hold]] | None = None,
+        last_sessions: Mapping[str, date] | None = None,
     ) -> _VerdictRun:
         """Judge every name given on the nine 1d checks (design section 6; freshness_1d against
         the last completed session, fixed once per run in `window`). The caller passes the
@@ -2504,6 +2505,9 @@ class BarReconciliationAudit(BaseBatch):
         verdict is held as missing by the gate, so the judged universe is the candidates, not
         the promoted set. A name with no 1d history judges failing (session_coverage 0), never
         absent.
+
+        `last_sessions` (symbol to date) ends a name's judgement earlier than its listing end, for
+        a member whose membership span the compute reads only up to there.
 
         Whole-corpus reads happen once (policy, lineage, answered-empty spans, latest loads);
         each name's observations, splits, stored rows, flags and digests are read, judged and
@@ -2528,6 +2532,8 @@ class BarReconciliationAudit(BaseBatch):
             spans[r["symbol"]].append((r["span_start"], r["span_end"]))
         latest_load = {r["symbol"]: r["loaded_at"] for r in await conn.fetch(_LATEST_1D_LOAD_SQL)}
         listing_end = {r["symbol"]: r["last_session"] for r in await conn.fetch(_LISTING_END_SQL)}
+        for symbol, last in (last_sessions or {}).items():  # the earlier end wins
+            listing_end[symbol] = min(last, listing_end.get(symbol, last))
         seams = findings_by_symbol(seam_samples)
 
         facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]] = []
