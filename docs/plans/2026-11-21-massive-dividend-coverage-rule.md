@@ -96,9 +96,10 @@ covered (36,339 of them dead members).
   Two readers read `dividend_events` without a source filter: `services/backfill_feature_factory.py`
   (`_DIVIDEND_AMOUNTS_SQL` returns NULL amounts for Massive-only dates, a TypeError in
   `reconciled_amounts`; the module is fingerprinted, so it is not edited in Phase A) and
-  `services/bar_reconciliation_audit.py` (`_EXPLAINED_DATES_SQL` would gain Massive dates). The
-  writer refuses a live Massive load until `MASSIVE_READERS_READY` is set in
-  `services/dividend_event_writer.py`; Phase B fixes both readers and sets it. The Yahoo writer's
+  `services/bar_reconciliation_audit.py` (`_EXPLAINED_DATES_SQL` would gain Massive dates).
+  Phase B filters both to the Yahoo and IBKR sources and removes the writer's load guard; a CI
+  test (`tests/unit/test_dividend_events_source_readers.py`) fails on any new `dividend_events`
+  read without a source predicate. The Yahoo writer's
   own reconciliation already reads only its two sources. `src/api/routes/data.py` lists the new
   source's coverage, which is intended.
 - Massive `amount` is in raw units of the ex-date; use `amount / prev_close` only.
@@ -106,3 +107,38 @@ covered (36,339 of them dead members).
   Massive-only span needs the reader's own guard.
 - `declared_on` is NULL where Massive gives no declaration date; the recon counted 1,362 records
   declared after their ex-date, so a reader at t must test `declared_on <= t` where it is known.
+
+## 6. The reader (Phase B, todo 651)
+
+Code: `src/intelligence/research/dividends.py` (`dividend_grid`, `covered_mask`,
+`total_return`), `src/intelligence/research/snapshot.py` (the reads and the manifest).
+
+- Precedence. A session takes the facts of one source: Yahoo where its span covers it (the
+  reconciled Yahoo and IBKR facts, unchanged), else Massive where its claim covers it and no gap
+  of the claim holds it (Massive's events only). Events of two sources never meet on a session,
+  so a name with no Massive claim keeps its grid bit for bit.
+- Yield is `amount / prev_close`, the stored raw prior close. Every Massive event counts as
+  unconfirmed (one source), so the spec's `suspect_yield` splits the name at a Massive event
+  above it exactly as at a one-source Yahoo or IBKR event.
+- An event declared after its ex-date was not knowable at the session it adjusts: that session
+  is unknown. With the next rule this splits the name there, so nothing before it changes.
+- A covered session after a hole inside coverage (a gap, or an unknown session) starts a new
+  segment `<symbol>~<k>`: no return window spans dividends nobody knows. Yahoo spans are
+  contiguous, so they never trigger it.
+- The claim never passes the capture date and no stored event lies after it (section 2 and
+  `DROP_AFTER_CAPTURE`); a snapshot ends before `alpha.validation.oos_start` in any case.
+- The snapshot manifest records the coverage sources in precedence order and the Massive
+  lineage (symbols covered, gaps, events, rule ids, captures); the per-session arrays carry the
+  facts, so the snapshot hash moves when the Massive facts inside its span move.
+
+Unexplained drops: no price-based guard (pre-registered decision, 2026-11-21). Massive carries
+cash only, so a spin-off or a return of capital in a Massive span stays in the prices as a loss,
+as it does in every price-only panel. A guard would have to split a name at a large overnight
+drop that no event explains. On the Yahoo-covered names (canonical 1d, 2003-09-10 on, 6,406,077
+sessions, read-only measurement 2026-11-21), overnight drops above 10% number 6,241: 122 on a
+listed ex-date and 6,119 (98%) on no ex-date at all, mostly earnings and news gaps; above 25%
+there are 500. Price alone cannot separate the two, and splitting dead names at their gaps would
+remove their crash returns from the targets on the dead names only, a bias larger than the one it
+guards. The residual is disclosed instead: the event-explained rate, 122 per 6.4 million
+sessions (about 1.9 per 100,000), is an upper estimate of the rate of large distributions
+Massive misses (it includes cash specials, which Massive carries), measured on live names.

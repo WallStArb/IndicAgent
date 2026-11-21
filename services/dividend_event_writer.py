@@ -44,7 +44,10 @@ USD cash only, amounts over the raw Massive prior close, with a coverage claim b
 name's own cadence plus its holes (dividend_event_coverage_gap). The rule is pure in
 src/intelligence/bars/massive_dividends.py; the measurement behind it is
 docs/plans/2026-11-21-massive-dividend-coverage-rule.md. The source is not reconciled against
-the other two here: rows carry their source label and the research reader decides.
+the other two here: rows carry their source label and the research reader decides. Every
+reader of dividend_events names the sources it reads (todo 651; CI-enforced by
+tests/unit/test_dividend_events_source_readers.py), so a massive row reaches only the readers
+written for it.
 
 Usage:
     python services/dividend_event_writer.py                          # yahoo and ibkr
@@ -796,14 +799,6 @@ _MEMBER_MONTHS_SQL = "SELECT symbol, as_of FROM universe_membership"
 _MASSIVE_STORED_CLAIMS_SQL = (
     f"SELECT symbol FROM dividend_event_coverage WHERE source = '{SOURCE_MASSIVE}'"
 )
-# Readers of dividend_events that do not filter by source. Massive rows would change what they
-# return (backfill_feature_factory gets NULL amounts on Massive-only dates and is fingerprinted,
-# so it is not edited here), so a live Massive load is refused until Phase B fixes them.
-_MASSIVE_UNFILTERED_READERS = (
-    "services/backfill_feature_factory.py _DIVIDEND_AMOUNTS_SQL",
-    "services/bar_reconciliation_audit.py _EXPLAINED_DATES_SQL",
-)
-MASSIVE_READERS_READY = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -925,12 +920,6 @@ class MassiveDividendWriter(BaseBatch):
         self._dry_run = dry_run
 
     async def execute(self, pool: asyncpg.Pool) -> None:
-        if not self._dry_run and not MASSIVE_READERS_READY:
-            raise RuntimeError(
-                "massive dividend rows would reach readers that do not filter by source "
-                f"({', '.join(_MASSIVE_UNFILTERED_READERS)}); only --dry-run until Phase B "
-                "makes them source-aware and sets MASSIVE_READERS_READY"
-            )
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(
                 conn, ["threshold.dividend_event.%", "threshold.dividend.%"]

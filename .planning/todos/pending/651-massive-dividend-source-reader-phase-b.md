@@ -10,7 +10,7 @@ owner: lead
 
 ## What
 
-A total-return panel prices a symbol only inside its dividend coverage; Yahoo covers the 1,509 active members and none of the 11,348 inactive ones, so the first counted daily test would run on survivors. Massive's 2026-11-10 dividend capture (733,810 events) covers dead names: it adds 36,339 dead member-years (61,747 against 24,642 member-years in all). Phase A is on main (`806c06f20`: migration 608 written and not applied, the writer `--sources massive`, the pure rule `src/intelligence/bars/massive_dividends.py`, the measurement `docs/plans/2026-11-21-massive-dividend-coverage-rule.md`). The writer refuses a live load while `MASSIVE_READERS_READY` is False.
+A total-return panel prices a symbol only inside its dividend coverage; Yahoo covers the 1,509 active members and none of the 11,348 inactive ones, so the first counted daily test would run on survivors. Massive's 2026-11-10 dividend capture (733,810 events) covers dead names: it adds 36,339 dead member-years (61,747 against 24,642 member-years in all). Phase A is on main (`806c06f20`: migration 608 written and not applied, the writer `--sources massive`, the pure rule `src/intelligence/bars/massive_dividends.py`, the measurement `docs/plans/2026-11-21-massive-dividend-coverage-rule.md`). Phase B items 1 and 2 are done (readers source-aware, the writer's `MASSIVE_READERS_READY` guard replaced by the CI test `tests/unit/test_dividend_events_source_readers.py`); item 3 is the lead's.
 
 ## Scope (phase B)
 

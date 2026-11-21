@@ -205,22 +205,8 @@ class _Pool:
         return self.conn
 
 
-@pytest.fixture(autouse=True)
-def _readers_ready(monkeypatch):
-    """The write-path tests stand in for Phase B: readers are source-aware."""
-    monkeypatch.setattr(w, "MASSIVE_READERS_READY", True)
-
-
 def _writer(dry_run):
     return w.MassiveDividendWriter("postgresql://unused", [], dry_run)
-
-
-def test_a_live_load_is_refused_until_the_readers_are_source_aware(monkeypatch):
-    monkeypatch.setattr(w, "MASSIVE_READERS_READY", False)
-    conn = _Conn()
-    with pytest.raises(RuntimeError, match="only --dry-run"):
-        asyncio.run(_writer(dry_run=False).execute(_Pool(conn)))
-    assert conn.writes == []
 
 
 def test_a_stored_claim_whose_symbol_left_the_capture_fails_loud():

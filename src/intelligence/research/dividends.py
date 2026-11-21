@@ -13,8 +13,27 @@ over (a, b] gains -ln(1 - y) per ex-date in (a, b]. F is constant within a sessi
 return inside a session is unchanged (to floating-point rounding, about 1e-16), and it reads
 only past ex-dates, so it adds no lookahead.
 
+Coverage (todo 651) decides known vs unknown per session, one source per session:
+- Yahoo covers a session inside its span (and outside its gaps, of which it has none today);
+  there the events are the reconciled Yahoo and IBKR facts, as before Massive existed.
+- Otherwise Massive covers it if it lies inside the symbol's Massive claim and outside every
+  dividend_event_coverage_gap row of that claim; there the events are Massive's only, each with
+  yield amount / stored raw prior close, and each unconfirmed (one source), so the spec's
+  suspect_yield judges it exactly as it judges a one-source Yahoo or IBKR event.
+- A Massive event declared after its ex-date (declared_on, where Massive gives one) was not
+  knowable at the session it adjusts, so that session is unknown (temporal_integrity).
+- Massive carries cash only: a spin-off or return of capital in a Massive span is not an event
+  and stays in the prices as a loss, as it does in a price-only panel. No price-based guard
+  replaces it: one cannot tell such a drop from an earnings gap, and splitting dead names at
+  their gaps would remove their crash returns from the targets (measurement and decision in
+  docs/plans/2026-11-21-massive-dividend-coverage-rule.md, section 6).
+A name with no Massive claim keeps its Yahoo-only grid bit for bit.
+
 Unknown dividends are never zero-filled:
-- Outside the symbol's Yahoo coverage the prices are NaN.
+- Outside coverage the prices are NaN.
+- A covered session after an uncovered one that follows earlier coverage (a hole inside a
+  claim) starts a new segment, as a suspect event does below, so no return window spans
+  dividends nobody knows.
 - An event with a yield above the spec's suspect_yield that only one source reports (a spin-off
   recorded as a dividend, or a vendor error), or a session whose yields reach 1 (no finite
   factor), is not applied and not ignored: the symbol splits
@@ -30,17 +49,23 @@ hash covers them), not a Panel field: nothing that slices a panel needs to know 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 
+from src.intelligence.bars.massive_dividends import SOURCE as MASSIVE
 from src.intelligence.research import store
 from src.intelligence.research.panel import OPTIONAL_BAR_FIELDS, Panel
 from src.intelligence.research.panel import present as present_arrays
 
 SEGMENT_SEPARATOR = "~"
+YAHOO = "yahoo"
+# The coverage sources S0 reads, in the order dividend_grid applies them (Yahoo's span first,
+# Massive's claim on the sessions Yahoo leaves); the reconciled Yahoo/IBKR facts belong to
+# the Yahoo coverage.
+COVERAGE_SOURCES = (YAHOO, MASSIVE)
 _FIELDS = ("div_yield", "div_unconfirmed_yield", "div_covered")
 
 
@@ -53,7 +78,7 @@ class DividendGrid:
     # float: the largest yield among that session's events only one source reports (0 if none),
     # kept per event so a confirmed event sharing the session is never judged by another's flag
     div_unconfirmed_yield: np.ndarray
-    div_covered: np.ndarray  # bool: the session lies inside the symbol's Yahoo coverage
+    div_covered: np.ndarray  # bool: a coverage source (Yahoo, else Massive) covers the session
 
     def arrays(self) -> dict[str, np.ndarray]:
         return {name: getattr(self, name) for name in _FIELDS}
@@ -127,37 +152,89 @@ def resolve_event(
     return y, y
 
 
+@dataclasses.dataclass(frozen=True)
+class MassiveYieldEvent:
+    """One stored Massive event as research reads it: yield = amount / the stored raw prior
+    close (not bars.massive_dividends.MassiveEvent, the writer's amount and record ids)."""
+
+    symbol: str
+    ex_date: date
+    dividend_yield: float
+    declared_on: date | None
+
+
+Span = tuple[date, date]
+
+
+def covered_mask(sessions: np.ndarray, span: Span, gaps: Iterable[Span] = ()) -> np.ndarray:
+    """Pure: sessions (sorted) inside the closed span [from, to] and outside every closed gap."""
+    lo, hi = (np.datetime64(d, "D") for d in span)
+    inside = (sessions >= lo) & (sessions <= hi)
+    for a, b in gaps:
+        start = np.searchsorted(sessions, np.datetime64(a, "D"), side="left")
+        inside[start : np.searchsorted(sessions, np.datetime64(b, "D"), side="right")] = False
+    return inside
+
+
 def dividend_grid(
     sessions: np.ndarray,
     symbols: tuple[str, ...],
-    coverage: dict[str, tuple[date, date]],
+    coverage: dict[str, Span],
     events: Iterable[tuple[str, date, float | None, float | None, float | None]],
     rule: DisputeRule,
+    *,
+    gaps: Mapping[tuple[str, str], Sequence[Span]] | None = None,
+    massive_coverage: Mapping[str, Span] | None = None,
+    massive_events: Sequence[MassiveYieldEvent] = (),
 ) -> DividendGrid:
-    """Pure: per-session dividend facts from Yahoo coverage spans and reconciled events
-    (symbol, ex_date, yahoo_yield, ibkr_yield, ibkr_prev_close), each resolved by
-    resolve_event. An ex-date that is not a session (a holiday) lands on the next session, where
-    the price drop shows; one outside the panel's sessions is ignored. Two events on one session
-    share one prior close, so the drop is y1 + y2 and their yields add; the unconfirmed yield
-    keeps the largest event's, not the sum."""
+    """Pure: per-session dividend facts (module docstring).
+
+    `coverage` holds the Yahoo spans and `events` the reconciled facts (symbol, ex_date,
+    yahoo_yield, ibkr_yield, ibkr_prev_close), each resolved by resolve_event; `massive_coverage`
+    and `massive_events` the Massive claim and events; `gaps` the holes per (symbol, source).
+    A session takes the facts of the first source in COVERAGE_SOURCES that covers it, so
+    events of two sources never meet on one session. An ex-date that is not a session (a
+    holiday) lands on the next session, where the price drop shows; one outside the panel's
+    sessions is ignored. Two events on one session share one prior close, so the drop is
+    y1 + y2 and their yields add; the unconfirmed yield keeps the largest event's, not the sum."""
     n_s, m = len(sessions), len(symbols)
     col = {s: j for j, s in enumerate(symbols)}
+    gaps = gaps or {}
     div_yield = np.zeros((n_s, m))
     unconfirmed = np.zeros((n_s, m))
     covered = np.zeros((n_s, m), dtype=bool)
-    for sym, (lo, hi) in coverage.items():
+    by_massive = np.zeros((n_s, m), dtype=bool)
+    for sym, span in coverage.items():
         if sym in col:
-            covered[:, col[sym]] = (sessions >= np.datetime64(lo, "D")) & (
-                sessions <= np.datetime64(hi, "D")
-            )
-    for sym, ex_date, yahoo_y, ibkr_y, ibkr_pc in events:
+            covered[:, col[sym]] = covered_mask(sessions, span, gaps.get((sym, YAHOO), ()))
+    for sym, span in (massive_coverage or {}).items():
+        if sym in col:
+            j = col[sym]
+            by_massive[:, j] = covered_mask(sessions, span, gaps.get((sym, MASSIVE), ()))
+            by_massive[:, j] &= ~covered[:, j]
+
+    def session_of(sym: str, ex_date: date) -> tuple[int, int] | None:
         ex = np.datetime64(ex_date, "D")
         if sym not in col or not sessions[0] <= ex <= sessions[-1]:
+            return None
+        return int(np.searchsorted(sessions, ex, side="left")), col[sym]
+
+    massive_at = [(session_of(e.symbol, e.ex_date), e) for e in massive_events]
+    for at, e in massive_at:  # declared after its ex-date: not knowable at its session
+        if at is not None and e.declared_on is not None and e.declared_on > e.ex_date:
+            by_massive[at] = False
+    for at, e in massive_at:
+        if at is not None and by_massive[at]:
+            div_yield[at] += e.dividend_yield
+            unconfirmed[at] = max(unconfirmed[at], e.dividend_yield)
+    for sym, ex_date, yahoo_y, ibkr_y, ibkr_pc in events:
+        at = session_of(sym, ex_date)
+        if at is None or by_massive[at]:
             continue
         y, u = resolve_event(yahoo_y, ibkr_y, ibkr_pc, rule)
-        k, j = int(np.searchsorted(sessions, ex, side="left")), col[sym]
-        div_yield[k, j] += y
-        unconfirmed[k, j] = max(unconfirmed[k, j], u)
+        div_yield[at] += y
+        unconfirmed[at] = max(unconfirmed[at], u)
+    covered |= by_massive
     return DividendGrid(symbols, div_yield, unconfirmed, covered)
 
 
@@ -188,7 +265,10 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
     suspect = cov & ((g.div_unconfirmed_yield > suspect_yield) | (g.div_yield >= 1.0))
     use = np.where(cov & ~suspect, g.div_yield, 0.0)
     factor = np.cumprod(1.0 / (1.0 - use), axis=0)[:, None, :]  # [S, 1, m], over bars
-    segment = np.cumsum(suspect, axis=0)  # [S, m]
+    # A covered session right after a hole inside coverage reopens the name as a new segment.
+    reentry = np.zeros_like(cov)
+    reentry[1:] = cov[1:] & ~cov[:-1] & np.logical_or.accumulate(cov, axis=0)[:-1]
+    segment = np.cumsum(suspect | reentry, axis=0)  # [S, m]
     uncovered = ~cov[:, None, :]
 
     def adjust(prices: np.ndarray, scale: bool) -> np.ndarray:

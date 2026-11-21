@@ -97,12 +97,22 @@ _SECTOR_SQL = (
     "AND (ic.valid_to IS NULL OR ic.valid_to > $4)"
 )
 
-# Dividends (todo 428, migrations 376 and 379): Yahoo's coverage span decides known vs unknown;
-# events come from the reconciled view as both sources' facts, resolved by
-# dividends.resolve_event (agreement, dispute, one source).
+# Dividends (todo 428, migrations 376, 379 and 608; todo 651): coverage spans minus their gaps
+# decide known vs unknown, Yahoo first, then Massive (dividends.COVERAGE_SOURCES). Under
+# Yahoo coverage the events are the reconciled view's Yahoo and IBKR facts, resolved by
+# dividends.resolve_event; under Massive coverage they are Massive's own rows.
 _DIV_COVERAGE_SQL = (
-    "SELECT symbol, covered_from, covered_to FROM dividend_event_coverage "
-    "WHERE source = 'yahoo' AND symbol = ANY($1)"
+    "SELECT symbol, source, covered_from, covered_to, reference_capture, rule_id "
+    "FROM dividend_event_coverage WHERE symbol = ANY($1) AND source = ANY($2)"
+)
+_DIV_GAPS_SQL = (
+    "SELECT symbol, source, gap_from, gap_to FROM dividend_event_coverage_gap "
+    "WHERE symbol = ANY($1) AND source = ANY($2)"
+)
+_MASSIVE_EVENTS_SQL = (
+    "SELECT symbol, ex_date, amount / prev_close AS dividend_yield, declared_on "
+    f"FROM dividend_events WHERE source = '{dividends_mod.MASSIVE}' "
+    "AND symbol = ANY($1) AND ex_date >= $2 AND ex_date < $3"
 )
 # The writer's dispute parameters (dividends.DisputeRule), read once per snapshot and recorded in
 # its manifest, so research applies the writer's definition and a snapshot stays reproducible.
@@ -1073,10 +1083,29 @@ async def build_panel(
             ],
         )
         if dividends:
-            coverage = {
-                r["symbol"]: (r["covered_from"], r["covered_to"])
-                for r in await pool.fetch(_DIV_COVERAGE_SQL, requested)
+            div_sources = list(dividends_mod.COVERAGE_SOURCES)
+            coverage_rows = await pool.fetch(_DIV_COVERAGE_SQL, requested, div_sources)
+            div_spans: dict[str, dict] = {source: {} for source in div_sources}
+            for r in coverage_rows:
+                div_spans[r["source"]][r["symbol"]] = (r["covered_from"], r["covered_to"])
+            div_gaps: dict[tuple[str, str], list] = {}
+            for r in await pool.fetch(_DIV_GAPS_SQL, requested, div_sources):
+                div_gaps.setdefault((r["symbol"], r["source"]), []).append(
+                    (r["gap_from"], r["gap_to"])
+                )
+            massive_rows = [r for r in coverage_rows if r["source"] == dividends_mod.MASSIVE]
+            massive_lineage = {
+                "symbols_covered": len(massive_rows),
+                "gaps": sum(len(v) for (_, s), v in div_gaps.items() if s == dividends_mod.MASSIVE),
+                "coverage_rules": sorted({r["rule_id"] for r in massive_rows}),
+                "captures": sorted({r["reference_capture"] for r in massive_rows}),
             }
+            massive_events = [
+                dividends_mod.MassiveYieldEvent(
+                    r["symbol"], r["ex_date"], float(r["dividend_yield"]), r["declared_on"]
+                )
+                for r in await pool.fetch(_MASSIVE_EVENTS_SQL, requested, lo.date(), hi.date())
+            ]
             rule_values = dict(await pool.fetch(_DISPUTE_RULE_SQL))
             if len(rule_values) != 2:
                 raise ValueError(
@@ -1139,13 +1168,26 @@ async def build_panel(
     extra = None
     if dividends:
         extra = dividends_mod.dividend_grid(
-            session_dates(grid), grid.symbols, coverage, events, rule
+            session_dates(grid),
+            grid.symbols,
+            div_spans[dividends_mod.YAHOO],
+            events,
+            rule,
+            gaps=div_gaps,
+            massive_coverage=div_spans[dividends_mod.MASSIVE],
+            massive_events=massive_events,
         ).arrays()
         manifest["dividends"] = {
             "source": "dividend_events_reconciled",
-            "coverage_source": "yahoo",
             "events": len(events),
             "dispute_rule": dataclasses.asdict(rule),
+            # todo 651: the coverage sources in precedence order and the Massive claim's lineage.
+            "coverage_sources": div_sources,
+            "massive": {
+                "source": "dividend_events",
+                "events": len(massive_events),
+                **massive_lineage,
+            },
         }
     sector_pit = None
     if panel_mod.SECTOR_PIT in fields:

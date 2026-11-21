@@ -699,10 +699,13 @@ _DIVIDEND_COVERAGE_SQL = (
 )
 # One amount per ex-date, Yahoo first with the IBKR-derived event as the fallback (the
 # reconciled view's documented naive default); the dispute rule is a research-layer concern.
+# Filtered to those two sources: the coverage read above is Yahoo's, and a massive-only
+# ex-date would otherwise come back with a NULL amount (todo 651).
 _DIVIDEND_AMOUNTS_SQL = (
     "SELECT ex_date, COALESCE(max(amount) FILTER (WHERE source = 'yahoo'), "
     "max(amount) FILTER (WHERE source = 'ibkr_adjusted_last_ratio')) "
-    "FROM dividend_events WHERE symbol = %s GROUP BY ex_date"
+    "FROM dividend_events WHERE symbol = %s "
+    "AND source IN ('yahoo', 'ibkr_adjusted_last_ratio') GROUP BY ex_date"
 )
 
 

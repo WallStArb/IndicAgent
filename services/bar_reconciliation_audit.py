@@ -934,8 +934,11 @@ WHERE symbol = ANY($1::text[]) AND timeframe = '1d' AND source = 'ibkr' AND rout
   AND what_to_show = 'TRADES' AND primary_exchange IS NOT NULL AND caller NOT LIKE 'test-%'
 ORDER BY symbol, answered_at DESC
 """
+# Ex-dates of the two sources this check was calibrated on; massive rows (todo 651) stay out so
+# a newly loaded source never widens what counts as explained.
 _EXPLAINED_DATES_SQL = """
 SELECT symbol, ex_date AS day FROM dividend_events WHERE symbol = ANY($1::text[]) AND ex_date >= $2
+  AND source IN ('yahoo', 'ibkr_adjusted_last_ratio')
 UNION
 SELECT symbol, effective_date FROM corporate_action_current
 WHERE symbol = ANY($1::text[]) AND effective_date >= $2

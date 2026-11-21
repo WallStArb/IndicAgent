@@ -313,3 +313,136 @@ def test_a_disputed_large_special_splits_and_a_disputed_small_one_uses_ibkr():
     )
     assert out.symbols == ("s0", "s0~1", "s1")
     assert forward_returns(out.open)[2, 2] == pytest.approx(-np.log1p(-0.0036))
+
+
+# Massive as a coverage source (todo 651).
+
+D = np.datetime64("2024-01-01") + np.arange(12)  # sessions 2024-01-01 .. 2024-01-12
+
+
+def _day(k: int) -> date:
+    return D[k].astype(date)
+
+
+def _massive(sym, k, y, declared=None):
+    return dividends.MassiveYieldEvent(sym, _day(k), y, declared)
+
+
+def _massive_grid(symbols, span, events=(), gaps=None, yahoo=None, reconciled=()):
+    return dividends.dividend_grid(
+        D,
+        tuple(symbols),
+        yahoo or {},
+        list(reconciled),
+        RULE,
+        gaps=gaps,
+        massive_coverage=dict.fromkeys(symbols, span),
+        massive_events=events,
+    )
+
+
+def test_covered_mask_is_the_closed_span_minus_closed_gaps():
+    got = dividends.covered_mask(D, (_day(2), _day(9)), [(_day(4), _day(5)), (_day(9), _day(11))])
+    assert np.flatnonzero(got).tolist() == [2, 3, 6, 7, 8]
+
+
+def test_massive_covers_inside_its_claim_and_outside_its_gaps():
+    grid = _massive_grid(
+        ["M"],
+        (_day(2), _day(9)),
+        [_massive("M", 3, 0.02), _massive("M", 5, 0.03), _massive("M", 11, 0.04)],
+        gaps={("M", "massive"): [(_day(5), _day(6))]},
+    )
+    assert np.flatnonzero(grid.div_covered[:, 0]).tolist() == [2, 3, 4, 7, 8, 9]
+    assert np.flatnonzero(grid.div_yield[:, 0]).tolist() == [3]  # gap and post-claim events drop
+    # one source: unconfirmed at its yield, so suspect_yield judges it like any lone event
+    assert grid.div_unconfirmed_yield[3, 0] == pytest.approx(0.02)
+
+
+def test_yahoo_wins_where_it_covers_and_never_meets_massive_on_one_session():
+    grid = _massive_grid(
+        ["A"],
+        (_day(0), _day(8)),
+        [_massive("A", 6, 0.40), _massive("A", 1, 0.02)],
+        yahoo={"A": (_day(4), _day(11))},
+        reconciled=[("A", _day(6), 0.01, 0.01, 50.0), ("A", _day(2), None, 0.05, 50.0)],
+    )
+    assert grid.div_covered[:, 0].all()
+    # session 6 is Yahoo's: its confirmed event only; Massive's 0.40 on that date is not read
+    assert grid.div_yield[6, 0] == pytest.approx(0.01) and grid.div_unconfirmed_yield[6, 0] == 0
+    # sessions 0..3 are Massive's: its event at 1 applies, the IBKR-only fact at 2 does not
+    assert grid.div_yield[1, 0] == pytest.approx(0.02) and grid.div_yield[2, 0] == 0
+
+
+def test_two_massive_ex_dates_on_one_session_add_and_keep_the_larger_unconfirmed():
+    sessions = np.array(["2024-01-02", "2024-01-03", "2024-01-05"], dtype="datetime64[D]")
+    grid = dividends.dividend_grid(
+        sessions,
+        ("M",),
+        {},
+        [],
+        RULE,
+        massive_coverage={"M": (date(2024, 1, 2), date(2024, 1, 5))},
+        massive_events=[
+            dividends.MassiveYieldEvent(
+                "M", date(2024, 1, 4), 0.01, None
+            ),  # a holiday: next session
+            dividends.MassiveYieldEvent("M", date(2024, 1, 5), 0.02, date(2023, 12, 1)),
+        ],
+    )
+    assert grid.div_yield[:, 0] == pytest.approx([0, 0, 0.03])
+    assert grid.div_unconfirmed_yield[:, 0] == pytest.approx([0, 0, 0.02])
+
+
+def test_a_massive_event_declared_after_its_ex_date_leaves_its_session_unknown():
+    grid = _massive_grid(
+        ["M"],
+        (_day(0), _day(11)),
+        [
+            _massive("M", 3, 0.02, declared=_day(4)),  # declared the day after: look-ahead
+            _massive("M", 6, 0.02, declared=_day(6)),  # declared on the ex-date: knowable
+        ],
+    )
+    assert not grid.div_covered[3, 0] and grid.div_yield[3, 0] == 0
+    assert grid.div_covered[6, 0] and grid.div_yield[6, 0] == pytest.approx(0.02)
+
+
+def test_a_yahoo_only_symbol_keeps_its_grid_bit_for_bit_next_to_massive_names():
+    yahoo = {"A": (_day(1), _day(10))}
+    reconciled = [("A", _day(3), 0.01, 0.0101, 40.0), ("A", _day(5), None, 0.02, 40.0)]
+    before = dividends.dividend_grid(D, ("A",), yahoo, reconciled, RULE)
+    after = dividends.dividend_grid(
+        D,
+        ("A", "M"),
+        yahoo,
+        reconciled + [("M", _day(4), 0.03, None, None)],
+        RULE,
+        gaps={("M", "massive"): [(_day(2), _day(2))]},
+        massive_coverage={"M": (_day(0), _day(11))},
+        massive_events=[_massive("M", 4, 0.03), _massive("A", 3, 0.5)],  # A has no claim
+    )
+    for name, a in before.arrays().items():
+        assert a[:, 0].tobytes() == after.arrays()[name][:, 0].tobytes(), name
+
+
+def test_a_hole_inside_coverage_reopens_the_name_as_a_new_segment():
+    raw = daily_panel(np.full((12, 1), 20.0), opens=np.full((12, 1), 20.0))
+    grid = _massive_grid(
+        raw.symbols, (_day(2), _day(11)), gaps={("s0", "massive"): [(_day(5), _day(6))]}
+    )
+    out = dividends.total_return(raw, grid, SUSPECT)
+    assert out.symbols == ("s0", "s0~1")
+    assert np.flatnonzero(np.isfinite(out.close[:, 0])).tolist() == [2, 3, 4]
+    assert np.flatnonzero(np.isfinite(out.close[:, 1])).tolist() == list(range(7, 12))
+    fwd = forward_returns(out.open)  # fwd[t] spans open[t+1] -> open[t+2]: none spans the hole
+    assert np.flatnonzero(np.isfinite(fwd[:, 0])).tolist() == [1, 2]
+    assert np.flatnonzero(np.isfinite(fwd[:, 1])).tolist() == [6, 7, 8, 9]
+    assert out.manifest["total_return"]["splits"] == [["s0~1", str(raw.timestamps[7])]]
+
+
+def test_a_large_lone_massive_event_splits_like_any_one_source_event():
+    raw = daily_panel(np.full((12, 1), 20.0), opens=np.full((12, 1), 20.0))
+    grid = _massive_grid(raw.symbols, (_day(0), _day(11)), [_massive("s0", 6, 0.25)])
+    out = dividends.total_return(raw, grid, SUSPECT)
+    assert out.symbols == ("s0", "s0~1")
+    assert out.manifest["total_return"]["events_applied"] == 0
